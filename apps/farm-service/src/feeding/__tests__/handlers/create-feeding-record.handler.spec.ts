@@ -248,7 +248,23 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   });
   const applyGrowth = jest.fn().mockResolvedValue(undefined);
   const recalcForUnit = jest.fn().mockResolvedValue(null);
-  const growthApplier = mock<BiomassGrowthApplierService>({ lockUnitForGrowth, applyGrowth });
+  // Gerçek servisin semantiği: önce token'a sor (ünite kilidi bu batch'i
+  // kapsıyor mu), kapsamıyorsa satırı kilitleyerek oku. Double bunu taklit
+  // etmezse spec, üretimde olmayan bir davranışı doğrulamış olur.
+  const lockBatchForWrite = jest
+    .fn()
+    .mockImplementation(async (manager, tenantId: string, batchId: string, locked) =>
+      locked?.batches.get(batchId) ??
+      manager.findOne(Batch, {
+        where: { id: batchId, tenantId },
+        lock: { mode: 'pessimistic_write' },
+      }),
+    );
+  const growthApplier = mock<BiomassGrowthApplierService>({
+    lockUnitForGrowth,
+    applyGrowth,
+    lockBatchForWrite,
+  });
   const recalcService = mock<DayPlanRecalcService>({ recalcForUnit });
 
   const handler = new CreateFeedingRecordHandler(

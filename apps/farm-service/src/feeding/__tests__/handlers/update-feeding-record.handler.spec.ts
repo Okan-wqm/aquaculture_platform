@@ -104,7 +104,21 @@ function makeHarness(opts: HarnessOpts = {}) {
 
   const lockUnitForGrowth = jest.fn().mockResolvedValue(opts.lockedUnit ?? null);
   const applyGrowth = jest.fn().mockResolvedValue(undefined);
-  const growthApplier = mock<BiomassGrowthApplierService>({ lockUnitForGrowth, applyGrowth });
+  // Gerçek servisin semantiği (bkz. create spec'indeki aynı double).
+  const lockBatchForWrite = jest
+    .fn()
+    .mockImplementation(async (manager, tenantId: string, batchId: string, locked) =>
+      locked?.batches.get(batchId) ??
+      manager.findOne(Batch, {
+        where: { id: batchId, tenantId },
+        lock: { mode: 'pessimistic_write' },
+      }),
+    );
+  const growthApplier = mock<BiomassGrowthApplierService>({
+    lockUnitForGrowth,
+    applyGrowth,
+    lockBatchForWrite,
+  });
 
   const recalcForUnit = jest.fn().mockResolvedValue(null);
   const recalcService = mock<DayPlanRecalcService>({ recalcForUnit });

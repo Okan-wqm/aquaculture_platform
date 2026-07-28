@@ -22,6 +22,7 @@ import { anchorFromDate, encodeSensorReadingId } from '@aquaculture/backend-comm
 import { Injectable, Logger, Optional, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import {
+  canonicalChannelKeyForParameter,
   createBaseEvent,
   parameterForChannelKey,
   readingFieldForParameter,
@@ -780,7 +781,12 @@ export class SensorIngestionService {
         missing.map((parameter) => ({
           sensorId,
           tenantId,
-          channelKey: parameter,
+          // The canonical device-naming spelling, not the camelCase parameter:
+          // a platform-minted channel must be indistinguishable from the one a
+          // device would have registered, so the (tenant, sensor, channel_key)
+          // constraint dedupes them instead of leaving two channels for one
+          // parameter.
+          channelKey: canonicalChannelKeyForParameter(parameter),
           displayLabel: parameter,
           discoverySource: DiscoverySource.AUTO,
         })),

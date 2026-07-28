@@ -100,3 +100,24 @@ const PARAMETER_BY_CHANNEL_KEY: Readonly<Record<string, SensorReadingParameter>>
 export function parameterForChannelKey(channelKey: string): SensorReadingParameter | undefined {
   return PARAMETER_BY_CHANNEL_KEY[channelKey.toLowerCase()];
 }
+
+/**
+ * The channel key to MINT for a parameter — the inverse this SSoT was missing.
+ *
+ * `PARAMETER_BY_CHANNEL_KEY` maps many device spellings onto one parameter,
+ * which is right for reading whatever a device calls its channel. But when the
+ * platform itself creates a channel — auto-provisioning one for a reported
+ * parameter that had none — it has to pick a spelling, and picking it at the
+ * callsite is how a tenant ends up with `dissolvedOxygen` next to a device's
+ * `dissolved_oxygen`: two channels, one parameter, and an ordering-dependent
+ * winner in the as-of projection.
+ *
+ * The canonical spelling is the snake_case device-naming form this module's
+ * docblock already documents, so a platform-minted channel is indistinguishable
+ * from the one a device would have registered — and the
+ * `(tenant_id, sensor_id, channel_key)` unique constraint then makes
+ * auto-provisioning a true no-op when the real channel already exists.
+ */
+export function canonicalChannelKeyForParameter(parameter: SensorReadingParameter): string {
+  return parameter.replace(/([A-Z])/g, (upper) => `_${upper.toLowerCase()}`);
+}

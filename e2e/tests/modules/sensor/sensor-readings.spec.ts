@@ -221,6 +221,16 @@ describe('Sensor Readings & Metrics', () => {
 
       const readings = reading.readings as Record<string, number>;
       expect(readings.temperature).toBe(25.5);
+      // SENSOR-HIGH-085 regression guard. A reading is no longer a stored row —
+      // latestReading reconstructs it per channel from sensor_metrics. That
+      // round trip only closes if the channel auto-provisioned at ingest uses a
+      // key the read path maps back to the same parameter, so the multi-word
+      // parameters are the ones worth asserting: `dissolvedOxygen` written under
+      // a camelCase key and read back as `dissolved_oxygen` is exactly how the
+      // value would be persisted and then never surfaced again.
+      expect(readings.dissolvedOxygen).toBe(6.8);
+      expect(readings.ph).toBe(7.2);
+      expect(readings.salinity).toBe(15.3);
     });
   });
 

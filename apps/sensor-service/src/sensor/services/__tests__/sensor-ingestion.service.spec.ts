@@ -287,6 +287,27 @@ describe('SensorIngestionService — outbox durability', () => {
       expect(metrics[0]).toMatchObject({ channelId: channel.id, value: 24.5 });
     });
 
+    it('provisions a multi-word parameter under its canonical snake_case key', async () => {
+      // The camelCase parameter name would create `dissolvedOxygen` next to a
+      // device's own `dissolved_oxygen`: two channels for one parameter, and an
+      // ordering-dependent winner in the as-of projection.
+      const channel = buildChannel({
+        id: '77777777-7777-4777-8777-777777777777',
+        channelKey: 'dissolved_oxygen',
+      });
+      mockCalibrationService.getChannels
+        .mockResolvedValueOnce([])
+        .mockResolvedValue([channel]);
+
+      await service.ingestReading({ ...baseInput, readings: { dissolvedOxygen: 6.8 } });
+
+      expect(insertedChannelValues.mock.calls[0][0]).toEqual([
+        expect.objectContaining({ channelKey: 'dissolved_oxygen' }),
+      ]);
+      const [metrics] = mockMetricWriter.writeManaged.mock.calls[0];
+      expect(metrics[0]).toMatchObject({ channelId: channel.id, value: 6.8 });
+    });
+
     it('does not provision anything when every reported parameter already has a channel', async () => {
       const channel = buildChannel({
         id: '66666666-6666-4666-8666-666666666666',

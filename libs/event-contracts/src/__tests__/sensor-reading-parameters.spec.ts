@@ -1,5 +1,6 @@
 import type { SensorReadingEvent, SensorReadingParameter } from '../sensor-events';
 import {
+  canonicalChannelKeyForParameter,
   PARAMETER_BY_READING_FIELD,
   parameterForChannelKey,
   readingFieldForParameter,
@@ -110,5 +111,36 @@ describe('sensor-reading-parameters SSoT (SENSOR-MEDIUM-066/068)', () => {
 
   it('freezes the inverse map so consumers cannot mutate the SSoT', () => {
     expect(Object.isFrozen(PARAMETER_BY_READING_FIELD)).toBe(true);
+  });
+
+  describe('canonicalChannelKeyForParameter', () => {
+    it('round-trips EVERY parameter through the channel-key vocabulary', () => {
+      // This is the invariant the whole ingest-to-read path rests on. A reported
+      // parameter with no channel gets one auto-provisioned under this key, and
+      // the as-of projection maps that key back with parameterForChannelKey. If
+      // any parameter fails to survive the round trip its values are written and
+      // then never read — the silent data loss SENSOR-HIGH-085 was about.
+      for (const parameter of SENSOR_READING_PARAMETERS) {
+        const channelKey = canonicalChannelKeyForParameter(parameter);
+        expect(parameterForChannelKey(channelKey)).toBe(parameter);
+      }
+    });
+
+    it('emits the snake_case device-naming spelling, not the camelCase parameter', () => {
+      // Multi-word parameters are where the two spellings diverge, and where a
+      // platform-minted channel would otherwise sit next to a device's own.
+      expect(canonicalChannelKeyForParameter('dissolvedOxygen')).toBe('dissolved_oxygen');
+      expect(canonicalChannelKeyForParameter('waterLevel')).toBe('water_level');
+      expect(canonicalChannelKeyForParameter('temperature')).toBe('temperature');
+      expect(canonicalChannelKeyForParameter('ph')).toBe('ph');
+    });
+
+    it('produces keys a device could equally have registered', () => {
+      // Same-key means the (tenant, sensor, channel_key) unique constraint
+      // dedupes an auto-provisioned channel against the real one.
+      for (const parameter of SENSOR_READING_PARAMETERS) {
+        expect(canonicalChannelKeyForParameter(parameter)).toMatch(/^[a-z][a-z_]*$/);
+      }
+    });
   });
 });

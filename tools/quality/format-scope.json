@@ -9849,6 +9849,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1807900000000-CompleteFeedInventoryLedgerBackfill.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -55218,10 +55224,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9052,
+  "file_count": 9053,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8871,
-  "managed_file_list_sha256": "c957d900bc195d2aa5be7ccfdeb114619ec444f36f162ba206f00ba529fe1098",
+  "managed_count": 8872,
+  "managed_file_list_sha256": "b57c0302e3158a44172a56b6c69538163c05338be5dfa0cc297b241c5ff3e41a",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -59,6 +59,23 @@ function screamingSnake(name: string): string {
     .toUpperCase();
 }
 
+/**
+ * The member-type name for an `as const` vocabulary array.
+ *
+ * `PLATFORM_ROLE_CODES` → `PlatformRoleCode`: the backend already pairs each
+ * such array with exactly that alias, so deriving the name keeps the emitted
+ * contract using the identifiers the backend chose rather than inventing new
+ * ones the panel would then have to translate.
+ */
+function singular(name: string): string {
+  const pascal = name
+    .toLowerCase()
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join('');
+  return pascal.endsWith('s') ? pascal.slice(0, -1) : pascal;
+}
+
 
 // ---------------------------------------------------------------------------
 // Program
@@ -232,6 +249,30 @@ class WireEmitter {
       return true;
     }
 
+    // The repo declares vocabularies TWO ways. `AuditSeverity` and `JobStatus`
+    // are string enums; `PLATFORM_ROLE_CODES` and `DATA_REQUEST_STATUSES` are
+    // `as const` arrays, chosen where a TypeScript enum would have created a
+    // second canonical declaration or an import cycle. Both are the same thing
+    // — an ordered, closed set of string values — and a generator that handled
+    // only one of them would leave the other hand-mirrored on the frontend,
+    // which is precisely the duplication it exists to remove.
+    //
+    // The array form is emitted AS an array, not converted to a const object:
+    // its members have no names to preserve, and callers index it or spread it
+    // into options rather than reaching for `X.MEMBER`.
+    if (ts.isVariableDeclaration(declaration)) {
+      const literal = this.constArrayLiteral(name, declaration);
+      this.emitted.set(name, {
+        name,
+        module,
+        origin,
+        body:
+          `export const ${name} = [\n${literal.map((v) => `  ${v},`).join('\n')}\n] as const;\n` +
+          `export type ${singular(name)} = (typeof ${name})[number];`,
+      });
+      return true;
+    }
+
     if (ts.isTypeAliasDeclaration(declaration)) {
       const type = this.checker.getTypeAtLocation(declaration.type);
       // Object-shaped aliases (including Omit<>) are flattened as interfaces;
@@ -249,6 +290,38 @@ class WireEmitter {
     }
 
     return false;
+  }
+
+  /**
+   * The string members of an `export const X = [...] as const` declaration.
+   *
+   * Read off the TYPE rather than the initializer's syntax, so a declaration
+   * carrying `satisfies readonly PlatformRoleCode[]` (as `INVITABLE_ROLE_CODES`
+   * does) resolves the same as a bare one.
+   */
+  private constArrayLiteral(name: string, declaration: ts.VariableDeclaration): string[] {
+    const type = this.checker.getTypeAtLocation(declaration);
+    const elements = this.checker.isTupleType(type)
+      ? this.checker.getTypeArguments(type as ts.TypeReference)
+      : [];
+
+    if (elements.length === 0) {
+      throw new ContractGenerationError(
+        `"${name}" is an exported const, but not a readonly tuple of string ` +
+          `literals. Only an \`as const\` array has a stable wire vocabulary — ` +
+          `a mutable array or a computed value has no fixed member set to emit.`,
+      );
+    }
+
+    return elements.map((element) => {
+      if (!element.isStringLiteral()) {
+        throw new ContractGenerationError(
+          `"${name}" contains a non-string member (${this.checker.typeToString(element)}). ` +
+            `Only string vocabularies cross a JSON boundary unchanged.`,
+        );
+      }
+      return JSON.stringify(element.value);
+    });
   }
 
   private isObjectShape(type: ts.Type): boolean {

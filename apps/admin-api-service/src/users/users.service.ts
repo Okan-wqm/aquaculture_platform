@@ -25,6 +25,8 @@ import {
   type AdminResetUserPasswordResult,
   type AdminUpdateUserCommand,
   type AdminUpdateUserResult,
+  isPlatformRoleCode,
+  type PlatformRoleCode,
 } from '@platform/event-contracts';
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 import { DataSource } from 'typeorm';
@@ -50,7 +52,39 @@ export interface UserFilter {
   search?: string;
 }
 
+/**
+ * The user READ contract — exactly the columns `listUsers` SELECTs.
+ *
+ * `role` is the canonical vocabulary rather than a bare `string`: the column is
+ * constrained to it, and the admin panel's user list compares against role codes
+ * to decide what an operator may do. A bare string there means a typo'd code
+ * compares false forever with nothing to catch it.
+ */
 export interface UserDto {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: PlatformRoleCode;
+  tenantId: string | null;
+  tenantName: string | null;
+  isActive: boolean;
+  lastLoginAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * A row as the `listUsers` SELECT returns it.
+ *
+ * Declared so the column list and the DTO are held together by the compiler
+ * rather than by hand: `dataSource.query` returns `any`, so before this the
+ * SELECT could drop a column and `UserDto` would keep promising it.
+ *
+ * `role` is `string` here because that is what SQL yields — the narrowing to
+ * the vocabulary happens once, in `toUserDto`, where it can be checked.
+ */
+interface UserRow {
   id: string;
   email: string;
   firstName: string;
@@ -62,6 +96,35 @@ export interface UserDto {
   lastLoginAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/**
+ * The one place a user row becomes wire data.
+ *
+ * A role outside the canonical vocabulary is corrupt data — `auth.users.role`
+ * is written only by auth-service, whose entity types the column as the `Role`
+ * enum. Forwarding an unknown code would reach a panel whose role maps are
+ * exhaustive, so it fails here, where the row can be named, instead of there.
+ */
+function toUserDto(row: UserRow): UserDto {
+  if (!isPlatformRoleCode(row.role)) {
+    throw new InternalServerErrorException(
+      `auth.users row ${row.id} carries role "${row.role}", which is not a platform role code`,
+    );
+  }
+  return {
+    id: row.id,
+    email: row.email,
+    firstName: row.firstName,
+    lastName: row.lastName,
+    role: row.role,
+    tenantId: row.tenantId,
+    tenantName: row.tenantName,
+    isActive: row.isActive,
+    lastLoginAt: row.lastLoginAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }
 
 export interface UserStats {
@@ -197,13 +260,13 @@ export class UsersService {
 
     try {
       const [users, countResult] = await Promise.all([
-        this.dataSource.query(query, [...params, limit, offset]),
-        this.dataSource.query(countQuery, params),
+        this.dataSource.query<UserRow[]>(query, [...params, limit, offset]),
+        this.dataSource.query<Array<{ total: string }>>(countQuery, params),
       ]);
 
       const total = parseInt(countResult[0]?.total || '0', 10);
 
-      return createStandardPaginatedResult(users, total, page, limit);
+      return createStandardPaginatedResult(users.map(toUserDto), total, page, limit);
     } catch (error) {
       this.logger.error(`Failed to list users: ${(error as Error).message}`);
       throw error;

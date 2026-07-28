@@ -437,6 +437,54 @@ export interface RefundEntry {
   refundId?: string;
 }
 
+/** @see transitive */
+export interface DatabaseMetrics {
+  totalConnections: number;
+  activeConnections: number;
+  idleConnections: number;
+  waitingClients: number;
+  databaseSize: string;
+  tablesCount: number;
+}
+
+/** @see transitive */
+export interface PlatformMetrics {
+  totalTenants: number;
+  activeTenants: number;
+  totalUsers: number;
+  totalFarms: number;
+  totalSensors: number;
+  activeSensors: number;
+  totalAlertRules: number;
+  activeAlertRules: number;
+  eventsLast24h: number;
+  apiCallsLast24h: number;
+}
+
+/** @see transitive */
+export interface ResourceMetrics {
+  memoryUsage: {
+    heapUsed: number;
+    heapTotal: number;
+    external: number;
+    rss: number;
+  };
+  cpuUsage: {
+    user: number;
+    system: number;
+  };
+  uptime: number;
+  nodeVersion: string;
+  platform: string;
+}
+
+/** @see transitive */
+export interface CircuitBreakerInfo {
+  state: "closed" | "open" | "half_open";
+  consecutiveFailures: number;
+  lastFailureTime: number;
+}
+
 // ==========================================================================
 // impersonation
 // ==========================================================================
@@ -1736,6 +1784,38 @@ export interface UserStats {
   loginsLast24Hours: number;
 }
 
+/** @see libs/event-contracts/src/roles.ts */
+export const PLATFORM_ROLE_CODES = [
+  "SUPER_ADMIN",
+  "TENANT_ADMIN",
+  "MODULE_MANAGER",
+  "MODULE_USER",
+] as const;
+export type PlatformRoleCode = (typeof PLATFORM_ROLE_CODES)[number];
+
+/** @see libs/event-contracts/src/roles.ts */
+export const INVITABLE_ROLE_CODES = [
+  "TENANT_ADMIN",
+  "MODULE_MANAGER",
+  "MODULE_USER",
+] as const;
+export type InvitableRoleCode = (typeof INVITABLE_ROLE_CODES)[number];
+
+/** @see apps/admin-api-service/src/users/users.service.ts */
+export interface UserDto {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: "SUPER_ADMIN" | "TENANT_ADMIN" | "MODULE_MANAGER" | "MODULE_USER";
+  tenantId: null | string;
+  tenantName: null | string;
+  isActive: boolean;
+  lastLoginAt: null | string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** @see apps/admin-api-service/src/users/services/role-template.service.ts */
 export interface Permission {
   code: string;
@@ -1755,3 +1835,27 @@ export interface RoleTemplate {
   color: string;
   icon: string;
 }
+
+// ==========================================================================
+// system
+// ==========================================================================
+
+/** @see apps/admin-api-service/src/metrics/system-metrics.service.ts */
+export interface SystemMetrics {
+  timestamp: string;
+  database: DatabaseMetrics;
+  platform: PlatformMetrics;
+  resources: ResourceMetrics;
+}
+
+/** @see apps/admin-api-service/src/metrics/system-metrics.service.ts */
+export interface ServiceHealth {
+  name: string;
+  status: "healthy" | "degraded" | "unhealthy";
+  responseTime?: number;
+  lastCheck: string;
+  details?: Record<string, unknown>;
+}
+
+/** @see apps/admin-api-service/src/health/health.service.ts */
+export type CircuitBreakerStatus = Record<string, CircuitBreakerInfo>;

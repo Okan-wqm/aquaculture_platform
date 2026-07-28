@@ -46377,7 +46377,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "0a4245dca02a6df174c059b475f5614396709e4854d4520ceba1d64f044f26f5",
+      "content_sha256": "c13261ec2f4783a0b14430da90ec4855de447e60204648cfb83e90b5c2d69982",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/types/generated/admin-contracts.ts",

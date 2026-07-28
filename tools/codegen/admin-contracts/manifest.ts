@@ -317,6 +317,36 @@ export const ADMIN_CONTRACT_SOURCES: readonly ContractSource[] = [
     exports: ['UserStats'],
   },
   {
+    module: 'system',
+    // Platform health. NOT the analytics `SystemMetrics` emitted above as
+    // `AnalyticsSystemMetrics` — two backend modules own a type by that name,
+    // and the panel flattens both into one namespace.
+    file: 'apps/admin-api-service/src/metrics/system-metrics.service.ts',
+    exports: ['SystemMetrics', 'ServiceHealth'],
+  },
+  {
+    module: 'system',
+    file: 'apps/admin-api-service/src/health/health.service.ts',
+    exports: ['CircuitBreakerStatus'],
+  },
+  {
+    module: 'users',
+    // The canonical role vocabulary, declared as `as const` arrays rather than
+    // enums (a backend enum here would have created a second canonical
+    // declaration and an import cycle — see the module docblock). The panel
+    // mirrored both by hand, held in lockstep by a parity spec; generating them
+    // removes the copy the spec existed to police.
+    file: 'libs/event-contracts/src/roles.ts',
+    exports: ['PLATFORM_ROLE_CODES', 'INVITABLE_ROLE_CODES'],
+  },
+  {
+    module: 'users',
+    // The user READ contract. `role` is the canonical vocabulary rather than a
+    // bare string, so a page cannot compare it against a code that is not one.
+    file: 'apps/admin-api-service/src/users/users.service.ts',
+    exports: ['UserDto'],
+  },
+  {
     module: 'users',
     file: 'apps/admin-api-service/src/users/services/role-template.service.ts',
     exports: ['Permission', 'RoleTemplate'],

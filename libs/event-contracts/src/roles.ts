@@ -41,3 +41,15 @@ export const INVITABLE_ROLE_CODES = [
 
 /** Union of the invitable role codes. */
 export type InvitableRoleCode = (typeof INVITABLE_ROLE_CODES)[number];
+
+/**
+ * Runtime membership test for the platform role vocabulary.
+ *
+ * Lives beside the vocabulary rather than at each call site: a role arriving
+ * from a raw SQL row or an external command is a `string` until something
+ * checks it, and every service that needs to check was otherwise going to write
+ * its own comparison against its own copy of the list.
+ */
+export function isPlatformRoleCode(value: string): value is PlatformRoleCode {
+  return (PLATFORM_ROLE_CODES as readonly string[]).includes(value);
+}

@@ -4,6 +4,17 @@ import { DataSource } from 'typeorm';
 
 import { GracefulShutdownService } from '../lifecycle/graceful-shutdown.service';
 import { EmailSenderService } from '../settings/services/email-sender.service';
+import type { CircuitBreakerInfo } from '../settings/services/email-sender.service';
+
+/**
+ * Every circuit breaker this service publishes, keyed by name.
+ *
+ * Named here rather than left inline: the health endpoint returns it, so it is
+ * a wire contract, and an inline anonymous shape gives the admin panel nothing
+ * to generate from — which is why the panel had re-declared it by hand with a
+ * NARROWER state type than the `string` the backend was actually promising.
+ */
+export type CircuitBreakerStatus = Record<string, CircuitBreakerInfo>;
 
 @Injectable()
 export class HealthService {
@@ -50,7 +61,7 @@ export class HealthService {
   }
 
   /** Get all circuit breaker statuses */
-  getCircuitBreakers(): Record<string, { state: string; consecutiveFailures: number; lastFailureTime: number }> {
+  getCircuitBreakers(): CircuitBreakerStatus {
     return {
       smtp: this.emailSenderService.getCircuitStatus(),
     };

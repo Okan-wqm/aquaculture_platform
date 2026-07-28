@@ -19,6 +19,7 @@ import {
   type UserStats,
   type AuditLog,
   type CircuitBreakerStatus,
+  type CircuitBreakerState,
 } from '../services/adminApi';
 
 // ============================================================================
@@ -226,7 +227,12 @@ const RecentActivityCard: React.FC<{ logs: AuditLog[] }> = ({ logs }) => {
 // Circuit Breaker Status Component
 // ============================================================================
 
-const stateStyles: Record<string, { bg: string; border: string; dot: string; label: string }> = {
+// Exhaustive over the breaker vocabulary, so a new state is a compile error
+// rather than something the `|| stateStyles.closed` fallback used to paint green.
+const stateStyles: Record<
+  CircuitBreakerState,
+  { bg: string; border: string; dot: string; label: string }
+> = {
   closed: { bg: 'bg-green-50', border: 'border-green-200', dot: 'bg-green-500', label: 'Closed' },
   open: { bg: 'bg-red-50', border: 'border-red-200', dot: 'bg-red-500', label: 'Open' },
   half_open: { bg: 'bg-yellow-50', border: 'border-yellow-200', dot: 'bg-yellow-500', label: 'Half-Open' },
@@ -263,7 +269,7 @@ const CircuitBreakerCard: React.FC<{
       </div>
       <div className="p-4 space-y-3">
         {entries.map(([name, info]) => {
-          const style = stateStyles[info.state] || stateStyles.closed;
+          const style = stateStyles[info.state];
           const isOpen = info.state === 'open';
           const isResetting = resetting === name;
 

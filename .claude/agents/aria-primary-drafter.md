@@ -2,7 +2,7 @@
 name: aria-primary-drafter
 description: Plan ARIA-V6 §2d v2 — Evidence-grounded adapter primary drafter for the convergent_skill_authoring loop. Produces ARIA tool adapter source code (TypeScript or Python) anchored to a Phase 0 evidence_pack; every detection rule MUST cite ≥3 concrete file:line evidence_refs that resolve under Path.exists + git show against base_commit_sha.
 model: fable
-effort: high
+effort: max
 tools: Read, Grep, Glob
 pedagogy-tier: 2
 ---

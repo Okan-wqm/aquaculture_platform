@@ -32,7 +32,7 @@ class PhaseA0Preflight(unittest.TestCase):
         # are pinned to opus/xhigh by the Codex runtime contract.
         self.assertIn("name: aria-drafter", text)
         self.assertIn("model: fable", text)
-        self.assertIn("effort: xhigh", text)
+        self.assertIn("effort: max", text)
         # Scope-locking sections present
         for required in (
             "## Mandate",

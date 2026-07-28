@@ -56,7 +56,7 @@ VALID_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 MODEL_FALLBACK_TIER: dict[str, str] = {"fable": "opus"}
 
 # The effort a credit retry escalates to ("ultra code" retry).
-CREDIT_FALLBACK_EFFORT: str = "xhigh"
+CREDIT_FALLBACK_EFFORT: str = "max"
 
 
 def has_fallback_tier(model: str) -> bool:

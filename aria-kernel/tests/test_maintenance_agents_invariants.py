@@ -47,9 +47,9 @@ EXPECTED_LOCATIONS: tuple[tuple[str, Path], ...] = (
 # judge prompts — quality-critical) stays at `xhigh`. SSoT:
 # aria-kernel/aria_kernel/agent_runtime_profile.py.
 EXPECTED_EFFORT: dict[str, str] = {
-    "aria-prompt-writer.md": "xhigh",
-    "aria-primary-planner.md": "high",
-    "aria-challenger-planner.md": "high",
+    "aria-prompt-writer.md": "max",
+    "aria-primary-planner.md": "max",
+    "aria-challenger-planner.md": "max",
 }
 FRONTMATTER_RE = re.compile(
     r"\A---\n(.*?)\n---\n",

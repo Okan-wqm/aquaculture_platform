@@ -1318,3 +1318,49 @@ rather than discovered in CI, where it is unrepairable.
   it is recorded as-is and remains a static signal, not proof of missing coverage.
 * Branch protection rulesets and the GitHub App installation scope cannot be read from inside the
   repository and remain externally unverified — which is itself part of P0-14's exposure.
+
+## 11. Wave-1 findings raised while closing the S1–S9 remediation sequence
+
+Each entry below was registered in `docs/reviews/_registry/findings.jsonl` during the
+remediation pass that followed this verification. They are anchored here because the
+three-store invariant requires a finding's `review_file` to name it — an unanchored
+finding is one nobody can navigate back to from the review that produced it.
+
+* **ORPHAN-CRITICAL-469** — The agent-invocation queue was stranded between two workflows: the 01:00 producer wrote to a gitignored tree the 02:00 consumer never restored, so no agent work was ever claimed  
+  Severity CRITICAL, layer 2, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
+
+* **ORPHAN-HIGH-465** — The failure circuit breaker had no operator surface: reset_breaker existed with no CLI, so a tripped breaker could only be cleared by hand-deleting a gitignored artifact  
+  Severity HIGH, layer 4, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
+
+* **ORPHAN-HIGH-466** — The B0 cost breaker reads a counter nothing increments: cost_budget.record_actual_usage has zero callers while live cost telemetry writes to a different module  
+  Severity HIGH, layer 2, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
+
+* **ORPHAN-HIGH-467** — The B2 failure breaker preflight was gated on profile == autonomous, so a tripped breaker stopped nothing on standard or strict, which hold action authority  
+  Severity HIGH, layer 2, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
+
+* **ORPHAN-HIGH-470** — Agent resource limits were selected on binary presence, applied the wrong wall-clock property, and fell through to an unbounded spawn  
+  Severity HIGH, layer 2, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
+
+* **ORPHAN-HIGH-471** — The nightly lane spawns agents through the same path as the executor but shipped with no sandbox backend installed  
+  Severity HIGH, layer 2, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
+
+* **ORPHAN-HIGH-472** — Cost caps are mis-calibrated by 40x against real agent-run cost, so wiring the pre-spawn gate would trip the cost breaker on the first live run  
+  Severity HIGH, layer 4, owner okan, deadline 2026-08-24. OPEN — see notes.
+
+* **ORPHAN-HIGH-473** — Moving ARIA to claude-opus-5 at max effort is a multi-surface migration: the model would silently downgrade to fable, record $0.00, and disable the credit-exhaustion fallback  
+  Severity HIGH, layer 2, owner okan, deadline 2026-08-24. OPEN — see notes.
+
+* **ORPHAN-HIGH-474** — The opus CLI alias resolves to claude-opus-5, which had no pricing row, so every opus-tier dispatch recorded $0.00  
+  Severity HIGH, layer 3, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
+
+* **ORPHAN-HIGH-475** — A quota-exhausted run was returned as the agent's answer: the fallback was gated on a literal model name and no caller inspected credit_exhaustion  
+  Severity HIGH, layer 1, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
+
+* **ORPHAN-HIGH-476** — Cost pricing was keyed only on exact model ids, so every new model generation silently priced at $0.00 until a human added a row  
+  Severity HIGH, layer 2, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
+
+* **ORPHAN-MEDIUM-468** — The failure breaker's 24h window equals the nightly cadence, so cross-cycle accumulation depends on sub-cycle timing jitter rather than on failure count  
+  Severity MEDIUM, layer 3, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
+
+* **ORPHAN-MEDIUM-477** — ARIA agents ran below ultracode depth, and the tier documentation contradicted the executable assertions  
+  Severity MEDIUM, layer 3, owner okan, deadline 2026-08-24.

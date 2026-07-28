@@ -54,12 +54,12 @@ single source of truth; the runtime now reads it instead of forcing a global.
 |---|---|---|
 | scout (read-only scorer/scanner) | evidence-judge, adversarial-judge, cross-reviewer, change-intelligence, goldset-curator | **sonnet / medium** |
 | planner / drafter | primary-planner, challenger-planner, primary-drafter, challenger-drafter | **opus / high** |
-| decider / writer | consensus-arbiter, implementer, _maintenance/drafter, _maintenance/prompt-writer | **opus / xhigh** |
+| decider / writer (SUPERSEDED by K5: fable, not opus) | consensus-arbiter, implementer, _maintenance/drafter, _maintenance/prompt-writer | **opus / xhigh** |
 
 **Drift guard (tier-3 "make it detectable"):**
 `aria-kernel/tests/test_agent_runtime_profile.py` fails if any agent frontmatter
 carries an invalid model/effort, or if a write-tier agent
-(`WRITE_TIER_AGENTS`) is downgraded below opus/xhigh.
+(`WRITE_TIER_AGENTS`) is downgraded below fable/max. (K5, 2026-07-01, supersedes the original opus/xhigh wording: fable is the expensive tier.)
 
 ## Phase 023b — Consensus Escalation Consumer
 

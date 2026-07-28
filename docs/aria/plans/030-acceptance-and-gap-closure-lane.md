@@ -38,14 +38,14 @@ Runs today: `python3 tools/aria-acceptance/harness.py` → exit 0 (ACCEPT).
 
 `.claude/agents/aria-acceptance-*` (4 agents, all `dispatch: ad-hoc`, pedagogy-
 lint clean, no ownership globs):
-- **aria-acceptance-lead** (opus/xhigh) — project lead: runs the harness,
+- **aria-acceptance-lead** (fable/max) — project lead: runs the harness,
   dispatches specialists, decides accept/reject, sequences gap closure.
 - **aria-acceptance-output-validator** (sonnet/medium) — runs the harness, adds
   judgment on borderline drifts (e.g. the archived-migration caveat), escalates
   any `unverifiable` drift.
 - **aria-acceptance-gap-hunter** (sonnet/high) — audits ARIA for blind spots /
   missing capabilities, produces tracked findings (owner + deadline).
-- **aria-acceptance-gap-fixer** (opus/xhigh, write-tier) — closes a validated gap
+- **aria-acceptance-gap-fixer** (fable/max, write-tier) — closes a validated gap
   with a root-cause fix + test and opens a **draft PR**; never auto-merges.
 
 Command: `/aria-accept` (`.claude/commands/aria-accept.md`). Invariant hardening:

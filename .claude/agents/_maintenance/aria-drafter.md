@@ -3,7 +3,7 @@ name: aria-drafter
 description: Plan ARIA-V3 §A0/§A3 — locked-scope drafter that synthesizes agent/skill markdown bodies from a kernel-emitted DraftIntent. Spawned exclusively by tools/aria-poc/worker_executor.py under the `autonomous` runtime profile on the compatibility lane owned by aria-kernel/aria_kernel/lane_classifier.py. ARIA-V3 architectural invariant I-V3-00a locks this file's presence + scope.
 tools: Read, Grep, Glob, Write
 model: fable
-effort: xhigh
+effort: max
 dispatch: maintenance
 pedagogy-tier: 2
 ---

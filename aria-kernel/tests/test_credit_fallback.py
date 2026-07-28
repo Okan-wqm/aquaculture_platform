@@ -65,7 +65,7 @@ class RunWithModelFallbackBehavior(unittest.TestCase):
         out = run_with_model_fallback(
             run=run, model="fable", effort="high", on_credit=seen.append,
         )
-        self.assertEqual(run.calls, [("fable", "high"), ("opus", "xhigh")])
+        self.assertEqual(run.calls, [("fable", "high"), ("opus", "max")])
         self.assertEqual(out.final_message, "opus")
         self.assertEqual(seen, [credit])  # hook fired exactly once with the marker
 
@@ -74,11 +74,14 @@ class RunWithModelFallbackBehavior(unittest.TestCase):
         run = _ScriptedRun(_result(refusal=refusal, tag="fable"), _result(tag="opus"))
         seen_r: list[dict] = []
         seen_c: list[dict] = []
+        # Deliberately NOT the policy default: a refusal retry must preserve
+        # whatever effort the caller passed, and an input equal to the default
+        # would pass even if the code substituted the default.
         out = run_with_model_fallback(
-            run=run, model="fable", effort="xhigh",
+            run=run, model="fable", effort="high",
             on_credit=seen_c.append, on_refusal=seen_r.append,
         )
-        self.assertEqual(run.calls, [("fable", "xhigh"), ("opus", "xhigh")])
+        self.assertEqual(run.calls, [("fable", "high"), ("opus", "high")])
         self.assertEqual(out.final_message, "opus")
         self.assertEqual(seen_r, [refusal])
         self.assertEqual(seen_c, [])
@@ -167,7 +170,7 @@ class RunWithModelFallbackBehavior(unittest.TestCase):
             run=run, model="fable", effort="high",
             on_credit=seen_c.append, on_refusal=seen_r.append,
         )
-        self.assertEqual(run.calls[1], ("opus", "xhigh"))
+        self.assertEqual(run.calls[1], ("opus", "max"))
         self.assertEqual(len(seen_c), 1)
         self.assertEqual(seen_r, [])
 
@@ -194,7 +197,7 @@ class ExecutorWiringPins(unittest.TestCase):
         # on the map + the escalated-effort constant rather than on two
         # hardcoded call expressions.
         self.assertIn("MODEL_FALLBACK_TIER", helper_src)
-        self.assertIn('CREDIT_FALLBACK_EFFORT: str = "xhigh"', helper_src)
+        self.assertIn('CREDIT_FALLBACK_EFFORT: str = "max"', helper_src)
         self.assertIn("run(fallback_model, CREDIT_FALLBACK_EFFORT)", helper_src)
         self.assertIn("run(fallback_model, effort)", helper_src)
         self.assertNotIn("_fell_back_to_opus", _CI)

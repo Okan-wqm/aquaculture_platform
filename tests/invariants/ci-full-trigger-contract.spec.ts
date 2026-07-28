@@ -25,11 +25,12 @@ interface Workflow {
       name?: string;
       needs?: string[];
       if?: string;
+      permissions?: Record<string, string>;
       steps?: Array<{
         name?: string;
         uses?: string;
         run?: string;
-        with?: Record<string, string>;
+        with?: Record<string, string | boolean>;
         env?: Record<string, string>;
       }>;
     }
@@ -205,6 +206,18 @@ describe('CI Full protected-main and PR contract', () => {
         true,
       );
     }
+  });
+
+  it('authenticates the fail-closed Codecov upload with job-scoped OIDC', () => {
+    const testJob = readWorkflow().jobs?.test;
+    const codecov = testJob?.steps?.find((step) => step.name === 'Upload coverage to Codecov');
+
+    expect(testJob?.permissions).toEqual({
+      contents: 'read',
+      'id-token': 'write',
+    });
+    expect(codecov?.with?.use_oidc).toBe(true);
+    expect(codecov?.with?.fail_ci_if_error).toBe(true);
   });
 
   it('keeps non-unit and archived sources outside full-CI coverage collection', () => {

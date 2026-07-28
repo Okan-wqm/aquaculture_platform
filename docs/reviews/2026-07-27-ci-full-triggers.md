@@ -107,3 +107,16 @@ The repair:
 
 Future coverage improvements raise the centralized values; the baseline must never be lowered
 to make a regression pass.
+
+## INFRA-HIGH-090 — Codecov upload was fail-closed without upload authority
+
+The first exact-head run whose complete test command passed produced 23 coverage reports, then
+failed only in the Codecov step. The workflow required `fail_ci_if_error: true` but supplied
+neither a repository token nor OIDC authority, so Codecov rejected the attempted tokenless upload
+for this repository.
+
+The test job now receives the minimum job-scoped permissions needed by Codecov OIDC:
+`contents: read` for checkout and `id-token: write` for the short-lived upload identity. The
+upload explicitly selects `use_oidc: true` and remains fail-closed. A CI contract invariant locks
+the permission and action inputs together, preventing either half of the authentication contract
+from drifting independently.

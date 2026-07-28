@@ -126,6 +126,7 @@ export default {
         '<rootDir>/admin-panel-api-no-sync-throw.spec.ts',
         '<rootDir>/admin-panel-analytics-contract.spec.ts',
         '<rootDir>/admin-panel-report-definition-contract.spec.ts',
+        '<rootDir>/admin-csrf-posture.spec.ts',
         '<rootDir>/admin-audit-action-vocab.spec.ts',
         '<rootDir>/admin-messaging-action-vocab.spec.ts',
         '<rootDir>/admin-database-types-parity.spec.ts',

@@ -41514,6 +41514,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-csrf-posture.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-data-request-status-vocab.spec.ts",
       "prettier_managed": true
     },
@@ -55620,10 +55626,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9119,
+  "file_count": 9120,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8938,
-  "managed_file_list_sha256": "7976b4114066d772855f3a43ca21aa52b1371282e6794ca550d69fc2c8fa4077",
+  "managed_count": 8939,
+  "managed_file_list_sha256": "b5fef93784069359a5f3e44dd77d4c10f71b58e5e09ff69f63cf06931d1c38aa",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

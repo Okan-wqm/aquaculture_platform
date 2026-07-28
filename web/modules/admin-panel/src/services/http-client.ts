@@ -259,6 +259,28 @@ export async function apiFetch<T>(
         fetchOptions.headers,
       );
 
+      // CSRF POSTURE — SameSite, not double-submit (APA-152).
+      //
+      // `credentials: 'include'` is required for exactly one thing: the
+      // refresh token lives in an httpOnly cookie, so the silent-refresh
+      // mutation cannot carry it any other way. Everything else authenticates
+      // with a Bearer header this client attaches from storage, which a
+      // cross-site page can neither read nor make the browser send.
+      //
+      // The platform therefore relies on SameSite rather than a double-submit
+      // token, and that IS a real protection here: the refresh cookie is
+      // `SameSite=Lax` and the refresh call is a POST, which Lax does not send
+      // cross-site. This client used to attach an `X-CSRF-Token` header echoed
+      // from an `XSRF-TOKEN` cookie, with a comment claiming "server rejects on
+      // mismatch" — nothing on the server ever set that cookie or checked that
+      // header, so the machinery was decorative and the comment was false.
+      //
+      // Three properties hold this up, and `tests/invariants/admin-csrf-posture.spec.ts`
+      // pins all three: the refresh cookie stays `SameSite=Lax` or stricter,
+      // credentialed CORS never accepts a wildcard origin, and no decorative
+      // token machinery comes back. Moving any credential onto a cookie the
+      // browser sends on cross-site POSTs invalidates the posture and needs
+      // real server-side CSRF checks landed WITH it.
       const response = await fetch(`${ADMIN_API_URL}${endpoint}`, {
         ...fetchOptions,
         credentials: 'include',

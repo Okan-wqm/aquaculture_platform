@@ -9843,6 +9843,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1807800000000-RestoreStorageInventoryCanonicalKey.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -55212,10 +55218,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9051,
+  "file_count": 9052,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8870,
-  "managed_file_list_sha256": "fca935f8360ed133e83fcc0ee0cf7ca7d00ac41e66d1bdfaf566740ad1927a5d",
+  "managed_count": 8871,
+  "managed_file_list_sha256": "c957d900bc195d2aa5be7ccfdeb114619ec444f36f162ba206f00ba529fe1098",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

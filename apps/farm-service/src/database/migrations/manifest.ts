@@ -90,6 +90,7 @@ import { AddForecastPoolScope1807400000000 } from './1807400000000-AddForecastPo
 import { AddFeedingMealReadiness1807500000000 } from './1807500000000-AddFeedingMealReadiness';
 import { AlignFeedingMealMethodEnum1807600000000 } from './1807600000000-AlignFeedingMealMethodEnum';
 import { CapDayPlanRecalcLog1807700000000 } from './1807700000000-CapDayPlanRecalcLog';
+import { RestoreStorageInventoryCanonicalKey1807800000000 } from './1807800000000-RestoreStorageInventoryCanonicalKey';
 import { CreateIncidentMedia1806000000000 } from './1806000000000-CreateIncidentMedia';
 
 /**
@@ -179,4 +180,5 @@ export const FARM_MIGRATIONS = [
   AddFeedingMealReadiness1807500000000,
   AlignFeedingMealMethodEnum1807600000000,
   CapDayPlanRecalcLog1807700000000,
+  RestoreStorageInventoryCanonicalKey1807800000000,
 ] as const;

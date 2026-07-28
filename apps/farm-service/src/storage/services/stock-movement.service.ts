@@ -38,7 +38,7 @@
  * @module Storage/Services
  */
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { EntityManager } from 'typeorm';
+import { EntityManager, IsNull } from 'typeorm';
 import { tenantManagerRepo, TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
 import type { LowStockDetectedEvent } from '@platform/event-contracts';
@@ -778,14 +778,26 @@ export class StockMovementService {
     expiryDate: Date | undefined,
     userId: string,
   ): Promise<void> {
+    // `IsNull()`, not `undefined`: TypeORM DROPS an undefined condition from the
+    // where clause entirely, so an un-lotted receipt would match — and then top
+    // up — an arbitrary LOTTED row for the same item in the same location. That
+    // is wrong with no concurrency at all (FARM-CRITICAL-240).
+    //
+    // The lock mirrors the decrease path below (:728/:745). Without it this was
+    // an unlocked check-then-insert: two concurrent receipts for the same
+    // un-lotted feed both read "absent" and both inserted, splitting the
+    // physical-stock projection in two. The canonical unique index restored in
+    // 1807800000000 is the structural backstop — a genuine race now raises
+    // 23505 and rolls the transaction back rather than silently duplicating.
     let inventory = await repo.findOne({
       where: {
         tenantId,
         storageLocationId: locationId,
         itemType,
         itemId,
-        lotNumber: lotNumber ?? undefined,
+        lotNumber: lotNumber ?? IsNull(),
       },
+      lock: { mode: 'pessimistic_write' },
     });
 
     if (inventory) {
@@ -829,20 +841,38 @@ export class StockMovementService {
     itemId: string,
     tenantId: string,
   ): Promise<void> {
-    const result = await tenantManagerRepo(manager, StorageInventory, tenantId)
-      .createQueryBuilder('inv')
-      .select('COALESCE(SUM(inv.quantity), 0)', 'total')
-      .andWhere('inv.itemType = :itemType', { itemType })
-      .andWhere('inv.itemId = :itemId', { itemId })
-      .getRawOne();
-
-    const totalQuantity = parseFloat(result?.total ?? '0');
+    // The roll-up target is locked BEFORE the SUM is taken, not after.
+    //
+    // Order matters: this is a read-modify-write of a single aggregate row from
+    // a sum over many rows. Two movements against different lots of the same
+    // feed commit concurrently; under READ COMMITTED each would otherwise sum
+    // without seeing the peer's uncommitted row and the second write would
+    // overwrite the first with a total missing that movement (FARM-CRITICAL-240).
+    // Taking the row lock first makes the pair serialize, so the later SUM runs
+    // after the earlier transaction has committed and sees its row.
+    //
+    // Lock ORDER across the service stays inventory-row → aggregate-row, because
+    // this method is only ever called after the inventory mutation. Reversing it
+    // anywhere would open an AB-BA cycle.
+    const sumInventory = async (): Promise<number> => {
+      const result = await tenantManagerRepo(manager, StorageInventory, tenantId)
+        .createQueryBuilder('inv')
+        .select('COALESCE(SUM(inv.quantity), 0)', 'total')
+        .andWhere('inv.itemType = :itemType', { itemType })
+        .andWhere('inv.itemId = :itemId', { itemId })
+        .getRawOne();
+      return parseFloat(result?.total ?? '0');
+    };
 
     switch (itemType) {
       case StorageItemType.FEED: {
         const feedRepo = tenantManagerRepo(manager, Feed, tenantId);
-        const feed = await feedRepo.findOne({ where: { id: itemId, tenantId } });
+        const feed = await feedRepo.findOne({
+          where: { id: itemId, tenantId },
+          lock: { mode: 'pessimistic_write' },
+        });
         if (feed) {
+          const totalQuantity = await sumInventory();
           feed.quantity = totalQuantity;
           if (totalQuantity <= 0) feed.status = FeedStatus.OUT_OF_STOCK;
           else if (totalQuantity <= Number(feed.minStock)) feed.status = FeedStatus.LOW_STOCK;
@@ -853,8 +883,12 @@ export class StockMovementService {
       }
       case StorageItemType.CHEMICAL: {
         const chemRepo = tenantManagerRepo(manager, Chemical, tenantId);
-        const chem = await chemRepo.findOne({ where: { id: itemId, tenantId } });
+        const chem = await chemRepo.findOne({
+          where: { id: itemId, tenantId },
+          lock: { mode: 'pessimistic_write' },
+        });
         if (chem) {
+          const totalQuantity = await sumInventory();
           chem.quantity = totalQuantity;
           chem.updateStockStatus();
           await chemRepo.save(chem);
@@ -864,8 +898,12 @@ export class StockMovementService {
       case StorageItemType.CONSUMABLE:
       case StorageItemType.HEALTHCARE: {
         const consRepo = tenantManagerRepo(manager, Consumable, tenantId);
-        const cons = await consRepo.findOne({ where: { id: itemId, tenantId } });
+        const cons = await consRepo.findOne({
+          where: { id: itemId, tenantId },
+          lock: { mode: 'pessimistic_write' },
+        });
         if (cons) {
+          const totalQuantity = await sumInventory();
           cons.quantity = totalQuantity;
           cons.updateStockStatus();
           await consRepo.save(cons);

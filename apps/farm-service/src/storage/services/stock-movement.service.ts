@@ -72,6 +72,16 @@ export interface RecordMovementInput {
   toLocationId?: string;
   lotNumber?: string;
   expiryDate?: Date;
+  /**
+   * Arrival date to restore on an inbound movement that puts back stock this
+   * ledger previously drew (FARM-MEDIUM-254). Leave unset for a genuine
+   * receipt: the arrival is now, and the sink stamps it.
+   *
+   * Set it and the re-created `storage_inventory` row keeps the FEFO position
+   * the lot had before it drained, instead of sorting as the freshest stock in
+   * the location.
+   */
+  receivedDate?: Date;
   reference?: string;
   reason?: string;
   idempotencyKey?: string;
@@ -300,6 +310,10 @@ export class StockMovementService {
         itemDetails.unit,
         input.lotNumber,
         input.expiryDate,
+        // Restored provenance for a lot this ledger previously drained
+        // (FARM-MEDIUM-254). Absent on a genuine receipt, where the arrival IS
+        // now — `increaseInventory` stamps that itself.
+        input.receivedDate,
         userId,
       );
     }
@@ -327,6 +341,11 @@ export class StockMovementService {
       // NULL expiry and the entity's own promise to preserve it was false.
       lotNumber: effectiveLotNumber ?? input.lotNumber ?? drawn?.lotNumber ?? undefined,
       expiryDate: input.expiryDate ?? drawn?.expiryDate ?? undefined,
+      // The other half of the lot identity (FARM-MEDIUM-254). The decrement
+      // already knew it — `DrawnLot.receivedDate` — and it was being discarded
+      // for want of a column, so a later return could not restore the FEFO
+      // position it took.
+      receivedDate: input.receivedDate ?? drawn?.receivedDate ?? undefined,
       idempotencyKey: input.idempotencyKey,
       performedBy: userId,
       performedByName: userName,
@@ -843,6 +862,8 @@ export class StockMovementService {
     unit: string,
     lotNumber: string | undefined,
     expiryDate: Date | undefined,
+    /** Restored arrival date; undefined = a genuine receipt arriving now. */
+    receivedDate: Date | undefined,
     userId: string,
   ): Promise<void> {
     // `IsNull()`, not `undefined`: TypeORM DROPS an undefined condition from the
@@ -887,8 +908,10 @@ export class StockMovementService {
         expiryDate,
         // Stamp `receivedDate` on the initial insert so the FEFO ORDER BY
         // (expiryDate, receivedDate, lotNumber) has a real timestamp to
-        // compare against.
-        receivedDate: new Date(),
+        // compare against. A restored lot supplies its ORIGINAL arrival
+        // (FARM-MEDIUM-254): re-creating a drained row with `now()` would make
+        // the oldest feed in the location sort as the freshest.
+        receivedDate: receivedDate ?? new Date(),
         createdBy: userId,
         updatedBy: userId,
       });

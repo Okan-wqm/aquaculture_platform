@@ -354,6 +354,88 @@ describe('SensorQueryService — as-of reading projection', () => {
     });
   });
 
+  describe('query shape guarantees (SENSOR-HIGH-085 audit)', () => {
+    /** Run every as-of read once and collect the SQL each one emitted. */
+    async function collectAsOfSql(): Promise<string[]> {
+      mockQrQuery.mockResolvedValue([]);
+      const service = newService();
+      await service.getLatestReading(SENSOR_ID, TENANT_ID);
+      await service.getLatestReadingsForSensors([SENSOR_ID], TENANT_ID);
+      await service.getReadingsInRange(
+        SENSOR_ID,
+        TENANT_ID,
+        new Date('2026-03-14T00:00:00Z'),
+        new Date('2026-03-14T01:00:00Z'),
+      );
+      await service.reconstructAsOf(SENSOR_ID, '2026-03-14 00:07:00+00', TENANT_ID);
+      return mockQrQuery.mock.calls.map(([sql]) => String(sql));
+    }
+
+    it('bounds every as-of query on time so TimescaleDB can prune chunks', async () => {
+      // An unbounded "latest value" read scans the sensor's whole retention
+      // window on a path the dashboard polls every 45s.
+      for (const sql of await collectAsOfSql()) {
+        expect(sql).toMatch(/m\.time\s*>=/);
+      }
+    });
+
+    it('never uses an unbounded DISTINCT ON for the latest value', async () => {
+      for (const sql of await collectAsOfSql()) {
+        expect(sql).not.toContain('DISTINCT ON');
+      }
+    });
+
+    it('excludes disabled channels from every projection', async () => {
+      for (const sql of await collectAsOfSql()) {
+        expect(sql).toContain('c.is_enabled = true');
+      }
+    });
+
+    it('orders by channel_key so a same-parameter collision has a deterministic winner', async () => {
+      for (const sql of await collectAsOfSql()) {
+        expect(sql).toMatch(/ORDER BY[\s\S]*c\.channel_key/);
+      }
+    });
+
+    it('addresses sensor_metrics unqualified so it routes to the tenant schema', async () => {
+      for (const sql of await collectAsOfSql()) {
+        expect(sql).not.toContain('sensor.sensor_metrics');
+        expect(sql).toContain('sensor_metrics');
+      }
+    });
+
+    it('picks the first channel_key deterministically when two channels share a parameter', async () => {
+      // 'temp' and 'temperature' both map to the parameter `temperature`;
+      // rows arrive ordered by channel_key, so 'temp' wins every time.
+      mockQrQuery.mockResolvedValueOnce([
+        {
+          channel_key: 'temp',
+          value: 20,
+          time: new Date('2026-03-14T00:05:00Z'),
+          time_text: '2026-03-14 00:05:00+00',
+          quality_code: 192,
+          source_protocol: 'mqtt',
+          pond_id: null,
+          farm_id: null,
+        },
+        {
+          channel_key: 'temperature',
+          value: 30,
+          time: new Date('2026-03-14T00:05:00Z'),
+          time_text: '2026-03-14 00:05:00+00',
+          quality_code: 192,
+          source_protocol: 'mqtt',
+          pond_id: null,
+          farm_id: null,
+        },
+      ]);
+
+      const reading = await newService().getLatestReading(SENSOR_ID, TENANT_ID);
+
+      expect(reading!.readings.temperature).toBeCloseTo(20);
+    });
+  });
+
   describe('reconstructAsOf', () => {
     it('reconstructs the snapshot at the requested anchor and round-trips the id', async () => {
       const timeText = '2026-03-14 00:07:00.123456+00';

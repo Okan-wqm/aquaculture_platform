@@ -40,6 +40,31 @@ import {
 const SENSOR_SCHEMA = 'sensor';
 
 /**
+ * How far back an as-of projection looks for a channel's last-known value.
+ *
+ * Every as-of query MUST carry a lower bound on `time`. Two independent reasons,
+ * both found by the SENSOR-HIGH-085 pre-merge audit:
+ *
+ *  1. PERFORMANCE. Without a `time` predicate TimescaleDB cannot prune a single
+ *     chunk, so a "give me the latest value" read degrades into a scan of the
+ *     sensor's entire retention window — on a hot path the dashboard and
+ *     aquamobil re-issue every 45 s. The repo already codified this rule for the
+ *     sibling reads: metric-query.service.ts:295 documents its lookback as
+ *     bounding the range "so TimescaleDB chunk pruning is effective and a single
+ *     channel query cannot scan the entire retention window".
+ *  2. HONESTY. Forward-filling with no lower bound resurrects channels that
+ *     stopped reporting long ago and presents their last value as part of a
+ *     current reading. A bound means a dead channel drops out of the projection
+ *     instead of being fabricated into it forever.
+ *
+ * The window is deliberately generous rather than tight: it must not truncate a
+ * legitimately slow sensor (daily-sampled water chemistry), only unbounded scans
+ * and long-dead channels. It is one constant used by all four projections, so
+ * the freshness contract cannot drift between them.
+ */
+const AS_OF_LOOKBACK = '7 days';
+
+/**
  * Aggregation interval type - restricted to whitelist
  */
 export type AggregationInterval = SafeAggregationInterval;
@@ -271,22 +296,25 @@ export class SensorQueryService {
     return runInTenantRead(this.dataSource, SENSOR_SCHEMA, validTenantId, async (qr) => {
       const rows = (await qr.query(
         `SELECT c.channel_key AS channel_key,
-                m.value AS value,
-                m.time AS time,
-                m.time::text AS time_text,
-                m.quality_code AS quality_code,
-                m.source_protocol AS source_protocol,
-                m.pond_id AS pond_id,
-                m.farm_id AS farm_id
-           FROM (
-             SELECT DISTINCT ON (channel_id)
-               channel_id, value, time, quality_code, source_protocol, pond_id, farm_id
-             FROM sensor.sensor_metrics
-             WHERE sensor_id = $1 AND tenant_id = $2
-             ORDER BY channel_id, time DESC
-           ) m
-           JOIN sensor_data_channels c ON c.id = m.channel_id AND c.tenant_id = $2`,
-        [validSensorId, validTenantId],
+                lv.value AS value,
+                lv.time AS time,
+                lv.time::text AS time_text,
+                lv.quality_code AS quality_code,
+                lv.source_protocol AS source_protocol,
+                lv.pond_id AS pond_id,
+                lv.farm_id AS farm_id
+           FROM sensor_data_channels c
+           CROSS JOIN LATERAL (
+             SELECT m.value, m.time, m.quality_code, m.source_protocol, m.pond_id, m.farm_id
+             FROM sensor_metrics m
+             WHERE m.sensor_id = $1 AND m.channel_id = c.id AND m.tenant_id = $2
+               AND m.time >= NOW() - $3::interval
+             ORDER BY m.time DESC
+             LIMIT 1
+           ) lv
+          WHERE c.sensor_id = $1 AND c.tenant_id = $2 AND c.is_enabled = true
+          ORDER BY c.channel_key`,
+        [validSensorId, validTenantId, AS_OF_LOOKBACK],
       )) as ChannelAsOfRow[];
 
       const anchor = latestAnchor(rows);
@@ -331,7 +359,7 @@ export class SensorQueryService {
       const rows = (await qr.query(
         `WITH obs AS (
            SELECT DISTINCT time
-           FROM sensor.sensor_metrics
+           FROM sensor_metrics
            WHERE sensor_id = $1 AND tenant_id = $2 AND time BETWEEN $3 AND $4
            ORDER BY time DESC
            LIMIT $5
@@ -345,17 +373,19 @@ export class SensorQueryService {
                 lv.pond_id AS pond_id,
                 lv.farm_id AS farm_id
            FROM obs o
-           JOIN sensor_data_channels c ON c.sensor_id = $1 AND c.tenant_id = $2
+           JOIN sensor_data_channels c
+             ON c.sensor_id = $1 AND c.tenant_id = $2 AND c.is_enabled = true
            CROSS JOIN LATERAL (
              SELECT value, quality_code, source_protocol, pond_id, farm_id
-             FROM sensor.sensor_metrics m
+             FROM sensor_metrics m
              WHERE m.sensor_id = $1 AND m.channel_id = c.id AND m.tenant_id = $2
                AND m.time <= o.time
+               AND m.time >= o.time - $6::interval
              ORDER BY m.time DESC
              LIMIT 1
            ) lv
-           ORDER BY o.time DESC`,
-        [validSensorId, validTenantId, validStart, validEnd, validLimit],
+           ORDER BY o.time DESC, c.channel_key`,
+        [validSensorId, validTenantId, validStart, validEnd, validLimit, AS_OF_LOOKBACK],
       )) as RangeChannelAsOfRow[];
 
       // Rows arrive newest-first; group by observation instant preserving that
@@ -614,24 +644,27 @@ export class SensorQueryService {
 
     return runInTenantRead(this.dataSource, SENSOR_SCHEMA, validTenantId, async (qr) => {
       const rows = (await qr.query(
-        `SELECT m.sensor_id AS sensor_id,
+        `SELECT c.sensor_id AS sensor_id,
                 c.channel_key AS channel_key,
-                m.value AS value,
-                m.time AS time,
-                m.time::text AS time_text,
-                m.quality_code AS quality_code,
-                m.source_protocol AS source_protocol,
-                m.pond_id AS pond_id,
-                m.farm_id AS farm_id
-           FROM (
-             SELECT DISTINCT ON (sensor_id, channel_id)
-               sensor_id, channel_id, value, time, quality_code, source_protocol, pond_id, farm_id
-             FROM sensor.sensor_metrics
-             WHERE sensor_id = ANY($1) AND tenant_id = $2
-             ORDER BY sensor_id, channel_id, time DESC
-           ) m
-           JOIN sensor_data_channels c ON c.id = m.channel_id AND c.tenant_id = $2`,
-        [validSensorIds, validTenantId],
+                lv.value AS value,
+                lv.time AS time,
+                lv.time::text AS time_text,
+                lv.quality_code AS quality_code,
+                lv.source_protocol AS source_protocol,
+                lv.pond_id AS pond_id,
+                lv.farm_id AS farm_id
+           FROM sensor_data_channels c
+           CROSS JOIN LATERAL (
+             SELECT m.value, m.time, m.quality_code, m.source_protocol, m.pond_id, m.farm_id
+             FROM sensor_metrics m
+             WHERE m.sensor_id = c.sensor_id AND m.channel_id = c.id AND m.tenant_id = $2
+               AND m.time >= NOW() - $3::interval
+             ORDER BY m.time DESC
+             LIMIT 1
+           ) lv
+          WHERE c.sensor_id = ANY($1) AND c.tenant_id = $2 AND c.is_enabled = true
+          ORDER BY c.sensor_id, c.channel_key`,
+        [validSensorIds, validTenantId, AS_OF_LOOKBACK],
       )) as SensorChannelAsOfRow[];
 
       const bySensor = new Map<string, SensorChannelAsOfRow[]>();
@@ -685,14 +718,16 @@ export class SensorQueryService {
            FROM sensor_data_channels c
            CROSS JOIN LATERAL (
              SELECT value, quality_code, source_protocol, pond_id, farm_id
-             FROM sensor.sensor_metrics m
+             FROM sensor_metrics m
              WHERE m.sensor_id = $1 AND m.channel_id = c.id AND m.tenant_id = $2
                AND m.time <= $3::timestamptz
+               AND m.time >= $3::timestamptz - $4::interval
              ORDER BY m.time DESC
              LIMIT 1
            ) lv
-           WHERE c.sensor_id = $1 AND c.tenant_id = $2`,
-        [validSensorId, validTenantId, timeText],
+           WHERE c.sensor_id = $1 AND c.tenant_id = $2 AND c.is_enabled = true
+           ORDER BY c.channel_key`,
+        [validSensorId, validTenantId, timeText, AS_OF_LOOKBACK],
       )) as Array<ChannelValueParts & { as_of: Date }>;
 
       if (rows.length === 0) {
@@ -716,10 +751,14 @@ export class SensorQueryService {
     anchorTimeText: string,
     rows: ReadonlyArray<ChannelValueParts>,
   ): SensorReading {
+    // Two channels can legitimately map to the same parameter (e.g. `temp` and
+    // `water_temperature`). Every as-of query returns its rows ORDER BY
+    // channel_key, and the FIRST row for a parameter wins — so the winner is
+    // deterministic across calls instead of depending on row arrival order.
     const readings: SensorReadings = {};
     for (const row of rows) {
       const parameter = parameterForChannelKey(row.channel_key);
-      if (!parameter) {
+      if (!parameter || readings[parameter] !== undefined) {
         continue;
       }
       const value = toNumberOrUndefined(row.value);

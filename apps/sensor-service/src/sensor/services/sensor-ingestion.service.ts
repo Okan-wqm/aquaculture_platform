@@ -18,7 +18,7 @@
  * - Proper error types for client handling
  */
 
-import { encodeSensorReadingId } from '@aquaculture/backend-common/sensor';
+import { anchorFromDate, encodeSensorReadingId } from '@aquaculture/backend-common/sensor';
 import { Injectable, Logger, Optional, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import {
@@ -209,7 +209,7 @@ export class SensorIngestionService {
     // back through federation resolveReference to the same projection.
     const timestamp = validatedData.timestamp ?? new Date();
     const reading: SensorReading = {
-      id: encodeSensorReadingId(validatedData.sensorId, timestamp.toISOString()),
+      id: encodeSensorReadingId(validatedData.sensorId, anchorFromDate(timestamp)),
       sensorId: validatedData.sensorId,
       tenantId: validatedData.tenantId,
       readings: transformedReadings,
@@ -323,7 +323,7 @@ export class SensorIngestionService {
       const timestamp = data.timestamp ?? new Date();
       prepared.push({
         entity: {
-          id: encodeSensorReadingId(data.sensorId, timestamp.toISOString()),
+          id: encodeSensorReadingId(data.sensorId, anchorFromDate(timestamp)),
           sensorId: data.sensorId,
           tenantId: data.tenantId,
           readings: transformedReadings,

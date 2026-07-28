@@ -154,8 +154,12 @@ describe('SensorIngestionService — outbox durability', () => {
       const decoded = decodeSensorReadingId(result.id);
       expect(decoded).not.toBeNull();
       expect(decoded!.sensorId).toBe(baseInput.sensorId);
-      // The anchor matches the reading's own timestamp — round-trippable.
-      expect(decoded!.timeText).toBe(result.timestamp.toISOString());
+      // The anchor is the reading's own instant in the ONE canonical spelling
+      // the read paths also mint, so ingesting and then querying a reading
+      // yields a single federation entity rather than two.
+      expect(decoded!.anchor).toBe(
+        `${result.timestamp.toISOString().slice(0, -1)}000Z`,
+      );
     });
 
     it('enqueues within the transaction', async () => {

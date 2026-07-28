@@ -12,7 +12,10 @@
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
-import { encodeSensorReadingId } from '@aquaculture/backend-common/sensor';
+import {
+  anchorFromDatabaseText,
+  encodeSensorReadingId,
+} from '@aquaculture/backend-common/sensor';
 
 import { SensorQueryService } from '../../services/sensor-query.service';
 import { SensorReadingResolver } from '../sensor-reading.resolver';
@@ -24,8 +27,9 @@ describe('SensorReadingResolver', () => {
   const tenantId = '11111111-1111-4111-8111-111111111111';
   const otherTenantId = '22222222-2222-4222-8222-222222222222';
   const sensorId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-  const timeText = '2026-04-25 12:00:00.123456+00';
-  const readingId = encodeSensorReadingId(sensorId, timeText);
+  const anchorText = '2026-04-25T12:00:00.123456Z';
+  const anchor = anchorFromDatabaseText(anchorText)!;
+  const readingId = encodeSensorReadingId(sensorId, anchor);
 
   const mockReading = {
     id: readingId,
@@ -62,7 +66,7 @@ describe('SensorReadingResolver', () => {
       expect(result).toEqual(mockReading);
       // The decoded anchor drives the reconstruction; the tenant is the
       // authenticated one, never taken from the reference.
-      expect(queryService.reconstructAsOf).toHaveBeenCalledWith(sensorId, timeText, tenantId);
+      expect(queryService.reconstructAsOf).toHaveBeenCalledWith(sensorId, anchor, tenantId);
     });
 
     it('returns null and does NOT reconstruct when no authenticated tenant is present', async () => {
@@ -115,7 +119,7 @@ describe('SensorReadingResolver', () => {
         { req: { user: { tenantId } } },
       );
 
-      expect(queryService.reconstructAsOf).toHaveBeenCalledWith(sensorId, timeText, tenantId);
+      expect(queryService.reconstructAsOf).toHaveBeenCalledWith(sensorId, anchor, tenantId);
     });
 
     it('returns null and does NOT reconstruct when the id cannot be decoded (D3 fail-closed)', async () => {

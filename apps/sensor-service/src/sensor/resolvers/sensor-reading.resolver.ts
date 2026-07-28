@@ -97,7 +97,7 @@ export class SensorReadingResolver {
 
       return await this.queryService.reconstructAsOf(
         decoded.sensorId,
-        decoded.timeText,
+        decoded.anchor,
         tenantId,
       );
     } catch (error: unknown) {

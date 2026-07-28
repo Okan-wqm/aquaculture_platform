@@ -14,7 +14,12 @@
  */
 
 import { runInTenantRead } from '@aquaculture/backend-common/database';
-import { encodeSensorReadingId } from '@aquaculture/backend-common/sensor';
+import {
+  anchorFromDatabaseText,
+  encodeSensorReadingId,
+  sensorReadingAnchorSql,
+  type SensorReadingAnchor,
+} from '@aquaculture/backend-common/sensor';
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { parameterForChannelKey, type SensorReadingParameter } from '@platform/event-contracts';
@@ -225,7 +230,7 @@ interface ChannelValueParts {
 
 /**
  * A latest-per-channel row: a ChannelValueParts plus the sample's own time (Date
- * for comparison, lossless `time_text` for the federation-id anchor).
+ * for comparison, canonical `time_text` for the federation-id anchor).
  */
 interface ChannelAsOfRow extends ChannelValueParts {
   time: Date;
@@ -243,14 +248,32 @@ interface RangeChannelAsOfRow extends ChannelValueParts {
   as_of_text: string;
 }
 
-/** The newest (time, time_text) anchor among latest-per-channel rows, or null when empty. */
+/**
+ * Adopt anchor text the database rendered through `sensorReadingAnchorSql()`.
+ *
+ * Non-canonical text here cannot come from user input — it would mean an as-of
+ * query stopped minting its anchor through the shared SQL helper. Throwing
+ * names that contract instead of quietly dropping the reading, which is the
+ * failure mode that would otherwise look like missing telemetry.
+ */
+function adoptAnchor(text: string): SensorReadingAnchor {
+  const anchor = anchorFromDatabaseText(text);
+  if (!anchor) {
+    throw new Error(
+      `As-of anchor "${text}" is not in canonical form — the query must mint it via sensorReadingAnchorSql()`,
+    );
+  }
+  return anchor;
+}
+
+/** The newest (time, anchor) pair among latest-per-channel rows, or null when empty. */
 function latestAnchor(
   rows: ReadonlyArray<{ time: Date; time_text: string }>,
-): { time: Date; timeText: string } | null {
-  let best: { time: Date; timeText: string } | null = null;
+): { time: Date; anchor: SensorReadingAnchor } | null {
+  let best: { time: Date; anchor: SensorReadingAnchor } | null = null;
   for (const row of rows) {
     if (!best || row.time.getTime() > best.time.getTime()) {
-      best = { time: row.time, timeText: row.time_text };
+      best = { time: row.time, anchor: adoptAnchor(row.time_text) };
     }
   }
   return best;
@@ -333,7 +356,7 @@ export class SensorQueryService {
         `SELECT c.channel_key AS channel_key,
                 lv.value AS value,
                 lv.time AS time,
-                lv.time::text AS time_text,
+                ${sensorReadingAnchorSql('lv.time')} AS time_text,
                 lv.quality_code AS quality_code,
                 lv.source_protocol AS source_protocol,
                 lv.pond_id AS pond_id,
@@ -356,7 +379,7 @@ export class SensorQueryService {
       if (!anchor) {
         return null;
       }
-      return this.assembleReading(validSensorId, validTenantId, anchor.time, anchor.timeText, rows);
+      return this.assembleReading(validSensorId, validTenantId, anchor.time, anchor.anchor, rows);
     });
   }
 
@@ -400,7 +423,7 @@ export class SensorQueryService {
            LIMIT $5
          )
          SELECT o.time AS as_of,
-                o.time::text AS as_of_text,
+                ${sensorReadingAnchorSql('o.time')} AS as_of_text,
                 c.channel_key AS channel_key,
                 lv.value AS value,
                 lv.quality_code AS quality_code,
@@ -436,7 +459,13 @@ export class SensorQueryService {
       }
 
       return [...byInstant.entries()].map(([asOfText, group]) =>
-        this.assembleReading(validSensorId, validTenantId, group.as_of, asOfText, group.rows),
+        this.assembleReading(
+          validSensorId,
+          validTenantId,
+          group.as_of,
+          adoptAnchor(asOfText),
+          group.rows,
+        ),
       );
     });
   }
@@ -694,7 +723,7 @@ export class SensorQueryService {
                 c.channel_key AS channel_key,
                 lv.value AS value,
                 lv.time AS time,
-                lv.time::text AS time_text,
+                ${sensorReadingAnchorSql('lv.time')} AS time_text,
                 lv.quality_code AS quality_code,
                 lv.source_protocol AS source_protocol,
                 lv.pond_id AS pond_id,
@@ -727,7 +756,7 @@ export class SensorQueryService {
           continue;
         }
         readings.push(
-          this.assembleReading(sensorId, validTenantId, anchor.time, anchor.timeText, sensorRows),
+          this.assembleReading(sensorId, validTenantId, anchor.time, anchor.anchor, sensorRows),
         );
       }
       return readings;
@@ -737,16 +766,16 @@ export class SensorQueryService {
   /**
    * Reconstruct the exact as-of snapshot a federation id was minted from
    * (SENSOR-HIGH-085). SensorReadingResolver.resolveReference decodes an id into
-   * (sensorId, anchor timeText) and calls this: for each of the sensor's channels
+   * (sensorId, canonical anchor) and calls this: for each of the sensor's channels
    * it takes the last-known value at or before the anchor instant (a per-channel
    * LATERAL LIMIT 1 index seek) and assembles the reading anchored at that exact
    * instant, so the reconstructed reading's id round-trips back to the input id.
-   * Runs tenant-pinned (D8); `timeText` is fed back verbatim as a $::timestamptz
+   * Runs tenant-pinned (D8); the anchor is fed back verbatim as a $::timestamptz
    * bound parameter, so the microsecond-precise `time <= T` bound is lossless.
    */
   async reconstructAsOf(
     sensorId: string,
-    timeText: string,
+    anchor: SensorReadingAnchor,
     tenantId: string,
   ): Promise<SensorReading | null> {
     const validSensorId = validateSensorId(sensorId);
@@ -773,13 +802,13 @@ export class SensorQueryService {
            ) lv
            WHERE c.sensor_id = $1 AND c.tenant_id = $2 AND c.is_enabled = true
            ORDER BY c.channel_key`,
-        [validSensorId, validTenantId, timeText, AS_OF_LOOKBACK],
+        [validSensorId, validTenantId, anchor, AS_OF_LOOKBACK],
       )) as Array<ChannelValueParts & { as_of: Date }>;
 
       if (rows.length === 0) {
         return null;
       }
-      return this.assembleReading(validSensorId, validTenantId, rows[0]!.as_of, timeText, rows);
+      return this.assembleReading(validSensorId, validTenantId, rows[0]!.as_of, anchor, rows);
     });
   }
 
@@ -794,7 +823,7 @@ export class SensorQueryService {
     sensorId: string,
     tenantId: string,
     anchorTime: Date,
-    anchorTimeText: string,
+    anchor: SensorReadingAnchor,
     rows: ReadonlyArray<ChannelValueParts>,
   ): SensorReading {
     // Two channels can legitimately map to the same parameter (e.g. `temp` and
@@ -815,7 +844,7 @@ export class SensorQueryService {
     }
 
     return {
-      id: encodeSensorReadingId(sensorId, anchorTimeText),
+      id: encodeSensorReadingId(sensorId, anchor),
       sensorId,
       tenantId,
       timestamp: anchorTime,

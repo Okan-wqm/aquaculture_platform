@@ -1,12 +1,27 @@
 import { DataSource } from 'typeorm';
 
 import {
+  anchorFromDatabaseText,
   decodeSensorReadingId,
   encodeSensorReadingId,
+  type SensorReadingAnchor,
 } from '@aquaculture/backend-common/sensor';
 
 import { SensorQueryService } from '../sensor-query.service';
 import { DataQualityService } from '../data-quality.service';
+
+/**
+ * Canonical anchors only: the branded type is what stops a read path and the
+ * ingest path minting two different ids for one instant, so a spec that
+ * fabricated a raw string would be testing a shape production cannot produce.
+ */
+function anchor(canonicalText: string): SensorReadingAnchor {
+  const value = anchorFromDatabaseText(canonicalText);
+  if (!value) {
+    throw new Error(`Spec fixture is not a canonical anchor: ${canonicalText}`);
+  }
+  return value;
+}
 
 /**
  * The as-of reads (getLatestReading / getReadingsInRange / getLatestReadingsForSensors
@@ -261,7 +276,7 @@ describe('SensorQueryService — as-of reading projection', () => {
           channel_key: 'temperature',
           value: 24.5,
           time: new Date('2026-03-14T00:05:00Z'),
-          time_text: '2026-03-14 00:05:00+00',
+          time_text: '2026-03-14T00:05:00.000000Z',
           quality_code: 192,
           source_protocol: 'rust-sidecar',
           pond_id: 'pond-1',
@@ -271,7 +286,7 @@ describe('SensorQueryService — as-of reading projection', () => {
           channel_key: 'ph',
           value: 7.1,
           time: new Date('2026-03-14T00:04:00Z'),
-          time_text: '2026-03-14 00:04:00+00',
+          time_text: '2026-03-14T00:04:00.000000Z',
           quality_code: 192,
           source_protocol: 'rust-sidecar',
           pond_id: 'pond-1',
@@ -288,7 +303,7 @@ describe('SensorQueryService — as-of reading projection', () => {
       expect(reading!.timestamp).toEqual(new Date('2026-03-14T00:05:00Z'));
       expect(decodeSensorReadingId(reading!.id)).toEqual({
         sensorId: SENSOR_ID,
-        timeText: '2026-03-14 00:05:00+00',
+        anchor: '2026-03-14T00:05:00.000000Z',
       });
       expect(reading!.source).toBe('rust-sidecar');
       expect(reading!.pondId).toBe('pond-1');
@@ -316,7 +331,7 @@ describe('SensorQueryService — as-of reading projection', () => {
           channel_key: 'flow_rate', // outside the nine-parameter vocabulary
           value: 12,
           time: new Date('2026-03-14T00:06:00Z'),
-          time_text: '2026-03-14 00:06:00+00',
+          time_text: '2026-03-14T00:06:00.000000Z',
           quality_code: 192,
           source_protocol: 'modbus',
           pond_id: null,
@@ -326,7 +341,7 @@ describe('SensorQueryService — as-of reading projection', () => {
           channel_key: 'temperature',
           value: 21,
           time: new Date('2026-03-14T00:05:00Z'),
-          time_text: '2026-03-14 00:05:00+00',
+          time_text: '2026-03-14T00:05:00.000000Z',
           quality_code: 192,
           source_protocol: 'modbus',
           pond_id: null,
@@ -347,9 +362,9 @@ describe('SensorQueryService — as-of reading projection', () => {
     it('groups the forward-filled rows into one reading per observation instant, newest-first', async () => {
       mockQrQuery.mockResolvedValueOnce([
         // instant 2 (newest) first — the SQL returns rows ORDER BY o.time DESC
-        { as_of: new Date('2026-03-14T00:10:00Z'), as_of_text: '2026-03-14 00:10:00+00', channel_key: 'temperature', value: 25, quality_code: 192, source_protocol: 'mqtt', pond_id: 'p', farm_id: 'f' },
-        { as_of: new Date('2026-03-14T00:10:00Z'), as_of_text: '2026-03-14 00:10:00+00', channel_key: 'ph', value: 7.0, quality_code: 192, source_protocol: 'mqtt', pond_id: 'p', farm_id: 'f' },
-        { as_of: new Date('2026-03-14T00:05:00Z'), as_of_text: '2026-03-14 00:05:00+00', channel_key: 'temperature', value: 24, quality_code: 192, source_protocol: 'mqtt', pond_id: 'p', farm_id: 'f' },
+        { as_of: new Date('2026-03-14T00:10:00Z'), as_of_text: '2026-03-14T00:10:00.000000Z', channel_key: 'temperature', value: 25, quality_code: 192, source_protocol: 'mqtt', pond_id: 'p', farm_id: 'f' },
+        { as_of: new Date('2026-03-14T00:10:00Z'), as_of_text: '2026-03-14T00:10:00.000000Z', channel_key: 'ph', value: 7.0, quality_code: 192, source_protocol: 'mqtt', pond_id: 'p', farm_id: 'f' },
+        { as_of: new Date('2026-03-14T00:05:00Z'), as_of_text: '2026-03-14T00:05:00.000000Z', channel_key: 'temperature', value: 24, quality_code: 192, source_protocol: 'mqtt', pond_id: 'p', farm_id: 'f' },
       ]);
 
       const readings = await newService().getReadingsInRange(
@@ -366,15 +381,15 @@ describe('SensorQueryService — as-of reading projection', () => {
       expect(readings[1]!.timestamp).toEqual(new Date('2026-03-14T00:05:00Z'));
       expect(readings[1]!.readings.temperature).toBeCloseTo(24);
       // Each reading's id encodes its own observation anchor.
-      expect(decodeSensorReadingId(readings[0]!.id)!.timeText).toBe('2026-03-14 00:10:00+00');
+      expect(decodeSensorReadingId(readings[0]!.id)!.anchor).toBe('2026-03-14T00:10:00.000000Z');
     });
   });
 
   describe('getLatestReadingsForSensors', () => {
     it('returns one reading per sensor, each anchored at its own newest channel time', async () => {
       mockQrQuery.mockResolvedValueOnce([
-        { sensor_id: SENSOR_ID, channel_key: 'temperature', value: 22, time: new Date('2026-03-14T00:08:00Z'), time_text: '2026-03-14 00:08:00+00', quality_code: 192, source_protocol: 'mqtt', pond_id: null, farm_id: null },
-        { sensor_id: SENSOR_ID_2, channel_key: 'ph', value: 6.9, time: new Date('2026-03-14T00:09:00Z'), time_text: '2026-03-14 00:09:00+00', quality_code: 192, source_protocol: 'graphql', pond_id: null, farm_id: null },
+        { sensor_id: SENSOR_ID, channel_key: 'temperature', value: 22, time: new Date('2026-03-14T00:08:00Z'), time_text: '2026-03-14T00:08:00.000000Z', quality_code: 192, source_protocol: 'mqtt', pond_id: null, farm_id: null },
+        { sensor_id: SENSOR_ID_2, channel_key: 'ph', value: 6.9, time: new Date('2026-03-14T00:09:00Z'), time_text: '2026-03-14T00:09:00.000000Z', quality_code: 192, source_protocol: 'graphql', pond_id: null, farm_id: null },
       ]);
 
       const readings = await newService().getLatestReadingsForSensors(
@@ -418,7 +433,7 @@ describe('SensorQueryService — as-of reading projection', () => {
         new Date('2026-03-14T00:00:00Z'),
         new Date('2026-03-14T01:00:00Z'),
       );
-      await service.reconstructAsOf(SENSOR_ID, '2026-03-14 00:07:00+00', TENANT_ID);
+      await service.reconstructAsOf(SENSOR_ID, anchor('2026-03-14T00:07:00.000000Z'), TENANT_ID);
       return mockQrQuery.mock.calls.map(([sql]) => String(sql));
     }
 
@@ -463,7 +478,7 @@ describe('SensorQueryService — as-of reading projection', () => {
           channel_key: 'temp',
           value: 20,
           time: new Date('2026-03-14T00:05:00Z'),
-          time_text: '2026-03-14 00:05:00+00',
+          time_text: '2026-03-14T00:05:00.000000Z',
           quality_code: 192,
           source_protocol: 'mqtt',
           pond_id: null,
@@ -473,7 +488,7 @@ describe('SensorQueryService — as-of reading projection', () => {
           channel_key: 'temperature',
           value: 30,
           time: new Date('2026-03-14T00:05:00Z'),
-          time_text: '2026-03-14 00:05:00+00',
+          time_text: '2026-03-14T00:05:00.000000Z',
           quality_code: 192,
           source_protocol: 'mqtt',
           pond_id: null,
@@ -489,20 +504,23 @@ describe('SensorQueryService — as-of reading projection', () => {
 
   describe('reconstructAsOf', () => {
     it('reconstructs the snapshot at the requested anchor and round-trips the id', async () => {
-      const timeText = '2026-03-14 00:07:00.123456+00';
+      const anchorText = '2026-03-14T00:07:00.123456Z';
       mockQrQuery.mockResolvedValueOnce([
         { as_of: new Date('2026-03-14T00:07:00.123Z'), channel_key: 'temperature', value: 23, quality_code: 192, source_protocol: 'mqtt', pond_id: null, farm_id: null },
         { as_of: new Date('2026-03-14T00:07:00.123Z'), channel_key: 'dissolved_oxygen', value: 8.0, quality_code: 192, source_protocol: 'modbus', pond_id: null, farm_id: null },
       ]);
 
-      const reading = await newService().reconstructAsOf(SENSOR_ID, timeText, TENANT_ID);
+      const reading = await newService().reconstructAsOf(SENSOR_ID, anchor(anchorText), TENANT_ID);
 
       expect(reading).not.toBeNull();
       expect(reading!.readings.temperature).toBeCloseTo(23);
       expect(reading!.readings.dissolvedOxygen).toBeCloseTo(8.0);
       // The reconstructed id equals the id it was decoded from — federation-stable.
-      expect(reading!.id).toBe(encodeSensorReadingId(SENSOR_ID, timeText));
-      expect(decodeSensorReadingId(reading!.id)).toEqual({ sensorId: SENSOR_ID, timeText });
+      expect(reading!.id).toBe(encodeSensorReadingId(SENSOR_ID, anchor(anchorText)));
+      expect(decodeSensorReadingId(reading!.id)).toEqual({
+        sensorId: SENSOR_ID,
+        anchor: anchorText,
+      });
     });
 
     it('returns null when no channel has a value at or before the anchor', async () => {
@@ -510,7 +528,7 @@ describe('SensorQueryService — as-of reading projection', () => {
 
       const reading = await newService().reconstructAsOf(
         SENSOR_ID,
-        '2026-03-14 00:07:00+00',
+        anchor('2026-03-14T00:07:00.000000Z'),
         TENANT_ID,
       );
 
@@ -525,7 +543,7 @@ describe('SensorQueryService — as-of reading projection', () => {
 
       const reading = await newService().reconstructAsOf(
         SENSOR_ID,
-        '2026-03-14 00:07:00+00',
+        anchor('2026-03-14T00:07:00.000000Z'),
         TENANT_ID,
       );
 
@@ -541,7 +559,7 @@ describe('SensorQueryService — as-of reading projection', () => {
 
       const reading = await newService().reconstructAsOf(
         SENSOR_ID,
-        '2026-03-14 00:07:00+00',
+        anchor('2026-03-14T00:07:00.000000Z'),
         TENANT_ID,
       );
 

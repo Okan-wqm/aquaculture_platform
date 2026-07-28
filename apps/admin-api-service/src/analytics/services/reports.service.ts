@@ -19,6 +19,7 @@ import {
   Logger,
   NotFoundException,
   Optional,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { MinioClientService } from '@platform/storage';
@@ -105,21 +106,36 @@ interface PaymentReportRow {
   daysPastDue: number;
 }
 
+/**
+ * A period-over-period movement of a usage metric.
+ *
+ * `null` is the ONLY inhabitant today, and that is the point. No
+ * snapshot-history comparator exists, so every direction literal would be a
+ * constant asserted as an observation — which is exactly what `trend: 'stable'`
+ * was on every row of every usage report (APA-142). Typing it as
+ * `'up' | 'down' | 'stable' | null` would re-permit the constant being removed;
+ * a future edit could reinstate it and still type-check. Widen this union in
+ * the SAME commit that lands the comparator, never before.
+ */
+type UsageTrend = null;
+
 interface ModuleUsageReportRow {
   module: string;
   activeUsers: number;
   totalSessions: number;
   avgSessionDuration: number;
   adoptionRate: number;
-  trend: string;
+  trend: UsageTrend;
 }
 
 interface FeatureUsageReportRow {
   feature: string;
   adoptionRate: number;
   activeUsers: number;
-  avgUsagePerUser: number;
-  trend: string;
+  /** Per-user usage frequency has no producer; `0` claimed a measured zero for
+   *  every feature (APA-142). */
+  avgUsagePerUser: number | null;
+  trend: UsageTrend;
 }
 
 /**
@@ -135,6 +151,69 @@ interface PerformanceReportRow {
   uptime: number | null;
   apiCalls: number | null;
   activeConnections: number | null;
+}
+
+/**
+ * A generated report body, discriminated on whether its data source exists.
+ *
+ * A generator CANNOT hand back rows without asserting they were measured: the
+ * `data` property lives only on the `measured: true` arm, so `formatReportData`
+ * and `createReportArtifact` are unreachable until the caller narrows. That is
+ * the structural guarantee behind APA-142 — an artifact, a sha256 and a
+ * download link can only ever cover measured rows.
+ *
+ * Zero rows used to be indistinguishable from zero measurements: a
+ * `usage_modules` execution over an unwired telemetry pipeline uploaded a
+ * ZERO-BYTE csv to object storage, hashed it (the sha256 of the empty string),
+ * stamped `status='completed'` and handed out a 7-day link, which the admin
+ * panel rendered as a green "Ready" badge with a Download button.
+ */
+export type ReportBody<TRow> =
+  | { measured: true; data: TRow[]; summary: Record<string, unknown> }
+  | { measured: false; unavailableReason: string };
+
+/**
+ * Raised when a report type has no producer for its rows.
+ *
+ * 422 rather than 500: the request is well-formed, the resource simply cannot
+ * be produced, and no retry will change that.
+ */
+export class ReportDataSourceUnavailableException extends UnprocessableEntityException {
+  constructor(
+    readonly reportType: ReportType,
+    readonly unavailableReason: string,
+  ) {
+    super(`Report "${reportType}" has no data source: ${unavailableReason}`);
+  }
+}
+
+/**
+ * Recognises a report body decoded from the cache.
+ *
+ * A cache entry is data from an external store that may have been written by a
+ * PREVIOUS release: `getJson<T>` casts it unchecked, so a payload written
+ * before `ReportBody` gained its `measured` discriminant would decode with
+ * `measured === undefined` and report a perfectly healthy tenant/revenue/
+ * performance report as having no data source for the full four-hour TTL of
+ * every key still warm at rollout. Validating the discriminant on read makes
+ * the cache self-healing across EVERY future shape change, rather than relying
+ * on someone remembering to bump a version segment in the key.
+ *
+ * The row element type is deliberately not validated: rows are written by this
+ * service's own generators, and the discriminant is the only part a stale
+ * writer can get wrong.
+ */
+function isReportBody(value: unknown): value is ReportBody<unknown> {
+  if (typeof value !== 'object' || value === null || !('measured' in value)) {
+    return false;
+  }
+  if (value.measured === true) {
+    return 'data' in value && Array.isArray(value.data) && 'summary' in value;
+  }
+  if (value.measured === false) {
+    return 'unavailableReason' in value && typeof value.unavailableReason === 'string';
+  }
+  return false;
 }
 
 /** Mean of the measured values only; null when nothing was measured. */
@@ -197,18 +276,29 @@ export class ReportsService {
   ) {}
 
   /**
-   * Get cached report data or compute it
+   * Get cached report data or compute it.
+   *
+   * `isFresh` is not optional on purpose: a cache read is deserialisation from
+   * a store a previous release may have written, and `getJson<T>` hands the
+   * payload back with an unchecked cast. Requiring the caller to say how a
+   * valid payload is recognised makes a stale shape a cache MISS — recomputed
+   * and rewritten — instead of a value that satisfies the type system while
+   * being wrong (APA-142).
    */
   private async getCachedOrCompute<T>(
     cacheKey: string,
+    isFresh: (value: unknown) => value is T,
     compute: () => Promise<T>,
   ): Promise<T> {
     if (this.redisService) {
       try {
-        const cached = await this.redisService.getJson<T>(cacheKey);
-        if (cached) {
+        const cached = await this.redisService.getJson<unknown>(cacheKey);
+        if (isFresh(cached)) {
           this.logger.debug(`Cache HIT: ${cacheKey}`);
           return cached;
+        }
+        if (cached !== null && cached !== undefined) {
+          this.logger.debug(`Cache DISCARD (stale shape): ${cacheKey}`);
         }
       } catch {
         // Cache miss or error
@@ -237,9 +327,8 @@ export class ReportsService {
   async generateReport(request: ReportRequest): Promise<ReportResult> {
     this.logger.log(`Generating ${request.type} report in ${request.format} format`);
 
-    let data: unknown;
+    let body: ReportBody<unknown>;
     let title: string;
-    let summary: Record<string, unknown> = {};
 
     // OPTIMIZED: Cache expensive report computations
     // BUG-002/BUG-019 fix: include filters in cache key to prevent stale cached results
@@ -251,70 +340,60 @@ export class ReportsService {
 
     switch (request.type) {
       case 'tenant_overview': {
-        const tenantResult = await this.getCachedOrCompute(
+        body = await this.getCachedOrCompute<ReportBody<unknown>>(
           cacheKey,
+          isReportBody,
           () => this.generateTenantOverviewReport(request),
         );
-        data = tenantResult.data;
         title = 'Tenant Overview Report';
-        summary = tenantResult.summary;
         break;
       }
 
       case 'tenant_churn': {
-        const churnResult = await this.getCachedOrCompute(
+        body = await this.getCachedOrCompute<ReportBody<unknown>>(
           cacheKey,
+          isReportBody,
           () => this.generateChurnReport(request),
         );
-        data = churnResult.data;
         title = 'Churn Analysis Report';
-        summary = churnResult.summary;
         break;
       }
 
       case 'financial_revenue': {
-        const revenueResult = await this.getCachedOrCompute(
+        body = await this.getCachedOrCompute<ReportBody<unknown>>(
           cacheKey,
+          isReportBody,
           () => this.generateRevenueReport(request),
         );
-        data = revenueResult.data;
         title = 'Revenue Report';
-        summary = revenueResult.summary;
         break;
       }
 
       case 'financial_payments': {
-        const paymentsResult = await this.generatePaymentsReport(request);
-        data = paymentsResult.data;
+        body = await this.generatePaymentsReport(request);
         title = 'Payments Report';
-        summary = paymentsResult.summary;
         break;
       }
 
       case 'usage_modules': {
-        const modulesResult = await this.generateModuleUsageReport(request);
-        data = modulesResult.data;
+        body = await this.generateModuleUsageReport(request);
         title = 'Module Usage Report';
-        summary = modulesResult.summary;
         break;
       }
 
       case 'usage_features': {
-        const featuresResult = await this.generateFeatureUsageReport(request);
-        data = featuresResult.data;
+        body = await this.generateFeatureUsageReport(request);
         title = 'Feature Usage Report';
-        summary = featuresResult.summary;
         break;
       }
 
       case 'system_performance': {
-        const perfResult = await this.getCachedOrCompute(
+        body = await this.getCachedOrCompute<ReportBody<unknown>>(
           cacheKey,
+          isReportBody,
           () => this.generatePerformanceReport(request),
         );
-        data = perfResult.data;
         title = 'System Performance Report';
-        summary = perfResult.summary;
         break;
       }
 
@@ -322,8 +401,19 @@ export class ReportsService {
         throw new BadRequestException('Unknown report type');
     }
 
+    // The single choke point. A report whose data source does not exist must
+    // never reach formatReportData: an empty body serialises to a zero-byte
+    // CSV, which executeReport would upload to object storage, hash, and hand a
+    // 7-day download link for — cryptographic provenance over something nobody
+    // measured (APA-142). Throwing here gives all twelve callers of
+    // generateReport (nine controller routes plus executeReport) the correct
+    // behaviour with no code of their own.
+    if (!body.measured) {
+      throw new ReportDataSourceUnavailableException(request.type, body.unavailableReason);
+    }
+
     // Format data based on requested format
-    const formattedData = this.formatReportData(data, request.format);
+    const formattedData = this.formatReportData(body.data, request.format);
 
     const result: ReportResult = {
       // BUG-028 fix: use crypto.randomBytes for an unguessable ID; replace deprecated substr()
@@ -333,7 +423,7 @@ export class ReportsService {
       title,
       generatedAt: new Date(),
       data: formattedData,
-      summary,
+      summary: body.summary,
     };
 
     return result;
@@ -343,10 +433,9 @@ export class ReportsService {
   // Tenant Reports
   // ============================================================================
 
-  private async generateTenantOverviewReport(_request: ReportRequest): Promise<{
-    data: TenantReportRow[];
-    summary: Record<string, unknown>;
-  }> {
+  private async generateTenantOverviewReport(
+    _request: ReportRequest,
+  ): Promise<ReportBody<TenantReportRow>> {
     // Fetch real tenants from database
     const tenants = await this.tenantRepository.find({
       order: { createdAt: 'DESC' },
@@ -415,6 +504,7 @@ export class ReportsService {
     }, {} as Record<string, number>);
 
     return {
+      measured: true,
       data,
       summary: {
         totalTenants: tenants.length,
@@ -427,10 +517,9 @@ export class ReportsService {
     };
   }
 
-  private async generateChurnReport(_request: ReportRequest): Promise<{
-    data: ChurnReportRow[];
-    summary: Record<string, unknown>;
-  }> {
+  private async generateChurnReport(
+    _request: ReportRequest,
+  ): Promise<ReportBody<ChurnReportRow>> {
     // Fetch cancelled/suspended tenants from database
     const cancelledTenants = await this.tenantRepository.find({
       where: [
@@ -474,6 +563,7 @@ export class ReportsService {
     });
 
     return {
+      measured: true,
       data,
       summary: {
         totalChurned: data.length,
@@ -489,10 +579,9 @@ export class ReportsService {
   // Financial Reports
   // ============================================================================
 
-  private async generateRevenueReport(request: ReportRequest): Promise<{
-    data: RevenueReportRow[];
-    summary: Record<string, unknown>;
-  }> {
+  private async generateRevenueReport(
+    request: ReportRequest,
+  ): Promise<ReportBody<RevenueReportRow>> {
     const startDate = request.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const endDate = request.endDate || new Date();
 
@@ -564,6 +653,7 @@ export class ReportsService {
     ).length;
 
     return {
+      measured: true,
       data,
       summary: {
         totalRevenue: Math.round(totalRevenue * 100) / 100,
@@ -601,10 +691,9 @@ export class ReportsService {
    * question it answers is "what fell due in this window, and was it paid" —
    * the same date `daysPastDue` accrues from.
    */
-  private async generatePaymentsReport(request: ReportRequest): Promise<{
-    data: PaymentReportRow[];
-    summary: Record<string, unknown>;
-  }> {
+  private async generatePaymentsReport(
+    request: ReportRequest,
+  ): Promise<ReportBody<PaymentReportRow>> {
     const invoices = await this.invoiceRepository.find({
       where: { dueDate: Between(request.startDate, request.endDate) },
       order: { dueDate: 'ASC' },
@@ -668,6 +757,7 @@ export class ReportsService {
       .reduce((sum, row) => sum + row.amount, 0);
 
     return {
+      measured: true,
       data,
       summary: {
         totalInvoices: data.length,
@@ -755,35 +845,46 @@ export class ReportsService {
   // Usage Reports
   // ============================================================================
 
-  private async generateModuleUsageReport(_request: ReportRequest): Promise<{
-    data: ModuleUsageReportRow[];
-    summary: Record<string, unknown>;
-  }> {
+  private async generateModuleUsageReport(
+    _request: ReportRequest,
+  ): Promise<ReportBody<ModuleUsageReportRow>> {
     const usage = await this.analyticsService.getUsageMetrics();
+
+    // `measuredEntries` skips unmeasured modules — the metric encodes "not
+    // instrumented" as an absent key (APA-133). An empty map is therefore NOT
+    // "no module was used": it is "no producer wrote a measurement". Emitting
+    // zero rows let executeReport hash and sign a zero-byte artifact as though
+    // it were an observation of the platform (APA-142). Availability is DERIVED
+    // from the metric, never hardcoded, so wiring the pipeline flips it with no
+    // code change here.
+    const measured = measuredEntries(usage.moduleUsage);
+    if (measured.length === 0) {
+      return {
+        measured: false,
+        unavailableReason:
+          'Per-module usage has no producer: the audit-log usage pipeline is not wired.',
+      };
+    }
 
     // C-3 fix: use actual user count instead of hardcoded 2456, remove Math.random() for trend
     const userMetrics = await this.analyticsService.getUserMetrics();
     const totalActiveUsers = userMetrics.active || 1; // avoid division by zero
 
-    // `measuredEntries` skips unmeasured modules — the metric encodes "not
-    // instrumented" as an absent key, so an empty map is a legitimate result
-    // rather than a zero-filled one (APA-133).
-    const data: ModuleUsageReportRow[] = measuredEntries(usage.moduleUsage).map(([module, stats]) => ({
+    const data: ModuleUsageReportRow[] = measured.map(([module, stats]) => ({
       module: this.formatModuleName(module),
       activeUsers: stats.activeUsers,
       totalSessions: stats.totalSessions,
       avgSessionDuration: stats.avgSessionDuration,
       adoptionRate: Math.round((stats.activeUsers / totalActiveUsers) * 100),
-      trend: 'stable', // Trend calculation requires historical snapshot comparison
+      trend: null,
     }));
 
-    // Averaging over an empty measured set is NaN, and `mostUsedModule` would
-    // be undefined; both are reported as null so a reader sees "nothing was
-    // measured" instead of a corrupt number. `.sort()` mutates in place, so the
-    // ranking copies first rather than reordering the caller's rows.
+    // `.sort()` mutates in place, so the ranking copies first rather than
+    // reordering the caller's rows.
     const byActiveUsers = [...data].sort((a, b) => b.activeUsers - a.activeUsers);
 
     return {
+      measured: true,
       data,
       summary: {
         totalModules: data.length,
@@ -794,25 +895,36 @@ export class ReportsService {
     };
   }
 
-  private async generateFeatureUsageReport(_request: ReportRequest): Promise<{
-    data: FeatureUsageReportRow[];
-    summary: Record<string, unknown>;
-  }> {
+  private async generateFeatureUsageReport(
+    _request: ReportRequest,
+  ): Promise<ReportBody<FeatureUsageReportRow>> {
     const usage = await this.analyticsService.getUsageMetrics();
+
+    // Same reasoning as the module report: an empty adoption map means no
+    // producer, not universal non-adoption (APA-142).
+    const adoption = Object.entries(usage.featureAdoption);
+    if (adoption.length === 0) {
+      return {
+        measured: false,
+        unavailableReason:
+          'Feature adoption has no producer: the audit-log usage pipeline is not wired.',
+      };
+    }
 
     // C-3 fix: use actual user count, remove Math.random()
     const featureUserMetrics = await this.analyticsService.getUserMetrics();
     const featureTotalActive = featureUserMetrics.active || 1;
 
-    const data: FeatureUsageReportRow[] = Object.entries(usage.featureAdoption).map(([feature, rate]) => ({
+    const data: FeatureUsageReportRow[] = adoption.map(([feature, rate]) => ({
       feature: this.formatFeatureName(feature),
       adoptionRate: rate,
       activeUsers: Math.round((rate / 100) * featureTotalActive),
-      avgUsagePerUser: 0, // Requires real per-user usage tracking
-      trend: 'stable', // Trend calculation requires historical snapshot comparison
+      avgUsagePerUser: null,
+      trend: null,
     }));
 
     return {
+      measured: true,
       data,
       summary: {
         totalFeatures: data.length,
@@ -828,10 +940,9 @@ export class ReportsService {
   // Performance Report
   // ============================================================================
 
-  private async generatePerformanceReport(request: ReportRequest): Promise<{
-    data: PerformanceReportRow[];
-    summary: Record<string, unknown>;
-  }> {
+  private async generatePerformanceReport(
+    request: ReportRequest,
+  ): Promise<ReportBody<PerformanceReportRow>> {
     const startDate = request.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const endDate = request.endDate || new Date();
 
@@ -922,7 +1033,22 @@ export class ReportsService {
       (d) => d.uptime !== null || d.avgResponseTime !== null || d.apiCalls !== null,
     ).length;
 
+    // Emptiness is not the signal — MEASUREDNESS is. A table of per-day rows
+    // whose every metric is null is exactly as unmeasured as no rows at all,
+    // and stamping `measured: true` on it would still earn the run a sha256, a
+    // 7-day link and a green "Ready" badge over data nobody collected
+    // (APA-142). Coverage below is the partial-measurement signal; this is the
+    // none-at-all one.
+    if (daysWithData === 0) {
+      return {
+        measured: false,
+        unavailableReason:
+          'System performance has no producer: no APM or uptime snapshots exist for this range.',
+      };
+    }
+
     return {
+      measured: true,
       data,
       summary: {
         avgResponseTime: roundOrNull(avgOrNull(data.map((d) => d.avgResponseTime))),
@@ -1414,6 +1540,24 @@ export class ReportsService {
 
       return execution;
     } catch (error) {
+      // An absent data source is a terminal OUTCOME, not a failure: nothing
+      // broke and no retry will help. It is recorded (the request is still
+      // audit-worthy) and RETURNED rather than rethrown, so the caller gets the
+      // honest execution record instead of a 422 with no history entry. The
+      // throw happened inside generateReport — strictly before
+      // createReportArtifact — so no object key, sha256, download link or
+      // expiry can exist on this row (APA-142).
+      if (error instanceof ReportDataSourceUnavailableException) {
+        execution.status = 'unavailable';
+        execution.unavailableReason = error.unavailableReason;
+        execution.durationMs = Date.now() - startTime;
+        execution.completedAt = new Date();
+
+        await this.executionRepository.save(execution);
+
+        return execution;
+      }
+
       // Mark execution as failed
       execution.status = 'failed';
       execution.errorMessage = error instanceof Error ? error.message : 'Unknown error';

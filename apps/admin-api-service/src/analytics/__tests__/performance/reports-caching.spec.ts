@@ -78,8 +78,29 @@ const mockAuditLogService = {
   }),
 };
 
+/**
+ * One measured system-snapshot day.
+ *
+ * `system_performance` over a range with ZERO measured days is now a terminal
+ * `unavailable` outcome that throws before the cache is written (APA-142), so a
+ * caching spec must feed it something real — otherwise it would be asserting
+ * the cache behaviour of a report that legitimately never gets produced.
+ */
+const MEASURED_SNAPSHOT_DAY = [
+  {
+    snapshotDate: '2024-06-01',
+    metrics: {
+      uptimePercent: 97.5,
+      avgResponseTimeMs: 12,
+      errorRate: 2,
+      apiCallsToday: 7,
+      activeConnections: 3,
+    },
+  },
+];
+
 const createMockDataSource = (): Partial<DataSource> => ({
-  query: jest.fn().mockResolvedValue([]),
+  query: jest.fn().mockResolvedValue(MEASURED_SNAPSHOT_DAY),
 });
 
 const redisMock = <T extends (...args: never[]) => unknown>(
@@ -176,6 +197,7 @@ describe('ReportsService - Caching', () => {
 
     it('should return cached result on second request', async () => {
       const cachedData = {
+        measured: true,
         data: [{ id: 'tenant-1', name: 'Cached Tenant' }],
         summary: { totalTenants: 1 },
       };
@@ -191,6 +213,30 @@ describe('ReportsService - Caching', () => {
       // DB should NOT be hit when cache returns data
       expect(mockTenantRepo['find']).not.toHaveBeenCalled();
       expect(result.title).toBe('Tenant Overview Report');
+    });
+
+    it('discards a payload written before the measured discriminant existed', async () => {
+      // A cache read is deserialisation from a store a PREVIOUS release may have
+      // written, and `getJson<T>` casts it unchecked. Without validating the
+      // discriminant, every key still warm at rollout would decode with
+      // `measured === undefined` and report a healthy tenant report as having no
+      // data source for the full four-hour TTL (APA-142).
+      redisMock(mockRedis.getJson).mockResolvedValue({
+        data: [{ id: 'tenant-1', name: 'Cached Tenant' }],
+        summary: { totalTenants: 1 },
+      });
+
+      const result = await service.generateReport({
+        type: 'tenant_overview',
+        format: 'json',
+        startDate: new Date('2024-01-01'),
+        endDate: new Date('2024-12-31'),
+      });
+
+      // Treated as a MISS: recomputed from the repository and rewritten.
+      expect(mockTenantRepo['find']).toHaveBeenCalled();
+      expect(JSON.stringify(result.data)).not.toContain('Cached Tenant');
+      expect(mockRedis.setJson).toHaveBeenCalled();
     });
 
     it('should use 4 hour (14400s) TTL for report cache', async () => {

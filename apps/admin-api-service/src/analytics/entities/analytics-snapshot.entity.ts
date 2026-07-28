@@ -410,7 +410,27 @@ export class ReportDefinition {
 // Report Execution Entity (Execution History)
 // ============================================================================
 
-export type ReportExecutionStatus = 'pending' | 'running' | 'completed' | 'failed';
+/**
+ * Terminal outcomes of a report execution.
+ *
+ * `'unavailable'` is NOT a failure: nothing broke, and retrying will never
+ * help — the report type has no data source at all. It exists because
+ * `'completed'` was the only success-shaped terminal state, so a report over
+ * zero measured rows was persisted with a MinIO artifact, a sha256 and a 7-day
+ * download link, giving cryptographic provenance to something nobody measured
+ * (APA-142). A SUPER_ADMIN could not tell "no module was used" from "no
+ * producer exists".
+ *
+ * An `'unavailable'` execution carries no artifact fields by construction:
+ * `generateReport` throws before `createReportArtifact` is reached, so there is
+ * no code path that writes an object key, hash, link or expiry for one.
+ */
+export type ReportExecutionStatus =
+  | 'pending'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'unavailable';
 
 @Entity('report_executions', { schema: 'admin', synchronize: false })
 @Index(['definitionId'])
@@ -470,6 +490,16 @@ export class ReportExecution {
 
   @Column({ type: 'text', nullable: true })
   errorMessage?: string;
+
+  /**
+   * Why the report could not be produced, for status `'unavailable'`.
+   *
+   * Deliberately NOT folded into `errorMessage`: an absent data source is not
+   * an error, and rendering it under an error badge is the same conflation the
+   * status split exists to remove.
+   */
+  @Column({ type: 'text', nullable: true })
+  unavailableReason?: string;
 
   @Column({ type: 'int', nullable: true })
   durationMs?: number;

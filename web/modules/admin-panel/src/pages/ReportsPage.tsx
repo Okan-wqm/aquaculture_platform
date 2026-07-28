@@ -40,16 +40,21 @@ interface GeneratedReport {
   format: ReportFormat;
   title: string;
   generatedAt: string;
-  status: 'pending' | 'ready' | 'failed';
+  status: 'pending' | 'ready' | 'failed' | 'unavailable';
   data?: unknown;
   summary?: Record<string, unknown>;
   rowCount?: number;
   fileSizeBytes?: number;
+  unavailableReason?: string;
 }
 
 const mapExecutionStatus = (status: ApiReportExecution['status']): GeneratedReport['status'] => {
   if (status === 'completed') return 'ready';
   if (status === 'failed') return 'failed';
+  // Not collapsed into 'failed': an unavailable report did not break, it has no
+  // data source. Folding it into either 'ready' or 'failed' is the exact
+  // conflation APA-142 exists to remove.
+  if (status === 'unavailable') return 'unavailable';
   return 'pending';
 };
 
@@ -63,6 +68,7 @@ const mapExecutionToReport = (execution: ApiReportExecution): GeneratedReport =>
   summary: execution.summary,
   rowCount: execution.rowCount,
   fileSizeBytes: execution.fileSizeBytes,
+  unavailableReason: execution.unavailableReason,
 });
 
 // ============================================================================
@@ -306,10 +312,13 @@ interface ReportHistoryItemProps {
 }
 
 const ReportHistoryItem: React.FC<ReportHistoryItemProps> = ({ report, onDownload, onView }) => {
-  const statusColors: Record<string, string> = {
+  // Keyed by the status union rather than `string`: that is what made the
+  // index lookup `string | undefined` and forced the cast at the call site.
+  const statusColors: Record<GeneratedReport['status'], 'success' | 'warning' | 'error'> = {
     pending: 'warning',
     ready: 'success',
     failed: 'error',
+    unavailable: 'warning',
   };
 
   return (
@@ -317,14 +326,23 @@ const ReportHistoryItem: React.FC<ReportHistoryItemProps> = ({ report, onDownloa
       <div className="flex-1">
         <div className="flex items-center gap-2">
           <span className="font-medium text-gray-900">{report.title}</span>
-          <Badge variant={statusColors[report.status] as 'success' | 'warning' | 'error'}>
-            {report.status === 'pending' ? 'Generating' : report.status === 'ready' ? 'Ready' : 'Failed'}
+          <Badge variant={statusColors[report.status]}>
+            {report.status === 'pending'
+              ? 'Generating'
+              : report.status === 'ready'
+                ? 'Ready'
+                : report.status === 'unavailable'
+                  ? 'No data source'
+                  : 'Failed'}
           </Badge>
         </div>
         <p className="text-sm text-gray-500">
           {new Date(report.generatedAt).toLocaleString()}
           {report.rowCount !== undefined ? ` - ${report.rowCount.toLocaleString()} rows` : ''}
         </p>
+        {report.status === 'unavailable' && report.unavailableReason && (
+          <p className="text-sm text-amber-700 mt-1">{report.unavailableReason}</p>
+        )}
       </div>
       {report.status === 'ready' && (
         <div className="flex gap-2">

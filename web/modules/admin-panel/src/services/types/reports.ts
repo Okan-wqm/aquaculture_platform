@@ -11,7 +11,13 @@ export type ReportType =
   | 'usage_features'
   | 'system_performance';
 export type ReportFormat = 'pdf' | 'csv' | 'json';
-export type ReportStatus = 'pending' | 'running' | 'completed' | 'failed';
+/**
+ * `'unavailable'` mirrors the backend terminal state added in APA-142: the
+ * report type has no data source, so nothing broke and no retry will help.
+ * Folding it into 'completed' or 'failed' is the exact conflation it exists to
+ * remove.
+ */
+export type ReportStatus = 'pending' | 'running' | 'completed' | 'failed' | 'unavailable';
 
 export interface ReportDefinition {
   id: string;
@@ -40,6 +46,8 @@ export interface ReportExecution {
   rowCount?: number;
   summary?: Record<string, unknown>;
   errorMessage?: string;
+  /** Why the report could not be produced; set only for status 'unavailable'. */
+  unavailableReason?: string;
   durationMs?: number;
   createdAt: string;
   startDate?: string;

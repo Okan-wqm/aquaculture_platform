@@ -1203,6 +1203,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/analytics/__tests__/reports-unmeasured-artifact.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/analytics/__tests__/support/reports-service-harness.ts",
       "prettier_managed": true
     },
@@ -2412,6 +2418,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1802300000000-RetireUnexecutedReportSchedule.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1802400000000-AddReportExecutionUnavailableReason.ts",
       "prettier_managed": true
     },
     {
@@ -55542,10 +55554,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9106,
+  "file_count": 9108,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8925,
-  "managed_file_list_sha256": "8a8bd8a9233c2e861823543512957f1eb773f3e9212aa09d127378909e7600af",
+  "managed_count": 8927,
+  "managed_file_list_sha256": "ef435cd4ca12fd709e5076975a77c0e051923f7d4d97d45ccd8f61d773391d8e",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

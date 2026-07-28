@@ -1,153 +1,84 @@
 /**
- * APA-133 (report side) — the usage reports must report "nothing measured",
- * never NaN.
+ * APA-133 (report side) + APA-142 — the usage reports must never emit a corrupt
+ * number, and must never emit a report at all when nothing was measured.
  *
- * Both summaries divided by `data.length`. That was invisible while
+ * APA-133: both summaries divided by `data.length`. That was invisible while
  * `getUsageMetrics()` fabricated a fully-keyed map (length 7 / 6), but the
- * moment the maps became honestly empty the averages evaluate to `NaN`, which
+ * moment the maps became honestly empty the averages evaluated to `NaN`, which
  * `JSON.stringify` serialises as `null` in some paths and renders as "NaN" in
  * others — corrupt either way. `mostUsedModule` likewise came from
  * `data.sort(...)[0]?.module` on an in-place sort of the returned rows.
  *
- * Absence is now explicit (`null`) and the row ordering the caller receives is
- * no longer a side effect of computing the summary.
+ * APA-142: the empty set no longer reaches those summary paths at all — a
+ * report with no measurements is now rejected before it can be produced. So the
+ * degenerate-averaging guards are exercised against a SINGLE measured row
+ * instead, which is the smallest input that still reaches them; the
+ * "nothing measured" cases assert the rejection and its reason.
  *
  * @see docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/analytics.md#APA-133
+ * @see docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/analytics.md#APA-142
  */
-import { RedisService } from '@aquaculture/backend-common/redis';
-import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { ReportDataSourceUnavailableException } from '../services/reports.service';
 
-import { AuditLogService } from '../../audit/audit.service';
 import {
-  AnalyticsSnapshot,
-  ReportDefinition,
-  ReportExecution,
-  ReportRequest,
-  UsageMetrics,
-  UserMetrics,
-} from '../entities/analytics-snapshot.entity';
-import { InvoiceReadOnly } from '../entities/external/invoice.entity';
-import { SubscriptionReadOnly } from '../entities/external/subscription.entity';
-import { TenantReadOnly } from '../entities/external/tenant.entity';
-import { UserReadOnly } from '../entities/external/user.entity';
-import { AnalyticsService } from '../services/analytics.service';
-import { ReportsService } from '../services/reports.service';
+  MEASURED,
+  MEASURED_SINGLE,
+  NOTHING_MEASURED,
+  buildReportsHarness,
+  reportRequest,
+} from './support/reports-service-harness';
 
-const NOTHING_MEASURED: UsageMetrics = {
-  moduleUsage: {},
-  featureAdoption: {},
-  topFeatures: [],
-  peakHours: [],
-  avgDailyActiveUsers: 0,
-};
+describe('usage report integrity (APA-133, APA-142)', () => {
+  it('usage_modules: an unmeasured platform produces no report at all', async () => {
+    const { service } = await buildReportsHarness({ usage: NOTHING_MEASURED });
 
-const MEASURED: UsageMetrics = {
-  moduleUsage: {
-    alerts: { activeUsers: 5, totalSessions: 11, avgSessionDuration: 3 },
-    farm_management: { activeUsers: 25, totalSessions: 60, avgSessionDuration: 7 },
-  },
-  featureAdoption: { mobile_app: 80, api_integration: 20 },
-  topFeatures: [],
-  peakHours: [],
-  avgDailyActiveUsers: 30,
-};
+    const generate = service.generateReport(reportRequest('usage_modules'));
 
-const USER_METRICS: UserMetrics = {
-  total: 100,
-  active: 50,
-  inactive: 50,
-  newThisMonth: 0,
-  activeLastDay: 30,
-  activeLastWeek: 40,
-  activeLastMonth: 50,
-  growthRate: 0,
-  avgUsersPerTenant: 0,
-  byRole: { admin: 0, manager: 0, operator: 0, viewer: 0 },
-};
+    await expect(generate).rejects.toBeInstanceOf(ReportDataSourceUnavailableException);
+    await expect(generate).rejects.toMatchObject({
+      unavailableReason: expect.stringContaining('no producer'),
+    });
+  });
 
-async function buildService(usage: UsageMetrics): Promise<ReportsService> {
-  const repo = {
-    find: jest.fn().mockResolvedValue([]),
-    findOne: jest.fn().mockResolvedValue(null),
-    create: jest.fn(),
-    save: jest.fn(),
-    createQueryBuilder: jest.fn(),
-  };
-  const module: TestingModule = await Test.createTestingModule({
-    providers: [
-      ReportsService,
-      { provide: getRepositoryToken(AnalyticsSnapshot), useValue: repo },
-      { provide: getRepositoryToken(TenantReadOnly), useValue: repo },
-      { provide: getRepositoryToken(UserReadOnly), useValue: repo },
-      // billing.invoices is the payments report's SSoT (APA-138).
-      { provide: getRepositoryToken(InvoiceReadOnly), useValue: { find: jest.fn().mockResolvedValue([]) } },
-      // billing.subscriptions is the pricing SSoT (APA-147).
-      { provide: getRepositoryToken(SubscriptionReadOnly), useValue: { find: jest.fn().mockResolvedValue([]) } },
-      { provide: getRepositoryToken(ReportDefinition), useValue: repo },
-      { provide: getRepositoryToken(ReportExecution), useValue: repo },
-      {
-        provide: AnalyticsService,
-        useValue: {
-          getUsageMetrics: jest.fn().mockResolvedValue(usage),
-          getUserMetrics: jest.fn().mockResolvedValue(USER_METRICS),
-        },
-      },
-      { provide: AuditLogService, useValue: { log: jest.fn() } },
-      {
-        provide: DataSource,
-        useValue: { query: jest.fn().mockResolvedValue([]), createQueryRunner: jest.fn() },
-      },
-      {
-        provide: RedisService,
-        useValue: {
-          getJson: jest.fn().mockResolvedValue(null),
-          setJson: jest.fn().mockResolvedValue(undefined),
-        },
-      },
-    ],
-  }).compile();
-  return module.get(ReportsService);
-}
+  it('usage_features: an unmeasured platform produces no report at all', async () => {
+    const { service } = await buildReportsHarness({ usage: NOTHING_MEASURED });
 
-function request(type: ReportRequest['type']): ReportRequest {
-  return {
-    type,
-    format: 'json',
-    startDate: new Date('2026-06-01T00:00:00.000Z'),
-    endDate: new Date('2026-06-30T00:00:00.000Z'),
-  };
-}
+    const generate = service.generateReport(reportRequest('usage_features'));
 
-describe('usage report integrity (APA-133)', () => {
-  it('usage_modules: an unmeasured platform reports null, not NaN', async () => {
-    const service = await buildService(NOTHING_MEASURED);
+    await expect(generate).rejects.toBeInstanceOf(ReportDataSourceUnavailableException);
+    await expect(generate).rejects.toMatchObject({
+      unavailableReason: expect.stringContaining('no producer'),
+    });
+  });
 
-    const result = await service.generateReport(request('usage_modules'));
+  it('usage_modules: a single measured row still aggregates to a number, not NaN', async () => {
+    const { service } = await buildReportsHarness({ usage: MEASURED_SINGLE });
 
-    expect(result.data).toEqual([]);
-    expect(result.summary?.['totalModules']).toBe(0);
-    expect(result.summary?.['avgAdoptionRate']).toBeNull();
-    expect(result.summary?.['mostUsedModule']).toBeNull();
+    const result = await service.generateReport(reportRequest('usage_modules'));
+
+    // 5/50 = 10%. The degenerate branches (`avgOrNull` over one element,
+    // `mostUsedModule` off a one-row ranking) stay covered now that the empty
+    // set is rejected upstream.
+    expect(result.summary?.['totalModules']).toBe(1);
+    expect(result.summary?.['avgAdoptionRate']).toBe(10);
+    expect(result.summary?.['mostUsedModule']).toBe('Alerts');
     expect(Number.isNaN(result.summary?.['avgAdoptionRate'])).toBe(false);
   });
 
-  it('usage_features: an unmeasured platform reports null, not NaN', async () => {
-    const service = await buildService(NOTHING_MEASURED);
+  it('usage_features: a single measured row still aggregates to a number, not NaN', async () => {
+    const { service } = await buildReportsHarness({ usage: MEASURED_SINGLE });
 
-    const result = await service.generateReport(request('usage_features'));
+    const result = await service.generateReport(reportRequest('usage_features'));
 
-    expect(result.data).toEqual([]);
-    expect(result.summary?.['totalFeatures']).toBe(0);
-    expect(result.summary?.['avgAdoptionRate']).toBeNull();
+    expect(result.summary?.['totalFeatures']).toBe(1);
+    expect(result.summary?.['avgAdoptionRate']).toBe(80);
     expect(Number.isNaN(result.summary?.['avgAdoptionRate'])).toBe(false);
   });
 
   it('usage_modules: real measurements still aggregate, and row order is untouched', async () => {
-    const service = await buildService(MEASURED);
+    const { service } = await buildReportsHarness({ usage: MEASURED });
 
-    const result = await service.generateReport(request('usage_modules'));
+    const result = await service.generateReport(reportRequest('usage_modules'));
 
     // 5/50 = 10%, 25/50 = 50% -> mean 30.
     expect(result.summary?.['avgAdoptionRate']).toBe(30);
@@ -165,9 +96,9 @@ describe('usage report integrity (APA-133)', () => {
   });
 
   it('usage_features: real measurements still aggregate', async () => {
-    const service = await buildService(MEASURED);
+    const { service } = await buildReportsHarness({ usage: MEASURED });
 
-    const result = await service.generateReport(request('usage_features'));
+    const result = await service.generateReport(reportRequest('usage_features'));
 
     expect(result.summary?.['totalFeatures']).toBe(2);
     expect(result.summary?.['avgAdoptionRate']).toBe(50);

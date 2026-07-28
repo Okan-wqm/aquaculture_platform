@@ -12,26 +12,20 @@
  * Absence is now structural: unmeasured is `null`, and `summary.coverage`
  * states what fraction of days were actually measured.
  *
+ * APA-142 then went further for the TOTAL absence case: a range with zero
+ * measured days produces no report at all, because a table of all-null rows is
+ * exactly as unmeasured as no rows and would still have earned a sha256 and a
+ * 7-day download link. So the fabrication guards below run over a PARTIALLY
+ * measured range — the case where a constant could still creep back into the
+ * gap days — and total absence is asserted as a rejection.
+ *
  * @see docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/analytics.md#APA-143
+ * @see docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/analytics.md#APA-142
  */
-import { RedisService } from '@aquaculture/backend-common/redis';
-import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import { ReportRequest } from '../entities/analytics-snapshot.entity';
+import { ReportDataSourceUnavailableException } from '../services/reports.service';
 
-import { AuditLogService } from '../../audit/audit.service';
-import {
-  AnalyticsSnapshot,
-  ReportDefinition,
-  ReportExecution,
-  ReportRequest,
-} from '../entities/analytics-snapshot.entity';
-import { InvoiceReadOnly } from '../entities/external/invoice.entity';
-import { SubscriptionReadOnly } from '../entities/external/subscription.entity';
-import { TenantReadOnly } from '../entities/external/tenant.entity';
-import { UserReadOnly } from '../entities/external/user.entity';
-import { AnalyticsService } from '../services/analytics.service';
-import { ReportsService } from '../services/reports.service';
+import { buildReportsHarness } from './support/reports-service-harness';
 
 /** The retired fabrication constants — none may reappear in any output. */
 const RETIRED_CONSTANTS = [45, 0.1, 99.9];
@@ -73,44 +67,7 @@ function isPerfRows(value: unknown): value is PerfRow[] {
   );
 }
 
-describe('system_performance report integrity (APA-143)', () => {
-  let query: jest.Mock;
-
-  async function buildService(): Promise<ReportsService> {
-    const repo = {
-      find: jest.fn().mockResolvedValue([]),
-      findOne: jest.fn().mockResolvedValue(null),
-      create: jest.fn(),
-      save: jest.fn(),
-      createQueryBuilder: jest.fn(),
-    };
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ReportsService,
-        { provide: getRepositoryToken(AnalyticsSnapshot), useValue: repo },
-        { provide: getRepositoryToken(TenantReadOnly), useValue: repo },
-        { provide: getRepositoryToken(UserReadOnly), useValue: repo },
-        // billing.invoices is the payments report's SSoT (APA-138).
-        { provide: getRepositoryToken(InvoiceReadOnly), useValue: { find: jest.fn().mockResolvedValue([]) } },
-        // billing.subscriptions is the pricing SSoT (APA-147).
-        { provide: getRepositoryToken(SubscriptionReadOnly), useValue: { find: jest.fn().mockResolvedValue([]) } },
-        { provide: getRepositoryToken(ReportDefinition), useValue: repo },
-        { provide: getRepositoryToken(ReportExecution), useValue: repo },
-        { provide: AnalyticsService, useValue: {} },
-        { provide: AuditLogService, useValue: { log: jest.fn() } },
-        { provide: DataSource, useValue: { query, createQueryRunner: jest.fn() } },
-        {
-          provide: RedisService,
-          useValue: {
-            getJson: jest.fn().mockResolvedValue(null),
-            setJson: jest.fn().mockResolvedValue(undefined),
-          },
-        },
-      ],
-    }).compile();
-    return module.get(ReportsService);
-  }
-
+describe('system_performance report integrity (APA-143, APA-142)', () => {
   const range: ReportRequest = {
     type: 'system_performance',
     format: 'json',
@@ -118,8 +75,25 @@ describe('system_performance report integrity (APA-143)', () => {
     endDate: new Date('2026-06-03T00:00:00.000Z'),
   };
 
-  async function runReport(): Promise<{ data: PerfRow[]; summary: Record<string, unknown> }> {
-    const service = await buildService();
+  /** One measured day inside the three-day range, so the other two are gaps —
+   *  the shape in which a fabricated constant could still reappear. */
+  const ONE_MEASURED_DAY = [
+    {
+      snapshotDate: '2026-06-01',
+      metrics: {
+        uptimePercent: 97.5,
+        avgResponseTimeMs: 12,
+        errorRate: 2,
+        apiCallsToday: 7,
+        activeConnections: 3,
+      },
+    },
+  ];
+
+  async function runReport(
+    rawQueryRows: unknown,
+  ): Promise<{ data: PerfRow[]; summary: Record<string, unknown>; rawQuery: jest.Mock }> {
+    const { service, rawQuery } = await buildReportsHarness({ rawQueryRows });
     const result = await service.generateReport(range);
 
     // Verified narrowing, not assertion: if the wire shape ever drifts, this
@@ -129,18 +103,18 @@ describe('system_performance report integrity (APA-143)', () => {
         `generateReport returned a non-PerformanceReportRow[] payload: ${JSON.stringify(result.data)}`,
       );
     }
-    return { data: result.data, summary: result.summary ?? {} };
+    return { data: result.data, summary: result.summary ?? {}, rawQuery };
   }
 
-  beforeEach(() => {
-    query = jest.fn().mockResolvedValue([]);
-  });
+  it('leaves an unmeasured day null — never a retired constant — inside a measured range', async () => {
+    const { data, summary } = await runReport(ONE_MEASURED_DAY);
 
-  it('emits null metrics — never the retired constants — when nothing was measured', async () => {
-    const { data, summary } = await runReport();
-
+    // The generator emits only the days it has snapshots for, so the gap is
+    // visible as coverage rather than as invented rows. Whichever shape it
+    // takes, no unmeasured metric may carry a number.
     expect(data.length).toBeGreaterThan(0);
     for (const row of data) {
+      if (row.date === '2026-06-01') continue;
       expect(row.avgResponseTime).toBeNull();
       expect(row.errorRate).toBeNull();
       expect(row.uptime).toBeNull();
@@ -148,10 +122,8 @@ describe('system_performance report integrity (APA-143)', () => {
       expect(row.activeConnections).toBeNull();
     }
 
-    expect(summary['daysWithData']).toBe(0);
-    expect(summary['coverage']).toBe(0);
-    expect(summary['avgUptime']).toBeNull();
-    expect(summary['avgResponseTime']).toBeNull();
+    expect(summary['daysWithData']).toBe(1);
+    expect(summary['avgUptime']).toBe(97.5);
 
     // No fabricated constant may survive anywhere in the payload.
     const numbers = JSON.stringify({ data, summary }).match(/-?\d+(\.\d+)?/g) ?? [];
@@ -160,8 +132,21 @@ describe('system_performance report integrity (APA-143)', () => {
     }
   });
 
+  it('produces no report at all when the whole range is unmeasured', async () => {
+    // A table of all-null rows is exactly as unmeasured as no rows, and used to
+    // earn a MinIO artifact, a sha256 and a 7-day link all the same (APA-142).
+    const { service } = await buildReportsHarness({ rawQueryRows: [] });
+
+    const generate = service.generateReport(range);
+
+    await expect(generate).rejects.toBeInstanceOf(ReportDataSourceUnavailableException);
+    await expect(generate).rejects.toMatchObject({
+      unavailableReason: expect.stringContaining('no producer'),
+    });
+  });
+
   it('passes measured snapshot values through untouched (no 99.9 coalescing)', async () => {
-    query = jest.fn().mockResolvedValue([
+    const { data, summary } = await runReport([
       {
         snapshotDate: '2026-06-01',
         metrics: { uptimePercent: 97.5, avgResponseTimeMs: 12, errorRate: 2, apiCallsToday: 7, activeConnections: 3 },
@@ -172,17 +157,15 @@ describe('system_performance report integrity (APA-143)', () => {
       },
     ]);
 
-    const { data, summary } = await runReport();
-
     expect(data.map((r) => r.uptime)).toEqual([97.5, 98]);
     expect(summary['avgUptime']).toBe(97.75);
     expect(summary['coverage']).toBe(1);
   });
 
   it('never proxies audit-log row counts as API calls', async () => {
-    await runReport();
+    const { rawQuery } = await runReport(ONE_MEASURED_DAY);
 
-    const sqlSeen = query.mock.calls.map((c) => String(c[0]));
+    const sqlSeen = rawQuery.mock.calls.map((c) => String(c[0]));
     expect(sqlSeen.some((sql) => /audit_logs/i.test(sql))).toBe(false);
   });
 });

@@ -23,7 +23,12 @@ interface Workflow {
       name?: string;
       needs?: string[];
       if?: string;
-      steps?: Array<{ run?: string }>;
+      steps?: Array<{
+        name?: string;
+        uses?: string;
+        run?: string;
+        with?: Record<string, string>;
+      }>;
     }
   >;
 }
@@ -71,5 +76,24 @@ describe('CI Full protected-main and PR contract', () => {
     for (const dependency of expectedDependencies) {
       expect(summaryScript).toContain(`needs.${dependency}.result`);
     }
+  });
+
+  it('installs the pinned Rust toolchain before parallel full-surface lint starts', () => {
+    const lintSteps = readWorkflow().jobs?.['lint-and-typecheck']?.steps ?? [];
+    const toolchainIndex = lintSteps.findIndex(
+      (step) => step.uses === 'dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537',
+    );
+    const lintIndex = lintSteps.findIndex((step) =>
+      step.run?.includes('npm run lint:all -- --max-warnings=0'),
+    );
+    const toolchain = lintSteps[toolchainIndex];
+
+    expect(toolchainIndex).toBeGreaterThan(-1);
+    expect(toolchainIndex).toBeLessThan(lintIndex);
+    expect(toolchain?.with).toEqual({
+      toolchain: '1.88.0',
+      components: 'rustfmt,clippy,rust-src',
+      targets: 'x86_64-unknown-linux-musl,aarch64-unknown-linux-musl',
+    });
   });
 });

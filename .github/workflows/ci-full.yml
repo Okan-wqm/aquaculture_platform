@@ -70,6 +70,15 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit --prefer-offline
 
+      # Nx runs every Rust-backed lint target in parallel. Install the pinned
+      # toolchain once so cargo processes never race while mutating ~/.rustup.
+      - name: Install Rust toolchain (rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
+        with:
+          toolchain: 1.88.0
+          components: rustfmt,clippy,rust-src
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+
       - name: Run linter (all projects)
         run: npm run lint:all -- --max-warnings=0
 

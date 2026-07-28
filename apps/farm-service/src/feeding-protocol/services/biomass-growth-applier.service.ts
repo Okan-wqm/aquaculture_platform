@@ -28,7 +28,7 @@ import { Batch } from '../../batch/entities/batch.entity';
 import { TankBatch, BatchDetail } from '../../batch/entities/tank-batch.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
-import { round3 } from './rounding.util';
+import { round3 } from '../../common/utils/rounding.util';
 
 export interface LockedUnit {
   tankBatch: TankBatch;

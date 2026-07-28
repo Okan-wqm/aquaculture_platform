@@ -91,7 +91,7 @@ import { FeedingJobRunService } from './feeding-job-run.service';
 import { collectFeedSourceFeedIds, buildFeedFcrMatrixMap } from './feed-fcr-source.util';
 import { ProtocolFeedForecastService } from './protocol-feed-forecast.service';
 import { DayPlanRecalcService } from './day-plan-recalc.service';
-import { round3 } from './rounding.util';
+import { round3 } from '../../common/utils/rounding.util';
 
 const ADVISORY_LOCK_NAMESPACE = 0x46454544; // 'FEED'
 const ASSIGNMENT_PAGE_SIZE = 200;

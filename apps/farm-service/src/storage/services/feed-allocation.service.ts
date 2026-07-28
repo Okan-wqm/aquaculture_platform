@@ -39,6 +39,8 @@ import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 
 import { StorageInventory, StorageItemType } from '../entities/storage-inventory.entity';
 import { StorageLocation } from '../entities/storage-location.entity';
+// Stok kolonları numeric(15,2) — tahsis aritmetiği aynı hassasiyette.
+import { round2 } from '../../common/utils/rounding.util';
 
 /** Tek lot/lokasyondan düşülecek pay. */
 export interface FeedAllocationSlice {
@@ -223,9 +225,4 @@ export class FeedAllocationService {
         }))
     );
   }
-}
-
-/** Stok kolonları numeric(15,2) — tahsis aritmetiği aynı hassasiyette. */
-function round2(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
 }

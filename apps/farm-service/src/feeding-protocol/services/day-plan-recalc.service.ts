@@ -49,7 +49,7 @@ import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { ProtocolResolutionService } from './protocol-resolution.service';
 import { distributeCatchUp, repriceRemaining } from './meal-schedule.util';
 import { RECALC_LOG_MAX_ENTRIES } from '../constants';
-import { round3 } from './rounding.util';
+import { round3 } from '../../common/utils/rounding.util';
 
 export type RecalcReason = RecalcLogEntry['reason'];
 

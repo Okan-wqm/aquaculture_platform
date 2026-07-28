@@ -17,7 +17,7 @@ interface ParsedCoverage {
 const coverageEvidence: {
   parseLcov(content: string, reportPath: string): ParsedCoverage;
 } = require('../../tools/quality/coverage-evidence.js');
-const vitestTestPolicy: {
+const createVitestTestPolicy: () => {
   maxWorkers: number;
   coverage: { provider: string; reporter: string[] };
 } = require('@aquaculture/testing/vitest');
@@ -87,7 +87,7 @@ describe('repository-owned coverage evidence contract', () => {
   });
 
   it('bounds nested Vitest worker pools and gives every producer the same LCOV policy', () => {
-    expect(vitestTestPolicy).toEqual({
+    expect(createVitestTestPolicy()).toEqual({
       maxWorkers: 2,
       coverage: {
         provider: 'v8',
@@ -98,8 +98,16 @@ describe('repository-owned coverage evidence contract', () => {
     for (const configPath of VITEST_CONFIGS) {
       const config = fs.readFileSync(path.join(REPO_ROOT, configPath), 'utf8');
       expect(config).toContain('@aquaculture/testing/vitest');
-      expect(config).toContain('...testPolicy');
+      expect(config).toContain('...createVitestTestPolicy()');
     }
+  });
+
+  it('returns an isolated reporter array for every config consumer', () => {
+    const first = createVitestTestPolicy();
+    const second = createVitestTestPolicy();
+
+    expect(first).not.toBe(second);
+    expect(first.coverage.reporter).not.toBe(second.coverage.reporter);
   });
 
   it('rejects syntactically present reports with no instrumented source lines', () => {

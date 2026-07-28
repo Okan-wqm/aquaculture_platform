@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react';
 import { federation } from '@module-federation/vite';
 import { resolve } from 'path';
 import { getSharedConfigWithRecharts } from '../../shared-ui/src/federation/federationSharedConfig';
-import testPolicy from '@aquaculture/testing/vitest';
+import createVitestTestPolicy from '@aquaculture/testing/vitest';
 
 /**
  * Vite Konfigürasyonu - Dashboard Microfrontend
@@ -64,6 +64,6 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
     css: false,
-    ...testPolicy,
+    ...createVitestTestPolicy(),
   },
 });

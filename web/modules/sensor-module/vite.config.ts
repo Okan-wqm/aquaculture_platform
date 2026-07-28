@@ -4,7 +4,7 @@ import { federation } from '@module-federation/vite';
 import svgr from 'vite-plugin-svgr';
 import { resolve } from 'path';
 import { getSharedConfigWithReactFlowAndRecharts } from '../../shared-ui/src/federation/federationSharedConfig';
-import testPolicy from '@aquaculture/testing/vitest';
+import createVitestTestPolicy from '@aquaculture/testing/vitest';
 
 /**
  * Vite Konfigürasyonu - Sensor Module Microfrontend
@@ -91,7 +91,7 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       setupFiles: ['./src/test-setup.ts'],
       include: ['src/**/*.{test,spec}.{ts,tsx}'],
-      ...testPolicy,
+      ...createVitestTestPolicy(),
     },
   };
 });

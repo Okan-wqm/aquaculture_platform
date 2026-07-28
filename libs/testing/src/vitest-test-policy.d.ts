@@ -1,9 +1,9 @@
-declare const vitestTestPolicy: {
+declare function createVitestTestPolicy(): {
   readonly maxWorkers: 2;
   readonly coverage: {
     readonly provider: 'v8';
-    readonly reporter: readonly ['text', 'lcov'];
+    readonly reporter: ['text', 'lcov'];
   };
 };
 
-export = vitestTestPolicy;
+export = createVitestTestPolicy;

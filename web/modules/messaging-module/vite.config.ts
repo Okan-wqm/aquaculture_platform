@@ -4,7 +4,7 @@ import { resolve } from 'path';
 import { federation } from '@module-federation/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
-import testPolicy from '@aquaculture/testing/vitest';
+import createVitestTestPolicy from '@aquaculture/testing/vitest';
 
 // WHY: the federation shared-deps SSoT lives in shared-ui SOURCE. This vite
 // config is evaluated by Node before shared-ui's runtime barrel (dist) exists,
@@ -47,7 +47,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    ...testPolicy,
+    ...createVitestTestPolicy(),
   },
   server: {
     port: 5178,

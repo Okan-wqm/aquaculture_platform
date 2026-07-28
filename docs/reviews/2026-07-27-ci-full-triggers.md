@@ -229,3 +229,15 @@ The replacement contract calls the public rule-loading boundary twice and proves
 returns the cached object while query-builder construction and repository I/O each occur exactly
 once. No timeout, threshold, retry, or production cache behavior changed; the focused alert
 coverage target passes deterministically.
+
+## INFRA-HIGH-100 — frozen policy declaration was not assignable to Vitest config
+
+The first policy declaration exposed its frozen reporter tuple as `readonly`. That accurately
+described the shared runtime object but made the object incompatible with Vitest's `InlineConfig`,
+which owns a mutable reporter array. The changed-file compiler therefore rejected the
+aquaculture-engines config even though the runtime test target passed.
+
+The policy export is now a factory. Each config receives a fresh reporter array, while the policy
+object and coverage envelope remain frozen and centrally defined. An invariant proves two
+consumers cannot share the mutable array. All 40 project compiler configurations and the
+aquaculture-engines runtime target pass with the same single policy source.

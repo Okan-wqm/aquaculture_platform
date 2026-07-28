@@ -464,18 +464,20 @@ jobs:
       # through a separate `test:invariant` target so the fast default lane does
       # not pay for a real build (~16s measured).
       #
-      # UNTIL NOW THIS STEP RAN NOTHING. No project declared `test:invariant` —
-      # the target this comment claimed aquamobil owned simply did not exist, and
-      # aquamobil has no `test` target either. affected-target-policy.sh received
-      # an empty project list, printed "No strict test:invariant projects remain"
-      # and exited 0, so the step was permanently, silently green while the
-      # invariant it names never executed. The target is real as of this commit
-      # (web/apps/aquamobil/package.json declares the script, which is where Nx
-      # infers this project's targets from), so the sentence above is finally
-      # true. Same class as FARM-MEDIUM-301, caught by the same sweep.
+      # UNTIL 2026-07-27 THIS STEP RAN NOTHING. No project declared
+      # `test:invariant` — the target this comment claimed aquamobil owned simply
+      # did not exist. affected-target-policy.sh received an empty project list,
+      # printed "No strict test:invariant projects remain" and exited 0, so the
+      # step was permanently, silently green while the invariant it names never
+      # executed. The target is real now (web/apps/aquamobil/package.json declares
+      # the script, which is where Nx infers this project's targets from), so the
+      # sentence above is finally true. Same class as FARM-MEDIUM-301.
       #
-      # NOTE: aquamobil's remaining ~380 vitest tests still have NO CI runner —
-      # tracked separately; this step covers the SW invariant only.
+      # aquamobil's other 383 vitest tests are no longer stranded either: the
+      # project now declares a plain `test` script, so Nx infers a `test` target
+      # and the affected `test` step above selects it (FARM-MEDIUM-304). They ran
+      # nowhere before purely because a target Nx never saw cannot be selected —
+      # the suite itself was green all along (66 files, 383 tests, ~32s).
       - name: Run SW build-artifact invariant (affected only)
         run: |
           BASE_REF="origin/${{ github.base_ref || 'main' }}"

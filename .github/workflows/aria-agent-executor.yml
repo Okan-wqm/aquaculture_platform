@@ -180,6 +180,15 @@ jobs:
               artifacts = json.load(resp).get("artifacts", [])
           live = [a for a in artifacts if not a.get("expired")]
           if not live:
+              # ORPHAN-CRITICAL-488 — a GENUINE first run must still publish.
+              # The 484 gate collapsed "restore failed" and "nothing to
+              # restore" into one absent signal, so a newborn ARIA could never
+              # establish its first artifact: publish blocked, job red, forever.
+              # Three states, distinguished at the only step that knows which
+              # one occurred. A failure, a skipped step or a crash still write
+              # NEITHER, so those keep blocking exactly as before.
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+                  fh.write("bootstrap=true\n")
               print("No prior aria-tools-state artifact; starting from bootstrap.")
               raise SystemExit(0)
           artifact = live[0]
@@ -475,7 +484,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Persist aria-tools state (verified)
-        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true' && steps.restore_state.outputs.restored == 'true'
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true' && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aria-tools-state
@@ -494,7 +503,7 @@ jobs:
         # integrity step above is skipped, so state_valid is the empty string
         # and an unguarded `!= 'true'` would quarantine a tree this run never
         # touched — turning every blocked night into a forensics artifact.
-        if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || steps.restore_state.outputs.restored != 'true')
+        if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || (steps.restore_state.outputs.restored != 'true' && steps.restore_state.outputs.bootstrap != 'true'))
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: quarantine-evidence-${{ github.run_id }}
@@ -512,11 +521,12 @@ jobs:
         # publish NOTHING under the canonical name, and still report green —
         # and the failure is absorbing: each such night buries the good
         # artifact one run deeper until the 30-day retention window closes.
-        if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || steps.restore_state.outputs.restored != 'true')
+        if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || (steps.restore_state.outputs.restored != 'true' && steps.restore_state.outputs.bootstrap != 'true'))
         run: |
           set -euo pipefail
           echo "::error::aria-tools state was NOT published under the canonical name."
           echo "state_valid=${{ steps.integrity.outputs.state_valid }}"
           echo "restored=${{ steps.restore_state.outputs.restored }}"
+          echo "bootstrap=${{ steps.restore_state.outputs.bootstrap }}"
           echo "The tree is preserved as quarantine-evidence-${{ github.run_id }}."
           exit 1

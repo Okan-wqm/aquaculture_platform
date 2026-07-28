@@ -51,6 +51,38 @@ class PublishGateTests(unittest.TestCase):
     def test_the_restore_step_exposes_an_id_the_gate_can_read(self) -> None:
         self.assertEqual(_by_name("Restore aria-tools state").get("id"), "restore_state")
 
+    def test_a_genuine_first_run_can_still_publish(self) -> None:
+        """ORPHAN-CRITICAL-488 — the 484 gate made a newborn ARIA impossible.
+
+        `restored=true` is written only after a real extraction, so a first ever
+        run — no prior artifact — left it unset, the publish was blocked and the
+        fail step turned the job red. Permanently: with no artifact published,
+        the next run is also a first run. The fix distinguishes THREE states at
+        the only step that knows which occurred; a failure, a skipped step and a
+        crash still write neither and still block.
+        """
+        body = _by_name("Restore aria-tools state")["run"]
+        self.assertIn('fh.write("bootstrap=true', body)
+        # bootstrap is claimed ONLY on the no-live-artifact branch, before the
+        # clean exit — never after a failed download.
+        self.assertLess(body.index('fh.write("bootstrap=true'), body.index("SystemExit(0)"))
+        self.assertLess(body.index('fh.write("bootstrap=true'), body.index('zf.extractall'))
+
+        step = next(
+            s for s in _steps() if (s.get("with") or {}).get("name") == CANONICAL
+        )
+        self.assertIn("steps.restore_state.outputs.bootstrap == 'true'", step["if"])
+
+    def test_the_three_states_are_mutually_exclusive_in_the_gate(self) -> None:
+        """publish = restored OR bootstrap; quarantine/fail = neither. A state
+        that satisfies both gates, or neither, would be a hole."""
+        publish = next(
+            s for s in _steps() if (s.get("with") or {}).get("name") == CANONICAL
+        )["if"]
+        fail = _by_name("Fail when aria-tools state was not published")["if"]
+        self.assertIn("restored == 'true' || steps.restore_state.outputs.bootstrap == 'true'", publish)
+        self.assertIn("restored != 'true' && steps.restore_state.outputs.bootstrap != 'true'", fail)
+
     def test_ancestry_proof_is_written_only_on_the_success_path(self) -> None:
         """`restored=true` must be emitted AFTER extraction, never on the
         no-artifact fail-open branch — absence is what blocks the publish."""

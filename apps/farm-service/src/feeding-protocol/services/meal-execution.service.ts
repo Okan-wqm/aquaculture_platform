@@ -46,14 +46,14 @@ import {
   toEventIso,
   MealFedEvent,
   MealSkippedEvent,
-  MealUnderfedEvent,
 } from '@platform/event-contracts';
 
 import { FeedingMeal, FeedingMealStatus, MealPour } from '../entities/feeding-meal.entity';
-import { FeedingDayPlan, FeedingDayPlanStatus } from '../entities/feeding-day-plan.entity';
+import { FeedingDayPlan } from '../entities/feeding-day-plan.entity';
 import { FeedingProtocolV2 } from '../entities/feeding-protocol-v2.entity';
 import { BiomassGrowthApplierService, type LockedUnit } from './biomass-growth-applier.service';
 import { DayPlanRecalcService } from './day-plan-recalc.service';
+import { MealFinalizationService } from './meal-finalization.service';
 import { FeedingLedgerService } from '../../feeding/services/feeding-ledger.service';
 import { FeedingMethod, FeedingRecord } from '../../feeding/entities/feeding-record.entity';
 import { Feed } from '../../feed/entities/feed.entity';
@@ -114,6 +114,9 @@ export class MealExecutionService {
     private readonly siteAuth: SiteAuthorizationService,
     private readonly growthApplier: BiomassGrowthApplierService,
     private readonly recalcService: DayPlanRecalcService,
+    // Öğün kapatma + plan durumu tek yerde (FARM-MEDIUM-276) — süpürme de
+    // aynı servise gelir, "simetri" bir yorum değil tek gövde.
+    private readonly finalization: MealFinalizationService,
     private readonly feedingLedger: FeedingLedgerService,
     private readonly batchDomainService: BatchDomainService,
     private readonly stockMovementService: StockMovementService,
@@ -312,17 +315,12 @@ export class MealExecutionService {
   }
 
   /**
-   * Öğünü kapat — TEK finalize gerçeği (W8, FARM-MEDIUM-269).
+   * Öğünü kapat — operatör yolunun `MealFinalizationService`'e girişi.
    *
-   * `recordMealFeeding(finalize: true)` ve `finalizeMeal` bu metodu paylaşır:
-   * varyans hesabı, per_meal büyüme, kalan öğün recalc'ı ve az-atım eşiği tek
-   * yerde yaşar. İki kopya olsaydı "kapatma" iki farklı şey yapabilirdi.
-   *
-   * Dönüş: öğün satırının burada YAZILIP yazılmadığı. per_meal dalında satır
-   * recalc'tan ÖNCE yazılmak ZORUNDA (M-1/FARM-MEDIUM-250): aksi hâlde recalc
-   * `status='scheduled'` filtresiyle bu öğünü de "kalan" sayıp yeniden
-   * fiyatlıyor, ardından bayat entity ile yapılan save recalc'ın `recalcLog` +
-   * `plannedTotalKg` yazımını geri alıyor (lost update).
+   * Gövde bu sınıfta DEĞİL (FARM-MEDIUM-276): 05:30 süpürmesi de bayat
+   * `partially_fed` öğünleri kapatır ve iki yol aynı varyansı, aynı büyümeyi,
+   * aynı recalc'ı ve aynı az-atım eşiğini uygulamak zorundadır. Burada kalan
+   * tek iş, planın protokolünü yüklemek — eşik kuralı servisin içinde.
    */
   private async finalizeMealWithin(
     manager: EntityManager,
@@ -335,59 +333,18 @@ export class MealExecutionService {
       meal: FeedingMeal;
     },
   ): Promise<boolean> {
-    const { tenantId, userId, finalizedAt, locked, dayPlan, meal } = ctx;
-
-    meal.status = FeedingMealStatus.FED;
-    meal.fedAt = finalizedAt;
-    meal.fedBy = userId;
-    meal.varianceKg = round3(meal.actualKg - Number(meal.plannedKg));
-    meal.variancePercent =
-      Number(meal.plannedKg) > 0
-        ? round3(((meal.actualKg - Number(meal.plannedKg)) / Number(meal.plannedKg)) * 100)
-        : 0;
-
     const protocol = await manager.findOne(FeedingProtocolV2, {
-      where: { id: dayPlan.protocolId, tenantId },
+      where: { id: ctx.dayPlan.protocolId, tenantId: ctx.tenantId },
     });
-
-    let mealPersisted = false;
-    // Mod PLANIN kolonundan okunur (FARM-CRITICAL-244): protokolün o anki
-    // ayarına bakmak, ayar değiştiğinde büyümeyi çift saydırıyor ya da
-    // kaybettiriyordu. Eski `protocol?.settings... !== 'daily'` kalıbı ayrıca
-    // FAIL-OPEN'dı: protokol bulunamazsa sessizce per_meal uyguluyordu.
-    if (dayPlan.growthApplicationMode !== 'daily') {
-      // per_meal: growthKg = actualKg / beklenen FCR (snapshot provenanslı).
-      const expectedFcr = dayPlan.resolution.expectedFcr;
-      const growthKg = expectedFcr > 0 ? meal.actualKg / expectedFcr : 0;
-      await this.growthApplier.applyGrowth(manager, tenantId, locked, growthKg, expectedFcr);
-      await manager.save(meal);
-      mealPersisted = true;
-      // Kalan öğünler yeni biomass'tan — band geçişi histerezisle burada.
-      await this.recalcService.recalcForUnit(manager, tenantId, meal.unitId, 'meal_growth');
-    }
-
-    // P-21: az-atım eşiği (negatif varyans) — finalize'da, öğün kapsamında.
-    const threshold = protocol?.settings.underfeedAlertThresholdPercent ?? 15;
-    if (meal.variancePercent !== null && meal.variancePercent < -threshold) {
-      const underfed: MealUnderfedEvent = {
-        ...createBaseEvent<MealUnderfedEvent>('MealUnderfed', tenantId, {
-          aggregateId: meal.id,
-          aggregateType: 'FeedingMeal',
-        }),
-        scope: 'meal',
-        unitId: meal.unitId,
-        unitCode: dayPlan.unitCode,
-        dayPlanId: dayPlan.id,
-        mealId: meal.id,
-        plannedKg: Number(meal.plannedKg),
-        actualKg: meal.actualKg,
-        variancePercent: meal.variancePercent,
-        thresholdPercent: threshold,
-      };
-      await this.outboxPublisher.enqueue(underfed, manager);
-    }
-
-    return mealPersisted;
+    return this.finalization.finalize(manager, {
+      tenantId: ctx.tenantId,
+      dayPlan: ctx.dayPlan,
+      meal: ctx.meal,
+      locked: ctx.locked,
+      finalizedAt: ctx.finalizedAt,
+      fedBy: ctx.userId,
+      protocol,
+    });
   }
 
   /**
@@ -845,28 +802,17 @@ export class MealExecutionService {
     throw new ConflictException('Stored recordMealFeeding replay payload is malformed');
   }
 
-  /** Açık (scheduled/partially_fed) öğün kalmadıysa planı kapat; ilk aktivitede in_progress. */
+  /**
+   * Açık öğün kalmadıysa planı kapat — kural `MealFinalizationService`'te
+   * (FARM-MEDIUM-276): süpürme de aynı kararı verir ve kopyası `dayPlan.status
+   * !== nextStatus` korumasını taşımadığı için her turda koşulsuz UPDATE
+   * atıyordu.
+   */
   private async settleDayPlanStatus(
     manager: EntityManager,
     tenantId: string,
     dayPlan: FeedingDayPlan,
   ): Promise<void> {
-    const openCount = await manager.count(FeedingMeal, {
-      where: [
-        { dayPlanId: dayPlan.id, tenantId, status: FeedingMealStatus.SCHEDULED },
-        { dayPlanId: dayPlan.id, tenantId, status: FeedingMealStatus.PARTIALLY_FED },
-      ],
-    });
-    const nextStatus =
-      openCount === 0 ? FeedingDayPlanStatus.COMPLETED : FeedingDayPlanStatus.IN_PROGRESS;
-    if (dayPlan.status !== nextStatus) {
-      dayPlan.status = nextStatus;
-      // HEDEFLENMİŞ update (M-1 / FARM-MEDIUM-250): tam-entity `save()` bu
-      // noktada elde tutulan BAYAT nesneyi yazar ve aynı transaction'da
-      // recalc'ın güncellediği `recalcLog` + `plannedTotalKg` alanlarını geri
-      // alırdı (TypeORM `save()` optimistic sürüm kontrolü yapmaz, hata da
-      // yükselmezdi). Yalnız durum kolonu yazılır.
-      await manager.update(FeedingDayPlan, { id: dayPlan.id, tenantId }, { status: nextStatus });
-    }
+    await this.finalization.settleDayPlanStatus(manager, tenantId, dayPlan);
   }
 }

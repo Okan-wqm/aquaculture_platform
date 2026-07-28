@@ -39,6 +39,7 @@ import { Feed } from '../../feed/entities/feed.entity';
 import { FeedingRecord } from '../../feeding/entities/feeding-record.entity';
 import { StockMovementService } from '../../storage/services/stock-movement.service';
 import { FeedAllocationService } from '../../storage/services/feed-allocation.service';
+import { realFinalizationService } from './helpers/meal-finalization-double';
 import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 
@@ -303,6 +304,10 @@ function makeHarness(opts: HarnessOpts = {}) {
     siteAuth,
     growthApplier,
     recalcService,
+    // FARM-MEDIUM-276: GERÇEK finalize servisi. Bir stub, bu spec'in varyans /
+    // büyüme / az-atım assertion'larını sessizce hiçbir şey doğrulamaz hâle
+    // getirirdi — 05:30 süpürmesi de tam olarak bu gövdeyi çağırıyor.
+    realFinalizationService({ growthApplier, recalcService, outboxPublisher: outbox }),
     feedingLedger,
     batchDomainService,
     stockMovementService,

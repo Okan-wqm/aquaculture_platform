@@ -25,6 +25,7 @@ import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
 import { FeedingClockService } from '../services/feeding-clock.service';
 import { FeedingJobRunService } from '../services/feeding-job-run.service';
+import { realFinalizationService } from './helpers/meal-finalization-double';
 import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.service';
@@ -46,15 +47,20 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
   const getTargetFCRForBatches = jest.fn();
   const analyzeFCRTrendMany = jest.fn();
 
+  const growthApplier = mock<BiomassGrowthApplierService>({});
+  const outboxPublisher = mock<OutboxPublisher>({ enqueue });
+  const recalcService = mock<DayPlanRecalcService>({ recalcForUnit: jest.fn() });
+
   const service = new FeedingCronV2Service(
     mock<DataSource>({}),
     mock<MealPlanGeneratorService>({}),
-    mock<BiomassGrowthApplierService>({}),
+    growthApplier,
     mock<WaterTemperatureService>({}),
     mock<FCRCalculationService>({ getTargetFCRForBatches, analyzeFCRTrendMany }),
-    mock<OutboxPublisher>({ enqueue }),
+    outboxPublisher,
     mock<ProtocolFeedForecastService>({}),
-    mock<DayPlanRecalcService>({ recalcForUnit: jest.fn() }),
+    recalcService,
+    realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
     mock<FeedingClockService>({}),
     mock<FeedingJobRunService>({}),
   );

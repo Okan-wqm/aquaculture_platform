@@ -11079,6 +11079,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/helpers/meal-finalization-double.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/__tests__/legacy-protocol-conversion.spec.ts",
       "prettier_managed": true
     },
@@ -11356,6 +11362,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/services/meal-execution.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/services/meal-finalization.service.ts",
       "prettier_managed": true
     },
     {
@@ -41940,6 +41952,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/meal-finalization-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/messaging-e2e-tenant-context.spec.ts",
       "prettier_managed": true
     },
@@ -55236,10 +55254,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9055,
+  "file_count": 9058,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8874,
-  "managed_file_list_sha256": "9c0086621f03b6445b96f5ece2b8921774c7a86a16954fe5885743f24f8001ce",
+  "managed_count": 8877,
+  "managed_file_list_sha256": "c61a7ea7b3d0c7fb438c74b856b988a50de0be305ff206ab28107fdb5be7f43e",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

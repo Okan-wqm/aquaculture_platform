@@ -37,7 +37,11 @@ import 'reflect-metadata';
 import { randomBytes } from 'crypto';
 
 import { createTenantConnectionBootstrap, getTenantSchemaName } from '@aquaculture/backend-common';
-import { bootPostgresContainer, HarnessContext, shutdownHarness } from '@platform/migration-harness';
+import {
+  bootPostgresContainer,
+  HarnessContext,
+  shutdownHarness,
+} from '@platform/migration-harness';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
@@ -53,24 +57,31 @@ import {
   DayPlanResolution,
   DayPlanSnapshot,
 } from '../../feeding-protocol/entities/feeding-day-plan.entity';
-import { FeedingMeal, FeedingMealStatus } from '../../feeding-protocol/entities/feeding-meal.entity';
-import { FeedingProtocolV2, FcrResolvedSource } from '../../feeding-protocol/entities/feeding-protocol-v2.entity';
+import {
+  FeedingMeal,
+  FeedingMealStatus,
+} from '../../feeding-protocol/entities/feeding-meal.entity';
+import {
+  FeedingProtocolV2,
+  FcrResolvedSource,
+} from '../../feeding-protocol/entities/feeding-protocol-v2.entity';
 import {
   FeedingUnitType,
   ProtocolAssignment,
 } from '../../feeding-protocol/entities/protocol-assignment.entity';
 import { BiomassGrowthApplierService } from '../../feeding-protocol/services/biomass-growth-applier.service';
+import { realFinalizationService } from '../../feeding-protocol/__tests__/helpers/meal-finalization-double';
 import { FeedingClock } from '../../feeding-protocol/services/feeding-clock.service';
 import { FeedingCronV2Service } from '../../feeding-protocol/services/feeding-cron-v2.service';
 import { FarmOutbox } from '../../outbox/farm-outbox.entity';
 import { Species } from '../../species/entities/species.entity';
 import { Site } from '../../site/entities/site.entity';
 import { Tank } from '../../tank/entities/tank.entity';
+import { createFarmTenantFixture, createFixtureBatchService } from './helpers/farm-tenant-fixture';
 import {
-  createFarmTenantFixture,
-  createFixtureBatchService,
-} from './helpers/farm-tenant-fixture';
-import { createFarmOutboxTable, createTenantSchemaFromSource } from './helpers/tenant-schema-harness';
+  createFarmOutboxTable,
+  createTenantSchemaFromSource,
+} from './helpers/tenant-schema-harness';
 
 jest.setTimeout(120_000);
 
@@ -190,11 +201,15 @@ describe('DAILY rollup reconciliation — real Postgres', () => {
       TENANT_BUSINESS_TABLES,
     );
 
-    const fixture = await createFarmTenantFixture(dataSource, createFixtureBatchService(dataSource), {
-      tenantId: TENANT,
-      codePrefix: 'ROLLUP',
-      userId: USER_ID,
-    });
+    const fixture = await createFarmTenantFixture(
+      dataSource,
+      createFixtureBatchService(dataSource),
+      {
+        tenantId: TENANT,
+        codePrefix: 'ROLLUP',
+        userId: USER_ID,
+      },
+    );
     unitId = fixture.tank.id;
     siteId = fixture.site.id;
 
@@ -205,15 +220,23 @@ describe('DAILY rollup reconciliation — real Postgres', () => {
     // the recalc service is reached only for overdue meals, and this suite seeds
     // none. Stubbing what a path cannot call keeps a failure attributable.
     const unreached = null as never;
+    const growthApplier = new BiomassGrowthApplierService();
+    const outboxPublisher = new OutboxPublisher(FarmOutbox);
+    const recalcService = { recalcForUnit: jest.fn().mockResolvedValue(null) } as never;
     cron = new FeedingCronV2Service(
       dataSource,
       unreached,
-      new BiomassGrowthApplierService(),
+      growthApplier,
       unreached,
       unreached,
-      new OutboxPublisher(FarmOutbox),
+      outboxPublisher,
       unreached,
-      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
+      recalcService,
+      // Finalize servisi de bu suite'te ERİŞİLMEZ (bayat öğün ekilmiyor), ama
+      // `unreached` yerine gerçeği veriliyor: ileride rollup ayağı finalize'a
+      // uğrarsa spec null'a çarpıp patlamak yerine gerçek davranışı koşar
+      // (FARM-MEDIUM-276).
+      realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
       unreached,
       unreached,
     );
@@ -273,7 +296,11 @@ describe('DAILY rollup reconciliation — real Postgres', () => {
     return rows[0]!.id;
   }
 
-  async function seedFedMeal(dayPlanId: string, mealIndex: number, actualKg: number): Promise<void> {
+  async function seedFedMeal(
+    dayPlanId: string,
+    mealIndex: number,
+    actualKg: number,
+  ): Promise<void> {
     const schema = getTenantSchemaName(TENANT);
     await dataSource.manager.query(
       `INSERT INTO "${schema}"."feeding_meals"

@@ -17,24 +17,45 @@ function snapshotFixture(): FeedingForecastSnapshot {
     computedAt: new Date('2026-01-01T07:00:00Z'),
     perFeed: [
       {
-        feedId: 'near', feedCode: 'N', feedName: 'Near', currentStockKg: 10,
-        dailyConsumptionSeries: series, remainingStockSeries: series,
-        stockoutDate: '2026-01-06', daysOfCover: 5, firstConsumptionDate: '2026-01-01',
-        coverageFromAdoptionDays: 5, reorderDate: '2026-01-01', reorderQuantityKg: 42,
-        procurementLeadTimeDays: 7, leadTimeSource: 'default',
+        feedId: 'near',
+        feedCode: 'N',
+        feedName: 'Near',
+        currentStockKg: 10,
+        dailyConsumptionSeries: series,
+        remainingStockSeries: series,
+        stockoutDate: '2026-01-06',
+        daysOfCover: 5,
+        firstConsumptionDate: '2026-01-01',
+        coverageFromAdoptionDays: 5,
+        reorderDate: '2026-01-01',
+        reorderQuantityKg: 42,
+        procurementLeadTimeDays: 7,
+        leadTimeSource: 'default',
       },
       {
-        feedId: 'far', feedCode: 'F', feedName: 'Far', currentStockKg: 1000,
-        dailyConsumptionSeries: series, remainingStockSeries: series,
-        stockoutDate: '2026-04-11', daysOfCover: 100, firstConsumptionDate: '2026-01-01',
-        coverageFromAdoptionDays: 100, reorderDate: '2026-04-04', reorderQuantityKg: 99,
-        procurementLeadTimeDays: 3, leadTimeSource: 'feed',
+        feedId: 'far',
+        feedCode: 'F',
+        feedName: 'Far',
+        currentStockKg: 1000,
+        dailyConsumptionSeries: series,
+        remainingStockSeries: series,
+        stockoutDate: '2026-04-11',
+        daysOfCover: 100,
+        firstConsumptionDate: '2026-01-01',
+        coverageFromAdoptionDays: 100,
+        reorderDate: '2026-04-04',
+        reorderQuantityKg: 99,
+        procurementLeadTimeDays: 3,
+        leadTimeSource: 'feed',
       },
     ],
     perUnit: [
       {
-        unitId: 'u1', unitName: 'Tank 1', unitCode: 'T1',
-        currentFeedId: 'near', terminalFeedId: 'x',
+        unitId: 'u1',
+        unitName: 'Tank 1',
+        unitCode: 'T1',
+        currentFeedId: 'near',
+        terminalFeedId: 'x',
         transitions: [
           { fromFeedId: 'near', toFeedId: 'far', estimatedDate: '2026-01-13', daysFromNow: 12 },
           { fromFeedId: 'far', toFeedId: 'x', estimatedDate: '2026-04-11', daysFromNow: 100 },
@@ -50,7 +71,9 @@ function snapshotFixture(): FeedingForecastSnapshot {
       { type: 'TRANSITION_COVERAGE_GAP', feedId: 'far', unitId: 'u1', days: 1, atDay: 100 },
     ],
     mortalityAssumption: { applied: false, source: 'none' },
-    createdAt: new Date(), updatedAt: new Date(), version: 1,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    version: 1,
   };
 }
 
@@ -81,9 +104,7 @@ describe('sliceSnapshotToHorizon (K-10)', () => {
   it('dilim dışı geçişler ve alertler GÜN İNDEKSİNE göre elenir (FARM-LOW-266)', () => {
     expect(view.perUnit[0]?.transitions.map((t) => t.daysFromNow)).toEqual([12]);
     // `days: 1` taşıyan kapsama-açığı alarmı da elenir: penceresi gün 100'dür.
-    expect(view.alerts).toEqual([
-      { type: 'STOCKOUT_FORECAST', feedId: 'near', days: 5, atDay: 5 },
-    ]);
+    expect(view.alerts).toEqual([{ type: 'STOCKOUT_FORECAST', feedId: 'near', days: 5, atDay: 5 }]);
   });
 
   it('bugünkü ve ufuk-sonu yem AYRI alanlardır (FARM-LOW-265)', () => {
@@ -92,10 +113,7 @@ describe('sliceSnapshotToHorizon (K-10)', () => {
   });
 
   it('26 saatten eski snapshot BAYAT işaretlenir — gizlenmez, silinmez', () => {
-    const fresh = sliceSnapshotToHorizon(
-      { ...snapshotFixture(), computedAt: new Date() },
-      30,
-    );
+    const fresh = sliceSnapshotToHorizon({ ...snapshotFixture(), computedAt: new Date() }, 30);
     expect(fresh.stale).toBe(false);
     // Fixture computedAt'i 2026-01-01; testin koştuğu an her hâlde daha geç.
     expect(view.stale).toBe(true);

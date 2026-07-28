@@ -23,6 +23,7 @@ import { FCRCalculationService } from '../../growth/services/fcr-calculation.ser
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import { FeedingDayPlan } from '../entities/feeding-day-plan.entity';
 import { FeedingProtocolV2 } from '../entities/feeding-protocol-v2.entity';
+import { realFinalizationService } from './helpers/meal-finalization-double';
 
 jest.mock('@aquaculture/backend-common/database', () => ({
   ...jest.requireActual('@aquaculture/backend-common/database'),
@@ -124,6 +125,18 @@ function makeHarness(fixture: SweepFixture) {
   const applyGrowth = jest.fn().mockResolvedValue(undefined);
   const applyMissedCatchUp = jest.fn().mockResolvedValue(0);
   const growthApplier = mock<BiomassGrowthApplierService>({ lockUnitForGrowth, applyGrowth });
+  const outboxPublisher = mock<OutboxPublisher>({
+    enqueue: jest.fn(async (event: { eventType: string; unitCode?: string }) => {
+      enqueued.push(event);
+      return undefined as never;
+    }),
+  });
+  const recalcService = mock<DayPlanRecalcService>({
+    recalcForUnit: jest.fn(),
+    // W5: telafi varsayılan olarak KAPALI (yüzde 0) — çağrı yapılır ama
+    // kalan öğünlerin plannedKg'ı değişmez.
+    applyMissedCatchUp: applyMissedCatchUp as DayPlanRecalcService['applyMissedCatchUp'],
+  });
 
   const service = new FeedingCronV2Service(
     mock<DataSource>({}),
@@ -131,19 +144,13 @@ function makeHarness(fixture: SweepFixture) {
     growthApplier,
     mock<WaterTemperatureService>({}),
     mock<FCRCalculationService>({}),
-    mock<OutboxPublisher>({
-      enqueue: jest.fn(async (event: { eventType: string; unitCode?: string }) => {
-        enqueued.push(event);
-        return undefined as never;
-      }),
-    }),
+    outboxPublisher,
     mock<ProtocolFeedForecastService>({}),
-    mock<DayPlanRecalcService>({
-      recalcForUnit: jest.fn(),
-      // W5: telafi varsayılan olarak KAPALI (yüzde 0) — çağrı yapılır ama
-      // kalan öğünlerin plannedKg'ı değişmez.
-      applyMissedCatchUp: applyMissedCatchUp as DayPlanRecalcService['applyMissedCatchUp'],
-    }),
+    recalcService,
+    // FARM-MEDIUM-276: GERÇEK finalize servisi. Bu bir stub olsaydı aşağıdaki
+    // `applyGrowth` argümanı, `save` sırası ve varyans assertion'ları hiçbir
+    // şey doğrulamıyor olurdu — süpürme boş bir gövdeye giderdi.
+    realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
     mock<FeedingClockService>({}),
     mock<FeedingJobRunService>({}),
   );

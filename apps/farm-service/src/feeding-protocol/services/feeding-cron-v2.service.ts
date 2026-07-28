@@ -78,7 +78,7 @@ import {
   ComputedDayPlan,
   mixedTankStats,
 } from './meal-plan-generator.service';
-import { BiomassGrowthApplierService, type LockedUnit } from './biomass-growth-applier.service';
+import { BiomassGrowthApplierService } from './biomass-growth-applier.service';
 import {
   WaterTemperatureService,
   type EffectiveTemperature,
@@ -91,6 +91,7 @@ import { FeedingJobRunService } from './feeding-job-run.service';
 import { collectFeedSourceFeedIds, buildFeedFcrMatrixMap } from './feed-fcr-source.util';
 import { ProtocolFeedForecastService } from './protocol-feed-forecast.service';
 import { DayPlanRecalcService } from './day-plan-recalc.service';
+import { MealFinalizationService } from './meal-finalization.service';
 import { round3 } from '../../common/utils/rounding.util';
 
 const ADVISORY_LOCK_NAMESPACE = 0x46454544; // 'FEED'
@@ -235,9 +236,13 @@ export class FeedingCronV2Service {
     private readonly outboxPublisher: OutboxPublisher,
     // 07:00 stok kapsama süpürmesi — snapshot yenileme (K-10, plan §5).
     private readonly forecastService: ProtocolFeedForecastService,
-    // Bayat finalize kalan öğünleri yeniden fiyatlar (finalize simetrisi);
-    // sıcaklık sapmasında ve telafi dağıtımında da aynı servis çalışır.
+    // Sıcaklık sapmasında ve telafi dağıtımında kalan öğünleri yeniden
+    // fiyatlar. (Bayat finalize'ın recalc'ı artık `finalization` içinde —
+    // operatör yoluyla aynı gövde.)
     private readonly recalcService: DayPlanRecalcService,
+    // Öğün kapatma + plan durumu tek gövde (FARM-MEDIUM-276): pencere
+    // kapanışında kapatılan öğün, operatörün kapattığıyla aynı koddan geçer.
+    private readonly finalization: MealFinalizationService,
     // Takvim/saat çözümünün TEK sahibi (W5, D-B4).
     private readonly clock: FeedingClockService,
     // "Yerel günde tam bir kez" claim'i (W5).
@@ -800,24 +805,6 @@ export class FeedingCronV2Service {
         : [];
       const sweepProtocolById = new Map(sweepProtocols.map((p) => [p.id, p]));
 
-      /**
-       * per_meal modda bayat kısmi finalize BÜYÜME UYGULAR (FARM-MEDIUM-227):
-       * growthKg = actualKg / resolution.expectedFcr — recordMealFeeding
-       * finalize'ıyla AYNI hesap ve provenans. daily mod rollup'a (c) kalır;
-       * çift uygulama imkânsız (mod başına tek yol).
-       */
-      const needsPerMealGrowth = (meal: FeedingMeal): boolean => {
-        const dayPlan = dayPlanById.get(meal.dayPlanId);
-        if (!dayPlan) return false;
-        // Mod PLANIN kolonundan (FARM-CRITICAL-244) — protokol ayarı sonradan
-        // değişse bile bayat finalize üretildiği semantikle işlenir.
-        return (
-          dayPlan.growthApplicationMode !== 'daily' &&
-          Number(meal.actualKg) > 0 &&
-          dayPlan.resolution.expectedFcr > 0
-        );
-      };
-
       const sweepUnitIds = [
         ...new Set([...overdueMissed, ...overduePartials].map((meal) => meal.unitId)),
       ].sort();
@@ -866,83 +853,43 @@ export class FeedingCronV2Service {
           }
         }
 
-        // (b) Bayat partially_fed → otomatik finalize (D-8 pencere kapanışı):
-        // varyans hesaplanır; per_meal modda büyüme BURADA uygulanır (yukarıda
-        // alınan kanonik kilitle), daily mod rollup'a (c) kalır.
+        // (b) Bayat partially_fed → otomatik finalize (D-8 pencere kapanışı).
+        //
+        // Gövde BURADA DEĞİL (FARM-MEDIUM-276): varyans, per_meal büyüme,
+        // kalan-öğün recalc'ı ve az-atım eşiği operatörün elle kapattığı
+        // öğünle AYNI koddan geçer. Bunu eskiden bir kopya + "SİMETRİ" yorumu
+        // sağlıyordu; yorum iki gövdenin aynı kalacağını garanti etmez ve
+        // etmemişti de — eşiğin `?? 15` varsayılanı iki ayrı ifadedeydi.
         for (const meal of unitPartials) {
-          meal.status = FeedingMealStatus.FED;
-          meal.fedAt = new Date();
-          meal.varianceKg = round3(Number(meal.actualKg) - Number(meal.plannedKg));
-          meal.variancePercent =
-            Number(meal.plannedKg) > 0
-              ? round3(
-                  ((Number(meal.actualKg) - Number(meal.plannedKg)) / Number(meal.plannedKg)) * 100,
-                )
-              : 0;
-          await manager.save(meal);
-
-          if (locked && needsPerMealGrowth(meal)) {
-            const expectedFcr = dayPlanById.get(meal.dayPlanId)!.resolution.expectedFcr;
-            await this.growthApplier.applyGrowth(
-              manager,
-              tenantId,
-              locked,
-              Number(meal.actualKg) / expectedFcr,
-              expectedFcr,
-            );
-            // Kalan öğünler yeni biomass'tan — `recordMealFeeding` finalize'ı
-            // ile SİMETRİ (bayat finalize sessizce farklı davranamaz).
-            await this.recalcService.recalcForUnit(manager, tenantId, meal.unitId, 'meal_growth');
-          }
-
-          // Az-atım sinyali de simetrik olmalı: pencere kapanışında finalize
-          // edilen öğün, operatörün elle kapattığı öğünle aynı eşiği görür —
-          // aksi hâlde sistematik az-atım YALNIZ elle kapatılan öğünlerde
-          // görünürdü (FARM-MEDIUM-276 ailesi).
           const sweepPlan = dayPlanById.get(meal.dayPlanId);
-          const sweepThreshold =
-            sweepProtocolById.get(sweepPlan?.protocolId ?? '')?.settings
-              .underfeedAlertThresholdPercent ?? 15;
-          if (meal.variancePercent !== null && meal.variancePercent < -sweepThreshold) {
-            const underfed: MealUnderfedEvent = {
-              ...createBaseEvent<MealUnderfedEvent>('MealUnderfed', tenantId, {
-                aggregateId: meal.id,
-                aggregateType: 'FeedingMeal',
-              }),
-              scope: 'meal',
-              unitId: meal.unitId,
-              unitCode: sweepPlan?.unitCode ?? '',
-              dayPlanId: meal.dayPlanId,
-              mealId: meal.id,
-              plannedKg: Number(meal.plannedKg),
-              actualKg: Number(meal.actualKg),
-              variancePercent: meal.variancePercent,
-              thresholdPercent: sweepThreshold,
-            };
-            await this.outboxPublisher.enqueue(underfed, manager);
-          }
+          if (!sweepPlan) continue;
+          const mealPersisted = await this.finalization.finalize(manager, {
+            tenantId,
+            dayPlan: sweepPlan,
+            meal,
+            locked,
+            // Tick'in anı (D-B4). Eski kopya öğün başına `new Date()`
+            // çağırıyordu — aynı süpürmede kapatılan öğünler farklı
+            // saniyelere damgalanıyor, saat SSoT'sinden de sapıyordu.
+            finalizedAt: at,
+            // Pencere kapandı; kimse kapatmadı — `fedBy` boş kalır.
+            fedBy: null,
+            protocol: sweepProtocolById.get(sweepPlan.protocolId) ?? null,
+          });
+          if (!mealPersisted) await manager.save(meal);
         }
 
         // Plan durumu: süpürme sonrası açık öğün kalmadıysa plan kapanır —
-        // eski hâl planı `in_progress`'te asılı bırakıyordu.
+        // eski hâl planı `in_progress`'te asılı bırakıyordu. Karar aynı
+        // servisten: kopyası koşulsuz UPDATE atıyordu.
         const touchedPlanIds = [
           ...new Set([...unitMissed, ...unitPartials].map((meal) => meal.dayPlanId)),
         ];
         for (const dayPlanId of touchedPlanIds) {
-          const openCount = await manager.count(FeedingMeal, {
-            where: [
-              { dayPlanId, tenantId, status: FeedingMealStatus.SCHEDULED },
-              { dayPlanId, tenantId, status: FeedingMealStatus.PARTIALLY_FED },
-            ],
-          });
-          await manager.update(
-            FeedingDayPlan,
-            { id: dayPlanId, tenantId },
-            {
-              status:
-                openCount === 0 ? FeedingDayPlanStatus.COMPLETED : FeedingDayPlanStatus.IN_PROGRESS,
-            },
-          );
+          const plan = dayPlanById.get(dayPlanId);
+          if (plan) {
+            await this.finalization.settleDayPlanStatus(manager, tenantId, plan);
+          }
         }
       }
 

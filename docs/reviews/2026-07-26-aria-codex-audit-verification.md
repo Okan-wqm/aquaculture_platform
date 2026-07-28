@@ -1388,3 +1388,9 @@ finding is one nobody can navigate back to from the review that produced it.
 
 * **ORPHAN-CRITICAL-485** — The failure breaker's producer was unreachable on the scheduled lane at four independent levels, and its end-to-end test could not see any of them  
   Severity CRITICAL, layer 1, owner okan, deadline 2026-08-25.
+
+* **ORPHAN-HIGH-486** — ARIA can open an unbounded PR: plan_pr_split exists but no autonomous path calls it, so nothing caps what the implementer submits  
+  Severity HIGH, layer 1, owner okan, deadline 2026-08-25. OPEN — scheduled for a follow-up PR.
+
+* **ORPHAN-HIGH-487** — Nothing stops ARIA promoting a second plan while one is still in flight, so it can leave half-finished work behind  
+  Severity HIGH, layer 1, owner okan, deadline 2026-08-25. OPEN — scheduled for a follow-up PR.

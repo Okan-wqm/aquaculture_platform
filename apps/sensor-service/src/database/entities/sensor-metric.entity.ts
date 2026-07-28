@@ -28,6 +28,32 @@ registerEnumType(QualityCategory, {
   description: 'OPC-UA aligned quality category',
 });
 
+/** First code in the OPC-UA DA "uncertain" band. */
+export const QUALITY_UNCERTAIN_MIN = 64;
+
+/**
+ * First code in the OPC-UA DA "good" band. This is `quality_code`'s column
+ * default and the threshold every SQL consumer spells as
+ * `quality_code >= 192`.
+ */
+export const QUALITY_GOOD_MIN = 192;
+
+/**
+ * Band a raw `quality_code` falls in.
+ *
+ * The band boundaries used to be inline literals in the entity's
+ * `qualityCategory` getter, which only helps code holding a hydrated
+ * SensorMetric. The as-of read projection works on raw rows, so it needed
+ * the same classification without an entity — and a second copy of `>= 192`
+ * is exactly how two parts of one system start disagreeing about what
+ * "good" means. One function, both callers.
+ */
+export function qualityCategoryOf(code: number): QualityCategory {
+  if (code >= QUALITY_GOOD_MIN) return QualityCategory.GOOD;
+  if (code >= QUALITY_UNCERTAIN_MIN) return QualityCategory.UNCERTAIN;
+  return QualityCategory.BAD;
+}
+
 /**
  * Common quality codes (OPC-UA aligned)
  */
@@ -274,16 +300,14 @@ export class SensorMetric {
    * Get quality category from quality code
    */
   get qualityCategory(): QualityCategory {
-    if (this.qualityCode >= 192) return QualityCategory.GOOD;
-    if (this.qualityCode >= 64) return QualityCategory.UNCERTAIN;
-    return QualityCategory.BAD;
+    return qualityCategoryOf(this.qualityCode);
   }
 
   /**
    * Check if quality is good
    */
   get isGoodQuality(): boolean {
-    return this.qualityCode >= 192;
+    return qualityCategoryOf(this.qualityCode) === QualityCategory.GOOD;
   }
 
   /**

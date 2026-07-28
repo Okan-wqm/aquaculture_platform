@@ -24,7 +24,9 @@
 //!   3. `value` is a finite f64 — `NaN` and `±Inf` are rejected
 //!      because a downstream `WHERE value > X` query would silently
 //!      misclassify them.
-//!   4. `quality` is in the IEC 61131-3 quality-code subset 0..=3.
+//!   4. `quality` is a valid OPC-UA DA quality code — see
+//!      [`QualityCode`] for why the scale is named rather than
+//!      passed around as a bare integer.
 //!   5. `producerTs` is a positive ms-epoch within a sane window
 //!      (post 2024-01-01, before year 2100). Drift outside that
 //!      window means a clock-skewed device or a forged timestamp
@@ -61,11 +63,77 @@ pub const PRODUCER_TS_MIN_MS: i64 = 1_704_067_200_000;
 /// into the JSON cannot pass.
 pub const PRODUCER_TS_MAX_MS: i64 = 4_102_444_800_000;
 
-/// Maximum value for the IEC 61131-3 quality-code subset accepted by
-/// the ingestion path. The wider IEC range is `0..=255` but the
-/// sensor-service contract narrows it to `0..=3` (good / uncertain /
-/// bad / not-connected).
-pub const QUALITY_MAX: u8 = 3;
+/// First code in the OPC-UA DA "uncertain" band.
+pub const QUALITY_UNCERTAIN_MIN: u8 = 64;
+
+/// Last code in the OPC-UA DA "uncertain" band.
+pub const QUALITY_UNCERTAIN_MAX: u8 = 127;
+
+/// First code in the OPC-UA DA "good" band. `sensor_metrics.quality_code`
+/// defaults to this value and every reader in the platform classifies a
+/// sample as trustworthy with `quality_code >= 192`.
+pub const QUALITY_GOOD_MIN: u8 = 192;
+
+/// A sample's quality on the OPC-UA Data Access scale — the ONE scale the
+/// platform speaks.
+///
+/// # Why this is a type and not a `u8`
+///
+/// It used to be a bare `u8` documented as "the IEC 61131-3 subset `0..=3`
+/// (good / uncertain / bad / not-connected)", written straight into
+/// `sensor_metrics.quality_code`. That column is OPC-UA: 0..=63 BAD,
+/// 64..=127 UNCERTAIN, 192..=255 GOOD, default 192, and every consumer
+/// — `metric-query.service.ts`, the continuous aggregates, the dashboards
+/// — asks `quality_code >= 192` for "good". So the two scales collided on
+/// one column with the same name and the same type:
+///
+///   * A producer sending `0` meant GOOD and was stored as OPC-UA BAD, so
+///     every healthy sample the sidecar ingested read back as bad data and
+///     every quality percentage over that stream was 0%.
+///   * A producer sending a real OPC-UA code — which is what this
+///     platform's own edge agent emits from
+///     `TagQuality::to_quality_code()` (192 / 64 / 0 / 24) — was REJECTED
+///     outright by the `> 3` check, dropping the reading at the trust
+///     boundary.
+///
+/// Both failure modes come from letting a plain integer cross the boundary.
+/// A newtype whose only constructor validates against the OPC-UA bands
+/// removes the ambiguity: there is one scale, it is named, and an
+/// out-of-band value cannot reach the database.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct QualityCode(u8);
+
+impl QualityCode {
+    /// Validate a wire integer as an OPC-UA DA quality code.
+    ///
+    /// `128..=191` is the reserved gap between UNCERTAIN and GOOD in the
+    /// DA scale; a value landing there means the producer is on some other
+    /// scale, so it is refused rather than guessed at.
+    ///
+    /// # Errors
+    ///
+    /// [`PayloadError::QualityOutOfRange`] when `raw` falls in the reserved
+    /// gap.
+    pub const fn try_new(raw: u8) -> Result<Self, PayloadError> {
+        if raw > QUALITY_UNCERTAIN_MAX && raw < QUALITY_GOOD_MIN {
+            return Err(PayloadError::QualityOutOfRange { got: raw });
+        }
+        Ok(Self(raw))
+    }
+
+    /// The underlying OPC-UA code, for binding into `quality_code`.
+    #[must_use]
+    pub const fn get(self) -> u8 {
+        self.0
+    }
+
+    /// Whether the sample is in the GOOD band — the same predicate every
+    /// SQL consumer spells as `quality_code >= 192`.
+    #[must_use]
+    pub const fn is_good(self) -> bool {
+        self.0 >= QUALITY_GOOD_MIN
+    }
+}
 
 /// Provenance tag for `raw_value` per ADR-028. Either the producer
 /// emitted V2 and carried `raw_value` natively, or the producer was
@@ -108,8 +176,8 @@ pub struct SensorReading {
     /// `raw_value = value` and tags the reading with
     /// `PayloadSource::UpcastedFromV1`. Guaranteed finite.
     pub raw_value: f64,
-    /// IEC 61131-3 quality code, narrowed to `0..=3`.
-    pub quality: u8,
+    /// Sample quality on the OPC-UA DA scale — see [`QualityCode`].
+    pub quality: QualityCode,
     /// Producer-side wall clock at sample time (ms since UNIX epoch).
     pub producer_ts: i64,
     /// Provenance tag for `raw_value`: did it come from the wire or
@@ -154,9 +222,11 @@ pub enum PayloadError {
     #[error("value is not a finite f64 (NaN or +/-Inf rejected)")]
     NotFiniteValue,
 
-    /// `quality` was outside `0..=3`. The got-value is bounded
-    /// `0..=255` (u8) so it is safe to include.
-    #[error("quality must be in 0..=3; got {got}")]
+    /// `quality` landed in the OPC-UA DA reserved gap `128..=191`, so it
+    /// belongs to no quality band and the producer is speaking some other
+    /// scale. The got-value is bounded `0..=255` (u8) so it is safe to
+    /// include.
+    #[error("quality must be an OPC-UA DA code (0..=127 or 192..=255); got {got}")]
     QualityOutOfRange {
         /// The offending quality code (bounded: `u8`).
         got: u8,
@@ -286,9 +356,7 @@ pub fn validate(bytes: &[u8], topic_tenant: TenantId) -> Result<SensorReading, P
     if !value.is_finite() {
         return Err(PayloadError::NotFiniteValue);
     }
-    if quality > QUALITY_MAX {
-        return Err(PayloadError::QualityOutOfRange { got: quality });
-    }
+    let quality = QualityCode::try_new(quality)?;
     if !(PRODUCER_TS_MIN_MS..=PRODUCER_TS_MAX_MS).contains(&producer_ts) {
         return Err(PayloadError::ProducerTsOutOfRange { got: producer_ts });
     }
@@ -341,7 +409,8 @@ pub fn validate(bytes: &[u8], topic_tenant: TenantId) -> Result<SensorReading, P
 #[cfg(test)]
 mod tests {
     use super::{
-        PRODUCER_TS_MAX_MS, PRODUCER_TS_MIN_MS, PayloadError, PayloadSource, QUALITY_MAX,
+        PRODUCER_TS_MAX_MS, PRODUCER_TS_MIN_MS, PayloadError, PayloadSource, QUALITY_GOOD_MIN,
+        QUALITY_UNCERTAIN_MAX, QUALITY_UNCERTAIN_MIN, QualityCode,
         SensorReading, validate,
     };
     use tenant_context::TenantId;
@@ -375,7 +444,7 @@ mod tests {
         assert_eq!(r.sensor_id, Uuid::try_parse(SENSOR_STR).unwrap());
         assert_eq!(r.channel_id, Uuid::try_parse(CHANNEL_STR).unwrap());
         assert!((r.value - 42.5).abs() < f64::EPSILON);
-        assert_eq!(r.quality, 1);
+        assert_eq!(r.quality.get(), 1);
         assert_eq!(r.producer_ts, 1_735_689_600_000);
         // ADR-028: a V1 payload (no payloadVersion field, no rawValue)
         // is upcast — raw_value equals value, source tagged.
@@ -660,27 +729,46 @@ mod tests {
     }
 
     #[test]
-    fn quality_above_max_rejected_at_4() {
-        let bytes = format!(
-            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":1.0,"quality":4,"producerTs":1735689600000}}"#
-        )
-        .into_bytes();
-        assert_eq!(
-            validate(&bytes, tenant_a()).unwrap_err(),
-            PayloadError::QualityOutOfRange { got: 4 }
-        );
+    fn quality_in_the_reserved_gap_is_rejected_at_both_edges() {
+        // 128..=191 belongs to no OPC-UA band. A producer landing there is
+        // speaking a different scale, so the reading is refused rather than
+        // guessed at — the failure mode this whole type exists to prevent.
+        for got in [QUALITY_UNCERTAIN_MAX + 1, QUALITY_GOOD_MIN - 1] {
+            let bytes = format!(
+                r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":1.0,"quality":{got},"producerTs":1735689600000}}"#
+            )
+            .into_bytes();
+            assert_eq!(
+                validate(&bytes, tenant_a()).unwrap_err(),
+                PayloadError::QualityOutOfRange { got }
+            );
+        }
     }
 
     #[test]
-    fn quality_above_max_rejected_at_255() {
-        let bytes = format!(
-            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":1.0,"quality":255,"producerTs":1735689600000}}"#
-        )
-        .into_bytes();
-        assert_eq!(
-            validate(&bytes, tenant_a()).unwrap_err(),
-            PayloadError::QualityOutOfRange { got: 255 }
-        );
+    fn accepts_the_opc_ua_codes_this_platform_edge_agent_emits() {
+        // sens-api-gateway's TagQuality::to_quality_code() emits 192 (good),
+        // 64 (uncertain), 0 (bad) and 24 (comm failure). Every one of them
+        // was rejected by the previous `> 3` narrowing, which dropped the
+        // reading at the trust boundary.
+        for code in [QUALITY_GOOD_MIN, 255, QUALITY_UNCERTAIN_MIN, QUALITY_UNCERTAIN_MAX, 0, 24] {
+            let bytes = format!(
+                r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":1.0,"quality":{code},"producerTs":1735689600000}}"#
+            )
+            .into_bytes();
+            let reading = validate(&bytes, tenant_a()).expect("OPC-UA code must be accepted");
+            assert_eq!(reading.quality.get(), code);
+        }
+    }
+
+    #[test]
+    fn is_good_matches_the_sql_predicate_every_consumer_uses() {
+        // Consumers spell "good" as `quality_code >= 192`; the type must
+        // agree, or a Rust-side decision and a SQL-side decision drift.
+        assert!(QualityCode::try_new(QUALITY_GOOD_MIN).unwrap().is_good());
+        assert!(QualityCode::try_new(255).unwrap().is_good());
+        assert!(!QualityCode::try_new(QUALITY_UNCERTAIN_MAX).unwrap().is_good());
+        assert!(!QualityCode::try_new(0).unwrap().is_good());
     }
 
     #[test]
@@ -761,12 +849,12 @@ mod tests {
     #[test]
     fn happy_at_upper_bound_ts_and_quality() {
         let bytes = format!(
-            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":-273.15,"quality":{QUALITY_MAX},"producerTs":{PRODUCER_TS_MAX_MS}}}"#
+            r#"{{"tenantId":"{TENANT_A_STR}","sensorId":"{SENSOR_STR}","channelId":"{CHANNEL_STR}","value":-273.15,"quality":{QUALITY_GOOD_MIN},"producerTs":{PRODUCER_TS_MAX_MS}}}"#
         )
         .into_bytes();
         let r = validate(&bytes, tenant_a()).unwrap();
         assert_eq!(r.producer_ts, PRODUCER_TS_MAX_MS);
-        assert_eq!(r.quality, QUALITY_MAX);
+        assert_eq!(r.quality.get(), QUALITY_GOOD_MIN);
     }
 
     #[test]

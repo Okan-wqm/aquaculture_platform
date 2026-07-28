@@ -104,7 +104,10 @@ const isEnabled = process.env[GATE_ENV] === '1';
     it('persists exactly one row per (tenant, sensor, channel, time) under dual-write', async () => {
       const producerTs = Date.now();
       const value = 24.5;
-      const qualityCode = 1;
+      // OPC-UA GOOD. The wire, the column and every consumer speak ONE scale
+      // (sensor-ingestion/src/payload.rs QualityCode); a value like 1 is an
+      // OPC-UA BAD code, which is exactly the confusion this spec used to pin.
+      const qualityCode = 192;
       const payload = JSON.stringify({
         tenantId,
         sensorId,

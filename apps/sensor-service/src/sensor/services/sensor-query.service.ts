@@ -851,7 +851,15 @@ export class SensorQueryService {
       readings,
       pondId: firstNonNull(rows, (r) => r.pond_id),
       farmId: firstNonNull(rows, (r) => r.farm_id),
-      quality: this.dataQualityService.calculateQuality(readings),
+      // Per-channel `quality_code` is what the DEVICE said about each
+      // contributing channel; it caps the plausibility score so an in-range
+      // value from a probe reporting BAD cannot be presented as a healthy
+      // reading. Every as-of query already selects it — this is where it stops
+      // being fetched and discarded.
+      quality: this.dataQualityService.calculateProjectedQuality(
+        readings,
+        rows.map((row) => row.quality_code),
+      ),
       source: modalSourceProtocol(rows),
     };
   }

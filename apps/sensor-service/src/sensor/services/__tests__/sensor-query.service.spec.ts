@@ -550,6 +550,55 @@ describe('SensorQueryService — as-of reading projection', () => {
       expect(reading!.quality).toBeLessThan(100);
     });
 
+    it('caps quality at the worst device-reported channel quality, not just plausibility', async () => {
+      // Both values are perfectly in range, so plausibility alone scores 100.
+      // The temperature channel's device reported OPC-UA UNCERTAIN (64), which
+      // the projection used to select and discard — an untrustworthy sample
+      // presented as a healthy reading.
+      mockQrQuery.mockResolvedValueOnce([
+        { as_of: new Date('2026-03-14T00:07:00Z'), channel_key: 'temperature', value: 21, quality_code: 64, source_protocol: 'mqtt', pond_id: null, farm_id: null },
+        { as_of: new Date('2026-03-14T00:07:00Z'), channel_key: 'ph', value: 7, quality_code: 192, source_protocol: 'mqtt', pond_id: null, farm_id: null },
+      ]);
+
+      const reading = await newService().reconstructAsOf(
+        SENSOR_ID,
+        anchor('2026-03-14T00:07:00.000000Z'),
+        TENANT_ID,
+      );
+
+      expect(reading!.quality).toBe(60);
+    });
+
+    it('floors quality at zero when a channel reports OPC-UA BAD', async () => {
+      // A probe that has lost comms still emits an in-range number. The device
+      // says the value is unusable; no plausibility score overrides that.
+      mockQrQuery.mockResolvedValueOnce([
+        { as_of: new Date('2026-03-14T00:07:00Z'), channel_key: 'temperature', value: 21, quality_code: 24, source_protocol: 'modbus', pond_id: null, farm_id: null },
+      ]);
+
+      const reading = await newService().reconstructAsOf(
+        SENSOR_ID,
+        anchor('2026-03-14T00:07:00.000000Z'),
+        TENANT_ID,
+      );
+
+      expect(reading!.quality).toBe(0);
+    });
+
+    it('treats a null quality_code as GOOD, matching the column default', async () => {
+      mockQrQuery.mockResolvedValueOnce([
+        { as_of: new Date('2026-03-14T00:07:00Z'), channel_key: 'temperature', value: 21, quality_code: null, source_protocol: 'mqtt', pond_id: null, farm_id: null },
+      ]);
+
+      const reading = await newService().reconstructAsOf(
+        SENSOR_ID,
+        anchor('2026-03-14T00:07:00.000000Z'),
+        TENANT_ID,
+      );
+
+      expect(reading!.quality).toBe(100);
+    });
+
     it('reports the modal source protocol across the channels (D5)', async () => {
       mockQrQuery.mockResolvedValueOnce([
         { as_of: new Date('2026-03-14T00:07:00Z'), channel_key: 'temperature', value: 21, quality_code: 192, source_protocol: 'mqtt', pond_id: null, farm_id: null },

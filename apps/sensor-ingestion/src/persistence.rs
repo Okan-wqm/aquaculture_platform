@@ -354,7 +354,7 @@ impl PostgresSink {
             };
             let value = r.value;
             let raw_value = r.value;
-            let quality = i16::from(r.quality);
+            let quality = i16::from(r.quality.get());
             let row: [&(dyn ToSql + Sync); 7] = [
                 &ts,
                 r.sensor_id.as_uuid_ref(),
@@ -455,7 +455,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::{BatchSink, LoggingSink, SinkError, run_sink_loop};
-    use crate::payload::{PayloadSource, SensorReading};
+    use crate::payload::{PayloadSource, QUALITY_GOOD_MIN, QualityCode, SensorReading};
     use std::sync::Arc;
     use tenant_context::TenantId;
     use tokio::sync::mpsc;
@@ -473,7 +473,7 @@ mod tests {
             channel_id: fixed_uuid(0xCC),
             value: 24.5,
             raw_value: 24.5,
-            quality: 1,
+            quality: QualityCode::try_new(QUALITY_GOOD_MIN).expect("192 is the GOOD band"),
             producer_ts: Utc::now().timestamp_millis(),
             source: PayloadSource::UpcastedFromV1,
         }
@@ -539,7 +539,7 @@ mod tests {
             channel_id: fixed_uuid(0x20),
             value: 1.0,
             raw_value: 1.0,
-            quality: 1,
+            quality: QualityCode::try_new(QUALITY_GOOD_MIN).expect("192 is the GOOD band"),
             producer_ts: Utc::now().timestamp_millis(),
             source: PayloadSource::UpcastedFromV1,
         };

@@ -8,13 +8,12 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * `sensor_metrics` is declared PER TENANT — the entity omits `schema:` and
  * MODULE_SCHEMAS lists it as a tenant-fanned table — but no DDL ever created it
- * that way. Baseline creates it SCHEMA-QUALIFIED
- * (`CREATE TABLE "sensor"."sensor_metrics"` at 1800000000000-Baseline.ts:61,
- * hypertable at :361), so replaying the migration set into a tenant schema
- * re-targets the SHARED table instead of creating the tenant's own. The
- * per-tenant copies that did exist came from the retired runtime
- * CREATE-TABLE-LIKE seeding path, which produced PLAIN tables — not hypertables
- * — and that path is gone.
+ * that way. Baseline creates the table and its hypertable explicitly qualified
+ * into the source schema (1800000000000-Baseline.ts:61 and :361), so replaying
+ * the migration set into a tenant schema re-targets the SHARED table instead of
+ * creating the tenant's own. The per-tenant copies that did exist came from the
+ * retired runtime CREATE-TABLE-LIKE seeding path, which produced PLAIN tables —
+ * not hypertables — and that path is gone.
  *
  * So declaration and delivery disagreed: the model said per-tenant, the database
  * had one shared hypertable plus a scatter of plain leftovers. That mismatch is

@@ -49,7 +49,11 @@ describe('FCRCalculationService', () => {
       initialQuantity,
       currentQuantity,
       weight: {
-        initial: { avgWeight: initialAvgWeightG, totalBiomass: params.startBiomassKg, measuredAt: new Date() },
+        initial: {
+          avgWeight: initialAvgWeightG,
+          totalBiomass: params.startBiomassKg,
+          measuredAt: new Date(),
+        },
         theoretical: { avgWeight: 0, totalBiomass: 0, lastCalculatedAt: new Date(), basedOnFCR: 0 },
         actual: {
           avgWeight: actualAvgWeightG,
@@ -81,6 +85,8 @@ describe('FCRCalculationService', () => {
   };
   const mockBatchRepository = {
     findOne: jest.fn(),
+    // Toplu yol (`getTargetFCRForBatches`) batch'leri `find` ile ön-yükler.
+    find: jest.fn(),
     manager: { query: mockManagerQuery },
   };
 
@@ -425,10 +431,9 @@ describe('FCRCalculationService', () => {
 
       await service.calculateCumulativeFCR(batchId, tenantId, endDate);
 
-      expect(mockLedgerQueryBuilder.andWhere).toHaveBeenCalledWith(
-        'op.operationDate <= :endDate',
-        { endDate },
-      );
+      expect(mockLedgerQueryBuilder.andWhere).toHaveBeenCalledWith('op.operationDate <= :endDate', {
+        endDate,
+      });
     });
   });
 
@@ -658,18 +663,16 @@ describe('FCRCalculationService', () => {
     });
 
     it('fcrSource=feed protokolde band yeminin FCR matrisi ağırlık ekseninde interpolasyonla çözülür', async () => {
-      mockManagerQuery
-        .mockResolvedValueOnce([v2Row({ fcrSource: 'feed' })])
-        .mockResolvedValueOnce([
-          {
-            matrix: {
-              temperatures: [10],
-              weights: [100, 200],
-              rates: [[2.5, 2.0]],
-              fcrMatrix: [[1.0, 1.4]],
-            },
+      mockManagerQuery.mockResolvedValueOnce([v2Row({ fcrSource: 'feed' })]).mockResolvedValueOnce([
+        {
+          matrix: {
+            temperatures: [10],
+            weights: [100, 200],
+            rates: [[2.5, 2.0]],
+            fcrMatrix: [[1.0, 1.4]],
           },
-        ]);
+        },
+      ]);
 
       const result = await service.compareFCR(batchId, tenantId);
 
@@ -691,6 +694,52 @@ describe('FCRCalculationService', () => {
 
       expect(mockManagerQuery).toHaveBeenCalledTimes(1);
       expect(result.targetFCR).toBe(1.35);
+    });
+
+    it('getTargetFCRForBatches legacy dala düşen batch’ler için de SORGU ATMAZ (FARM-LOW-291)', async () => {
+      // Bulgunun tam senaryosu. Toplu API'nin DIŞ iki çağrısı toplulaştırılmıştı,
+      // ama zincirin 3. adımı — legacy yemleme programı — batch başına İKİ
+      // `findOne` atmaya devam ediyordu: `batch_locations` ve
+      // `feeding_program_tanks`. O adıma, v2 ataması OLMAYAN her batch düşer;
+      // cutover'ı bitirmemiş bir tenant'ta bu, batch'lerin çoğunluğudur. Yani
+      // "toplu" okuma, bulgunun saydığı sorguları hâlâ atıyordu.
+      const batchIds = ['batch-a', 'batch-b', 'batch-c'];
+      mockBatchRepository.find.mockResolvedValue(
+        batchIds.map((id) =>
+          Object.assign(makeBatch({ currentBiomassKg: 1200, startBiomassKg: 1000 }), {
+            id,
+            tenantId,
+            species: undefined,
+            speciesId: 'species-1',
+          }),
+        ),
+      );
+      mockSpeciesRepository.findOne.mockResolvedValue(null);
+      mockManagerQuery
+        // 1) v2 atama sorgusu — hiçbiri atanmamış, hepsi legacy dala düşer.
+        .mockResolvedValueOnce([])
+        // 2) legacy program sorgusu — TOPLU. Yalnız batch-b'nin programı var.
+        .mockResolvedValueOnce([
+          {
+            batchId: 'batch-b',
+            fcrTable: { temperatures: [10], weights: [100, 200], fcrValues: [[1.1, 1.5]] },
+          },
+        ]);
+
+      const targets = await service.getTargetFCRForBatches(tenantId, batchIds);
+
+      // Legacy tablosu olan batch onun interpolasyonunu alır; olmayanlar
+      // zincirin devamına düşer (species yok → endüstri yok → 1.5).
+      // 120g: wFrac = 0.2 → 1.1 + 0.4×0.2 = 1.18.
+      expect(targets.get('batch-b')).toBeCloseTo(1.18, 10);
+      expect(targets.get('batch-a')).toBe(1.5);
+      expect(targets.get('batch-c')).toBe(1.5);
+
+      // Asıl iddia: batch BAŞINA hiçbir legacy round-trip yok.
+      expect(mockBatchLocationRepository.findOne).not.toHaveBeenCalled();
+      expect(mockFeedingProgramTankRepository.findOne).not.toHaveBeenCalled();
+      // Ham sorgu sayısı batch sayısından BAĞIMSIZ: v2 + legacy = 2.
+      expect(mockManagerQuery).toHaveBeenCalledTimes(2);
     });
 
     it('kullanıcı override (batch.fcr.target) her şeyden önce gelir — v2 sorgusu atılmaz', async () => {

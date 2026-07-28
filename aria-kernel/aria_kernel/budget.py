@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -41,23 +42,85 @@ MODEL_PRICING_USD_PER_MTOK: dict[str, tuple[float, float]] = {
     "claude-haiku-4-5": (1.0, 5.0),
 }
 
+# ORPHAN-HIGH-476 — per-FAMILY rates, applied when no exact id matches.
+#
+# The exact table above cannot keep up on its own: ARIA dispatches by CLI alias
+# ("opus" = latest opus), so a new generation starts flowing through the ledger
+# the day it ships, under an id nobody has added a row for yet. That is not a
+# hypothetical — it is exactly how claude-opus-5 came to record $0.00
+# (ORPHAN-HIGH-474), and hand-adding a row per release just schedules the same
+# outage for the next one.
+#
+# A family rate is an ESTIMATE and is labelled as one (PRICING_SOURCE_FAMILY),
+# never silently passed off as measured. The trade is deliberate: an
+# approximate charge that keeps the caps binding beats a $0.00 that makes them
+# inert, and the label is what lets an operator find and correct it. Keys are
+# family prefixes and are matched ONLY after every exact id has missed, so they
+# cannot shadow a dated entry — the failure mode that rules out putting a short
+# key in the table above.
+MODEL_FAMILY_PRICING_USD_PER_MTOK: dict[str, tuple[float, float]] = {
+    "claude-fable": (10.0, 50.0),
+    "claude-mythos": (10.0, 50.0),
+    "claude-opus": (5.0, 25.0),
+    "claude-sonnet": (3.0, 15.0),
+    "claude-haiku": (1.0, 5.0),
+}
 
-def estimate_tokens_usd(*, model: str, input_tokens: int, output_tokens: int) -> float:
-    """Notional USD for a token pair under MODEL_PRICING_USD_PER_MTOK.
+PRICING_SOURCE_EXACT: str = "exact"
+PRICING_SOURCE_FAMILY: str = "family"
+PRICING_SOURCE_UNKNOWN: str = "unknown"
 
-    Model ids may carry date suffixes (``claude-haiku-4-5-20251001``) —
-    prefix matching handles them. Unknown models return 0.0; the CALLER is
-    responsible for making that visible (governance event), because a silent
-    zero is exactly the defect class this function exists to close.
+
+@dataclass(frozen=True)
+class TokenPrice:
+    """ORPHAN-HIGH-476 — the price AND how it was derived.
+
+    ``estimate_tokens_usd`` returns a bare float, so a family estimate and a
+    measured rate are indistinguishable at the callsite and an inferred number
+    would be recorded as though it were exact. Callers that persist cost must
+    persist ``source`` alongside it.
+    """
+
+    usd: float
+    source: str
+    matched_key: str | None
+
+
+def price_tokens(*, model: str, input_tokens: int, output_tokens: int) -> TokenPrice:
+    """Resolve a token pair to USD, exact id first, then family prefix.
+
+    Order is the whole contract: an exact (or dated-suffix) id always wins, so
+    adding a family rate can never override a rate someone measured.
     """
     normalized = (model or "").strip().lower()
+
+    def _usd(in_rate: float, out_rate: float) -> float:
+        return round(
+            (max(0, input_tokens) * in_rate + max(0, output_tokens) * out_rate) / 1_000_000,
+            6,
+        )
+
     for known, (in_rate, out_rate) in MODEL_PRICING_USD_PER_MTOK.items():
         if normalized == known or normalized.startswith(f"{known}-"):
-            return round(
-                (max(0, input_tokens) * in_rate + max(0, output_tokens) * out_rate) / 1_000_000,
-                6,
-            )
-    return 0.0
+            return TokenPrice(_usd(in_rate, out_rate), PRICING_SOURCE_EXACT, known)
+    for family, (in_rate, out_rate) in MODEL_FAMILY_PRICING_USD_PER_MTOK.items():
+        if normalized == family or normalized.startswith(f"{family}-"):
+            return TokenPrice(_usd(in_rate, out_rate), PRICING_SOURCE_FAMILY, family)
+    return TokenPrice(0.0, PRICING_SOURCE_UNKNOWN, None)
+
+
+def estimate_tokens_usd(*, model: str, input_tokens: int, output_tokens: int) -> float:
+    """Notional USD for a token pair. Thin wrapper over :func:`price_tokens`.
+
+    Retained because callers and tests depend on the bare-float shape, but it
+    DISCARDS the pricing source — a caller that persists the number should use
+    ``price_tokens`` and record ``source``, so a family estimate is never filed
+    as a measured rate. Returns 0.0 only when even the family is unknown, which
+    now means a genuinely new model family rather than merely a new generation.
+    """
+    return price_tokens(
+        model=model, input_tokens=input_tokens, output_tokens=output_tokens,
+    ).usd
 
 
 DEFAULT_BUDGET = {

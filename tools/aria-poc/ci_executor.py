@@ -1190,14 +1190,41 @@ def _record_claude_cli_usage(
             actual_cost_usd = float(candidate_cost)
         break
     try:
-        from aria_kernel.budget import estimate_tokens_usd, record_cost_attribution
-        estimated_usd = (
-            actual_cost_usd
-            if actual_cost_usd is not None
-            else estimate_tokens_usd(
-                model=model, input_tokens=input_tokens, output_tokens=output_tokens,
-            )
+        from aria_kernel.budget import (
+            PRICING_SOURCE_FAMILY,
+            price_tokens,
+            record_cost_attribution,
         )
+        # ORPHAN-HIGH-476 — price_tokens, not estimate_tokens_usd: the bare
+        # float discards HOW the price was derived, so a family estimate would
+        # be filed as though it were a measured rate.
+        priced = price_tokens(
+            model=model, input_tokens=input_tokens, output_tokens=output_tokens,
+        )
+        estimated_usd = actual_cost_usd if actual_cost_usd is not None else priced.usd
+        if (
+            actual_cost_usd is None
+            and priced.source == PRICING_SOURCE_FAMILY
+            and (input_tokens or output_tokens)
+        ):
+            # A new model generation the exact table has not caught up with.
+            # The charge is real enough to keep the caps binding, but the
+            # operator needs to know it is inferred so the rate can be
+            # corrected — silence here is how an estimate becomes "the number".
+            try:
+                from aria_kernel.tool_registry import append_tools_governance
+                append_tools_governance(
+                    tools_dir,
+                    "cost_pricing_inferred_from_family",
+                    {
+                        "model": model,
+                        "matched_family": priced.matched_key,
+                        "estimated_usd": priced.usd,
+                        "request_id": request_id,
+                    },
+                )
+            except Exception:
+                pass
         if estimated_usd == 0.0 and (input_tokens or output_tokens):
             # Tokens were consumed but no price resolved — make the zero
             # loud instead of silently under-counting the caps.

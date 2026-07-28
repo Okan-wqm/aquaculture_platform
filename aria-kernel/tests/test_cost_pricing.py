@@ -64,7 +64,10 @@ class ExecutorAttributionSourcePins(unittest.TestCase):
         self.assertNotIn("estimated_usd=0.0,", self.source)
 
     def test_resolution_order_present(self):
-        self.assertIn("estimate_tokens_usd", self.source)
+        # ORPHAN-HIGH-476 — the executor resolves through price_tokens now, so
+        # it carries the pricing SOURCE alongside the number; estimate_tokens_usd
+        # remains a bare-float wrapper for callers that do not persist cost.
+        self.assertIn("price_tokens", self.source)
         self.assertIn("total_cost_usd", self.source)
         self.assertIn("cost_pricing_unknown_model", self.source)
 
@@ -76,7 +79,7 @@ class ExecutorAttributionSourcePins(unittest.TestCase):
         )
         dumped = ast.dump(func)
         self.assertIn("total_cost_usd", dumped)
-        self.assertIn("estimate_tokens_usd", dumped)
+        self.assertIn("price_tokens", dumped)
 
 
 if __name__ == "__main__":
@@ -135,3 +138,73 @@ class AliasPricingCoverageTests(unittest.TestCase):
                         long.startswith(f"{short}-"),
                         f"{short!r} precedes and shadows {long!r}",
                     )
+
+
+class DynamicFamilyPricingTests(unittest.TestCase):
+    """ORPHAN-HIGH-476 — a new model generation must not price at $0.00.
+
+    ARIA dispatches by CLI alias ("opus" = latest opus), so a new generation
+    starts flowing through the ledger the day it ships, under an id nobody has
+    added a row for. Keying pricing solely on exact ids therefore schedules the
+    ORPHAN-HIGH-474 outage again on every release. Family rates make the common
+    case self-maintaining; the source label keeps the estimate honest.
+    """
+
+    def test_a_future_generation_prices_by_family_instead_of_zero(self) -> None:
+        from aria_kernel.budget import PRICING_SOURCE_FAMILY, price_tokens
+
+        for unseen in ("claude-opus-9-2", "claude-fable-7", "claude-sonnet-6-20270101"):
+            with self.subTest(model=unseen):
+                priced = price_tokens(
+                    model=unseen, input_tokens=1_000_000, output_tokens=1_000_000,
+                )
+                self.assertGreater(priced.usd, 0.0, "a priced family must never yield $0.00")
+                self.assertEqual(priced.source, PRICING_SOURCE_FAMILY)
+
+    def test_an_exact_id_always_beats_its_family(self) -> None:
+        """Ordering is the contract: adding a family rate must never override a
+        rate someone measured."""
+        from aria_kernel.budget import PRICING_SOURCE_EXACT, price_tokens
+
+        priced = price_tokens(model="claude-opus-5", input_tokens=1_000_000, output_tokens=0)
+        self.assertEqual(priced.source, PRICING_SOURCE_EXACT)
+        self.assertEqual(priced.matched_key, "claude-opus-5")
+
+    def test_a_dated_suffix_on_an_exact_id_still_resolves_exact(self) -> None:
+        from aria_kernel.budget import PRICING_SOURCE_EXACT, price_tokens
+
+        priced = price_tokens(
+            model="claude-haiku-4-5-20251001", input_tokens=1_000_000, output_tokens=0,
+        )
+        self.assertEqual(priced.source, PRICING_SOURCE_EXACT)
+
+    def test_an_unknown_family_stays_loud(self) -> None:
+        """Family fallback covers a new GENERATION, not a new vendor line; an
+        unrecognised family must still surface rather than be guessed at."""
+        from aria_kernel.budget import PRICING_SOURCE_UNKNOWN, price_tokens
+
+        priced = price_tokens(model="claude-newthing-1", input_tokens=1000, output_tokens=1000)
+        self.assertEqual(priced.usd, 0.0)
+        self.assertEqual(priced.source, PRICING_SOURCE_UNKNOWN)
+
+    def test_every_dispatchable_alias_has_a_family_rate(self) -> None:
+        """This is the assertion the earlier alias-coverage test could not make.
+
+        With family rates, alias coverage becomes a real guarantee: any model
+        the CLI resolves from a dispatchable alias prices by its family even if
+        the exact id is unknown. Previously an alias could be 'covered' by one
+        stale dated entry while the current generation priced at zero.
+        """
+        from aria_kernel.agent_runtime_profile import VALID_MODELS
+        from aria_kernel.budget import MODEL_FAMILY_PRICING_USD_PER_MTOK
+
+        for alias in sorted(VALID_MODELS):
+            with self.subTest(alias=alias):
+                self.assertIn(f"claude-{alias}", MODEL_FAMILY_PRICING_USD_PER_MTOK)
+
+    def test_the_executor_records_the_pricing_source(self) -> None:
+        """An inferred price filed as a measured one is the defect this label
+        exists to prevent, so the callsite must actually use it."""
+        ci = CI_EXECUTOR.read_text(encoding="utf-8")
+        self.assertIn("price_tokens(", ci)
+        self.assertIn("cost_pricing_inferred_from_family", ci)

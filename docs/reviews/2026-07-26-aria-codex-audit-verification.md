@@ -1370,3 +1370,15 @@ finding is one nobody can navigate back to from the review that produced it.
 
 * **ORPHAN-CRITICAL-479** — A NameError on the only real worker-dispatch path shipped with 2905 passing tests, and the first two detectors written for it were themselves theatre  
   Severity CRITICAL, layer 3, owner okan, deadline 2026-08-25.
+
+* **ORPHAN-HIGH-480** — The run_with_model_fallback docstring described the pre-ladder single-hop policy on five counts after the code had moved on  
+  Severity HIGH, layer 2, owner okan, deadline 2026-08-25.
+
+* **ORPHAN-HIGH-481** — has_fallback_tier was added with the ladder and had zero production callers  
+  Severity HIGH, layer 2, owner okan, deadline 2026-08-25.
+
+* **ORPHAN-MEDIUM-482** — Cost rows recorded at exactly a window boundary were dropped, under-counting spend against a safety cap  
+  Severity MEDIUM, layer 2, owner okan, deadline 2026-08-25.
+
+* **ORPHAN-MEDIUM-483** — The 72h failure window that fixed ORPHAN-MEDIUM-468 was itself the boundary value, so the bleed case still coin-flipped at the enforcement gate  
+  Severity MEDIUM, layer 2, owner okan, deadline 2026-08-25.

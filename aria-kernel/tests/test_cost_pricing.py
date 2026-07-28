@@ -208,3 +208,50 @@ class DynamicFamilyPricingTests(unittest.TestCase):
         ci = CI_EXECUTOR.read_text(encoding="utf-8")
         self.assertIn("price_tokens(", ci)
         self.assertIn("cost_pricing_inferred_from_family", ci)
+
+
+class CostWindowBoundaryTests(unittest.TestCase):
+    """ORPHAN-MEDIUM-482 — a row at exactly the window start must be counted.
+
+    Rows are written as `...+00:00`; windows were built as `...Z`. A raw string
+    `<` compares identically through the seconds and then puts '+' (0x2B) below
+    'Z' (0x5A), so the midnight row read as EARLIER than midnight and dropped
+    out of derived spend — under-counting a safety cap, which is the direction
+    that matters.
+    """
+
+    def test_a_row_at_exactly_the_window_start_is_counted(self) -> None:
+        from aria_kernel.budget import _before_instant
+
+        # The exact pair the defect was found with.
+        self.assertFalse(
+            _before_instant("2026-07-28T00:00:00+00:00", "2026-07-28T00:00:00Z"),
+            "a row recorded at exactly the window start must NOT be excluded",
+        )
+        # Proof the old implementation was wrong, so this test cannot pass for
+        # the wrong reason: the raw string comparison it replaced said True.
+        self.assertLess("2026-07-28T00:00:00+00:00", "2026-07-28T00:00:00Z")
+
+    def test_both_iso_spellings_agree_across_the_boundary(self) -> None:
+        from aria_kernel.budget import _before_instant
+
+        for window in ("2026-07-28T00:00:00Z", "2026-07-28T00:00:00+00:00"):
+            with self.subTest(window=window):
+                self.assertTrue(_before_instant("2026-07-27T23:59:59+00:00", window))
+                self.assertFalse(_before_instant("2026-07-28T00:00:00Z", window))
+                self.assertFalse(_before_instant("2026-07-28T09:30:00+00:00", window))
+
+    def test_an_unparseable_timestamp_is_counted_not_dropped(self) -> None:
+        """Fail toward INCLUDING spend: a malformed row that vanishes from a
+        budget is worse than one that inflates it."""
+        from aria_kernel.budget import _before_instant
+
+        self.assertFalse(_before_instant("garbage", "2026-07-28T00:00:00Z"))
+        self.assertFalse(_before_instant("", "2026-07-28T00:00:00Z"))
+        self.assertFalse(_before_instant("2026-07-28T00:00:00Z", "garbage"))
+
+    def test_naive_timestamps_are_treated_as_utc(self) -> None:
+        from aria_kernel.budget import _before_instant
+
+        self.assertTrue(_before_instant("2026-07-27T23:00:00", "2026-07-28T00:00:00Z"))
+        self.assertFalse(_before_instant("2026-07-28T01:00:00", "2026-07-28T00:00:00Z"))

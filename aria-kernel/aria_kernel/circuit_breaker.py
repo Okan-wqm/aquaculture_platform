@@ -88,8 +88,16 @@ FAILURE_KINDS: frozenset[str] = frozenset(
 # the policy itself. The authoritative values live in
 # genesis_policy.CIRCUIT_BREAKER_DEFAULTS; they are duplicated here only so a
 # broken policy file cannot leave the breaker with no threshold at all.
+# ORPHAN-MEDIUM-483 — the cadence and the window derivation are owned by
+# genesis_policy (imported here, not redefined) because the value used to exist
+# as two independent literals: one in CIRCUIT_BREAKER_DEFAULTS and one here.
+from .genesis_policy import (  # noqa: E402  (deliberate: SSoT for the derivation)
+    NIGHTLY_CADENCE_HOURS as _NIGHTLY_CADENCE_HOURS,
+    minimum_window_hours as _minimum_window_hours,
+)
+
 _DEFAULT_FAILURE_THRESHOLD: int = 3
-_DEFAULT_FAILURE_WINDOW_HOURS: int = 72
+_DEFAULT_FAILURE_WINDOW_HOURS: int = _minimum_window_hours(_DEFAULT_FAILURE_THRESHOLD)
 
 
 def _breaker_dir(base_dir: str | Path) -> Path:
@@ -146,6 +154,14 @@ def _load_breaker_policy(base_dir: str | Path) -> tuple[int, int]:
         window_hours = _DEFAULT_FAILURE_WINDOW_HOURS
     if window_hours <= 0:
         window_hours = _DEFAULT_FAILURE_WINDOW_HOURS
+    # An override narrower than threshold x cadence puts the oldest failure on
+    # the window edge at the next night's gate, which is the ORPHAN-MEDIUM-483
+    # coin-flip. Widen to the derived floor rather than honouring a value that
+    # makes the breaker non-deterministic; the breaker failing OPEN on jitter is
+    # the outcome this whole finding exists to prevent.
+    floor = _minimum_window_hours(threshold)
+    if window_hours < floor:
+        window_hours = floor
     return threshold, window_hours
 
 
@@ -267,9 +283,11 @@ def _count_failures_in_window(
     ORPHAN-MEDIUM-468 — the window was a hardcoded 24h, which equalled the
     nightly cron cadence. A prior night's row therefore sat exactly on the
     boundary and whether it still counted depended on where inside each run the
-    failure landed. The window is now policy-driven and defaults to 72h, so
-    accumulation across nights is decided by the number of failures rather than
-    by scheduler jitter.
+    failure landed. The window is now policy-driven and DERIVED as
+    threshold x cadence + cadence (ORPHAN-MEDIUM-483 — the 72h that first
+    replaced it was itself the boundary value for threshold 3), so accumulation
+    across nights is decided by the number of failures rather than by scheduler
+    jitter.
 
     A missing or unparseable ``ts`` counts as IN-window. Pre-fix such a
     row was skipped, so blanking the timestamps on a ledger dropped the

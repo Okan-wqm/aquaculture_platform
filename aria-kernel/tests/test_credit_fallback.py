@@ -160,7 +160,7 @@ class RunWithModelFallbackBehavior(unittest.TestCase):
     def test_the_fallback_topology_is_data_not_a_literal_model_test(self) -> None:
         """The gate was `if model != "fable"`, so moving the primary tier off
         fable would have disabled the fallback with nothing failing."""
-        from claude_runtime import MODEL_FALLBACK_TIER, has_fallback_tier
+        from claude_runtime import MODEL_FALLBACK_TIER
 
         # The operator ladder: planning falls fable -> opus, implementation
         # falls opus -> sonnet. opus having a fallback is what makes running
@@ -168,9 +168,9 @@ class RunWithModelFallbackBehavior(unittest.TestCase):
         # and an exhausted implementer raised terminally (ORPHAN-HIGH-475).
         self.assertEqual(MODEL_FALLBACK_TIER.get("fable"), "opus")
         self.assertEqual(MODEL_FALLBACK_TIER.get("opus"), "sonnet")
-        self.assertTrue(has_fallback_tier("fable"))
-        self.assertTrue(has_fallback_tier("opus"))
-        self.assertFalse(has_fallback_tier("sonnet"), "the ladder must terminate")
+        self.assertIn("fable", MODEL_FALLBACK_TIER)
+        self.assertIn("opus", MODEL_FALLBACK_TIER)
+        self.assertNotIn("sonnet", MODEL_FALLBACK_TIER, "the ladder must terminate")
         for primary, target in MODEL_FALLBACK_TIER.items():
             with self.subTest(primary=primary):
                 self.assertNotEqual(primary, target, "a tier cannot fall back to itself")

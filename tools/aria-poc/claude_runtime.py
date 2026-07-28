@@ -68,9 +68,13 @@ MODEL_FALLBACK_TIER: dict[str, str] = {
 CREDIT_FALLBACK_EFFORT: str = "max"
 
 
-def has_fallback_tier(model: str) -> bool:
-    """True when ``model`` has an alternate tier to fall back to."""
-    return model in MODEL_FALLBACK_TIER
+# NOTE: a `has_fallback_tier(model)` predicate was added here alongside the
+# ladder and removed in the same branch (ORPHAN-HIGH-481). It had zero
+# production callers — run_with_model_fallback does its own
+# `MODEL_FALLBACK_TIER.get(model)` because it needs the TARGET, not a boolean —
+# so the predicate was speculative API in the one branch whose whole purpose is
+# deleting controls that are written, tested and never called. The map is the
+# SSoT; read it directly.
 ALLOW_API_KEY_MODE_ENV_VAR = "ARIA_ALLOW_CLAUDE_API_KEY_MODE"
 REQUIRE_USAGE_ENV_VAR = "ARIA_CLAUDE_REQUIRE_USAGE"
 AUTH_PREFLIGHT_SKIP_ENV_VAR = "ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP"
@@ -662,26 +666,35 @@ def run_with_model_fallback(
     on_credit: Callable[[dict[str, Any]], None] | None = None,
     on_refusal: Callable[[dict[str, Any]], None] | None = None,
 ) -> ClaudeRunResult:
-    """Run one dispatch and apply the fable→opus fallback policy.
+    """Run one dispatch and apply the model fallback ladder.
 
-    ``run(model, effort)`` executes a single attempt. This is the SSoT for
-    the fallback behaviour both executors share (extracted so it is unit-
-    testable without a full lease/dispatch environment):
+    ``run(model, effort)`` executes a single attempt. This is the SSoT for the
+    fallback behaviour both executors share (extracted so it is unit-testable
+    without a full lease/dispatch environment).
 
-    * Fallback fires ONLY when the primary ``model`` is ``fable``.
-    * A credit/quota exhaustion retries once on ``opus`` at ``xhigh``
-      ("ultra code") effort — opus is a separate credit pool.
-    * A refusal retries once on ``opus`` at the ORIGINAL effort (K2).
-    * Total retries are bounded to exactly ONE: each branch returns the
-      opus result directly, so a credit/refusal signal on THAT result
-      escalates at the caller (its unresolved-* branch) instead of
-      re-retrying. Credit takes precedence over refusal.
-    * A failure already on a non-fable model is returned unchanged
-      (fail-closed at the caller).
+    ORPHAN-HIGH-480 — this docstring described the pre-ladder single-hop policy
+    on five counts after the code had moved on, which is the same stale-prose
+    defect as the jest tier comments (ORPHAN-MEDIUM-477). Corrected to match:
 
-    The ``on_credit`` / ``on_refusal`` hooks receive the detection record so
-    the caller can emit its own audit (ci_executor: governance rows;
-    worker_executor: stderr). Hooks never alter control flow.
+    * Fallback fires for any tier present in ``MODEL_FALLBACK_TIER`` — currently
+      ``fable -> opus`` (planning) and ``opus -> sonnet`` (implementation). It is
+      NOT keyed to one model name.
+    * A credit/quota exhaustion retries once on the mapped tier at
+      ``CREDIT_FALLBACK_EFFORT`` — a separate credit pool at ultracode depth.
+    * A refusal retries once on the mapped tier at the ORIGINAL effort (K2).
+    * Total retries are bounded to exactly ONE per call: the ladder is walked a
+      single rung, never chained. Credit takes precedence over refusal.
+    * A credit exhaustion that cannot be recovered — the tier has no mapped
+      fallback, or the fallback tier is ALSO exhausted — RAISES
+      :class:`ClaudeCreditExhausted`. It is not returned. The earlier claim that
+      the caller escalates such a result was false: no caller inspects
+      ``credit_exhaustion`` on the returned value, so returning it silently
+      published a usage-limit notice as the agent's answer (ORPHAN-HIGH-475).
+
+    The ``on_credit`` / ``on_refusal`` hooks receive the detection record so the
+    caller can emit its own audit (ci_executor: governance rows; worker_executor:
+    stderr). Hooks never alter control flow, and on_credit fires BEFORE a raise
+    so an unrecoverable exhaustion is still recorded.
     """
     completed = run(model, effort)
     fallback_model = MODEL_FALLBACK_TIER.get(model)

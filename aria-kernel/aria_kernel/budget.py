@@ -667,10 +667,48 @@ def read_cost_attribution(
             shard,
             expected_surface="cost_attribution",
         ):
-            if since_iso and str(row.get("recorded_at", "")) < since_iso:
+            if since_iso and _before_instant(str(row.get("recorded_at", "")), since_iso):
                 continue
             rows.append(row)
     return rows
+
+
+def _before_instant(recorded_at: str, since_iso: str) -> bool:
+    """True when ``recorded_at`` precedes ``since_iso`` as an INSTANT.
+
+    ORPHAN-MEDIUM-482 — this was a raw string ``<`` comparison, and the two
+    sides use different ISO spellings for the same instant: rows are written by
+    ``utc_now()`` as ``2026-07-28T00:00:00+00:00`` while callers build windows as
+    ``2026-07-28T00:00:00Z``. Through the seconds the strings are identical, then
+    ``'+'`` (0x2B) sorts below ``'Z'`` (0x5A) — so a row recorded at EXACTLY the
+    window start compared as earlier than it and was dropped. One row per day and
+    per month boundary vanished from derived spend, which under-counts a safety
+    cap rather than over-counting it.
+
+    Comparing parsed instants removes the whole class instead of making two
+    spellings agree by convention. Unparseable input is treated as NOT-before, so
+    a malformed row is counted rather than silently excluded from a budget.
+    """
+    a = _parse_instant(recorded_at)
+    b = _parse_instant(since_iso)
+    if a is None or b is None:
+        return False
+    return a < b
+
+
+def _parse_instant(value: str) -> datetime | None:
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    if raw.endswith(("Z", "z")):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def aggregate_cost_attribution(

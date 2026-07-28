@@ -50,8 +50,25 @@ class WindowPolicyTests(unittest.TestCase):
         coin-flip this finding closed, so the assertion is the inequality,
         not the literal."""
         window = CIRCUIT_BREAKER_DEFAULTS["failure_window_hours"]
-        self.assertGreater(window, 24, "window must exceed the nightly cadence")
-        self.assertEqual(window, 72)
+        # ORPHAN-MEDIUM-483 — the original assertion here was `window > 24`,
+        # i.e. window > CADENCE, and pinned the literal 72. Both were wrong:
+        # 72 is exactly the boundary for threshold 3, because the breaker is
+        # read at the NEXT night's gate (t = threshold x cadence), where the
+        # oldest failure lands precisely on the window edge and jitter decides
+        # the verdict. The requirement is window > threshold x cadence, so the
+        # assertion is now that RELATIONSHIP rather than a magic number.
+        from aria_kernel.genesis_policy import (
+            NIGHTLY_CADENCE_HOURS,
+            minimum_window_hours,
+        )
+
+        threshold = CIRCUIT_BREAKER_DEFAULTS["failure_threshold"]
+        self.assertGreater(
+            window, threshold * NIGHTLY_CADENCE_HOURS,
+            "window must exceed threshold x cadence, else the oldest failure "
+            "sits on the window edge at the next night's gate",
+        )
+        self.assertEqual(window, minimum_window_hours(threshold))
 
     def test_rows_older_than_the_window_age_out_and_newer_ones_count(self) -> None:
         now = datetime.now(timezone.utc)
@@ -121,3 +138,59 @@ class RenameMigrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WindowSurvivesTheGateNotJustTheTrip(unittest.TestCase):
+    """ORPHAN-MEDIUM-483 — evaluate at the GATE, which is where it broke.
+
+    The earlier multi-night test counted at the trip instant (t=48 for three
+    nightly failures) and passed with the boundary-valued 72h window. The
+    breaker is not read then — it is read at the next night's preflight, t=72,
+    where a 72h window puts the oldest failure exactly on the edge.
+
+    NOTE ON ROW SHAPE: _count_failures_in_window reads a `ts` ISO timestamp and
+    treats an unparseable one as IN-window (fail-closed, ORPHAN-CRITICAL-418).
+    The first version of this test passed `age_hours` keys, so every row was
+    unparseable and counted regardless of window — it asserted nothing. Only the
+    negative control below revealed that, which is why it is here.
+    """
+
+    @staticmethod
+    def _rows_aged(hours_ago: list[float]) -> list[dict]:
+        now = datetime.now(timezone.utc)
+        return [
+            {"ts": (now - timedelta(hours=h)).isoformat(), "reason": "perimeter"}
+            for h in hours_ago
+        ]
+
+    def test_the_bleed_still_counts_at_the_next_nights_gate_under_jitter(self) -> None:
+        from aria_kernel.circuit_breaker import _count_failures_in_window
+        from aria_kernel.genesis_policy import (
+            NIGHTLY_CADENCE_HOURS as CAD,
+            minimum_window_hours as _minimum_window_hours,
+        )
+
+        threshold = 3
+        window = _minimum_window_hours(threshold)
+        gate_at = threshold * CAD
+        for jitter_minutes in (0, 5, 30, 59):
+            with self.subTest(jitter=jitter_minutes):
+                ages = [gate_at + jitter_minutes / 60.0 - (n * CAD) for n in range(threshold)]
+                self.assertEqual(
+                    _count_failures_in_window(self._rows_aged(ages), window_hours=window),
+                    threshold,
+                    f"jitter of {jitter_minutes}min must not drop a failure at the gate",
+                )
+
+    def test_the_old_boundary_window_would_have_dropped_it(self) -> None:
+        """Negative control: the same bleed at the same gate loses a failure
+        under the previous 72h window, so this suite cannot pass with the
+        boundary value restored."""
+        from aria_kernel.circuit_breaker import _count_failures_in_window
+
+        threshold, gate_at = 3, 3 * 24
+        ages = [gate_at + 0.5 - (n * 24) for n in range(threshold)]
+        self.assertLess(
+            _count_failures_in_window(self._rows_aged(ages), window_hours=72), threshold,
+            "the 72h window must be shown to lose a failure",
+        )

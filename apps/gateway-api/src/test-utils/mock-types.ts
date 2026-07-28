@@ -42,7 +42,11 @@ export interface MockRequest extends Partial<Request> {
 /**
  * Mock response with typed methods
  */
-export interface MockResponse extends Partial<Response> {
+export interface MockResponse
+  extends Omit<
+    Partial<Response>,
+    'getHeader' | 'header' | 'json' | 'send' | 'setHeader' | 'status'
+  > {
   status: jest.Mock<MockResponse, [number]>;
   json: jest.Mock<MockResponse, [unknown]>;
   send: jest.Mock<MockResponse, [unknown]>;
@@ -97,13 +101,15 @@ export function createMockResponse(overrides: Partial<MockResponse> = {}): MockR
 /**
  * Create a properly typed mock execution context for HTTP requests
  */
-export function createMockExecutionContext(options: {
-  request?: Partial<MockRequest>;
-  response?: Partial<MockResponse>;
-  handler?: jest.Mock;
-  classRef?: jest.Mock;
-  contextType?: 'http' | 'graphql' | 'ws' | 'rpc';
-} = {}): ExecutionContext {
+export function createMockExecutionContext(
+  options: {
+    request?: Partial<MockRequest>;
+    response?: Partial<MockResponse>;
+    handler?: jest.Mock;
+    classRef?: jest.Mock;
+    contextType?: 'http' | 'graphql' | 'ws' | 'rpc';
+  } = {},
+): ExecutionContext {
   const {
     request: requestOverrides,
     response: responseOverrides,
@@ -143,15 +149,17 @@ export function createMockExecutionContext(options: {
 /**
  * Create a mock execution context for GraphQL requests
  */
-export function createMockGqlExecutionContext(options: {
-  request?: Partial<MockRequest>;
-  response?: Partial<MockResponse>;
-  info?: {
-    fieldName: string;
-    operation?: { name?: { value: string }; operation: string };
-  };
-  args?: Record<string, unknown>;
-} = {}): ExecutionContext {
+export function createMockGqlExecutionContext(
+  options: {
+    request?: Partial<MockRequest>;
+    response?: Partial<MockResponse>;
+    info?: {
+      fieldName: string;
+      operation?: { name?: { value: string }; operation: string };
+    };
+    args?: Record<string, unknown>;
+  } = {},
+): ExecutionContext {
   const { request: requestOverrides, response: responseOverrides, info, args = {} } = options;
 
   const mockRequest = createMockRequest(requestOverrides);
@@ -180,7 +188,9 @@ export function createMockGqlExecutionContext(options: {
   });
 
   // Store info and args for GqlExecutionContext.create to access
-  (context as unknown as { __gqlContext: unknown; __gqlInfo: unknown; __gqlArgs: unknown }).__gqlContext = gqlContext;
+  (
+    context as unknown as { __gqlContext: unknown; __gqlInfo: unknown; __gqlArgs: unknown }
+  ).__gqlContext = gqlContext;
   (context as unknown as { __gqlInfo: unknown }).__gqlInfo = info ?? { fieldName: 'testQuery' };
   (context as unknown as { __gqlArgs: unknown }).__gqlArgs = args;
 
@@ -199,11 +209,13 @@ export function createMockCallHandler<T = unknown>(returnValue?: T): CallHandler
 /**
  * Create a mock arguments host for exception filters
  */
-export function createMockArgumentsHost(options: {
-  request?: Partial<MockRequest>;
-  response?: Partial<MockResponse>;
-  contextType?: 'http' | 'graphql' | 'ws' | 'rpc';
-} = {}): ArgumentsHost {
+export function createMockArgumentsHost(
+  options: {
+    request?: Partial<MockRequest>;
+    response?: Partial<MockResponse>;
+    contextType?: 'http' | 'graphql' | 'ws' | 'rpc';
+  } = {},
+): ArgumentsHost {
   const { request: requestOverrides, response: responseOverrides, contextType = 'http' } = options;
 
   const mockRequest = createMockRequest(requestOverrides);
@@ -257,19 +269,21 @@ export function getResponseStatus(mockResponse: MockResponse): number | undefine
 /**
  * Create mock JWT payload
  */
-export function createMockJwtPayload(overrides: Partial<{
-  sub: string;
-  tenantId: string;
-  roles: string[];
-  permissions: string[];
-  email: string;
-  type: 'access' | 'refresh';
-  iat: number;
-  exp: number;
-  iss: string;
-  aud: string | string[];
-  jti: string;
-}> = {}): {
+export function createMockJwtPayload(
+  overrides: Partial<{
+    sub: string;
+    tenantId: string;
+    roles: string[];
+    permissions: string[];
+    email: string;
+    type: 'access' | 'refresh';
+    iat: number;
+    exp: number;
+    iss: string;
+    aud: string | string[];
+    jti: string;
+  }> = {},
+): {
   sub: string;
   tenantId: string;
   roles: string[];
@@ -297,13 +311,15 @@ export function createMockJwtPayload(overrides: Partial<{
 /**
  * Create mock tenant context
  */
-export function createMockTenantContext(overrides: Partial<{
-  tenantId: string;
-  tenantName: string;
-  plan: string;
-  modules: string[];
-  isActive: boolean;
-}> = {}): {
+export function createMockTenantContext(
+  overrides: Partial<{
+    tenantId: string;
+    tenantName: string;
+    plan: string;
+    modules: string[];
+    isActive: boolean;
+  }> = {},
+): {
   tenantId: string;
   tenantName?: string;
   plan?: string;

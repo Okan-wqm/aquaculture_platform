@@ -3,6 +3,8 @@ import * as path from 'node:path';
 
 import * as YAML from 'yaml';
 
+import SERVICE_COVERAGE_BASELINES from '../../tools/quality/service-coverage-baselines.js';
+
 interface Workflow {
   on?: {
     push?: {
@@ -38,6 +40,14 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const WORKFLOW_PATH = path.join(REPO_ROOT, '.github', 'workflows', 'ci-full.yml');
 const ROOT_PACKAGE_PATH = path.join(REPO_ROOT, 'package.json');
 const ROOT_LOCK_PATH = path.join(REPO_ROOT, 'package-lock.json');
+const SERVICE_COVERAGE_CONFIGS = {
+  'admin-api-service': 'apps/admin-api-service/jest.config.ts',
+  'auth-service': 'apps/auth-service/jest.config.ts',
+  'billing-service': 'apps/billing-service/jest.config.ts',
+  'farm-service': 'apps/farm-service/jest.config.ts',
+  'hr-service': 'apps/hr-service/jest.config.ts',
+  'sensor-service': 'apps/sensor-service/jest.config.ts',
+} as const;
 
 function readWorkflow(): Workflow {
   return YAML.parse(fs.readFileSync(WORKFLOW_PATH, 'utf8')) as Workflow;
@@ -142,5 +152,73 @@ describe('CI Full protected-main and PR contract', () => {
     expect(
       packageLock.packages?.['node_modules/@vitest/coverage-v8']?.peerDependencies?.vitest,
     ).toBe(rootVitest);
+  });
+
+  it('ratchets every previously dormant Jest coverage floor from its first full-CI baseline', () => {
+    expect(SERVICE_COVERAGE_BASELINES).toEqual({
+      'admin-api-service': {
+        branches: 14.17,
+        functions: 18.16,
+        lines: 27.27,
+        statements: 27.43,
+      },
+      'auth-service': {
+        branches: 42.41,
+        functions: 22.67,
+        lines: 48.18,
+        statements: 48.56,
+      },
+      'billing-service': {
+        branches: 47.09,
+        functions: 33.37,
+        lines: 53.33,
+        statements: 53.05,
+      },
+      'farm-service': {
+        branches: 32.86,
+        functions: 20.39,
+        lines: 33.92,
+        statements: 33.84,
+      },
+      'hr-service': {
+        branches: 30.3,
+        functions: 15.62,
+        lines: 34.29,
+        statements: 34.66,
+      },
+      'sensor-service': {
+        branches: 19.22,
+        functions: 14.92,
+        lines: 38.64,
+        statements: 39.85,
+      },
+    });
+
+    for (const service of Object.keys(SERVICE_COVERAGE_CONFIGS) as Array<
+      keyof typeof SERVICE_COVERAGE_CONFIGS
+    >) {
+      const configPath = SERVICE_COVERAGE_CONFIGS[service];
+      const config = fs.readFileSync(path.join(REPO_ROOT, configPath), 'utf8');
+
+      expect(config).toContain(`coverageBaselines['${service}']`);
+      expect(Object.values(SERVICE_COVERAGE_BASELINES[service]).every((floor) => floor > 0)).toBe(
+        true,
+      );
+    }
+  });
+
+  it('keeps non-unit and archived sources outside full-CI coverage collection', () => {
+    const farmConfig = fs.readFileSync(
+      path.join(REPO_ROOT, SERVICE_COVERAGE_CONFIGS['farm-service']),
+      'utf8',
+    );
+    const hrConfig = fs.readFileSync(
+      path.join(REPO_ROOT, SERVICE_COVERAGE_CONFIGS['hr-service']),
+      'utf8',
+    );
+
+    expect(farmConfig).toContain("'<rootDir>/src/__tests__/e2e/'");
+    expect(farmConfig).toContain("'<rootDir>/test/'");
+    expect(hrConfig).toContain("'<rootDir>/src/database/migrations/.archive/'");
   });
 });

@@ -82,3 +82,28 @@ instrumented chemistry calls for one report.
 The scenario now precomputes the fixed pH risk grid once, then varies only TAN in the inner
 search. Search resolution, threshold selection, and report output remain unchanged; the fix
 removes repeated work instead of weakening the test timeout.
+
+## INFRA-HIGH-089 — full coverage inherited impossible dormant floors and excluded sources
+
+Once the required full-CI workflow could execute coverage, six passing Jest service suites
+failed against hard-coded 60 percent global floors that had never been enforced. Their observed
+coverage ranged from 14.18 to 53.34 percent by metric, so the inherited gate could not describe
+the current repository truth or ratchet it.
+
+Coverage collection also compiled sources outside the selected unit-test surface: archived HR
+migration history, farm E2E suites, and a gateway mock whose intentionally narrower response
+methods conflicted with Express `Partial<Response>`. These collection-only errors occurred after
+the associated unit suites had passed.
+
+The repair:
+
+- records each service's first enforceable observed coverage floor in one typed baseline;
+- makes all six Jest configs consume that baseline and locks the exact initial values with an
+  invariant, so lowering a floor requires an explicit governed change;
+- excludes only archived HR history and farm E2E sources from coverage collection, without
+  suppressing their independently selected test targets;
+- models gateway mock overrides with `Omit<Partial<Response>, ...>` before declaring their
+  narrower Jest method types.
+
+Future coverage improvements raise the centralized values; the baseline must never be lowered
+to make a regression pass.

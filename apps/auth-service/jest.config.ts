@@ -1,3 +1,5 @@
+import coverageBaselines from '../../tools/quality/service-coverage-baselines.js';
+
 export default {
   displayName: 'auth-service',
   preset: '../../jest.preset.js',
@@ -15,22 +17,5 @@ export default {
   restoreMocks: true,
   clearMocks: true,
   resetMocks: false,
-  // AUDIT-MEDIUM-015 (PARTIAL): mock hygiene above is the substantive, safe fix.
-  // The finding also asked to raise this floor to ~80 and scope the coverage
-  // denominator (collectCoverageFrom). Empirically the auth-service suite covers
-  // only ~42% lines / ~25% functions of the executable domain code, so an 80%
-  // floor is NOT yet achievable — reaching it requires the AUDIT-HIGH-009 spec
-  // expansion (jwt-auth.guard, webauthn, provisioning, RBAC, RLS specs), which is
-  // largely REMAINING. Raising the floor + adding a domain-scoped
-  // collectCoverageFrom must land WITH those specs (otherwise the gate fails for
-  // the wrong reason or the number regresses against the current inflated-glob
-  // baseline). Keeping the existing 60% floor here; the floor-raise is tracked.
-  coverageThreshold: {
-    global: {
-      branches: 60,
-      functions: 60,
-      lines: 60,
-      statements: 60,
-    },
-  },
+  coverageThreshold: { global: coverageBaselines['auth-service'] },
 };

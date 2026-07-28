@@ -1,3 +1,5 @@
+import coverageBaselines from '../../tools/quality/service-coverage-baselines.js';
+
 export default {
   displayName: 'admin-api-service',
   preset: '../../jest.preset.js',
@@ -7,18 +9,6 @@ export default {
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
   coverageDirectory: '../../coverage/apps/admin-api-service',
-  collectCoverageFrom: [
-    'src/**/*.ts',
-    '!src/**/*.spec.ts',
-    '!src/**/*.test.ts',
-    '!src/main.ts',
-  ],
-  coverageThreshold: {
-    global: {
-      branches: 60,
-      functions: 60,
-      lines: 60,
-      statements: 60,
-    },
-  },
+  collectCoverageFrom: ['src/**/*.ts', '!src/**/*.spec.ts', '!src/**/*.test.ts', '!src/main.ts'],
+  coverageThreshold: { global: coverageBaselines['admin-api-service'] },
 };

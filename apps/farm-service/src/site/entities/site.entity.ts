@@ -238,7 +238,17 @@ export class Site {
    * ayırt edemiyordu; tenant zonunu ayarladığında siteler UTC'de kalıyordu.
    */
   @Field(() => String, { nullable: true })
-  @Column({ length: 50, nullable: true })
+  // `type` AÇIK OLMAK ZORUNDA. Alan tipi bir birleşim (`string | null`) ve
+  // TypeScript birleşimler için `design:type` metadata'sını `Object` olarak
+  // yayar. Açık bir `type:` yoksa TypeORM o çıkarımı benimser ve entity
+  // metadata'sı kurulurken
+  //   DataTypeNotSupportedError: Data type "Object" in "Site.timezone"
+  // ile PATLAR — farm-service'in TÜM metadata'sı kurulamadığı için taze bir
+  // veritabanında migration zinciri hiç koşamaz (bootstrap-from-scratch 70/70).
+  // Nullable ama `?: string` yazılan kolonlar bu tuzağa düşmez, çünkü orada
+  // `design:type` `String`'tir; kalıtımı temsil etmek için NULL'ı açıkça
+  // taşımak istediğimizden burada birleşim korunur ve tip elle bildirilir.
+  @Column({ type: 'varchar', length: 50, nullable: true })
   timezone!: string | null;
 
   // -------------------------------------------------------------------------

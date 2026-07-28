@@ -106,6 +106,19 @@ mevcut hiçbir kapıya takılmıyordu.
 | **FARM-MEDIUM-303** | `e2e/tests/integration/schema-invariants.spec.ts` hiçbir `run:` adımında yok — yalnız `paths:` tetik filtresinde. Kök CLAUDE.md onu "her PR'da koşar" diye ilan ediyordu; belge gerçeğe çekildi, spec'in koşturulması ayrı iş. |
 | **FARM-MEDIUM-304** | AquaMobil'in ~380 vitest testi CI'da hiç koşmuyor. Bu turda yalnız SW build-artifact invariantı (FE-CRITICAL-050-SW) gerçek bir `test:invariant` hedefi hâline getirildi — o adım daha önce hiçbir projenin tanımlamadığı bir hedefi sürdüğü için kalıcı sessiz-yeşildi. |
 
+**FARM-CRITICAL-305 — lane bağlanır bağlanmaz CI'ın yakaladığı ilk şey.**
+`Site.timezone` birleşim tipli (`string | null`) ama `@Column` açık `type:`
+taşımıyordu. TypeScript birleşimler için `design:type`'ı `Object` olarak yayar;
+açık tip yoksa TypeORM onu benimser ve **farm-service'in tüm entity metadata'sı**
+kurulamaz — `DataTypeNotSupportedError: Data type "Object" in "Site.timezone"`.
+Taze bir veritabanında migration zinciri hiç koşamıyordu:
+`bootstrap-from-scratch` 70/70 kırmızı. `tsc`, lint ve 1747 birim testinin
+hepsi yeşil geçiyordu, çünkü kusur yalnız gerçek bir DataSource kurulduğunda
+görünür. W5'in `sites.timezone` nullable değişikliğinden geliyor. Mekanizma
+yerelde çalıştırılarak doğrulandı (kolon `Object` constructor'ına çözülüyordu;
+açık `type: 'varchar'` ile düzeldi) ve `tests/invariants/entity-column-type-inference.spec.ts`
+ile pinlendi — repo genelinde tek ihlal buydu.
+
 Yapısal kapanış: `tests/invariants/test-target-ci-reachability.spec.ts` her iki
 yönü birden zorlar — tanımlı her `test*` hedefinin CI koşucusu olmalı, ve CI'ın
 sürdüğü her test hedefi bir projede var olmalı. İki yön de aksi hâlde sessizce

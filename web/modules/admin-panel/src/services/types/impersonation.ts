@@ -1,3 +1,8 @@
+import type {
+  ImpersonationAuditSummary,
+  ImpersonationAction,
+} from './generated/admin-contracts';
+
 /**
  * Impersonation domain types
  *
@@ -102,40 +107,13 @@ export interface StartImpersonationRequest {
 }
 
 /**
- * One entry of a session's action log — mirrors the backend `ImpersonationAction`
- * interface ({ action, resource, resourceId?, timestamp, details? }); the
- * log-action endpoint validates exactly these fields.
- */
-export interface ImpersonationAction {
-  action: string;
-  resource: string;
-  resourceId?: string;
-  timestamp: string;
-  details?: Record<string, unknown>;
-}
-
-/**
- * The platform-wide impersonation aggregate — mirrors the backend
- * `ImpersonationAuditSummary` (apps/admin-api-service/src/impersonation/
- * services/impersonation.service.ts). Parity is pinned by
- * tests/invariants/admin-impersonation-summary-contract.spec.ts.
+ * The platform-wide impersonation aggregate — GENERATED from
+ * `apps/admin-api-service/src/impersonation/services/impersonation.service.ts`.
  *
  * The `InWindow` / `Now` suffixes are the contract, not decoration: this page
- * used to render an all-time session count under a hardcoded "(30d)" label and
- * sum `actionCount` over whatever rows the first unpaginated page happened to
- * return. Both numbers now come from the endpoint that owns the semantics, and
- * the period label is derived from `windowStart`/`windowEnd` rather than
- * written into the JSX.
+ * rendered an all-time session count under a hardcoded "(30d)" label. Deriving
+ * the type means the panel cannot silently fall behind a change to what those
+ * fields mean.
  */
-export interface ImpersonationAuditSummary {
-  windowStart: string;
-  windowEnd: string;
-  totalSessionsInWindow: number;
-  actionsLoggedInWindow: number;
-  sessionsByReasonInWindow: Record<ImpersonationReasonCode, number>;
-  topImpersonatorsInWindow: Array<{ adminId: string; email: string; sessionCount: number }>;
-  topTargetTenantsInWindow: Array<{ tenantId: string; tenantName: string; sessionCount: number }>;
-  recentSessionsInWindow: ImpersonationSession[];
-  activeSessionsNow: number;
-  activePermissionsNow: number;
-}
+
+export type { ImpersonationAuditSummary, ImpersonationAction };

@@ -139,9 +139,12 @@ describe('INVARIANT: compliance checks consume the canonical ComplianceCheckResu
     const types = readRepoFile('web/modules/admin-panel/src/services/types/security.ts');
     const api = readRepoFile('web/modules/admin-panel/src/services/api/security.ts');
 
-    expect(types).toContain('export interface BackendComplianceRequirement');
-    expect(types).toContain('export interface BackendComplianceCheckResult');
-    expect(types).toContain('requirement: BackendComplianceRequirement');
+    // Derived, not declared: the panel aliases the generated backend contract
+    // at the boundary rather than keeping a second copy of it.
+    expect(types).toContain("ComplianceRequirement as BackendComplianceRequirement");
+    expect(types).toContain("ComplianceCheckResult as BackendComplianceCheckResult");
+    expect(types).toContain("from './generated/admin-contracts'");
+    expect(types).not.toMatch(/export interface BackendComplianceCheckResult\s*\{/);
     expect(api).toContain('apiFetch<BackendComplianceCheckResult[]>');
     // The invented flat fields, and the inline literal that hid them from tsc.
     expect(withoutComments(types)).not.toContain('nextReview');

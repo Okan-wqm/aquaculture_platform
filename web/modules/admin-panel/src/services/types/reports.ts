@@ -1,16 +1,13 @@
 /**
  * Reports domain types
  */
+// The report vocabularies are GENERATED from the backend entity — they were
+// hand-listed here, which is how a report type could exist on one side only.
+import type { ReportType, ReportFormat } from './generated/admin-contracts';
 
-export type ReportType =
-  | 'tenant_overview'
-  | 'tenant_churn'
-  | 'financial_revenue'
-  | 'financial_payments'
-  | 'usage_modules'
-  | 'usage_features'
-  | 'system_performance';
-export type ReportFormat = 'pdf' | 'csv' | 'json';
+export type { ReportType, ReportFormat };
+
+
 /**
  * `'unavailable'` mirrors the backend terminal state added in APA-142: the
  * report type has no data source, so nothing broke and no retry will help.

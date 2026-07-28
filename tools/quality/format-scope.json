@@ -41520,6 +41520,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-contracts-generated.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-csrf-posture.spec.ts",
       "prettier_managed": true
     },
@@ -43069,6 +43075,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/audit/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/codegen/admin-contracts/generate.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/codegen/admin-contracts/manifest.ts",
       "prettier_managed": true
     },
     {
@@ -46338,6 +46356,17 @@
       "owner": "source",
       "path": "web/modules/admin-panel/src/services/types/debug.ts",
       "prettier_managed": true
+    },
+    {
+      "class": "generated",
+      "content_sha256": "c5a1fbe1f158fddaaaf00449824eb1ee4d99d73561636e31fd3359db071d40b7",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "web/modules/admin-panel/src/services/types/generated/admin-contracts.ts",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
       "class": "canonical_source",
@@ -55644,10 +55673,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9123,
+  "file_count": 9127,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8942,
-  "managed_file_list_sha256": "4fb63a43816491d18044bb48332e2808b88e2476a2200f1721e2ac36514cf2d0",
+  "managed_count": 8945,
+  "managed_file_list_sha256": "0f66eb4e616b33beec918324a42ff798a5390a6b7b2dd59399fb71f74e34dc0f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

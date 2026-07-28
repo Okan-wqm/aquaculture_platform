@@ -105,19 +105,17 @@ function interfaceFields(source: string, name: string, where: string): string[] 
 }
 
 describe('impersonation audit-summary contract (APA-297)', () => {
-  it('the frontend mirror carries exactly the fields the backend sends', () => {
-    const backend = interfaceFields(
-      BACKEND_SERVICE,
-      'ImpersonationAuditSummary',
-      'admin-api-service',
+  it('derives the frontend type instead of mirroring it by hand', () => {
+    // This used to compare the two declarations field for field. There is only
+    // one declaration now: `tools/codegen/admin-contracts` emits this shape from
+    // the backend and `services/types/impersonation.ts` re-exports it, so there
+    // is no second copy to hold in agreement. `admin-contracts-generated`
+    // checks the emitted file is current; the compiler does the rest.
+    expect(FRONTEND_TYPES).toMatch(
+      /export type \{[\s\S]*ImpersonationAuditSummary[\s\S]*\}/,
     );
-    const frontend = interfaceFields(
-      FRONTEND_TYPES,
-      'ImpersonationAuditSummary',
-      'admin-panel',
-    );
-
-    expect(frontend).toEqual(backend);
+    expect(FRONTEND_TYPES).toContain("from './generated/admin-contracts'");
+    expect(FRONTEND_TYPES).not.toMatch(/export interface ImpersonationAuditSummary\s*\{/);
   });
 
   it('every aggregate names the period it covers', () => {

@@ -166,41 +166,21 @@ export interface BackendAuditAlertRule {
 }
 
 /**
- * One GDPR/framework requirement — mirrors the backend `ComplianceRequirement`
- * (apps/admin-api-service/src/security/services/compliance.service.ts).
+ * The compliance-check contract is GENERATED from
+ * `apps/admin-api-service/src/security/services/compliance.service.ts` and
+ * aliased under the panel's `Backend*` naming.
  *
- * The human-readable text lives HERE, nested, not flattened onto the check
- * result. Declaring `requirement` as a string is what put an object into JSX.
+ * Hand-declared, it claimed `requirement` was a string when the backend sends a
+ * nested object, and invented `id`/`category`/`description`/`lastChecked`/
+ * `nextReview` at the top level. Spreading that row put the object into JSX and
+ * crashed the page. Deriving the type is what makes that unrepresentable.
  */
-export interface BackendComplianceRequirement {
-  id: string;
-  framework: ComplianceType;
-  requirement: string;
-  description: string;
-  category: string;
-  isMandatory: boolean;
-  verificationMethod: string;
-}
+import type {
+  ComplianceRequirement as BackendComplianceRequirement,
+  ComplianceCheckResult as BackendComplianceCheckResult,
+} from './generated/admin-contracts';
 
-/**
- * The result of running one requirement check — mirrors the backend
- * `ComplianceCheckResult`. Parity is pinned by
- * tests/invariants/admin-security-runtime-contract.spec.ts.
- *
- * There is no `nextReview`: checks execute live per request and the platform
- * has no scheduled-review concept. The panel used to declare one (along with
- * `id`, `category`, `description` and `lastChecked` at the top level), all of
- * which arrived `undefined` and none of which the compiler could question,
- * because `apiFetch<T>`'s generic is an unchecked assertion across the wire.
- */
-export interface BackendComplianceCheckResult {
-  requirement: BackendComplianceRequirement;
-  status: 'compliant' | 'non_compliant' | 'partial' | 'not_applicable';
-  details: string;
-  evidence?: string;
-  remediation?: string;
-  checkedAt: string;
-}
+export type { BackendComplianceRequirement, BackendComplianceCheckResult };
 
 export interface BackendComplianceReport {
   id: string;

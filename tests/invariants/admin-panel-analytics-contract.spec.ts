@@ -22,9 +22,18 @@
  * sides and PINNED here — the same tier-3 pattern as the audit-severity and
  * data-request-status vocabulary gates.
  *
- * The gate compares FIELD NAMES per shape. That is the axis this finding is
- * about: every one of the ten defects was a field the backend does not send, or
- * a field it sends that the frontend never declared.
+ * UPDATE — the field-by-field comparison this gate used to run is GONE, and so
+ * is the second copy it compared. `tools/codegen/admin-contracts` now emits
+ * these shapes from the backend types and `services/types/analytics.ts`
+ * re-exports them, so there is nothing to hold in agreement:
+ * `admin-contracts-generated` checks the emitted file is current, and the
+ * compiler does the rest.
+ *
+ * What survives here is the part codegen does NOT cover — the api layer's own
+ * habit of inlining a guessed generic at the call site, which is how `cac`,
+ * `churnRate`, `cpuUsage`, `memoryUsage` and `diskUsage` entered the contract
+ * in the first place. An inline literal has no backend counterpart to generate
+ * from, so it stays a lint-shaped rule.
  *
  * @see docs/reviews/claude/2026-07-20-admin-panel-e2e-audit/findings/analytics.md#APA-149
  */
@@ -33,14 +42,13 @@ import { join } from 'node:path';
 
 const REPO_ROOT = join(__dirname, '..', '..');
 
-const BACKEND_ENTITY = readFileSync(
-  join(REPO_ROOT, 'apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts'),
-  'utf8',
-);
 const BACKEND_SERVICE = readFileSync(
   join(REPO_ROOT, 'apps/admin-api-service/src/analytics/services/analytics.service.ts'),
   'utf8',
 );
+// Still read for the one shape codegen does not own: `KpiComparisons` is
+// `Record<string, ComparisonDto>`, which the backend expresses as a return type
+// rather than a named export, so the panel legitimately names it itself.
 const FRONTEND_TYPES = readFileSync(
   join(REPO_ROOT, 'web/modules/admin-panel/src/services/types/analytics.ts'),
   'utf8',
@@ -50,74 +58,7 @@ const FRONTEND_API = readFileSync(
   'utf8',
 );
 
-/**
- * The declared property names of an `interface X { … }` block.
- *
- * Nested object literals are skipped by tracking brace depth, so a field's own
- * sub-shape does not leak into its parent's key set.
- */
-function interfaceFields(source: string, name: string, file: string): string[] {
-  const header = new RegExp(`export interface ${name}\\s*\\{`);
-  const match = header.exec(source);
-  if (!match) {
-    throw new Error(`interface ${name} not found in ${file}`);
-  }
-
-  let depth = 0;
-  let index = match.index + match[0].length - 1;
-  const start = index;
-  do {
-    const char = source[index];
-    if (char === '{') depth++;
-    if (char === '}') depth--;
-    index++;
-  } while (depth > 0 && index < source.length);
-
-  const body = source
-    .slice(start + 1, index - 1)
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\/\/[^\n]*/g, '');
-
-  const fields: string[] = [];
-  let nesting = 0;
-  for (const line of body.split('\n')) {
-    const trimmed = line.trim();
-    if (nesting === 0) {
-      const field = /^(\w+)\??\s*:/.exec(trimmed);
-      if (field?.[1]) fields.push(field[1]);
-    }
-    nesting += (line.match(/\{/g) ?? []).length - (line.match(/\}/g) ?? []).length;
-  }
-  return fields.sort();
-}
-
-/** Frontend shape ← backend shape, where the two names differ. */
-const SHAPES: ReadonlyArray<{ frontend: string; backend: string; source: 'entity' | 'service' }> = [
-  { frontend: 'TenantMetrics', backend: 'TenantMetrics', source: 'entity' },
-  { frontend: 'UserMetrics', backend: 'UserMetrics', source: 'entity' },
-  { frontend: 'FinancialMetrics', backend: 'FinancialMetrics', source: 'entity' },
-  { frontend: 'AnalyticsSystemMetrics', backend: 'SystemMetrics', source: 'entity' },
-  { frontend: 'UsageMetrics', backend: 'UsageMetrics', source: 'entity' },
-  { frontend: 'ModuleUsageStats', backend: 'ModuleUsageStats', source: 'entity' },
-  { frontend: 'ChartData', backend: 'ChartData', source: 'entity' },
-  { frontend: 'TimeSeriesPoint', backend: 'TimeSeriesPoint', source: 'entity' },
-  { frontend: 'TimeSeriesData', backend: 'TimeSeriesData', source: 'entity' },
-  { frontend: 'TimeSeriesResponse', backend: 'TimeSeriesResponse', source: 'entity' },
-  { frontend: 'ComparisonDto', backend: 'ComparisonDto', source: 'service' },
-];
-
 describe('admin-panel analytics contract parity (APA-149)', () => {
-  it.each(SHAPES.map((shape) => [shape.frontend, shape]))(
-    '%s carries exactly the fields the backend sends',
-    (_name, shape) => {
-      const backendSource = shape.source === 'entity' ? BACKEND_ENTITY : BACKEND_SERVICE;
-      const backend = interfaceFields(backendSource, shape.backend, 'admin-api-service');
-      const frontend = interfaceFields(FRONTEND_TYPES, shape.frontend, 'admin-panel');
-
-      expect(frontend).toEqual(backend);
-    },
-  );
-
   it('never types a chart or trend endpoint as a flat array', () => {
     // Six endpoints return `ChartData` or `TimeSeriesData` and were declared as
     // arrays of ad-hoc row objects, which is the shape of the defect: an

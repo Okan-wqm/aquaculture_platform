@@ -283,10 +283,18 @@ export class FeedingLedgerService {
     const deductions: Array<{
       fromLocationId: string | null;
       lotNumber: string | null;
+      expiryDate: Date | null;
+      receivedDate: Date | null;
       quantity: string | number;
     }> = await manager.query(
+      // Expiry and arrival travel WITH the lot (FARM-MEDIUM-254): a lot that
+      // drained to zero has no `storage_inventory` row left, so returning to it
+      // re-creates one. Without these two columns that row was born undated and
+      // FEFO sorted the returned feed as the freshest stock in the location.
       `SELECT "from_location_id" AS "fromLocationId",
               "lot_number"       AS "lotNumber",
+              "expiry_date"      AS "expiryDate",
+              "received_date"    AS "receivedDate",
               quantity
          FROM "stock_movements"
         WHERE "tenant_id" = $1
@@ -355,6 +363,10 @@ export class FeedingLedgerService {
           quantity: giveBack,
           toLocationId: movement.fromLocationId,
           lotNumber: movement.lotNumber ?? undefined,
+          // The lot goes back with the identity it left with, not as a new
+          // arrival. NULL stays NULL — an unknown provenance is not invented.
+          expiryDate: movement.expiryDate ?? undefined,
+          receivedDate: movement.receivedDate ?? undefined,
           reference: params.reference,
           reason: 'Feeding correction — LIFO return to the drawn lots.',
           idempotencyKey: index === 0 ? params.correctionKey : `${params.correctionKey}-r${index}`,

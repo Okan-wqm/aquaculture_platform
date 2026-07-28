@@ -50,6 +50,14 @@ interface StoredMovement {
   fromLocationId: string;
   lotNumber: string;
   quantity: number;
+  /**
+   * Lot kimliğinin defterde saklanan diğer yarısı (FARM-MEDIUM-254). Sıfıra
+   * inen lotun `storage_inventory` satırı silinir; iade satırı yeniden yaratır
+   * ve bu iki alan olmadan satır TARİHSİZ doğar — FEFO onu lokasyondaki EN
+   * TAZE stok sayar.
+   */
+  expiryDate: Date | null;
+  receivedDate: Date | null;
   /** Kolonda FİİLEN duran değer — TypeORM enum DEĞERİNİ yazar. */
   movementType: string;
 }
@@ -58,9 +66,26 @@ interface StoredMovement {
  * `stock_movements` üzerinde iki OUT dilimi: FEFO ile önce A lotundan 0.3 kg,
  * sonra B lotundan 149.7 kg çekilmiş bir 150 kg'lık öğün.
  */
+const LOT_B_EXPIRY = new Date('2026-09-30T00:00:00.000Z');
+const LOT_B_RECEIVED = new Date('2026-01-15T00:00:00.000Z');
+
 const STORED: StoredMovement[] = [
-  { fromLocationId: LOCATION_A, lotNumber: 'LOT-A', quantity: 0.3, movementType: 'out' },
-  { fromLocationId: LOCATION_B, lotNumber: 'LOT-B', quantity: 149.7, movementType: 'out' },
+  {
+    fromLocationId: LOCATION_A,
+    lotNumber: 'LOT-A',
+    quantity: 0.3,
+    expiryDate: new Date('2026-08-31T00:00:00.000Z'),
+    receivedDate: new Date('2026-01-02T00:00:00.000Z'),
+    movementType: 'out',
+  },
+  {
+    fromLocationId: LOCATION_B,
+    lotNumber: 'LOT-B',
+    quantity: 149.7,
+    expiryDate: LOT_B_EXPIRY,
+    receivedDate: LOT_B_RECEIVED,
+    movementType: 'out',
+  },
 ];
 
 interface Harness {
@@ -69,10 +94,13 @@ interface Harness {
   allocateForDeduction: jest.Mock;
   manager: EntityManager;
   boundParams: unknown[][];
+  /** Bu senaryonun defter satırlarını değiştirir (varsayılan: `STORED`). */
+  storedOverride: (rows: StoredMovement[]) => void;
 }
 
 function makeHarness(): Harness {
   const boundParams: unknown[][] = [];
+  let stored: StoredMovement[] = STORED;
 
   // Postgres semantiği: `varchar` karşılaştırması harf duyarlıdır.
   // `EntityManager.query` generic (`query<T>(...): Promise<T>`) olduğu için
@@ -82,11 +110,18 @@ function makeHarness(): Harness {
   query.mockImplementation(async (_sql: string, params: unknown[] = []) => {
     boundParams.push(params);
     const wantedType = params[2];
-    return STORED.filter((row) => row.movementType === wantedType).map((row) => ({
-      fromLocationId: row.fromLocationId,
-      lotNumber: row.lotNumber,
-      quantity: row.quantity,
-    }));
+    // Sahte satırlar GERÇEK SELECT'in kolon listesini yansıtır. Eksik
+    // bıraksaydı, iadenin lot kimliğini geri koymayı unutması bu spec'te
+    // görünmezdi — kusurun ilk hâli tam olarak öyle gizlenmişti.
+    return stored
+      .filter((row) => row.movementType === wantedType)
+      .map((row) => ({
+        fromLocationId: row.fromLocationId,
+        lotNumber: row.lotNumber,
+        expiryDate: row.expiryDate,
+        receivedDate: row.receivedDate,
+        quantity: row.quantity,
+      }));
   });
 
   const recordMovement = jest.fn().mockResolvedValue(undefined);
@@ -105,6 +140,9 @@ function makeHarness(): Harness {
     allocateForDeduction,
     manager: mock<EntityManager>({ query }),
     boundParams,
+    storedOverride: (rows) => {
+      stored = rows;
+    },
   };
 }
 
@@ -146,6 +184,52 @@ describe('FeedingLedgerService.applyStockCorrection — hareket tipi bağlanmas�
       toLocationId: LOCATION_B,
       lotNumber: 'LOT-B',
     });
+  });
+
+  it('iade, lotun KİMLİĞİNİ geri koyar — hayalet lot satırı doğmaz', async () => {
+    const h = makeHarness();
+
+    await h.service.applyStockCorrection(h.manager, TENANT, 'user-1', {
+      ...BASE_PARAMS,
+      deltaKg: -10,
+    });
+
+    const [, input] = h.recordMovement.mock.calls[0] ?? [];
+    // Sıfıra inmiş bir lota iade, `storage_inventory` satırını YENİDEN yaratır.
+    // Bu iki alan taşınmazsa satır tarihsiz doğar: FEFO
+    // `(expiryDate NULLS LAST, receivedDate NULLS LAST, lotNumber)` sıralar,
+    // yani depodaki EN ESKİ yem lokasyondaki EN TAZE stok gibi sıralanır ve en
+    // son tüketilir — FEFO'nun tam olarak önlemek için var olduğu şey.
+    expect(input).toMatchObject({
+      expiryDate: LOT_B_EXPIRY,
+      receivedDate: LOT_B_RECEIVED,
+    });
+  });
+
+  it('bilinmeyen provenansı UYDURMAZ — NULL, NULL olarak geçer', async () => {
+    const h = makeHarness();
+    // Bu kolonlardan önce yazılmış tarihsel hareket: defter tarihi bilmiyor.
+    h.storedOverride([
+      {
+        fromLocationId: LOCATION_B,
+        lotNumber: 'LOT-B',
+        quantity: 20,
+        expiryDate: null,
+        receivedDate: null,
+        movementType: 'out',
+      },
+    ]);
+
+    await h.service.applyStockCorrection(h.manager, TENANT, 'user-1', {
+      ...BASE_PARAMS,
+      deltaKg: -10,
+    });
+
+    const [, input] = h.recordMovement.mock.calls[0] ?? [];
+    // `undefined` = "provenans yok"; sink o zaman iade anını damgalar. Sahte
+    // bir tarih üretmek, bilinmeyeni bilgi gibi göstermek olurdu.
+    expect(input.expiryDate).toBeUndefined();
+    expect(input.receivedDate).toBeUndefined();
   });
 
   it('yukarı düzeltmeyi çok-lotlu tahsis motorundan geçirir (erken çıkışa düşmez)', async () => {

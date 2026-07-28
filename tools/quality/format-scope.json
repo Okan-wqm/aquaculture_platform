@@ -3131,6 +3131,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/tenant/dto/tenant-summary.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/tenant/dto/tenant.dto.ts",
       "prettier_managed": true
     },
@@ -41946,6 +41952,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/entity-getter-response.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/entity-schema-declaration.spec.ts",
       "prettier_managed": true
     },
@@ -46365,7 +46377,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "6a42b4460bd456f82509b2b9b9daa81ab005ff9faaf76f9102504f8144534604",
+      "content_sha256": "0a4245dca02a6df174c059b475f5614396709e4854d4520ceba1d64f044f26f5",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/types/generated/admin-contracts.ts",
@@ -55679,10 +55691,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9128,
+  "file_count": 9130,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8946,
-  "managed_file_list_sha256": "51b1829c621ad622b23bc5d44399e66afdaf7129462d45d663a27cc7f31497bb",
+  "managed_count": 8948,
+  "managed_file_list_sha256": "bdfbb810bf4fe61df24710833867aac97b7df4a76b5f393471a11808edeaa09e",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -117,10 +117,14 @@ describe('ListTenantsHandler - DTO contract with batched resource counts', () =>
       status: TenantStatus.ACTIVE,
       tier: TenantPlan.PROFESSIONAL,
       contactEmail: 'owner@example.com',
+      description: undefined,
+      trialEndsAt: null,
+      isTrialActive: false,
       userCount: 4,
       farmCount: 3,
       sensorCount: 7,
       createdAt: new Date('2026-01-01T00:00:00Z'),
+      updatedAt: new Date('2026-06-01T00:00:00Z'),
     });
     // tier must be an OWN property (a getter would vanish on JSON.stringify).
     expect(Object.prototype.hasOwnProperty.call(first, 'tier')).toBe(true);

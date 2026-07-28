@@ -168,6 +168,28 @@ export const ADMIN_CONTRACT_SOURCES: readonly ContractSource[] = [
     exports: ['TenantPlan'],
   },
   {
+    module: 'tenant',
+    // The tenant lifecycle vocabulary. The panel's hand-written copy was missing
+    // CANCELLED and PURGED, two states auth.tenants' CHECK constraint allows —
+    // so a tenant in either rendered with no matching filter option.
+    file: 'libs/event-contracts/src/enums/tenant-status.enum.ts',
+    exports: ['TenantStatus'],
+  },
+  {
+    module: 'tenant',
+    // The tenant READ contract. Every tenant read route returns one of these
+    // two; `toTenantSummary` is their only producer. Before that existed, five
+    // routes returned the `Tenant` ENTITY, whose `tier` and `limits` are getters
+    // and therefore absent from the JSON.
+    file: 'apps/admin-api-service/src/tenant/dto/tenant-summary.dto.ts',
+    exports: ['TenantSummaryDto', 'TenantListItemDto'],
+  },
+  {
+    module: 'tenant',
+    file: 'apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts',
+    exports: ['TenantDetailDto', 'TenantAvailableAction'],
+  },
+  {
     module: 'support',
     file: 'apps/admin-api-service/src/support/entities/support.entity.ts',
     exports: ['OnboardingStep'],

@@ -12,6 +12,7 @@ import {
   SuspendTenantCommand,
 } from '../commands/tenant.commands';
 import { Tenant } from '../entities/tenant.entity';
+import type { TenantSummaryDto } from '../dto/tenant-summary.dto';
 import {
   ActivateTenantHandler,
   ArchiveTenantHandler,
@@ -124,7 +125,7 @@ describe('Tenant lifecycle handlers — MT-HIGH-003 transition legality + DB-ADM
     name: string;
     legal: readonly TenantStatus[];
     target: TenantStatus;
-    run: () => Promise<Tenant>;
+    run: () => Promise<TenantSummaryDto>;
     client: () => jest.Mock;
   }> = [
     {

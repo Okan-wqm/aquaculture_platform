@@ -1,53 +1,95 @@
 /**
- * Tenant domain types
+ * Tenant domain types.
+ *
+ * The read shapes are GENERATED from the backend's tenant DTOs
+ * (`tools/codegen/admin-contracts/manifest.ts`). `Tenant` is an alias of
+ * `TenantListItemDto` — the paginated list is the panel's tenant read surface —
+ * and `TenantDetail` an alias of `TenantDetailDto`. The hand-written versions
+ * that used to live here declared roughly a dozen fields the wire has never
+ * carried (`limits`, `settings`, `primaryContact`, `billingContact`,
+ * `suspendedAt`, `version`, `maxStorage`, `isTrialActive` …), because they were
+ * modelled on the ENTITY rather than on any response.
  */
 
 // GENERATED backend contracts — tools/codegen/admin-contracts/manifest.ts.
-// Imported so shapes below can reference them; re-exported so import sites
-// are unchanged.
 import type {
   TenantActivity,
   TenantNote,
+  TenantSummaryDto,
+  TenantListItemDto,
+  TenantDetailDto,
+  TenantAvailableAction,
 } from './generated/admin-contracts';
 
 export type {
   TenantActivity,
   TenantNote,
+  TenantSummaryDto,
+  TenantListItemDto,
+  TenantDetailDto,
+  TenantAvailableAction,
 };
 
 // A tenant's plan is the ENTITLEMENT vocabulary `TenantPlan` (free | trial |
 // starter | professional | enterprise): that is what `auth.tenants.plan` stores,
-// what `Tenant.tier` reads back (the field is a getter over `plan`), and what
-// `@IsEnum(TenantPlan)` on the create/update/query DTOs validates.
+// what `Tenant.tier` reads back, and what `@IsEnum(TenantPlan)` on the
+// create/update/query DTOs validates.
 //
 // A hand-copied `TenantTier` enum used to sit below, pinned member-for-member to
 // the SELLABLE `BillingPlanTier` set instead — so the panel's types claimed it
 // could send `custom` (the endpoint 400s it) and that `trial` was impossible
 // (the endpoint takes it). `billing.ts` owns the sellable tier; importing rather
 // than re-exporting keeps the `export *` barrel unambiguous.
-import { TenantPlan } from './generated/admin-contracts';
+import { TenantPlan, TenantStatus } from './generated/admin-contracts';
 
 export { TenantPlan };
 
-// ============================================================================
-// Tenant Enums (Backend uyumlu)
-// ============================================================================
+// The lifecycle vocabulary, generated too. The hand-written copy omitted
+// CANCELLED and PURGED — both allowed by auth.tenants' CHECK constraint — so a
+// tenant in either state had no matching option in any status filter.
+export { TenantStatus };
 
-export enum TenantStatus {
-  PENDING = 'PENDING',
-  PROVISIONING = 'PROVISIONING',
-  PROVISIONING_FAILED = 'PROVISIONING_FAILED',
-  ACTIVE = 'ACTIVE',
-  SUSPENDED = 'SUSPENDED',
-  DEACTIVATED = 'DEACTIVATED',
-  ARCHIVED = 'ARCHIVED',
-}
+/**
+ * A tenant as the panel reads it: the paginated list item.
+ *
+ * Aliased rather than re-declared so the name every page already imports keeps
+ * working while the shape has exactly one author.
+ */
+export type Tenant = TenantListItemDto;
 
+/** A tenant's full detail surface (`GET /admin/tenants/:id/detail`). */
+export type TenantDetail = TenantDetailDto;
 
 // ============================================================================
 // Tenant Interfaces
 // ============================================================================
 
+/**
+ * `GET /admin/tenants/stats`.
+ *
+ * Still hand-declared: the backend's `TenantStatsDto` is a class with no
+ * mapper and a phantom `byTier` nobody produced, so generating it would emit a
+ * field that has never been on the wire. Narrowing it is its own slice.
+ */
+export interface TenantStats {
+  totalTenants: number;
+  activeTenants: number;
+  suspendedTenants: number;
+  pendingTenants: number;
+  byPlan?: Record<string, number>;
+  newTenantsLast30Days: number;
+  churnedTenantsLast30Days: number;
+}
+
+/** Contact block on the create/update write contracts. */
+export interface TenantContact {
+  name: string;
+  email: string;
+  phone?: string;
+  role: string;
+}
+
+/** Per-tenant limits accepted on the create/update write contracts. */
 export interface TenantLimits {
   maxUsers: number;
   maxFarms: number;
@@ -59,6 +101,7 @@ export interface TenantLimits {
   storageGb: number;
 }
 
+/** Per-tenant settings accepted on the create/update write contracts. */
 export interface TenantSettings {
   timezone: string;
   locale: string;
@@ -72,92 +115,6 @@ export interface TenantSettings {
     slack: boolean;
   };
   features: string[];
-}
-
-export interface TenantContact {
-  name: string;
-  email: string;
-  phone?: string;
-  role: string;
-}
-
-export interface Tenant {
-  id: string;
-  name: string;
-  slug: string;
-  description?: string;
-  domain?: string;
-  tier: TenantPlan;
-  status: TenantStatus;
-  userCount: number;
-  farmCount: number;
-  sensorCount: number;
-  limits?: TenantLimits;
-  settings?: TenantSettings;
-  primaryContact?: TenantContact;
-  billingContact?: TenantContact;
-  billingEmail?: string;
-  country?: string;
-  region?: string;
-  trialEndsAt?: string;
-  suspendedAt?: string;
-  suspendedReason?: string;
-  suspendedBy?: string;
-  lastActivityAt?: string;
-  createdBy?: string;
-  maxStorage?: number;
-  isTrialActive?: boolean;
-  createdAt: string;
-  updatedAt: string;
-  version?: number;
-  availableActions?: Array<'activate' | 'suspend' | 'deactivate' | 'archive' | 'retryProvisioning'>;
-}
-
-export interface TenantStats {
-  totalTenants: number;
-  activeTenants: number;
-  suspendedTenants: number;
-  pendingTenants: number;
-  byPlan?: Record<string, number>;
-  newTenantsLast30Days: number;
-  churnedTenantsLast30Days: number;
-}
-
-export interface TenantDetail extends Tenant {
-  userStats?: {
-    total: number;
-    active: number;
-    inactive: number;
-    byRole: Record<string, number>;
-    recentlyActive: number;
-    newUsersLast30Days: number;
-  };
-  resourceUsage?: {
-    storage: { usedGb: number; limitGb: number; percentage: number };
-    users: { count: number; limit: number; percentage: number };
-    farms: { count: number; limit: number; percentage: number };
-    sensors: { count: number; limit: number; percentage: number };
-    apiCalls: { last24h: number; last7d: number; limit: number };
-  };
-  modules?: Array<{
-    moduleId: string;
-    moduleCode: string;
-    moduleName: string;
-    isActive: boolean;
-    assignedAt: string;
-  }>;
-  recentActivities?: TenantActivity[];
-  notes?: TenantNote[];
-  billing?: {
-    currentPlan: TenantPlan;
-    monthlyAmount: number;
-    currency: string;
-    billingCycle: string;
-    paymentStatus: string;
-    nextBillingDate: string | null;
-    lastPaymentDate: string | null;
-    lastPaymentAmount: number | null;
-  };
 }
 
 /**

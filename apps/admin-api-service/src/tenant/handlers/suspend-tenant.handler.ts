@@ -28,6 +28,8 @@ import {
   ArchiveTenantCommand,
 } from '../commands/tenant.commands';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
+import { toTenantSummary } from '../dto/tenant-summary.dto';
+import type { TenantSummaryDto } from '../dto/tenant-summary.dto';
 import { AuthTenantProvisioningClientService } from '../services/auth-tenant-provisioning-client.service';
 
 /**
@@ -57,7 +59,7 @@ import { AuthTenantProvisioningClientService } from '../services/auth-tenant-pro
 @Injectable()
 @CommandHandler(SuspendTenantCommand)
 export class SuspendTenantHandler
-  implements ICommandHandler<SuspendTenantCommand, Tenant>
+  implements ICommandHandler<SuspendTenantCommand, TenantSummaryDto>
 {
   private readonly logger = new Logger(SuspendTenantHandler.name);
 
@@ -71,7 +73,7 @@ export class SuspendTenantHandler
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {}
 
-  async execute(command: SuspendTenantCommand): Promise<Tenant> {
+  async execute(command: SuspendTenantCommand): Promise<TenantSummaryDto> {
     const { tenantId, data, suspendedBy } = command;
 
     const tenant = await this.tenantRepository.findOne({
@@ -166,7 +168,7 @@ export class SuspendTenantHandler
         },
       });
 
-      return refreshed;
+      return toTenantSummary(refreshed);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -179,7 +181,7 @@ export class SuspendTenantHandler
 @Injectable()
 @CommandHandler(ActivateTenantCommand)
 export class ActivateTenantHandler
-  implements ICommandHandler<ActivateTenantCommand, Tenant>
+  implements ICommandHandler<ActivateTenantCommand, TenantSummaryDto>
 {
   private readonly logger = new Logger(ActivateTenantHandler.name);
 
@@ -193,7 +195,7 @@ export class ActivateTenantHandler
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {}
 
-  async execute(command: ActivateTenantCommand): Promise<Tenant> {
+  async execute(command: ActivateTenantCommand): Promise<TenantSummaryDto> {
     const { tenantId, activatedBy } = command;
 
     const tenant = await this.tenantRepository.findOne({
@@ -280,7 +282,7 @@ export class ActivateTenantHandler
         details: { previousStatus },
       });
 
-      return refreshed;
+      return toTenantSummary(refreshed);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -293,7 +295,7 @@ export class ActivateTenantHandler
 @Injectable()
 @CommandHandler(DeactivateTenantCommand)
 export class DeactivateTenantHandler
-  implements ICommandHandler<DeactivateTenantCommand, Tenant>
+  implements ICommandHandler<DeactivateTenantCommand, TenantSummaryDto>
 {
   private readonly logger = new Logger(DeactivateTenantHandler.name);
 
@@ -307,7 +309,7 @@ export class DeactivateTenantHandler
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {}
 
-  async execute(command: DeactivateTenantCommand): Promise<Tenant> {
+  async execute(command: DeactivateTenantCommand): Promise<TenantSummaryDto> {
     const { tenantId, reason, deactivatedBy } = command;
 
     const tenant = await this.tenantRepository.findOne({
@@ -371,7 +373,7 @@ export class DeactivateTenantHandler
         details: { reason, previousStatus },
       });
 
-      return refreshed;
+      return toTenantSummary(refreshed);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -384,7 +386,7 @@ export class DeactivateTenantHandler
 @Injectable()
 @CommandHandler(ArchiveTenantCommand)
 export class ArchiveTenantHandler
-  implements ICommandHandler<ArchiveTenantCommand, Tenant>
+  implements ICommandHandler<ArchiveTenantCommand, TenantSummaryDto>
 {
   private readonly logger = new Logger(ArchiveTenantHandler.name);
 
@@ -398,7 +400,7 @@ export class ArchiveTenantHandler
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {}
 
-  async execute(command: ArchiveTenantCommand): Promise<Tenant> {
+  async execute(command: ArchiveTenantCommand): Promise<TenantSummaryDto> {
     const { tenantId, archivedBy } = command;
 
     const tenant = await this.tenantRepository.findOne({
@@ -470,7 +472,7 @@ export class ArchiveTenantHandler
         details: { previousStatus },
       });
 
-      return refreshed;
+      return toTenantSummary(refreshed);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;

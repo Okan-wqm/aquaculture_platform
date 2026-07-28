@@ -36,12 +36,12 @@ import {
 } from './dto/request-tenant-erasure.dto';
 import {
   TenantDetailDto,
-  TenantListItemDto,
   BulkSuspendDto,
   BulkActivateDto,
   CreateTenantNoteDto,
   UpdateTenantNoteDto,
 } from './dto/tenant-detail.dto';
+import { TenantListItemDto, TenantSummaryDto } from './dto/tenant-summary.dto';
 import {
   CreateTenantAcceptedResponse,
   CreateTenantDto,
@@ -178,28 +178,34 @@ export class TenantAdminController {
   async searchTenants(
     @Query('q') searchTerm: string,
     @Query('limit') limit?: number,
-  ): Promise<Tenant[]> {
+  ): Promise<TenantSummaryDto[]> {
     return this.queryBus.execute(new SearchTenantsQuery(searchTerm, limit || 20));
   }
 
   @Get('approaching-limits')
   @ApiOperation({ summary: 'Get tenants approaching usage limits' })
-  async getTenantsApproachingLimits(@Query('threshold') threshold?: number): Promise<Tenant[]> {
+  async getTenantsApproachingLimits(
+    @Query('threshold') threshold?: number,
+  ): Promise<TenantSummaryDto[]> {
     return this.queryBus.execute(new GetTenantsApproachingLimitsQuery(threshold || 80));
   }
 
   @Get('expiring-trials')
   @ApiOperation({ summary: 'Get tenants with expiring trial periods' })
-  async getExpiringTrials(@Query('withinDays') withinDays?: number): Promise<Tenant[]> {
+  async getExpiringTrials(@Query('withinDays') withinDays?: number): Promise<TenantSummaryDto[]> {
     return this.queryBus.execute(new GetExpiringTrialsQuery(withinDays || 7));
   }
 
   @Get('slug/:slug')
   @ApiOperation({ summary: 'Get tenant by slug (status redacted from response)' })
-  async getTenantBySlug(@Param('slug') slug: string): Promise<Partial<Tenant>> {
-    const tenant: Tenant = await this.queryBus.execute(new GetTenantBySlugQuery(slug));
+  async getTenantBySlug(@Param('slug') slug: string): Promise<Omit<TenantSummaryDto, 'status'>> {
+    const tenant: TenantSummaryDto = await this.queryBus.execute(new GetTenantBySlugQuery(slug));
     // SEC: Remove internal status from slug-based lookups to prevent
     // information leakage about tenant lifecycle state.
+    //
+    // This used to destructure the ENTITY, which dropped `tier` and `limits`
+    // along with `status` — both are getters — and spread every remaining
+    // internal column onto the wire. Over a projection it removes one field.
     const { status: _status, ...publicTenant } = tenant;
     return publicTenant;
   }
@@ -237,7 +243,7 @@ export class TenantAdminController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get tenant by ID' })
-  async getTenantById(@Param('id', ParseUUIDPipe) id: string): Promise<Tenant> {
+  async getTenantById(@Param('id', ParseUUIDPipe) id: string): Promise<TenantSummaryDto> {
     return this.queryBus.execute(new GetTenantByIdQuery(id));
   }
 
@@ -322,7 +328,7 @@ export class TenantAdminController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateTenantDto,
     @CurrentUser() user: AdminUser,
-  ): Promise<Tenant> {
+  ): Promise<TenantSummaryDto> {
     return this.commandBus.execute(new UpdateTenantCommand(id, dto, user.id));
   }
 
@@ -333,7 +339,7 @@ export class TenantAdminController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: SuspendTenantDto,
     @CurrentUser() user: AdminUser,
-  ): Promise<Tenant> {
+  ): Promise<TenantSummaryDto> {
     return this.commandBus.execute(new SuspendTenantCommand(id, dto, user.id));
   }
 
@@ -343,7 +349,7 @@ export class TenantAdminController {
   async activateTenant(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AdminUser,
-  ): Promise<Tenant> {
+  ): Promise<TenantSummaryDto> {
     return this.commandBus.execute(new ActivateTenantCommand(id, user.id));
   }
 
@@ -353,7 +359,7 @@ export class TenantAdminController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: DeactivateTenantDto,
     @CurrentUser() user: AdminUser,
-  ): Promise<Tenant> {
+  ): Promise<TenantSummaryDto> {
     return this.commandBus.execute(new DeactivateTenantCommand(id, dto.reason, user.id));
   }
 

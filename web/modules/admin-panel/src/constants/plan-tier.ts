@@ -35,7 +35,7 @@
  * @see libs/event-contracts/src/billing/billing-plan-tier.ts — sellable SSoT
  * @see tests/invariants/tier-enum-ssot.spec.ts — forbids a fresh copy of either
  */
-import { PlanTier, TenantPlan } from '../services/types/generated/admin-contracts';
+import { PlanTier, TenantPlan, TenantStatus } from '../services/types/generated/admin-contracts';
 
 type BadgeVariant = 'success' | 'warning' | 'info' | 'default';
 
@@ -117,3 +117,56 @@ export const PROVISIONABLE_PLANS: ReadonlyArray<ProvisionablePlan> = Object.valu
 ).filter((plan): plan is ProvisionablePlan =>
   Object.values(PlanTier).some((tier) => tier === plan),
 );
+
+// ---------------------------------------------------------------------------
+// Lifecycle vocabulary — where a tenant is in its life
+// ---------------------------------------------------------------------------
+
+/**
+ * `Badge` variant per lifecycle status.
+ *
+ * Two hand-written versions of this existed. Both hedged on case — one lowered
+ * the value before comparing, the other keyed on `active` AND `ACTIVE` — because
+ * neither author could tell what the wire carried. It carries the UPPERCASE
+ * canonical values, and this map is exhaustive over them, so there is nothing
+ * left to guess and no fallback branch to absorb a new state.
+ */
+export const TENANT_STATUS_BADGE_VARIANT: Record<
+  TenantStatus,
+  'success' | 'warning' | 'error' | 'default'
+> = {
+  [TenantStatus.PENDING]: 'warning',
+  [TenantStatus.PROVISIONING]: 'warning',
+  [TenantStatus.PROVISIONING_FAILED]: 'error',
+  [TenantStatus.ACTIVE]: 'success',
+  [TenantStatus.SUSPENDED]: 'error',
+  [TenantStatus.DEACTIVATED]: 'default',
+  [TenantStatus.CANCELLED]: 'default',
+  [TenantStatus.ARCHIVED]: 'default',
+  [TenantStatus.PURGED]: 'default',
+};
+
+export const TENANT_STATUS_LABELS: Record<TenantStatus, string> = {
+  [TenantStatus.PENDING]: 'Pending',
+  [TenantStatus.PROVISIONING]: 'Provisioning',
+  [TenantStatus.PROVISIONING_FAILED]: 'Provisioning Failed',
+  [TenantStatus.ACTIVE]: 'Active',
+  [TenantStatus.SUSPENDED]: 'Suspended',
+  [TenantStatus.DEACTIVATED]: 'Deactivated',
+  [TenantStatus.CANCELLED]: 'Cancelled',
+  [TenantStatus.ARCHIVED]: 'Archived',
+  [TenantStatus.PURGED]: 'Purged',
+};
+
+/**
+ * Every lifecycle status as a `<Select>` option.
+ *
+ * The tenant-list filter used to list five of the nine inline, so a tenant that
+ * had been deactivated, cancelled, archived or purged could not be filtered for
+ * at all.
+ */
+export const TENANT_STATUS_OPTIONS: ReadonlyArray<{ value: TenantStatus; label: string }> =
+  Object.values(TenantStatus).map((status) => ({
+    value: status,
+    label: TENANT_STATUS_LABELS[status],
+  }));

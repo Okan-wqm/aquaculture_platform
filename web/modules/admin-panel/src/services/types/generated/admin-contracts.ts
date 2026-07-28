@@ -224,6 +224,86 @@ export interface SafeImpersonationSession {
 }
 
 /** @see transitive */
+export interface TenantLimitsDto {
+  maxUsers?: number;
+  maxFarms?: number;
+  maxPonds?: number;
+  maxSensors?: number;
+  maxAlertRules?: number;
+  dataRetentionDays?: number;
+  apiRateLimit?: number;
+  storageGb?: number;
+}
+
+/** @see transitive */
+export interface UserStatsByRole {
+  total: number;
+  active: number;
+  inactive: number;
+  byRole: {
+    admin: number;
+    manager: number;
+    supervisor: number;
+    operator: number;
+    viewer: number;
+  };
+  recentlyActive: number;
+  newUsersLast30Days: number;
+}
+
+/** @see transitive */
+export interface ResourceUsage {
+  storage: {
+    usedGb: number;
+    limitGb: number;
+    percentage: number;
+  };
+  users: {
+    count: number;
+    limit: number;
+    percentage: number;
+  };
+  farms: {
+    count: number;
+    limit: number;
+    percentage: number;
+  };
+  sensors: {
+    count: number;
+    limit: number;
+    percentage: number;
+  };
+  apiCalls: {
+    last24h: number;
+    last7d: number;
+    limit: number;
+  };
+}
+
+/** @see transitive */
+export interface TenantModuleUsageStats {
+  moduleId: string;
+  moduleCode: string;
+  moduleName: string;
+  isActive: boolean;
+  assignedAt: string;
+  usageCount?: number;
+  lastUsedAt?: string;
+}
+
+/** @see transitive */
+export interface BillingSummary {
+  currentPlan: "free" | "trial" | "starter" | "professional" | "enterprise";
+  monthlyAmount: number;
+  currency: string;
+  billingCycle: string;
+  paymentStatus: string;
+  nextBillingDate: null | string;
+  lastPaymentDate: null | string;
+  lastPaymentAmount: null | number;
+}
+
+/** @see transitive */
 export interface JobProgress {
   current: number;
   total: number;
@@ -686,6 +766,118 @@ export const TenantPlan = {
 } as const;
 export type TenantPlan = (typeof TenantPlan)[keyof typeof TenantPlan];
 export const TENANT_PLAN_VALUES = Object.values(TenantPlan);
+
+/** @see libs/event-contracts/src/enums/tenant-status.enum.ts */
+export const TenantStatus = {
+  PENDING: "PENDING",
+  PROVISIONING: "PROVISIONING",
+  PROVISIONING_FAILED: "PROVISIONING_FAILED",
+  ACTIVE: "ACTIVE",
+  SUSPENDED: "SUSPENDED",
+  DEACTIVATED: "DEACTIVATED",
+  CANCELLED: "CANCELLED",
+  ARCHIVED: "ARCHIVED",
+  PURGED: "PURGED",
+} as const;
+export type TenantStatus = (typeof TenantStatus)[keyof typeof TenantStatus];
+export const TENANT_STATUS_VALUES = Object.values(TenantStatus);
+
+/** @see apps/admin-api-service/src/tenant/dto/tenant-summary.dto.ts */
+export interface TenantSummaryDto {
+  id: string;
+  name: string;
+  slug: string;
+  domain?: string;
+  status: "PENDING" | "PROVISIONING" | "PROVISIONING_FAILED" | "ACTIVE" | "SUSPENDED" | "DEACTIVATED" | "CANCELLED" | "ARCHIVED" | "PURGED";
+  tier: "free" | "trial" | "starter" | "professional" | "enterprise";
+  contactEmail?: string;
+  description?: string;
+  trialEndsAt: null | string;
+  isTrialActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** @see apps/admin-api-service/src/tenant/dto/tenant-summary.dto.ts */
+export interface TenantListItemDto {
+  userCount: number;
+  farmCount: number;
+  sensorCount: number;
+  id: string;
+  name: string;
+  slug: string;
+  domain?: string;
+  status: "PENDING" | "PROVISIONING" | "PROVISIONING_FAILED" | "ACTIVE" | "SUSPENDED" | "DEACTIVATED" | "CANCELLED" | "ARCHIVED" | "PURGED";
+  tier: "free" | "trial" | "starter" | "professional" | "enterprise";
+  contactEmail?: string;
+  description?: string;
+  trialEndsAt: null | string;
+  isTrialActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** @see apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts */
+export interface TenantDetailDto {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  domain?: string;
+  status: "PENDING" | "PROVISIONING" | "PROVISIONING_FAILED" | "ACTIVE" | "SUSPENDED" | "DEACTIVATED" | "CANCELLED" | "ARCHIVED" | "PURGED";
+  tier: "free" | "trial" | "starter" | "professional" | "enterprise";
+  trialEndsAt?: string;
+  suspendedAt?: null | string;
+  suspendedReason?: null | string;
+  availableActions: Array<"activate" | "suspend" | "deactivate" | "archive" | "retryProvisioning">;
+  primaryContact?: {
+    name: string;
+    email: string;
+    phone?: string;
+    role: string;
+  };
+  billingContact?: {
+    name: string;
+    email: string;
+    phone?: string;
+    role: string;
+  };
+  billingEmail?: string;
+  country?: string;
+  region?: string;
+  settings?: {
+    timezone: string;
+    locale: string;
+    currency: string;
+    dateFormat: string;
+    measurementSystem: string;
+    notificationPreferences: {
+      email: boolean;
+      sms: boolean;
+      push: boolean;
+      slack: boolean;
+    };
+    features: string[];
+  };
+  limits?: TenantLimitsDto;
+  userCount: number;
+  farmCount: number;
+  sensorCount: number;
+  maxStorage: number;
+  isTrialActive: boolean;
+  userStats?: UserStatsByRole;
+  resourceUsage?: ResourceUsage;
+  modules?: TenantModuleUsageStats[];
+  recentActivities?: TenantActivity[];
+  notes?: TenantNote[];
+  billing?: BillingSummary;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string;
+}
+
+/** @see apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts */
+export type TenantAvailableAction = "activate" | "suspend" | "deactivate" | "archive" | "retryProvisioning";
 
 // ==========================================================================
 // support

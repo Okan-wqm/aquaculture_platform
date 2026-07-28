@@ -193,10 +193,34 @@ describe('INVARIANT: the entitlement and sellable tier sets each have one author
   });
 
   it('a tenant-facing tier is the entitlement set, not the sellable one', () => {
-    // The specific defect this replaces: `Tenant.tier` was typed to the sellable
-    // vocabulary while every endpoint it reaches validates the entitlement one.
+    // The specific defect this replaces: the panel's tenant types carried the
+    // SELLABLE vocabulary while every endpoint they reach validates the
+    // ENTITLEMENT one.
+    //
+    // The READ shapes now come from the generated tenant DTOs, so that is where
+    // the assertion belongs — `tier` on both must be the entitlement union
+    // (which contains `trial` and no `custom`), never the sellable one.
+    const generated = read(GENERATED_CONTRACTS);
+    const entitlement = new Set(enumValues(CANONICAL_TENANT_PLAN, 'TenantPlan'));
+
+    for (const shape of ['TenantSummaryDto', 'TenantListItemDto']) {
+      const body = new RegExp(`export interface ${shape} \\{([\\s\\S]*?)\\n\\}`, 'm').exec(
+        generated,
+      )?.[1];
+      if (body == null) throw new Error(`generated interface ${shape} not found`);
+
+      const tier = /^\s*tier:\s*(.+);$/m.exec(body)?.[1];
+      if (tier == null) throw new Error(`${shape} has no tier field`);
+
+      const members = new Set(Array.from(tier.matchAll(/"([^"]+)"/g), (m) => m[1]!));
+      expect({ shape, members: [...members].sort() }).toEqual({
+        shape,
+        members: [...entitlement].sort(),
+      });
+    }
+
+    // The WRITE contracts the panel still declares by hand must agree.
     const tenantTypes = read(FE_TENANT);
-    expect(tenantTypes).toMatch(/\btier:\s*TenantPlan;/);
     expect(tenantTypes).toMatch(/\btier\?:\s*TenantPlan;/);
     expect(tenantTypes).not.toMatch(/\btier\??:\s*PlanTier;/);
   });

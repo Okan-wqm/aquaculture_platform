@@ -10,7 +10,7 @@ import {
   TenantDetailDto,
   TenantAvailableAction,
   UserStatsByRole,
-  ModuleUsageStats,
+  TenantModuleUsageStats,
   ResourceUsage,
   BillingSummary,
 } from '../dto/tenant-detail.dto';
@@ -73,7 +73,6 @@ export class TenantDetailService {
       // Status & Tier
       status: tenant.status,
       tier: tenant.tier,
-      plan: tenant.plan,
       trialEndsAt: tenant.trialEndsAt,
       suspendedAt: tenant.suspendedAt,
       suspendedReason: tenant.suspendedReason,
@@ -214,7 +213,7 @@ export class TenantDetailService {
   /**
    * Get module usage for a tenant
    */
-  private async getModuleUsage(tenantId: string): Promise<ModuleUsageStats[]> {
+  private async getModuleUsage(tenantId: string): Promise<TenantModuleUsageStats[]> {
     try {
       type ModuleUsageRow = {
         moduleId: string;

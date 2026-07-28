@@ -1,7 +1,7 @@
 import { IsArray, IsUUID, ArrayMaxSize, IsString, IsOptional, IsBoolean, MaxLength, IsEnum } from 'class-validator';
 
 import { TenantActivity, TenantNote, TenantBillingInfo } from '../entities/tenant-activity.entity';
-import { Tenant, TenantPlan } from '../entities/tenant.entity';
+import { Tenant, TenantPlan, TenantStatus } from '../entities/tenant.entity';
 
 import { TenantLimitsDto } from './tenant.dto';
 
@@ -28,8 +28,13 @@ export interface UserStatsByRole {
   newUsersLast30Days: number;
 }
 
-// Module Usage Statistics
-export interface ModuleUsageStats {
+// A tenant's module assignments with per-module usage.
+//
+// Named for the tenant surface it belongs to: `analytics-snapshot.entity.ts`
+// exports a DIFFERENT `ModuleUsageStats` (activeUsers/totalSessions/
+// avgSessionDuration). Two backend types under one name is how a consumer ends
+// up compiling against whichever one its import happened to resolve.
+export interface TenantModuleUsageStats {
   moduleId: string;
   moduleCode: string;
   moduleName: string;
@@ -89,10 +94,14 @@ export interface TenantDetailDto {
   description?: string;
   domain?: string;
 
-  // Status & Tier
-  status: string;
+  // Status & Tier.
+  //
+  // `tier` and `plan` are the SAME value — `tier` is the entity's getter over
+  // the `plan` column and the detail service maps both. Two names for one field
+  // is how a consumer ends up reading whichever one it happened to find, so the
+  // wire carries `tier` only; the `plan` alias is gone and had no reader.
+  status: TenantStatus;
   tier: TenantPlan;
-  plan?: string;
   trialEndsAt?: Date;
   // Suspension audit (DB-ADMIN-HIGH-003): real auth.tenants columns written
   // only by auth-service; NULL when the tenant is not suspended.
@@ -146,7 +155,7 @@ export interface TenantDetailDto {
   resourceUsage?: ResourceUsage;
 
   // Modules
-  modules?: ModuleUsageStats[];
+  modules?: TenantModuleUsageStats[];
 
   // Activity & Notes
   recentActivities?: TenantActivity[];
@@ -164,23 +173,10 @@ export interface TenantDetailDto {
   // Tenant activity lives in recentActivities (admin.tenant_activities).
 }
 
-// Tenant List Item (optimized for list view)
-export interface TenantListItemDto {
-  id: string;
-  name: string;
-  slug: string;
-  domain?: string;
-  status: string;
-  tier: TenantPlan;
-  contactEmail?: string;
-  userCount: number;
-  farmCount: number;
-  sensorCount: number;
-  activeModulesCount?: number;
-  // NOTE: lastActivityAt was removed (DB-ADMIN-HIGH-003 cleanup): the list
-  // mapper never populated it and no auth.tenants column backed it.
-  createdAt: Date;
-}
+// The tenant READ contract (`TenantSummaryDto` + `TenantListItemDto`) lives in
+// `tenant-summary.dto.ts` beside the mapper that is its only producer. It used
+// to sit here as a bare interface with no mapper attached, which is how five
+// other tenant read routes came to return the entity instead.
 
 // Note categories allowed for tenant notes (HIGH-003 fix)
 const ALLOWED_NOTE_CATEGORIES = ['general', 'billing', 'support', 'compliance', 'technical'] as const;

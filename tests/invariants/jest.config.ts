@@ -130,6 +130,7 @@ export default {
         '<rootDir>/admin-panel-paginated-consumer.spec.ts',
         '<rootDir>/admin-impersonation-summary-contract.spec.ts',
         '<rootDir>/admin-contracts-generated.spec.ts',
+        '<rootDir>/entity-getter-response.spec.ts',
         '<rootDir>/admin-audit-action-vocab.spec.ts',
         '<rootDir>/admin-messaging-action-vocab.spec.ts',
         '<rootDir>/admin-database-types-parity.spec.ts',

@@ -45,6 +45,7 @@ import { RecordMortalityHandler } from '../../batch/handlers/record-mortality.ha
 import { BatchService } from '../../batch/services/batch.service';
 import { MortalityCullPolicyService } from '../../batch/services/mortality-cull-policy.service';
 import { RemovalQuantityPolicyService } from '../../batch/services/removal-quantity-policy.service';
+import { TankBatchService } from '../../batch/services/tank-batch.service';
 import {
   Department,
   DepartmentStatus,
@@ -239,6 +240,16 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     // specs cover them) while the policy guards run for real against the DB rows.
     const auditLogService = { logWithManager: jest.fn().mockResolvedValue(undefined) };
     const mortalityCullPolicy = new MortalityCullPolicyService();
+    // The REAL TankBatch SSoT writer, not a stub. Every removal path routes its
+    // `batchDetails[]` mutation through `applyBatchDelta`, which is the single
+    // writer of `totalQuantity`/`totalBiomassKg` and (since ORPHAN-HIGH-272) of
+    // `Tank.currentCount` too. This suite asserts those exact columns below, so
+    // stubbing the writer made four assertions unsatisfiable by construction —
+    // the counts could only ever read back as the seeded values. The service
+    // takes no constructor dependencies, so running it for real costs nothing
+    // and turns those assertions into a genuine check that the Batch aggregate
+    // and the per-tank composition agree after a removal.
+    const tankBatchService = new TankBatchService();
     // Gün-içi recalc (P-31) mock — bu e2e tenant-izolasyon davranışına odaklı;
     // giriş modu politikası (D-3) gerçek (saf servis).
     const dayPlanRecalc = { recalcForUnit: jest.fn().mockResolvedValue(null) };
@@ -267,7 +278,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       // SEC-HIGH-051: the real fail-closed SSoT; commands below pass
       // MODULE_MANAGER so site authz bypasses for this tenant-isolation e2e.
       new SiteAuthorizationService(),
-      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
+      tankBatchService,
       mortalityCullPolicy,
       farmStockProjection as never,
       mobileCommandReceipts as never,
@@ -283,7 +294,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       removalQuantityPolicy,
       auditLogService as never,
       new SiteAuthorizationService(),
-      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
+      tankBatchService,
       mortalityCullPolicy,
       farmStockProjection as never,
       mobileCommandReceipts as never,
@@ -308,7 +319,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       // TankBatchService SSoT writer — create-harvest routes its tank-batch
       // decrement through applyBatchDelta (ORPHAN-HIGH-272), same as the
       // mortality/cull/transfer handlers above.
-      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
+      tankBatchService,
       new FinanceSettingsService(dataSource),
       new SiteAuthorizationService(),
       // CreateHarvestRecordHandler also defaults farmStockProjection +
@@ -328,7 +339,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       outboxPublisher,
       // TankBatchService SSoT writer — the harvest reversal routes through
       // applyBatchDelta (ORPHAN-HIGH-272).
-      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
+      tankBatchService,
       // DeleteHarvestRecordHandler also defaults farmStockProjection to a
       // throwing test-only stub; supply the working no-op so the delete path
       // reaches the tenant-isolation assertions.

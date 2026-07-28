@@ -126,9 +126,13 @@ describe('FeedAllocationService.allocateForDeduction — real Postgres', () => {
     await shutdownHarness(pg);
   });
 
-  /** Her senaryo kendi lot kümesiyle başlar. */
+  /**
+   * Her senaryo kendi lot kümesiyle başlar. Temizlik `clear()` ile yapılır:
+   * `delete(Entity, {})` boş kriteri sayılır ve TypeORM onu — tam-tablo
+   * silmeyi kazara yapmayı önlemek için — hata ile reddeder.
+   */
   async function seedLots(lots: LotSeed[]): Promise<void> {
-    await dataSource.manager.delete(StorageInventory, {});
+    await dataSource.manager.clear(StorageInventory);
     await dataSource.manager.save(
       StorageInventory,
       lots.map((lot) => ({

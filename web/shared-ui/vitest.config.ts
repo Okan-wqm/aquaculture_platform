@@ -3,6 +3,12 @@ import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
 import createVitestTestPolicy from '@aquaculture/testing/vitest';
 
+// Bound once: this config is the only policy consumer that also EXTENDS the
+// policy's coverage block (with shared-ui's own include/exclude), so it needs a
+// reference, not just a spread. Every other consumer spreads the factory call
+// inline because it takes the policy wholesale.
+const testPolicy = createVitestTestPolicy();
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -21,7 +27,7 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],
     include: ['src/**/*.{spec,test}.{ts,tsx}'],
-    ...createVitestTestPolicy(),
+    ...testPolicy,
     coverage: {
       ...testPolicy.coverage,
       include: ['src/**/*.{ts,tsx}'],

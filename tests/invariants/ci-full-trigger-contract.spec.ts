@@ -78,22 +78,29 @@ describe('CI Full protected-main and PR contract', () => {
     }
   });
 
-  it('installs the pinned Rust toolchain before parallel full-surface lint starts', () => {
-    const lintSteps = readWorkflow().jobs?.['lint-and-typecheck']?.steps ?? [];
-    const toolchainIndex = lintSteps.findIndex(
-      (step) => step.uses === 'dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537',
-    );
-    const lintIndex = lintSteps.findIndex((step) =>
-      step.run?.includes('npm run lint:all -- --max-warnings=0'),
-    );
-    const toolchain = lintSteps[toolchainIndex];
+  it('installs the pinned Rust toolchain before every parallel full-surface command', () => {
+    const jobsAndCommands = {
+      'lint-and-typecheck': 'npm run lint:all -- --max-warnings=0',
+      test: 'npm run test:all -- --coverage',
+      build: 'npm run build:all',
+    };
 
-    expect(toolchainIndex).toBeGreaterThan(-1);
-    expect(toolchainIndex).toBeLessThan(lintIndex);
-    expect(toolchain?.with).toEqual({
-      toolchain: '1.88.0',
-      components: 'rustfmt,clippy,rust-src',
-      targets: 'x86_64-unknown-linux-musl,aarch64-unknown-linux-musl',
-    });
+    for (const [jobId, command] of Object.entries(jobsAndCommands)) {
+      const steps = readWorkflow().jobs?.[jobId]?.steps ?? [];
+      const toolchainIndex = steps.findIndex(
+        (step) => step.uses === 'dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537',
+      );
+      const commandIndex = steps.findIndex((step) => step.run?.includes(command));
+      const toolchain = steps[toolchainIndex];
+
+      expect(toolchainIndex).toBeGreaterThan(-1);
+      expect(commandIndex).toBeGreaterThan(-1);
+      expect(toolchainIndex).toBeLessThan(commandIndex);
+      expect(toolchain?.with).toEqual({
+        toolchain: '1.88.0',
+        components: 'rustfmt,clippy,rust-src',
+        targets: 'x86_64-unknown-linux-musl,aarch64-unknown-linux-musl',
+      });
+    }
   });
 });

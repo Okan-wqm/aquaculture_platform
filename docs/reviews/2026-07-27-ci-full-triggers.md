@@ -36,13 +36,13 @@ The fixture now builds the encoded record first and appends the complete line wi
 This preserves the concurrency exercised by the test while making its observation boundary
 atomic for records well below `PIPE_BUF`.
 
-## INFRA-HIGH-086 — full lint raced while installing the Rust toolchain
+## INFRA-HIGH-086 — full-surface jobs raced while installing the Rust toolchain
 
-CI Full launched all Nx lint targets in parallel without first installing the repository's
-pinned Rust toolchain. Multiple cargo-backed targets therefore invoked rustup concurrently.
-One observed a partial toolchain without cargo while another failed to replace component
-directories, causing the full lint gate to fail before clippy examined either crate.
+CI Full launched all Nx lint, test, and build targets in parallel without first installing the
+repository's pinned Rust toolchain. Multiple cargo-backed targets therefore invoked rustup
+concurrently. Observed failures included a partial toolchain without cargo, failed component
+directory replacement, and a partial toolchain without rustc.
 
-The lint/type-check job now installs Rust 1.88.0 and the required components and targets exactly
+Each full-surface job now installs Rust 1.88.0 and the required components and targets exactly
 once before Nx starts. An invariant locks the action SHA, toolchain inputs, and ordering ahead of
-the full-surface lint command.
+all three full-surface commands.

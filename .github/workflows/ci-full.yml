@@ -93,8 +93,12 @@ jobs:
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
 
-      - name: Check formatting
-        run: npm run format:check
+      # Main carries historical formatting debt. Ratchet the exact PR/push
+      # delta so new drift fails closed without rewriting unrelated files.
+      - name: Check formatting of changed files
+        run: node tools/quality/quality.mjs format check-changed
+        env:
+          FORMAT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
 
   test:
     runs-on: ubuntu-latest

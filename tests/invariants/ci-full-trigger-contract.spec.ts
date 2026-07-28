@@ -28,6 +28,7 @@ interface Workflow {
         uses?: string;
         run?: string;
         with?: Record<string, string>;
+        env?: Record<string, string>;
       }>;
     }
   >;
@@ -102,5 +103,16 @@ describe('CI Full protected-main and PR contract', () => {
         targets: 'x86_64-unknown-linux-musl,aarch64-unknown-linux-musl',
       });
     }
+  });
+
+  it('ratchets formatting against the PR or push base instead of historical debt', () => {
+    const steps = readWorkflow().jobs?.['lint-and-typecheck']?.steps ?? [];
+    const format = steps.find((step) => step.name === 'Check formatting of changed files');
+
+    expect(format?.run).toBe('node tools/quality/quality.mjs format check-changed');
+    expect(format?.env).toEqual({
+      FORMAT_BASE_SHA: '${{ github.event.pull_request.base.sha || github.event.before }}',
+    });
+    expect(steps.some((step) => step.run === 'npm run format:check')).toBe(false);
   });
 });

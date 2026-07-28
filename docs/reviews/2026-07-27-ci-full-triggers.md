@@ -46,3 +46,17 @@ directory replacement, and a partial toolchain without rustc.
 Each full-surface job now installs Rust 1.88.0 and the required components and targets exactly
 once before Nx starts. An invariant locks the action SHA, toolchain inputs, and ordering ahead of
 all three full-surface commands.
+
+## INFRA-HIGH-087 — full CI promoted historical format debt into a blocking gate
+
+After lint, type-check, and the spec ratchet passed, CI Full ran the repository-wide legacy
+`format:check` command. Main already contains thousands of files that predate the current
+Prettier contract, so enabling CI Full on pull requests made unrelated historical debt block
+every merge candidate.
+
+CI Full now checks only Prettier-managed files changed by the PR or push. New files and files
+that were clean at the comparison base must remain clean; an already non-conforming base file is
+reported as quarantined debt instead of forcing an unrelated bulk rewrite. The comparison base
+is the pull request base SHA or push `before` SHA; scheduled and manual runs fall back to the
+parent of `HEAD`. The committed format-scope manifest remains authoritative, and an invariant
+prevents the full-tree legacy command from returning to the required workflow.

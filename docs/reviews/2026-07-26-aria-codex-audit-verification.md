@@ -1394,3 +1394,6 @@ finding is one nobody can navigate back to from the review that produced it.
 
 * **ORPHAN-HIGH-487** — Nothing stops ARIA promoting a second plan while one is still in flight, so it can leave half-finished work behind  
   Severity HIGH, layer 1, owner okan, deadline 2026-08-25. OPEN — scheduled for a follow-up PR.
+
+* **ORPHAN-CRITICAL-488** — The ORPHAN-CRITICAL-484 ancestry gate made a first-ever ARIA run impossible: a newborn tree could never publish, permanently  
+  Severity CRITICAL, layer 1, owner okan, deadline 2026-08-25.

@@ -49,6 +49,42 @@ export class BiomassGrowthApplierService {
    * pessimistic_write) → TankBatch. Üyelik kilit sonrası değiştiyse
    * ConflictException (retryable) — kısmi/sıradışı kilit YOK.
    */
+  /**
+   * A batch row locked for write, reusing the unit lock ONLY when that lock
+   * genuinely covers this batch.
+   *
+   * Callers used to decide this themselves and the idiom drifted apart:
+   * `create-feeding-record` asked `locked?.batches.get(batchId)` (correct —
+   * membership-checked), while `update-feeding-record` wrote
+   * `lock: locked ? undefined : { mode: 'pessimistic_write' }`, which skips the
+   * lock on the mere PRESENCE of a unit lock. Two reachable cases break that
+   * assumption: `lockUnitForGrowth` returns a LockedUnit with an EMPTY batches
+   * map for an emptied tank (no batchDetails, null primaryBatchId), and
+   * `batches` only ever holds the unit's CURRENT batches — so correcting a
+   * historical record whose batch has since left the tank locks a different
+   * batch than the one being mutated. Either way the aggregate was
+   * read-modify-written unlocked, under a comment claiming it was safe
+   * (FARM-HIGH-248).
+   *
+   * Asking the token instead of asking whether a token exists is the whole
+   * fix, and having ONE implementation of the question is what stops the two
+   * call sites diverging again.
+   */
+  async lockBatchForWrite(
+    manager: EntityManager,
+    tenantId: string,
+    batchId: string,
+    locked: LockedUnit | null,
+  ): Promise<Batch | null> {
+    const alreadyLocked = locked?.batches.get(batchId);
+    if (alreadyLocked) return alreadyLocked;
+
+    return manager.findOne(Batch, {
+      where: { id: batchId, tenantId },
+      lock: { mode: 'pessimistic_write' },
+    });
+  }
+
   async lockUnitForGrowth(
     manager: EntityManager,
     tenantId: string,

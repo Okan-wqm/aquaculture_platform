@@ -42456,6 +42456,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/unit-growth-lock-composition.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/upcaster-chain.spec.ts",
       "prettier_managed": true
     },
@@ -55224,10 +55230,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9053,
+  "file_count": 9054,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8872,
-  "managed_file_list_sha256": "b57c0302e3158a44172a56b6c69538163c05338be5dfa0cc297b241c5ff3e41a",
+  "managed_count": 8873,
+  "managed_file_list_sha256": "f3f6e5036a193fac89b67719c3e1832106d0f37357caa716951129c572148426",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

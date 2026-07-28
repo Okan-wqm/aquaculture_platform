@@ -54,16 +54,30 @@ type AggRow = {
   sample_count: number | null;
 };
 
-function createService(aggRows: AggRow[]): { service: SensorQueryService; query: jest.Mock } {
-  const query = jest.fn((sql: string): Promise<unknown> => {
-    if (sql.includes('SELECT name FROM sensors')) {
+/**
+ * getAggregatedReadings now runs inside runInTenantRead like every other reading
+ * query, so its SQL goes through the tenant query runner. `rollupPresent`
+ * controls the to_regclass probe that decides whether the tenant's rollup is
+ * used or the read degrades to the raw hypertable.
+ */
+function createService(
+  aggRows: AggRow[],
+  opts: { rollupPresent?: boolean } = {},
+): { service: SensorQueryService; query: jest.Mock } {
+  const { rollupPresent = true } = opts;
+  mockQrQuery.mockReset();
+  mockRunInTenantRead.mockClear();
+  mockQrQuery.mockImplementation((sql: string): Promise<unknown> => {
+    const text = String(sql);
+    if (text.includes('to_regclass')) return Promise.resolve([{ present: rollupPresent }]);
+    if (text.includes('SELECT name FROM sensors')) {
       return Promise.resolve([{ name: 'Test Sensor' }]);
     }
     return Promise.resolve(aggRows);
   });
-  const dataSource: Partial<DataSource> = { query: query as DataSource['query'] };
+  const dataSource: Partial<DataSource> = { query: jest.fn() };
   const service = new SensorQueryService(dataSource as DataSource, new DataQualityService());
-  return { service, query };
+  return { service, query: mockQrQuery };
 }
 
 /** The channel-keyed aggregation SQL (the one that carries time_bucket). */
@@ -159,7 +173,7 @@ describe('SensorQueryService.getAggregatedReadings — metric-store convergence'
     expect(Object.keys(point)).not.toContain('maxNitrite');
   });
 
-  it('reads the raw hypertable for a ≤1h range', async () => {
+  it('reads the raw hypertable for a ≤1h range, unqualified so it routes per tenant', async () => {
     const { service, query } = createService([]);
     await service.getAggregatedReadings(
       SENSOR_ID,
@@ -168,11 +182,12 @@ describe('SensorQueryService.getAggregatedReadings — metric-store convergence'
       new Date('2026-03-14T00:30:00Z'),
     );
     const sql = aggregationSql(query);
-    expect(sql).toContain('sensor.sensor_metrics');
+    expect(sql).toContain('FROM sensor_metrics s');
+    expect(sql).not.toContain('sensor.sensor_metrics');
     expect(sql).toContain('AVG(s.value)');
   });
 
-  it('reads a continuous aggregate (weighted) for a multi-day range', async () => {
+  it("reads the tenant's continuous aggregate (weighted) for a multi-day range", async () => {
     const { service, query } = createService([]);
     await service.getAggregatedReadings(
       SENSOR_ID,
@@ -181,8 +196,44 @@ describe('SensorQueryService.getAggregatedReadings — metric-store convergence'
       new Date('2026-03-10T00:00:00Z'),
     );
     const sql = aggregationSql(query);
-    expect(sql).toContain('sensor.metrics_1hour');
+    expect(sql).toContain('FROM metrics_1hour s');
+    expect(sql).not.toContain('sensor.metrics_1hour');
     expect(sql).toContain('SUM(s.avg_value * s.sample_count)');
+  });
+
+  it('degrades to the raw hypertable when the tenant has no rollup yet (never an empty series)', async () => {
+    // A tenant provisioned between boots has its hypertable but not yet its
+    // rollups. Resolving the view name through the search_path would return an
+    // empty chart that looks correct — the read must fall back instead.
+    const { service, query } = createService([], { rollupPresent: false });
+
+    await service.getAggregatedReadings(
+      SENSOR_ID,
+      TENANT_ID,
+      new Date('2026-03-01T00:00:00Z'),
+      new Date('2026-03-10T00:00:00Z'),
+    );
+
+    const sql = aggregationSql(query);
+    expect(sql).toContain('FROM sensor_metrics s');
+    expect(sql).toContain('AVG(s.value)'); // raw, unweighted expressions
+    expect(sql).not.toContain('metrics_1hour');
+  });
+
+  it('runs the aggregation tenant-pinned on the sensor source schema', async () => {
+    const { service } = createService([]);
+    await service.getAggregatedReadings(
+      SENSOR_ID,
+      TENANT_ID,
+      new Date('2026-03-14T00:00:00Z'),
+      new Date('2026-03-14T00:30:00Z'),
+    );
+    expect(mockRunInTenantRead).toHaveBeenCalledWith(
+      expect.anything(),
+      'sensor',
+      TENANT_ID,
+      expect.any(Function),
+    );
   });
 });
 

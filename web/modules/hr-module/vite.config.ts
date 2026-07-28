@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { federation } from '@module-federation/vite';
 import { resolve } from 'path';
 import { getCoreSharedConfig } from '../../shared-ui/src/federation/federationSharedConfig';
+import testPolicy from '@aquaculture/testing/vitest';
 
 /**
  * Vite Konfigürasyonu - HR Module Microfrontend
@@ -48,5 +49,6 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
+    ...testPolicy,
   },
 });

@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'path';
+import testPolicy from '@aquaculture/testing/vitest';
 
 export default defineConfig({
   plugins: [react()],
@@ -20,8 +21,9 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test-setup.ts'],
     include: ['src/**/*.{spec,test}.{ts,tsx}'],
+    ...testPolicy,
     coverage: {
-      reporter: ['text', 'lcov'],
+      ...testPolicy.coverage,
       include: ['src/**/*.{ts,tsx}'],
       exclude: ['src/**/*.spec.*', 'src/**/*.test.*', 'src/test-setup.ts'],
     },

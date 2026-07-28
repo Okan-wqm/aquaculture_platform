@@ -103,12 +103,10 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Codecov OIDC is scoped to the only job that uploads coverage. Explicit
-    # contents:read preserves checkout because job permissions replace the
-    # workflow-level map rather than merging with it.
+    # The coverage control plane is repository-owned and needs no external
+    # identity. Keep the job at the minimum permission needed by checkout.
     permissions:
       contents: read
-      id-token: write
     services:
       postgres:
         # INFRA-CRITICAL-010: HA edition includes pgvector (HNSW + vector_cosine_ops)
@@ -181,18 +179,21 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/aquaculture_test
           REDIS_URL: redis://localhost:6379
 
-      - name: Upload coverage to Codecov
+      - name: Verify coverage evidence
+        run: node tools/quality/coverage-evidence.js
+
+      - name: Upload coverage evidence
         # SEC-CI-002: pinned to SHA
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          directory: ./coverage
-          # Private repositories cannot use tokenless uploads. Authenticate
-          # with GitHub OIDC so CI does not depend on a long-lived upload token.
-          use_oidc: true
-          # fail_ci_if_error changed from false to true.
-          # BEFORE: Codecov upload failure was silently ignored — coverage could drop to 0%
-          # with no CI signal. WHY: Coverage enforcement only works if upload failures surface.
-          fail_ci_if_error: true
+          name: coverage-${{ github.sha }}
+          path: |
+            coverage/coverage-evidence.json
+            coverage/**/lcov.info
+            libs/aquaculture-engines/coverage/lcov.info
+            web/**/coverage/lcov.info
+          if-no-files-found: error
+          retention-days: 30
 
   build:
     runs-on: ubuntu-latest

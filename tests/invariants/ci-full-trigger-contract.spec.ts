@@ -30,7 +30,7 @@ interface Workflow {
         name?: string;
         uses?: string;
         run?: string;
-        with?: Record<string, string | boolean>;
+        with?: Record<string, string | boolean | number>;
         env?: Record<string, string>;
       }>;
     }
@@ -41,6 +41,12 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const WORKFLOW_PATH = path.join(REPO_ROOT, '.github', 'workflows', 'ci-full.yml');
 const ROOT_PACKAGE_PATH = path.join(REPO_ROOT, 'package.json');
 const ROOT_LOCK_PATH = path.join(REPO_ROOT, 'package-lock.json');
+const CHANGED_TYPE_CHECK_PATH = path.join(
+  REPO_ROOT,
+  'scripts',
+  'ci',
+  'type-check-changed-files.mjs',
+);
 const SERVICE_COVERAGE_CONFIGS = {
   'admin-api-service': 'apps/admin-api-service/jest.config.ts',
   'auth-service': 'apps/auth-service/jest.config.ts',
@@ -155,6 +161,12 @@ describe('CI Full protected-main and PR contract', () => {
     ).toBe(rootVitest);
   });
 
+  it('routes test utility directories through their project test compiler', () => {
+    const guard = fs.readFileSync(CHANGED_TYPE_CHECK_PATH, 'utf8');
+
+    expect(guard).toContain('/(?:^|\\/)test-utils\\//.test(file)');
+  });
+
   it('ratchets every previously dormant Jest coverage floor from its first full-CI baseline', () => {
     expect(SERVICE_COVERAGE_BASELINES).toEqual({
       'admin-api-service': {
@@ -208,16 +220,31 @@ describe('CI Full protected-main and PR contract', () => {
     }
   });
 
-  it('authenticates the fail-closed Codecov upload with job-scoped OIDC', () => {
+  it('verifies and retains repository-owned coverage evidence with minimum authority', () => {
     const testJob = readWorkflow().jobs?.test;
-    const codecov = testJob?.steps?.find((step) => step.name === 'Upload coverage to Codecov');
+    const steps = testJob?.steps ?? [];
+    const verifyIndex = steps.findIndex((step) => step.name === 'Verify coverage evidence');
+    const uploadIndex = steps.findIndex((step) => step.name === 'Upload coverage evidence');
+    const upload = steps[uploadIndex];
 
     expect(testJob?.permissions).toEqual({
       contents: 'read',
-      'id-token': 'write',
     });
-    expect(codecov?.with?.use_oidc).toBe(true);
-    expect(codecov?.with?.fail_ci_if_error).toBe(true);
+    expect(verifyIndex).toBeGreaterThan(-1);
+    expect(uploadIndex).toBeGreaterThan(verifyIndex);
+    expect(steps[verifyIndex]?.run).toBe('node tools/quality/coverage-evidence.js');
+    expect(upload?.uses).toBe('actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a');
+    expect(upload?.with).toEqual({
+      name: 'coverage-${{ github.sha }}',
+      path:
+        'coverage/coverage-evidence.json\n' +
+        'coverage/**/lcov.info\n' +
+        'libs/aquaculture-engines/coverage/lcov.info\n' +
+        'web/**/coverage/lcov.info\n',
+      'if-no-files-found': 'error',
+      'retention-days': 30,
+    });
+    expect(steps.some((step) => step.uses?.startsWith('codecov/'))).toBe(false);
   });
 
   it('keeps non-unit and archived sources outside full-CI coverage collection', () => {

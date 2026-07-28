@@ -7,21 +7,14 @@ export interface ServiceCoverageFloor {
   readonly statements: number;
 }
 
-export type ServiceCoverageProject =
-  | 'admin-api-service'
-  | 'auth-service'
-  | 'billing-service'
-  | 'farm-service'
-  | 'hr-service'
-  | 'sensor-service';
+export type ServiceCoverageProject = keyof typeof coverageBaselinesJson;
 
 /**
- * First enforceable baselines captured when CI Full began running coverage on
- * every pull request. Keep these floors monotonic: raise them as coverage
- * improves, and never lower them to make a failing run pass.
+ * TypeScript resolves the Jest configs' `.js` import to this typed adapter,
+ * while Jest's early config loader consumes the CommonJS sibling. Both expose
+ * the same JSON data SSoT; project identities are derived from that JSON.
  */
-const coverageBaselines = Object.freeze(
-  coverageBaselinesJson as Readonly<Record<ServiceCoverageProject, ServiceCoverageFloor>>,
-);
+const coverageBaselines: Readonly<Record<ServiceCoverageProject, ServiceCoverageFloor>> =
+  Object.freeze(coverageBaselinesJson);
 
 export default coverageBaselines;

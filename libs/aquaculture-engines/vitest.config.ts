@@ -1,3 +1,4 @@
+import testPolicy from '@aquaculture/testing/vitest';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -5,5 +6,6 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     include: ['src/**/*.spec.ts'],
+    ...testPolicy,
   },
 });

@@ -115,11 +115,12 @@ failed only in the Codecov step. The workflow required `fail_ci_if_error: true` 
 neither a repository token nor OIDC authority, so Codecov rejected the attempted tokenless upload
 for this repository.
 
-The test job now receives the minimum job-scoped permissions needed by Codecov OIDC:
-`contents: read` for checkout and `id-token: write` for the short-lived upload identity. The
-upload explicitly selects `use_oidc: true` and remains fail-closed. A CI contract invariant locks
-the permission and action inputs together, preventing either half of the authentication contract
-from drifting independently.
+The first repair proved that GitHub OIDC itself was healthy: the next exact-head run issued a
+1,972-byte short-lived identity, discovered 23 reports, and queued the upload. Codecov then
+returned `Repository not found`. The repository had never been provisioned in Codecov's control
+plane, so OIDC could authenticate the caller but could not create the missing vendor-side
+repository. INFRA-HIGH-094 replaces that unsupported dependency with the repository-owned
+coverage control plane described below.
 
 ## PERF-HIGH-012 — alert trend regression performed four passes plus allocation
 
@@ -133,3 +134,65 @@ algorithm that reads each sample exactly once and avoids subtracting large uncen
 The absolute 5 ms assertion remains unchanged. A deterministic complexity test instruments array
 access and requires exactly one indexed read per sample, so scheduler noise cannot hide a future
 multi-pass regression even when the wall-clock assertion passes.
+
+## INFRA-HIGH-094 — unprovisioned Codecov omitted non-root coverage evidence
+
+The OIDC-authenticated exact-head upload proved two architectural defects:
+
+- required CI depended on a Codecov repository that had never been set up;
+- `directory: ./coverage` found only 23 root reports and omitted Vitest reports emitted beneath
+  `web/**/coverage` and `libs/aquaculture-engines/coverage`.
+
+The repair removes the unsupported vendor control plane rather than making its failure optional.
+`coverage-report-inventory.json` is the canonical identity list for 34 JS/TS report producers.
+`coverage-evidence.js` fails closed when any declared report is missing, empty, malformed, or
+below an existing service ratchet; computes SHA-256 per report; and emits one commit-bound evidence
+manifest. CI retains that manifest and every LCOV file in a SHA-named GitHub artifact with
+`if-no-files-found: error`. The test job drops `id-token: write` and returns to `contents: read`
+only.
+
+Every Jest/Vitest report remains locally enforceable. The six service percentage floors continue
+to come from `service-coverage-baselines.json`; the evidence verifier consumes the same values,
+so storage, validation, and per-project Jest execution do not own competing baselines.
+
+## PERF-HIGH-014 — nested test worker pools oversubscribed CI runners
+
+Nx schedules test projects concurrently, while each Vitest project previously sized another
+worker pool independently from the host CPU count. Under full source instrumentation, concurrent
+Recharts/jsdom suites contended on a two-core runner and crossed unchanged five-second test
+boundaries.
+
+All ten Vitest producers now consume the `@aquaculture/testing/vitest` workspace package, whose
+single policy caps each nested pool at two workers and owns the common V8/LCOV contract. No timeout
+or assertion changed. With the bound in place, shared-ui passed 23 suites and 368 tests in 30.60
+seconds; farm passed 54 suites and 171 tests; tenant-admin passed 6 suites and 86 tests.
+
+## INFRA-HIGH-095 — typed coverage adapter had no compiler owner
+
+The baseline JSON has two loader-specific adapters: Jest consumes the CommonJS sibling while
+TypeScript resolves those `.js` imports through the typed sibling. The TypeScript adapter was
+required but had no owning tools tsconfig, and its manual project-name union could drift from the
+JSON identities.
+
+`tools/quality/tsconfig.json` now gives the adapter an explicit compiler owner. Its project type is
+derived with `keyof typeof coverageBaselinesJson`; both loader adapters expose the same JSON data
+SSoT without repeating project identities.
+
+## INFRA-HIGH-096 — test fixtures hid incomplete contracts behind double casts
+
+The range gate found AlertRule performance fixtures built as `Partial<AlertRule>` and repeatedly
+forced into service APIs, plus GraphQL mock metadata attached through casts.
+
+The alert fixture now constructs a real `AlertRule`, including every required entity field.
+GraphQL metadata is attached through a structurally typed `Object.assign` result. The production
+interfaces, banned-construct policy, and test expectations remain unchanged.
+
+## INFRA-HIGH-097 — test-utils were routed through production compilers
+
+The changed-file type guard recognized `test/`, `__tests__/`, and filename suffixes, but omitted
+the repository's `test-utils/` convention. It therefore assigned the gateway Jest helper to
+`tsconfig.app.json`, whose intentional lack of Jest globals produced false production errors.
+
+The classifier now routes `test-utils/` through the owning project's test compiler. A CI
+invariant locks this convention, so the fix improves ownership without adding test globals to a
+production tsconfig.

@@ -38923,6 +38923,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/testing/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/testing/README.md",
       "prettier_managed": true
     },
@@ -38954,6 +38960,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/testing/src/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/testing/src/vitest-test-policy.d.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/testing/src/vitest-test-policy.js",
       "prettier_managed": true
     },
     {
@@ -39342,7 +39360,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "5ba107fd816d8cdae0e50ca78a7047082812592b1fa64173378caad15659ec3b",
+      "content_sha256": "27aad148dc1e9c2c2c246243b78bf6cd0ff52b21e3d825d0a849b0f232fe1c37",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -41208,6 +41226,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/coverage-evidence-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/critical-infra-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -43002,6 +43026,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/quality/coverage-evidence.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/coverage-report-inventory.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/quality/format-scope.json",
       "prettier_managed": true
     },
@@ -43045,6 +43081,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/quality/terminal-run-evidence.schema.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/tsconfig.json",
       "prettier_managed": true
     },
     {
@@ -54900,10 +54942,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8999,
+  "file_count": 9006,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8818,
-  "managed_file_list_sha256": "96e48e5ccccac8c8be5718bf1a7158b465bdd02e89b0bc257a61981d8b8edde6",
+  "managed_count": 8825,
+  "managed_file_list_sha256": "e7a2a867b478abc01f9fa448aa4411a79a5948874168e57e4c302abc082f6394",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

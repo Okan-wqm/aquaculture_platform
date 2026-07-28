@@ -171,11 +171,18 @@ export function createMockGqlExecutionContext(
   };
 
   // Mock the GqlExecutionContext.create static method behavior
-  const context = createMockExecutionContext({
-    request: requestOverrides,
-    response: responseOverrides,
-    contextType: 'graphql',
-  });
+  const context = Object.assign(
+    createMockExecutionContext({
+      request: requestOverrides,
+      response: responseOverrides,
+      contextType: 'graphql',
+    }),
+    {
+      __gqlContext: gqlContext,
+      __gqlInfo: info ?? { fieldName: 'testQuery' },
+      __gqlArgs: args,
+    },
+  );
 
   // Add GraphQL-specific context
   const originalSwitchToHttp = context.switchToHttp.bind(context);
@@ -186,13 +193,6 @@ export function createMockGqlExecutionContext(
       getResponse: () => mockResponse,
     }),
   });
-
-  // Store info and args for GqlExecutionContext.create to access
-  (
-    context as unknown as { __gqlContext: unknown; __gqlInfo: unknown; __gqlArgs: unknown }
-  ).__gqlContext = gqlContext;
-  (context as unknown as { __gqlInfo: unknown }).__gqlInfo = info ?? { fieldName: 'testQuery' };
-  (context as unknown as { __gqlArgs: unknown }).__gqlArgs = args;
 
   return context;
 }

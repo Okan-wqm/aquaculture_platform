@@ -84,6 +84,24 @@ export interface RecordMovementInput {
   movementDate?: Date;
 }
 
+/**
+ * The lot a FEFO decrement actually drew from.
+ *
+ * For an un-pinned OUT the caller names no lot, so the decrement is the ONLY
+ * place that knows which one left — and once a lot drains to zero its
+ * `storage_inventory` row is deleted, taking its expiry with it.
+ * `stock_movements` is the durable home for that fact
+ * (`stock-movement.entity.ts` says so), but it can only carry what the sink
+ * hands it. Returning the drawn identity is what lets the sink stamp the audit
+ * row from what it TOUCHED rather than from what the caller happened to pass
+ * (FARM-MEDIUM-254).
+ */
+interface DrawnLot {
+  lotNumber: string | null;
+  expiryDate: Date | null;
+  receivedDate: Date | null;
+}
+
 /** Identity context for a movement (who, which tenant). */
 export interface MovementContext {
   tenantId: string;
@@ -234,20 +252,22 @@ export class StockMovementService {
           ? new Date(input.movementDate)
           : undefined;
 
-    if (fromLocation) {
-      await this.decreaseInventory(
-        inventoryRepo,
-        tenantId,
-        fromLocation.id,
-        itemType,
-        itemId,
-        quantity,
-        itemDetails.unit,
-        input.lotNumber,
-        userId,
-        asOfDate,
-      );
-    }
+    // What the FEFO decrement actually drew. For an un-pinned OUT the caller
+    // named no lot, so this is the only place that knows which one left.
+    const drawn: DrawnLot | null = fromLocation
+      ? await this.decreaseInventory(
+          inventoryRepo,
+          tenantId,
+          fromLocation.id,
+          itemType,
+          itemId,
+          quantity,
+          itemDetails.unit,
+          input.lotNumber,
+          userId,
+          asOfDate,
+        )
+      : null;
 
     // Lot-mix detection — must run BEFORE increaseInventory so the service
     // sees the resident lots as "other" and not yet summed with the
@@ -301,8 +321,12 @@ export class StockMovementService {
       toLocationId: input.toLocationId,
       reference: input.reference,
       reason: input.reason,
-      lotNumber: effectiveLotNumber ?? input.lotNumber,
-      expiryDate: input.expiryDate,
+      // Stamped from what the sink TOUCHED, not only from what the caller
+      // passed. No OUT caller supplies an expiry — the feeding ledger cannot,
+      // because FEFO chooses the lot — so every outbound audit row carried a
+      // NULL expiry and the entity's own promise to preserve it was false.
+      lotNumber: effectiveLotNumber ?? input.lotNumber ?? drawn?.lotNumber ?? undefined,
+      expiryDate: input.expiryDate ?? drawn?.expiryDate ?? undefined,
       idempotencyKey: input.idempotencyKey,
       performedBy: userId,
       performedByName: userName,
@@ -503,6 +527,37 @@ export class StockMovementService {
       }
     }
 
+    // TRANSFER moves stock between two locations, so BOTH legs are mandatory.
+    //
+    // Without this branch the method returned {null, null} for a transfer: the
+    // decrement and the increment are both gated on a resolved location, so the
+    // sink silently moved nothing while still writing the audit row that claims
+    // it did, and still recomputing the roll-up. Fail-open, and invisible —
+    // there is no error to see and the ledger reads as if the move happened.
+    // No caller reaches it today (TransferStockHandler hand-writes its rows,
+    // which is FARM-HIGH-239's other half), so this closes the hole BEFORE the
+    // handler is routed through here rather than after.
+    if (movementType === MovementType.TRANSFER) {
+      if (!input.fromLocationId || !input.toLocationId) {
+        throw new BadRequestException(
+          'Both fromLocationId and toLocationId are required for transfer movements',
+        );
+      }
+      if (input.fromLocationId === input.toLocationId) {
+        throw new BadRequestException('A transfer must move stock between two different locations');
+      }
+      fromLocation = await locationRepo.findOne({
+        where: { id: input.fromLocationId, tenantId },
+      });
+      if (!fromLocation) {
+        throw new NotFoundException(`Storage location "${input.fromLocationId}" not found`);
+      }
+      toLocation = await locationRepo.findOne({ where: { id: input.toLocationId, tenantId } });
+      if (!toLocation) {
+        throw new NotFoundException(`Storage location "${input.toLocationId}" not found`);
+      }
+    }
+
     if (movementType === MovementType.ADJUSTMENT) {
       if (!input.toLocationId && !input.fromLocationId) {
         throw new BadRequestException(
@@ -669,7 +724,7 @@ export class StockMovementService {
     lotNumber: string | undefined,
     userId: string,
     asOfDate?: Date,
-  ): Promise<void> {
+  ): Promise<DrawnLot> {
     let inventory: StorageInventory | null;
 
     if (lotNumber) {
@@ -706,6 +761,16 @@ export class StockMovementService {
       );
     }
 
+    // Capture the lot's identity BEFORE the row is mutated or removed. Once a
+    // lot drains to zero the row is deleted (below), and with it the only record
+    // of that lot's expiry — `stock_movements` is the durable home for it, but
+    // it can only carry what the sink knows it touched.
+    const drawn: DrawnLot = {
+      lotNumber: inventory.lotNumber ?? null,
+      expiryDate: inventory.expiryDate ?? null,
+      receivedDate: inventory.receivedDate ?? null,
+    };
+
     inventory.quantity = Number(inventory.quantity) - quantity;
     inventory.updatedBy = userId;
 
@@ -714,6 +779,8 @@ export class StockMovementService {
     } else {
       await repo.save(inventory);
     }
+
+    return drawn;
   }
 
   private async increaseInventory(

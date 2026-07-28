@@ -117,24 +117,71 @@ export interface FeatureToggle {
   updatedAt: string;
 }
 
+/**
+ * A maintenance window, as `GET /system/settings/maintenance` returns it.
+ *
+ * Corrected against `MaintenanceMode` (APA-106's slice). This declaration had
+ * drifted from the entity on four points while `MaintenancePage` carried its
+ * own, more accurate, shadow copy — the two disagreed, and an
+ * page's double type assertion onto `MaintenanceWindow[]` was what stopped
+ * the compiler from saying so. The entity's enums are the arbiter: `scope` includes
+ * `region`, `type` has five members rather than three, and
+ * `estimatedDurationMinutes`, `affectedTenants` and `updatedAt` are real
+ * columns this type simply omitted.
+ */
 export interface MaintenanceWindow {
   id: string;
   title: string;
   description: string;
-  scope: 'global' | 'tenant' | 'service';
-  type: 'scheduled' | 'emergency' | 'rolling';
+  scope: 'global' | 'tenant' | 'service' | 'region';
+  type: 'scheduled' | 'emergency' | 'rolling_update' | 'database_migration' | 'security_patch';
   status: MaintenanceStatus;
   tenantId?: string;
+  affectedTenants?: string[];
   affectedServices?: Array<{ name: string; status: string }>;
+  affectedRegions?: string[];
   scheduledStart: string;
   scheduledEnd?: string;
   actualStart?: string;
   actualEnd?: string;
+  estimatedDurationMinutes: number;
   userMessage?: string;
+  internalNotes?: string;
   allowReadOnlyAccess: boolean;
   bypassForSuperAdmins: boolean;
-  createdBy: string;
+  createdBy?: string;
   createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Exactly the fields `CreateMaintenanceDto` whitelists.
+ *
+ * Declared in its own right rather than as `Omit<MaintenanceWindow, …>`: a read
+ * model minus a few keys is not a write contract, and under the platform's
+ * `forbidNonWhitelisted: true` pipe every server-owned field the omission did
+ * not happen to name is a 400. `createdBy` in particular is derived from the
+ * verified JWT and is rejected as a body field (APA-266).
+ */
+export interface CreateMaintenanceWindowInput {
+  title: string;
+  description: string;
+  scope?: MaintenanceWindow['scope'];
+  type?: MaintenanceWindow['type'];
+  tenantId?: string;
+  affectedTenants?: string[];
+  affectedServices?: Array<{
+    name: string;
+    status: 'unavailable' | 'degraded' | 'read_only';
+    message?: string;
+  }>;
+  scheduledStart: string;
+  scheduledEnd?: string;
+  estimatedDurationMinutes?: number;
+  userMessage?: string;
+  allowReadOnlyAccess?: boolean;
+  bypassForSuperAdmins?: boolean;
+  whitelistedIPs?: string[];
 }
 
 export interface PerformanceMetrics {

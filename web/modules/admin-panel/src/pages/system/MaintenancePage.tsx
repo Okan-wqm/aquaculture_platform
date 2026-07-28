@@ -8,32 +8,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
+// The page-local shadow copy of this shape is gone: it disagreed with the
+// canonical type on four points, and a double type assertion at the call
+// site was the only reason that compiled (APA-106's slice).
+import type {
+  CreateMaintenanceWindowInput,
+  MaintenanceWindow,
+} from '../../services/types/settings';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-interface MaintenanceWindow {
-  id: string;
-  title: string;
-  description: string;
-  scope: 'global' | 'tenant' | 'service' | 'region';
-  type: 'scheduled' | 'emergency' | 'rolling_update' | 'database_migration' | 'security_patch';
-  status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'extended';
-  scheduledStart: string;
-  scheduledEnd?: string;
-  actualStart?: string;
-  actualEnd?: string;
-  estimatedDurationMinutes: number;
-  userMessage?: string;
-  allowReadOnlyAccess: boolean;
-  bypassForSuperAdmins: boolean;
-  affectedTenants?: string[];
-  affectedServices?: { name: string; status: string }[];
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-}
 
 interface MaintenanceForm {
   title: string;
@@ -87,10 +73,12 @@ export const MaintenancePage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
+      // `getMaintenanceWindows` is declared `PaginatedResult<MaintenanceWindow>`
+      // and always was; the rows live under `.data`. Testing the ENVELOPE with
+      // `Array.isArray` sent every load down the `[]` branch, and the
+      // double type assertion below it is what let that compile (APA-106's class).
       const response = await systemSettingsApi.getMaintenanceWindows();
-      // Ensure response is an array
-      const data = Array.isArray(response) ? response : [];
-      setMaintenanceList(data as unknown as MaintenanceWindow[]);
+      setMaintenanceList(response.data);
     } catch (err) {
       console.error('Failed to load maintenance windows:', err);
       setError('Failed to load maintenance windows. Please try again.');
@@ -116,14 +104,21 @@ export const MaintenancePage: React.FC = () => {
       const scheduledEnd = new Date(formData.scheduledStart);
       scheduledEnd.setMinutes(scheduledEnd.getMinutes() + formData.estimatedDurationMinutes);
 
-      // Extract only the fields expected by the API
-      const apiData = {
+      // Typed by the write contract rather than cast into one. The two casts
+      // here narrowed to unions the backend does not have — `type` was cast to
+      // `'scheduled' | 'emergency' | 'rolling'` while the dropdown offers
+      // `rolling_update`, `database_migration` and `security_patch` and the DTO
+      // validates against the five-member enum. The runtime value was right all
+      // along; the cast was the lie, and it is what let the drifted contract sit
+      // unnoticed.
+      const apiData: CreateMaintenanceWindowInput = {
         title: formData.title,
         description: formData.description,
-        scope: formData.scope as 'global' | 'tenant' | 'service',
-        type: formData.type as 'scheduled' | 'emergency' | 'rolling',
+        scope: formData.scope,
+        type: formData.type,
         scheduledStart: formData.scheduledStart,
         scheduledEnd: scheduledEnd.toISOString(),
+        estimatedDurationMinutes: formData.estimatedDurationMinutes,
         userMessage: formData.userMessage,
         allowReadOnlyAccess: formData.allowReadOnlyAccess,
         bypassForSuperAdmins: formData.bypassForSuperAdmins,
@@ -132,7 +127,7 @@ export const MaintenancePage: React.FC = () => {
 
       const newMaintenance = await systemSettingsApi.createMaintenanceWindow(apiData);
 
-      setMaintenanceList([newMaintenance as unknown as MaintenanceWindow, ...maintenanceList]);
+      setMaintenanceList([newMaintenance, ...maintenanceList]);
       setShowCreateModal(false);
       setFormData(defaultForm);
     } catch (err) {

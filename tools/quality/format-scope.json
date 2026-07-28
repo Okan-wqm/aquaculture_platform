@@ -41562,6 +41562,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-panel-paginated-consumer.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-panel-report-definition-contract.spec.ts",
       "prettier_managed": true
     },
@@ -55626,10 +55632,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9120,
+  "file_count": 9121,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8939,
-  "managed_file_list_sha256": "b5fef93784069359a5f3e44dd77d4c10f71b58e5e09ff69f63cf06931d1c38aa",
+  "managed_count": 8940,
+  "managed_file_list_sha256": "ab82a5fdbe5945f256ae3535819fb6021f93573ce4e871498fc3a89ceb0f13d7",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

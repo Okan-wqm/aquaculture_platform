@@ -73,6 +73,9 @@ export class RecordPaymentHandler implements ICommandHandler<RecordPaymentComman
       }
 
       // Validate payment amount against amount due using Money for precision
+      if (!Decimal.isDecimal(invoice.amountDue) || !invoice.amountDue.isFinite()) {
+        throw new BadRequestException(`Invoice ${invoice.id} has invalid amount due value`);
+      }
       const amountDueMoney = Money.of(invoice.amountDue, invoice.currency);
       const paymentMoney = Money.of(input.amount, paymentCurrency);
 

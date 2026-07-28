@@ -30499,6 +30499,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-07-26-aria-software-team-program/PLAN.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/multi-agent-architecture.md",
       "prettier_managed": true
     },
@@ -31916,6 +31922,24 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/2026-07-13-branch-triage/ledger.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/2026-07-26-aria-codex-audit-verification.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/2026-07-27-ci-full-contract.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/2026-07-27-production-dependency-floor.md",
       "prettier_managed": true
     },
     {
@@ -39324,7 +39348,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "24cb0eee1b28f9abd1b00ea1dfaccca2614b10e15f73203ccdb094a2bb97a804",
+      "content_sha256": "41eea8e699b8e23379092865cc8002ef39282718e6ac57e92038cb6976fdc6ee",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -39751,6 +39775,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "scripts/ci/check-messaging-tenant-entity-routing.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/check-production-licenses.mjs",
       "prettier_managed": true
     },
     {
@@ -54852,10 +54882,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 8991,
+  "file_count": 8996,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8810,
-  "managed_file_list_sha256": "2bf935f30fa75f7bcab66d27cb473a13fd4dd9d4530b6bfe5707067d8817117c",
+  "managed_count": 8815,
+  "managed_file_list_sha256": "90773d0ba6a2ab477d91039b09708c985e7ddc2694575e7c27f8cb13ea22c120",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

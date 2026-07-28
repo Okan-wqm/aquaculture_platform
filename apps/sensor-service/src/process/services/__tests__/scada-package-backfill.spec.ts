@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
 import { ScadaPackage } from '../../entities/scada-package.entity';
@@ -95,6 +96,7 @@ describe('ScadaPackageService — 6d V2 packageData backfill', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ScadaPackageService,
+        { provide: EventEmitter2, useValue: { emit: jest.fn() } },
         { provide: getRepositoryToken(ScadaPackage), useValue: repo },
         { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
         { provide: EdgeDeviceService, useValue: edgeDeviceService },

@@ -465,7 +465,18 @@ jobs:
       - name: Verify aria-tools state integrity
         id: integrity
         if: always() && steps.lease_check.outputs.blocked != 'true'
-        continue-on-error: true
+        # NO continue-on-error. The sens-enterprise-validation gate rejects it
+        # as a suppression pattern and is right to: a step that is allowed to
+        # fail silently is indistinguishable from one that cannot fail.
+        #
+        # It was also redundant here. This step must not fail the job because
+        # its VERDICT — not its exit status — selects the canonical vs
+        # quarantine artifact name, and the body already implements that: no
+        # `set -e`, so the verifier's non-zero exit is consumed by the `if`
+        # below and turned into state_valid=false, and every later command is
+        # individually guarded (`|| echo`, `[ -s ... ]`). The step's own exit
+        # status is therefore 0 on both verdicts. continue-on-error added
+        # nothing except the suppression the gate forbids.
         run: |
           set -uo pipefail
           # RUNNER_TEMP, not /tmp — it is the only external write root the

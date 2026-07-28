@@ -605,3 +605,6 @@ an entrypoint.
   it is recorded as-is and remains a static signal, not proof of missing coverage.
 * Branch protection rulesets and the GitHub App installation scope cannot be read from inside the
   repository and remain externally unverified — which is itself part of P0-14's exposure.
+
+* **ORPHAN-HIGH-490** — A continue-on-error suppression on the integrity step was redundant and blocked the enterprise validation gate  
+  Severity HIGH, layer 1, owner okan, deadline 2026-08-25.

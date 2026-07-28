@@ -130,6 +130,20 @@ describe('unmeasured reports produce no artifact (APA-142)', () => {
     }
   });
 
+  it('never caches unavailability, so a new producer is visible immediately', async () => {
+    // Availability is a property of the WORLD, not of the report: the 1AM
+    // snapshot cron makes `system_performance` producible. Caching "there is no
+    // data" for the four-hour TTL would keep a request made at 00:59 answering
+    // "no data source" until 04:59, long after the data landed.
+    const { service, redis } = await buildReportsHarness({ rawQueryRows: [] });
+
+    await expect(
+      service.generateReport(reportRequest('system_performance')),
+    ).rejects.toBeInstanceOf(ReportDataSourceUnavailableException);
+
+    expect(redis.setJson).not.toHaveBeenCalled();
+  });
+
   it('discards a cache entry written before the measured discriminant existed', async () => {
     // A four-hour TTL means every key warm at rollout would otherwise decode
     // with `measured === undefined` and report a healthy report as having no

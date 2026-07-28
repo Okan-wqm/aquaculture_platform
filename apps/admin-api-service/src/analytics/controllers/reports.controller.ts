@@ -24,6 +24,7 @@ import { IsIn, IsString, IsOptional, IsBoolean, IsObject } from 'class-validator
 import { Request, Response } from 'express';
 
 import {
+  REPORT_RANGE_SEMANTICS,
   REPORT_TYPES,
   ReportType,
   ReportFormat,
@@ -48,11 +49,17 @@ class GenerateReportDto {
   @IsIn(['json', 'csv', 'pdf'])
   format!: ReportFormat;
 
+  // Optional at the DTO, required-or-forbidden by report type at the boundary
+  // (`assertWindowMatchesReportType`). A blanket `@IsString()` here would force
+  // every caller to send a window even for a report that cannot apply one,
+  // which is the shape that produced APA-140.
+  @IsOptional()
   @IsString()
-  startDate!: string;
+  startDate?: string;
 
+  @IsOptional()
   @IsString()
-  endDate!: string;
+  endDate?: string;
 
   @IsOptional()
   @IsObject()
@@ -159,6 +166,30 @@ class QuickReportDto {
 // Controller
 // ============================================================================
 
+/**
+ * Rejects a window that the report cannot apply, and a missing one it needs.
+ *
+ * Silently discarding a supplied window is the defect itself (APA-140): the
+ * caller believes it scoped the report and the answer says otherwise. Answering
+ * 400 moves the disagreement to where the caller can see it. The rule is
+ * derived from `REPORT_RANGE_SEMANTICS`, so it cannot disagree with what the
+ * generator actually does.
+ */
+function assertWindowMatchesReportType(type: ReportType, hasWindow: boolean): void {
+  const ranged = REPORT_RANGE_SEMANTICS[type] === 'ranged';
+  if (ranged && !hasWindow) {
+    throw new BadRequestException(
+      `Report "${type}" covers a date range: startDate and endDate are required.`,
+    );
+  }
+  if (!ranged && hasWindow) {
+    throw new BadRequestException(
+      `Report "${type}" describes the current state and covers no date range: ` +
+        'startDate and endDate must be omitted.',
+    );
+  }
+}
+
 @ApiTags('Analytics')
 @Controller('reports')
 export class ReportsController {
@@ -242,7 +273,11 @@ export class ReportsController {
   @HttpCode(HttpStatus.CREATED)
   async createExecution(
     @Body() dto: ExecuteReportDto,
-    @Req() req: Request & { user?: { id?: string; email?: string } },
+    // Annotated with the two fields the handler actually reads rather than the
+    // whole express Request. `@Req()` still injects the full object; narrowing
+    // the TYPE is what makes the boundary rule below unit-testable without
+    // fabricating a hundred-member Request that the handler never touches.
+    @Req() req: { user?: { id?: string; email?: string } },
   ): Promise<ReportExecution> {
     const startDate = dto.startDate ? new Date(dto.startDate) : undefined;
     const endDate = dto.endDate ? new Date(dto.endDate) : undefined;
@@ -257,6 +292,13 @@ export class ReportsController {
 
     if (startDate && endDate && startDate > endDate) {
       throw new BadRequestException('Start date must be before end date');
+    }
+
+    // A definition-driven execution takes its type from the stored definition,
+    // which this route cannot see; the service resolves it and the same rule
+    // applies there. Only an ad-hoc execution names its type here.
+    if (dto.reportType) {
+      assertWindowMatchesReportType(dto.reportType, Boolean(dto.startDate || dto.endDate));
     }
 
     return this.reportsService.executeReport({
@@ -332,15 +374,20 @@ export class ReportsController {
 
   @Post('generate')
   async generateReport(@Body() dto: GenerateReportDto): Promise<ReportResult> {
-    // Validate dates
-    const startDate = new Date(dto.startDate);
-    const endDate = new Date(dto.endDate);
+    assertWindowMatchesReportType(dto.type, Boolean(dto.startDate || dto.endDate));
 
-    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+    // Validate dates
+    const startDate = dto.startDate ? new Date(dto.startDate) : undefined;
+    const endDate = dto.endDate ? new Date(dto.endDate) : undefined;
+
+    if (
+      (startDate && isNaN(startDate.getTime())) ||
+      (endDate && isNaN(endDate.getTime()))
+    ) {
       throw new BadRequestException('Invalid date format');
     }
 
-    if (startDate > endDate) {
+    if (startDate && endDate && startDate > endDate) {
       throw new BadRequestException('Start date must be before end date');
     }
 
@@ -360,30 +407,37 @@ export class ReportsController {
   // Quick Reports
   // ============================================================================
 
+  /**
+   * No window is constructed: the tenant roster describes current state, so the
+   * one-month range this route used to build was discarded by the generator
+   * (APA-140).
+   */
   @Get('tenant-overview')
   async getTenantOverviewReport(
     @Query('format') format: ReportFormat = 'json',
   ): Promise<ReportResult> {
-    const endDate = new Date();
-    const startDate = new Date();
-    startDate.setMonth(startDate.getMonth() - 1);
-
     return this.reportsService.generateReport({
       type: 'tenant_overview',
       format,
-      startDate,
-      endDate,
     });
   }
 
+  /**
+   * The `months` query parameter is gone (APA-140). It computed a `startDate`
+   * that `generateChurnReport` discarded, so narrowing or widening the window
+   * returned byte-identical data — a knob that moved nothing. It is not
+   * reinstated with the window plumbed through, because the churn report has no
+   * measurable cancellation date to select by in the first place: it now
+   * answers 422 "no data source" rather than exporting a last-write timestamp
+   * as a churn date (APA-135).
+   */
   @Get('churn-analysis')
   async getChurnAnalysisReport(
     @Query('format') format: ReportFormat = 'json',
-    @Query('months') months = 3,
   ): Promise<ReportResult> {
     const endDate = new Date();
     const startDate = new Date();
-    startDate.setMonth(startDate.getMonth() - months);
+    startDate.setMonth(startDate.getMonth() - 3);
 
     return this.reportsService.generateReport({
       type: 'tenant_churn',

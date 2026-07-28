@@ -242,8 +242,10 @@ describe('ReportsService - Caching', () => {
     it('should use 4 hour (14400s) TTL for report cache', async () => {
       redisMock(mockRedis.getJson).mockResolvedValue(null);
 
+      // `tenant_churn` used to stand in here; it now has no data source at all
+      // and never reaches the cache (APA-140).
       await service.generateReport({
-        type: 'tenant_churn',
+        type: 'system_performance',
         format: 'json',
         startDate: new Date('2024-01-01'),
         endDate: new Date('2024-12-31'),
@@ -298,8 +300,12 @@ describe('ReportsService - Caching', () => {
       const getJsonMock = redisMock(mockRedis.getJson);
       getJsonMock.mockResolvedValue(null);
 
+      // Only for a report the window actually selects. `tenant_overview` stood
+      // here before and is point-in-time, so per-range keys over identical data
+      // were exactly the fragmentation that masked the ignored range (APA-140);
+      // `report-range-semantics.spec.ts` now asserts it gets ONE key.
       await service.generateReport({
-        type: 'tenant_overview',
+        type: 'system_performance',
         format: 'json',
         startDate: new Date('2024-01-01'),
         endDate: new Date('2024-06-30'),
@@ -308,7 +314,7 @@ describe('ReportsService - Caching', () => {
       const firstKey = (getJsonMock.mock.calls as Array<[string]>)[0]?.[0];
 
       await service.generateReport({
-        type: 'tenant_overview',
+        type: 'system_performance',
         format: 'json',
         startDate: new Date('2024-07-01'),
         endDate: new Date('2024-12-31'),
@@ -409,17 +415,23 @@ describe('ReportsService - Caching', () => {
       expect(mockRedis.setJson).toHaveBeenCalled();
     });
 
-    it('should cache tenant_churn reports', async () => {
+    it('should not cache tenant_churn — it has no data source to cache', async () => {
       redisMock(mockRedis.getJson).mockResolvedValue(null);
 
-      await service.generateReport({
-        type: 'tenant_churn',
-        format: 'json',
-        startDate: new Date('2024-01-01'),
-        endDate: new Date('2024-12-31'),
-      });
+      // Churn rests on `tenant.updatedAt`, a last-write timestamp rather than a
+      // cancellation date, so the report cannot be produced at all (APA-140,
+      // closing APA-135's export surface). Caching an unavailability would give
+      // it a four-hour lifetime for no benefit.
+      await expect(
+        service.generateReport({
+          type: 'tenant_churn',
+          format: 'json',
+          startDate: new Date('2024-01-01'),
+          endDate: new Date('2024-12-31'),
+        }),
+      ).rejects.toThrow();
 
-      expect(mockRedis.setJson).toHaveBeenCalled();
+      expect(mockRedis.setJson).not.toHaveBeenCalled();
     });
 
     it('should cache system_performance reports', async () => {

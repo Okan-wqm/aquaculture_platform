@@ -38,6 +38,7 @@ import {
   ReportDefinitionStatus,
   ReportExecutionStatus,
   REPORT_PREVIEW_ROW_LIMIT,
+  REPORT_RANGE_SEMANTICS,
   SystemMetrics,
   measuredEntries,
 } from '../entities/analytics-snapshot.entity';
@@ -189,32 +190,43 @@ export class ReportDataSourceUnavailableException extends UnprocessableEntityExc
 }
 
 /**
- * Recognises a report body decoded from the cache.
+ * Whether a report body may be kept in, or served from, the cache.
  *
- * A cache entry is data from an external store that may have been written by a
- * PREVIOUS release: `getJson<T>` casts it unchecked, so a payload written
- * before `ReportBody` gained its `measured` discriminant would decode with
- * `measured === undefined` and report a perfectly healthy tenant/revenue/
- * performance report as having no data source for the full four-hour TTL of
- * every key still warm at rollout. Validating the discriminant on read makes
- * the cache self-healing across EVERY future shape change, rather than relying
- * on someone remembering to bump a version segment in the key.
+ * ONE predicate for both directions, because the two questions have the same
+ * answer and asking them separately is how they drift apart.
+ *
+ * On READ it makes the cache self-healing. A cache entry is data from an
+ * external store that a PREVIOUS release may have written, and `getJson<T>`
+ * casts it unchecked — so a payload written before `ReportBody` gained its
+ * `measured` discriminant would decode with `measured === undefined` and report
+ * a perfectly healthy tenant/revenue/performance report as having no data
+ * source for the full four-hour TTL of every key still warm at rollout.
+ * Validating on read turns that into a miss that recomputes and rewrites,
+ * across every future shape change, rather than relying on someone remembering
+ * to bump a version segment in the key.
+ *
+ * On WRITE it keeps unavailability OUT of the cache. Availability is not a
+ * property of the report, it is a property of the world: `system_performance`
+ * becomes producible the moment the 1AM snapshot cron writes its row. Caching
+ * "there is no data" for four hours would make the platform slow to notice that
+ * there now is — a request at 00:59 would keep answering "no data source" until
+ * 04:59. Recomputing an unavailable answer is cheap; being wrong about it for
+ * four hours is not.
  *
  * The row element type is deliberately not validated: rows are written by this
  * service's own generators, and the discriminant is the only part a stale
  * writer can get wrong.
  */
-function isReportBody(value: unknown): value is ReportBody<unknown> {
-  if (typeof value !== 'object' || value === null || !('measured' in value)) {
-    return false;
-  }
-  if (value.measured === true) {
-    return 'data' in value && Array.isArray(value.data) && 'summary' in value;
-  }
-  if (value.measured === false) {
-    return 'unavailableReason' in value && typeof value.unavailableReason === 'string';
-  }
-  return false;
+function isCacheableReportBody(value: unknown): value is ReportBody<unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'measured' in value &&
+    value.measured === true &&
+    'data' in value &&
+    Array.isArray(value.data) &&
+    'summary' in value
+  );
 }
 
 /** Mean of the measured values only; null when nothing was measured. */
@@ -279,27 +291,28 @@ export class ReportsService {
   /**
    * Get cached report data or compute it.
    *
-   * `isFresh` is not optional on purpose: a cache read is deserialisation from
-   * a store a previous release may have written, and `getJson<T>` hands the
-   * payload back with an unchecked cast. Requiring the caller to say how a
-   * valid payload is recognised makes a stale shape a cache MISS — recomputed
-   * and rewritten — instead of a value that satisfies the type system while
-   * being wrong (APA-142).
+   * `isCacheable` is not optional on purpose, and it gates BOTH directions: a
+   * value it rejects is never served and never stored. A cache read is
+   * deserialisation from a store a previous release may have written, and
+   * `getJson<T>` hands the payload back with an unchecked cast — so requiring
+   * the caller to say what a valid payload looks like turns a stale shape into
+   * a MISS instead of a value that satisfies the type system while being wrong
+   * (APA-142).
    */
   private async getCachedOrCompute<T>(
     cacheKey: string,
-    isFresh: (value: unknown) => value is T,
+    isCacheable: (value: unknown) => value is T,
     compute: () => Promise<T>,
   ): Promise<T> {
     if (this.redisService) {
       try {
         const cached = await this.redisService.getJson<unknown>(cacheKey);
-        if (isFresh(cached)) {
+        if (isCacheable(cached)) {
           this.logger.debug(`Cache HIT: ${cacheKey}`);
           return cached;
         }
         if (cached !== null && cached !== undefined) {
-          this.logger.debug(`Cache DISCARD (stale shape): ${cacheKey}`);
+          this.logger.debug(`Cache DISCARD (not cacheable): ${cacheKey}`);
         }
       } catch {
         // Cache miss or error
@@ -308,7 +321,7 @@ export class ReportsService {
 
     const result = await compute();
 
-    if (this.redisService) {
+    if (this.redisService && isCacheable(result)) {
       // ERROR HANDLING FIX: Log cache write errors instead of silently ignoring
       this.redisService.setJson(cacheKey, result, ReportsService.CACHE_TTL).catch((error) => {
         this.logger.warn(`Failed to write cache for key ${cacheKey}: ${(error as Error).message}`);
@@ -337,13 +350,21 @@ export class ReportsService {
     const filtersKey = request.filters
       ? JSON.stringify(Object.fromEntries(Object.entries(request.filters).sort()))
       : 'none';
-    const cacheKey = `report:${request.type}:${request.startDate?.toISOString() || 'all'}:${request.endDate?.toISOString() || 'all'}:${filtersKey}`;
+    // A point-in-time report's rows do not depend on the window, so keying by
+    // it fragmented the cache into per-range entries holding IDENTICAL data —
+    // which is precisely what hid the ignored range from anyone comparing two
+    // runs (APA-140). One key per point-in-time report, as its content warrants.
+    const rangeKey =
+      REPORT_RANGE_SEMANTICS[request.type] === 'ranged'
+        ? `${request.startDate?.toISOString() || 'all'}:${request.endDate?.toISOString() || 'all'}`
+        : 'point-in-time';
+    const cacheKey = `report:${request.type}:${rangeKey}:${filtersKey}`;
 
     switch (request.type) {
       case 'tenant_overview': {
         body = await this.getCachedOrCompute<ReportBody<unknown>>(
           cacheKey,
-          isReportBody,
+          isCacheableReportBody,
           () => this.generateTenantOverviewReport(request),
         );
         title = 'Tenant Overview Report';
@@ -353,7 +374,7 @@ export class ReportsService {
       case 'tenant_churn': {
         body = await this.getCachedOrCompute<ReportBody<unknown>>(
           cacheKey,
-          isReportBody,
+          isCacheableReportBody,
           () => this.generateChurnReport(request),
         );
         title = 'Churn Analysis Report';
@@ -363,7 +384,7 @@ export class ReportsService {
       case 'financial_revenue': {
         body = await this.getCachedOrCompute<ReportBody<unknown>>(
           cacheKey,
-          isReportBody,
+          isCacheableReportBody,
           () => this.generateRevenueReport(request),
         );
         title = 'Revenue Report';
@@ -391,7 +412,7 @@ export class ReportsService {
       case 'system_performance': {
         body = await this.getCachedOrCompute<ReportBody<unknown>>(
           cacheKey,
-          isReportBody,
+          isCacheableReportBody,
           () => this.generatePerformanceReport(request),
         );
         title = 'System Performance Report';
@@ -521,58 +542,38 @@ export class ReportsService {
   private async generateChurnReport(
     _request: ReportRequest,
   ): Promise<ReportBody<ChurnReportRow>> {
-    // Fetch cancelled/suspended tenants from database
-    const cancelledTenants = await this.tenantRepository.find({
-      where: [
-        { status: TenantStatus.CANCELLED },
-        { status: TenantStatus.SUSPENDED },
-      ],
-      order: { updatedAt: 'DESC' },
-    });
-
-    // MRR from the billing SSoT, never an in-code tier table (APA-147).
-    const monthlyPriceByTenant = await this.resolveMonthlyPrices(
-      cancelledTenants.map((t) => t.id),
-    );
-
-    // Transform to report format
-    const data: ChurnReportRow[] = cancelledTenants.map(tenant => {
-      const createdDate = tenant.createdAt ? new Date(tenant.createdAt) : new Date();
-      const cancelDate = tenant.updatedAt ? new Date(tenant.updatedAt) : new Date();
-      const usageDays = Math.floor((cancelDate.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24));
-      const monthlyPrice = monthlyPriceByTenant.get(tenant.id) ?? 0;
-      const lifetimeMonths = Math.max(1, Math.ceil(usageDays / 30));
-
-      return {
-        tenantId: tenant.id,
-        tenantName: tenant.name,
-        plan: tenant.plan,
-        cancelDate: cancelDate.toISOString().substring(0, 10),
-        reason: 'Unknown', // Would need a separate field to track cancellation reasons
-        mrr: round2(monthlyPrice),
-        lifetimeValue: round2(monthlyPrice * lifetimeMonths),
-        usageDays,
-      };
-    });
-
-    const metrics = await this.analyticsService.getTenantMetrics();
-
-    // Count reasons (would need real data)
-    const reasonCounts: Record<string, number> = {};
-    data.forEach(d => {
-      reasonCounts[d.reason] = (reasonCounts[d.reason] || 0) + 1;
-    });
-
+    // The churn report cannot be produced, and the reason is the same one that
+    // nulled `TenantMetrics.churnedThisMonth` on the dashboard (APA-135): there
+    // is no durable, dated record of a tenant leaving.
+    //
+    // Every column of this report rested on `tenant.updatedAt`. It is an
+    // `@UpdateDateColumn`, so it means "last touched", not "cancelled" — any
+    // unrelated write re-dates a long-suspended tenant, and the billing plan
+    // projection issues exactly such a write on every plan or trial change. So
+    // `cancelDate` was a last-write timestamp presented as a churn date, and
+    // `usageDays` and `lifetimeValue` were both computed FROM it, which
+    // propagated the error into the money columns. The row population was
+    // itself wrong too: 'CANCELLED' is unreachable on `auth.tenants`
+    // (LIFECYCLE_COMMANDS only accepts it as a transition SOURCE), so the
+    // filter collapsed to SUSPENDED — a reversible dunning state that is not
+    // churn — and `reason` was the literal 'Unknown' on every row.
+    //
+    // Every candidate replacement was checked and rejected when APA-135 was
+    // closed: `suspendedAt` measures the same reversible state;
+    // `billing.subscriptions.cancelled_at` is set before the cancellation takes
+    // effect and is NULLed on reactivation; the `TenantStatusChanged` outbox
+    // rows are deleted seven days after publish and nothing ingests them;
+    // `admin.audit_logs` is best-effort and skipped by the bulk paths; and
+    // `admin.tenant_activities` has no archived or cancelled member.
+    //
+    // Reporting "no data source" is the same ruling the dashboard already
+    // makes, on the surface that exports it. Landing a durable
+    // tenant-lifecycle ledger turns this back on; a timestamp proxy does not.
     return {
-      measured: true,
-      data,
-      summary: {
-        totalChurned: data.length,
-        churnRate: metrics.churnRate,
-        lostMRR: data.reduce((sum, t) => sum + t.mrr, 0),
-        avgLifetimeValue: data.length > 0 ? Math.round(data.reduce((sum, t) => sum + t.lifetimeValue, 0) / data.length) : 0,
-        topReasons: reasonCounts,
-      },
+      measured: false,
+      unavailableReason:
+        'Tenant churn has no producer: no durable, dated record of a tenant leaving exists, ' +
+        'and a last-write timestamp is not a cancellation date.',
     };
   }
 
@@ -695,8 +696,13 @@ export class ReportsService {
   private async generatePaymentsReport(
     request: ReportRequest,
   ): Promise<ReportBody<PaymentReportRow>> {
+    // The boundary guarantees a ranged report carries a window; these defaults
+    // cover the internal convenience routes that build their own request.
+    const windowStart = request.startDate ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const windowEnd = request.endDate ?? new Date();
+
     const invoices = await this.invoiceRepository.find({
-      where: { dueDate: Between(request.startDate, request.endDate) },
+      where: { dueDate: Between(windowStart, windowEnd) },
       order: { dueDate: 'ASC' },
     });
 
@@ -1477,6 +1483,11 @@ export class ReportsService {
       throw new BadRequestException('Report type is required');
     }
 
+    // A point-in-time report ignores the window by design, so recording one on
+    // the execution row would claim a scope the run never had — the same lie in
+    // the history list that the modal used to tell in the form (APA-140).
+    const ranged = REPORT_RANGE_SEMANTICS[reportType] === 'ranged';
+
     // Create execution record
     const execution = this.executionRepository.create({
       definitionId: params.definitionId,
@@ -1484,8 +1495,8 @@ export class ReportsService {
       reportType,
       format: params.format,
       status: 'running' as ReportExecutionStatus,
-      startDate: params.startDate,
-      endDate: params.endDate,
+      startDate: ranged ? params.startDate : undefined,
+      endDate: ranged ? params.endDate : undefined,
       filters: params.filters || definition?.defaultFilters,
       executedBy: params.executedBy,
       executedByEmail: params.executedByEmail,

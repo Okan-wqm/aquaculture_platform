@@ -23,7 +23,7 @@ import { RedisService } from '@aquaculture/backend-common/redis';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { MinioClientService } from '@platform/storage';
-import { DataSource } from 'typeorm';
+import { DataSource, FindManyOptions, FindOperator } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit.service';
 import {
@@ -187,6 +187,34 @@ export async function buildReportsHarness(
     })),
   };
 
+  // A repository double that actually APPLIES the `dueDate` window it is given.
+  // A `find` that ignores its own `where` would make the payments report look
+  // range-insensitive to `report-range-semantics.spec.ts` — the gate would fail
+  // on the double rather than on the code, or worse, pass a genuinely broken
+  // generator once someone "fixed" the assertion (APA-140).
+  const invoices = [...(options.invoices ?? [])];
+  const invoiceRepo = {
+    ...emptyRepo,
+    find: jest.fn(async (criteria?: FindManyOptions<InvoiceReadOnly>) => {
+      const dueDate = criteria?.where;
+      const operator =
+        dueDate && !Array.isArray(dueDate) && dueDate.dueDate instanceof FindOperator
+          ? dueDate.dueDate
+          : undefined;
+      const bounds: unknown = operator?.value;
+      if (!Array.isArray(bounds) || bounds.length !== 2) {
+        return invoices;
+      }
+      const [from, to] = bounds;
+      if (!(from instanceof Date) || !(to instanceof Date)) {
+        return invoices;
+      }
+      return invoices.filter(
+        (invoice) => invoice.dueDate >= from && invoice.dueDate <= to,
+      );
+    }),
+  };
+
   const savedExecutions: ReportExecution[] = [];
   const executionRepo = {
     ...emptyRepo,
@@ -225,10 +253,7 @@ export async function buildReportsHarness(
       { provide: getRepositoryToken(TenantReadOnly), useValue: tenantRepo },
       { provide: getRepositoryToken(UserReadOnly), useValue: userRepo },
       // billing.invoices is the payments report's SSoT (APA-138).
-      {
-        provide: getRepositoryToken(InvoiceReadOnly),
-        useValue: { find: jest.fn().mockResolvedValue([...(options.invoices ?? [])]) },
-      },
+      { provide: getRepositoryToken(InvoiceReadOnly), useValue: invoiceRepo },
       // billing.subscriptions is the pricing SSoT (APA-147).
       {
         provide: getRepositoryToken(SubscriptionReadOnly),

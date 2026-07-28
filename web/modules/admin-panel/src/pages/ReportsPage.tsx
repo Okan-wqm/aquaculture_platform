@@ -26,6 +26,29 @@ type ReportType =
 
 type ReportFormat = 'json' | 'csv' | 'pdf';
 
+/**
+ * Whether a report's rows describe a WINDOW of time or a MOMENT — mirrors
+ * `REPORT_RANGE_SEMANTICS` in the backend entity, which is the SSoT.
+ *
+ * The Generate modal used to collect a start and end date for EVERY type, and
+ * for a point-in-time report the backend simply discarded them: the user chose
+ * "last week" and received all-time data labelled with their range (APA-140).
+ * Not collecting a window the report cannot apply is the honest form. The two
+ * declarations are bound by `tests/invariants/report-range-semantics-parity.spec.ts`,
+ * so a divergence fails the build rather than silently re-opening the defect.
+ */
+type ReportRangeSemantics = 'ranged' | 'point_in_time';
+
+const REPORT_RANGE_SEMANTICS: Record<ReportType, ReportRangeSemantics> = {
+  tenant_overview: 'point_in_time',
+  tenant_churn: 'ranged',
+  financial_revenue: 'ranged',
+  financial_payments: 'ranged',
+  usage_modules: 'ranged',
+  usage_features: 'ranged',
+  system_performance: 'ranged',
+};
+
 interface ReportDefinition {
   type: ReportType;
   name: string;
@@ -433,12 +456,15 @@ const ReportsPage: React.FC = () => {
       const reportDef = reportDefinitions.find(r => r.type === selectedReportType);
       if (!reportDef) throw new Error('Report definition not found');
 
+      // The window goes only to a report the window selects. Sending one for a
+      // point-in-time report is now a 400 rather than a silent no-op (APA-140).
+      const ranged = REPORT_RANGE_SEMANTICS[selectedReportType] === 'ranged';
+
       const execution = await reportsApi.executeReport({
         reportType: selectedReportType,
         reportName: reportDef.name,
         format: selectedFormat,
-        startDate: dateRange.startDate,
-        endDate: dateRange.endDate,
+        ...(ranged ? { startDate: dateRange.startDate, endDate: dateRange.endDate } : {}),
       });
 
       // Return to page 1, where the server puts the newest execution, and let
@@ -465,13 +491,18 @@ const ReportsPage: React.FC = () => {
     try {
       const endDate = new Date();
       const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const ranged = REPORT_RANGE_SEMANTICS[type] === 'ranged';
 
       const execution = await reportsApi.executeReport({
         reportType: type,
         reportName: reportDef.name,
         format,
-        startDate: startDate.toISOString().split('T')[0],
-        endDate: endDate.toISOString().split('T')[0],
+        ...(ranged
+          ? {
+              startDate: startDate.toISOString().split('T')[0],
+              endDate: endDate.toISOString().split('T')[0],
+            }
+          : {}),
       });
 
       if (historyPage === 1) {
@@ -681,34 +712,40 @@ const ReportsPage: React.FC = () => {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="report-start-date" className="block text-sm font-medium text-gray-700 mb-2">
-                  Start Date
-                </label>
-                <Input
-                  id="report-start-date"
-                  type="date"
-                  value={dateRange.startDate}
-                  onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                    setDateRange(prev => ({ ...prev, startDate: event.currentTarget.value }))
-                  }
-                />
+            {REPORT_RANGE_SEMANTICS[selectedReportType] === 'ranged' ? (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="report-start-date" className="block text-sm font-medium text-gray-700 mb-2">
+                    Start Date
+                  </label>
+                  <Input
+                    id="report-start-date"
+                    type="date"
+                    value={dateRange.startDate}
+                    onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                      setDateRange(prev => ({ ...prev, startDate: event.currentTarget.value }))
+                    }
+                  />
+                </div>
+                <div>
+                  <label htmlFor="report-end-date" className="block text-sm font-medium text-gray-700 mb-2">
+                    End Date
+                  </label>
+                  <Input
+                    id="report-end-date"
+                    type="date"
+                    value={dateRange.endDate}
+                    onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                      setDateRange(prev => ({ ...prev, endDate: event.currentTarget.value }))
+                    }
+                  />
+                </div>
               </div>
-              <div>
-                <label htmlFor="report-end-date" className="block text-sm font-medium text-gray-700 mb-2">
-                  End Date
-                </label>
-                <Input
-                  id="report-end-date"
-                  type="date"
-                  value={dateRange.endDate}
-                  onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                    setDateRange(prev => ({ ...prev, endDate: event.currentTarget.value }))
-                  }
-                />
-              </div>
-            </div>
+            ) : (
+              <p className="text-sm text-gray-500">
+                This report describes the current state, so it covers no date range.
+              </p>
+            )}
 
             <div>
               <p className="block text-sm font-medium text-gray-700 mb-2">

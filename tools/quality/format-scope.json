@@ -1191,6 +1191,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/analytics/__tests__/report-range-semantics.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/analytics/__tests__/report-schedule-retired.spec.ts",
       "prettier_managed": true
     },
@@ -41520,6 +41526,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-report-range-semantics-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-route-contract-ci.spec.ts",
       "prettier_managed": true
     },
@@ -55572,10 +55584,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9111,
+  "file_count": 9113,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8930,
-  "managed_file_list_sha256": "df826e678d5299e8fc1c9e7a4f8dabb828530f31b2b275140705fd223aeb334e",
+  "managed_count": 8932,
+  "managed_file_list_sha256": "6d557e2f63fcab6e7e17bd5e9bfdfab25f1588dfb159e5f98ca907846282d359",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

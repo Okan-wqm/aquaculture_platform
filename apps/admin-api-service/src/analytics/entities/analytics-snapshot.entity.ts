@@ -304,13 +304,68 @@ export const REPORT_TYPES = [
 
 export type ReportType = (typeof REPORT_TYPES)[number];
 
+/**
+ * Whether a report's rows describe a WINDOW of time or a MOMENT.
+ *
+ * - `'ranged'` — the rows are events or per-day observations inside
+ *   `[startDate, endDate]`, so the requested window genuinely selects them.
+ * - `'point_in_time'` — the rows describe current state and there is no "as of"
+ *   version of them. Asking for a window is meaningless, so none is collected.
+ *
+ * WHY THIS IS DECLARED RATHER THAN IMPLIED (APA-140): the Generate modal
+ * collected a start and end date for every report type, the DTO validated them,
+ * the execution row persisted them and the cache key included them — and then
+ * the generator took `_request` and never read the window. The underscore idiom
+ * satisfies `no-unused-vars`, so ignoring the range was lint-clean and
+ * therefore invisible; a user asking for "tenant overview, last week" got
+ * all-time data labelled with their chosen range. The range-bearing cache key
+ * actively masked it by serving separately-cached IDENTICAL data per window.
+ *
+ * The map is exhaustive over `ReportType`, so a new report type cannot be added
+ * without stating which kind it is — and `report-range-semantics.spec.ts`
+ * proves each declaration true in BOTH directions: a `'ranged'` report's output
+ * must actually vary across two different windows, and a `'point_in_time'`
+ * report's output must be identical across them. That is what stops
+ * `'point_in_time'` from becoming an excuse for the original defect.
+ */
+export type ReportRangeSemantics = 'ranged' | 'point_in_time';
+
+export const REPORT_RANGE_SEMANTICS: Record<ReportType, ReportRangeSemantics> = {
+  // A roster of the tenant book as it stands. `users`, `storageUsed`, `mrr` and
+  // `lastActivity` are all CURRENT values and no per-tenant history table
+  // exists, so "the book as of March" is unproducible; and filtering the roster
+  // by creation date would answer a different question than the one the report
+  // is named for. Same ruling as the dashboard KPI stocks in APA-137.
+  tenant_overview: 'point_in_time',
+  // Churn events carry a date, so a window would select them — if the date were
+  // measured. It is not (see generateChurnReport), so the report is
+  // unproducible and its declared semantics never get exercised.
+  tenant_churn: 'ranged',
+  financial_revenue: 'ranged',
+  financial_payments: 'ranged',
+  usage_modules: 'ranged',
+  usage_features: 'ranged',
+  system_performance: 'ranged',
+};
+
 export type ReportFormat = 'json' | 'csv' | 'pdf';
 
+/**
+ * A request for one report.
+ *
+ * The window is OPTIONAL because a `'point_in_time'` report must be expressible
+ * without one: `startDate`/`endDate` were required for all seven types, so
+ * every caller had to supply a window even where none could apply, and the
+ * generator's only way to comply was to ignore it (APA-140). Which types
+ * require it, and which reject it, is `REPORT_RANGE_SEMANTICS`; the controller
+ * enforces both directions at the boundary so a client cannot supply a window
+ * that will be discarded, nor omit one that is needed.
+ */
 export interface ReportRequest {
   type: ReportType;
   format: ReportFormat;
-  startDate: Date;
-  endDate: Date;
+  startDate?: Date;
+  endDate?: Date;
   filters?: Record<string, unknown>;
   includeCharts?: boolean;
 }

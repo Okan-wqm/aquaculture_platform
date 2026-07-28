@@ -20,7 +20,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { IsIn, IsString, IsOptional, IsBoolean, IsObject, IsArray } from 'class-validator';
+import { IsIn, IsString, IsOptional, IsBoolean, IsObject } from 'class-validator';
 import { Request, Response } from 'express';
 
 import {
@@ -31,7 +31,6 @@ import {
   ReportDefinition,
   ReportExecution,
   ReportDefinitionStatus,
-  ReportSchedule,
   ReportExecutionStatus,
 } from '../entities/analytics-snapshot.entity';
 import { ReportsService } from '../services/reports.service';
@@ -79,16 +78,8 @@ class CreateDefinitionDto {
   defaultFormat?: ReportFormat;
 
   @IsOptional()
-  @IsIn(['manual', 'daily', 'weekly', 'monthly'])
-  schedule?: ReportSchedule;
-
-  @IsOptional()
   @IsObject()
   defaultFilters?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsArray()
-  recipients?: string[];
 
   @IsOptional()
   @IsBoolean()
@@ -113,16 +104,8 @@ class UpdateDefinitionDto {
   status?: ReportDefinitionStatus;
 
   @IsOptional()
-  @IsIn(['manual', 'daily', 'weekly', 'monthly'])
-  schedule?: ReportSchedule;
-
-  @IsOptional()
   @IsObject()
   defaultFilters?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsArray()
-  recipients?: string[];
 
   @IsOptional()
   @IsBoolean()

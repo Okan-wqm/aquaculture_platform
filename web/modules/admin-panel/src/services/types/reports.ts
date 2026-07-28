@@ -18,7 +18,6 @@ export interface ReportDefinition {
   name: string;
   description?: string;
   type: ReportType;
-  schedule?: string;
   filters?: Record<string, unknown>;
   columns?: string[];
   isActive: boolean;

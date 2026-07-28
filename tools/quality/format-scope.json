@@ -1185,6 +1185,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/analytics/__tests__/report-schedule-retired.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/analytics/__tests__/reports-pricing-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -2388,6 +2394,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1802200000000-PurgeChurnProxyFromAnalyticsSnapshots.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1802300000000-RetireUnexecutedReportSchedule.ts",
       "prettier_managed": true
     },
     {
@@ -55512,10 +55524,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9101,
+  "file_count": 9103,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8920,
-  "managed_file_list_sha256": "9cdf4aa46d51f3a925791cc4622f1a9cde6033f65a8fbd7c4e5a2fce5ed46e1e",
+  "managed_count": 8922,
+  "managed_file_list_sha256": "7f28fdb83ce4106cf4b0cd00be8aad9d7ff9b58183dd86436f5179076371f196",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

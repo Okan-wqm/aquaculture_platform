@@ -315,6 +315,17 @@ export interface ReportResult {
 // ============================================================================
 
 export type ReportDefinitionStatus = 'active' | 'inactive' | 'draft';
+/**
+ * RETIRED (APA-141). No scheduler ever consumed this: the only @Cron in the
+ * module drives the daily analytics snapshot, and a repo-wide search for reads
+ * of `definition.schedule` / `.recipients` found only the write sites. A
+ * definition saved with schedule='daily' never ran and its recipients never
+ * received anything. The fields are gone from the entity, the DTOs and the
+ * service API; the physical columns are retired separately (PLAT-LOW-903).
+ *
+ * The type itself is kept because the retirement migration and its spec name
+ * the values they reset.
+ */
 export type ReportSchedule = 'manual' | 'daily' | 'weekly' | 'monthly';
 
 @Entity('report_definitions', { schema: 'admin', synchronize: false })
@@ -339,14 +350,8 @@ export class ReportDefinition {
   @Column({ type: 'varchar', length: 20, default: 'active' })
   status!: ReportDefinitionStatus;
 
-  @Column({ type: 'varchar', length: 20, default: 'manual' })
-  schedule!: ReportSchedule;
-
   @Column({ type: 'jsonb', nullable: true })
   defaultFilters?: Record<string, unknown>;
-
-  @Column({ type: 'jsonb', nullable: true })
-  recipients?: string[];
 
   @Column({ type: 'boolean', default: false })
   includeCharts!: boolean;

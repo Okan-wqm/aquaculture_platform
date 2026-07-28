@@ -35,7 +35,6 @@ import {
   ReportDefinition,
   ReportExecution,
   ReportDefinitionStatus,
-  ReportSchedule,
   ReportExecutionStatus,
   SystemMetrics,
   measuredEntries,
@@ -1229,9 +1228,7 @@ export class ReportsService {
     description?: string;
     type: ReportType;
     defaultFormat?: ReportFormat;
-    schedule?: ReportSchedule;
     defaultFilters?: Record<string, unknown>;
-    recipients?: string[];
     includeCharts?: boolean;
     createdBy?: string;
     createdByEmail?: string;
@@ -1242,9 +1239,7 @@ export class ReportsService {
       type: data.type,
       defaultFormat: data.defaultFormat || 'json',
       status: 'active',
-      schedule: data.schedule || 'manual',
       defaultFilters: data.defaultFilters,
-      recipients: data.recipients,
       includeCharts: data.includeCharts || false,
       createdBy: data.createdBy,
       createdByEmail: data.createdByEmail,
@@ -1262,9 +1257,7 @@ export class ReportsService {
     description: string;
     defaultFormat: ReportFormat;
     status: ReportDefinitionStatus;
-    schedule: ReportSchedule;
     defaultFilters: Record<string, unknown>;
-    recipients: string[];
     includeCharts: boolean;
   }>): Promise<ReportDefinition> {
     const definition = await this.getDefinition(id);

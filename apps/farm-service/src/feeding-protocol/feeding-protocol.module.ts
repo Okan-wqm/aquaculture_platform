@@ -29,6 +29,7 @@ import { ProtocolResolutionService } from './services/protocol-resolution.servic
 import { BiomassGrowthApplierService } from './services/biomass-growth-applier.service';
 import { DayPlanRecalcService } from './services/day-plan-recalc.service';
 import { MealExecutionService } from './services/meal-execution.service';
+import { MealFinalizationService } from './services/meal-finalization.service';
 import { DayPlanAdminService } from './services/day-plan-admin.service';
 import { FeedingCronV2Service } from './services/feeding-cron-v2.service';
 import { FeedingClockService } from './services/feeding-clock.service';
@@ -93,6 +94,9 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     BiomassGrowthApplierService,
     DayPlanRecalcService,
     MealExecutionService,
+    // Öğün kapatmanın tek gövdesi — operatör yolu ve 05:30 süpürmesi
+    // ikisi de bunu çağırır (FARM-MEDIUM-276).
+    MealFinalizationService,
     DayPlanAdminService,
     FeedingCronV2Service,
     FeedingClockService,

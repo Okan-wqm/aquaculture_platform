@@ -30,6 +30,7 @@ import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
 import { FeedingClockService } from '../services/feeding-clock.service';
 import { FeedingJobRunService } from '../services/feeding-job-run.service';
+import { realFinalizationService } from './helpers/meal-finalization-double';
 import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { ProtocolRateService } from '../services/protocol-rate.service';
@@ -151,15 +152,20 @@ function makeService(fixture: DryRunFixture): {
     new Map([[UNIT, { celsius: null, source: 'none' }]]),
   );
 
+  const growthApplier = mock<BiomassGrowthApplierService>({});
+  const outboxPublisher = mock<OutboxPublisher>({ enqueue });
+  const recalcService = mock<DayPlanRecalcService>({ recalcForUnit: jest.fn() });
+
   const service = new FeedingCronV2Service(
     mock<DataSource>({}),
     generator,
-    mock<BiomassGrowthApplierService>({}),
+    growthApplier,
     mock<WaterTemperatureService>({ getEffectiveTemperaturesForUnits }),
     mock<FCRCalculationService>({}),
-    mock<OutboxPublisher>({ enqueue }),
+    outboxPublisher,
     mock<ProtocolFeedForecastService>({}),
-    mock<DayPlanRecalcService>({ recalcForUnit: jest.fn() }),
+    recalcService,
+    realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
     mock<FeedingClockService>({
       siteZones: jest.fn().mockResolvedValue({ tenantZone: 'UTC', zoneOf: () => 'UTC' }),
     }),

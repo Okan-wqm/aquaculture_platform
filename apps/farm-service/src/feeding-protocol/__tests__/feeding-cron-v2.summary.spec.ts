@@ -22,6 +22,7 @@ import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
 import { FeedingClockService } from '../services/feeding-clock.service';
 import { FeedingJobRunService } from '../services/feeding-job-run.service';
+import { realFinalizationService } from './helpers/meal-finalization-double';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
 import { FeedingMealStatus } from '../entities/feeding-meal.entity';
@@ -65,20 +66,27 @@ function makeHarness(rows: SummaryRows) {
   });
   globalThis.__summaryManager = mock<EntityManager>({ query: query as never });
 
+  const growthApplier = mock<BiomassGrowthApplierService>({});
+  const outboxPublisher = mock<OutboxPublisher>({
+    enqueue: jest.fn(async (event: BaseEvent) => {
+      enqueued.push(event as BaseEvent & Record<string, unknown>);
+      return undefined as never;
+    }),
+  });
+  const recalcService = mock<DayPlanRecalcService>({});
+
   const service = new FeedingCronV2Service(
     mock<DataSource>({}),
     mock<MealPlanGeneratorService>({}),
-    mock<BiomassGrowthApplierService>({}),
+    growthApplier,
     mock<WaterTemperatureService>({}),
     mock<FCRCalculationService>({}),
-    mock<OutboxPublisher>({
-      enqueue: jest.fn(async (event: BaseEvent) => {
-        enqueued.push(event as BaseEvent & Record<string, unknown>);
-        return undefined as never;
-      }),
-    }),
+    outboxPublisher,
     mock<ProtocolFeedForecastService>({}),
-    mock<DayPlanRecalcService>({}),
+    recalcService,
+    // Gerçek finalize servisi (FARM-MEDIUM-276) — aynı outbox sahtesini
+    // paylaşır, böylece finalize yolundan çıkan bir event de `enqueued`e düşer.
+    realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
     mock<FeedingClockService>({}),
     mock<FeedingJobRunService>({}),
   );

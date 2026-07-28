@@ -25,6 +25,7 @@ import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
 import { FeedingClockService } from '../services/feeding-clock.service';
 import { FeedingJobRunService } from '../services/feeding-job-run.service';
+import { realFinalizationService } from './helpers/meal-finalization-double';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
 
@@ -46,6 +47,9 @@ interface TickHarnessOptions {
 function makeHarness(options: TickHarnessOptions) {
   const claim = options.claim ?? jest.fn().mockResolvedValue('run-1');
   const settle = jest.fn().mockResolvedValue(undefined);
+  const growthApplier = mock<BiomassGrowthApplierService>({});
+  const outboxPublisher = mock<OutboxPublisher>({ enqueue: jest.fn() });
+  const recalcService = mock<DayPlanRecalcService>({});
 
   const service = new FeedingCronV2Service(
     mock<DataSource>({
@@ -57,12 +61,13 @@ function makeHarness(options: TickHarnessOptions) {
       }),
     }),
     mock<MealPlanGeneratorService>({}),
-    mock<BiomassGrowthApplierService>({}),
+    growthApplier,
     mock<WaterTemperatureService>({}),
     mock<FCRCalculationService>({}),
-    mock<OutboxPublisher>({ enqueue: jest.fn() }),
+    outboxPublisher,
     mock<ProtocolFeedForecastService>({ refreshTenant: jest.fn() }),
-    mock<DayPlanRecalcService>({}),
+    recalcService,
+    realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
     mock<FeedingClockService>({
       tenantZones: jest.fn().mockResolvedValue(
         new Map([

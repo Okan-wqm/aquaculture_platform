@@ -22,7 +22,11 @@ _POC = Path(__file__).resolve().parents[2] / "tools" / "aria-poc"
 if str(_POC) not in sys.path:
     sys.path.insert(0, str(_POC))
 
-from claude_runtime import ClaudeRunResult, run_with_model_fallback  # noqa: E402
+from claude_runtime import (  # noqa: E402
+    ClaudeCreditExhausted,
+    ClaudeRunResult,
+    run_with_model_fallback,
+)
 
 _CI = (_POC / "ci_executor.py").read_text(encoding="utf-8")
 _WORKER = (_POC / "worker_executor.py").read_text(encoding="utf-8")
@@ -94,15 +98,56 @@ class RunWithModelFallbackBehavior(unittest.TestCase):
         self.assertEqual(out.final_message, "opus-refused")
         self.assertEqual(seen_r, [])  # refusal hook never fired (credit path returned first)
 
-    def test_opus_primary_never_falls_back(self) -> None:
+    def test_a_tier_with_no_fallback_raises_instead_of_returning_the_notice(self) -> None:
+        """ORPHAN-HIGH-473 — replaces test_opus_primary_never_falls_back.
+
+        That test asserted opus + credit exhaustion returns the result. The
+        no-fallback part is still correct and still asserted (one call, no
+        retry), but RETURNING it was the defect: per extract_credit_exhaustion
+        the CLI delivers its usage-limit notice as assistant content on a clean
+        exit, and neither executor inspects .credit_exhaustion, so "You've
+        reached your limit" was persisted as the agent's answer.
+        """
         run = _ScriptedRun(_result(credit={"matched_marker": "credit balance"}, tag="opus"))
         seen: list[dict] = []
-        out = run_with_model_fallback(
-            run=run, model="opus", effort="medium", on_credit=seen.append,
+        with self.assertRaises(ClaudeCreditExhausted) as ctx:
+            run_with_model_fallback(
+                run=run, model="opus", effort="medium", on_credit=seen.append,
+            )
+        self.assertEqual(run.calls, [("opus", "medium")])  # still exactly one call
+        self.assertIn("no fallback tier", str(ctx.exception))
+        # The audit hook fires BEFORE the refusal, so the exhaustion is recorded.
+        self.assertEqual(len(seen), 1)
+
+    def test_a_clean_run_on_a_tier_with_no_fallback_still_passes_through(self) -> None:
+        """Only the exhausted case changed; a healthy opus run is untouched."""
+        run = _ScriptedRun(_result(tag="opus-clean"))
+        out = run_with_model_fallback(run=run, model="opus", effort="medium")
+        self.assertEqual(run.calls, [("opus", "medium")])
+        self.assertEqual(out.final_message, "opus-clean")
+
+    def test_an_exhausted_fallback_tier_also_raises(self) -> None:
+        """The retry's own exhaustion is terminal too — the pre-fix docstring
+        claimed the caller escalates it, but no caller reads the field."""
+        run = _ScriptedRun(
+            _result(credit={"matched_marker": "quota exceeded"}, tag="fable"),
+            _result(credit={"matched_marker": "credit balance"}, tag="opus-also-dry"),
         )
-        self.assertEqual(run.calls, [("opus", "medium")])  # one call, no fallback
-        self.assertEqual(out.final_message, "opus")
-        self.assertEqual(seen, [])
+        with self.assertRaises(ClaudeCreditExhausted) as ctx:
+            run_with_model_fallback(run=run, model="fable", effort="high")
+        self.assertEqual(len(run.calls), 2)  # still exactly one retry
+        self.assertIn("also exhausted", str(ctx.exception))
+
+    def test_the_fallback_topology_is_data_not_a_literal_model_test(self) -> None:
+        """The gate was `if model != "fable"`, so moving the primary tier off
+        fable would have disabled the fallback with nothing failing."""
+        from claude_runtime import MODEL_FALLBACK_TIER, has_fallback_tier
+
+        self.assertTrue(has_fallback_tier("fable"))
+        self.assertFalse(has_fallback_tier("opus"))
+        for primary, target in MODEL_FALLBACK_TIER.items():
+            with self.subTest(primary=primary):
+                self.assertNotEqual(primary, target, "a tier cannot fall back to itself")
 
     def test_clean_fable_run_passes_through(self) -> None:
         run = _ScriptedRun(_result(tag="fable-clean"))
@@ -145,8 +190,13 @@ class ExecutorWiringPins(unittest.TestCase):
         # The "ultra" effort + single-retry semantics are owned by the helper,
         # not duplicated in the executors.
         helper_src = (_POC / "claude_runtime.py").read_text(encoding="utf-8")
-        self.assertIn('return run("opus", "xhigh")', helper_src)
-        self.assertIn('return run("opus", effort)', helper_src)
+        # ORPHAN-HIGH-473 — the literals became a topology map, so the pin is
+        # on the map + the escalated-effort constant rather than on two
+        # hardcoded call expressions.
+        self.assertIn("MODEL_FALLBACK_TIER", helper_src)
+        self.assertIn('CREDIT_FALLBACK_EFFORT: str = "xhigh"', helper_src)
+        self.assertIn("run(fallback_model, CREDIT_FALLBACK_EFFORT)", helper_src)
+        self.assertIn("run(fallback_model, effort)", helper_src)
         self.assertNotIn("_fell_back_to_opus", _CI)
         self.assertNotIn("_fell_back_to_opus", _WORKER)
 

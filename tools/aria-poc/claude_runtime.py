@@ -44,6 +44,24 @@ CLAUDE_DEFAULT_MODEL = "fable"
 # maps each agent's frontmatter to one of them.
 VALID_MODELS: tuple[str, ...] = ("opus", "sonnet", "haiku", "fable")
 VALID_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
+
+# ORPHAN-HIGH-473 — the fallback topology, as data rather than a literal string
+# test. The policy was `if model != "fable": return completed`, so moving the
+# primary tier off fable would have silently disabled the whole credit and
+# refusal fallback with nothing failing. Expressed as a map, adding or moving a
+# tier is an edit to the topology, not an invisible behaviour change.
+#
+# The value is the tier that owns a SEPARATE credit pool, which is the entire
+# reason a credit fallback can work at all.
+MODEL_FALLBACK_TIER: dict[str, str] = {"fable": "opus"}
+
+# The effort a credit retry escalates to ("ultra code" retry).
+CREDIT_FALLBACK_EFFORT: str = "xhigh"
+
+
+def has_fallback_tier(model: str) -> bool:
+    """True when ``model`` has an alternate tier to fall back to."""
+    return model in MODEL_FALLBACK_TIER
 ALLOW_API_KEY_MODE_ENV_VAR = "ARIA_ALLOW_CLAUDE_API_KEY_MODE"
 REQUIRE_USAGE_ENV_VAR = "ARIA_CLAUDE_REQUIRE_USAGE"
 AUTH_PREFLIGHT_SKIP_ENV_VAR = "ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP"
@@ -77,6 +95,20 @@ class ClaudeAuthUnavailable(RuntimeError):
 
 class ClaudeUsageUnavailable(RuntimeError):
     """Claude stream-json did not include the required usage data."""
+
+
+class ClaudeCreditExhausted(RuntimeError):
+    """A quota/credit exhaustion that no fallback tier can recover.
+
+    ORPHAN-HIGH-473 — raised instead of returning the run result. Per
+    extract_credit_exhaustion, the CLI delivers its usage-limit notice as
+    ASSISTANT CONTENT on a clean exit (returncode 0), so an exhausted run is
+    shaped exactly like a successful one. Neither executor inspected
+    ``.credit_exhaustion`` on the returned result, so "You've reached your
+    limit. Run /usage-credits..." was flowing downstream as the agent's answer
+    and being persisted as a real envelope. A result that cannot be told apart
+    from an answer must not be returned at all.
+    """
 
 
 class ClaudePolicyViolation(RuntimeError):
@@ -643,17 +675,46 @@ def run_with_model_fallback(
     worker_executor: stderr). Hooks never alter control flow.
     """
     completed = run(model, effort)
-    if model != "fable":
+    fallback_model = MODEL_FALLBACK_TIER.get(model)
+    if fallback_model is None:
+        # No alternate credit pool. A credit exhaustion here is TERMINAL, and
+        # returning it would hand the caller a usage-limit notice shaped like
+        # an answer — see ClaudeCreditExhausted. The hook still fires so the
+        # audit records the exhaustion before we refuse.
+        if completed.credit_exhaustion is not None:
+            if on_credit is not None:
+                on_credit(completed.credit_exhaustion)
+            raise ClaudeCreditExhausted(
+                f"claude_credit_exhausted: model={model!r} has no fallback tier "
+                f"({completed.credit_exhaustion})"
+            )
         return completed
     if completed.credit_exhaustion is not None:
         if on_credit is not None:
             on_credit(completed.credit_exhaustion)
-        return run("opus", "xhigh")
+        return _reject_exhausted(run(fallback_model, CREDIT_FALLBACK_EFFORT), fallback_model)
     if completed.refusal is not None:
         if on_refusal is not None:
             on_refusal(completed.refusal)
-        return run("opus", effort)
+        return _reject_exhausted(run(fallback_model, effort), fallback_model)
     return completed
+
+
+def _reject_exhausted(result: ClaudeRunResult, model: str) -> ClaudeRunResult:
+    """ORPHAN-HIGH-473 — the retry's own exhaustion is terminal too.
+
+    The single-retry budget is deliberate, but the pre-fix docstring claimed the
+    caller escalates a credit signal on the retry result. It does not: neither
+    executor reads ``.credit_exhaustion`` off the value it gets back. So an
+    exhausted retry was the same silent-answer path as an exhausted primary,
+    one call further down.
+    """
+    if result.credit_exhaustion is not None:
+        raise ClaudeCreditExhausted(
+            f"claude_credit_exhausted: fallback tier {model!r} is also exhausted "
+            f"({result.credit_exhaustion})"
+        )
+    return result
 
 
 def extract_credit_exhaustion(

@@ -20,6 +20,19 @@
  * `batchDetails[]` in the shape the growth applier later reads. Hand-inserting
  * a TankBatch would produce a row that no production path could have produced,
  * and the suites built on it would prove nothing about production.
+ *
+ * ALWAYS `manager.create(Entity, {...})` BEFORE `manager.save(...)`.
+ *
+ * TypeORM invokes an entity lifecycle listener as `entity[method]()`, so a
+ * listener declared as a class METHOD only fires when the saved object really is
+ * an instance of that class. `manager.save(Tank, {...plain object})` compiles,
+ * type-checks and inserts — and silently skips the hook, because a plain object
+ * has no such method. `Tank.calculateVolume()` is exactly that shape
+ * (`@BeforeInsert` + `@BeforeUpdate`, deriving `volume` from diameter/depth), so
+ * the plain-object form produced `null value in column "volume"` — a NOT NULL
+ * violation for a column no caller sets by hand, because nothing is supposed to.
+ * Constructing through `create()` first is the zero-effort default that keeps
+ * every current and future hook alive.
  */
 import { withTenantContext } from '@aquaculture/backend-common';
 import { DataSource } from 'typeorm';
@@ -81,7 +94,7 @@ export async function createFarmTenantFixture(
   const manager = dataSource.manager;
 
   const site = await withTenantContext(tenantId, () =>
-    manager.save(Site, {
+    manager.save(manager.create(Site, {
       tenantId,
       name: `${codePrefix} Site`,
       code: `${codePrefix}-SITE`,
@@ -90,11 +103,11 @@ export async function createFarmTenantFixture(
       timezone: 'UTC',
       status: SiteStatus.ACTIVE,
       isActive: true,
-    }),
+    })),
   );
 
   const department = await withTenantContext(tenantId, () =>
-    manager.save(Department, {
+    manager.save(manager.create(Department, {
       tenantId,
       siteId: site.id,
       name: `${codePrefix} Department`,
@@ -105,11 +118,11 @@ export async function createFarmTenantFixture(
       isDeleted: false,
       createdBy: userId,
       updatedBy: userId,
-    }),
+    })),
   );
 
   const species = await withTenantContext(tenantId, () =>
-    manager.save(Species, {
+    manager.save(manager.create(Species, {
       tenantId,
       scientificName: 'Salmo salar',
       commonName: 'Atlantic Salmon',
@@ -123,11 +136,11 @@ export async function createFarmTenantFixture(
       tags: [],
       createdBy: userId,
       updatedBy: userId,
-    }),
+    })),
   );
 
   const tank = await withTenantContext(tenantId, () =>
-    manager.save(Tank, {
+    manager.save(manager.create(Tank, {
       tenantId,
       name: `${codePrefix} Tank`,
       code: `${codePrefix}-TANK`,
@@ -146,7 +159,7 @@ export async function createFarmTenantFixture(
       isActive: true,
       createdBy: userId,
       updatedBy: userId,
-    }),
+    })),
   );
 
   const batch = await withTenantContext(tenantId, () =>

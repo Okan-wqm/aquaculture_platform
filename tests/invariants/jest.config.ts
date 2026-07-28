@@ -210,6 +210,7 @@ export default {
         '<rootDir>/feeding-legacy-cutover-gate.spec.ts',
         '<rootDir>/feeding-v1-retired-symbols.spec.ts',
         '<rootDir>/test-target-ci-reachability.spec.ts',
+        '<rootDir>/entity-column-type-inference.spec.ts',
         '<rootDir>/farm-site-system-eventing-transaction-ssot.spec.ts',
         '<rootDir>/sites-setup-remediation-plan-contract.spec.ts',
         '<rootDir>/strip-internal-headers-mounted.spec.ts',

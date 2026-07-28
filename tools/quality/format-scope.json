@@ -41568,6 +41568,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/entity-column-type-inference.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/entity-diff-implies-migration.spec.ts",
       "prettier_managed": true
     },
@@ -55182,10 +55188,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9046,
+  "file_count": 9047,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8865,
-  "managed_file_list_sha256": "d1095fbb4f1b68136560695b60fafbdf69eeea3ce3b4532fe45c3f1409fde4ae",
+  "managed_count": 8866,
+  "managed_file_list_sha256": "328384493fb943c0072fdc5177371d59641778193224c9069a6225884cbea07a",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

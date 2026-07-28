@@ -37,8 +37,22 @@ describe('SensorIngestionService — outbox durability', () => {
     find: jest.fn().mockResolvedValue([]),
   };
 
+  // Auto-provisioning of missing channels (SENSOR-HIGH-085 / B1) inserts through
+  // a query builder with orIgnore(), so the mock models that chain and records
+  // the values it was handed.
+  const insertedChannelValues: jest.Mock = jest.fn();
   const mockChannelRepository = {
     findBy: jest.fn().mockResolvedValue([]),
+    createQueryBuilder: jest.fn(() => ({
+      insert: () => ({
+        into: () => ({
+          values: (v: unknown) => {
+            insertedChannelValues(v);
+            return { orIgnore: () => ({ execute: async () => undefined }) };
+          },
+        }),
+      }),
+    })),
   };
 
   // `transaction(cb)` invokes the caller's callback with the transactional
@@ -240,16 +254,46 @@ describe('SensorIngestionService — outbox durability', () => {
       });
     });
 
-    it('skips metrics for parameters with no channel but still enqueues the event', async () => {
-      // No channels → temperature resolves to no channel → no metric row.
-      mockCalibrationService.getChannels.mockResolvedValue([]);
+    it('auto-provisions a channel when a reported parameter has none, so the value is stored not dropped (B1)', async () => {
+      const channel = buildChannel({
+        id: '77777777-7777-4777-8777-777777777777',
+        channelKey: 'temperature',
+      });
+      // First resolve: no channels at all. After auto-provisioning, the sensor
+      // has the temperature channel.
+      mockCalibrationService.getChannels
+        .mockResolvedValueOnce([])
+        .mockResolvedValue([channel]);
 
       await service.ingestReading({ ...baseInput, readings: { temperature: 24.5 } });
 
-      expect(mockMetricWriter.writeManaged).not.toHaveBeenCalled();
-      // The reading event is still enqueued — the reading is ingested, just with
-      // no channel-keyed metric row for the unmapped parameter.
-      expect(mockOutboxPublisher.enqueue).toHaveBeenCalledTimes(1);
+      // A channel was provisioned for the reported parameter...
+      expect(insertedChannelValues).toHaveBeenCalledTimes(1);
+      expect(insertedChannelValues.mock.calls[0][0]).toEqual([
+        expect.objectContaining({
+          sensorId: baseInput.sensorId,
+          tenantId: TENANT_ID,
+          channelKey: 'temperature',
+        }),
+      ]);
+      // ...and the value landed in sensor_metrics instead of vanishing.
+      expect(mockMetricWriter.writeManaged).toHaveBeenCalledTimes(1);
+      const [metrics] = mockMetricWriter.writeManaged.mock.calls[0];
+      expect(metrics).toHaveLength(1);
+      expect(metrics[0]).toMatchObject({ channelId: channel.id, value: 24.5 });
+    });
+
+    it('does not provision anything when every reported parameter already has a channel', async () => {
+      const channel = buildChannel({
+        id: '66666666-6666-4666-8666-666666666666',
+        channelKey: 'temperature',
+      });
+      mockCalibrationService.getChannels.mockResolvedValue([channel]);
+
+      await service.ingestReading({ ...baseInput, readings: { temperature: 24.5 } });
+
+      expect(insertedChannelValues).not.toHaveBeenCalled();
+      expect(mockMetricWriter.writeManaged).toHaveBeenCalledTimes(1);
     });
 
     it('writes one metric per mapped parameter across a batch chunk', async () => {

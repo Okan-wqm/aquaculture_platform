@@ -34,7 +34,10 @@ import {
 import { OutboxPublisher } from '@platform/outbox';
 import { Repository, DataSource, In } from 'typeorm';
 
-import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
+import {
+  DiscoverySource,
+  SensorDataChannel,
+} from '../../database/entities/sensor-data-channel.entity';
 import { QualityCodes, type SensorMetricInput } from '../../database/entities/sensor-metric.entity';
 import { SensorReading, SensorReadings } from '../../database/entities/sensor-reading.entity';
 import { Sensor, SensorRole, SensorType } from '../../database/entities/sensor.entity';
@@ -220,7 +223,12 @@ export class SensorIngestionService {
     // Resolve the per-parameter channel map ONCE, before the write transaction.
     // applyCalibration() above warmed CalibrationService's channel cache for this
     // sensor, so this is a cache hit — no DB round-trip added to the hot path.
-    const channelsByParameter = await this.resolveChannelsByParameter(validatedData.sensorId);
+    const channelsByParameter = await this.ensureChannelsForParameters(
+      validatedData.sensorId,
+      validatedData.tenantId,
+      transformedReadings,
+      await this.resolveChannelsByParameter(validatedData.sensorId),
+    );
 
     // Save the reading AND enqueue the SensorReading event atomically in a
     // single transaction. The outbox INSERT joins the same DB transaction as
@@ -337,7 +345,26 @@ export class SensorIngestionService {
       Map<SensorReadingParameter, SensorDataChannel>
     >();
     for (const sensorId of sensorIds) {
-      channelMapsBySensor.set(sensorId, await this.resolveChannelsByParameter(sensorId));
+      // Union of every parameter this sensor reports in the batch, so one
+      // provisioning pass covers the whole chunk (SENSOR-HIGH-085 / B1).
+      const reported: SensorReadings = {};
+      for (const { entity } of prepared) {
+        if (entity.sensorId !== sensorId) continue;
+        for (const parameter of SENSOR_READING_PARAMETERS) {
+          const value = entity.readings[parameter];
+          if (value !== undefined) reported[parameter] = value;
+        }
+      }
+      const tenantId = prepared.find((p) => p.entity.sensorId === sensorId)!.entity.tenantId;
+      channelMapsBySensor.set(
+        sensorId,
+        await this.ensureChannelsForParameters(
+          sensorId,
+          tenantId,
+          reported,
+          await this.resolveChannelsByParameter(sensorId),
+        ),
+      );
     }
 
     // Use chunked inserts, ONE transaction per chunk, each retried
@@ -700,6 +727,79 @@ export class SensorIngestionService {
   }
 
   /**
+   * Guarantee every populated reading parameter has a channel to be stored in,
+   * auto-provisioning the missing ones (SENSOR-HIGH-085 / B1).
+   *
+   * WHY THIS EXISTS: sensor_metrics is channel-keyed, so a parameter with no
+   * channel has nowhere to be persisted. Before the reading store converged, the
+   * flat JSONB row still carried such values; once that store was retired, an
+   * unmapped parameter was accepted, acknowledged as success, and then silently
+   * dropped — permanent data loss on an ingest that reported OK. Skipping the
+   * row is not an option, and neither is failing the ingest: a sensor that sends
+   * a value IS measuring that quantity, so the channel's absence is missing
+   * configuration, not invalid data.
+   *
+   * The correct behaviour is therefore automatic (tier-2): the channel is
+   * provisioned on first sight, keyed by the canonical parameter name. This is
+   * SAFE TO AUTOMATE because the vocabulary is CLOSED — `SENSOR_READING_PARAMETERS`
+   * has exactly nine members and `SensorReadings` cannot carry anything else — so
+   * a malformed payload can never inflate a sensor beyond nine auto channels.
+   *
+   * The channelKey is the canonical parameter name itself rather than a
+   * snake_case rendering: `parameterForChannelKey` lower-cases before lookup and
+   * already resolves it, so no second name-mapping is introduced (the
+   * event-contract SSoT stays the only place that knows the vocabulary).
+   *
+   * Concurrency: two ingests for the same sensor can race, so the insert is
+   * `orIgnore()` against the `(tenantId, sensorId, channelKey)` unique
+   * constraint and the channel set is re-read afterwards — the loser of the race
+   * picks up the winner's row instead of failing.
+   */
+  private async ensureChannelsForParameters(
+    sensorId: string,
+    tenantId: string,
+    readings: SensorReadings,
+    channelsByParameter: Map<SensorReadingParameter, SensorDataChannel>,
+  ): Promise<Map<SensorReadingParameter, SensorDataChannel>> {
+    if (!this.channelRepository) {
+      return channelsByParameter;
+    }
+
+    const missing = SENSOR_READING_PARAMETERS.filter(
+      (parameter) => readings[parameter] !== undefined && !channelsByParameter.has(parameter),
+    );
+    if (missing.length === 0) {
+      return channelsByParameter;
+    }
+
+    await this.channelRepository
+      .createQueryBuilder()
+      .insert()
+      .into(SensorDataChannel)
+      .values(
+        missing.map((parameter) => ({
+          sensorId,
+          tenantId,
+          channelKey: parameter,
+          displayLabel: parameter,
+          discoverySource: DiscoverySource.AUTO,
+        })),
+      )
+      .orIgnore()
+      .execute();
+
+    this.logger.log(
+      `Sensor ${sensorId}: auto-provisioned ${missing.length} data channel(s) for reported ` +
+        `parameter(s) ${missing.join(', ')} — the values are now stored instead of dropped`,
+    );
+
+    // The sensor's channel set changed; drop the cached copy so this ingest and
+    // every later one resolve the new channels.
+    this.calibrationService.clearCache(sensorId);
+    return this.resolveChannelsByParameter(sensorId);
+  }
+
+  /**
    * Project a persisted reading's populated parameters onto channel-keyed
    * sensor_metrics rows (SENSOR-MEDIUM-066/068). Each populated parameter is
    * matched to the sensor's channel whose channelKey resolves to it. `value` is
@@ -707,9 +807,14 @@ export class SensorIngestionService {
    * pre-calibration input — the same (raw, calibrated) split the MQTT/edge
    * writer records. qualityCode comes from the channel's own bounds check,
    * identical to the MQTT path, so both ingestion planes label quality the same
-   * way. Parameters with no channel are skipped (the flat SensorReading JSONB row
-   * still carries them) and counted into a single debug log — never dropped
-   * silently. The shared writer drops any non-finite value defensively.
+   * way. The shared writer drops any non-finite value defensively.
+   *
+   * A populated parameter reaching here WITHOUT a channel means its value cannot
+   * be persisted anywhere (SENSOR-HIGH-085 / B1): the flat JSONB row that used to
+   * carry it is retired. ensureChannelsForParameters() runs before every call and
+   * auto-provisions the missing channels precisely so this cannot happen, so a
+   * non-zero count is a real defect — it is logged at ERROR, not debug, and names
+   * the lost parameters rather than being counted away quietly.
    */
   private buildMetricInputs(
     reading: SensorReading,
@@ -717,7 +822,7 @@ export class SensorIngestionService {
     channelsByParameter: Map<SensorReadingParameter, SensorDataChannel>,
   ): SensorMetricInput[] {
     const metrics: SensorMetricInput[] = [];
-    let unmapped = 0;
+    const unmapped: SensorReadingParameter[] = [];
 
     for (const parameter of SENSOR_READING_PARAMETERS) {
       const value = reading.readings[parameter];
@@ -727,7 +832,7 @@ export class SensorIngestionService {
 
       const channel = channelsByParameter.get(parameter);
       if (!channel) {
-        unmapped++;
+        unmapped.push(parameter);
         continue;
       }
 
@@ -758,10 +863,13 @@ export class SensorIngestionService {
       });
     }
 
-    if (unmapped > 0) {
-      this.logger.debug(
-        `Sensor ${reading.sensorId}: ${unmapped} reading parameter(s) had no channel; ` +
-          'sensor_metrics rows skipped for them (SensorReading JSONB still carries the values)',
+    if (unmapped.length > 0) {
+      // Auto-provisioning runs before every call, so reaching here means a value
+      // was accepted and could not be stored anywhere — a real defect, named
+      // rather than counted away (SENSOR-HIGH-085 / B1).
+      this.logger.error(
+        `Sensor ${reading.sensorId}: ${unmapped.length} reading parameter(s) still had no channel ` +
+          `after auto-provisioning and were NOT persisted: ${unmapped.join(', ')}`,
       );
     }
 

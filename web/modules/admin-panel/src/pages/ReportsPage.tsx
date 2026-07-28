@@ -344,9 +344,17 @@ const ReportHistoryItem: React.FC<ReportHistoryItemProps> = ({ report, onDownloa
 // Reports Page
 // ============================================================================
 
+/** Executions per history page. */
+const HISTORY_PAGE_SIZE = 20;
+
 const ReportsPage: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [generatedReports, setGeneratedReports] = useState<GeneratedReport[]>([]);
+  // The history endpoint is paginated end to end — the page just discarded the
+  // metadata and pinned itself to the first 20, making the 21st execution
+  // unreachable even while its download link stayed valid (APA-148).
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyTotal, setHistoryTotal] = useState(0);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [selectedReportType, setSelectedReportType] = useState<ReportType | null>(null);
@@ -373,12 +381,16 @@ const ReportsPage: React.FC = () => {
 
   const loadReportHistory = useCallback(async () => {
     try {
-      const response = await reportsApi.getReportExecutions({ page: 1, limit: 20 });
+      const response = await reportsApi.getReportExecutions({
+        page: historyPage,
+        limit: HISTORY_PAGE_SIZE,
+      });
       setGeneratedReports(response.data.map(mapExecutionToReport));
+      setHistoryTotal(response.total);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load report history');
     }
-  }, []);
+  }, [historyPage]);
 
   useEffect(() => {
     void loadReportHistory();
@@ -402,9 +414,14 @@ const ReportsPage: React.FC = () => {
         endDate: dateRange.endDate,
       });
 
-      const newReport = mapExecutionToReport(execution);
-
-      setGeneratedReports(prev => [newReport, ...prev.filter(r => r.id !== newReport.id)]);
+      // Return to page 1, where the server puts the newest execution, and let
+      // the reload refresh both the rows and the total. Splicing it into the
+      // page the user happens to be on desynchronises the list from the count.
+      if (historyPage === 1) {
+        void loadReportHistory();
+      } else {
+        setHistoryPage(1);
+      }
       setShowGenerateModal(false);
       setSelectedReportType(null);
     } catch (err) {
@@ -412,7 +429,7 @@ const ReportsPage: React.FC = () => {
     } finally {
       setGenerating(false);
     }
-  }, [selectedReportType, selectedFormat, dateRange]);
+  }, [selectedReportType, selectedFormat, dateRange, historyPage, loadReportHistory]);
 
   const handleQuickReport = useCallback(async (type: ReportType, format: ReportFormat = 'json') => {
     const reportDef = reportDefinitions.find(r => r.type === type);
@@ -430,13 +447,15 @@ const ReportsPage: React.FC = () => {
         endDate: endDate.toISOString().split('T')[0],
       });
 
-      const newReport = mapExecutionToReport(execution);
-
-      setGeneratedReports(prev => [newReport, ...prev.filter(r => r.id !== newReport.id)]);
+      if (historyPage === 1) {
+        void loadReportHistory();
+      } else {
+        setHistoryPage(1);
+      }
     } catch (err) {
       setError(`Failed to generate report: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
-  }, []);
+  }, [historyPage, loadReportHistory]);
 
   const handleDownload = async (report: GeneratedReport): Promise<void> => {
     try {
@@ -530,6 +549,32 @@ const ReportsPage: React.FC = () => {
               />
             ))}
           </div>
+          {historyTotal > HISTORY_PAGE_SIZE && (
+            <div className="flex items-center justify-between pt-4 mt-2 border-t text-sm">
+              <span className="text-gray-500">
+                {(historyPage - 1) * HISTORY_PAGE_SIZE + 1}-
+                {Math.min(historyPage * HISTORY_PAGE_SIZE, historyTotal)} / {historyTotal}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                  disabled={historyPage === 1}
+                  className="px-3 py-1 rounded border disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHistoryPage((p) => p + 1)}
+                  disabled={historyPage * HISTORY_PAGE_SIZE >= historyTotal}
+                  className="px-3 py-1 rounded border disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </Card>
       )}
 

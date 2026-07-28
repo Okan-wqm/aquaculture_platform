@@ -45700,6 +45700,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/ReportsPage.history.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/TenantManagementPage.spec.tsx",
       "prettier_managed": true
     },
@@ -55506,10 +55512,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9100,
+  "file_count": 9101,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8919,
-  "managed_file_list_sha256": "52629728597caf5ec0d93b507aef2b8f7dd7bba4b3853afbc66db277d5868c24",
+  "managed_count": 8920,
+  "managed_file_list_sha256": "9cdf4aa46d51f3a925791cc4622f1a9cde6033f65a8fbd7c4e5a2fce5ed46e1e",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

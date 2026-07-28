@@ -4,11 +4,20 @@ import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { RulesEngineService } from '../rules-engine/rules-engine.service';
-import { RuleEvaluatorService, type EvaluationContext } from '../rules-engine/rule-evaluator.service';
-import { RiskCalculatorService, type RiskCalculationContext } from '../risk-scoring/risk-calculator.service';
+import {
+  RuleEvaluatorService,
+  type EvaluationContext,
+} from '../rules-engine/rule-evaluator.service';
+import {
+  RiskCalculatorService,
+  type RiskCalculationContext,
+} from '../risk-scoring/risk-calculator.service';
 import { ImpactAnalyzerService } from '../risk-scoring/impact-analyzer.service';
 import { SeverityClassifierService } from '../risk-scoring/severity-classifier.service';
-import { NotificationDispatcherService, type ChannelHandler } from '../notification/notification-dispatcher.service';
+import {
+  NotificationDispatcherService,
+  type ChannelHandler,
+} from '../notification/notification-dispatcher.service';
 import { ChannelRouterService } from '../notification/channel-router.service';
 import { TemplateRendererService } from '../notification/template-renderer.service';
 import { RedisService } from '@aquaculture/backend-common/redis';
@@ -43,7 +52,12 @@ describe('Alert Engine Performance', () => {
     severity: AlertSeverity.HIGH,
     isActive: true,
     conditions: [
-      { parameter: 'temperature', operator: AlertOperator.GT, threshold: 30, severity: AlertSeverity.HIGH },
+      {
+        parameter: 'temperature',
+        operator: AlertOperator.GT,
+        threshold: 30,
+        severity: AlertSeverity.HIGH,
+      },
     ],
   });
 
@@ -102,7 +116,9 @@ describe('Alert Engine Performance', () => {
     riskCalculator = module.get<RiskCalculatorService>(RiskCalculatorService);
     impactAnalyzer = module.get<ImpactAnalyzerService>(ImpactAnalyzerService);
     severityClassifier = module.get<SeverityClassifierService>(SeverityClassifierService);
-    notificationDispatcher = module.get<NotificationDispatcherService>(NotificationDispatcherService);
+    notificationDispatcher = module.get<NotificationDispatcherService>(
+      NotificationDispatcherService,
+    );
     channelRouter = module.get<ChannelRouterService>(ChannelRouterService);
     templateRenderer = module.get<TemplateRendererService>(TemplateRendererService);
 
@@ -130,11 +146,36 @@ describe('Alert Engine Performance', () => {
       const complexRule: Partial<AlertRule> = {
         ...createMockRule('complex-and'),
         conditions: [
-          { parameter: 'temperature', operator: AlertOperator.GT, threshold: 30, severity: AlertSeverity.HIGH },
-          { parameter: 'humidity', operator: AlertOperator.GT, threshold: 70, severity: AlertSeverity.HIGH },
-          { parameter: 'pressure', operator: AlertOperator.LT, threshold: 1000, severity: AlertSeverity.HIGH },
-          { parameter: 'windSpeed', operator: AlertOperator.GT, threshold: 20, severity: AlertSeverity.HIGH },
-          { parameter: 'salinity', operator: AlertOperator.GT, threshold: 35, severity: AlertSeverity.HIGH },
+          {
+            parameter: 'temperature',
+            operator: AlertOperator.GT,
+            threshold: 30,
+            severity: AlertSeverity.HIGH,
+          },
+          {
+            parameter: 'humidity',
+            operator: AlertOperator.GT,
+            threshold: 70,
+            severity: AlertSeverity.HIGH,
+          },
+          {
+            parameter: 'pressure',
+            operator: AlertOperator.LT,
+            threshold: 1000,
+            severity: AlertSeverity.HIGH,
+          },
+          {
+            parameter: 'windSpeed',
+            operator: AlertOperator.GT,
+            threshold: 20,
+            severity: AlertSeverity.HIGH,
+          },
+          {
+            parameter: 'salinity',
+            operator: AlertOperator.GT,
+            threshold: 35,
+            severity: AlertSeverity.HIGH,
+          },
         ],
       };
 
@@ -207,7 +248,9 @@ describe('Alert Engine Performance', () => {
 
   describe('Risk Calculation Performance', () => {
     it('should calculate risk score in under 50ms', async () => {
-      alertRuleRepository.findOne.mockResolvedValue(createMockRule('rule-1') as unknown as AlertRule);
+      alertRuleRepository.findOne.mockResolvedValue(
+        createMockRule('rule-1') as unknown as AlertRule,
+      );
 
       const context: RiskCalculationContext = {
         tenantId: 'tenant-1',
@@ -228,7 +271,9 @@ describe('Alert Engine Performance', () => {
     });
 
     it('should calculate batch risk scores efficiently', async () => {
-      alertRuleRepository.findOne.mockResolvedValue(createMockRule('rule-1') as unknown as AlertRule);
+      alertRuleRepository.findOne.mockResolvedValue(
+        createMockRule('rule-1') as unknown as AlertRule,
+      );
 
       const contexts: RiskCalculationContext[] = Array.from({ length: 50 }, (_, i) => ({
         tenantId: 'tenant-1',
@@ -260,6 +305,22 @@ describe('Alert Engine Performance', () => {
       const avgTime = (endTime - startTime) / 100;
 
       expect(avgTime).toBeLessThan(5);
+    });
+
+    it('should calculate trend with one allocation-free pass over the samples', () => {
+      const source = Array.from({ length: 1000 }, (_, index) => index * 1.5);
+      let indexedReads = 0;
+      const instrumentedDataset = new Proxy(source, {
+        get(target, property, receiver) {
+          if (typeof property === 'string' && /^\d+$/.test(property)) {
+            indexedReads++;
+          }
+          return Reflect.get(target, property, receiver);
+        },
+      });
+
+      expect(riskCalculator.calculateTrend(instrumentedDataset)).toBeGreaterThan(0);
+      expect(indexedReads).toBe(source.length);
     });
 
     it('should calculate standard deviation efficiently', () => {
@@ -339,7 +400,7 @@ describe('Alert Engine Performance', () => {
     it('should route to many users efficiently', () => {
       const userIds = Array.from({ length: 100 }, (_, i) => `user-${i}`);
 
-      userIds.forEach(userId => {
+      userIds.forEach((userId) => {
         channelRouter.setUserPreferences({
           userId,
           enabledChannels: [NotificationChannel.EMAIL],
@@ -404,7 +465,7 @@ describe('Alert Engine Performance', () => {
       const startTime = performance.now();
 
       for (let i = 0; i < 100; i++) {
-        channels.forEach(channel => {
+        channels.forEach((channel) => {
           templateRenderer.render(channel, context);
         });
       }
@@ -452,7 +513,7 @@ describe('Alert Engine Performance', () => {
       notificationDispatcher.registerHandler(NotificationChannel.EMAIL, mockHandler);
 
       const userIds = Array.from({ length: 50 }, (_, i) => `user-${i}`);
-      userIds.forEach(userId => {
+      userIds.forEach((userId) => {
         channelRouter.setUserPreferences({
           userId,
           enabledChannels: [NotificationChannel.EMAIL],
@@ -502,7 +563,9 @@ describe('Alert Engine Performance', () => {
     });
 
     it('should handle large historical datasets without issues', async () => {
-      alertRuleRepository.findOne.mockResolvedValue(createMockRule('rule-1') as unknown as AlertRule);
+      alertRuleRepository.findOne.mockResolvedValue(
+        createMockRule('rule-1') as unknown as AlertRule,
+      );
 
       const context: RiskCalculationContext = {
         tenantId: 'tenant-1',

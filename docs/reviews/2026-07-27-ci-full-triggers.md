@@ -120,3 +120,16 @@ The test job now receives the minimum job-scoped permissions needed by Codecov O
 upload explicitly selects `use_oidc: true` and remains fail-closed. A CI contract invariant locks
 the permission and action inputs together, preventing either half of the authentication contract
 from drifting independently.
+
+## PERF-HIGH-012 — alert trend regression performed four passes plus allocation
+
+The next exact-head full-coverage run exposed one remaining real test failure before the Codecov
+step: calculating a trend over 1,000 samples averaged 5.26466047 ms against the existing 5 ms
+service-level assertion.
+
+The production implementation created a second 1,000-element index array, reduced that array
+three times, and reduced the values once. It now uses an allocation-free online covariance
+algorithm that reads each sample exactly once and avoids subtracting large uncentered sums.
+The absolute 5 ms assertion remains unchanged. A deterministic complexity test instruments array
+access and requires exactly one indexed read per sample, so scheduler noise cannot hide a future
+multi-pass regression even when the wall-clock assertion passes.

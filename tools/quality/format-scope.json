@@ -9765,6 +9765,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1806800000000-WidenRelatedSensorReadingIdToFederationId.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -55200,10 +55206,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9049,
+  "file_count": 9050,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8868,
-  "managed_file_list_sha256": "87d67547f447e7b16fc47069a4cadc45975ec35986d54c702db97d3ec2cb1429",
+  "managed_count": 8869,
+  "managed_file_list_sha256": "a6c42cd09798f10593f70fbcfdcb9946e979a26b8a16c31af84f0e75b4144a7d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

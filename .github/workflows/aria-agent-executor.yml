@@ -146,6 +146,7 @@ jobs:
       # reads this same tree, so a bootstrap-empty tree made the cross-host
       # lease unable to observe a held lease at all.
       - name: Restore aria-tools state from previous run
+        id: restore_state
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -207,6 +208,13 @@ jobs:
           os.makedirs("aria-tools", exist_ok=True)
           with zipfile.ZipFile(io.BytesIO(payload)) as zf:
               zf.extractall("aria-tools")
+          # ORPHAN-CRITICAL-484 — positive proof the tree DESCENDS from a
+          # restored one. Written on the success path only, so absence blocks:
+          # the no-artifact fail-open branch, a step failure, a skipped step
+          # and a crash all leave it unset. There is no restored=false to get
+          # wrong.
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write("restored=true\n")
           print("aria-tools state restored.")
           PY
 
@@ -457,7 +465,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Persist aria-tools state (verified)
-        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true'
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true' && steps.restore_state.outputs.restored == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aria-tools-state
@@ -471,7 +479,7 @@ jobs:
       # `name=aria-tools-state`, so a quarantined tree cannot be picked up
       # as the next run's starting state.
       - name: Quarantine unverified aria-tools state
-        if: always() && steps.integrity.outputs.state_valid != 'true'
+        if: always() && (steps.integrity.outputs.state_valid != 'true' || steps.restore_state.outputs.restored != 'true')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: quarantine-evidence-${{ github.run_id }}
@@ -481,3 +489,19 @@ jobs:
             ${{ runner.temp }}/aria-integrity-verdict.err
           retention-days: 30
           if-no-files-found: warn
+          overwrite: true
+
+      - name: Fail when aria-tools state was not published
+        # ORPHAN-CRITICAL-484 — mirrors the sibling producer
+        # (aria-auto-cycle.yml). Without this the executor can do real work,
+        # publish NOTHING under the canonical name, and still report green —
+        # and the failure is absorbing: each such night buries the good
+        # artifact one run deeper until the 30-day retention window closes.
+        if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || steps.restore_state.outputs.restored != 'true')
+        run: |
+          set -euo pipefail
+          echo "::error::aria-tools state was NOT published under the canonical name."
+          echo "state_valid=${{ steps.integrity.outputs.state_valid }}"
+          echo "restored=${{ steps.restore_state.outputs.restored }}"
+          echo "The tree is preserved as quarantine-evidence-${{ github.run_id }}."
+          exit 1

@@ -359,6 +359,50 @@ def dispatch_one_pending_planner_request(
                 "timeout_seconds": timeout_seconds,
             },
         )
+        # ORPHAN-CRITICAL-485 — the failure breaker's production producer on
+        # the SCHEDULED lane.
+        #
+        # WHY HERE. The nightly is aria-auto-cycle.yml -> `autonomy run
+        # --profile standard` -> run_autonomy_orchestrator, which calls the
+        # planner drainer unconditionally after the cycle phase. The drainer's
+        # default hook is THIS function and its profile gate is `agent_claim`,
+        # which `standard` permits. So this arm sits on a path a schedule
+        # actually walks.
+        #
+        # WHY NOT the cycle's pr_lifecycle phase, where the producer was first
+        # placed: that callsite is gated on `pr_create`, which `standard` does
+        # NOT permit, inside an extended phase the orchestrator never requests
+        # (run_phases is always None), over a proposal set with no autonomous
+        # producer. Three independent reasons it cannot fire on a schedule —
+        # it was written, tested, and unreachable, which is the exact defect
+        # class this branch exists to close. It stays wired for the
+        # operator-driven strict/autonomous lane.
+        #
+        # WHY subprocess_timeout. It is already a declared FAILURE_KIND and it
+        # is literally what happened: the agent subprocess blew its wall-clock
+        # budget. The discrimination is STRUCTURAL — only this except arm
+        # records — rather than a prefix match on an error message, so it
+        # cannot drift the way PERIMETER_REFUSED_PREFIX did.
+        try:
+            from .circuit_breaker import record_failure
+            record_failure(
+                base_dir=root,
+                kind="subprocess_timeout",
+                materialize_event_id=str(claim_id or request_id or "unknown"),
+                extra={
+                    "request_id": request_id,
+                    "claim_id": claim_id,
+                    "target_agent": target_agent,
+                    "timeout_seconds": timeout_seconds,
+                    "observed_at": "planner_dispatch_hook",
+                },
+            )
+            governance_count += 1
+        except Exception:
+            # The breaker ledger must never convert a dispatch timeout into a
+            # crash: the timeout itself is already recorded above, and losing
+            # the row is strictly better than losing the governance event.
+            pass
         return {
             "status": "executor_failed",
             "request_id": request_id,

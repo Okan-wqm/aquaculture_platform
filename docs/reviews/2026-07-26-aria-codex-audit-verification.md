@@ -1382,3 +1382,9 @@ finding is one nobody can navigate back to from the review that produced it.
 
 * **ORPHAN-MEDIUM-483** — The 72h failure window that fixed ORPHAN-MEDIUM-468 was itself the boundary value, so the bleed case still coin-flipped at the enforcement gate  
   Severity MEDIUM, layer 2, owner okan, deadline 2026-08-25.
+
+* **ORPHAN-CRITICAL-484** — The executor could publish a queue-less bootstrapped tree under the canonical aria-tools-state name, burying the producer's queue with no automated recovery  
+  Severity CRITICAL, layer 1, owner okan, deadline 2026-08-25.
+
+* **ORPHAN-CRITICAL-485** — The failure breaker's producer was unreachable on the scheduled lane at four independent levels, and its end-to-end test could not see any of them  
+  Severity CRITICAL, layer 1, owner okan, deadline 2026-08-25.

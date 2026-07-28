@@ -154,6 +154,7 @@ Allowed truth buckets:
 | `SENSOR-CRITICAL-009`   | OPEN           | —            | sensor-expert        | real-open                 |
 | `INFRA-CRITICAL-077`    | IN-PROGRESS    | 1.1          | infra-expert         | real-open                 |
 | `INFRA-CRITICAL-078`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
+| `DATA-CRITICAL-010`     | OPEN           | —            | data-expert          | real-open                 |
 
 ## Mutation Rules
 

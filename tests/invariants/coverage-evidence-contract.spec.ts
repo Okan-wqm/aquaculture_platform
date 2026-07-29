@@ -231,9 +231,13 @@ describe('repository-owned coverage evidence contract', () => {
         // Pair an `it(`/`test(` with the `}, <ms>);` that closes it at the
         // same indentation. Anchoring on the indent is what separates a test's
         // timeout argument from an ordinary `setTimeout(fn, 0)` further in.
-        for (const [, , literal] of fs
+        for (const match of fs
           .readFileSync(specPath, 'utf8')
           .matchAll(/^([ \t]*)(?:it|test)(?:\.\w+)*\([\s\S]*?^\1\}, ([0-9_]+)\);/gm)) {
+          const literal = match[2];
+          if (literal === undefined) {
+            continue;
+          }
           if (Number(literal.replace(/_/g, '')) < policyTimeout) {
             undercuts.push(`${path.relative(REPO_ROOT, specPath)}: ${literal}`);
           }

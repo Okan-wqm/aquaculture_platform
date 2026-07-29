@@ -476,4 +476,15 @@ export const ADMIN_CONTRACT_SOURCES: readonly ContractSource[] = [
     file: 'apps/admin-api-service/src/system-management/entities/maintenance-mode.entity.ts',
     exports: ['MaintenanceStatus'],
   },
+  {
+    module: 'tenant-configuration',
+    // The only entry sourced from a service other than admin-api, and
+    // deliberately so: config-service owns tenant configuration, and the panel
+    // reaches it over the federated GraphQL rather than through admin-api. The
+    // vocabulary is what makes that possible without a second copy — the seed
+    // migration builds its rows from this array and the panel builds its typed
+    // reader from the same array, so a key exists in exactly one place.
+    file: 'apps/config-service/src/configuration/tenant-settings/tenant-settings.vocabulary.ts',
+    exports: ['TENANT_SETTINGS_SERVICE', 'TENANT_SETTINGS'],
+  },
 ];

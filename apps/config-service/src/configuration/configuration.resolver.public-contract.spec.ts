@@ -40,6 +40,26 @@ describe('ConfigurationResolver public GraphQL contract', () => {
     expect(source).not.toContain('@Headers');
   });
 
+  it('routes every operation through ONE scope resolver', () => {
+    // Three operations, one place that decides whose rows they touch. A second
+    // resolution path is how "explicit target requires platform admin" would
+    // end up enforced on the mutation and forgotten on a query.
+    const resolutionSites = source.match(/this\.resolveTenantScope\(/g) ?? [];
+    expect(resolutionSites).toHaveLength(3);
+    expect(source).not.toContain('private getTenantId(');
+  });
+
+  it('accepts an explicit tenant target, gated on the platform admin role', () => {
+    // The argument that makes config-service able to own tenant configuration:
+    // without it, a tenantless SUPER_ADMIN always resolved to SYSTEM and no
+    // caller could address another tenant's partition at all.
+    expect(source).toContain("@Args('tenantId'");
+    expect(source).toMatch(/resolveTenantScope\(context, targetTenantId\)/);
+    // Gated, not trusted — a non-admin naming a target is refused rather than
+    // narrowed back to its own tenant.
+    expect(source).toMatch(/hasPlatformAdminRole\(context\)[\s\S]{0,200}ForbiddenException/);
+  });
+
   it('resolves tenantless platform admins to the SYSTEM scope, gated on the admin role vocabulary', () => {
     // SUPER_ADMIN is the platform's only tenantless principal; its scope is
     // the SYSTEM tenant (platform-scope configuration rows), never a header.

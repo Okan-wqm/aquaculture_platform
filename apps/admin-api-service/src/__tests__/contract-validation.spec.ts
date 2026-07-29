@@ -862,9 +862,14 @@ describe('Frontend-Backend Contract Validation', () => {
     // twin of the windowed /impersonation/audit/summary. Two endpoints computing
     // overlapping aggregates over different periods is what let the panel render
     // an all-time count under a "(30d)" heading.
+    // APA-035: 555 -> 516 after removing the 39 TenantConfigurationController
+    // routes. config-service owns tenant configuration; the routes addressed a
+    // service that threw 410 Gone on every write and synthesized identical
+    // defaults on every read, over a table admin-api migration 1801400000000
+    // had already dropped.
     const count = backendEndpoints.length;
 
-    expect(count).toBe(555);
+    expect(count).toBe(516);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

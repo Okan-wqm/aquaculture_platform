@@ -132,6 +132,7 @@ export default {
         '<rootDir>/admin-contracts-generated.spec.ts',
         '<rootDir>/entity-getter-response.spec.ts',
         '<rootDir>/route-named-return-type.spec.ts',
+        '<rootDir>/tenant-settings-vocabulary.spec.ts',
         '<rootDir>/admin-audit-action-vocab.spec.ts',
         '<rootDir>/admin-messaging-action-vocab.spec.ts',
         '<rootDir>/admin-database-types-parity.spec.ts',

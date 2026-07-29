@@ -2729,12 +2729,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/settings/dto/email-template.dto.ts",
       "prettier_managed": true
     },
@@ -2753,12 +2747,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/settings/entities/index.ts",
       "prettier_managed": true
     },
@@ -2766,12 +2754,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/settings/entities/system-setting.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/settings/entities/tenant-configuration.entity.ts",
       "prettier_managed": true
     },
     {
@@ -2802,12 +2784,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/settings/services/system-setting.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/settings/services/tenant-configuration.service.ts",
       "prettier_managed": true
     },
     {
@@ -6801,6 +6777,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/configuration/__tests__/configuration.resolver.tenant-targeting.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/configuration/__tests__/graphql-schema-build.spec.ts",
       "prettier_managed": true
     },
@@ -6969,6 +6951,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/configuration/tenant-settings/__tests__/tenant-settings.vocabulary.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/configuration/tenant-settings/tenant-settings.vocabulary.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/database/__tests__/platform-configuration-seed.spec.ts",
       "prettier_managed": true
     },
@@ -7040,6 +7034,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/config-service/src/database/migrations/1805400000000-SeedPlatformConfigurations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/database/migrations/1805500000000-SeedTenantSettingsDefaults.ts",
       "prettier_managed": true
     },
     {
@@ -42810,6 +42810,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/tenant-settings-vocabulary.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/three-store-invariants.spec.ts",
       "prettier_managed": true
     },
@@ -45730,6 +45736,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/graphql/tenant-configuration-operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/hooks/__tests__/useAsyncData.spec.ts",
       "prettier_managed": true
     },
@@ -45803,6 +45815,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/hooks/usePlatformConfiguration.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/hooks/useTenantConfiguration.ts",
       "prettier_managed": true
     },
     {
@@ -46240,6 +46258,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/services/api/__tests__/tenant-configuration.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/services/api/analytics.ts",
       "prettier_managed": true
     },
@@ -46265,6 +46289,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/services/api/debug.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/services/api/effective-configuration.ts",
       "prettier_managed": true
     },
     {
@@ -46330,7 +46360,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/admin-panel/src/services/api/tenant-config.ts",
+      "path": "web/modules/admin-panel/src/services/api/tenant-configuration.ts",
       "prettier_managed": true
     },
     {
@@ -46395,7 +46425,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "c0a5f2d250b0cbcfa48ea8f0cf465ffad78209781edd352a24125e04a5979a0f",
+      "content_sha256": "97de298e42ac1382b471b02276ca2ebeec34cbf38b08ceec071deba82b74eee0",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/types/generated/admin-contracts.ts",
@@ -55709,10 +55739,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9133,
+  "file_count": 9138,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8951,
-  "managed_file_list_sha256": "6c285b9655ed3f12bfe206d64f38bc5b06785c69b3f64ca8262c4c75fd65c17e",
+  "managed_count": 8956,
+  "managed_file_list_sha256": "cf00d02983b0e322b4ee0330068f75b26f2d34e9628e242f1942728b6e3699fd",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

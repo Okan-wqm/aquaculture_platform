@@ -139,7 +139,7 @@ describe('INVARIANT: a route response shape is a named type', () => {
     // return, so a change inside the service silently changes the wire and the
     // panel's type is pure invention.
     //
-    // 254 of those remain, and naming them means settling 21 controllers'
+    // 215 of those remain, and naming them means settling 20 controllers'
     // contracts against their consumers. That is real work, not a rename, so it
     // cannot land in one reviewable change.
     //
@@ -167,7 +167,11 @@ describe('INVARIANT: a route response shape is a named type', () => {
       'apps/admin-api-service/src/security/controllers/compliance.controller.ts': 2,
       'apps/admin-api-service/src/settings/controllers/email-template.controller.ts': 13,
       'apps/admin-api-service/src/settings/controllers/ip-access.controller.ts': 12,
-      'apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts': 39,
+      // `tenant-configuration.controller.ts` was the largest entry here at 39.
+      // It is gone: config-service owns tenant configuration, so the routes were
+      // deleted rather than annotated. Declaring return types on 39 handlers
+      // whose service threw 410 Gone would have documented a contract nothing
+      // could honour.
       'apps/admin-api-service/src/settings/settings.controller.ts': 9,
       'apps/admin-api-service/src/support/controllers/onboarding.controller.ts': 16,
       'apps/admin-api-service/src/system-management/controllers/error-tracking.controller.ts': 18,

@@ -54,6 +54,7 @@ describe('ConfigurationResolver tenant scoping', () => {
     await resolver.getEffectiveConfigurationsByService(
       'platform',
       ConfigEnvironment.ALL,
+      null,
       context({ sub: 'user-1', tenantId: TENANT_ID, roles: ['TENANT_ADMIN'] }),
     );
 
@@ -71,6 +72,7 @@ describe('ConfigurationResolver tenant scoping', () => {
     await resolver.getEffectiveConfigurationsByService(
       'platform',
       ConfigEnvironment.ALL,
+      null,
       context({ sub: 'admin-1', tenantId: null, roles: ['SUPER_ADMIN'] }),
     );
 
@@ -85,6 +87,7 @@ describe('ConfigurationResolver tenant scoping', () => {
       resolver.getEffectiveConfigurationsByService(
         'platform',
         ConfigEnvironment.ALL,
+        null,
         context({ sub: 'user-2', tenantId: null, roles: ['WORKER'] }),
       ),
     ).rejects.toBeInstanceOf(UnauthorizedException);
@@ -98,6 +101,7 @@ describe('ConfigurationResolver tenant scoping', () => {
       resolver.getEffectiveConfigurationsByService(
         'platform',
         ConfigEnvironment.ALL,
+        null,
         context(undefined),
       ),
     ).rejects.toBeInstanceOf(UnauthorizedException);
@@ -114,6 +118,7 @@ describe('ConfigurationResolver tenant scoping', () => {
       ConfigEnvironment.ALL,
       false,
       'admin-panel save',
+      null,
       context({ sub: 'admin-1', tenantId: null, roles: ['SUPER_ADMIN'] }),
     );
 
@@ -134,6 +139,7 @@ describe('ConfigurationResolver tenant scoping', () => {
         ConfigEnvironment.ALL,
         false,
         undefined,
+        null,
         context({ sub: 'user-1', tenantId: TENANT_ID, roles: ['WORKER'] }),
       ),
     ).rejects.toBeInstanceOf(ForbiddenException);

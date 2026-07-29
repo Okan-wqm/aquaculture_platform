@@ -261,6 +261,22 @@ class WireEmitter {
     // its members have no names to preserve, and callers index it or spread it
     // into options rather than reaching for `X.MEMBER`.
     if (ts.isVariableDeclaration(declaration)) {
+      const type = this.checker.getTypeAtLocation(declaration);
+
+      // A scalar const is a vocabulary of one: `TENANT_SETTINGS_SERVICE` names
+      // the config-service namespace tenant settings live under, and the panel
+      // must send exactly that string or its query addresses nothing. Emitting
+      // it removes the last hand-copied literal from the seam.
+      if (!this.checker.isTupleType(type)) {
+        this.emitted.set(name, {
+          name,
+          module,
+          origin,
+          body: `export const ${name} = ${this.constValueLiteral(name, type)} as const;`,
+        });
+        return true;
+      }
+
       const literal = this.constArrayLiteral(name, declaration);
       this.emitted.set(name, {
         name,
@@ -293,11 +309,20 @@ class WireEmitter {
   }
 
   /**
-   * The string members of an `export const X = [...] as const` declaration.
+   * The members of an `export const X = [...] as const` declaration, rendered
+   * as source literals.
    *
    * Read off the TYPE rather than the initializer's syntax, so a declaration
    * carrying `satisfies readonly PlatformRoleCode[]` (as `INVITABLE_ROLE_CODES`
    * does) resolves the same as a bare one.
+   *
+   * Members may be strings — the plain vocabulary case — or RECORDS. A record
+   * vocabulary is what a key set becomes once each key carries more than its own
+   * name: `TENANT_SETTINGS` pairs every tenant configuration key with its value
+   * type, its default and the code that enforces it, and the seed migration and
+   * the admin panel both derive from that one array. Emitting only the strings
+   * would have left the panel to re-declare which keys are numbers and which are
+   * lists, which is the hand-mirroring this generator exists to end.
    */
   private constArrayLiteral(name: string, declaration: ts.VariableDeclaration): string[] {
     const type = this.checker.getTypeAtLocation(declaration);
@@ -307,21 +332,66 @@ class WireEmitter {
 
     if (elements.length === 0) {
       throw new ContractGenerationError(
-        `"${name}" is an exported const, but not a readonly tuple of string ` +
-          `literals. Only an \`as const\` array has a stable wire vocabulary — ` +
-          `a mutable array or a computed value has no fixed member set to emit.`,
+        `"${name}" is an exported const, but not a readonly tuple. Only an ` +
+          `\`as const\` array has a stable wire vocabulary — a mutable array or ` +
+          `a computed value has no fixed member set to emit.`,
       );
     }
 
-    return elements.map((element) => {
-      if (!element.isStringLiteral()) {
+    return elements.map((element) => this.constValueLiteral(name, element));
+  }
+
+  /**
+   * One `as const` member rendered as the source literal that reproduces it.
+   *
+   * Only values that survive `JSON.stringify` unchanged are accepted. A member
+   * carrying anything else — a symbol, a function, a widened primitive — is
+   * refused rather than approximated, because a vocabulary the panel cannot
+   * reproduce exactly is not a shared contract.
+   */
+  private constValueLiteral(name: string, value: ts.Type): string {
+    if (value.isStringLiteral()) {
+      return JSON.stringify(value.value);
+    }
+    if (value.isNumberLiteral()) {
+      return String(value.value);
+    }
+    if ((value.flags & ts.TypeFlags.BooleanLiteral) !== 0) {
+      // BooleanLiteral carries no `value` on the public type; the checker's own
+      // rendering is the only stable way to tell true from false.
+      return this.checker.typeToString(value);
+    }
+    if ((value.flags & ts.TypeFlags.Null) !== 0) {
+      return 'null';
+    }
+
+    if (this.checker.isTupleType(value)) {
+      const members = this.checker
+        .getTypeArguments(value as ts.TypeReference)
+        .map((member) => this.constValueLiteral(name, member));
+      return `[${members.join(', ')}]`;
+    }
+
+    if ((value.flags & ts.TypeFlags.Object) !== 0) {
+      const properties = this.checker.getPropertiesOfType(value);
+      if (properties.length === 0) {
         throw new ContractGenerationError(
-          `"${name}" contains a non-string member (${this.checker.typeToString(element)}). ` +
-            `Only string vocabularies cross a JSON boundary unchanged.`,
+          `"${name}" contains an empty object member. An entry with no fields ` +
+            `carries no vocabulary.`,
         );
       }
-      return JSON.stringify(element.value);
-    });
+      const fields = properties.map((property) => {
+        const propertyType = this.checker.getTypeOfSymbol(property);
+        return `${property.getName()}: ${this.constValueLiteral(name, propertyType)}`;
+      });
+      return `{ ${fields.join(', ')} }`;
+    }
+
+    throw new ContractGenerationError(
+      `"${name}" contains a member the wire cannot carry ` +
+        `(${this.checker.typeToString(value)}). An \`as const\` vocabulary may ` +
+        `hold strings, numbers, booleans, null, arrays and records of those.`,
+    );
   }
 
   /**

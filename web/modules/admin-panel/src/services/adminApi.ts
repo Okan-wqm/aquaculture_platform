@@ -14,7 +14,6 @@
  *   api/support.ts        -- supportApi
  *   api/security.ts       -- securityApi
  *   api/settings.ts       -- settingsApi, systemSettingsApi
- *   api/tenant-config.ts  -- tenantConfigApi   (extracted from settings)
  *   api/email-templates.ts-- emailTemplatesApi  (extracted from settings)
  *   api/impersonation.ts  -- impersonationApi
  *   api/debug.ts          -- debugApi
@@ -39,7 +38,6 @@ export { databaseApi } from './api/database';
 export { supportApi } from './api/support';
 export { securityApi } from './api/security';
 export { settingsApi, systemSettingsApi } from './api/settings';
-export { tenantConfigApi } from './api/tenant-config';
 export { emailTemplatesApi } from './api/email-templates';
 export { impersonationApi } from './api/impersonation';
 export { debugApi } from './api/debug';

@@ -3,13 +3,11 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { EmailTemplateController } from './controllers/email-template.controller';
 import { IpAccessController } from './controllers/ip-access.controller';
-import { TenantConfigurationController } from './controllers/tenant-configuration.controller';
 import {
   EmailTemplate,
   IpAccessRule,
 } from './entities';
 import {
-  TenantConfigurationService,
   SystemSettingService,
   EmailTemplateService,
   IpAccessService,
@@ -26,19 +24,16 @@ import { SettingsController } from './settings.controller';
   ],
   controllers: [
     SettingsController,
-    TenantConfigurationController,
     EmailTemplateController,
     IpAccessController,
   ],
   providers: [
-    TenantConfigurationService,
     SystemSettingService,
     EmailTemplateService,
     IpAccessService,
     EmailSenderService,
   ],
   exports: [
-    TenantConfigurationService,
     SystemSettingService,
     EmailTemplateService,
     IpAccessService,

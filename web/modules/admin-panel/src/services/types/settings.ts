@@ -81,38 +81,16 @@ export interface SystemSetting {
   updatedBy?: string;
 }
 
-export interface TenantConfiguration {
-  tenantId: string;
-  configuration: Record<string, unknown>;
-  branding?: {
-    logo?: string;
-    primaryColor?: string;
-    secondaryColor?: string;
-    favicon?: string;
-    customCss?: string;
-  };
-  integrations?: Array<{
-    type: string;
-    isEnabled: boolean;
-    config: Record<string, unknown>;
-  }>;
-  apiKeys?: Array<{
-    id: string;
-    name: string;
-    prefix: string;
-    scopes: string[];
-    lastUsedAt?: string;
-    expiresAt?: string;
-  }>;
-  webhooks?: Array<{
-    id: string;
-    url: string;
-    events: string[];
-    isActive: boolean;
-    secretHash?: string;
-  }>;
-  updatedAt: string;
-}
+// `TenantConfiguration` is deliberately absent.
+//
+// It used to declare a shape nothing produced: a `configuration` bag of unknown,
+// plus `branding` / `integrations` / `apiKeys` / `webhooks` sub-objects whose
+// field names matched neither the admin-api response nor anything stored. It
+// could not drift, because it had never agreed with anything in the first place.
+//
+// Tenant configuration is config-service's now, and its keys have one author —
+// `TENANT_SETTINGS`, generated into types/generated/admin-contracts.ts and read
+// through services/api/tenant-configuration.ts.
 
 /**
  * A maintenance window, as `GET /system/settings/maintenance` returns it.

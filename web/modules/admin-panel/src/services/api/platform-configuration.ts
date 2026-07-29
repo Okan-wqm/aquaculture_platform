@@ -6,23 +6,25 @@
  * (ORPHAN-HIGH-373). No React/transport imports — the transport lives in
  * hooks/usePlatformConfiguration.ts — so every function here is unit-testable.
  *
- * Value coercion: `value` arrives as GraphQLJSON. Seeded rows come back typed
- * (number/boolean/parsed json) because the store preserves value_type; keys
- * first created through setConfiguration come back as plain strings. The
- * coercers accept both so the page renders identically either way.
+ * The row shape and its value coercers live in ./effective-configuration —
+ * shared with the tenant-configuration page, which reads the same resolver.
  */
+
+import {
+  coerceBoolean,
+  coerceNumber,
+  coerceString,
+  type EffectiveConfigurationRow,
+} from './effective-configuration';
 
 /** The config-service `service` namespace that platform-scope settings live under. */
 export const PLATFORM_CONFIGURATION_SERVICE = 'platform';
 
-export interface EffectiveConfigurationRow {
-  key: string;
-  value: unknown;
-  /** 'redacted' marks a secret FIELD; value is null when no secret is stored yet. */
-  secretMode: 'none' | 'redacted';
-  source: 'tenant' | 'system';
-  version: number;
-}
+// Re-exported for this module's existing importers. The row shape and its
+// coercers are shared with the tenant-configuration page now, so they have one
+// author in ./effective-configuration.
+export { coerceBoolean, coerceNumber, coerceString };
+export type { EffectiveConfigurationRow };
 
 export interface PlatformConfigurationWrite {
   key: string;
@@ -135,37 +137,13 @@ export const DEFAULT_PLATFORM_SETTINGS: PlatformSettingsSnapshot = {
 };
 
 // ============================================================================
-// Coercion — GraphQLJSON values may be typed or canonical strings.
+// Row lookup
 // ============================================================================
 
 type RowMap = Map<string, EffectiveConfigurationRow>;
 
 function toRowMap(rows: readonly EffectiveConfigurationRow[]): RowMap {
   return new Map(rows.map((row) => [row.key, row]));
-}
-
-export function coerceString(value: unknown, fallback: string): string {
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-  return fallback;
-}
-
-export function coerceNumber(value: unknown, fallback: number): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.trim() !== '') {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return fallback;
-}
-
-export function coerceBoolean(value: unknown, fallback: boolean): boolean {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'string') {
-    if (value === 'true' || value === '1') return true;
-    if (value === 'false' || value === '0') return false;
-  }
-  return fallback;
 }
 
 function readString(map: RowMap, key: string, fallback: string): string {

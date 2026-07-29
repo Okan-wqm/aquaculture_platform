@@ -55,6 +55,11 @@ export const adminKeys = {
     detail: (id: string) =>
       [...adminKeys.tenants.all(), 'detail', id] as const,
     stats: () => [...adminKeys.tenants.all(), 'stats'] as const,
+    // Keyed per tenant on purpose: tenant settings are that tenant's rows, and
+    // a shared key would serve one tenant's configuration to the next tenant
+    // the operator opens.
+    settings: (id: string) =>
+      [...adminKeys.tenants.all(), 'settings', id] as const,
   },
 
   // ── Users ──

@@ -143,7 +143,7 @@ export class TimeBucketService {
         value AS "maxValue",
         1 AS "sampleCount",
         CASE WHEN quality_code >= 192 THEN 100.0 ELSE 0.0 END AS "qualityPct"
-      FROM sensor_metrics
+      FROM sensor.sensor_metrics
       WHERE tenant_id = $1 AND time >= $2 AND time <= $3
     `;
     let p = 4;
@@ -186,7 +186,7 @@ export class TimeBucketService {
         max_value  AS "maxValue",
         sample_count AS "sampleCount",
         quality_pct  AS "qualityPct"
-      FROM ${safeTableName}
+      FROM sensor.${safeTableName}
       WHERE tenant_id = $1 AND bucket >= $2 AND bucket <= $3
     `;
     let p = 4;

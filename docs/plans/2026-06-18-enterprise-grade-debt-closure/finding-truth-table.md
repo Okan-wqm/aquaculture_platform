@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `986cd8f9bb2551ac2f604be79dd9d3d7dd2e32d34040611fe587a1f155104249`
+Registry tip: `3cca7454a627d1c83256722ba729b0abf07a9f7a2085f0e668e7976c0475d9b4`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -97,6 +97,22 @@ can erase live drain writes (`FARM-CRITICAL-241`). They remain `real-open` until
 the implementation wave supplies PostgreSQL concurrency, rerun, rollback, and
 parity evidence.
 
+Updated 2026-07-18 (sensor device industrial-protocol audit): the 102-finding
+sensor `/sensor/devices` audit added 103 registry entries (the 102 findings plus
+SENSOR-MEDIUM-080). Merged onto main's farm/feed cutover chain and re-chained,
+the registry stands at 1136 entries with three new active CRITICALs from the
+sensor audit. `SENSOR-CRITICAL-007` (6 of 7 VFD adapters fake the write path —
+`EMERGENCY_STOP` returns success without transmitting) and `SENSOR-CRITICAL-009`
+(manual approve→apply never writes to the drive — `vfd.changeset.approved` has no
+consumer) are `real-open`: the edge-delegated VFD write path is the tracked fix
+(binding + write primitive + command/apply rewire have landed; telemetry reads
+are edge-delegated). `SENSOR-CRITICAL-008` (25 protocol adapters fake connection
+success — a never-contacted device is flipped ACTIVE) is
+`already-fixed-needs-close`: the `ProtocolImplementationStatus` SSoT hides
+unsupported adapters and `ConnectionTesterService` fails honestly for any
+non-`cloud-real` protocol before an adapter runs — OPEN only until the post-merge
+close ceremony records a main-reachable closing commit (PROC-HIGH-001).
+
 Updated 2026-07-18 (production host control-plane recurrence review): exact-main
 capacity evidence registered four new active findings and closed the already
 merged default-deny image-tag gap. Two findings are CRITICAL and enter the
@@ -133,8 +149,12 @@ Allowed truth buckets:
 | `FARM-CRITICAL-238`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
 | `FARM-CRITICAL-240`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
 | `FARM-CRITICAL-241`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
+| `SENSOR-CRITICAL-007`   | OPEN           | —            | sensor-expert        | real-open                 |
+| `SENSOR-CRITICAL-008`   | OPEN           | —            | sensor-expert        | already-fixed-needs-close |
+| `SENSOR-CRITICAL-009`   | OPEN           | —            | sensor-expert        | real-open                 |
 | `INFRA-CRITICAL-077`    | IN-PROGRESS    | 1.1          | infra-expert         | real-open                 |
 | `INFRA-CRITICAL-078`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
+| `DATA-CRITICAL-010`     | OPEN           | —            | data-expert          | real-open                 |
 
 ## Mutation Rules
 

@@ -16,28 +16,14 @@ import { VfdDevice } from '../../entities/vfd-device.entity';
 import { VfdProtocol, VfdBrand, VfdDeviceStatus, VfdCommandType } from '../../entities/vfd.enums';
 import { VfdCommandService, VfdCommandInput } from '../vfd-command.service';
 import { VfdDeviceService } from '../vfd-device.service';
+import { VfdEdgeWriteService } from '../vfd-edge-write.service';
 import { VfdRegisterMappingService } from '../vfd-register-mapping.service';
-
-// Mock the adapters module. The default handle is POOLABLE
-// (isConnected: true — getOrCreateConnection reuses it) and the write
-// results carry latencyMs/acknowledgedAt like the real adapters do.
-jest.mock('../../adapters', () => ({
-  createVfdAdapter: jest.fn().mockImplementation(() => ({
-    connect: jest.fn().mockResolvedValue({ id: 'connection-123', isConnected: true }),
-    disconnect: jest.fn().mockResolvedValue(undefined),
-    writeControlWord: jest
-      .fn()
-      .mockResolvedValue({ success: true, latencyMs: 5, acknowledgedAt: new Date() }),
-    writeSpeedReference: jest
-      .fn()
-      .mockResolvedValue({ success: true, latencyMs: 5, acknowledgedAt: new Date() }),
-  })),
-}));
 
 describe('VfdCommandService', () => {
   let service: VfdCommandService;
   let deviceService: jest.Mocked<VfdDeviceService>;
   let registerMappingService: jest.Mocked<VfdRegisterMappingService>;
+  let edgeWriteService: jest.Mocked<VfdEdgeWriteService>;
 
   const tenantId = 'tenant-123';
 
@@ -56,6 +42,10 @@ describe('VfdCommandService', () => {
     status: VfdDeviceStatus.ACTIVE,
     tenantId,
     connectionStatus: { isConnected: true },
+    // SENSOR-CRITICAL-007: bound to an edge gateway so the edge-delegated write
+    // path can dispatch (an unbound drive fails closed — covered separately).
+    edgeDeviceId: 'edge-1',
+    edgeModbusDeviceName: 'vfd-pump-1',
   };
 
   const mockControlMapping = {
@@ -93,6 +83,17 @@ describe('VfdCommandService', () => {
           },
         },
         {
+          // SENSOR-CRITICAL-007: the edge-delegated write primitive. Default
+          // resolves a real success ack; individual tests override it to
+          // exercise edge-reported failure / fail-closed.
+          provide: VfdEdgeWriteService,
+          useValue: {
+            writeRegister: jest
+              .fn()
+              .mockResolvedValue({ success: true, commandId: 'cmd-1', latencyMs: 5 }),
+          },
+        },
+        {
           // DB-SENSOR-HIGH-003: command audit repo (best-effort writer).
           provide: getRepositoryToken(VfdCommandAuditLog),
           useValue: {
@@ -107,6 +108,7 @@ describe('VfdCommandService', () => {
     service = module.get<VfdCommandService>(VfdCommandService);
     deviceService = module.get(VfdDeviceService);
     registerMappingService = module.get(VfdRegisterMappingService);
+    edgeWriteService = module.get(VfdEdgeWriteService);
   });
 
   afterEach(() => {
@@ -208,10 +210,11 @@ describe('VfdCommandService', () => {
       );
     });
 
-    it('should lazily connect even when the stored connection status is disconnected', async () => {
-      // The connection-status precheck was deliberately removed: connections
-      // are lazy + pooled, so a stale persisted `isConnected: false` must not
-      // block a command — the service connects on demand.
+    it('dispatches regardless of the stored cloud connection status', async () => {
+      // The write path is edge-delegated now, so the cloud `connectionStatus`
+      // (a legacy cloud-poll artifact) has no bearing on command dispatch — the
+      // edge gateway owns the live link. A stale `isConnected: false` must not
+      // block a command.
       const disconnectedDevice = {
         ...mockDevice,
         connectionStatus: { isConnected: false },
@@ -225,6 +228,21 @@ describe('VfdCommandService', () => {
       expect(result.success).toBe(true);
     });
 
+    it('dispatches START to the edge gateway with the control-word register', async () => {
+      const command: VfdCommandInput = { command: VfdCommandType.START };
+
+      await service.executeCommand('device-123', tenantId, command);
+
+      // Control-word register from the mapping; wire value from the brand
+      // command word; human-readable intent for the audit/log trail.
+      expect(edgeWriteService.writeRegister).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'device-123' }),
+        mockControlMapping.registerAddress,
+        expect.any(Number),
+        'START',
+      );
+    });
+
     it('should return latency in result', async () => {
       const command: VfdCommandInput = { command: VfdCommandType.START };
 
@@ -234,16 +252,12 @@ describe('VfdCommandService', () => {
       expect(typeof result.latencyMs).toBe('number');
     });
 
-    it('should handle command execution failure', async () => {
-      const { createVfdAdapter } = require('../../adapters');
-      createVfdAdapter.mockImplementationOnce(() => ({
-        connect: jest.fn().mockResolvedValue({ id: 'connection-123' }),
-        disconnect: jest.fn().mockResolvedValue(undefined),
-        writeControlWord: jest.fn().mockResolvedValue({
-          success: false,
-          error: 'Write failed',
-        }),
-      }));
+    it('reports an edge-reported write failure honestly (no fabricated success)', async () => {
+      edgeWriteService.writeRegister.mockResolvedValueOnce({
+        success: false,
+        commandId: 'cmd-2',
+        error: 'Write failed',
+      });
 
       const command: VfdCommandInput = { command: VfdCommandType.START };
 
@@ -253,20 +267,36 @@ describe('VfdCommandService', () => {
       expect(result.error).toBe('Write failed');
     });
 
-    it('should handle connection error', async () => {
-      const { createVfdAdapter } = require('../../adapters');
-      createVfdAdapter.mockImplementationOnce(() => ({
-        connect: jest.fn().mockRejectedValue(new Error('Connection failed')),
-        disconnect: jest.fn().mockResolvedValue(undefined),
-      }));
+    it('EMERGENCY_STOP never returns success without a real edge ack (SENSOR-CRITICAL-007)', async () => {
+      // The pre-fix hazard: a fake adapter returned success:true without
+      // transmitting. Now an edge timeout / no-ack yields success:false.
+      edgeWriteService.writeRegister.mockResolvedValueOnce({
+        success: false,
+        commandId: 'cmd-estop',
+        error: 'Edge gateway did not acknowledge the write within the timeout',
+      });
 
-      const command: VfdCommandInput = { command: VfdCommandType.START };
+      const command: VfdCommandInput = { command: VfdCommandType.EMERGENCY_STOP };
 
-      // Connection failures are swallowed into the result object too.
       const result = await service.executeCommand('device-123', tenantId, command);
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('Connection failed');
+      expect(result.error).toMatch(/did not acknowledge/i);
+    });
+
+    it('fails closed when the drive is not bound to an edge gateway', async () => {
+      // The primitive throws for an unbound drive; executeCommand swallows the
+      // throw into an honest { success:false, error } result — never a success.
+      edgeWriteService.writeRegister.mockRejectedValueOnce(
+        new BadRequestException('VFD device-123 is not bound to an edge gateway'),
+      );
+
+      const command: VfdCommandInput = { command: VfdCommandType.START };
+
+      const result = await service.executeCommand('device-123', tenantId, command);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/not bound to an edge gateway/i);
     });
   });
 
@@ -333,42 +363,17 @@ describe('VfdCommandService', () => {
     });
   });
 
-  describe('connection management (pooled)', () => {
-    // Per-command disconnect was deliberately replaced by a per-device
-    // connection pool (60 s idle window) — these tests pin the pooling
-    // contract instead of the retired connect/disconnect-per-command flow.
-    it('should reuse the pooled connection across commands', async () => {
-      const { createVfdAdapter } = require('../../adapters');
+  describe('edge dispatch', () => {
+    // The in-process connection pool (connect/disconnect/closeConnection) was
+    // retired — every command is a discrete edge-delegated write. There is no
+    // cloud socket to pool or release.
+    it('issues one discrete edge write per command (no pooling)', async () => {
       const command: VfdCommandInput = { command: VfdCommandType.START };
 
       await service.executeCommand('device-123', tenantId, command);
       await service.executeCommand('device-123', tenantId, command);
 
-      // One adapter, one connect — the second command rode the pool.
-      expect(createVfdAdapter).toHaveBeenCalledTimes(1);
-      const adapterInstance = createVfdAdapter.mock.results[0].value;
-      expect(adapterInstance.connect).toHaveBeenCalledTimes(1);
-      expect(adapterInstance.writeControlWord).toHaveBeenCalledTimes(2);
-    });
-
-    it('should disconnect when the connection is released', async () => {
-      const { createVfdAdapter } = require('../../adapters');
-      const mockDisconnect = jest.fn().mockResolvedValue(undefined);
-      createVfdAdapter.mockImplementationOnce(() => ({
-        connect: jest.fn().mockResolvedValue({ id: 'connection-123', isConnected: true }),
-        disconnect: mockDisconnect,
-        writeControlWord: jest
-          .fn()
-          .mockResolvedValue({ success: true, latencyMs: 5, acknowledgedAt: new Date() }),
-      }));
-
-      const command: VfdCommandInput = { command: VfdCommandType.START };
-
-      await service.executeCommand('device-123', tenantId, command);
-      expect(mockDisconnect).not.toHaveBeenCalled(); // pooled, still open
-
-      await service.closeConnection('device-123');
-      expect(mockDisconnect).toHaveBeenCalledTimes(1);
+      expect(edgeWriteService.writeRegister).toHaveBeenCalledTimes(2);
     });
   });
 });

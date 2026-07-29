@@ -3382,6 +3382,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/sensor-detection/__tests__/sensor-channel-detection.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/sensor-detection/sensor-channel-detection.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/sensor-detection/sensor-channel-detection.responder.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/tenant-config/__tests__/agent-config.encryption.spec.ts",
       "prettier_managed": true
     },
@@ -9742,6 +9760,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/migrations/1806700000000-FeedingForecastFoundation.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1806800000000-WidenRelatedSensorReadingIdToFederationId.ts",
       "prettier_managed": true
     },
     {
@@ -23282,19 +23306,43 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/sensor-service/src/calibration/calibration.entity.ts",
+      "path": "apps/sensor-service/src/calibration/__tests__/calibration.resolver.spec.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/sensor-service/src/calibration/calibration.service.ts",
+      "path": "apps/sensor-service/src/calibration/__tests__/calibration.service.spec.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/sensor-service/src/calibration/drift-detection.service.ts",
+      "path": "apps/sensor-service/src/calibration/calibration-event.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/calibration/calibration-recording.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/calibration/calibration.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/calibration/calibration.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/calibration/dto/calibration.dto.ts",
       "prettier_managed": true
     },
     {
@@ -23318,6 +23366,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/common/__tests__/redact-protocol-secrets.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/common/__tests__/sensor-parameter-catalog.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/common/errors.ts",
       "prettier_managed": true
     },
@@ -23331,6 +23391,30 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/common/message-queue.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/common/payload/__tests__/sensor-payload-parser.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/common/payload/sensor-payload-parser.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/common/redact-protocol-secrets.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/common/sensor-parameter-catalog.ts",
       "prettier_managed": true
     },
     {
@@ -23420,6 +23504,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/entities/__tests__/sensor-reading-key.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/database/entities/channel-detection-log.entity.ts",
       "prettier_managed": true
     },
@@ -23450,6 +23540,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/entities/sensor-reading-key.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/database/entities/sensor-reading.entity.ts",
       "prettier_managed": true
     },
@@ -23463,6 +23559,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/database/entities/sensor.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/__tests__/encrypt-lora-app-keys.migration.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/__tests__/encrypt-protocol-config-secrets.migration.spec.ts",
       "prettier_managed": true
     },
     {
@@ -23808,6 +23916,60 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/database/migrations/1807000000000-CreateVfdCommandAuditLog.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1808000000000-AddVfdDeviceEdgeBinding.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1809000000000-AddEdgeDeviceConfigAckTracking.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1810000000000-AddCalibrationEventsAndInterval.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1811000000000-EncryptProtocolConfigSecrets.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1812000000000-EncryptLoraAppKeysAtRest.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1813000000000-ConsolidateSensorMetricsToSensorSchema.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1814000000000-AddSensorMetricsSensorChannelTimeIndex.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1815000000000-CreateTenantSensorMetricsHypertable.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1816000000000-BackfillSensorReadingsIntoTenantMetrics.ts",
       "prettier_managed": true
     },
     {
@@ -24161,6 +24323,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/infrastructure/vault/__tests__/protocol-config-encryption.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/infrastructure/vault/credential-crypto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/infrastructure/vault/credential-vault.constants.ts",
       "prettier_managed": true
     },
@@ -24191,7 +24365,13 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/sensor-service/src/ingestion/__tests__/batch-processor.service.spec.ts",
+      "path": "apps/sensor-service/src/infrastructure/vault/protocol-config.transformer.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/infrastructure/vault/protocol-secret-fields.ts",
       "prettier_managed": true
     },
     {
@@ -24227,7 +24407,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/sensor-service/src/ingestion/batch-processor.service.ts",
+      "path": "apps/sensor-service/src/ingestion/__tests__/sensor-metric-writer.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -24276,6 +24456,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/ingestion/sensor-meta-cache.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/ingestion/sensor-metric-writer.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/ingestion/sensor-metric-writer.service.ts",
       "prettier_managed": true
     },
     {
@@ -24617,7 +24809,31 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/protocol/adapters/__tests__/base-protocol-adapter.log-redaction.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/protocol/adapters/__tests__/base-protocol-adapter.ssrf.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/protocol/adapters/__tests__/network-adapter-ssrf-guard.arch.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/protocol/adapters/__tests__/protocol-codec-golden.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/protocol/adapters/__tests__/protocol-implementation-status.spec.ts",
       "prettier_managed": true
     },
     {
@@ -24779,6 +24995,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/protocol/adapters/iot/__tests__/amqp.adapter.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/protocol/adapters/iot/__tests__/http-rest.adapter.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/protocol/adapters/iot/amqp.adapter.ts",
       "prettier_managed": true
     },
@@ -24816,6 +25044,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/protocol/adapters/protocol-adapters.registry.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/protocol/adapters/protocol-implementation-status.ts",
       "prettier_managed": true
     },
     {
@@ -24911,6 +25145,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/protocol/services/__tests__/connection-tester.stub-guard.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/protocol/services/__tests__/protocol-registry.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/protocol/services/connection-tester.service.ts",
       "prettier_managed": true
     },
@@ -24930,6 +25176,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/registration/__tests__/registration-outbox-events.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/registration/__tests__/registration-type-definition.spec.ts",
       "prettier_managed": true
     },
     {
@@ -24965,6 +25217,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/registration/services/__tests__/channel-discovery.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/registration/services/__tests__/serial-number.policy.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/registration/services/channel-discovery.service.ts",
       "prettier_managed": true
     },
@@ -24978,6 +25242,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/registration/services/sensor-registration.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/registration/services/serial-number.policy.ts",
       "prettier_managed": true
     },
     {
@@ -25259,12 +25529,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/sensor-service/src/sensor/dto/create-sensor.dto.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/sensor-service/src/sensor/dto/ingest-reading.dto.ts",
       "prettier_managed": true
     },
@@ -25344,6 +25608,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/sensor/services/__tests__/sensor-ingestion.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/sensor/services/__tests__/sensor-query.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -25452,6 +25722,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/stream-processing/stream-processing.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/timescale/__tests__/continuous-aggregate.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -25571,6 +25847,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/vfd-programming/services/__tests__/vfd-change-set-scheduler.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/vfd-programming/services/__tests__/vfd-change-set.service.spec.ts",
       "prettier_managed": true
     },
@@ -25620,72 +25902,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/vfd-programming/vfd-programming.module.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/__tests__/base-vfd.adapter.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/__tests__/vfd-modbus-tcp.adapter.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/base-vfd.adapter.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/index.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/vfd-bacnet.adapter.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/vfd-canopen.adapter.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/vfd-ethernet-ip.adapter.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/vfd-modbus-rtu.adapter.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/vfd-modbus-tcp.adapter.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/vfd-profibus-dp.adapter.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/sensor-service/src/vfd/adapters/vfd-profinet.adapter.ts",
       "prettier_managed": true
     },
     {
@@ -25865,6 +26081,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/vfd/protocol-config/__tests__/vfd-protocol-catalog.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/protocol-config/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/protocol-config/vfd-protocol-catalog.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/vfd/resolvers/__tests__/vfd-command.resolver.spec.ts",
       "prettier_managed": true
     },
@@ -25919,7 +26153,43 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-data-reader.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-device.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-edge-provisioning.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-edge-read.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-edge-write.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-reading-codec.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-write-edge-only.arch.spec.ts",
       "prettier_managed": true
     },
     {
@@ -25950,6 +26220,30 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/vfd/services/vfd-device.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/vfd-edge-provisioning.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/vfd-edge-read.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/vfd-edge-write.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/vfd-reading-codec.ts",
       "prettier_managed": true
     },
     {
@@ -31939,6 +32233,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/2026-07-17-sensor-device-industrial-protocol-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/2026-07-27-ci-full-contract.md",
       "prettier_managed": true
     },
@@ -37300,6 +37600,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/sensor/__tests__/sensor-reading-id.codec.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/sensor/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/sensor/sensor-reading-id.codec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/telemetry/index.ts",
       "prettier_managed": true
     },
@@ -37469,6 +37787,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/__tests__/messaging-event-registry.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/__tests__/sensor-reading-parameters.spec.ts",
       "prettier_managed": true
     },
     {
@@ -37775,6 +38099,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/sensor-events.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/sensor-reading-parameters.ts",
       "prettier_managed": true
     },
     {
@@ -41977,6 +42307,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/sensor-ingestion-honest-deployment.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/sensor-no-forged-user-payload.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/sensor-parameter-catalog-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/sensor-single-write-path.spec.ts",
       "prettier_managed": true
     },
     {
@@ -49767,6 +50115,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/components/registration/__tests__/ChildSensorFormModal.typeDefinition.test.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/components/registration/ChannelEditorModal.tsx",
       "prettier_managed": true
     },
@@ -49791,12 +50145,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/sensor-module/src/components/registration/steps/BasicInfoStep.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/sensor-module/src/components/registration/steps/ChildSensorsStep.tsx",
       "prettier_managed": true
     },
@@ -49804,12 +50152,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/components/registration/steps/ConnectionTestStep.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/sensor-module/src/components/registration/steps/DataChannelsStep.tsx",
       "prettier_managed": true
     },
     {
@@ -52329,6 +52671,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/hooks/useSensorParameterCatalog.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/hooks/useSensorReadings.ts",
       "prettier_managed": true
     },
@@ -52348,6 +52696,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/hooks/useSensorThresholds.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/hooks/useSensorTypeDefinitions.ts",
       "prettier_managed": true
     },
     {
@@ -53134,6 +53488,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/test-setup.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/types/__tests__/inferChildSensorConfig.test.ts",
       "prettier_managed": true
     },
     {
@@ -54960,10 +55320,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9009,
+  "file_count": 9069,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8828,
-  "managed_file_list_sha256": "780f8751e4a352be3645ea0f53b3f9d173eae68211741c293b89e51ed7b0cec0",
+  "managed_count": 8888,
+  "managed_file_list_sha256": "ab897da534c2c025917cbb4d5ab2fa666f55ef5a19214b2200b0ee31d165001e",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

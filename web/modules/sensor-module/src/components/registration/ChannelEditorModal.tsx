@@ -141,23 +141,7 @@ export function ChannelEditorModal({
     });
   };
 
-  // Calculate calibrated value preview
-  const getCalibratedPreview = () => {
-    if (!formData.calibrationEnabled || formData.sampleValue === undefined) {
-      return null;
-    }
-    const raw = typeof formData.sampleValue === 'number'
-      ? formData.sampleValue
-      : parseFloat(String(formData.sampleValue));
-    if (isNaN(raw)) return null;
-
-    const calibrated = (raw * formData.calibrationMultiplier) + formData.calibrationOffset;
-    return { raw, calibrated };
-  };
-
   if (!isOpen) return null;
-
-  const calibratedPreview = getCalibratedPreview();
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
@@ -329,86 +313,41 @@ export function ChannelEditorModal({
               </div>
             )}
 
-            {/* Calibration Tab */}
+            {/* Calibration Tab — read-only (SENSOR-HIGH-083).
+                Calibration coefficients are owned by the calibration aggregate:
+                they can only be changed on the Calibration page via
+                recordCalibration, which stamps lastCalibratedAt / nextCalibrationDue
+                so the calibration status stays truthful. Editing them here (a
+                channel-config surface that never stamped those dates) is exactly
+                the write path that made every channel read "never calibrated". */}
             {activeTab === 'calibration' && (
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-900">Enable Calibration</h4>
-                    <p className="text-sm text-gray-500">Apply linear transformation to raw values</p>
-                  </div>
-                  <button
-                    onClick={() => handleChange('calibrationEnabled', !formData.calibrationEnabled)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      formData.calibrationEnabled ? 'bg-blue-600' : 'bg-gray-300'
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        formData.calibrationEnabled ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <p className="text-sm font-medium text-blue-900">
+                    Kalibrasyon, Kalibrasyon sayfasından yönetilir
+                  </p>
+                  <p className="text-sm text-blue-700 mt-1">
+                    Kalibrasyon katsayıları (çarpan/ofset) yalnızca Kalibrasyon
+                    sayfasında; son kalibrasyon tarihi ve sonraki kalibrasyon zamanı
+                    damgalanarak kaydedilir. Bu kanalın mevcut değerleri aşağıda
+                    salt-okunur gösterilir.
+                  </p>
                 </div>
 
-                {formData.calibrationEnabled && (
-                  <>
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <p className="text-sm text-blue-800 font-medium mb-2">Formula:</p>
-                      <p className="text-lg font-mono text-blue-900">
-                        calibrated = (raw × {formData.calibrationMultiplier}) + {formData.calibrationOffset}
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Multiplier (Slope)
-                        </label>
-                        <input
-                          type="number"
-                          step="0.0001"
-                          value={formData.calibrationMultiplier}
-                          onChange={(e) => handleChange('calibrationMultiplier', parseFloat(e.target.value) || 1.0)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Offset (Intercept)
-                        </label>
-                        <input
-                          type="number"
-                          step="0.0001"
-                          value={formData.calibrationOffset}
-                          onChange={(e) => handleChange('calibrationOffset', parseFloat(e.target.value) || 0.0)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                        />
-                      </div>
-                    </div>
-
-                    {calibratedPreview && (
-                      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                        <p className="text-sm text-green-800 font-medium mb-2">Preview with Sample Value:</p>
-                        <div className="flex items-center space-x-4">
-                          <div>
-                            <span className="text-xs text-green-600">Raw:</span>
-                            <p className="text-lg font-medium text-green-900">{calibratedPreview.raw}</p>
-                          </div>
-                          <svg className="w-6 h-6 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                          </svg>
-                          <div>
-                            <span className="text-xs text-green-600">Calibrated:</span>
-                            <p className="text-lg font-medium text-green-900">
-                              {calibratedPreview.calibrated.toFixed(4)} {formData.unit}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <span className="block text-xs text-gray-500">Durum</span>
+                    <span className="text-sm font-medium text-gray-900">
+                      {formData.calibrationEnabled ? 'Aktif' : 'Pasif'}
+                    </span>
+                  </div>
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <span className="block text-xs text-gray-500">Formül</span>
+                    <span className="text-sm font-mono text-gray-900">
+                      (ham × {formData.calibrationMultiplier}) + {formData.calibrationOffset}
+                    </span>
+                  </div>
+                </div>
               </div>
             )}
 

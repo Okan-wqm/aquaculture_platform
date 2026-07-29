@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { Channel, ChannelModel, ConsumeMessage, GetMessage, Options } from 'amqplib';
 
 import {
   ProtocolCategory,
@@ -42,31 +43,9 @@ export interface AmqpConfiguration {
   messageFormat: 'json' | 'text' | 'binary';
 }
 
-interface AmqpMessage {
-  content: Buffer;
-}
-
-interface AmqpChannel {
-  prefetch: (count: number) => Promise<void>;
-  assertExchange: (name: string, type: string, options: { durable: boolean }) => Promise<void>;
-  assertQueue: (name: string, options: { durable: boolean }) => Promise<{ queue: string }>;
-  bindQueue: (queue: string, exchange: string, routingKey: string) => Promise<void>;
-  close: () => Promise<void>;
-  get: (queue: string, options: { noAck: boolean }) => Promise<AmqpMessage | false>;
-  consume: (queue: string, callback: (msg: AmqpMessage | null) => void) => Promise<{ consumerTag: string }>;
-  ack: (msg: AmqpMessage) => void;
-  cancel: (consumerTag: string) => Promise<void>;
-}
-
-interface AmqpConnection {
-  [key: string]: unknown;
-  createChannel: () => Promise<AmqpChannel>;
-  close: () => Promise<void>;
-}
-
 interface AmqpConnectionData {
-  connection: AmqpConnection;
-  channel: AmqpChannel;
+  connection: ChannelModel;
+  channel: Channel;
   config: AmqpConfiguration;
   queueName: string;
 }
@@ -88,12 +67,27 @@ export class AmqpAdapter extends BaseProtocolAdapter<AmqpConfiguration> {
     // Dynamic import
     const amqp = await import('amqplib');
 
-    const protocol = amqpConfig.useTls ? 'amqps' : 'amqp';
-    const url = `${protocol}://${amqpConfig.username}:${amqpConfig.password}@${amqpConfig.host}:${amqpConfig.port}/${encodeURIComponent(amqpConfig.vhost)}`;
+    // SENSOR-HIGH-075: validate the operator-supplied broker host before
+    // connecting (dial by hostname to preserve TLS SNI / vhost routing).
+    await this.assertOutboundHostAllowed(amqpConfig.host, amqpConfig.port);
 
-    const connection = await amqp.connect(url, {
+    // SENSOR-MEDIUM-059: pass credentials as discrete connection options rather
+    // than interpolating `username:password@host` into a URL string. A URL that
+    // carries the password routinely leaks into stack traces and structured logs
+    // on connect failure (and into ConnectionTestResult.error, which is surfaced
+    // to the tenant); the options form keeps the secret out of every string this
+    // adapter builds or hands to the driver's error path.
+    const connectOptions: Options.Connect = {
+      protocol: amqpConfig.useTls ? 'amqps' : 'amqp',
+      hostname: amqpConfig.host,
+      port: amqpConfig.port,
+      username: amqpConfig.username,
+      password: amqpConfig.password,
+      vhost: amqpConfig.vhost,
       heartbeat: amqpConfig.heartbeat,
-    }) as unknown as AmqpConnection;
+    };
+
+    const connection = await amqp.connect(connectOptions);
 
     const channel = await connection.createChannel();
     await channel.prefetch(amqpConfig.prefetchCount);
@@ -160,7 +154,7 @@ export class AmqpAdapter extends BaseProtocolAdapter<AmqpConfiguration> {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error('Read timeout')), 30000);
 
-      connData.channel.get(connData.queueName, { noAck: true }).then((msg: AmqpMessage | false) => {
+      connData.channel.get(connData.queueName, { noAck: true }).then((msg: GetMessage | false) => {
         clearTimeout(timeout);
         if (msg) {
           const data = this.parseMessage(msg.content, connData.config);
@@ -185,7 +179,7 @@ export class AmqpAdapter extends BaseProtocolAdapter<AmqpConfiguration> {
     if (!connData) throw new Error('Connection not found');
 
     let isActive = true;
-    const consumerTag = await connData.channel.consume(connData.queueName, (msg: AmqpMessage | null) => {
+    const consumerTag = await connData.channel.consume(connData.queueName, (msg: ConsumeMessage | null) => {
       if (msg) {
         try {
           const data = this.parseMessage(msg.content, connData.config);

@@ -1,12 +1,14 @@
 import {
   Injectable,
   Logger,
+  Inject,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { ClientProxy } from '@nestjs/microservices';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, IsNull, DataSource } from 'typeorm';
+import { firstValueFrom, timeout } from 'rxjs';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import {
   CircuitBreakerService,
@@ -19,6 +21,30 @@ import {
   ChannelDataType,
   DiscoverySource,
 } from '../database/entities/sensor-data-channel.entity';
+
+/** DI token for the outbound NATS client used to reach ai-service. */
+export const AI_NATS_CLIENT = 'AI_NATS_CLIENT';
+
+/** NATS request timeout for the deterministic channel-detection round-trip. */
+const AI_DETECT_TIMEOUT_MS = 15_000;
+
+/** A channel proposal as returned by ai-service's detectChannels responder. */
+interface AiChannelProposal {
+  channelKey: string;
+  displayLabel: string;
+  dataType?: 'number' | 'boolean' | 'string';
+  unit?: string;
+  operationalMin?: number;
+  operationalMax?: number;
+}
+
+/** Wire response from `request.ai.sensor.detectChannels`. */
+interface DetectChannelsAiResponse {
+  proposals: AiChannelProposal[];
+  detectedFields: unknown[];
+  confidence: 'high' | 'medium' | 'low';
+  error?: { code: string; message: string };
+}
 
 /**
  * Channel definition proposed by AI or local fallback analysis
@@ -47,7 +73,6 @@ export interface ProposedChannel {
 @Injectable()
 export class ChannelDetectionService {
   private readonly logger = new Logger(ChannelDetectionService.name);
-  private readonly aiServiceUrl: string;
 
   constructor(
     @InjectDataSource()
@@ -56,19 +81,21 @@ export class ChannelDetectionService {
     private readonly logRepo: Repository<ChannelDetectionLog>,
     @InjectRepository(SensorDataChannel)
     private readonly channelRepo: Repository<SensorDataChannel>,
-    private readonly configService: ConfigService,
     /**
-     * CIRCUIT-LOW-002 cure (channel-detection callsite): the
-     * cross-service fetch to ai-service runs through the canonical
-     * breaker. fail-OPEN-degraded so an ai-service outage degrades
-     * to the existing local-heuristics fallback (see detectChannels'
-     * try/catch) instead of cascading into the sensor-ingestion
-     * pipeline.
+     * SENSOR-MEDIUM-070: outbound NATS client to ai-service's
+     * request.ai.sensor.detectChannels responder. Identity on the wire is this
+     * service's mTLS NATS cert (ADR-015) — no forged x-user-payload user.
+     */
+    @Inject(AI_NATS_CLIENT)
+    private readonly aiNatsClient: ClientProxy,
+    /**
+     * CIRCUIT-LOW-002 cure (channel-detection callsite): the cross-service AI
+     * call runs through the canonical breaker (fail-closed); detectChannels'
+     * try/catch degrades a tripped breaker or AI outage to local heuristics
+     * instead of cascading into the sensor-ingestion pipeline.
      */
     private readonly circuitBreaker: CircuitBreakerService,
-  ) {
-    this.aiServiceUrl = this.configService.get<string>('AI_SERVICE_URL', 'http://localhost:3008');
-  }
+  ) {}
 
   /**
    * Detect channels from raw sensor data samples.
@@ -241,99 +268,73 @@ export class ChannelDetectionService {
   }
 
   /**
-   * Call the AI service to analyze sensor data samples.
-   * Posts to /api/v2/ai/chat with a structured prompt that forces tool use.
-   * Includes tenant auth headers for service-to-service authentication.
+   * Derive channel proposals from raw sensor samples via ai-service's
+   * deterministic detectChannels responder (`request.ai.sensor.detectChannels`)
+   * over NATS request-reply.
+   *
+   * SENSOR-MEDIUM-070: replaces the dead `/api/v2/ai/chat` HTTP POST that forged
+   * an `x-user-payload` supervisor user and silently 404'd (ai-service AI chat is
+   * NATS-only). Identity on the wire is now this service's mTLS NATS cert
+   * (ADR-015), authorized by a first-class service principal on the ai-service
+   * side — no fabricated user, no user RBAC.
    */
   private async callAiService(
     samples: unknown[],
     tenantId: string,
     sensorId?: string,
   ): Promise<{ aiAnalysis: Record<string, unknown>; proposedChannels: ProposedChannel[] }> {
-    const url = `${this.aiServiceUrl}/api/v2/ai/chat`;
-    const body = {
-      message: [
-        'You MUST use the following tools in order to complete this task.',
-        'Step 1: Call analyze_sensor_data with the provided samples.',
-        'Step 2: Call suggest_sensor_channels with the analysis results.',
-        `Sensor ID: ${sensorId ?? 'unknown'}`,
-        `Samples: ${JSON.stringify(samples)}`,
-      ].join('\n'),
-      persona: 'operator-v1',
-      tools: ['analyze_sensor_data', 'suggest_sensor_channels'],
-    };
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'x-tenant-id': tenantId,
-      'x-user-payload': JSON.stringify({ sub: 'system', roles: ['supervisor'] }),
-    };
-
-    // CIRCUIT-LOW-002 cure: canonical breaker wrap. Per-tenant key
-    // so a single noisy tenant cannot trip the breaker for every
-    // other tenant's channel-detection. fail-closed because the
-    // caller (detectChannels) already has its own try/catch
-    // wrapping callAiService — a closed breaker becomes a thrown
-    // error which the outer fallback path interprets as
-    // "AI unavailable, use local heuristics" — the same behaviour
-    // a 500-status response triggers.
-    const response = await this.circuitBreaker.execute<Response>({
+    // CIRCUIT-LOW-002 cure: canonical breaker wrap, per-tenant key. fail-closed
+    // because detectChannels' try/catch degrades a closed breaker or AI outage
+    // to local heuristics — the same behaviour an error response triggers.
+    const response = await this.circuitBreaker.execute<DetectChannelsAiResponse>({
       serviceName: 'sensor-channel-detection-ai',
       tenantId,
       options: {
         ...DEFAULT_BREAKER_OPTIONS,
         failureMode: 'fail-closed',
       },
-      fn: async () => {
-        const r = await fetch(url, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(body),
-          signal: AbortSignal.timeout(30000),
-        });
-        if (!r.ok) {
-          throw new Error(
-            `AI service returned ${r.status} ${r.statusText}`,
-          );
-        }
-        return r;
-      },
+      fn: async () =>
+        firstValueFrom(
+          this.aiNatsClient
+            .send<DetectChannelsAiResponse>('request.ai.sensor.detectChannels', {
+              tenantId,
+              sensorId: sensorId ?? 'unknown',
+              samples,
+            })
+            .pipe(timeout(AI_DETECT_TIMEOUT_MS)),
+        ),
     });
 
-    // The chat endpoint returns SSE events; collect tool_result events
-    const text = await response.text();
-    let aiAnalysis: Record<string, unknown> = {};
-    let proposedChannels: ProposedChannel[] = [];
-
-    // Parse SSE events from the response
-    const lines = text.split('\n');
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue;
-      try {
-        const event = JSON.parse(line.slice(6)) as {
-          type: string;
-          name?: string;
-          result?: Record<string, unknown>;
-        };
-        if (event.type === 'tool_result' && event.name === 'analyze_sensor_data' && event.result) {
-          aiAnalysis = event.result;
-        }
-        if (event.type === 'tool_result' && event.name === 'suggest_sensor_channels' && event.result) {
-          const result = event.result as { proposals?: ProposedChannel[] };
-          proposedChannels = result.proposals ?? [];
-        }
-      } catch {
-        // Skip malformed SSE lines
-      }
+    if (response.error) {
+      // Surface as a throw so detectChannels' catch degrades to local heuristics.
+      throw new Error(
+        `AI channel detection failed: ${response.error.code} ${response.error.message}`,
+      );
     }
 
-    // If no tool results, fall back to local analysis
+    const proposedChannels: ProposedChannel[] = response.proposals.map((p) => ({
+      channelKey: p.channelKey,
+      displayLabel: p.displayLabel,
+      dataType: p.dataType,
+      unit: p.unit,
+      operationalMin: p.operationalMin,
+      operationalMax: p.operationalMax,
+    }));
+
     if (proposedChannels.length === 0) {
-      this.logger.warn('AI service returned no tool results, falling back to local analysis');
-      return this.localFallbackAnalysis(samples as unknown[]);
+      this.logger.warn(
+        'AI channel detection returned no proposals, falling back to local analysis',
+      );
+      return this.localFallbackAnalysis(samples);
     }
 
-    return { aiAnalysis, proposedChannels };
+    return {
+      aiAnalysis: {
+        detectedFields: response.detectedFields,
+        confidence: response.confidence,
+      },
+      proposedChannels,
+    };
   }
 
   /**

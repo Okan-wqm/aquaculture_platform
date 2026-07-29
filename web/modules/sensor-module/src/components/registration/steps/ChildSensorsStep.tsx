@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChildSensorConfig, SensorType, KNOWN_PARAMETERS } from '../../../types/registration.types';
+import { ChildSensorConfig, SensorType } from '../../../types/registration.types';
 
 interface ChildSensorsStepProps {
   childSensors: ChildSensorConfig[];

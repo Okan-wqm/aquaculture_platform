@@ -51,6 +51,7 @@ describe('SensorRegistrationService — outbox registration events (SENSOR-LOW-0
     const connectionTester = {};
     eventEmitter = { emit: jest.fn() };
     const channelManagement = { createChannelsForSensor: jest.fn().mockResolvedValue([]) };
+    const sensorTypeService = { createChannelsFromTypeDefinition: jest.fn().mockResolvedValue([]) };
     outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
     service = new SensorRegistrationService(
@@ -61,6 +62,7 @@ describe('SensorRegistrationService — outbox registration events (SENSOR-LOW-0
       connectionTester as never,
       eventEmitter as never,
       channelManagement as never,
+      sensorTypeService as never,
       outboxPublisher as never,
     );
   });

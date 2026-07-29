@@ -40,6 +40,16 @@ use tracing::{debug, info, warn};
 /// Default EtherNet/IP port
 pub const DEFAULT_ENIP_PORT: u16 = 44818;
 
+/// SENSOR-HIGH-077 (ux-truth / ICS-safety): Allen-Bradley Logix program
+/// upload/download is not implemented — it requires Studio 5000 and the
+/// proprietary AOI + CIP file services. Returning a fabricated success receipt for
+/// a program that was never transmitted lets an operator believe control logic is
+/// deployed when it is not, so program transfer fails closed with this message.
+const ETHERNET_IP_PROGRAM_TRANSFER_UNSUPPORTED: &str = "Allen-Bradley (EtherNet/IP) \
+program transfer is not implemented; Logix program upload/download requires Studio \
+5000 and the proprietary AOI/CIP file services. Refusing to report a program as \
+transferred when nothing was exchanged with the PLC.";
+
 /// Maximum EtherNet/IP packet size (prevent memory exhaustion)
 const MAX_ENIP_PACKET_SIZE: usize = 65536;
 
@@ -794,44 +804,27 @@ impl PlcProgrammer for EtherNetIpClient {
 
         validate_program_source(&program.source)?;
 
-        // Convert to AOI format
+        // Validate the program is convertible, then fail closed: the actual upload
+        // (CIP file services + proprietary Logix format) is not implemented, so we
+        // must not report a program as deployed when nothing was transmitted
+        // (SENSOR-HIGH-077).
         let _aoi = self.convert_to_aoi(program)?;
-
-        // Full upload would use CIP file services
-        // This requires proprietary format knowledge
-
-        let result = UploadResult {
-            success: true,
-            program_id: Some(program.name.clone()),
-            warnings: vec![
-                "Full program upload requires Studio 5000 for Logix PLCs".to_string(),
-                "ST is not native to Allen-Bradley - use Ladder or Function Block".to_string(),
-            ],
-            errors: Vec::new(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-            plc_response: HashMap::new(),
-        };
 
         audit_program_upload(
             "EtherNet/IP",
             &self.config.address,
             &program.name,
-            result.success,
-            "OK",
+            false,
+            "unsupported",
         );
 
-        Ok(result)
+        Err(anyhow!(ETHERNET_IP_PROGRAM_TRANSFER_UNSUPPORTED))
     }
 
-    async fn download_program(&self, program_name: &str) -> Result<PlcProgram> {
-        Ok(PlcProgram {
-            name: program_name.to_string(),
-            language: super::ProgramLanguage::Ld, // AB primarily uses Ladder
-            source: "// Downloaded from Allen-Bradley PLC".to_string(),
-            variables: Vec::new(),
-            function_blocks: Vec::new(),
-            metadata: HashMap::new(),
-        })
+    async fn download_program(&self, _program_name: &str) -> Result<PlcProgram> {
+        // SENSOR-HIGH-077: reading a Logix program back also requires Studio 5000;
+        // do not hand back a placeholder program as if it came from the PLC.
+        Err(anyhow!(ETHERNET_IP_PROGRAM_TRANSFER_UNSUPPORTED))
     }
 
     async fn start(&self) -> Result<()> {
@@ -873,11 +866,14 @@ impl PlcProgrammer for EtherNetIpClient {
     async fn compile(&self, program: &PlcProgram) -> Result<UploadResult> {
         validate_program_source(&program.source)?;
 
+        // SENSOR-HIGH-077: report an honest compile failure instead of success:true.
+        // AB compilation (ST → Logix AOI) requires Studio 5000, so no downloadable
+        // artifact is produced.
         Ok(UploadResult {
-            success: true,
+            success: false,
             program_id: None,
-            warnings: vec!["AB compilation requires Studio 5000".to_string()],
-            errors: Vec::new(),
+            warnings: Vec::new(),
+            errors: vec![ETHERNET_IP_PROGRAM_TRANSFER_UNSUPPORTED.to_string()],
             timestamp: chrono::Utc::now().to_rfc3339(),
             plc_response: HashMap::new(),
         })
@@ -890,7 +886,43 @@ impl PlcProgrammer for EtherNetIpClient {
 
 #[cfg(test)]
 mod tests {
+    use super::super::ProgramLanguage;
     use super::*;
+
+    fn sample_program() -> PlcProgram {
+        PlcProgram {
+            name: "MainRoutine".to_string(),
+            language: ProgramLanguage::St,
+            source: "PROGRAM main VAR x : BOOL; END_VAR x := TRUE; END_PROGRAM".to_string(),
+            variables: Vec::new(),
+            function_blocks: Vec::new(),
+            metadata: HashMap::new(),
+        }
+    }
+
+    /// SENSOR-HIGH-077 — upload must fail closed rather than fabricate a success
+    /// receipt for a program that was never transmitted to the PLC.
+    #[tokio::test]
+    async fn upload_program_fails_closed_instead_of_fabricating_success() {
+        let client = EtherNetIpClient::new(EtherNetIpConfig::default());
+        let err = client.upload_program(&sample_program()).await.unwrap_err();
+        assert!(err.to_string().contains("not implemented"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn download_program_fails_closed_instead_of_returning_a_stub() {
+        let client = EtherNetIpClient::new(EtherNetIpConfig::default());
+        let err = client.download_program("MainRoutine").await.unwrap_err();
+        assert!(err.to_string().contains("not implemented"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn compile_reports_honest_failure_not_fake_success() {
+        let client = EtherNetIpClient::new(EtherNetIpConfig::default());
+        let result = client.compile(&sample_program()).await.unwrap();
+        assert!(!result.success);
+        assert!(result.errors.iter().any(|e| e.contains("not implemented")));
+    }
 
     #[test]
     fn test_config_default() {

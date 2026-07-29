@@ -20,6 +20,11 @@ import {
 } from '@aquaculture/backend-common/resilience';
 import { SsrfValidatorService } from '@aquaculture/backend-common/ai-safety';
 
+import {
+  extractReadingValues,
+  isMetadataFieldKey,
+} from '../../../common/payload/sensor-payload-parser';
+
 /**
  * HTTP REST Configuration
  */
@@ -115,17 +120,20 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
       throw new Error(testResult.error || 'Failed to connect');
     }
 
+    // SENSOR-HIGH-082: store the FULL configuration on the handle so readData can
+    // honor responseFormat / dataPath / dataMapping. Previously only
+    // { baseUrl, endpoint } was kept, so every read ran with the parsing config
+    // dropped even before parseResponse.
     const handle = this.createConnectionHandle(
       httpConfig.sensorId ?? 'unknown',
       httpConfig.tenantId ?? 'unknown',
-      { baseUrl: httpConfig.baseUrl, endpoint: httpConfig.endpoint }
+      { ...httpConfig },
     );
 
     this.logConnectionEvent('connect', handle, { baseUrl: httpConfig.baseUrl });
     return handle;
   }
 
-   
   async disconnect(handle: ConnectionHandle): Promise<void> {
     // Stop polling if active
     const pollingInterval = this.pollingIntervals.get(handle.id);
@@ -148,7 +156,7 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
 
       let sampleData: SensorReadingData | undefined;
       try {
-        sampleData = this.parseResponse(response, httpConfig);
+        sampleData = await this.parseResponse(response, httpConfig);
       } catch {
         // Sample data parsing is optional
       }
@@ -183,7 +191,7 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
 
     const response = await this.makeRequest(config);
     this.updateLastActivity(handle);
-    return this.parseResponse(response, config);
+    return await this.parseResponse(response, config);
   }
 
   private async makeRequest(config: HttpRestConfiguration): Promise<Response> {
@@ -258,12 +266,14 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
 
   private async addAuthentication(
     headers: Record<string, string>,
-    config: HttpRestConfiguration
+    config: HttpRestConfiguration,
   ): Promise<void> {
     switch (config.authType) {
       case 'basic':
         if (config.username && config.password) {
-          const credentials = Buffer.from(`${config.username}:${config.password}`).toString('base64');
+          const credentials = Buffer.from(`${config.username}:${config.password}`).toString(
+            'base64',
+          );
           headers['Authorization'] = `Basic ${credentials}`;
         }
         break;
@@ -351,7 +361,7 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
         throw new Error('Failed to obtain OAuth2 token');
       }
 
-      const data = await response.json() as OAuth2TokenResponse;
+      const data = (await response.json()) as OAuth2TokenResponse;
       const expiresAt = new Date(Date.now() + (data.expires_in ?? 3600) * 1000 - 60000);
 
       this.oauth2Tokens.set(cacheKey, {
@@ -366,22 +376,27 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
     }
   }
 
-   
-  private parseResponse(_response: Response, _config: HttpRestConfiguration): SensorReadingData {
-    const timestamp = new Date();
-    const values: Record<string, number | string | boolean | null> = {};
+  /**
+   * SENSOR-HIGH-082: parse the response body into channel values using the shared
+   * sensor-payload engine — the same extraction ChannelDiscoveryService uses, so a
+   * reading's keys line up with the channels discovered at registration. Honors the
+   * operator's `responseFormat`, `dataPath`, and `dataMapping` (previously all
+   * discarded). A parse failure throws so the read surfaces an honest error rather
+   * than an empty reading.
+   */
+  private async parseResponse(
+    response: Response,
+    config: HttpRestConfiguration,
+  ): Promise<SensorReadingData> {
+    const raw = await response.text();
+    const values = extractReadingValues(raw, config.responseFormat, {
+      dataPath: config.dataPath,
+      dataMapping: config.dataMapping,
+      shouldSkip: isMetadataFieldKey,
+    });
 
-    // Placeholder implementation: response-body parsing follows the
-    // path-derived dataMapping in `_config.dataPath` /
-    // `_config.dataMapping`, which currently no protocol consumer
-    // populates (the IoT protocol catalogue ships with vendor-
-    // specific adapters that override parseResponse). When a generic
-    // dataMapping consumer is introduced (tracked under the
-    // sensor-service-protocol ADR follow-on), this method walks
-    // `dataPath` JSONPointer-style and applies `dataMapping` to
-    // produce typed channel values.
     return {
-      timestamp,
+      timestamp: new Date(),
       values,
       quality: 100,
       source: 'http_rest',
@@ -410,7 +425,9 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
 
     // Auth validation
     if (cfg.authType === 'basic' && (!cfg.username || !cfg.password)) {
-      errors.push(this.validationError('username', 'Username and password required for Basic auth'));
+      errors.push(
+        this.validationError('username', 'Username and password required for Basic auth'),
+      );
     }
 
     if (cfg.authType === 'bearer' && !cfg.bearerToken) {
@@ -435,11 +452,28 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
 
     // Warnings
     if (cfg.baseUrl?.startsWith('http://')) {
-      warnings.push(this.validationWarning('baseUrl', 'Using HTTP instead of HTTPS. Consider using HTTPS for security.'));
+      warnings.push(
+        this.validationWarning(
+          'baseUrl',
+          'Using HTTP instead of HTTPS. Consider using HTTPS for security.',
+        ),
+      );
     }
 
     if (cfg.authType === 'none') {
       warnings.push(this.validationWarning('authType', 'No authentication configured'));
+    }
+
+    // Be honest about verifySsl rather than silently ignoring it: the SSRF-safe
+    // fetch always verifies TLS and pins the connection to the validated IP, so
+    // certificate verification cannot be turned off.
+    if (cfg.verifySsl === false) {
+      warnings.push(
+        this.validationWarning(
+          'verifySsl',
+          'TLS certificate verification is always enforced and cannot be disabled; this setting is ignored.',
+        ),
+      );
     }
 
     return {
@@ -606,8 +640,16 @@ export class HttpRestAdapter extends BaseProtocolAdapter<HttpRestConfiguration> 
       },
       'ui:groups': [
         { name: 'connection', title: 'Connection', fields: ['baseUrl', 'endpoint', 'method'] },
-        { name: 'authentication', title: 'Authentication', fields: ['authType', 'username', 'password', 'bearerToken', 'apiKey', 'apiKeyHeader'] },
-        { name: 'oauth2', title: 'OAuth2', fields: ['oauth2TokenUrl', 'oauth2ClientId', 'oauth2ClientSecret', 'oauth2Scope'] },
+        {
+          name: 'authentication',
+          title: 'Authentication',
+          fields: ['authType', 'username', 'password', 'bearerToken', 'apiKey', 'apiKeyHeader'],
+        },
+        {
+          name: 'oauth2',
+          title: 'OAuth2',
+          fields: ['oauth2TokenUrl', 'oauth2ClientId', 'oauth2ClientSecret', 'oauth2Scope'],
+        },
         { name: 'polling', title: 'Polling', fields: ['pollingEnabled', 'pollingInterval'] },
         { name: 'security', title: 'Security', fields: ['verifySsl'] },
         { name: 'data', title: 'Data Parsing', fields: ['responseFormat', 'dataPath'] },

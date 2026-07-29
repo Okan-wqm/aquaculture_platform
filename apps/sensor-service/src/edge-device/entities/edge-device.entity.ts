@@ -245,6 +245,20 @@ export class EdgeDevice {
   @Column({ name: 'target_firmware_version', length: 30, nullable: true })
   targetFirmwareVersion?: string;
 
+  // Configuration Sync (SENSOR-HIGH-064)
+  // The I/O config the device most recently CONFIRMED applying, tracked by a
+  // content hash of the pushed agent config + the ack timestamp. Set only when a
+  // real `update_io_config` ack arrives (correlated by commandId), never on
+  // publish — so the operator sees the truthful applied state, not an optimistic
+  // "pushed" state.
+  @Field({ nullable: true })
+  @Column({ name: 'applied_config_hash', type: 'varchar', length: 64, nullable: true })
+  appliedConfigHash?: string;
+
+  @Field({ nullable: true })
+  @Column({ name: 'last_config_ack_at', type: 'timestamptz', nullable: true })
+  lastConfigAckAt?: Date;
+
   // Health Metrics
   @Field(() => Int, { nullable: true })
   @Column({ name: 'cpu_usage', type: 'int', nullable: true })

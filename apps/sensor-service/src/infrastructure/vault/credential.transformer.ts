@@ -11,6 +11,15 @@ export function setVaultInstance(vault: CredentialVaultService): void {
   vaultInstance = vault;
 }
 
+/**
+ * The process-wide vault instance (set at module init). Null before init / in
+ * migration contexts. Shared with the jsonb protocol-config transformer so both
+ * transformers use one key + one crypto scheme.
+ */
+export function getVaultInstance(): CredentialVaultService | null {
+  return vaultInstance;
+}
+
 export const EncryptedColumnTransformer: ValueTransformer = {
   to(value: string | null | undefined): string | null | undefined {
     if (!value) return value;

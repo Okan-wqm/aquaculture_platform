@@ -14,6 +14,8 @@ import {
 } from '@platform/event-bus';
 import {
   createBaseEvent,
+  parameterForChannelKey,
+  readingFieldForParameter,
   type SensorMetricIngestedEvent,
   type SensorReadingEvent,
   validateSensorEvent,
@@ -24,13 +26,13 @@ import { SensorMetricInput } from '../database/entities/sensor-metric.entity';
 import { Sensor } from '../database/entities/sensor.entity';
 import { TagValueFanoutService } from '../scada-runtime/services/tag-value-fanout.service';
 
-import { BatchProcessorService } from './batch-processor.service';
+import { SensorMetricWriterService } from './sensor-metric-writer.service';
 import { SensorMetaCacheService } from './sensor-meta-cache.service';
 
 /**
  * NATS consumer that bridges the Rust ingestion sidecar
  * (`apps/sensor-ingestion`, ADR-025) into the existing NestJS
- * `BatchProcessorService` persistence path AND re-emits the typed
+ * `SensorMetricWriterService` persistence path AND re-emits the typed
  * `SensorReadingEvent` for downstream consumers.
  *
  * WHY this service exists (ADR-022 control / data plane separation):
@@ -56,7 +58,7 @@ import { SensorMetaCacheService } from './sensor-meta-cache.service';
  *   invalidation event arrived (e.g. raw SQL UPDATE).
  *
  * WHY publish typed event AFTER enqueue (not before):
- *   `BatchProcessorService.enqueue` is fire-and-forget into an
+ *   `SensorMetricWriterService.enqueue` is fire-and-forget into an
  *   in-memory buffer; it returns synchronously without waiting for the
  *   actual DB write. Publishing typed events after the enqueue
  *   guarantees alert-engine receives the event in topology order
@@ -91,7 +93,7 @@ export class NatsIngestionConsumerService
   private statsTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(
-    private readonly batchProcessor: BatchProcessorService,
+    private readonly metricWriter: SensorMetricWriterService,
     private readonly configService: ConfigService,
     private readonly metaCache: SensorMetaCacheService,
     @Optional()
@@ -277,7 +279,7 @@ export class NatsIngestionConsumerService
       farmId: event.farmId ?? sensor.farmId ?? undefined,
       pondId: event.pondId ?? sensor.pondId ?? undefined,
     };
-    this.batchProcessor.enqueue(metric);
+    this.metricWriter.enqueue(metric);
     this.enqueuedCount++;
 
     // 4b. Live fan-out to subscribed /scada operator sockets. Best-effort by
@@ -348,46 +350,14 @@ export class NatsIngestionConsumerService
       pondId: event.pondId ?? sensor.pondId ?? undefined,
     };
 
-    const v = event.value;
-    switch (channel.channelKey.toLowerCase()) {
-      case 'temperature':
-      case 'temp':
-        reading.readingTemperature = v;
-        break;
-      case 'ph':
-        reading.readingPh = v;
-        break;
-      case 'do':
-      case 'dissolved_oxygen':
-      case 'dissolvedoxygen':
-        reading.readingDissolvedOxygen = v;
-        break;
-      case 'salinity':
-        reading.readingSalinity = v;
-        break;
-      case 'ammonia':
-        reading.readingAmmonia = v;
-        break;
-      case 'nitrite':
-        reading.readingNitrite = v;
-        break;
-      case 'nitrate':
-        reading.readingNitrate = v;
-        break;
-      case 'turbidity':
-        reading.readingTurbidity = v;
-        break;
-      case 'water_level':
-      case 'waterlevel':
-      case 'level':
-        reading.readingWaterLevel = v;
-        break;
-      default:
-        // Unknown channelKey: the typed event has no field that fits.
-        // Downstream consumers that filter by channel key will skip it;
-        // the metric is still in the batch processor (DB-side
-        // representation is channel-key-agnostic).
-        break;
+    // SENSOR-MEDIUM-066/068: channelKey → parameter → flat field via the single
+    // event-contract SSoT (was a hand-maintained switch). An out-of-vocabulary
+    // channelKey (flow_rate, orp, co2, …) resolves to undefined — the typed event
+    // has no field that fits; the metric is still in the batch processor, so no
+    // data is lost DB-side.
+    const parameter = parameterForChannelKey(channel.channelKey);
+    if (parameter !== undefined) {
+      reading[readingFieldForParameter(parameter)] = event.value;
     }
     return reading;
   }

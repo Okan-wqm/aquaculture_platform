@@ -1,17 +1,14 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThanOrEqual } from 'typeorm';
 
-import {
-  createVfdAdapter,
-  VfdConnectionHandle,
-  VfdReadResult,
-} from '../adapters';
 import { VfdDevice } from '../entities/vfd-device.entity';
 import { VfdReading } from '../entities/vfd-reading.entity';
 
 import { VfdDeviceService } from './vfd-device.service';
+import { VfdEdgeReadService } from './vfd-edge-read.service';
 import { VfdRegisterMappingService } from './vfd-register-mapping.service';
+import { buildVfdReadResult, VfdReadResult } from './vfd-reading-codec';
 
 /**
  * Time range for reading queries
@@ -23,122 +20,41 @@ export interface TimeRange {
 
 /**
  * VFD Data Reader Service
- * Handles reading data from VFD devices and storing readings
+ *
+ * SENSOR-CRITICAL-007 / Faz 4: VFD telemetry is edge-delegated. This service does
+ * NOT open a socket to the drive (and no longer pools in-process connections) —
+ * it reads every configured register through `VfdEdgeReadService` (edge
+ * `read_modbus`) and decodes the values with the shared `VfdReadingCodec`. A
+ * failed edge read throws rather than returning fabricated telemetry.
  */
 @Injectable()
-export class VfdDataReaderService implements OnModuleInit, OnModuleDestroy {
+export class VfdDataReaderService {
   private readonly logger = new Logger(VfdDataReaderService.name);
-
-  // Active connections cache
-  private activeConnections: Map<string, {
-    handle: VfdConnectionHandle;
-    adapter: ReturnType<typeof createVfdAdapter>;
-    lastActivity: Date;
-  }> = new Map();
-
-  // Background eviction timer (MEDIUM-005)
-  private evictionTimer: ReturnType<typeof setInterval> | null = null;
-  private static readonly EVICTION_INTERVAL_MS = 5 * 60 * 1000;   // 5 minutes
-  private static readonly STALE_CONNECTION_MS   = 5 * 60 * 1000;  // 5 minutes idle
-
-  // Per-device connect lock: prevents concurrent callers from opening duplicate sockets
-  private connectLocks: Map<string, Promise<{
-    adapter: ReturnType<typeof createVfdAdapter>;
-    handle: VfdConnectionHandle;
-  }>> = new Map();
 
   constructor(
     @InjectRepository(VfdReading)
     private readonly vfdReadingRepository: Repository<VfdReading>,
     private readonly vfdDeviceService: VfdDeviceService,
-    private readonly registerMappingService: VfdRegisterMappingService
+    private readonly registerMappingService: VfdRegisterMappingService,
+    private readonly edgeReadService: VfdEdgeReadService,
   ) {}
 
-  onModuleInit(): void {
-    // Evict stale VFD connections every 5 minutes (MEDIUM-005)
-    this.evictionTimer = setInterval(() => {
-      this.evictStaleConnections();
-    }, VfdDataReaderService.EVICTION_INTERVAL_MS);
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    if (this.evictionTimer) {
-      clearInterval(this.evictionTimer);
-      this.evictionTimer = null;
-    }
-    await this.closeAllConnections();
-  }
-
   /**
-   * Evict VFD connections that have been idle longer than STALE_CONNECTION_MS.
-   * Prevents indefinite handle accumulation for decommissioned devices (MEDIUM-005).
-   */
-  private evictStaleConnections(): void {
-    const cutoff = Date.now() - VfdDataReaderService.STALE_CONNECTION_MS;
-    for (const [deviceId, conn] of this.activeConnections.entries()) {
-      if (conn.lastActivity.getTime() < cutoff) {
-        this.closeConnection(deviceId).catch((err) =>
-          this.logger.warn(`Failed to evict stale connection for device ${deviceId}: ${(err as Error).message}`),
-        );
-      }
-    }
-  }
-
-  /**
-   * Read current parameters from a VFD device
+   * Read current parameters from a VFD device (all mapped registers).
    */
   async readParameters(deviceId: string, tenantId: string): Promise<VfdReadResult> {
     const device = await this.vfdDeviceService.findById(deviceId, tenantId);
     const mappings = await this.registerMappingService.getMappingsForBrand(device.brand);
-
-    // Get or create connection
-    const { adapter, handle } = await this.getOrCreateConnection(device);
-
-    try {
-      // Read parameters using adapter
-      const result = await adapter.readParameters(handle, mappings);
-
-      // Save reading to database
-      await this.saveReading(device, result);
-
-      // Update device connection status
-      await this.vfdDeviceService.updateConnectionStatus(deviceId, tenantId, {
-        isConnected: true,
-        lastTestedAt: new Date(),
-        latencyMs: result.latencyMs,
-      });
-
-      return result;
-    } catch (error) {
-      this.logger.error(`Failed to read parameters from device ${deviceId}`, error);
-
-      // Update connection status
-      await this.vfdDeviceService.updateConnectionStatus(deviceId, tenantId, {
-        isConnected: false,
-        lastError: (error as Error).message,
-      });
-
-      throw error;
-    }
+    return this.readViaEdge(device, tenantId, mappings, 'read parameters', true);
   }
 
   /**
-   * Read only critical parameters (for fast polling)
+   * Read only critical parameters (for fast polling).
    */
   async readCriticalParameters(deviceId: string, tenantId: string): Promise<VfdReadResult> {
     const device = await this.vfdDeviceService.findById(deviceId, tenantId);
     const mappings = await this.registerMappingService.getCriticalMappings(device.brand);
-
-    const { adapter, handle } = await this.getOrCreateConnection(device);
-
-    try {
-      const result = await adapter.readParameters(handle, mappings);
-      await this.saveReading(device, result);
-      return result;
-    } catch (error) {
-      this.logger.error(`Failed to read critical parameters from device ${deviceId}`, error);
-      throw error;
-    }
+    return this.readViaEdge(device, tenantId, mappings, 'read critical parameters', false);
   }
 
   /**
@@ -158,7 +74,7 @@ export class VfdDataReaderService implements OnModuleInit, OnModuleDestroy {
     deviceId: string,
     tenantId: string,
     timeRange?: TimeRange,
-    limit?: number
+    limit?: number,
   ): Promise<VfdReading[]> {
     const whereCondition: Record<string, unknown> = {
       vfdDeviceId: deviceId,
@@ -182,7 +98,7 @@ export class VfdDataReaderService implements OnModuleInit, OnModuleDestroy {
   async getReadingStats(
     deviceId: string,
     tenantId: string,
-    timeRange: TimeRange
+    timeRange: TimeRange,
   ): Promise<{
     avgOutputFrequency?: number;
     maxOutputFrequency?: number;
@@ -239,9 +155,15 @@ export class VfdDataReaderService implements OnModuleInit, OnModuleDestroy {
     }
 
     return {
-      avgOutputFrequency: result.avgoutputfrequency ? parseFloat(result.avgoutputfrequency) : undefined,
-      maxOutputFrequency: result.maxoutputfrequency ? parseFloat(result.maxoutputfrequency) : undefined,
-      minOutputFrequency: result.minoutputfrequency ? parseFloat(result.minoutputfrequency) : undefined,
+      avgOutputFrequency: result.avgoutputfrequency
+        ? parseFloat(result.avgoutputfrequency)
+        : undefined,
+      maxOutputFrequency: result.maxoutputfrequency
+        ? parseFloat(result.maxoutputfrequency)
+        : undefined,
+      minOutputFrequency: result.minoutputfrequency
+        ? parseFloat(result.minoutputfrequency)
+        : undefined,
       avgMotorCurrent: result.avgmotorcurrent ? parseFloat(result.avgmotorcurrent) : undefined,
       maxMotorCurrent: result.maxmotorcurrent ? parseFloat(result.maxmotorcurrent) : undefined,
       avgOutputPower: result.avgoutputpower ? parseFloat(result.avgoutputpower) : undefined,
@@ -259,7 +181,7 @@ export class VfdDataReaderService implements OnModuleInit, OnModuleDestroy {
   async getReadingStatsByPeriod(
     deviceId: string,
     tenantId: string,
-    period: 'hour' | 'day' | 'week' | 'month'
+    period: 'hour' | 'day' | 'week' | 'month',
   ): Promise<{
     vfdDeviceId: string;
     period: string;
@@ -315,7 +237,7 @@ export class VfdDataReaderService implements OnModuleInit, OnModuleDestroy {
   async readFilteredParameters(
     deviceId: string,
     tenantId: string,
-    parameterNames?: string[]
+    parameterNames?: string[],
   ): Promise<VfdReadResult> {
     const result = await this.readParameters(deviceId, tenantId);
 
@@ -349,79 +271,55 @@ export class VfdDataReaderService implements OnModuleInit, OnModuleDestroy {
     return result.affected || 0;
   }
 
-  /**
-   * Close connection for a device
-   */
-  async closeConnection(deviceId: string): Promise<void> {
-    const cached = this.activeConnections.get(deviceId);
-    if (cached) {
-      try {
-        await cached.adapter.disconnect(cached.handle);
-      } catch (error) {
-        this.logger.warn(`Error closing connection for device ${deviceId}`, error);
-      }
-      this.activeConnections.delete(deviceId);
-    }
-  }
-
-  /**
-   * Close all connections
-   */
-  async closeAllConnections(): Promise<void> {
-    for (const [deviceId] of this.activeConnections) {
-      await this.closeConnection(deviceId);
-    }
-  }
-
   // ============ PRIVATE METHODS ============
 
   /**
-   * Get or create connection to a device.
-   * Uses a per-device promise lock so concurrent poll calls wait for the same
-   * connect() rather than each opening their own socket.
+   * Read the given register mappings via the owning edge gateway and decode them
+   * into a `VfdReadResult`. Fail-closed: an edge read failure throws (no
+   * fabricated reading) and, when `updateStatus`, marks the drive disconnected.
    */
-  private getOrCreateConnection(device: VfdDevice): Promise<{
-    adapter: ReturnType<typeof createVfdAdapter>;
-    handle: VfdConnectionHandle;
-  }> {
-    const cached = this.activeConnections.get(device.id);
+  private async readViaEdge(
+    device: VfdDevice,
+    tenantId: string,
+    mappings: Awaited<ReturnType<VfdRegisterMappingService['getMappingsForBrand']>>,
+    intent: string,
+    updateStatus: boolean,
+  ): Promise<VfdReadResult> {
+    const edgeResult = await this.edgeReadService.readAllRegisters(device, intent);
 
-    if (cached && cached.handle.isConnected) {
-      const idleTime = Date.now() - cached.lastActivity.getTime();
-      if (idleTime < 60000) { // 1 minute idle timeout
-        cached.lastActivity = new Date();
-        return Promise.resolve({ adapter: cached.adapter, handle: cached.handle });
-      }
-      // Stale connection: close asynchronously, then fall through to reconnect
-      void this.closeConnection(device.id);
-    }
-
-    // If a connect is already in progress for this device, reuse that promise
-    const inflight = this.connectLocks.get(device.id);
-    if (inflight) {
-      return inflight;
-    }
-
-    const connectPromise = (async () => {
-      try {
-        const adapter = createVfdAdapter(device.protocol);
-        const handle = await adapter.connect(device.protocolConfiguration);
-
-        this.activeConnections.set(device.id, {
-          adapter,
-          handle,
-          lastActivity: new Date(),
+    if (!edgeResult.success) {
+      if (updateStatus) {
+        await this.vfdDeviceService.updateConnectionStatus(device.id, tenantId, {
+          isConnected: false,
+          lastError: edgeResult.error ?? 'Edge read failed',
         });
-
-        return { adapter, handle };
-      } finally {
-        // Remove the lock regardless of success or failure
-        this.connectLocks.delete(device.id);
       }
-    })();
+      this.logger.error(
+        `Failed to read parameters from device ${device.id}: ${edgeResult.error ?? 'unknown error'}`,
+      );
+      throw new Error(
+        `Edge read failed for VFD ${device.id}: ${edgeResult.error ?? 'unknown error'}`,
+      );
+    }
 
-    this.connectLocks.set(device.id, connectPromise);
-    return connectPromise;
+    const reading = buildVfdReadResult(
+      mappings,
+      edgeResult.values,
+      edgeResult.latencyMs ?? 0,
+      new Date(),
+    );
+
+    await this.saveReading(device, reading);
+
+    if (updateStatus) {
+      await this.vfdDeviceService.updateConnectionStatus(device.id, tenantId, {
+        isConnected: true,
+        lastTestedAt: reading.timestamp,
+        latencyMs: reading.latencyMs,
+      });
+    }
+
+    return reading;
   }
 
   /**

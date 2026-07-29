@@ -50,6 +50,10 @@ mod lora;
 pub mod ping_handler;
 mod plc;
 mod program;
+// Runtime Modbus device provisioning (Slice 3.5 / SENSOR-CRITICAL-007):
+// cmd_provision_modbus_device / cmd_decommission_modbus_device hot-add/remove a
+// tenant-added VFD on the live Modbus actor + persist it into config.modbus.
+mod provision;
 mod rbac;
 mod read;
 mod refresh_license;

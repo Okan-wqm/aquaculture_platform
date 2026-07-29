@@ -17,7 +17,7 @@
 import { MobileCommandEnvelopeInput } from '@aquaculture/backend-common/mobile-command';
 import { InputType, Field, ID } from '@nestjs/graphql';
 import { Type } from 'class-transformer';
-import { IsDate, IsEnum, IsNotEmpty, IsObject, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsDate, IsEnum, IsNotEmpty, IsObject, IsOptional, IsString, IsUUID, Matches, MaxLength } from 'class-validator';
 import GraphQLJSON from 'graphql-type-json';
 
 import { MeasurementSource } from '../entities/water-quality-measurement.entity';
@@ -87,15 +87,28 @@ export class CreateWaterQualityInput extends MobileCommandEnvelopeInput {
   idempotencyKey?: string;
 
   /**
-   * Phase 7.4 — cross-service correlation. When this measurement was
-   * derived from a specific `sensor_readings` row in sensor-service,
-   * pass the reading's UUID. Null for manual / bulk-imported
-   * measurements. See water-quality-measurement.entity.ts for the
-   * architectural rationale (informational pointer, not a DB FK).
+   * Phase 7.4 — cross-service correlation. When this measurement was derived
+   * from a specific sensor reading, pass that reading's federation id. Null for
+   * manual / bulk-imported measurements. See water-quality-measurement.entity.ts
+   * for the architectural rationale (informational pointer, not a DB FK).
+   *
+   * SENSOR-HIGH-085: this is NOT a uuid. A SensorReading is an as-of projection
+   * over the tenant's metrics, not a stored row, so its `id` is an opaque
+   * base64url codec of the projection's anchor. It is validated for shape and
+   * length only — sensor-service owns the format and is the only component that
+   * may decode it, so asserting anything more here would duplicate that codec's
+   * contract into a second service and break every time it evolves.
    */
-  @Field(() => ID, { nullable: true, description: 'Source sensor_readings row that produced this measurement' })
+  @Field(() => ID, {
+    nullable: true,
+    description: 'Federation id of the sensor reading that produced this measurement',
+  })
   @IsOptional()
-  @IsUUID()
+  @IsString()
+  @Matches(/^[A-Za-z0-9_-]+$/, {
+    message: 'relatedSensorReadingId must be an opaque base64url sensor-reading id',
+  })
+  @MaxLength(512)
   relatedSensorReadingId?: string;
 
   @Field({ nullable: true, description: 'Notlar' })

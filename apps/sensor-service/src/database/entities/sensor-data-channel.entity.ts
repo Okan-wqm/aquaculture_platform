@@ -288,6 +288,13 @@ export class SensorDataChannel {
   @Column({ name: 'next_calibration_due', type: 'timestamptz', nullable: true })
   nextCalibrationDue?: Date;
 
+  // Per-channel calibration interval (days). Set when a calibration is recorded
+  // (or via updateDataChannel as a config choice) and used to compute
+  // nextCalibrationDue. Null means no schedule → overdue warnings never fire.
+  @Field(() => Int, { nullable: true })
+  @Column({ name: 'calibration_interval_days', type: 'int', nullable: true })
+  calibrationIntervalDays?: number;
+
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ name: 'calibration_polynomial', type: 'jsonb', nullable: true })
   calibrationPolynomial?: CalibrationPolynomial;

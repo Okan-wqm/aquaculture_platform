@@ -18,19 +18,31 @@
  * - Proper error types for client handling
  */
 
+import { anchorFromDate, encodeSensorReadingId } from '@aquaculture/backend-common/sensor';
 import { Injectable, Logger, Optional, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import {
+  canonicalChannelKeyForParameter,
   createBaseEvent,
+  parameterForChannelKey,
+  readingFieldForParameter,
+  SENSOR_READING_PARAMETERS,
   type SensorReadingEvent,
+  type SensorReadingField,
+  type SensorReadingParameter,
   type ParentReadingRoutedEvent,
 } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { Repository, DataSource, In } from 'typeorm';
 
-import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
+import {
+  DiscoverySource,
+  SensorDataChannel,
+} from '../../database/entities/sensor-data-channel.entity';
+import { QualityCodes, type SensorMetricInput } from '../../database/entities/sensor-metric.entity';
 import { SensorReading, SensorReadings } from '../../database/entities/sensor-reading.entity';
 import { Sensor, SensorRole, SensorType } from '../../database/entities/sensor.entity';
+import { SensorMetricWriterService } from '../../ingestion/sensor-metric-writer.service';
 import { CalibrationService } from './calibration.service';
 import { DataQualityService } from './data-quality.service';
 import { ReadingMapperRegistry } from './reading-mapper.service';
@@ -142,8 +154,6 @@ export class SensorIngestionService {
   private static readonly MAX_BATCH_SIZE = 10000;
 
   constructor(
-    @InjectRepository(SensorReading)
-    private readonly readingRepository: Repository<SensorReading>,
     @InjectRepository(Sensor)
     private readonly sensorRepository: Repository<Sensor>,
     @Optional()
@@ -155,6 +165,11 @@ export class SensorIngestionService {
     private readonly calibrationService: CalibrationService,
     private readonly dataQualityService: DataQualityService,
     private readonly readingMapperRegistry: ReadingMapperRegistry,
+    // SENSOR-MEDIUM-066/068 — the SINGLE writer for sensor.sensor_metrics,
+    // shared with the MQTT/edge/Rust ingestion plane (SensorMetricWriterModule),
+    // so a GraphQL-ingested reading lands in the same channel-keyed store the
+    // device-read path queries.
+    private readonly metricWriter: SensorMetricWriterService,
   ) {
     this.channelCache = new BoundedCache(
       SensorIngestionService.CACHE_MAX_SIZE,
@@ -190,18 +205,31 @@ export class SensorIngestionService {
     // Calculate data quality score
     const quality = this.dataQualityService.calculateQuality(transformedReadings);
 
-    // Create reading entity
-    const reading = this.readingRepository.create({
-      id: crypto.randomUUID(),
+    // Build the reading read-model. SENSOR-HIGH-085: the id is the as-of anchor
+    // codec (not a stored uuid), so the reading a client just ingested resolves
+    // back through federation resolveReference to the same projection.
+    const timestamp = validatedData.timestamp ?? new Date();
+    const reading: SensorReading = {
+      id: encodeSensorReadingId(validatedData.sensorId, anchorFromDate(timestamp)),
       sensorId: validatedData.sensorId,
       tenantId: validatedData.tenantId,
       readings: transformedReadings,
       pondId: validatedData.pondId,
       farmId: validatedData.farmId,
-      timestamp: validatedData.timestamp || new Date(),
+      timestamp,
       source: validatedData.source || 'http',
       quality,
-    });
+    };
+
+    // Resolve the per-parameter channel map ONCE, before the write transaction.
+    // applyCalibration() above warmed CalibrationService's channel cache for this
+    // sensor, so this is a cache hit — no DB round-trip added to the hot path.
+    const channelsByParameter = await this.ensureChannelsForParameters(
+      validatedData.sensorId,
+      validatedData.tenantId,
+      transformedReadings,
+      await this.resolveChannelsByParameter(validatedData.sensorId),
+    );
 
     // Save the reading AND enqueue the SensorReading event atomically in a
     // single transaction. The outbox INSERT joins the same DB transaction as
@@ -215,9 +243,22 @@ export class SensorIngestionService {
       () =>
         this.databaseCircuitBreaker.execute(() =>
           this.dataSource.transaction(async (manager) => {
-            const persisted = await manager.save(SensorReading, reading);
-            await this.outboxPublisher.enqueue(this.buildReadingEvent(persisted), manager);
-            return persisted;
+            // SENSOR-HIGH-085: no sensor_readings row is written — the reading is
+            // an as-of projection over sensor.sensor_metrics. The SensorReading
+            // event and the channel-keyed metric rows are both derived from the
+            // in-memory reading and enqueued/written INSIDE this transaction, so
+            // the SENSOR-CRITICAL-001 atomicity guarantee now spans enqueue +
+            // metrics (either both commit or neither) with no stored-row write.
+            await this.outboxPublisher.enqueue(this.buildReadingEvent(reading), manager);
+            const metrics = this.buildMetricInputs(
+              reading,
+              validatedData.readings,
+              channelsByParameter,
+            );
+            if (metrics.length > 0) {
+              await this.metricWriter.writeManaged(metrics, manager);
+            }
+            return reading;
           }),
         ),
       {
@@ -267,8 +308,10 @@ export class SensorIngestionService {
     const sensorIds = [...new Set(validatedReadings.map((r) => r.sensorId))];
     await this.prefetchCalibrationConfigs(sensorIds);
 
-    // Process readings with calibration
-    const entities: SensorReading[] = [];
+    // Process readings with calibration. Each prepared item carries both the
+    // persisted entity (calibrated `readings`) AND the raw input readings, so
+    // the sensor_metrics projection can record the (raw, calibrated) split.
+    const prepared: Array<{ entity: SensorReading; rawReadings: SensorReadings }> = [];
     for (const data of validatedReadings) {
       // Apply calibration (uses cached configs)
       const transformedReadings = await this.calibrationService.applyCalibration(
@@ -278,40 +321,85 @@ export class SensorIngestionService {
 
       const quality = this.dataQualityService.calculateQuality(transformedReadings);
 
-      entities.push(
-        this.readingRepository.create({
-          id: crypto.randomUUID(),
+      const timestamp = data.timestamp ?? new Date();
+      prepared.push({
+        entity: {
+          id: encodeSensorReadingId(data.sensorId, anchorFromDate(timestamp)),
           sensorId: data.sensorId,
           tenantId: data.tenantId,
           readings: transformedReadings,
           pondId: data.pondId,
           farmId: data.farmId,
-          timestamp: data.timestamp || new Date(),
+          timestamp,
           source: data.source || 'batch',
           quality,
-        }),
+        },
+        rawReadings: data.readings,
+      });
+    }
+
+    // Resolve the per-parameter channel map for each unique sensor ONCE. The
+    // prefetchCalibrationConfigs()/applyCalibration() calls above warmed the
+    // channel cache, so these resolve from cache — no extra DB round-trip.
+    const channelMapsBySensor = new Map<
+      string,
+      Map<SensorReadingParameter, SensorDataChannel>
+    >();
+    for (const sensorId of sensorIds) {
+      // Union of every parameter this sensor reports in the batch, so one
+      // provisioning pass covers the whole chunk (SENSOR-HIGH-085 / B1).
+      const reported: SensorReadings = {};
+      for (const { entity } of prepared) {
+        if (entity.sensorId !== sensorId) continue;
+        for (const parameter of SENSOR_READING_PARAMETERS) {
+          const value = entity.readings[parameter];
+          if (value !== undefined) reported[parameter] = value;
+        }
+      }
+      const tenantId = prepared.find((p) => p.entity.sensorId === sensorId)!.entity.tenantId;
+      channelMapsBySensor.set(
+        sensorId,
+        await this.ensureChannelsForParameters(
+          sensorId,
+          tenantId,
+          reported,
+          await this.resolveChannelsByParameter(sensorId),
+        ),
       );
     }
 
     // Use chunked inserts, ONE transaction per chunk, each retried
-    // INDEPENDENTLY. Each chunk's reading saves AND its per-reading
-    // SensorReading event enqueues commit atomically together: a chunk either
-    // fully persists with all its events in the outbox, or rolls back entirely
-    // (SENSOR-CRITICAL-001). withRetry wraps each chunk SEPARATELY (not the
-    // whole loop): a transient failure re-runs only the failed chunk, because
-    // retrying the whole loop would re-insert already-committed chunks (PK
-    // conflict / duplicate events). The outbox relay owns NATS delivery after
-    // commit, so no fire-and-forget publish can drop an alert-triggering event.
+    // INDEPENDENTLY. Each chunk's reading saves, its per-reading SensorReading
+    // event enqueues, AND its sensor_metrics projection commit atomically
+    // together: a chunk either fully persists with all its events + metric rows,
+    // or rolls back entirely (SENSOR-CRITICAL-001). withRetry wraps each chunk
+    // SEPARATELY (not the whole loop): a transient failure re-runs only the
+    // failed chunk, because retrying the whole loop would re-insert
+    // already-committed chunks (PK conflict / duplicate events). The outbox relay
+    // owns NATS delivery after commit, so no fire-and-forget publish can drop an
+    // alert-triggering event.
     let totalInserted = 0;
 
-    for (let i = 0; i < entities.length; i += SensorIngestionService.BATCH_CHUNK_SIZE) {
-      const chunk = entities.slice(i, i + SensorIngestionService.BATCH_CHUNK_SIZE);
+    for (let i = 0; i < prepared.length; i += SensorIngestionService.BATCH_CHUNK_SIZE) {
+      const chunk = prepared.slice(i, i + SensorIngestionService.BATCH_CHUNK_SIZE);
       const chunkResult = await withRetry(
         () =>
           this.dataSource.transaction(async (manager) => {
-            await manager.insert(SensorReading, chunk);
-            for (const persisted of chunk) {
-              await this.outboxPublisher.enqueue(this.buildReadingEvent(persisted), manager);
+            // SENSOR-HIGH-085: no sensor_readings insert — each reading's event
+            // and its channel-keyed metric rows are derived from the in-memory
+            // reading and committed atomically per chunk (SENSOR-CRITICAL-001).
+            const chunkMetrics: SensorMetricInput[] = [];
+            for (const { entity, rawReadings } of chunk) {
+              await this.outboxPublisher.enqueue(this.buildReadingEvent(entity), manager);
+              const channelsByParameter = channelMapsBySensor.get(entity.sensorId);
+              if (channelsByParameter) {
+                chunkMetrics.push(
+                  ...this.buildMetricInputs(entity, rawReadings, channelsByParameter),
+                );
+              }
+            }
+            if (chunkMetrics.length > 0) {
+              await this.metricWriter.writeManaged(chunkMetrics, manager);
             }
           }),
         {
@@ -325,7 +413,7 @@ export class SensorIngestionService {
 
       if (!chunkResult.success) {
         this.logger.error(
-          `Batch insert failed after retries at chunk offset ${i}: ${chunkResult.error?.message}`,
+          `Batch ingest failed after retries at chunk offset ${i}: ${chunkResult.error?.message}`,
         );
         throw chunkResult.error;
       }
@@ -615,6 +703,186 @@ export class SensorIngestionService {
   }
 
   /**
+   * Map the sensor's enabled channels to the reading parameter each one carries
+   * (SENSOR-MEDIUM-066/068). Reuses CalibrationService's cache-backed channel
+   * load — already warmed by the applyCalibration()/prefetch call that precedes
+   * every metric build — so the resolution costs no extra DB round-trip on the
+   * ingest hot path. Channels outside the nine-parameter vocabulary
+   * (`parameterForChannelKey` → undefined, e.g. flow_rate/orp/co2) are left out;
+   * those metrics gain a channel-keyed home in convergence phase ≥3. When two
+   * channels resolve to the same parameter, the first wins — one metric row per
+   * (time, sensor, channel) parameter, never a duplicate value under two ids.
+   */
+  private async resolveChannelsByParameter(
+    sensorId: string,
+  ): Promise<Map<SensorReadingParameter, SensorDataChannel>> {
+    const channels = await this.calibrationService.getChannels(sensorId);
+    const byParameter = new Map<SensorReadingParameter, SensorDataChannel>();
+    for (const channel of channels) {
+      const parameter = parameterForChannelKey(channel.channelKey);
+      if (parameter && !byParameter.has(parameter)) {
+        byParameter.set(parameter, channel);
+      }
+    }
+    return byParameter;
+  }
+
+  /**
+   * Guarantee every populated reading parameter has a channel to be stored in,
+   * auto-provisioning the missing ones (SENSOR-HIGH-085 / B1).
+   *
+   * WHY THIS EXISTS: sensor_metrics is channel-keyed, so a parameter with no
+   * channel has nowhere to be persisted. Before the reading store converged, the
+   * flat JSONB row still carried such values; once that store was retired, an
+   * unmapped parameter was accepted, acknowledged as success, and then silently
+   * dropped — permanent data loss on an ingest that reported OK. Skipping the
+   * row is not an option, and neither is failing the ingest: a sensor that sends
+   * a value IS measuring that quantity, so the channel's absence is missing
+   * configuration, not invalid data.
+   *
+   * The correct behaviour is therefore automatic (tier-2): the channel is
+   * provisioned on first sight, keyed by the canonical parameter name. This is
+   * SAFE TO AUTOMATE because the vocabulary is CLOSED — `SENSOR_READING_PARAMETERS`
+   * has exactly nine members and `SensorReadings` cannot carry anything else — so
+   * a malformed payload can never inflate a sensor beyond nine auto channels.
+   *
+   * The channelKey is the canonical parameter name itself rather than a
+   * snake_case rendering: `parameterForChannelKey` lower-cases before lookup and
+   * already resolves it, so no second name-mapping is introduced (the
+   * event-contract SSoT stays the only place that knows the vocabulary).
+   *
+   * Concurrency: two ingests for the same sensor can race, so the insert is
+   * `orIgnore()` against the `(tenantId, sensorId, channelKey)` unique
+   * constraint and the channel set is re-read afterwards — the loser of the race
+   * picks up the winner's row instead of failing.
+   */
+  private async ensureChannelsForParameters(
+    sensorId: string,
+    tenantId: string,
+    readings: SensorReadings,
+    channelsByParameter: Map<SensorReadingParameter, SensorDataChannel>,
+  ): Promise<Map<SensorReadingParameter, SensorDataChannel>> {
+    if (!this.channelRepository) {
+      return channelsByParameter;
+    }
+
+    const missing = SENSOR_READING_PARAMETERS.filter(
+      (parameter) => readings[parameter] !== undefined && !channelsByParameter.has(parameter),
+    );
+    if (missing.length === 0) {
+      return channelsByParameter;
+    }
+
+    await this.channelRepository
+      .createQueryBuilder()
+      .insert()
+      .into(SensorDataChannel)
+      .values(
+        missing.map((parameter) => ({
+          sensorId,
+          tenantId,
+          // The canonical device-naming spelling, not the camelCase parameter:
+          // a platform-minted channel must be indistinguishable from the one a
+          // device would have registered, so the (tenant, sensor, channel_key)
+          // constraint dedupes them instead of leaving two channels for one
+          // parameter.
+          channelKey: canonicalChannelKeyForParameter(parameter),
+          displayLabel: parameter,
+          discoverySource: DiscoverySource.AUTO,
+        })),
+      )
+      .orIgnore()
+      .execute();
+
+    this.logger.log(
+      `Sensor ${sensorId}: auto-provisioned ${missing.length} data channel(s) for reported ` +
+        `parameter(s) ${missing.join(', ')} — the values are now stored instead of dropped`,
+    );
+
+    // The sensor's channel set changed; drop the cached copy so this ingest and
+    // every later one resolve the new channels.
+    this.calibrationService.clearCache(sensorId);
+    return this.resolveChannelsByParameter(sensorId);
+  }
+
+  /**
+   * Project a persisted reading's populated parameters onto channel-keyed
+   * sensor_metrics rows (SENSOR-MEDIUM-066/068). Each populated parameter is
+   * matched to the sensor's channel whose channelKey resolves to it. `value` is
+   * the calibrated result already stored on the reading; `rawValue` is the
+   * pre-calibration input — the same (raw, calibrated) split the MQTT/edge
+   * writer records. qualityCode comes from the channel's own bounds check,
+   * identical to the MQTT path, so both ingestion planes label quality the same
+   * way. The shared writer drops any non-finite value defensively.
+   *
+   * A populated parameter reaching here WITHOUT a channel means its value cannot
+   * be persisted anywhere (SENSOR-HIGH-085 / B1): the flat JSONB row that used to
+   * carry it is retired. ensureChannelsForParameters() runs before every call and
+   * auto-provisions the missing channels precisely so this cannot happen, so a
+   * non-zero count is a real defect — it is logged at ERROR, not debug, and names
+   * the lost parameters rather than being counted away quietly.
+   */
+  private buildMetricInputs(
+    reading: SensorReading,
+    rawReadings: SensorReadings,
+    channelsByParameter: Map<SensorReadingParameter, SensorDataChannel>,
+  ): SensorMetricInput[] {
+    const metrics: SensorMetricInput[] = [];
+    const unmapped: SensorReadingParameter[] = [];
+
+    for (const parameter of SENSOR_READING_PARAMETERS) {
+      const value = reading.readings[parameter];
+      if (value === undefined) {
+        continue;
+      }
+
+      const channel = channelsByParameter.get(parameter);
+      if (!channel) {
+        unmapped.push(parameter);
+        continue;
+      }
+
+      const rawValue = rawReadings[parameter];
+      let qualityCode: number = QualityCodes.GOOD;
+      let qualityBits = 0;
+      const validation = channel.validateValue(value);
+      if (!validation.valid) {
+        qualityCode = QualityCodes.BAD;
+        qualityBits |= 0x20; // out-of-range (clamped) bit
+      } else if (validation.level === 'operational') {
+        qualityCode = QualityCodes.UNCERTAIN_EU_EXCEEDED;
+      }
+
+      metrics.push({
+        time: reading.timestamp,
+        sensorId: reading.sensorId,
+        channelId: channel.id,
+        tenantId: reading.tenantId,
+        farmId: reading.farmId,
+        pondId: reading.pondId,
+        rawValue: typeof rawValue === 'number' ? rawValue : value,
+        value,
+        qualityCode,
+        qualityBits,
+        sourceProtocol: 'graphql',
+        sourceTimestamp: reading.timestamp,
+      });
+    }
+
+    if (unmapped.length > 0) {
+      // Auto-provisioning runs before every call, so reaching here means a value
+      // was accepted and could not be stored anywhere — a real defect, named
+      // rather than counted away (SENSOR-HIGH-085 / B1).
+      this.logger.error(
+        `Sensor ${reading.sensorId}: ${unmapped.length} reading parameter(s) still had no channel ` +
+          `after auto-provisioning and were NOT persisted: ${unmapped.join(', ')}`,
+      );
+    }
+
+    return metrics;
+  }
+
+  /**
    * Build the sensor reading event (v2 — flat readingXxx fields).
    * ARCH-C01: Emits flat fields instead of nested `readings` object.
    *
@@ -623,6 +891,15 @@ export class SensorIngestionService {
    * (SENSOR-CRITICAL-001). It performs no I/O and no eventBus publish.
    */
   private buildReadingEvent(reading: SensorReading): SensorReadingEvent {
+    // Project the JSONB readings onto the flat `readingXxx` event fields via the
+    // single mapping SSoT (SENSOR-MEDIUM-066/068). The SensorReadings keys ARE
+    // the canonical parameter names, so a new parameter is added in exactly one
+    // place (`SENSOR_READING_PARAMETERS`) and producer + consumers stay aligned.
+    const readingFields: Partial<Record<SensorReadingField, number | undefined>> = {};
+    for (const parameter of SENSOR_READING_PARAMETERS) {
+      readingFields[readingFieldForParameter(parameter)] = reading.readings[parameter];
+    }
+
     return {
       ...createBaseEvent<SensorReadingEvent>('SensorReading', reading.tenantId, {
         aggregateId: reading.sensorId,
@@ -634,15 +911,7 @@ export class SensorIngestionService {
       sensorId: reading.sensorId,
       farmId: reading.farmId,
       pondId: reading.pondId,
-      readingTemperature: reading.readings.temperature,
-      readingPh: reading.readings.ph,
-      readingDissolvedOxygen: reading.readings.dissolvedOxygen,
-      readingSalinity: reading.readings.salinity,
-      readingAmmonia: reading.readings.ammonia,
-      readingNitrite: reading.readings.nitrite,
-      readingNitrate: reading.readings.nitrate,
-      readingTurbidity: reading.readings.turbidity,
-      readingWaterLevel: reading.readings.waterLevel,
+      ...readingFields,
     };
   }
 

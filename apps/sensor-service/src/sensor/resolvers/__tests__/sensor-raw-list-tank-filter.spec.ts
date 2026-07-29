@@ -16,7 +16,6 @@ import { Repository } from 'typeorm';
 
 import { SensorReading } from '../../../database/entities/sensor-reading.entity';
 import { Sensor } from '../../../database/entities/sensor.entity';
-import { SensorTypeService } from '../../../sensor-type/sensor-type.service';
 import { SensorIngestionService } from '../../services/sensor-ingestion.service';
 import { SensorQueryService } from '../../services/sensor-query.service';
 import { SensorResolver } from '../sensor.resolver';
@@ -36,7 +35,6 @@ describe('SensorResolver.listSensors tankId filter (MOB-MEDIUM-008)', () => {
         { provide: getRepositoryToken(SensorReading), useValue: {} },
         { provide: SensorIngestionService, useValue: {} },
         { provide: SensorQueryService, useValue: {} },
-        { provide: SensorTypeService, useValue: {} },
       ],
     }).compile();
 

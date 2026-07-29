@@ -68,10 +68,14 @@ export class SiemensS7Adapter extends BaseProtocolAdapter<SiemensS7Configuration
     const nodes7 = await import('nodes7');
     const client = new nodes7.default() as unknown as S7Client;
 
+    // SENSOR-HIGH-075: operator-supplied host — validate + DNS-pin before
+    // dialing so it cannot target metadata/loopback/RFC-1918 internal hosts.
+    const targetIp = await this.resolveAndValidateHost(s7Config.host, s7Config.port);
+
     await new Promise<void>((resolve, reject) => {
       client.initiateConnection(
         {
-          host: s7Config.host,
+          host: targetIp,
           port: s7Config.port,
           rack: s7Config.rack,
           slot: s7Config.slot,

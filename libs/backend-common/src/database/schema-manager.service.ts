@@ -232,9 +232,25 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     tables: [
       // Core sensor entities
       'sensors',
-      'sensor_readings',
+      // SENSOR-HIGH-085: sensor_readings is retired — a reading is now an as-of
+      // projection over each tenant's sensor_metrics hypertable, not a stored
+      // per-tenant row. Removed from the fan-out list so new tenants get no such
+      // table; existing tenants' orphan tables are dropped by F-085-DROP.
+      //
+      // sensor_metrics is a PER-TENANT TimescaleDB hypertable: a tenant's
+      // telemetry lives in that tenant's schema. Delivered by migration
+      // 1815000000000 (unqualified, so provisioning's migration replay creates
+      // one per tenant); its rollups are ensured per tenant by
+      // ContinuousAggregateService, and SensorMetricWriterService derives the
+      // destination schema from each row's tenantId so the process-wide
+      // ingestion singletons write to the right tenant without an ambient
+      // search_path.
       'sensor_metrics',
       'sensor_data_channels',
+      // SENSOR-HIGH-083: per-tenant calibration history (append-only). Written by
+      // the calibration aggregate; its entity omits schema: so it must be cloned
+      // into every tenant schema alongside sensor_data_channels.
+      'calibration_events',
       'sensor_protocols',
       'processes',
 

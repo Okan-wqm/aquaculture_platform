@@ -36,6 +36,15 @@ export class RegisterSensorInput {
   @IsEnum(SensorType)
   type!: SensorType;
 
+  // SENSOR-MEDIUM-071: optional custom type-definition. When set, its
+  // defaultChannels are bootstrapped onto the new sensor inside the registration
+  // transaction (SensorTypeService.createChannelsFromTypeDefinition). Additive to
+  // `type` — the coarse enum the sensors.type column requires — not a replacement.
+  @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
+  typeDefinitionId?: string;
+
   @Field()
   @IsNotEmpty()
   @IsString()
@@ -214,6 +223,11 @@ export class RegisteredSensorType {
 
   @Field(() => SensorType)
   type!: SensorType;
+
+  // SENSOR-MEDIUM-071: the custom type-definition attached at registration, so the
+  // detail page can resolve and display it (null for built-in-type sensors).
+  @Field(() => ID, { nullable: true })
+  typeDefinitionId?: string;
 
   @Field()
   protocolCode!: string;
@@ -536,6 +550,14 @@ export class RegisterChildSensorInput {
   @IsEnum(SensorType)
   type!: SensorType;
 
+  // SENSOR-MEDIUM-071: optional custom type-definition for this child. Its
+  // defaultChannels are bootstrapped onto the child inside the parent-child
+  // registration transaction. Additive to `type`.
+  @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
+  typeDefinitionId?: string;
+
   @Field()
   @IsNotEmpty()
   @IsString()
@@ -651,6 +673,10 @@ export class ChildSensorType {
 
   @Field(() => SensorType)
   type!: SensorType;
+
+  // SENSOR-MEDIUM-071: per-child custom type-definition, echoed for read-back.
+  @Field(() => ID, { nullable: true })
+  typeDefinitionId?: string;
 
   @Field()
   dataPath!: string;

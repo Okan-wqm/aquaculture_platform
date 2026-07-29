@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { ConnectionTestResult, SensorReadingData, ConnectionDiagnostics } from '../adapters/base-protocol.adapter';
+import {
+  ProtocolImplementationStatus,
+  getProtocolImplementationStatus,
+} from '../adapters/protocol-implementation-status';
+import { redactProtocolSecrets } from '../../common/redact-protocol-secrets';
 
 import { ProtocolRegistryService } from './protocol-registry.service';
 import { ProtocolValidatorService } from './protocol-validator.service';
@@ -56,7 +61,7 @@ export class ConnectionTesterService {
         success: false,
         protocolCode,
         testedAt,
-        configUsed: config,
+        configUsed: redactProtocolSecrets(config),
         error: `Configuration validation failed: ${validationResult.errors.map((e) => e.message).join(', ')}`,
       };
     }
@@ -68,8 +73,27 @@ export class ConnectionTesterService {
         success: false,
         protocolCode,
         testedAt,
-        configUsed: config,
+        configUsed: redactProtocolSecrets(config),
         error: `Unknown protocol: ${protocolCode}`,
+      };
+    }
+
+    // Only cloud-real protocols run a live adapter test. Stub/unsupported
+    // adapters would return a fabricated success, and edge-delegated protocols
+    // cannot be reached from the cloud — either would flip a never-contacted
+    // device to ACTIVE (SENSOR-CRITICAL-008). Fail honestly instead.
+    const implementationStatus = getProtocolImplementationStatus(protocolCode);
+    if (implementationStatus !== ProtocolImplementationStatus.CLOUD_REAL) {
+      const reason =
+        implementationStatus === ProtocolImplementationStatus.EDGE_DELEGATED
+          ? `Protocol ${protocolCode} runs on the edge gateway; a direct cloud connection test is not available.`
+          : `Protocol ${protocolCode} has no supported connection implementation.`;
+      return {
+        success: false,
+        protocolCode,
+        testedAt,
+        configUsed: redactProtocolSecrets(config),
+        error: reason,
       };
     }
 
@@ -89,7 +113,7 @@ export class ConnectionTesterService {
           ...testResult,
           protocolCode,
           testedAt,
-          configUsed: config,
+          configUsed: redactProtocolSecrets(config),
           diagnostics: {
             totalMs: Date.now() - startTime,
           },
@@ -122,7 +146,7 @@ export class ConnectionTesterService {
         success: true,
         protocolCode,
         testedAt,
-        configUsed: config,
+        configUsed: redactProtocolSecrets(config),
         latencyMs: testResult.latencyMs,
         sampleData,
         diagnostics: {
@@ -137,7 +161,7 @@ export class ConnectionTesterService {
         success: false,
         protocolCode,
         testedAt,
-        configUsed: config,
+        configUsed: redactProtocolSecrets(config),
         error: errorMessage,
         diagnostics: {
           totalMs: Date.now() - startTime,

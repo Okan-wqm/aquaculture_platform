@@ -1,19 +1,17 @@
-import { randomUUID } from 'crypto';
-
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
 import { IEventBus } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
-import { Repository, DataSource } from 'typeorm';
+import { Repository } from 'typeorm';
 
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { QualityCodes, SensorMetricInput } from '../database/entities/sensor-metric.entity';
-import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor, SensorStatus, SensorRegistrationStatus } from '../database/entities/sensor.entity';
 import { SensorServiceProfileService } from '../config/sensor-service-profile.service';
 import { ConnectionHandle, DataSubscription, SensorReadingData } from '../protocol/adapters/base-protocol.adapter';
 import { MqttAdapter, MqttConfiguration } from '../protocol/adapters/iot/mqtt.adapter';
+import { SensorMetricWriterService } from './sensor-metric-writer.service';
 
 /**
  * Active sensor connection info
@@ -50,12 +48,9 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @InjectRepository(Sensor)
     private readonly sensorRepository: Repository<Sensor>,
-    @InjectRepository(SensorReading)
-    private readonly readingRepository: Repository<SensorReading>,
     @InjectRepository(SensorDataChannel)
     private readonly channelRepository: Repository<SensorDataChannel>,
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
+    private readonly metricWriter: SensorMetricWriterService,
     private readonly configService: ConfigService,
     @Optional()
     @Inject('EVENT_BUS')
@@ -331,19 +326,12 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
         });
       }
 
-      // Batch INSERT all metrics using raw SQL for maximum performance
+      // Persist all metrics via the single sensor.sensor_metrics writer.
+      // SENSOR-HIGH-085: sensor_metrics is the ONLY store — the per-reading read
+      // surface projects readings from it, so there is no sensor_readings dual
+      // write to keep in sync.
       if (metrics.length > 0) {
-        await this.batchInsertMetrics(metrics);
-      }
-
-      // Write to legacy table for backward compatibility (deprecated, will be removed)
-      // Default: disabled. Only enable if explicitly needed for migration.
-      const legacyEnabled = this.configService.get('LEGACY_SENSOR_READINGS_ENABLED', 'false') === 'true';
-      if (legacyEnabled) {
-        if (this.configService.get('NODE_ENV') === 'production') {
-          this.logger.warn('LEGACY_SENSOR_READINGS_ENABLED=true in production — dual write doubles I/O. Migrate to sensor_metrics and disable.');
-        }
-        await this.writeLegacyReading(sensor, data);
+        await this.metricWriter.writeImmediate(metrics);
       }
 
       // Publish SensorReading NATS event so alert-engine can evaluate this data path
@@ -417,139 +405,10 @@ export class DataIngestionService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Validate UUID format to prevent SQL injection
-   */
-  private isValidUUID(str: string | null | undefined): boolean {
-    if (!str) return false;
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    return uuidRegex.test(str);
-  }
-
-  /**
-   * Batch insert metrics using parameterized queries for maximum security
-   *
-   * SECURITY FIX: Changed from string interpolation to parameterized queries
-   * to prevent SQL injection attacks.
-   *
-   * Uses chunked inserts to handle large batches efficiently while
-   * staying within PostgreSQL parameter limits (65535 params max).
-   */
-  private async batchInsertMetrics(metrics: SensorMetricInput[]): Promise<void> {
-    if (metrics.length === 0) return;
-
-    // Validate required UUIDs and filter invalid entries
-    const validMetrics = metrics.filter(m => {
-      if (!this.isValidUUID(m.sensorId) || !this.isValidUUID(m.channelId) || !this.isValidUUID(m.tenantId)) {
-        this.logger.warn(`Skipping metric with invalid UUID - sensorId: ${m.sensorId}, channelId: ${m.channelId}`);
-        return false;
-      }
-      // SECURITY: Validate Infinity values that could cause issues
-      if (!Number.isFinite(m.rawValue) || !Number.isFinite(m.value)) {
-        this.logger.warn(`Skipping metric with non-finite value - rawValue: ${m.rawValue}, value: ${m.value}`);
-        return false;
-      }
-      return true;
-    });
-
-    if (validMetrics.length === 0) return;
-
-    // SECURITY: Use parameterized queries instead of string interpolation
-    // Parameters per row: 19
-    // PostgreSQL max parameters: 65535
-    // Safe batch size: floor(65535 / 19) = 3449, using 1000 for safety
-    const BATCH_SIZE = 1000;
-    const chunks: SensorMetricInput[][] = [];
-
-    for (let i = 0; i < validMetrics.length; i += BATCH_SIZE) {
-      chunks.push(validMetrics.slice(i, i + BATCH_SIZE));
-    }
-
-    for (const chunk of chunks) {
-      await this.insertMetricChunk(chunk);
-    }
-  }
-
-  /**
-   * Insert a single chunk of metrics using parameterized queries
-   */
-  private async insertMetricChunk(metrics: SensorMetricInput[]): Promise<void> {
-    const params: unknown[] = [];
-    const valuePlaceholders: string[] = [];
-
-    let paramIndex = 1;
-    const PARAMS_PER_ROW = 19;
-
-    for (const m of metrics) {
-      const placeholders: string[] = [];
-
-      // Build placeholders for this row
-      for (let i = 0; i < PARAMS_PER_ROW; i++) {
-        placeholders.push(`$${paramIndex++}`);
-      }
-
-      valuePlaceholders.push(`(${placeholders.join(', ')})`);
-
-      // Push parameters in order
-      params.push(
-        m.time.toISOString(),                                    // time
-        m.sensorId,                                              // "sensorId"
-        m.channelId,                                             // "channelId"
-        m.tenantId,                                              // "tenantId"
-        m.siteId || null,                                        // "siteId"
-        m.departmentId || null,                                  // "departmentId"
-        m.systemId || null,                                      // "systemId"
-        m.equipmentId || null,                                   // "equipmentId"
-        m.tankId || null,                                        // "tankId"
-        m.pondId || null,                                        // "pondId"
-        m.farmId || null,                                        // "farmId"
-        Number.isFinite(m.rawValue) ? m.rawValue : 0,           // "rawValue"
-        Number.isFinite(m.value) ? m.value : 0,                 // value
-        Number.isInteger(m.qualityCode) ? m.qualityCode : 192,  // "qualityCode"
-        Number.isInteger(m.qualityBits) ? m.qualityBits : 0,    // "qualityBits"
-        m.sourceProtocol ? m.sourceProtocol.replace(/[^a-zA-Z0-9_-]/g, '') : null, // "sourceProtocol"
-        m.sourceTimestamp?.toISOString() || null,               // "sourceTimestamp"
-        m.sourceTimestamp ? new Date().getTime() - m.sourceTimestamp.getTime() : null, // "ingestionLatencyMs"
-        m.batchId || null,                                      // "batchId"
-      );
-    }
-
-    const sql = `
-      INSERT INTO sensor_metrics (
-        time, sensor_id, channel_id, tenant_id,
-        site_id, department_id, system_id, equipment_id, tank_id, pond_id, farm_id,
-        raw_value, value, quality_code, quality_bits,
-        source_protocol, source_timestamp, ingestion_latency_ms, batch_id
-      ) VALUES ${valuePlaceholders.join(',\n')}
-      ON CONFLICT (time, sensor_id, channel_id) DO UPDATE SET
-        value = EXCLUDED.value,
-        raw_value = EXCLUDED.raw_value,
-        quality_code = EXCLUDED.quality_code
-    `;
-
-    await this.dataSource.query(sql, params);
-  }
-
-  /**
-   * Write to legacy sensor_readings table for backward compatibility
-   * @deprecated Use sensor_metrics table instead. Controlled by LEGACY_SENSOR_READINGS_ENABLED env var.
-   * This method will be removed once all consumers migrate to sensor_metrics.
-   */
-  private async writeLegacyReading(sensor: Sensor, data: SensorReadingData): Promise<void> {
-    const reading = this.readingRepository.create({
-      id: randomUUID(),
-      sensorId: sensor.id,
-      tenantId: sensor.tenantId,
-      timestamp: data.timestamp,
-      readings: data.values,
-      pondId: sensor.pondId,
-      farmId: sensor.farmId,
-      quality: data.quality,
-      source: data.source || 'mqtt',
-    });
-
-    await this.readingRepository.save(reading);
-  }
+  // Metric persistence (UUID/finite validation + the sensor.sensor_metrics
+  // INSERT) is owned by SensorMetricWriterService (SENSOR-MEDIUM-068). There is
+  // no legacy sensor_readings write — the per-reading read surface projects from
+  // sensor_metrics (SENSOR-HIGH-085).
 
   /**
    * Handle sensor errors

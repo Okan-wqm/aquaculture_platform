@@ -180,4 +180,67 @@ describe('ToolExecutorService (AISAFETY-MEDIUM-017)', () => {
       expect.objectContaining({ tenantId: 't1' }),
     );
   });
+
+  // SENSOR-MEDIUM-070: a first-class internal service principal authorizes a
+  // fixed read-only tool allowlist WITHOUT fabricating user roles.
+  describe('service principal (SENSOR-MEDIUM-070)', () => {
+    const svcCtx = (grant: string[]): ToolExecutionContext => ({
+      tenantId: 't1',
+      schemaName: 'tenant_t1',
+      userId: 'service:sensor-service',
+      userRoles: [], // no user roles — the service grant is the sole authority
+      correlationId: 'corr-1',
+      persona: 'service',
+      actuationPolicy: 'blocked',
+      servicePrincipal: { name: 'sensor-service', grantedToolNames: grant },
+    });
+
+    it('authorizes a granted read-only tool with no user roles', async () => {
+      registry.getTool.mockReturnValue(
+        makeTool({ name: 'analyze_sensor_data', requiresConfirmation: false }),
+      );
+
+      const result = await service.executeTool(
+        'analyze_sensor_data',
+        { samples: [] },
+        svcCtx(['analyze_sensor_data']),
+      );
+
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(result.success).toBe(true);
+    });
+
+    it('refuses a granted actuation tool — service principals are read-only by construction', async () => {
+      registry.getTool.mockReturnValue(
+        makeTool({ name: 'dose_reagent', requiresConfirmation: true }),
+      );
+
+      const result = await service.executeTool('dose_reagent', {}, svcCtx(['dose_reagent']));
+
+      expect(execute).not.toHaveBeenCalled();
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/may not run actuation/i);
+    });
+
+    it('does NOT authorize a tool absent from the grant (no user roles to fall back on)', async () => {
+      registry.getTool.mockReturnValue(
+        makeTool({
+          name: 'suggest_sensor_channels',
+          requiredPermissions: ['operator'],
+          requiresConfirmation: false,
+        }),
+      );
+
+      // Grants a DIFFERENT tool — the requested one is not covered.
+      const result = await service.executeTool(
+        'suggest_sensor_channels',
+        {},
+        svcCtx(['analyze_sensor_data']),
+      );
+
+      expect(execute).not.toHaveBeenCalled();
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/permission denied/i);
+    });
+  });
 });

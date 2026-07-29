@@ -743,6 +743,14 @@ describe('deploy SSOT contract', () => {
         '#!/usr/bin/env bash',
         'set -euo pipefail',
         'scope="${!#}"',
+        // Encode first, then log the invocation as ONE append. A single
+        // `printf` write of `<base64>\n` is < PIPE_BUF and therefore atomic
+        // under O_APPEND, so the concurrent du workers the script spawns
+        // (CAPACITY_DU_PARALLELISM) can never interleave partial log lines. An
+        // earlier two-append form (base64, then newline separately) raced under
+        // load, corrupting the per-scope line and making this test's invocation
+        // count flaky on busy CI runners while passing locally. Keep the write
+        // to one printf.
         'encoded_scope="$(printf "%s" "${scope}" | base64 -w0)"',
         'printf "%s\\n" "${encoded_scope}" >> "${DU_INVOCATION_LOG}"',
         'if [ "${scope}" = /opt ]; then printf "%09000d" 0; exit 0; fi',

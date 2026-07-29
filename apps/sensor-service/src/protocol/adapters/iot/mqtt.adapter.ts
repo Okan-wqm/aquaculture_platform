@@ -111,6 +111,12 @@ export class MqttAdapter extends BaseProtocolAdapter<MqttConfiguration> {
       ? `mqtts://${mqttConfig.brokerUrl}:${mqttConfig.port}`
       : `mqtt://${mqttConfig.brokerUrl}:${mqttConfig.port}`;
 
+    // SENSOR-HIGH-075: validate the operator-supplied broker host before
+    // connecting (dial by hostname to preserve TLS SNI). Rejects
+    // metadata/loopback/RFC-1918 targets so a broker "connection test" cannot
+    // become an internal port-scan oracle.
+    await this.assertOutboundHostAllowed(mqttConfig.brokerUrl, mqttConfig.port);
+
     const options: MqttConnectOptions = {
       clientId: mqttConfig.clientId || `aqua_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
       clean: mqttConfig.cleanSession,

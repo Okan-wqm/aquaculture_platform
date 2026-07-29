@@ -7,7 +7,7 @@
  * outage. These tests pin both guarantees.
  */
 import { VfdCommandService, VfdCommandActor } from '../vfd-command.service';
-import { VfdCommandType, VfdDeviceStatus } from '../../entities/vfd.enums';
+import { VfdBrand, VfdCommandType, VfdDeviceStatus } from '../../entities/vfd.enums';
 
 type Repo = { create: jest.Mock; save: jest.Mock; find: jest.Mock };
 
@@ -15,16 +15,38 @@ const ACTOR: VfdCommandActor = { userId: 'user-42', email: 'op@farm.test' };
 const TENANT = 'tenant-1';
 const DEVICE = 'device-1';
 
-function makeService(repo: Repo) {
+type WriteResult = { success: boolean; commandId: string; error?: string; latencyMs?: number };
+
+/**
+ * Build the service with a controllable edge-write mock. `writeRegister` drives
+ * command success/failure — the write path is edge-delegated (SENSOR-CRITICAL-007).
+ */
+function makeService(repo: Repo, writeRegister?: jest.Mock<Promise<WriteResult>>) {
   const deviceService = {
-    findById: jest.fn().mockResolvedValue({ id: DEVICE, status: VfdDeviceStatus.ACTIVE }),
+    findById: jest.fn().mockResolvedValue({
+      id: DEVICE,
+      brand: VfdBrand.DANFOSS,
+      status: VfdDeviceStatus.ACTIVE,
+      edgeDeviceId: 'edge-1',
+      edgeModbusDeviceName: 'vfd-pump-1',
+    }),
   };
-  const registerMapping = {};
-  return new VfdCommandService(
+  const registerMapping = {
+    getControlWordMapping: jest.fn().mockResolvedValue({ registerAddress: 49999, scalingFactor: 1 }),
+    getSpeedReferenceMapping: jest.fn().mockResolvedValue({ registerAddress: 50000, scalingFactor: 1 }),
+  };
+  const edgeWriteService = {
+    writeRegister:
+      writeRegister ??
+      jest.fn().mockResolvedValue({ success: true, commandId: 'cmd-1', latencyMs: 5 }),
+  };
+  const service = new VfdCommandService(
     deviceService as never,
     registerMapping as never,
+    edgeWriteService as never,
     repo as never,
   );
+  return { service, edgeWriteService };
 }
 
 function makeRepo(overrides: Partial<Repo> = {}): Repo {
@@ -39,14 +61,8 @@ function makeRepo(overrides: Partial<Repo> = {}): Repo {
 describe('VfdCommandService — command audit', () => {
   it('writes an audit row on a successful command with the actor and result', async () => {
     const repo = makeRepo();
-    const service = makeService(repo);
-    // Bypass the real device connection + protocol write.
-    jest
-      .spyOn(service, 'getOrCreateConnection' as never)
-      .mockResolvedValue({ adapter: {}, handle: {} } as never);
-    jest
-      .spyOn(service, 'executeStart' as never)
-      .mockResolvedValue({ success: true, latencyMs: 12, acknowledgedAt: new Date() } as never);
+    // Default edge-write mock resolves a real success ack.
+    const { service } = makeService(repo);
 
     const result = await service.executeCommand(
       DEVICE,
@@ -71,10 +87,11 @@ describe('VfdCommandService — command audit', () => {
 
   it('writes an audit row on a failed command (success=false)', async () => {
     const repo = makeRepo();
-    const service = makeService(repo);
-    jest
-      .spyOn(service, 'getOrCreateConnection' as never)
-      .mockRejectedValue(new Error('device unreachable') as never);
+    // Edge write rejects (e.g. drive unreachable) → command fails closed.
+    const { service } = makeService(
+      repo,
+      jest.fn().mockRejectedValue(new Error('device unreachable')),
+    );
 
     const result = await service.executeCommand(
       DEVICE,
@@ -91,10 +108,10 @@ describe('VfdCommandService — command audit', () => {
 
   it('does NOT block the command when the audit write fails (best-effort)', async () => {
     const repo = makeRepo({ save: jest.fn().mockRejectedValue(new Error('audit db down')) });
-    const service = makeService(repo);
-    jest
-      .spyOn(service, 'getOrCreateConnection' as never)
-      .mockRejectedValue(new Error('device unreachable') as never);
+    const { service } = makeService(
+      repo,
+      jest.fn().mockRejectedValue(new Error('device unreachable')),
+    );
 
     // Must resolve (not throw) even though the audit write rejected.
     const result = await service.executeCommand(
@@ -110,10 +127,10 @@ describe('VfdCommandService — command audit', () => {
 
   it('falls back to a system identity when no actor is supplied', async () => {
     const repo = makeRepo();
-    const service = makeService(repo);
-    jest
-      .spyOn(service, 'getOrCreateConnection' as never)
-      .mockRejectedValue(new Error('device unreachable') as never);
+    const { service } = makeService(
+      repo,
+      jest.fn().mockRejectedValue(new Error('device unreachable')),
+    );
 
     await service.executeCommand(DEVICE, TENANT, { command: VfdCommandType.STOP });
 
@@ -123,7 +140,7 @@ describe('VfdCommandService — command audit', () => {
 
   it('getCommandAuditLog reads tenant + device scoped, newest first', async () => {
     const repo = makeRepo();
-    const service = makeService(repo);
+    const { service } = makeService(repo);
 
     await service.getCommandAuditLog(DEVICE, TENANT, 25);
 

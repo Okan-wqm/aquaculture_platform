@@ -71,6 +71,7 @@ function isTestFile(file) {
   return (
     /(?:^|\/)__tests__\//.test(file) ||
     /(?:^|\/)test\//.test(file) ||
+    /(?:^|\/)test-utils\//.test(file) ||
     /\.(?:spec|test)\.tsx?$/.test(file)
   );
 }

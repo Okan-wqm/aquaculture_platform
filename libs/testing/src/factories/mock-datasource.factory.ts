@@ -12,7 +12,7 @@
  * Without a shared factory, each test file duplicates 30+ lines
  * of mock setup that must be kept in sync as the QueryRunner API evolves.
  */
-import { DataSource, QueryRunner, EntityManager, ObjectLiteral, Repository } from 'typeorm';
+import { DataSource, QueryRunner, EntityManager } from 'typeorm';
 
 export interface MockDataSourceResult {
   mockDataSource: jest.Mocked<DataSource>;
@@ -39,7 +39,18 @@ export function createMockDataSource(): MockDataSourceResult {
     // any `.update/.set/.where/...` sequence resolves.
     createQueryBuilder: jest.fn(() => {
       const qb: Record<string, jest.Mock> = {};
-      for (const method of ['update', 'set', 'where', 'andWhere', 'from', 'values', 'returning', 'select', 'leftJoin', 'orderBy']) {
+      for (const method of [
+        'update',
+        'set',
+        'where',
+        'andWhere',
+        'from',
+        'values',
+        'returning',
+        'select',
+        'leftJoin',
+        'orderBy',
+      ]) {
         qb[method] = jest.fn(() => qb);
       }
       qb.execute = jest.fn().mockResolvedValue({ affected: 1, raw: [] });
@@ -51,10 +62,10 @@ export function createMockDataSource(): MockDataSourceResult {
       find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn().mockResolvedValue(null),
       save: jest.fn().mockImplementation((data: unknown) => Promise.resolve(data)),
-    create: jest.fn().mockImplementation((data: unknown) => data),
-    update: jest.fn().mockResolvedValue({ affected: 1 }),
-    count: jest.fn().mockResolvedValue(0),
-    } as unknown as jest.Mocked<Repository<ObjectLiteral>>),
+      create: jest.fn().mockImplementation((data: unknown) => data),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+      count: jest.fn().mockResolvedValue(0),
+    }),
   } as unknown as jest.Mocked<EntityManager>;
 
   const mockQueryRunner = {

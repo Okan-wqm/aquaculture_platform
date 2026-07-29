@@ -9,9 +9,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint src",
-    "test": "vitest",
-    "test:run": "vitest run",
-    "test:water-chemistry": "vitest run --maxWorkers=1 --testTimeout=30000 src/pages/water-chemistry/WaterChemistryPage.spec.ts src/pages/water-chemistry/components/DeffeyesChart.spec.tsx src/pages/water-chemistry/waterChemistryReportExport.spec.ts"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:water-chemistry": "vitest run --maxWorkers=1 src/pages/water-chemistry/WaterChemistryPage.spec.ts src/pages/water-chemistry/components/DeffeyesChart.spec.tsx src/pages/water-chemistry/waterChemistryReportExport.spec.ts"
   },
   "dependencies": {
     "@aquaculture/shared-ui": "file:../../shared-ui",

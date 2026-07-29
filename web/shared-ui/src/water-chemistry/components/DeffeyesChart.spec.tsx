@@ -49,7 +49,7 @@ describe('DeffeyesChart', () => {
     expect(screen.getByLabelText('Current')).not.toBeChecked();
     expect(screen.getByLabelText('Target')).toBeChecked();
     expect(container.querySelector('path[stroke="#6b7280"]')).toBeInTheDocument();
-  }, 15000);
+  });
 
   it('hides the single-reagent line when Dosing Path is toggled off', async () => {
     const user = userEvent.setup();
@@ -80,7 +80,7 @@ describe('DeffeyesChart', () => {
 
     expect(screen.getByLabelText('Dosing Path')).not.toBeChecked();
     expect(container.querySelector('path[stroke="#f59e0b"]')).not.toBeInTheDocument();
-  }, 15000);
+  });
 
   it('reveals the H₂S toxic zone only when its layer toggle is enabled', async () => {
     const user = userEvent.setup();
@@ -98,7 +98,7 @@ describe('DeffeyesChart', () => {
 
     expect(screen.getByLabelText('H₂S Toxic')).toBeChecked();
     expect(container.querySelector('path[stroke="#b91c1c"]')).toBeInTheDocument();
-  }, 15000);
+  });
 
   it('forces the toxic overlays (including H₂S) on for report export via forceSafetyOverlays', () => {
     const { container } = render(

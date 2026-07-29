@@ -1,0 +1,18 @@
+{
+  "name": "@aquaculture/testing",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./vitest": {
+      "types": "./src/vitest-test-policy.d.ts",
+      "default": "./src/vitest-test-policy.js"
+    }
+  },
+  "license": "UNLICENSED"
+}

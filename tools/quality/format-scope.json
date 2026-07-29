@@ -17384,6 +17384,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/gateway-api/src/test-utils/mock-types.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/gateway-api/src/test-utils/mock-types.ts",
       "prettier_managed": true
     },
@@ -32227,6 +32233,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/2026-07-27-ci-full-triggers.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/2026-07-27-production-dependency-floor.md",
       "prettier_managed": true
     },
@@ -39247,6 +39259,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/testing/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/testing/README.md",
       "prettier_managed": true
     },
@@ -39278,6 +39296,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/testing/src/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/testing/src/vitest-test-policy.d.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/testing/src/vitest-test-policy.js",
       "prettier_managed": true
     },
     {
@@ -39666,7 +39696,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "41eea8e699b8e23379092865cc8002ef39282718e6ac57e92038cb6976fdc6ee",
+      "content_sha256": "27aad148dc1e9c2c2c246243b78bf6cd0ff52b21e3d825d0a849b0f232fe1c37",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -41502,6 +41532,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/ci-full-trigger-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/circuit-breaker-canonical-lib.spec.ts",
       "prettier_managed": true
     },
@@ -41521,6 +41557,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/config-env-access-ratchet.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/coverage-evidence-contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -43338,6 +43380,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/quality/coverage-evidence.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/coverage-report-inventory.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/quality/format-scope.json",
       "prettier_managed": true
     },
@@ -43362,7 +43416,31 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/quality/service-coverage-baselines.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/service-coverage-baselines.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/service-coverage-baselines.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/quality/terminal-run-evidence.schema.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/tsconfig.json",
       "prettier_managed": true
     },
     {
@@ -55230,10 +55308,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9054,
+  "file_count": 9067,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8873,
-  "managed_file_list_sha256": "79907251908080caea0c4fb04c9bce59e23483bb7f8aafc8d53fff3866111a9c",
+  "managed_count": 8886,
+  "managed_file_list_sha256": "c0168bab75b7c7fdd0bf1073222e0e30cb348872915df3a87a552451fb624016",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

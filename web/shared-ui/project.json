@@ -20,13 +20,6 @@
         "command": "npm run lint"
       }
     },
-    "test": {
-      "executor": "nx:run-commands",
-      "options": {
-        "cwd": "web/shared-ui",
-        "command": "npm run test"
-      }
-    },
     "storybook": {
       "executor": "nx:run-commands",
       "options": {

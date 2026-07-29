@@ -241,3 +241,28 @@ The policy export is now a factory. Each config receives a fresh reporter array,
 object and coverage envelope remain frozen and centrally defined. An invariant proves two
 consumers cannot share the mutable array. All 40 project compiler configurations and the
 aquaculture-engines runtime target pass with the same single policy source.
+
+## INFRA-HIGH-101 — coverage-mode test run produced no coverage at eight of ten Vitest producers
+
+The ci-full test job runs `npm run test:all -- --coverage`, which becomes
+`nx run-many --target=test --all --coverage`. Eight Vitest producers defined `test` as an
+`nx:run-commands` target wrapping `npm run test`. That executor appends forwarded arguments to
+its command string, so the task ran as `npm run test --coverage` — npm reads the flag as one of
+its own config options and never hands it to Vitest. Those eight ran with coverage off and wrote
+no report, and the coverage-evidence gate failed on a run in which every test had passed. The two
+producers that did emit reports declared no `test` target at all and used the target Nx infers
+from the package.json script, whose executor forwards options correctly.
+
+A second half of the same failure was latent behind the first. `test` is a cached target and
+ci-full restores `.nx/cache` between runs, but no test target declared its coverage directory
+among `outputs`. Nx restores only declared outputs, so a replayed test task left no report behind
+— the gate would have failed intermittently even once the flag reached the runner, and the one
+project that did declare outputs pointed them at the other convention's path, caching nothing.
+
+Both halves are now structural. The eight wrappers are deleted, so every Vitest producer uses the
+same inferred `nx:run-script` target as the two that already worked, and each package's `test`
+script is the run-once form with the watch form named separately. The cached-outputs default in
+`nx.json` covers both layouts the inventory contains. Two invariants hold the line: one rejects a
+`test` target that shells into a package-manager script runner without the `--` separator, the
+other requires the cached-outputs default and refuses an override that misses where its own
+report lands. Both were confirmed to fail when the old shapes are reintroduced.

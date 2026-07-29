@@ -83,7 +83,7 @@ describe('WaterChemistryPage Deffeyes (legacy ALK/DIC, single chart)', () => {
 
     vi.advanceTimersByTime(0);
     vi.advanceTimersByTime(1000);
-  }, 30000);
+  });
 
   it('uses the single realtime pH for H₂S — no separate H₂S measurement pH input or readout', async () => {
     renderWaterChemistryPage();
@@ -93,7 +93,7 @@ describe('WaterChemistryPage Deffeyes (legacy ALK/DIC, single chart)', () => {
     // measurement-pH knob and its readout row are gone.
     expect(screen.queryByLabelText('H₂S pH')).not.toBeInTheDocument();
     expect(screen.queryByText('H₂S measured at pH')).not.toBeInTheDocument();
-  }, 15000);
+  });
 
   it('prints through the iframe without reporting a fallback diagnostic', async () => {
     const diagnosticEvents: CustomEvent<WaterChemistryDiagnosticDetail>[] = [];
@@ -118,5 +118,5 @@ describe('WaterChemistryPage Deffeyes (legacy ALK/DIC, single chart)', () => {
     vi.advanceTimersByTime(1000);
     expect(document.querySelector('iframe[title="Water Chemistry Report"]')).not.toBeInTheDocument();
     vi.useRealTimers();
-  }, 15000);
+  });
 });

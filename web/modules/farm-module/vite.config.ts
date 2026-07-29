@@ -94,12 +94,11 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       setupFiles: ['./src/test-setup.ts'],
       include: ['src/**/*.{test,spec}.{ts,tsx}'],
+      // The timeout headroom the heavy Deffeyes chart renders need used to be
+      // a local override here. shared-ui renders the same charts and had none,
+      // so it flaked as soon as coverage instrumentation actually applied. The
+      // policy carries that headroom now, for every consumer.
       ...createVitestTestPolicy(),
-      // WHY: React 19 + @testing-library/react 16 + recharts render the heavy
-      // water-chemistry Deffeyes charts (multiple toxic-zone layers) in jsdom at
-      // ~5.5s — over vitest's 5s default, flaking several chart tests on the
-      // boundary. Assertions are correct; the render is just heavy. 20s headroom.
-      testTimeout: 20000,
     },
   };
 });

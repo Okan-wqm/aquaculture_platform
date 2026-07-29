@@ -34,12 +34,9 @@ import { FCRCalculationService } from '../../growth/services/fcr-calculation.ser
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 import type { FCRAlertEvent } from '@platform/event-contracts';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
-
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
 
 describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
   const enqueue = jest.fn().mockResolvedValue(undefined);
@@ -47,22 +44,22 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
   const getTargetFCRForBatches = jest.fn();
   const analyzeFCRTrendMany = jest.fn();
 
-  const growthApplier = mock<BiomassGrowthApplierService>({});
-  const outboxPublisher = mock<OutboxPublisher>({ enqueue });
-  const recalcService = mock<DayPlanRecalcService>({ recalcForUnit: jest.fn() });
+  const growthApplier = stub<BiomassGrowthApplierService>({});
+  const outboxPublisher = stub<OutboxPublisher>({ enqueue });
+  const recalcService = stub<DayPlanRecalcService>({ recalcForUnit: jest.fn() });
 
   const service = new FeedingCronV2Service(
-    mock<DataSource>({}),
-    mock<MealPlanGeneratorService>({}),
+    stub<DataSource>({}),
+    stub<MealPlanGeneratorService>({}),
     growthApplier,
-    mock<WaterTemperatureService>({}),
-    mock<FCRCalculationService>({ getTargetFCRForBatches, analyzeFCRTrendMany }),
+    stub<WaterTemperatureService>({}),
+    stub<FCRCalculationService>({ getTargetFCRForBatches, analyzeFCRTrendMany }),
     outboxPublisher,
-    mock<ProtocolFeedForecastService>({}),
+    stub<ProtocolFeedForecastService>({}),
     recalcService,
     realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
-    mock<FeedingClockService>({}),
-    mock<FeedingJobRunService>({}),
+    stub<FeedingClockService>({}),
+    stub<FeedingJobRunService>({}),
   );
 
   beforeEach(() => {

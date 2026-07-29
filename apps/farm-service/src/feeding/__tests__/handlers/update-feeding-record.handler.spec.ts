@@ -10,7 +10,7 @@
  * alınmadığı için ertesi günün bandı yanlış seçiliyordu).
  */
 import { NotFoundException } from '@nestjs/common';
-import { createMockDataSource } from '@aquaculture/testing';
+import { createMockDataSource, stub } from '@aquaculture/testing';
 import type { DataSource, EntityManager } from 'typeorm';
 
 import { UpdateFeedingRecordHandler } from '../../handlers/update-feeding-record.handler';
@@ -24,11 +24,6 @@ import { DayPlanRecalcService } from '../../../feeding-protocol/services/day-pla
 import { FeedingDayPlan } from '../../../feeding-protocol/entities/feeding-day-plan.entity';
 
 const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-
-/** Tipli kısmi double — tek `as T`, banned-construct kapısına uygun. */
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
 
 interface HarnessOpts {
   feedingRecord?: Partial<FeedingRecord> | null;
@@ -100,7 +95,7 @@ function makeHarness(opts: HarnessOpts = {}) {
   const outboxPublisher = { enqueue } as unknown as OutboxPublisher;
 
   const applyStockCorrection = jest.fn().mockResolvedValue(undefined);
-  const feedingLedger = mock<FeedingLedgerService>({ applyStockCorrection });
+  const feedingLedger = stub<FeedingLedgerService>({ applyStockCorrection });
 
   const lockUnitForGrowth = jest.fn().mockResolvedValue(opts.lockedUnit ?? null);
   const applyGrowth = jest.fn().mockResolvedValue(undefined);
@@ -114,14 +109,14 @@ function makeHarness(opts: HarnessOpts = {}) {
         lock: { mode: 'pessimistic_write' },
       }),
     );
-  const growthApplier = mock<BiomassGrowthApplierService>({
+  const growthApplier = stub<BiomassGrowthApplierService>({
     lockUnitForGrowth,
     applyGrowth,
     lockBatchForWrite,
   });
 
   const recalcForUnit = jest.fn().mockResolvedValue(null);
-  const recalcService = mock<DayPlanRecalcService>({ recalcForUnit });
+  const recalcService = stub<DayPlanRecalcService>({ recalcForUnit });
 
   const handler = new UpdateFeedingRecordHandler(
     dataSource as DataSource,

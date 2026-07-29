@@ -36,6 +36,7 @@ import { StorageInventory, StorageItemType } from '../entities/storage-inventory
 import { StorageLocation } from '../entities/storage-location.entity';
 import { StockMovement, MovementType } from '../entities/stock-movement.entity';
 import { Feed } from '../../feed/entities/feed.entity';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const FEED = '33333333-3333-4333-8333-333333333333';
@@ -47,12 +48,8 @@ const USER = '44444444-4444-4444-8444-444444444444';
  * member is supplied as a jest.fn or value; the single `as T` keeps the
  * double assignable without a double cast.
  */
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
-
 function tenantRepositoryMetadata<T extends ObjectLiteral>(): Repository<T>['metadata'] {
-  const tenantColumn = mock<
+  const tenantColumn = stub<
     NonNullable<
       ReturnType<Repository<T>['metadata']['findColumnWithPropertyName']>
     >
@@ -60,7 +57,7 @@ function tenantRepositoryMetadata<T extends ObjectLiteral>(): Repository<T>['met
     databaseName: 'tenantId',
   });
 
-  return mock<Repository<T>['metadata']>({
+  return stub<Repository<T>['metadata']>({
     findColumnWithPropertyName: jest.fn((propertyName: string) =>
       propertyName === 'tenantId' ? tenantColumn : undefined,
     ),
@@ -72,7 +69,7 @@ function makeQueryBuilder(terminal: {
   getOne?: StorageInventory | null;
   getRawOne?: { total: string };
 }): SelectQueryBuilder<StorageInventory> {
-  const qb = mock<SelectQueryBuilder<StorageInventory>>({});
+  const qb = stub<SelectQueryBuilder<StorageInventory>>({});
   const chain = (): SelectQueryBuilder<StorageInventory> => qb;
   qb.where = jest.fn(chain);
   qb.andWhere = jest.fn(chain);
@@ -108,7 +105,7 @@ interface HarnessOpts {
 }
 
 function inv(over: Partial<StorageInventory>): StorageInventory {
-  return mock<StorageInventory>({
+  return stub<StorageInventory>({
     id: 'inv-1',
     tenantId: TENANT,
     storageLocationId: LOCATION,
@@ -130,11 +127,11 @@ function makeHarness(opts: HarnessOpts = {}): {
   const fromLot = opts.fromLot === undefined ? null : opts.fromLot;
   const feed =
     opts.feed === undefined
-      ? mock<Feed>({ id: FEED, name: 'Grower 4mm', unit: 'kg', minStock: 100 })
+      ? stub<Feed>({ id: FEED, name: 'Grower 4mm', unit: 'kg', minStock: 100 })
       : opts.feed;
   const fromLocation =
     opts.fromLocation === undefined
-      ? mock<StorageLocation>({ id: LOCATION, tenantId: TENANT, siteId: 'site-1' })
+      ? stub<StorageLocation>({ id: LOCATION, tenantId: TENANT, siteId: 'site-1' })
       : opts.fromLocation;
 
   // Repository.save / remove / create and EntityManager.getRepository are
@@ -150,7 +147,7 @@ function makeHarness(opts: HarnessOpts = {}): {
   // wrapper's save reflects the mutated row.
   const inventoryCreate = jest.fn();
   inventoryCreate.mockImplementation((dto: Partial<StorageInventory>) => dto);
-  const inventoryRepo = mock<Repository<StorageInventory>>({
+  const inventoryRepo = stub<Repository<StorageInventory>>({
     metadata: tenantRepositoryMetadata<StorageInventory>(),
     findOne: jest.fn().mockResolvedValue(fromLot),
     save: inventorySave,
@@ -167,16 +164,16 @@ function makeHarness(opts: HarnessOpts = {}): {
     ),
   });
 
-  const locationRepo = mock<Repository<StorageLocation>>({
+  const locationRepo = stub<Repository<StorageLocation>>({
     metadata: tenantRepositoryMetadata<StorageLocation>(),
     findOne: jest.fn().mockResolvedValue(fromLocation),
   });
 
   const movementCreate = jest.fn();
-  movementCreate.mockImplementation((dto: Partial<StockMovement>) => mock<StockMovement>({ ...dto }));
+  movementCreate.mockImplementation((dto: Partial<StockMovement>) => stub<StockMovement>({ ...dto }));
   const movementSave = jest.fn();
-  movementSave.mockImplementation(async (row: StockMovement) => mock<StockMovement>({ ...row, id: 'mv-1' }));
-  const movementRepo = mock<Repository<StockMovement>>({
+  movementSave.mockImplementation(async (row: StockMovement) => stub<StockMovement>({ ...row, id: 'mv-1' }));
+  const movementRepo = stub<Repository<StockMovement>>({
     metadata: tenantRepositoryMetadata<StockMovement>(),
     findOne: jest.fn().mockResolvedValue(opts.existingMovement ?? null),
     create: movementCreate,
@@ -187,7 +184,7 @@ function makeHarness(opts: HarnessOpts = {}): {
   feedCreate.mockImplementation((dto: Partial<Feed>) => dto);
   const feedSave = jest.fn();
   feedSave.mockImplementation(async (row: Feed) => row);
-  const feedRepo = mock<Repository<Feed>>({
+  const feedRepo = stub<Repository<Feed>>({
     metadata: tenantRepositoryMetadata<Feed>(),
     findOne: jest.fn().mockResolvedValue(feed),
     // updateItemTotalQuantity rolls the aggregate back onto Feed.quantity via
@@ -204,14 +201,14 @@ function makeHarness(opts: HarnessOpts = {}): {
     if (entity === Feed) return feedRepo;
     throw new Error(`unexpected repository request: ${String(entity)}`);
   });
-  const manager = mock<EntityManager>({ getRepository });
+  const manager = stub<EntityManager>({ getRepository });
 
-  const lotMix = mock<LotMixService>({
+  const lotMix = stub<LotMixService>({
     detect: jest.fn().mockResolvedValue({ mixCreated: false, mix: null, effectiveLotNumber: null }),
   });
   const outboxEnqueue = jest.fn();
   outboxEnqueue.mockResolvedValue(undefined);
-  const outboxPublisher = mock<OutboxPublisher>({ enqueue: outboxEnqueue });
+  const outboxPublisher = stub<OutboxPublisher>({ enqueue: outboxEnqueue });
   const service = new StockMovementService(lotMix, new SiteAuthorizationService(), outboxPublisher);
 
   return {
@@ -318,7 +315,7 @@ describe('StockMovementService.recordMovement (OUT, fail-closed)', () => {
 
   it('is idempotent: a matching key returns the existing movement without re-deducting', async () => {
     const { service, manager, repos } = makeHarness({
-      existingMovement: mock<StockMovement>({ id: 'mv-existing' }),
+      existingMovement: stub<StockMovement>({ id: 'mv-existing' }),
     });
 
     const result = await service.recordMovement(
@@ -444,7 +441,7 @@ describe('StockMovementService.recordMovement — single low-stock sink', () => 
 
   it('does not re-enqueue on an idempotent replay', async () => {
     const { service, manager, outboxEnqueue } = makeHarness({
-      existingMovement: mock<StockMovement>({ id: 'mv-existing' }),
+      existingMovement: stub<StockMovement>({ id: 'mv-existing' }),
       aggregateTotal: '0',
     });
 

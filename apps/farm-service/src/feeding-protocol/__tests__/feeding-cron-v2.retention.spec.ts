@@ -32,30 +32,27 @@ import { WaterTemperatureService } from '../../water-quality/services/water-temp
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
-
 describe('FeedingCronV2Service.purgeTenantRetention', () => {
-  const growthApplier = mock<BiomassGrowthApplierService>({});
-  const outboxPublisher = mock<OutboxPublisher>({ enqueue: jest.fn() });
-  const recalcService = mock<DayPlanRecalcService>({ recalcForUnit: jest.fn() });
+  const growthApplier = stub<BiomassGrowthApplierService>({});
+  const outboxPublisher = stub<OutboxPublisher>({ enqueue: jest.fn() });
+  const recalcService = stub<DayPlanRecalcService>({ recalcForUnit: jest.fn() });
 
   const service = new FeedingCronV2Service(
-    mock<DataSource>({}),
-    mock<MealPlanGeneratorService>({}),
+    stub<DataSource>({}),
+    stub<MealPlanGeneratorService>({}),
     growthApplier,
-    mock<WaterTemperatureService>({}),
-    mock<FCRCalculationService>({}),
+    stub<WaterTemperatureService>({}),
+    stub<FCRCalculationService>({}),
     outboxPublisher,
-    mock<ProtocolFeedForecastService>({}),
+    stub<ProtocolFeedForecastService>({}),
     recalcService,
     realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
-    mock<FeedingClockService>({}),
-    mock<FeedingJobRunService>({ purgeOlderThanRetention: jest.fn().mockResolvedValue(0) }),
+    stub<FeedingClockService>({}),
+    stub<FeedingJobRunService>({ purgeOlderThanRetention: jest.fn().mockResolvedValue(0) }),
   );
 
   beforeEach(() => {

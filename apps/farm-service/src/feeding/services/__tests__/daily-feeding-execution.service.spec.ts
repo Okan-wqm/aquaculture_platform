@@ -65,6 +65,7 @@ import { FeedingLedgerService } from '../feeding-ledger.service';
 import { FeedingRecord } from '../../entities/feeding-record.entity';
 import { Feed } from '../../../feed/entities/feed.entity';
 import { FinanceSettingsService } from '../../../finance/services/finance-settings.service';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const EXECUTION = '66666666-6666-4666-8666-666666666666';
@@ -88,12 +89,8 @@ const MANAGER_CALLER: SiteScopeCaller = {
  * Build a fully-typed partial double for an interface T. Every accessed member
  * is supplied; the single `as T` keeps the double assignable.
  */
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
-
 function makeCalculations(over: Partial<ExecutionCalculation> = {}): ExecutionCalculation {
-  return mock<ExecutionCalculation>({
+  return stub<ExecutionCalculation>({
     avgWeightG: 100,
     fishCount: 1000,
     biomassKg: 100,
@@ -118,7 +115,7 @@ function makeCalculations(over: Partial<ExecutionCalculation> = {}): ExecutionCa
  * `calculations` directly for the biomass update, so those are real values.
  */
 function makeExecution(over: Partial<DailyFeedingExecution> = {}): DailyFeedingExecution {
-  return mock<DailyFeedingExecution>({
+  return stub<DailyFeedingExecution>({
     id: EXECUTION,
     tenantId: TENANT,
     equipmentId: TANK,
@@ -135,7 +132,7 @@ function makeExecution(over: Partial<DailyFeedingExecution> = {}): DailyFeedingE
 }
 
 function makeFeedableBatch(over: Partial<Batch> = {}): Batch {
-  return mock<Batch>({
+  return stub<Batch>({
     id: BATCH,
     tenantId: TENANT,
     isActive: true,
@@ -174,11 +171,11 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   const execution = opts.execution ?? makeExecution();
   const tankBatch =
     opts.tankBatch === undefined
-      ? mock<TankBatch>({ tankId: TANK, tenantId: TENANT, primaryBatchId: BATCH })
+      ? stub<TankBatch>({ tankId: TANK, tenantId: TENANT, primaryBatchId: BATCH })
       : opts.tankBatch;
   const lockedBatch = opts.lockedBatch === undefined ? makeFeedableBatch() : opts.lockedBatch;
-  const tank = mock({ id: TANK, currentBiomass: 0 });
-  const feedRow = mock<Feed>({ id: FEED, code: 'GR-4', name: 'Grower 4mm', pricePerKg: 2 });
+  const tank = stub({ id: TANK, currentBiomass: 0 });
+  const feedRow = stub<Feed>({ id: FEED, code: 'GR-4', name: 'Grower 4mm', pricePerKg: 2 });
 
   // manager.findOne dispatches by entity class. TankBatch / Batch are loaded by
   // BOTH the feedability guard and the biomass-update step (the lock option is
@@ -212,7 +209,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   // reached) does not reject. enqueue itself is mocked, so the assertion never
   // touches the real publisher's transaction guard, but we keep the shape
   // honest.
-  const manager = mock<EntityManager>({
+  const manager = stub<EntityManager>({
     findOne: managerFindOne,
     save: managerSave,
     create: managerCreate,
@@ -222,7 +219,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   const rollback = jest.fn().mockResolvedValue(undefined);
   const release = jest.fn().mockResolvedValue(undefined);
 
-  const queryRunner = mock<QueryRunner>({
+  const queryRunner = stub<QueryRunner>({
     connect: jest.fn().mockResolvedValue(undefined),
     startTransaction: jest.fn().mockResolvedValue(undefined),
     commitTransaction: commit,
@@ -231,7 +228,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     manager,
   });
 
-  const dataSource = mock<DataSource>({
+  const dataSource = stub<DataSource>({
     createQueryRunner: jest.fn().mockReturnValue(queryRunner),
   });
 
@@ -250,24 +247,24 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   const recordMovement = jest.fn(async (): Promise<RecordMovementResult> => {
     if (opts.recordMovementThrows) throw opts.recordMovementThrows;
     return {
-      saved: mock<StockMovement>({ id: 'mv-1' }),
+      saved: stub<StockMovement>({ id: 'mv-1' }),
       currentTotal: 0,
       idempotentHit: false,
       lowStock: null,
       warnings: [],
     };
   });
-  const stockMovementService = mock<StockMovementService>({
+  const stockMovementService = stub<StockMovementService>({
     resolveFeedDeductionLocation,
     recordMovement,
   });
 
   // P-05/K-4: GERÇEK ledger — storage/kayıt/aggregate/outbox bacakları
   // üretim yolundan koşar; yalnız dış bağımlılıkları mock'lu.
-  const financeSettings = mock<FinanceSettingsService>({
+  const financeSettings = stub<FinanceSettingsService>({
     getDefaultCurrencyInTx: jest.fn().mockResolvedValue('TRY'),
   });
-  const outboxPublisher = mock<OutboxPublisher>({ enqueue });
+  const outboxPublisher = stub<OutboxPublisher>({ enqueue });
   // FARM-CRITICAL-245: düşüm çok-lotlu FEFO tahsis motorundan geçer; harness
   // tek dilimlik tahsis döner (eski tek-satır davranışıyla aynı gözlem).
   const allocateForDeduction = jest.fn();
@@ -291,7 +288,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
       };
     },
   );
-  const feedAllocation = mock<FeedAllocationService>({ allocateForDeduction });
+  const feedAllocation = stub<FeedAllocationService>({ allocateForDeduction });
   const feedingLedger = new FeedingLedgerService(
     stockMovementService,
     financeSettings,
@@ -299,15 +296,15 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     feedAllocation,
   );
 
-  const bilinearService = mock<BilinearInterpolationService>({});
+  const bilinearService = stub<BilinearInterpolationService>({});
 
-  const repo = <T extends ObjectLiteral>(): Repository<T> => mock<Repository<T>>({});
+  const repo = <T extends ObjectLiteral>(): Repository<T> => stub<Repository<T>>({});
 
   // No mobile-command envelope is passed by these dual-SSoT write-path tests, so
   // begin() runs in legacy mode (one-shot, no idempotency replay) and complete()
   // is a no-op. Both are stubbed so the recording proceeds straight to the
   // storage write path under test.
-  const mobileCommandReceipts = mock<MobileCommandReceiptService>({
+  const mobileCommandReceipts = stub<MobileCommandReceiptService>({
     begin: jest.fn().mockResolvedValue({ mode: 'legacy' }),
     complete: jest.fn().mockResolvedValue(undefined),
   });
@@ -475,12 +472,15 @@ describe('DailyFeedingExecutionService.recordActualFeeding — canonical feed st
 
   it('DAILY growth mode records the feed but HOLDS BACK the weight roll-up', async () => {
     const dailyExecution = makeExecution({
-      feedingProgram: mock<FeedingProgram>({
-        settings: mock<ProgramSettings>({ growthApplicationMode: GrowthApplicationMode.DAILY }),
+      feedingProgram: stub<FeedingProgram>({
+        settings: stub<ProgramSettings>({ growthApplicationMode: GrowthApplicationMode.DAILY }),
       }),
     });
-    const tankBatch = mock<TankBatch>({ tankId: TANK, tenantId: TENANT, primaryBatchId: BATCH });
-    const { service, commit } = makeHarness({ execution: dailyExecution, tankBatch });
+    const tankBatch = stub<TankBatch>({ tankId: TANK, tenantId: TENANT, primaryBatchId: BATCH });
+    const { service, commit } = makeHarness({
+      execution: dailyExecution,
+      tankBatch,
+    });
 
     await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);
 
@@ -494,8 +494,11 @@ describe('DailyFeedingExecutionService.recordActualFeeding — canonical feed st
 
   it('PER_FEEDING (default) applies growth inline: stamps growthAppliedAt + updates the tank', async () => {
     const perFeeding = makeExecution(); // no program → PER_FEEDING default
-    const tankBatch = mock<TankBatch>({ tankId: TANK, tenantId: TENANT, primaryBatchId: BATCH });
-    const { service, commit } = makeHarness({ execution: perFeeding, tankBatch });
+    const tankBatch = stub<TankBatch>({ tankId: TANK, tenantId: TENANT, primaryBatchId: BATCH });
+    const { service, commit } = makeHarness({
+      execution: perFeeding,
+      tankBatch,
+    });
 
     await service.recordActualFeeding(EXECUTION, 50, USER, TENANT, MANAGER_CALLER);
 

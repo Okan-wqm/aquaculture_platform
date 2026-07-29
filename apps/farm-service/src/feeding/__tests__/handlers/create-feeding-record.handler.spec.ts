@@ -47,6 +47,7 @@ import {
 import { DayPlanRecalcService } from '../../../feeding-protocol/services/day-plan-recalc.service';
 import { FeedingDayPlan } from '../../../feeding-protocol/entities/feeding-day-plan.entity';
 import { TankBatch } from '../../../batch/entities/tank-batch.entity';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const BATCH = '22222222-2222-4222-8222-222222222222';
@@ -60,10 +61,6 @@ const SITE = '88888888-8888-4888-8888-888888888888';
  * Build a fully-typed partial double for an interface T. Every accessed
  * member is supplied; the single `as T` keeps the double assignable.
  */
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
-
 interface HarnessOpts {
   batch?: Batch | null;
   /** resolveFeedDeductionLocation result. */
@@ -75,7 +72,7 @@ interface HarnessOpts {
 }
 
 function makeFeedableBatch(over: Partial<Batch> = {}): Batch {
-  return mock<Batch>({
+  return stub<Batch>({
     id: BATCH,
     tenantId: TENANT,
     isActive: true,
@@ -103,7 +100,7 @@ interface Harness {
 
 function makeHarness(opts: HarnessOpts = {}): Harness {
   const batch = opts.batch === undefined ? makeFeedableBatch() : opts.batch;
-  const feed = mock<Feed>({ id: FEED, name: 'Grower', unit: 'kg', pricePerKg: 2 });
+  const feed = stub<Feed>({ id: FEED, name: 'Grower', unit: 'kg', pricePerKg: 2 });
   // EntityManager.findOne / save / create are heavily overloaded. The doubles
   // are left UN-annotated (jest.fn() → Mock<any>) so they remain structurally
   // assignable to the overloaded EntityManager members with no cast at all;
@@ -144,7 +141,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   const managerCreateQueryBuilder = jest.fn();
   managerCreateQueryBuilder.mockImplementation(() => queryBuilder);
 
-  const manager = mock<EntityManager>({
+  const manager = stub<EntityManager>({
     findOne: managerFindOne,
     save: managerSave,
     create: managerCreate,
@@ -152,7 +149,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     createQueryBuilder: managerCreateQueryBuilder,
   });
 
-  const queryRunner = mock<QueryRunner>({
+  const queryRunner = stub<QueryRunner>({
     connect: jest.fn().mockResolvedValue(undefined),
     startTransaction: jest.fn().mockResolvedValue(undefined),
     commitTransaction: commit,
@@ -165,14 +162,14 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     manager,
   });
 
-  const dataSource = mock<DataSource>({
+  const dataSource = stub<DataSource>({
     createQueryRunner: jest.fn().mockReturnValue(queryRunner),
   });
 
-  const outboxPublisher = mock<OutboxPublisher>({
+  const outboxPublisher = stub<OutboxPublisher>({
     enqueue: jest.fn().mockResolvedValue(undefined),
   });
-  const backdatePolicy = mock<BackdatePolicyService>({ validate: jest.fn() });
+  const backdatePolicy = stub<BackdatePolicyService>({ validate: jest.fn() });
 
   // Real domain service — production assertFeedable behaviour.
   const batchDomainService = new BatchDomainService(new BatchLifecyclePolicyService());
@@ -183,23 +180,23 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   const recordMovement = jest.fn(async (): Promise<RecordMovementResult> => {
     if (opts.recordMovementThrows) throw opts.recordMovementThrows;
     return {
-      saved: mock<StockMovement>({ id: 'mv-1' }),
+      saved: stub<StockMovement>({ id: 'mv-1' }),
       currentTotal: 0,
       idempotentHit: false,
       lowStock: null,
       warnings: [],
     };
   });
-  const stockMovementService = mock<StockMovementService>({
+  const stockMovementService = stub<StockMovementService>({
     resolveFeedDeductionLocation,
     recordMovement,
   });
 
-  const repo = <T extends ObjectLiteral>(): Repository<T> => mock<Repository<T>>({});
+  const repo = <T extends ObjectLiteral>(): Repository<T> => stub<Repository<T>>({});
 
   // Currency SSoT double — the handler resolves the tenant default
   // currency through FinanceSettingsService when the payload omits it.
-  const financeSettings = mock<FinanceSettingsService>({
+  const financeSettings = stub<FinanceSettingsService>({
     getDefaultCurrencyInTx: jest.fn().mockResolvedValue('NOK'),
   });
 
@@ -228,7 +225,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
       };
     },
   );
-  const feedAllocation = mock<FeedAllocationService>({ allocateForDeduction });
+  const feedAllocation = stub<FeedAllocationService>({ allocateForDeduction });
   const feedingLedger = new FeedingLedgerService(
     stockMovementService,
     financeSettings,
@@ -241,7 +238,7 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   lockUnitForGrowth.mockImplementation(async (): Promise<LockedUnit | null> => {
     if (!batch) return null;
     return {
-      tankBatch: mock<TankBatch>({ tankId: TANK, tenantId: TENANT, primaryBatchId: batch.id }),
+      tankBatch: stub<TankBatch>({ tankId: TANK, tenantId: TENANT, primaryBatchId: batch.id }),
       batches: new Map([[batch.id, batch]]),
       details: [],
     };
@@ -260,12 +257,12 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
         lock: { mode: 'pessimistic_write' },
       }),
     );
-  const growthApplier = mock<BiomassGrowthApplierService>({
+  const growthApplier = stub<BiomassGrowthApplierService>({
     lockUnitForGrowth,
     applyGrowth,
     lockBatchForWrite,
   });
-  const recalcService = mock<DayPlanRecalcService>({ recalcForUnit });
+  const recalcService = stub<DayPlanRecalcService>({ recalcForUnit });
 
   const handler = new CreateFeedingRecordHandler(
     repo<FeedingRecord>(),
@@ -399,12 +396,12 @@ describe('CreateFeedingRecordHandler — feed dual-SSoT write path', () => {
 });
 
 describe('CreateFeedingRecordHandler — D-7 plan-dışı yem bağlama', () => {
-  const DAY_PLAN = mock<FeedingDayPlan>({
+  const DAY_PLAN = stub<FeedingDayPlan>({
     id: 'dp-1',
     siteId: SITE,
-    snapshot: mock<FeedingDayPlan['snapshot']>({ expectedFcr: 1.25 }),
+    snapshot: stub<FeedingDayPlan['snapshot']>({ expectedFcr: 1.25 }),
     // W3: büyüme CANLI çözümden okunur (donuk snapshot değil).
-    resolution: mock<FeedingDayPlan['resolution']>({ expectedFcr: 1.25 }),
+    resolution: stub<FeedingDayPlan['resolution']>({ expectedFcr: 1.25 }),
   });
 
   it('aktif gün planına bağlar: kayıt dayPlanId taşır, unplannedActualKg artar, growth + recalc AYNI tx', async () => {

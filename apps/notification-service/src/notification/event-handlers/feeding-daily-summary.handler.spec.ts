@@ -8,12 +8,9 @@
 import type { FeedingDailySummaryEvent } from '@platform/event-contracts';
 
 import { FeedingDailySummaryEventHandler } from './feeding-daily-summary.handler';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
 
 function summaryEvent(
   overrides: Partial<FeedingDailySummaryEvent> = {},
@@ -63,11 +60,11 @@ function makeHandler(opts: HarnessOpts = {}) {
   const subscribeWildcard = jest.fn().mockResolvedValue(undefined);
 
   const handler = new FeedingDailySummaryEventHandler(
-    mock<ConstructorParameters<typeof FeedingDailySummaryEventHandler>[0]>({
+    stub<ConstructorParameters<typeof FeedingDailySummaryEventHandler>[0]>({
       dispatchCommandNotification,
     } as Partial<ConstructorParameters<typeof FeedingDailySummaryEventHandler>[0]>),
     { createNotification },
-    mock<ConstructorParameters<typeof FeedingDailySummaryEventHandler>[2]>({
+    stub<ConstructorParameters<typeof FeedingDailySummaryEventHandler>[2]>({
       createQueryBuilder: deviceTokenRepository.createQueryBuilder,
     } as Partial<ConstructorParameters<typeof FeedingDailySummaryEventHandler>[2]>),
     { subscribeWildcard },

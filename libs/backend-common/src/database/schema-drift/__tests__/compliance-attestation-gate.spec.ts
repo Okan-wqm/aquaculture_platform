@@ -38,6 +38,35 @@ function registrySeverityById(): ReadonlyMap<string, string> {
   return entries;
 }
 
+/**
+ * Registry rows as the gate reads them. Parsed here rather than imported so
+ * the spec checks the gate against the SAME on-disk source of truth the gate
+ * consults, instead of against the gate's own in-memory view of it.
+ */
+function readRegistryEntries(): Array<{
+  id: string;
+  severity: string;
+  state: string;
+}> {
+  const registryPath = join(
+    __dirname,
+    '..',
+    '..',
+    '..',
+    '..',
+    '..',
+    '..',
+    'docs',
+    'reviews',
+    '_registry',
+    'findings.jsonl',
+  );
+  return readFileSync(registryPath, 'utf8')
+    .split('\n')
+    .filter((line) => line.trim().length > 0)
+    .map((line) => JSON.parse(line) as { id: string; severity: string; state: string });
+}
+
 describe('compliance-attestation-coverage gate', () => {
   let stdoutSpy: jest.SpyInstance;
   let stdoutChunks: string[] = [];
@@ -72,9 +101,18 @@ describe('compliance-attestation-coverage gate', () => {
   });
 
   it('ignores OPEN / IN-PROGRESS findings', () => {
-    // The registry currently holds only RESOLVED entries (33 of 53 are
-    // CRITICAL/HIGH, and 20 are RESOLVED). Past cutoff should surface
-    // ONLY RESOLVED ones — not every CRITICAL/HIGH entry.
+    // Past cutoff must surface ONLY RESOLVED CRITICAL/HIGH entries.
+    //
+    // This used to assert `id` matched /-(CRITICAL|HIGH)-/, reading severity
+    // out of the ID TEXT. That is not where severity lives — the gate itself
+    // filters on `e.severity`, and the ID convention `{DOMAIN}-{SEVERITY}-{N}`
+    // is a convention, not a schema. `RUST-CVE-001` is a legitimately-shaped
+    // registry entry with `"severity":"HIGH"` and no severity segment in its
+    // ID, so the regex failed a finding the gate had classified correctly.
+    // Assert against the registry field the gate actually reads.
+    const bySeverity = new Map(
+      readRegistryEntries().map((e) => [e.id, e]),
+    );
     const r = runCoverageCheck({ cutoffIso: '2026-04-15T00:00:00Z' });
     // Severity is registry data, not an ID naming convention. Legacy IDs such
     // as RUST-CVE-001 are valid HIGH findings even though the severity is not

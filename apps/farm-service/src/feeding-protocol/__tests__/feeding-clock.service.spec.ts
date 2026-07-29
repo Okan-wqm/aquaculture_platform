@@ -15,10 +15,7 @@ import { EntityManager, Repository } from 'typeorm';
 import { FeedingClockService } from '../services/feeding-clock.service';
 import { TenantLocalization } from '../entities/tenant-localization.entity';
 import { suspensionFor, zonedPartsIn, localDayBoundsUtc } from '../services/meal-schedule.util';
-
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
+import { stub } from '@aquaculture/testing';
 
 describe('FeedingClockService — zon hiyerarşisi (D-B4)', () => {
   const TENANT = '11111111-1111-4111-8111-111111111111';
@@ -28,12 +25,12 @@ describe('FeedingClockService — zon hiyerarşisi (D-B4)', () => {
       .fn()
       .mockResolvedValue(tenantZone ? [{ tenantId: TENANT, timezone: tenantZone }] : []);
     // Cross-tenant projeksiyon repository'si ENJEKTE edilir (şema-nitelikli).
-    return new FeedingClockService(mock<Repository<TenantLocalization>>({ find }));
+    return new FeedingClockService(stub<Repository<TenantLocalization>>({ find }));
   }
 
   it('site kendi zonunu yazdıysa o kazanır', async () => {
     const service = makeService('Europe/Oslo');
-    const manager = mock<EntityManager>({
+    const manager = stub<EntityManager>({
       query: jest.fn().mockResolvedValue([{ id: 'site-1', timezone: 'America/Santiago' }]),
     });
 
@@ -43,7 +40,7 @@ describe('FeedingClockService — zon hiyerarşisi (D-B4)', () => {
 
   it('site zonu NULL ise tenant zonundan DEVRALIR (kalıtım yapısal)', async () => {
     const service = makeService('Europe/Oslo');
-    const manager = mock<EntityManager>({
+    const manager = stub<EntityManager>({
       query: jest.fn().mockResolvedValue([{ id: 'site-1', timezone: null }]),
     });
 
@@ -55,7 +52,7 @@ describe('FeedingClockService — zon hiyerarşisi (D-B4)', () => {
 
   it('tenant lokalizasyonu hiç yazılmamışsa taban UTC', async () => {
     const service = makeService(null);
-    const manager = mock<EntityManager>({
+    const manager = stub<EntityManager>({
       query: jest.fn().mockResolvedValue([{ id: 'site-1', timezone: null }]),
     });
 

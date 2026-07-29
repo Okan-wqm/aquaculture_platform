@@ -15,15 +15,12 @@ import { Batch } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const UNIT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const BATCH_A = '22222222-2222-4222-8222-222222222222';
 const BATCH_B = '33333333-3333-4333-8333-333333333333';
-
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
 
 interface HarnessOpts {
   tankBatch?: Partial<TankBatch>;
@@ -34,7 +31,7 @@ interface HarnessOpts {
 }
 
 function makeTankBatch(over: Partial<TankBatch> = {}): TankBatch {
-  return mock<TankBatch>({
+  return stub<TankBatch>({
     id: 'tb-1',
     tenantId: TENANT,
     tankId: UNIT,
@@ -67,7 +64,7 @@ function makeTankBatch(over: Partial<TankBatch> = {}): TankBatch {
 }
 
 function makeBatch(id: string): Batch {
-  return mock<Batch>({
+  return stub<Batch>({
     id,
     tenantId: TENANT,
     weight: {
@@ -111,7 +108,7 @@ function makeHarness(opts: HarnessOpts = {}) {
       return options.lock ? lockedTankBatch : previewTankBatch;
     }
     if (entity === Tank) {
-      return opts.tankFound === false ? null : mock<Tank>({ id: UNIT, currentBiomass: 0 });
+      return opts.tankFound === false ? null : stub<Tank>({ id: UNIT, currentBiomass: 0 });
     }
     return null;
   });
@@ -127,8 +124,8 @@ function makeHarness(opts: HarnessOpts = {}) {
   const query = jest.fn();
   query.mockImplementation(async () => queryResults.shift() ?? [{ biomass: 0, quantity: 0 }]);
 
-  const manager = mock<EntityManager>({ findOne, find, save, query });
-  const metrics = mock<FarmDomainMetricsService>({ recordTankProjectionMiss: jest.fn() });
+  const manager = stub<EntityManager>({ findOne, find, save, query });
+  const metrics = stub<FarmDomainMetricsService>({ recordTankProjectionMiss: jest.fn() });
   const service = new BiomassGrowthApplierService(metrics);
   return {
     service,

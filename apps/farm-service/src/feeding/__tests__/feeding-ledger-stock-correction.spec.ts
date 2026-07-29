@@ -35,16 +35,12 @@ import { FeedAllocationService } from '../../storage/services/feed-allocation.se
 import { MovementType } from '../../storage/entities/stock-movement.entity';
 import { StockMovementService } from '../../storage/services/stock-movement.service';
 import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const FEED = '22222222-2222-4222-8222-222222222222';
 const LOCATION_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const LOCATION_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-
-/** Kardeş spec'lerdeki (meal-execution.service.spec.ts) ev deseni. */
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
 
 interface StoredMovement {
   fromLocationId: string;
@@ -128,17 +124,17 @@ function makeHarness(): Harness {
   const allocateForDeduction = jest.fn().mockResolvedValue({ slices: [], usedSiteScope: false });
 
   const service = new FeedingLedgerService(
-    mock<StockMovementService>({ recordMovement }),
-    mock<FinanceSettingsService>({}),
-    mock<OutboxPublisher>({}),
-    mock<FeedAllocationService>({ allocateForDeduction }),
+    stub<StockMovementService>({ recordMovement }),
+    stub<FinanceSettingsService>({}),
+    stub<OutboxPublisher>({}),
+    stub<FeedAllocationService>({ allocateForDeduction }),
   );
 
   return {
     service,
     recordMovement,
     allocateForDeduction,
-    manager: mock<EntityManager>({ query }),
+    manager: stub<EntityManager>({ query }),
     boundParams,
     storedOverride: (rows) => {
       stored = rows;

@@ -42,6 +42,7 @@ import { FeedAllocationService } from '../../storage/services/feed-allocation.se
 import { realFinalizationService } from './helpers/meal-finalization-double';
 import { Batch, BatchStatus } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { stub } from '@aquaculture/testing';
 
 jest.mock('@aquaculture/backend-common/database', () => ({
   // Barrel'ın kalanı (DecimalTransformer vb.) entity yüklemeleri için GERÇEK
@@ -71,10 +72,6 @@ const MEAL = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const PLAN = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const BATCH = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
-
 const CALLER: MealCaller = { sub: 'user-1', roles: [Role.MODULE_MANAGER], assignedSiteIds: [] };
 
 const ENVELOPE = {
@@ -94,7 +91,7 @@ interface HarnessOpts {
 }
 
 function makeHarness(opts: HarnessOpts = {}) {
-  const meal = mock<FeedingMeal>({
+  const meal = stub<FeedingMeal>({
     id: MEAL,
     tenantId: TENANT,
     dayPlanId: PLAN,
@@ -108,7 +105,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     feedId: 'feed-1',
     ...opts.meal,
   });
-  const dayPlan = mock<FeedingDayPlan>({
+  const dayPlan = stub<FeedingDayPlan>({
     id: PLAN,
     tenantId: TENANT,
     protocolId: 'protocol-1',
@@ -148,7 +145,7 @@ function makeHarness(opts: HarnessOpts = {}) {
       temperatureSource: 'none',
     },
   });
-  const protocol = mock<FeedingProtocolV2>({
+  const protocol = stub<FeedingProtocolV2>({
     id: 'protocol-1',
     settings: {
       autoTransition: true,
@@ -160,14 +157,14 @@ function makeHarness(opts: HarnessOpts = {}) {
     bands: [],
     defaultMealSchedule: { mealsPerDay: 1, entries: [] },
   });
-  const batch = mock<Batch>({
+  const batch = stub<Batch>({
     id: BATCH,
     isActive: true,
     status: BatchStatus.ACTIVE,
     currentQuantity: 1000,
   });
   const lockedUnit: LockedUnit = {
-    tankBatch: mock<TankBatch>({ tankId: UNIT, primaryBatchId: BATCH }),
+    tankBatch: stub<TankBatch>({ tankId: UNIT, primaryBatchId: BATCH }),
     batches: new Map([[BATCH, batch]]),
     details: [],
   };
@@ -178,7 +175,7 @@ function makeHarness(opts: HarnessOpts = {}) {
   const feedingRecord =
     opts.feedingRecord === null
       ? null
-      : mock<FeedingRecord>({
+      : stub<FeedingRecord>({
           id: 'rec-1',
           tenantId: TENANT,
           batchId: BATCH,
@@ -195,7 +192,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     if (entity === FeedingMeal) return meal;
     if (entity === FeedingDayPlan) return dayPlan;
     if (entity === FeedingProtocolV2) return protocol;
-    if (entity === Feed) return mock<Feed>({ id: 'feed-1', pricePerKg: 2 });
+    if (entity === Feed) return stub<Feed>({ id: 'feed-1', pricePerKg: 2 });
     if (entity === FeedingRecord) return feedingRecord;
     return null;
   });
@@ -217,7 +214,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     return { affected: 1 };
   });
 
-  const manager = mock<EntityManager>({ findOne, save, count, query: managerQuery, update });
+  const manager = stub<EntityManager>({ findOne, save, count, query: managerQuery, update });
   globalThis.__mealExecManager = manager;
 
   // Servis üyeleri tipli — double'lar ANOTASYONSUZ jest.fn() (Mock<any>) ile
@@ -228,7 +225,7 @@ function makeHarness(opts: HarnessOpts = {}) {
   );
   const receiptComplete = jest.fn();
   receiptComplete.mockResolvedValue(undefined);
-  const receiptService = mock<MobileCommandReceiptService>({
+  const receiptService = stub<MobileCommandReceiptService>({
     begin: receiptBegin,
     complete: receiptComplete,
   });
@@ -238,26 +235,26 @@ function makeHarness(opts: HarnessOpts = {}) {
       throw new ForbiddenException('Site kapsamı dışında');
     });
   }
-  const siteAuth = mock<SiteAuthorizationService>({ assertSiteAssignment });
+  const siteAuth = stub<SiteAuthorizationService>({ assertSiteAssignment });
   const lockUnitForGrowth = jest.fn();
   lockUnitForGrowth.mockImplementation(async () => lockedUnit);
   const applyGrowth = jest.fn();
   applyGrowth.mockResolvedValue(undefined);
-  const growthApplier = mock<BiomassGrowthApplierService>({ lockUnitForGrowth, applyGrowth });
+  const growthApplier = stub<BiomassGrowthApplierService>({ lockUnitForGrowth, applyGrowth });
   const recalcForUnit = jest.fn();
   recalcForUnit.mockResolvedValue(null);
   // W5: `skipMeal` telafi dağıtımını çağırır; varsayılan yüzde 0 olduğu için
   // kalan öğünlere hiçbir kg eklenmez (davranış spec ile pinli).
   const applyMissedCatchUp = jest.fn().mockResolvedValue(0);
-  const recalcService = mock<DayPlanRecalcService>({ recalcForUnit, applyMissedCatchUp });
+  const recalcService = stub<DayPlanRecalcService>({ recalcForUnit, applyMissedCatchUp });
   const recordFeed = jest.fn();
-  recordFeed.mockImplementation(async () => mock({ id: 'rec-1' }));
+  recordFeed.mockImplementation(async () => stub({ id: 'rec-1' }));
   // Düzeltmenin stok ayağı ledger'da TEK uygulama (FARM-MEDIUM-253/254):
   // hareket-tabanlı ön koşul + LIFO iade orada pinlenir; burada çağrı
   // sözleşmesi doğrulanır.
   const applyStockCorrection = jest.fn();
   applyStockCorrection.mockResolvedValue(undefined);
-  const feedingLedger = mock<FeedingLedgerService>({ recordFeed, applyStockCorrection });
+  const feedingLedger = stub<FeedingLedgerService>({ recordFeed, applyStockCorrection });
   const resolveFeedDeductionLocation = jest.fn();
   resolveFeedDeductionLocation.mockImplementation(async () => ({
     storageLocationId: 'loc-1',
@@ -266,18 +263,18 @@ function makeHarness(opts: HarnessOpts = {}) {
   }));
   const recordMovement = jest.fn();
   recordMovement.mockImplementation(async () => ({
-    saved: mock({ id: 'mv-1' }),
+    saved: stub({ id: 'mv-1' }),
     currentTotal: 0,
     idempotentHit: false,
     lowStock: null,
     warnings: [],
   }));
-  const stockMovementService = mock<StockMovementService>({
+  const stockMovementService = stub<StockMovementService>({
     resolveFeedDeductionLocation,
     recordMovement,
   });
   const batchDomainService = new BatchDomainService(new BatchLifecyclePolicyService());
-  const outbox = mock<OutboxPublisher>({
+  const outbox = stub<OutboxPublisher>({
     enqueue: jest.fn(async (event: { eventType: string }) => {
       enqueued.push(event);
       return undefined as never;
@@ -293,10 +290,10 @@ function makeHarness(opts: HarnessOpts = {}) {
       poolTotalKg: args.quantityKg,
     }),
   );
-  const feedAllocation = mock<FeedAllocationService>({ allocateForDeduction });
+  const feedAllocation = stub<FeedAllocationService>({ allocateForDeduction });
 
   const service = new MealExecutionService(
-    mock<DataSource>({}),
+    stub<DataSource>({}),
     receiptService,
     siteAuth,
     growthApplier,

@@ -28,13 +28,10 @@ import { FeedingJobRunService } from '../services/feeding-job-run.service';
 import { realFinalizationService } from './helpers/meal-finalization-double';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
+import { stub } from '@aquaculture/testing';
 
 const OSLO_TENANT = '11111111-1111-4111-8111-111111111111';
 const ISTANBUL_TENANT = '22222222-2222-4222-8222-222222222222';
-
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
 
 interface TickHarnessOptions {
   /** Tick anı (UTC). */
@@ -47,12 +44,12 @@ interface TickHarnessOptions {
 function makeHarness(options: TickHarnessOptions) {
   const claim = options.claim ?? jest.fn().mockResolvedValue('run-1');
   const settle = jest.fn().mockResolvedValue(undefined);
-  const growthApplier = mock<BiomassGrowthApplierService>({});
-  const outboxPublisher = mock<OutboxPublisher>({ enqueue: jest.fn() });
-  const recalcService = mock<DayPlanRecalcService>({});
+  const growthApplier = stub<BiomassGrowthApplierService>({});
+  const outboxPublisher = stub<OutboxPublisher>({ enqueue: jest.fn() });
+  const recalcService = stub<DayPlanRecalcService>({});
 
   const service = new FeedingCronV2Service(
-    mock<DataSource>({
+    stub<DataSource>({
       // runExclusive advisory-lock runner'ı.
       createQueryRunner: jest.fn().mockReturnValue({
         connect: jest.fn().mockResolvedValue(undefined),
@@ -60,15 +57,15 @@ function makeHarness(options: TickHarnessOptions) {
         release: jest.fn().mockResolvedValue(undefined),
       }),
     }),
-    mock<MealPlanGeneratorService>({}),
+    stub<MealPlanGeneratorService>({}),
     growthApplier,
-    mock<WaterTemperatureService>({}),
-    mock<FCRCalculationService>({}),
+    stub<WaterTemperatureService>({}),
+    stub<FCRCalculationService>({}),
     outboxPublisher,
-    mock<ProtocolFeedForecastService>({ refreshTenant: jest.fn() }),
+    stub<ProtocolFeedForecastService>({ refreshTenant: jest.fn() }),
     recalcService,
     realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
-    mock<FeedingClockService>({
+    stub<FeedingClockService>({
       tenantZones: jest.fn().mockResolvedValue(
         new Map([
           [OSLO_TENANT, 'Europe/Oslo'],
@@ -76,7 +73,7 @@ function makeHarness(options: TickHarnessOptions) {
         ]),
       ),
     }),
-    mock<FeedingJobRunService>({ claim, settle }),
+    stub<FeedingJobRunService>({ claim, settle }),
   );
 
   // Keşif ve iş yürütücüleri servis dışında pinlenir (tick'in KARARINI test

@@ -48,13 +48,10 @@ import { FeedingJobRunService } from '../services/feeding-job-run.service';
 import { realFinalizationService } from './helpers/meal-finalization-double';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const NOW = new Date('2026-07-20T08:00:00.000Z');
-
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
 
 /** Bir `feeding_meals` satırının süpürme için anlamlı alanları. */
 interface MealRow {
@@ -109,8 +106,8 @@ function makeHarness(rows: MealRow[]) {
       }));
   });
 
-  const growthApplier = mock<BiomassGrowthApplierService>({});
-  const outboxPublisher = mock<OutboxPublisher>({
+  const growthApplier = stub<BiomassGrowthApplierService>({});
+  const outboxPublisher = stub<OutboxPublisher>({
     // Üretim imzası generic (`<TEvent extends BaseEvent>`); double da öyle
     // olmalı, yoksa cast'la susturmak gerekirdi.
     enqueue: jest.fn(async (event: BaseEvent) => {
@@ -118,26 +115,26 @@ function makeHarness(rows: MealRow[]) {
       return undefined as never;
     }),
   });
-  const recalcService = mock<DayPlanRecalcService>({});
+  const recalcService = stub<DayPlanRecalcService>({});
 
   const service = new FeedingCronV2Service(
-    mock<DataSource>({
+    stub<DataSource>({
       createQueryRunner: jest.fn().mockReturnValue({
         connect: jest.fn().mockResolvedValue(undefined),
         query: jest.fn().mockResolvedValue([{ acquired: true }]),
         release: jest.fn().mockResolvedValue(undefined),
       }),
     }),
-    mock<MealPlanGeneratorService>({}),
+    stub<MealPlanGeneratorService>({}),
     growthApplier,
-    mock<WaterTemperatureService>({}),
-    mock<FCRCalculationService>({}),
+    stub<WaterTemperatureService>({}),
+    stub<FCRCalculationService>({}),
     outboxPublisher,
-    mock<ProtocolFeedForecastService>({}),
+    stub<ProtocolFeedForecastService>({}),
     recalcService,
     realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
-    mock<FeedingClockService>({}),
-    mock<FeedingJobRunService>({}),
+    stub<FeedingClockService>({}),
+    stub<FeedingJobRunService>({}),
   );
 
   // Tenant keşfi ve sıcaklık sapma süpürmesi bu spec'in konusu değil.

@@ -139,7 +139,66 @@ describe('apply-tenant-rls.helper', () => {
     });
   });
 
+  /**
+   * `applyTenantRlsToSchema` and `removeTenantRlsFromSchema` issue DDL, and DDL
+   * authority belongs to the aqua-db-migrate provisioner: both call
+   * `assertDbMigrateDdlAuthority()`, which throws unless `DB_MIGRATE_DDL_AUTHORITY`
+   * is '1'. A suite that exercises the SQL those functions emit must therefore
+   * declare the same authority db-migrate declares, exactly as the sibling
+   * suites `infrastructure-ledger-rls.helper.spec.ts` and
+   * `tenant-rls-sync.service.spec.ts` already do.
+   *
+   * Restore-on-teardown rather than a blanket set, so the guard's default
+   * (deny) is what the `refuses to run without db-migrate DDL authority`
+   * describe below observes.
+   */
+  const AUTHORITY_ENV = 'DB_MIGRATE_DDL_AUTHORITY';
+  const originalAuthority = process.env[AUTHORITY_ENV];
+
+  function grantDdlAuthority(): void {
+    process.env[AUTHORITY_ENV] = '1';
+  }
+
+  function restoreDdlAuthority(): void {
+    if (originalAuthority === undefined) Reflect.deleteProperty(process.env, AUTHORITY_ENV);
+    else process.env[AUTHORITY_ENV] = originalAuthority;
+  }
+
+  /**
+   * The guard is the only thing stopping a runtime service from reshaping RLS on
+   * a live tenant schema, and NOTHING pinned it — the suite below drove the DDL
+   * path exclusively, so removing the guard entirely would not have failed a
+   * single test. It is pinned here for both functions.
+   */
+  describe('refuses to run without db-migrate DDL authority', () => {
+    beforeEach(restoreDdlAuthority);
+    afterEach(restoreDdlAuthority);
+
+    it('applyTenantRlsToSchema throws before issuing any SQL', async () => {
+      Reflect.deleteProperty(process.env, AUTHORITY_ENV);
+      const { runner, calls } = makeMockRunner([]);
+
+      await expect(applyTenantRlsToSchema(runner)).rejects.toThrow(
+        /db-migrate authority/,
+      );
+      expect(calls).toEqual([]);
+    });
+
+    it('removeTenantRlsFromSchema throws before issuing any SQL', async () => {
+      Reflect.deleteProperty(process.env, AUTHORITY_ENV);
+      const { runner, calls } = makeMockRunner([]);
+
+      await expect(removeTenantRlsFromSchema(runner)).rejects.toThrow(
+        /db-migrate authority/,
+      );
+      expect(calls).toEqual([]);
+    });
+  });
+
   describe('applyTenantRlsToSchema', () => {
+    beforeEach(grantDdlAuthority);
+    afterEach(restoreDdlAuthority);
+
     it('refuses apply and remove DDL without db-migrate authority', async () => {
       Reflect.deleteProperty(process.env, ddlAuthorityEnvironmentKey);
       const { runner, calls } = makeMockRunner([]);
@@ -364,6 +423,9 @@ describe('apply-tenant-rls.helper', () => {
   });
 
   describe('removeTenantRlsFromSchema', () => {
+    beforeEach(grantDdlAuthority);
+    afterEach(restoreDdlAuthority);
+
     it('drops policy then DISABLEs RLS in the right order', async () => {
       const replies = [
         [{ schema: 'farm' }],
@@ -385,6 +447,9 @@ describe('apply-tenant-rls.helper', () => {
   });
 
   describe('logger override', () => {
+    beforeEach(grantDdlAuthority);
+    afterEach(restoreDdlAuthority);
+
     it('uses the supplied logger surface (log + warn)', async () => {
       const logs: string[] = [];
       const warns: string[] = [];
@@ -409,6 +474,9 @@ describe('apply-tenant-rls.helper', () => {
   });
 
   describe('identity-table auto-skip (DEPLOY-CRITICAL-006 regression guard)', () => {
+    beforeEach(grantDdlAuthority);
+    afterEach(restoreDdlAuthority);
+
     /**
      * Tier-1 "make impossible" invariant — the helper MUST never install
      * tenant_isolation_policy on `users` or `tenants` in ANY schema,

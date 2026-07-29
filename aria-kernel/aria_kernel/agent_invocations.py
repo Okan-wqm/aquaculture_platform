@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -1110,6 +1111,12 @@ def derive_request_state(
         if requeues > DEFAULT_MAX_REQUEUES:
             return "HUMAN_REQUIRED"
         return "REQUEUED" if requeues > 0 else "PENDING"
+    if event == "anchor_stale":
+        # ORPHAN-MEDIUM-492 — terminal. The git evaluation happened at the
+        # selection boundary (next_pending_request); this function stays a
+        # pure function over the ledgers, so two callers on different
+        # checkouts still derive the same state from the same files.
+        return "ANCHOR_STALE"
     if event == "stale":
         return "STALE"
     if event == "claimed":
@@ -1180,6 +1187,152 @@ def accepted_result_for_request(
     return last
 
 
+# ORPHAN-MEDIUM-492 — how far the repo may move before a minted request is
+# no longer describing the tree it would execute against. The nightly cadence
+# is daily and a request is meant to be consumed by the cycle that minted it,
+# so anything still unclaimed after this window was never picked up at all.
+DEFAULT_ANCHOR_MAX_AGE_SECONDS = 3 * 24 * 3600
+
+
+def _anchor_max_age_seconds(root: Path) -> int:
+    """Operator-tunable staleness window (genesis policy, same shape as caps).
+
+    Policy rather than a constant because the right window follows the cycle
+    cadence, and an operator who changes the cadence must be able to change
+    this without a code change.
+    """
+    from .genesis_policy import load_policy
+
+    raw = load_policy(Path(root).parent).get("agent_request_anchor") or {}
+    if not isinstance(raw, dict):
+        return DEFAULT_ANCHOR_MAX_AGE_SECONDS
+    try:
+        return int(raw.get("max_age_seconds", DEFAULT_ANCHOR_MAX_AGE_SECONDS))
+    except (TypeError, ValueError):
+        return DEFAULT_ANCHOR_MAX_AGE_SECONDS
+
+
+def _anchor_repo_root(root: Path) -> Path | None:
+    """The git work tree the queue's requests would execute against.
+
+    Resolved from the TOOLS dir rather than the process cwd on purpose. In
+    production ``--tools-dir aria-tools`` sits inside the checkout, so the
+    repo resolves and the anchor is enforced. An isolated fixture whose tools
+    dir is a bare temp directory has no repo to be stale against, so there is
+    nothing to enforce and queue semantics are tested unchanged. Deriving it
+    from cwd instead would enforce against whatever tree the test runner
+    happened to start in, which is not the tree the request names.
+
+    A filesystem walk rather than ``git rev-parse --show-toplevel`` because
+    this runs on the executor's poll path: forking git on every poll costs a
+    process per tick to answer a question the directory layout already
+    answers, and it makes the queue reader visible to any caller that patches
+    ``subprocess.run`` for unrelated reasons. ``.git`` is matched as a path,
+    not a directory, so a linked worktree (where ``.git`` is a file) resolves
+    too — ARIA runs its agents in worktrees.
+    """
+    try:
+        resolved = root.resolve()
+    except OSError:
+        return None
+    for candidate in (resolved, *resolved.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
+def _commit_exists(repo_root: Path, sha: str) -> bool:
+    try:
+        completed = subprocess.run(
+            ["git", "cat-file", "-e", f"{sha}^{{commit}}"],
+            cwd=str(repo_root),
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return completed.returncode == 0
+
+
+def _anchor_refusal_reason(
+    request: dict[str, Any],
+    repo_root: Path,
+    *,
+    now: datetime | None = None,
+    max_age_seconds: int = DEFAULT_ANCHOR_MAX_AGE_SECONDS,
+) -> str | None:
+    """Why this request must not be claimed, or None if it is still current.
+
+    ORPHAN-MEDIUM-492. ``target_sha`` is the commit the request's evidence and
+    plan are grounded at (see ``convergence_drainer._resolve_workspace_head_sha``)
+    — it is already minted, persisted and hashed into the context envelope, and
+    until now nothing on the selection path read it.
+
+    Age is checked as well as existence because reachability alone does not
+    make a request current: the ~20 requests stranded by ORPHAN-CRITICAL-469
+    are anchored at commits that ARE ancestors of HEAD, just 60+ commits back.
+    """
+    anchor = str(request.get("target_sha") or "")
+    if not anchor:
+        return "anchor_missing"
+    if not _commit_exists(repo_root, anchor):
+        # Force-push, rebase, or a request minted in a tree this checkout
+        # never had. Either way the plan cannot be graded against the repo.
+        return "anchor_unreachable"
+    created = _parse_iso(request.get("created_at"))
+    if created is None:
+        return "anchor_undatable"
+    age = ((now or _utc_now_dt()) - created).total_seconds()
+    if age > max_age_seconds:
+        return "anchor_expired"
+    return None
+
+
+def _record_anchor_stale(
+    root: Path,
+    request: dict[str, Any],
+    reason: str,
+    *,
+    now: datetime,
+) -> None:
+    """Append the terminal event once, so the refusal is durable and derivable.
+
+    Written to the claims ledger rather than recomputed per poll: after this
+    row lands ``derive_request_state`` returns ANCHOR_STALE, the request stops
+    being a PENDING candidate, and the git evaluation never runs for it again.
+    That is what keeps ``derive_request_state`` a pure function over ledgers
+    while the repo-dependent decision happens at the selection boundary.
+    """
+    request_id = request.get("request_id")
+    append_declared_jsonl(
+        _claims_path(root),
+        {
+            "schema_version": 1,
+            "event": "anchor_stale",
+            "request_id": request_id,
+            "at": _iso(now),
+            "reason": reason,
+            "target_sha": request.get("target_sha"),
+            "created_at": request.get("created_at"),
+        },
+        expected_surface="agent_invocation_claims",
+    )
+    append_tools_governance(
+        root,
+        "agent_request_refused_stale_anchor",
+        {
+            "request_id": request_id,
+            "reason": reason,
+            "target_agent": request.get("target_agent"),
+            "role": request.get("role"),
+            "target_sha": request.get("target_sha"),
+            "created_at": request.get("created_at"),
+        },
+    )
+
+
 def next_pending_request(
     *,
     role: str | None = None,
@@ -1195,8 +1348,13 @@ def next_pending_request(
     NOT mean the work succeeded. Callers deciding whether an agent
     delivered must use :func:`accepted_result_for_request`
     (ORPHAN-HIGH-422).
+
+    ORPHAN-MEDIUM-492 — a candidate whose ``target_sha`` no longer describes
+    the tree it would run against is refused here and marked ANCHOR_STALE,
+    because selection is the last point at which the repo is still in scope.
     """
     root = ensure_tools_dir(base_dir)
+    repo_root = _anchor_repo_root(root)
     requests = load_declared_jsonl(
         root / "agent-invocations" / "requests.jsonl",
         expected_surface="agent_invocation_requests",
@@ -1209,8 +1367,20 @@ def next_pending_request(
         if target_agent and request.get("target_agent") != target_agent:
             continue
         state = derive_request_state(request_id=request["request_id"], base_dir=root)
-        if state in {"PENDING", "REQUEUED"}:
-            return request
+        if state not in {"PENDING", "REQUEUED"}:
+            continue
+        if repo_root is not None:
+            now = _utc_now_dt()
+            reason = _anchor_refusal_reason(
+                request,
+                repo_root,
+                now=now,
+                max_age_seconds=_anchor_max_age_seconds(root),
+            )
+            if reason is not None:
+                _record_anchor_stale(root, request, reason, now=now)
+                continue
+        return request
     return None
 
 

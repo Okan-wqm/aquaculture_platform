@@ -15,6 +15,10 @@
     "failure_window_hours": 72,
     "auto_downgrade_to": "strict"
   },
+  "agent_request_anchor": {
+    "_doc": "ORPHAN-MEDIUM-492 — how long a minted agent-invocation request stays claimable. target_sha names the commit the request's plan and evidence are grounded at; past this window the request describes a tree the repo has moved off. The nightly cadence is daily and a request is meant to be consumed by the cycle that minted it, so 3 days is already generous. Reachability is checked separately and unconditionally — age alone is not the test, because a stale anchor can still be an ancestor of HEAD.",
+    "max_age_seconds": 259200
+  },
   "convergent_authoring": {
     "_doc": "Plan ARIA-V6 \u00a72d v2 \u2014 convergent adapter authoring loop config. Operator opt-in via skill-genesis request --convergent.",
     "max_authoring_rounds": 6,

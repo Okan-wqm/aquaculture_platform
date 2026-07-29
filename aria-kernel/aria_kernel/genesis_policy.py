@@ -16,6 +16,10 @@ POLICY_KEYS = {
     "cost_caps_usd",
     # Plan ARIA-V3 §B2 — circuit-breaker failure threshold.
     "circuit_breaker",
+    # ORPHAN-MEDIUM-492 — how long a minted agent-invocation request stays
+    # claimable before its target_sha no longer describes the tree it would
+    # run against. Consumed by agent_invocations.next_pending_request.
+    "agent_request_anchor",
     # Plan S4 (ORPHAN-MEDIUM-298) — per-drift-class pressure score
     # multipliers consumed by pressure.run_pressure.
     "drift_class_weights",

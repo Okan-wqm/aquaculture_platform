@@ -151,6 +151,11 @@ DERIVED_REQUEST_STATES: tuple[str, ...] = (
     "ACCEPTED_PENDING_BRIDGE",
     "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
     "EXTERNAL_OUTAGE",
+    # ORPHAN-MEDIUM-492 — the request's target_sha no longer describes the
+    # repo it would be executed against. Distinct from STALE, which is a
+    # lease-expiry and is retryable: a lease can be re-claimed, but a plan
+    # grounded at an obsolete tree cannot be made current by retrying it.
+    "ANCHOR_STALE",
 )
 
 TERMINAL_REQUEST_STATES: FrozenSet[str] = frozenset({
@@ -160,6 +165,7 @@ TERMINAL_REQUEST_STATES: FrozenSet[str] = frozenset({
     "CANCELLED",
     "HUMAN_REQUIRED",
     "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
+    "ANCHOR_STALE",
 })
 
 GENESIS_LIFECYCLE_STATES: tuple[str, ...] = (

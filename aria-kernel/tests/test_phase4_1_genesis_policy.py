@@ -108,6 +108,12 @@ class GenesisPolicyTests(unittest.TestCase):
                 "fitness_staleness_threshold_days",
                 "cost_caps_usd",
                 "circuit_breaker",
+                # ORPHAN-MEDIUM-492 — agent_request_anchor.max_age_seconds:
+                # how long a minted agent-invocation request stays claimable
+                # before its target_sha stops describing the tree it would
+                # run against. Policy rather than a constant because the
+                # right window follows the cycle cadence.
+                "agent_request_anchor",
                 "convergent_authoring",
                 "auto_promote",
                 "skill_genesis_drainer",

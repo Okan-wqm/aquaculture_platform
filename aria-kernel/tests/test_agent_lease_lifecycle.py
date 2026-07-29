@@ -17,6 +17,7 @@ from aria_kernel.agent_invocations import (
     reap_stale_claims,
     release_claim,
 )
+from aria_kernel.agent_surface import TERMINAL_REQUEST_STATES
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 
 
@@ -204,9 +205,21 @@ class LeaseLifecycleTests(unittest.TestCase):
         # aware acceptance states (ACCEPTED_PENDING_BRIDGE +
         # ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL).
         # V10.5 Phase 3 (per ADR-0001) — EXTERNAL_OUTAGE added for
-        # Anthropic API 529 transient outage handling. Count is now 13.
-        self.assertEqual(len(DERIVED_STATES), 13)
+        # Anthropic API 529 transient outage handling.
+        # ORPHAN-MEDIUM-492 — ANCHOR_STALE added, and deliberately NOT
+        # folded into STALE: a lease-expired request is retryable, whereas
+        # one anchored at an obsolete tree cannot be made current by
+        # retrying it. Count is now 14.
+        self.assertEqual(len(DERIVED_STATES), 14)
         self.assertIn("EXTERNAL_OUTAGE", DERIVED_STATES)
+        self.assertIn("ANCHOR_STALE", DERIVED_STATES)
+        self.assertIn("ANCHOR_STALE", TERMINAL_REQUEST_STATES)
+        # The two must stay separate names, not aliases: collapsing them
+        # would make an obsolete-anchor request look retryable.
+        self.assertNotEqual("STALE", "ANCHOR_STALE")
+        self.assertEqual(
+            len([s for s in DERIVED_STATES if s.endswith("STALE")]), 2
+        )
 
 
 if __name__ == "__main__":

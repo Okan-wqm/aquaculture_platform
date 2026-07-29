@@ -1405,3 +1405,10 @@ finding is one nobody can navigate back to from the review that produced it.
   Severity MEDIUM, layer 1, owner okan, deadline 2026-08-26. `_verify_abort_gate` compared the guard with `in`, so
   `if: ${{ <guard> || always() }}` contained the guard verbatim while being unconditionally true — the step ran during a
   blocked cycle, which is the exact failure the gate's own docstring says it prevents.
+
+* **ORPHAN-MEDIUM-492** — `next_pending_request` never read the `target_sha` it selects on, so a request minted against an obsolete tree stayed claimable forever  
+  Severity MEDIUM, layer 1, owner okan, deadline 2026-08-26. The sharpest instance of this branch's defect class: the anchor
+  was minted, persisted, hashed into the context envelope and read by the evidence-validator — and the selection path ignored
+  it. The ~20 requests stranded by `ORPHAN-CRITICAL-469` are anchored at commits that ARE ancestors of HEAD, 60+ commits back,
+  so reachability alone would have passed every one; age is checked too. New terminal state `ANCHOR_STALE`, kept separate from
+  the retryable `STALE`.

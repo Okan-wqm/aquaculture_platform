@@ -18284,6 +18284,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/hr-service/src/common/utc-calendar-date.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/src/common/utc-calendar-date.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/hr-service/src/database/__tests__/sync-hr-entities-to-db.spec.ts",
       "prettier_managed": true
     },
@@ -55308,10 +55320,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9067,
+  "file_count": 9069,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8886,
-  "managed_file_list_sha256": "c0168bab75b7c7fdd0bf1073222e0e30cb348872915df3a87a552451fb624016",
+  "managed_count": 8888,
+  "managed_file_list_sha256": "ab897da534c2c025917cbb4d5ab2fa666f55ef5a19214b2200b0ee31d165001e",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

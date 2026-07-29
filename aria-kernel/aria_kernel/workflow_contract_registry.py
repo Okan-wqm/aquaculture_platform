@@ -63,6 +63,13 @@ class WorkflowAbortGate:
 
     gate_step: str
     guard_output: str
+    # ORPHAN-HIGH-497 — the ONE step permitted to carry the inverse guard.
+    # The exemption used to be global, so any step could spell
+    # ``blocked == 'true'`` and pass: a one-character edit (`!=` to `==`)
+    # turned a real worker step into one that runs ONLY while another host
+    # holds the lease, which is ORPHAN-CRITICAL-469 restored with the
+    # contract gate still green.
+    announce_step: str = ""
 
     @property
     def guard_expression(self) -> str:
@@ -247,7 +254,7 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 dlp_artifact="aria-agent-executor-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
-                job_timeout_minutes=35,
+                job_timeout_minutes=45,
                 required_steps=(
                     _EXECUTOR_RESTORE_STEP,
                     _EXECUTOR_LEASE_STEP,
@@ -275,6 +282,7 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 abort_gate=WorkflowAbortGate(
                     gate_step=_EXECUTOR_LEASE_STEP,
                     guard_output="steps.lease_check.outputs.blocked",
+                    announce_step="Skip autonomous loop when local lease is fresh",
                 ),
             ),
         ),
@@ -336,6 +344,7 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 abort_gate=WorkflowAbortGate(
                     gate_step=_CYCLE_LEASE_STEP,
                     guard_output="steps.lease_check.outputs.blocked",
+                    announce_step="Skip when local lease is fresh",
                 ),
             ),
         ),

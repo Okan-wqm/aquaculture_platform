@@ -38,6 +38,7 @@ import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -784,26 +785,60 @@ def _record_run_wall_clock(
         sys.stderr.write(f"wall_clock_record_failed: {exc}\n")
 
 
+def _job_elapsed_seconds() -> float | None:
+    """Seconds since this workflow RUN started, from GitHub's own timestamp.
+
+    ORPHAN-CRITICAL-495 — the first version of this gate accounted against
+    ``request["cycle_id"]``, and 15 of 17 mint paths never set it, so the
+    ceiling was inert on essentially every dispatch: exactly the
+    written-tested-and-never-reached defect this branch exists to close, in
+    the commit that claimed to close it.
+
+    Elapsed-since-job-start is also the better question for this lane. The
+    executor handles ONE request per job, so there is no cycle total to
+    accumulate; what actually matters is whether a 30-minute run still fits
+    in what remains of a 35-minute job after restore, preflight and lease
+    checks have taken their share. ``GITHUB_RUN_STARTED_AT`` needs nothing
+    threaded through the envelope to answer that.
+    """
+    started = os.environ.get("GITHUB_RUN_STARTED_AT", "").strip()
+    if not started:
+        return None
+    try:
+        parsed = datetime.fromisoformat(started.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return max(0.0, (datetime.now(timezone.utc) - parsed).total_seconds())
+
+
 def _assert_cycle_wall_clock(
     *,
     request: dict[str, Any],
     tools_dir: str | Path,
     timeout_seconds: int,
 ) -> None:
-    from aria_kernel.budget import assert_dispatch_fits_wall_clock
+    from aria_kernel.budget import WallClockExhausted
 
-    cycle_id = request.get("cycle_id")
-    if not cycle_id:
-        # No cycle to account against (a one-off operator dispatch). The
-        # per-run timeout still bounds this run; there is simply no cycle
-        # total for it to be part of.
+    cap_seconds = _wall_clock_cap_seconds()
+    elapsed = _job_elapsed_seconds()
+    if cap_seconds is None or elapsed is None:
+        # Not in a recognised lane, or GitHub gave us no run timestamp. The
+        # per-run timeout still bounds this run; there is simply no job
+        # ceiling to measure it against.
         return
-    assert_dispatch_fits_wall_clock(
-        cycle_id=str(cycle_id),
-        per_run_timeout_seconds=timeout_seconds,
-        cap_seconds=_wall_clock_cap_seconds(),
-        base_dir=tools_dir,
-    )
+    remaining = cap_seconds - elapsed
+    if remaining < timeout_seconds:
+        raise WallClockExhausted(
+            f"job_wall_clock_exhausted: remaining={remaining:.0f}s "
+            f"< per_run_timeout={timeout_seconds}s "
+            f"(cap={cap_seconds}s elapsed={elapsed:.0f}s)"
+        )
+    # The run's actual duration is booked after it finishes, in the `finally`
+    # arm around invoke_claude_cli. Nothing is recorded here: a zero-second
+    # row at gate time would be noise in a ledger whose whole purpose is to
+    # answer how long things took.
 
 
 # ORPHAN-HIGH-472 — `_estimate_envelope_cost_usd` lived here. It priced an
@@ -1811,6 +1846,12 @@ def main(argv: list[str] | None = None) -> int:
         # loop and to read the operator's intent.
         "target_agent": claim.get("target_agent") or subagent_type,
         "convergence_id": claim.get("convergence_id"),
+        # ORPHAN-CRITICAL-495 — the request ROW carries cycle_id (written by
+        # create_agent_invocation_request) and this envelope did not copy it,
+        # so every consumer that keyed on it silently no-opped. The
+        # wall-clock ledger was one; it recorded nothing at all because
+        # _record_run_wall_clock returns early on a falsy cycle_id.
+        "cycle_id": claim.get("cycle_id"),
         "suggested_prompt": claim.get("suggested_prompt"),
         "forbidden_scope": claim.get("forbidden_scope") or [],
         "impact_graph_refs": claim.get("impact_graph_refs") or [],

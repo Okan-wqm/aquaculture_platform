@@ -1288,11 +1288,19 @@ def _anchor_refusal_reason(
     Age is checked as well as existence because reachability alone does not
     make a request current: the ~20 requests stranded by ORPHAN-CRITICAL-469
     are anchored at commits that ARE ancestors of HEAD, just 60+ commits back.
+
+    ORPHAN-CRITICAL-495 — a MISSING anchor is not grounds for refusal. Only 6
+    of 17 mint paths pass ``target_sha``; the other 11 include this branch's
+    own HUMAN_REQUIRED adjudication panel and the operator's
+    ``aria-kernel agent request`` CLI. Refusing on absence would have marked
+    all of them terminally ANCHOR_STALE — a guard that kills the queue it was
+    written to protect. Age is the check that does the real work here and it
+    needs no anchor at all, because ``created_at`` is on every row: the
+    stranded requests this finding exists to clear are caught by age whether
+    or not they carry a SHA.
     """
     anchor = str(request.get("target_sha") or "")
-    if not anchor:
-        return "anchor_missing"
-    if not _commit_exists(repo_root, anchor) and not _repo_is_shallow(repo_root):
+    if anchor and not _commit_exists(repo_root, anchor) and not _repo_is_shallow(repo_root):
         # Force-push, rebase, or a request minted in a tree this checkout
         # never had. Either way the plan cannot be graded against the repo.
         #

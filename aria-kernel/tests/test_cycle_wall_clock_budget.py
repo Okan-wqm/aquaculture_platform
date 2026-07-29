@@ -19,8 +19,6 @@ from pathlib import Path
 
 from aria_kernel.budget import (
     USD_BASIS_NOTIONAL_API_EQUIVALENT,
-    WallClockExhausted,
-    assert_dispatch_fits_wall_clock,
     cycle_wall_clock_spent,
     record_run_wall_clock,
 )
@@ -56,76 +54,6 @@ class WallClockAccountingTests(unittest.TestCase):
     def test_negative_duration_is_refused(self) -> None:
         with self.assertRaises(GovernanceError):
             record_run_wall_clock(cycle_id="c1", seconds=-1, base_dir=self.tools)
-
-    def test_dispatch_with_room_is_allowed(self) -> None:
-        record_run_wall_clock(cycle_id="c1", seconds=300, base_dir=self.tools)
-        verdict = assert_dispatch_fits_wall_clock(
-            cycle_id="c1",
-            per_run_timeout_seconds=600,
-            cap_seconds=1800,
-            base_dir=self.tools,
-        )
-        self.assertEqual(verdict["status"], "ok")
-        self.assertEqual(verdict["remaining_seconds"], 1500)
-
-    def test_dispatch_that_cannot_finish_is_refused_before_it_starts(self) -> None:
-        """The load-bearing case.
-
-        1500s spent of a 1800s cap leaves 300s. A run whose own timeout is
-        600s cannot complete in that. Starting it anyway is how the runner
-        ends up killing the job with the claim still held.
-        """
-        record_run_wall_clock(cycle_id="c1", seconds=1500, base_dir=self.tools)
-        with self.assertRaises(WallClockExhausted) as caught:
-            assert_dispatch_fits_wall_clock(
-                cycle_id="c1",
-                per_run_timeout_seconds=600,
-                cap_seconds=1800,
-                base_dir=self.tools,
-            )
-        self.assertIn("cycle_wall_clock_exhausted", str(caught.exception))
-
-    def test_refusal_happens_while_budget_remains(self) -> None:
-        # Explicitly NOT "remaining <= 0": there are still 300 seconds left
-        # here and the dispatch is still refused, because 300 < 600. A gate
-        # that waited for exhaustion would permit exactly the run that gets
-        # guillotined.
-        record_run_wall_clock(cycle_id="c1", seconds=1500, base_dir=self.tools)
-        remaining = 1800 - cycle_wall_clock_spent(cycle_id="c1", base_dir=self.tools)
-        self.assertGreater(remaining, 0)
-        with self.assertRaises(WallClockExhausted):
-            assert_dispatch_fits_wall_clock(
-                cycle_id="c1",
-                per_run_timeout_seconds=600,
-                cap_seconds=1800,
-                base_dir=self.tools,
-            )
-
-    def test_exactly_fitting_dispatch_is_allowed(self) -> None:
-        # remaining == per_run_timeout is a fit, not a refusal. On the
-        # executor lane the derived cap (1800s) equals DEFAULT_TIMEOUT_SECONDS
-        # exactly, so an off-by-one here would refuse every first dispatch.
-        record_run_wall_clock(cycle_id="c1", seconds=1200, base_dir=self.tools)
-        verdict = assert_dispatch_fits_wall_clock(
-            cycle_id="c1",
-            per_run_timeout_seconds=600,
-            cap_seconds=1800,
-            base_dir=self.tools,
-        )
-        self.assertEqual(verdict["status"], "ok")
-
-    def test_no_declared_cap_means_unbounded_not_zero(self) -> None:
-        # A lane with no pinned timeout must not be treated as a zero budget,
-        # which would refuse everything. The runner's own timeout still
-        # applies — it just kills rather than halting.
-        verdict = assert_dispatch_fits_wall_clock(
-            cycle_id="c1",
-            per_run_timeout_seconds=600,
-            cap_seconds=None,
-            base_dir=self.tools,
-        )
-        self.assertEqual(verdict["status"], "unbounded")
-
 
 class UsdBasisLabelTests(unittest.TestCase):
     def test_cost_rows_declare_what_the_dollar_figure_is(self) -> None:

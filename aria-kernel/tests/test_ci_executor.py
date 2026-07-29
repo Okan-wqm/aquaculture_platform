@@ -68,44 +68,94 @@ class DispatchBudgetTests(unittest.TestCase):
                 timeout_seconds=600,
             )
 
-    def test_exhausted_cycle_wall_clock_refuses_the_dispatch(self) -> None:
-        from aria_kernel.budget import WallClockExhausted, record_run_wall_clock
+    @staticmethod
+    def _started_at(seconds_ago: int) -> str:
+        from datetime import datetime, timedelta, timezone
+
+        return (
+            datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    def test_gate_uses_the_values_production_actually_supplies(self) -> None:
+        """TEST-CRITICAL-001 — the test that would have caught the outage.
+
+        The first version of these tests passed timeout_seconds=600, a value
+        _max_timeout_seconds() cannot return on either lane. With the real
+        pair (cap 1800 == MAX_TIMEOUT_SECONDS 1800) the gate refused EVERY
+        dispatch at any elapsed > 0: claim, refuse, release, exit 0, forever,
+        with the job green and no agent ever running. Both numbers are now
+        READ FROM THEIR SOURCES, so a future retune of either the job timeout
+        or the per-run timeout that makes the gate unsatisfiable fails here.
+        """
         from aria_kernel.tool_registry import ensure_tools_dir
+        from aria_kernel.workflow_contract_registry import cycle_wall_clock_cap_seconds
 
         tools = ensure_tools_dir(self.tools)
-        record_run_wall_clock(cycle_id="c1", seconds=1790, base_dir=tools)
-        # GITHUB_WORKFLOW_REF is what names the lane, and the lane's pinned
-        # job timeout is what the ceiling derives from.
+        for workflow_id in ("aria-agent-executor", "aria-auto-cycle"):
+            with self.subTest(workflow=workflow_id):
+                cap = cycle_wall_clock_cap_seconds(workflow_id)
+                with patch.dict(
+                    os.environ,
+                    {
+                        "GITHUB_WORKFLOW_REF":
+                            f"o/r/.github/workflows/{workflow_id}.yml@refs/heads/main",
+                        "GITHUB_RUN_STARTED_AT": self._started_at(120),
+                        "MAX_TIMEOUT_SECONDS": "1800",
+                        "MAX_TURNS_PER_RUN": "12",
+                    },
+                ):
+                    per_run = ci_executor._max_timeout_seconds()
+                    self.assertGreater(
+                        cap - 120, per_run,
+                        f"{workflow_id}: a run of {per_run}s cannot start 120s into a "
+                        f"{cap}s budget — the gate would refuse every dispatch",
+                    )
+                    # Two minutes into the job is the normal case, and it must
+                    # be allowed with the real numbers, not with test literals.
+                    ci_executor._validate_dispatch_budget(
+                        request={"evidence_refs": ["a"]},
+                        tools_dir=tools,
+                        timeout_seconds=per_run,
+                    )
+
+    def test_exhausted_job_wall_clock_refuses_the_dispatch(self) -> None:
+        """ORPHAN-CRITICAL-495 — no cycle_id anywhere in this test, on purpose.
+
+        The first version of this gate accounted against request["cycle_id"],
+        which 15 of 17 mint paths never set, so it was inert on essentially
+        every dispatch. The ceiling now derives from elapsed job time, which
+        needs nothing threaded through the envelope.
+        """
+        from aria_kernel.budget import WallClockExhausted
+        from aria_kernel.tool_registry import ensure_tools_dir
+        from aria_kernel.workflow_contract_registry import cycle_wall_clock_cap_seconds
+
+        tools = ensure_tools_dir(self.tools)
+        cap = cycle_wall_clock_cap_seconds("aria-agent-executor")
         with patch.dict(
             os.environ,
             {
                 "GITHUB_WORKFLOW_REF":
                     "o/r/.github/workflows/aria-agent-executor.yml@refs/heads/main",
+                # Derived from the real cap so this stays a genuine exhaustion
+                # case if the timeout is ever retuned.
+                "GITHUB_RUN_STARTED_AT": self._started_at(cap - 60),
+                "MAX_TIMEOUT_SECONDS": "1800",
                 "MAX_TURNS_PER_RUN": "12",
             },
         ):
             with self.assertRaises(WallClockExhausted):
                 ci_executor._validate_dispatch_budget(
-                    request={"evidence_refs": ["a"], "cycle_id": "c1"},
+                    request={"evidence_refs": ["a"]},
                     tools_dir=tools,
-                    timeout_seconds=600,
+                    timeout_seconds=ci_executor._max_timeout_seconds(),
                 )
 
-    def test_unknown_lane_does_not_refuse(self) -> None:
-        # Outside a recognised workflow there is no declared ceiling; the
-        # dispatch must proceed rather than be refused against a phantom cap.
-        from aria_kernel.tool_registry import ensure_tools_dir
-
-        tools = ensure_tools_dir(self.tools)
-        with patch.dict(
-            os.environ,
-            {"GITHUB_WORKFLOW_REF": "", "MAX_TURNS_PER_RUN": "12"},
-        ):
-            ci_executor._validate_dispatch_budget(
-                request={"evidence_refs": ["a"], "cycle_id": "c1"},
-                tools_dir=tools,
-                timeout_seconds=600,
-            )
+    def test_cycle_id_reaches_the_envelope(self) -> None:
+        # TEST-CRITICAL-002 — the wall-clock ledger recorded nothing because
+        # the envelope main() builds never copied cycle_id off the request row.
+        src = (Path(_POC_DIR) / "ci_executor.py").read_text(encoding="utf-8")
+        self.assertIn('"cycle_id": claim.get("cycle_id"),', src)
 
     def test_workflow_id_is_parsed_from_the_github_ref(self) -> None:
         with patch.dict(

@@ -1437,3 +1437,35 @@ finding is one nobody can navigate back to from the review that produced it.
   fires, so `492`'s case is still caught on the checkout production actually uses. Found by asking what the guard does
   under the *production* checkout rather than the fixture's full clone — the same fixture-does-not-match-production
   blindness that let the original `492` defect survive, which is why seven passing tests said nothing about it.
+
+* **ORPHAN-CRITICAL-495** — two more self-inflicted defects in the same closeout, found by the regression review lens  
+  Severity CRITICAL, layer 1, owner okan, deadline 2026-08-26. **(a)** A missing anchor was terminal, and an AST count of all
+  17 `create_agent_invocation_request` callsites shows only **6** pass `target_sha` — the other 11 include the operator's own
+  `aria-kernel agent request` CLI and this branch's new HUMAN_REQUIRED panel, which could therefore never have been
+  dispatched. A guard written to protect the queue would have destroyed it. Absence of a SHA is no longer grounds for
+  refusal; age does the real work and needs no anchor. **(b)** The `472` wall-clock gate accounted against
+  `request["cycle_id"]`, which **15 of 17** mint paths never set — written, tested, name-pinned and unreachable, the exact
+  defect class this branch exists to close, in the commit that claimed to close it. The ceiling now derives from
+  `GITHUB_RUN_STARTED_AT`, which is also the better question for a lane that handles one request per job.
+
+* **ORPHAN-HIGH-496** — two hand-maintained copies of the non-delivering terminal-state set fell behind the SSoT  
+  Severity HIGH, layer 1, owner okan, deadline 2026-08-26. `review_runner` and `specialist_review_runner` each carried a
+  literal frozenset; adding `ANCHOR_STALE` updated neither, so an anchor-refused request was terminal-but-unrecognised and
+  each poll loop would burn its full timeout waiting for a result that could not arrive. Both are now derived as
+  `TERMINAL_REQUEST_STATES - {"ACCEPTED"}` — tier 2 replacing what was effectively two comments asking future readers to
+  remember.
+
+* **ORPHAN-CRITICAL-497** — the wall-clock gate refused *every* dispatch under production values  
+  Severity CRITICAL, layer 1, owner okan, deadline 2026-08-26. Found by the test-quality lens, which **executed** the code.
+  Cap was `(35−5)×60 = 1800s` and the executor sets `MAX_TIMEOUT_SECONDS=1800`, so `remaining < per_run_timeout` was false
+  only at `elapsed == 0`. `main()` catches the refusal, releases the claim and returns **0** — the lane would have gone
+  permanently green-and-idle: claim, refuse, release, exit 0, forever, no agent ever running and no job red. It also
+  exposed a real latent config problem: an 1800s run does not fit a 2100s job once startup and publish are counted, so the
+  executor timeout moves **35 → 45 min** with the contract pinned in lockstep. Tests now read cap and per-run timeout from
+  their sources. Second half: `_step_is_gated` exempted the announce expression **globally**, so flipping one character
+  (`!=` → `==`) on a worker step made the executor run *only* while another host held the lease —
+  `ORPHAN-CRITICAL-469` restored with the gate green. Exemption is now scoped to the declared announce step.
+
+> **Pattern, four times in one session.** Every defect above survived because the fixture did not resemble production: a
+> full clone where production is shallow (`494`), a request dict carrying a field 11 mint paths omit (`495`), a timeout
+> literal production never emits (`497`). The lens that caught them ran the code; the lenses that missed them read it.

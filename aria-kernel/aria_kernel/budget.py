@@ -409,43 +409,12 @@ def cycle_wall_clock_spent(*, cycle_id: str, base_dir: str | Path) -> float:
     return spent
 
 
-def assert_dispatch_fits_wall_clock(
-    *,
-    cycle_id: str,
-    per_run_timeout_seconds: int,
-    cap_seconds: int | None,
-    base_dir: str | Path,
-) -> dict[str, Any]:
-    """Refuse a dispatch that cannot finish inside the cycle's remaining time.
-
-    The check is ``remaining < per_run_timeout``, not ``remaining <= 0``, and
-    that difference is the whole point. A run started with less time left than
-    its own timeout is a run GitHub will kill mid-flight, which is the state
-    that strands a claimed request: the lease is held, no result is submitted,
-    no governance row is written, and the breaker never learns anything. It is
-    strictly better to stop the cycle cleanly and let the request be picked up
-    by the next one.
-
-    ``cap_seconds=None`` means the lane declares no timeout, so there is no
-    self-imposed ceiling to enforce — the runner's own limit still applies.
-    """
-    if cap_seconds is None:
-        return {"status": "unbounded", "cycle_id": cycle_id}
-    spent = cycle_wall_clock_spent(cycle_id=cycle_id, base_dir=base_dir)
-    remaining = cap_seconds - spent
-    if remaining < per_run_timeout_seconds:
-        raise WallClockExhausted(
-            f"cycle_wall_clock_exhausted: cycle_id={cycle_id} "
-            f"remaining={remaining:.0f}s < per_run_timeout={per_run_timeout_seconds}s "
-            f"(cap={cap_seconds}s spent={spent:.0f}s)"
-        )
-    return {
-        "status": "ok",
-        "cycle_id": cycle_id,
-        "cap_seconds": cap_seconds,
-        "spent_seconds": spent,
-        "remaining_seconds": remaining,
-    }
+# ORPHAN-CRITICAL-495 — `assert_dispatch_fits_wall_clock` lived here and is
+# gone. It accounted against a per-cycle total, and the executor handles ONE
+# request per job, so the ceiling that actually matters is elapsed job time
+# (ci_executor._assert_cycle_wall_clock, derived from GITHUB_RUN_STARTED_AT).
+# Keeping a second, unreachable gate beside the real one is the exact shape
+# this branch exists to remove — so it was deleted rather than left exported.
 
 
 def reserve_cycle_budget(

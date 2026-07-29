@@ -112,10 +112,33 @@ class AnchorGateTests(unittest.TestCase):
             self.assertIsNotNone(nxt)
             self.assertEqual(nxt["request_id"], req["request_id"])
 
-    def test_request_without_an_anchor_is_refused(self) -> None:
-        # The ~20 stranded rows predate the field entirely.
+    def test_request_without_an_anchor_is_still_claimable(self) -> None:
+        """ORPHAN-CRITICAL-495 — absence of a SHA is not grounds for refusal.
+
+        Only 6 of 17 mint paths pass target_sha. The other 11 include this
+        branch's own HUMAN_REQUIRED adjudication panel
+        (human_required_adjudication.py:226) and the operator's
+        `aria-kernel agent request` CLI (cli.py:2951). Refusing on a missing
+        anchor marked all of them terminally ANCHOR_STALE — a guard that
+        kills the queue it was written to protect.
+        """
         with _repo_with_tools() as (_root, tools, _head):
             req = _seed(tools, target_sha=None)
+            nxt = next_pending_request(role="primary_plan", base_dir=tools)
+            self.assertIsNotNone(nxt, "an unanchored request must remain claimable")
+            self.assertEqual(nxt["request_id"], req["request_id"])
+            self.assertEqual(
+                derive_request_state(request_id=req["request_id"], base_dir=tools),
+                "PENDING",
+            )
+
+    def test_an_unanchored_request_is_still_refused_once_it_ages_out(self) -> None:
+        # Age is what actually clears the stranded queue, and it needs no
+        # anchor: created_at is on every row. So the ~20 pre-07-17 requests
+        # are caught whether or not they carry a SHA.
+        with _repo_with_tools() as (root, tools, _head):
+            req = _seed(tools, target_sha=None)
+            _set_anchor_window(root, max_age_seconds=0)
             self.assertIsNone(next_pending_request(role="primary_plan", base_dir=tools))
             self.assertEqual(
                 derive_request_state(request_id=req["request_id"], base_dir=tools),
@@ -162,7 +185,7 @@ class AnchorGateTests(unittest.TestCase):
         PENDING candidate, so the git evaluation never runs for it again.
         """
         with _repo_with_tools() as (_root, tools, _head):
-            req = _seed(tools, target_sha=None)
+            req = _seed(tools, target_sha="0" * 40)
             for _ in range(4):
                 self.assertIsNone(
                     next_pending_request(role="primary_plan", base_dir=tools)
@@ -173,14 +196,14 @@ class AnchorGateTests(unittest.TestCase):
                 if row.get("event") == "anchor_stale"
             ]
             self.assertEqual(len(events), 1)
-            self.assertEqual(events[0]["reason"], "anchor_missing")
+            self.assertEqual(events[0]["reason"], "anchor_unreachable")
 
     def test_a_stale_request_does_not_hide_a_current_one_behind_it(self) -> None:
         # Ordering: the stale row is OLDER, so it is inspected first. If the
         # gate returned None on the first refusal instead of continuing, a
         # healthy request would starve behind a poisoned one.
         with _repo_with_tools() as (_root, tools, head):
-            stale = _seed(tools, target_sha=None, prompt="stale-one")
+            stale = _seed(tools, target_sha="0" * 40, prompt="stale-one")
             good = _seed(tools, target_sha=head, prompt="good-one")
             nxt = next_pending_request(role="primary_plan", base_dir=tools)
             self.assertIsNotNone(nxt)

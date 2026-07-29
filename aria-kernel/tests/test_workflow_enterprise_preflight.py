@@ -674,7 +674,7 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
 
         self.assertEqual(
             cycle_wall_clock_cap_seconds(self._EXECUTOR),
-            (35 - WALL_CLOCK_RESERVE_MINUTES) * 60,
+            (45 - WALL_CLOCK_RESERVE_MINUTES) * 60,
         )
         self.assertEqual(
             cycle_wall_clock_cap_seconds(self._CYCLE),
@@ -851,6 +851,39 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
                 verdict = self._mutated_verdict(self._EXECUTOR, mutate)
                 self.assertFalse(verdict.valid)
                 self.assertIn("workflow_contract_abort_gate", verdict.failure_classes)
+
+    def test_an_inverted_guard_on_a_worker_step_is_rejected(self) -> None:
+        """TEST-HIGH-004 — one character, and the gate meant the opposite.
+
+        The announce exemption used to be global, so ANY step could spell
+        `blocked == 'true'` and pass. Flipping `!=` to `==` on the worker step
+        makes the CI executor run ONLY while another host holds the lease —
+        claiming requests and dispatching agents against a tree being mutated
+        elsewhere, which is ORPHAN-CRITICAL-469 restored with the contract
+        gate still green. The exemption is now scoped to the declared
+        announce step alone.
+        """
+        gate = WORKFLOW_CONTRACTS[self._EXECUTOR].job_contracts[0].abort_gate
+        inverted = gate.skip_expression
+
+        def mutate(steps):
+            for step in steps:
+                if isinstance(step, dict) and step.get("name") == "Run CI executor":
+                    step["if"] = inverted
+            return steps
+
+        verdict = self._mutated_verdict(self._EXECUTOR, mutate)
+        self.assertFalse(verdict.valid)
+        self.assertIn("workflow_contract_abort_gate", verdict.failure_classes)
+
+    def test_the_declared_announce_step_keeps_its_exemption(self) -> None:
+        # The acceptance direction: the one step that exists to announce the
+        # block must still be allowed to carry the inverse guard, or the live
+        # workflow stops verifying.
+        gate = WORKFLOW_CONTRACTS[self._EXECUTOR].job_contracts[0].abort_gate
+        self.assertTrue(gate.announce_step)
+        verdict = self._mutated_verdict(self._EXECUTOR, lambda steps: steps)
+        self.assertTrue(verdict.valid, verdict.reasons)
 
     def test_a_guard_present_in_every_disjunct_is_still_accepted(self) -> None:
         # The other direction, and the reason the fix is a top-level split

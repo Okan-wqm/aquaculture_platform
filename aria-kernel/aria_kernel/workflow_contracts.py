@@ -431,7 +431,7 @@ def _top_level_disjuncts(condition: str) -> list[str]:
     return [part for part in parts if part]
 
 
-def _step_is_gated(condition: str, *, guard: str, announce: str) -> bool:
+def _step_is_gated(condition: str, *, guard: str, announce: str | None) -> bool:
     """True only when EVERY top-level branch of ``condition`` carries a guard.
 
     ORPHAN-MEDIUM-491 — this used to be ``guard in condition``, raw substring
@@ -447,7 +447,10 @@ def _step_is_gated(condition: str, *, guard: str, announce: str) -> bool:
     disjuncts = _top_level_disjuncts(condition)
     if not disjuncts:
         return False
-    return all(guard in part or announce in part for part in disjuncts)
+    return all(
+        guard in part or (announce is not None and announce in part)
+        for part in disjuncts
+    )
 
 
 def _step_label(step: Any, index: int) -> str:
@@ -544,7 +547,19 @@ def _verify_abort_gate(
         if index <= gate_index or not isinstance(step, dict):
             continue
         condition = _collapse(str(step.get("if") or ""))
-        if _step_is_gated(condition, guard=guard, announce=announce):
+        # The announce spelling is the INVERSE guard: it runs only while
+        # blocked. Accepting it on any step meant a one-character edit
+        # (`!=` to `==`) turned a real worker step into one that runs ONLY
+        # when another host holds the lease — claiming requests and
+        # dispatching agents against a tree being mutated elsewhere, i.e.
+        # ORPHAN-CRITICAL-469 restored, with the contract gate still green.
+        # It is now allowed on the declared announce step alone.
+        is_announce_step = _step_label(step, index) == gate.announce_step
+        if _step_is_gated(
+            condition,
+            guard=guard,
+            announce=announce if is_announce_step else None,
+        ):
             continue
         reasons.append(
             f"workflow_abort_gate_unguarded_step:{job_id}:{_step_label(step, index)}"

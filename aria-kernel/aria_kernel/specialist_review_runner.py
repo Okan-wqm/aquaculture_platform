@@ -52,19 +52,17 @@ from .agent_invocations import (
     create_agent_invocation_request,
     derive_request_state,
 )
+from .agent_surface import TERMINAL_REQUEST_STATES
 from .tool_registry import ensure_tools_dir
 
 _SPECIALIST_ROLE = "specialist_domain_review"
 
 # ORPHAN-HIGH-423 — derived states that will never yield an accepted
 # result. Reaching one ends the wait for that specialist immediately.
-_NON_DELIVERING_TERMINAL_STATES: frozenset[str] = frozenset({
-    "REJECTED",
-    "HUMAN_REQUIRED",
-    "CANCELLED",
-    "STALE",
-    "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
-})
+# ORPHAN-HIGH-496 — derived from the SSoT; see review_runner for why. A
+# second hand-maintained copy of the same list is how the first one fell
+# behind without anything noticing.
+_NON_DELIVERING_TERMINAL_STATES: frozenset[str] = TERMINAL_REQUEST_STATES - {"ACCEPTED"}
 
 # Severities that make a specialist's findings blocking.
 _BLOCKING_SEVERITIES: frozenset[str] = frozenset({"CRITICAL", "HIGH"})

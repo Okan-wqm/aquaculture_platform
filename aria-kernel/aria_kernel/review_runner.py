@@ -61,6 +61,7 @@ from .agent_invocations import (
     create_agent_invocation_request,
     derive_request_state,
 )
+from .agent_surface import TERMINAL_REQUEST_STATES
 from .tool_registry import ensure_tools_dir
 
 
@@ -78,13 +79,14 @@ _EVIDENCE_ROLE = "evidence_judgment"
 # the presence of the accepted result row itself, not by the state string,
 # so a state that says ACCEPTED without a readable result row still fails
 # closed.
-_NON_DELIVERING_TERMINAL_STATES: frozenset[str] = frozenset({
-    "REJECTED",
-    "HUMAN_REQUIRED",
-    "CANCELLED",
-    "STALE",
-    "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
-})
+# ORPHAN-HIGH-496 — DERIVED from the terminal-state SSoT, not a copy of it.
+# This was a hand-maintained list and it silently fell behind when
+# ANCHOR_STALE was added: an anchor-refused request can never produce an
+# accepted result, but the poll loop did not recognise the state and burned
+# its full judge_timeout_seconds waiting for one. Every terminal state except
+# ACCEPTED is non-delivering by definition, so the exception is what gets
+# named and a future terminal state joins automatically.
+_NON_DELIVERING_TERMINAL_STATES: frozenset[str] = TERMINAL_REQUEST_STATES - {"ACCEPTED"}
 
 
 class ReviewResult(TypedDict):

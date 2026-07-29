@@ -294,11 +294,13 @@ January pay period is numbered `PAY-202512` instead of `PAY-202601`, and the lea
 returns 2 days where it should return 1.5. Both are UTC-versus-local calendar-boundary errors — the
 same family as HR-HIGH-006, in different code.
 
-They are invisible to CI because the runner is UTC, and invisible to the platform only for as long
+They were invisible to CI because the runner is UTC, and invisible to the platform only for as long
 as every deployment stays on UTC. A pay period attributed to the wrong month is a finance-visible
 error, not a test artifact.
 
-Whether the production handlers or only the fixtures are wrong was NOT investigated here: these two
-specs are in different files from the one this change touches, they do not affect the gate this
-change exists to fix, and diagnosing them properly is hr-service work. The reproduction is recorded
-so the owner starts from evidence. Owner `hr-expert`, deadline 2026-08-31.
+The production paths mixed UTC parsing of date-only strings with host-local calendar accessors.
+HR now owns one UTC calendar-date SSoT for normalization, ISO formatting, weekday evaluation,
+integer day increments and payroll year-month formatting. Payroll and leave calculations consume
+that authority, as do the four existing HR query handlers that previously carried private ISO-date
+formatters. A timezone-matrix contract locks identical results under UTC, UTC−6 and UTC+9; the
+payroll and leave regression scenarios pass in all three environments.

@@ -2,6 +2,8 @@ import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+
+import { toIsoCalendarDate } from '../../common/utc-calendar-date';
 import { ObjectType, Field, Int, Float } from '@nestjs/graphql';
 import { GetGoalProgressTrendQuery } from '../queries/get-goal-progress-trend.query';
 import { Goal, GoalStatus } from '../entities/goal.entity';
@@ -105,20 +107,12 @@ export class GetGoalProgressTrendHandler implements IQueryHandler<GetGoalProgres
           : 0;
 
       return {
-        date: this.toIsoDate(boundary),
+        date: toIsoCalendarDate(boundary),
         totalGoals: inScope.length,
         completedGoals,
         averageProgress,
       };
     });
-  }
-
-  /** Format a Date as a UTC YYYY-MM-DD string (no time component). */
-  private toIsoDate(d: Date): string {
-    const year = d.getUTCFullYear().toString().padStart(4, '0');
-    const month = (d.getUTCMonth() + 1).toString().padStart(2, '0');
-    const day = d.getUTCDate().toString().padStart(2, '0');
-    return `${year}-${month}-${day}`;
   }
 
   /**

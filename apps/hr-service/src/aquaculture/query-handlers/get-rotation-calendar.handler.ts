@@ -2,6 +2,7 @@ import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { toIsoCalendarDate } from '../../common/utc-calendar-date';
 import { GetRotationCalendarQuery } from '../queries/get-rotation-calendar.query';
 import { WorkRotation, RotationStatus, RotationType } from '../entities/work-rotation.entity';
 import { RotationCalendarEntry } from '../dto/rotation-calendar.dto';
@@ -63,8 +64,8 @@ export class GetRotationCalendarHandler
         : rotation.employeeId;
       entry.workAreaName = workArea ? workArea.name : rotation.workAreaId;
       entry.rotationType = rotation.rotationType;
-      entry.startDate = this.toIsoDate(rotation.startDate);
-      entry.endDate = this.toIsoDate(rotation.endDate);
+      entry.startDate = toIsoCalendarDate(rotation.startDate);
+      entry.endDate = toIsoCalendarDate(rotation.endDate);
       entry.status = rotation.status;
       entry.isOffshore = workArea
         ? workArea.isOffshore
@@ -73,14 +74,5 @@ export class GetRotationCalendarHandler
       entry.daysOff = rotation.daysOff;
       return entry;
     });
-  }
-
-  private toIsoDate(value: Date | string): string {
-    // `date` columns can hydrate as a string ('YYYY-MM-DD') or a Date depending
-    // on the driver; normalize to the YYYY-MM-DD form the calendar expects.
-    if (value instanceof Date) {
-      return value.toISOString().slice(0, 10);
-    }
-    return String(value).slice(0, 10);
   }
 }

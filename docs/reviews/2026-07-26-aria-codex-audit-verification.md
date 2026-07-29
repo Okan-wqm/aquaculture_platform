@@ -1426,3 +1426,14 @@ finding is one nobody can navigate back to from the review that produced it.
   orphaned cost control would be consolidated in the same commit; it was not, because it is pinned by v8 prerequisite
   invariants and its CLI flags by another, and editing pinned invariants late in a green 65-commit PR is the trade
   `ORPHAN-HIGH-486` exists to discourage. Recorded rather than implied.
+
+* **ORPHAN-CRITICAL-494** — the `492` anchor guard read absence-in-a-shallow-clone as proof of unreachability  
+  Severity CRITICAL, layer 1, owner okan, deadline 2026-08-26. **Self-inflicted, caught before it ever ran, and strictly
+  worse than the defect it was introduced to fix.** Neither ARIA lane sets `fetch-depth`, so both run on the default
+  depth-1 clone. A request minted by the 01:00 producer and consumed by the 02:00 executor therefore has an anchor that is
+  simply *absent* once any commit lands in between — and the guard would have marked it **terminally** `ANCHOR_STALE`,
+  silently discarding the very queue `ORPHAN-CRITICAL-469` exists to carry, while emitting a governance row that reads like
+  correct enforcement. Reachability is now consulted only when the repo is not shallow; age needs no history and still
+  fires, so `492`'s case is still caught on the checkout production actually uses. Found by asking what the guard does
+  under the *production* checkout rather than the fixture's full clone — the same fixture-does-not-match-production
+  blindness that let the original `492` defect survive, which is why seven passing tests said nothing about it.

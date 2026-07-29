@@ -190,6 +190,78 @@ class AnchorGateTests(unittest.TestCase):
                 "ANCHOR_STALE",
             )
 
+    def test_shallow_clone_does_not_kill_a_cross_run_request(self) -> None:
+        """The production layout, and the case that nearly made this worse.
+
+        `actions/checkout` defaults to fetch-depth: 1 and neither ARIA lane
+        overrides it, so a request minted by the 01:00 producer and consumed
+        by the 02:00 executor has an anchor that is simply ABSENT from the
+        consumer's clone. Reading that absence as "unreachable" would mark
+        every cross-run request terminally ANCHOR_STALE and destroy the queue
+        ORPHAN-CRITICAL-469 exists to carry — irreversibly, since the state is
+        terminal. Absence in a partial clone is not evidence of absence.
+        """
+        with _repo_with_tools() as (root, tools, head):
+            # A second commit, then a shallow re-clone that keeps only the
+            # tip: `head` is now a real ancestor that this clone cannot see.
+            (root / "second.txt").write_text("second\n", encoding="utf-8")
+            _git(root, "add", "second.txt")
+            _git(root, "commit", "-q", "-m", "second")
+
+            with tempfile.TemporaryDirectory() as shallow_tmp:
+                shallow = Path(shallow_tmp) / "shallow"
+                _git(
+                    Path(shallow_tmp), "clone", "--depth", "1",
+                    f"file://{root}", str(shallow),
+                )
+                self.assertEqual(
+                    _git(shallow, "rev-parse", "--is-shallow-repository"), "true"
+                )
+                self.assertFalse(
+                    subprocess.run(
+                        ["git", "cat-file", "-e", f"{head}^{{commit}}"],
+                        cwd=str(shallow), capture_output=True,
+                    ).returncode == 0,
+                    "fixture precondition: the old anchor must be absent here",
+                )
+                shallow_tools = shallow / "aria-tools"
+                ensure_tools_dir(shallow_tools)
+                req = _seed(shallow_tools, target_sha=head)
+
+                nxt = next_pending_request(
+                    role="primary_plan", base_dir=shallow_tools
+                )
+                self.assertIsNotNone(
+                    nxt, "a cross-run request must survive a shallow checkout"
+                )
+                self.assertEqual(nxt["request_id"], req["request_id"])
+
+    def test_shallow_clone_still_refuses_an_aged_request(self) -> None:
+        # The guard above must not become a blanket exemption: age needs no
+        # history, so the stale-queue case this whole finding is about is
+        # still caught on exactly the checkout production uses.
+        with _repo_with_tools() as (root, tools, head):
+            with tempfile.TemporaryDirectory() as shallow_tmp:
+                shallow = Path(shallow_tmp) / "shallow"
+                _git(
+                    Path(shallow_tmp), "clone", "--depth", "1",
+                    f"file://{root}", str(shallow),
+                )
+                shallow_tools = shallow / "aria-tools"
+                ensure_tools_dir(shallow_tools)
+                req = _seed(shallow_tools, target_sha=head)
+                _set_anchor_window(shallow, max_age_seconds=0)
+
+                self.assertIsNone(
+                    next_pending_request(role="primary_plan", base_dir=shallow_tools)
+                )
+                self.assertEqual(
+                    derive_request_state(
+                        request_id=req["request_id"], base_dir=shallow_tools
+                    ),
+                    "ANCHOR_STALE",
+                )
+
     def test_enforcement_is_off_when_there_is_no_repo_to_be_stale_against(self) -> None:
         # A tools dir outside any work tree has no tree the request could be
         # stale relative to, so queue semantics are unchanged. This is what

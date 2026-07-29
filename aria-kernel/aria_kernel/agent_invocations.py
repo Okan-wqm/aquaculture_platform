@@ -1241,10 +1241,10 @@ def _anchor_repo_root(root: Path) -> Path | None:
     return None
 
 
-def _commit_exists(repo_root: Path, sha: str) -> bool:
+def _git_ok(repo_root: Path, *args: str) -> tuple[bool, str]:
     try:
         completed = subprocess.run(
-            ["git", "cat-file", "-e", f"{sha}^{{commit}}"],
+            ["git", *args],
             cwd=str(repo_root),
             text=True,
             capture_output=True,
@@ -1252,8 +1252,23 @@ def _commit_exists(repo_root: Path, sha: str) -> bool:
             timeout=5,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return False
-    return completed.returncode == 0
+        return False, ""
+    return completed.returncode == 0, completed.stdout.strip()
+
+
+def _repo_is_shallow(repo_root: Path) -> bool:
+    """True when this checkout holds only part of the history.
+
+    ``actions/checkout`` defaults to ``fetch-depth: 1`` and neither ARIA lane
+    overrides it, so in production this is normally True.
+    """
+    ok, out = _git_ok(repo_root, "rev-parse", "--is-shallow-repository")
+    return ok and out == "true"
+
+
+def _commit_exists(repo_root: Path, sha: str) -> bool:
+    ok, _ = _git_ok(repo_root, "cat-file", "-e", f"{sha}^{{commit}}")
+    return ok
 
 
 def _anchor_refusal_reason(
@@ -1277,9 +1292,21 @@ def _anchor_refusal_reason(
     anchor = str(request.get("target_sha") or "")
     if not anchor:
         return "anchor_missing"
-    if not _commit_exists(repo_root, anchor):
+    if not _commit_exists(repo_root, anchor) and not _repo_is_shallow(repo_root):
         # Force-push, rebase, or a request minted in a tree this checkout
         # never had. Either way the plan cannot be graded against the repo.
+        #
+        # The shallow guard is not a softening, it is the difference between
+        # a fact and a guess. `actions/checkout` defaults to fetch-depth: 1
+        # and neither ARIA lane overrides it, so in production a commit from
+        # the PREVIOUS run is absent from this clone as a matter of course.
+        # Treating that absence as proof of unreachability would mark every
+        # cross-run request terminally ANCHOR_STALE — killing precisely the
+        # queue ORPHAN-CRITICAL-469 exists to carry from the 01:00 producer
+        # to the 02:00 consumer, and killing it irreversibly rather than
+        # deferring it. Absence of the object in a partial clone is absence
+        # of evidence. Age is checked below and needs no history, so a stale
+        # request is still refused on a shallow checkout.
         return "anchor_unreachable"
     created = _parse_iso(request.get("created_at"))
     if created is None:

@@ -1,3 +1,5 @@
+import coverageBaselines from '../../tools/quality/service-coverage-baselines.js';
+
 export default {
   displayName: 'farm-service',
   preset: '../../jest.preset.js',
@@ -20,15 +22,6 @@ export default {
     '\\.postgres\\.spec\\.ts$',
     '\\.e2e-spec\\.ts$',
   ],
-  // coverageThreshold added: enforce 60% floor on critical service.
-  // BEFORE: coverage could drop to 0% with no CI signal — admin-api-service
-  // already sets this standard at 60%; extending to security/financial/safety services.
-  coverageThreshold: {
-    global: {
-      branches: 60,
-      functions: 60,
-      lines: 60,
-      statements: 60,
-    },
-  },
+  coveragePathIgnorePatterns: ['<rootDir>/src/__tests__/e2e/', '<rootDir>/test/'],
+  coverageThreshold: { global: coverageBaselines['farm-service'] },
 };

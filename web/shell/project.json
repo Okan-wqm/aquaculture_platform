@@ -36,13 +36,6 @@
         "cwd": "web/shell",
         "command": "npm run lint"
       }
-    },
-    "test": {
-      "executor": "nx:run-commands",
-      "options": {
-        "cwd": "web/shell",
-        "command": "npm run test"
-      }
     }
   },
   "implicitDependencies": ["shared-ui"]

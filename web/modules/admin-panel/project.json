@@ -38,11 +38,6 @@
       }
     },
     "test": {
-      "executor": "nx:run-commands",
-      "options": {
-        "cwd": "web/modules/admin-panel",
-        "command": "npm run test"
-      },
       "dependsOn": ["shared-ui:build"]
     }
   },

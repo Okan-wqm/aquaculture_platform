@@ -96,6 +96,7 @@ const commonProjectOptions = {
 export default {
   displayName: 'invariants',
   rootDir: INVARIANT_DIR,
+  coverageDirectory: resolve(process.cwd(), 'coverage/tests/invariants'),
   passWithNoTests: false,
   projects: [
     {
@@ -162,6 +163,8 @@ export default {
         '<rootDir>/tenant-provisioning-ssot.spec.ts',
         '<rootDir>/repo-hygiene-invariants.spec.ts',
         '<rootDir>/dependency-policy-source-scope.spec.ts',
+        '<rootDir>/ci-full-trigger-contract.spec.ts',
+        '<rootDir>/coverage-evidence-contract.spec.ts',
         '<rootDir>/enterprise-grade-debt-plan-contract.spec.ts',
         '<rootDir>/admin-route-contract-ci.spec.ts',
         '<rootDir>/stabilization-manifest.spec.ts',

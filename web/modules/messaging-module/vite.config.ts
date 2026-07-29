@@ -1,6 +1,7 @@
 /// <reference types="vitest" />
 import { resolve } from 'path';
 
+import createVitestTestPolicy from '@aquaculture/testing/vitest';
 import { federation } from '@module-federation/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
@@ -46,6 +47,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    ...createVitestTestPolicy(),
   },
   server: {
     port: 5178,

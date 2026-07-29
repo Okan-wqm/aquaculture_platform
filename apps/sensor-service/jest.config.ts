@@ -1,3 +1,5 @@
+import coverageBaselines from '../../tools/quality/service-coverage-baselines.js';
+
 export default {
   displayName: 'sensor-service',
   preset: '../../jest.preset.js',
@@ -7,15 +9,5 @@ export default {
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
   coverageDirectory: '../../coverage/apps/sensor-service',
-  // coverageThreshold added: enforce 60% floor on critical service.
-  // BEFORE: coverage could drop to 0% with no CI signal — admin-api-service
-  // already sets this standard at 60%; extending to security/financial/safety services.
-  coverageThreshold: {
-    global: {
-      branches: 60,
-      functions: 60,
-      lines: 60,
-      statements: 60,
-    },
-  },
+  coverageThreshold: { global: coverageBaselines['sensor-service'] },
 };

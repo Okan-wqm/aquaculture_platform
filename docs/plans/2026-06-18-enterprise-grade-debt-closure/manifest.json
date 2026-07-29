@@ -4,9 +4,9 @@
   "base_commit": "2de67e4a5a6ffdcf675be0fcd4322854fcecd62f",
   "truth_table_path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/finding-truth-table.md",
   "required_status_checks_manifest": ".github/manifests/main-required-status-checks.json",
-  "registry_tip_hash": "a76ff57bfb6c0f17befa80eaa3b572b32d6d14c31a0c788cc68544d224827e5e",
-  "registry_entries": 1037,
-  "open_findings_count": 278,
+  "registry_tip_hash": "e7b2843c3838fb13a8288ad8c4aba9fae0b4b03c3e8f66bdc92bd819f20b28b5",
+  "registry_entries": 1058,
+  "open_findings_count": 295,
   "in_progress_findings_count": 42,
   "active_critical_count": 17,
   "worktree_dirty_at_creation": true,
@@ -62,23 +62,13 @@
     {
       "id": "wave-0",
       "title": "Truth Freeze And Control Plane",
-      "sprints": [
-        "0.1",
-        "0.2"
-      ],
-      "exit_gates": [
-        "findings-verify",
-        "invariants-fast",
-        "plan-manifest-valid"
-      ]
+      "sprints": ["0.1", "0.2"],
+      "exit_gates": ["findings-verify", "invariants-fast", "plan-manifest-valid"]
     },
     {
       "id": "wave-1",
       "title": "Stop-The-Line Platform Gates",
-      "sprints": [
-        "1.1",
-        "1.2"
-      ],
+      "sprints": ["1.1", "1.2"],
       "exit_gates": [
         "schema-boot-critical-closed",
         "service-identity-critical-closed",
@@ -88,10 +78,7 @@
     {
       "id": "wave-2",
       "title": "Tenant, Compliance, Data Contracts",
-      "sprints": [
-        "2.1",
-        "2.2"
-      ],
+      "sprints": ["2.1", "2.2"],
       "exit_gates": [
         "tenant-source-gate-green",
         "object-auth-gate-green",
@@ -101,10 +88,7 @@
     {
       "id": "wave-3",
       "title": "Messaging, Mobile, PWA Product Truth",
-      "sprints": [
-        "3.1",
-        "3.2"
-      ],
+      "sprints": ["3.1", "3.2"],
       "exit_gates": [
         "aquamobil-messaging-contracts-green",
         "graphql-codegen-hard-green",
@@ -114,22 +98,13 @@
     {
       "id": "wave-4",
       "title": "Farm And Domain Workflow Integrity",
-      "sprints": [
-        "4.1",
-        "4.2"
-      ],
-      "exit_gates": [
-        "farm-critical-closed",
-        "farm-product-e2e-green"
-      ]
+      "sprints": ["4.1", "4.2"],
+      "exit_gates": ["farm-critical-closed", "farm-product-e2e-green"]
     },
     {
       "id": "wave-5",
       "title": "Edge/Rust Parallel Ray",
-      "sprints": [
-        "5.1",
-        "5.2"
-      ],
+      "sprints": ["5.1", "5.2"],
       "exit_gates": [
         "edge-truth-matrix-complete",
         "sens-required-checks-proven",
@@ -139,76 +114,36 @@
     {
       "id": "wave-6",
       "title": "Closure, Evidence, Release Discipline",
-      "sprints": [
-        "6.1",
-        "6.2"
-      ],
-      "exit_gates": [
-        "invariants-full",
-        "registry-sweep-clean",
-        "no-unowned-active-critical-high"
-      ]
+      "sprints": ["6.1", "6.2"],
+      "exit_gates": ["invariants-full", "registry-sweep-clean", "no-unowned-active-critical-high"]
     }
   ],
   "sprints": [
     {
       "id": "0.1",
       "title": "Registry and plan truth freeze",
-      "owner_agents": [
-        "context-manager",
-        "architectural-arbiter"
-      ],
-      "finding_scope": [
-        "ALL"
-      ],
-      "required_outputs": [
-        "README.md",
-        "manifest.json",
-        "finding truth table"
-      ]
+      "owner_agents": ["context-manager", "architectural-arbiter"],
+      "finding_scope": ["ALL"],
+      "required_outputs": ["README.md", "manifest.json", "finding truth table"]
     },
     {
       "id": "0.2",
       "title": "Gate reliability before domain work",
-      "owner_agents": [
-        "infra-expert",
-        "prompt-writer",
-        "security-reviewer"
-      ],
-      "finding_scope": [
-        "CLAUDE-*",
-        "PROC-*",
-        "control-plane INFRA-*"
-      ],
-      "required_outputs": [
-        "invariants-fast green",
-        "CODEOWNERS coverage",
-        "retired script cleanup"
-      ]
+      "owner_agents": ["infra-expert", "prompt-writer", "security-reviewer"],
+      "finding_scope": ["CLAUDE-*", "PROC-*", "control-plane INFRA-*"],
+      "required_outputs": ["invariants-fast green", "CODEOWNERS coverage", "retired script cleanup"]
     },
     {
       "id": "1.1",
       "title": "Infra/schema/deploy boot blockers",
-      "owner_agents": [
-        "data-expert",
-        "infra-expert"
-      ],
-      "finding_scope": [
-        "manifest.active_critical_ids INFRA-CRITICAL subset"
-      ],
-      "required_outputs": [
-        "schema boot critical closure evidence",
-        "tenant fan-out invariant"
-      ]
+      "owner_agents": ["data-expert", "infra-expert"],
+      "finding_scope": ["manifest.active_critical_ids INFRA-CRITICAL subset"],
+      "required_outputs": ["schema boot critical closure evidence", "tenant fan-out invariant"]
     },
     {
       "id": "1.2",
       "title": "Security/performance foundation gates",
-      "owner_agents": [
-        "auth-security-expert",
-        "security-reviewer",
-        "performance-expert"
-      ],
+      "owner_agents": ["auth-security-expert", "security-reviewer", "performance-expert"],
       "finding_scope": [
         "INFRA-HIGH-006",
         "INFRA-HIGH-007",
@@ -216,45 +151,20 @@
         "ORPHAN-HIGH-096",
         "PERF-*"
       ],
-      "required_outputs": [
-        "service identity invariant",
-        "SLO SSoT",
-        "token p99 evidence"
-      ]
+      "required_outputs": ["service identity invariant", "SLO SSoT", "token p99 evidence"]
     },
     {
       "id": "2.1",
       "title": "Tenant trust and object-auth gates",
-      "owner_agents": [
-        "multi-tenant-saas-expert",
-        "auth-security-expert",
-        "frontend-expert"
-      ],
-      "finding_scope": [
-        "MT-*",
-        "SEC-HIGH-050",
-        "SEC-HIGH-051",
-        "SEC-HIGH-052"
-      ],
-      "required_outputs": [
-        "tenant source invariant",
-        "shared-device E2E",
-        "object auth matrix"
-      ]
+      "owner_agents": ["multi-tenant-saas-expert", "auth-security-expert", "frontend-expert"],
+      "finding_scope": ["MT-*", "SEC-HIGH-050", "SEC-HIGH-051", "SEC-HIGH-052"],
+      "required_outputs": ["tenant source invariant", "shared-device E2E", "object auth matrix"]
     },
     {
       "id": "2.2",
       "title": "Event/outbox/GDPR legal foundation",
-      "owner_agents": [
-        "compliance-expert",
-        "data-expert",
-        "legal-hold-auditor"
-      ],
-      "finding_scope": [
-        "COMPLIANCE-CRITICAL-001",
-        "DATA-HIGH-007",
-        "ORPHAN-HIGH-090"
-      ],
+      "owner_agents": ["compliance-expert", "data-expert", "legal-hold-auditor"],
+      "finding_scope": ["COMPLIANCE-CRITICAL-001", "DATA-HIGH-007", "ORPHAN-HIGH-090"],
       "required_outputs": [
         "tenant erasure event contract",
         "legal hold gate",
@@ -264,16 +174,8 @@
     {
       "id": "3.1",
       "title": "Product contract gates before live fixes",
-      "owner_agents": [
-        "messaging-expert",
-        "frontend-expert",
-        "product-realtime-mobile-attacker"
-      ],
-      "finding_scope": [
-        "MSG-*",
-        "FE-*",
-        "MT-*"
-      ],
+      "owner_agents": ["messaging-expert", "frontend-expert", "product-realtime-mobile-attacker"],
+      "finding_scope": ["MSG-*", "FE-*", "MT-*"],
       "required_outputs": [
         "messaging cache key SSoT",
         "aquamobil messaging contracts green",
@@ -283,81 +185,35 @@
     {
       "id": "3.2",
       "title": "Realtime, media, offline, push",
-      "owner_agents": [
-        "messaging-expert",
-        "frontend-expert"
-      ],
-      "finding_scope": [
-        "MSG-CRITICAL-050..054",
-        "FE-CRITICAL-050"
-      ],
-      "required_outputs": [
-        "realtime E2E",
-        "media E2E",
-        "PWA E2E",
-        "WS load evidence"
-      ]
+      "owner_agents": ["messaging-expert", "frontend-expert"],
+      "finding_scope": ["MSG-CRITICAL-050..054", "FE-CRITICAL-050"],
+      "required_outputs": ["realtime E2E", "media E2E", "PWA E2E", "WS load evidence"]
     },
     {
       "id": "4.1",
       "title": "Farm destructive correctness",
-      "owner_agents": [
-        "farm-expert",
-        "data-expert",
-        "multi-tenant-saas-expert"
-      ],
-      "finding_scope": [
-        "FARM-CRITICAL-*",
-        "FARM-HIGH-*"
-      ],
-      "required_outputs": [
-        "farm critical closure",
-        "domain invariant tests"
-      ]
+      "owner_agents": ["farm-expert", "data-expert", "multi-tenant-saas-expert"],
+      "finding_scope": ["FARM-CRITICAL-*", "FARM-HIGH-*"],
+      "required_outputs": ["farm critical closure", "domain invariant tests"]
     },
     {
       "id": "4.2",
       "title": "Farm readback, auth, and mobile parity",
-      "owner_agents": [
-        "farm-expert",
-        "frontend-expert"
-      ],
-      "finding_scope": [
-        "FARM-MEDIUM-*",
-        "FARM-LOW-*"
-      ],
-      "required_outputs": [
-        "farm product E2E",
-        "readback parity evidence"
-      ]
+      "owner_agents": ["farm-expert", "frontend-expert"],
+      "finding_scope": ["FARM-MEDIUM-*", "FARM-LOW-*"],
+      "required_outputs": ["farm product E2E", "readback parity evidence"]
     },
     {
       "id": "5.1",
       "title": "Edge truth matrix and stop-the-line gates",
-      "owner_agents": [
-        "edge-expert",
-        "infra-expert",
-        "supply-chain-auditor"
-      ],
-      "finding_scope": [
-        "EDGE-*",
-        "ULTRA-*",
-        "ORPHAN-HIGH-101"
-      ],
-      "required_outputs": [
-        "edge truth matrix",
-        "SENS required-check evidence",
-        "RustSec closure"
-      ]
+      "owner_agents": ["edge-expert", "infra-expert", "supply-chain-auditor"],
+      "finding_scope": ["EDGE-*", "ULTRA-*", "ORPHAN-HIGH-101"],
+      "required_outputs": ["edge truth matrix", "SENS required-check evidence", "RustSec closure"]
     },
     {
       "id": "5.2",
       "title": "Edge security/runtime foundations",
-      "owner_agents": [
-        "edge-expert",
-        "security-reviewer",
-        "performance-expert"
-      ],
+      "owner_agents": ["edge-expert", "security-reviewer", "performance-expert"],
       "finding_scope": [
         "ULTRA-HIGH-008",
         "ULTRA-HIGH-009",
@@ -366,24 +222,13 @@
         "ULTRA-HIGH-017",
         "ULTRA-HIGH-021"
       ],
-      "required_outputs": [
-        "OPC UA evidence",
-        "SQLCipher migration",
-        "edge bench harnesses"
-      ]
+      "required_outputs": ["OPC UA evidence", "SQLCipher migration", "edge bench harnesses"]
     },
     {
       "id": "6.1",
       "title": "Evidence hardening",
-      "owner_agents": [
-        "performance-expert",
-        "infra-expert",
-        "edge-expert"
-      ],
-      "finding_scope": [
-        "performance evidence",
-        "release evidence"
-      ],
+      "owner_agents": ["performance-expert", "infra-expert", "edge-expert"],
+      "finding_scope": ["performance evidence", "release evidence"],
       "required_outputs": [
         "k6 baseline",
         "WebSocket load evidence",
@@ -394,19 +239,9 @@
     {
       "id": "6.2",
       "title": "Registry clean closure",
-      "owner_agents": [
-        "context-manager",
-        "architectural-arbiter",
-        "security-reviewer"
-      ],
-      "finding_scope": [
-        "ALL"
-      ],
-      "required_outputs": [
-        "registry sweep",
-        "invariants full",
-        "final manifest hash update"
-      ]
+      "owner_agents": ["context-manager", "architectural-arbiter", "security-reviewer"],
+      "finding_scope": ["ALL"],
+      "required_outputs": ["registry sweep", "invariants full", "final manifest hash update"]
     }
   ],
   "acceptance_gates": [

@@ -34,7 +34,13 @@ export function createMockEventBus(): MockEventBus {
     publishAll,
     getPublishedEvents: () => [...publishedEvents],
     getEventsByType: (eventType: string) =>
-      publishedEvents.filter((e: any) => e?.eventType === eventType),
+      publishedEvents.filter(
+        (event) =>
+          typeof event === 'object' &&
+          event !== null &&
+          'eventType' in event &&
+          event.eventType === eventType,
+      ),
     reset: () => {
       publish.mockClear();
       publishAll.mockClear();

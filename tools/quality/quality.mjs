@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -111,7 +112,7 @@ function usage() {
       'usage: node tools/quality/quality.mjs <command>',
       'commands:',
       '  format-scope generate|check',
-      '  format check|write',
+      '  format check|check-changed|write',
       '  lint-inventory generate|check',
       '  lint-all [--max-warnings=0]',
       '  rust-toolchain generate|check',
@@ -346,6 +347,10 @@ function getManagedFormatFiles() {
 function runPrettier(mode) {
   checkManifest(FORMAT_SCOPE, buildFormatScope);
   const files = getManagedFormatFiles();
+  runPrettierFiles(mode, files);
+}
+
+function runPrettierFiles(mode, files) {
   const bin = join(
     REPO_ROOT,
     'node_modules',
@@ -366,6 +371,111 @@ function runPrettier(mode) {
       );
       process.exit(result.status ?? 1);
     }
+  }
+}
+
+function runPrettierChanged() {
+  checkManifest(FORMAT_SCOPE, buildFormatScope);
+  const candidate = process.env.FORMAT_BASE_SHA?.trim() ?? '';
+  let base;
+
+  if (candidate && !/^0+$/.test(candidate)) {
+    if (!/^[0-9a-f]{40}$/i.test(candidate)) {
+      fail('format check-changed: FORMAT_BASE_SHA must be a full commit SHA');
+    }
+    runRequired('git', ['cat-file', '-e', `${candidate}^{commit}`]);
+    base = candidate;
+  } else {
+    base = runRequired('git', ['rev-parse', '--verify', 'HEAD^']).trim();
+  }
+
+  const changed = runRequired('git', [
+    'diff',
+    '--name-only',
+    '-z',
+    '--diff-filter=ACMR',
+    base,
+    '--',
+  ])
+    .split('\0')
+    .filter(Boolean);
+  const managed = new Set(getManagedFormatFiles());
+  const files = changed.filter((path) => managed.has(path) && existsSync(join(REPO_ROOT, path)));
+
+  if (files.length === 0) {
+    process.stdout.write(`format check-changed: no managed files changed since ${base}\n`);
+    return;
+  }
+
+  const bin = join(
+    REPO_ROOT,
+    'node_modules',
+    '.bin',
+    process.platform === 'win32' ? 'prettier.cmd' : 'prettier',
+  );
+  const regressions = [];
+  const legacyDebt = [];
+
+  for (const path of files) {
+    const currentSource = readFileSync(join(REPO_ROOT, path), 'utf8');
+    if (isPrettierCleanSource(bin, path, currentSource)) continue;
+
+    const baseBlob = run('git', ['show', `${base}:${path}`]);
+    if (baseBlob.status !== 0) {
+      regressions.push(path);
+      continue;
+    }
+
+    const baseSource = baseBlob.stdout ?? '';
+    if (isPrettierCleanSource(bin, path, baseSource)) {
+      regressions.push(path);
+    } else {
+      legacyDebt.push(path);
+    }
+  }
+
+  for (const path of legacyDebt) {
+    process.stdout.write(`[format] existing debt retained from base: ${path}\n`);
+  }
+  if (regressions.length > 0) {
+    process.stderr.write(
+      `[format] changed file(s) introduced Prettier drift:\n${regressions
+        .map((path) => `  ${path}`)
+        .join('\n')}\n`,
+    );
+    process.exit(1);
+  }
+
+  process.stdout.write(
+    `format check-changed: ${files.length} managed file(s) checked; ${legacyDebt.length} base-debt file(s) quarantined\n`,
+  );
+}
+
+function isPrettierCleanSource(bin, path, source) {
+  const scratchRoot = mkdtempSync(join(tmpdir(), 'aqua-format-check-'));
+  const scratchPath = join(scratchRoot, basename(path));
+  writeFileSync(scratchPath, source, 'utf8');
+
+  try {
+    const result = run(
+      bin,
+      [
+        '--check',
+        '--config',
+        join(REPO_ROOT, '.prettierrc'),
+        '--ignore-path',
+        join(REPO_ROOT, '.prettierignore'),
+        scratchPath,
+      ],
+      { cwd: REPO_ROOT },
+    );
+    if (result.status === 0) return true;
+    if (result.status === 1) return false;
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    throw new Error(`prettier could not parse ${path}`);
+  } finally {
+    rmSync(scratchRoot, { recursive: true, force: true });
   }
 }
 
@@ -801,6 +911,7 @@ function main() {
   }
   if (domain === 'format') {
     if (action === 'check') return runPrettier('check');
+    if (action === 'check-changed') return runPrettierChanged();
     if (action === 'write') return runPrettier('write');
   }
   if (domain === 'lint-inventory') {

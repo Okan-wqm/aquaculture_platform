@@ -1142,3 +1142,28 @@ The 35 files are formatted in this change. The gate itself is deliberately NOT c
 making the local default match CI means resolving the merge-base against the default branch, which
 changes behaviour for every developer on every branch and belongs to the tooling owner rather than
 to a sensor PR. Owner `infra-expert`, deadline 2026-09-15.
+
+## INFRA-MEDIUM-103 — a failed Nx build task reports its name and nothing else
+
+`CI - Full`'s build job failed on `bc96b2d1a` with `Running target build for 39 projects failed`
+and two names: `router-coprocessor:build` and `protocol-codec-rs:build`. Across the entire job log
+neither name appears anywhere else — no `Compiling` line, no rustc diagnostic, no exit status. Nx
+printed the summary and discarded the tasks' output.
+
+The evidence says the code was never the problem. The commit contains zero Rust or Cargo files
+(33 `.ts`, 2 `.md`, 1 `.tsx`, 1 `.jsonl`, 1 `.json`); both crates build clean locally; the same
+build job passed on the parent commit minutes earlier; and on this exact SHA all eleven dedicated
+Rust jobs passed — `cargo test --workspace`, `cargo clippy -D warnings`, `cargo check`,
+`cargo fmt --check`, `cross-build (musl)` for two targets, `cargo doc -D warnings`, `cargo-deny`,
+`cargo-audit`, `codec-drift`, and the `compile + test-compile gate`.
+
+What the mechanism actually was remains unknown, and that is the finding rather than an aside.
+There is no OOM evidence in the log: the `signal` and `137` matches turn out to be crate names
+(`signal-hook-registry`, `signature`) and version strings, not a kill signal or an exit code. A
+task that dies without emitting a line is not a compiler rejection, but the job as configured
+cannot tell anyone which of the remaining possibilities it was — so the next occurrence costs the
+same investigation from scratch.
+
+Making the build job stream or retain per-task output is the fix. It changes the workflow's
+behaviour for every consumer and belongs to that workflow's owner, not to a sensor PR. Owner
+`infra-expert`, deadline 2026-09-15.

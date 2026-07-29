@@ -562,6 +562,62 @@ export interface RequestInfo {
 }
 
 /** @see transitive */
+export interface JobQueueSummaryDto {
+  name: string;
+  isPaused: boolean;
+  concurrency: number;
+  pendingCount: number;
+  runningCount: number;
+  completedCount: number;
+  failedCount: number;
+}
+
+/** @see transitive */
+export interface PerformanceSnapshot {
+  id: string;
+  service?: string;
+  timestamp: string;
+  applicationMetrics: {
+    avgResponseTime: number;
+    p95ResponseTime: number;
+    p99ResponseTime: number;
+    throughput: number;
+    errorRate: number;
+    apdexScore: number;
+    activeRequests: number;
+    totalRequests: number;
+  };
+  databaseMetrics: {
+    activeConnections: number;
+    poolSize: number;
+    poolUtilization: number;
+    avgQueryTime: number;
+    slowQueryCount: number;
+    cacheHitRatio: number;
+    deadlockCount: number;
+  };
+  infrastructureMetrics: {
+    cpuUsage: number;
+    memoryUsage: number;
+    memoryTotal: number;
+    diskUsage: number;
+    diskTotal: number;
+    networkLatency: number;
+    containerCount: number;
+    healthyContainers: number;
+    podRestarts: number;
+  };
+  alerts?: Array<{
+    metric: string;
+    threshold: number;
+    currentValue: number;
+    severity: "critical" | "warning";
+  }>;
+  overallHealthScore?: number;
+  createdAt: string;
+}
+
+/** @see transitive */
 export interface DatabaseMetrics {
   totalConnections: number;
   activeConnections: number;
@@ -1646,6 +1702,208 @@ export interface FeatureToggle {
   updatedBy?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/** @see apps/admin-api-service/src/system-management/services/job-queue.service.ts */
+export interface JobQueueStats {
+  queueName: string;
+  pending: number;
+  running: number;
+  completed: number;
+  failed: number;
+  avgProcessingTime: number;
+  throughput: number;
+}
+
+/** @see apps/admin-api-service/src/system-management/services/job-queue.service.ts */
+export interface RetriedJobsResult {
+  retriedCount: number;
+}
+
+/** @see apps/admin-api-service/src/system-management/services/job-queue.service.ts */
+export interface PurgedJobsResult {
+  purgedCount: number;
+}
+
+/** @see apps/admin-api-service/src/system-management/entities/job-queue.entity.ts */
+export interface JobQueue {
+  id: string;
+  name: string;
+  description?: string;
+  isActive: boolean;
+  isPaused: boolean;
+  concurrency: number;
+  maxJobsPerSecond: number;
+  defaultMaxRetries: number;
+  defaultTimeoutMs: number;
+  retryPolicy?: JobRetryPolicy;
+  pendingCount: number;
+  runningCount: number;
+  completedCount: number;
+  failedCount: number;
+  avgProcessingTimeMs?: number;
+  lastJobAt?: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** @see apps/admin-api-service/src/system-management/entities/job-queue.entity.ts */
+export interface JobExecutionLog {
+  id: string;
+  jobId: string;
+  attemptNumber: number;
+  status: "pending" | "scheduled" | "running" | "completed" | "failed" | "cancelled" | "retrying" | "paused";
+  startedAt: string;
+  completedAt?: string;
+  durationMs?: number;
+  errorMessage?: string;
+  stackTrace?: string;
+  result?: Record<string, unknown>;
+  logs?: Array<{
+    level: "debug" | "info" | "error" | "warn";
+    message: string;
+    timestamp: string;
+    data?: Record<string, unknown>;
+  }>;
+  workerId?: string;
+  cpuUsage?: number;
+  memoryUsage?: number;
+  timestamp: string;
+  createdAt: string;
+}
+
+/** @see apps/admin-api-service/src/system-management/dto/job-dashboard.dto.ts */
+export interface JobDashboardDto {
+  totalJobs: number;
+  pendingJobs: number;
+  runningJobs: number;
+  failedLast24h: number;
+  completedLast24h: number;
+  avgProcessingTime: number;
+  queues: JobQueueSummaryDto[];
+  recentJobs: BackgroundJob[];
+}
+
+/** @see apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts */
+export interface PerformanceDashboard {
+  currentSnapshot: null | PerformanceSnapshot;
+  trends: {
+    responseTime: Array<{
+      timestamp: string;
+      value: number;
+    }>;
+    throughput: Array<{
+      timestamp: string;
+      value: number;
+    }>;
+    errorRate: Array<{
+      timestamp: string;
+      value: number;
+    }>;
+    cpuUsage: Array<{
+      timestamp: string;
+      value: number;
+    }>;
+    memoryUsage: Array<{
+      timestamp: string;
+      value: number;
+    }>;
+  };
+  alerts: Array<{
+    metric: string;
+    threshold: number;
+    currentValue: number;
+    severity: "critical" | "warning";
+  }>;
+  healthScore: number;
+  serviceBreakdown: Array<{
+    service: string;
+    avgResponseTime: number;
+    errorRate: number;
+    requestCount: number;
+  }>;
+}
+
+/** @see apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts */
+export interface ApplicationMetrics {
+  avgResponseTime: number;
+  p95ResponseTime: number;
+  p99ResponseTime: number;
+  throughput: number;
+  errorRate: number;
+  apdexScore: number;
+  activeRequests: number;
+  totalRequests: number;
+}
+
+/** @see apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts */
+export interface DatabasePerformanceMetrics {
+  activeConnections: number;
+  poolSize: number;
+  poolUtilization: number;
+  avgQueryTime: number;
+  slowQueryCount: number;
+  cacheHitRatio: number;
+  deadlockCount: number;
+}
+
+/** @see apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts */
+export interface InfrastructureMetrics {
+  cpuUsage: number;
+  memoryUsage: number;
+  memoryTotal: number;
+  diskUsage: number;
+  diskTotal: number;
+  networkLatency: number;
+  containerCount: number;
+  healthyContainers: number;
+  podRestarts: number;
+}
+
+/** @see apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts */
+export interface MetricThreshold {
+  metric: "response_time" | "throughput" | "error_rate" | "apdex" | "active_users" | "request_count" | "db_connection_pool" | "db_query_time" | "db_cache_hit_ratio" | "db_deadlocks" | "db_active_connections" | "db_slow_queries" | "cpu_usage" | "memory_usage" | "disk_usage" | "network_latency" | "container_health" | "pod_restarts" | "custom";
+  warningThreshold: number;
+  criticalThreshold: number;
+  comparison: "gt" | "lt" | "gte" | "lte";
+}
+
+/** @see apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts */
+export interface SlowQueryAggregate {
+  query: string;
+  avgTime: number;
+  count: number;
+  maxTime: number;
+}
+
+/** @see apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts */
+export interface ServiceBreakdown {
+  service: string;
+  avgResponseTime: number;
+  errorRate: number;
+  requestCount: number;
+}
+
+/** @see apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts */
+export interface ThresholdBreach {
+  metric: string;
+  threshold: number;
+  currentValue: number;
+  severity: "critical" | "warning";
+}
+
+/** @see apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts */
+export interface MetricHistoryPoint {
+  timestamp: string;
+  value: number;
+  min?: number;
+  max?: number;
+}
+
+/** @see apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts */
+export interface ApdexScoreResult {
+  apdexScore: number;
 }
 
 /** @see apps/admin-api-service/src/settings/entities/system-setting.entity.ts */

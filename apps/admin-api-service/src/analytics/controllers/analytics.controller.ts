@@ -47,13 +47,32 @@ function validateDataPoints(value: unknown): number {
   return Math.min(num, MAX_DATA_POINTS);
 }
 
+/** A period parameter resolved into its base unit and how many of them to plot. */
+interface ParsedPeriod {
+  period: 'day' | 'week' | 'month' | 'year';
+  dataPoints: number;
+}
+
+/**
+ * A range parameter resolved into the canonical analytics window.
+ *
+ * `period` is always `'day'`: a range is expressed in days regardless of the
+ * granularity the caller asked to aggregate at.
+ */
+interface ParsedRange {
+  range: AnalyticsRange;
+  granularity: AnalyticsGranularity;
+  period: 'day';
+  dataPoints: number;
+}
+
 /**
  * Parse period parameter - supports both standard formats and shorthand
  * Standard: 'day', 'week', 'month', 'year'
  * Shorthand: '30d' (30 days), '12m' (12 months), '1y' (1 year), '4w' (4 weeks)
  * Returns { period, dataPoints } where period is the base unit and dataPoints is extracted from shorthand
  */
-function parsePeriodParameter(value: string, defaultDataPoints: number): { period: 'day' | 'week' | 'month' | 'year'; dataPoints: number } {
+function parsePeriodParameter(value: string, defaultDataPoints: number): ParsedPeriod {
   // Check if it's a standard period format
   if (VALID_PERIODS.includes(value as typeof VALID_PERIODS[number])) {
     return { period: value as 'day' | 'week' | 'month' | 'year', dataPoints: defaultDataPoints };
@@ -87,7 +106,7 @@ function parsePeriodParameter(value: string, defaultDataPoints: number): { perio
 function parseRangeParameter(
   range: string,
   granularity?: string,
-): { range: AnalyticsRange; granularity: AnalyticsGranularity; period: 'day'; dataPoints: number } {
+): ParsedRange {
   if (!VALID_RANGES.includes(range as AnalyticsRange)) {
     throw new BadRequestException(`range must be one of: ${VALID_RANGES.join(', ')}`);
   }

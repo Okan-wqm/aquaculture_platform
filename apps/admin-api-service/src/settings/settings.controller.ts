@@ -88,6 +88,27 @@ class TestEmailConfigDto {
   to!: string;
 }
 
+/** `GET /settings/features/:featureKey` — whether one toggle is on. */
+export interface FeatureToggleState {
+  featureKey: string;
+  enabled: boolean;
+}
+
+/**
+ * `GET /settings/system/info` — the platform's identity plus its live security,
+ * rate-limit and maintenance configuration.
+ *
+ * The three config blocks keep their `ReturnType<…>` derivation rather than
+ * being restated: the service owns those shapes, and copying them here would be
+ * the duplication this rule exists to prevent.
+ */
+export interface PlatformSystemInfo {
+  platform: { name: string; version: string };
+  security: ReturnType<SystemSettingService['getSecurityConfig']>;
+  rateLimits: ReturnType<SystemSettingService['getRateLimitConfig']>;
+  maintenance: ReturnType<SystemSettingService['getMaintenanceStatus']>;
+}
+
 @ApiTags('Settings')
 @Controller('settings')
 export class SettingsController {
@@ -345,7 +366,7 @@ export class SettingsController {
   isFeatureEnabled(
     @Param('featureKey') featureKey: string,
     @Query('default') defaultValue?: string,
-  ): { featureKey: string; enabled: boolean } {
+  ): FeatureToggleState {
     const enabled = this.settingsService.isFeatureEnabled(
       featureKey,
       defaultValue === 'true',
@@ -388,12 +409,7 @@ export class SettingsController {
    * Get system information
    */
   @Get('system/info')
-  getSystemInfo(): {
-    platform: { name: string; version: string };
-    security: ReturnType<SystemSettingService['getSecurityConfig']>;
-    rateLimits: ReturnType<SystemSettingService['getRateLimitConfig']>;
-    maintenance: ReturnType<SystemSettingService['getMaintenanceStatus']>;
-  } {
+  getSystemInfo(): PlatformSystemInfo {
     const security = this.settingsService.getSecurityConfig();
     const rateLimits = this.settingsService.getRateLimitConfig();
     const maintenance = this.settingsService.getMaintenanceStatus();

@@ -106,10 +106,16 @@ describe('INVARIANT: a route response shape is a named type', () => {
     for (const rel of files) {
       const lines = readFileSync(resolve(REPO_ROOT, rel), 'utf8').split('\n');
       lines.forEach((line, index) => {
-        // `): Promise<{`  — the return-type position of a handler signature.
-        // Matching the closing paren rules out `Promise<{` appearing inside a
-        // generic argument or a local variable annotation.
-        if (/\):\s*Promise<\s*\{/.test(line)) {
+        // An object literal ANYWHERE in the return type, not just immediately
+        // inside `Promise<`. `Promise<Array<{ query: string; … }>>` is the same
+        // defect one layer down, and the first version of this rule missed it —
+        // four performance-monitoring methods were shipping anonymous array
+        // elements while passing.
+        //
+        // Matching the closing paren of the parameter list rules out a
+        // `Promise<{` that appears inside a local annotation or a generic
+        // argument elsewhere on the line.
+        if (/\):\s*(?:Promise<)?[^{]*\{/.test(line) && !/\):\s*[A-Za-z_$][\w$.<>[\]|\s,'"-]*\{\s*$/.test(line)) {
           offenders.push(`${rel}:${index + 1}  ${line.trim()}`);
         }
       });
@@ -133,7 +139,7 @@ describe('INVARIANT: a route response shape is a named type', () => {
     // return, so a change inside the service silently changes the wire and the
     // panel's type is pure invention.
     //
-    // 292 of those remain, and naming them means settling 24 controllers'
+    // 254 of those remain, and naming them means settling 21 controllers'
     // contracts against their consumers. That is real work, not a rename, so it
     // cannot land in one reviewable change.
     //
@@ -152,7 +158,7 @@ describe('INVARIANT: a route response shape is a named type', () => {
       'apps/admin-api-service/src/database-management/controllers/migration.controller.ts': 9,
       'apps/admin-api-service/src/database-management/controllers/monitoring.controller.ts': 9,
       'apps/admin-api-service/src/database-management/controllers/schema.controller.ts': 12,
-      'apps/admin-api-service/src/health/health.controller.ts': 5,
+      'apps/admin-api-service/src/health/health.controller.ts': 4,
       'apps/admin-api-service/src/impersonation/controllers/debug-tools.controller.ts': 29,
       'apps/admin-api-service/src/metrics/system-metrics.controller.ts': 4,
       'apps/admin-api-service/src/modules/modules.controller.ts': 12,
@@ -162,13 +168,11 @@ describe('INVARIANT: a route response shape is a named type', () => {
       'apps/admin-api-service/src/settings/controllers/email-template.controller.ts': 13,
       'apps/admin-api-service/src/settings/controllers/ip-access.controller.ts': 12,
       'apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts': 39,
-      'apps/admin-api-service/src/settings/settings.controller.ts': 10,
+      'apps/admin-api-service/src/settings/settings.controller.ts': 9,
       'apps/admin-api-service/src/support/controllers/onboarding.controller.ts': 16,
       'apps/admin-api-service/src/system-management/controllers/error-tracking.controller.ts': 18,
       'apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts': 27,
-      'apps/admin-api-service/src/system-management/controllers/job-queue.controller.ts': 20,
-      'apps/admin-api-service/src/system-management/controllers/performance.controller.ts': 15,
-      'apps/admin-api-service/src/users/users.controller.ts': 16,
+      'apps/admin-api-service/src/users/users.controller.ts': 15,
     };
 
     const actual: Record<string, number> = {};

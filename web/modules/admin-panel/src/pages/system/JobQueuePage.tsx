@@ -8,7 +8,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
-import type { BackgroundJob, JobDashboard, JobQueue, JobStatus } from '../../services/adminApi';
+import type {
+  BackgroundJob,
+  JobDashboard,
+  JobQueueSummaryDto,
+  JobStatus,
+} from '../../services/adminApi';
 import { JOB_STATUS_VALUES } from '../../services/adminApi';
 
 /** Operator-facing label per job state. Exhaustive, so a new state cannot ship unlabelled. */
@@ -154,7 +159,10 @@ export const JobQueuePage: React.FC = () => {
     }
   };
 
-  const handlePauseQueue = async (queue: JobQueue) => {
+  // The dashboard carries queue SUMMARIES, not whole `JobQueue` rows — these
+  // handlers only ever need the name, and typing them to the entity claimed
+  // seven fields the dashboard payload has never included.
+  const handlePauseQueue = async (queue: JobQueueSummaryDto) => {
     const currentQueues = dashboard?.queues && Array.isArray(dashboard.queues) ? dashboard.queues : [];
     try {
       await systemSettingsApi.pauseQueue(queue.name);
@@ -174,7 +182,7 @@ export const JobQueuePage: React.FC = () => {
     }
   };
 
-  const handleResumeQueue = async (queue: JobQueue) => {
+  const handleResumeQueue = async (queue: JobQueueSummaryDto) => {
     const currentQueues = dashboard?.queues && Array.isArray(dashboard.queues) ? dashboard.queues : [];
     try {
       await systemSettingsApi.resumeQueue(queue.name);

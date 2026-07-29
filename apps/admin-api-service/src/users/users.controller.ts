@@ -52,6 +52,7 @@ import {
   UserLimitCheckResult,
 } from './services/user-provisioning.service';
 import { UsersService, UserFilter, UserDto } from './users.service';
+import type { RoleAssignmentCheck } from './services/role-template.service';
 
 // Allowed sort fields whitelist for security
 const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'email', 'firstName', 'lastName', 'role'] as const;
@@ -463,7 +464,7 @@ export class UsersController {
   canAssignRole(
     @Query('assignerRole') assignerRole: string,
     @Query('targetRole') targetRole: string,
-  ): { allowed: boolean; reason?: string } {
+  ): RoleAssignmentCheck {
     return this.roleTemplateService.canAssignRole(assignerRole, targetRole);
   }
 

@@ -8,7 +8,47 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Badge } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
-import type { PerformanceDashboard, PerformanceMetrics } from '../../services/adminApi';
+import type { PerformanceMetrics } from '../../services/adminApi';
+
+// ============================================================================
+// View model
+// ============================================================================
+//
+// NOT the wire contract — that is the generated `PerformanceDashboard`, whose
+// `currentSnapshot` is a whole `PerformanceSnapshot | null` with its metrics in
+// nested blocks. This page renders a flat KPI row, so it flattens; naming the
+// flattened shape keeps the two apart, which the hand-written type sharing the
+// wire contract's name did not.
+
+/** The five numbers the KPI row draws. `null` where nothing was measured. */
+interface PerformanceSnapshotView {
+  healthScore: number | null;
+  avgResponseTime: number;
+  errorRate: number;
+  throughput: number;
+  apdexScore: number;
+}
+
+interface PerformanceDashboardView {
+  currentSnapshot: PerformanceSnapshotView | null;
+  trends: {
+    responseTime: Array<{ timestamp: string; value: number }>;
+    throughput: Array<{ timestamp: string; value: number }>;
+    errorRate: Array<{ timestamp: string; value: number }>;
+  };
+  serviceBreakdown: Array<{
+    service: string;
+    avgResponseTime: number;
+    errorRate: number;
+    requestCount: number;
+  }>;
+  alerts: Array<{
+    metric: string;
+    threshold: number;
+    currentValue: number;
+    severity: 'warning' | 'critical';
+  }>;
+}
 
 // ============================================================================
 // Types
@@ -79,7 +119,7 @@ const getTimeRanges = (): TimeRange[] => {
 
 export const PerformanceDashboardPage: React.FC = () => {
   // State
-  const [dashboard, setDashboard] = useState<PerformanceDashboard | null>(null);
+  const [dashboard, setDashboard] = useState<PerformanceDashboardView | null>(null);
   const [infrastructure, setInfrastructure] = useState({
     cpuUsage: 0,
     memoryUsage: 0,
@@ -121,20 +161,28 @@ export const PerformanceDashboardPage: React.FC = () => {
         systemSettingsApi.getDatabasePerformance(),
       ]);
 
-      // Map API response to frontend format
-      // API returns: currentSnapshot.applicationMetrics.errorRate
-      // Frontend expects: currentSnapshot.errorRate
-      const apiSnapshot = dashboardData.currentSnapshot as Record<string, unknown> | undefined;
-      const appMetrics = (apiSnapshot?.applicationMetrics as Record<string, number>) ?? {};
+      // Flatten the snapshot's nested metric blocks into the shape the KPI row
+      // renders. This used to cast through `Record<string, unknown>` because the
+      // panel's hand-written `PerformanceDashboard` declared `currentSnapshot`
+      // as a flat five-field object, while the backend's is a whole
+      // `PerformanceSnapshot` — and NULLABLE, which the flat type could not say.
+      //
+      // The `?? 100` on healthScore was the expensive part: with no snapshot
+      // taken, the dashboard rendered a perfect score over nothing measured.
+      // Null now travels as null and the cards say so.
+      const snapshot = dashboardData.currentSnapshot;
 
-      const mappedDashboard: PerformanceDashboard = {
-        currentSnapshot: {
-          healthScore: (apiSnapshot?.overallHealthScore as number) ?? 100,
-          avgResponseTime: appMetrics.avgResponseTime ?? 0,
-          errorRate: appMetrics.errorRate ?? 0,
-          throughput: appMetrics.throughput ?? 0,
-          apdexScore: appMetrics.apdexScore ?? 1,
-        },
+      const mappedDashboard: PerformanceDashboardView = {
+        currentSnapshot:
+          snapshot === null
+            ? null
+            : {
+                healthScore: snapshot.overallHealthScore ?? null,
+                avgResponseTime: snapshot.applicationMetrics.avgResponseTime,
+                errorRate: snapshot.applicationMetrics.errorRate,
+                throughput: snapshot.applicationMetrics.throughput,
+                apdexScore: snapshot.applicationMetrics.apdexScore,
+              },
         trends: dashboardData.trends ?? { responseTime: [], throughput: [], errorRate: [] },
         serviceBreakdown: dashboardData.serviceBreakdown ?? [],
         alerts: dashboardData.alerts ?? [],
@@ -260,6 +308,10 @@ export const PerformanceDashboardPage: React.FC = () => {
   // Render - Main UI
   // ============================================================================
 
+  // Bound once so every KPI card narrows off one check. `null` means no snapshot
+  // has been taken — a different statement from every metric being zero.
+  const snapshot = dashboard.currentSnapshot;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -354,6 +406,10 @@ export const PerformanceDashboardPage: React.FC = () => {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {/* `snapshot` is null when nothing has been measured yet. Every card
+            below renders "—" rather than a fabricated number: the mapper used to
+            substitute 0 for each metric and 100 for the health score, so an
+            empty performance table drew a perfect gauge. */}
         <Card className="p-6">
           <div className="flex items-center justify-between mb-2">
             <div className="text-sm font-medium text-gray-500">Response Time</div>
@@ -367,12 +423,13 @@ export const PerformanceDashboardPage: React.FC = () => {
             </svg>
           </div>
           <div
-            className={`text-3xl font-bold ${getHealthColor(
-              dashboard.currentSnapshot.avgResponseTime,
-              { warning: 300, critical: 500 }
-            )}`}
+            className={`text-3xl font-bold ${
+              snapshot === null
+                ? 'text-gray-400'
+                : getHealthColor(snapshot.avgResponseTime, { warning: 300, critical: 500 })
+            }`}
           >
-            {Math.round(dashboard.currentSnapshot.avgResponseTime)} ms
+            {snapshot === null ? '—' : `${Math.round(snapshot.avgResponseTime)} ms`}
           </div>
           <div className="text-xs text-gray-500 mt-1">Ortalama yanit suresi</div>
         </Card>
@@ -436,12 +493,12 @@ export const PerformanceDashboardPage: React.FC = () => {
             </svg>
           </div>
           <div
-            className={`text-3xl font-bold ${getHealthColor(dashboard.currentSnapshot.errorRate ?? 0, {
+            className={`text-3xl font-bold ${getHealthColor(snapshot?.errorRate ?? 0, {
               warning: 1,
               critical: 5,
             })}`}
           >
-            {(dashboard.currentSnapshot.errorRate ?? 0).toFixed(2)}%
+            {snapshot === null ? '—' : `${snapshot.errorRate.toFixed(2)}%`}
           </div>
           <div className="text-xs text-gray-500 mt-1">Error rate</div>
         </Card>
@@ -455,8 +512,12 @@ export const PerformanceDashboardPage: React.FC = () => {
             <p className="text-sm text-gray-500">Tum metriklere dayali genel saglik skoru</p>
           </div>
           <div className="flex items-center gap-3">
-            <div className="text-5xl font-bold text-green-600">
-              {Math.round(dashboard.currentSnapshot.healthScore)}
+            <div
+              className={`text-5xl font-bold ${
+                snapshot?.healthScore == null ? 'text-gray-400' : 'text-green-600'
+              }`}
+            >
+              {snapshot?.healthScore == null ? '—' : Math.round(snapshot.healthScore)}
             </div>
             <div className="text-gray-500">/100</div>
           </div>
@@ -464,26 +525,26 @@ export const PerformanceDashboardPage: React.FC = () => {
         <div className="h-4 bg-gray-200 rounded-full overflow-hidden">
           <div
             className="h-full bg-green-500 rounded-full transition-all duration-500"
-            style={{ width: `${dashboard.currentSnapshot.healthScore}%` }}
+            style={{ width: `${snapshot?.healthScore ?? 0}%` }}
           />
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t">
           <div>
             <div className="text-sm text-gray-500 mb-1">Throughput</div>
             <div className="text-xl font-bold text-gray-900">
-              {dashboard.currentSnapshot.throughput.toLocaleString()} req/s
+              {snapshot === null ? '—' : `${snapshot.throughput.toLocaleString()} req/s`}
             </div>
           </div>
           <div>
             <div className="text-sm text-gray-500 mb-1">Apdex Score</div>
             <div
               className={`text-xl font-bold ${getHealthColor(
-                dashboard.currentSnapshot.apdexScore ?? 0,
+                snapshot?.apdexScore ?? 0,
                 { warning: 0.85, critical: 0.7 },
                 true
               )}`}
             >
-              {(dashboard.currentSnapshot.apdexScore ?? 0).toFixed(2)}
+              {snapshot === null ? '—' : snapshot.apdexScore.toFixed(2)}
             </div>
           </div>
           <div>

@@ -386,6 +386,43 @@ export const ADMIN_CONTRACT_SOURCES: readonly ContractSource[] = [
     ],
   },
   {
+    module: 'settings',
+    // Job-queue observability. Every route on the job-queue controller declares
+    // a named return type now, so the panel derives the whole surface.
+    file: 'apps/admin-api-service/src/system-management/services/job-queue.service.ts',
+    exports: ['JobQueueStats', 'RetriedJobsResult', 'PurgedJobsResult'],
+  },
+  {
+    module: 'settings',
+    file: 'apps/admin-api-service/src/system-management/entities/job-queue.entity.ts',
+    exports: ['JobQueue', 'BackgroundJob', 'JobExecutionLog'],
+  },
+  {
+    module: 'settings',
+    file: 'apps/admin-api-service/src/system-management/dto/job-dashboard.dto.ts',
+    exports: ['JobDashboardDto'],
+  },
+  {
+    module: 'settings',
+    // Performance monitoring. Four of these were anonymous ARRAY ELEMENTS
+    // (`Promise<Array<{ … }>>`) — the same defect as an anonymous object return,
+    // one layer down, and the form the first version of the named-return-type
+    // gate did not catch.
+    file: 'apps/admin-api-service/src/system-management/services/performance-monitoring.service.ts',
+    exports: [
+      'PerformanceDashboard',
+      'ApplicationMetrics',
+      'DatabasePerformanceMetrics',
+      'InfrastructureMetrics',
+      'MetricThreshold',
+      'SlowQueryAggregate',
+      'ServiceBreakdown',
+      'ThresholdBreach',
+      'MetricHistoryPoint',
+      'ApdexScoreResult',
+    ],
+  },
+  {
     module: 'system',
     // Platform health. NOT the analytics `SystemMetrics` emitted above as
     // `AnalyticsSystemMetrics` — two backend modules own a type by that name,

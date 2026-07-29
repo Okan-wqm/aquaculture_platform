@@ -21,6 +21,23 @@ export type {
 // Imported so shapes below can reference them; re-exported so import sites
 // are unchanged.
 import type {
+  JobQueue,
+  JobQueueStats,
+  JobExecutionLog,
+  JobDashboardDto,
+  JobQueueSummaryDto,
+  RetriedJobsResult,
+  PurgedJobsResult,
+  PerformanceDashboard,
+  ApplicationMetrics,
+  DatabasePerformanceMetrics,
+  InfrastructureMetrics,
+  MetricThreshold,
+  SlowQueryAggregate,
+  ServiceBreakdown,
+  ThresholdBreach,
+  MetricHistoryPoint,
+  ApdexScoreResult,
   JobStatus,
   BackgroundJob,
   ErrorGroup,
@@ -164,73 +181,6 @@ export interface CreateMaintenanceWindowInput {
   whitelistedIPs?: string[];
 }
 
-export interface PerformanceMetrics {
-  service: string;
-  avgResponseTime: number;
-  p95ResponseTime: number;
-  p99ResponseTime: number;
-  throughput: number;
-  errorRate: number;
-  apdexScore: number;
-  timestamp: string;
-}
-
-export interface PerformanceDashboard {
-  currentSnapshot: {
-    healthScore: number;
-    avgResponseTime: number;
-    errorRate: number;
-    throughput: number;
-    apdexScore: number;
-  };
-  trends: {
-    responseTime: Array<{ timestamp: string; value: number }>;
-    throughput: Array<{ timestamp: string; value: number }>;
-    errorRate: Array<{ timestamp: string; value: number }>;
-  };
-  serviceBreakdown: Array<{
-    service: string;
-    avgResponseTime: number;
-    errorRate: number;
-    requestCount: number;
-  }>;
-  alerts: Array<{
-    metric: string;
-    threshold: number;
-    currentValue: number;
-    severity: 'warning' | 'critical';
-  }>;
-}
-
-export interface JobQueue {
-  name: string;
-  isPaused: boolean;
-  concurrency: number;
-  pendingCount: number;
-  // APA-281: matches the persistence column (JobQueue.runningCount); the FE type
-  // previously drifted to `activeCount`, which the dashboard never populated.
-  runningCount: number;
-  completedCount: number;
-  failedCount: number;
-}
-
-/**
- * APA-281: single contract for GET /system/jobs/dashboard, mirroring the backend
- * JobDashboardDto. Field names are canonical (failedLast24h/completedLast24h/
- * avgProcessingTime) so the stat cards and Queues tab read real values instead
- * of the previously-drifted failedToday/completedToday/avgDuration/queueStats.
- */
-export interface JobDashboard {
-  totalJobs: number;
-  pendingJobs: number;
-  runningJobs: number;
-  failedLast24h: number;
-  completedLast24h: number;
-  avgProcessingTime: number;
-  queues: JobQueue[];
-  recentJobs: BackgroundJob[];
-}
-
 /**
  * What `POST /system/settings/feature-toggles` accepts.
  *
@@ -240,6 +190,41 @@ export interface JobDashboard {
  * to name is a 400, and it simultaneously demands fields the DTO never asked
  * for — `requiresRestart`, which the create form has no reason to send.
  */
+/**
+ * The system-management read contracts, GENERATED.
+ *
+ * The hand-written `PerformanceDashboard` declared `currentSnapshot` as a flat
+ * five-field object against a backend `PerformanceSnapshot | null` — so the page
+ * read `currentSnapshot.healthScore` on a value that is null whenever no
+ * snapshot has been taken. `PerformanceMetrics` and `JobDashboard` were the same
+ * class of hand copy.
+ */
+export type {
+  JobQueue,
+  JobQueueStats,
+  JobExecutionLog,
+  JobDashboardDto,
+  JobQueueSummaryDto,
+  RetriedJobsResult,
+  PurgedJobsResult,
+  PerformanceDashboard,
+  ApplicationMetrics,
+  DatabasePerformanceMetrics,
+  InfrastructureMetrics,
+  MetricThreshold,
+  SlowQueryAggregate,
+  ServiceBreakdown,
+  ThresholdBreach,
+  MetricHistoryPoint,
+  ApdexScoreResult,
+};
+
+/** The panel's historical name for the job dashboard contract. */
+export type JobDashboard = JobDashboardDto;
+
+/** The panel's historical name for a service's application-level metrics. */
+export type PerformanceMetrics = ApplicationMetrics;
+
 export interface CreateFeatureToggleInput {
   key: string;
   name: string;

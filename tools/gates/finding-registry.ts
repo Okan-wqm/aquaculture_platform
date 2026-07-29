@@ -79,8 +79,8 @@ import {
   type RegistryLockLease,
   withRegistryFileLock,
 } from './finding-registry-store';
-import { commitHasFindingCloseTrailer } from './finding-traceability';
-import { commitReachableFrom } from './git-reachability';
+import { commitHasFindingCloseTrailer, commitMessageClosesFinding } from './finding-traceability';
+import { commitReachableFrom, repoPinnedEnv } from './git-reachability';
 
 const Ajv2020 = (Ajv2020Mod as unknown as { default?: typeof Ajv2020Mod }).default ?? Ajv2020Mod;
 
@@ -830,6 +830,225 @@ function cmdSweep(args: string[], lease: RegistryLockLease): number {
   return 0;
 }
 
+/**
+ * Stdout writer for new code in this file.
+ *
+ * `no-console` is an error-level lint rule; this file's existing `console.*`
+ * calls are baseline-grandfathered, but lines added after that baseline use the
+ * stream API (the same rule `cmdClose` follows for stderr).
+ */
+function writeOut(message: string): void {
+  process.stdout.write(`${message}\n`);
+}
+
+/**
+ * Read-only registry access for gates.
+ *
+ * Exported rather than duplicating the parse: `loadRegistry` already handles the
+ * file's line format and ordering, and a spec that re-implemented it could
+ * disagree with the tool about what the registry contains — which is exactly the
+ * split this whole reconciliation exists to close.
+ */
+export function loadRegistryForInspection(registryPath = REGISTRY_PATH): readonly Finding[] {
+  return loadRegistry(registryPath);
+}
+
+/** A merged commit that closes a finding, as read from git history. */
+export interface MergedClosure {
+  readonly findingId: string;
+  /** Full SHA of the commit whose message carries the `Closes:` trailer. */
+  readonly sha: string;
+}
+
+/** Record/unit separators — safe inside commit bodies, unlike newlines. */
+const LOG_RECORD_SEP = '';
+const LOG_FIELD_SEP = '';
+
+/**
+ * Finding IDs named by `Closes:` trailers on commits reachable from `ref`.
+ *
+ * The commit trailer is the ONLY closure signal the platform actually enforces:
+ * `commit-msg-validator` refuses a fix/security/refactor commit without one, and
+ * validates the ID against this registry. The registry's `state` field, by
+ * contrast, is maintained by a manual post-merge ceremony. Two records of the
+ * same fact, one enforced and one not — so the unenforced one drifted, and it is
+ * the one the dashboards and sweeps read.
+ *
+ * This makes the enforced record the source: state is DERIVED from merged
+ * history rather than remembered.
+ *
+ * Oldest closure wins when several commits close the same finding: it is the one
+ * that made the finding true, and later commits are follow-ups.
+ */
+export function collectMergedClosures(
+  repoRoot: string,
+  ref: string,
+  knownIds: ReadonlySet<string>,
+): MergedClosure[] {
+  const raw = execFileSync(
+    'git',
+    ['-C', repoRoot, 'log', ref, `--pretty=format:%H${LOG_FIELD_SEP}%B${LOG_RECORD_SEP}`],
+    { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, env: repoPinnedEnv() },
+  );
+
+  // `git log` walks newest-first; reverse so the OLDEST closure is recorded.
+  const commits = raw
+    .split(LOG_RECORD_SEP)
+    .map((record) => record.trim())
+    .filter((record) => record.length > 0)
+    .map((record) => {
+      const cut = record.indexOf(LOG_FIELD_SEP);
+      return { sha: record.slice(0, cut).trim(), message: record.slice(cut + 1) };
+    })
+    .reverse();
+
+  const found = new Map<string, string>();
+  for (const commit of commits) {
+    if (!/^[0-9a-f]{40}$/i.test(commit.sha)) continue;
+    if (!commit.message.includes('Closes:')) continue;
+    for (const findingId of knownIds) {
+      if (found.has(findingId)) continue;
+      // The SAME matcher the close ceremony and the commit-msg gate use. A
+      // second regex here would be a third opinion on what "closes" means.
+      if (commitMessageClosesFinding(commit.message, findingId)) {
+        found.set(findingId, commit.sha);
+      }
+    }
+  }
+
+  return [...found].map(([findingId, sha]) => ({ findingId, sha }));
+}
+
+/** A registry entry whose state contradicts merged history. */
+export interface ClosureDrift {
+  readonly findingId: string;
+  readonly sha: string;
+  readonly currentState: Finding['state'];
+}
+
+/**
+ * Findings that merged history says are closed but the registry does not.
+ *
+ * Shared by `reconcile` (which fixes them) and the closure-drift invariant
+ * (which fails the build when any remain) — one definition of "drift", so the
+ * gate can never disagree with the repair.
+ */
+export function planClosureReconciliation(
+  entries: readonly Finding[],
+  closures: readonly MergedClosure[],
+): ClosureDrift[] {
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  const drift: ClosureDrift[] = [];
+  for (const closure of closures) {
+    const entry = byId.get(closure.findingId);
+    if (!entry) continue; // ORPHAN-*/ARIA ids live outside this registry by design.
+    // An already-RESOLVED finding contradicts nothing, even when the oldest
+    // trailer names a different commit than the one the ceremony recorded.
+    // Appending that commit would not be reconciliation — it would be this tool
+    // second-guessing a completed ceremony about which change actually closed
+    // the finding, which is a judgement it has no evidence to make.
+    if (entry.state === 'RESOLVED') continue;
+    drift.push({ findingId: closure.findingId, sha: closure.sha, currentState: entry.state });
+  }
+  return drift;
+}
+
+/**
+ * `reconcile` — derive RESOLVED state from merged history.
+ *
+ * The close ceremony (`close <id> <sha>`) is correct in every constraint it
+ * imposes: the SHA must be reachable from `origin/main`, and that commit's own
+ * message must carry the matching trailer. What it lacked was a driver — a human
+ * had to remember to run it, once per finding, after every merge. At the time
+ * this was written, 136 findings closed by commits already on main were still
+ * OPEN or IN-PROGRESS, and the daily `sweep` was on course to relabel that
+ * completed work as STALE.
+ *
+ * Every planned transition is re-validated through the SAME two guards `close`
+ * uses. They hold by construction here — the pairs were read out of that very
+ * history — but routing through them means there is ONE definition of a legal
+ * closure. A guard tightened for `close` tightens for `reconcile` automatically.
+ */
+function cmdReconcile(args: string[], lease: RegistryLockLease): number {
+  const dryRun = args.includes('--dry-run');
+  const refArg = args.find((a) => a.startsWith('--ref='));
+  const ref = refArg ? refArg.replace('--ref=', '') : 'origin/main';
+
+  const entries = loadRegistry();
+  const knownIds = new Set(entries.map((entry) => entry.id));
+
+  let closures: MergedClosure[];
+  try {
+    closures = collectMergedClosures(REPO_ROOT, ref, knownIds);
+  } catch (err) {
+    process.stderr.write(
+      `reconcile refused: cannot read history of "${ref}" — ${(err as Error).message}\n` +
+        'Fetch the ref first; certifying closures against an unreadable history is worse ' +
+        'than leaving them open.\n',
+    );
+    return 1;
+  }
+
+  const drift = planClosureReconciliation(entries, closures);
+  if (drift.length === 0) {
+    writeOut(
+      `Reconcile clean: registry agrees with ${ref} (${closures.length} merged closures, ` +
+        `${entries.length} entries).`,
+    );
+    return 0;
+  }
+
+  writeOut(`Reconcile plan (${drift.length} findings closed on ${ref} but not RESOLVED):`);
+  for (const item of drift) {
+    writeOut(
+      `  ${item.findingId}: ${item.currentState} → RESOLVED  (commit ${item.sha.slice(0, 12)})`,
+    );
+  }
+
+  if (dryRun) {
+    writeOut('');
+    writeOut('--dry-run: no mutations written.');
+    return 0;
+  }
+
+  let minIndex = entries.length;
+  for (const item of drift) {
+    const reachability = commitReachableFrom(REPO_ROOT, item.sha, ref);
+    if (!reachability.ok) {
+      process.stderr.write(`reconcile refused for ${item.findingId}: ${reachability.reason}\n`);
+      return 1;
+    }
+    const traceability = commitHasFindingCloseTrailer(REPO_ROOT, item.sha, item.findingId);
+    if (!traceability.ok) {
+      process.stderr.write(`reconcile refused for ${item.findingId}: ${traceability.reason}\n`);
+      return 1;
+    }
+
+    const index = entries.findIndex((entry) => entry.id === item.findingId);
+    const entry = entries[index];
+    if (index === -1 || !entry) continue;
+    entry.state = 'RESOLVED';
+    entry.closed_at = entry.closed_at ?? new Date().toISOString();
+    if (!entry.closing_commits.includes(item.sha)) {
+      entry.closing_commits = [...entry.closing_commits, item.sha];
+    }
+    if (index < minIndex) minIndex = index;
+  }
+
+  rechain(entries, minIndex);
+  const post = verify(entries);
+  if (!post.ok) {
+    process.stderr.write(`Post-reconcile integrity check FAILED: ${post.reason}\n`);
+    return 1;
+  }
+
+  writeRegistry(entries, lease);
+  const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
+  writeOut('');
+  writeOut(`Resolved ${drift.length} findings from ${ref}. Chain tip: ${tip}`);
+  return 0;
+}
+
 function cmdExport(format: string): number {
   const entries = loadRegistry();
   if (format === 'json-array') {
@@ -1129,6 +1348,11 @@ function main(): void {
     console.error(
       '  list [--state <CSV>] [--severity <CSV>] [--owner <name>] [--format table|id-only|json]',
     );
+    // Stream API, not console.*: the surrounding usage lines predate the
+    // no-console baseline; new ones do not get to inherit the exemption.
+    process.stderr.write(
+      '  reconcile [--dry-run] [--ref=<ref>]  — derive RESOLVED from merged Closes: trailers\n',
+    );
     console.error('  rechain-from <N>   — post-merge integrity repair (see docblock)');
     console.error('  dedupe [--dry-run] — one-time duplicate-id cleanup (see docblock)');
     process.exit(2);
@@ -1173,6 +1397,8 @@ function main(): void {
     exitCode = cmdExport(format);
   } else if (sub === 'sweep') {
     exitCode = runRegistryMutation((lease) => cmdSweep(args, lease));
+  } else if (sub === 'reconcile') {
+    exitCode = runRegistryMutation((lease) => cmdReconcile(args, lease));
   } else if (sub === 'list') {
     exitCode = cmdList(args);
   } else if (sub === 'rechain-from') {

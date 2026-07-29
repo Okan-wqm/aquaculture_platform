@@ -41862,6 +41862,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/finding-registry-closure-drift.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/finding-registry-integrity.spec.ts",
       "prettier_managed": true
     },
@@ -55296,10 +55302,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9065,
+  "file_count": 9066,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8884,
-  "managed_file_list_sha256": "f9ecf7eac8f542a45951e1e37e7257341e6b18399c62592bd45ad58ae3f79da2",
+  "managed_count": 8885,
+  "managed_file_list_sha256": "fe5919658542717709208807d2e82494db774d274f8839abe58a0ea8b167650d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -121,12 +121,6 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-029`    | OPEN           | 1.1          | data-expert          | real-open                 |
 | `FARM-CRITICAL-061`     | OPEN           | 1.1          | farm-expert          | real-open                 |
 | `AISAFETY-CRITICAL-003` | OPEN           | —            | ai-safety-auditor    | already-fixed-needs-close |
-| `SENSOR-CRITICAL-003`   | OPEN           | —            | sensor-expert        | already-fixed-needs-close |
-| `DATA-CRITICAL-001`     | OPEN           | —            | data-expert          | real-open                 |
-| `INFRA-CRITICAL-039`    | OPEN           | —            | infra-expert         | already-fixed-needs-close |
-| `RBAC-CRITICAL-001`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
-| `RBAC-CRITICAL-002`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
-| `RBAC-CRITICAL-003`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
 | `INFRA-CRITICAL-040`    | IN-PROGRESS    | —            | infra-expert         | blocked                   |
 | `INFRA-CRITICAL-044`    | OPEN           | —            | infra-expert         | blocked                   |
 | `FARM-CRITICAL-237`     | IN-PROGRESS    | 4.1          | farm-expert          | real-open                 |
@@ -468,3 +462,24 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   `apps/sensor-service/src/process/services/__tests__/pin-control-security.spec.ts`
   - gateway elevation specs on the branch. IN-PROGRESS until the post-merge
     close ceremony.
+
+---
+
+Updated 2026-07-28: the "stays OPEN until the post-merge close ceremony records a
+main-reachable closing commit" language above described a MANUAL step, and that
+step is why this table needed correcting again. `finding-registry reconcile`
+now derives RESOLVED state from the `Closes:` trailers on commits reachable from
+`origin/main` — the signal the commit-msg gate already makes mandatory and
+complete — and `tests/invariants/finding-registry-closure-drift.spec.ts` fails
+the build while any merged closure is still OPEN or IN-PROGRESS here.
+
+The first run resolved 132 findings, six of them CRITICALs listed in this table
+as active. Four of those six were already bucketed `already-fixed-needs-close`,
+which is the drift stated in the plan's own words: the work was done, the
+ceremony was not run, and nothing failed because of it. `DATA-CRITICAL-001` was
+bucketed `real-open` and had in fact been closed by #924 on 2026-07-07.
+
+The ceremony still exists and its guards are unchanged (a closing SHA must be
+reachable from `origin/main`, and that commit's own message must carry the
+matching trailer). What changed is that running it is no longer something a
+human has to remember.

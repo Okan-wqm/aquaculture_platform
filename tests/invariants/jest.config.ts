@@ -104,6 +104,7 @@ export default {
       testMatch: [
         '<rootDir>/knowledge-ssot.spec.ts',
         '<rootDir>/finding-registry-integrity.spec.ts',
+        '<rootDir>/finding-registry-closure-drift.spec.ts',
         '<rootDir>/finding-evidence-shape.spec.ts',
         '<rootDir>/upcaster-chain.spec.ts',
         '<rootDir>/lib-creation-rubric.spec.ts',

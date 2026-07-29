@@ -11,6 +11,11 @@ import type {
   CapturedQuery,
   CapturedApiCall,
   FeatureFlagOverride,
+  CacheInvalidationResult,
+  CacheKeyEntry,
+  CacheKeyValue,
+  CacheNamespaceListing,
+  CacheStats,
 } from './generated/admin-contracts';
 
 export type {
@@ -19,18 +24,18 @@ export type {
   CapturedQuery,
   CapturedApiCall,
   FeatureFlagOverride,
+  CacheInvalidationResult,
+  CacheKeyEntry,
+  CacheKeyValue,
+  CacheNamespaceListing,
+  CacheStats,
 };
 
-export interface CacheEntry {
-  id: string;
-  tenantId?: string;
-  key: string;
-  value?: unknown;
-  sizeBytes?: number;
-  ttlSeconds?: number;
-  expiresAt?: string;
-  hitCount: number;
-  lastAccessedAt?: string;
-  cacheStore?: string;
-  tags?: string[];
-}
+// `CacheEntry` is deliberately absent.
+//
+// It described the shape of `admin.cache_entries_snapshot` — id, tenantId,
+// hitCount, tags, a jsonb value — a table whose only writer was an endpoint
+// nothing ever called, and which is now dropped. Redis reports none of those
+// fields; it reports a key's type, TTL, memory footprint and idle time, which
+// is what `CacheKeyEntry` above carries, generated from the service that reads
+// them.

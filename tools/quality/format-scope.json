@@ -1887,6 +1887,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/impersonation/services/__tests__/cache-inspector.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/impersonation/services/__tests__/feature-flag-debug.service.spec.ts",
       "prettier_managed": true
     },
@@ -2478,6 +2484,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1802600000000-AddImpersonationPermissionRevocationAudit.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1802700000000-DropCacheEntriesSnapshot.ts",
       "prettier_managed": true
     },
     {
@@ -42450,6 +42462,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/no-fake-success-handlers.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/no-hardcoded-plan-pricing.spec.ts",
       "prettier_managed": true
     },
@@ -46425,7 +46443,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "97de298e42ac1382b471b02276ca2ebeec34cbf38b08ceec071deba82b74eee0",
+      "content_sha256": "bb035b7da62249dafe12be612a8d58c2a84b42b513e3c9638692ae50cf5c31db",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/types/generated/admin-contracts.ts",
@@ -55739,10 +55757,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9138,
+  "file_count": 9141,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8956,
-  "managed_file_list_sha256": "cf00d02983b0e322b4ee0330068f75b26f2d34e9628e242f1942728b6e3699fd",
+  "managed_count": 8959,
+  "managed_file_list_sha256": "d6e06919c8676e1354ea8d009431e0035965180f226c740bdce1d0a1892eabef",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

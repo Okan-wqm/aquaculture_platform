@@ -11,7 +11,10 @@ import type {
   DebugSessionType,
   CapturedQuery,
   CapturedApiCall,
-  CacheEntry,
+  CacheInvalidationResult,
+  CacheKeyValue,
+  CacheNamespaceListing,
+  CacheStats,
   FeatureFlagOverride,
 } from '../types';
 
@@ -68,22 +71,28 @@ export const debugApi = {
       errorRate: number;
     }>(`/debug/api-calls/summary?tenantId=${tenantId}${period ? `&period=${period}` : ''}`),
 
-  // Cache Inspector
-  getCacheEntries: (params?: { tenantId?: string; cacheStore?: string; keyPattern?: string } & PaginationParams) =>
-    apiFetch<PaginatedResult<CacheEntry>>(`/debug/cache?${buildQueryString(params || {})}`),
-  getCacheEntry: (key: string) => apiFetch<CacheEntry>(`/debug/cache/${encodeURIComponent(key)}`),
+  // Cache Inspector — Redis, not a snapshot table.
+  //
+  // The listing is NOT paginated: it is a SCAN over a key namespace, which has
+  // a cursor rather than a page number. The previous client declared
+  // `PaginatedResult<CacheEntry>` and read `.data` off a `{entries, summary}`
+  // response, so the list rendered empty no matter what the backend returned —
+  // and the table it read was empty anyway, so nobody could tell.
+  listCacheEntries: (params?: { keyPattern?: string; limit?: number }) =>
+    apiFetch<CacheNamespaceListing>(`/debug/cache?${buildQueryString(params || {})}`),
+  getCacheEntry: (key: string) => apiFetch<CacheKeyValue>(`/debug/cache/${encodeURIComponent(key)}`),
+  // Both invalidation calls return the count Redis actually removed. Reading it
+  // is what makes a future no-op visible instead of silent.
   invalidateCacheEntry: (key: string) =>
-    apiFetch<void>(`/debug/cache/${encodeURIComponent(key)}`, { method: 'DELETE' }),
-  invalidateCacheByPattern: (pattern: string, tenantId?: string) =>
-    apiFetch<{ invalidated: number }>('/debug/cache/invalidate', { method: 'POST', body: JSON.stringify({ pattern, tenantId }) }),
-  getCacheStats: (tenantId?: string) =>
-    apiFetch<{
-      totalEntries: number;
-      totalSize: number;
-      hitRate: number;
-      missRate: number;
-      byStore: Array<{ store: string; entries: number; size: number }>;
-    }>(`/debug/cache/stats${tenantId ? `?tenantId=${tenantId}` : ''}`),
+    apiFetch<CacheInvalidationResult>(`/debug/cache/${encodeURIComponent(key)}`, {
+      method: 'DELETE',
+    }),
+  invalidateCacheByPattern: (pattern: string) =>
+    apiFetch<CacheInvalidationResult>('/debug/cache/invalidate', {
+      method: 'POST',
+      body: JSON.stringify({ pattern }),
+    }),
+  getCacheStats: () => apiFetch<CacheStats>('/debug/cache/stats'),
 
   // Feature Flag Overrides
   getFeatureOverrides: (params?: { tenantId?: string; isActive?: boolean } & PaginationParams) =>

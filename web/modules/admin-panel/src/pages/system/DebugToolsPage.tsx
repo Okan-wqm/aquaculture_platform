@@ -1,869 +1,353 @@
 /**
- * Debug Tools Page
+ * Debug Tools — the Redis cache inspector.
  *
- * Enterprise-grade debugging interface with real API integration.
- * Provides cache management, log viewing, database tools, and config inspection.
+ * # What this page used to be
+ *
+ * Four tabs, three of which produced nothing:
+ *
+ *   - **Log Viewer** and **Config Viewer** were `// TODO: Implement …` bodies
+ *     that set an empty array and an error string. They shipped as tabs an
+ *     operator could click.
+ *   - **Query Executor** rendered a SQL textarea, warned that the query would
+ *     run against the production database, and then `throw new Error('Query
+ *     execution API endpoint not yet implemented')` on submit — client-side,
+ *     unconditionally.
+ *   - **Active Connections** built its rows in the browser: `Array.from({length:
+ *     stats.active})` with `database: 'aquaculture_prod'`, `user: 'app_user'`,
+ *     `applicationName: 'service-N'`, `state: 'active'` — a table of invented
+ *     values derived from one integer.
+ *
+ * The remaining tab, **Cache**, read a database table nothing wrote, and its
+ * two invalidation controls carried `// Mock success for demo` catch blocks
+ * that closed the confirmation dialog and removed the row from local state when
+ * the request FAILED. A SUPER_ADMIN clearing cache during an incident was shown
+ * success in every case: the backend was a logging stub when reachable, and the
+ * frontend faked it when not.
+ *
+ * # What it is now
+ *
+ * One surface that talks to Redis. Keys are listed by SCAN with their real type,
+ * TTL, memory footprint and idle time; the invalidation controls render the
+ * count Redis actually removed, so a no-op regression is visible rather than
+ * silent; and when Redis is unreachable the page says so instead of drawing
+ * zeros.
+ *
+ * The namespace is stated on the page rather than implied. `RedisService`
+ * prefixes admin-api's keys, so this inspects admin-api's cache — not every
+ * service's — and instance-wide counters are labelled as instance-wide.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
-import { debugApi, systemApi, databaseApi } from '../../services/adminApi';
-import type { CacheEntry } from '../../services/adminApi';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Badge, Button, Card, Input } from '@aquaculture/shared-ui';
+
+import { debugApi } from '../../services/adminApi';
+import type { CacheKeyEntry, CacheStats } from '../../services/adminApi';
 
 // ============================================================================
-// Types
+// Formatting
 // ============================================================================
 
-interface LogEntry {
-  id: string;
-  timestamp: string;
-  level: 'debug' | 'info' | 'warn' | 'error';
-  message: string;
-  context?: string;
-  metadata?: Record<string, unknown>;
+function formatBytes(bytes: number | null): string {
+  // Null means MEMORY USAGE could not answer for this key. A key of unknown
+  // footprint is not a key of zero bytes.
+  if (bytes === null) return '—';
+  if (bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  return `${(bytes / Math.pow(1024, exponent)).toFixed(2)} ${units[exponent]}`;
 }
 
-interface DatabaseConnection {
-  id: string;
-  database: string;
-  user: string;
-  applicationName: string;
-  state: 'active' | 'idle' | 'idle_in_transaction' | 'waiting';
-  queryStart?: string;
-  query?: string;
-  duration?: number;
+function formatTtl(seconds: number): string {
+  // Redis reserves two values: -1 is "no expiry set", -2 is "key is gone".
+  if (seconds === -1) return 'no expiry';
+  if (seconds === -2) return 'expired';
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
 }
 
-interface QueryResult {
-  columns: string[];
-  rows: Array<Record<string, unknown>>;
-  rowCount: number;
-  executionTime: number;
+function formatIdle(seconds: number | null): string {
+  if (seconds === null) return '—';
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  return `${Math.floor(seconds / 3600)}h`;
 }
-
-interface SystemConfig {
-  key: string;
-  value: unknown;
-  description?: string;
-  category: string;
-  isSecret: boolean;
-}
-
-interface CacheStats {
-  totalEntries: number;
-  totalSize: number;
-  hitRate: number;
-  missRate: number;
-  byStore: Array<{ store: string; entries: number; size: number }>;
-}
-
-type TabType = 'cache' | 'logs' | 'database' | 'config';
 
 // ============================================================================
-// Component
+// Page
 // ============================================================================
 
 export const DebugToolsPage: React.FC = () => {
-  // State
-  const [activeTab, setActiveTab] = useState<TabType>('cache');
+  const [entries, setEntries] = useState<readonly CacheKeyEntry[]>([]);
+  const [namespace, setNamespace] = useState<string>('');
+  const [truncated, setTruncated] = useState(false);
+  const [matchedCount, setMatchedCount] = useState(0);
+  const [stats, setStats] = useState<CacheStats | null>(null);
+
+  const [keyPattern, setKeyPattern] = useState('*');
+  const [appliedPattern, setAppliedPattern] = useState('*');
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
 
-  // Cache state
-  const [cacheEntries, setCacheEntries] = useState<CacheEntry[]>([]);
-  const [cacheStats, setCacheStats] = useState<CacheStats | null>(null);
-  const [cacheFilter, setCacheFilter] = useState('');
-  const [showClearConfirm, setShowClearConfirm] = useState(false);
-
-  // Logs state
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [logLevel, setLogLevel] = useState<string>('all');
-  const [logContext, setLogContext] = useState<string>('all');
-  const [logSearch, setLogSearch] = useState('');
-
-  // Database state
-  const [connections, setConnections] = useState<DatabaseConnection[]>([]);
-  const [queryInput, setQueryInput] = useState('SELECT * FROM farms LIMIT 10;');
-  const [queryResult, setQueryResult] = useState<QueryResult | null>(null);
-  const [queryExecuting, setQueryExecuting] = useState(false);
-  const [queryError, setQueryError] = useState<string | null>(null);
-
-  // Config state
-  const [config, setConfig] = useState<SystemConfig[]>([]);
-  const [configCategory, setConfigCategory] = useState<string>('all');
-  const [configSearch, setConfigSearch] = useState('');
-  const [showSecrets, setShowSecrets] = useState(false);
-
-  // ============================================================================
-  // Data Loading
-  // ============================================================================
-
-  const loadCacheData = useCallback(async () => {
+  const load = useCallback(async (): Promise<void> => {
     setLoading(true);
     setError(null);
     try {
-      const [entriesResponse, statsResponse] = await Promise.allSettled([
-        debugApi.getCacheEntries({ limit: 100, keyPattern: cacheFilter || undefined }),
-        debugApi.getCacheStats(),
-      ]);
-      setCacheEntries(entriesResponse.status === 'fulfilled' ? entriesResponse.value.data : []);
-      setCacheStats(statsResponse.status === 'fulfilled' ? statsResponse.value : null);
-      if (entriesResponse.status === 'rejected' && statsResponse.status === 'rejected') {
-        setError('Cache service unavailable');
-      } else if (entriesResponse.status === 'rejected') {
-        setError('Cache service unavailable');
-      } else if (statsResponse.status === 'rejected') {
-        setError('Cache stats unavailable');
-      }
+      // Sequential, not Promise.allSettled: both calls fail for the same reason
+      // (Redis unreachable), and the previous version's settled-pair handling
+      // turned that one cause into two different half-rendered states.
+      const listing = await debugApi.listCacheEntries({ keyPattern: appliedPattern, limit: 200 });
+      const cacheStats = await debugApi.getCacheStats();
+
+      setEntries(listing.entries);
+      setNamespace(listing.namespace);
+      setMatchedCount(listing.matchedCount);
+      setTruncated(listing.truncated);
+      setStats(cacheStats);
     } catch (err) {
-      console.error('Failed to load cache data:', err);
-      setError('Cache service unavailable');
-      setCacheEntries([]);
-      setCacheStats(null);
+      // No fallback rendering. The backend answers 503 when Redis is not
+      // connected, and an empty key list drawn over that is indistinguishable
+      // from a cache that is genuinely empty.
+      setError(err instanceof Error ? err.message : 'Cache is unavailable');
+      setEntries([]);
+      setStats(null);
     } finally {
       setLoading(false);
     }
-  }, [cacheFilter]);
+  }, [appliedPattern]);
 
-  const loadLogs = useCallback(async () => {
-    setLoading(true);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const invalidateKey = async (key: string): Promise<void> => {
+    setBusyKey(key);
     setError(null);
+    setNotice(null);
     try {
-      // TODO: Implement logs API endpoint
-      setLogs([]);
-      setError('Log viewer API not yet implemented');
+      const result = await debugApi.invalidateCacheEntry(key);
+      // The count is read, not assumed. A backend that stopped deleting would
+      // report 0 here and the operator would see it.
+      setNotice(
+        result.invalidated === 0
+          ? `"${key}" was already gone — nothing removed.`
+          : `Removed "${key}".`,
+      );
+      await load();
     } catch (err) {
-      console.error('Failed to load logs:', err);
-      setError('Failed to load logs');
-      setLogs([]);
+      // The row stays. The version this replaced filtered it out of local state
+      // inside the catch block, so a failed delete looked exactly like a
+      // successful one until the next refresh.
+      setError(err instanceof Error ? err.message : `Could not invalidate "${key}"`);
     } finally {
-      setLoading(false);
+      setBusyKey(null);
     }
-  }, [logLevel, logContext, logSearch]);
+  };
 
-  const loadDatabaseData = useCallback(async () => {
-    setLoading(true);
+  const clearMatching = async (): Promise<void> => {
+    setClearing(true);
     setError(null);
+    setNotice(null);
     try {
-      const response = await databaseApi.getConnectionStats();
-      const connectionsFromStats: DatabaseConnection[] = Array.from({ length: response.active || 0 }, (_, i) => ({
-        id: `conn-${i}`,
-        database: 'aquaculture_prod',
-        user: 'app_user',
-        applicationName: `service-${i}`,
-        state: 'active' as const,
-      }));
-      setConnections(connectionsFromStats);
+      const result = await debugApi.invalidateCacheByPattern(appliedPattern);
+      setConfirmClear(false);
+      setNotice(
+        `Removed ${result.invalidated} key${result.invalidated === 1 ? '' : 's'} matching "${appliedPattern}".`,
+      );
+      await load();
     } catch (err) {
-      console.error('Failed to load database data:', err);
-      setError('Failed to load database connections');
-      setConnections([]);
+      // The dialog stays open on failure. It used to close inside the catch.
+      setError(err instanceof Error ? err.message : 'Could not clear the cache');
     } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const loadConfig = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      // TODO: Implement config API endpoint
-      setConfig([]);
-      setError('Config viewer API not yet implemented');
-    } catch (err) {
-      console.error('Failed to load config:', err);
-      setError('Failed to load configuration');
-      setConfig([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [configCategory, configSearch]);
-
-  // Split per-tab effects so unrelated dep changes (e.g. logSearch typing) don't re-trigger other tabs (PERF-012)
-  useEffect(() => {
-    if (activeTab === 'cache') loadCacheData();
-  }, [activeTab, loadCacheData]);
-
-  useEffect(() => {
-    if (activeTab === 'logs') loadLogs();
-  }, [activeTab, loadLogs]);
-
-  useEffect(() => {
-    if (activeTab === 'database') loadDatabaseData();
-  }, [activeTab, loadDatabaseData]);
-
-  useEffect(() => {
-    if (activeTab === 'config') loadConfig();
-  }, [activeTab, loadConfig]);
-
-  // ============================================================================
-  // Handlers
-  // ============================================================================
-
-  const handleClearCache = async () => {
-    try {
-      await debugApi.invalidateCacheByPattern('*');
-      setShowClearConfirm(false);
-      loadCacheData();
-    } catch (err) {
-      console.error('Failed to clear cache:', err);
-      // Mock success for demo
-      setShowClearConfirm(false);
-      setTimeout(() => loadCacheData(), 500);
+      setClearing(false);
     }
   };
-
-  const handleInvalidateEntry = async (key: string) => {
-    if (!confirm(`Are you sure you want to invalidate cache entry "${key}"?`)) return;
-
-    try {
-      await debugApi.invalidateCacheEntry(key);
-      loadCacheData();
-    } catch (err) {
-      console.error('Failed to invalidate cache entry:', err);
-      // Mock success for demo
-      setCacheEntries(cacheEntries.filter((e) => e.key !== key));
-    }
-  };
-
-  const handleExecuteQuery = async () => {
-    if (!queryInput.trim()) return;
-
-    setQueryExecuting(true);
-    setQueryError(null);
-    setQueryResult(null);
-
-    try {
-      // Note: We'll need to add a query execution endpoint to the API
-      throw new Error('Query execution API endpoint not yet implemented');
-    } catch (err) {
-      console.error('Failed to execute query:', err);
-      setQueryError(err instanceof Error ? err.message : 'Failed to execute query');
-      setQueryExecuting(false);
-    }
-  };
-
-  // ============================================================================
-  // Helpers
-  // ============================================================================
-
-  const formatBytes = (bytes?: number) => {
-    if (!bytes) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
-  };
-
-  const formatDuration = (seconds?: number) => {
-    if (!seconds) return '-';
-    if (seconds < 60) return `${seconds}s`;
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    return `${hours}h ${minutes}m`;
-  };
-
-  const formatTimestamp = (timestamp: string) => {
-    return new Date(timestamp).toLocaleString();
-  };
-
-  const getLogLevelBadge = (level: string) => {
-    const variants: Record<string, 'default' | 'info' | 'success' | 'warning' | 'error'> = {
-      debug: 'default',
-      info: 'info',
-      warn: 'warning',
-      error: 'error',
-    };
-    return variants[level] || 'default';
-  };
-
-  const getConnectionStateBadge = (state: string) => {
-    const variants: Record<string, 'default' | 'info' | 'success' | 'warning' | 'error'> = {
-      active: 'success',
-      idle: 'default',
-      idle_in_transaction: 'warning',
-      waiting: 'warning',
-    };
-    return variants[state] || 'default';
-  };
-
-  const logContexts = [...new Set(logs.map((l) => l.context).filter(Boolean))] as string[];
-  const configCategories = [...new Set(config.map((c) => c.category))];
-
-  // ============================================================================
-  // Render
-  // ============================================================================
-
-  if (loading && activeTab === 'cache' && cacheEntries.length === 0) {
-    return (
-      <div className="space-y-6 animate-pulse">
-        <div className="h-8 bg-gray-200 rounded w-1/4" />
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="bg-white rounded-xl p-6 h-24" />
-          ))}
-        </div>
-        <div className="bg-white rounded-xl p-6 h-96" />
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Debug Tools</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Advanced debugging and diagnostics interface
+          <h1 className="text-2xl font-bold text-gray-900">Cache Inspector</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Redis keys in the{' '}
+            <code className="font-mono text-gray-700">{namespace || 'admin'}</code> namespace.
+            Other services keep their own.
           </p>
         </div>
-        <Button
-          variant="secondary"
-          onClick={() => {
-            if (activeTab === 'cache') loadCacheData();
-            else if (activeTab === 'logs') loadLogs();
-            else if (activeTab === 'database') loadDatabaseData();
-            else if (activeTab === 'config') loadConfig();
-          }}
-        >
-          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
+        <Button variant="secondary" onClick={() => void load()} loading={loading}>
           Refresh
         </Button>
       </div>
 
-      {/* Tabs */}
-      <Card className="p-0">
-        <div className="border-b border-gray-200">
-          <nav className="flex -mb-px">
-            {[
-              { id: 'cache', label: 'Cache Management', icon: 'M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4' },
-              { id: 'logs', label: 'Log Viewer', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
-              { id: 'database', label: 'Database Tools', icon: 'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4' },
-              { id: 'config', label: 'Config Viewer', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z' },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as TabType)}
-                className={`flex items-center gap-2 px-6 py-4 border-b-2 font-medium text-sm transition-colors ${
-                  activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={tab.icon} />
-                </svg>
-                <span className="hidden sm:inline">{tab.label}</span>
-              </button>
-            ))}
-          </nav>
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3" role="alert">
+          <span className="text-sm text-red-700">{error}</span>
         </div>
+      )}
+      {notice && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-3" role="status">
+          <span className="text-sm text-green-700">{notice}</span>
+        </div>
+      )}
+
+      {/* Stats. The namespace figure and the instance figures are drawn apart
+          because they measure different things — the version this replaced
+          merged a hit count with a table row count into one "Hit Rate %". */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card className="p-6">
+          <div className="text-sm font-medium text-gray-500 mb-2">Keys in namespace</div>
+          <div className="text-3xl font-bold text-gray-900">
+            {stats === null ? '—' : stats.keysInNamespace.toLocaleString()}
+          </div>
+          <div className="text-xs text-gray-500 mt-1">{namespace || 'admin:'}</div>
+        </Card>
+        <Card className="p-6">
+          <div className="text-sm font-medium text-gray-500 mb-2">Hit rate</div>
+          <div className="text-3xl font-bold text-gray-900">
+            {stats === null || stats.instance.hitRatePercent === null
+              ? '—'
+              : `${stats.instance.hitRatePercent}%`}
+          </div>
+          <div className="text-xs text-gray-500 mt-1">
+            {stats === null || stats.instance.hitRatePercent === null
+              ? 'no lookups served yet'
+              : 'whole instance, all services'}
+          </div>
+        </Card>
+        <Card className="p-6">
+          <div className="text-sm font-medium text-gray-500 mb-2">Memory used</div>
+          <div className="text-3xl font-bold text-gray-900">
+            {stats === null ? '—' : formatBytes(stats.instance.usedMemoryBytes)}
+          </div>
+          <div className="text-xs text-gray-500 mt-1">whole instance</div>
+        </Card>
+        <Card className="p-6">
+          <div className="text-sm font-medium text-gray-500 mb-2">Keys in instance</div>
+          <div className="text-3xl font-bold text-gray-900">
+            {stats === null ? '—' : stats.instance.totalKeys.toLocaleString()}
+          </div>
+          <div className="text-xs text-gray-500 mt-1">every namespace</div>
+        </Card>
+      </div>
+
+      <Card title="Keys">
+        <div className="flex items-end gap-2 mb-4">
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="key-pattern">
+              Key pattern
+            </label>
+            <Input
+              id="key-pattern"
+              type="text"
+              value={keyPattern}
+              placeholder="report:*"
+              onChange={(event) => setKeyPattern(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') setAppliedPattern(keyPattern || '*');
+              }}
+            />
+          </div>
+          <Button variant="secondary" onClick={() => setAppliedPattern(keyPattern || '*')}>
+            Apply
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => setConfirmClear(true)}
+            disabled={entries.length === 0}
+          >
+            Clear matching
+          </Button>
+        </div>
+
+        {truncated && (
+          <p className="text-xs text-amber-700 mb-3">
+            Showing {entries.length} of {matchedCount.toLocaleString()} matching keys. Narrow the
+            pattern to see the rest.
+          </p>
+        )}
+
+        {loading ? (
+          <p className="text-sm text-gray-500">Scanning…</p>
+        ) : entries.length === 0 ? (
+          <p className="text-sm text-gray-400 italic">
+            {error === null
+              ? `No keys match "${appliedPattern}".`
+              : 'The cache could not be read.'}
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead>
+                <tr className="text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-3 py-2">Key</th>
+                  <th className="px-3 py-2">Type</th>
+                  <th className="px-3 py-2">TTL</th>
+                  <th className="px-3 py-2">Size</th>
+                  <th className="px-3 py-2">Idle</th>
+                  <th className="px-3 py-2" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {entries.map((entry) => (
+                  <tr key={entry.key}>
+                    <td className="px-3 py-2 font-mono text-sm text-gray-800 break-all">
+                      {entry.key}
+                    </td>
+                    <td className="px-3 py-2">
+                      <Badge variant="default" size="sm">
+                        {entry.type}
+                      </Badge>
+                    </td>
+                    <td className="px-3 py-2 text-sm text-gray-600">
+                      {formatTtl(entry.ttlSeconds)}
+                    </td>
+                    <td className="px-3 py-2 text-sm text-gray-600">
+                      {formatBytes(entry.sizeBytes)}
+                    </td>
+                    <td className="px-3 py-2 text-sm text-gray-600">
+                      {formatIdle(entry.idleSeconds)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-600"
+                        loading={busyKey === entry.key}
+                        onClick={() => void invalidateKey(entry.key)}
+                      >
+                        Invalidate
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
 
-      {/* Cache Management Tab */}
-      {activeTab === 'cache' && (
-        <div className="space-y-6">
-          {/* Cache Stats */}
-          {cacheStats && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <Card className="p-4">
-                <div className="text-2xl font-bold text-gray-900">{cacheStats.totalEntries.toLocaleString()}</div>
-                <div className="text-sm text-gray-500">Total Entries</div>
-              </Card>
-              <Card className="p-4">
-                <div className="text-2xl font-bold text-gray-900">{formatBytes(cacheStats.totalSize)}</div>
-                <div className="text-sm text-gray-500">Total Size</div>
-              </Card>
-              <Card className="p-4">
-                <div className="text-2xl font-bold text-green-600">{cacheStats.hitRate.toFixed(1)}%</div>
-                <div className="text-sm text-gray-500">Hit Rate</div>
-              </Card>
-              <Card className="p-4">
-                <div className="text-2xl font-bold text-yellow-600">
-                  {cacheEntries.filter((e) => e.ttlSeconds && e.ttlSeconds < 3600).length}
-                </div>
-                <div className="text-sm text-gray-500">Expiring Soon</div>
-              </Card>
-            </div>
-          )}
-
-          {/* Cache Controls */}
-          <Card className="p-4">
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="flex-1">
-                <Input
-                  placeholder="Filter by key pattern..."
-                  value={cacheFilter}
-                  onChange={(e) => setCacheFilter(e.target.value)}
-                />
-              </div>
-              <Button variant="danger" onClick={() => setShowClearConfirm(true)}>
-                Clear All Cache
-              </Button>
-            </div>
-          </Card>
-
-          {/* Cache Entries Table */}
-          <Card className="overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Key
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Size
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      TTL
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Hits
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Store
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {cacheEntries.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
-                        No cache entries found
-                      </td>
-                    </tr>
-                  ) : (
-                    cacheEntries.map((entry) => (
-                      <tr key={entry.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4">
-                          <div className="font-mono text-sm text-gray-900">{entry.key}</div>
-                          {entry.tenantId && (
-                            <div className="text-xs text-gray-500 mt-1">Tenant: {entry.tenantId}</div>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-600">{formatBytes(entry.sizeBytes)}</td>
-                        <td className="px-6 py-4 text-sm text-gray-600">
-                          {formatDuration(entry.ttlSeconds)}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-600">{entry.hitCount}</td>
-                        <td className="px-6 py-4">
-                          <Badge variant="info" size="sm">
-                            {entry.cacheStore || 'unknown'}
-                          </Badge>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <button
-                            onClick={() => handleInvalidateEntry(entry.key)}
-                            className="text-sm font-medium text-red-600 hover:text-red-800 transition-colors"
-                          >
-                            Invalidate
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* Log Viewer Tab */}
-      {activeTab === 'logs' && (
-        <div className="space-y-6">
-          {/* Log Filters */}
-          <Card className="p-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Input
-                placeholder="Search logs..."
-                value={logSearch}
-                onChange={(e) => setLogSearch(e.target.value)}
-              />
-              <Select
-                value={logLevel}
-                onChange={(e) => setLogLevel(e.target.value)}
-                options={[
-                  { value: 'all', label: 'All Levels' },
-                  { value: 'debug', label: 'Debug' },
-                  { value: 'info', label: 'Info' },
-                  { value: 'warn', label: 'Warning' },
-                  { value: 'error', label: 'Error' },
-                ]}
-              />
-              <Select
-                value={logContext}
-                onChange={(e) => setLogContext(e.target.value)}
-                options={[
-                  { value: 'all', label: 'All Services' },
-                  ...logContexts.map((ctx) => ({ value: ctx, label: ctx })),
-                ]}
-              />
-            </div>
-          </Card>
-
-          {/* Logs Table */}
-          <Card className="overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Time
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Level
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Service
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Message
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {logs.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-12 text-center text-gray-500">
-                        No logs found
-                      </td>
-                    </tr>
-                  ) : (
-                    logs.map((log) => (
-                      <tr key={log.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 text-sm text-gray-500 whitespace-nowrap">
-                          {formatTimestamp(log.timestamp)}
-                        </td>
-                        <td className="px-6 py-4">
-                          <Badge variant={getLogLevelBadge(log.level)} size="sm">
-                            {log.level.toUpperCase()}
-                          </Badge>
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-600">{log.context || '-'}</td>
-                        <td className="px-6 py-4">
-                          <div className="text-sm text-gray-900">{log.message}</div>
-                          {log.metadata && Object.keys(log.metadata).length > 0 && (
-                            <details className="mt-1">
-                              <summary className="text-xs text-blue-600 cursor-pointer hover:text-blue-800">
-                                View metadata
-                              </summary>
-                              <pre className="mt-2 text-xs bg-gray-50 p-2 rounded overflow-x-auto">
-                                {JSON.stringify(log.metadata, null, 2)}
-                              </pre>
-                            </details>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* Database Tools Tab */}
-      {activeTab === 'database' && (
-        <div className="space-y-6">
-          {/* Query Executor */}
-          <Card className="p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Query Executor</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  SQL Query
-                </label>
-                <textarea
-                  value={queryInput}
-                  onChange={(e) => setQueryInput(e.target.value)}
-                  rows={4}
-                  maxLength={10000}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter SQL query..."
-                />
-                <div className="text-xs text-gray-500 text-right mt-1">
-                  {queryInput.length} / 10,000 characters
-                </div>
-              </div>
-              <div className="flex justify-between items-center">
-                <div className="text-sm text-yellow-600 flex items-center gap-2">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  <span>Warning: This will execute queries on the production database</span>
-                </div>
-                <Button
-                  onClick={handleExecuteQuery}
-                  loading={queryExecuting}
-                  disabled={!queryInput.trim() || queryExecuting}
-                >
-                  Execute Query
-                </Button>
-              </div>
-              {queryError && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
-                  {queryError}
-                </div>
-              )}
-              {queryResult && (
-                <div className="border border-gray-200 rounded-lg overflow-hidden">
-                  <div className="bg-gray-50 px-4 py-2 flex justify-between items-center">
-                    <span className="text-sm text-gray-600">
-                      {queryResult.rowCount} rows in {queryResult.executionTime}ms
-                    </span>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          {queryResult.columns.map((col) => (
-                            <th
-                              key={col}
-                              className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase"
-                            >
-                              {col}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {queryResult.rows.map((row, idx) => (
-                          <tr key={idx} className="hover:bg-gray-50">
-                            {queryResult.columns.map((col) => (
-                              <td key={col} className="px-4 py-2 text-sm text-gray-900">
-                                {String(row[col])}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
-          </Card>
-
-          {/* Database Connections */}
-          <Card className="overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-lg font-semibold text-gray-900">Active Connections</h2>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Database
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      User
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Application
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      State
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Query
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {connections.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
-                        No active connections
-                      </td>
-                    </tr>
-                  ) : (
-                    connections.map((conn) => (
-                      <tr key={conn.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 text-sm text-gray-900">{conn.database}</td>
-                        <td className="px-6 py-4 text-sm text-gray-600">{conn.user}</td>
-                        <td className="px-6 py-4 text-sm text-gray-600">{conn.applicationName}</td>
-                        <td className="px-6 py-4">
-                          <Badge variant={getConnectionStateBadge(conn.state)} size="sm">
-                            {conn.state}
-                          </Badge>
-                        </td>
-                        <td className="px-6 py-4">
-                          {conn.query ? (
-                            <div>
-                              <div className="font-mono text-xs text-gray-900 max-w-md truncate">
-                                {conn.query}
-                              </div>
-                              {conn.duration && (
-                                <div className="text-xs text-gray-500 mt-1">
-                                  Duration: {conn.duration}ms
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-sm text-gray-500">-</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* Config Viewer Tab */}
-      {activeTab === 'config' && (
-        <div className="space-y-6">
-          {/* Config Filters */}
-          <Card className="p-4">
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="flex-1">
-                <Input
-                  placeholder="Search configuration..."
-                  value={configSearch}
-                  onChange={(e) => setConfigSearch(e.target.value)}
-                />
-              </div>
-              <Select
-                value={configCategory}
-                onChange={(e) => setConfigCategory(e.target.value)}
-                options={[
-                  { value: 'all', label: 'All Categories' },
-                  ...configCategories.map((cat) => ({ value: cat, label: cat })),
-                ]}
-              />
-              <label
-                className="flex items-center gap-2 cursor-pointer px-4 py-2 border border-yellow-300 bg-yellow-50 rounded-lg hover:bg-yellow-100"
-                title="Security note: secret values are loaded into browser memory when this tab is viewed — this toggle only controls visual display"
-              >
-                <input
-                  type="checkbox"
-                  checked={showSecrets}
-                  onChange={(e) => setShowSecrets(e.target.checked)}
-                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="text-sm text-yellow-800">Show Secrets (visual only)</span>
-              </label>
-            </div>
-          </Card>
-
-          {/* Config Table */}
-          <Card className="overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Key
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Value
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Category
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Description
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {config.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-6 py-12 text-center text-gray-500">
-                        No configuration found
-                      </td>
-                    </tr>
-                  ) : (
-                    config.map((item, idx) => (
-                      <tr key={idx} className="hover:bg-gray-50">
-                        <td className="px-6 py-4">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-sm text-gray-900">{item.key}</span>
-                            {item.isSecret && (
-                              <Badge variant="warning" size="sm">Secret</Badge>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="font-mono text-sm text-gray-900 max-w-md truncate">
-                            {item.isSecret && !showSecrets ? '***REDACTED***' : String(item.value)}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <Badge variant="info" size="sm">
-                            {item.category}
-                          </Badge>
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-600">
-                          {item.description || '-'}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* Clear Cache Confirmation Modal */}
-      {showClearConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <Card className="max-w-md w-full">
-            <div className="p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-                  <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-gray-900">Clear All Cache</h2>
-                  <p className="text-sm text-gray-500">This action cannot be undone</p>
-                </div>
-              </div>
-              <p className="text-sm text-gray-600 mb-6">
-                Are you sure you want to clear all cache entries? This may briefly degrade performance
-                while the cache is rebuilt.
-              </p>
-              <div className="flex justify-end gap-3">
-                <Button variant="secondary" onClick={() => setShowClearConfirm(false)}>
-                  Cancel
-                </Button>
-                <Button variant="danger" onClick={handleClearCache}>
-                  Clear Cache
-                </Button>
-              </div>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* Error Display */}
-      {error && (
-        <div className="fixed bottom-4 right-4 max-w-md bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg shadow-lg">
-          <div className="flex items-center gap-2">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-            <span>{error}</span>
+      {confirmClear && (
+        <Card title="Clear matching keys">
+          <p className="text-sm text-gray-700">
+            This removes every key matching{' '}
+            <code className="font-mono">{appliedPattern}</code> from the{' '}
+            <code className="font-mono">{namespace || 'admin:'}</code> namespace. Cached data will
+            be recomputed on next read.
+          </p>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="secondary" onClick={() => setConfirmClear(false)} disabled={clearing}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={() => void clearMatching()} loading={clearing}>
+              Clear
+            </Button>
           </div>
-        </div>
+        </Card>
       )}
     </div>
   );

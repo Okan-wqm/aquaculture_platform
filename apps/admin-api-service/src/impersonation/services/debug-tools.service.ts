@@ -6,7 +6,6 @@ import {
   DebugSession,
   CapturedQuery,
   CapturedApiCall,
-  CacheEntrySnapshot,
   FeatureFlagOverride,
   DebugSessionType,
   QueryLogType,
@@ -18,7 +17,8 @@ import { DebugSessionService } from './debug-session.service';
 import {
   QueryInspectorResult,
   ApiLogResult,
-  CacheInspectorResult,
+  CacheKeyValue,
+  CacheNamespaceListing,
   DebugDashboard,
   SlowQueryAnalysis,
   ApiUsageSummary,
@@ -33,7 +33,8 @@ import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination
 export type {
   QueryInspectorResult,
   ApiLogResult,
-  CacheInspectorResult,
+  CacheKeyValue,
+  CacheNamespaceListing,
   DebugDashboard,
 } from './debug-tools-types';
 
@@ -204,49 +205,30 @@ export class DebugToolsService {
   }
 
   // ==================== Cache Inspector ====================
+  //
+  // These read and clear the REAL cache. The methods they replaced inspected a
+  // table nothing wrote and logged `[Cache] Invalidated key: …` without
+  // touching anything — see cache-inspector.service.ts.
 
-  async snapshotCache(
-    tenantId: string,
-    debugSessionId?: string,
-    cacheStore?: string,
-  ): Promise<CacheInspectorResult> {
-    return this.cacheInspector.snapshotCache(tenantId, debugSessionId, cacheStore);
+  async listCacheEntries(keyPattern: string, limit: number): Promise<CacheNamespaceListing> {
+    return this.cacheInspector.listEntries(keyPattern, limit);
   }
 
-  async captureCacheEntry(data: {
-    tenantId?: string;
-    debugSessionId?: string;
-    key: string;
-    value?: unknown;
-    sizeBytes?: number;
-    ttlSeconds?: number;
-    expiresAt?: Date;
-    hitCount?: number;
-    lastAccessedAt?: Date;
-    cacheStore?: string;
-    tags?: string[];
-  }): Promise<CacheEntrySnapshot> {
-    return this.cacheInspector.captureCacheEntry(data);
+  async getCacheEntry(key: string): Promise<CacheKeyValue | null> {
+    return this.cacheInspector.getEntry(key);
   }
 
-  async getCacheEntry(key: string): Promise<CacheEntrySnapshot | null> {
-    return this.cacheInspector.getCacheEntry(key);
+  /** Returns how many keys Redis actually removed, which is the point. */
+  async invalidateCacheKey(key: string): Promise<number> {
+    return this.cacheInspector.invalidateKey(key);
   }
 
-  async invalidateCacheByKey(key: string): Promise<void> {
-    return this.cacheInspector.invalidateCacheByKey(key);
+  async invalidateCachePattern(pattern: string): Promise<number> {
+    return this.cacheInspector.invalidatePattern(pattern);
   }
 
-  async invalidateCacheKey(tenantId: string, key: string): Promise<void> {
-    return this.cacheInspector.invalidateCacheKey(tenantId, key);
-  }
-
-  async invalidateCachePattern(tenantId: string, pattern: string): Promise<number> {
-    return this.cacheInspector.invalidateCachePattern(tenantId, pattern);
-  }
-
-  async getCacheStats(tenantId?: string): Promise<CacheStats> {
-    return this.cacheInspector.getCacheStats(tenantId);
+  async getCacheStats(): Promise<CacheStats> {
+    return this.cacheInspector.getStats();
   }
 
   // ==================== Feature Flag Override ====================

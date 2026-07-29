@@ -867,9 +867,15 @@ describe('Frontend-Backend Contract Validation', () => {
     // service that threw 410 Gone on every write and synthesized identical
     // defaults on every read, over a table admin-api migration 1801400000000
     // had already dropped.
+    // APA-302/APA-303: 516 -> 513 after the cache inspector was rewritten
+    // against Redis. Three routes went: POST /debug/cache/capture, the only
+    // writer of a table nothing read, and the pair
+    // DELETE /debug/cache/:tenantId/:key + DELETE /debug/cache/tenant/:tenantId,
+    // of which the second was unreachable — Nest matches in declaration order
+    // and the parameterized route was declared first.
     const count = backendEndpoints.length;
 
-    expect(count).toBe(516);
+    expect(count).toBe(513);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

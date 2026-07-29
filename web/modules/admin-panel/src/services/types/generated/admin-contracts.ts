@@ -260,6 +260,15 @@ export interface ImpersonationContext {
 }
 
 /** @see transitive */
+export interface RedisInstanceStats {
+  keyspaceHits: number;
+  keyspaceMisses: number;
+  hitRatePercent: null | number;
+  usedMemoryBytes: number;
+  totalKeys: number;
+}
+
+/** @see transitive */
 export interface TenantLimitsDto {
   maxUsers?: number;
   maxFarms?: number;
@@ -1337,6 +1346,44 @@ export interface FeatureFlagOverride {
   revertedBy?: string;
   metadata?: Record<string, unknown>;
   createdAt: string;
+}
+
+/** @see apps/admin-api-service/src/impersonation/services/debug-tools-types.ts */
+export interface CacheKeyEntry {
+  key: string;
+  type: string;
+  ttlSeconds: number;
+  sizeBytes: null | number;
+  idleSeconds: null | number;
+}
+
+/** @see apps/admin-api-service/src/impersonation/services/debug-tools-types.ts */
+export interface CacheNamespaceListing {
+  namespace: string;
+  entries: CacheKeyEntry[];
+  matchedCount: number;
+  truncated: boolean;
+}
+
+/** @see apps/admin-api-service/src/impersonation/services/debug-tools-types.ts */
+export interface CacheKeyValue {
+  key: string;
+  type: string;
+  ttlSeconds: number;
+  sizeBytes: null | number;
+  value: null | string;
+}
+
+/** @see apps/admin-api-service/src/impersonation/services/debug-tools-types.ts */
+export interface CacheStats {
+  namespace: string;
+  keysInNamespace: number;
+  instance: RedisInstanceStats;
+}
+
+/** @see apps/admin-api-service/src/impersonation/controllers/debug-tools.controller.ts */
+export interface CacheInvalidationResult {
+  invalidated: number;
 }
 
 // ==========================================================================

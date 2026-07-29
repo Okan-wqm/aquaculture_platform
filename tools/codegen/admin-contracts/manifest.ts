@@ -174,6 +174,20 @@ export const ADMIN_CONTRACT_SOURCES: readonly ContractSource[] = [
     ],
   },
   {
+    module: 'debug',
+    // The cache inspector's shapes. Generated rather than hand-written because
+    // the panel's previous `CacheEntry` described the snapshot TABLE — id,
+    // hitCount, tags, a jsonb value — none of which Redis reports, and all of
+    // which the page rendered columns for.
+    file: 'apps/admin-api-service/src/impersonation/services/debug-tools-types.ts',
+    exports: ['CacheKeyEntry', 'CacheNamespaceListing', 'CacheKeyValue', 'CacheStats'],
+  },
+  {
+    module: 'debug',
+    file: 'apps/admin-api-service/src/impersonation/controllers/debug-tools.controller.ts',
+    exports: ['CacheInvalidationResult'],
+  },
+  {
     module: 'tenant',
     file: 'apps/admin-api-service/src/tenant/entities/tenant-activity.entity.ts',
     exports: ['TenantActivity', 'TenantNote'],

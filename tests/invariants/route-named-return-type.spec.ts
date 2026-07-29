@@ -139,7 +139,7 @@ describe('INVARIANT: a route response shape is a named type', () => {
     // return, so a change inside the service silently changes the wire and the
     // panel's type is pure invention.
     //
-    // 215 of those remain, and naming them means settling 20 controllers'
+    // 186 of those remain, and naming them means settling 19 controllers'
     // contracts against their consumers. That is real work, not a rename, so it
     // cannot land in one reviewable change.
     //
@@ -159,7 +159,6 @@ describe('INVARIANT: a route response shape is a named type', () => {
       'apps/admin-api-service/src/database-management/controllers/monitoring.controller.ts': 9,
       'apps/admin-api-service/src/database-management/controllers/schema.controller.ts': 12,
       'apps/admin-api-service/src/health/health.controller.ts': 4,
-      'apps/admin-api-service/src/impersonation/controllers/debug-tools.controller.ts': 29,
       'apps/admin-api-service/src/metrics/system-metrics.controller.ts': 4,
       'apps/admin-api-service/src/modules/modules.controller.ts': 12,
       'apps/admin-api-service/src/security/controllers/activity-log.controller.ts': 3,
@@ -188,6 +187,15 @@ describe('INVARIANT: a route response shape is a named type', () => {
     // Compared as whole objects so the diff names every file that moved, in
     // both directions, rather than failing on the first.
     expect(actual).toEqual(BUDGET);
+  });
+
+  it('the debug-tools controller is at zero, and stays there', () => {
+    // The domain closed with the cache inspector rewrite: 21 routes annotated
+    // and 8 deleted outright — the three that captured into tables nothing
+    // wrote, and the pair that could not be reached because a parameterized
+    // route was declared before its literal sibling.
+    const rel = 'apps/admin-api-service/src/impersonation/controllers/debug-tools.controller.ts';
+    expect(undeclaredRouteCount(readFileSync(resolve(REPO_ROOT, rel), 'utf8'))).toBe(0);
   });
 
   it('the impersonation controller is at zero, and stays there', () => {

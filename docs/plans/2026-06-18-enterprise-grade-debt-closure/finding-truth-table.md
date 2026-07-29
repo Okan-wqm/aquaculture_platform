@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `60ac4cfa07315ed533cd5c39fbf7292158313581a0418316ec8ea68628815fa7`
+Registry tip: `af28cf2c2c30d2184645f9758a855880d581d0c4638b798ef88bcd79db555ffb`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -151,6 +151,10 @@ Allowed truth buckets:
 | `ORPHAN-CRITICAL-484`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-485`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-488`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-494`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-495`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-497`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-498`   | OPEN           | 2026-08-12   | aria-acceptance-gap-fixer  | real-open                 |
 
 Updated 2026-07-26 (ARIA control-plane audit): seven ORPHAN CRITICALs joined the
 active set. Five come from the audit of ARIA's own control plane — a corrupted
@@ -201,6 +205,10 @@ close waits for merge, like the rows above it.
 - `ORPHAN-CRITICAL-485` — fixed in this branch; the breaker producer was unreachable on the scheduled lane at four levels and its test called a private function with a synthetic error. Moved to the planner dispatch timeout arm the nightly genuinely walks, tested through the public entry point, verified failing with the producer deleted.
 - `ORPHAN-CRITICAL-479` — fixed in this branch; a NameError on the only real worker-dispatch path shipped with 2905 passing tests because nothing covers that callsite. `aria-kernel/tests/test_executor_unbound_names.py` now statically resolves every loaded name in the three spawn-path modules; the first two versions of that detector passed with the bug reintroduced and are documented in the file.
 - `ORPHAN-CRITICAL-469` — fixed in this branch; the agent-invocation queue was stranded between the 01:00 producer and the 02:00 consumer because the executor workflow had no state-restore step, so `next_pending_request` always read a bootstrap-empty tree. The same missing restore left the cross-host lease preflight unable to observe a held lease. `.github/workflows/aria-agent-executor.yml` now restores and republishes the tree, gated on the integrity verdict, and `test_workflow_enterprise_preflight` pins the YAML against the registered contract.
+- `ORPHAN-CRITICAL-494` — fixed in this branch, and it was self-inflicted: the `492` anchor guard read absence-in-a-shallow-clone as proof a commit was unreachable. Neither ARIA lane sets `fetch-depth`, so a request minted by the 01:00 producer and consumed at 02:00 routinely has an anchor absent from the consumer's clone — every one would have been marked *terminally* `ANCHOR_STALE`, destroying the queue `469` exists to carry. Reachability is now consulted only on a non-shallow clone; age needs no history and still fires. `tests/test_agent_request_anchor.py` pins both directions.
+- `ORPHAN-CRITICAL-495` — fixed in this branch, two defects: a missing anchor was terminal while only 6 of 17 mint paths pass `target_sha` (the other 11 include the operator CLI and this branch's own HUMAN_REQUIRED panel), and the `472` wall-clock gate keyed on `cycle_id`, which 15 of 17 paths never set, so it was inert. Absence of an anchor is no longer grounds for refusal, and the ceiling now derives from elapsed job time.
+- `ORPHAN-CRITICAL-497` — fixed in this branch; found by the test-quality lens *executing* the code. The wall-clock gate refused every dispatch under production values (cap 1800s against `MAX_TIMEOUT_SECONDS=1800`), so the executor lane would have gone permanently green-and-idle. It also surfaced a real config problem — an 1800s run does not fit a 2100s job — so the executor timeout moved 35→45 min with the contract pinned in lockstep. Second half: `_step_is_gated` exempted the announce expression globally, so one character made the executor run *only* while another host held the lease.
+- `ORPHAN-CRITICAL-498` — **NOT fixed in this branch**, deadline 2026-08-12, bucket `needs-architectural-fix`. The pre-PR-open perimeter is not on the scheduled lane: `_run_extended_phases` is entered only when a caller passes `run_phases`/`pre_tool_phases`, and no production caller does, so `run_hard_fail_checks` executes only when an operator types `pr open`. Successor to `428`, whose closure claim is narrower than it read. The fix is a declarative `CYCLE_PHASES` registry plus a static call-graph reachability invariant, and it is architectural surgery that gets its own PR rather than being wedged into a 70-commit branch.
 
 - `AISAFETY-CRITICAL-003` (single process-global `ANTHROPIC_API_KEY`, no per-tenant
   key — BYOK impossible): the Faz 1 BYOK work (encrypted per-tenant credentials +

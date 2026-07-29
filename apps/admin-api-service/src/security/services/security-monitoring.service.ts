@@ -19,6 +19,7 @@ import {
   IncidentStatus,
   IncidentSeverity,
   ThreatIntelligence,
+  ThreatIndicatorType,
   LoginAttempt,
   ApiUsageLog,
   UserSession,
@@ -86,6 +87,74 @@ export interface SecurityTelemetryLiveness {
  * that the platform is idle.
  */
 export const SECURITY_TELEMETRY_LIVENESS_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The security-monitoring READ contracts that used to be inline.
+ *
+ * Six routes on `security-monitoring.controller.ts` declared their return type
+ * as an anonymous `Promise<{ … }>`. An anonymous shape is a contract with no
+ * name: it cannot be imported, referenced, or generated from, so the admin panel
+ * had to re-declare each one by hand — `BackendSecurityHealthScore`,
+ * `BackendSecurityDashboardStats` and friends, whose `Backend` prefix is the
+ * admission that "the backend's version" was sitting beside "the panel's".
+ * Nothing held the two together.
+ *
+ * The histograms are keyed by their real vocabularies rather than `string`, and
+ * `Partial` because the loops that build them only ever record values they
+ * observed — a bucket that did not occur is absent, not zero.
+ */
+export interface SecurityEventStats {
+  total: number;
+  byThreatLevel: Partial<Record<ThreatLevel, number>>;
+  byEventType: Partial<Record<SecurityEventType, number>>;
+  byStatus: Partial<Record<SecurityEventStatus, number>>;
+}
+
+export interface IncidentStats {
+  total: number;
+  byStatus: Partial<Record<IncidentStatus, number>>;
+  bySeverity: Partial<Record<IncidentSeverity, number>>;
+}
+
+export interface ThreatIntelStats {
+  total: number;
+  byIndicatorType: Partial<Record<ThreatIndicatorType, number>>;
+  byThreatLevel: Partial<Record<ThreatLevel, number>>;
+}
+
+/** `GET /security/threat-intelligence/check/:ip`. */
+export interface ThreatCheckResult {
+  isThreat: boolean;
+  threat: ThreatIntelligence | null;
+}
+
+/** `POST /security/analyze/login` — the analysis is fire-and-forget. */
+export interface LoginAnalysisAcknowledgement {
+  analyzed: true;
+  message: string;
+}
+
+/** One weighted contribution to the security health score. */
+export interface SecurityHealthFactor {
+  name: string;
+  score: number;
+  weight: number;
+  description: string;
+}
+
+/** `GET /security/health-score`. */
+export interface SecurityHealthScore {
+  score: number;
+  /**
+   * APA-240: telemetry liveness. The panel renders "No telemetry" rather than a
+   * green gauge when this is not `live`, so a score computed over empty security
+   * tables can never be presented as healthy.
+   */
+  dataStatus: SecurityTelemetryStatus;
+  lastSeenAt: string | null;
+  factors: SecurityHealthFactor[];
+  recommendations: string[];
+}
 
 export interface SecurityDashboardStats {
   // Overview

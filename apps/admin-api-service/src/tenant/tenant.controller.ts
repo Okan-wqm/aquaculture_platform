@@ -42,6 +42,8 @@ import {
   UpdateTenantNoteDto,
 } from './dto/tenant-detail.dto';
 import { TenantListItemDto, TenantSummaryDto } from './dto/tenant-summary.dto';
+import type { BulkTenantOperationResult } from './services/tenant-detail.service';
+import type { TenantSubscriptionReconciliation } from './services/tenant-provisioning-workflow.service';
 import {
   CreateTenantAcceptedResponse,
   CreateTenantDto,
@@ -221,7 +223,7 @@ export class TenantAdminController {
   async bulkSuspend(
     @Body() dto: BulkSuspendDto,
     @CurrentUser() user: AdminUser,
-  ): Promise<{ success: string[]; failed: string[] }> {
+  ): Promise<BulkTenantOperationResult> {
     return this.detailService.bulkSuspend(dto.tenantIds, dto.reason, user.id);
   }
 
@@ -233,7 +235,7 @@ export class TenantAdminController {
     // BUG-024 fix: use a validated DTO instead of a raw @Body('tenantIds') extraction
     @Body() dto: BulkActivateDto,
     @CurrentUser() user: AdminUser,
-  ): Promise<{ success: string[]; failed: string[] }> {
+  ): Promise<BulkTenantOperationResult> {
     return this.detailService.bulkActivate(dto.tenantIds, user.id);
   }
 
@@ -402,13 +404,7 @@ export class TenantAdminController {
   async reconcileTenantSubscription(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AdminUser,
-  ): Promise<{
-    tenantId: string;
-    subscriptionId?: string;
-    status?: string;
-    moduleItemCount?: number;
-    replayed?: boolean;
-  }> {
+  ): Promise<TenantSubscriptionReconciliation> {
     return this.provisioningWorkflowService.reconcileTenantSubscription(id, user.id);
   }
 }

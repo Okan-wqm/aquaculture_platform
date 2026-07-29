@@ -39,6 +39,7 @@ import {
   DataInventory,
 } from '../services/compliance.service';
 import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { OperationAcknowledgement } from '../../common/dto/operation-acknowledgement.dto';
 
 // ============================================================================
 // DTOs
@@ -353,7 +354,7 @@ export class ComplianceController {
    */
   @Post('data-requests/:id/download')
   @HttpCode(HttpStatus.OK)
-  async recordDownload(@Param('id') id: string): Promise<{ success: boolean }> {
+  async recordDownload(@Param('id') id: string): Promise<OperationAcknowledgement> {
     await this.complianceService.recordDownload(id);
     return { success: true };
   }

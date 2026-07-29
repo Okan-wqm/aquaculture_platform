@@ -1,64 +1,82 @@
 /**
- * Security domain types
+ * Security domain types.
+ *
+ * The read shapes and vocabularies are GENERATED
+ * (`tools/codegen/admin-contracts/manifest.ts`).
+ *
+ * Six of them used to be hand-written here under a `Backend*` prefix. That
+ * prefix was never a namespace — it meant "the backend's version of this, as
+ * opposed to ours", and having both was the defect. The prefix is gone with the
+ * copies it distinguished. So are five duplicate vocabularies:
+ * `SecurityEventSeverity` restated `ThreatLevel`, `ActivityLogCategory` restated
+ * `ActivityCategory`, `ActivityLogSeverity` restated `ActivitySeverity`,
+ * `SecurityIncidentStatus` restated `IncidentStatus`, and `ThreatIndicatorType`
+ * restated a union that existed only inline on the entity column until it was
+ * named. The panel keeps the old names as aliases so no call site had to change.
  */
 
 // GENERATED backend contracts — tools/codegen/admin-contracts/manifest.ts.
 import type {
   AuditSummary,
+  AuditSeverity,
+  ComplianceType,
+  DataRequestStatus,
+  DataRequestType,
+  SecurityEventStatus,
+  SecurityEventType,
+  ActivityLog,
+  SecurityEvent,
+  SecurityIncident,
+  ThreatIntelligence,
+  SecurityDashboardStats,
+  SecurityEventStats,
+  IncidentStats,
+  ThreatIntelStats,
+  ThreatCheckResult,
+  SecurityHealthScore,
+  SecurityHealthFactor,
+  SecurityTelemetryStatus,
+  ThreatLevel,
+  ThreatIndicatorType,
+  IncidentSeverity,
+  IncidentStatus,
+  ActivityCategory,
+  ActivitySeverity,
 } from './generated/admin-contracts';
 
 export type {
   AuditSummary,
-};
-
-// GENERATED backend contracts — tools/codegen/admin-contracts/manifest.ts.
-// Imported so shapes below can reference them; re-exported so import sites
-// are unchanged.
-import type {
   AuditSeverity,
   ComplianceType,
   DataRequestStatus,
   DataRequestType,
   SecurityEventStatus,
   SecurityEventType,
-} from './generated/admin-contracts';
-
-export type {
-  AuditSeverity,
-  ComplianceType,
-  DataRequestStatus,
-  DataRequestType,
-  SecurityEventStatus,
-  SecurityEventType,
+  ActivityLog,
+  SecurityEvent,
+  SecurityIncident,
+  ThreatIntelligence,
+  SecurityDashboardStats,
+  SecurityEventStats,
+  IncidentStats,
+  ThreatIntelStats,
+  ThreatCheckResult,
+  SecurityHealthScore,
+  SecurityHealthFactor,
+  SecurityTelemetryStatus,
+  ThreatLevel,
+  ThreatIndicatorType,
+  IncidentSeverity,
+  IncidentStatus,
 };
 
-export type SecurityEventSeverity = 'low' | 'medium' | 'high' | 'critical';
+// The panel's historical names for the vocabularies above, kept as ALIASES so
+// existing call sites resolve. Each of these was a second declaration.
+export type SecurityEventSeverity = ThreatLevel;
+export type ActivityLogCategory = ActivityCategory;
+export type ActivityLogSeverity = ActivitySeverity;
+export type SecurityIncidentStatus = IncidentStatus;
 
-export type ActivityLogCategory =
-  | 'user_action'
-  | 'system_event'
-  | 'api_call'
-  | 'data_access'
-  | 'security_event'
-  | 'configuration'
-  | 'authentication';
-
-export type ActivityLogSeverity = 'debug' | 'info' | 'warning' | 'error' | 'critical';
-export type SecurityIncidentStatus =
-  | 'open'
-  | 'investigating'
-  | 'contained'
-  | 'eradicated'
-  | 'recovered'
-  | 'closed';
-export type ThreatIndicatorType =
-  | 'ip'
-  | 'domain'
-  | 'url'
-  | 'hash'
-  | 'email'
-  | 'user_agent'
-  | 'cidr';
 // Mirrors the backend DataRequestStatus vocabulary (security.entity.ts /
 // admin.data_requests CHECK); kept in lockstep by
 // tests/invariants/admin-data-request-status-vocab.spec.ts (APA-236). The
@@ -70,39 +88,6 @@ export const DATA_REQUEST_STATUSES = [
   'rejected',
   'expired',
 ] as const;
-
-export interface BackendActivityLog {
-  id: string;
-  category: ActivityLogCategory;
-  action: string;
-  severity: ActivityLogSeverity;
-  tenantId?: string | null;
-  tenantName?: string | null;
-  userId?: string | null;
-  userName?: string | null;
-  userEmail?: string | null;
-  ipAddress?: string | null;
-  userAgent?: string | null;
-  geoLocation?: {
-    country?: string;
-    region?: string;
-    city?: string;
-    latitude?: number;
-    longitude?: number;
-  } | null;
-  location?: { country?: string; city?: string };
-  entityType?: string | null;
-  entityId?: string | null;
-  entityName?: string | null;
-  previousValue?: Record<string, unknown> | null;
-  newValue?: Record<string, unknown> | null;
-  metadata?: Record<string, unknown> | null;
-  duration?: number | null;
-  success: boolean;
-  errorMessage?: string | null;
-  createdAt: string;
-  timestamp?: string;
-}
 
 export interface BackendAuditLog {
   id: string;
@@ -221,121 +206,6 @@ export interface BackendDataSubjectRequest {
   downloadUrl?: string | null;
   createdAt: string;
   updatedAt?: string;
-}
-
-export interface BackendSecurityEvent {
-  id: string;
-  eventType: SecurityEventType;
-  threatLevel: SecurityEventSeverity;
-  status: SecurityEventStatus;
-  title: string;
-  description: string;
-  ipAddress: string;
-  geoLocation?: {
-    country?: string;
-    city?: string;
-    latitude?: number;
-    longitude?: number;
-  } | null;
-  tenantId?: string | null;
-  userId?: string | null;
-  userName?: string | null;
-  targetResource?: string | null;
-  targetEndpoint?: string | null;
-  detectionSource: string;
-  confidenceScore?: number | null;
-  rawData?: Record<string, unknown> | null;
-  assignedTo?: string | null;
-  assignedToName?: string | null;
-  investigationNotes?: string | null;
-  resolution?: string | null;
-  resolvedAt?: string | null;
-  resolvedBy?: string | null;
-  createdAt: string;
-  updatedAt?: string;
-}
-
-export interface BackendSecurityIncident {
-  id: string;
-  title: string;
-  description: string;
-  severity: SecurityEventSeverity;
-  status: SecurityIncidentStatus;
-  category?: string | null;
-  affectedSystems?: string[] | null;
-  affectedUsers?: number | null;
-  relatedEvents?: string[] | null;
-  leadInvestigator?: string | null;
-  leadInvestigatorName?: string | null;
-  timeline?: Array<{ action: string; timestamp: string; user?: string }> | null;
-  impactDescription?: string | null;
-  rootCauseAnalysis?: string | null;
-  remediation?: string | null;
-  createdAt: string;
-  updatedAt?: string;
-  resolvedAt?: string | null;
-}
-
-export interface BackendThreatIndicator {
-  id: string;
-  indicatorType: ThreatIndicatorType;
-  value: string;
-  threatLevel: SecurityEventSeverity;
-  source: string;
-  description?: string | null;
-  threatTypes?: string[] | null;
-  tags?: string[] | null;
-  confidence: number;
-  firstSeenAt?: string | null;
-  lastSeenAt?: string | null;
-  hitCount?: number;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt?: string;
-}
-
-export interface BackendSecurityDashboardStats {
-  totalSecurityEvents: number;
-  eventsLast24h: number;
-  eventsLast7d: number;
-  eventsLast30d: number;
-  eventsTrend: 'increasing' | 'decreasing' | 'stable';
-  criticalEvents: number;
-  activeIncidents: number;
-  resolvedIncidents: number;
-  threatsBlocked: number;
-  eventsByType: Record<SecurityEventType, number>;
-  eventsBySeverity: Record<SecurityEventSeverity, number>;
-  topSourceIPs: Array<{ ip: string; count: number; threatLevel: SecurityEventSeverity }>;
-  topTargetedUsers: Array<{ userId: string; userName: string; count: number }>;
-  topEventTypes: Array<{ type: SecurityEventType; count: number }>;
-  eventsTimeline: Array<{
-    date: string;
-    critical: number;
-    high: number;
-    medium: number;
-    low: number;
-  }>;
-}
-
-export interface BackendSecurityHealthScore {
-  score: number;
-  /**
-   * APA-240: telemetry liveness. The security tables the score aggregates over
-   * (security_events / login_attempts / api_usage_logs / user_sessions) can be
-   * empty, in which case the arithmetic still yields a high "healthy" number.
-   * When this is not 'live', the gauge MUST render "No telemetry" instead of a
-   * green score — a monitoring surface must not fabricate assurance over a void.
-   */
-  dataStatus: 'live' | 'stale' | 'no_data';
-  lastSeenAt: string | null;
-  factors: Array<{
-    name: string;
-    score: number;
-    weight: number;
-    description: string;
-  }>;
-  recommendations: string[];
 }
 
 export interface RetentionPolicy {

@@ -23,6 +23,19 @@ import { Tenant, TenantStatus } from '../entities/tenant.entity';
 import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
 import { TenantActivityService } from './tenant-activity.service';
 
+/**
+ * The outcome of a bulk tenant lifecycle command, partitioned by tenant id.
+ *
+ * Named because it is a RESULT, not an acknowledgement: a bulk operation can
+ * half-succeed, and the panel has to tell the operator which tenants moved. An
+ * inline `Promise<{ success: string[]; failed: string[] }>` on two controller
+ * routes gave the panel nothing to import, so it re-declared the pair by hand.
+ */
+export interface BulkTenantOperationResult {
+  success: string[];
+  failed: string[];
+}
+
 @Injectable()
 export class TenantDetailService {
   private readonly logger = new Logger(TenantDetailService.name);
@@ -413,7 +426,7 @@ export class TenantDetailService {
     tenantIds: string[],
     reason: string,
     performedBy: string,
-  ): Promise<{ success: string[]; failed: string[] }> {
+  ): Promise<BulkTenantOperationResult> {
     if (tenantIds.length === 0) return { success: [], failed: [] };
 
     try {
@@ -499,7 +512,7 @@ export class TenantDetailService {
   async bulkActivate(
     tenantIds: string[],
     performedBy: string,
-  ): Promise<{ success: string[]; failed: string[] }> {
+  ): Promise<BulkTenantOperationResult> {
     if (tenantIds.length === 0) return { success: [], failed: [] };
 
     try {

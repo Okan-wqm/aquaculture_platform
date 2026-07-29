@@ -1635,6 +1635,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/common/dto/operation-acknowledgement.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/database-management/__tests__/database-monitoring.service.spec.ts",
       "prettier_managed": true
     },
@@ -42612,6 +42618,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/route-named-return-type.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/runtime-lifecycle-timer-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -46377,7 +46389,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "c13261ec2f4783a0b14430da90ec4855de447e60204648cfb83e90b5c2d69982",
+      "content_sha256": "3202da08f9ed8deee704c95c8c9cefd837fc7b93c35350306f8a6a84a1498339",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/types/generated/admin-contracts.ts",
@@ -55691,10 +55703,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9130,
+  "file_count": 9132,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8948,
-  "managed_file_list_sha256": "bdfbb810bf4fe61df24710833867aac97b7df4a76b5f393471a11808edeaa09e",
+  "managed_count": 8950,
+  "managed_file_list_sha256": "bd470b14a2f12124782c63d743f29aa518ec4658431d57ecde9e87dc0e5e1578",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

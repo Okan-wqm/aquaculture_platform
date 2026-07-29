@@ -39,6 +39,13 @@ import {
   AnomalyDetectionConfig,
   SecurityMonitoringService,
   SecurityDashboardStats,
+  SecurityEventStats,
+  IncidentStats,
+  ThreatIntelStats,
+  ThreatCheckResult,
+  LoginAnalysisAcknowledgement,
+  SecurityHealthScore,
+  SecurityHealthFactor,
 } from '../services/security-monitoring.service';
 import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
@@ -478,22 +485,17 @@ export class SecurityMonitoringController {
    * Get security event statistics
    */
   @Get('events/stats/summary')
-  async getSecurityEventStats(): Promise<{
-    total: number;
-    byThreatLevel: Record<string, number>;
-    byEventType: Record<string, number>;
-    byStatus: Record<string, number>;
-  }> {
+  async getSecurityEventStats(): Promise<SecurityEventStats> {
     const result = await this.securityMonitoringService.querySecurityEvents({
       page: 1,
       limit: 10000,
     });
 
-    const stats = {
+    const stats: SecurityEventStats = {
       total: result.total,
-      byThreatLevel: {} as Record<string, number>,
-      byEventType: {} as Record<string, number>,
-      byStatus: {} as Record<string, number>,
+      byThreatLevel: {},
+      byEventType: {},
+      byStatus: {},
     };
 
     for (const event of result.items) {
@@ -560,20 +562,16 @@ export class SecurityMonitoringController {
    * Get incident statistics
    */
   @Get('incidents/stats/summary')
-  async getIncidentStats(): Promise<{
-    total: number;
-    byStatus: Record<string, number>;
-    bySeverity: Record<string, number>;
-  }> {
+  async getIncidentStats(): Promise<IncidentStats> {
     const result = await this.securityMonitoringService.queryIncidents({
       page: 1,
       limit: 10000,
     });
 
-    const stats = {
+    const stats: IncidentStats = {
       total: result.total,
-      byStatus: {} as Record<string, number>,
-      bySeverity: {} as Record<string, number>,
+      byStatus: {},
+      bySeverity: {},
     };
 
     for (const incident of result.items) {
@@ -632,10 +630,7 @@ export class SecurityMonitoringController {
   @Get('threat-intelligence/check/:ip')
   async checkThreat(
     @Param('ip') ip: string,
-  ): Promise<{
-    isThreat: boolean;
-    threat: ThreatIntelligence | null;
-  }> {
+  ): Promise<ThreatCheckResult> {
     const threat = await this.securityMonitoringService.checkThreatIntelligence(ip);
     return {
       isThreat: threat !== null,
@@ -647,21 +642,17 @@ export class SecurityMonitoringController {
    * Get threat intelligence statistics
    */
   @Get('threat-intelligence/stats')
-  async getThreatIntelStats(): Promise<{
-    total: number;
-    byIndicatorType: Record<string, number>;
-    byThreatLevel: Record<string, number>;
-  }> {
+  async getThreatIntelStats(): Promise<ThreatIntelStats> {
     const result = await this.securityMonitoringService.queryThreatIntelligence({
       page: 1,
       limit: 10000,
       isActive: true,
     });
 
-    const stats = {
+    const stats: ThreatIntelStats = {
       total: result.total,
-      byIndicatorType: {} as Record<string, number>,
-      byThreatLevel: {} as Record<string, number>,
+      byIndicatorType: {},
+      byThreatLevel: {},
     };
 
     for (const indicator of result.items) {
@@ -685,7 +676,7 @@ export class SecurityMonitoringController {
   @HttpCode(HttpStatus.OK)
   async analyzeLogin(
     @Body() dto: AnalyzeLoginDto,
-  ): Promise<{ analyzed: boolean; message: string }> {
+  ): Promise<LoginAnalysisAcknowledgement> {
     await this.securityMonitoringService.analyzeLoginAttempt({
       email: dto.email,
       ipAddress: dto.ipAddress,
@@ -754,32 +745,13 @@ export class SecurityMonitoringController {
    * Get security health score
    */
   @Get('health-score')
-  async getHealthScore(): Promise<{
-    score: number;
-    // APA-240: telemetry liveness — the FE renders "No telemetry" instead of a
-    // green gauge when this is not 'live', so a score computed over empty
-    // security tables can never be presented as "healthy".
-    dataStatus: 'live' | 'stale' | 'no_data';
-    lastSeenAt: string | null;
-    factors: Array<{
-      name: string;
-      score: number;
-      weight: number;
-      description: string;
-    }>;
-    recommendations: string[];
-  }> {
+  async getHealthScore(): Promise<SecurityHealthScore> {
     const [dashboard, liveness] = await Promise.all([
       this.securityMonitoringService.getSecurityDashboardStats(),
       this.securityMonitoringService.getTelemetryLiveness(),
     ]);
 
-    const factors: Array<{
-      name: string;
-      score: number;
-      weight: number;
-      description: string;
-    }> = [];
+    const factors: SecurityHealthFactor[] = [];
     const recommendations: string[] = [];
 
     // Factor 1: Active incidents (weight: 30%)

@@ -8,11 +8,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 
 import { SearchInput } from '@aquaculture/shared-ui';
 import { securityApi } from '../../services/adminApi';
+// The WIRE contracts. The page's own view models live below under a `View`
+// suffix; the mappers between them are the only place the two shapes meet.
 import type {
-  BackendSecurityEvent,
-  BackendSecurityHealthScore,
-  BackendSecurityIncident,
-  BackendThreatIndicator,
+  SecurityEvent,
+  SecurityHealthScore,
+  SecurityIncident,
+  ThreatIntelligence,
   SecurityEventStatus,
 } from '../../services/types/security';
 
@@ -39,19 +41,30 @@ const Users = (p: { className?: string }): React.ReactElement => <Icon path="M12
 const X = (p: { className?: string }): React.ReactElement => <Icon path="M6 18L18 6M6 6l12 12" {...p} />;
 
 // ============================================================================
-// Types
+// View models
 // ============================================================================
+//
+// These are NOT the wire contracts — those are generated in
+// `services/types/generated/admin-contracts.ts`. The page renames and collapses:
+// `threatLevel` becomes `severity`, `createdAt` becomes `timestamp`, and the
+// six-state `SecurityEventStatus` collapses into the four the UI draws. The
+// mappers below are the only bridge.
+//
+// They used to share the wire contracts' names, so the mappers read
+// `SecurityEvent -> SecurityEvent` and neither the reader nor the compiler could
+// tell which side of the boundary a value was on. The `View` suffix is the
+// distinction the code was making implicitly.
 
-type EventSeverity = 'low' | 'medium' | 'high' | 'critical';
-type EventStatus = 'new' | 'investigating' | 'resolved' | 'dismissed';
-type IncidentStatus = 'open' | 'in_progress' | 'contained' | 'resolved' | 'closed';
-type ThreatType = 'ip' | 'domain' | 'url' | 'hash' | 'email' | 'user_agent' | 'cidr';
+type EventSeverityView = 'low' | 'medium' | 'high' | 'critical';
+type EventStatusView = 'new' | 'investigating' | 'resolved' | 'dismissed';
+type IncidentStatusView = 'open' | 'in_progress' | 'contained' | 'resolved' | 'closed';
+type ThreatTypeView = 'ip' | 'domain' | 'url' | 'hash' | 'email' | 'user_agent' | 'cidr';
 
-interface SecurityEvent {
+interface SecurityEventView {
   id: string;
   eventType: string;
-  severity: EventSeverity;
-  status: EventStatus;
+  severity: EventSeverityView;
+  status: EventStatusView;
   source: string;
   sourceIp?: string;
   targetResource?: string;
@@ -70,38 +83,36 @@ interface SecurityEvent {
   detectedAt: string;
 }
 
-interface SecurityIncident {
+interface SecurityIncidentView {
   id: string;
   title: string;
   description: string;
-  severity: EventSeverity;
-  status: IncidentStatus;
+  severity: EventSeverityView;
+  status: IncidentStatusView;
   category: string;
   affectedSystems: string[];
   affectedUsers: number;
-  relatedEvents: string[];
   assignedTo?: string;
   assignedToName?: string;
-  timeline: Array<{
-    action: string;
-    timestamp: string;
-    user?: string;
-  }>;
   impactAssessment?: string;
   rootCause?: string;
-  remediation?: string;
   createdAt: string;
   updatedAt?: string;
-  resolvedAt?: string;
+  // `relatedEvents`, `remediation`, `resolvedAt` and `timeline` used to sit here.
+  // Nothing rendered any of them, and each was mapped from a field the incident
+  // entity does not have — `relatedSecurityEvents`, `remediationSteps` (an array
+  // of steps, not a string), no `resolvedAt` at all, and a `timeline` whose
+  // entries carry `actor` where the view expected `user`. A view model carries
+  // what the view draws.
 }
 
-interface ThreatIndicator {
+interface ThreatIndicatorView {
   id: string;
-  type: ThreatType;
+  type: ThreatTypeView;
   indicator: string;
   source: string;
   confidence: number;
-  severity: EventSeverity;
+  severity: EventSeverityView;
   description: string;
   firstSeen: string;
   lastSeen: string;
@@ -163,7 +174,7 @@ async function fetchSecurityEvents(params: {
   severity?: string;
   status?: string;
   searchQuery?: string;
-}): Promise<{ data: SecurityEvent[]; total: number }> {
+}): Promise<{ data: SecurityEventView[]; total: number }> {
   const apiParams: Record<string, unknown> = {};
   if (params.page) apiParams.page = params.page;
   if (params.limit) apiParams.limit = params.limit;
@@ -179,12 +190,12 @@ async function fetchSecurityEvents(params: {
   };
 }
 
-async function fetchIncidents(): Promise<SecurityIncident[]> {
+async function fetchIncidents(): Promise<SecurityIncidentView[]> {
   const result = await securityApi.getSecurityIncidents({});
   return result.data.map(mapSecurityIncident);
 }
 
-async function fetchThreatIndicators(): Promise<ThreatIndicator[]> {
+async function fetchThreatIndicators(): Promise<ThreatIndicatorView[]> {
   const result = await securityApi.getThreatIndicators({});
   return result.data.map(mapThreatIndicator);
 }
@@ -200,7 +211,7 @@ function mapHealthStatus(score: number): 'healthy' | 'warning' | 'critical' {
 
 function mapDashboardData(
   dashboard: Awaited<ReturnType<typeof securityApi.getMonitoringDashboard>>,
-  health: BackendSecurityHealthScore,
+  health: SecurityHealthScore,
 ): DashboardData {
   return {
     healthScore: health.score,
@@ -245,14 +256,14 @@ function mapStatusFilter(status?: string): SecurityEventStatus | undefined {
   return undefined;
 }
 
-function mapEventStatus(status: SecurityEventStatus): EventStatus {
+function mapEventStatus(status: SecurityEventStatus): EventStatusView {
   if (status === 'mitigated' || status === 'confirmed') return 'resolved';
   if (status === 'false_positive') return 'dismissed';
   if (status === 'investigating' || status === 'escalated') return 'investigating';
   return 'new';
 }
 
-function mapSecurityEvent(event: BackendSecurityEvent): SecurityEvent {
+function mapSecurityEvent(event: SecurityEvent): SecurityEventView {
   return {
     id: event.id,
     eventType: event.eventType,
@@ -272,7 +283,7 @@ function mapSecurityEvent(event: BackendSecurityEvent): SecurityEvent {
   };
 }
 
-function mapIncidentStatus(status: BackendSecurityIncident['status']): IncidentStatus {
+function mapIncidentStatus(status: SecurityIncident['status']): IncidentStatusView {
   switch (status) {
     case 'closed':
     case 'recovered':
@@ -286,7 +297,7 @@ function mapIncidentStatus(status: BackendSecurityIncident['status']): IncidentS
   }
 }
 
-function mapSecurityIncident(incident: BackendSecurityIncident): SecurityIncident {
+function mapSecurityIncident(incident: SecurityIncident): SecurityIncidentView {
   return {
     id: incident.id,
     title: incident.title,
@@ -295,21 +306,17 @@ function mapSecurityIncident(incident: BackendSecurityIncident): SecurityInciden
     status: mapIncidentStatus(incident.status),
     category: incident.category ?? 'security',
     affectedSystems: incident.affectedSystems ?? [],
-    affectedUsers: incident.affectedUsers ?? 0,
-    relatedEvents: incident.relatedEvents ?? [],
+    affectedUsers: incident.affectedUsersCount,
     assignedTo: incident.leadInvestigator ?? undefined,
     assignedToName: incident.leadInvestigatorName ?? undefined,
-    timeline: incident.timeline ?? [],
     impactAssessment: incident.impactDescription ?? undefined,
     rootCause: incident.rootCauseAnalysis ?? undefined,
-    remediation: incident.remediation ?? undefined,
     createdAt: incident.createdAt,
     updatedAt: incident.updatedAt,
-    resolvedAt: incident.resolvedAt ?? undefined,
   };
 }
 
-function mapThreatIndicator(indicator: BackendThreatIndicator): ThreatIndicator {
+function mapThreatIndicator(indicator: ThreatIntelligence): ThreatIndicatorView {
   return {
     id: indicator.id,
     type: indicator.indicatorType,
@@ -332,7 +339,7 @@ function mapThreatIndicator(indicator: BackendThreatIndicator): ThreatIndicator 
 // Components
 // ============================================================================
 
-const getSeverityColor = (severity: EventSeverity): string => {
+const getSeverityColor = (severity: EventSeverityView): string => {
   switch (severity) {
     case 'critical':
       return 'bg-red-100 text-red-800 border-red-200';
@@ -347,7 +354,7 @@ const getSeverityColor = (severity: EventSeverity): string => {
   }
 };
 
-const getSeverityIcon = (severity: EventSeverity): React.ReactElement => {
+const getSeverityIcon = (severity: EventSeverityView): React.ReactElement => {
   switch (severity) {
     case 'critical':
       return <XCircle className="w-4 h-4 text-red-600" />;
@@ -362,7 +369,7 @@ const getSeverityIcon = (severity: EventSeverity): React.ReactElement => {
   }
 };
 
-const getStatusColor = (status: EventStatus | IncidentStatus): string => {
+const getStatusColor = (status: EventStatusView | IncidentStatusView): string => {
   switch (status) {
     case 'resolved':
     case 'closed':
@@ -472,7 +479,7 @@ const HealthGauge: React.FC<{
 
 // Event Detail Modal
 const EventDetailModal: React.FC<{
-  event: SecurityEvent;
+  event: SecurityEventView;
   onClose: () => void;
 }> = ({ event, onClose }) => {
   return (
@@ -601,12 +608,12 @@ const EventDetailModal: React.FC<{
 
 export const SecurityDashboardPage: React.FC = () => {
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
-  const [events, setEvents] = useState<SecurityEvent[]>([]);
-  const [incidents, setIncidents] = useState<SecurityIncident[]>([]);
-  const [threatIndicators, setThreatIndicators] = useState<ThreatIndicator[]>([]);
+  const [events, setEvents] = useState<SecurityEventView[]>([]);
+  const [incidents, setIncidents] = useState<SecurityIncidentView[]>([]);
+  const [threatIndicators, setThreatIndicators] = useState<ThreatIndicatorView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedEvent, setSelectedEvent] = useState<SecurityEvent | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<SecurityEventView | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
 
   // Filters
@@ -985,7 +992,7 @@ export const SecurityDashboardPage: React.FC = () => {
                       <p className="text-sm text-gray-500 mt-1 line-clamp-2">{incident.description ?? ''}</p>
                       <div className="mt-2 flex items-center gap-4 text-xs text-gray-500">
                         <span>Category: {incident.category ?? 'Unknown'}</span>
-                        <span>{incident.affectedUsers ?? 0} users affected</span>
+                        <span>{incident.affectedUsers} users affected</span>
                       </div>
                     </div>
                   </div>

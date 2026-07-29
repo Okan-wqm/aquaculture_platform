@@ -271,6 +271,19 @@ type ExplorerWriteOperation = 'insert' | 'update' | 'delete';
 // Controller
 // ============================================================================
 
+/**
+ * `GET /database/explorer/schemas`.
+ *
+ * APA-331: the write capability travels WITH the schema list so the panel
+ * renders New Row / Edit / Delete only where the server would permit them,
+ * instead of offering controls that 403 in production. That pairing is the
+ * contract, which is a reason to name it rather than leave it inline.
+ */
+export interface SchemaListResult {
+  schemas: string[];
+  capabilities: { writesEnabled: boolean };
+}
+
 @ApiTags('Database Management')
 @Controller('database/explorer')
 export class DatabaseExplorerController {
@@ -433,10 +446,7 @@ export class DatabaseExplorerController {
    * Tüm şemaları listele
    */
   @Get('schemas')
-  async getSchemas(): Promise<{
-    schemas: string[];
-    capabilities: { writesEnabled: boolean };
-  }> {
+  async getSchemas(): Promise<SchemaListResult> {
     const queryRunner = await this.createReadOnlyQueryRunner();
 
     try {

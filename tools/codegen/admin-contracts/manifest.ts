@@ -317,6 +317,46 @@ export const ADMIN_CONTRACT_SOURCES: readonly ContractSource[] = [
     exports: ['UserStats'],
   },
   {
+    module: 'security',
+    // The security-monitoring read contracts. Six of these were anonymous
+    // `Promise<{ … }>` return types until they were named — which is why the
+    // panel carried `BackendSecurityHealthScore` and friends: with nothing to
+    // import, a hand copy was the only option.
+    file: 'apps/admin-api-service/src/security/services/security-monitoring.service.ts',
+    exports: [
+      'SecurityDashboardStats',
+      'SecurityEventStats',
+      'IncidentStats',
+      'ThreatIntelStats',
+      'ThreatCheckResult',
+      'SecurityHealthScore',
+      'SecurityHealthFactor',
+      'SecurityTelemetryStatus',
+    ],
+  },
+  {
+    module: 'security',
+    // The security entities these routes return, plus the vocabularies their
+    // histograms are keyed by. Returning entities is tracked separately
+    // (ADMIN-MEDIUM-090); generating from them states the truth of what the
+    // wire carries TODAY rather than leaving the panel to guess it.
+    file: 'apps/admin-api-service/src/security/entities/security.entity.ts',
+    exports: [
+      'SecurityEvent',
+      'SecurityIncident',
+      'ThreatIntelligence',
+      'ActivityLog',
+      'ThreatLevel',
+      'ThreatIndicatorType',
+      'SecurityEventStatus',
+      'SecurityEventType',
+      'IncidentStatus',
+      'IncidentSeverity',
+      'ActivityCategory',
+      'ActivitySeverity',
+    ],
+  },
+  {
     module: 'system',
     // Platform health. NOT the analytics `SystemMetrics` emitted above as
     // `AnalyticsSystemMetrics` — two backend modules own a type by that name,

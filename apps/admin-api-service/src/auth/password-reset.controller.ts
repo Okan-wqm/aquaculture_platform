@@ -31,6 +31,19 @@ import { Public } from '../decorators/public.decorator';
 const DEFAULT_AUTH_NATS_TIMEOUT_MS = 15_000;
 
 // DTOs
+/**
+ * What both password-reset routes answer.
+ *
+ * `success` is the literal `true`: `forgotPassword` ALWAYS reports success —
+ * deliberately, to prevent email enumeration — and `resetPassword` throws on
+ * every failure path. A `boolean` here would have invited the panel to branch on
+ * a `false` that cannot arrive.
+ */
+export interface PasswordResetAcknowledgement {
+  success: true;
+  message: string;
+}
+
 export class ForgotPasswordDto {
   @IsEmail({}, { message: 'Valid email address is required' })
   email!: string;
@@ -78,7 +91,7 @@ export class PasswordResetController {
   async forgotPassword(
     @Body() dto: ForgotPasswordDto,
     @Req() request: MinimalRequest,
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<PasswordResetAcknowledgement> {
     try {
       await this.sendAuthCommand<
         PublicRequestPasswordResetCommand,
@@ -113,7 +126,7 @@ export class PasswordResetController {
   async resetPassword(
     @Body() dto: ResetPasswordDto,
     @Req() request: MinimalRequest,
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<PasswordResetAcknowledgement> {
     const result = await this.sendAuthCommand<
       PublicResetPasswordCommand,
       PublicResetPasswordResult

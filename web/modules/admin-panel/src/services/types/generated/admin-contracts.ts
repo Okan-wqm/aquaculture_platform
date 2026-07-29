@@ -438,6 +438,94 @@ export interface RefundEntry {
 }
 
 /** @see transitive */
+export interface GeoLocation {
+  country: string;
+  countryCode: string;
+  region: string;
+  city: string;
+  latitude: number;
+  longitude: number;
+  timezone: string;
+}
+
+/** @see transitive */
+export interface ThreatIntelligence {
+  id: string;
+  indicatorType: "ip" | "domain" | "url" | "hash" | "email" | "user_agent" | "cidr";
+  value: string;
+  threatLevel: "low" | "medium" | "high" | "critical";
+  source: string;
+  description?: null | string;
+  threatTypes?: null | string[];
+  tags?: null | string[];
+  confidence: number;
+  isActive: boolean;
+  validFrom?: null | string;
+  validUntil?: null | string;
+  hitCount: number;
+  lastSeenAt?: null | string;
+  firstSeenAt?: null | string;
+  relatedIndicators?: null | string[];
+  geoData?: null | GeoLocation;
+  metadata?: null | Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** @see transitive */
+export interface SecurityHealthFactor {
+  name: string;
+  score: number;
+  weight: number;
+  description: string;
+}
+
+/** @see transitive */
+export interface DeviceInfo {
+  userAgent: string;
+  browser: string;
+  browserVersion: string;
+  os: string;
+  osVersion: string;
+  device: string;
+  deviceType: "desktop" | "mobile" | "tablet" | "bot" | "unknown";
+  isMobile: boolean;
+  isBot: boolean;
+}
+
+/** @see transitive */
+export interface AnomalyDetails {
+  type: string;
+  score: number;
+  threshold: number;
+  baseline: Record<string, unknown>;
+  current: Record<string, unknown>;
+  factors: string[];
+}
+
+/** @see transitive */
+export interface ThreatIndicator {
+  type: "ip" | "domain" | "url" | "hash" | "email" | "user_agent";
+  value: string;
+  source: string;
+  confidence: number;
+  lastSeen: string;
+  tags: string[];
+}
+
+/** @see transitive */
+export interface RequestInfo {
+  method: string;
+  path: string;
+  query: Record<string, unknown>;
+  headers: Record<string, string>;
+  body?: Record<string, unknown>;
+  responseStatus?: number;
+  responseTime?: number;
+  responseSize?: number;
+}
+
+/** @see transitive */
 export interface DatabaseMetrics {
   totalConnections: number;
   activeConnections: number;
@@ -558,6 +646,303 @@ export type SecurityEventStatus = "detected" | "investigating" | "confirmed" | "
 
 /** @see apps/admin-api-service/src/security/entities/security.entity.ts */
 export type SecurityEventType = "failed_login" | "brute_force_attempt" | "suspicious_activity" | "unauthorized_access" | "privilege_escalation" | "data_exfiltration" | "malware_detected" | "api_abuse" | "rate_limit_exceeded" | "sql_injection_attempt" | "xss_attempt" | "csrf_attempt" | "account_lockout" | "password_spray" | "credential_stuffing" | "session_hijacking" | "ip_blacklisted" | "geo_anomaly" | "device_anomaly" | "time_anomaly";
+
+/** @see apps/admin-api-service/src/security/services/security-monitoring.service.ts */
+export interface SecurityDashboardStats {
+  totalSecurityEvents: number;
+  criticalEvents: number;
+  activeIncidents: number;
+  resolvedIncidents: number;
+  threatsBlocked: number;
+  eventsLast24h: number;
+  eventsLast7d: number;
+  eventsLast30d: number;
+  eventsTrend: "stable" | "increasing" | "decreasing";
+  eventsByType: {
+    failed_login: number;
+    brute_force_attempt: number;
+    suspicious_activity: number;
+    unauthorized_access: number;
+    privilege_escalation: number;
+    data_exfiltration: number;
+    malware_detected: number;
+    api_abuse: number;
+    rate_limit_exceeded: number;
+    sql_injection_attempt: number;
+    xss_attempt: number;
+    csrf_attempt: number;
+    account_lockout: number;
+    password_spray: number;
+    credential_stuffing: number;
+    session_hijacking: number;
+    ip_blacklisted: number;
+    geo_anomaly: number;
+    device_anomaly: number;
+    time_anomaly: number;
+  };
+  eventsBySeverity: {
+    low: number;
+    medium: number;
+    high: number;
+    critical: number;
+  };
+  topSourceIPs: Array<{
+    ip: string;
+    count: number;
+    threatLevel: "low" | "medium" | "high" | "critical";
+  }>;
+  topTargetedUsers: Array<{
+    userId: string;
+    userName: string;
+    count: number;
+  }>;
+  topEventTypes: Array<{
+    type: "failed_login" | "brute_force_attempt" | "suspicious_activity" | "unauthorized_access" | "privilege_escalation" | "data_exfiltration" | "malware_detected" | "api_abuse" | "rate_limit_exceeded" | "sql_injection_attempt" | "xss_attempt" | "csrf_attempt" | "account_lockout" | "password_spray" | "credential_stuffing" | "session_hijacking" | "ip_blacklisted" | "geo_anomaly" | "device_anomaly" | "time_anomaly";
+    count: number;
+  }>;
+  eventsTimeline: Array<{
+    date: string;
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+  }>;
+}
+
+/** @see apps/admin-api-service/src/security/services/security-monitoring.service.ts */
+export interface SecurityEventStats {
+  total: number;
+  byThreatLevel: {
+    low?: number;
+    medium?: number;
+    high?: number;
+    critical?: number;
+  };
+  byEventType: {
+    failed_login?: number;
+    brute_force_attempt?: number;
+    suspicious_activity?: number;
+    unauthorized_access?: number;
+    privilege_escalation?: number;
+    data_exfiltration?: number;
+    malware_detected?: number;
+    api_abuse?: number;
+    rate_limit_exceeded?: number;
+    sql_injection_attempt?: number;
+    xss_attempt?: number;
+    csrf_attempt?: number;
+    account_lockout?: number;
+    password_spray?: number;
+    credential_stuffing?: number;
+    session_hijacking?: number;
+    ip_blacklisted?: number;
+    geo_anomaly?: number;
+    device_anomaly?: number;
+    time_anomaly?: number;
+  };
+  byStatus: {
+    detected?: number;
+    investigating?: number;
+    confirmed?: number;
+    mitigated?: number;
+    false_positive?: number;
+    escalated?: number;
+  };
+}
+
+/** @see apps/admin-api-service/src/security/services/security-monitoring.service.ts */
+export interface IncidentStats {
+  total: number;
+  byStatus: {
+    investigating?: number;
+    open?: number;
+    contained?: number;
+    eradicated?: number;
+    recovered?: number;
+    closed?: number;
+  };
+  bySeverity: {
+    low?: number;
+    medium?: number;
+    high?: number;
+    critical?: number;
+  };
+}
+
+/** @see apps/admin-api-service/src/security/services/security-monitoring.service.ts */
+export interface ThreatIntelStats {
+  total: number;
+  byIndicatorType: {
+    ip?: number;
+    domain?: number;
+    url?: number;
+    hash?: number;
+    email?: number;
+    user_agent?: number;
+    cidr?: number;
+  };
+  byThreatLevel: {
+    low?: number;
+    medium?: number;
+    high?: number;
+    critical?: number;
+  };
+}
+
+/** @see apps/admin-api-service/src/security/services/security-monitoring.service.ts */
+export interface ThreatCheckResult {
+  isThreat: boolean;
+  threat: null | ThreatIntelligence;
+}
+
+/** @see apps/admin-api-service/src/security/services/security-monitoring.service.ts */
+export interface SecurityHealthScore {
+  score: number;
+  dataStatus: "live" | "stale" | "no_data";
+  lastSeenAt: null | string;
+  factors: SecurityHealthFactor[];
+  recommendations: string[];
+}
+
+/** @see apps/admin-api-service/src/security/services/security-monitoring.service.ts */
+export type SecurityTelemetryStatus = "live" | "stale" | "no_data";
+
+/** @see apps/admin-api-service/src/security/entities/security.entity.ts */
+export interface SecurityEvent {
+  id: string;
+  eventType: "failed_login" | "brute_force_attempt" | "suspicious_activity" | "unauthorized_access" | "privilege_escalation" | "data_exfiltration" | "malware_detected" | "api_abuse" | "rate_limit_exceeded" | "sql_injection_attempt" | "xss_attempt" | "csrf_attempt" | "account_lockout" | "password_spray" | "credential_stuffing" | "session_hijacking" | "ip_blacklisted" | "geo_anomaly" | "device_anomaly" | "time_anomaly";
+  threatLevel: "low" | "medium" | "high" | "critical";
+  status: "detected" | "investigating" | "confirmed" | "mitigated" | "false_positive" | "escalated";
+  title: string;
+  description: string;
+  ipAddress: string;
+  geoLocation?: null | GeoLocation;
+  deviceInfo?: null | DeviceInfo;
+  tenantId?: null | string;
+  userId?: null | string;
+  userName?: null | string;
+  targetResource?: null | string;
+  targetEndpoint?: null | string;
+  detectionSource: string;
+  confidenceScore?: null | number;
+  anomalyDetails?: null | AnomalyDetails;
+  indicators?: null | ThreatIndicator[];
+  rawData?: null | Record<string, unknown>;
+  relatedActivityIds?: null | string[];
+  autoMitigated: boolean;
+  mitigationActions?: null | string[];
+  investigationNotes?: null | string;
+  assignedTo?: null | string;
+  assignedToName?: null | string;
+  assignedAt?: null | string;
+  resolution?: null | string;
+  resolvedAt?: null | string;
+  resolvedBy?: null | string;
+  tags?: null | string[];
+  metadata?: null | Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** @see apps/admin-api-service/src/security/entities/security.entity.ts */
+export interface SecurityIncident {
+  id: string;
+  incidentNumber: string;
+  title: string;
+  description: string;
+  severity: "low" | "medium" | "high" | "critical";
+  status: "investigating" | "open" | "contained" | "eradicated" | "recovered" | "closed";
+  category: string;
+  attackVector?: null | string;
+  affectedSystems?: null | string[];
+  affectedTenants?: null | string[];
+  dataBreached: boolean;
+  affectedUsersCount: number;
+  impactDescription?: null | string;
+  businessImpact?: null | string;
+  detectedAt?: null | string;
+  containedAt?: null | string;
+  eradicatedAt?: null | string;
+  recoveredAt?: null | string;
+  closedAt?: null | string;
+  leadInvestigator?: null | string;
+  leadInvestigatorName?: null | string;
+  teamMembers?: null | string[];
+  relatedSecurityEvents?: null | string[];
+  rootCauseAnalysis?: null | string;
+  lessonsLearned?: null | string;
+  remediationSteps?: null | Array<{
+    step: string;
+    completed: boolean;
+    completedAt?: string;
+  }>;
+  reportedToAuthorities: boolean;
+  reportedAt?: null | string;
+  reportReference?: null | string;
+  timeline?: null | Array<{
+    timestamp: string;
+    action: string;
+    actor: string;
+    details?: string;
+  }>;
+  metadata?: null | Record<string, unknown>;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** @see apps/admin-api-service/src/security/entities/security.entity.ts */
+export interface ActivityLog {
+  id: string;
+  tenantId?: null | string;
+  tenantName?: null | string;
+  userId?: null | string;
+  userName?: null | string;
+  userEmail?: null | string;
+  category: "user_action" | "system_event" | "api_call" | "data_access" | "security_event" | "configuration" | "authentication";
+  severity: "critical" | "debug" | "info" | "warning" | "error";
+  action: string;
+  description: string;
+  entityType?: null | string;
+  entityId?: null | string;
+  entityName?: null | string;
+  ipAddress: string;
+  geoLocation?: null | GeoLocation;
+  deviceInfo?: null | DeviceInfo;
+  requestInfo?: null | RequestInfo;
+  sessionId?: null | string;
+  correlationId?: null | string;
+  previousValue?: null | Record<string, unknown>;
+  newValue?: null | Record<string, unknown>;
+  changedFields?: null | string[];
+  metadata?: null | Record<string, unknown>;
+  tags?: null | string[];
+  success: boolean;
+  errorMessage?: null | string;
+  errorCode?: null | string;
+  duration?: null | number;
+  createdAt: string;
+  isArchived: boolean;
+  archivedAt?: null | string;
+}
+
+/** @see apps/admin-api-service/src/security/entities/security.entity.ts */
+export type ThreatLevel = "low" | "medium" | "high" | "critical";
+
+/** @see apps/admin-api-service/src/security/entities/security.entity.ts */
+export type ThreatIndicatorType = "ip" | "domain" | "url" | "hash" | "email" | "user_agent" | "cidr";
+
+/** @see apps/admin-api-service/src/security/entities/security.entity.ts */
+export type IncidentStatus = "investigating" | "open" | "contained" | "eradicated" | "recovered" | "closed";
+
+/** @see apps/admin-api-service/src/security/entities/security.entity.ts */
+export type IncidentSeverity = "low" | "medium" | "high" | "critical";
+
+/** @see apps/admin-api-service/src/security/entities/security.entity.ts */
+export type ActivityCategory = "user_action" | "system_event" | "api_call" | "data_access" | "security_event" | "configuration" | "authentication";
+
+/** @see apps/admin-api-service/src/security/entities/security.entity.ts */
+export type ActivitySeverity = "critical" | "debug" | "info" | "warning" | "error";
 
 /** @see apps/admin-api-service/src/audit/audit.service.ts */
 export interface AuditSummary {

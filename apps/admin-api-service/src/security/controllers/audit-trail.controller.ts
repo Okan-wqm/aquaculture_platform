@@ -31,6 +31,7 @@ import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination
 import { AuditLog, AuditSeverity as ImmutableAuditSeverity } from '../../audit/audit.entity';
 import { AuditLogFilter, AuditLogService, AuditStatistics } from '../../audit/audit.service';
 import { getAuthUser } from '../../shared/authenticated-request';
+import { OperationAcknowledgement } from '../../common/dto/operation-acknowledgement.dto';
 import {
   ActivityCategory,
   ActivitySeverity,
@@ -532,7 +533,7 @@ export class AuditTrailController {
    */
   @Post('retention-policies/apply')
   @HttpCode(HttpStatus.OK)
-  async applyRetentionPolicies(): Promise<{ success: boolean }> {
+  async applyRetentionPolicies(): Promise<OperationAcknowledgement> {
     await this.auditService.applyRetentionPolicies();
     return { success: true };
   }

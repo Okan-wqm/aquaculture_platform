@@ -317,8 +317,15 @@ export class WaterQualityMeasurement {
   sensorInfo?: SensorInfo;
 
   /**
-   * Phase 7.4 — back-reference to the `sensor_readings` row in
-   * sensor-service that produced this WQ measurement.
+   * Phase 7.4 — back-reference to the sensor-service reading that produced this
+   * WQ measurement.
+   *
+   * SENSOR-HIGH-085: this holds a SensorReading FEDERATION ID, not a uuid. A
+   * reading is no longer a stored row — it is an as-of projection over the
+   * tenant's sensor_metrics hypertable, and its `id` is an opaque base64url
+   * codec of the projection's anchor. The column is `varchar` for exactly that
+   * reason; treating it as a uuid made the correlation this field exists for
+   * impossible to store.
    *
    * Null when the measurement was logged manually (operator entry),
    * imported in bulk historically, or pre-dates the cross-service
@@ -331,16 +338,15 @@ export class WaterQualityMeasurement {
    * measurement. The partial unique index
    * `idx_wq_related_sensor_reading_uniq` enforces it at the DB.
    *
-   * The FK is INTENTIONALLY NOT declared at the DB layer — the
-   * sensor-service owns the `sensor_readings` table in a different
-   * schema namespace, and the correlation is informational rather
-   * than invariant (sensor readings can be retention-deleted while
-   * derived WQ measurements survive). See migration
+   * The FK is INTENTIONALLY NOT declared at the DB layer — sensor-service owns
+   * its own schema, and the correlation is informational rather than invariant
+   * (a projection can age out of its retention window while the derived WQ
+   * measurement survives). See migration
    * 1788200000001-AddWaterQualitySensorReadingCorrelation.ts for
    * the architectural rationale.
    */
   @Field(() => ID, { nullable: true })
-  @Column('uuid', { nullable: true })
+  @Column('varchar', { length: 512, nullable: true })
   @Index()
   relatedSensorReadingId?: string;
 

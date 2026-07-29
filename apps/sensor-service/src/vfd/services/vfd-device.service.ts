@@ -1,9 +1,18 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+  Optional,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DeepPartial } from 'typeorm';
 import { plainToInstance } from 'class-transformer';
 import { validateSync, ValidationError } from 'class-validator';
-import { createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import {
+  createStandardPaginatedResult,
+  IStandardPaginatedResult,
+} from '@aquaculture/backend-common/pagination';
 
 import {
   ModbusRtuConfigDto,
@@ -23,6 +32,14 @@ interface StatusCountResult {
 
 import { VfdDevice } from '../entities/vfd-device.entity';
 import { VfdBrand, VfdProtocol, VfdDeviceStatus } from '../entities/vfd.enums';
+import { VfdEdgeProvisioningService } from './vfd-edge-provisioning.service';
+
+/** A drive's edge-gateway binding, captured for provisioning/decommission. */
+interface EdgeBinding {
+  tenantId: string;
+  edgeDeviceId?: string | null;
+  edgeModbusDeviceName?: string | null;
+}
 
 /**
  * Input for creating a VFD device
@@ -43,6 +60,9 @@ export interface CreateVfdDeviceInput {
   modelSeries?: string;
   pumpId?: string;
   notes?: string;
+  // SENSOR-CRITICAL-007: edge-delegated write binding (both-or-neither).
+  edgeDeviceId?: string;
+  edgeModbusDeviceName?: string;
 }
 
 /**
@@ -60,6 +80,9 @@ export interface UpdateVfdDeviceInput {
   tankId?: string;
   tags?: string[];
   status?: VfdDeviceStatus;
+  // SENSOR-CRITICAL-007: edge-delegated write binding (both-or-neither).
+  edgeDeviceId?: string;
+  edgeModbusDeviceName?: string;
 }
 
 /**
@@ -94,7 +117,12 @@ export class VfdDeviceService {
 
   constructor(
     @InjectRepository(VfdDevice)
-    private readonly vfdDeviceRepository: Repository<VfdDevice>
+    private readonly vfdDeviceRepository: Repository<VfdDevice>,
+    // @Optional so `new`-based unit tests and edge-less boots work; when present,
+    // binding a drive to an edge gateway pushes it there as a Modbus device
+    // (SENSOR-CRITICAL-007), and unbinding/deleting removes it.
+    @Optional()
+    private readonly edgeProvisioning?: VfdEdgeProvisioningService,
   ) {}
 
   /**
@@ -105,6 +133,11 @@ export class VfdDeviceService {
 
     // Validate protocol configuration
     this.validateProtocolConfiguration(input.protocol, input.protocolConfiguration);
+
+    // SENSOR-CRITICAL-007: a drive is either fully bound to an edge gateway or
+    // not bound at all — a half-bound record (gateway without a Modbus device
+    // name, or vice versa) could never be dispatched to and must be rejected.
+    this.validateEdgeBinding(input.edgeDeviceId, input.edgeModbusDeviceName);
 
     const { notes, ...rest } = input;
     const deviceData: DeepPartial<VfdDevice> = {
@@ -126,6 +159,12 @@ export class VfdDeviceService {
 
     const savedDevice = await this.vfdDeviceRepository.save(device);
     this.logger.log(`VFD device created with ID: ${savedDevice.id}`);
+
+    // If the drive was created already bound to an edge gateway, push it there
+    // as a Modbus device so the edge-delegated write path has a real target.
+    if (savedDevice.edgeDeviceId && savedDevice.edgeModbusDeviceName) {
+      await this.safeEdgeProvision(savedDevice);
+    }
 
     return savedDevice;
   }
@@ -151,7 +190,7 @@ export class VfdDeviceService {
   async findAll(
     tenantId: string,
     filter?: VfdDeviceFilterInput,
-    pagination?: PaginationInput
+    pagination?: PaginationInput,
   ): Promise<IStandardPaginatedResult<VfdDevice>> {
     const page = pagination?.page ?? 1;
     const limit = pagination?.limit ?? 20;
@@ -185,21 +224,28 @@ export class VfdDeviceService {
     if (filter?.search) {
       queryBuilder.andWhere(
         '(vfd.name ILIKE :search OR vfd.model ILIKE :search OR vfd.serialNumber ILIKE :search)',
-        { search: `%${filter.search}%` }
+        { search: `%${filter.search}%` },
       );
     }
 
     // Apply sorting with allowlist to prevent column injection
-    const ALLOWED_SORT_COLUMNS = ['createdAt', 'name', 'brand', 'status', 'updatedAt', 'model', 'protocol'];
-    const sortBy = ALLOWED_SORT_COLUMNS.includes(pagination?.sortBy ?? '') ? pagination!.sortBy! : 'createdAt';
+    const ALLOWED_SORT_COLUMNS = [
+      'createdAt',
+      'name',
+      'brand',
+      'status',
+      'updatedAt',
+      'model',
+      'protocol',
+    ];
+    const sortBy = ALLOWED_SORT_COLUMNS.includes(pagination?.sortBy ?? '')
+      ? pagination!.sortBy!
+      : 'createdAt';
     const sortOrder = pagination?.sortOrder === 'ASC' ? 'ASC' : 'DESC';
     queryBuilder.orderBy(`vfd.${sortBy}`, sortOrder);
 
     // Get total count and items
-    const [items, total] = await queryBuilder
-      .skip(offset)
-      .take(limit)
-      .getManyAndCount();
+    const [items, total] = await queryBuilder.skip(offset).take(limit).getManyAndCount();
 
     return createStandardPaginatedResult(items, total, page, limit);
   }
@@ -207,11 +253,7 @@ export class VfdDeviceService {
   /**
    * Update a VFD device
    */
-  async update(
-    id: string,
-    tenantId: string,
-    input: UpdateVfdDeviceInput
-  ): Promise<VfdDevice> {
+  async update(id: string, tenantId: string, input: UpdateVfdDeviceInput): Promise<VfdDevice> {
     const device = await this.findById(id, tenantId);
 
     // Validate protocol configuration if being updated
@@ -221,12 +263,27 @@ export class VfdDeviceService {
       this.validateProtocolConfiguration(device.protocol, input.protocolConfiguration);
     }
 
+    // Capture the PRIOR edge binding before mutating so we can decommission it
+    // if the update unbinds the drive or re-points it at a different gateway/name.
+    const priorBinding: EdgeBinding = {
+      tenantId: device.tenantId,
+      edgeDeviceId: device.edgeDeviceId,
+      edgeModbusDeviceName: device.edgeModbusDeviceName,
+    };
+
     // Update fields
     Object.assign(device, input);
     device.updatedAt = new Date();
 
+    // SENSOR-CRITICAL-007: enforce both-or-neither on the RESULTING binding — an
+    // update that sets only one half (or clears only one half) would leave a
+    // half-bound record that can never be dispatched to.
+    this.validateEdgeBinding(device.edgeDeviceId, device.edgeModbusDeviceName);
+
     const updatedDevice = await this.vfdDeviceRepository.save(device);
     this.logger.log(`VFD device ${id} updated`);
+
+    await this.reconcileEdgeAfterUpdate(priorBinding, updatedDevice, input);
 
     return updatedDevice;
   }
@@ -237,20 +294,100 @@ export class VfdDeviceService {
   async delete(id: string, tenantId: string): Promise<boolean> {
     const device = await this.findById(id, tenantId);
 
+    // Capture the binding before removal so we can decommission the Modbus device
+    // on the edge gateway — a deleted drive must not leave a live writable device.
+    const priorBinding: EdgeBinding = {
+      tenantId: device.tenantId,
+      edgeDeviceId: device.edgeDeviceId,
+      edgeModbusDeviceName: device.edgeModbusDeviceName,
+    };
+
     await this.vfdDeviceRepository.remove(device);
     this.logger.log(`VFD device ${id} deleted`);
+
+    if (priorBinding.edgeDeviceId && priorBinding.edgeModbusDeviceName) {
+      await this.safeEdgeDecommission(priorBinding);
+    }
 
     return true;
   }
 
   /**
+   * After an update, reconcile the drive's edge binding: decommission the prior
+   * Modbus device when it was unbound or re-pointed, and (re)provision the current
+   * one when it is bound and the binding or edge-relevant config changed.
+   */
+  private async reconcileEdgeAfterUpdate(
+    prior: EdgeBinding,
+    current: VfdDevice,
+    input: UpdateVfdDeviceInput,
+  ): Promise<void> {
+    if (!this.edgeProvisioning) {
+      return;
+    }
+    const priorBound = !!prior.edgeDeviceId && !!prior.edgeModbusDeviceName;
+    const nowBound = !!current.edgeDeviceId && !!current.edgeModbusDeviceName;
+    const identityChanged =
+      prior.edgeDeviceId !== current.edgeDeviceId ||
+      prior.edgeModbusDeviceName !== current.edgeModbusDeviceName;
+
+    // Decommission the prior device only when its identity is gone (unbound, or
+    // re-pointed at a different gateway/name); a same-name reprovision below
+    // handles config changes via the edge's idempotent add-or-replace.
+    if (priorBound && identityChanged) {
+      await this.safeEdgeDecommission(prior);
+    }
+
+    // (Re)provision when bound and either the binding moved or the edge-relevant
+    // config (connection / protocol) changed.
+    const configTouched = input.protocol !== undefined || input.protocolConfiguration !== undefined;
+    if (nowBound && (identityChanged || configTouched)) {
+      await this.safeEdgeProvision(current);
+    }
+  }
+
+  /** Best-effort edge provisioning — never fails the DB mutation it follows. */
+  private async safeEdgeProvision(device: VfdDevice): Promise<void> {
+    if (!this.edgeProvisioning) {
+      return;
+    }
+    try {
+      const result = await this.edgeProvisioning.provisionDevice(device);
+      if (result.skipped) {
+        this.logger.debug(`Edge provision skipped for VFD ${device.id}: ${result.error}`);
+      } else if (!result.success) {
+        this.logger.warn(`Edge provision failed for VFD ${device.id}: ${result.error}`);
+      } else {
+        this.logger.log(`Edge provision succeeded for VFD ${device.id} (${result.latencyMs}ms)`);
+      }
+    } catch (error) {
+      this.logger.warn(`Edge provision threw for VFD ${device.id}: ${(error as Error).message}`);
+    }
+  }
+
+  /** Best-effort edge decommission — never fails the DB mutation it follows. */
+  private async safeEdgeDecommission(binding: EdgeBinding): Promise<void> {
+    if (!this.edgeProvisioning) {
+      return;
+    }
+    try {
+      const result = await this.edgeProvisioning.decommissionDevice(binding);
+      if (!result.skipped && !result.success) {
+        this.logger.warn(
+          `Edge decommission of ${binding.edgeModbusDeviceName} failed: ${result.error}`,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Edge decommission of ${binding.edgeModbusDeviceName} threw: ${(error as Error).message}`,
+      );
+    }
+  }
+
+  /**
    * Update device status
    */
-  async updateStatus(
-    id: string,
-    tenantId: string,
-    status: VfdDeviceStatus
-  ): Promise<VfdDevice> {
+  async updateStatus(id: string, tenantId: string, status: VfdDeviceStatus): Promise<VfdDevice> {
     const device = await this.findById(id, tenantId);
     device.status = status;
     device.updatedAt = new Date();
@@ -269,7 +406,7 @@ export class VfdDeviceService {
       lastTestedAt?: Date;
       lastError?: string;
       latencyMs?: number;
-    }
+    },
   ): Promise<VfdDevice> {
     const device = await this.findById(id, tenantId);
     device.connectionStatus = {
@@ -421,9 +558,13 @@ export class VfdDeviceService {
 
     // Map to frontend status categories
     const active = byStatus[VfdDeviceStatus.ACTIVE] || 0;
-    const inactive = (byStatus[VfdDeviceStatus.SUSPENDED] || 0) + (byStatus[VfdDeviceStatus.OFFLINE] || 0);
-    const faulted = (byStatus[VfdDeviceStatus.TEST_FAILED] || 0);
-    const maintenance = (byStatus[VfdDeviceStatus.DRAFT] || 0) + (byStatus[VfdDeviceStatus.PENDING_TEST] || 0) + (byStatus[VfdDeviceStatus.TESTING] || 0);
+    const inactive =
+      (byStatus[VfdDeviceStatus.SUSPENDED] || 0) + (byStatus[VfdDeviceStatus.OFFLINE] || 0);
+    const faulted = byStatus[VfdDeviceStatus.TEST_FAILED] || 0;
+    const maintenance =
+      (byStatus[VfdDeviceStatus.DRAFT] || 0) +
+      (byStatus[VfdDeviceStatus.PENDING_TEST] || 0) +
+      (byStatus[VfdDeviceStatus.TESTING] || 0);
 
     return {
       total,
@@ -438,11 +579,32 @@ export class VfdDeviceService {
   }
 
   /**
+   * SENSOR-CRITICAL-007: the edge-delegated write path addresses a drive by its
+   * owning edge gateway (edgeDeviceId → MQTT command topic) AND the Modbus
+   * `device` name that gateway exposes for it. One without the other cannot
+   * route a write_modbus envelope, so the pair is enforced both-or-neither at
+   * every write (create + update) — a half-bound record is rejected rather than
+   * silently stored and later found undispatchable.
+   */
+  private validateEdgeBinding(
+    edgeDeviceId: string | null | undefined,
+    edgeModbusDeviceName: string | null | undefined,
+  ): void {
+    const hasGateway = edgeDeviceId != null && edgeDeviceId !== '';
+    const hasDeviceName = edgeModbusDeviceName != null && edgeModbusDeviceName.trim() !== '';
+    if (hasGateway !== hasDeviceName) {
+      throw new BadRequestException(
+        'Edge binding requires both edgeDeviceId and edgeModbusDeviceName together, or neither',
+      );
+    }
+  }
+
+  /**
    * Validate protocol configuration
    */
   private validateProtocolConfiguration(
     protocol: VfdProtocol,
-    config: Record<string, unknown>
+    config: Record<string, unknown>,
   ): void {
     // Basic validation - more comprehensive validation is done by adapters
     if (!config || typeof config !== 'object') {
@@ -452,9 +614,7 @@ export class VfdDeviceService {
     switch (protocol) {
       case VfdProtocol.MODBUS_RTU:
         if (!config['serialPort'] || !config['slaveId']) {
-          throw new BadRequestException(
-            'Modbus RTU requires serialPort and slaveId'
-          );
+          throw new BadRequestException('Modbus RTU requires serialPort and slaveId');
         }
         break;
 
@@ -472,9 +632,7 @@ export class VfdDeviceService {
 
       case VfdProtocol.PROFINET:
         if (!config['deviceName'] || !config['ipAddress']) {
-          throw new BadRequestException(
-            'PROFINET requires deviceName and ipAddress'
-          );
+          throw new BadRequestException('PROFINET requires deviceName and ipAddress');
         }
         break;
 

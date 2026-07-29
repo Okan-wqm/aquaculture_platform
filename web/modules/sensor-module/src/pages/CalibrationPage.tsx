@@ -67,6 +67,7 @@ const CalibrationRow: React.FC<CalibrationRowProps> = ({ channel, onUpdate, upda
     calibrationEnabled: channel.calibrationEnabled,
     calibrationMultiplier: channel.calibrationMultiplier,
     calibrationOffset: channel.calibrationOffset,
+    calibrationIntervalDays: channel.calibrationIntervalDays,
   });
   const [saving, setSaving] = useState(false);
 
@@ -77,6 +78,7 @@ const CalibrationRow: React.FC<CalibrationRowProps> = ({ channel, onUpdate, upda
         calibrationEnabled: channel.calibrationEnabled,
         calibrationMultiplier: channel.calibrationMultiplier,
         calibrationOffset: channel.calibrationOffset,
+        calibrationIntervalDays: channel.calibrationIntervalDays,
       });
     }
   }, [channel, isEditing]);
@@ -86,6 +88,7 @@ const CalibrationRow: React.FC<CalibrationRowProps> = ({ channel, onUpdate, upda
       calibrationEnabled: channel.calibrationEnabled,
       calibrationMultiplier: channel.calibrationMultiplier,
       calibrationOffset: channel.calibrationOffset,
+      calibrationIntervalDays: channel.calibrationIntervalDays,
     });
     setIsEditing(true);
   };
@@ -99,7 +102,10 @@ const CalibrationRow: React.FC<CalibrationRowProps> = ({ channel, onUpdate, upda
     try {
       await onUpdate({
         channelId: channel.id,
-        ...editData,
+        calibrationEnabled: editData.calibrationEnabled,
+        calibrationMultiplier: editData.calibrationMultiplier,
+        calibrationOffset: editData.calibrationOffset,
+        intervalDays: editData.calibrationIntervalDays,
       });
       setIsEditing(false);
     } catch (err) {
@@ -195,6 +201,31 @@ const CalibrationRow: React.FC<CalibrationRowProps> = ({ channel, onUpdate, upda
         ) : (
           <span className="text-sm text-gray-700 font-mono">
             {channel.calibrationOffset}
+          </span>
+        )}
+      </td>
+
+      {/* Calibration Interval (days) */}
+      <td className="px-4 py-3 text-center">
+        {isEditing ? (
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={editData.calibrationIntervalDays ?? ''}
+            placeholder="-"
+            onChange={(e) =>
+              setEditData((prev) => ({
+                ...prev,
+                calibrationIntervalDays:
+                  e.target.value === '' ? undefined : Math.max(1, parseInt(e.target.value, 10) || 1),
+              }))
+            }
+            className="w-20 px-2 py-1 border border-cyan-300 rounded text-center text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          />
+        ) : (
+          <span className="text-sm text-gray-700 font-mono">
+            {channel.calibrationIntervalDays ?? '-'}
           </span>
         )}
       </td>
@@ -304,6 +335,7 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
               <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Aktif</th>
               <th className="text-center px-4 py-3 text-sm font-medium text-cyan-600">Çarpan</th>
               <th className="text-center px-4 py-3 text-sm font-medium text-cyan-600">Ofset</th>
+              <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Aralık (gün)</th>
               <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Son Kalibrasyon</th>
               <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">Sonraki</th>
               <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">İşlemler</th>

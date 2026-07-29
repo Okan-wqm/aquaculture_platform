@@ -296,41 +296,50 @@ export class MetricsAggregatorService {
       'sensor-total',
     );
 
-    // Active sensors (had a reading in last hour)
-    const activeResult = await safeQuery<{ count: string }[]>(
-      this.dataSource,
-      `SELECT count(DISTINCT sensor_id)::text as count
-       FROM sensor.sensor_readings
-       WHERE created_at > NOW() - INTERVAL '1 hour'`,
-      [],
-      [{ count: '0' }],
-      this.logger,
+    // Ingestion-health metrics come from each tenant's own sensor_metrics
+    // hypertable (SENSOR-HIGH-085). They used to read sensor.sensor_readings,
+    // which no ingestion path writes any more — wrapped in safeQuery, that did
+    // not error, it silently reported ZERO ingestion forever. A platform metric
+    // over per-tenant storage has to visit the tenants; there is no shared table
+    // left to shortcut through.
+    const tenantSchemas = await this.listTenantSchemasForMetrics();
+
+    const activeSensors = await this.sumAcrossTenants(
+      tenantSchemas,
       'sensor-active',
+      // A sensor is "active" if any of its channels reported in the last hour.
+      (schema) =>
+        `SELECT count(DISTINCT sensor_id)::text AS value
+           FROM "${schema}".sensor_metrics
+          WHERE time > NOW() - INTERVAL '1 hour'`,
     );
 
-    // Readings in last 24h
-    const readingsResult = await safeQuery<{ count: string }[]>(
-      this.dataSource,
-      `SELECT count(*)::text as count
-       FROM sensor.sensor_readings
-       WHERE created_at > NOW() - INTERVAL '24 hours'`,
-      [],
-      [{ count: '0' }],
-      this.logger,
+    // sensor_metrics is CHANNEL-keyed: one row per channel per observation. A
+    // "reading" is the observation instant, so count DISTINCT (sensor_id, time)
+    // rather than rows — counting rows would multiply the figure by each
+    // sensor's channel count and overstate ingestion.
+    const readingsLast24h = await this.sumAcrossTenants(
+      tenantSchemas,
       'sensor-readings-24h',
+      (schema) =>
+        `SELECT count(*)::text AS value FROM (
+           SELECT DISTINCT sensor_id, time
+             FROM "${schema}".sensor_metrics
+            WHERE time > NOW() - INTERVAL '24 hours'
+         ) observations`,
     );
 
-    // Readings per minute (last 5 minutes average)
-    const rpmResult = await safeQuery<{ rpm: string }[]>(
-      this.dataSource,
-      `SELECT COALESCE(count(*)::float / GREATEST(EXTRACT(EPOCH FROM (NOW() - MIN(created_at))) / 60, 1), 0)::text as rpm
-       FROM sensor.sensor_readings
-       WHERE created_at > NOW() - INTERVAL '5 minutes'`,
-      [],
-      [{ rpm: '0' }],
-      this.logger,
+    const readingsLast5m = await this.sumAcrossTenants(
+      tenantSchemas,
       'sensor-rpm',
+      (schema) =>
+        `SELECT count(*)::text AS value FROM (
+           SELECT DISTINCT sensor_id, time
+             FROM "${schema}".sensor_metrics
+            WHERE time > NOW() - INTERVAL '5 minutes'
+         ) observations`,
     );
+    const readingsPerMinute = readingsLast5m / 5;
 
     // Sensors by type
     const typeRows = await safeQuery<{ type: string; count: string }[]>(
@@ -351,11 +360,76 @@ export class MetricsAggregatorService {
 
     return {
       totalSensors: parseInt(totalResult[0]?.count || '0', 10),
-      activeSensors: parseInt(activeResult[0]?.count || '0', 10),
-      readingsLast24h: parseInt(readingsResult[0]?.count || '0', 10),
-      readingsPerMinute: parseFloat(rpmResult[0]?.rpm || '0'),
+      activeSensors,
+      readingsLast24h,
+      readingsPerMinute,
       byType,
     };
+  }
+
+  /**
+   * The tenant schemas to aggregate platform metrics over.
+   *
+   * Returns [] on failure rather than throwing: a metrics sweep must never take
+   * the observability service down. The empty case is logged, so "no tenants
+   * found" is distinguishable from "every tenant reported zero" — the confusion
+   * that let the previous sensor_readings queries report zero ingestion forever
+   * without anyone noticing.
+   */
+  private async listTenantSchemasForMetrics(): Promise<string[]> {
+    const rows = await safeQuery<{ schema_name: string }[]>(
+      this.dataSource,
+      `SELECT schema_name FROM information_schema.schemata
+        WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'
+        ORDER BY schema_name`,
+      [],
+      [],
+      this.logger,
+      'tenant-schema-list',
+    );
+    if (rows.length === 0) {
+      this.logger.warn(
+        'No tenant schemas found — sensor ingestion metrics will report zero for this sweep',
+      );
+    }
+    return rows.map((r) => r.schema_name);
+  }
+
+  /**
+   * Sum one scalar metric across every tenant schema.
+   *
+   * Per-tenant storage means a platform total is a sum over tenants; this runs
+   * one query per tenant on the metrics cadence (a cron sweep, never a request
+   * path). Each tenant is isolated — one tenant's failure contributes zero and
+   * is logged by safeQuery rather than voiding the whole platform figure.
+   *
+   * The schema name is re-validated against the tenant-schema shape before it is
+   * interpolated: it comes from information_schema and is already constrained by
+   * the listing regex, and this second check keeps that guarantee local to the
+   * place the identifier actually reaches SQL.
+   */
+  private async sumAcrossTenants(
+    tenantSchemas: readonly string[],
+    label: string,
+    buildSql: (schema: string) => string,
+  ): Promise<number> {
+    let total = 0;
+    for (const schema of tenantSchemas) {
+      if (!/^tenant_[a-f0-9]{16}$/.test(schema)) {
+        this.logger.warn(`Skipping malformed tenant schema name for ${label}`);
+        continue;
+      }
+      const rows = await safeQuery<{ value: string }[]>(
+        this.dataSource,
+        buildSql(schema),
+        [],
+        [{ value: '0' }],
+        this.logger,
+        `${label}:${schema}`,
+      );
+      total += parseInt(rows[0]?.value || '0', 10);
+    }
+    return total;
   }
 
   private async aggregateAlertMetrics(): Promise<AlertMetrics> {

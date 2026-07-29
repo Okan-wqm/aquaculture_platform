@@ -8,6 +8,7 @@ import { Payroll, PayrollStatus, EarningsBreakdown, DeductionsBreakdown } from '
 import { PayrollAudit, PayrollAuditAction } from '../entities/payroll-audit.entity';
 import { Employee } from '../entities/employee.entity';
 import { AttendanceRecord, ApprovalStatus } from '../../attendance/entities/attendance-record.entity';
+import { formatUtcCalendarYearMonth } from '../../common/utc-calendar-date';
 
 /**
  * HR-HIGH-005: Money-based arithmetic using the platform Money value object.
@@ -302,10 +303,8 @@ export class CreatePayrollHandler implements ICommandHandler<CreatePayrollComman
    * definitive safety net.
    */
   private generatePayrollNumber(payPeriodStart: Date): string {
-    const year = payPeriodStart.getFullYear();
-    const month = String(payPeriodStart.getMonth() + 1).padStart(2, '0');
     // 4 random bytes → 8 hex chars → very low collision probability
     const randomHex = require('crypto').randomBytes(4).toString('hex').toUpperCase();
-    return `PAY-${year}${month}-${randomHex}`;
+    return `PAY-${formatUtcCalendarYearMonth(payPeriodStart)}-${randomHex}`;
   }
 }

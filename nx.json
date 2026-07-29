@@ -30,6 +30,7 @@
     },
     "test": {
       "inputs": ["default", "^production", "{workspaceRoot}/jest.preset.js"],
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}", "{projectRoot}/coverage"],
       "cache": true
     },
     "lint": {

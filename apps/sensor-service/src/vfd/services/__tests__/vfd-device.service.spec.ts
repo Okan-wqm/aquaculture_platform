@@ -223,6 +223,74 @@ describe('VfdDeviceService', () => {
     });
   });
 
+  describe('edge binding (SENSOR-CRITICAL-007)', () => {
+    const baseInput: CreateVfdDeviceInput = {
+      name: 'Edge VFD',
+      brand: VfdBrand.ABB,
+      protocol: VfdProtocol.MODBUS_TCP,
+      protocolConfiguration: { host: '192.168.1.100', port: 502, unitId: 1 },
+    };
+
+    it('persists both binding fields when provided together', async () => {
+      const result = await service.create(
+        { ...baseInput, edgeDeviceId: 'edge-1', edgeModbusDeviceName: 'vfd-pump-1' },
+        tenantId,
+      );
+
+      expect(result.edgeDeviceId).toBe('edge-1');
+      expect(result.edgeModbusDeviceName).toBe('vfd-pump-1');
+    });
+
+    it('creates an unbound drive when neither binding field is provided', async () => {
+      const result = await service.create(baseInput, tenantId);
+
+      expect(result.edgeDeviceId).toBeUndefined();
+      expect(result.edgeModbusDeviceName).toBeUndefined();
+    });
+
+    it('rejects a create with only the gateway (no Modbus device name)', async () => {
+      await expect(
+        service.create({ ...baseInput, edgeDeviceId: 'edge-1' }, tenantId),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects a create with only the Modbus device name (no gateway)', async () => {
+      await expect(
+        service.create({ ...baseInput, edgeModbusDeviceName: 'vfd-pump-1' }, tenantId),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects clearing only one half of an existing binding', async () => {
+      repository.findOne.mockResolvedValue({
+        ...mockDevice,
+        edgeDeviceId: 'edge-1',
+        edgeModbusDeviceName: 'vfd-pump-1',
+      } as VfdDevice);
+
+      // Clearing the device name alone leaves a gateway with no target — refused.
+      await expect(
+        service.update('device-123', tenantId, { edgeModbusDeviceName: '' }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('allows clearing both halves of a binding together', async () => {
+      repository.findOne.mockResolvedValue({
+        ...mockDevice,
+        edgeDeviceId: 'edge-1',
+        edgeModbusDeviceName: 'vfd-pump-1',
+      } as VfdDevice);
+
+      const result = await service.update('device-123', tenantId, {
+        edgeDeviceId: undefined,
+        edgeModbusDeviceName: undefined,
+      });
+
+      expect(repository.save).toHaveBeenCalled();
+      expect(result.edgeDeviceId).toBeUndefined();
+      expect(result.edgeModbusDeviceName).toBeUndefined();
+    });
+  });
+
   describe('delete', () => {
     it('should delete a device', async () => {
       repository.findOne.mockResolvedValue(mockDevice as VfdDevice);

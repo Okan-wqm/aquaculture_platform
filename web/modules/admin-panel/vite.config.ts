@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react';
 import { federation } from '@module-federation/vite';
 import { resolve } from 'path';
 import { getCoreSharedConfig } from '../../shared-ui/src/federation/federationSharedConfig';
+import createVitestTestPolicy from '@aquaculture/testing/vitest';
 
 /**
  * Vite Konfigürasyonu - Admin Panel Microfrontend
@@ -45,5 +46,6 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
+    ...createVitestTestPolicy(),
   },
 });

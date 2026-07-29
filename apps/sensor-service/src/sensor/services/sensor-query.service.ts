@@ -13,18 +13,24 @@
  * - Query result caching consideration
  */
 
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, Between, DataSource } from 'typeorm';
-
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import {
-  SensorReading,
-  SensorReadings,
-} from '../../database/entities/sensor-reading.entity';
+  anchorFromDatabaseText,
+  encodeSensorReadingId,
+  sensorReadingAnchorSql,
+  type SensorReadingAnchor,
+} from '@aquaculture/backend-common/sensor';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { parameterForChannelKey, type SensorReadingParameter } from '@platform/event-contracts';
+import { DataSource, QueryRunner } from 'typeorm';
+
+import { SensorReading, SensorReadings } from '../../database/entities/sensor-reading.entity';
 import {
   AggregatedReadingType,
   AggregatedReadingsResponse,
 } from '../dto/aggregated-reading.dto';
+import { DataQualityService } from './data-quality.service';
 import {
   validateSensorId,
   validateTenantId,
@@ -35,57 +41,38 @@ import {
   SafeAggregationInterval,
 } from '../validation/input-sanitizer';
 
+/** The `sensor` source schema runInTenantRead pins alongside the tenant schema. */
+const SENSOR_SCHEMA = 'sensor';
+
+/**
+ * How far back an as-of projection looks for a channel's last-known value.
+ *
+ * Every as-of query MUST carry a lower bound on `time`. Two independent reasons,
+ * both found by the SENSOR-HIGH-085 pre-merge audit:
+ *
+ *  1. PERFORMANCE. Without a `time` predicate TimescaleDB cannot prune a single
+ *     chunk, so a "give me the latest value" read degrades into a scan of the
+ *     sensor's entire retention window — on a hot path the dashboard and
+ *     aquamobil re-issue every 45 s. The repo already codified this rule for the
+ *     sibling reads: metric-query.service.ts:295 documents its lookback as
+ *     bounding the range "so TimescaleDB chunk pruning is effective and a single
+ *     channel query cannot scan the entire retention window".
+ *  2. HONESTY. Forward-filling with no lower bound resurrects channels that
+ *     stopped reporting long ago and presents their last value as part of a
+ *     current reading. A bound means a dead channel drops out of the projection
+ *     instead of being fabricated into it forever.
+ *
+ * The window is deliberately generous rather than tight: it must not truncate a
+ * legitimately slow sensor (daily-sampled water chemistry), only unbounded scans
+ * and long-dead channels. It is one constant used by all four projections, so
+ * the freshness contract cannot drift between them.
+ */
+const AS_OF_LOOKBACK = '7 days';
+
 /**
  * Aggregation interval type - restricted to whitelist
  */
 export type AggregationInterval = SafeAggregationInterval;
-
-/**
- * Query result row for aggregated readings
- */
-interface AggregatedReadingRow {
-  bucket: Date;
-  count: string;
-  avg_temperature?: string;
-  avg_ph?: string;
-  avg_dissolved_oxygen?: string;
-  avg_salinity?: string;
-  avg_ammonia?: string;
-  avg_nitrite?: string;
-  avg_nitrate?: string;
-  avg_turbidity?: string;
-  avg_water_level?: string;
-  min_temperature?: string;
-  max_temperature?: string;
-  min_ph?: string;
-  max_ph?: string;
-  min_dissolved_oxygen?: string;
-  max_dissolved_oxygen?: string;
-  min_salinity?: string;
-  max_salinity?: string;
-  min_ammonia?: string;
-  max_ammonia?: string;
-}
-
-/**
- * Query result row for sensor stats
- */
-interface SensorStatsRow {
-  total_readings: string;
-  average_quality: string | null;
-  last_reading: Date | null;
-}
-
-/**
- * Aggregated sensor data
- */
-export interface AggregatedSensorData {
-  bucket: Date;
-  averages: SensorReadings;
-  minimums?: SensorReadings;
-  maximums?: SensorReadings;
-  count: number;
-}
 
 /**
  * Maximum allowed query time range (365 days)
@@ -119,15 +106,216 @@ export function getOptimalInterval(startTime: Date, endTime: Date): AggregationI
   return '1 week'; // 52 points max for year
 }
 
-/**
- * Safely parse numeric string to number or undefined
- */
-function parseNumericOrUndefined(value: string | null | undefined): number | undefined {
+/** Parse a pg driver value (numeric columns arrive as strings, counts as numbers). */
+function toNumberOrUndefined(value: string | number | null | undefined): number | undefined {
   if (value === null || value === undefined || value === '') {
     return undefined;
   }
-  const num = parseFloat(value);
+  const num = typeof value === 'number' ? value : parseFloat(value);
   return Number.isFinite(num) ? num : undefined;
+}
+
+/**
+ * The five parameters the AggregatedReading DTO carries min/max for; the rest
+ * are avg-only. Kept aligned with aggregated-reading.dto.ts.
+ */
+const MIN_MAX_PARAMETERS: ReadonlySet<SensorReadingParameter> = new Set([
+  'temperature',
+  'ph',
+  'dissolvedOxygen',
+  'salinity',
+  'ammonia',
+]);
+
+/**
+ * A channel-keyed metric source for an aggregated read. `weighted` sources are
+ * continuous aggregates that already store per-bucket partials, so re-bucketing
+ * them to the display interval must weight each partial by its sample_count;
+ * the raw hypertable aggregates plain values.
+ */
+interface MetricSource {
+  table: string;
+  timeColumn: string;
+  weighted: boolean;
+}
+
+// Fixed source whitelist — table names are literals, never user input, so they
+// are safe to interpolate into the aggregation SQL. They are UNQUALIFIED so the
+// tenant search_path resolves them inside the reading tenant's own schema: both
+// the hypertable and its rollups are per-tenant.
+const RAW_METRIC_SOURCE: MetricSource = {
+  table: 'sensor_metrics',
+  timeColumn: 'time',
+  weighted: false,
+};
+const METRIC_ROLLUP_SOURCES: Readonly<Record<'minute' | 'hour' | 'day', MetricSource>> = {
+  minute: { table: 'metrics_1min', timeColumn: 'bucket', weighted: true },
+  hour: { table: 'metrics_1hour', timeColumn: 'bucket', weighted: true },
+  day: { table: 'metrics_1day', timeColumn: 'bucket', weighted: true },
+};
+
+/**
+ * Pick the metric source by range so a month-long chart reads a pre-rolled
+ * continuous aggregate instead of scanning raw rows — the same tier thresholds
+ * MetricQueryService uses. The auto-selected display interval (getOptimalInterval)
+ * is always ≥ the chosen source's native bucket, so re-bucketing never asks a
+ * rollup for finer granularity than it stores.
+ */
+function selectMetricSource(startTime: Date, endTime: Date): MetricSource {
+  const hours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
+  if (hours <= 1) return RAW_METRIC_SOURCE;
+  if (hours <= 24) return METRIC_ROLLUP_SOURCES.minute;
+  if (hours <= 720) return METRIC_ROLLUP_SOURCES.hour;
+  return METRIC_ROLLUP_SOURCES.day;
+}
+
+/**
+ * Resolve the tier to a source that ACTUALLY EXISTS in the reading tenant's
+ * schema, degrading to the raw hypertable when the rollup is absent.
+ *
+ * The rollups are created by a bootstrap sweep (ContinuousAggregateService),
+ * which cannot be a migration because continuous-aggregate DDL is illegal inside
+ * a transaction. A tenant provisioned between boots therefore has its hypertable
+ * but not yet its rollups. Without this probe such a tenant's charts would
+ * resolve the view name through the search_path fallback and come back EMPTY —
+ * a correct-looking, silent lie. Falling back to raw gives that tenant correct
+ * (merely unoptimized) data and logs the degradation instead of hiding it.
+ */
+async function resolveExistingSource(
+  qr: QueryRunner,
+  preferred: MetricSource,
+  logger: Logger,
+): Promise<MetricSource> {
+  if (preferred === RAW_METRIC_SOURCE) {
+    return preferred;
+  }
+  const rows = (await qr.query(`SELECT to_regclass($1) IS NOT NULL AS present`, [
+    preferred.table,
+  ])) as Array<{ present: boolean }>;
+  if (rows[0]?.present === true) {
+    return preferred;
+  }
+  logger.warn(
+    `Rollup ${preferred.table} is not present in this tenant's schema — ` +
+      'falling back to the raw hypertable for this read (charts stay correct, just unoptimized)',
+  );
+  return RAW_METRIC_SOURCE;
+}
+
+/** Assign a finite numeric value onto a dynamically-named aggregate field bag. */
+function setAggregateField(
+  fields: Record<string, number>,
+  field: string,
+  value: number | undefined,
+): void {
+  if (value !== undefined && Number.isFinite(value)) {
+    fields[field] = value;
+  }
+}
+
+/**
+ * The channel-level parts every as-of read produces: one channel's value at the
+ * anchor instant, its channel_key (→ parameter), and the quality/source/location
+ * columns denormalized on sensor_metrics. Numeric columns arrive from the pg
+ * driver as strings. This is the minimum assembleReading() needs.
+ */
+interface ChannelValueParts {
+  channel_key: string;
+  value: string | number | null;
+  quality_code: number | null;
+  source_protocol: string | null;
+  pond_id: string | null;
+  farm_id: string | null;
+}
+
+/**
+ * A latest-per-channel row: a ChannelValueParts plus the sample's own time (Date
+ * for comparison, canonical `time_text` for the federation-id anchor).
+ */
+interface ChannelAsOfRow extends ChannelValueParts {
+  time: Date;
+  time_text: string;
+}
+
+/** A batch latest-per-channel row additionally carries its owning sensor id. */
+interface SensorChannelAsOfRow extends ChannelAsOfRow {
+  sensor_id: string;
+}
+
+/** A range row: a ChannelValueParts forward-filled to an observation instant. */
+interface RangeChannelAsOfRow extends ChannelValueParts {
+  as_of: Date;
+  as_of_text: string;
+}
+
+/**
+ * Adopt anchor text the database rendered through `sensorReadingAnchorSql()`.
+ *
+ * Non-canonical text here cannot come from user input — it would mean an as-of
+ * query stopped minting its anchor through the shared SQL helper. Throwing
+ * names that contract instead of quietly dropping the reading, which is the
+ * failure mode that would otherwise look like missing telemetry.
+ */
+function adoptAnchor(text: string): SensorReadingAnchor {
+  const anchor = anchorFromDatabaseText(text);
+  if (!anchor) {
+    throw new Error(
+      `As-of anchor "${text}" is not in canonical form — the query must mint it via sensorReadingAnchorSql()`,
+    );
+  }
+  return anchor;
+}
+
+/** The newest (time, anchor) pair among latest-per-channel rows, or null when empty. */
+function latestAnchor(
+  rows: ReadonlyArray<{ time: Date; time_text: string }>,
+): { time: Date; anchor: SensorReadingAnchor } | null {
+  let best: { time: Date; anchor: SensorReadingAnchor } | null = null;
+  for (const row of rows) {
+    if (!best || row.time.getTime() > best.time.getTime()) {
+      best = { time: row.time, anchor: adoptAnchor(row.time_text) };
+    }
+  }
+  return best;
+}
+
+/**
+ * The modal `source_protocol` across a reading's contributing channel rows
+ * (SENSOR-HIGH-085 / D5). A projected reading has no single ingest source the
+ * way a stored row did; the most common protocol among its channels is the
+ * honest summary. Ties break on the lexicographically smallest protocol so the
+ * value is deterministic. Returns undefined when no row carries a protocol.
+ */
+function modalSourceProtocol(rows: ReadonlyArray<{ source_protocol: string | null }>):
+  | string
+  | undefined {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const protocol = row.source_protocol;
+    if (protocol) {
+      counts.set(protocol, (counts.get(protocol) ?? 0) + 1);
+    }
+  }
+  let best: string | undefined;
+  let bestCount = 0;
+  for (const [protocol, count] of counts) {
+    if (count > bestCount || (count === bestCount && (best === undefined || protocol < best))) {
+      best = protocol;
+      bestCount = count;
+    }
+  }
+  return best;
+}
+
+/** First non-null value of a field across a reading's contributing rows. */
+function firstNonNull<T>(rows: ReadonlyArray<T>, pick: (row: T) => string | null): string | undefined {
+  for (const row of rows) {
+    const value = pick(row);
+    if (value !== null && value !== undefined) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -138,31 +326,76 @@ export class SensorQueryService {
   private readonly logger = new Logger(SensorQueryService.name);
 
   constructor(
-    @InjectRepository(SensorReading)
-    private readonly readingRepository: Repository<SensorReading>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly dataQualityService: DataQualityService,
   ) {}
 
   /**
-   * Get the latest reading for a sensor
+   * Latest reading for a sensor, as an as-of projection over sensor.sensor_metrics.
+   *
+   * SENSOR-HIGH-085: a SensorReading is no longer a stored row — it is the
+   * last-known value of each of the sensor's channels. This takes, per channel,
+   * the freshest metric sample (DISTINCT ON (channel_id) ... ORDER BY channel_id,
+   * time DESC — an index descent on the (sensor_id, channel_id, time DESC) index)
+   * and assembles them into one reading anchored at the newest of those
+   * per-channel times. Device-ingested sensors (MQTT/edge/Rust) that never wrote
+   * the retired sensor_readings store now return their real values. Runs inside a
+   * tenant-pinned read (D8) so sensor_data_channels (per-tenant) resolves and the
+   * cross-tenant sensor.sensor_metrics read is RLS-scoped.
    */
   async getLatestReading(
     sensorId: string,
     tenantId: string,
   ): Promise<SensorReading | null> {
-    // Validate inputs
     const validSensorId = validateSensorId(sensorId);
     const validTenantId = validateTenantId(tenantId);
 
-    return await this.readingRepository.findOne({
-      where: { sensorId: validSensorId, tenantId: validTenantId },
-      order: { timestamp: 'DESC' },
+    return runInTenantRead(this.dataSource, SENSOR_SCHEMA, validTenantId, async (qr) => {
+      const rows = (await qr.query(
+        `SELECT c.channel_key AS channel_key,
+                lv.value AS value,
+                lv.time AS time,
+                ${sensorReadingAnchorSql('lv.time')} AS time_text,
+                lv.quality_code AS quality_code,
+                lv.source_protocol AS source_protocol,
+                lv.pond_id AS pond_id,
+                lv.farm_id AS farm_id
+           FROM sensor_data_channels c
+           CROSS JOIN LATERAL (
+             SELECT m.value, m.time, m.quality_code, m.source_protocol, m.pond_id, m.farm_id
+             FROM sensor_metrics m
+             WHERE m.sensor_id = $1 AND m.channel_id = c.id AND m.tenant_id = $2
+               AND m.time >= NOW() - $3::interval
+             ORDER BY m.time DESC
+             LIMIT 1
+           ) lv
+          WHERE c.sensor_id = $1 AND c.tenant_id = $2 AND c.is_enabled = true
+          ORDER BY c.channel_key`,
+        [validSensorId, validTenantId, AS_OF_LOOKBACK],
+      )) as ChannelAsOfRow[];
+
+      const anchor = latestAnchor(rows);
+      if (!anchor) {
+        return null;
+      }
+      return this.assembleReading(validSensorId, validTenantId, anchor.time, anchor.anchor, rows);
     });
   }
 
   /**
-   * Get readings within a time range
+   * Readings across a time range, as an as-of series over sensor.sensor_metrics.
+   *
+   * SENSOR-HIGH-085: for the most recent `limit` distinct observation instants in
+   * [start, end], each channel is forward-filled to its last-known value at or
+   * before that instant (a per-channel LATERAL LIMIT 1 index seek), and the
+   * per-instant snapshots are assembled into wide readings. For coherent
+   * GraphQL/MQTT data — where every channel shares one `time` — this degenerates
+   * to exactly one reading per original observation; for per-channel device data
+   * it yields the faithful last-known-state at each instant something changed. The
+   * observation instants are the wall-clock the reading is anchored at, so the
+   * count is bounded by `limit` and each forward-fill is an index seek on the
+   * (sensor_id, channel_id, time DESC) index. Ordered newest-first.
    */
   async getReadingsInRange(
     sensorId: string,
@@ -171,7 +404,6 @@ export class SensorQueryService {
     endTime: Date,
     limit?: number,
   ): Promise<SensorReading[]> {
-    // Validate inputs
     const validSensorId = validateSensorId(sensorId);
     const validTenantId = validateTenantId(tenantId);
     const { startTime: validStart, endTime: validEnd } = validateDateRange(
@@ -181,95 +413,61 @@ export class SensorQueryService {
     );
     const validLimit = validateLimit(limit, MAX_RESULTS_LIMIT);
 
-    return await this.readingRepository.find({
-      where: {
-        sensorId: validSensorId,
-        tenantId: validTenantId,
-        timestamp: Between(validStart, validEnd),
-      },
-      order: { timestamp: 'DESC' },
-      take: validLimit,
-    });
-  }
+    return runInTenantRead(this.dataSource, SENSOR_SCHEMA, validTenantId, async (qr) => {
+      const rows = (await qr.query(
+        `WITH obs AS (
+           SELECT DISTINCT time
+           FROM sensor_metrics
+           WHERE sensor_id = $1 AND tenant_id = $2 AND time BETWEEN $3 AND $4
+           ORDER BY time DESC
+           LIMIT $5
+         )
+         SELECT o.time AS as_of,
+                ${sensorReadingAnchorSql('o.time')} AS as_of_text,
+                c.channel_key AS channel_key,
+                lv.value AS value,
+                lv.quality_code AS quality_code,
+                lv.source_protocol AS source_protocol,
+                lv.pond_id AS pond_id,
+                lv.farm_id AS farm_id
+           FROM obs o
+           JOIN sensor_data_channels c
+             ON c.sensor_id = $1 AND c.tenant_id = $2 AND c.is_enabled = true
+           CROSS JOIN LATERAL (
+             SELECT value, quality_code, source_protocol, pond_id, farm_id
+             FROM sensor_metrics m
+             WHERE m.sensor_id = $1 AND m.channel_id = c.id AND m.tenant_id = $2
+               AND m.time <= o.time
+               AND m.time >= o.time - $6::interval
+             ORDER BY m.time DESC
+             LIMIT 1
+           ) lv
+           ORDER BY o.time DESC, c.channel_key`,
+        [validSensorId, validTenantId, validStart, validEnd, validLimit, AS_OF_LOOKBACK],
+      )) as RangeChannelAsOfRow[];
 
-  /**
-   * Get aggregated data using TimescaleDB time_bucket
-   * This provides efficient time-series aggregation
-   *
-   * SECURITY: Uses parameterized queries and whitelist validation for interval
-   */
-  async getAggregatedData(
-    sensorId: string,
-    tenantId: string,
-    startTime: Date,
-    endTime: Date,
-    interval: AggregationInterval,
-  ): Promise<AggregatedSensorData[]> {
-    // Validate all inputs
-    const validSensorId = validateSensorId(sensorId);
-    const validTenantId = validateTenantId(tenantId);
-    const { startTime: validStart, endTime: validEnd } = validateDateRange(
-      startTime,
-      endTime,
-      MAX_QUERY_RANGE_MS,
-    );
-    const validInterval = validateAggregationInterval(interval);
+      // Rows arrive newest-first; group by observation instant preserving that
+      // order so the returned readings are DESC by timestamp.
+      const byInstant = new Map<string, { as_of: Date; rows: RangeChannelAsOfRow[] }>();
+      for (const row of rows) {
+        let group = byInstant.get(row.as_of_text);
+        if (!group) {
+          group = { as_of: row.as_of, rows: [] };
+          byInstant.set(row.as_of_text, group);
+        }
+        group.rows.push(row);
+      }
 
-    if (!validInterval) {
-      throw new BadRequestException(
-        `Invalid interval. Allowed values: ${ALLOWED_AGGREGATION_INTERVALS.join(', ')}`,
+      return [...byInstant.entries()].map(([asOfText, group]) =>
+        this.assembleReading(
+          validSensorId,
+          validTenantId,
+          group.as_of,
+          adoptAnchor(asOfText),
+          group.rows,
+        ),
       );
-    }
-
-    // Parameterized query - interval is validated against whitelist
-    const query = `
-      SELECT
-        time_bucket($1::interval, timestamp) AS bucket,
-        COUNT(*) AS count,
-        AVG((readings->>'temperature')::numeric) AS avg_temperature,
-        AVG((readings->>'ph')::numeric) AS avg_ph,
-        AVG((readings->>'dissolvedOxygen')::numeric) AS avg_dissolved_oxygen,
-        AVG((readings->>'salinity')::numeric) AS avg_salinity,
-        AVG((readings->>'ammonia')::numeric) AS avg_ammonia,
-        AVG((readings->>'nitrite')::numeric) AS avg_nitrite,
-        AVG((readings->>'nitrate')::numeric) AS avg_nitrate,
-        MIN((readings->>'temperature')::numeric) AS min_temperature,
-        MAX((readings->>'temperature')::numeric) AS max_temperature
-      FROM sensor_readings
-      WHERE sensor_id = $2
-        AND tenant_id = $3
-        AND timestamp BETWEEN $4 AND $5
-      GROUP BY bucket
-      ORDER BY bucket ASC
-    `;
-
-    const results = await this.dataSource.query<AggregatedReadingRow[]>(query, [
-      validInterval,
-      validSensorId,
-      validTenantId,
-      validStart,
-      validEnd,
-    ]);
-
-    return results.map((row: AggregatedReadingRow) => ({
-      bucket: row.bucket,
-      count: parseInt(row.count, 10),
-      averages: {
-        temperature: parseNumericOrUndefined(row.avg_temperature),
-        ph: parseNumericOrUndefined(row.avg_ph),
-        dissolvedOxygen: parseNumericOrUndefined(row.avg_dissolved_oxygen),
-        salinity: parseNumericOrUndefined(row.avg_salinity),
-        ammonia: parseNumericOrUndefined(row.avg_ammonia),
-        nitrite: parseNumericOrUndefined(row.avg_nitrite),
-        nitrate: parseNumericOrUndefined(row.avg_nitrate),
-      },
-      minimums: {
-        temperature: parseNumericOrUndefined(row.min_temperature),
-      },
-      maximums: {
-        temperature: parseNumericOrUndefined(row.max_temperature),
-      },
-    }));
+    });
   }
 
   /**
@@ -305,89 +503,85 @@ export class SensorQueryService {
       );
     }
 
-    // Parameterized query with comprehensive metrics
-    const query = `
-      SELECT
-        time_bucket($1::interval, timestamp) AS bucket,
-        COUNT(*) AS count,
-        -- Temperature
-        AVG((readings->>'temperature')::numeric) AS avg_temperature,
-        MIN((readings->>'temperature')::numeric) AS min_temperature,
-        MAX((readings->>'temperature')::numeric) AS max_temperature,
-        -- pH
-        AVG((readings->>'ph')::numeric) AS avg_ph,
-        MIN((readings->>'ph')::numeric) AS min_ph,
-        MAX((readings->>'ph')::numeric) AS max_ph,
-        -- Dissolved Oxygen
-        AVG((readings->>'dissolvedOxygen')::numeric) AS avg_dissolved_oxygen,
-        MIN((readings->>'dissolvedOxygen')::numeric) AS min_dissolved_oxygen,
-        MAX((readings->>'dissolvedOxygen')::numeric) AS max_dissolved_oxygen,
-        -- Salinity
-        AVG((readings->>'salinity')::numeric) AS avg_salinity,
-        MIN((readings->>'salinity')::numeric) AS min_salinity,
-        MAX((readings->>'salinity')::numeric) AS max_salinity,
-        -- Ammonia
-        AVG((readings->>'ammonia')::numeric) AS avg_ammonia,
-        MIN((readings->>'ammonia')::numeric) AS min_ammonia,
-        MAX((readings->>'ammonia')::numeric) AS max_ammonia,
-        -- Nitrite
-        AVG((readings->>'nitrite')::numeric) AS avg_nitrite,
-        -- Nitrate
-        AVG((readings->>'nitrate')::numeric) AS avg_nitrate,
-        -- Turbidity
-        AVG((readings->>'turbidity')::numeric) AS avg_turbidity,
-        -- Water Level
-        AVG((readings->>'waterLevel')::numeric) AS avg_water_level
-      FROM sensor_readings
-      WHERE sensor_id = $2
-        AND tenant_id = $3
-        AND timestamp >= $4
-        AND timestamp <= $5
-      GROUP BY bucket
-      ORDER BY bucket ASC
-    `;
+    // SENSOR-MEDIUM-066/068: aggregate over the converged channel-keyed
+    // sensor_metrics store instead of extracting from the sensor_readings JSONB.
+    // Large ranges read a pre-rolled continuous aggregate (metrics_1min/1hour/
+    // 1day) so a month-long chart no longer scans raw rows; the ≤1h range reads
+    // the raw hypertable. channel_key → parameter mapping uses the single
+    // event-contract SSoT (parameterForChannelKey), so no alias list is
+    // duplicated into SQL. This read returns the plain AggregatedReadingsResponse
+    // (not the federated SensorReading entity), so it carries no reading id and
+    // the supergraph contract is untouched.
+    //
+    // SENSOR-HIGH-085: runs inside runInTenantRead like every other reading
+    // query. Both the hypertable and its rollups are per-tenant, so the tenant
+    // search_path is what resolves them — this was the last reading query still
+    // joining the per-tenant sensor_data_channels from an unpinned connection.
+    const { rows, sensorName } = await runInTenantRead(
+      this.dataSource,
+      SENSOR_SCHEMA,
+      validTenantId,
+      async (qr) => {
+        const source = await resolveExistingSource(
+          qr,
+          selectMetricSource(validStart, validEnd),
+          this.logger,
+        );
+        const avgExpr = source.weighted
+          ? 'SUM(s.avg_value * s.sample_count) / NULLIF(SUM(s.sample_count), 0)'
+          : 'AVG(s.value)';
+        const minExpr = source.weighted ? 'MIN(s.min_value)' : 'MIN(s.value)';
+        const maxExpr = source.weighted ? 'MAX(s.max_value)' : 'MAX(s.value)';
+        const countExpr = source.weighted ? 'SUM(s.sample_count)' : 'COUNT(*)';
 
-    const results: Array<Record<string, string | null>> = await this.dataSource.query(
-      query,
-      [effectiveInterval, validSensorId, validTenantId, validStart, validEnd],
+        // sensor/tenant/time filters are parameterized; the table + time column
+        // come from the fixed selectMetricSource whitelist (never user input).
+        // The channel JOIN carries the tenant filter too, so a mis-set
+        // search_path cannot silently widen the read.
+        const aggregated = (await qr.query(
+          `SELECT
+             time_bucket($1::interval, s.${source.timeColumn}) AS bucket,
+             c.channel_key AS channel_key,
+             ${avgExpr} AS avg_value,
+             ${minExpr} AS min_value,
+             ${maxExpr} AS max_value,
+             ${countExpr} AS sample_count
+           FROM ${source.table} s
+           JOIN sensor_data_channels c ON c.id = s.channel_id AND c.tenant_id = $3
+           WHERE s.sensor_id = $2
+             AND s.tenant_id = $3
+             AND s.${source.timeColumn} >= $4
+             AND s.${source.timeColumn} <= $5
+           GROUP BY bucket, c.channel_key
+           ORDER BY bucket ASC`,
+          [effectiveInterval, validSensorId, validTenantId, validStart, validEnd],
+        )) as Array<{
+          bucket: string;
+          channel_key: string;
+          avg_value: string | number | null;
+          min_value: string | number | null;
+          max_value: string | number | null;
+          sample_count: string | number | null;
+        }>;
+
+        // The sensor name is decoration on the chart response — a failure to
+        // read it must not fail the chart.
+        let name: string | undefined;
+        try {
+          const sensor = (await qr.query(
+            `SELECT name FROM sensors WHERE id = $1 AND tenant_id = $2`,
+            [validSensorId, validTenantId],
+          )) as Array<{ name: string }>;
+          name = sensor[0]?.name;
+        } catch {
+          this.logger.debug(`Could not fetch sensor name for ${validSensorId}`);
+        }
+
+        return { rows: aggregated, sensorName: name };
+      },
     );
 
-    const data: AggregatedReadingType[] = results.map((row) => ({
-      bucket: new Date(row.bucket as string),
-      count: parseInt(row.count || '0', 10),
-      avgTemperature: parseNumericOrUndefined(row.avg_temperature),
-      minTemperature: parseNumericOrUndefined(row.min_temperature),
-      maxTemperature: parseNumericOrUndefined(row.max_temperature),
-      avgPh: parseNumericOrUndefined(row.avg_ph),
-      minPh: parseNumericOrUndefined(row.min_ph),
-      maxPh: parseNumericOrUndefined(row.max_ph),
-      avgDissolvedOxygen: parseNumericOrUndefined(row.avg_dissolved_oxygen),
-      minDissolvedOxygen: parseNumericOrUndefined(row.min_dissolved_oxygen),
-      maxDissolvedOxygen: parseNumericOrUndefined(row.max_dissolved_oxygen),
-      avgSalinity: parseNumericOrUndefined(row.avg_salinity),
-      minSalinity: parseNumericOrUndefined(row.min_salinity),
-      maxSalinity: parseNumericOrUndefined(row.max_salinity),
-      avgAmmonia: parseNumericOrUndefined(row.avg_ammonia),
-      minAmmonia: parseNumericOrUndefined(row.min_ammonia),
-      maxAmmonia: parseNumericOrUndefined(row.max_ammonia),
-      avgNitrite: parseNumericOrUndefined(row.avg_nitrite),
-      avgNitrate: parseNumericOrUndefined(row.avg_nitrate),
-      avgTurbidity: parseNumericOrUndefined(row.avg_turbidity),
-      avgWaterLevel: parseNumericOrUndefined(row.avg_water_level),
-    }));
-
-    // Get sensor name with error handling
-    let sensorName: string | undefined;
-    try {
-      const sensor: Array<{ name: string }> = await this.dataSource.query(
-        `SELECT name FROM sensors WHERE id = $1 AND tenant_id = $2`,
-        [validSensorId, validTenantId],
-      );
-      sensorName = sensor[0]?.name;
-    } catch {
-      // Sensor name is optional, don't fail the query
-      this.logger.debug(`Could not fetch sensor name for ${validSensorId}`);
-    }
+    const data = this.pivotChannelAggregates(rows);
 
     return {
       sensorId: validSensorId,
@@ -401,95 +595,109 @@ export class SensorQueryService {
   }
 
   /**
-   * Get readings for a pond (all sensors in a pond)
+   * Pivot the channel-keyed aggregate rows into the parameter-keyed
+   * AggregatedReadingType[] the chart contract expects. Rows for channels
+   * outside the nine-parameter vocabulary (parameterForChannelKey → undefined)
+   * are skipped. When more than one channel maps to the same parameter within a
+   * bucket their partials are merged (sample-count-weighted avg, min of mins,
+   * max of maxes) so no channel's data is silently dropped. `count` is the
+   * largest per-parameter sample count in the bucket — the closest proxy for the
+   * reading-cycle count the previous JSONB-row COUNT(*) reported.
    */
-  async getPondReadings(
-    pondId: string,
-    tenantId: string,
-    startTime: Date,
-    endTime: Date,
-  ): Promise<SensorReading[]> {
-    // Validate inputs
-    const validPondId = validateSensorId(pondId); // UUID format
-    const validTenantId = validateTenantId(tenantId);
-    const { startTime: validStart, endTime: validEnd } = validateDateRange(
-      startTime,
-      endTime,
-      MAX_QUERY_RANGE_MS,
-    );
+  private pivotChannelAggregates(
+    rows: Array<{
+      bucket: string;
+      channel_key: string;
+      avg_value: string | number | null;
+      min_value: string | number | null;
+      max_value: string | number | null;
+      sample_count: string | number | null;
+    }>,
+  ): AggregatedReadingType[] {
+    interface ParamAccum {
+      avgWeighted: number;
+      count: number;
+      min: number;
+      max: number;
+    }
+    interface BucketAccum {
+      bucket: Date;
+      params: Map<SensorReadingParameter, ParamAccum>;
+      maxCount: number;
+    }
+    const byBucket = new Map<number, BucketAccum>();
 
-    return await this.readingRepository.find({
-      where: {
-        pondId: validPondId,
-        tenantId: validTenantId,
-        timestamp: Between(validStart, validEnd),
-      },
-      order: { timestamp: 'ASC' },
-      take: 5000,
-    });
-  }
+    for (const row of rows) {
+      const parameter = parameterForChannelKey(row.channel_key);
+      if (!parameter) continue;
 
-  /**
-   * Get reading statistics for a sensor
-   */
-  async getSensorStatistics(
-    sensorId: string,
-    tenantId: string,
-    days = 7,
-  ): Promise<{
-    totalReadings: number;
-    averageQuality: number;
-    lastReading: Date | null;
-    readingsPerDay: number;
-  }> {
-    // Validate inputs
-    const validSensorId = validateSensorId(sensorId);
-    const validTenantId = validateTenantId(tenantId);
+      const avg = toNumberOrUndefined(row.avg_value);
+      if (avg === undefined) continue;
+      const min = toNumberOrUndefined(row.min_value);
+      const max = toNumberOrUndefined(row.max_value);
+      // COUNT(*) / SUM(sample_count) are ≥1 for any returned row; clamp defends
+      // the weighting against a stray null so a present avg is never dropped.
+      const count = Math.max(1, toNumberOrUndefined(row.sample_count) ?? 1);
 
-    // Validate days parameter
-    if (!Number.isInteger(days) || days < 1 || days > 365) {
-      throw new BadRequestException('Days must be an integer between 1 and 365');
+      const bucketDate = new Date(row.bucket);
+      const bucketKey = bucketDate.getTime();
+      let bucket = byBucket.get(bucketKey);
+      if (!bucket) {
+        bucket = { bucket: bucketDate, params: new Map(), maxCount: 0 };
+        byBucket.set(bucketKey, bucket);
+      }
+
+      const acc = bucket.params.get(parameter) ?? {
+        avgWeighted: 0,
+        count: 0,
+        min: Number.POSITIVE_INFINITY,
+        max: Number.NEGATIVE_INFINITY,
+      };
+      acc.avgWeighted += avg * count;
+      acc.count += count;
+      if (min !== undefined) acc.min = Math.min(acc.min, min);
+      if (max !== undefined) acc.max = Math.max(acc.max, max);
+      bucket.params.set(parameter, acc);
+      bucket.maxCount = Math.max(bucket.maxCount, acc.count);
     }
 
-    const startTime = new Date();
-    startTime.setDate(startTime.getDate() - days);
-
-    const query = `
-      SELECT
-        COUNT(*) AS total_readings,
-        AVG(quality) AS average_quality,
-        MAX(timestamp) AS last_reading
-      FROM sensor_readings
-      WHERE sensor_id = $1
-        AND tenant_id = $2
-        AND timestamp >= $3
-    `;
-
-    const results: SensorStatsRow[] = await this.dataSource.query(query, [
-      validSensorId,
-      validTenantId,
-      startTime,
-    ]);
-
-    const result = results[0];
-    const totalReadings = parseInt(result?.total_readings || '0', 10);
-
-    return {
-      totalReadings,
-      averageQuality: result?.average_quality
-        ? parseFloat(result.average_quality)
-        : 0,
-      lastReading: result?.last_reading || null,
-      readingsPerDay: days > 0 ? totalReadings / days : 0,
-    };
+    return [...byBucket.values()]
+      .sort((a, b) => a.bucket.getTime() - b.bucket.getTime())
+      .map((bucket) => {
+        const point: AggregatedReadingType = { bucket: bucket.bucket, count: bucket.maxCount };
+        // Collect the dynamically-named parameter fields in a plain bag, then
+        // graft them onto the typed point (Object.assign needs no cast).
+        const fields: Record<string, number> = {};
+        for (const [parameter, acc] of bucket.params) {
+          const cap = parameter.charAt(0).toUpperCase() + parameter.slice(1);
+          const avg = acc.count > 0 ? acc.avgWeighted / acc.count : undefined;
+          setAggregateField(fields, `avg${cap}`, avg);
+          if (MIN_MAX_PARAMETERS.has(parameter)) {
+            setAggregateField(
+              fields,
+              `min${cap}`,
+              acc.min === Number.POSITIVE_INFINITY ? undefined : acc.min,
+            );
+            setAggregateField(
+              fields,
+              `max${cap}`,
+              acc.max === Number.NEGATIVE_INFINITY ? undefined : acc.max,
+            );
+          }
+        }
+        Object.assign(point, fields);
+        return point;
+      });
   }
 
   /**
-   * Get multiple sensors' latest readings efficiently
-   * Useful for dashboard views
+   * Multiple sensors' latest readings, each an as-of projection (SENSOR-HIGH-085).
    *
-   * Uses DISTINCT ON for a single-pass scan — no N+1 queries.
-   * Raw SQL returns snake_case columns, so we alias them to match the entity.
+   * DISTINCT ON (sensor_id, channel_id) ... ORDER BY sensor_id, channel_id, time
+   * DESC gives every sensor's latest value per channel in a single index scan on
+   * (sensor_id, channel_id, time DESC); the rows are grouped per sensor and each
+   * sensor's reading is anchored at its newest channel time. Runs tenant-pinned
+   * (D8). One reading per sensor that has any metric data.
    */
   async getLatestReadingsForSensors(
     sensorIds: string[],
@@ -499,7 +707,6 @@ export class SensorQueryService {
       return [];
     }
 
-    // Validate inputs
     const validTenantId = validateTenantId(tenantId);
     const validSensorIds = sensorIds.map((id) => validateSensorId(id));
 
@@ -510,73 +717,150 @@ export class SensorQueryService {
       );
     }
 
-    // Use DISTINCT ON for PostgreSQL to get latest reading per sensor
-    // Alias snake_case columns to camelCase to match the SensorReading entity
-    const query = `
-      SELECT DISTINCT ON (sensor_id)
-        id,
-        sensor_id    AS "sensorId",
-        tenant_id    AS "tenantId",
-        timestamp,
-        readings,
-        pond_id      AS "pondId",
-        farm_id      AS "farmId",
-        quality,
-        source,
-        created_at   AS "createdAt"
-      FROM sensor_readings
-      WHERE sensor_id = ANY($1)
-        AND tenant_id = $2
-      ORDER BY sensor_id, timestamp DESC
-    `;
+    return runInTenantRead(this.dataSource, SENSOR_SCHEMA, validTenantId, async (qr) => {
+      const rows = (await qr.query(
+        `SELECT c.sensor_id AS sensor_id,
+                c.channel_key AS channel_key,
+                lv.value AS value,
+                lv.time AS time,
+                ${sensorReadingAnchorSql('lv.time')} AS time_text,
+                lv.quality_code AS quality_code,
+                lv.source_protocol AS source_protocol,
+                lv.pond_id AS pond_id,
+                lv.farm_id AS farm_id
+           FROM sensor_data_channels c
+           CROSS JOIN LATERAL (
+             SELECT m.value, m.time, m.quality_code, m.source_protocol, m.pond_id, m.farm_id
+             FROM sensor_metrics m
+             WHERE m.sensor_id = c.sensor_id AND m.channel_id = c.id AND m.tenant_id = $2
+               AND m.time >= NOW() - $3::interval
+             ORDER BY m.time DESC
+             LIMIT 1
+           ) lv
+          WHERE c.sensor_id = ANY($1) AND c.tenant_id = $2 AND c.is_enabled = true
+          ORDER BY c.sensor_id, c.channel_key`,
+        [validSensorIds, validTenantId, AS_OF_LOOKBACK],
+      )) as SensorChannelAsOfRow[];
 
-    const results: SensorReading[] = await this.dataSource.query(query, [
-      validSensorIds,
-      validTenantId,
-    ]);
+      const bySensor = new Map<string, SensorChannelAsOfRow[]>();
+      for (const row of rows) {
+        const list = bySensor.get(row.sensor_id) ?? [];
+        list.push(row);
+        bySensor.set(row.sensor_id, list);
+      }
 
-    return results;
+      const readings: SensorReading[] = [];
+      for (const [sensorId, sensorRows] of bySensor) {
+        const anchor = latestAnchor(sensorRows);
+        if (!anchor) {
+          continue;
+        }
+        readings.push(
+          this.assembleReading(sensorId, validTenantId, anchor.time, anchor.anchor, sensorRows),
+        );
+      }
+      return readings;
+    });
   }
 
   /**
-   * Get aggregated readings for multiple sensors
-   * Useful for comparing sensors
+   * Reconstruct the exact as-of snapshot a federation id was minted from
+   * (SENSOR-HIGH-085). SensorReadingResolver.resolveReference decodes an id into
+   * (sensorId, canonical anchor) and calls this: for each of the sensor's channels
+   * it takes the last-known value at or before the anchor instant (a per-channel
+   * LATERAL LIMIT 1 index seek) and assembles the reading anchored at that exact
+   * instant, so the reconstructed reading's id round-trips back to the input id.
+   * Runs tenant-pinned (D8); the anchor is fed back verbatim as a $::timestamptz
+   * bound parameter, so the microsecond-precise `time <= T` bound is lossless.
    */
-  async getMultiSensorAggregatedReadings(
-    sensorIds: string[],
+  async reconstructAsOf(
+    sensorId: string,
+    anchor: SensorReadingAnchor,
     tenantId: string,
-    startTime: Date,
-    endTime: Date,
-    interval?: AggregationInterval,
-  ): Promise<Map<string, AggregatedReadingsResponse>> {
-    if (sensorIds.length === 0) {
-      return new Map();
-    }
+  ): Promise<SensorReading | null> {
+    const validSensorId = validateSensorId(sensorId);
+    const validTenantId = validateTenantId(tenantId);
 
-    // Limit to prevent performance issues
-    if (sensorIds.length > 10) {
-      throw new BadRequestException('Maximum 10 sensors can be queried at once');
-    }
+    return runInTenantRead(this.dataSource, SENSOR_SCHEMA, validTenantId, async (qr) => {
+      const rows = (await qr.query(
+        `SELECT $3::timestamptz AS as_of,
+                c.channel_key AS channel_key,
+                lv.value AS value,
+                lv.quality_code AS quality_code,
+                lv.source_protocol AS source_protocol,
+                lv.pond_id AS pond_id,
+                lv.farm_id AS farm_id
+           FROM sensor_data_channels c
+           CROSS JOIN LATERAL (
+             SELECT value, quality_code, source_protocol, pond_id, farm_id
+             FROM sensor_metrics m
+             WHERE m.sensor_id = $1 AND m.channel_id = c.id AND m.tenant_id = $2
+               AND m.time <= $3::timestamptz
+               AND m.time >= $3::timestamptz - $4::interval
+             ORDER BY m.time DESC
+             LIMIT 1
+           ) lv
+           WHERE c.sensor_id = $1 AND c.tenant_id = $2 AND c.is_enabled = true
+           ORDER BY c.channel_key`,
+        [validSensorId, validTenantId, anchor, AS_OF_LOOKBACK],
+      )) as Array<ChannelValueParts & { as_of: Date }>;
 
-    const resultsMap = new Map<string, AggregatedReadingsResponse>();
-
-    // Fetch in parallel but with controlled concurrency
-    const promises = sensorIds.map((sensorId) =>
-      this.getAggregatedReadings(sensorId, tenantId, startTime, endTime, interval)
-        .then((result) => ({ sensorId, result, error: null }))
-        .catch((error) => ({ sensorId, result: null, error })),
-    );
-
-    const results = await Promise.all(promises);
-
-    for (const { sensorId, result, error } of results) {
-      if (result) {
-        resultsMap.set(sensorId, result);
-      } else {
-        this.logger.warn(`Failed to get readings for sensor ${sensorId}: ${error?.message}`);
+      if (rows.length === 0) {
+        return null;
       }
+      return this.assembleReading(validSensorId, validTenantId, rows[0]!.as_of, anchor, rows);
+    });
+  }
+
+  /**
+   * Assemble the channel-level as-of rows for one instant into a SensorReading
+   * read-model (SENSOR-HIGH-085). channel_key → parameter via the event-contract
+   * SSoT; quality is recomputed from the projected readings by the same
+   * DataQualityService the ingest path used (D4); source is the modal channel
+   * protocol (D5); id encodes (sensorId, anchor) via the shared codec (D3).
+   */
+  private assembleReading(
+    sensorId: string,
+    tenantId: string,
+    anchorTime: Date,
+    anchor: SensorReadingAnchor,
+    rows: ReadonlyArray<ChannelValueParts>,
+  ): SensorReading {
+    // Two channels can legitimately map to the same parameter (e.g. `temp` and
+    // `water_temperature`). Every as-of query returns its rows ORDER BY
+    // channel_key, and the FIRST row for a parameter wins — so the winner is
+    // deterministic across calls instead of depending on row arrival order.
+    const readings: SensorReadings = {};
+    for (const row of rows) {
+      const parameter = parameterForChannelKey(row.channel_key);
+      if (!parameter || readings[parameter] !== undefined) {
+        continue;
+      }
+      const value = toNumberOrUndefined(row.value);
+      if (value === undefined) {
+        continue;
+      }
+      readings[parameter] = value;
     }
 
-    return resultsMap;
+    return {
+      id: encodeSensorReadingId(sensorId, anchor),
+      sensorId,
+      tenantId,
+      timestamp: anchorTime,
+      readings,
+      pondId: firstNonNull(rows, (r) => r.pond_id),
+      farmId: firstNonNull(rows, (r) => r.farm_id),
+      // Per-channel `quality_code` is what the DEVICE said about each
+      // contributing channel; it caps the plausibility score so an in-range
+      // value from a probe reporting BAD cannot be presented as a healthy
+      // reading. Every as-of query already selects it — this is where it stops
+      // being fetched and discarded.
+      quality: this.dataQualityService.calculateProjectedQuality(
+        readings,
+        rows.map((row) => row.quality_code),
+      ),
+      source: modalSourceProtocol(rows),
+    };
   }
 }

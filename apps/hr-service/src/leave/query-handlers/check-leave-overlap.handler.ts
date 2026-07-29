@@ -2,6 +2,7 @@ import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { toIsoCalendarDate } from '../../common/utc-calendar-date';
 import { LeaveOverlapResult } from '../dto/leave-admin.types';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
 import { CheckLeaveOverlapQuery } from '../queries/check-leave-overlap.query';
@@ -55,15 +56,10 @@ export class CheckLeaveOverlapHandler
       overlappingRequests: overlapping.map((r) => ({
         id: r.id,
         requestNumber: r.requestNumber,
-        startDate: this.toIsoDate(r.startDate),
-        endDate: this.toIsoDate(r.endDate),
+        startDate: toIsoCalendarDate(r.startDate),
+        endDate: toIsoCalendarDate(r.endDate),
         status: r.status,
       })),
     };
-  }
-
-  private toIsoDate(value: Date | string): string {
-    // 'date' columns round-trip as 'YYYY-MM-DD' strings; normalize Date too.
-    return value instanceof Date ? value.toISOString().split('T')[0]! : String(value);
   }
 }

@@ -26,6 +26,7 @@ export interface CalibrationChannel {
   calibrationOffset: number;
   lastCalibratedAt?: string;
   nextCalibrationDue?: string;
+  calibrationIntervalDays?: number;
   calibrationPolynomial?: { coefficients: number[] };
   isEnabled: boolean;
 }
@@ -35,6 +36,11 @@ export interface CalibrationUpdateInput {
   calibrationEnabled: boolean;
   calibrationMultiplier: number;
   calibrationOffset: number;
+  /**
+   * Per-channel calibration interval in days. When set, the backend computes
+   * nextCalibrationDue from it so overdue-calibration warnings can fire.
+   */
+  intervalDays?: number;
 }
 
 export type CalibrationStatus = 'calibrated' | 'due' | 'overdue' | 'never';
@@ -56,19 +62,27 @@ const ALL_DATA_CHANNELS_QUERY = `
       calibrationMultiplier
       calibrationOffset
       lastCalibratedAt
+      nextCalibrationDue
+      calibrationIntervalDays
       isEnabled
     }
   }
 `;
 
-const UPDATE_DATA_CHANNEL_MUTATION = `
-  mutation UpdateDataChannel($input: UpdateDataChannelInput!) {
-    updateDataChannel(input: $input) {
+// SENSOR-HIGH-083: calibration is recorded through the calibration aggregate, not
+// updateDataChannel. recordCalibration persists an immutable calibration event and
+// stamps lastCalibratedAt/nextCalibrationDue, so the status the page derives is
+// truthful (a calibrated channel no longer reads "never calibrated" forever).
+const RECORD_CALIBRATION_MUTATION = `
+  mutation RecordCalibration($input: RecordCalibrationInput!) {
+    recordCalibration(input: $input) {
       id
       calibrationEnabled
       calibrationMultiplier
       calibrationOffset
       lastCalibratedAt
+      nextCalibrationDue
+      calibrationIntervalDays
     }
   }
 `;
@@ -193,12 +207,13 @@ export function useCalibration() {
       setUpdateError(null);
 
       try {
-        await graphqlFetch(UPDATE_DATA_CHANNEL_MUTATION, {
+        await graphqlFetch(RECORD_CALIBRATION_MUTATION, {
           input: {
             channelId: input.channelId,
             calibrationEnabled: input.calibrationEnabled,
             calibrationMultiplier: input.calibrationMultiplier,
             calibrationOffset: input.calibrationOffset,
+            ...(input.intervalDays != null ? { intervalDays: input.intervalDays } : {}),
           },
         });
 

@@ -14,6 +14,8 @@
 import { ConfigService } from '@nestjs/config';
 import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
 
+import { getRequestContext } from '@aquaculture/backend-common/logging';
+
 import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
 import { Sensor, SensorStatus } from '../../database/entities/sensor.entity';
 import { DeviceEvent } from '../../edge-device/entities/device-event.entity';
@@ -131,6 +133,7 @@ function createMockEdgeDeviceService(): jest.Mocked<EdgeDeviceService> {
     updateDevice: jest.fn().mockResolvedValue(undefined),
     handlePingResponse: jest.fn(),
     handleScanHardwareResponse: jest.fn(),
+    handleIoConfigAckResponse: jest.fn().mockReturnValue({ matched: false }),
     updateLoRaDeviceStatus: jest.fn().mockResolvedValue(undefined),
   } as unknown as jest.Mocked<EdgeDeviceService>;
 }
@@ -210,6 +213,11 @@ function buildService(overrides: {
     configService,
     sensorRepo,
     dataSource,
+    {
+      writeImmediate: jest.fn().mockResolvedValue(undefined),
+      writeManaged: jest.fn().mockResolvedValue(undefined),
+      enqueue: jest.fn(),
+    }, // metricWriter (SensorMetricWriterService)
     eventBus,
     edgeDeviceService,
     sensorTopicCache,
@@ -914,6 +922,51 @@ describe('MqttListenerService', () => {
         );
       });
 
+      // SENSOR-HIGH-074: the device lookup that gates io_data + alarm
+      // persistence must run inside a tenant context, otherwise the per-tenant
+      // edge_devices query hits the empty source-schema template, returns null,
+      // and both writes are silently dropped.
+      it('resolves the edge device inside a tenant context for io_data persistence', async () => {
+        const { service, edgeDeviceService } = buildService();
+        let lookupTenantId: string | undefined = 'NOT_CALLED_IN_CONTEXT';
+        edgeDeviceService!.findByCode.mockImplementation(async () => {
+          lookupTenantId = getRequestContext().tenantId;
+          return null;
+        });
+
+        await callHandleMessage(
+          service,
+          `tenants/${TENANT_ID}/devices/${DEVICE_CODE}/io_data`,
+          JSON.stringify({
+            timestamp: '2026-03-14T12:00:00Z',
+            tags: { temp_inlet: { value: 23.5, quality: 'good' } },
+          }),
+        );
+
+        expect(edgeDeviceService!.findByCode).toHaveBeenCalledWith(DEVICE_CODE, TENANT_ID);
+        expect(lookupTenantId).toBe(TENANT_ID);
+      });
+
+      it('resolves the edge device inside a tenant context for alarm persistence', async () => {
+        const { service, edgeDeviceService } = buildService();
+        let lookupTenantId: string | undefined = 'NOT_CALLED_IN_CONTEXT';
+        edgeDeviceService!.findByCode.mockImplementation(async () => {
+          lookupTenantId = getRequestContext().tenantId;
+          return null;
+        });
+
+        await callHandleMessage(
+          service,
+          `tenants/${TENANT_ID}/devices/${DEVICE_CODE}/alarms`,
+          JSON.stringify({
+            timestamp: '2026-03-14T12:00:00Z',
+            alarms: [{ tag: 'temp_inlet', type: 'HIGH', priority: 'high', value: 99, setpoint: 80 }],
+          }),
+        );
+
+        expect(lookupTenantId).toBe(TENANT_ID);
+      });
+
       it('should reject io_data with payload exceeding 64KB', async () => {
         const { service, eventBus } = buildService();
         const loggerSpy = jest.spyOn((service as any).logger, 'warn');
@@ -1361,27 +1414,8 @@ describe('MqttListenerService', () => {
     });
   });
 
-  // ==================== 14. UUID Validation ====================
-
-  describe('UUID validation', () => {
-    it('should accept valid UUIDs', () => {
-      const service = buildService().service;
-      const isValidUUID = (service as any).isValidUUID.bind(service);
-
-      expect(isValidUUID(SENSOR_ID)).toBe(true);
-      expect(isValidUUID('12345678-1234-1234-1234-123456789abc')).toBe(true);
-    });
-
-    it('should reject invalid UUIDs', () => {
-      const service = buildService().service;
-      const isValidUUID = (service as any).isValidUUID.bind(service);
-
-      expect(isValidUUID('not-a-uuid')).toBe(false);
-      expect(isValidUUID(null)).toBe(false);
-      expect(isValidUUID(undefined)).toBe(false);
-      expect(isValidUUID('')).toBe(false);
-    });
-  });
+  // UUID (and non-finite) metric validation moved to SensorMetricWriterService
+  // (SENSOR-MEDIUM-068) — see sensor-metric-writer.service.spec.ts.
 
   // ==================== 15. Alarm Priority Mapping ====================
 

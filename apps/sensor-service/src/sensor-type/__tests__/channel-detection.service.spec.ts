@@ -1,120 +1,75 @@
 /**
  * ChannelDetectionService Unit Tests
+ *
+ * SENSOR-MEDIUM-070: the AI call now rides NATS request-reply
+ * (request.ai.sensor.detectChannels) under this service's mTLS cert identity —
+ * no forged x-user-payload user, no dead HTTP endpoint.
  */
-
- 
- 
- 
-
 import { NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { CircuitBreakerService } from '@aquaculture/backend-common/resilience';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
+import { of, throwError } from 'rxjs';
 
 import { ChannelDetectionLog } from '../../database/entities/channel-detection-log.entity';
-import {
-  SensorDataChannel,
-  ChannelDataType,
-  DiscoverySource,
-} from '../../database/entities/sensor-data-channel.entity';
-import { ChannelDetectionService } from '../channel-detection.service';
-
-// Mock global fetch
-const mockFetch = jest.fn() as jest.Mock;
-global.fetch = mockFetch;
+import { SensorDataChannel } from '../../database/entities/sensor-data-channel.entity';
+import { AI_NATS_CLIENT, ChannelDetectionService } from '../channel-detection.service';
 
 describe('ChannelDetectionService', () => {
   let service: ChannelDetectionService;
   let logRepo: jest.Mocked<Repository<ChannelDetectionLog>>;
   let channelRepo: jest.Mocked<Repository<SensorDataChannel>>;
-  let mockDataSource: jest.Mocked<DataSource>;
+  const mockSend = jest.fn();
 
   const tenantId = 'tenant-123';
   const sensorId = 'sensor-456';
 
   const sampleData = [
-    { temperature: 25.3, ph: 7.2, dissolved_oxygen: 6.8 },
-    { temperature: 25.5, ph: 7.1, dissolved_oxygen: 6.9 },
+    { timestamp: '2026-01-01T00:00:00Z', values: { temperature: 25.3, ph: 7.2, dissolved_oxygen: 6.8 } },
+    { timestamp: '2026-01-01T00:00:01Z', values: { temperature: 25.5, ph: 7.1, dissolved_oxygen: 6.9 } },
   ];
 
-  const mockAiResponse = {
-    message: 'Analysis complete',
-    toolResults: [
-      {
-        tool: 'analyze_sensor_data',
-        result: {
-          fields: [
-            { key: 'temperature', type: 'number', sampleValues: [25.3, 25.5] },
-            { key: 'ph', type: 'number', sampleValues: [7.2, 7.1] },
-            { key: 'dissolved_oxygen', type: 'number', sampleValues: [6.8, 6.9] },
-          ],
-        },
-      },
-      {
-        tool: 'suggest_sensor_channels',
-        result: {
-          channels: [
-            {
-              channelKey: 'temperature',
-              displayLabel: 'Temperature',
-              dataType: 'number',
-              unit: 'Celsius',
-              unitSymbol: '\u00b0C',
-            },
-            {
-              channelKey: 'ph',
-              displayLabel: 'pH',
-              dataType: 'number',
-              unit: 'pH',
-              unitSymbol: 'pH',
-            },
-            {
-              channelKey: 'dissolved_oxygen',
-              displayLabel: 'Dissolved Oxygen',
-              dataType: 'number',
-              unit: 'mg/L',
-              unitSymbol: 'mg/L',
-            },
-          ],
-        },
-      },
+  // Wire response from ai-service's request.ai.sensor.detectChannels responder.
+  const natsResponse = {
+    proposals: [
+      { channelKey: 'temperature', displayLabel: 'Temperature', dataType: 'number', unit: '°C' },
+      { channelKey: 'ph', displayLabel: 'pH', dataType: 'number', unit: 'pH' },
+      { channelKey: 'dissolved_oxygen', displayLabel: 'Dissolved Oxygen', dataType: 'number', unit: 'mg/L' },
     ],
+    detectedFields: [],
+    confidence: 'high' as const,
   };
 
-  // FRESH proposal per test: approveProposal MUTATES the object findOne
-  // returns (proposal.userAction = APPROVED before save), so a shared
-  // module-level fixture trips the deliberate "already approved"
-  // idempotency guard in every test after the first approval.
+  const storedChannels = natsResponse.proposals;
+
+  // FRESH proposal per test: approveProposal MUTATES the object findOne returns
+  // (proposal.userAction = APPROVED before save), so a shared fixture trips the
+  // "already approved" idempotency guard after the first approval.
   const makeProposal = (): Partial<ChannelDetectionLog> => ({
     id: 'proposal-1',
     tenantId,
     sensorId,
     rawSample: sampleData as never,
-    aiAnalysis: mockAiResponse.toolResults![0]!.result as never,
-    proposedChannels: (mockAiResponse.toolResults![1]!.result as { channels: never[] }).channels,
+    aiAnalysis: { confidence: 'high' } as never,
+    proposedChannels: storedChannels as never,
     userAction: undefined,
     finalChannels: undefined,
     createdAt: new Date(),
   });
 
   beforeEach(async () => {
-    mockFetch.mockReset();
+    mockSend.mockReset();
 
     const logRepoMock = {
       find: jest.fn(),
       findOne: jest.fn(),
       create: jest.fn().mockImplementation((dto) => ({ ...dto })),
-      save: jest.fn().mockImplementation((entity) =>
-        Promise.resolve({ id: 'proposal-1', ...entity }),
-      ),
+      save: jest.fn().mockImplementation((entity) => Promise.resolve({ id: 'proposal-1', ...entity })),
     };
 
     const channelRepoMock = {
       find: jest.fn(),
-      // Array-aware like the real Repository.create — TenantScopedRepository
-      // .saveMany passes the WHOLE batch array through create() before save().
       create: jest.fn().mockImplementation((dto) =>
         Array.isArray(dto) ? dto.map((d) => ({ ...d })) : { ...dto },
       ),
@@ -125,7 +80,7 @@ describe('ChannelDetectionService', () => {
       ),
     };
 
-    const repoMap = new Map<any, any>([
+    const repoMap = new Map<unknown, unknown>([
       [ChannelDetectionLog, logRepoMock],
       [SensorDataChannel, channelRepoMock],
     ]);
@@ -133,41 +88,23 @@ describe('ChannelDetectionService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ChannelDetectionService,
-        {
-          provide: getRepositoryToken(ChannelDetectionLog),
-          useValue: logRepoMock,
-        },
-        {
-          provide: getRepositoryToken(SensorDataChannel),
-          useValue: channelRepoMock,
-        },
-        {
-          provide: ConfigService,
-          useValue: {
-            get: jest.fn().mockImplementation((key: string, defaultValue?: string) => defaultValue ?? undefined),
-          },
-        },
+        { provide: getRepositoryToken(ChannelDetectionLog), useValue: logRepoMock },
+        { provide: getRepositoryToken(SensorDataChannel), useValue: channelRepoMock },
+        // SENSOR-MEDIUM-070: the outbound NATS client to ai-service.
+        { provide: AI_NATS_CLIENT, useValue: { send: mockSend } },
         {
           provide: getDataSourceToken(),
           useValue: {
-            transaction: jest.fn().mockImplementation(async (cb: any) => {
+            transaction: jest.fn().mockImplementation(async (cb: (m: unknown) => unknown) => {
               const manager = {
-                getRepository: jest.fn().mockImplementation((entity: any) => repoMap.get(entity) ?? {}),
+                getRepository: jest.fn().mockImplementation((entity: unknown) => repoMap.get(entity) ?? {}),
               };
               return cb(manager);
             }),
           },
         },
-        // CIRCUIT-LOW-002 cure: ChannelDetectionService now
-        // constructor-injects CircuitBreakerService for the AI
-        // service fetch wrap. Mock the execute() to delegate
-        // straight to fn() so the existing tests don't have to
-        // know about the breaker layer — a passthrough means
-        // the breaker is invisible to test logic AND any
-        // regression that drops the breaker still surfaces
-        // (the AI fetch now ALWAYS runs even when the breaker
-        // would have tripped — but the unit specs aren't
-        // asserting trip behaviour anyway).
+        // CIRCUIT-LOW-002 cure: passthrough breaker — execute() delegates
+        // straight to fn() so the specs don't have to model the breaker layer.
         {
           provide: CircuitBreakerService,
           useValue: {
@@ -182,39 +119,34 @@ describe('ChannelDetectionService', () => {
     service = module.get<ChannelDetectionService>(ChannelDetectionService);
     logRepo = module.get(getRepositoryToken(ChannelDetectionLog));
     channelRepo = module.get(getRepositoryToken(SensorDataChannel));
-    mockDataSource = module.get(getDataSourceToken());
   });
 
   describe('detectChannels', () => {
-    it('should call AI service and store proposal in DB', async () => {
-      mockFetch.mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockAiResponse),
-      });
+    it('requests channel detection over NATS and stores the mapped proposal', async () => {
+      mockSend.mockReturnValue(of(natsResponse));
 
       const result = await service.detectChannels(sensorId, tenantId, sampleData);
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('/api/v2/ai/chat'),
-        expect.objectContaining({
-          method: 'POST',
-          headers: expect.objectContaining({ 'Content-Type': 'application/json' }),
-        }),
+      expect(mockSend).toHaveBeenCalledWith(
+        'request.ai.sensor.detectChannels',
+        expect.objectContaining({ tenantId, sensorId, samples: sampleData }),
       );
       expect(logRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({
           sensorId,
           tenantId,
           rawSample: sampleData,
+          proposedChannels: expect.arrayContaining([
+            expect.objectContaining({ channelKey: 'temperature', unit: '°C' }),
+          ]),
         }),
       );
       expect(logRepo.save).toHaveBeenCalled();
-      expect(result).toBeDefined();
       expect(result.id).toBe('proposal-1');
     });
 
-    it('should fall back to local analysis when AI service is unavailable', async () => {
-      mockFetch.mockRejectedValue(new Error('Connection refused'));
+    it('falls back to local analysis when the NATS request errors', async () => {
+      mockSend.mockReturnValue(throwError(() => new Error('NATS unavailable')));
 
       const result = await service.detectChannels(sensorId, tenantId, sampleData);
 
@@ -230,12 +162,15 @@ describe('ChannelDetectionService', () => {
       expect(result).toBeDefined();
     });
 
-    it('should fall back to local analysis when AI service returns error', async () => {
-      mockFetch.mockResolvedValue({
-        ok: false,
-        status: 500,
-        statusText: 'Internal Server Error',
-      });
+    it('falls back to local analysis when ai-service returns an error response', async () => {
+      mockSend.mockReturnValue(
+        of({
+          proposals: [],
+          detectedFields: [],
+          confidence: 'low',
+          error: { code: 'INTERNAL', message: 'boom' },
+        }),
+      );
 
       const result = await service.detectChannels(sensorId, tenantId, sampleData);
 
@@ -255,21 +190,13 @@ describe('ChannelDetectionService', () => {
 
       const result = await service.approveProposal('proposal-1', tenantId);
 
-      expect(logRepo.findOne).toHaveBeenCalledWith({
-        where: { id: 'proposal-1', tenantId },
-      });
-      // Assert the PERSISTED batch (create-call counts are a
-      // TenantScopedRepository.saveMany internal, not product behavior).
+      expect(logRepo.findOne).toHaveBeenCalledWith({ where: { id: 'proposal-1', tenantId } });
       expect(channelRepo.save).toHaveBeenCalledWith([
         expect.objectContaining({ channelKey: 'temperature', tenantId }),
         expect.objectContaining({ channelKey: 'ph', tenantId }),
         expect.objectContaining({ channelKey: 'dissolved_oxygen', tenantId }),
       ]);
-      expect(logRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          userAction: 'approved',
-        }),
-      );
+      expect(logRepo.save).toHaveBeenCalledWith(expect.objectContaining({ userAction: 'approved' }));
       expect(result).toHaveLength(3);
     });
 
@@ -283,7 +210,7 @@ describe('ChannelDetectionService', () => {
           displayLabel: 'Water Temp',
           dataType: 'number',
           unit: 'Fahrenheit',
-          unitSymbol: '\u00b0F',
+          unitSymbol: '°F',
         },
       ];
 
@@ -298,10 +225,7 @@ describe('ChannelDetectionService', () => {
         }),
       ]);
       expect(logRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          userAction: 'approved',
-          finalChannels: modifications,
-        }),
+        expect.objectContaining({ userAction: 'approved', finalChannels: modifications }),
       );
       expect(result).toHaveLength(1);
     });
@@ -309,9 +233,7 @@ describe('ChannelDetectionService', () => {
     it('should throw NotFoundException for non-existent proposal', async () => {
       logRepo.findOne.mockResolvedValue(null);
 
-      await expect(
-        service.approveProposal('missing-id', tenantId),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.approveProposal('missing-id', tenantId)).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -321,20 +243,14 @@ describe('ChannelDetectionService', () => {
 
       const result = await service.rejectProposal('proposal-1', tenantId);
 
-      expect(logRepo.save).toHaveBeenCalledWith(
-        expect.objectContaining({
-          userAction: 'rejected',
-        }),
-      );
+      expect(logRepo.save).toHaveBeenCalledWith(expect.objectContaining({ userAction: 'rejected' }));
       expect(result).toBe(true);
     });
 
     it('should throw NotFoundException for non-existent proposal', async () => {
       logRepo.findOne.mockResolvedValue(null);
 
-      await expect(
-        service.rejectProposal('missing-id', tenantId),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.rejectProposal('missing-id', tenantId)).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -347,11 +263,7 @@ describe('ChannelDetectionService', () => {
 
       expect(result).toEqual(proposals);
       expect(logRepo.find).toHaveBeenCalledWith({
-        where: {
-          sensorId,
-          tenantId,
-          userAction: expect.anything(),
-        },
+        where: { sensorId, tenantId, userAction: expect.anything() },
         order: { createdAt: 'DESC' },
       });
     });

@@ -88,6 +88,21 @@ export class RegisterVfdDto {
   @IsUUID()
   pumpId?: string;
 
+  // SENSOR-CRITICAL-007: edge-delegated write binding. Provide both together —
+  // the owning edge gateway (edgeDeviceId) and the Modbus `device` name it
+  // exposes for this drive (edgeModbusDeviceName). Enforced both-or-neither by
+  // the service so a half-bound drive can never be dispatched to.
+  @Field(() => ID, { nullable: true })
+  @IsOptional()
+  @IsUUID()
+  edgeDeviceId?: string;
+
+  @Field({ nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  edgeModbusDeviceName?: string;
+
   @Field(() => [String], { nullable: true })
   @IsOptional()
   @IsArray()

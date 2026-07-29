@@ -138,7 +138,13 @@ const CROSS_TENANT_FILENAME_PATTERNS: readonly RegExp[] = [
   // addresses) — one cross-tenant table pinned to `sensor`, no per-tenant clone.
   /vfd-register-mapping\.entity\.ts$/i,
   // SENSOR-MEDIUM-004: cross-tenant O(1) device→tenant index pinned to `sensor`.
+  // Structurally cannot be per-tenant: it resolves WHICH tenant a device belongs
+  // to on the pre-auth provisioning/MQTT path, before any tenant is known.
   /edge-device-directory\.entity\.ts$/i,
+  // NOTE (SENSOR-HIGH-085): sensor-metric.entity.ts is deliberately NOT listed.
+  // Telemetry is per-tenant — each tenant's sensor_metrics hypertable lives in
+  // that tenant's schema (delivered by migration 1815000000000). The earlier
+  // cross-tenant classification was reverted before release.
 ];
 
 const TENANT_OWNED_FILENAME_OVERRIDES = new Set<string>([

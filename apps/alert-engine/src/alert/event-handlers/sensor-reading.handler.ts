@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler, IEvent } from '@platform/event-bus';
+import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { PARAMETER_BY_READING_FIELD, type SensorReadingEvent } from '@platform/event-contracts';
 import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/database';
 import { requestContextStorage, RequestContext } from '@aquaculture/backend-common/logging';
 import { AlertEvaluationService } from '../services/alert-evaluation.service';
@@ -8,44 +9,18 @@ import { AlertEvaluationService } from '../services/alert-evaluation.service';
 // UUID validation imported from @aquaculture/backend-common (isValidUUID)
 
 /**
- * Sensor Reading Event interface (v2 — flat fields)
- * Upcaster in NatsEventBus converts v1 nested `readings` to flat `readingXxx` fields.
- */
-interface SensorReadingEvent extends IEvent {
-  eventType: 'SensorReading';
-  sensorId: string;
-  farmId?: string;
-  pondId?: string;
-  readingTemperature?: number;
-  readingPh?: number;
-  readingDissolvedOxygen?: number;
-  readingSalinity?: number;
-  readingAmmonia?: number;
-  readingNitrite?: number;
-  readingNitrate?: number;
-  readingTurbidity?: number;
-  readingWaterLevel?: number;
-}
-
-/** ARCH-C01: Flat reading fields → Record<string, number> for evaluationService */
-const READING_FIELD_MAP: Record<string, string> = {
-  readingTemperature: 'temperature',
-  readingPh: 'ph',
-  readingDissolvedOxygen: 'dissolvedOxygen',
-  readingSalinity: 'salinity',
-  readingAmmonia: 'ammonia',
-  readingNitrite: 'nitrite',
-  readingNitrate: 'nitrate',
-  readingTurbidity: 'turbidity',
-  readingWaterLevel: 'waterLevel',
-};
-
-/**
- * Extract flat readingXxx fields into a Record<string, number> for internal use.
+ * Extract the flat `readingXxx` fields of a SensorReadingEvent into a
+ * `Record<parameter, value>` for the evaluation service.
+ *
+ * The flat-field ↔ parameter mapping is the single source of truth
+ * `PARAMETER_BY_READING_FIELD` (SENSOR-MEDIUM-066/068) — the same table the
+ * sensor-service producer builds its events from, so a new parameter is added
+ * in exactly one place and producer + consumer stay in lock-step by
+ * construction rather than by two hand-copied maps kept in sync.
  */
 function extractReadingsFromEvent(event: SensorReadingEvent): Record<string, number> {
   const readings: Record<string, number> = {};
-  for (const [flatField, paramName] of Object.entries(READING_FIELD_MAP)) {
+  for (const [flatField, paramName] of Object.entries(PARAMETER_BY_READING_FIELD)) {
     const value = event[flatField as keyof SensorReadingEvent];
     if (typeof value === 'number') {
       readings[paramName] = value;
@@ -141,7 +116,7 @@ export class SensorReadingEventHandler
       await requestContextStorage.run(context, async () => {
         await this.evaluationService.evaluateSensorReading({
           sensorId: event.sensorId,
-          tenantId: event.tenantId!,
+          tenantId: event.tenantId,
           readings,
           farmId: event.farmId,
           pondId: event.pondId,

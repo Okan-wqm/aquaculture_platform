@@ -4,6 +4,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { Holiday } from '../../scheduling/entities/holiday.entity';
+import {
+  addUtcCalendarDays,
+  getUtcCalendarWeekday,
+  toIsoCalendarDate,
+  toUtcCalendarDate,
+} from '../../common/utc-calendar-date';
 import { LeaveDaysResult } from '../dto/leave-admin.types';
 import { LeaveType } from '../entities/leave-type.entity';
 import { CalculateLeaveDaysQuery } from '../queries/calculate-leave-days.query';
@@ -64,7 +70,11 @@ export class CalculateLeaveDaysHandler
     for (const holiday of holidays) {
       const hStart = this.parseDate(holiday.startDate);
       const hEnd = this.parseDate(holiday.endDate);
-      for (const d = new Date(hStart); d <= hEnd; d.setDate(d.getDate() + 1)) {
+      for (
+        let d = new Date(hStart);
+        d <= hEnd;
+        d = addUtcCalendarDays(d, 1)
+      ) {
         holidayDates.add(this.toIsoDate(d));
       }
     }
@@ -74,9 +84,13 @@ export class CalculateLeaveDaysHandler
     let holidayCount = 0;
     let workingDays = 0;
 
-    for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    for (
+      let d = new Date(start);
+      d <= end;
+      d = addUtcCalendarDays(d, 1)
+    ) {
       totalCalendarDays++;
-      const day = d.getDay(); // 0 = Sun, 6 = Sat
+      const day = getUtcCalendarWeekday(d); // 0 = Sun, 6 = Sat
       const isWeekend = day === 0 || day === 6;
       const isHoliday = holidayDates.has(this.toIsoDate(d));
 
@@ -118,7 +132,7 @@ export class CalculateLeaveDaysHandler
   }
 
   private isWorkingDay(d: Date, holidayDates: ReadonlySet<string>): boolean {
-    const day = d.getDay();
+    const day = getUtcCalendarWeekday(d);
     if (day === 0 || day === 6) {
       return false;
     }
@@ -126,16 +140,14 @@ export class CalculateLeaveDaysHandler
   }
 
   private parseDate(value: Date | string): Date {
-    const d = value instanceof Date ? new Date(value) : new Date(value);
-    if (Number.isNaN(d.getTime())) {
+    try {
+      return toUtcCalendarDate(value);
+    } catch {
       throw new BadRequestException(`Invalid date: ${String(value)}`);
     }
-    d.setHours(0, 0, 0, 0);
-    return d;
   }
 
   private toIsoDate(value: Date | string): string {
-    const d = value instanceof Date ? value : new Date(value);
-    return d.toISOString().split('T')[0]!;
+    return toIsoCalendarDate(value);
   }
 }

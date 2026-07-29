@@ -36,13 +36,6 @@
         "cwd": "web/modules/dashboard",
         "command": "npm run lint"
       }
-    },
-    "test": {
-      "executor": "nx:run-commands",
-      "options": {
-        "cwd": "web/modules/dashboard",
-        "command": "npm run test"
-      }
     }
   },
   "implicitDependencies": ["shared-ui"]

@@ -28,6 +28,32 @@ registerEnumType(QualityCategory, {
   description: 'OPC-UA aligned quality category',
 });
 
+/** First code in the OPC-UA DA "uncertain" band. */
+export const QUALITY_UNCERTAIN_MIN = 64;
+
+/**
+ * First code in the OPC-UA DA "good" band. This is `quality_code`'s column
+ * default and the threshold every SQL consumer spells as
+ * `quality_code >= 192`.
+ */
+export const QUALITY_GOOD_MIN = 192;
+
+/**
+ * Band a raw `quality_code` falls in.
+ *
+ * The band boundaries used to be inline literals in the entity's
+ * `qualityCategory` getter, which only helps code holding a hydrated
+ * SensorMetric. The as-of read projection works on raw rows, so it needed
+ * the same classification without an entity — and a second copy of `>= 192`
+ * is exactly how two parts of one system start disagreeing about what
+ * "good" means. One function, both callers.
+ */
+export function qualityCategoryOf(code: number): QualityCategory {
+  if (code >= QUALITY_GOOD_MIN) return QualityCategory.GOOD;
+  if (code >= QUALITY_UNCERTAIN_MIN) return QualityCategory.UNCERTAIN;
+  return QualityCategory.BAD;
+}
+
 /**
  * Common quality codes (OPC-UA aligned)
  */
@@ -72,7 +98,18 @@ export const QualityCodes = {
  * - Continuous aggregates for fast historical queries
  * - OPC-UA aligned quality codes
  *
- * Schema comes from search_path (tenant-specific)
+ * SENSOR-HIGH-085: this is a PER-TENANT hypertable — every tenant's telemetry
+ * lives in that tenant's own `tenant_<uuid>` schema, so the entity OMITS
+ * `schema:` and the search_path routes it. It is delivered by migration
+ * 1815000000000, which creates it unqualified so provisioning's migration replay
+ * lands one in every tenant schema.
+ *
+ * The obstacle this design had to solve is that three of the four ingestion
+ * paths are process-wide singletons with no per-request search_path. Pinning the
+ * table to a shared schema "solved" that by giving up tenant isolation; the
+ * structural fix is that SensorMetricWriterService derives the destination
+ * schema from each row's own tenantId, so a singleton writes to the right tenant
+ * schema without needing an ambient one.
  */
 @ObjectType()
 @Entity('sensor_metrics')
@@ -81,6 +118,12 @@ export const QualityCodes = {
 @Index(['tenantId', 'time'])
 @Index(['tankId', 'time'])
 @Index(['equipmentId', 'time'])
+// SENSOR-HIGH-085: (sensor_id, channel_id, time DESC) — created in DB by
+// migration 1815000000000 alongside the per-tenant hypertable itself; leads with
+// (sensor_id, channel_id) so the as-of reading projection's per-channel "latest
+// where time <= T" lookups are index seeks. Declared here for entity↔table
+// parity (the store's DDL is migration-owned).
+@Index(['sensorId', 'channelId', 'time'])
 export class SensorMetric {
   /**
    * Composite primary key: time + sensor_id + channel_id
@@ -257,16 +300,14 @@ export class SensorMetric {
    * Get quality category from quality code
    */
   get qualityCategory(): QualityCategory {
-    if (this.qualityCode >= 192) return QualityCategory.GOOD;
-    if (this.qualityCode >= 64) return QualityCategory.UNCERTAIN;
-    return QualityCategory.BAD;
+    return qualityCategoryOf(this.qualityCode);
   }
 
   /**
    * Check if quality is good
    */
   get isGoodQuality(): boolean {
-    return this.qualityCode >= 192;
+    return qualityCategoryOf(this.qualityCode) === QualityCategory.GOOD;
   }
 
   /**

@@ -7,13 +7,14 @@ import { SensorServiceConfigModule } from '../config/sensor-service-config.modul
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
 import { ProcessModule } from '../process/process.module';
 import { SensorProtocol } from '../database/entities/sensor-protocol.entity';
-import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor } from '../database/entities/sensor.entity';
 import { EdgeDeviceModule } from '../edge-device/edge-device.module';
 import { ReleaseBundleModule } from '../release-bundle/release-bundle.module';
 import { ScadaRuntimeModule } from '../scada-runtime/scada-runtime.module';
+import { VfdModule } from '../vfd/vfd.module';
 
-import { BatchProcessorService } from './batch-processor.service';
+import { SensorMetricWriterModule } from './sensor-metric-writer.module';
+import { SensorMetricWriterService } from './sensor-metric-writer.service';
 import { DataIngestionService } from './data-ingestion.service';
 import { DataProcessorService } from './data-processor.service';
 import { MqttListenerService } from './mqtt-listener.service';
@@ -26,7 +27,10 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([Sensor, SensorReading, SensorProtocol, SensorDataChannel]),
+    TypeOrmModule.forFeature([Sensor, SensorProtocol, SensorDataChannel]),
+    // SENSOR-MEDIUM-068 — the one writer for sensor.sensor_metrics, shared with
+    // SensorModule's GraphQL path so a single instance owns the store.
+    SensorMetricWriterModule,
     EdgeDeviceModule, // For edge device heartbeat handling (no longer circular)
     AutomationModule, // For deployment confirmation in MQTT responses
     ProcessModule, // For ScadaDeployLogService in MQTT response handling
@@ -35,9 +39,12 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     // Live-data producer (SENSOR-HIGH-046): TagValueFanoutService bridges
     // ingested metrics onto the /scada gateway's tenant-fenced fan-out.
     ScadaRuntimeModule,
+    // SENSOR-CRITICAL-007 — VfdEdgeWriteService owns the pending-write ack map
+    // that the MQTT listener resolves when the edge gateway acknowledges a
+    // write_modbus command.
+    VfdModule,
   ],
   providers: [
-    BatchProcessorService,
     DataIngestionService,
     MqttListenerService,
     DataProcessorService,
@@ -47,7 +54,7 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     // handler (write path) share one Map per process.
     SensorMetaCacheService,
     // Faz 3 stage 2 — bridges the Rust ingestion sidecar (ADR-025)
-    // events into the existing BatchProcessor + typed-event publish
+    // events into the shared SensorMetricWriterService + typed-event publish
     // path. Co-exists with MqttListenerService until Faz 3 stage 3
     // wires the SENSOR_SERVICE_PROFILE env-gate that disables MQTT
     // entirely on the control-plane profile.
@@ -67,7 +74,7 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     SensorLookupResponderService,
   ],
   exports: [
-    BatchProcessorService,
+    SensorMetricWriterService,
     DataIngestionService,
     MqttListenerService,
     DataProcessorService,

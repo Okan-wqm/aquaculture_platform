@@ -130,3 +130,4 @@ export * from './bootstrap';
 export * from './monitoring';
 export * from './websocket';
 export * from './monetary';
+export * from './sensor';

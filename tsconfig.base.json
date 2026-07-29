@@ -127,6 +127,9 @@
       "@aquaculture/backend-common/security": [
         "libs/backend-common/src/security/index.ts"
       ],
+      "@aquaculture/backend-common/sensor": [
+        "libs/backend-common/src/sensor/index.ts"
+      ],
       "@aquaculture/backend-common/compliance": [
         "libs/backend-common/src/compliance/index.ts"
       ],
@@ -157,6 +160,7 @@
       "@platform/sdk": ["libs/sdk/typescript/src/index.ts"],
       "@platform/testing": ["libs/testing/src/index.ts"],
       "@aquaculture/testing": ["libs/testing/src/index.ts"],
+      "@aquaculture/testing/vitest": ["libs/testing/src/vitest-test-policy.d.ts"],
       "@platform/event-bus": ["platform/libs/event-bus/src/index.ts"],
       "@platform/outbox": ["platform/libs/outbox/src/index.ts"],
       "@platform/cqrs": ["platform/libs/cqrs/src/index.ts"],

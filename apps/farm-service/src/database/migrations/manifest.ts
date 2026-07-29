@@ -81,6 +81,7 @@ import { FeedingCutoverActivateAssignments1806500000000 } from './1806500000000-
 import { BackfillExecutionsToFeedingRecords1806600000000 } from './1806600000000-BackfillExecutionsToFeedingRecords';
 import { FeedingForecastFoundation1806700000000 } from './1806700000000-FeedingForecastFoundation';
 import { CreateIncidentMedia1806000000000 } from './1806000000000-CreateIncidentMedia';
+import { WidenRelatedSensorReadingIdToFederationId1806800000000 } from './1806800000000-WidenRelatedSensorReadingIdToFederationId';
 
 /**
  * Canonical farm-service migration class list.
@@ -159,4 +160,5 @@ export const FARM_MIGRATIONS = [
   FeedingCutoverActivateAssignments1806500000000,
   BackfillExecutionsToFeedingRecords1806600000000,
   FeedingForecastFoundation1806700000000,
+  WidenRelatedSensorReadingIdToFederationId1806800000000,
 ] as const;

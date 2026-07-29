@@ -107,8 +107,20 @@ function getTenantSchemaName(tenantId: string): string {
 }
 
 /**
- * Provision a tenant schema directly. Mirrors the structural surface
- * of SchemaManagerService.createTenantSchema for the assertions here:
+ * Provision a tenant schema directly.
+ *
+ * CAVEAT (DATA-CRITICAL-010): this fixture is NOT what production does any
+ * more. Production provisioning is migration REPLAY — tenant-schema-
+ * provisioner.ts calls runSchemaMigrations({ schema: <tenant> }) with
+ * search_path pinned to the tenant schema. The CREATE TABLE LIKE path below is
+ * the retired runtime mechanism. Two consequences worth knowing before trusting
+ * a green run here: the table-set assertion is close to a tautology (this
+ * function IS the fan-out it is compared against), and structural properties
+ * that LIKE does not copy — a TimescaleDB hypertable registration, for one —
+ * look correct here while being absent from a really-provisioned tenant.
+ * Re-pointing the fixture at the real provisioner is part of the tracked fix.
+ *
+ * The shape it builds mirrors the structural surface the assertions need:
  *
  *   - Creates the tenant_<uuid> schema.
  *   - Creates each source-schema table inside the tenant schema via
@@ -118,9 +130,8 @@ function getTenantSchemaName(tenantId: string): string {
  *     expression matches the production-side ApplyTenantRls helper.
  *
  * Keeping the provisioning logic in-spec (rather than calling the
- * NestJS service) avoids a Nest bootstrap inside an integration test.
- * The shape we provision is what the production service produces; if
- * the two diverge, this spec catches the divergence on its first run.
+ * NestJS service) avoids a Nest bootstrap inside an integration test —
+ * but see the caveat above for what that costs.
  */
 async function provisionTestTenantSchema(
   db: TestDatabase,
@@ -147,8 +158,9 @@ async function provisionTestTenantSchema(
         );
       }
       // CREATE TABLE LIKE INCLUDING ALL replicates columns, indexes,
-      // constraints, defaults, and storage parameters. Same DDL the
-      // production SchemaManagerService.createTenantSchema uses.
+      // constraints, defaults, and storage parameters — but NOT hypertable
+      // registration, and not the retired production DDL this comment used to
+      // claim it matched (DATA-CRITICAL-010).
       await db.query(
         `CREATE TABLE "${schemaName}"."${tableName}"
          (LIKE "${sourceSchema}"."${tableName}" INCLUDING ALL)`,

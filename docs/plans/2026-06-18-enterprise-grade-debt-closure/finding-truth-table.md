@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `af28cf2c2c30d2184645f9758a855880d581d0c4638b798ef88bcd79db555ffb`
+Registry tip: `dc34bd9007059bfd6c1ef23df6c663085da56bbae532e05dd124df22aa0f63e7`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -97,6 +97,22 @@ can erase live drain writes (`FARM-CRITICAL-241`). They remain `real-open` until
 the implementation wave supplies PostgreSQL concurrency, rerun, rollback, and
 parity evidence.
 
+Updated 2026-07-18 (sensor device industrial-protocol audit): the 102-finding
+sensor `/sensor/devices` audit added 103 registry entries (the 102 findings plus
+SENSOR-MEDIUM-080). Merged onto main's farm/feed cutover chain and re-chained,
+the registry stands at 1136 entries with three new active CRITICALs from the
+sensor audit. `SENSOR-CRITICAL-007` (6 of 7 VFD adapters fake the write path —
+`EMERGENCY_STOP` returns success without transmitting) and `SENSOR-CRITICAL-009`
+(manual approve→apply never writes to the drive — `vfd.changeset.approved` has no
+consumer) are `real-open`: the edge-delegated VFD write path is the tracked fix
+(binding + write primitive + command/apply rewire have landed; telemetry reads
+are edge-delegated). `SENSOR-CRITICAL-008` (25 protocol adapters fake connection
+success — a never-contacted device is flipped ACTIVE) is
+`already-fixed-needs-close`: the `ProtocolImplementationStatus` SSoT hides
+unsupported adapters and `ConnectionTesterService` fails honestly for any
+non-`cloud-real` protocol before an adapter runs — OPEN only until the post-merge
+close ceremony records a main-reachable closing commit (PROC-HIGH-001).
+
 Updated 2026-07-18 (production host control-plane recurrence review): exact-main
 capacity evidence registered four new active findings and closed the already
 merged default-deny image-tag gap. Two findings are CRITICAL and enter the
@@ -116,30 +132,34 @@ Allowed truth buckets:
 - `stale`
 - `new-finding-required`
 
-| Finding                 | Registry state | First sprint | Owner                      | Truth bucket              |
-| ----------------------- | -------------- | ------------ | -------------------------- | ------------------------- |
-| `INFRA-CRITICAL-029`    | OPEN           | 1.1          | data-expert                | real-open                 |
-| `FARM-CRITICAL-061`     | OPEN           | 1.1          | farm-expert                | real-open                 |
-| `AISAFETY-CRITICAL-003` | OPEN           | —            | ai-safety-auditor          | already-fixed-needs-close |
-| `SENSOR-CRITICAL-003`   | OPEN           | —            | sensor-expert              | already-fixed-needs-close |
-| `DATA-CRITICAL-001`     | OPEN           | —            | data-expert                | real-open                 |
-| `INFRA-CRITICAL-039`    | OPEN           | —            | infra-expert               | already-fixed-needs-close |
-| `RBAC-CRITICAL-001`     | OPEN           | 1.2          | auth-security-expert       | already-fixed-needs-close |
-| `RBAC-CRITICAL-002`     | OPEN           | 1.2          | auth-security-expert       | already-fixed-needs-close |
-| `RBAC-CRITICAL-003`     | OPEN           | 1.2          | auth-security-expert       | already-fixed-needs-close |
-| `INFRA-CRITICAL-040`    | IN-PROGRESS    | —            | infra-expert               | blocked                   |
-| `INFRA-CRITICAL-044`    | OPEN           | —            | infra-expert               | blocked                   |
-| `FARM-CRITICAL-237`     | IN-PROGRESS    | 4.1          | farm-expert                | real-open                 |
-| `FARM-CRITICAL-238`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
-| `FARM-CRITICAL-240`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
-| `FARM-CRITICAL-241`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
-| `INFRA-CRITICAL-077`    | IN-PROGRESS    | 1.1          | infra-expert               | real-open                 |
-| `INFRA-CRITICAL-078`    | IN-PROGRESS    | 1.1          | security-reviewer          | real-open                 |
+| Finding                 | Registry state | First sprint | Owner                | Truth bucket              |
+| ----------------------- | -------------- | ------------ | -------------------- | ------------------------- |
+| `INFRA-CRITICAL-029`    | OPEN           | 1.1          | data-expert          | real-open                 |
+| `FARM-CRITICAL-061`     | OPEN           | 1.1          | farm-expert          | real-open                 |
+| `AISAFETY-CRITICAL-003` | OPEN           | —            | ai-safety-auditor    | already-fixed-needs-close |
+| `SENSOR-CRITICAL-003`   | OPEN           | —            | sensor-expert        | already-fixed-needs-close |
+| `DATA-CRITICAL-001`     | OPEN           | —            | data-expert          | real-open                 |
+| `INFRA-CRITICAL-039`    | OPEN           | —            | infra-expert         | already-fixed-needs-close |
+| `RBAC-CRITICAL-001`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
+| `RBAC-CRITICAL-002`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
+| `RBAC-CRITICAL-003`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
+| `INFRA-CRITICAL-040`    | IN-PROGRESS    | —            | infra-expert         | blocked                   |
+| `INFRA-CRITICAL-044`    | OPEN           | —            | infra-expert         | blocked                   |
+| `FARM-CRITICAL-237`     | IN-PROGRESS    | 4.1          | farm-expert          | real-open                 |
+| `FARM-CRITICAL-238`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
+| `FARM-CRITICAL-240`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
+| `FARM-CRITICAL-241`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
+| `SENSOR-CRITICAL-007`   | OPEN           | —            | sensor-expert        | real-open                 |
+| `SENSOR-CRITICAL-008`   | OPEN           | —            | sensor-expert        | already-fixed-needs-close |
+| `SENSOR-CRITICAL-009`   | OPEN           | —            | sensor-expert        | real-open                 |
+| `INFRA-CRITICAL-077`    | IN-PROGRESS    | 1.1          | infra-expert         | real-open                 |
+| `INFRA-CRITICAL-078`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
+| `DATA-CRITICAL-010`     | OPEN           | —            | data-expert          | real-open                 |
 | `ORPHAN-CRITICAL-418`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-419`   | OPEN           | —            | aria-acceptance-gap-hunter | real-open                 |
-| `ORPHAN-CRITICAL-420`   | OPEN           | —            | aria-acceptance-gap-hunter | real-open                 |
+| `ORPHAN-CRITICAL-419`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-420`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-427`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-428`   | OPEN           | —            | aria-acceptance-gap-hunter | real-open                 |
+| `ORPHAN-CRITICAL-428`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-439`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-440`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-446`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
@@ -154,30 +174,7 @@ Allowed truth buckets:
 | `ORPHAN-CRITICAL-494`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-495`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
 | `ORPHAN-CRITICAL-497`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-498`   | OPEN           | 2026-08-12   | aria-acceptance-gap-fixer  | real-open                 |
-
-Updated 2026-07-26 (ARIA control-plane audit): seven ORPHAN CRITICALs joined the
-active set. Five come from the audit of ARIA's own control plane — a corrupted
-failure ledger silently un-tripping the breaker, a producer and executor that
-share no queue, budget and breaker enforcement with zero production callers, a
-bash sandbox perimeter with no caller, and a hard-fail registry that was pure
-data. Two were found by auditing that audit's own fixes: containment with no
-sandbox backend installed anywhere, and an observe burn-in that rejected the
-runtime writes it exists to produce. Four are marked
-`already-fixed-needs-close` with their closing commits below; the registry CLI
-close operations follow once this branch merges, because a `Closes:` trailer on
-an unmerged commit is a claim, not evidence.
-
-Updated 2026-07-27 (self-audit of the audit branch): `ORPHAN-CRITICAL-446`
-joined the active set. The commit titled "make all three convergence
-independence layers functional" left the cross-reviewer's text hardcoded to
-`None` at the point the round's dispatch map is recorded, so the diversity
-layer short-circuited on `cross_review_text_unavailable` and computed neither
-of the two comparisons it exists for. Worse than a no-op: every `converged`
-verdict was unconditionally downgraded to `cross_review_self_agreement`, making
-convergence structurally unreachable. Bucketed `already-fixed-needs-close`
-because the fix and its eight regression tests are in this branch; the registry
-close waits for merge, like the rows above it.
+| `ORPHAN-CRITICAL-498`   | OPEN           | 2026-08-12   | aria-acceptance-gap-fixer  | real-open                  |
 
 ## Mutation Rules
 
@@ -191,24 +188,6 @@ close waits for merge, like the rows above it.
   is not covered by the existing finding title/rule.
 
 ## Already-Fixed Evidence
-
-- `ORPHAN-CRITICAL-418` — fixed in `8c30bd69b` predecessor / `d1c3399ee` here; see the commit body for the mechanism and the regression test.
-- `ORPHAN-CRITICAL-427` — fixed in `873f038f8` predecessor / `05153e93d` here; see the commit body for the mechanism and the regression test.
-- `ORPHAN-CRITICAL-439` — fixed in `55cd94464`; see the commit body for the mechanism and the regression test.
-- `ORPHAN-CRITICAL-440` — fixed in `55cd94464`; see the commit body for the mechanism and the regression test.
-- `ORPHAN-CRITICAL-446` — fixed in this branch; `aria-kernel/tests/test_cross_review_independence_text.py` pins both the pre-fix shape and the echo-chamber catch.
-- `ORPHAN-CRITICAL-451` — fixed in this branch; firejail removed as an accepted sandbox backend because its branch applied none of the READONLY_PATHS while satisfying the S0 exit criterion. `aria-kernel/tests/test_sandbox_and_perimeter_hardening.py` pins it.
-- `ORPHAN-CRITICAL-460` — fixed in this branch; a shell control operator after an allowed prefix bypassed the allowlist, the denylist and the force-push check at once. Same test file pins eleven bypass spellings and nine non-regressions.
-- `ORPHAN-CRITICAL-461` — fixed in this branch; broader-scope claims, globs, empty surface lists, an echo of the canonical suite, and every gh-api route that writes main all passed. Same test file pins them.
-- `ORPHAN-CRITICAL-488` — fixed in this branch; the 484 ancestry gate made a first-ever run impossible because it treated "no artifact exists yet" as indistinguishable from "restore failed". Three states now, distinguished at the restore step.
-- `ORPHAN-CRITICAL-484` — fixed in this branch; the executor could publish a queue-less bootstrapped tree under the canonical artifact name because the steps preceding the integrity gate index the tree. The publish now requires positive ancestry proof from the restore step, and a blocked publish is RED rather than green.
-- `ORPHAN-CRITICAL-485` — fixed in this branch; the breaker producer was unreachable on the scheduled lane at four levels and its test called a private function with a synthetic error. Moved to the planner dispatch timeout arm the nightly genuinely walks, tested through the public entry point, verified failing with the producer deleted.
-- `ORPHAN-CRITICAL-479` — fixed in this branch; a NameError on the only real worker-dispatch path shipped with 2905 passing tests because nothing covers that callsite. `aria-kernel/tests/test_executor_unbound_names.py` now statically resolves every loaded name in the three spawn-path modules; the first two versions of that detector passed with the bug reintroduced and are documented in the file.
-- `ORPHAN-CRITICAL-469` — fixed in this branch; the agent-invocation queue was stranded between the 01:00 producer and the 02:00 consumer because the executor workflow had no state-restore step, so `next_pending_request` always read a bootstrap-empty tree. The same missing restore left the cross-host lease preflight unable to observe a held lease. `.github/workflows/aria-agent-executor.yml` now restores and republishes the tree, gated on the integrity verdict, and `test_workflow_enterprise_preflight` pins the YAML against the registered contract.
-- `ORPHAN-CRITICAL-494` — fixed in this branch, and it was self-inflicted: the `492` anchor guard read absence-in-a-shallow-clone as proof a commit was unreachable. Neither ARIA lane sets `fetch-depth`, so a request minted by the 01:00 producer and consumed at 02:00 routinely has an anchor absent from the consumer's clone — every one would have been marked *terminally* `ANCHOR_STALE`, destroying the queue `469` exists to carry. Reachability is now consulted only on a non-shallow clone; age needs no history and still fires. `tests/test_agent_request_anchor.py` pins both directions.
-- `ORPHAN-CRITICAL-495` — fixed in this branch, two defects: a missing anchor was terminal while only 6 of 17 mint paths pass `target_sha` (the other 11 include the operator CLI and this branch's own HUMAN_REQUIRED panel), and the `472` wall-clock gate keyed on `cycle_id`, which 15 of 17 paths never set, so it was inert. Absence of an anchor is no longer grounds for refusal, and the ceiling now derives from elapsed job time.
-- `ORPHAN-CRITICAL-497` — fixed in this branch; found by the test-quality lens *executing* the code. The wall-clock gate refused every dispatch under production values (cap 1800s against `MAX_TIMEOUT_SECONDS=1800`), so the executor lane would have gone permanently green-and-idle. It also surfaced a real config problem — an 1800s run does not fit a 2100s job — so the executor timeout moved 35→45 min with the contract pinned in lockstep. Second half: `_step_is_gated` exempted the announce expression globally, so one character made the executor run *only* while another host held the lease.
-- `ORPHAN-CRITICAL-498` — **NOT fixed in this branch**, deadline 2026-08-12, bucket `needs-architectural-fix`. The pre-PR-open perimeter is not on the scheduled lane: `_run_extended_phases` is entered only when a caller passes `run_phases`/`pre_tool_phases`, and no production caller does, so `run_hard_fail_checks` executes only when an operator types `pr open`. Successor to `428`, whose closure claim is narrower than it read. The fix is a declarative `CYCLE_PHASES` registry plus a static call-graph reachability invariant, and it is architectural surgery that gets its own PR rather than being wedged into a 70-commit branch.
 
 - `AISAFETY-CRITICAL-003` (single process-global `ANTHROPIC_API_KEY`, no per-tenant
   key — BYOK impossible): the Faz 1 BYOK work (encrypted per-tenant credentials +

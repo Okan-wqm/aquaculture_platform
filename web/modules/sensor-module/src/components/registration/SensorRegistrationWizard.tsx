@@ -7,6 +7,7 @@ import { ChildSensorsStep } from './steps/ChildSensorsStep';
 import { ReviewStep } from './steps/ReviewStep';
 import { ChildSensorFormModal } from './ChildSensorFormModal';
 import { useSensorRegistration } from '../../hooks/useSensorRegistration';
+import { useSensorParameterCatalog } from '../../hooks/useSensorParameterCatalog';
 import {
   ProtocolInfo,
   ProtocolDetails,
@@ -15,6 +16,7 @@ import {
   ChildSensorConfig,
   RegisterParentWithChildrenInput,
   RegisterChildSensorInput,
+  ParameterCatalog,
   inferChildSensorConfig,
   SensorType,
 } from '../../types/registration.types';
@@ -58,6 +60,10 @@ export function SensorRegistrationWizard({
   // Parent-Child state
   const [parentDeviceInfo, setParentDeviceInfo] = useState<Partial<ParentDeviceInfo>>({});
   const [childSensors, setChildSensors] = useState<ChildSensorConfig[]>([]);
+
+  // SENSOR-MEDIUM-065: parameter catalog (units/ranges/SensorType per channel key)
+  // fetched from the backend SSoT — used to prefill auto-discovered child sensors.
+  const { catalog: parameterCatalog } = useSensorParameterCatalog();
 
   // Modal state
   const [editingChild, setEditingChild] = useState<ChildSensorConfig | null>(null);
@@ -155,7 +161,11 @@ export function SensorRegistrationWizard({
 
     // Auto-discover child sensors from sample data
     if (result.success && result.sampleData) {
-      const discovered = discoverChildSensorsFromData(result.sampleData, parentDeviceInfo.name);
+      const discovered = discoverChildSensorsFromData(
+        result.sampleData,
+        parentDeviceInfo.name,
+        parameterCatalog,
+      );
       setChildSensors(discovered);
     }
   };
@@ -225,6 +235,9 @@ export function SensorRegistrationWizard({
       children: selectedChildren.map((c): RegisterChildSensorInput => ({
         name: c.name,
         type: c.type,
+        // SENSOR-MEDIUM-071: carry the per-child custom type-definition so the
+        // backend bootstraps its default channels in the registration transaction.
+        typeDefinitionId: c.typeDefinitionId,
         dataPath: c.dataPath,
         unit: c.unit,
         minValue: c.minValue,
@@ -480,14 +493,15 @@ export function SensorRegistrationWizard({
  */
 function discoverChildSensorsFromData(
   sampleData: Record<string, unknown>,
-  parentName?: string
+  parentName: string | undefined,
+  catalog: ParameterCatalog,
 ): ChildSensorConfig[] {
   const sensors: ChildSensorConfig[] = [];
 
   function processValue(key: string, value: unknown, path: string = key) {
     // Handle numeric values
     if (typeof value === 'number') {
-      sensors.push(inferChildSensorConfig(path, value, parentName));
+      sensors.push(inferChildSensorConfig(path, value, parentName, catalog));
       return;
     }
 
@@ -495,7 +509,7 @@ function discoverChildSensorsFromData(
     if (typeof value === 'string') {
       const num = parseFloat(value);
       if (!isNaN(num)) {
-        sensors.push(inferChildSensorConfig(path, num, parentName));
+        sensors.push(inferChildSensorConfig(path, num, parentName, catalog));
         return;
       }
     }

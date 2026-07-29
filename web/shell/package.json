@@ -10,8 +10,8 @@
     "preview": "vite preview",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
-    "test": "vitest",
-    "test:coverage": "vitest --coverage"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@aquaculture/shared-ui": "file:../shared-ui",

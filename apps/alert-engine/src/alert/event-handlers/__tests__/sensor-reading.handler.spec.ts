@@ -224,9 +224,10 @@ describe('SensorReadingEventHandler', () => {
         timestamp: new Date(),
         tenantId: TEST_TENANT_ID,
         sensorId: 'sensor-1',
-        // Readings are flat event fields (READING_FIELD_MAP), not a nested
-        // object — the flat-event contract per ADR-006. The handler's extractor
-        // rebuilds the { temperature, ph } map the evaluation service receives.
+        // Readings are flat event fields (mapped via the PARAMETER_BY_READING_FIELD
+        // SSoT), not a nested object — the flat-event contract per ADR-006. The
+        // handler's extractor rebuilds the { temperature, ph } map the evaluation
+        // service receives.
         readingTemperature: 25,
         readingPh: 7.2,
         farmId: 'farm-1',

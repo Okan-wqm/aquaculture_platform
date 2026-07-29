@@ -12,21 +12,25 @@ describe('drift-classes registry', () => {
     }
   });
 
-  it('every spec has a non-empty single-letter label (A-J)', () => {
+  it('every spec has a non-empty single-letter label (A-K)', () => {
     for (const spec of DRIFT_CLASS_LIST) {
       expect(spec.label).toMatch(/^[A-Z]+$/);
       expect(spec.label.length).toBeGreaterThanOrEqual(1);
     }
   });
 
-  it('labels are unique (no two classes share A-J)', () => {
+  it('labels are unique (no two classes share A-K)', () => {
     const labels = DRIFT_CLASS_LIST.map((s) => s.label);
     const unique = new Set(labels);
     expect(unique.size).toBe(labels.length);
   });
 
-  it('exactly 10 classes registered', () => {
-    expect(DRIFT_CLASS_LIST).toHaveLength(10);
+  // 10 → 11: Class K (foreign_key_presence) was added to the registry by the
+  // Faz 1.8 day-one baseline reset, which updated the class-K assertion below
+  // but not this count. Nothing caught it because libs/backend-common had no
+  // Nx project and therefore no CI test lane — this suite had never run.
+  it('exactly 11 classes registered', () => {
+    expect(DRIFT_CLASS_LIST).toHaveLength(11);
   });
 
   it('severity is "error" | "warn" only', () => {

@@ -6,7 +6,7 @@
  * `MealFinalizationService` "öğünü kapat" davranışının TEK gövdesidir: varyans
  * formülü, per_meal büyüme, kalan-öğün recalc'ı, az-atım eşiği ve plan durumu.
  * 05:30 süpürme spec'leri tam olarak BUNLARI doğruluyor (`applyGrowth` argümanı,
- * `save` sırası, `MealUnderfed` yayımı). Buraya `mock<MealFinalizationService>({})`
+ * `save` sırası, `MealUnderfed` yayımı). Buraya `stub<MealFinalizationService>({})`
  * konsaydı o assertion'lar sessizce hiçbir şey doğrulamayan hâle gelirdi: süpürme
  * çağrısı boş bir stub'a giderdi, testler yeşil kalırdı ve bulgunun kendisi —
  * "iki yol aynı davranmıyor" — testlerden GİZLENMİŞ olurdu.

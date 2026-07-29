@@ -18,15 +18,12 @@ import {
 } from '../services/feed-allocation.service';
 import { StorageInventory } from '../entities/storage-inventory.entity';
 import { StorageLocation } from '../entities/storage-location.entity';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const FEED = '22222222-2222-4222-8222-222222222222';
 const SITE_A = '33333333-3333-4333-8333-333333333333';
 const SITE_B = '44444444-4444-4444-8444-444444444444';
-
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
 
 interface Row {
   id: string;
@@ -54,7 +51,7 @@ function makeHarness(rows: Row[], locations: Record<string, string>) {
       orderBy: jest.fn(() => qb as never),
       addOrderBy: jest.fn(() => qb as never),
       setLock: jest.fn(() => qb as never),
-      getMany: jest.fn().mockResolvedValue(rows.map((row) => mock<StorageInventory>(row))),
+      getMany: jest.fn().mockResolvedValue(rows.map((row) => stub<StorageInventory>(row))),
     };
     builders.push(qb);
     return qb;
@@ -71,12 +68,12 @@ function makeHarness(rows: Row[], locations: Record<string, string>) {
       .fn()
       .mockResolvedValue(
         Object.entries(locations).map(([id, siteId]) =>
-          mock<StorageLocation>({ id, siteId, isDeleted: false }),
+          stub<StorageLocation>({ id, siteId, isDeleted: false }),
         ),
       ),
   };
 
-  const manager = mock<EntityManager>({
+  const manager = stub<EntityManager>({
     getRepository: jest.fn((entity: unknown) => {
       if (entity === StorageInventory) return inventoryRepo;
       if (entity === StorageLocation) return locationRepo;

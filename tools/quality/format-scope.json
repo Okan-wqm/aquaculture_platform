@@ -32401,6 +32401,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-29-orphan-jest-config-surface.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -35255,6 +35261,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/jest.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/project.json",
       "prettier_managed": true
     },
     {
@@ -39199,6 +39211,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/storage/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/storage/src/__tests__/file-upload-security.service.spec.ts",
       "prettier_managed": true
     },
@@ -39277,6 +39295,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/testing/jest.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/testing/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/testing/README.md",
       "prettier_managed": true
     },
@@ -39284,6 +39314,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/testing/src/constants.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/testing/src/doubles/__tests__/typed-double.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/testing/src/doubles/typed-double.ts",
       "prettier_managed": true
     },
     {
@@ -39774,6 +39816,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "platform/libs/event-bus/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "platform/libs/event-bus/src/decorators/event-handler.decorator.ts",
       "prettier_managed": true
     },
@@ -39865,6 +39913,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "platform/libs/outbox/jest.config.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/outbox/project.json",
       "prettier_managed": true
     },
     {
@@ -55302,10 +55356,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9066,
+  "file_count": 9075,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8885,
-  "managed_file_list_sha256": "fe5919658542717709208807d2e82494db774d274f8839abe58a0ea8b167650d",
+  "managed_count": 8894,
+  "managed_file_list_sha256": "bb462a7b9b3b6e38e4165e75b1579dc8cef93c2bf985e728b2630d780e932217",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

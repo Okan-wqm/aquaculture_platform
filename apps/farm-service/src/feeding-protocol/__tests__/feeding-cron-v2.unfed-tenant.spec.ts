@@ -58,13 +58,10 @@ import { FeedingJobRunService } from '../services/feeding-job-run.service';
 import { realFinalizationService } from './helpers/meal-finalization-double';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const UNIT = '77777777-7777-4777-8777-777777777777';
-
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
 
 /**
  * Yeni tenant'ın hâli: stoklanmış bir tank var, HİÇ atama yok, hiç plan yok.
@@ -95,37 +92,37 @@ function makeHarness(fixture: NewTenantFixture) {
     return [];
   });
 
-  const growthApplier = mock<BiomassGrowthApplierService>({});
-  const outboxPublisher = mock<OutboxPublisher>({
+  const growthApplier = stub<BiomassGrowthApplierService>({});
+  const outboxPublisher = stub<OutboxPublisher>({
     enqueue: jest.fn(async (event: BaseEvent) => {
       enqueued.push(event);
       return undefined as never;
     }),
   });
-  const recalcService = mock<DayPlanRecalcService>({});
+  const recalcService = stub<DayPlanRecalcService>({});
 
   const service = new FeedingCronV2Service(
-    mock<DataSource>({
+    stub<DataSource>({
       createQueryRunner: jest.fn().mockReturnValue({
         connect: jest.fn().mockResolvedValue(undefined),
         query: runnerQuery,
         release: jest.fn().mockResolvedValue(undefined),
       }),
     }),
-    mock<MealPlanGeneratorService>({ persistDayPlan: jest.fn() }),
+    stub<MealPlanGeneratorService>({ persistDayPlan: jest.fn() }),
     growthApplier,
-    mock<WaterTemperatureService>({
+    stub<WaterTemperatureService>({
       getEffectiveTemperaturesForUnits: jest.fn().mockResolvedValue(new Map()),
     }),
-    mock<FCRCalculationService>({}),
+    stub<FCRCalculationService>({}),
     outboxPublisher,
-    mock<ProtocolFeedForecastService>({}),
+    stub<ProtocolFeedForecastService>({}),
     recalcService,
     realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
-    mock<FeedingClockService>({
+    stub<FeedingClockService>({
       siteZones: jest.fn().mockResolvedValue({ tenantZone: 'UTC', zoneOf: () => 'UTC' }),
     }),
-    mock<FeedingJobRunService>({}),
+    stub<FeedingJobRunService>({}),
   );
   return { service, enqueued };
 }

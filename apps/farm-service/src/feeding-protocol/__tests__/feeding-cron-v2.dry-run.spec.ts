@@ -49,16 +49,13 @@ import {
   FeedingUnitType,
 } from '../entities/protocol-assignment.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const SITE = '88888888-8888-4888-8888-888888888888';
 const UNIT = '77777777-7777-4777-8777-777777777777';
 
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
-
-const PROTOCOL = mock<FeedingProtocolV2>({
+const PROTOCOL = stub<FeedingProtocolV2>({
   id: 'proto-1',
   tenantId: TENANT,
   status: FeedingProtocolStatus.ACTIVE,
@@ -90,7 +87,7 @@ const PROTOCOL = mock<FeedingProtocolV2>({
 });
 
 function makeAssignment(over: Partial<ProtocolAssignment> = {}): ProtocolAssignment {
-  return mock<ProtocolAssignment>({
+  return stub<ProtocolAssignment>({
     id: 'assign-1',
     tenantId: TENANT,
     unitId: UNIT,
@@ -106,7 +103,7 @@ function makeAssignment(over: Partial<ProtocolAssignment> = {}): ProtocolAssignm
   });
 }
 
-const TANK_BATCH = mock<TankBatch>({
+const TANK_BATCH = stub<TankBatch>({
   tankId: UNIT,
   tenantId: TENANT,
   totalQuantity: 1000,
@@ -152,24 +149,24 @@ function makeService(fixture: DryRunFixture): {
     new Map([[UNIT, { celsius: null, source: 'none' }]]),
   );
 
-  const growthApplier = mock<BiomassGrowthApplierService>({});
-  const outboxPublisher = mock<OutboxPublisher>({ enqueue });
-  const recalcService = mock<DayPlanRecalcService>({ recalcForUnit: jest.fn() });
+  const growthApplier = stub<BiomassGrowthApplierService>({});
+  const outboxPublisher = stub<OutboxPublisher>({ enqueue });
+  const recalcService = stub<DayPlanRecalcService>({ recalcForUnit: jest.fn() });
 
   const service = new FeedingCronV2Service(
-    mock<DataSource>({}),
+    stub<DataSource>({}),
     generator,
     growthApplier,
-    mock<WaterTemperatureService>({ getEffectiveTemperaturesForUnits }),
-    mock<FCRCalculationService>({}),
+    stub<WaterTemperatureService>({ getEffectiveTemperaturesForUnits }),
+    stub<FCRCalculationService>({}),
     outboxPublisher,
-    mock<ProtocolFeedForecastService>({}),
+    stub<ProtocolFeedForecastService>({}),
     recalcService,
     realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
-    mock<FeedingClockService>({
+    stub<FeedingClockService>({
       siteZones: jest.fn().mockResolvedValue({ tenantZone: 'UTC', zoneOf: () => 'UTC' }),
     }),
-    mock<FeedingJobRunService>({}),
+    stub<FeedingJobRunService>({}),
   );
   return { service, persistDayPlan, enqueue };
 }
@@ -202,7 +199,7 @@ describe('FeedingCronV2Service.dryRunForTenant (K-3)', () => {
   });
 
   it('aktivasyon engellerini sınıflandırır: draft_protocol / empty_unit / missing_protocol', async () => {
-    const draftProtocol = mock<FeedingProtocolV2>({
+    const draftProtocol = stub<FeedingProtocolV2>({
       ...PROTOCOL,
       id: 'proto-draft',
       status: FeedingProtocolStatus.DRAFT,

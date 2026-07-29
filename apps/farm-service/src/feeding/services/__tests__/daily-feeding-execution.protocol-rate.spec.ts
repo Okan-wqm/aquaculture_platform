@@ -22,10 +22,7 @@ import { BilinearInterpolationService } from '../bilinear-interpolation.service'
 import { WaterTemperatureService } from '../../../water-quality/services/water-temperature.service';
 import { BatchDomainService } from '../../../batch/services/batch-domain.service';
 import { FeedingLedgerService } from '../feeding-ledger.service';
-
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const BATCH = '22222222-2222-4222-8222-222222222222';
@@ -34,7 +31,7 @@ const DEFAULT_RATE = 3.0; // no matrix/curve on the feed → service default
 
 /** Service whose collaborators implement only what calculateDailyFeed touches. */
 function makeService(query: jest.Mock): DailyFeedingExecutionService {
-  const emptyRepo = <T extends ObjectLiteral>(): Repository<T> => mock<Repository<T>>({});
+  const emptyRepo = <T extends ObjectLiteral>(): Repository<T> => stub<Repository<T>>({});
   return new DailyFeedingExecutionService(
     emptyRepo(),
     emptyRepo(),
@@ -42,33 +39,33 @@ function makeService(query: jest.Mock): DailyFeedingExecutionService {
     emptyRepo(),
     emptyRepo(),
     emptyRepo(),
-    mock<Repository<Feed>>({
+    stub<Repository<Feed>>({
       findOne: jest
         .fn()
-        .mockResolvedValue(mock<Feed>({ id: 'feed-1', code: 'F1', name: 'Feed 1' })),
+        .mockResolvedValue(stub<Feed>({ id: 'feed-1', code: 'F1', name: 'Feed 1' })),
     }),
-    mock<BilinearInterpolationService>({}),
-    mock<WaterTemperatureService>({}),
-    mock<DataSource>({ query }),
-    mock<BatchDomainService>({}),
-    mock<FeedingLedgerService>({}),
-    mock<MobileCommandReceiptService>({}),
-    mock<SiteAuthorizationService>({}),
+    stub<BilinearInterpolationService>({}),
+    stub<WaterTemperatureService>({}),
+    stub<DataSource>({ query }),
+    stub<BatchDomainService>({}),
+    stub<FeedingLedgerService>({}),
+    stub<MobileCommandReceiptService>({}),
+    stub<SiteAuthorizationService>({}),
   );
 }
 
-const program = mock<FeedingProgram>({
+const program = stub<FeedingProgram>({
   code: 'PROG-1',
-  settings: mock<FeedingProgram['settings']>({
+  settings: stub<FeedingProgram['settings']>({
     fcrSource: FCRSource.FEED,
     defaultMealsPerDay: 4,
   }),
   findFeedForWeight: (): FeedAssignment =>
-    mock<FeedAssignment>({ feedId: 'feed-1', feedCode: 'F1', feedName: 'Feed 1' }),
+    stub<FeedAssignment>({ feedId: 'feed-1', feedCode: 'F1', feedName: 'Feed 1' }),
   isTransitionApproaching: () => ({ approaching: false }),
 });
 
-const programTank = mock<FeedingProgramTank>({ equipmentId: 'tank-1', equipmentCode: 'T-1' });
+const programTank = stub<FeedingProgramTank>({ equipmentId: 'tank-1', equipmentCode: 'T-1' });
 
 function tankState(batchId?: string): TankCurrentState {
   return {

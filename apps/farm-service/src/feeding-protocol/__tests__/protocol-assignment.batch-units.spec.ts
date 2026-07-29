@@ -7,7 +7,7 @@
  *  - ACTIVE olmayan protokole toplu atama da reddedilir (tekil yolla aynı kapı).
  */
 import { BadRequestException } from '@nestjs/common';
-import type { DataSource, EntityManager } from 'typeorm';
+import type { DataSource, EntityManager, Repository } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 
 import { AssignProtocolToBatchUnitsHandler } from '../handlers/protocol-assignment.handlers';
@@ -17,6 +17,7 @@ import { ProtocolAssignment } from '../entities/protocol-assignment.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Batch, BatchType } from '../../batch/entities/batch.entity';
 import { EquipmentCategory, EquipmentType } from '../../equipment/entities/equipment-type.entity';
+import { stub, stubMember } from '@aquaculture/testing';
 
 jest.mock('../../batch/utils/tank-lookup.util', () => ({
   findTankOrEquipmentWithManager: jest.fn(async (_manager: unknown, unitId: string) => ({
@@ -36,17 +37,13 @@ const TENANT = '11111111-1111-4111-8111-111111111111';
 const BATCH = '22222222-2222-4222-8222-222222222222';
 const PROTOCOL = '33333333-3333-4333-8333-333333333333';
 
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
-
 interface HarnessOpts {
   protocolStatus?: FeedingProtocolStatus;
   unitRows?: Array<{ unitId: string }>;
 }
 
 function makeHarness(opts: HarnessOpts = {}) {
-  const protocol = mock<FeedingProtocolV2>({
+  const protocol = stub<FeedingProtocolV2>({
     id: PROTOCOL,
     tenantId: TENANT,
     name: 'Std Protocol',
@@ -55,7 +52,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     isDeleted: false,
     bands: [],
   });
-  const batch = mock<Batch>({
+  const batch = stub<Batch>({
     id: BATCH,
     tenantId: TENANT,
     batchType: BatchType.PRODUCTION,
@@ -65,28 +62,37 @@ function makeHarness(opts: HarnessOpts = {}) {
   const enqueued: Array<{ eventType: string; unitId?: string }> = [];
   const savedAssignments: ProtocolAssignment[] = [];
 
-  const protocolRepo = {
+  const protocolRepo = stub<Repository<FeedingProtocolV2>>({
     findOne: jest.fn(async () => protocol),
-  };
-  const assignmentRepo = {
+  });
+  const assignmentRepo = stub<Repository<ProtocolAssignment>>({
     findOne: jest.fn(async () => null),
     // Ünitedeki TÜM canlı atamalar (active + paused) sonlandırılır —
     // yalnız ACTIVE'i sonlandırmak paused birikimine yol açıyordu
     // (FARM-MEDIUM-255/261). Burada canlı atama yok.
     find: jest.fn(async () => []),
-    create: jest.fn((row: Partial<ProtocolAssignment>) => row),
-    save: jest.fn(async (row: Partial<ProtocolAssignment>) => {
-      const saved = { ...row, id: `as-${row.unitId}` } as ProtocolAssignment;
-      savedAssignments.push(saved);
-      return saved;
-    }),
-  };
+    // `create` and `save` are OVERLOAD SETS on Repository (array and
+    // single-entity forms, with and without SaveOptions), which no
+    // single-signature jest.fn can satisfy — see stubMember's docblock. The
+    // member type is still named here, so a rename or removal on Repository
+    // breaks this file, and every other member of the double stays checked.
+    create: stubMember<Repository<ProtocolAssignment>['create']>(
+      jest.fn((row: Partial<ProtocolAssignment>) => row),
+    ),
+    save: stubMember<Repository<ProtocolAssignment>['save']>(
+      jest.fn(async (row: Partial<ProtocolAssignment>) => {
+        const saved = { ...row, id: `as-${row.unitId}` } as ProtocolAssignment;
+        savedAssignments.push(saved);
+        return saved;
+      }),
+    ),
+  });
 
   const findOne = jest.fn();
   findOne.mockImplementation(async (entity: unknown) => {
     if (entity === Batch) return batch;
     if (entity === TankBatch) return null; // boş ünite — tür kontrolü atlanır
-    if (entity === EquipmentType) return mock<EquipmentType>({ category: EquipmentCategory.TANK });
+    if (entity === EquipmentType) return stub<EquipmentType>({ category: EquipmentCategory.TANK });
     return null;
   });
   const query = jest.fn();
@@ -98,16 +104,21 @@ function makeHarness(opts: HarnessOpts = {}) {
     if (entity === ProtocolAssignment) return assignmentRepo;
     throw new Error('unexpected repository request');
   });
-  const manager = mock<EntityManager>({ findOne, query, getRepository: getRepository as never });
+  const manager = stub<EntityManager>({
+    findOne,
+    query,
+    getRepository: stubMember<EntityManager['getRepository']>(getRepository),
+  });
 
-  const dataSource = mock<DataSource>({
+  const dataSource = stub<DataSource>({
     transaction: (async (cb: (m: EntityManager) => Promise<unknown>) =>
       cb(manager)) as DataSource['transaction'],
   });
-  const outbox = mock<OutboxPublisher>({
+  const outbox = stub<OutboxPublisher>({
+    // OutboxPublisher.enqueue returns Promise<void>; an async fn that returns
+    // nothing already IS that shape, so the cast was never load-bearing.
     enqueue: jest.fn(async (event: { eventType: string; unitId?: string }) => {
       enqueued.push(event);
-      return undefined as never;
     }),
   });
 

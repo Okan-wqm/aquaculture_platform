@@ -1,4 +1,4 @@
-import { Module, OnModuleInit } from '@nestjs/common';
+import { Global, Module, OnModuleInit } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
 import { RlsModule } from './rls.module';
@@ -96,6 +96,13 @@ describe('RlsModule (typed API)', () => {
     it("boots cleanly when a DataSource provider is present and exposes BypassRlsService", async () => {
       const stubDs = buildStubDataSource();
 
+      // @Global() is not decoration: TypeOrmCoreModule — the thing this stub
+      // stands in for — is itself @Global(), which is the ONLY reason
+      // RlsModule.forPoolService can constructor-inject DataSource in a real
+      // service without importing TypeOrmModule. A non-global stub models a
+      // wiring that production never has, and fails DI resolution for a reason
+      // the module contract is not responsible for.
+      @Global()
       @Module({
         providers: [
           { provide: DataSource, useValue: stubDs },
@@ -137,6 +144,8 @@ describe('RlsModule (typed API)', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const nonPoolDs: any = { driver: {} };
 
+      // @Global() for the same reason as the sibling test above.
+      @Global()
       @Module({
         providers: [
           { provide: DataSource, useValue: nonPoolDs },

@@ -27,15 +27,12 @@ import {
 } from '../entities/feeding-protocol-v2.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { RECALC_LOG_MAX_ENTRIES } from '../constants';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const UNIT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
-
-const PROTOCOL = mock<FeedingProtocolV2>({
+const PROTOCOL = stub<FeedingProtocolV2>({
   id: 'protocol-1',
   bands: [
     {
@@ -78,7 +75,7 @@ interface HarnessOpts {
 }
 
 function makeDayPlan(over: Partial<FeedingDayPlan> = {}): FeedingDayPlan {
-  return mock<FeedingDayPlan>({
+  return stub<FeedingDayPlan>({
     id: 'plan-1',
     tenantId: TENANT,
     assignmentId: 'assign-1',
@@ -124,7 +121,7 @@ function makeDayPlan(over: Partial<FeedingDayPlan> = {}): FeedingDayPlan {
 }
 
 function makeMeal(index: number, plannedKg: number, percent: number): FeedingMeal {
-  return mock<FeedingMeal>({
+  return stub<FeedingMeal>({
     id: `meal-${index}`,
     mealIndex: index,
     dayPlanId: 'plan-1',
@@ -142,14 +139,14 @@ function makeHarness(opts: HarnessOpts = {}) {
   const tankBatch =
     opts.tankBatch === null
       ? null
-      : mock<TankBatch>({
+      : stub<TankBatch>({
           tankId: UNIT,
           totalQuantity: 1000,
           totalBiomassKg: 50,
           avgWeightG: 50,
           ...opts.tankBatch,
         });
-  const assignment = mock<ProtocolAssignment>({
+  const assignment = stub<ProtocolAssignment>({
     id: 'assign-1',
     protocolId: 'protocol-1',
     status: ProtocolAssignmentStatus.ACTIVE,
@@ -194,8 +191,8 @@ function makeHarness(opts: HarnessOpts = {}) {
     return entity;
   });
 
-  const manager = mock<EntityManager>({ createQueryBuilder, findOne, save });
-  const outbox = mock<OutboxPublisher>({
+  const manager = stub<EntityManager>({ createQueryBuilder, findOne, save });
+  const outbox = stub<OutboxPublisher>({
     enqueue: jest.fn(async (event: { eventType: string }) => {
       enqueued.push(event);
       return undefined as never;

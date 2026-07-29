@@ -45,20 +45,17 @@ import {
 import { FeedingDayPlan } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const USER = '44444444-4444-4444-8444-444444444444';
 const UNIT = '77777777-7777-4777-8777-777777777777';
 const SITE = '88888888-8888-4888-8888-888888888888';
 
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
-
 // runInTenantTransaction mock'u bu değişkendeki manager'ı callback'e verir.
 let currentManager: Record<string, jest.Mock>;
 
-const PROTOCOL = mock<FeedingProtocolV2>({
+const PROTOCOL = stub<FeedingProtocolV2>({
   id: 'proto-1',
   tenantId: TENANT,
   status: FeedingProtocolStatus.ACTIVE,
@@ -92,7 +89,7 @@ const PROTOCOL = mock<FeedingProtocolV2>({
 });
 
 function makeAssignment(): ProtocolAssignment {
-  return mock<ProtocolAssignment>({
+  return stub<ProtocolAssignment>({
     id: 'assign-1',
     tenantId: TENANT,
     unitId: UNIT,
@@ -206,20 +203,20 @@ function buildHarness(fixture: Fixture): {
 
   const resolutionService = new ProtocolResolutionService(new ProtocolRateService());
   const recalcService = fixture.realRecalc
-    ? new DayPlanRecalcService(mock<OutboxPublisher>({ enqueue }), resolutionService)
-    : mock<DayPlanRecalcService>({ recalcForUnit });
+    ? new DayPlanRecalcService(stub<OutboxPublisher>({ enqueue }), resolutionService)
+    : stub<DayPlanRecalcService>({ recalcForUnit });
 
   const service = new DayPlanAdminService(
-    mock<DataSource>({}),
-    mock<MealPlanGeneratorService>({ computeDayPlan, persistDayPlan }),
+    stub<DataSource>({}),
+    stub<MealPlanGeneratorService>({ computeDayPlan, persistDayPlan }),
     recalcService,
-    mock<WaterTemperatureService>({ getEffectiveTemperature }),
-    mock<OutboxPublisher>({ enqueue }),
+    stub<WaterTemperatureService>({ getEffectiveTemperature }),
+    stub<OutboxPublisher>({ enqueue }),
     // Band çözümü ağırlıktan — manuel geçiş de tek SSoT'yi kullanır (W3).
     new ProtocolResolutionService(new ProtocolRateService()),
     // W5: takvim/saat çözümü tek serviste (D-B4) — servisin kendi
     // `timezoneFor` kopyası silindi.
-    mock<FeedingClockService>({
+    stub<FeedingClockService>({
       siteZones: jest.fn().mockResolvedValue({ tenantZone: 'UTC', zoneOf: () => 'UTC' }),
       resolve: jest.fn().mockResolvedValue(FeedingClockService.clockIn('UTC')),
     }),
@@ -275,7 +272,7 @@ describe('DayPlanAdminService.regenerateDayPlan (K-9)', () => {
   });
 
   it('ACTIVE olmayan protokolde plan üretmeyi reddeder', async () => {
-    const draft = mock<FeedingProtocolV2>({ ...PROTOCOL, status: FeedingProtocolStatus.DRAFT });
+    const draft = stub<FeedingProtocolV2>({ ...PROTOCOL, status: FeedingProtocolStatus.DRAFT });
     const { service, persistDayPlan } = buildHarness({ dayPlan: null, protocol: draft });
 
     await expect(service.regenerateDayPlan(TENANT, USER, UNIT)).rejects.toBeInstanceOf(
@@ -287,7 +284,7 @@ describe('DayPlanAdminService.regenerateDayPlan (K-9)', () => {
 
 describe('DayPlanAdminService.transitionUnitFeed (K-9)', () => {
   it('band yemine manuel geçiş: atama + kalan öğünler + automatic:false event', async () => {
-    const meal = mock<FeedingMeal>({
+    const meal = stub<FeedingMeal>({
       id: 'meal-1',
       feedId: 'feed-s1',
       status: FeedingMealStatus.SCHEDULED,
@@ -331,7 +328,7 @@ describe('DayPlanAdminService.transitionUnitFeed (K-9)', () => {
     // öğünlerin yemi ve fiyatlama band 0'a geri alınıyor, üstüne ÇELİŞKİLİ
     // ikinci bir FeedTypeTransitioned(automatic:true) yayılıyordu — mutation
     // ise `TRANSITIONED` dönüp operatörün yemini logluyordu.
-    const meal = mock<FeedingMeal>({
+    const meal = stub<FeedingMeal>({
       id: 'meal-1',
       feedId: 'feed-s1',
       plannedKg: 1,
@@ -374,7 +371,7 @@ describe('DayPlanAdminService.transitionUnitFeed (K-9)', () => {
     // Pin sonsuza kadar yaşamaz: operatör band 0'ı sabitlemişken balık 300 g'a
     // çıkarsa ağırlık bandı 1'dir ve otomatik geçiş devralır — aksi hâlde bir
     // kerelik manuel karar üniteyi kalıcı olarak yanlış pellette kilitlerdi.
-    const meal = mock<FeedingMeal>({
+    const meal = stub<FeedingMeal>({
       id: 'meal-1',
       feedId: 'feed-s1',
       plannedKg: 1,

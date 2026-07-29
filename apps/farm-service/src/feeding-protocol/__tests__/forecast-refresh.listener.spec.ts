@@ -10,13 +10,9 @@ import {
   ForecastRefreshListener,
 } from '../listeners/forecast-refresh.listener';
 import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.service';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-
-/** Tek-cast mock köprüsü (feeding-cron-v2 spec ailesiyle aynı desen). */
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
 
 function event(overrides: Partial<BaseEvent> & Record<string, unknown>): BaseEvent {
   return { eventType: 'FeedTypeTransitioned', tenantId: TENANT, ...overrides } as BaseEvent;
@@ -25,7 +21,7 @@ function event(overrides: Partial<BaseEvent> & Record<string, unknown>): BaseEve
 describe('ForecastRefreshListener (D-6)', () => {
   const refreshTenant = jest.fn().mockResolvedValue(1);
   const listener = new ForecastRefreshListener(
-    mock<ProtocolFeedForecastService>({ refreshTenant }),
+    stub<ProtocolFeedForecastService>({ refreshTenant }),
   );
 
   beforeEach(() => {

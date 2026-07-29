@@ -72,7 +72,8 @@ export type DriftClass =
   | 'enum_labels'
   | 'check_constraint'
   | 'encrypted_column_protection'
-  | 'per_tenant_shape_divergence';
+  | 'per_tenant_shape_divergence'
+  | 'foreign_key_presence';
 
 /**
  * Scan DB against entity metadata declarations; return a DriftReport
@@ -143,6 +144,7 @@ async function scanDrift(
     check_constraint: 0,
     encrypted_column_protection: 0,
     per_tenant_shape_divergence: 0,
+    foreign_key_presence: 0,
   };
 
   for (const entity of entities) {
@@ -354,6 +356,46 @@ async function scanDrift(
         );
       }
       byClass.check_constraint++;
+    }
+
+    // Class K — foreign_key_presence: count-based drift signal, same
+    // rationale as Class G above. PG canonicalizes FK definitions
+    // (referential actions, column ordering, deferrable flags) in ways
+    // that defeat string equality, so the production validator
+    // (`scanForeignKeyDrift`) compares cardinality only; the harness
+    // mirrors that exactly, or a migration could satisfy one and not
+    // the other.
+    //
+    // The class it catches: a CREATE-then-ALTER FK migration whose ALTER
+    // step was swallowed, leaving the ledger applied and the constraint
+    // absent — the regression the sensor-service
+    // AlignSensorEntitySurfaceFks chain surfaced across three deploys.
+    const entityForeignKeys = entity.foreignKeys;
+    const fkRows = await queryRows<{ conname: string; definition: string }>(
+      ctx.qr,
+      `SELECT c.conname, pg_get_constraintdef(c.oid) AS definition
+           FROM pg_constraint c
+           JOIN pg_class t ON t.oid = c.conrelid
+           JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE n.nspname = $1
+            AND t.relname = $2
+            AND c.contype = 'f'`,
+      [ctx.schema, tableName],
+    );
+    if (fkRows.length !== entityForeignKeys.length) {
+      const dbDefs = fkRows
+        .map((r) => `${r.conname}: ${r.definition}`)
+        .join(' ; ');
+      if (entityForeignKeys.length > fkRows.length) {
+        violations.push(
+          `[${ctx.schema}.${tableName}] entity declares ${entityForeignKeys.length} FK(s) but DB has ${fkRows.length} — ${entityForeignKeys.length - fkRows.length} missing in DB (db-side: ${dbDefs}) (foreign_key_presence)`,
+        );
+      } else {
+        violations.push(
+          `[${ctx.schema}.${tableName}] DB has ${fkRows.length} foreign-key constraint(s) but entity declares ${entityForeignKeys.length} — ${fkRows.length - entityForeignKeys.length} orphaned (db-side: ${dbDefs}) (foreign_key_presence)`,
+        );
+      }
+      byClass.foreign_key_presence++;
     }
 
     // Class E — orphan_column: DB has a column the entity does not

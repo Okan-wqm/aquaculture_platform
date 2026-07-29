@@ -84,7 +84,24 @@ describe('TenantContextMiddleware - subdomain hardening', () => {
       expect(req2.tenantId).toBeUndefined();
     });
 
-    it('should allow any domain when ALLOWED_BASE_DOMAINS is not set', () => {
+    /**
+     * Renamed from "should allow any domain when ALLOWED_BASE_DOMAINS is not
+     * set", which asserted the OPPOSITE of what production does — and of what
+     * production should do.
+     *
+     * `isAllowedBaseDomain` documents the rule in its own docblock: "In
+     * production: requires ALLOWED_BASE_DOMAINS env var to be set and the base
+     * domain to be in the list. If env var is not set, rejects all
+     * (fail-closed)." CLAUDE.md says the same: the request subdomain is a
+     * tenant-ID source that must fail closed in prod.
+     *
+     * The old assertion was not merely stale, it pinned a vulnerability: with
+     * the env var unset — the default for any deploy that forgets it — ANY host
+     * that puts a UUID in front of a three-label domain would have been trusted
+     * as that tenant. Nothing caught the disagreement because this suite lives
+     * in libs/backend-common, which had no Nx project and so no CI test lane.
+     */
+    it('should reject every domain when ALLOWED_BASE_DOMAINS is not set (fail-closed)', () => {
       process.env = {
         ...originalEnv,
         NODE_ENV: 'production',
@@ -96,7 +113,7 @@ describe('TenantContextMiddleware - subdomain hardening', () => {
         hostname: `${validUuid}.any-domain.example.com`,
       });
       prodMiddleware.use(req, mockRes as Response, mockNext);
-      expect(req.tenantId).toBe(validUuid);
+      expect(req.tenantId).toBeUndefined();
     });
 
     it('should always allow subdomain extraction in development', () => {

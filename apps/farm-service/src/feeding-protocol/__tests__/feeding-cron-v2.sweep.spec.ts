@@ -24,6 +24,7 @@ import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity'
 import { FeedingDayPlan } from '../entities/feeding-day-plan.entity';
 import { FeedingProtocolV2 } from '../entities/feeding-protocol-v2.entity';
 import { realFinalizationService } from './helpers/meal-finalization-double';
+import { stub } from '@aquaculture/testing';
 
 jest.mock('@aquaculture/backend-common/database', () => ({
   ...jest.requireActual('@aquaculture/backend-common/database'),
@@ -46,10 +47,6 @@ const TENANT = '11111111-1111-4111-8111-111111111111';
 const CLOCK = FeedingClockService.clockIn('UTC', new Date());
 const OVERDUE = new Date(Date.now() - 7 * 60 * 60 * 1000);
 const FRESH = new Date();
-
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
 
 interface SweepFixture {
   meals: Array<Partial<FeedingMeal>>;
@@ -76,7 +73,7 @@ function makeHarness(fixture: SweepFixture) {
    */
   const createQueryBuilder = jest.fn((entity: unknown): SelectQueryBuilder<FeedingMeal> => {
     const state: { status?: string; cutoff?: Date } = {};
-    const builder: SelectQueryBuilder<FeedingMeal> = mock<SelectQueryBuilder<FeedingMeal>>({
+    const builder: SelectQueryBuilder<FeedingMeal> = stub<SelectQueryBuilder<FeedingMeal>>({
       where: () => builder,
       andWhere: (_condition: string, params?: Record<string, unknown>) => {
         if (typeof params?.status === 'string') state.status = params.status;
@@ -107,7 +104,7 @@ function makeHarness(fixture: SweepFixture) {
   // sayımı üzerinden) — plan `in_progress`'te asılı kalmaz.
   const count = jest.fn().mockResolvedValue(0);
   const update = jest.fn().mockResolvedValue({ affected: 1 });
-  const manager = mock<EntityManager>({
+  const manager = stub<EntityManager>({
     find,
     save,
     query,
@@ -124,14 +121,14 @@ function makeHarness(fixture: SweepFixture) {
   });
   const applyGrowth = jest.fn().mockResolvedValue(undefined);
   const applyMissedCatchUp = jest.fn().mockResolvedValue(0);
-  const growthApplier = mock<BiomassGrowthApplierService>({ lockUnitForGrowth, applyGrowth });
-  const outboxPublisher = mock<OutboxPublisher>({
+  const growthApplier = stub<BiomassGrowthApplierService>({ lockUnitForGrowth, applyGrowth });
+  const outboxPublisher = stub<OutboxPublisher>({
     enqueue: jest.fn(async (event: { eventType: string; unitCode?: string }) => {
       enqueued.push(event);
       return undefined as never;
     }),
   });
-  const recalcService = mock<DayPlanRecalcService>({
+  const recalcService = stub<DayPlanRecalcService>({
     recalcForUnit: jest.fn(),
     // W5: telafi varsayılan olarak KAPALI (yüzde 0) — çağrı yapılır ama
     // kalan öğünlerin plannedKg'ı değişmez.
@@ -139,20 +136,20 @@ function makeHarness(fixture: SweepFixture) {
   });
 
   const service = new FeedingCronV2Service(
-    mock<DataSource>({}),
-    mock<MealPlanGeneratorService>({}),
+    stub<DataSource>({}),
+    stub<MealPlanGeneratorService>({}),
     growthApplier,
-    mock<WaterTemperatureService>({}),
-    mock<FCRCalculationService>({}),
+    stub<WaterTemperatureService>({}),
+    stub<FCRCalculationService>({}),
     outboxPublisher,
-    mock<ProtocolFeedForecastService>({}),
+    stub<ProtocolFeedForecastService>({}),
     recalcService,
     // FARM-MEDIUM-276: GERÇEK finalize servisi. Bu bir stub olsaydı aşağıdaki
     // `applyGrowth` argümanı, `save` sırası ve varyans assertion'ları hiçbir
     // şey doğrulamıyor olurdu — süpürme boş bir gövdeye giderdi.
     realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
-    mock<FeedingClockService>({}),
-    mock<FeedingJobRunService>({}),
+    stub<FeedingClockService>({}),
+    stub<FeedingJobRunService>({}),
   );
 
   return {

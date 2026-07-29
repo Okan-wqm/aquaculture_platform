@@ -26,6 +26,7 @@ import { realFinalizationService } from './helpers/meal-finalization-double';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
 import { FeedingMealStatus } from '../entities/feeding-meal.entity';
+import { stub } from '@aquaculture/testing';
 
 jest.mock('@aquaculture/backend-common/database', () => ({
   ...jest.requireActual('@aquaculture/backend-common/database'),
@@ -47,10 +48,6 @@ const TENANT = '11111111-1111-4111-8111-111111111111';
 const NOW = new Date('2026-07-20T17:00:00Z'); // Oslo 19:00
 const CLOCK = FeedingClockService.clockIn('Europe/Oslo', NOW);
 
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
-
 interface SummaryRows {
   plans: Array<Record<string, unknown>>;
   openMeals: Array<{ scheduledAt: Date; status: FeedingMealStatus }>;
@@ -64,31 +61,32 @@ function makeHarness(rows: SummaryRows) {
     queries.push({ sql, params });
     return queries.length === 1 ? rows.plans : rows.openMeals;
   });
-  globalThis.__summaryManager = mock<EntityManager>({ query: query as never });
+  globalThis.__summaryManager = stub<EntityManager>({ query: query as EntityManager['query'] });
 
-  const growthApplier = mock<BiomassGrowthApplierService>({});
-  const outboxPublisher = mock<OutboxPublisher>({
+  const growthApplier = stub<BiomassGrowthApplierService>({});
+  const outboxPublisher = stub<OutboxPublisher>({
+    // OutboxPublisher.enqueue returns Promise<void>; an async fn that returns
+    // nothing already IS that shape, so the cast was never load-bearing.
     enqueue: jest.fn(async (event: BaseEvent) => {
       enqueued.push(event as BaseEvent & Record<string, unknown>);
-      return undefined as never;
     }),
   });
-  const recalcService = mock<DayPlanRecalcService>({});
+  const recalcService = stub<DayPlanRecalcService>({});
 
   const service = new FeedingCronV2Service(
-    mock<DataSource>({}),
-    mock<MealPlanGeneratorService>({}),
+    stub<DataSource>({}),
+    stub<MealPlanGeneratorService>({}),
     growthApplier,
-    mock<WaterTemperatureService>({}),
-    mock<FCRCalculationService>({}),
+    stub<WaterTemperatureService>({}),
+    stub<FCRCalculationService>({}),
     outboxPublisher,
-    mock<ProtocolFeedForecastService>({}),
+    stub<ProtocolFeedForecastService>({}),
     recalcService,
     // Gerçek finalize servisi (FARM-MEDIUM-276) — aynı outbox sahtesini
     // paylaşır, böylece finalize yolundan çıkan bir event de `enqueued`e düşer.
     realFinalizationService({ growthApplier, recalcService, outboxPublisher }),
-    mock<FeedingClockService>({}),
-    mock<FeedingJobRunService>({}),
+    stub<FeedingClockService>({}),
+    stub<FeedingJobRunService>({}),
   );
   return { service, queries, enqueued };
 }

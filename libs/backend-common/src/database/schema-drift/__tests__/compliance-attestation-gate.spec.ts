@@ -8,6 +8,8 @@
 // `export {}` keeps strict-tsc treating this file as a MODULE so its
 // top-level declarations stay file-scoped (PROC-MEDIUM-010 invariant).
 export {};
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const {
   main: attestationMain,
@@ -20,6 +22,35 @@ const {
     cutoffIso: string;
   };
 };
+
+/**
+ * Registry rows as the gate reads them. Parsed here rather than imported so
+ * the spec checks the gate against the SAME on-disk source of truth the gate
+ * consults, instead of against the gate's own in-memory view of it.
+ */
+function readRegistryEntries(): Array<{
+  id: string;
+  severity: string;
+  state: string;
+}> {
+  const registryPath = join(
+    __dirname,
+    '..',
+    '..',
+    '..',
+    '..',
+    '..',
+    '..',
+    'docs',
+    'reviews',
+    '_registry',
+    'findings.jsonl',
+  );
+  return readFileSync(registryPath, 'utf8')
+    .split('\n')
+    .filter((line) => line.trim().length > 0)
+    .map((line) => JSON.parse(line) as { id: string; severity: string; state: string });
+}
 
 describe('compliance-attestation-coverage gate', () => {
   let stdoutSpy: jest.SpyInstance;
@@ -55,16 +86,28 @@ describe('compliance-attestation-coverage gate', () => {
   });
 
   it('ignores OPEN / IN-PROGRESS findings', () => {
-    // The registry currently holds only RESOLVED entries (33 of 53 are
-    // CRITICAL/HIGH, and 20 are RESOLVED). Past cutoff should surface
-    // ONLY RESOLVED ones — not every CRITICAL/HIGH entry.
+    // Past cutoff must surface ONLY RESOLVED CRITICAL/HIGH entries.
+    //
+    // This used to assert `id` matched /-(CRITICAL|HIGH)-/, reading severity
+    // out of the ID TEXT. That is not where severity lives — the gate itself
+    // filters on `e.severity`, and the ID convention `{DOMAIN}-{SEVERITY}-{N}`
+    // is a convention, not a schema. `RUST-CVE-001` is a legitimately-shaped
+    // registry entry with `"severity":"HIGH"` and no severity segment in its
+    // ID, so the regex failed a finding the gate had classified correctly.
+    // Assert against the registry field the gate actually reads.
+    const bySeverity = new Map(
+      readRegistryEntries().map((e) => [e.id, e]),
+    );
     const r = runCoverageCheck({ cutoffIso: '2026-04-15T00:00:00Z' });
-    // Exact count may change as the registry grows; assert the ID
-    // pattern is CRITICAL or HIGH (severity check) rather than a
-    // brittle count equality.
-    for (const id of r.missing) {
-      expect(id).toMatch(/-(CRITICAL|HIGH)-/);
-    }
+    const misclassified = r.missing.filter((id) => {
+      const entry = bySeverity.get(id);
+      return (
+        !entry ||
+        entry.state !== 'RESOLVED' ||
+        (entry.severity !== 'CRITICAL' && entry.severity !== 'HIGH')
+      );
+    });
+    expect(misclassified).toEqual([]);
   });
 
   it('throws on invalid cutoff ISO string', () => {

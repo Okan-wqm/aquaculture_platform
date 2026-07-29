@@ -1,0 +1,16 @@
+{
+  "name": "outbox",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "platform/libs/outbox/src",
+  "projectType": "library",
+  "tags": ["scope:platform", "type:lib"],
+  "targets": {
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/platform/libs/outbox"],
+      "options": {
+        "jestConfig": "platform/libs/outbox/jest.config.json"
+      }
+    }
+  }
+}

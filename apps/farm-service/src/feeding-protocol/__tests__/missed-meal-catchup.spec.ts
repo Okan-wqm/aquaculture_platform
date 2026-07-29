@@ -21,12 +21,9 @@ import { FeedingDayPlan } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import { FeedingProtocolV2 } from '../entities/feeding-protocol-v2.entity';
 import { ProtocolAssignment } from '../entities/protocol-assignment.entity';
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
-
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
 
 describe('distributeCatchUp — SAF (kullanıcı kararı 3)', () => {
   const remaining = [{ percentOfDaily: 40 }, { percentOfDaily: 20 }];
@@ -87,7 +84,7 @@ describe('DayPlanRecalcService.applyMissedCatchUp', () => {
       orderBy: () => builder,
       getMany: async () => opts.meals,
     };
-    const manager = mock<EntityManager>({
+    const manager = stub<EntityManager>({
       findOne: findOne as never,
       createQueryBuilder: (() => builder) as never,
       save: (async (entity: { id?: string; plannedKg?: number }) => {
@@ -96,15 +93,15 @@ describe('DayPlanRecalcService.applyMissedCatchUp', () => {
       }) as never,
     });
     const service = new DayPlanRecalcService(
-      mock<OutboxPublisher>({ enqueue: jest.fn() }),
+      stub<OutboxPublisher>({ enqueue: jest.fn() }),
       new ProtocolResolutionService(new ProtocolRateService()),
     );
-    const dayPlan = mock<FeedingDayPlan>({
+    const dayPlan = stub<FeedingDayPlan>({
       id: 'dp-1',
       assignmentId: 'a-1',
       protocolId: 'p-1',
       plannedTotalKg: 30,
-      snapshot: mock<FeedingDayPlan['snapshot']>({ biomassKg: 1000 }),
+      snapshot: stub<FeedingDayPlan['snapshot']>({ biomassKg: 1000 }),
       recalcLog: [],
     });
     return { service, manager, dayPlan, saved };

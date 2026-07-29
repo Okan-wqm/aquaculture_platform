@@ -25,11 +25,30 @@
  * detectable any other way: nothing in Nx, jest or the shell scripts errors on
  * an empty selection, because an empty selection is legitimate on most PRs.
  *
+ * A third instance of the same shape was found on 2026-07-29, and it was
+ * invisible to BOTH directions above because both read the Nx project graph:
+ *
+ *   3. `libs/backend-common`, `libs/storage`, `platform/libs/event-bus` and
+ *      `platform/libs/outbox` each shipped a working `jest.config.*` and NO
+ *      `project.json`. With no project there is no target, so `nx affected -t
+ *      test` could never select them, `getJestProjectsAsync()` (the root
+ *      aggregate config) skipped them, and no workflow named their config in a
+ *      `run:` step. 127 spec files had therefore never executed in CI —
+ *      including the tenant-RLS install helper, the tenant-context middleware
+ *      and the MODULE_SCHEMAS fan-out pin. They had rotted exactly as
+ *      FARM-MEDIUM-301 predicted: the RLS suite no longer reached the code it
+ *      tested, the fan-out pin was 8 tables stale, the subdomain suite asserted
+ *      a fail-OPEN behaviour production had since closed, and
+ *      `rls.module.spec.ts` asserted a boot guard the code had stopped
+ *      implementing.
+ *
  * ## What is checked
  *
  * Every project target whose name is `test` or starts with `test:` must be
- * reachable from CI, and every target name CI drives through the affected-target
- * policy script must exist on at least one project.
+ * reachable from CI; every target name CI drives through the affected-target
+ * policy script must exist on at least one project; and every jest config in
+ * the repository must be owned by a project whose test target is itself
+ * reachable — a config nothing can select is a suite nothing runs.
  *
  * Watch-mode targets are exempt by name: their body is an interactive `vitest`
  * with no `run`, so invoking one in CI would hang the job forever. The exemption
@@ -251,6 +270,36 @@ function isRootScriptRun(
   return false;
 }
 
+/**
+ * Every `jest.config.*` in the repo, workspace-relative, from git's index so
+ * build output and node_modules cannot pad or hide the list.
+ */
+function jestConfigFiles(): string[] {
+  return execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '*jest.config.*'], {
+    encoding: 'utf8',
+  })
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    // The root aggregate config owns no suite of its own — it fans out to the
+    // per-project configs via getJestProjectsAsync().
+    .filter((line) => line !== 'jest.config.js');
+}
+
+/**
+ * Jest configs deliberately not owned by an Nx test target, each with the
+ * reason. Absent from this map, a config must be reachable — so adding a jest
+ * config forces a deliberate choice: wire it, or say why not.
+ */
+const UNOWNED_JEST_CONFIGS: Readonly<Record<string, string>> = {
+  'tests/e2e/v11-compat/jest.config.ts':
+    'NestJS v11 upgrade compatibility lane, invoked by path from the upgrade workflow — not part of the affected-target policy.',
+  'tests/e2e/v11-upgrade/jest.config.ts':
+    'NestJS v11 upgrade lane, same rationale as v11-compat above.',
+  'e2e/jest.config.ts':
+    'Driven by the root `test:tenant-clone` / `test:schema-invariants` scripts and nats-invariants.yml, all by path; the root-script direction gates those.',
+};
+
 describe('INVARIANT: test-target CI reachability', () => {
   const declared = declaredTestTargets();
   const driven = ciDrivenTargets();
@@ -322,6 +371,39 @@ describe('INVARIANT: test-target CI reachability', () => {
       const script = scripts.find((s) => s.name === name);
       if (!script) return true; // deleted script — exemption is dead weight
       return isRootScriptRun(script, corpus, driven); // now wired — drop it
+    });
+
+    expect(stale).toEqual([]);
+  });
+
+  it('owns every jest config with a CI-reachable test target', () => {
+    const configs = jestConfigFiles();
+    // A broken `git ls-files` must not fake a pass.
+    expect(configs.length).toBeGreaterThan(10);
+
+    const corpus = workflowCorpus();
+    const orphans = configs
+      .filter((config) => !(config in UNOWNED_JEST_CONFIGS))
+      .filter((config) => {
+        // Owned when some CI-reachable test target names this config path.
+        const owner = declared.find(
+          (entry) => entry.command.includes(config) && isReachableFromCi(entry, driven),
+        );
+        if (owner) return false;
+        // Or when a workflow invokes it by path directly.
+        return !corpus.includes(config);
+      });
+
+    expect(orphans).toEqual([]);
+  });
+
+  it('keeps the unowned-config allowlist honest — no entry that has since been wired or deleted', () => {
+    const configs = new Set(jestConfigFiles());
+    const stale = Object.keys(UNOWNED_JEST_CONFIGS).filter((config) => {
+      if (!configs.has(config)) return true; // deleted config — exemption is dead weight
+      return declared.some(
+        (entry) => entry.command.includes(config) && isReachableFromCi(entry, driven),
+      );
     });
 
     expect(stale).toEqual([]);

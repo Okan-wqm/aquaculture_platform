@@ -1,0 +1,16 @@
+{
+  "name": "event-bus",
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "platform/libs/event-bus/src",
+  "projectType": "library",
+  "tags": ["scope:platform", "type:lib"],
+  "targets": {
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/platform/libs/event-bus"],
+      "options": {
+        "jestConfig": "platform/libs/event-bus/jest.config.ts"
+      }
+    }
+  }
+}

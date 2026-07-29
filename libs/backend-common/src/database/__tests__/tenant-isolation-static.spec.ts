@@ -54,11 +54,20 @@ describe('Tenant Isolation Static Analysis', () => {
       const tenantTotal = MODULE_SCHEMAS
         .filter(m => TENANT_SCOPED_MODULES.has(m.moduleName))
         .reduce((sum, m) => sum + m.tables.length, 0);
-      // 183 → 182: farm_documents dropped (ORPHAN-HIGH-369, owner decision;
-      // DropFarmDocuments1805300000000 removed the unwired orphan DMS table).
-      // 182 → 183: ai conversation_turns added (ORPHAN-MEDIUM-380 durable
-      // per-turn AI cost ledger; CreateConversationTurns1802100000000).
-      expect(tenantTotal).toBe(183);
+      // 183 → 191. This pin is a "consciousness check": it exists so that
+      // adding a per-tenant table is a deliberate act. It stopped working —
+      // libs/backend-common has no Nx project, so `nx affected -t test` never
+      // selected it and no workflow invoked its jest config, and this suite had
+      // never run in CI. The pin therefore drifted silently across every merge
+      // that touched MODULE_SCHEMAS. The number below is measured against the
+      // registry as it stands, not reconstructed; the eight are the six
+      // feeding-protocol-v2 fan-out tables (feeding_protocols_v2,
+      // feeding_protocol_assignments, feeding_day_plans, feeding_meals,
+      // feeding_forecast_snapshots, feeding_job_runs), plus
+      // feeding_record_attribution_quarantine and ai.embeddings_metadata.
+      // The lane that makes this assertion real now exists, so the next drift
+      // fails the build instead of accumulating.
+      expect(tenantTotal).toBe(191);
     });
 
     it('every module should have a sourceSchema', () => {
@@ -108,14 +117,15 @@ describe('Tenant Isolation Static Analysis', () => {
       // (Platform-level modules are intentionally not pinned here; their
       // `tables` lists churn with registry completeness, not fan-out.)
       expect(counts['sensor']).toBe(46);
-      // 86 → 85: farm_documents dropped (ORPHAN-HIGH-369, owner decision).
-      expect(counts['farm']).toBe(85);
+      // 85 → 92: seven feeding tables, see the tenantTotal note above for why
+      // the pin was allowed to drift this far before anything noticed.
+      expect(counts['farm']).toBe(92);
       expect(counts['hr']).toBe(29);
       expect(counts['hydroponics']).toBe(1);
       expect(counts['alert']).toBe(4);
       // 2 → 3: conversation_turns added (ORPHAN-MEDIUM-380 durable per-turn
-      // AI cost ledger).
-      expect(counts['ai']).toBe(3);
+      // AI cost ledger). 3 → 4: embeddings_metadata.
+      expect(counts['ai']).toBe(4);
       expect(counts['messaging']).toBe(15);
     });
   });

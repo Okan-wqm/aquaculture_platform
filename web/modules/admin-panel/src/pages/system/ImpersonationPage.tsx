@@ -266,10 +266,18 @@ export const ImpersonationPage: React.FC = () => {
     );
   }), [activeSessions, searchQuery]);
 
+  // A permission is granted to a SUPER-ADMIN, not to a tenant: the row carries
+  // `superAdminId` plus `allowedTenants`/`restrictedTenants` lists. Searching it
+  // by tenant name was searching a field the record has never had.
   const filteredPermissions = useMemo(() => permissions.filter((permission) => {
+    const query = searchQuery.toLowerCase();
     const matchesSearch =
       !searchQuery ||
-      permission.tenantName.toLowerCase().includes(searchQuery.toLowerCase());
+      (permission.superAdminEmail ?? '').toLowerCase().includes(query) ||
+      permission.superAdminId.toLowerCase().includes(query) ||
+      (permission.allowedTenants ?? []).some((tenantId) =>
+        tenantId.toLowerCase().includes(query),
+      );
     const matchesStatus =
       statusFilter === 'all' ||
       (statusFilter === 'active' ? permission.isActive : !permission.isActive);
@@ -879,33 +887,67 @@ export const ImpersonationPage: React.FC = () => {
                   .filter((p) => p.isActive)
                   .map((permission) => (
                     <Card key={permission.id} className="p-4">
+                      {/* A grant is per SUPER-ADMIN. This card used to render a
+                          per-tenant grant row — tenantName, tenantId,
+                          grantedByEmail, maxSessionDuration, allowedActions,
+                          reason, revokedBy, revokedAt — none of which the record
+                          has, so every cell was blank and the dates read
+                          "Invalid Date". The real model is an admin plus the
+                          tenants they may and may not enter. */}
                       <div className="flex justify-between items-start mb-3">
                         <div>
-                          <h4 className="font-medium text-gray-900">{permission.tenantName}</h4>
-                          <p className="text-sm text-gray-500">{permission.tenantId}</p>
+                          <h4 className="font-medium text-gray-900">
+                            {permission.superAdminEmail ?? permission.superAdminId}
+                          </h4>
+                          <p className="text-sm text-gray-500">{permission.superAdminId}</p>
                         </div>
-                        <Badge variant="success">Active</Badge>
+                        <Badge variant={permission.canImpersonate ? 'success' : 'warning'}>
+                          {permission.canImpersonate ? 'Active' : 'Suspended'}
+                        </Badge>
                       </div>
 
                       <div className="space-y-2 text-sm text-gray-600 mb-3">
                         <div>
-                          <span className="text-gray-500">Granted by:</span> {permission.grantedByEmail}
+                          <span className="text-gray-500">Tenant scope:</span>{' '}
+                          {permission.allowedTenants && permission.allowedTenants.length > 0
+                            ? `${permission.allowedTenants.length} allowed`
+                            : 'All tenants'}
+                          {permission.restrictedTenants && permission.restrictedTenants.length > 0
+                            ? `, ${permission.restrictedTenants.length} blocked`
+                            : ''}
                         </div>
                         <div>
-                          <span className="text-gray-500">Max Duration:</span> {permission.maxSessionDuration} min
+                          <span className="text-gray-500">Max duration:</span>{' '}
+                          {permission.maxSessionDurationMinutes} min
                         </div>
                         <div>
-                          <span className="text-gray-500">Allowed Actions:</span>{' '}
-                          {permission.allowedActions.join(', ')}
+                          <span className="text-gray-500">Concurrent sessions:</span>{' '}
+                          {permission.maxConcurrentSessions}
                         </div>
-                        {permission.expiresAt && (
+                        <div>
+                          <span className="text-gray-500">Requires:</span>{' '}
+                          {[
+                            permission.requireReason ? 'reason' : null,
+                            permission.requireTicketReference ? 'ticket reference' : null,
+                            permission.notifyTenantAdmin ? 'tenant-admin notice' : null,
+                          ]
+                            .filter((requirement): requirement is string => requirement !== null)
+                            .join(', ') || 'nothing'}
+                        </div>
+                        {permission.grantedBy && (
                           <div>
-                            <span className="text-gray-500">Expires:</span> {formatDate(permission.expiresAt)}
+                            <span className="text-gray-500">Granted by:</span> {permission.grantedBy}
                           </div>
                         )}
-                        {permission.reason && (
+                        {permission.expiresAt && (
                           <div>
-                            <span className="text-gray-500">Reason:</span> {permission.reason}
+                            <span className="text-gray-500">Expires:</span>{' '}
+                            {formatDate(permission.expiresAt)}
+                          </div>
+                        )}
+                        {permission.notes && (
+                          <div>
+                            <span className="text-gray-500">Notes:</span> {permission.notes}
                           </div>
                         )}
                       </div>
@@ -922,7 +964,9 @@ export const ImpersonationPage: React.FC = () => {
                               type: 'revoke_permission',
                               id: permission.superAdminId,
                               title: 'Revoke Permission',
-                              message: `Are you sure you want to revoke impersonation permission for ${permission.tenantName}?`,
+                              message: `Are you sure you want to revoke impersonation permission for ${
+                                permission.superAdminEmail ?? permission.superAdminId
+                              }?`,
                             });
                             setShowConfirmModal(true);
                           }}
@@ -944,7 +988,7 @@ export const ImpersonationPage: React.FC = () => {
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tenant</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Super Admin</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Granted By</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revoked By</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Revoked At</th>
@@ -954,13 +998,19 @@ export const ImpersonationPage: React.FC = () => {
                     {revokedPermissions.map((permission) => (
                       <tr key={permission.id} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="font-medium text-gray-900">{permission.tenantName}</div>
+                          <div className="font-medium text-gray-900">
+                            {permission.superAdminEmail ?? permission.superAdminId}
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          {permission.grantedByEmail}
+                          {permission.grantedBy ?? '-'}
                         </td>
+                        {/* A dash here means the grant was revoked before the
+                            revocation audit existed, not that nobody revoked it.
+                            The columns were reading fields the model did not
+                            have; it records them now. */}
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          {permission.revokedBy || '-'}
+                          {permission.revokedBy ?? '-'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                           {permission.revokedAt ? formatDate(permission.revokedAt) : '-'}

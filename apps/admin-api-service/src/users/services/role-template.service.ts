@@ -4,6 +4,17 @@ import type { PlatformRoleCode } from '@platform/event-contracts';
 /**
  * Permission definition
  */
+/**
+ * Whether one role may assign another, and why not.
+ *
+ * `reason` is present only on a refusal — its absence IS the statement that the
+ * assignment is permitted, so an empty string would say less than a missing key.
+ */
+export interface RoleAssignmentCheck {
+  allowed: boolean;
+  reason?: string;
+}
+
 export interface Permission {
   code: string;
   name: string;
@@ -354,10 +365,7 @@ export class RoleTemplateService {
   /**
    * Validate role assignment
    */
-  canAssignRole(
-    assignerRole: string,
-    targetRole: string,
-  ): { allowed: boolean; reason?: string } {
+  canAssignRole(assignerRole: string, targetRole: string): RoleAssignmentCheck {
     const assignerTemplate = this.getRoleTemplate(assignerRole);
     const targetTemplate = this.getRoleTemplate(targetRole);
 

@@ -19,7 +19,6 @@ import { DataSource, QueryRunner, Repository } from 'typeorm';
 
 import { TenantSchema } from '../../database-management/entities/database-management.entity';
 import { BackupRestoreService } from '../../database-management/services/backup-restore.service';
-import { TenantConfigurationService } from '../../settings/services/tenant-configuration.service';
 import { Tenant, TenantStatus, TenantTier, TenantPlan } from '../entities/tenant.entity';
 import { AuthTenantProvisioningClientService } from '../services/auth-tenant-provisioning-client.service';
 import {
@@ -137,7 +136,6 @@ describe('TenantProvisioningService', () => {
   let tenantSchemaRepository: jest.Mocked<Repository<TenantSchema>>;
   let dataSource: jest.Mocked<DataSource>;
   let authProvisioningClient: jest.Mocked<AuthTenantProvisioningClientService>;
-  let tenantConfigurationService: jest.Mocked<TenantConfigurationService>;
   let queryRunner: jest.Mocked<Partial<QueryRunner>>;
 
   beforeEach(async () => {
@@ -164,19 +162,6 @@ describe('TenantProvisioningService', () => {
       create: jest.fn((entity) => entity),
       save: jest.fn().mockImplementation(async (entity) => entity),
       update: jest.fn(),
-    };
-
-    const mockTenantConfigurationService = {
-      createConfiguration: jest.fn().mockResolvedValue(undefined),
-      getConfiguration: jest.fn().mockResolvedValue({}),
-      requestDefaultConfigurationProvisioning: jest.fn().mockReturnValue({
-        requestId: 'config-provisioning-request-id',
-        tenantId: 'tenant-id',
-        targetService: 'config-service',
-        status: 'REQUESTED',
-        sections: ['brandingConfig', 'featureFlags'],
-        requestedAt: '2026-06-21T00:00:00.000Z',
-      }),
     };
 
     const mockAuthProvisioningClient = {
@@ -238,10 +223,6 @@ describe('TenantProvisioningService', () => {
           useValue: mockDataSource,
         },
         {
-          provide: TenantConfigurationService,
-          useValue: mockTenantConfigurationService,
-        },
-        {
           provide: AuthTenantProvisioningClientService,
           useValue: mockAuthProvisioningClient,
         },
@@ -261,7 +242,6 @@ describe('TenantProvisioningService', () => {
     tenantSchemaRepository = module.get(getRepositoryToken(TenantSchema));
     dataSource = module.get(getDataSourceToken());
     authProvisioningClient = module.get(AuthTenantProvisioningClientService);
-    tenantConfigurationService = module.get(TenantConfigurationService);
     (service as unknown as {
       createTenantSchema: jest.Mock;
     }).createTenantSchema = jest.fn().mockResolvedValue(undefined);
@@ -485,9 +465,13 @@ describe('TenantProvisioningService', () => {
       // Act
       const result = await service.provisionTenant(tenant.id);
 
-      // Assert
-      const configStep = result.steps.find((s) => s.name === 'create_default_config');
-      expect(configStep?.status).toBe('completed');
+      // Assert: provisioning performs NO configuration write. Every tenant
+      // setting is seeded once under the SYSTEM tenant and config-service's
+      // effective merge answers a new tenant's reads from those rows, so the
+      // correct configuration for a fresh tenant is what happens when
+      // provisioning does nothing. The step this replaces called a service that
+      // minted a requestId, logged it and returned.
+      expect(result.steps.map((s) => s.name)).not.toContain('create_default_config');
     });
 
     it('tüm step süreleri kaydedilir', async () => {
@@ -535,30 +519,6 @@ describe('TenantProvisioningService', () => {
         expect.objectContaining({
           tenantId: tenant.id,
           reason: 'Database error',
-        }),
-      );
-    });
-
-    it('default configuration handoff hatası provisioning sonucuna yansır', async () => {
-      // Arrange
-      const tenant = createMockTenant({ status: TenantStatus.PENDING });
-      tenantRepository.findOne.mockResolvedValue(tenant);
-      tenantConfigurationService.requestDefaultConfigurationProvisioning.mockImplementationOnce(() => {
-        throw new Error('Config handoff error');
-      });
-
-      // Act
-      const result = await service.provisionTenant(tenant.id);
-
-      // Assert
-      expect(result.success).toBe(false);
-      expect(result.error).toBe('Config handoff error');
-      const failedStep = result.steps.find((s) => s.name === 'create_default_config');
-      expect(failedStep?.status).toBe('failed');
-      expect(authProvisioningClient.failProvisioning).toHaveBeenCalledWith(
-        expect.objectContaining({
-          tenantId: tenant.id,
-          reason: 'Config handoff error',
         }),
       );
     });

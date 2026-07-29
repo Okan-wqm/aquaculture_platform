@@ -809,13 +809,19 @@ describe('ImpersonationController', () => {
   // ==========================================================================
 
   describe('POST /impersonation/permissions/:superAdminId/revoke', () => {
-    it('should call revokeImpersonationPermission with the correct superAdminId', async () => {
+    it('revokes the named admin and records the ACTOR from the verified JWT', async () => {
       const res = await request(app.getHttpServer())
         .post('/impersonation/permissions/admin-uuid-5678/revoke');
 
       expect(res.status).toBe(HttpStatus.NO_CONTENT);
+      // Two arguments, and the second is the caller's id — not the target's.
+      // Revoking impersonation permission strips an operator's access to tenant
+      // data and ends every session they hold; before the audit columns it
+      // recorded no actor at all, so the Permissions tab's `Revoked By` column
+      // was reading a field the model did not have.
       expect(mockImpersonationService.revokeImpersonationPermission).toHaveBeenCalledWith(
         'admin-uuid-5678',
+        'admin-uuid-1234',
       );
     });
 

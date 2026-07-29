@@ -21,9 +21,14 @@ import {
   tenantsApi,
   type Tenant,
   type TenantStats,
-  TenantTier,
   TenantStatus,
 } from '../services/adminApi';
+import {
+  TENANT_PLAN_BADGE_VARIANT,
+  TENANT_PLAN_OPTIONS,
+  TENANT_STATUS_BADGE_VARIANT,
+  TENANT_STATUS_OPTIONS,
+} from '../constants/plan-tier';
 
 // ============================================================================
 // Tenant Management Page
@@ -221,26 +226,6 @@ const TenantManagementPage: React.FC = () => {
     }
   };
 
-  const getStatusVariant = (
-    status: TenantStatus | string,
-  ): 'success' | 'warning' | 'error' | 'default' => {
-    const s = String(status).toLowerCase();
-    if (s === 'active') return 'success';
-    if (s === 'pending' || s === 'provisioning') return 'warning';
-    if (s === 'suspended' || s === 'provisioning_failed') return 'error';
-    return 'default';
-  };
-
-  const getTierVariant = (
-    tier: TenantTier | string,
-  ): 'success' | 'warning' | 'info' | 'default' => {
-    const t = String(tier).toLowerCase();
-    if (t === 'enterprise') return 'success';
-    if (t === 'professional') return 'warning';
-    if (t === 'starter') return 'info';
-    return 'default';
-  };
-
   const columns: TableColumn<Tenant>[] = [
     {
       key: 'select',
@@ -285,13 +270,13 @@ const TenantManagementPage: React.FC = () => {
       key: 'tier',
       header: 'Tier',
       sortable: true,
-      render: (tenant) => <Badge variant={getTierVariant(tenant.tier)}>{tenant.tier}</Badge>,
+      render: (tenant) => <Badge variant={TENANT_PLAN_BADGE_VARIANT[tenant.tier]}>{tenant.tier}</Badge>,
     },
     {
       key: 'status',
       header: 'Status',
       sortable: true,
-      render: (tenant) => <Badge variant={getStatusVariant(tenant.status)}>{tenant.status}</Badge>,
+      render: (tenant) => <Badge variant={TENANT_STATUS_BADGE_VARIANT[tenant.status]}>{tenant.status}</Badge>,
     },
     {
       key: 'stats',
@@ -302,15 +287,6 @@ const TenantManagementPage: React.FC = () => {
           <span className="mx-1 text-gray-500">|</span>
           <span className="text-gray-600">{tenant.farmCount ?? 0} farms</span>
         </div>
-      ),
-    },
-    {
-      key: 'lastActivity',
-      header: 'Last Activity',
-      render: (tenant) => (
-        <span className="text-sm text-gray-600">
-          {tenant.lastActivityAt ? formatDate(new Date(tenant.lastActivityAt), 'short') : '-'}
-        </span>
       ),
     },
     {
@@ -431,11 +407,10 @@ const TenantManagementPage: React.FC = () => {
             }}
             options={[
               { value: '', label: 'All Statuses' },
-              { value: TenantStatus.ACTIVE, label: 'Active' },
-              { value: TenantStatus.PENDING, label: 'Pending' },
-              { value: TenantStatus.PROVISIONING, label: 'Provisioning' },
-              { value: TenantStatus.PROVISIONING_FAILED, label: 'Provisioning Failed' },
-              { value: TenantStatus.SUSPENDED, label: 'Suspended' },
+              // Every lifecycle state. This was five inline literals, so a
+              // deactivated, cancelled, archived or purged tenant could not be
+              // filtered for at all.
+              ...TENANT_STATUS_OPTIONS,
             ]}
           />
           <Select
@@ -447,10 +422,9 @@ const TenantManagementPage: React.FC = () => {
             }}
             options={[
               { value: '', label: 'All Tiers' },
-              { value: TenantTier.FREE, label: 'Free' },
-              { value: TenantTier.STARTER, label: 'Starter' },
-              { value: TenantTier.PROFESSIONAL, label: 'Professional' },
-              { value: TenantTier.ENTERPRISE, label: 'Enterprise' },
+              // Every plan the column can hold — TRIAL included. This list was
+              // four inline literals, so a trial tenant could not be filtered for.
+              ...TENANT_PLAN_OPTIONS,
             ]}
           />
         </div>
@@ -512,11 +486,11 @@ const TenantManagementPage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500">Tier</p>
-                <Badge variant={getTierVariant(selectedTenant.tier)}>{selectedTenant.tier}</Badge>
+                <Badge variant={TENANT_PLAN_BADGE_VARIANT[selectedTenant.tier]}>{selectedTenant.tier}</Badge>
               </div>
               <div>
                 <p className="text-xs text-gray-500">Status</p>
-                <Badge variant={getStatusVariant(selectedTenant.status)}>
+                <Badge variant={TENANT_STATUS_BADGE_VARIANT[selectedTenant.status]}>
                   {selectedTenant.status}
                 </Badge>
               </div>

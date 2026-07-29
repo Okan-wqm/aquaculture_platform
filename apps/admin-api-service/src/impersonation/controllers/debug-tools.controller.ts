@@ -13,6 +13,7 @@ import {
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
+import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { ApiTags } from '@nestjs/swagger';
 import { PlatformAdminGuard } from '../../guards/platform-admin.guard';
 import { Type } from 'class-transformer';
@@ -38,7 +39,23 @@ import {
   IsDefined,
 } from 'class-validator';
 
-import { DebugSessionType, QueryLogType } from '../entities/debug-session.entity';
+import {
+  CapturedApiCall,
+  DebugSession,
+  DebugSessionType,
+  FeatureFlagOverride,
+  QueryLogType,
+} from '../entities/debug-session.entity';
+import {
+  ApiLogResult,
+  ApiUsageSummary,
+  CacheKeyValue,
+  CacheNamespaceListing,
+  CacheStats,
+  DebugDashboard,
+  QueryInspectorResult,
+  SlowQueryAnalysis,
+} from '../services/debug-tools-types';
 import { DebugToolsService } from '../services/debug-tools.service';
 
 // ============================================================================
@@ -290,58 +307,31 @@ class CreateFeatureFlagOverrideDto {
   expiresAt?: string;
 }
 
-class CaptureSnapshotDto {
+/**
+ * Which keys to list, and how many.
+ *
+ * A validated class rather than loose `@Query()` primitives: the previous
+ * version read `tenantId`/`debugSessionId`/`cacheStore` individually, so the
+ * panel's `keyPattern` and `limit` were silently dropped by the global
+ * whitelist and the service hard-coded a 500-key ceiling nobody could see.
+ */
+class ListCacheEntriesDto {
+  /**
+   * A Redis MATCH glob, applied inside this service's key namespace. Defaults
+   * to every key rather than none, because a listing endpoint that returns
+   * nothing without an argument reads exactly like an empty cache.
+   */
   @IsOptional()
-  @IsUUID()
-  tenantId?: string;
-
-  @IsNotEmpty()
   @IsString()
-  @MaxLength(1000)
-  key!: string;
-
-  @IsOptional()
-  value?: unknown;
+  @MaxLength(500)
+  keyPattern?: string;
 
   @IsOptional()
   @Type(() => Number)
   @IsInt()
-  @Min(0)
-  sizeBytes?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  ttlSeconds?: number;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  expiresAt?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  hitCount?: number;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  lastAccessedAt?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  cacheStore?: string;
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(50)
-  @IsString({ each: true })
-  @MaxLength(100, { each: true })
-  tags?: string[];
+  @Min(1)
+  @Max(1000)
+  limit?: number;
 }
 
 class InvalidateCachePatternDto {
@@ -349,10 +339,23 @@ class InvalidateCachePatternDto {
   @IsString()
   @MaxLength(500)
   pattern!: string;
+}
 
-  @IsOptional()
-  @IsUUID()
-  tenantId?: string;
+/**
+ * What an invalidation actually did.
+ *
+ * The count is the contract, not decoration: the methods this replaced logged
+ * "Invalidated" and returned a hard-coded 0, so a caller that ignored the
+ * number could not tell a purge from a no-op. A panel that renders it cannot
+ * be lied to the same way twice.
+ */
+export interface CacheInvalidationResult {
+  invalidated: number;
+}
+
+/** The value a feature flag resolves to for one tenant, override applied. */
+export interface ResolvedFeatureFlagValue {
+  value: unknown;
 }
 
 // ============================================================================
@@ -376,7 +379,7 @@ export class DebugToolsController {
   // ============================================================================
 
   @Get('dashboard')
-  async getDebugDashboard(@Query('tenantId') tenantId?: string) {
+  async getDebugDashboard(@Query('tenantId') tenantId?: string): Promise<DebugDashboard> {
     return this.debugToolsService.getDebugDashboard(tenantId);
   }
 
@@ -391,7 +394,7 @@ export class DebugToolsController {
     @Query('isActive') isActive?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<IStandardPaginatedResult<DebugSession>> {
     return this.debugToolsService.querySessions({
       tenantId,
       sessionType,
@@ -406,7 +409,7 @@ export class DebugToolsController {
     @Body() dto: StartDebugSessionDto,
     // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
     @Req() req: Request,
-  ) {
+  ): Promise<DebugSession> {
     const adminId = getAuthUserId(req);
     if (!adminId) {
       throw new UnauthorizedException('User not authenticated');
@@ -429,17 +432,17 @@ export class DebugToolsController {
   }
 
   @Post('sessions/:id/end')
-  async endDebugSession(@Param('id') sessionId: string) {
+  async endDebugSession(@Param('id') sessionId: string): Promise<DebugSession> {
     return this.debugToolsService.endDebugSession(sessionId);
   }
 
   @Get('sessions/:id')
-  async getDebugSession(@Param('id') sessionId: string) {
+  async getDebugSession(@Param('id') sessionId: string): Promise<DebugSession> {
     return this.debugToolsService.getDebugSession(sessionId);
   }
 
   @Get('sessions/tenant/:tenantId')
-  async getActiveSessionsForTenant(@Param('tenantId') tenantId: string) {
+  async getActiveSessionsForTenant(@Param('tenantId') tenantId: string): Promise<DebugSession[]> {
     return this.debugToolsService.getActiveSessionsForTenant(tenantId);
   }
 
@@ -449,7 +452,7 @@ export class DebugToolsController {
 
   @Post('queries/capture')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async captureQuery(@Body() dto: CaptureQueryDto) {
+  async captureQuery(@Body() dto: CaptureQueryDto): Promise<void> {
     await this.debugToolsService.captureQuery(dto);
   }
 
@@ -465,7 +468,7 @@ export class DebugToolsController {
     @Query('endDate') endDate?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<QueryInspectorResult> {
     return this.debugToolsService.inspectQueries({
       tenantId,
       debugSessionId,
@@ -481,7 +484,7 @@ export class DebugToolsController {
   }
 
   @Get('queries/:id/explain')
-  async getQueryExplainPlan(@Param('id') queryId: string) {
+  async getQueryExplainPlan(@Param('id') queryId: string): Promise<Record<string, unknown> | null> {
     return this.debugToolsService.getQueryExplainPlan(queryId);
   }
 
@@ -489,7 +492,7 @@ export class DebugToolsController {
   async getSlowQueryAnalysis(
     @Query('tenantId') tenantId: string,
     @Query('threshold') threshold?: number,
-  ) {
+  ): Promise<SlowQueryAnalysis> {
     return this.debugToolsService.getSlowQueryAnalysis(
       tenantId,
       threshold ? Number(threshold) : undefined,
@@ -502,7 +505,7 @@ export class DebugToolsController {
 
   @Post('api-calls/capture')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async captureApiCall(@Body() dto: CaptureApiCallDto) {
+  async captureApiCall(@Body() dto: CaptureApiCallDto): Promise<void> {
     await this.debugToolsService.captureApiCall(dto);
   }
 
@@ -519,7 +522,7 @@ export class DebugToolsController {
     @Query('endDate') endDate?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<ApiLogResult> {
     return this.debugToolsService.inspectApiCalls({
       tenantId,
       debugSessionId,
@@ -539,80 +542,55 @@ export class DebugToolsController {
   async getApiUsageSummary(
     @Query('tenantId') tenantId: string,
     @Query('period') period?: string,
-  ) {
+  ): Promise<ApiUsageSummary> {
     return this.debugToolsService.getApiUsageSummary(tenantId, period);
   }
 
   @Get('api-calls/:id')
-  async getApiCallDetails(@Param('id') id: string) {
+  async getApiCallDetails(@Param('id') id: string): Promise<CapturedApiCall> {
     return this.debugToolsService.getApiCallDetails(id);
   }
 
   // ============================================================================
   // Cache Inspector
+  //
+  // These address Redis. The routes they replaced read a snapshot table nothing
+  // wrote and invalidated nothing, and two of them were unreachable besides:
+  // `DELETE cache/:tenantId/:key` was declared before `DELETE cache/tenant/:tenantId`,
+  // and Nest matches in declaration order, so the parameterized pair swallowed
+  // the literal one. Both are gone — there is one key-scoped delete and one
+  // pattern-scoped delete, which is what the namespace supports.
   // ============================================================================
 
   @Get('cache/stats')
-  async getCacheStats(@Query('tenantId') tenantId?: string) {
-    return this.debugToolsService.getCacheStats(tenantId);
+  async getCacheStats(): Promise<CacheStats> {
+    return this.debugToolsService.getCacheStats();
   }
 
   @Get('cache')
-  async snapshotCache(
-    @Query('tenantId') tenantId: string,
-    @Query('debugSessionId') debugSessionId?: string,
-    @Query('cacheStore') cacheStore?: string,
-  ) {
-    return this.debugToolsService.snapshotCache(tenantId, debugSessionId, cacheStore);
-  }
-
-  @Post('cache/capture')
-  async captureCacheEntry(@Body() dto: CaptureSnapshotDto) {
-    return this.debugToolsService.captureCacheEntry({
-      ...dto,
-      expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : undefined,
-      lastAccessedAt: dto.lastAccessedAt ? new Date(dto.lastAccessedAt) : undefined,
-    });
+  async listCacheEntries(@Query() dto: ListCacheEntriesDto): Promise<CacheNamespaceListing> {
+    return this.debugToolsService.listCacheEntries(dto.keyPattern ?? '*', dto.limit ?? 100);
   }
 
   @Get('cache/:key')
-  async getCacheEntry(@Param('key') key: string) {
-    return this.debugToolsService.getCacheEntry(decodeURIComponent(key));
+  async getCacheEntry(@Param('key') key: string): Promise<CacheKeyValue | null> {
+    // No decodeURIComponent: Express already decoded the path segment, and
+    // decoding twice turned a key containing a literal `%` into a different key.
+    return this.debugToolsService.getCacheEntry(key);
   }
 
   @Delete('cache/:key')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async invalidateCacheByKey(@Param('key') key: string) {
-    await this.debugToolsService.invalidateCacheByKey(decodeURIComponent(key));
+  async invalidateCacheKey(@Param('key') key: string): Promise<CacheInvalidationResult> {
+    // Not 204: the caller needs to know whether the key was there. The version
+    // this replaced returned an empty 204 from a method that did nothing.
+    return { invalidated: await this.debugToolsService.invalidateCacheKey(key) };
   }
 
   @Post('cache/invalidate')
   async invalidateCacheByPattern(
     @Body() dto: InvalidateCachePatternDto,
-  ) {
-    const count = await this.debugToolsService.invalidateCachePattern(
-      dto.tenantId || '',
-      dto.pattern,
-    );
-    return { invalidated: count };
-  }
-
-  @Delete('cache/:tenantId/:key')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async invalidateCacheKey(
-    @Param('tenantId') tenantId: string,
-    @Param('key') key: string,
-  ) {
-    await this.debugToolsService.invalidateCacheKey(tenantId, key);
-  }
-
-  @Delete('cache/tenant/:tenantId')
-  async invalidateCachePatternForTenant(
-    @Param('tenantId') tenantId: string,
-    @Query('pattern') pattern: string,
-  ) {
-    const count = await this.debugToolsService.invalidateCachePattern(tenantId, pattern);
-    return { invalidatedCount: count };
+  ): Promise<CacheInvalidationResult> {
+    return { invalidated: await this.debugToolsService.invalidateCachePattern(dto.pattern) };
   }
 
   // ============================================================================
@@ -624,7 +602,7 @@ export class DebugToolsController {
     @Body() dto: CreateFeatureFlagOverrideDto,
     // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
     @Req() req: Request,
-  ) {
+  ): Promise<FeatureFlagOverride> {
     const adminId = getAuthUserId(req);
     if (!adminId) {
       throw new UnauthorizedException('User not authenticated');
@@ -641,7 +619,7 @@ export class DebugToolsController {
     @Param('id') overrideId: string,
     // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
     @Req() req: Request,
-  ) {
+  ): Promise<FeatureFlagOverride> {
     const revertedBy = getAuthUserId(req);
     if (!revertedBy) {
       throw new UnauthorizedException('User not authenticated');
@@ -650,12 +628,12 @@ export class DebugToolsController {
   }
 
   @Get('feature-overrides/tenant/:tenantId')
-  async getOverridesForTenant(@Param('tenantId') tenantId: string) {
+  async getOverridesForTenant(@Param('tenantId') tenantId: string): Promise<FeatureFlagOverride[]> {
     return this.debugToolsService.getActiveOverridesForTenant(tenantId);
   }
 
   @Get('feature-overrides/tenant/:tenantId/active')
-  async getActiveOverridesForTenant(@Param('tenantId') tenantId: string) {
+  async getActiveOverridesForTenant(@Param('tenantId') tenantId: string): Promise<FeatureFlagOverride[]> {
     return this.debugToolsService.getActiveOverridesForTenant(tenantId);
   }
 
@@ -670,7 +648,7 @@ export class DebugToolsController {
     @Query('tenantId') tenantId: string,
     @Query('featureKey') featureKey: string,
     @Query('defaultValue') defaultValue: string,
-  ) {
+  ): Promise<ResolvedFeatureFlagValue> {
     // H24 fix: Sanitize JSON.parse to prevent prototype pollution
     // Only accept primitive values (string, number, boolean, null)
     let parsed: unknown;
@@ -693,7 +671,7 @@ export class DebugToolsController {
   }
 
   @Get('feature-overrides/:id')
-  async getFeatureOverride(@Param('id') id: string) {
+  async getFeatureOverride(@Param('id') id: string): Promise<FeatureFlagOverride> {
     return this.debugToolsService.getFeatureOverride(id);
   }
 
@@ -706,7 +684,7 @@ export class DebugToolsController {
     @Query('limit') limit?: number,
     // Fix: C6 -- JWT-based identity, client-supplied adminId kaldırıldı
     @Req() req?: Request,
-  ) {
+  ): Promise<IStandardPaginatedResult<FeatureFlagOverride>> {
     const adminId = req ? getAuthUserId(req) : undefined;
     return this.debugToolsService.queryOverrides({
       tenantId,

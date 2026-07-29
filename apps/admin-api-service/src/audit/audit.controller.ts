@@ -14,6 +14,7 @@ import { getAuthUser } from '../shared/authenticated-request';
 import { AuditAction, AuditLog } from './audit.entity';
 import { AuditLogService, AuditLogFilter } from './audit.service';
 import { AuditLogQueryDto } from './dto/audit-log-query.dto';
+import type { AuditStatistics } from './audit.service';
 
 @ApiTags('Security')
 @Controller('audit-logs')
@@ -122,7 +123,7 @@ export class AuditLogController {
     @Query('tenantId') tenantId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
-  ) {
+  ): Promise<AuditStatistics> {
     return this.auditLogService.getStatistics(
       tenantId,
       startDate ? new Date(startDate) : undefined,

@@ -13,7 +13,13 @@ import {
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { Repository, ILike, MoreThan, Between, FindOptionsWhere, DataSource } from 'typeorm';
 
-import { TenantListItemDto } from '../dto/tenant-detail.dto';
+import {
+  TenantListItemDto,
+  TenantSummaryDto,
+  TenantResourceCounts,
+  toTenantListItem,
+  toTenantSummary,
+} from '../dto/tenant-summary.dto';
 import { TenantStatsDto, TenantUsageDto } from '../dto/tenant.dto';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
 import {
@@ -30,14 +36,14 @@ import {
 @Injectable()
 @QueryHandler(GetTenantByIdQuery)
 export class GetTenantByIdHandler
-  implements IQueryHandler<GetTenantByIdQuery, Tenant>
+  implements IQueryHandler<GetTenantByIdQuery, TenantSummaryDto>
 {
   constructor(
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
   ) {}
 
-  async execute(query: GetTenantByIdQuery): Promise<Tenant> {
+  async execute(query: GetTenantByIdQuery): Promise<TenantSummaryDto> {
     const tenant = await this.tenantRepository.findOne({
       where: { id: query.tenantId },
     });
@@ -48,21 +54,21 @@ export class GetTenantByIdHandler
       );
     }
 
-    return tenant;
+    return toTenantSummary(tenant);
   }
 }
 
 @Injectable()
 @QueryHandler(GetTenantBySlugQuery)
 export class GetTenantBySlugHandler
-  implements IQueryHandler<GetTenantBySlugQuery, Tenant>
+  implements IQueryHandler<GetTenantBySlugQuery, TenantSummaryDto>
 {
   constructor(
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
   ) {}
 
-  async execute(query: GetTenantBySlugQuery): Promise<Tenant> {
+  async execute(query: GetTenantBySlugQuery): Promise<TenantSummaryDto> {
     const tenant = await this.tenantRepository.findOne({
       where: { slug: query.slug },
     });
@@ -71,14 +77,8 @@ export class GetTenantBySlugHandler
       throw new NotFoundException(`Tenant with slug '${query.slug}' not found`);
     }
 
-    return tenant;
+    return toTenantSummary(tenant);
   }
-}
-
-/** Per-tenant resource counts sourced from the tenant's own schema (the SSoT). */
-interface TenantResourceCounts {
-  farmCount: number;
-  sensorCount: number;
 }
 
 /** The two per-tenant tables the list view counts — fixed literals by design. */
@@ -156,31 +156,12 @@ export class ListTenantsHandler
 
     return createStandardPaginatedResult(
       tenants.map((tenant) =>
-        this.toTenantListItem(tenant, counts.get(tenant.id) ?? { farmCount: 0, sensorCount: 0 }),
+        toTenantListItem(tenant, counts.get(tenant.id) ?? { farmCount: 0, sensorCount: 0 }),
       ),
       total,
       page,
       limit,
     );
-  }
-
-  private toTenantListItem(tenant: Tenant, resources: TenantResourceCounts): TenantListItemDto {
-    return {
-      id: tenant.id,
-      name: tenant.name,
-      slug: tenant.slug,
-      domain: tenant.customDomain,
-      status: tenant.status,
-      // WHY materialized: `tier` on the entity is a getter aliasing `plan`;
-      // getters do not survive JSON serialization, so the DTO carries the value
-      // as an own property.
-      tier: tenant.plan,
-      contactEmail: tenant.contactEmail,
-      userCount: tenant.userCount,
-      farmCount: resources.farmCount,
-      sensorCount: resources.sensorCount,
-      createdAt: tenant.createdAt,
-    };
   }
 
   /**
@@ -400,14 +381,14 @@ export class GetTenantUsageHandler
 @Injectable()
 @QueryHandler(GetTenantsApproachingLimitsQuery)
 export class GetTenantsApproachingLimitsHandler
-  implements IQueryHandler<GetTenantsApproachingLimitsQuery, Tenant[]>
+  implements IQueryHandler<GetTenantsApproachingLimitsQuery, TenantSummaryDto[]>
 {
   constructor(
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
   ) {}
 
-  async execute(_query: GetTenantsApproachingLimitsQuery): Promise<Tenant[]> {
+  async execute(_query: GetTenantsApproachingLimitsQuery): Promise<TenantSummaryDto[]> {
     // C-9 fix: Block endpoint with 501 until actual limit checking is implemented.
     // Previous implementation returned ALL active tenants unconditionally.
     throw new NotImplementedException(
@@ -419,42 +400,44 @@ export class GetTenantsApproachingLimitsHandler
 @Injectable()
 @QueryHandler(GetExpiringTrialsQuery)
 export class GetExpiringTrialsHandler
-  implements IQueryHandler<GetExpiringTrialsQuery, Tenant[]>
+  implements IQueryHandler<GetExpiringTrialsQuery, TenantSummaryDto[]>
 {
   constructor(
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
   ) {}
 
-  async execute(query: GetExpiringTrialsQuery): Promise<Tenant[]> {
+  async execute(query: GetExpiringTrialsQuery): Promise<TenantSummaryDto[]> {
     const now = new Date();
     const futureDate = new Date();
     futureDate.setDate(futureDate.getDate() + query.withinDays);
 
-    return this.tenantRepository.find({
+    const tenants = await this.tenantRepository.find({
       where: {
         trialEndsAt: Between(now, futureDate),
         status: TenantStatus.ACTIVE,
       },
       order: { trialEndsAt: 'ASC' },
     });
+
+    return tenants.map(toTenantSummary);
   }
 }
 
 @Injectable()
 @QueryHandler(SearchTenantsQuery)
 export class SearchTenantsHandler
-  implements IQueryHandler<SearchTenantsQuery, Tenant[]>
+  implements IQueryHandler<SearchTenantsQuery, TenantSummaryDto[]>
 {
   constructor(
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
   ) {}
 
-  async execute(query: SearchTenantsQuery): Promise<Tenant[]> {
+  async execute(query: SearchTenantsQuery): Promise<TenantSummaryDto[]> {
     const { searchTerm, limit } = query;
 
-    return this.tenantRepository.find({
+    const tenants = await this.tenantRepository.find({
       where: [
         { name: ILike(`%${searchTerm}%`) },
         { slug: ILike(`%${searchTerm}%`) },
@@ -463,5 +446,7 @@ export class SearchTenantsHandler
       take: limit,
       order: { name: 'ASC' },
     });
+
+    return tenants.map(toTenantSummary);
   }
 }

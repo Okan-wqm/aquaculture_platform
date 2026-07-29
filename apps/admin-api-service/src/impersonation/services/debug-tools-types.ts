@@ -1,7 +1,6 @@
 import {
   CapturedQuery,
   CapturedApiCall,
-  CacheEntrySnapshot,
   FeatureFlagOverride,
   DebugSession,
   QueryLogType,
@@ -34,20 +33,6 @@ export interface ApiLogResult {
     errorCount: number;
     statusBreakdown: Record<string, number>;
     endpointBreakdown: Array<{ endpoint: string; count: number; avgDuration: number }>;
-  };
-}
-
-/**
- * Cache Inspector Result Interface
- */
-export interface CacheInspectorResult {
-  entries: CacheEntrySnapshot[];
-  summary: {
-    totalKeys: number;
-    totalSizeBytes: number;
-    avgTtlSeconds: number;
-    expiringInHour: number;
-    storeBreakdown: Record<string, number>;
   };
 }
 
@@ -88,12 +73,61 @@ export interface ApiUsageSummary {
 }
 
 /**
- * Cache Stats Interface
+ * One key as Redis describes it.
+ *
+ * `sizeBytes` and `idleSeconds` are nullable because `MEMORY USAGE` and
+ * `OBJECT IDLETIME` are not answerable on every build or eviction policy, and a
+ * key whose footprint could not be measured has an unknown size — not zero.
+ */
+export interface CacheKeyEntry {
+  key: string;
+  /** Redis type: string, hash, list, set, zset, stream — or none. */
+  type: string;
+  /** Seconds until expiry; -1 when the key never expires, -2 when it is gone. */
+  ttlSeconds: number;
+  sizeBytes: number | null;
+  idleSeconds: number | null;
+}
+
+/** A key listing, scoped to the namespace it was read from. */
+export interface CacheNamespaceListing {
+  /** The service key prefix these keys live under, e.g. `admin:`. */
+  namespace: string;
+  entries: CacheKeyEntry[];
+  /** How many keys matched before `limit` was applied. */
+  matchedCount: number;
+  truncated: boolean;
+}
+
+/** One key's stored value. `value` is populated only for string keys. */
+export interface CacheKeyValue {
+  key: string;
+  type: string;
+  ttlSeconds: number;
+  sizeBytes: number | null;
+  value: string | null;
+}
+
+/** Instance-wide counters Redis itself keeps. Not attributable to a namespace. */
+export interface RedisInstanceStats {
+  keyspaceHits: number;
+  keyspaceMisses: number;
+  /** Null when the instance has served no lookup yet — unmeasured, not 0%. */
+  hitRatePercent: number | null;
+  usedMemoryBytes: number;
+  totalKeys: number;
+}
+
+/**
+ * Cache statistics, with the namespace figure and the instance figures kept
+ * apart.
+ *
+ * They answer different questions and cannot be added: `keysInNamespace` counts
+ * this service's keys, `instance` describes the whole Redis. The version this
+ * replaced merged a hit count with a row count into one "Hit Rate %".
  */
 export interface CacheStats {
-  totalEntries: number;
-  totalSize: number;
-  hitRate: number;
-  missRate: number;
-  byStore: Array<{ store: string; entries: number; size: number }>;
+  namespace: string;
+  keysInNamespace: number;
+  instance: RedisInstanceStats;
 }

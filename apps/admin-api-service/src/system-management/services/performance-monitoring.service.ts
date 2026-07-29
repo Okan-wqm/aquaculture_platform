@@ -33,7 +33,16 @@ export interface ApplicationMetrics {
   totalRequests: number;
 }
 
-export interface DatabaseMetrics {
+/**
+ * Database health as the PERFORMANCE monitor measures it — pool pressure, query
+ * timings, cache hit ratio, deadlocks.
+ *
+ * Named apart from `metrics/system-metrics.service.ts`'s `DatabaseMetrics`,
+ * which counts connections, database size and tables. Both are real; both were
+ * called `DatabaseMetrics`, and the admin panel flattens every backend type into
+ * one namespace, so one of them had to lose.
+ */
+export interface DatabasePerformanceMetrics {
   activeConnections: number;
   poolSize: number;
   poolUtilization: number;
@@ -53,6 +62,63 @@ export interface InfrastructureMetrics {
   containerCount: number;
   healthyContainers: number;
   podRestarts: number;
+}
+
+/**
+ * The performance READ contracts that used to be anonymous array elements.
+ *
+ * `Promise<Array<{ … }>>` is the same defect as `Promise<{ … }>` one layer
+ * down: a shape with no name cannot be imported, pinned or generated from, so
+ * the admin panel re-declares it. It is also the form the first version of
+ * `route-named-return-type` did not catch, because its pattern only looked for
+ * an object literal immediately inside `Promise<`.
+ */
+/** `GET /performance/apdex` — the Apdex score for the requested window. */
+export interface ApdexScoreResult {
+  apdexScore: number;
+}
+
+/**
+ * A slow query as the PERFORMANCE monitor aggregates it (avg/max over a window).
+ *
+ * Named apart from `database-management`'s slow-query row, which is a single
+ * observed execution with a duration and a schema. Two different measurements
+ * under one name is how a consumer ends up rendering one as the other.
+ */
+export interface SlowQueryAggregate {
+  query: string;
+  avgTime: number;
+  count: number;
+  maxTime: number;
+}
+
+export interface ServiceBreakdown {
+  service: string;
+  avgResponseTime: number;
+  errorRate: number;
+  requestCount: number;
+}
+
+/** A metric that has crossed its configured threshold. */
+export interface ThresholdBreach {
+  metric: string;
+  threshold: number;
+  currentValue: number;
+  severity: 'warning' | 'critical';
+}
+
+/**
+ * One bucket of a metric's history.
+ *
+ * `min`/`max` are optional because an aggregation that does not compute them
+ * omits them — absent means "not aggregated that way", which is a different
+ * statement from equal to the average.
+ */
+export interface MetricHistoryPoint {
+  timestamp: Date;
+  value: number;
+  min?: number;
+  max?: number;
 }
 
 export interface PerformanceDashboard {
@@ -333,7 +399,7 @@ export class PerformanceMonitoringService {
   async getDatabaseMetrics(
     database?: string,
     timeRange?: { start?: Date; end?: Date },
-  ): Promise<DatabaseMetrics> {
+  ): Promise<DatabasePerformanceMetrics> {
     try {
       const queryRunner = this.dataSource.createQueryRunner();
       await queryRunner.connect();
@@ -398,7 +464,7 @@ export class PerformanceMonitoringService {
     threshold = 1000,
     limit = 20,
     timeRange?: { start?: Date; end?: Date },
-  ): Promise<Array<{ query: string; avgTime: number; count: number; maxTime: number }>> {
+  ): Promise<SlowQueryAggregate[]> {
     const end = timeRange?.end || new Date();
     const start = timeRange?.start || new Date(end.getTime() - 24 * 60 * 60 * 1000); // Last 24 hours
 
@@ -638,9 +704,7 @@ export class PerformanceMonitoringService {
   async getServiceBreakdown(
     start: Date,
     end: Date,
-  ): Promise<
-    Array<{ service: string; avgResponseTime: number; errorRate: number; requestCount: number }>
-  > {
+  ): Promise<ServiceBreakdown[]> {
     const result = await this.metricRepo
       .createQueryBuilder('m')
       .select('m.service', 'service')
@@ -669,20 +733,8 @@ export class PerformanceMonitoringService {
   // Threshold & Alert Management
   // ============================================================================
 
-  async checkThresholds(service?: string): Promise<
-    Array<{
-      metric: string;
-      threshold: number;
-      currentValue: number;
-      severity: 'warning' | 'critical';
-    }>
-  > {
-    const alerts: Array<{
-      metric: string;
-      threshold: number;
-      currentValue: number;
-      severity: 'warning' | 'critical';
-    }> = [];
+  async checkThresholds(service?: string): Promise<ThresholdBreach[]> {
+    const alerts: ThresholdBreach[] = [];
 
     const [appMetrics, dbMetrics, infraMetrics] = await Promise.all([
       this.getApplicationMetrics(service),
@@ -889,7 +941,7 @@ export class PerformanceMonitoringService {
     end: Date;
     aggregation?: MetricAggregation;
     intervalMinutes?: number;
-  }): Promise<Array<{ timestamp: Date; value: number; min?: number; max?: number }>> {
+  }): Promise<MetricHistoryPoint[]> {
     const { metricType, service, start, end, aggregation, intervalMinutes = 5 } = params;
 
     const query = this.metricRepo

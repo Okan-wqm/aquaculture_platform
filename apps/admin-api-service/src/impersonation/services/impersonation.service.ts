@@ -45,6 +45,35 @@ export type StartedImpersonationSession = SafeImpersonationSession & {
 // Interfaces
 // ============================================================================
 
+/**
+ * Whether a super-admin may impersonate into a given tenant, and why not.
+ *
+ * `permission` is present only when one was found — its absence IS the reason
+ * `allowed` is false in the common case, so an empty object would say less than
+ * a missing key.
+ */
+export interface ImpersonationEligibility {
+  allowed: boolean;
+  reason?: string;
+  permission?: ImpersonationPermission;
+}
+
+/**
+ * What `GET /impersonation/sessions/validate` answers.
+ *
+ * `context` is null exactly when `valid` is false. Both are returned because the
+ * caller needs the context when it is valid and the boolean reads at a glance.
+ */
+export interface ImpersonationValidation {
+  valid: boolean;
+  context: ImpersonationContext | null;
+}
+
+/** What `GET /impersonation/sessions/active/count` answers. */
+export interface ActiveSessionCount {
+  count: number;
+}
+
 export interface StartImpersonationRequest {
   superAdminId: string;
   /** Optional: email was removed from JWT in H-08 (PII reduction). Falls back
@@ -325,7 +354,7 @@ export class ImpersonationService implements OnModuleInit {
     return saved;
   }
 
-  async revokeImpersonationPermission(superAdminId: string): Promise<void> {
+  async revokeImpersonationPermission(superAdminId: string, revokedBy: string): Promise<void> {
     const permission = await this.permissionRepo.findOne({ where: { superAdminId } });
     if (!permission) {
       throw new NotFoundException(`Permission not found for admin: ${superAdminId}`);
@@ -333,6 +362,10 @@ export class ImpersonationService implements OnModuleInit {
 
     permission.isActive = false;
     permission.canImpersonate = false;
+    // Who and when, durably. `updatedAt` moves on every write, so it could never
+    // answer either question.
+    permission.revokedBy = revokedBy;
+    permission.revokedAt = new Date();
     await this.permissionRepo.save(permission);
 
     // End all active sessions for this admin
@@ -372,11 +405,10 @@ export class ImpersonationService implements OnModuleInit {
     return createStandardPaginatedResult(data, total, page, limit);
   }
 
-  async canImpersonate(superAdminId: string, targetTenantId: string): Promise<{
-    allowed: boolean;
-    reason?: string;
-    permission?: ImpersonationPermission;
-  }> {
+  async canImpersonate(
+    superAdminId: string,
+    targetTenantId: string,
+  ): Promise<ImpersonationEligibility> {
     const permission = await this.getImpersonationPermission(superAdminId);
 
     if (!permission) {

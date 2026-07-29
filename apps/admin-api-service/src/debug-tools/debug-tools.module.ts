@@ -13,7 +13,7 @@
  *
  * Contents (when enabled):
  *   - DebugToolsController: /debug endpoints
- *   - DebugSession, CapturedQuery, CapturedApiCall, CacheEntrySnapshot, FeatureFlagOverride entities
+ *   - DebugSession, CapturedQuery, CapturedApiCall, FeatureFlagOverride entities
  *   - DebugToolsService (facade), DebugSessionService, QueryInspectorService,
  *     ApiCallInspectorService, CacheInspectorService, FeatureFlagDebugService
  */
@@ -25,7 +25,6 @@ import {
   DebugSession,
   CapturedQuery,
   CapturedApiCall,
-  CacheEntrySnapshot,
   FeatureFlagOverride,
 } from '../impersonation/entities';
 
@@ -73,8 +72,7 @@ export class DebugToolsModule {
           DebugSession,
           CapturedQuery,
           CapturedApiCall,
-          CacheEntrySnapshot,
-          FeatureFlagOverride,
+                  FeatureFlagOverride,
         ]),
       ],
       controllers: [DebugToolsController],

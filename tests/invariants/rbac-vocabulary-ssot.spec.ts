@@ -22,9 +22,13 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
 const CANONICAL_ROLE_ENUM = 'libs/backend-common/src/decorators/roles.decorator.ts';
 const CANONICAL_ROLES_GUARD = 'libs/backend-common/src/guards/roles.guard.ts';
 
-// APA-050 — the three definition sites the role vocabulary must agree across.
+// APA-050 — the role vocabulary's definition sites. There used to be three; the
+// admin panel's hand-written mirror is gone, so there are two, and the third is
+// GENERATED from the contract by tools/codegen/admin-contracts.
 const CONTRACT_ROLES_FILE = 'libs/event-contracts/src/roles.ts';
 const FE_ROLES_FILE = 'web/modules/admin-panel/src/services/types/users.ts';
+const GENERATED_CONTRACTS =
+  'web/modules/admin-panel/src/services/types/generated/admin-contracts.ts';
 
 function readRepo(rel: string): string {
   return readFileSync(resolve(REPO_ROOT, rel), 'utf8');
@@ -39,7 +43,12 @@ function canonicalRoleEnumValues(): string[] {
   return Array.from(body.matchAll(/=\s*'([^']+)'/g), (m) => m[1]!);
 }
 
-/** Members of an `export const <NAME> = [ '...', ... ] as const` tuple literal. */
+/**
+ * Members of an `export const <NAME> = [ '...', ... ] as const` tuple literal.
+ *
+ * Accepts either quote style: the backend writes single quotes, the generator
+ * emits JSON-quoted values.
+ */
 function constTupleMembers(rel: string, name: string): string[] {
   const body = new RegExp(
     `export const ${name}\\s*=\\s*\\[([\\s\\S]*?)\\]\\s*as const`,
@@ -48,7 +57,7 @@ function constTupleMembers(rel: string, name: string): string[] {
   if (body == null) {
     throw new Error(`${name} tuple not found in ${rel}`);
   }
-  return Array.from(body.matchAll(/'([^']+)'/g), (m) => m[1]!);
+  return Array.from(body.matchAll(/['"]([^'"]+)['"]/g), (m) => m[1]!);
 }
 
 /** Backend production .ts files matching the pattern (excludes tests + non-backend trees). */
@@ -113,8 +122,29 @@ describe('INVARIANT (APA-050): role vocabulary is one set across BE enum, contra
     );
   });
 
-  it('FE PLATFORM_ROLES literal is member-for-member equal to the Role enum', () => {
-    expect([...constTupleMembers(FE_ROLES_FILE, 'PLATFORM_ROLES')].sort()).toEqual(canonical);
+  it('the admin panel derives the vocabulary instead of mirroring it', () => {
+    // This used to compare a hand-written FE `PLATFORM_ROLES` tuple to the enum.
+    // There is no FE tuple any more: `tools/codegen/admin-contracts` emits the
+    // contract's `as const` arrays into the panel's tree and `types/users.ts`
+    // re-exports them under the names its call sites already use. A parity
+    // comparison needs two declarations; there is one.
+    const feRoles = readRepo(FE_ROLES_FILE);
+    expect(feRoles).not.toMatch(/export const PLATFORM_ROLES\s*=\s*\[/);
+    expect(feRoles).toMatch(
+      /export \{\s*PLATFORM_ROLE_CODES as PLATFORM_ROLES,\s*INVITABLE_ROLE_CODES\s*\}/,
+    );
+  });
+
+  it('the generated vocabulary carries exactly the canonical members', () => {
+    // Codegen staleness is caught by `admin-contracts-generated`; a WRONG
+    // emission is not, and this is a vocabulary that decides what an operator
+    // is allowed to do.
+    expect([...constTupleMembers(GENERATED_CONTRACTS, 'PLATFORM_ROLE_CODES')].sort()).toEqual(
+      canonical,
+    );
+    expect([...constTupleMembers(GENERATED_CONTRACTS, 'INVITABLE_ROLE_CODES')].sort()).toEqual(
+      canonical.filter((r) => r !== 'SUPER_ADMIN'),
+    );
   });
 
   it('INVITABLE_ROLE_CODES is the canonical set minus the platform-level SUPER_ADMIN', () => {

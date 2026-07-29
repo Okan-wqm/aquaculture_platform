@@ -41,6 +41,23 @@ import { Tenant, TenantPlan, TenantSettings, TenantStatus } from '../entities/te
 import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
 import { TenantProvisioningService } from './tenant-provisioning.service';
 
+/**
+ * What reconciling a tenant's subscription found or repaired.
+ *
+ * Every field but `tenantId` is optional because the reconciliation reports what
+ * it OBSERVED: a tenant with no subscription yields a tenant id and nothing
+ * else, and `replayed` appears only when the workflow actually re-emitted the
+ * provisioning command. Absent means "not applicable", which is a different
+ * statement from zero.
+ */
+export interface TenantSubscriptionReconciliation {
+  tenantId: string;
+  subscriptionId?: string;
+  status?: string;
+  moduleItemCount?: number;
+  replayed?: boolean;
+}
+
 interface TenantProvisioningRunRow {
   id: string;
   tenantId: string;
@@ -1159,13 +1176,7 @@ export class TenantProvisioningWorkflowService {
   async reconcileTenantSubscription(
     tenantId: string,
     actorId: string,
-  ): Promise<{
-    tenantId: string;
-    subscriptionId?: string;
-    status?: string;
-    moduleItemCount?: number;
-    replayed?: boolean;
-  }> {
+  ): Promise<TenantSubscriptionReconciliation> {
     const tenant = await this.findTenantById(tenantId);
     if (!tenant) {
       throw new NotFoundException(`Tenant '${tenantId}' not found`);

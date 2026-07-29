@@ -14,7 +14,7 @@ import {
 import { ImpersonationService } from './services';
 
 // Fix: H15 -- Debug tools (DebugToolsController, DebugSession, CapturedQuery,
-// CapturedApiCall, CacheEntrySnapshot, FeatureFlagOverride, DebugToolsService
+// CapturedApiCall, FeatureFlagOverride, DebugToolsService
 // ve alt servisleri) ayrı DebugToolsModule'a taşındı.
 // ImpersonationModule artık sadece impersonation sorumluluğunu taşır (SRP).
 

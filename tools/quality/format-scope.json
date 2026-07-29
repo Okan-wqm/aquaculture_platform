@@ -1635,6 +1635,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/common/dto/operation-acknowledgement.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/database-management/__tests__/database-monitoring.service.spec.ts",
       "prettier_managed": true
     },
@@ -1876,6 +1882,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/impersonation/impersonation.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/impersonation/services/__tests__/cache-inspector.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -2471,6 +2483,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1802600000000-AddImpersonationPermissionRevocationAudit.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1802700000000-DropCacheEntriesSnapshot.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -2717,12 +2741,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/settings/dto/email-template.dto.ts",
       "prettier_managed": true
     },
@@ -2741,12 +2759,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/settings/dto/tenant-configuration.dto.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/settings/entities/index.ts",
       "prettier_managed": true
     },
@@ -2754,12 +2766,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/settings/entities/system-setting.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/settings/entities/tenant-configuration.entity.ts",
       "prettier_managed": true
     },
     {
@@ -2790,12 +2796,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/settings/services/system-setting.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/settings/services/tenant-configuration.service.ts",
       "prettier_managed": true
     },
     {
@@ -3126,6 +3126,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/tenant/dto/tenant-summary.dto.ts",
       "prettier_managed": true
     },
     {
@@ -6783,6 +6789,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/configuration/__tests__/configuration.resolver.tenant-targeting.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/configuration/__tests__/graphql-schema-build.spec.ts",
       "prettier_managed": true
     },
@@ -6951,6 +6963,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/configuration/tenant-settings/__tests__/tenant-settings.vocabulary.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/configuration/tenant-settings/tenant-settings.vocabulary.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/database/__tests__/platform-configuration-seed.spec.ts",
       "prettier_managed": true
     },
@@ -7022,6 +7046,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/config-service/src/database/migrations/1805400000000-SeedPlatformConfigurations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/database/migrations/1805500000000-SeedTenantSettingsDefaults.ts",
       "prettier_managed": true
     },
     {
@@ -41520,6 +41550,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-contracts-generated.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-csrf-posture.spec.ts",
       "prettier_managed": true
     },
@@ -41935,6 +41971,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/entity-diff-implies-migration.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/entity-getter-response.spec.ts",
       "prettier_managed": true
     },
     {
@@ -42420,6 +42462,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/no-fake-success-handlers.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/no-hardcoded-plan-pricing.spec.ts",
       "prettier_managed": true
     },
@@ -42589,6 +42637,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/rls-predicate-canonical.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/route-named-return-type.spec.ts",
       "prettier_managed": true
     },
     {
@@ -42769,6 +42823,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/tenant-schema-cache-module-registered.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/tenant-settings-vocabulary.spec.ts",
       "prettier_managed": true
     },
     {
@@ -43069,6 +43129,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/audit/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/codegen/admin-contracts/generate.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/codegen/admin-contracts/manifest.ts",
       "prettier_managed": true
     },
     {
@@ -45658,6 +45730,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/constants/plan-tier.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/graphql/messaging-operations.ts",
       "prettier_managed": true
     },
@@ -45671,6 +45749,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/graphql/support-operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/graphql/tenant-configuration-operations.ts",
       "prettier_managed": true
     },
     {
@@ -45749,6 +45833,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/hooks/usePlatformConfiguration.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/hooks/useTenantConfiguration.ts",
       "prettier_managed": true
     },
     {
@@ -46186,6 +46276,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/services/api/__tests__/tenant-configuration.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/services/api/analytics.ts",
       "prettier_managed": true
     },
@@ -46211,6 +46307,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/services/api/debug.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/services/api/effective-configuration.ts",
       "prettier_managed": true
     },
     {
@@ -46276,7 +46378,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/admin-panel/src/services/api/tenant-config.ts",
+      "path": "web/modules/admin-panel/src/services/api/tenant-configuration.ts",
       "prettier_managed": true
     },
     {
@@ -46338,6 +46440,17 @@
       "owner": "source",
       "path": "web/modules/admin-panel/src/services/types/debug.ts",
       "prettier_managed": true
+    },
+    {
+      "class": "generated",
+      "content_sha256": "bb035b7da62249dafe12be612a8d58c2a84b42b513e3c9638692ae50cf5c31db",
+      "hash_policy": "sha256",
+      "owner": "codegen-owner",
+      "path": "web/modules/admin-panel/src/services/types/generated/admin-contracts.ts",
+      "prettier_managed": false,
+      "reason": "generated artifact; source generator is canonical",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
       "class": "canonical_source",
@@ -55644,10 +55757,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9123,
+  "file_count": 9141,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8942,
-  "managed_file_list_sha256": "4fb63a43816491d18044bb48332e2808b88e2476a2200f1721e2ac36514cf2d0",
+  "managed_count": 8959,
+  "managed_file_list_sha256": "d6e06919c8676e1354ea8d009431e0035965180f226c740bdce1d0a1892eabef",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

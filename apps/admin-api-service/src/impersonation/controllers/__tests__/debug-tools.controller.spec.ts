@@ -46,12 +46,15 @@ const mockDebugToolsService = {
   getApiUsageSummary: jest.fn().mockResolvedValue({}),
   getApiCallDetails: jest.fn().mockResolvedValue({}),
   getCacheStats: jest.fn().mockResolvedValue({}),
-  snapshotCache: jest.fn().mockResolvedValue([]),
-  captureCacheEntry: jest.fn().mockResolvedValue({}),
+  listCacheEntries: jest.fn().mockResolvedValue({
+    namespace: 'admin:',
+    entries: [],
+    matchedCount: 0,
+    truncated: false,
+  }),
   getCacheEntry: jest.fn().mockResolvedValue({}),
-  invalidateCacheByKey: jest.fn().mockResolvedValue(undefined),
   invalidateCachePattern: jest.fn().mockResolvedValue(5),
-  invalidateCacheKey: jest.fn().mockResolvedValue(undefined),
+  invalidateCacheKey: jest.fn().mockResolvedValue(1),
   createFeatureFlagOverride: jest.fn().mockResolvedValue({ id: 'override-1' }),
   revertFeatureFlagOverride: jest.fn().mockResolvedValue({ reverted: true }),
   getActiveOverridesForTenant: jest.fn().mockResolvedValue([]),
@@ -748,12 +751,49 @@ describe('DebugToolsController', () => {
     });
 
     it('GET /debug/cache/stats should return cache stats', async () => {
-      mockDebugToolsService.getCacheStats.mockResolvedValueOnce({ totalEntries: 100 });
+      mockDebugToolsService.getCacheStats.mockResolvedValueOnce({
+        namespace: 'admin:',
+        keysInNamespace: 100,
+        instance: {
+          keyspaceHits: 8,
+          keyspaceMisses: 2,
+          hitRatePercent: 80,
+          usedMemoryBytes: 1024,
+          totalKeys: 250,
+        },
+      });
 
       const res = await request(app.getHttpServer()).get('/debug/cache/stats');
 
       expect(res.status).toBe(HttpStatus.OK);
-      expect(res.body.totalEntries).toBe(100);
+      // The namespace figure and the instance figures stay apart on the wire.
+      expect(res.body.keysInNamespace).toBe(100);
+      expect(res.body.instance.hitRatePercent).toBe(80);
+    });
+
+    it('every invalidation route reports the count the service returned', async () => {
+      // The contract that makes a future no-op visible. The methods these
+      // replaced returned a hard-coded 0 and a 204 with no body, so a caller
+      // could not tell a purge from a stub.
+      const byPattern = await request(app.getHttpServer())
+        .post('/debug/cache/invalidate')
+        .send({ pattern: 'report:*' });
+      expect(byPattern.status).toBe(HttpStatus.CREATED);
+      expect(byPattern.body.invalidated).toBe(5);
+
+      const byKey = await request(app.getHttpServer()).delete('/debug/cache/report:abc');
+      expect(byKey.status).toBe(HttpStatus.OK);
+      expect(byKey.body.invalidated).toBe(1);
+    });
+
+    it('POST /debug/cache/capture is gone', async () => {
+      // It was the only writer of a table nothing read. Its absence is the
+      // finding: a capture endpoint with no producer is a ledger nobody keeps.
+      const res = await request(app.getHttpServer())
+        .post('/debug/cache/capture')
+        .send({ key: 'k' });
+
+      expect(res.status).toBe(HttpStatus.NOT_FOUND);
     });
   });
 

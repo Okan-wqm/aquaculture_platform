@@ -11,7 +11,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { adminRoutes } from '../routes/adminRoutes';
-import { analyticsApi } from '../services/adminApi';
+import { analyticsApi, type TimeSeriesPoint } from '../services/adminApi';
 
 // ============================================================================
 // Types
@@ -103,11 +103,6 @@ interface DashboardSummary {
   usage: UsageMetrics;
   generatedAt: string;
   unavailable?: string[];
-}
-
-interface TimeSeriesPoint {
-  date: string;
-  value: number;
 }
 
 type AnalyticsRange = '7d' | '30d' | '90d' | '1y';
@@ -235,31 +230,67 @@ interface MiniChartProps {
   color?: string;
 }
 
+/**
+ * A trend line that does not invent the points it does not have.
+ *
+ * `TimeSeriesPoint.value` is `number | null` — null means the metric was not
+ * measured for that bucket, which is a different statement from zero. This
+ * chart previously took the type as `number`, so a null slid through arithmetic
+ * as 0 and was drawn as a real data point sitting on the axis: an outage or a
+ * gap in collection rendered as "the value was zero that day".
+ *
+ * Unmeasured buckets now BREAK the line. Each contiguous run of measured points
+ * is its own polyline, so a gap reads as a gap, and the scale is computed from
+ * measured values only so one absent bucket cannot drag the baseline.
+ */
 const MiniChart: React.FC<MiniChartProps> = ({ data, height = 60, color = '#3B82F6' }) => {
-  if (data.length === 0) return null;
+  const measured = data.filter(
+    (point): point is TimeSeriesPoint & { value: number } => point.value !== null,
+  );
+  if (measured.length === 0) {
+    return null;
+  }
 
-  const values = data.map(d => d.value);
+  const values = measured.map((point) => point.value);
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = max - min || 1;
   const denominator = Math.max(data.length - 1, 1);
 
-  const points = data.map((d, i) => {
-    const x = (i / denominator) * 100;
-    const y = height - ((d.value - min) / range) * height;
-    return `${x},${y}`;
-  }).join(' ');
+  // Split into contiguous measured runs; a single point cannot draw a line, so
+  // it becomes a dot rather than disappearing.
+  const runs: Array<Array<{ x: number; y: number }>> = [];
+  let run: Array<{ x: number; y: number }> = [];
+  data.forEach((point, index) => {
+    if (point.value === null) {
+      if (run.length > 0) runs.push(run);
+      run = [];
+      return;
+    }
+    run.push({
+      x: (index / denominator) * 100,
+      y: height - ((point.value - min) / range) * height,
+    });
+  });
+  if (run.length > 0) runs.push(run);
 
   return (
     <svg width="100%" height={height} className="overflow-visible">
-      <polyline
-        points={points}
-        fill="none"
-        stroke={color}
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      {runs.map((segment, index) =>
+        segment.length === 1 ? (
+          <circle key={index} cx={`${segment[0]!.x}%`} cy={segment[0]!.y} r="2" fill={color} />
+        ) : (
+          <polyline
+            key={index}
+            points={segment.map((p) => `${p.x},${p.y}`).join(' ')}
+            fill="none"
+            stroke={color}
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        ),
+      )}
     </svg>
   );
 };

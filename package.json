@@ -80,6 +80,8 @@
     "start:all": "concurrently -k -n \"backend,frontend\" -c \"blue,green\" \"npm run start:backend\" \"sleep 30 && npm run start:frontend\"",
     "schema:generate": "node tools/toolchain/run.mjs nx run-many --target=build --all --parallel=2",
     "codegen": "graphql-codegen --config codegen.ts",
+    "codegen:admin-contracts": "ts-node --project tools/gates/tsconfig.json tools/codegen/admin-contracts/generate.ts",
+    "codegen:admin-contracts:check": "ts-node --project tools/gates/tsconfig.json tools/codegen/admin-contracts/generate.ts --check",
     "codegen:check": "graphql-codegen --config codegen.ts --check",
     "service-catalog:generate": "ts-node --project scripts/service-catalog/tsconfig.json scripts/service-catalog/generate-artifacts.ts",
     "service-catalog:check": "ts-node --project scripts/service-catalog/tsconfig.json scripts/service-catalog/generate-artifacts.ts --check",

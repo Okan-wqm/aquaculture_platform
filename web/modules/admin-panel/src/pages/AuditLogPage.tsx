@@ -11,7 +11,7 @@ import type { TableColumn } from '@aquaculture/shared-ui';
 import { useAsyncData, usePagination, useFilters } from '../hooks';
 import { auditApi, tenantsApi } from '../services/adminApi';
 import type { AuditLog, AuditLogStats, Tenant } from '../services/adminApi';
-import { TenantTier, TenantStatus } from '../services/adminApi';
+import { TenantStatus } from '../services/adminApi';
 
 // ============================================================================
 // Types
@@ -209,11 +209,14 @@ const LogDetailModal: React.FC<LogDetailModalProps> = ({ log, onClose }) => (
             </p>
           </div>
 
-          {log.metadata && Object.keys(log.metadata).length > 0 && (
+          {/* The audit column is `details`. This read `metadata`, which the
+              entity has never carried, so the block was unreachable and the
+              per-entry detail an operator most needs was never rendered. */}
+          {log.details && Object.keys(log.details).length > 0 && (
             <div>
-              <label className="text-xs text-gray-500">Metadata</label>
+              <label className="text-xs text-gray-500">Details</label>
               <pre className="text-sm bg-gray-50 p-3 rounded overflow-auto max-h-64">
-                {JSON.stringify(log.metadata, null, 2)}
+                {JSON.stringify(log.details, null, 2)}
               </pre>
             </div>
           )}

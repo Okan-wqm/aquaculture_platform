@@ -28,12 +28,14 @@ const METRIC_LABELS: Record<PricingMetricType, string> = {
   [PricingMetricType.PER_SENSOR]: 'Per Sensor',
   [PricingMetricType.PER_DEVICE]: 'Per Device',
   [PricingMetricType.PER_GB_STORAGE]: 'Per GB Storage',
+  [PricingMetricType.PER_GB_TRANSFER]: 'Per GB Transfer',
   [PricingMetricType.PER_API_CALL]: 'Per API Call',
   [PricingMetricType.PER_ALERT]: 'Per Alert',
   [PricingMetricType.PER_REPORT]: 'Per Report',
   [PricingMetricType.PER_SMS]: 'Per SMS',
   [PricingMetricType.PER_EMAIL]: 'Per Email',
   [PricingMetricType.PER_INTEGRATION]: 'Per Integration',
+  [PricingMetricType.PER_WORKFLOW]: 'Per Workflow',
 };
 
 // All available metric types for adding new metrics
@@ -75,35 +77,18 @@ const getModuleIcon = (iconName: string | undefined | null): string => {
   return ICON_MAP[normalizedIcon] || ICON_MAP.default;
 };
 
-// Helper to check if metric is BASE_PRICE (handles both string and enum)
-const isBasePrice = (metricType: string | PricingMetricType): boolean => {
-  const normalized = String(metricType).toLowerCase();
-  return normalized === 'base_price' || normalized === 'base_fee';
-};
+// The lowercase normalisation and the `'base_fee'` alias were compensating for
+// a nominal enum callers passed raw strings into. `base_fee` is not a member of
+// PricingMetricType and never has been, so that branch was dead; the wire values
+// are already lowercase. With the vocabulary derived from the backend the
+// parameter can be the vocabulary itself.
+const isBasePrice = (metricType: PricingMetricType): boolean =>
+  metricType === PricingMetricType.BASE_PRICE;
 
-// Helper to get metric label (handles both uppercase and lowercase metric types)
-const getMetricLabel = (metricType: string | PricingMetricType): string => {
-  // Normalize to lowercase for lookup
-  const normalized = String(metricType).toLowerCase();
-
-  // Map legacy 'base_fee' to 'base_price'
-  const mappedType = normalized === 'base_fee' ? 'base_price' : normalized;
-
-  // Find matching enum value
-  const enumKey = Object.values(PricingMetricType).find(
-    (v) => v.toLowerCase() === mappedType
-  );
-
-  if (enumKey && METRIC_LABELS[enumKey]) {
-    return METRIC_LABELS[enumKey];
-  }
-
-  // Fallback: convert snake_case to Title Case
-  return metricType
-    .toString()
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-};
+// Every member has a label — METRIC_LABELS is an exhaustive Record over the
+// generated vocabulary — so the search-and-fallback machinery this replaced
+// could only ever return the same answer the direct lookup does.
+const getMetricLabel = (metricType: PricingMetricType): string => METRIC_LABELS[metricType];
 
 // ============================================================================
 // Types

@@ -1,65 +1,82 @@
 /**
- * Security domain types
+ * Security domain types.
+ *
+ * The read shapes and vocabularies are GENERATED
+ * (`tools/codegen/admin-contracts/manifest.ts`).
+ *
+ * Six of them used to be hand-written here under a `Backend*` prefix. That
+ * prefix was never a namespace — it meant "the backend's version of this, as
+ * opposed to ours", and having both was the defect. The prefix is gone with the
+ * copies it distinguished. So are five duplicate vocabularies:
+ * `SecurityEventSeverity` restated `ThreatLevel`, `ActivityLogCategory` restated
+ * `ActivityCategory`, `ActivityLogSeverity` restated `ActivitySeverity`,
+ * `SecurityIncidentStatus` restated `IncidentStatus`, and `ThreatIndicatorType`
+ * restated a union that existed only inline on the entity column until it was
+ * named. The panel keeps the old names as aliases so no call site had to change.
  */
 
-export type SecurityEventSeverity = 'low' | 'medium' | 'high' | 'critical';
-export type SecurityEventType =
-  | 'failed_login'
-  | 'brute_force_attempt'
-  | 'suspicious_activity'
-  | 'unauthorized_access'
-  | 'privilege_escalation'
-  | 'data_exfiltration'
-  | 'malware_detected'
-  | 'api_abuse'
-  | 'rate_limit_exceeded'
-  | 'sql_injection_attempt'
-  | 'xss_attempt'
-  | 'csrf_attempt'
-  | 'account_lockout'
-  | 'password_spray'
-  | 'credential_stuffing'
-  | 'session_hijacking'
-  | 'ip_blacklisted'
-  | 'geo_anomaly'
-  | 'device_anomaly'
-  | 'time_anomaly';
+// GENERATED backend contracts — tools/codegen/admin-contracts/manifest.ts.
+import type {
+  AuditSummary,
+  AuditSeverity,
+  ComplianceType,
+  DataRequestStatus,
+  DataRequestType,
+  SecurityEventStatus,
+  SecurityEventType,
+  ActivityLog,
+  SecurityEvent,
+  SecurityIncident,
+  ThreatIntelligence,
+  SecurityDashboardStats,
+  SecurityEventStats,
+  IncidentStats,
+  ThreatIntelStats,
+  ThreatCheckResult,
+  SecurityHealthScore,
+  SecurityHealthFactor,
+  SecurityTelemetryStatus,
+  ThreatLevel,
+  ThreatIndicatorType,
+  IncidentSeverity,
+  IncidentStatus,
+  ActivityCategory,
+  ActivitySeverity,
+} from './generated/admin-contracts';
 
-export type ActivityLogCategory =
-  | 'user_action'
-  | 'system_event'
-  | 'api_call'
-  | 'data_access'
-  | 'security_event'
-  | 'configuration'
-  | 'authentication';
+export type {
+  AuditSummary,
+  AuditSeverity,
+  ComplianceType,
+  DataRequestStatus,
+  DataRequestType,
+  SecurityEventStatus,
+  SecurityEventType,
+  ActivityLog,
+  SecurityEvent,
+  SecurityIncident,
+  ThreatIntelligence,
+  SecurityDashboardStats,
+  SecurityEventStats,
+  IncidentStats,
+  ThreatIntelStats,
+  ThreatCheckResult,
+  SecurityHealthScore,
+  SecurityHealthFactor,
+  SecurityTelemetryStatus,
+  ThreatLevel,
+  ThreatIndicatorType,
+  IncidentSeverity,
+  IncidentStatus,
+};
 
-export type ActivityLogSeverity = 'debug' | 'info' | 'warning' | 'error' | 'critical';
-export type AuditSeverity = 'info' | 'warning' | 'critical';
-export type SecurityEventStatus =
-  | 'detected'
-  | 'investigating'
-  | 'confirmed'
-  | 'mitigated'
-  | 'false_positive'
-  | 'escalated';
-export type SecurityIncidentStatus =
-  | 'open'
-  | 'investigating'
-  | 'contained'
-  | 'eradicated'
-  | 'recovered'
-  | 'closed';
-export type ThreatIndicatorType =
-  | 'ip'
-  | 'domain'
-  | 'url'
-  | 'hash'
-  | 'email'
-  | 'user_agent'
-  | 'cidr';
-export type ComplianceType = 'gdpr' | 'ccpa' | 'hipaa' | 'pci_dss' | 'sox' | 'iso27001';
-export type DataRequestType = 'access' | 'deletion' | 'portability' | 'rectification' | 'restriction';
+// The panel's historical names for the vocabularies above, kept as ALIASES so
+// existing call sites resolve. Each of these was a second declaration.
+export type SecurityEventSeverity = ThreatLevel;
+export type ActivityLogCategory = ActivityCategory;
+export type ActivityLogSeverity = ActivitySeverity;
+export type SecurityIncidentStatus = IncidentStatus;
+
 // Mirrors the backend DataRequestStatus vocabulary (security.entity.ts /
 // admin.data_requests CHECK); kept in lockstep by
 // tests/invariants/admin-data-request-status-vocab.spec.ts (APA-236). The
@@ -71,40 +88,6 @@ export const DATA_REQUEST_STATUSES = [
   'rejected',
   'expired',
 ] as const;
-export type DataRequestStatus = (typeof DATA_REQUEST_STATUSES)[number];
-
-export interface BackendActivityLog {
-  id: string;
-  category: ActivityLogCategory;
-  action: string;
-  severity: ActivityLogSeverity;
-  tenantId?: string | null;
-  tenantName?: string | null;
-  userId?: string | null;
-  userName?: string | null;
-  userEmail?: string | null;
-  ipAddress?: string | null;
-  userAgent?: string | null;
-  geoLocation?: {
-    country?: string;
-    region?: string;
-    city?: string;
-    latitude?: number;
-    longitude?: number;
-  } | null;
-  location?: { country?: string; city?: string };
-  entityType?: string | null;
-  entityId?: string | null;
-  entityName?: string | null;
-  previousValue?: Record<string, unknown> | null;
-  newValue?: Record<string, unknown> | null;
-  metadata?: Record<string, unknown> | null;
-  duration?: number | null;
-  success: boolean;
-  errorMessage?: string | null;
-  createdAt: string;
-  timestamp?: string;
-}
 
 export interface BackendAuditLog {
   id: string;
@@ -136,15 +119,6 @@ export interface ActivityStatsOverview {
   activityOverTime: Array<{ date: string; count: number }>;
 }
 
-export interface AuditSummary {
-  totalLogs: number;
-  last24Hours: number;
-  byAction: Array<{ action: string; count: number }>;
-  bySeverity: Array<{ severity: string; count: number }>;
-  byEntityType: Array<{ entityType: string; count: number }>;
-  topUsers: Array<{ userId: string; email: string; count: number }>;
-}
-
 export interface BackendAuditAlertRule {
   id: string;
   name: string;
@@ -166,41 +140,21 @@ export interface BackendAuditAlertRule {
 }
 
 /**
- * One GDPR/framework requirement — mirrors the backend `ComplianceRequirement`
- * (apps/admin-api-service/src/security/services/compliance.service.ts).
+ * The compliance-check contract is GENERATED from
+ * `apps/admin-api-service/src/security/services/compliance.service.ts` and
+ * aliased under the panel's `Backend*` naming.
  *
- * The human-readable text lives HERE, nested, not flattened onto the check
- * result. Declaring `requirement` as a string is what put an object into JSX.
+ * Hand-declared, it claimed `requirement` was a string when the backend sends a
+ * nested object, and invented `id`/`category`/`description`/`lastChecked`/
+ * `nextReview` at the top level. Spreading that row put the object into JSX and
+ * crashed the page. Deriving the type is what makes that unrepresentable.
  */
-export interface BackendComplianceRequirement {
-  id: string;
-  framework: ComplianceType;
-  requirement: string;
-  description: string;
-  category: string;
-  isMandatory: boolean;
-  verificationMethod: string;
-}
+import type {
+  ComplianceRequirement as BackendComplianceRequirement,
+  ComplianceCheckResult as BackendComplianceCheckResult,
+} from './generated/admin-contracts';
 
-/**
- * The result of running one requirement check — mirrors the backend
- * `ComplianceCheckResult`. Parity is pinned by
- * tests/invariants/admin-security-runtime-contract.spec.ts.
- *
- * There is no `nextReview`: checks execute live per request and the platform
- * has no scheduled-review concept. The panel used to declare one (along with
- * `id`, `category`, `description` and `lastChecked` at the top level), all of
- * which arrived `undefined` and none of which the compiler could question,
- * because `apiFetch<T>`'s generic is an unchecked assertion across the wire.
- */
-export interface BackendComplianceCheckResult {
-  requirement: BackendComplianceRequirement;
-  status: 'compliant' | 'non_compliant' | 'partial' | 'not_applicable';
-  details: string;
-  evidence?: string;
-  remediation?: string;
-  checkedAt: string;
-}
+export type { BackendComplianceRequirement, BackendComplianceCheckResult };
 
 export interface BackendComplianceReport {
   id: string;
@@ -252,121 +206,6 @@ export interface BackendDataSubjectRequest {
   downloadUrl?: string | null;
   createdAt: string;
   updatedAt?: string;
-}
-
-export interface BackendSecurityEvent {
-  id: string;
-  eventType: SecurityEventType;
-  threatLevel: SecurityEventSeverity;
-  status: SecurityEventStatus;
-  title: string;
-  description: string;
-  ipAddress: string;
-  geoLocation?: {
-    country?: string;
-    city?: string;
-    latitude?: number;
-    longitude?: number;
-  } | null;
-  tenantId?: string | null;
-  userId?: string | null;
-  userName?: string | null;
-  targetResource?: string | null;
-  targetEndpoint?: string | null;
-  detectionSource: string;
-  confidenceScore?: number | null;
-  rawData?: Record<string, unknown> | null;
-  assignedTo?: string | null;
-  assignedToName?: string | null;
-  investigationNotes?: string | null;
-  resolution?: string | null;
-  resolvedAt?: string | null;
-  resolvedBy?: string | null;
-  createdAt: string;
-  updatedAt?: string;
-}
-
-export interface BackendSecurityIncident {
-  id: string;
-  title: string;
-  description: string;
-  severity: SecurityEventSeverity;
-  status: SecurityIncidentStatus;
-  category?: string | null;
-  affectedSystems?: string[] | null;
-  affectedUsers?: number | null;
-  relatedEvents?: string[] | null;
-  leadInvestigator?: string | null;
-  leadInvestigatorName?: string | null;
-  timeline?: Array<{ action: string; timestamp: string; user?: string }> | null;
-  impactDescription?: string | null;
-  rootCauseAnalysis?: string | null;
-  remediation?: string | null;
-  createdAt: string;
-  updatedAt?: string;
-  resolvedAt?: string | null;
-}
-
-export interface BackendThreatIndicator {
-  id: string;
-  indicatorType: ThreatIndicatorType;
-  value: string;
-  threatLevel: SecurityEventSeverity;
-  source: string;
-  description?: string | null;
-  threatTypes?: string[] | null;
-  tags?: string[] | null;
-  confidence: number;
-  firstSeenAt?: string | null;
-  lastSeenAt?: string | null;
-  hitCount?: number;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt?: string;
-}
-
-export interface BackendSecurityDashboardStats {
-  totalSecurityEvents: number;
-  eventsLast24h: number;
-  eventsLast7d: number;
-  eventsLast30d: number;
-  eventsTrend: 'increasing' | 'decreasing' | 'stable';
-  criticalEvents: number;
-  activeIncidents: number;
-  resolvedIncidents: number;
-  threatsBlocked: number;
-  eventsByType: Record<SecurityEventType, number>;
-  eventsBySeverity: Record<SecurityEventSeverity, number>;
-  topSourceIPs: Array<{ ip: string; count: number; threatLevel: SecurityEventSeverity }>;
-  topTargetedUsers: Array<{ userId: string; userName: string; count: number }>;
-  topEventTypes: Array<{ type: SecurityEventType; count: number }>;
-  eventsTimeline: Array<{
-    date: string;
-    critical: number;
-    high: number;
-    medium: number;
-    low: number;
-  }>;
-}
-
-export interface BackendSecurityHealthScore {
-  score: number;
-  /**
-   * APA-240: telemetry liveness. The security tables the score aggregates over
-   * (security_events / login_attempts / api_usage_logs / user_sessions) can be
-   * empty, in which case the arithmetic still yields a high "healthy" number.
-   * When this is not 'live', the gauge MUST render "No telemetry" instead of a
-   * green score — a monitoring surface must not fabricate assurance over a void.
-   */
-  dataStatus: 'live' | 'stale' | 'no_data';
-  lastSeenAt: string | null;
-  factors: Array<{
-    name: string;
-    score: number;
-    weight: number;
-    description: string;
-  }>;
-  recommendations: string[];
 }
 
 export interface RetentionPolicy {

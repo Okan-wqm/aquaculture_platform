@@ -29,6 +29,22 @@ const CANCELLED_JOB_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 // Interfaces
 // ============================================================================
 
+/**
+ * How many failed jobs a bulk retry re-queued.
+ *
+ * Named separately from the purge result rather than sharing one `count`: the
+ * two answer different questions, and a caller that read the wrong one would
+ * report a purge as a retry with nothing to catch it.
+ */
+export interface RetriedJobsResult {
+  retriedCount: number;
+}
+
+/** How many completed jobs a bulk purge removed. */
+export interface PurgedJobsResult {
+  purgedCount: number;
+}
+
 export interface JobDefinition {
   name: string;
   queueName: string;

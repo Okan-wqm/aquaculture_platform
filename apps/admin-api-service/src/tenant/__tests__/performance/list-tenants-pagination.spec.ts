@@ -3,7 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, SelectQueryBuilder } from 'typeorm';
 
-import { TenantListItemDto } from '../../dto/tenant-detail.dto';
+import { TenantListItemDto } from '../../dto/tenant-summary.dto';
 import { Tenant, TenantStatus, TenantPlan } from '../../entities/tenant.entity';
 import { ListTenantsQuery } from '../../queries/tenant.queries';
 import { ListTenantsHandler } from '../../query-handlers/tenant-query.handlers';

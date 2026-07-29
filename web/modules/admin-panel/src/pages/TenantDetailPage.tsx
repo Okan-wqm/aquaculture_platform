@@ -19,12 +19,16 @@ import {
 import {
   tenantsApi,
   modulesApi,
-  TenantTier,
   TenantStatus,
   type TenantDetail,
   type SystemModule,
   type UpdateTenantDto,
 } from '../services/adminApi';
+import {
+  TENANT_PLAN_BADGE_VARIANT,
+  TENANT_PLAN_OPTIONS,
+  TENANT_STATUS_BADGE_VARIANT,
+} from '../constants/plan-tier';
 
 // ============================================================================
 // Simple Tab Component
@@ -78,34 +82,6 @@ const formatRelativeTime = (dateStr: string): string => {
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
   return formatDate(date, 'short');
-};
-
-const getStatusVariant = (status: string): 'success' | 'warning' | 'error' | 'default' => {
-  const variants: Record<string, 'success' | 'warning' | 'error' | 'default'> = {
-    active: 'success',
-    ACTIVE: 'success',
-    pending: 'warning',
-    PENDING: 'warning',
-    suspended: 'error',
-    SUSPENDED: 'error',
-    deactivated: 'default',
-    DEACTIVATED: 'default',
-  };
-  return variants[status] || 'default';
-};
-
-const getTierVariant = (tier: string): 'success' | 'warning' | 'info' | 'default' => {
-  const variants: Record<string, 'success' | 'warning' | 'info' | 'default'> = {
-    enterprise: 'success',
-    ENTERPRISE: 'success',
-    professional: 'warning',
-    PROFESSIONAL: 'warning',
-    starter: 'info',
-    STARTER: 'info',
-    free: 'default',
-    FREE: 'default',
-  };
-  return variants[tier] || 'default';
 };
 
 const getAvailableActions = (tenant: TenantDetail): Set<string> => {
@@ -326,6 +302,10 @@ const TenantDetailPage: React.FC = () => {
     );
   }
 
+  // The detail service returns admin.tenant_activities newest-first, so the most
+  // recent entry IS the tenant's last activity.
+  const lastActivityAt = tenant.recentActivities?.[0]?.createdAt;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -339,8 +319,8 @@ const TenantDetailPage: React.FC = () => {
           <div>
             <div className="flex items-center space-x-3">
               <h1 className="text-2xl font-bold text-gray-900">{tenant.name}</h1>
-              <Badge variant={getStatusVariant(tenant.status)}>{tenant.status}</Badge>
-              <Badge variant={getTierVariant(tenant.tier)}>{tenant.tier}</Badge>
+              <Badge variant={TENANT_STATUS_BADGE_VARIANT[tenant.status]}>{tenant.status}</Badge>
+              <Badge variant={TENANT_PLAN_BADGE_VARIANT[tenant.tier]}>{tenant.tier}</Badge>
               {tenant.isTrialActive && (
                 <Badge variant="warning">Trial Active</Badge>
               )}
@@ -418,7 +398,13 @@ const TenantDetailPage: React.FC = () => {
               <div>
                 <label className="text-xs text-gray-500">Last Activity</label>
                 <p className="font-medium">
-                  {tenant.lastActivityAt ? formatRelativeTime(tenant.lastActivityAt) : '-'}
+                  {/* `lastActivityAt` used to be read here. No auth.tenants
+                      column ever backed it, so this always rendered "-";
+                      DB-ADMIN-HIGH-003 removed the field. Tenant activity is
+                      owned by admin.tenant_activities, which the same response
+                      already carries as `recentActivities` — ordered newest
+                      first by the detail service. */}
+                  {lastActivityAt ? formatRelativeTime(lastActivityAt) : '-'}
                 </p>
               </div>
             </div>
@@ -692,7 +678,7 @@ const TenantDetailPage: React.FC = () => {
               <div className="space-y-4">
                 <div className="flex justify-between">
                   <span>Plan</span>
-                  <Badge variant={getTierVariant(tenant.billing.currentPlan)}>
+                  <Badge variant={TENANT_PLAN_BADGE_VARIANT[tenant.billing.currentPlan]}>
                     {tenant.billing.currentPlan}
                   </Badge>
                 </div>
@@ -831,13 +817,14 @@ const TenantDetailPage: React.FC = () => {
           <Select
             label="Tier"
             value={editForm.tier || ''}
-            onChange={(e) => setEditForm({ ...editForm, tier: e.target.value as TenantTier })}
-            options={[
-              { value: TenantTier.FREE, label: 'Free' },
-              { value: TenantTier.STARTER, label: 'Starter' },
-              { value: TenantTier.PROFESSIONAL, label: 'Professional' },
-              { value: TenantTier.ENTERPRISE, label: 'Enterprise' },
-            ]}
+            onChange={(e) => {
+              // Narrow against the vocabulary instead of asserting it. TRIAL is
+              // in the list now: without it, opening a trial tenant showed a Tier
+              // select with no matching option.
+              const tier = TENANT_PLAN_OPTIONS.find((option) => option.value === e.target.value);
+              if (tier) setEditForm({ ...editForm, tier: tier.value });
+            }}
+            options={[...TENANT_PLAN_OPTIONS]}
           />
           <Input
             label="Billing Email"

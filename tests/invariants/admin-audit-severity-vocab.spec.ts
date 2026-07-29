@@ -59,8 +59,17 @@ describe('admin audit-severity vocabulary parity (APA-004/358)', () => {
     expect(backend).toEqual(['critical', 'info', 'warning']);
   });
 
-  it('FE AuditLog.severity union equals the backend enum values', () => {
-    expect(feTypeSeverities()).toEqual(backend);
+  it('derives the FE severity vocabulary instead of re-listing it', () => {
+    // This compared two hand-written copies. There is one now: `AuditLog` (and
+    // `AuditSeverity` with it) is generated from the backend entity and
+    // `types/audit.ts` re-exports, so `admin-contracts-generated` owns the
+    // agreement and the compiler owns the rest.
+    const feTypes = readFileSync(
+      resolve(REPO_ROOT, 'web/modules/admin-panel/src/services/types/audit.ts'),
+      'utf-8',
+    );
+    expect(feTypes).toContain("from './generated/admin-contracts'");
+    expect(feTypes).not.toMatch(/export interface AuditLog\s*\{/);
   });
 
   it('every severity the filter dropdown offers is a real backend value', () => {

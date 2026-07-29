@@ -58,7 +58,8 @@ export class ConfigurationResolver {
   }
 
   /**
-   * Resolve the tenant scope exclusively from the verified JWT payload.
+   * Resolve the tenant scope for one operation.
+   *
    * SECURITY: Never fall back to headers - JWT is the only trusted source.
    *
    * WHY the SYSTEM_TENANT_ID resolution for tenantless platform admins:
@@ -69,8 +70,35 @@ export class ConfigurationResolver {
    * system rows — a tenant-scoped user still resolves ONLY from its verified
    * JWT tenant claim, and an authenticated non-admin without a tenant stays
    * rejected fail-closed.
+   *
+   * WHY `explicitTenantId` exists at all: administering ANOTHER tenant's
+   * configuration was impossible before it. Every operation derived its scope
+   * from the caller's own claim, so a SUPER_ADMIN — the one principal with no
+   * tenant — always landed on SYSTEM and could never address tenant X. That is
+   * why admin-api kept a parallel tenant-configuration store, why the store was
+   * retired on the promise that config-service owned tenant configuration, and
+   * why the promise could not be kept.
+   *
+   * The argument is gated, not trusted: only a platform admin may name a target,
+   * and a tenant-scoped caller passing one is refused rather than silently
+   * scoped back to itself — a silent narrowing would let a caller believe it had
+   * written another tenant's row.
+   *
+   * Every caller goes through this one method so the two paths cannot drift.
    */
-  private getTenantId(context: GraphQLContext): string {
+  private resolveTenantScope(context: GraphQLContext, explicitTenantId?: string | null): string {
+    if (explicitTenantId != null && explicitTenantId !== '') {
+      if (!context.req.user) {
+        throw new UnauthorizedException('Authentication required - tenant ID must come from JWT');
+      }
+      if (!this.hasPlatformAdminRole(context)) {
+        throw new ForbiddenException(
+          'Platform admin role required to address another tenant configuration scope',
+        );
+      }
+      return explicitTenantId;
+    }
+
     const tenantId = context.req.user?.tenantId;
     if (tenantId) {
       return tenantId;
@@ -110,9 +138,11 @@ export class ConfigurationResolver {
     @Args('key') key: string,
     @Args('environment', { type: () => ConfigEnvironment, nullable: true })
     environment: ConfigEnvironment,
+    @Args('tenantId', { type: () => String, nullable: true })
+    targetTenantId: string | null,
     @Context() context: GraphQLContext,
   ): Promise<EffectiveConfigurationDto> {
-    const tenantId = this.getTenantId(context);
+    const tenantId = this.resolveTenantScope(context, targetTenantId);
     const configuration = await this.queryBus.execute<GetConfigurationQuery, Configuration>(
       new GetConfigurationQuery(tenantId, serviceId, key, environment),
     );
@@ -124,9 +154,11 @@ export class ConfigurationResolver {
     @Args('service') service: string,
     @Args('environment', { type: () => ConfigEnvironment, nullable: true })
     environment: ConfigEnvironment,
+    @Args('tenantId', { type: () => String, nullable: true })
+    targetTenantId: string | null,
     @Context() context: GraphQLContext,
   ): Promise<EffectiveConfigurationDto[]> {
-    const tenantId = this.getTenantId(context);
+    const tenantId = this.resolveTenantScope(context, targetTenantId);
     const configurations = await this.queryBus.execute<
       GetConfigurationsByServiceQuery,
       Configuration[]
@@ -156,9 +188,11 @@ export class ConfigurationResolver {
     environment: ConfigEnvironment,
     @Args('isSecret', { nullable: true, defaultValue: false }) isSecret: boolean,
     @Args('reason', { type: () => String, nullable: true }) reason: string | undefined,
+    @Args('tenantId', { type: () => String, nullable: true })
+    targetTenantId: string | null,
     @Context() context: GraphQLContext,
   ): Promise<EffectiveConfigurationDto> {
-    const tenantId = this.getTenantId(context);
+    const tenantId = this.resolveTenantScope(context, targetTenantId);
     const userId = this.getUserId(context);
     this.checkAdminAccess(context);
 

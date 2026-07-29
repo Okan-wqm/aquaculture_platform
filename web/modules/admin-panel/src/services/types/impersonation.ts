@@ -1,141 +1,70 @@
 /**
- * Impersonation domain types
+ * Impersonation domain types — GENERATED
+ * (`tools/codegen/admin-contracts/manifest.ts`).
  *
- * WHY these shapes: the read model mirrors the backend `SafeImpersonationSession`
- * (admin-api `impersonation-session.entity.ts`) field-for-field. Read responses
- * NEVER carry token columns (DB-ADMIN-HIGH-002); the raw impersonation token is
- * revealed exactly once, on the start response (DB-ADMIN-HIGH-001). Request
- * types mirror the controller DTOs — the super-admin identity always comes from
- * the verified JWT, never from the request body.
- */
-
-/** Mirrors backend `ImpersonationStatus` — there is no 'revoked'; operator override is 'terminated'. */
-export type ImpersonationSessionStatus = 'active' | 'ended' | 'expired' | 'terminated';
-
-/** Mirrors backend `ImpersonationReason` — the start endpoint validates against this enum. */
-export type ImpersonationReasonCode =
-  | 'support_request'
-  | 'debugging'
-  | 'configuration'
-  | 'onboarding_assistance'
-  | 'security_investigation'
-  | 'data_verification'
-  | 'other';
-
-export interface ImpersonationPermission {
-  id: string;
-  // APA-290: the grant is a per-admin record keyed by superAdminId; the revoke
-  // route (POST /impersonation/permissions/:superAdminId/revoke) resolves this
-  // identifier, NOT the row `id`. It is a real column on every permission row.
-  superAdminId: string;
-  tenantId: string;
-  tenantName: string;
-  grantedBy: string;
-  grantedByEmail: string;
-  grantedAt: string;
-  expiresAt?: string;
-  maxSessionDuration: number;
-  allowedActions: string[];
-  isActive: boolean;
-  reason?: string;
-  revokedAt?: string;
-  revokedBy?: string;
-}
-
-/**
- * Read model for GET /impersonation/sessions* — the backend's
- * SafeImpersonationSession. Optionality follows the entity's nullable columns.
+ * WHY these shapes: reads NEVER carry token columns (DB-ADMIN-HIGH-002), which
+ * is why the read model is `SafeImpersonationSession` — literally
+ * `Omit<ImpersonationSession, secrets>` on the backend, so generating the entity
+ * here would publish the session token. The raw token is revealed exactly once,
+ * on the start response (DB-ADMIN-HIGH-001), which is what
+ * `StartedImpersonationSession` adds.
  *
- * `actionsPerformed` is declared because the read response HAS carried it all
- * along: `SafeImpersonationSession` is the session entity minus its two secret
- * token columns, and the action log is a jsonb column on that row. Omitting it
- * from this type is what sent the View Actions modal to a
- * `GET /sessions/:id/actions` route that does not exist (APA-151). Absent on a
- * session that has performed nothing yet.
+ * The request type is the controller's DTO, not the service input beside it:
+ * `StartImpersonationRequest` on the service carries `superAdminId`,
+ * `ipAddress` and `userAgent`, which the controller takes from the verified JWT
+ * and the socket. A panel that sent them would be rejected by
+ * `forbidNonWhitelisted`. The hand-written copy that used to live here had also
+ * dropped `permissions`, so a super-admin could not scope a session's access at
+ * start time.
  */
-export interface ImpersonationSession {
-  id: string;
-  superAdminId: string;
-  superAdminEmail?: string;
-  targetTenantId: string;
-  targetTenantName?: string;
-  targetUserId?: string;
-  targetUserEmail?: string;
-  status: ImpersonationSessionStatus;
-  reason: ImpersonationReasonCode;
-  actionsPerformed?: ImpersonationAction[];
-  reasonDetails?: string;
-  ticketReference?: string;
-  ipAddress?: string;
-  userAgent?: string;
-  mfaCompleted: boolean;
-  expiresAt: string;
-  endedAt?: string;
-  endReason?: string;
-  actionCount: number;
-  createdAt: string;
-  updatedAt: string;
-}
+
+// GENERATED backend contracts — tools/codegen/admin-contracts/manifest.ts.
+import type {
+  ImpersonationAuditSummary,
+  ImpersonationAction,
+  ImpersonationPermissions,
+  ImpersonationPermission,
+  SafeImpersonationSession,
+  StartedImpersonationSession,
+  StartImpersonationRequest,
+  GrantPermissionDto,
+  ImpersonationEligibility,
+  ImpersonationValidation,
+  ImpersonationContext,
+  ActiveSessionCount,
+} from './generated/admin-contracts';
+
+export type {
+  ImpersonationAuditSummary,
+  ImpersonationAction,
+  ImpersonationPermissions,
+  ImpersonationPermission,
+  SafeImpersonationSession,
+  StartedImpersonationSession,
+  StartImpersonationRequest,
+  GrantPermissionDto,
+  ImpersonationEligibility,
+  ImpersonationValidation,
+  ImpersonationContext,
+  ActiveSessionCount,
+};
 
 /**
- * POST /impersonation/sessions/start response — the ONLY response that carries
- * the raw impersonation token (revealed once; reads never echo it back).
+ * The panel's historical names, kept as ALIASES so no call site changes.
+ * Each was a hand-written second declaration.
  */
-export interface StartImpersonationResponse extends ImpersonationSession {
-  impersonationToken: string;
-}
+export type ImpersonationSession = SafeImpersonationSession;
+export type StartImpersonationResponse = StartedImpersonationSession;
+export type ImpersonationSessionStatus = SafeImpersonationSession['status'];
+export type ImpersonationReasonCode = SafeImpersonationSession['reason'];
 
 /**
- * POST /impersonation/sessions/start request body (backend StartImpersonationDto).
- * No admin identity fields: the backend derives superAdminId from the JWT and
- * rejects unknown properties (forbidNonWhitelisted).
- */
-export interface StartImpersonationRequest {
-  targetTenantId: string;
-  targetTenantName?: string;
-  targetUserId?: string;
-  targetUserEmail?: string;
-  reason: ImpersonationReasonCode;
-  reasonDetails?: string;
-  ticketReference?: string;
-  durationMinutes?: number;
-}
-
-/**
- * One entry of a session's action log — mirrors the backend `ImpersonationAction`
- * interface ({ action, resource, resourceId?, timestamp, details? }); the
- * log-action endpoint validates exactly these fields.
- */
-export interface ImpersonationAction {
-  action: string;
-  resource: string;
-  resourceId?: string;
-  timestamp: string;
-  details?: Record<string, unknown>;
-}
-
-/**
- * The platform-wide impersonation aggregate — mirrors the backend
- * `ImpersonationAuditSummary` (apps/admin-api-service/src/impersonation/
- * services/impersonation.service.ts). Parity is pinned by
- * tests/invariants/admin-impersonation-summary-contract.spec.ts.
+ * The platform-wide impersonation aggregate — GENERATED from
+ * `apps/admin-api-service/src/impersonation/services/impersonation.service.ts`.
  *
  * The `InWindow` / `Now` suffixes are the contract, not decoration: this page
- * used to render an all-time session count under a hardcoded "(30d)" label and
- * sum `actionCount` over whatever rows the first unpaginated page happened to
- * return. Both numbers now come from the endpoint that owns the semantics, and
- * the period label is derived from `windowStart`/`windowEnd` rather than
- * written into the JSX.
+ * rendered an all-time session count under a hardcoded "(30d)" label. Deriving
+ * the type means the panel cannot silently fall behind a change to what those
+ * fields mean.
  */
-export interface ImpersonationAuditSummary {
-  windowStart: string;
-  windowEnd: string;
-  totalSessionsInWindow: number;
-  actionsLoggedInWindow: number;
-  sessionsByReasonInWindow: Record<ImpersonationReasonCode, number>;
-  topImpersonatorsInWindow: Array<{ adminId: string; email: string; sessionCount: number }>;
-  topTargetTenantsInWindow: Array<{ tenantId: string; tenantName: string; sessionCount: number }>;
-  recentSessionsInWindow: ImpersonationSession[];
-  activeSessionsNow: number;
-  activePermissionsNow: number;
-}
+

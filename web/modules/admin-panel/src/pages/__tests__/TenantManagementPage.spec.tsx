@@ -16,12 +16,19 @@ import {
   type PaginatedResult,
   type Tenant,
   type TenantStats,
-  TenantTier,
+  TenantPlan,
   TenantStatus,
 } from '../../services/adminApi';
 
-// Mock the API module
-vi.mock('../../services/adminApi', () => ({
+// Stub the API CALLS, keep every real export.
+//
+// This mock used to re-declare the vocabularies too, and it declared the tier
+// members UPPERCASE — a casing the wire has never carried. The fixtures below
+// were built from the same mock, so the suite agreed with itself and proved
+// nothing about the real values. Spreading the actual module means a vocabulary
+// can only ever be exercised at the values the panel really receives.
+vi.mock('../../services/adminApi', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/adminApi')>()),
   tenantsApi: {
     list: vi.fn(),
     getStats: vi.fn(),
@@ -29,21 +36,6 @@ vi.mock('../../services/adminApi', () => ({
     activate: vi.fn(),
     bulkSuspend: vi.fn(),
     bulkActivate: vi.fn(),
-  },
-  TenantTier: {
-    FREE: 'FREE',
-    STARTER: 'STARTER',
-    PROFESSIONAL: 'PROFESSIONAL',
-    ENTERPRISE: 'ENTERPRISE',
-  },
-  TenantStatus: {
-    PENDING: 'PENDING',
-    PROVISIONING: 'PROVISIONING',
-    PROVISIONING_FAILED: 'PROVISIONING_FAILED',
-    ACTIVE: 'ACTIVE',
-    SUSPENDED: 'SUSPENDED',
-    INACTIVE: 'INACTIVE',
-    ARCHIVED: 'ARCHIVED',
   },
 }));
 
@@ -68,7 +60,7 @@ const mockTenants: Tenant[] = [
     id: 'tenant-1',
     name: 'Ocean Farms Ltd',
     slug: 'oceanfarms',
-    tier: TenantTier.ENTERPRISE,
+    tier: TenantPlan.ENTERPRISE,
     status: TenantStatus.ACTIVE,
     userCount: 45,
     farmCount: 12,
@@ -81,7 +73,7 @@ const mockTenants: Tenant[] = [
     id: 'tenant-2',
     name: 'Blue Waters Aquaculture',
     slug: 'bluewaters',
-    tier: TenantTier.PROFESSIONAL,
+    tier: TenantPlan.PROFESSIONAL,
     status: TenantStatus.ACTIVE,
     userCount: 23,
     farmCount: 5,
@@ -94,7 +86,7 @@ const mockTenants: Tenant[] = [
     id: 'tenant-3',
     name: 'Coastal Fish Co',
     slug: 'coastalfish',
-    tier: TenantTier.STARTER,
+    tier: TenantPlan.STARTER,
     status: TenantStatus.PENDING,
     userCount: 3,
     farmCount: 1,
@@ -107,7 +99,7 @@ const mockTenants: Tenant[] = [
     id: 'tenant-4',
     name: 'Marine Harvest Inc',
     slug: 'marineharvest',
-    tier: TenantTier.FREE,
+    tier: TenantPlan.FREE,
     status: TenantStatus.SUSPENDED,
     userCount: 2,
     farmCount: 0,
@@ -190,8 +182,8 @@ describe('TenantManagementPage', () => {
       renderWithRouter(<TenantManagementPage />);
 
       await waitFor(() => {
-        expect(screen.getByText(TenantTier.ENTERPRISE)).toBeInTheDocument();
-        expect(screen.getByText(TenantTier.PROFESSIONAL)).toBeInTheDocument();
+        expect(screen.getByText(TenantPlan.ENTERPRISE)).toBeInTheDocument();
+        expect(screen.getByText(TenantPlan.PROFESSIONAL)).toBeInTheDocument();
       });
     });
 
@@ -267,11 +259,11 @@ describe('TenantManagementPage', () => {
       await waitFor(() => expect(screen.getByText('Ocean Farms Ltd')).toBeInTheDocument());
 
       const tierSelect = screen.getByRole('combobox', { name: /^tier$/i });
-      await user.selectOptions(tierSelect, TenantTier.ENTERPRISE);
+      await user.selectOptions(tierSelect, TenantPlan.ENTERPRISE);
 
       await waitFor(() => {
         expect(tenantsApi.list).toHaveBeenCalledWith(
-          expect.objectContaining({ tier: TenantTier.ENTERPRISE }),
+          expect.objectContaining({ tier: TenantPlan.ENTERPRISE }),
         );
       });
     });

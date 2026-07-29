@@ -15,8 +15,20 @@ import { ApiTags } from '@nestjs/swagger';
 import { IsString, IsOptional, IsNumber, IsObject, IsArray, MaxLength, Min, Max } from 'class-validator';
 
 import { JobDashboardDto } from '../dto/job-dashboard.dto';
+import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+
 import { JobStatus, JobType, JobPriority, JobRetryPolicy } from '../entities/job-queue.entity';
+import type {
+  BackgroundJob,
+  JobExecutionLog,
+  JobQueue,
+} from '../entities/job-queue.entity';
 import { JobQueueService, JobDefinition } from '../services/job-queue.service';
+import type {
+  JobQueueStats,
+  PurgedJobsResult,
+  RetriedJobsResult,
+} from '../services/job-queue.service';
 
 // ============================================================================
 // DTOs
@@ -309,37 +321,37 @@ export class JobQueueController {
   // ============================================================================
 
   @Post('queues')
-  async createQueue(@Body() dto: CreateQueueDto) {
+  async createQueue(@Body() dto: CreateQueueDto): Promise<JobQueue> {
     return this.jobQueueService.createQueue(dto);
   }
 
   @Get('queues')
-  async getAllQueues() {
+  async getAllQueues(): Promise<JobQueue[]> {
     return this.jobQueueService.getAllQueues();
   }
 
   @Get('queues/:name')
-  async getQueue(@Param('name') name: string) {
+  async getQueue(@Param('name') name: string): Promise<JobQueue> {
     return this.jobQueueService.getQueue(name);
   }
 
   @Put('queues/:name')
-  async updateQueue(@Param('name') name: string, @Body() dto: UpdateQueueDto) {
+  async updateQueue(@Param('name') name: string, @Body() dto: UpdateQueueDto): Promise<JobQueue> {
     return this.jobQueueService.updateQueue(name, dto);
   }
 
   @Post('queues/:name/pause')
-  async pauseQueue(@Param('name') name: string) {
+  async pauseQueue(@Param('name') name: string): Promise<JobQueue> {
     return this.jobQueueService.pauseQueue(name);
   }
 
   @Post('queues/:name/resume')
-  async resumeQueue(@Param('name') name: string) {
+  async resumeQueue(@Param('name') name: string): Promise<JobQueue> {
     return this.jobQueueService.resumeQueue(name);
   }
 
   @Get('queues/:name/stats')
-  async getQueueStats(@Param('name') name: string) {
+  async getQueueStats(@Param('name') name: string): Promise<JobQueueStats> {
     return this.jobQueueService.getQueueStats(name);
   }
 
@@ -348,7 +360,7 @@ export class JobQueueController {
   // ============================================================================
 
   @Post()
-  async createJob(@Body() dto: CreateJobDto) {
+  async createJob(@Body() dto: CreateJobDto): Promise<BackgroundJob> {
     const definition: JobDefinition = {
       ...dto,
       scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : undefined,
@@ -359,7 +371,7 @@ export class JobQueueController {
   @Post('schedule')
   async scheduleJob(
     @Body() dto: ScheduleJobDto,
-  ) {
+  ): Promise<BackgroundJob> {
     const { scheduledAt: scheduledAtStr, ...rest } = dto;
     const definition: JobDefinition = rest;
     return this.jobQueueService.scheduleJob(definition, new Date(scheduledAtStr));
@@ -368,7 +380,7 @@ export class JobQueueController {
   @Post('recurring')
   async scheduleRecurringJob(
     @Body() dto: RecurringJobDto,
-  ) {
+  ): Promise<BackgroundJob> {
     const { cronExpression, ...rest } = dto;
     const definition: JobDefinition = rest;
     return this.jobQueueService.scheduleRecurringJob(definition, cronExpression);
@@ -384,7 +396,7 @@ export class JobQueueController {
     @Query('search') search?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<IStandardPaginatedResult<BackgroundJob>> {
     return this.jobQueueService.queryJobs({
       queueName,
       status,
@@ -398,27 +410,27 @@ export class JobQueueController {
   }
 
   @Get(':id')
-  async getJob(@Param('id') id: string) {
+  async getJob(@Param('id') id: string): Promise<BackgroundJob> {
     return this.jobQueueService.getJob(id);
   }
 
   @Post(':id/cancel')
-  async cancelJob(@Param('id') id: string) {
+  async cancelJob(@Param('id') id: string): Promise<BackgroundJob> {
     return this.jobQueueService.cancelJob(id);
   }
 
   @Post(':id/retry')
-  async retryJob(@Param('id') id: string) {
+  async retryJob(@Param('id') id: string): Promise<BackgroundJob> {
     return this.jobQueueService.retryJob(id);
   }
 
   @Post(':id/pause')
-  async pauseJob(@Param('id') id: string) {
+  async pauseJob(@Param('id') id: string): Promise<BackgroundJob> {
     return this.jobQueueService.pauseJob(id);
   }
 
   @Post(':id/resume')
-  async resumeJob(@Param('id') id: string) {
+  async resumeJob(@Param('id') id: string): Promise<BackgroundJob> {
     return this.jobQueueService.resumeJob(id);
   }
 
@@ -426,7 +438,7 @@ export class JobQueueController {
   async updateJobProgress(
     @Param('id') id: string,
     @Body() dto: UpdateJobProgressDto,
-  ) {
+  ): Promise<BackgroundJob> {
     return this.jobQueueService.updateJobProgress(id, dto);
   }
 
@@ -439,7 +451,7 @@ export class JobQueueController {
     @Param('id') id: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<IStandardPaginatedResult<JobExecutionLog>> {
     return this.jobQueueService.getJobLogs(id, {
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
@@ -451,13 +463,13 @@ export class JobQueueController {
   // ============================================================================
 
   @Post('retry-failed')
-  async retryFailedJobs(@Body() dto: RetryFailedJobsDto) {
+  async retryFailedJobs(@Body() dto: RetryFailedJobsDto): Promise<RetriedJobsResult> {
     const count = await this.jobQueueService.retryFailedJobs(dto.queueName);
     return { retriedCount: count };
   }
 
   @Post('purge-completed')
-  async purgeCompletedJobs(@Body() dto: PurgeCompletedJobsDto) {
+  async purgeCompletedJobs(@Body() dto: PurgeCompletedJobsDto): Promise<PurgedJobsResult> {
     const count = await this.jobQueueService.purgeCompletedJobs(dto.olderThanDays);
     return { purgedCount: count };
   }

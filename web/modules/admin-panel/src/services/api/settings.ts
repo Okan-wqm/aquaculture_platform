@@ -2,7 +2,6 @@
  * Settings API (System Settings, IP Access)
  * and System Settings API (Feature Toggles, Maintenance, Performance, Errors, Jobs)
  *
- * Tenant Config  -> api/tenant-config.ts  (tenantConfigApi)
  * Email Templates -> api/email-templates.ts (emailTemplatesApi)
  *
  * settingsApi still re-exports their methods for backward compatibility.
@@ -14,6 +13,7 @@ import type {
   PaginationParams,
   DateRangeParams,
   IpAccessRule,
+  CreateFeatureToggleInput,
   FeatureToggle,
   CreateMaintenanceWindowInput,
   MaintenanceWindow,
@@ -29,11 +29,9 @@ import type {
 } from '../types';
 
 // Re-export extracted APIs for barrel convenience
-export { tenantConfigApi } from './tenant-config';
 export { emailTemplatesApi } from './email-templates';
 
 // Import extracted APIs for backward-compatible delegation
-import { tenantConfigApi } from './tenant-config';
 import { emailTemplatesApi } from './email-templates';
 
 /**
@@ -66,13 +64,12 @@ export const settingsApi = {
     }),
   getSystemInfo: () => apiFetch<Record<string, unknown>>('/settings/system/info'),
 
-  // Tenant Configuration (delegated to tenant-config.ts, kept here for backward compat)
-  getTenantConfig: tenantConfigApi.getTenantConfig,
-  updateTenantConfig: tenantConfigApi.updateTenantConfig,
-  createTenantApiKey: tenantConfigApi.createTenantApiKey,
-  revokeTenantApiKey: tenantConfigApi.revokeTenantApiKey,
-  createWebhook: tenantConfigApi.createWebhook,
-  deleteWebhook: tenantConfigApi.deleteWebhook,
+  // Tenant configuration is NOT here. config-service owns it, and the panel
+  // reads and writes it over the federated GraphQL
+  // (graphql/tenant-configuration-operations.ts,
+  // hooks/useTenantConfiguration.ts). The REST client that used to live beside
+  // this one addressed 39 routes whose service threw 410 Gone on every write
+  // and synthesized identical defaults on every read.
 
   // Email Templates (delegated to email-templates.ts, kept here for backward compat)
   getEmailTemplates: emailTemplatesApi.getEmailTemplates,
@@ -103,7 +100,7 @@ export const systemSettingsApi = {
   getFeatureToggles: (params?: { scope?: string; status?: string; category?: string; search?: string } & PaginationParams) =>
     apiFetch<PaginatedResult<FeatureToggle>>(`/system/settings/feature-toggles?${buildQueryString(params || {})}`),
   getFeatureToggle: (id: string) => apiFetch<FeatureToggle>(`/system/settings/feature-toggles/${id}`),
-  createFeatureToggle: (data: Omit<FeatureToggle, 'id' | 'createdAt' | 'updatedAt'>) =>
+  createFeatureToggle: (data: CreateFeatureToggleInput) =>
     apiFetch<FeatureToggle>('/system/settings/feature-toggles', { method: 'POST', body: JSON.stringify(data) }),
   updateFeatureToggle: (id: string, data: Partial<FeatureToggle>) =>
     apiFetch<FeatureToggle>(`/system/settings/feature-toggles/${id}`, { method: 'PUT', body: JSON.stringify(data) }),

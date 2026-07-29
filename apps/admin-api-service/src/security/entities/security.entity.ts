@@ -58,6 +58,22 @@ export type SecurityEventStatus = 'detected' | 'investigating' | 'confirmed' | '
 
 export type ThreatLevel = 'low' | 'medium' | 'high' | 'critical';
 
+/**
+ * What a threat-intelligence row identifies.
+ *
+ * Named rather than left inline on the column: the panel re-declared this exact
+ * union by hand because there was nothing to import, and a histogram keyed by it
+ * had to fall back to `Record<string, number>`.
+ */
+export type ThreatIndicatorType =
+  | 'ip'
+  | 'domain'
+  | 'url'
+  | 'hash'
+  | 'email'
+  | 'user_agent'
+  | 'cidr';
+
 export type ComplianceType = 'gdpr' | 'ccpa' | 'hipaa' | 'pci_dss' | 'sox' | 'iso27001';
 
 export type DataRequestType = 'access' | 'deletion' | 'portability' | 'rectification' | 'restriction';
@@ -546,7 +562,7 @@ export class ThreatIntelligence {
   id!: string;
 
   @Column({ type: 'varchar', length: 50 })
-  indicatorType!: 'ip' | 'domain' | 'url' | 'hash' | 'email' | 'user_agent' | 'cidr';
+  indicatorType!: ThreatIndicatorType;
 
   @Column({ type: 'varchar', length: 500 })
   value!: string;

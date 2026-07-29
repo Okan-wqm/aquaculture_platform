@@ -10,7 +10,20 @@ import { ApiTags } from '@nestjs/swagger';
 import { IsString, IsOptional, IsNumber, IsObject, IsArray, IsBoolean, MaxLength } from 'class-validator';
 
 import { MetricType } from '../entities/performance-metric.entity';
+import { OperationAcknowledgement } from '../../common/dto/operation-acknowledgement.dto';
 import { PerformanceMonitoringService, MetricThreshold } from '../services/performance-monitoring.service';
+import type { PerformanceSnapshot } from '../entities/performance-metric.entity';
+import type {
+  ApdexScoreResult,
+  ApplicationMetrics,
+  DatabasePerformanceMetrics,
+  InfrastructureMetrics,
+  MetricHistoryPoint,
+  PerformanceDashboard,
+  ServiceBreakdown,
+  SlowQueryAggregate,
+  ThresholdBreach,
+} from '../services/performance-monitoring.service';
 
 // ============================================================================
 // DTOs
@@ -90,7 +103,7 @@ export class PerformanceController {
     @Query('service') service?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
-  ) {
+  ): Promise<PerformanceDashboard> {
     return this.performanceService.getPerformanceDashboard(service, {
       start: startDate ? new Date(startDate) : undefined,
       end: endDate ? new Date(endDate) : undefined,
@@ -106,7 +119,7 @@ export class PerformanceController {
     @Query('service') service?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
-  ) {
+  ): Promise<ApplicationMetrics> {
     return this.performanceService.getApplicationMetrics(service, {
       start: startDate ? new Date(startDate) : new Date(Date.now() - 5 * 60 * 1000),
       end: endDate ? new Date(endDate) : new Date(),
@@ -120,7 +133,7 @@ export class PerformanceController {
     @Query('service') service?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
-  ) {
+  ): Promise<ApdexScoreResult> {
     return {
       apdexScore: await this.performanceService.calculateApdexScore(
         satisfiedThreshold ? Number(satisfiedThreshold) : undefined,
@@ -143,7 +156,7 @@ export class PerformanceController {
     @Query('database') database?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
-  ) {
+  ): Promise<DatabasePerformanceMetrics> {
     return this.performanceService.getDatabaseMetrics(database, {
       start: startDate ? new Date(startDate) : new Date(Date.now() - 5 * 60 * 1000),
       end: endDate ? new Date(endDate) : new Date(),
@@ -156,7 +169,7 @@ export class PerformanceController {
     @Query('limit') limit?: number,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
-  ) {
+  ): Promise<SlowQueryAggregate[]> {
     return this.performanceService.getSlowQueries(
       threshold ? Number(threshold) : undefined,
       limit ? Number(limit) : undefined,
@@ -176,7 +189,7 @@ export class PerformanceController {
     @Query('host') host?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
-  ) {
+  ): Promise<InfrastructureMetrics> {
     return this.performanceService.getInfrastructureMetrics(host, {
       start: startDate ? new Date(startDate) : new Date(Date.now() - 5 * 60 * 1000),
       end: endDate ? new Date(endDate) : new Date(),
@@ -191,7 +204,7 @@ export class PerformanceController {
   async getServiceBreakdown(
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
-  ) {
+  ): Promise<ServiceBreakdown[]> {
     const start = startDate ? new Date(startDate) : new Date(Date.now() - 60 * 60 * 1000);
     const end = endDate ? new Date(endDate) : new Date();
     return this.performanceService.getServiceBreakdown(start, end);
@@ -202,17 +215,17 @@ export class PerformanceController {
   // ============================================================================
 
   @Get('alerts')
-  async checkThresholds(@Query('service') service?: string) {
+  async checkThresholds(@Query('service') service?: string): Promise<ThresholdBreach[]> {
     return this.performanceService.checkThresholds(service);
   }
 
   @Get('thresholds')
-  getThresholds() {
+  getThresholds(): MetricThreshold[] {
     return this.performanceService.getThresholds();
   }
 
   @Post('thresholds')
-  updateThresholds(@Body() dto: UpdateThresholdsDto) {
+  updateThresholds(@Body() dto: UpdateThresholdsDto): OperationAcknowledgement {
     this.performanceService.updateThresholds(dto.thresholds);
     return { success: true };
   }
@@ -228,7 +241,7 @@ export class PerformanceController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('intervalMinutes') intervalMinutes?: number,
-  ) {
+  ): Promise<MetricHistoryPoint[]> {
     return this.performanceService.getMetricHistory({
       metricType,
       service,
@@ -244,7 +257,7 @@ export class PerformanceController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('limit') limit?: number,
-  ) {
+  ): Promise<PerformanceSnapshot[]> {
     return this.performanceService.getSnapshots({
       service,
       start: startDate ? new Date(startDate) : undefined,
@@ -258,7 +271,7 @@ export class PerformanceController {
   // ============================================================================
 
   @Post('metrics')
-  async recordMetric(@Body() dto: RecordMetricDto) {
+  async recordMetric(@Body() dto: RecordMetricDto): Promise<OperationAcknowledgement> {
     await this.performanceService.recordMetric(dto);
     return { success: true };
   }
@@ -266,7 +279,7 @@ export class PerformanceController {
   @Post('metrics/request')
   async recordRequestMetric(
     @Body() dto: RecordRequestMetricDto,
-  ) {
+  ): Promise<OperationAcknowledgement> {
     await this.performanceService.recordRequestMetric(
       dto.service,
       dto.endpoint,
@@ -278,7 +291,7 @@ export class PerformanceController {
   }
 
   @Post('metrics/flush')
-  async flushMetrics() {
+  async flushMetrics(): Promise<OperationAcknowledgement> {
     await this.performanceService.flushMetrics();
     return { success: true };
   }

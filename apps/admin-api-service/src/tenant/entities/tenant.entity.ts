@@ -66,8 +66,15 @@ export class Tenant {
   @Column({ type: 'varchar', length: 20, default: TenantStatus.PENDING })
   status!: TenantStatus;
 
+  // Typed as the canonical TenantPlan (not bare string), for the same reason
+  // `status` is: the column is VARCHAR(20) but the values ARE TenantPlan values,
+  // and auth.tenants — the owning table this replica reads — enforces it with a
+  // CHECK constraint (`plan IN ('free','trial','starter','professional',
+  // 'enterprise')`). The bare `string` here was what widened `tier` and, through
+  // it, TenantDetailDto/TenantListItemDto and the admin panel's tenant types,
+  // all the way out to a UI that had to guess which vocabulary it was holding.
   @Column({ type: 'varchar', length: 20, default: TenantPlan.STARTER })
-  plan!: string;
+  plan!: TenantPlan;
 
   @Column({ type: 'int', default: 5 })
   maxUsers!: number;
@@ -164,12 +171,16 @@ export class Tenant {
   primaryContact?: { name: string; email: string; phone?: string; role: string };
   billingContact?: { name: string; email: string; phone?: string; role: string };
 
-  // Backwards compatibility getter for 'tier' -> 'plan'
-  get tier(): string {
+  // Backwards compatibility getter for 'tier' -> 'plan'.
+  //
+  // NOTE this is a GETTER: it does not survive JSON.stringify, so a response
+  // that should carry `tier` has to map it explicitly (TenantDetailDto and
+  // TenantListItemDto both do).
+  get tier(): TenantPlan {
     return this.plan;
   }
 
-  set tier(value: string) {
+  set tier(value: TenantPlan) {
     this.plan = value;
   }
 
@@ -197,9 +208,9 @@ export class Tenant {
     // instead of a hardcoded "everything unlimited" stub. maxUsers stays the
     // per-tenant provisioned value on the entity (the authoritative override);
     // maxAlertRules has no PLAN_CATALOG field, so it remains -1 (unlimited).
-    const planLimits = resolvePlanLimits(
-      toTenantPlan(this.plan) ?? TenantPlan.STARTER,
-    );
+    // `plan` is TenantPlan-typed and the column is CHECK-constrained, so the
+    // parse-and-default dance this used to do had no reachable fallback branch.
+    const planLimits = resolvePlanLimits(this.plan);
     return {
       maxUsers: this.maxUsers,
       maxFarms: planLimits.maxFarms,

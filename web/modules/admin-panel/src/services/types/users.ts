@@ -2,78 +2,68 @@
  * User management domain types
  */
 
-/**
- * Canonical platform role vocabulary — PINNED mirror of the backend SSoT
- * (`PLATFORM_ROLE_CODES` in `@platform/event-contracts/roles`, itself pinned to
- * the `Role` enum). Web modules cannot import backend libraries, so this literal
- * is the single FE definition site for role codes and is held member-for-member
- * equal to the backend set by `tests/invariants/rbac-vocabulary-ssot.spec.ts`
- * (APA-050). Every FE role dropdown/option list derives from here — no inline
- * role-string arrays elsewhere.
- */
-export const PLATFORM_ROLES = [
-  'SUPER_ADMIN',
-  'TENANT_ADMIN',
-  'MODULE_MANAGER',
-  'MODULE_USER',
-] as const;
+// GENERATED backend contracts — tools/codegen/admin-contracts/manifest.ts.
+import {
+  PLATFORM_ROLE_CODES,
+  INVITABLE_ROLE_CODES,
+} from './generated/admin-contracts';
+import type {
+  UserStats,
+  Permission,
+  RoleTemplate,
+  UserDto,
+  PlatformRoleCode,
+  InvitableRoleCode,
+} from './generated/admin-contracts';
 
-/** Union of the canonical platform role codes. */
-export type PlatformRole = (typeof PLATFORM_ROLES)[number];
+export type {
+  UserStats,
+  Permission,
+  RoleTemplate,
+  UserDto,
+};
 
 /**
- * Roles assignable through the tenant-scoped invite flow. `SUPER_ADMIN` is
- * platform-level and never invitable via a tenant admin surface.
+ * The canonical role vocabulary, GENERATED from
+ * `libs/event-contracts/src/roles.ts`.
+ *
+ * The panel used to mirror both arrays by hand, held member-for-member to the
+ * backend by `tests/invariants/rbac-vocabulary-ssot.spec.ts`. Codegen removes
+ * the copy that spec existed to police — the array form generates the same way
+ * a string enum does, so a vocabulary declared `as const` is no longer a reason
+ * to hand-write one.
+ *
+ * `PLATFORM_ROLES` and `PlatformRole` stay as the panel's names for them so no
+ * call site changes; they are aliases, not declarations.
  */
-export type InvitableRole = Exclude<PlatformRole, 'SUPER_ADMIN'>;
+export { PLATFORM_ROLE_CODES as PLATFORM_ROLES, INVITABLE_ROLE_CODES };
+export type { PlatformRoleCode as PlatformRole, InvitableRoleCode as InvitableRole };
 
 /** Human-readable label for each platform role. */
-export const ROLE_LABELS: Record<PlatformRole, string> = {
+export const ROLE_LABELS: Record<PlatformRoleCode, string> = {
   SUPER_ADMIN: 'Super Admin',
   TENANT_ADMIN: 'Tenant Admin',
   MODULE_MANAGER: 'Module Manager',
   MODULE_USER: 'Module User',
 };
 
-export interface User {
-  id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  role: PlatformRole;
-  tenantId: string | null;
-  tenantName: string | null;
-  isActive: boolean;
-  isEmailVerified?: boolean;
-  // Profile fields
-  profileImageUrl?: string | null;
-  phoneNumber?: string | null;
-  preferredLanguage?: string | null;
-  // Security fields
-  mfaEnabled?: boolean;
-  // Timestamps
-  lastLoginAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  [key: string]: unknown;
-}
-
-export interface UserStats {
-  totalUsers: number;
-  activeUsers: number;
-  inactiveUsers: number;
-  usersByRole: Array<{ role: string; count: number }>;
-  usersByTenant: Array<{ tenantId: string; tenantName: string; count: number }>;
-  newUsersLast30Days: number;
-  loginsLast24Hours: number;
-}
+/**
+ * A user as the panel reads it — an alias of the generated `UserDto`.
+ *
+ * The hand-written version declared five fields the `listUsers` SELECT has never
+ * returned (`isEmailVerified`, `profileImageUrl`, `phoneNumber`,
+ * `preferredLanguage`, `mfaEnabled`) and carried `[key: string]: unknown`, an
+ * index signature that made any property read compile — which is exactly why
+ * nobody noticed the five.
+ */
+export type User = UserDto;
 
 export interface CreateUserDto {
   email: string;
   firstName: string;
   lastName: string;
   password: string;
-  role: PlatformRole;
+  role: PlatformRoleCode;
   tenantId?: string;
 }
 
@@ -82,28 +72,10 @@ export interface InviteUserDto {
   email: string;
   firstName?: string;
   lastName?: string;
-  role: InvitableRole;
+  role: InvitableRoleCode;
   moduleIds?: string[];
   primaryModuleId?: string;
   message?: string;
-}
-
-export interface Permission {
-  code: string;
-  name: string;
-  description: string;
-  category: string;
-}
-
-export interface RoleTemplate {
-  code: PlatformRole;
-  name: string;
-  description: string;
-  level: number;
-  permissions: string[];
-  isSystem: boolean;
-  color: string;
-  icon: string;
 }
 
 export interface RoleHierarchyItem {

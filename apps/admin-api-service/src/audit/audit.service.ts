@@ -32,6 +32,25 @@ export interface AuditLogInput {
   sessionId?: string;
 }
 
+/**
+ * What `GET /security/audit/summary` returns.
+ *
+ * Named rather than inline so the admin panel can DERIVE it. It was anonymous
+ * on both the service and the controller, so the panel had to re-declare it —
+ * and it did so under the name `AuditSummary`, which a different type in
+ * `security/services/audit-trail.service.ts` already owns. Two unrelated shapes
+ * sharing one name is how a generator gets pointed at the wrong one and emits a
+ * contract that compiles and lies.
+ */
+export interface AuditStatistics {
+  totalLogs: number;
+  last24Hours: number;
+  byAction: Array<{ action: string; count: number }>;
+  bySeverity: Array<{ severity: string; count: number }>;
+  byEntityType: Array<{ entityType: string; count: number }>;
+  topUsers: Array<{ userId: string; email: string; count: number }>;
+}
+
 export interface AuditLogFilter {
   action?: string;
   entityType?: string;
@@ -311,14 +330,7 @@ export class AuditLogService {
     tenantId?: string,
     startDate?: Date,
     endDate?: Date,
-  ): Promise<{
-    totalLogs: number;
-    last24Hours: number;
-    byAction: Array<{ action: string; count: number }>;
-    bySeverity: Array<{ severity: string; count: number }>;
-    byEntityType: Array<{ entityType: string; count: number }>;
-    topUsers: Array<{ userId: string; email: string; count: number }>;
-  }> {
+  ): Promise<AuditStatistics> {
     // Calculate date for last 24 hours
     const last24HoursDate = new Date();
     last24HoursDate.setHours(last24HoursDate.getHours() - 24);

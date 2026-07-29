@@ -2,6 +2,69 @@
  * Settings domain types (System Settings, Feature Toggles, Maintenance, Performance, Errors, Jobs)
  */
 
+// GENERATED backend contracts — tools/codegen/admin-contracts/manifest.ts.
+import type {
+  EmailTemplateVariable,
+  EmailTemplate,
+  IpAccessRule,
+  MaintenanceStatus,
+} from './generated/admin-contracts';
+
+export type {
+  EmailTemplateVariable,
+  EmailTemplate,
+  IpAccessRule,
+  MaintenanceStatus,
+};
+
+// GENERATED backend contracts — tools/codegen/admin-contracts/manifest.ts.
+// Imported so shapes below can reference them; re-exported so import sites
+// are unchanged.
+import type {
+  JobQueue,
+  JobQueueStats,
+  JobExecutionLog,
+  JobDashboardDto,
+  JobQueueSummaryDto,
+  RetriedJobsResult,
+  PurgedJobsResult,
+  PerformanceDashboard,
+  ApplicationMetrics,
+  DatabasePerformanceMetrics,
+  InfrastructureMetrics,
+  MetricThreshold,
+  SlowQueryAggregate,
+  ServiceBreakdown,
+  ThresholdBreach,
+  MetricHistoryPoint,
+  ApdexScoreResult,
+  JobStatus,
+  BackgroundJob,
+  ErrorGroup,
+  ErrorOccurrence,
+  FeatureToggleScope,
+  FeatureToggleStatus,
+  FeatureToggle,
+} from './generated/admin-contracts';
+
+// The vocabularies are VALUES as well as types — dropdowns derive their
+// options from these rather than re-listing the members by hand.
+export {
+  JOB_STATUS_VALUES,
+  FEATURE_TOGGLE_SCOPE_VALUES,
+  FEATURE_TOGGLE_STATUS_VALUES,
+} from './generated/admin-contracts';
+
+export type {
+  JobStatus,
+  BackgroundJob,
+  ErrorGroup,
+  ErrorOccurrence,
+  FeatureToggleScope,
+  FeatureToggleStatus,
+  FeatureToggle,
+};
+
 // ============================================================================
 // System Settings Types
 // ============================================================================
@@ -18,104 +81,16 @@ export interface SystemSetting {
   updatedBy?: string;
 }
 
-export interface TenantConfiguration {
-  tenantId: string;
-  configuration: Record<string, unknown>;
-  branding?: {
-    logo?: string;
-    primaryColor?: string;
-    secondaryColor?: string;
-    favicon?: string;
-    customCss?: string;
-  };
-  integrations?: Array<{
-    type: string;
-    isEnabled: boolean;
-    config: Record<string, unknown>;
-  }>;
-  apiKeys?: Array<{
-    id: string;
-    name: string;
-    prefix: string;
-    scopes: string[];
-    lastUsedAt?: string;
-    expiresAt?: string;
-  }>;
-  webhooks?: Array<{
-    id: string;
-    url: string;
-    events: string[];
-    isActive: boolean;
-    secretHash?: string;
-  }>;
-  updatedAt: string;
-}
-
-export interface EmailTemplateVariable {
-  name: string;
-  description: string;
-  required: boolean;
-  defaultValue?: string;
-}
-
-export interface EmailTemplate {
-  id: string;
-  code: string;
-  name: string;
-  description?: string;
-  category: string;
-  subject: string;
-  bodyHtml: string;
-  bodyText?: string;
-  variables: EmailTemplateVariable[];
-  isActive: boolean;
-  isSystem: boolean;
-  tenantId?: string;
-  createdAt: string;
-  updatedAt: string;
-  updatedBy?: string;
-}
-
-export interface IpAccessRule {
-  id: string;
-  tenantId?: string;
-  ruleType: 'whitelist' | 'blacklist';
-  ipAddress: string;
-  description?: string;
-  isActive: boolean;
-  expiresAt?: string;
-  hitCount: number;
-  lastHitAt?: string;
-  createdBy?: string;
-  createdAt: string;
-}
-
-// ============================================================================
-// Feature Toggle Types
-// ============================================================================
-
-export type FeatureToggleStatus = 'enabled' | 'disabled' | 'percentage_rollout' | 'scheduled';
-export type MaintenanceStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'extended';
-export type JobStatus = 'pending' | 'scheduled' | 'running' | 'completed' | 'failed' | 'cancelled' | 'retrying';
-
-export interface FeatureToggle {
-  id: string;
-  key: string;
-  name: string;
-  description?: string;
-  status: FeatureToggleStatus;
-  scope: 'global' | 'tenant' | 'user';
-  category?: string;
-  rolloutPercentage: number;
-  enabledTenants?: string[];
-  disabledTenants?: string[];
-  conditions?: Array<{ type: string; operator: string; value: unknown }>;
-  variants?: Array<{ key: string; value: unknown; weight: number }>;
-  isExperimental: boolean;
-  deprecatedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-}
+// `TenantConfiguration` is deliberately absent.
+//
+// It used to declare a shape nothing produced: a `configuration` bag of unknown,
+// plus `branding` / `integrations` / `apiKeys` / `webhooks` sub-objects whose
+// field names matched neither the admin-api response nor anything stored. It
+// could not drift, because it had never agreed with anything in the first place.
+//
+// Tenant configuration is config-service's now, and its keys have one author —
+// `TENANT_SETTINGS`, generated into types/generated/admin-contracts.ts and read
+// through services/api/tenant-configuration.ts.
 
 /**
  * A maintenance window, as `GET /system/settings/maintenance` returns it.
@@ -184,118 +159,59 @@ export interface CreateMaintenanceWindowInput {
   whitelistedIPs?: string[];
 }
 
-export interface PerformanceMetrics {
-  service: string;
-  avgResponseTime: number;
-  p95ResponseTime: number;
-  p99ResponseTime: number;
-  throughput: number;
-  errorRate: number;
-  apdexScore: number;
-  timestamp: string;
-}
-
-export interface PerformanceDashboard {
-  currentSnapshot: {
-    healthScore: number;
-    avgResponseTime: number;
-    errorRate: number;
-    throughput: number;
-    apdexScore: number;
-  };
-  trends: {
-    responseTime: Array<{ timestamp: string; value: number }>;
-    throughput: Array<{ timestamp: string; value: number }>;
-    errorRate: Array<{ timestamp: string; value: number }>;
-  };
-  serviceBreakdown: Array<{
-    service: string;
-    avgResponseTime: number;
-    errorRate: number;
-    requestCount: number;
-  }>;
-  alerts: Array<{
-    metric: string;
-    threshold: number;
-    currentValue: number;
-    severity: 'warning' | 'critical';
-  }>;
-}
-
-export interface ErrorGroup {
-  id: string;
-  fingerprint: string;
-  message: string;
-  errorType?: string;
-  service?: string;
-  severity: 'debug' | 'info' | 'warning' | 'error' | 'critical' | 'fatal';
-  status: 'new' | 'acknowledged' | 'in_progress' | 'resolved' | 'ignored';
-  occurrenceCount: number;
-  userCount: number;
-  firstSeenAt: string;
-  lastSeenAt: string;
-  assignedTo?: string;
-  isRegression: boolean;
-}
-
-export interface ErrorOccurrence {
-  id: string;
-  groupId: string;
-  message: string;
-  stackTrace?: string;
-  context?: Record<string, unknown>;
-  tenantId?: string;
-  userId?: string;
-  timestamp: string;
-}
-
-export interface BackgroundJob {
-  id: string;
-  name: string;
-  queueName: string;
-  jobType: 'immediate' | 'scheduled' | 'recurring' | 'delayed';
-  status: JobStatus;
-  priority: number;
-  payload?: Record<string, unknown>;
-  result?: Record<string, unknown>;
-  errorMessage?: string;
-  progress?: { current: number; total: number; percentage: number; message?: string };
-  scheduledAt?: string;
-  startedAt?: string;
-  completedAt?: string;
-  durationMs?: number;
-  attempts: number;
-  maxAttempts: number;
-  cronExpression?: string;
-  nextRunAt?: string;
-  createdAt: string;
-}
-
-export interface JobQueue {
-  name: string;
-  isPaused: boolean;
-  concurrency: number;
-  pendingCount: number;
-  // APA-281: matches the persistence column (JobQueue.runningCount); the FE type
-  // previously drifted to `activeCount`, which the dashboard never populated.
-  runningCount: number;
-  completedCount: number;
-  failedCount: number;
-}
-
 /**
- * APA-281: single contract for GET /system/jobs/dashboard, mirroring the backend
- * JobDashboardDto. Field names are canonical (failedLast24h/completedLast24h/
- * avgProcessingTime) so the stat cards and Queues tab read real values instead
- * of the previously-drifted failedToday/completedToday/avgDuration/queueStats.
+ * What `POST /system/settings/feature-toggles` accepts.
+ *
+ * Declared against `CreateFeatureToggleDto`, NOT as `Omit<FeatureToggle, …>`.
+ * Deriving a write payload from a read model is the APA-150 anti-pattern: under
+ * `forbidNonWhitelisted` every server-owned field the omission did not happen
+ * to name is a 400, and it simultaneously demands fields the DTO never asked
+ * for — `requiresRestart`, which the create form has no reason to send.
  */
-export interface JobDashboard {
-  totalJobs: number;
-  pendingJobs: number;
-  runningJobs: number;
-  failedLast24h: number;
-  completedLast24h: number;
-  avgProcessingTime: number;
-  queues: JobQueue[];
-  recentJobs: BackgroundJob[];
+/**
+ * The system-management read contracts, GENERATED.
+ *
+ * The hand-written `PerformanceDashboard` declared `currentSnapshot` as a flat
+ * five-field object against a backend `PerformanceSnapshot | null` — so the page
+ * read `currentSnapshot.healthScore` on a value that is null whenever no
+ * snapshot has been taken. `PerformanceMetrics` and `JobDashboard` were the same
+ * class of hand copy.
+ */
+export type {
+  JobQueue,
+  JobQueueStats,
+  JobExecutionLog,
+  JobDashboardDto,
+  JobQueueSummaryDto,
+  RetriedJobsResult,
+  PurgedJobsResult,
+  PerformanceDashboard,
+  ApplicationMetrics,
+  DatabasePerformanceMetrics,
+  InfrastructureMetrics,
+  MetricThreshold,
+  SlowQueryAggregate,
+  ServiceBreakdown,
+  ThresholdBreach,
+  MetricHistoryPoint,
+  ApdexScoreResult,
+};
+
+/** The panel's historical name for the job dashboard contract. */
+export type JobDashboard = JobDashboardDto;
+
+/** The panel's historical name for a service's application-level metrics. */
+export type PerformanceMetrics = ApplicationMetrics;
+
+export interface CreateFeatureToggleInput {
+  key: string;
+  name: string;
+  description?: string;
+  scope?: FeatureToggleScope;
+  status?: FeatureToggleStatus;
+  category?: string;
+  rolloutPercentage?: number;
+  defaultValue?: unknown;
+  isExperimental?: boolean;
+  requiresRestart?: boolean;
 }

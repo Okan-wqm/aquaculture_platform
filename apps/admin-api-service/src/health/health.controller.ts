@@ -48,6 +48,21 @@ function safeRequireVersion(packageJsonPath: string): string {
 // MUTATING POST /circuit-breakers/:name/reset — which is exactly the gap this
 // finding closes. Class-level @SkipThrottle is banned by the throttle-coverage
 // architecture gate so a future mutating handler can never inherit a skip.
+/** `GET /health/live` — the K8s liveness probe: the process is running. */
+export interface LivenessProbe {
+  status: 'ok';
+}
+
+/** `GET /health` — what this service is, and how long it has been up. */
+export interface ServiceIdentity {
+  status: 'ok';
+  timestamp: string;
+  uptime: number;
+  version: string;
+  service: string;
+  framework: { nestjs: string; express: string; node: string };
+}
+
 @ApiTags('Health')
 @Controller('health')
 export class HealthController {
@@ -61,7 +76,7 @@ export class HealthController {
   @Public()
   @SkipThrottle()
   @HttpCode(HttpStatus.OK)
-  liveness(): { status: 'ok' } {
+  liveness(): LivenessProbe {
     return { status: 'ok' };
   }
 
@@ -106,14 +121,7 @@ export class HealthController {
   @Public()
   @SkipThrottle()
   @HttpCode(HttpStatus.OK)
-  health(): {
-    status: 'ok';
-    timestamp: string;
-    uptime: number;
-    version: string;
-    service: string;
-    framework: { nestjs: string; express: string; node: string };
-  } {
+  health(): ServiceIdentity {
     return {
       status: 'ok',
       timestamp: new Date().toISOString(),

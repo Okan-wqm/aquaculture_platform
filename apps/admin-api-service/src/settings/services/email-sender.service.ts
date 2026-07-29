@@ -27,10 +27,24 @@ interface SmtpSendResult {
 }
 
 /** SMTP circuit breaker state */
-enum SmtpCircuitState {
+/**
+ * Circuit-breaker states.
+ *
+ * Exported because the health endpoint publishes this value: it used to widen
+ * to `string` on the way out, and the admin panel then re-declared the union by
+ * hand — narrower than `string` and with nothing holding the two together.
+ */
+export enum CircuitBreakerState {
   CLOSED = 'closed',
   OPEN = 'open',
   HALF_OPEN = 'half_open',
+}
+
+/** One breaker's observable state. */
+export interface CircuitBreakerInfo {
+  state: CircuitBreakerState;
+  consecutiveFailures: number;
+  lastFailureTime: number;
 }
 
 /**
@@ -48,7 +62,7 @@ export class EmailSenderService implements OnModuleDestroy {
   private static readonly SEND_TIMEOUT_MS = 30_000;
 
   // Circuit breaker state
-  private circuitState = SmtpCircuitState.CLOSED;
+  private circuitState: CircuitBreakerState = CircuitBreakerState.CLOSED;
   private consecutiveFailures = 0;
   private lastFailureTime = 0;
   private static readonly FAILURE_THRESHOLD = 5;
@@ -66,7 +80,7 @@ export class EmailSenderService implements OnModuleDestroy {
   }
 
   /** Get current circuit breaker status (for health checks) */
-  getCircuitStatus(): { state: string; consecutiveFailures: number; lastFailureTime: number } {
+  getCircuitStatus(): CircuitBreakerInfo {
     return {
       state: this.circuitState,
       consecutiveFailures: this.consecutiveFailures,
@@ -75,14 +89,14 @@ export class EmailSenderService implements OnModuleDestroy {
   }
 
   private isCircuitOpen(): boolean {
-    if (this.circuitState === SmtpCircuitState.CLOSED) {
+    if (this.circuitState === CircuitBreakerState.CLOSED) {
       return false;
     }
 
-    if (this.circuitState === SmtpCircuitState.OPEN) {
+    if (this.circuitState === CircuitBreakerState.OPEN) {
       // Check if recovery timeout has elapsed — transition to half-open
       if (Date.now() - this.lastFailureTime >= EmailSenderService.RECOVERY_TIMEOUT_MS) {
-        this.circuitState = SmtpCircuitState.HALF_OPEN;
+        this.circuitState = CircuitBreakerState.HALF_OPEN;
         this.logger.log('SMTP circuit breaker transitioning to half-open');
         return false; // Allow one test request
       }
@@ -94,10 +108,10 @@ export class EmailSenderService implements OnModuleDestroy {
   }
 
   private recordSuccess(): void {
-    if (this.circuitState !== SmtpCircuitState.CLOSED) {
+    if (this.circuitState !== CircuitBreakerState.CLOSED) {
       this.logger.log('SMTP circuit breaker closed (recovery successful)');
     }
-    this.circuitState = SmtpCircuitState.CLOSED;
+    this.circuitState = CircuitBreakerState.CLOSED;
     this.consecutiveFailures = 0;
   }
 
@@ -105,11 +119,11 @@ export class EmailSenderService implements OnModuleDestroy {
     this.consecutiveFailures++;
     this.lastFailureTime = Date.now();
 
-    if (this.circuitState === SmtpCircuitState.HALF_OPEN) {
-      this.circuitState = SmtpCircuitState.OPEN;
+    if (this.circuitState === CircuitBreakerState.HALF_OPEN) {
+      this.circuitState = CircuitBreakerState.OPEN;
       this.logger.warn('SMTP circuit breaker re-opened (half-open test failed)');
     } else if (this.consecutiveFailures >= EmailSenderService.FAILURE_THRESHOLD) {
-      this.circuitState = SmtpCircuitState.OPEN;
+      this.circuitState = CircuitBreakerState.OPEN;
       this.logger.warn(
         `SMTP circuit breaker opened after ${this.consecutiveFailures} consecutive failures`,
       );
@@ -267,7 +281,7 @@ export class EmailSenderService implements OnModuleDestroy {
         );
 
         // If circuit just opened, stop retrying immediately
-        if (this.circuitState === SmtpCircuitState.OPEN) {
+        if (this.circuitState === CircuitBreakerState.OPEN) {
           break;
         }
 
@@ -360,7 +374,7 @@ export class EmailSenderService implements OnModuleDestroy {
   /** Manually reset the circuit breaker to CLOSED state */
   resetCircuit(): void {
     const previousState = this.circuitState;
-    this.circuitState = SmtpCircuitState.CLOSED;
+    this.circuitState = CircuitBreakerState.CLOSED;
     this.consecutiveFailures = 0;
     this.lastFailureTime = 0;
     this.logger.log(`SMTP circuit breaker manually reset from ${previousState} to closed`);

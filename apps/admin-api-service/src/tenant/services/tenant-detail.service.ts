@@ -10,7 +10,7 @@ import {
   TenantDetailDto,
   TenantAvailableAction,
   UserStatsByRole,
-  ModuleUsageStats,
+  TenantModuleUsageStats,
   ResourceUsage,
   BillingSummary,
 } from '../dto/tenant-detail.dto';
@@ -22,6 +22,19 @@ import { Tenant, TenantStatus } from '../entities/tenant.entity';
 
 import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
 import { TenantActivityService } from './tenant-activity.service';
+
+/**
+ * The outcome of a bulk tenant lifecycle command, partitioned by tenant id.
+ *
+ * Named because it is a RESULT, not an acknowledgement: a bulk operation can
+ * half-succeed, and the panel has to tell the operator which tenants moved. An
+ * inline `Promise<{ success: string[]; failed: string[] }>` on two controller
+ * routes gave the panel nothing to import, so it re-declared the pair by hand.
+ */
+export interface BulkTenantOperationResult {
+  success: string[];
+  failed: string[];
+}
 
 @Injectable()
 export class TenantDetailService {
@@ -73,7 +86,6 @@ export class TenantDetailService {
       // Status & Tier
       status: tenant.status,
       tier: tenant.tier,
-      plan: tenant.plan,
       trialEndsAt: tenant.trialEndsAt,
       suspendedAt: tenant.suspendedAt,
       suspendedReason: tenant.suspendedReason,
@@ -214,7 +226,7 @@ export class TenantDetailService {
   /**
    * Get module usage for a tenant
    */
-  private async getModuleUsage(tenantId: string): Promise<ModuleUsageStats[]> {
+  private async getModuleUsage(tenantId: string): Promise<TenantModuleUsageStats[]> {
     try {
       type ModuleUsageRow = {
         moduleId: string;
@@ -379,7 +391,7 @@ export class TenantDetailService {
     }
 
     return {
-      currentPlan: tenant.tier || 'free',
+      currentPlan: tenant.tier,
       monthlyAmount: Number(billing.monthlyAmount),
       currency: billing.currency,
       billingCycle: billing.billingCycle,
@@ -414,7 +426,7 @@ export class TenantDetailService {
     tenantIds: string[],
     reason: string,
     performedBy: string,
-  ): Promise<{ success: string[]; failed: string[] }> {
+  ): Promise<BulkTenantOperationResult> {
     if (tenantIds.length === 0) return { success: [], failed: [] };
 
     try {
@@ -500,7 +512,7 @@ export class TenantDetailService {
   async bulkActivate(
     tenantIds: string[],
     performedBy: string,
-  ): Promise<{ success: string[]; failed: string[] }> {
+  ): Promise<BulkTenantOperationResult> {
     if (tenantIds.length === 0) return { success: [], failed: [] };
 
     try {

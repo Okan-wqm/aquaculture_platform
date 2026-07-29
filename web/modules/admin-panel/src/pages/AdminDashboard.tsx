@@ -19,19 +19,17 @@ import {
   type UserStats,
   type AuditLog,
   type CircuitBreakerStatus,
+  type CircuitBreakerState,
+  type CacheStats,
 } from '../services/adminApi';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-interface CacheStats {
-  totalEntries: number;
-  totalSize: number;
-  hitRate: number;
-  missRate: number;
-  byStore: Array<{ store: string; entries: number; size: number }>;
-}
+// `CacheStats` comes from the service that computes it — see the import above.
+// This file used to declare its own copy with `hitRate`, `missRate` and a
+// `byStore` breakdown, all read off a snapshot table nothing wrote.
 
 interface DashboardData {
   metrics: SystemMetrics | null;
@@ -226,7 +224,12 @@ const RecentActivityCard: React.FC<{ logs: AuditLog[] }> = ({ logs }) => {
 // Circuit Breaker Status Component
 // ============================================================================
 
-const stateStyles: Record<string, { bg: string; border: string; dot: string; label: string }> = {
+// Exhaustive over the breaker vocabulary, so a new state is a compile error
+// rather than something the `|| stateStyles.closed` fallback used to paint green.
+const stateStyles: Record<
+  CircuitBreakerState,
+  { bg: string; border: string; dot: string; label: string }
+> = {
   closed: { bg: 'bg-green-50', border: 'border-green-200', dot: 'bg-green-500', label: 'Closed' },
   open: { bg: 'bg-red-50', border: 'border-red-200', dot: 'bg-red-500', label: 'Open' },
   half_open: { bg: 'bg-yellow-50', border: 'border-yellow-200', dot: 'bg-yellow-500', label: 'Half-Open' },
@@ -263,7 +266,7 @@ const CircuitBreakerCard: React.FC<{
       </div>
       <div className="p-4 space-y-3">
         {entries.map(([name, info]) => {
-          const style = stateStyles[info.state] || stateStyles.closed;
+          const style = stateStyles[info.state];
           const isOpen = info.state === 'open';
           const isResetting = resetting === name;
 
@@ -321,7 +324,9 @@ const CacheStatsCard: React.FC<{
   cacheStats: CacheStats | null;
   onClearCache: () => void;
   clearing: boolean;
-}> = ({ cacheStats, onClearCache, clearing }) => {
+  error: string | null;
+  notice: string | null;
+}> = ({ cacheStats, onClearCache, clearing, error, notice }) => {
   return (
     <Card>
       <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
@@ -337,31 +342,25 @@ const CacheStatsCard: React.FC<{
       <div className="p-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <p className="text-xs text-gray-500">Total Entries</p>
+            <p className="text-xs text-gray-500">Keys in namespace</p>
             <p className="text-lg font-semibold text-gray-900">
-              {cacheStats ? formatMetricNumber(cacheStats.totalEntries) : '-'}
+              {cacheStats ? formatMetricNumber(cacheStats.keysInNamespace) : '-'}
             </p>
           </div>
           <div>
-            <p className="text-xs text-gray-500">Hit Rate</p>
+            <p className="text-xs text-gray-500">Hit rate (instance)</p>
             <p className="text-lg font-semibold text-gray-900">
-              {cacheStats ? `${(cacheStats.hitRate * 100).toFixed(1)}%` : '-'}
+              {/* Null means Redis has served no lookup since it started. The
+                  previous card multiplied a fabricated ratio by 100 and printed
+                  it to one decimal place. */}
+              {cacheStats && cacheStats.instance.hitRatePercent !== null
+                ? `${cacheStats.instance.hitRatePercent}%`
+                : '-'}
             </p>
           </div>
         </div>
-        {cacheStats && cacheStats.byStore.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-gray-100">
-            <p className="text-xs text-gray-500 mb-2">By Store</p>
-            <div className="space-y-1">
-              {cacheStats.byStore.map((store) => (
-                <div key={store.store} className="flex items-center justify-between text-xs">
-                  <span className="text-gray-600">{store.store}</span>
-                  <span className="font-medium text-gray-900">{store.entries} entries</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        {error && <p className="text-xs text-red-600 mt-3">{error}</p>}
+        {notice && <p className="text-xs text-green-700 mt-3">{notice}</p>}
       </div>
     </Card>
   );
@@ -478,14 +477,27 @@ const AdminDashboard: React.FC = () => {
 
   // Cache management is available in Debug Tools page (/admin/system/debug-tools)
   // which is only accessible in non-production environments.
+  const [cacheError, setCacheError] = useState<string | null>(null);
+  const [cacheNotice, setCacheNotice] = useState<string | null>(null);
+
   const handleClearCache = useCallback(async () => {
     setClearingCache(true);
+    setCacheError(null);
+    setCacheNotice(null);
     try {
-      await debugApi.invalidateCacheByPattern('*');
+      const result = await debugApi.invalidateCacheByPattern('*');
       const freshStats = await debugApi.getCacheStats();
       setData((prev) => ({ ...prev, cacheStats: freshStats }));
-    } catch {
-      // Debug endpoints are blocked in production by nginx
+      // The count is rendered. A backend that stopped deleting would report 0
+      // and the operator would see it, which is the whole point of returning it.
+      setCacheNotice(
+        `Removed ${result.invalidated} key${result.invalidated === 1 ? '' : 's'}.`,
+      );
+    } catch (err) {
+      // Surfaced, not swallowed. The empty catch here read "Debug endpoints are
+      // blocked in production by nginx" — which is true, and is exactly why an
+      // operator pressing this button in production needed to be told.
+      setCacheError(err instanceof Error ? err.message : 'Could not clear the cache');
     } finally {
       setClearingCache(false);
     }
@@ -613,6 +625,8 @@ const AdminDashboard: React.FC = () => {
                 void handleClearCache();
               }}
               clearing={clearingCache}
+              error={cacheError}
+              notice={cacheNotice}
             />
           )}
         </div>

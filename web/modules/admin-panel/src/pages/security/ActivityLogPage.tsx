@@ -123,8 +123,12 @@ async function fetchActivities(params: {
       userName: log.userName ?? undefined,
       userEmail: log.userEmail ?? undefined,
       ipAddress: log.ipAddress ?? undefined,
-      userAgent: log.userAgent ?? undefined,
-      geoLocation: log.geoLocation ?? log.location,
+      // `userAgent` is not a column — it lives inside the `deviceInfo` jsonb,
+      // which is where the ingest writes it. This used to read `log.userAgent`
+      // and render undefined for every row.
+      userAgent: log.deviceInfo?.userAgent,
+      // The `?? log.location` fallback was on a field the entity has never had.
+      geoLocation: log.geoLocation ?? undefined,
       entityType: log.entityType ?? undefined,
       entityId: log.entityId ?? undefined,
       entityName: log.entityName ?? undefined,
@@ -134,7 +138,7 @@ async function fetchActivities(params: {
       duration: log.duration ?? undefined,
       success: log.success,
       errorMessage: log.errorMessage ?? undefined,
-      createdAt: log.createdAt || log.timestamp || '',
+      createdAt: log.createdAt,
     })),
     total: result.total,
     page: result.page,

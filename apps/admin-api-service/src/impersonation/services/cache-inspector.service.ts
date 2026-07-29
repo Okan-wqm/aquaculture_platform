@@ -1,196 +1,196 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { RedisService } from '@aquaculture/backend-common/redis';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 
-import { CacheEntrySnapshot } from '../entities/debug-session.entity';
-
-import { CacheInspectorResult, CacheStats } from './debug-tools-types';
+import {
+  CacheKeyEntry,
+  CacheKeyValue,
+  CacheNamespaceListing,
+  CacheStats,
+} from './debug-tools-types';
 
 /**
- * Cache Inspector Service
- * Handles cache monitoring and inspection
- * SRP: Only responsible for cache debugging operations
+ * Cache Inspector — reads and clears the cache that actually exists.
+ *
+ * # What this replaced
+ *
+ * The previous version inspected `admin.cache_entries_snapshot`, a table whose
+ * only writer was `POST /debug/cache/capture` — an endpoint nothing in the repo
+ * has ever called. The table was structurally empty, and a daily cron deleted
+ * rows older than a week from it, so the "cache inspector" listed a permanently
+ * empty set while Redis sat one injection away.
+ *
+ * Two things followed from that. `getCacheStats` reported
+ * `hitRate = totalHits / (totalHits + totalEntries)` — mixing hit counts with a
+ * ROW COUNT, a formula with no meaning, rendered under the label "Hit Rate %".
+ * And all three invalidation methods were bodies that logged
+ * `[Cache] Invalidated key: …` and returned; `invalidateCachePattern` returned
+ * a hard-coded 0. A SUPER_ADMIN clearing cache during an incident was told it
+ * worked, the log recorded that it worked, and nothing was cleared.
+ *
+ * # Scope, stated rather than implied
+ *
+ * `RedisService` prefixes every key with its owning service's namespace
+ * (`admin:`), so what this inspects and clears is admin-api's own cache — the
+ * report cache, the rate-limit windows, the token blacklist. Instance-wide
+ * counters (`INFO stats`) cannot be attributed to a namespace, so they are
+ * returned under `instance` and never blended into a namespace figure. The
+ * previous version's single "Hit Rate %" was exactly such a blend.
+ *
+ * # Fail closed
+ *
+ * Redis is registered in `optional` mode, so the client exists but may not be
+ * connected. Every method here throws `ServiceUnavailableException` in that
+ * case rather than returning zeros: a destructive control that silently does
+ * nothing is the defect this file was rewritten to remove, and "0 keys cleared"
+ * is indistinguishable from "cleared everything, there was nothing".
  */
 @Injectable()
 export class CacheInspectorService {
   private readonly logger = new Logger(CacheInspectorService.name);
 
-  constructor(
-    @InjectRepository(CacheEntrySnapshot)
-    private readonly cacheSnapshotRepo: Repository<CacheEntrySnapshot>,
-  ) {}
+  constructor(private readonly redis: RedisService) {}
 
-  /**
-   * Snapshot cache entries for inspection
-   */
-  async snapshotCache(
-    tenantId: string,
-    debugSessionId?: string,
-    cacheStore?: string,
-  ): Promise<CacheInspectorResult> {
-    const query = this.cacheSnapshotRepo.createQueryBuilder('c');
+  /** Keys matching `keyPattern` inside this service's namespace, with metadata. */
+  async listEntries(keyPattern: string, limit: number): Promise<CacheNamespaceListing> {
+    this.requireRedis();
 
-    if (tenantId) {
-      query.where('c.tenantId = :tenantId', { tenantId });
-    }
-    if (debugSessionId) {
-      query.andWhere('c.debugSessionId = :debugSessionId', { debugSessionId });
-    }
-    if (cacheStore) {
-      query.andWhere('c.cacheStore = :cacheStore', { cacheStore });
-    }
+    // `keys()` is SCAN-based and namespace-aware: it prefixes the pattern and
+    // strips the prefix off what it returns, so callers see the key they wrote.
+    const matched = await this.redis.keys(keyPattern);
+    const keys = matched.slice(0, limit);
 
-    query.orderBy('c.capturedAt', 'DESC').limit(500);
-
-    const entries = await query.getMany();
-
-    const now = new Date();
-    const inOneHour = new Date(now.getTime() + 60 * 60 * 1000);
-
-    const storeBreakdown: Record<string, number> = {};
-    let totalSizeBytes = 0;
-    let totalTtl = 0;
-    let expiringInHour = 0;
-
-    for (const entry of entries) {
-      totalSizeBytes += entry.sizeBytes || 0;
-      totalTtl += entry.ttlSeconds || 0;
-
-      if (entry.expiresAt && entry.expiresAt <= inOneHour) {
-        expiringInHour++;
-      }
-
-      const store = entry.cacheStore || 'default';
-      storeBreakdown[store] = (storeBreakdown[store] || 0) + 1;
+    const entries: CacheKeyEntry[] = [];
+    for (const key of keys) {
+      entries.push({
+        key,
+        type: await this.typeOf(key),
+        ttlSeconds: await this.redis.ttl(key),
+        sizeBytes: await this.sizeOf(key),
+        idleSeconds: await this.idleSecondsOf(key),
+      });
     }
 
     return {
+      namespace: this.namespace(),
       entries,
-      summary: {
-        totalKeys: entries.length,
-        totalSizeBytes,
-        avgTtlSeconds: entries.length > 0 ? totalTtl / entries.length : 0,
-        expiringInHour,
-        storeBreakdown,
+      matchedCount: matched.length,
+      truncated: matched.length > keys.length,
+    };
+  }
+
+  /** One key's stored value, or null when the key does not exist. */
+  async getEntry(key: string): Promise<CacheKeyValue | null> {
+    this.requireRedis();
+
+    const type = await this.typeOf(key);
+    if (type === 'none') {
+      return null;
+    }
+
+    return {
+      key,
+      type,
+      ttlSeconds: await this.redis.ttl(key),
+      sizeBytes: await this.sizeOf(key),
+      // Only string values are returned verbatim. A hash or a list would need a
+      // type-specific read, and rendering a partial view of one as "the value"
+      // is the kind of half-truth this surface is being cured of.
+      value: type === 'string' ? await this.redis.get(key) : null,
+    };
+  }
+
+  /** Delete one key. Returns how many keys Redis actually removed: 0 or 1. */
+  async invalidateKey(key: string): Promise<number> {
+    this.requireRedis();
+    const deleted = await this.redis.del(key);
+    this.logger.log(
+      `cache invalidate key=${key} deleted=${deleted} namespace=${this.namespace()}`,
+    );
+    return deleted;
+  }
+
+  /** Delete every key matching `pattern`. Returns the real count. */
+  async invalidatePattern(pattern: string): Promise<number> {
+    this.requireRedis();
+    const deleted = await this.redis.deletePattern(pattern);
+    this.logger.log(
+      `cache invalidate pattern=${pattern} deleted=${deleted} namespace=${this.namespace()}`,
+    );
+    return deleted;
+  }
+
+  /**
+   * Namespace key count plus the instance counters Redis itself keeps.
+   *
+   * The two are reported separately because they are different measurements:
+   * `keysInNamespace` is this service's, `instance` is the whole Redis. Merging
+   * them is how the previous version produced a hit rate that described nothing.
+   */
+  async getStats(): Promise<CacheStats> {
+    this.requireRedis();
+
+    const client = this.redis.getClient();
+    const [statsInfo, memoryInfo] = await Promise.all([
+      client.info('stats'),
+      client.info('memory'),
+    ]);
+
+    const keyspaceHits = this.readInfoNumber(statsInfo, 'keyspace_hits');
+    const keyspaceMisses = this.readInfoNumber(statsInfo, 'keyspace_misses');
+    const lookups = keyspaceHits + keyspaceMisses;
+
+    return {
+      namespace: this.namespace(),
+      keysInNamespace: (await this.redis.keys('*')).length,
+      instance: {
+        keyspaceHits,
+        keyspaceMisses,
+        // Null, not zero, when Redis has served no lookup since it started.
+        // A rate over no observations is not 0% — it is unmeasured, and the
+        // surface this replaced drew 100% miss rate out of exactly that.
+        hitRatePercent: lookups === 0 ? null : Math.round((keyspaceHits / lookups) * 1000) / 10,
+        usedMemoryBytes: this.readInfoNumber(memoryInfo, 'used_memory'),
+        totalKeys: await client.dbsize(),
       },
     };
   }
 
-  /**
-   * Capture a cache entry snapshot
-   */
-  async captureCacheEntry(data: {
-    tenantId?: string;
-    debugSessionId?: string;
-    key: string;
-    value?: unknown;
-    sizeBytes?: number;
-    ttlSeconds?: number;
-    expiresAt?: Date;
-    hitCount?: number;
-    lastAccessedAt?: Date;
-    cacheStore?: string;
-    tags?: string[];
-  }): Promise<CacheEntrySnapshot> {
-    const snapshot = this.cacheSnapshotRepo.create({
-      ...data,
-      capturedAt: new Date(),
-    });
-
-    return this.cacheSnapshotRepo.save(snapshot);
+  /** `admin:` — the prefix `RedisService` puts on every key it writes. */
+  private namespace(): string {
+    return this.redis.getKeyPrefix();
   }
 
-  /**
-   * Get cache entry by key
-   */
-  async getCacheEntry(key: string): Promise<CacheEntrySnapshot | null> {
-    const entry = await this.cacheSnapshotRepo.findOne({
-      where: { key },
-      order: { capturedAt: 'DESC' },
-    });
-    return entry;
-  }
-
-  /**
-   * Invalidate cache by key (placeholder for actual implementation)
-   */
-  async invalidateCacheByKey(key: string): Promise<void> {
-    // In production, this would invalidate the actual cache key
-    this.logger.log(`[Cache] Invalidated key: ${key}`);
-  }
-
-  /**
-   * Invalidate cache key for a tenant
-   */
-  async invalidateCacheKey(tenantId: string, key: string): Promise<void> {
-    // In production, this would invalidate the actual cache key
-    this.logger.log(`[Cache] Invalidated key: ${key} for tenant: ${tenantId}`);
-  }
-
-  /**
-   * Invalidate cache keys by pattern
-   */
-  async invalidateCachePattern(tenantId: string, pattern: string): Promise<number> {
-    // In production, this would use SCAN and DEL on Redis
-    this.logger.log(`[Cache] Invalidated pattern: ${pattern} for tenant: ${tenantId}`);
-    return 0;
-  }
-
-  /**
-   * Get cache statistics
-   */
-  async getCacheStats(tenantId?: string): Promise<CacheStats> {
-    const query = this.cacheSnapshotRepo.createQueryBuilder('c');
-
-    if (tenantId) {
-      query.where('c.tenantId = :tenantId', { tenantId });
+  private requireRedis(): void {
+    if (!this.redis.isConnected()) {
+      throw new ServiceUnavailableException(
+        'Redis is not connected; cache inspection and invalidation are unavailable',
+      );
     }
+  }
 
-    const entries = await query.getMany();
-
-    const storeStats: Record<string, { entries: number; size: number }> = {};
-    let totalSize = 0;
-    let totalHits = 0;
-
-    for (const entry of entries) {
-      totalSize += entry.sizeBytes || 0;
-      totalHits += entry.hitCount || 0;
-
-      const store = entry.cacheStore || 'default';
-      if (!storeStats[store]) {
-        storeStats[store] = { entries: 0, size: 0 };
-      }
-      storeStats[store].entries++;
-      storeStats[store].size += entry.sizeBytes || 0;
-    }
-
-    const totalEntries = entries.length;
-    const hitRate = totalEntries > 0 ? (totalHits / (totalHits + totalEntries)) * 100 : 0;
-    const missRate = 100 - hitRate;
-
-    return {
-      totalEntries,
-      totalSize,
-      hitRate: Math.round(hitRate * 10) / 10,
-      missRate: Math.round(missRate * 10) / 10,
-      byStore: Object.entries(storeStats).map(([store, stats]) => ({
-        store,
-        entries: stats.entries,
-        size: stats.size,
-      })),
-    };
+  private async typeOf(key: string): Promise<string> {
+    return this.redis.getClient().type(this.namespace() + key);
   }
 
   /**
-   * Cleanup old cache snapshot data
+   * `MEMORY USAGE`, or null where the build does not support it.
+   *
+   * Null rather than 0: a key whose footprint could not be measured has an
+   * unknown size, and rendering 0 bytes for it would be a made-up number.
    */
-  @Cron(CronExpression.EVERY_DAY_AT_5AM)
-  async cleanupOldData(): Promise<void> {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 7);
+  private async sizeOf(key: string): Promise<number | null> {
+    const usage = await this.redis.getClient().memory('USAGE', this.namespace() + key);
+    return typeof usage === 'number' ? usage : null;
+  }
 
-    await this.cacheSnapshotRepo.delete({ capturedAt: LessThan(cutoff) });
-    this.logger.log('Cleaned up old cache snapshot data');
+  private async idleSecondsOf(key: string): Promise<number | null> {
+    const idle = await this.redis.getClient().object('IDLETIME', this.namespace() + key);
+    return typeof idle === 'number' ? idle : null;
+  }
+
+  /** One `field:value` line out of a Redis `INFO` section. */
+  private readInfoNumber(info: string, field: string): number {
+    const match = new RegExp(`^${field}:(\\d+)`, 'm').exec(info);
+    return match ? Number(match[1]) : 0;
   }
 }

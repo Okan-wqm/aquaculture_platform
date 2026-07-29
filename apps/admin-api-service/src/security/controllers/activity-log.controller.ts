@@ -28,6 +28,7 @@ import {
 } from '../entities/security.entity';
 import { ActivityLoggingService, ActivityQueryOptions, ActivityStats } from '../services/activity-logging.service';
 import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+import { OperationAcknowledgement } from '../../common/dto/operation-acknowledgement.dto';
 
 // ============================================================================
 // DTOs
@@ -287,7 +288,7 @@ export class ActivityLogController {
    */
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  async logActivity(@Body() dto: LogActivityDto): Promise<{ success: boolean }> {
+  async logActivity(@Body() dto: LogActivityDto): Promise<OperationAcknowledgement> {
     await this.activityService.logActivityImmediate(dto);
     return { success: true };
   }

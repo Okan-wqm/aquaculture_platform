@@ -1,34 +1,48 @@
 /**
- * Platform-wide invariant — Billing Revival Faz D (D8):
+ * Platform-wide invariant — the two tier vocabularies have one author each, and
+ * nothing re-declares either of them.
  *
- * The billing/admin sellable-tier enum lives in EXACTLY ONE place — the
- * canonical `BillingPlanTier` at
- * `libs/event-contracts/src/billing/billing-plan-tier.ts`. Every backend copy
- * re-exports it; the two admin-panel frontend copies (which cannot import an
- * `@platform/*` backend library) keep a literal enum PINNED member-for-member
- * to that SSoT.
+ * # The two sets
  *
- * # Why
+ * `TenantPlan` (`libs/event-contracts/src/enums/tenant-plan.enum.ts`) is the
+ * ENTITLEMENT set — free/trial/starter/professional/enterprise. It is what
+ * `auth.tenants.plan` stores, under a DB CHECK constraint, and what the admin
+ * tenant DTOs validate with `@IsEnum(TenantPlan)`.
  *
- * Pre-fix, `PlanTier` (and the admin-panel's matching `TenantTier`) was
- * re-declared by hand in five places that had already drifted — the analytics
- * read-model even dropped `FREE`, so a FREE subscription row could not map back
- * to a tier. A single canonical enum + re-export collapses the backend copies;
- * this guard makes the sixth copy detectable so the drift surface cannot grow
- * back (tier-3 make-it-detectable). The shared members are additionally locked
- * to the entitlement `TenantPlan` by compile-time guards inside the SSoT file
- * (tier-1), which `tsc --noEmit` enforces.
+ * `BillingPlanTier` (`libs/event-contracts/src/billing/billing-plan-tier.ts`) is
+ * the SELLABLE set — free/starter/professional/enterprise/custom. It is what
+ * `billing.subscriptions.plan_tier` stores. No `trial` (in billing that is a
+ * subscription STATUS) and `custom` must never leak into `TenantPlan`.
  *
- * # What this test enforces
+ * # What this used to enforce, and why that was wrong
  *
- *   1. The canonical SSoT declares `BillingPlanTier` with exactly the sellable
- *      set {free, starter, professional, enterprise, custom}, and `TenantPlan`
- *      still carries the entitlement set (incl. trial).
- *   2. No production file OUTSIDE the allowlist declares an `export enum PlanTier`
- *      or `export enum TenantTier` literal (a re-exported alias is allowed; a
- *      fresh literal is the drift class this catches).
- *   3. The two allowlisted frontend literals are members-equal to the canonical
- *      `BillingPlanTier` value set (FE/BE parity).
+ * Before codegen, the admin panel could not import a backend library, so it kept
+ * TWO hand-written literals — `PlanTier` in `services/types/billing.ts` and
+ * `TenantTier` in `services/types/tenant.ts` — and this spec asserted both were
+ * members-equal to `BillingPlanTier`.
+ *
+ * Pinning `TenantTier` to the SELLABLE set is what made the FE↔BE break
+ * INVISIBLE. That type was handed to `POST/PATCH/GET /admin/tenants`, which
+ * validate the ENTITLEMENT set. The panel's own types therefore said it could
+ * send `custom` (the endpoint 400s it) and that `trial` was impossible (the
+ * endpoint accepts it, and the column stores it). The gate was green throughout,
+ * because it was comparing the copy to the wrong SSoT.
+ *
+ * # What this enforces now
+ *
+ *   1. Each SSoT still declares exactly its own set, and the two remain distinct
+ *      (`trial` only in the entitlement one, `custom` only in the sellable one).
+ *   2. No production file outside the allowlist declares a `PlanTier`,
+ *      `TenantTier` or `TenantPlan` enum literal.
+ *   3. The admin panel declares NEITHER by hand: both arrive through
+ *      `tools/codegen/admin-contracts`, which reads the SSoT files directly, so
+ *      there is no second copy left to hold in agreement. The generated values
+ *      are checked against both SSoTs here — codegen staleness is caught by
+ *      `admin-contracts-generated`, but a WRONG emission would not be, and this
+ *      is the vocabulary where being wrong is expensive.
+ *   4. The panel keeps the two apart: a tenant's plan is typed `TenantPlan`, and
+ *      the surface that must satisfy both contracts at once uses the derived
+ *      `ProvisionablePlan` intersection rather than picking one and casting.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -39,26 +53,30 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
 
 const CANONICAL_BILLING_TIER = 'libs/event-contracts/src/billing/billing-plan-tier.ts';
 const CANONICAL_TENANT_PLAN = 'libs/event-contracts/src/enums/tenant-plan.enum.ts';
+const GENERATED_CONTRACTS = 'web/modules/admin-panel/src/services/types/generated/admin-contracts.ts';
 const FE_BILLING = 'web/modules/admin-panel/src/services/types/billing.ts';
 const FE_TENANT = 'web/modules/admin-panel/src/services/types/tenant.ts';
-const CODEGEN = 'web/shared-ui/src/generated/graphql-types.ts';
+const FE_CONSTANTS = 'web/modules/admin-panel/src/constants/plan-tier.ts';
+const GRAPHQL_CODEGEN = 'web/shared-ui/src/generated/graphql-types.ts';
 
 /**
- * Files permitted to declare a `PlanTier`/`TenantTier` symbol at all: the two
- * canonical SSoT files, the generated GraphQL types (codegen artifact), and the
- * two frontend literals that cannot import the backend SSoT (pinned by part 3).
+ * Files permitted to declare a tier symbol at all: the two canonical SSoT files
+ * and the generated codegen artifacts. The frontend is NOT on this list any
+ * more — that is the point of the fix.
  */
 const ALLOWLIST = new Set<string>([
   CANONICAL_BILLING_TIER,
   CANONICAL_TENANT_PLAN,
-  CODEGEN,
-  FE_BILLING,
-  FE_TENANT,
+  GRAPHQL_CODEGEN,
 ]);
+
+function read(relFile: string): string {
+  return readFileSync(resolve(REPO_ROOT, relFile), 'utf8');
+}
 
 /** Extract the string VALUES of an `export enum <Name> { NAME = 'value', ... }`. */
 function enumValues(relFile: string, enumName: string): string[] {
-  const src = readFileSync(resolve(REPO_ROOT, relFile), 'utf8');
+  const src = read(relFile);
   const body = new RegExp(`export enum ${enumName}\\s*\\{([\\s\\S]*?)\\}`, 'm').exec(src)?.[1];
   if (body == null) {
     throw new Error(`enum ${enumName} not found in ${relFile}`);
@@ -66,21 +84,43 @@ function enumValues(relFile: string, enumName: string): string[] {
   return Array.from(body.matchAll(/^\s*[A-Z0-9_]+\s*=\s*'([^']+)'/gm), (m) => m[1]!);
 }
 
-describe('INVARIANT (Faz D / D8): BillingPlanTier is the only tier-enum SSoT', () => {
-  it('the canonical SSoT declares the sellable and entitlement tier sets', () => {
+/**
+ * Extract the string VALUES of a generated `export const <Name> = { NAME: "value", … } as const;`.
+ *
+ * The generator emits const objects rather than enums so `PlanTier.FREE` keeps
+ * resolving at every existing call site while the type stays a union of the
+ * serialized values.
+ */
+function generatedValues(name: string): string[] {
+  const src = read(GENERATED_CONTRACTS);
+  const body = new RegExp(`export const ${name} = \\{([\\s\\S]*?)\\} as const;`, 'm').exec(src)?.[1];
+  if (body == null) {
+    throw new Error(`generated const ${name} not found in ${GENERATED_CONTRACTS}`);
+  }
+  return Array.from(body.matchAll(/^\s*[A-Z0-9_]+:\s*"([^"]+)"/gm), (m) => m[1]!);
+}
+
+describe('INVARIANT: the entitlement and sellable tier sets each have one author', () => {
+  it('the canonical SSoTs declare their own sets and stay distinct', () => {
     const billing = new Set(enumValues(CANONICAL_BILLING_TIER, 'BillingPlanTier'));
     expect([...billing].sort()).toEqual(
       ['custom', 'enterprise', 'free', 'professional', 'starter'].sort(),
     );
 
-    // TenantPlan is the DISTINCT entitlement enum: it carries `trial` and has no
-    // `custom`. Assert it still does so the two enums never silently converge.
     const tenantPlan = new Set(enumValues(CANONICAL_TENANT_PLAN, 'TenantPlan'));
+    expect([...tenantPlan].sort()).toEqual(
+      ['enterprise', 'free', 'professional', 'starter', 'trial'].sort(),
+    );
+
+    // The distinction IS the contract. If these ever converge, every call site
+    // that relies on the compiler to keep them apart silently stops working.
     expect(tenantPlan.has('trial')).toBe(true);
+    expect(billing.has('trial')).toBe(false);
+    expect(billing.has('custom')).toBe(true);
     expect(tenantPlan.has('custom')).toBe(false);
   });
 
-  it('no production file outside the allowlist declares a PlanTier/TenantTier enum literal', () => {
+  it('no production file outside the allowlist declares a tier enum literal', () => {
     const lsOut = execFileSync(
       'git',
       [
@@ -96,7 +136,7 @@ describe('INVARIANT (Faz D / D8): BillingPlanTier is the only tier-enum SSoT', (
       { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 },
     );
 
-    const literalRe = /^\s*export\s+enum\s+(?:PlanTier|TenantTier)\b/m;
+    const literalRe = /^\s*export\s+enum\s+(?:PlanTier|TenantTier|TenantPlan)\b/m;
     const offenders: string[] = [];
     for (const rel of lsOut.split('\n')) {
       if (
@@ -121,27 +161,78 @@ describe('INVARIANT (Faz D / D8): BillingPlanTier is the only tier-enum SSoT', (
 
     if (offenders.length > 0) {
       throw new Error(
-        `${offenders.length} file(s) declare a hand-copied PlanTier/TenantTier enum.\n` +
-          `Re-export BillingPlanTier from @platform/event-contracts instead (Faz D, D8).\n` +
-          `A frontend literal that cannot import the backend SSoT must be added to\n` +
-          `the allowlist AND pinned by the FE-parity assertion in this spec.\n\n` +
+        `${offenders.length} file(s) declare a hand-copied tier enum.\n` +
+          `Backend: re-export from @platform/event-contracts.\n` +
+          `Admin panel: add the SSoT file to tools/codegen/admin-contracts/manifest.ts\n` +
+          `and regenerate — a frontend literal is no longer allowed at all.\n\n` +
           offenders.map((o) => `  ${o}`).join('\n'),
       );
     }
   });
 
-  it('the allowlisted frontend literals are members-equal to the canonical set', () => {
-    const canonical = new Set(enumValues(CANONICAL_BILLING_TIER, 'BillingPlanTier'));
+  it('the admin panel derives both vocabularies instead of declaring them', () => {
+    for (const rel of [FE_BILLING, FE_TENANT]) {
+      const src = read(rel);
+      expect(src).not.toMatch(/export enum (?:PlanTier|TenantTier|TenantPlan)\s*\{/);
+      expect(src).toContain('./generated/admin-contracts');
+    }
 
-    for (const [rel, name] of [
-      [FE_BILLING, 'PlanTier'],
-      [FE_TENANT, 'TenantTier'],
-    ] as const) {
-      const feValues = new Set(enumValues(rel, name));
-      expect({ file: rel, values: [...feValues].sort() }).toEqual({
-        file: rel,
-        values: [...canonical].sort(),
+    // The sellable set is re-exported through billing.ts; the entitlement set
+    // through tenant.ts. Both by name, so the `export *` barrel is unambiguous.
+    expect(read(FE_BILLING)).toMatch(/export\s*\{[\s\S]*?\bPlanTier\b[\s\S]*?\}/);
+    expect(read(FE_TENANT)).toMatch(/export\s*\{\s*TenantPlan\s*\}/);
+  });
+
+  it('the generated vocabularies carry exactly the canonical values', () => {
+    expect(generatedValues('PlanTier').sort()).toEqual(
+      enumValues(CANONICAL_BILLING_TIER, 'BillingPlanTier').sort(),
+    );
+    expect(generatedValues('TenantPlan').sort()).toEqual(
+      enumValues(CANONICAL_TENANT_PLAN, 'TenantPlan').sort(),
+    );
+  });
+
+  it('a tenant-facing tier is the entitlement set, not the sellable one', () => {
+    // The specific defect this replaces: the panel's tenant types carried the
+    // SELLABLE vocabulary while every endpoint they reach validates the
+    // ENTITLEMENT one.
+    //
+    // The READ shapes now come from the generated tenant DTOs, so that is where
+    // the assertion belongs — `tier` on both must be the entitlement union
+    // (which contains `trial` and no `custom`), never the sellable one.
+    const generated = read(GENERATED_CONTRACTS);
+    const entitlement = new Set(enumValues(CANONICAL_TENANT_PLAN, 'TenantPlan'));
+
+    for (const shape of ['TenantSummaryDto', 'TenantListItemDto']) {
+      const body = new RegExp(`export interface ${shape} \\{([\\s\\S]*?)\\n\\}`, 'm').exec(
+        generated,
+      )?.[1];
+      if (body == null) throw new Error(`generated interface ${shape} not found`);
+
+      const tier = /^\s*tier:\s*(.+);$/m.exec(body)?.[1];
+      if (tier == null) throw new Error(`${shape} has no tier field`);
+
+      const members = new Set(Array.from(tier.matchAll(/"([^"]+)"/g), (m) => m[1]!));
+      expect({ shape, members: [...members].sort() }).toEqual({
+        shape,
+        members: [...entitlement].sort(),
       });
     }
+
+    // The WRITE contracts the panel still declares by hand must agree.
+    const tenantTypes = read(FE_TENANT);
+    expect(tenantTypes).toMatch(/\btier\?:\s*TenantPlan;/);
+    expect(tenantTypes).not.toMatch(/\btier\??:\s*PlanTier;/);
+  });
+
+  it('the surface that must satisfy both contracts derives the overlap', () => {
+    // The create-tenant wizard's tier field feeds BOTH `POST /admin/tenants`
+    // (entitlement) and the quote request (sellable). Picking either one and
+    // casting at the other call site is how the page carried a page-local tier
+    // literal for so long. The overlap is an intersection of the two generated
+    // unions, so it cannot fall behind either SSoT.
+    const constants = read(FE_CONSTANTS);
+    expect(constants).toMatch(/export type ProvisionablePlan = TenantPlan & PlanTier;/);
+    expect(constants).toMatch(/export const PROVISIONABLE_PLANS/);
   });
 });

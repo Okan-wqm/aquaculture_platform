@@ -280,6 +280,19 @@ export class RedisService implements OnModuleDestroy {
   }
 
   /**
+   * The prefix every key written through this service carries.
+   *
+   * Exposed because a caller reaching for `getClient()` — to run a command this
+   * service does not wrap, such as `MEMORY USAGE` or `OBJECT IDLETIME` — must
+   * prefix the key itself or address a different key than `get`/`set` would.
+   * Re-deriving `${serviceName}:` at the callsite would be a second author for
+   * the namespace, and the two would drift the first time the convention moved.
+   */
+  getKeyPrefix(): string {
+    return this.keyPrefix;
+  }
+
+  /**
    * Check if Redis is connected
    */
   isConnected(): boolean {

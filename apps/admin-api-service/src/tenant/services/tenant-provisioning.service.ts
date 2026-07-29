@@ -17,7 +17,6 @@ import {
   SchemaBackup,
 } from '../../database-management/entities/database-management.entity';
 import { BackupRestoreService } from '../../database-management/services/backup-restore.service';
-import { TenantConfigurationService } from '../../settings/services/tenant-configuration.service';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
 
 import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
@@ -137,7 +136,6 @@ export class TenantProvisioningService {
     private readonly tenantSchemaRepository: Repository<TenantSchema>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
-    private readonly tenantConfigurationService: TenantConfigurationService,
     private readonly backupRestoreService: BackupRestoreService,
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
     @Optional()
@@ -370,18 +368,12 @@ export class TenantProvisioningService {
       },
     );
 
-    // Step: Create default configuration
-    saga.addStep(
-      'create_default_config',
-      () => {
-        return this.createDefaultConfiguration(tenant);
-      },
-      () => {
-        // Compensate: configuration cleanup is handled by TenantConfigurationService
-        this.logger.warn(`Compensating: removing configuration for tenant ${tenant.id}`);
-        // Best effort — config may not have been created
-      },
-    );
+    // No configuration step. A new tenant needs zero configuration rows: every
+    // tenant setting is seeded once under the SYSTEM tenant (config-service
+    // migration 1805500000000) and config-service's effective merge answers a
+    // tenant's reads from those rows until an operator overrides one. The step
+    // this replaces called a service that minted a requestId, logged it and
+    // returned — provisioning "succeeded" while nothing was provisioned.
 
     // Step: Seed default water quality parameter configs
     if (!skipSchemaCreation) {
@@ -778,46 +770,6 @@ export class TenantProvisioningService {
       isEditable: this.readBoolean(row.is_editable),
       displayOrder: this.readNumber(row.display_order),
     };
-  }
-
-  /**
-   * Create default configuration for a newly provisioned tenant
-   * Uses the TenantConfigurationService to create the configuration record
-   */
-  private createDefaultConfiguration(tenant: Tenant): void {
-    this.logger.log(`Creating default configuration for tenant ${tenant.id}`);
-
-    try {
-      const request = this.tenantConfigurationService.requestDefaultConfigurationProvisioning({
-        tenantId: tenant.id,
-        brandingConfig: {
-          companyName: tenant.name,
-        },
-        featureFlags: {
-          dataExport: true,
-          auditLog: true,
-          mobileAccess: true,
-          iotDeviceSupport: true,
-        },
-      });
-
-      this.logger.log(
-        `Config-service default configuration requested for tenant ${tenant.id}: ${request.requestId}`,
-      );
-    } catch (error) {
-      // If configuration already exists, log and continue
-      if ((error as Error).message?.includes('already exists')) {
-        this.logger.warn(
-          `Configuration already exists for tenant ${tenant.id}, skipping creation`,
-        );
-        return;
-      }
-
-      this.logger.error(
-        `Failed to create configuration for tenant ${tenant.id}: ${(error as Error).message}`,
-      );
-      throw error;
-    }
   }
 
   private async collectTenantCleanupCounts(tenantId: string): Promise<Record<string, unknown>> {

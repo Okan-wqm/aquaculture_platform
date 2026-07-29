@@ -243,6 +243,18 @@ export class ImpersonationPermission {
   @Column({ type: 'text', nullable: true })
   notes?: string;
 
+  // Revocation audit. Revoking impersonation permission strips an operator's
+  // ability to enter tenant data and ends every session they hold; before these
+  // columns the only trace was `isActive` flipping and `updatedAt` moving, and
+  // `updatedAt` moves for every write, so it cannot say who. NULL on a row that
+  // has never been revoked, and on rows revoked before the audit existed —
+  // inventing a value there would be worse than admitting there is none.
+  @Column({ type: 'uuid', nullable: true })
+  revokedBy?: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  revokedAt?: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 

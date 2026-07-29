@@ -29,8 +29,9 @@ import { AuditAction } from '../../audit/audit.entity';
 import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 
 import { AuditLog, AuditSeverity as ImmutableAuditSeverity } from '../../audit/audit.entity';
-import { AuditLogFilter, AuditLogService } from '../../audit/audit.service';
+import { AuditLogFilter, AuditLogService, AuditStatistics } from '../../audit/audit.service';
 import { getAuthUser } from '../../shared/authenticated-request';
+import { OperationAcknowledgement } from '../../common/dto/operation-acknowledgement.dto';
 import {
   ActivityCategory,
   ActivitySeverity,
@@ -422,14 +423,7 @@ export class AuditTrailController {
     @Query('tenantId') tenantId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
-  ): Promise<{
-    totalLogs: number;
-    last24Hours: number;
-    byAction: Array<{ action: string; count: number }>;
-    bySeverity: Array<{ severity: string; count: number }>;
-    byEntityType: Array<{ entityType: string; count: number }>;
-    topUsers: Array<{ userId: string; email: string; count: number }>;
-  }> {
+  ): Promise<AuditStatistics> {
     const end = endDate ? new Date(endDate) : new Date();
     const start = startDate
       ? new Date(startDate)
@@ -539,7 +533,7 @@ export class AuditTrailController {
    */
   @Post('retention-policies/apply')
   @HttpCode(HttpStatus.OK)
-  async applyRetentionPolicies(): Promise<{ success: boolean }> {
+  async applyRetentionPolicies(): Promise<OperationAcknowledgement> {
     await this.auditService.applyRetentionPolicies();
     return { success: true };
   }

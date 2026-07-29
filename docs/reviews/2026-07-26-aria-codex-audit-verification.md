@@ -1400,3 +1400,8 @@ finding is one nobody can navigate back to from the review that produced it.
 
 * **ORPHAN-HIGH-489** — ClaudeCreditExhausted escaped ci_executor.main() uncaught, leaking the claim for the full lease window  
   Severity HIGH, layer 2, owner okan, deadline 2026-08-25.
+
+* **ORPHAN-MEDIUM-491** — The workflow abort gate matched its guard by substring, so an `||`-joined `always()` disjunct passed as guarded  
+  Severity MEDIUM, layer 1, owner okan, deadline 2026-08-26. `_verify_abort_gate` compared the guard with `in`, so
+  `if: ${{ <guard> || always() }}` contained the guard verbatim while being unconditionally true — the step ran during a
+  blocked cycle, which is the exact failure the gate's own docstring says it prevents.

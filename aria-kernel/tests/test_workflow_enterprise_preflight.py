@@ -767,6 +767,65 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
         verdict = self._mutated_verdict(self._EXECUTOR, mutate)
         self.assertNotIn("workflow_contract_abort_gate", verdict.failure_classes)
 
+    def test_a_guard_widened_by_a_top_level_or_is_rejected(self) -> None:
+        """ORPHAN-MEDIUM-491 — the inert guard.
+
+        ``<guard> || always()`` CONTAINS the guard verbatim, so the old
+        substring match accepted it, while ``always()`` makes the condition
+        unconditionally true. The step therefore ran during a blocked cycle —
+        the exact failure the abort gate exists to prevent. This test fails
+        against the pre-fix `guard in condition` implementation.
+        """
+        guard = WORKFLOW_CONTRACTS[self._EXECUTOR].job_contracts[0].abort_gate.guard_expression
+        for widener in ("always()", "success()", "github.event_name == 'workflow_dispatch'"):
+            with self.subTest(widener=widener):
+                def mutate(steps, widener=widener):
+                    for step in steps:
+                        if isinstance(step, dict) and step.get("name") == "Run CI executor":
+                            step["if"] = "${{ " + guard + " || " + widener + " }}"
+                    return steps
+
+                verdict = self._mutated_verdict(self._EXECUTOR, mutate)
+                self.assertFalse(verdict.valid)
+                self.assertIn("workflow_contract_abort_gate", verdict.failure_classes)
+
+    def test_a_guard_present_in_every_disjunct_is_still_accepted(self) -> None:
+        # The other direction, and the reason the fix is a top-level split
+        # rather than "reject any ||": fan-out where BOTH branches are gated
+        # is correct, and a gate that rejected it would get deleted for being
+        # noisy (see _collapse's docstring).
+        guard = WORKFLOW_CONTRACTS[self._EXECUTOR].job_contracts[0].abort_gate.guard_expression
+
+        def mutate(steps):
+            for step in steps:
+                if isinstance(step, dict) and step.get("name") == "Run CI executor":
+                    step["if"] = (
+                        f"({guard} && github.event_name == 'schedule') || "
+                        f"({guard} && github.event_name == 'workflow_dispatch')"
+                    )
+            return steps
+
+        verdict = self._mutated_verdict(self._EXECUTOR, mutate)
+        self.assertNotIn("workflow_contract_abort_gate", verdict.failure_classes)
+
+    def test_a_nested_or_inside_a_guarded_conjunct_is_still_accepted(self) -> None:
+        # Depth-awareness: `guard && (a || b)` is ONE gated branch. A naive
+        # split on every `||` would see `guard && (a` and `b)` and reject a
+        # correctly guarded step.
+        guard = WORKFLOW_CONTRACTS[self._EXECUTOR].job_contracts[0].abort_gate.guard_expression
+
+        def mutate(steps):
+            for step in steps:
+                if isinstance(step, dict) and step.get("name") == "Run CI executor":
+                    step["if"] = (
+                        f"{guard} && (github.event_name == 'schedule' || "
+                        "github.event_name == 'workflow_dispatch')"
+                    )
+            return steps
+
+        verdict = self._mutated_verdict(self._EXECUTOR, mutate)
+        self.assertNotIn("workflow_contract_abort_gate", verdict.failure_classes)
+
     def test_the_announce_step_may_carry_the_inverse_guard(self) -> None:
         # "Skip autonomous loop when local lease is fresh" runs ONLY when
         # blocked; the gate must permit exactly that one shape.

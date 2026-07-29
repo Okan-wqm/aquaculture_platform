@@ -384,6 +384,65 @@ def _collapse(text: str) -> str:
     return "".join(text.split())
 
 
+def _strip_expression_wrapper(text: str) -> str:
+    """Drop a single enclosing ``${{ ... }}`` so the body can be parsed.
+
+    GitHub accepts ``if: ${{ a && b }}`` and bare ``if: a && b`` as the same
+    condition, so the wrapper must not change how the guard is matched.
+    """
+    if text.startswith("${{") and text.endswith("}}"):
+        return text[3:-2]
+    return text
+
+
+def _top_level_disjuncts(condition: str) -> list[str]:
+    """Split a collapsed GHA condition on its TOP-LEVEL ``||`` only.
+
+    Depth-aware on purpose: ``(a||b)&&guard`` is ONE branch that is gated by
+    ``guard``, while ``guard||always()`` is two branches of which only the
+    first is gated. Splitting naively would confuse the two and either accept
+    an inert guard or reject a correct one.
+    """
+    body = _strip_expression_wrapper(condition)
+    parts: list[str] = []
+    depth = 0
+    start = 0
+    index = 0
+    while index < len(body):
+        char = body[index]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(0, depth - 1)
+        elif char == "|" and depth == 0 and body[index : index + 2] == "||":
+            parts.append(body[start:index])
+            index += 2
+            start = index
+            continue
+        index += 1
+    parts.append(body[start:])
+    return [part for part in parts if part]
+
+
+def _step_is_gated(condition: str, *, guard: str, announce: str) -> bool:
+    """True only when EVERY top-level branch of ``condition`` carries a guard.
+
+    ORPHAN-MEDIUM-491 — this used to be ``guard in condition``, raw substring
+    containment. ``${{ <guard> || always() }}`` contains the guard verbatim and
+    is unconditionally true, so an unguarded step passed as guarded and ran
+    during a blocked cycle. Requiring every disjunct to carry the guard rejects
+    that shape while still accepting ``(guard && x) || (guard && y)``, which
+    matters because an over-strict gate gets deleted for being noisy (see
+    ``_collapse``).
+    """
+    if not condition:
+        return False
+    disjuncts = _top_level_disjuncts(condition)
+    if not disjuncts:
+        return False
+    return all(guard in part or announce in part for part in disjuncts)
+
+
 def _step_label(step: Any, index: int) -> str:
     if isinstance(step, dict):
         for key in ("name", "uses", "id"):
@@ -478,7 +537,7 @@ def _verify_abort_gate(
         if index <= gate_index or not isinstance(step, dict):
             continue
         condition = _collapse(str(step.get("if") or ""))
-        if guard in condition or announce in condition:
+        if _step_is_gated(condition, guard=guard, announce=announce):
             continue
         reasons.append(
             f"workflow_abort_gate_unguarded_step:{job_id}:{_step_label(step, index)}"

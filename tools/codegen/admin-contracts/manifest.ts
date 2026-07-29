@@ -108,8 +108,37 @@ export const ADMIN_CONTRACT_SOURCES: readonly ContractSource[] = [
   },
   {
     module: 'impersonation',
+    // Every impersonation route declares a named return type now, so the panel
+    // derives the whole surface instead of the two shapes it happened to pin.
+    // `SafeImpersonationSession` is `Omit<ImpersonationSession, secrets>` — the
+    // entity carries the session token, which must never reach the panel, so
+    // generating the ENTITY here would publish it.
     file: 'apps/admin-api-service/src/impersonation/services/impersonation.service.ts',
-    exports: ['ImpersonationAuditSummary'],
+    exports: [
+      'ImpersonationAuditSummary',
+      'StartedImpersonationSession',
+      'ImpersonationEligibility',
+      'ImpersonationValidation',
+      'ActiveSessionCount',
+      'ImpersonationContext',
+    ],
+  },
+  {
+    module: 'impersonation',
+    // The WRITE contracts — the DTOs the ValidationPipe whitelists, not the
+    // service inputs beside them. `StartImpersonationRequest` on the service
+    // carries `superAdminId`, `ipAddress` and `userAgent`, which the controller
+    // takes from the verified JWT and the socket; a panel that sent them would
+    // be rejected by `forbidNonWhitelisted`. Generating the DTO instead means
+    // the panel's request type IS what the endpoint accepts.
+    //
+    // These were declared but not exported, which is a contract with a name
+    // nobody outside can use — and is why the panel's hand-written copy had
+    // dropped `permissions`, so a super-admin could not scope a session's
+    // access at start time.
+    file: 'apps/admin-api-service/src/impersonation/controllers/impersonation.controller.ts',
+    exports: ['StartImpersonationDto', 'GrantPermissionDto'],
+    rename: { StartImpersonationDto: 'StartImpersonationRequest' },
   },
   {
     module: 'security',

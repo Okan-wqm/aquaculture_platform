@@ -324,9 +324,27 @@ class WireEmitter {
     });
   }
 
+  /**
+   * Whether `type` is a plain object shape the emitter can flatten.
+   *
+   * Intersections count. `A & { extra: string }` is how this codebase composes a
+   * response out of a shared shape plus what one route adds — `StartedImpersonationSession`
+   * is `SafeImpersonationSession & { impersonationToken }`, the token revealed
+   * exactly once to the super-admin who started the session. TypeScript already
+   * computes the merged property set, so flattening it is reading the type, not
+   * reconstructing it.
+   *
+   * The intersection branch in `render` runs FIRST and catches the other case —
+   * a branded primitive (`string & { __brand }`), which carries only its
+   * primitive on the wire. So by the time this is reached, an intersection is an
+   * object composition.
+   */
   private isObjectShape(type: ts.Type): boolean {
+    const isObjectLike =
+      (type.flags & ts.TypeFlags.Object) !== 0 || (type.flags & ts.TypeFlags.Intersection) !== 0;
+
     return (
-      (type.flags & ts.TypeFlags.Object) !== 0 &&
+      isObjectLike &&
       this.checker.getPropertiesOfType(type).length > 0 &&
       !this.checker.getSignaturesOfType(type, ts.SignatureKind.Call).length
     );

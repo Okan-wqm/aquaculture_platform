@@ -56,6 +56,41 @@ function controllerFiles(): string[] {
     .filter((rel) => rel.length > 0 && !rel.includes('/__tests__/') && !rel.endsWith('.spec.ts'));
 }
 
+/** HTTP-method decorators that mark a controller method as a route. */
+const ROUTE_DECORATOR = /^\s*@(Get|Post|Put|Patch|Delete)\(/;
+
+/**
+ * Routes in `source` whose handler declares NO return type.
+ *
+ * Walks from each route decorator to the method signature, then to the line
+ * that opens the body — a signature can span many lines when the parameters are
+ * decorated, so the whole span is what gets checked for a `):` annotation.
+ */
+function undeclaredRouteCount(source: string): number {
+  const lines = source.split('\n');
+  let count = 0;
+
+  lines.forEach((line, index) => {
+    if (!ROUTE_DECORATOR.test(line)) return;
+
+    let start = index;
+    while (start < lines.length && !/^\s+(?:async\s+)?\w+\(/.test(lines[start]!)) {
+      start++;
+    }
+    if (start >= lines.length) return;
+
+    const signature: string[] = [];
+    for (let cursor = start; cursor < lines.length && cursor < start + 25; cursor++) {
+      signature.push(lines[cursor]!);
+      if (/\)\s*(:\s*[^{]+)?\{\s*$/.test(lines[cursor]!)) break;
+    }
+
+    if (!/\):\s*(Promise<|[A-Z])/.test(signature.join('\n'))) count++;
+  });
+
+  return count;
+}
+
 describe('INVARIANT: a route response shape is a named type', () => {
   const files = controllerFiles();
 
@@ -89,6 +124,72 @@ describe('INVARIANT: a route response shape is a named type', () => {
           offenders.join('\n'),
       );
     }
+  });
+
+  it('the count of routes with NO declared return type only ever falls', () => {
+    // A weaker form of the same defect, and a far larger one: 309 of 555 admin
+    // routes declared no return type at all. Their contract is not merely
+    // unnamed — it is unstated, inferred from whatever the service happens to
+    // return, so a change inside the service silently changes the wire and the
+    // panel's type is pure invention.
+    //
+    // 292 of those remain, and naming them means settling 24 controllers'
+    // contracts against their consumers. That is real work, not a rename, so it
+    // cannot land in one reviewable change.
+    //
+    // This is a RATCHET, not an allowlist. An allowlist says "these files are
+    // exempt" and rots. This asserts the EXACT count per file: a file absent
+    // from the budget must be at zero and can never regress, and a file in the
+    // budget fails the moment its count changes in EITHER direction — so fixing
+    // a route forces the number down, and adding one is caught immediately.
+    // The debt is published here rather than hidden, and it can only shrink.
+    //
+    // Tracked as ADMIN-HIGH-093. When a file reaches zero, delete its line.
+    const BUDGET: Readonly<Record<string, number>> = {
+      'apps/admin-api-service/src/billing/billing.controller.ts': 4,
+      'apps/admin-api-service/src/database-management/controllers/backup.controller.ts': 10,
+      'apps/admin-api-service/src/database-management/controllers/explorer.controller.ts': 5,
+      'apps/admin-api-service/src/database-management/controllers/migration.controller.ts': 9,
+      'apps/admin-api-service/src/database-management/controllers/monitoring.controller.ts': 9,
+      'apps/admin-api-service/src/database-management/controllers/schema.controller.ts': 12,
+      'apps/admin-api-service/src/health/health.controller.ts': 5,
+      'apps/admin-api-service/src/impersonation/controllers/debug-tools.controller.ts': 29,
+      'apps/admin-api-service/src/metrics/system-metrics.controller.ts': 4,
+      'apps/admin-api-service/src/modules/modules.controller.ts': 12,
+      'apps/admin-api-service/src/security/controllers/activity-log.controller.ts': 3,
+      'apps/admin-api-service/src/security/controllers/audit-trail.controller.ts': 1,
+      'apps/admin-api-service/src/security/controllers/compliance.controller.ts': 2,
+      'apps/admin-api-service/src/settings/controllers/email-template.controller.ts': 13,
+      'apps/admin-api-service/src/settings/controllers/ip-access.controller.ts': 12,
+      'apps/admin-api-service/src/settings/controllers/tenant-configuration.controller.ts': 39,
+      'apps/admin-api-service/src/settings/settings.controller.ts': 10,
+      'apps/admin-api-service/src/support/controllers/onboarding.controller.ts': 16,
+      'apps/admin-api-service/src/system-management/controllers/error-tracking.controller.ts': 18,
+      'apps/admin-api-service/src/system-management/controllers/global-settings.controller.ts': 27,
+      'apps/admin-api-service/src/system-management/controllers/job-queue.controller.ts': 20,
+      'apps/admin-api-service/src/system-management/controllers/performance.controller.ts': 15,
+      'apps/admin-api-service/src/users/users.controller.ts': 16,
+    };
+
+    const actual: Record<string, number> = {};
+    for (const rel of files) {
+      const count = undeclaredRouteCount(readFileSync(resolve(REPO_ROOT, rel), 'utf8'));
+      if (count > 0) actual[rel] = count;
+    }
+
+    // Compared as whole objects so the diff names every file that moved, in
+    // both directions, rather than failing on the first.
+    expect(actual).toEqual(BUDGET);
+  });
+
+  it('the impersonation controller is at zero, and stays there', () => {
+    // The domain closed in this slice: 17 routes annotated, three inline shapes
+    // named (`ImpersonationEligibility`, `ImpersonationValidation`,
+    // `ActiveSessionCount`). It is absent from the budget above, so the
+    // whole-object comparison already forbids a regression — this asserts it by
+    // name so the intent survives a careless budget edit.
+    const rel = 'apps/admin-api-service/src/impersonation/controllers/impersonation.controller.ts';
+    expect(undeclaredRouteCount(readFileSync(resolve(REPO_ROOT, rel), 'utf8'))).toBe(0);
   });
 
   it('the security histograms are keyed by their vocabularies, not by string', () => {

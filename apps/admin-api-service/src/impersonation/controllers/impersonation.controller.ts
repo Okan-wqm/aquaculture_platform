@@ -40,18 +40,29 @@ import {
   ImpersonationStatus,
   ImpersonationReason,
   ImpersonationPermissions,
+  ImpersonationPermission,
+  SafeImpersonationSession,
   IMPERSONATION_MAX_SESSION_MINUTES,
 } from '../entities/impersonation-session.entity';
+import { IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
+
 import {
   ImpersonationService,
   StartImpersonationRequest,
+} from '../services/impersonation.service';
+import type {
+  ActiveSessionCount,
+  ImpersonationAuditSummary,
+  ImpersonationEligibility,
+  ImpersonationValidation,
+  StartedImpersonationSession,
 } from '../services/impersonation.service';
 
 // ============================================================================
 // DTOs with Validation
 // ============================================================================
 
-class GrantPermissionDto {
+export class GrantPermissionDto {
   @IsUUID('4', { message: 'Invalid super admin ID format' })
   superAdminId!: string;
 
@@ -110,7 +121,7 @@ class GrantPermissionDto {
   notes?: string;
 }
 
-class StartImpersonationDto {
+export class StartImpersonationDto {
   @IsUUID('4', { message: 'Invalid target tenant ID format' })
   targetTenantId!: string;
 
@@ -153,7 +164,7 @@ class StartImpersonationDto {
   durationMinutes?: number;
 }
 
-class LogActionDto {
+export class LogActionDto {
   @IsString()
   @MaxLength(100)
   action!: string;
@@ -172,20 +183,20 @@ class LogActionDto {
   details?: Record<string, unknown>;
 }
 
-class EndImpersonationDto {
+export class EndImpersonationDto {
   @IsOptional()
   @IsString()
   @MaxLength(500)
   reason?: string;
 }
 
-class TerminateSessionDto {
+export class TerminateSessionDto {
   @IsString()
   @MaxLength(500)
   reason!: string;
 }
 
-class LogResourceAccessDto {
+export class LogResourceAccessDto {
   @IsString()
   @MaxLength(100)
   resourceType!: string;
@@ -199,7 +210,7 @@ class LogResourceAccessDto {
   action!: string;
 }
 
-class ExtendSessionDto {
+export class ExtendSessionDto {
   @IsInt()
   @Min(5, { message: 'Minimum extension is 5 minutes' })
   // RBAC-MEDIUM-009 (M7): an extension can never exceed the absolute session
@@ -210,7 +221,7 @@ class ExtendSessionDto {
   additionalMinutes!: number;
 }
 
-class QueryPermissionsDto {
+export class QueryPermissionsDto {
   @IsOptional()
   @IsUUID('4')
   tenantId?: string;
@@ -233,7 +244,7 @@ class QueryPermissionsDto {
   limit?: number;
 }
 
-class QuerySessionsDto {
+export class QuerySessionsDto {
   @IsOptional()
   @IsUUID('4')
   superAdminId?: string;
@@ -301,7 +312,9 @@ export class ImpersonationController {
   // ============================================================================
 
   @Get('permissions')
-  async queryPermissions(@Query() query: QueryPermissionsDto) {
+  async queryPermissions(
+    @Query() query: QueryPermissionsDto,
+  ): Promise<IStandardPaginatedResult<ImpersonationPermission>> {
     return this.impersonationService.queryPermissions({
       tenantId: query.tenantId,
       isActive: query.isActive !== undefined ? query.isActive === 'true' : undefined,
@@ -317,7 +330,7 @@ export class ImpersonationController {
   async grantPermission(
     @Body() dto: GrantPermissionDto,
     @Req() req: Request,
-  ) {
+  ): Promise<ImpersonationPermission> {
     // SECURITY FIX: Get admin ID from verified JWT token, not client-supplied headers
     const user = getAuthUser(req);
     if (!user?.id) {
@@ -331,7 +344,9 @@ export class ImpersonationController {
   }
 
   @Get('permissions/:superAdminId')
-  async getPermission(@Param('superAdminId') superAdminId: string) {
+  async getPermission(
+    @Param('superAdminId') superAdminId: string,
+  ): Promise<ImpersonationPermission | null> {
     return this.impersonationService.getImpersonationPermission(superAdminId);
   }
 
@@ -340,15 +355,26 @@ export class ImpersonationController {
   @ThrottleSensitive()
   @Post('permissions/:superAdminId/revoke')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async revokePermission(@Param('superAdminId') superAdminId: string) {
-    await this.impersonationService.revokeImpersonationPermission(superAdminId);
+  async revokePermission(
+    @Param('superAdminId') superAdminId: string,
+    @Req() req: Request,
+  ): Promise<void> {
+    // The actor comes from the verified JWT, never from the request — the same
+    // rule `grantPermission` above already follows (ADMIN-MEDIUM-056). Revoking
+    // impersonation permission is at least as security-relevant as granting it,
+    // and until now it recorded no actor at all.
+    const user = getAuthUser(req);
+    if (!user?.id) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+    await this.impersonationService.revokeImpersonationPermission(superAdminId, user.id);
   }
 
   @Get('permissions/:superAdminId/check/:tenantId')
   async checkPermission(
     @Param('superAdminId') superAdminId: string,
     @Param('tenantId') tenantId: string,
-  ) {
+  ): Promise<ImpersonationEligibility> {
     return this.impersonationService.canImpersonate(superAdminId, tenantId);
   }
 
@@ -362,7 +388,7 @@ export class ImpersonationController {
   async startImpersonation(
     @Body() dto: StartImpersonationDto,
     @Req() req: Request,
-  ) {
+  ): Promise<StartedImpersonationSession> {
     // SECURITY FIX: Get admin identity from verified JWT token, not client-supplied headers
     const user = getAuthUser(req);
     // H-08: email PII removed from JWT — only id (sub) is guaranteed present.
@@ -389,7 +415,7 @@ export class ImpersonationController {
     @Param('id') sessionId: string,
     @Body() dto: EndImpersonationDto,
     @Req() req: Request,
-  ) {
+  ): Promise<SafeImpersonationSession> {
     // SECURITY FIX: Get admin ID from verified JWT token, not client-supplied headers
     const user = getAuthUser(req);
     if (!user?.id) {
@@ -405,7 +431,7 @@ export class ImpersonationController {
     @Param('id') sessionId: string,
     @Body() dto: TerminateSessionDto,
     @Req() req: Request,
-  ) {
+  ): Promise<SafeImpersonationSession> {
     // SECURITY FIX: Get admin ID from verified JWT token, not client-supplied headers
     const user = getAuthUser(req);
     if (!user?.id) {
@@ -421,7 +447,7 @@ export class ImpersonationController {
     @Param('id') sessionId: string,
     @Body() dto: ExtendSessionDto,
     @Req() req: Request,
-  ) {
+  ): Promise<SafeImpersonationSession> {
     const user = getAuthUser(req);
     if (!user?.id) {
       throw new UnauthorizedException('User not authenticated');
@@ -442,29 +468,31 @@ export class ImpersonationController {
   async validateSession(
     @Headers('x-impersonation-token') token: string,
     @Req() req: Request,
-  ) {
+  ): Promise<ImpersonationValidation> {
     const requestIp = (req.ip || req.socket.remoteAddress) ?? undefined;
     const context = await this.impersonationService.validateSession(token, requestIp);
     return { valid: !!context, context };
   }
 
   @Get('sessions/active')
-  async getActiveSessions() {
+  async getActiveSessions(): Promise<SafeImpersonationSession[]> {
     return this.impersonationService.getActiveSessions();
   }
 
   @Get('sessions/active/count')
-  async getActiveSessionCount() {
+  async getActiveSessionCount(): Promise<ActiveSessionCount> {
     return { count: this.impersonationService.getActiveSessionCount() };
   }
 
   @Get('sessions/:id')
-  async getSession(@Param('id') id: string) {
+  async getSession(@Param('id') id: string): Promise<SafeImpersonationSession> {
     return this.impersonationService.getSession(id);
   }
 
   @Get('sessions')
-  async querySessions(@Query() query: QuerySessionsDto) {
+  async querySessions(
+    @Query() query: QuerySessionsDto,
+  ): Promise<IStandardPaginatedResult<SafeImpersonationSession>> {
     return this.impersonationService.querySessions({
       superAdminId: query.superAdminId,
       targetTenantId: query.targetTenantId,
@@ -484,7 +512,10 @@ export class ImpersonationController {
 
   @Post('sessions/:id/log-action')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async logAction(@Param('id') sessionId: string, @Body() dto: LogActionDto) {
+  async logAction(
+    @Param('id') sessionId: string,
+    @Body() dto: LogActionDto,
+  ): Promise<void> {
     await this.impersonationService.logAction(
       sessionId,
       dto.action,
@@ -499,7 +530,7 @@ export class ImpersonationController {
   async logResourceAccess(
     @Param('id') sessionId: string,
     @Body() dto: LogResourceAccessDto,
-  ) {
+  ): Promise<void> {
     await this.impersonationService.logResourceAccess(
       sessionId,
       dto.resourceType,
@@ -516,7 +547,7 @@ export class ImpersonationController {
   async getAuditSummary(
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
-  ) {
+  ): Promise<ImpersonationAuditSummary> {
     return this.impersonationService.getAuditSummary(
       startDate ? new Date(startDate) : undefined,
       endDate ? new Date(endDate) : undefined,

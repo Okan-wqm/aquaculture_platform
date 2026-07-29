@@ -224,6 +224,42 @@ export interface SafeImpersonationSession {
 }
 
 /** @see transitive */
+export interface ImpersonationPermission {
+  id: string;
+  superAdminId: string;
+  superAdminEmail?: string;
+  canImpersonate: boolean;
+  isActive: boolean;
+  allowedTenants?: string[];
+  restrictedTenants?: string[];
+  defaultPermissions?: ImpersonationPermissions;
+  maxSessionDurationMinutes: number;
+  maxConcurrentSessions: number;
+  requireReason: boolean;
+  requireTicketReference: boolean;
+  notifyTenantAdmin: boolean;
+  grantedBy?: string;
+  grantedAt?: string;
+  expiresAt?: string;
+  notes?: string;
+  revokedBy?: null | string;
+  revokedAt?: null | string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** @see transitive */
+export interface ImpersonationContext {
+  sessionId: string;
+  superAdminId: string;
+  targetTenantId: string;
+  targetUserId?: string;
+  permissions: ImpersonationPermissions;
+  expiresAt: string;
+  isActive: boolean;
+}
+
+/** @see transitive */
 export interface TenantLimitsDto {
   maxUsers?: number;
   maxFarms?: number;
@@ -605,6 +641,96 @@ export interface ImpersonationAuditSummary {
   recentSessionsInWindow: SafeImpersonationSession[];
   activeSessionsNow: number;
   activePermissionsNow: number;
+}
+
+/** @see apps/admin-api-service/src/impersonation/services/impersonation.service.ts */
+export interface StartedImpersonationSession {
+  id: string;
+  superAdminId: string;
+  superAdminEmail?: string;
+  targetTenantId: string;
+  targetTenantName?: string;
+  targetUserId?: string;
+  targetUserEmail?: string;
+  status: "active" | "ended" | "expired" | "terminated";
+  reason: "support_request" | "debugging" | "configuration" | "onboarding_assistance" | "security_investigation" | "data_verification" | "other";
+  reasonDetails?: string;
+  ticketReference?: string;
+  permissions?: ImpersonationPermissions;
+  ipAddress?: string;
+  userAgent?: string;
+  mfaCompleted: boolean;
+  expiresAt: string;
+  endedAt?: string;
+  endReason?: string;
+  actionsPerformed?: ImpersonationAction[];
+  actionCount: number;
+  accessedResources?: Array<{
+    type: string;
+    id: string;
+    action: string;
+    timestamp: string;
+  }>;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  impersonationToken: string;
+}
+
+/** @see apps/admin-api-service/src/impersonation/services/impersonation.service.ts */
+export interface ImpersonationEligibility {
+  allowed: boolean;
+  reason?: string;
+  permission?: ImpersonationPermission;
+}
+
+/** @see apps/admin-api-service/src/impersonation/services/impersonation.service.ts */
+export interface ImpersonationValidation {
+  valid: boolean;
+  context: null | ImpersonationContext;
+}
+
+/** @see apps/admin-api-service/src/impersonation/services/impersonation.service.ts */
+export interface ActiveSessionCount {
+  count: number;
+}
+
+/** @see apps/admin-api-service/src/impersonation/controllers/impersonation.controller.ts */
+export interface StartImpersonationRequest {
+  targetTenantId: string;
+  targetTenantName?: string;
+  targetUserId?: string;
+  targetUserEmail?: string;
+  reason: "support_request" | "debugging" | "configuration" | "onboarding_assistance" | "security_investigation" | "data_verification" | "other";
+  reasonDetails?: string;
+  ticketReference?: string;
+  permissions?: {
+    canViewData?: false | true;
+    canModifyData?: false | true;
+    canAccessSettings?: false | true;
+    canManageUsers?: false | true;
+    canViewBilling?: false | true;
+    canExportData?: false | true;
+    restrictedModules?: string[];
+    allowedModules?: string[];
+  };
+  durationMinutes?: number;
+}
+
+/** @see apps/admin-api-service/src/impersonation/controllers/impersonation.controller.ts */
+export interface GrantPermissionDto {
+  superAdminId: string;
+  superAdminEmail?: string;
+  allowedTenants?: string[];
+  restrictedTenants?: string[];
+  defaultPermissions?: ImpersonationPermissions;
+  maxSessionDurationMinutes?: number;
+  maxConcurrentSessions?: number;
+  requireReason?: false | true;
+  requireTicketReference?: false | true;
+  notifyTenantAdmin?: false | true;
+  expiresAt?: string;
+  notes?: string;
 }
 
 // ==========================================================================

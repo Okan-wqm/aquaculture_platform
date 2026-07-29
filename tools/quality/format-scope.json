@@ -2477,6 +2477,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1802600000000-AddImpersonationPermissionRevocationAudit.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -46389,7 +46395,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "3202da08f9ed8deee704c95c8c9cefd837fc7b93c35350306f8a6a84a1498339",
+      "content_sha256": "92d9779b53e51958cd19619720e2ff629ba4f9ea1476ecf6639f6c3597117d6b",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/types/generated/admin-contracts.ts",
@@ -55703,10 +55709,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9132,
+  "file_count": 9133,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8950,
-  "managed_file_list_sha256": "bd470b14a2f12124782c63d743f29aa518ec4658431d57ecde9e87dc0e5e1578",
+  "managed_count": 8951,
+  "managed_file_list_sha256": "6c285b9655ed3f12bfe206d64f38bc5b06785c69b3f64ca8262c4c75fd65c17e",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

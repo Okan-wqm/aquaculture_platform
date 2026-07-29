@@ -32401,6 +32401,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-07-29-as-never-typed-doubles.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-07-29-orphan-jest-config-surface.md",
       "prettier_managed": true
     },
@@ -55356,10 +55362,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9075,
+  "file_count": 9076,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8894,
-  "managed_file_list_sha256": "bb462a7b9b3b6e38e4165e75b1579dc8cef93c2bf985e728b2630d780e932217",
+  "managed_count": 8895,
+  "managed_file_list_sha256": "8fa41b8b0a7cc5333c0285f558a8783c8153f793894cceda5a1c03ffe1fd2200",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

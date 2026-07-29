@@ -66,13 +66,21 @@ async function main(): Promise<void> {
   // opens a DB/NATS connection (that happens at DI instantiation, which we never
   // do — we only reflect decorator metadata into the global TypeMetadataStorage).
   const requireTs = createRequire(__filename);
-  const resolverCtors: unknown[] = [];
+  // A resolver export is a CLASS, and that is assignable to the `Function[]`
+  // GraphQLSchemaFactory.create() declares — so the list can be typed at what it
+  // actually holds instead of collected as `unknown[]` and cast at the call site.
+  // The bare `Function` type is not used here: eslint's no-unsafe-function-type
+  // bans it, and it would accept any callable, including the plain functions this
+  // loop is filtering out.
+  type ResolverClass = (new (...args: never[]) => object) & { readonly name: string };
+  const resolverCtors: ResolverClass[] = [];
   for (const file of resolverFiles) {
     const mod = requireTs(file) as Record<string, unknown>;
     for (const exported of Object.values(mod)) {
-      if (typeof exported === 'function' && /Resolver$/.test((exported as { name: string }).name)) {
-        resolverCtors.push(exported);
-      }
+      if (typeof exported !== 'function') continue;
+      const candidate = exported as ResolverClass;
+      if (!/Resolver$/.test(candidate.name)) continue;
+      resolverCtors.push(candidate);
     }
   }
 
@@ -83,7 +91,7 @@ async function main(): Promise<void> {
 
   // Build the base code-first schema (federation v2 needs no extra directives —
   // @key etc. are carried by the @Directive decorators on the entity types).
-  const schema = await schemaFactory.create(resolverCtors as never[], [], {
+  const schema = await schemaFactory.create(resolverCtors, [], {
     skipCheck: true,
     orphanedTypes: [],
   });

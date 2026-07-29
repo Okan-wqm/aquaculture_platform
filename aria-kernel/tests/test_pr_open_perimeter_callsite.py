@@ -1,4 +1,21 @@
-"""ORPHAN-CRITICAL-428 — the pre-PR-open perimeter has a PRODUCTION caller.
+"""ORPHAN-CRITICAL-428 — the pre-PR-open perimeter has a caller. An OPERATOR one.
+
+Scope correction (ORPHAN-CRITICAL-498)
+======================================
+This file's original title claimed a "PRODUCTION caller" without qualifying
+which lane. That reads as "the nightly runs the perimeter", and it does not.
+`run_hard_fail_checks` has exactly one caller, `pr_manager.open_pr_for_action`,
+and that has exactly two: the operator CLI (`cli.py`, `pr open`) and
+`cycle._run_pr_lifecycle_phase`. The second is unreachable — it is entered only
+via `_run_extended_phases`, which fires only when a caller passes `run_phases`
+or `pre_tool_phases`, and no production caller passes either.
+
+So what this file pins is real but narrower than it read: the perimeter is
+wired into the PR-open path, and that path is currently operator-driven.
+Putting it on the scheduled lane is RC-1 of the follow-up plan (collapse the
+two cycle pipelines into one declarative registry). The tests below are
+unchanged and still valid — only the claim about reach is corrected.
+
 
 Why this file exists separately from the perimeter's own unit tests
 ====================================================================
@@ -144,12 +161,21 @@ class PrOpenPerimeterCallsiteTests(unittest.TestCase):
     def test_dry_run_is_refused_when_the_perimeter_fails(self) -> None:
         """A dry run is gated too, and the refusal names what blocked it.
 
-        The only production route into open_pr_for_action is the cycle's
-        pr_lifecycle phase with dry_run=True, so a gate that spared the dry-run
-        path would be unreachable in production — the original defect wearing a
-        different hat. A preview that reports `ok` while the perimeter would
-        block is a false green, which is the failure mode this whole wave keeps
-        finding.
+        ORPHAN-CRITICAL-498 corrected this docstring. It used to assert that
+        "the only production route into open_pr_for_action is the cycle's
+        pr_lifecycle phase with dry_run=True", and BOTH halves were false:
+
+        * that phase is unreachable — it is entered only from
+          ``_run_extended_phases``, which requires a caller to pass
+          ``run_phases`` / ``pre_tool_phases``, and no production caller does;
+        * the actual live route is ``cli.py`` ``pr open``, i.e. an operator
+          typing a command.
+
+        So ``run_hard_fail_checks`` does not execute on the scheduled lane at
+        all. The gating asserted below is real, but it is operator-path gating
+        until the cycle pipeline is collapsed (RC-1). A comment stating a dead
+        route as production fact is precisely what let that survive review,
+        which is why the correction lives here rather than only in the finding.
         """
         pid = self._seed(changed_files=[KERNEL_FILE], proposal_id="PROP-CALLSITE-2")
         with self.assertRaises(GovernanceError) as caught:
@@ -181,9 +207,6 @@ class PrOpenPerimeterCallsiteTests(unittest.TestCase):
         )
         self.assertEqual(len(row["head_sha"]), 40)
 
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class BreakerProducerCallsiteTests(unittest.TestCase):
@@ -275,3 +298,6 @@ class BreakerProducerCallsiteTests(unittest.TestCase):
         self.assertEqual(row["passed"], False, "the refusal must still be reported")
         self.assertIn("breaker_record_error", row)
         self.assertIn("OSError", row["breaker_record_error"])
+
+if __name__ == "__main__":
+    unittest.main()

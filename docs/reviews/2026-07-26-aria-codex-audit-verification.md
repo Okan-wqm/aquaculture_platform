@@ -1469,3 +1469,22 @@ finding is one nobody can navigate back to from the review that produced it.
 > **Pattern, four times in one session.** Every defect above survived because the fixture did not resemble production: a
 > full clone where production is shallow (`494`), a request dict carrying a field 11 mint paths omit (`495`), a timeout
 > literal production never emits (`497`). The lens that caught them ran the code; the lenses that missed them read it.
+
+* **ORPHAN-CRITICAL-498** — the pre-PR-open perimeter is **not on the scheduled lane**  
+  Severity CRITICAL, layer 1, owner okan, deadline 2026-08-12. Successor to `ORPHAN-CRITICAL-428`, whose closure claim is
+  narrower than it reads. The two lenses contradicted each other — one predicted the perimeter would trip the breaker on
+  the nightly lane, the other said that path is unreachable — and the source settles it: `grep` for `run_phases=` /
+  `pre_tool_phases=` across `aria-kernel/`, `tools/` and `.github/` returns **one comment and no caller**. So
+  `_run_extended_phases` never runs, `_run_pr_lifecycle_phase` never runs, and `run_hard_fail_checks` executes in
+  production **only** when an operator types `pr open`. The regression lens's self-halt HIGH is refuted on reachability and
+  replaced by something worse: not "the perimeter halts the lane" but "the perimeter is not on the lane". `record_failure`
+  at `cycle.py:948` is dead on the same path, but the breaker producer survives via `planner_dispatch_hook.py:388`, so
+  `ORPHAN-CRITICAL-485` **is** genuinely closed. Fix is RC-1 of the follow-up plan: collapse the two pipelines into one
+  declarative registry, delete the kwarg seam, and add a static call-graph reachability invariant.
+
+* **ORPHAN-HIGH-499** — the HUMAN_REQUIRED sweep test asserts an import, not a call  
+  Severity HIGH, layer 1, owner okan, deadline 2026-08-12. Proven by mutation rather than argued: deleting the call at
+  `cycle.py:503` while keeping the import leaves all 6 tests in the file green **and the entire 2943-test suite
+  byte-identical**. No Python linter runs in CI, so the orphaned import is not flagged either. The sweep call itself *is*
+  live (inside `run_enterprise_cycle`, not the dead branch) — this is a blind-test defect, not a dead-path one, and the two
+  must not be conflated. Fix reuses the pattern already correct at `test_pr_open_perimeter_callsite.py:132-142`.

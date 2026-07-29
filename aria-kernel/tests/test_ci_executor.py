@@ -17,16 +17,150 @@ if str(_POC_DIR) not in sys.path:
 import ci_executor  # noqa: E402
 
 
-class CostCapTests(unittest.TestCase):
-    def test_validate_cost_cap_passes_under_limit(self) -> None:
-        with patch.dict(os.environ, {"MAX_TURNS_PER_RUN": "12"}):
-            ci_executor._validate_cost_cap(request={"evidence_refs": ["a"] * 5})
+class DispatchBudgetTests(unittest.TestCase):
+    """ORPHAN-HIGH-472 — `_validate_cost_cap` is now `_validate_dispatch_budget`.
 
-    def test_validate_cost_cap_rejects_over_limit(self) -> None:
+    The rename is not cosmetic: the USD half of the old gate is gone, because
+    ARIA runs on a Claude Code subscription session and nothing is charged per
+    run. The envelope-shape heuristic survives as an independent pre-flight,
+    and the time ceiling is the part that actually binds.
+    """
+
+    def setUp(self) -> None:
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tools = Path(self._tmp.name) / "aria-tools"
+        self.tools.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_envelope_shape_under_limit_passes(self) -> None:
+        with patch.dict(os.environ, {"MAX_TURNS_PER_RUN": "12"}):
+            ci_executor._validate_dispatch_budget(
+                request={"evidence_refs": ["a"] * 5},
+                tools_dir=self.tools,
+                timeout_seconds=600,
+            )
+
+    def test_envelope_shape_over_limit_rejects(self) -> None:
         with patch.dict(os.environ, {"MAX_TURNS_PER_RUN": "5"}):
             # cap = 5 * 4 = 20; 25 refs exceeds.
             with self.assertRaises(ci_executor.CostCapExceeded):
-                ci_executor._validate_cost_cap(request={"evidence_refs": ["x"] * 25})
+                ci_executor._validate_dispatch_budget(
+                    request={"evidence_refs": ["x"] * 25},
+                    tools_dir=self.tools,
+                    timeout_seconds=600,
+                )
+
+    def test_no_usd_env_var_can_refuse_a_dispatch(self) -> None:
+        # The old gate read MAX_BUDGET_USD_PER_CYCLE. Setting it absurdly low
+        # must now change nothing at all — if this ever fails, a dollar figure
+        # has crept back onto the decision path.
+        with patch.dict(
+            os.environ,
+            {"MAX_BUDGET_USD_PER_CYCLE": "0.0001", "MAX_BUDGET_USD_PER_RUN": "0.0001",
+             "MAX_TURNS_PER_RUN": "12"},
+        ):
+            ci_executor._validate_dispatch_budget(
+                request={"evidence_refs": ["a"] * 5},
+                tools_dir=self.tools,
+                timeout_seconds=600,
+            )
+
+    def test_exhausted_cycle_wall_clock_refuses_the_dispatch(self) -> None:
+        from aria_kernel.budget import WallClockExhausted, record_run_wall_clock
+        from aria_kernel.tool_registry import ensure_tools_dir
+
+        tools = ensure_tools_dir(self.tools)
+        record_run_wall_clock(cycle_id="c1", seconds=1790, base_dir=tools)
+        # GITHUB_WORKFLOW_REF is what names the lane, and the lane's pinned
+        # job timeout is what the ceiling derives from.
+        with patch.dict(
+            os.environ,
+            {
+                "GITHUB_WORKFLOW_REF":
+                    "o/r/.github/workflows/aria-agent-executor.yml@refs/heads/main",
+                "MAX_TURNS_PER_RUN": "12",
+            },
+        ):
+            with self.assertRaises(WallClockExhausted):
+                ci_executor._validate_dispatch_budget(
+                    request={"evidence_refs": ["a"], "cycle_id": "c1"},
+                    tools_dir=tools,
+                    timeout_seconds=600,
+                )
+
+    def test_unknown_lane_does_not_refuse(self) -> None:
+        # Outside a recognised workflow there is no declared ceiling; the
+        # dispatch must proceed rather than be refused against a phantom cap.
+        from aria_kernel.tool_registry import ensure_tools_dir
+
+        tools = ensure_tools_dir(self.tools)
+        with patch.dict(
+            os.environ,
+            {"GITHUB_WORKFLOW_REF": "", "MAX_TURNS_PER_RUN": "12"},
+        ):
+            ci_executor._validate_dispatch_budget(
+                request={"evidence_refs": ["a"], "cycle_id": "c1"},
+                tools_dir=tools,
+                timeout_seconds=600,
+            )
+
+    def test_workflow_id_is_parsed_from_the_github_ref(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"GITHUB_WORKFLOW_REF":
+                "o/r/.github/workflows/aria-auto-cycle.yml@refs/heads/main"},
+        ):
+            self.assertEqual(ci_executor._current_workflow_id(), "aria-auto-cycle")
+
+    def test_run_duration_is_recorded_against_the_cycle(self) -> None:
+        from aria_kernel.budget import cycle_wall_clock_spent
+        from aria_kernel.tool_registry import ensure_tools_dir
+
+        tools = ensure_tools_dir(self.tools)
+        ci_executor._record_run_wall_clock(
+            request={"cycle_id": "c1"},
+            tools_dir=tools,
+            request_id="AIR-x",
+            seconds=42.5,
+        )
+        self.assertAlmostEqual(
+            cycle_wall_clock_spent(cycle_id="c1", base_dir=tools), 42.5
+        )
+
+    def test_recording_failure_never_fails_the_run(self) -> None:
+        # Accounting must not convert a completed agent run into a failed
+        # one. Missing a row costs one over-run cycle; raising here costs the
+        # work the agent just did.
+        ci_executor._record_run_wall_clock(
+            request={"cycle_id": "c1"},
+            tools_dir="/nonexistent/path/that/cannot/be/written",
+            request_id="AIR-x",
+            seconds=1.0,
+        )
+
+    def test_duration_is_booked_in_a_finally_not_only_on_success(self) -> None:
+        """Source-level, because exercising it needs a full main() run.
+
+        A run that timed out or was refused still burned the time. Booking it
+        only on the success path would under-count precisely in the case the
+        ceiling exists to catch — a cycle whose runs keep dying slowly.
+        """
+        src = (Path(_POC_DIR) / "ci_executor.py").read_text(encoding="utf-8")
+        finally_idx = src.index("    finally:\n")
+        record_idx = src.index("        _record_run_wall_clock(\n", finally_idx)
+        between = src[finally_idx:record_idx]
+        self.assertNotIn("except", between, "recording must sit in the finally arm")
+        self.assertIn("_run_started_at = time.monotonic()", src)
+
+    def test_retired_usd_helpers_are_gone(self) -> None:
+        # A tunable that gates nothing is worse than no tunable: an operator
+        # who lowers it believes they have tightened something.
+        self.assertFalse(hasattr(ci_executor, "_max_budget_usd"))
+        self.assertFalse(hasattr(ci_executor, "_max_budget_usd_per_cycle"))
+        self.assertFalse(hasattr(ci_executor, "_estimate_envelope_cost_usd"))
 
 
 class LeaseTokenRedactionTests(unittest.TestCase):

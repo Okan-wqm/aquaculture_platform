@@ -99,6 +99,17 @@ class WorkflowJobContract:
     # ``None`` means the job runs no burn-in step (and the verifier rejects a
     # burn-in step appearing in such a job — both directions are enforced).
     burn_in_timeout_floor_minutes: int | None = None
+    # ORPHAN-HIGH-472 — the job's ordinary (non-burn-in) ``timeout-minutes``.
+    # Pinned here so the kernel can derive its own wall-clock ceiling from the
+    # same number the runner enforces, instead of carrying a second constant
+    # that drifts. ``_verify_job_contract`` rejects a YAML/contract mismatch,
+    # so the two cannot diverge silently.
+    #
+    # This exists because of WHO stops the run. Today an over-running cycle is
+    # killed by GitHub: the job dies mid-step, the claimed request keeps its
+    # lease until expiry, no governance row is written and the breaker never
+    # sees it. ARIA has to stop itself first for the halt to be observable.
+    job_timeout_minutes: int | None = None
     # ORPHAN-CRITICAL-469 regression surface. ``first_governed_mutation_step``
     # pins ONE step name and its position relative to the preflight, and
     # nothing else: mutation testing showed the whole suite stayed green when
@@ -236,6 +247,7 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 dlp_artifact="aria-agent-executor-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
+                job_timeout_minutes=35,
                 required_steps=(
                     _EXECUTOR_RESTORE_STEP,
                     _EXECUTOR_LEASE_STEP,
@@ -299,6 +311,10 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # Measured REAL burn-in wall time ≈ 80-90 min (30 cycles ×
                 # ~2.5 min); the live YAML sets 150 for burn-in mode.
                 burn_in_timeout_floor_minutes=120,
+                # The ordinary branch of the mode-aware expression at
+                # aria-auto-cycle.yml:81 (burn-in takes the 150 branch and is
+                # governed by burn_in_timeout_floor_minutes above).
+                job_timeout_minutes=50,
                 # The producer is the shape aria-agent-executor mirrors, so it
                 # carries the same declared constraints — a reference
                 # implementation that is itself unpinned is a reference that
@@ -510,9 +526,39 @@ def workflow_job_contract_hash(workflow_id: str, job_id: str) -> str | None:
     ).hexdigest()
 
 
+# Minutes reserved between ARIA's self-imposed ceiling and the runner's hard
+# kill. The steps AFTER the agent runs still have to complete for the run to
+# have happened at all — submit the result, publish the aria-tools tree,
+# upload the artifact. A ceiling equal to the job timeout would stop ARIA at
+# the exact moment it can no longer record that it stopped.
+WALL_CLOCK_RESERVE_MINUTES = 5
+
+
+def cycle_wall_clock_cap_seconds(workflow_id: str, *, job_id: str | None = None) -> int | None:
+    """ARIA's own ceiling for a lane, derived from the pinned job timeout.
+
+    Returns None when the lane declares no timeout, which callers must treat
+    as "no self-imposed ceiling" rather than "unlimited" — the runner's own
+    timeout still applies, it just kills instead of halting.
+    """
+    contract = WORKFLOW_CONTRACTS.get(workflow_id)
+    if contract is None:
+        return None
+    for job in contract.job_contracts:
+        if job_id is not None and job.job_id != job_id:
+            continue
+        if job.job_timeout_minutes is None:
+            return None
+        budget = job.job_timeout_minutes - WALL_CLOCK_RESERVE_MINUTES
+        return max(0, budget) * 60
+    return None
+
+
 __all__ = [
     "AUDITED_WORKFLOW_EXCLUSIONS",
+    "WALL_CLOCK_RESERVE_MINUTES",
     "WORKFLOW_CONTRACTS",
+    "cycle_wall_clock_cap_seconds",
     "AuditedWorkflowExclusion",
     "WorkflowAbortGate",
     "WorkflowContract",

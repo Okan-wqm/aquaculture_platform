@@ -357,6 +357,13 @@ def _verify_job_contract(
         reasons.append(f"workflow_preflight_after_first_governed_mutation:{job_contract.job_id}")
         failure_classes.append("workflow_contract_ordering")
 
+    _verify_job_timeout_minutes(
+        job_id=job_contract.job_id,
+        job=job,
+        declared_minutes=job_contract.job_timeout_minutes,
+        reasons=reasons,
+        failure_classes=failure_classes,
+    )
     _verify_permissions(
         job_id=job_contract.job_id,
         actual=job.get("permissions") if isinstance(job.get("permissions"), dict) else top_permissions,
@@ -550,6 +557,51 @@ _BURN_IN_STEP_MARKER = "autonomy burn-in observe"
 # ``${{ github.event.inputs.mode == 'burn-in-observe' && 150 || 50 }}`` —
 # the captured integer is the timeout that applies when burn-in actually runs.
 _BURN_IN_TIMEOUT_EXPR = re.compile(r"burn-in-observe'\s*&&\s*(\d+)")
+
+
+# The ordinary branch of the same mode-aware expression — the ``|| 50`` tail,
+# i.e. the timeout that applies when burn-in is NOT running.
+_ORDINARY_TIMEOUT_EXPR = re.compile(r"\|\|\s*(\d+)\s*\}\}")
+
+
+def _verify_job_timeout_minutes(
+    *,
+    job_id: str,
+    job: dict[str, Any],
+    declared_minutes: int | None,
+    reasons: list[str],
+    failure_classes: list[str],
+) -> None:
+    """The pinned ``job_timeout_minutes`` must equal the YAML's own timeout.
+
+    ORPHAN-HIGH-472. The kernel derives its self-imposed wall-clock ceiling
+    from the contract (``cycle_wall_clock_cap_seconds``), so if the contract
+    and the YAML disagree, ARIA budgets against a limit the runner does not
+    enforce — it would either stop early for no reason or, worse, keep going
+    past the point where GitHub kills it, which is the failure the ceiling
+    exists to prevent. Binding them here is what stops the second constant
+    drifting away from the first.
+    """
+    if declared_minutes is None:
+        return
+    raw_timeout = job.get("timeout-minutes")
+    effective: int | None = None
+    if isinstance(raw_timeout, int):
+        effective = raw_timeout
+    elif isinstance(raw_timeout, str):
+        match = _ORDINARY_TIMEOUT_EXPR.search(raw_timeout)
+        if match:
+            effective = int(match.group(1))
+    if effective is None:
+        reasons.append(f"job_timeout_minutes_unreadable:{job_id}")
+        failure_classes.append("workflow_contract_job_timeout")
+        return
+    if effective != declared_minutes:
+        reasons.append(
+            f"job_timeout_minutes_mismatch:{job_id}:"
+            f"yaml={effective}:contract={declared_minutes}"
+        )
+        failure_classes.append("workflow_contract_job_timeout")
 
 
 def _verify_burn_in_timeout(

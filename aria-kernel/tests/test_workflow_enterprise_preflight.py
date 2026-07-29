@@ -621,6 +621,69 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
                 workflow_id=workflow_id, workspace_root=root,
             )
 
+    def _mutated_job_verdict(self, workflow_id: str, mutate_job):
+        """Apply ``mutate_job`` to the live job dict itself and re-verify."""
+        repo = Path(__file__).resolve().parents[2]
+        contract = WORKFLOW_CONTRACTS[workflow_id]
+        job_id = contract.job_contracts[0].job_id
+        import yaml  # local import: the verifier owns the dependency
+
+        workflow = yaml.safe_load(
+            (repo / contract.workflow_file).read_text(encoding="utf-8")
+        )
+        workflow["jobs"][job_id] = mutate_job(dict(workflow["jobs"][job_id]))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            target = root / contract.workflow_file
+            target.parent.mkdir(parents=True)
+            target.write_text(
+                yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8",
+            )
+            return verify_workflow_contract(
+                workflow_id=workflow_id, workspace_root=root,
+            )
+
+    def test_job_timeout_drifting_from_the_contract_is_rejected(self) -> None:
+        """ORPHAN-HIGH-472 — the kernel budgets against this number.
+
+        ``cycle_wall_clock_cap_seconds`` derives ARIA's self-imposed ceiling
+        from ``job_timeout_minutes``. If the YAML moved and the contract did
+        not, ARIA would budget against a limit the runner does not enforce:
+        either stopping early for nothing, or running past the point where
+        GitHub kills it — which is the exact failure the ceiling exists to
+        prevent, since a killed job strands the claim.
+        """
+        for workflow_id in (self._EXECUTOR, self._CYCLE):
+            with self.subTest(workflow=workflow_id):
+                def mutate(job):
+                    job["timeout-minutes"] = 999
+                    return job
+
+                verdict = self._mutated_job_verdict(workflow_id, mutate)
+                self.assertFalse(verdict.valid)
+                self.assertIn("workflow_contract_job_timeout", verdict.failure_classes)
+
+    def test_declared_job_timeout_matches_the_live_yaml(self) -> None:
+        # The acceptance direction, and a live-value assertion: if someone
+        # retunes the YAML timeout deliberately, this fails and points at the
+        # contract that must move with it.
+        from aria_kernel.workflow_contract_registry import (
+            WALL_CLOCK_RESERVE_MINUTES,
+            cycle_wall_clock_cap_seconds,
+        )
+
+        self.assertEqual(
+            cycle_wall_clock_cap_seconds(self._EXECUTOR),
+            (35 - WALL_CLOCK_RESERVE_MINUTES) * 60,
+        )
+        self.assertEqual(
+            cycle_wall_clock_cap_seconds(self._CYCLE),
+            (50 - WALL_CLOCK_RESERVE_MINUTES) * 60,
+        )
+        # An unknown lane must be None ("no self-imposed ceiling"), never 0,
+        # which would refuse every dispatch.
+        self.assertIsNone(cycle_wall_clock_cap_seconds("no-such-workflow"))
+
     @staticmethod
     def _index_of(steps, name: str) -> int:
         return next(

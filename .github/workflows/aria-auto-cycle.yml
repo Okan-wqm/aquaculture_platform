@@ -26,7 +26,12 @@ name: aria-auto-cycle
 #   - vars.ARIA_MOCK_KILL_SWITCH (read AHEAD of dispatch input/default)
 #   - aria-tools/ARIA_STOP file → orchestrator exits cleanly
 #   - cross-host autonomous-loop lease (refuses when a local daemon runs)
-#   - per-cycle $3.00 + per-run $20.00 budget caps
+#   - per-cycle wall-clock deadline (--cycle-deadline-seconds) + the
+#     executor's pre-dispatch wall-clock ceiling derived from this job's
+#     own timeout-minutes. ORPHAN-HIGH-472 removed the USD caps that used
+#     to be listed here: ARIA runs on a Claude Code subscription session,
+#     so there is no per-run charge for a dollar cap to bound, and the two
+#     figures ($20.00/run, $3.00/cycle) contradicted each other anyway.
 #   - concurrency group, cancel-in-progress: false
 
 on:
@@ -413,8 +418,6 @@ jobs:
             --tools-dir aria-tools \
             --profile standard \
             --max-cycles "$MAX_CYCLES" \
-            --max-budget-usd-per-run 20.00 \
-            --max-budget-usd-per-cycle 3.00 \
             --cycle-deadline-seconds 1800 | tee /tmp/cycle-summary.txt
           {
             echo '### Nightly cycle summary'

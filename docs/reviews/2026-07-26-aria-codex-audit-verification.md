@@ -1412,3 +1412,17 @@ finding is one nobody can navigate back to from the review that produced it.
   it. The ~20 requests stranded by `ORPHAN-CRITICAL-469` are anchored at commits that ARE ancestors of HEAD, 60+ commits back,
   so reachability alone would have passed every one; age is checked too. New terminal state `ANCHOR_STALE`, kept separate from
   the retryable `STALE`.
+
+* **ORPHAN-HIGH-472 reframed and closed** — the "40× cost cap disagreement" was a units error, not a calibration one.
+  ARIA runs its agents through the Claude Code CLI on a logged-in subscription session (`claude_runtime.py:3-13`; both
+  workflows reject `ANTHROPIC_API_KEY`), so there is no marginal per-run charge for a dollar cap to bound. Four figures
+  disagreed — `cost_budget` `per_run` $0.50, the workflow's `--max-budget-usd-per-run 20.00` **and**
+  `--max-budget-usd-per-cycle 3.00` in the same invocation, and a ~$1.15 measured run — because none was measuring spend.
+  The dispatch gate is now per-cycle wall clock, derived from each lane's pinned `timeout-minutes`, refusing any dispatch
+  whose own timeout exceeds the remaining budget. USD stays as telemetry, labelled `usd_basis: notional_api_equivalent`.
+
+* **ORPHAN-HIGH-493** — `reserve_cycle_budget` remains an orphaned USD enforcement point  
+  Severity HIGH, layer 1, owner okan, deadline 2026-08-26. **Declared incomplete work.** The approved plan said the third
+  orphaned cost control would be consolidated in the same commit; it was not, because it is pinned by v8 prerequisite
+  invariants and its CLI flags by another, and editing pinned invariants late in a green 65-commit PR is the trade
+  `ORPHAN-HIGH-486` exists to discourage. Recorded rather than implied.

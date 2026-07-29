@@ -355,6 +355,99 @@ def _per_run_remaining(base_dir: str | Path, cap: float) -> float:
     return max(0.0, cap - consumed)
 
 
+# ORPHAN-HIGH-472 — the only value `usd_basis` currently takes. It is a named
+# constant rather than a bare string so that the day ARIA does run against a
+# metered API, the two bases are distinguishable in the same ledger instead of
+# silently mixed.
+USD_BASIS_NOTIONAL_API_EQUIVALENT = "notional_api_equivalent"
+
+
+class WallClockExhausted(GovernanceError):
+    """A dispatch cannot finish inside what is left of the cycle's wall clock."""
+
+
+def record_run_wall_clock(
+    *,
+    cycle_id: str,
+    seconds: float,
+    base_dir: str | Path,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    """Append what a completed agent run actually cost in wall-clock time.
+
+    ORPHAN-HIGH-472. Time, not dollars, is what binds under a Claude Code
+    subscription: there is no marginal per-run charge, so the scarce things a
+    runaway loop consumes are the shared usage quota and CI minutes, and both
+    are spent in seconds.
+    """
+    if not isinstance(seconds, (int, float)) or seconds < 0:
+        raise GovernanceError(f"seconds must be >= 0, got {seconds!r}")
+    return _per_run_append(
+        base_dir,
+        {
+            "$schema": "aria/budget-reservation/v1",
+            "kind": "run_wall_clock",
+            "cycle_id": cycle_id,
+            "request_id": request_id,
+            "wall_clock_seconds": float(seconds),
+            "recorded_at": utc_now(),
+            "schema_version": 1,
+        },
+    )
+
+
+def cycle_wall_clock_spent(*, cycle_id: str, base_dir: str | Path) -> float:
+    """Seconds already spent on agent runs in this cycle, from the ledger."""
+    spent = 0.0
+    for row in _per_run_load(base_dir):
+        if row.get("kind") != "run_wall_clock" or row.get("cycle_id") != cycle_id:
+            continue
+        try:
+            spent += float(row.get("wall_clock_seconds", 0))
+        except (TypeError, ValueError):
+            continue
+    return spent
+
+
+def assert_dispatch_fits_wall_clock(
+    *,
+    cycle_id: str,
+    per_run_timeout_seconds: int,
+    cap_seconds: int | None,
+    base_dir: str | Path,
+) -> dict[str, Any]:
+    """Refuse a dispatch that cannot finish inside the cycle's remaining time.
+
+    The check is ``remaining < per_run_timeout``, not ``remaining <= 0``, and
+    that difference is the whole point. A run started with less time left than
+    its own timeout is a run GitHub will kill mid-flight, which is the state
+    that strands a claimed request: the lease is held, no result is submitted,
+    no governance row is written, and the breaker never learns anything. It is
+    strictly better to stop the cycle cleanly and let the request be picked up
+    by the next one.
+
+    ``cap_seconds=None`` means the lane declares no timeout, so there is no
+    self-imposed ceiling to enforce — the runner's own limit still applies.
+    """
+    if cap_seconds is None:
+        return {"status": "unbounded", "cycle_id": cycle_id}
+    spent = cycle_wall_clock_spent(cycle_id=cycle_id, base_dir=base_dir)
+    remaining = cap_seconds - spent
+    if remaining < per_run_timeout_seconds:
+        raise WallClockExhausted(
+            f"cycle_wall_clock_exhausted: cycle_id={cycle_id} "
+            f"remaining={remaining:.0f}s < per_run_timeout={per_run_timeout_seconds}s "
+            f"(cap={cap_seconds}s spent={spent:.0f}s)"
+        )
+    return {
+        "status": "ok",
+        "cycle_id": cycle_id,
+        "cap_seconds": cap_seconds,
+        "spent_seconds": spent,
+        "remaining_seconds": remaining,
+    }
+
+
 def reserve_cycle_budget(
     *,
     cycle_id: str,
@@ -599,6 +692,14 @@ def record_cost_attribution(
         "input_tokens": _non_negative_int(input_tokens, "input_tokens"),
         "output_tokens": _non_negative_int(output_tokens, "output_tokens"),
         "estimated_usd": float(estimated_usd),
+        # ORPHAN-HIGH-472 — what `estimated_usd` actually is. ARIA runs on a
+        # Claude Code subscription session, so no per-token charge is
+        # incurred: this figure prices the call at API list rates. It is a
+        # comparable, not an invoice. Labelled on the row rather than only in
+        # a docstring because the row is what a dashboard, an audit, or a
+        # future reader sees — and an unlabelled dollar figure in a ledger
+        # gets read as money spent. Nothing gates on it.
+        "usd_basis": USD_BASIS_NOTIONAL_API_EQUIVALENT,
         "pressure_source_type": pressure_source_type,
         "terminal_state": terminal_state,
         "signer_key_fp": effective_signer_fp,

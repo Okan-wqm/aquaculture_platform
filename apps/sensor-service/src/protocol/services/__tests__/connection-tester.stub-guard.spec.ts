@@ -19,7 +19,9 @@ describe('ConnectionTesterService — implementation-status guard', () => {
   const makeAdapter = () => ({
     testConnection: jest.fn().mockResolvedValue({ success: true, latencyMs: 5 }),
     connect: jest.fn().mockResolvedValue({ id: 'h1' }),
-    readData: jest.fn().mockResolvedValue({ timestamp: new Date(), values: { v: 1 }, quality: 100 }),
+    readData: jest
+      .fn()
+      .mockResolvedValue({ timestamp: new Date(), values: { v: 1 }, quality: 100 }),
     disconnect: jest.fn().mockResolvedValue(undefined),
   });
 
@@ -46,7 +48,11 @@ describe('ConnectionTesterService — implementation-status guard', () => {
     const adapter = makeAdapter();
     registry.getAdapter.mockReturnValue(adapter);
 
-    const result = await service.testConnection('PROFIBUS_DP', { host: '10.0.0.5' }, { fetchSampleData: false });
+    const result = await service.testConnection(
+      'PROFIBUS_DP',
+      { host: '10.0.0.5' },
+      { fetchSampleData: false },
+    );
 
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/no supported connection/i);
@@ -57,7 +63,11 @@ describe('ConnectionTesterService — implementation-status guard', () => {
     const adapter = makeAdapter();
     registry.getAdapter.mockReturnValue(adapter);
 
-    const result = await service.testConnection('I2C', { bus: 1, address: 72 }, { fetchSampleData: false });
+    const result = await service.testConnection(
+      'I2C',
+      { bus: 1, address: 72 },
+      { fetchSampleData: false },
+    );
 
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/edge gateway/i);
@@ -68,7 +78,11 @@ describe('ConnectionTesterService — implementation-status guard', () => {
     const adapter = makeAdapter();
     registry.getAdapter.mockReturnValue(adapter);
 
-    const result = await service.testConnection('MODBUS_TCP', { host: '10.0.0.5', port: 502 }, { fetchSampleData: false });
+    const result = await service.testConnection(
+      'MODBUS_TCP',
+      { host: '10.0.0.5', port: 502 },
+      { fetchSampleData: false },
+    );
 
     expect(adapter.testConnection).toHaveBeenCalledTimes(1);
     expect(result.success).toBe(true);

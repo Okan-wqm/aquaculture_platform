@@ -69,7 +69,10 @@ describe('ProtocolRegistryService protocol sync (SENSOR-MEDIUM-069)', () => {
   it('syncs the source schema AND fans the catalog out to every tenant schema', async () => {
     const tenantManager = makeManager();
     jest.mocked(forEachTenantSchema).mockImplementation(async (_dataSource, handler) => {
-      await handler({ schema: 'tenant_abcdef0123456789', queryRunner: { manager: tenantManager } } as never);
+      await handler({
+        schema: 'tenant_abcdef0123456789',
+        queryRunner: { manager: tenantManager },
+      } as never);
       return [{ schema: 'tenant_abcdef0123456789', outcome: 'ok' }];
     });
 

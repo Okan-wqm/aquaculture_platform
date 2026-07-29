@@ -12,10 +12,7 @@
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-  anchorFromDatabaseText,
-  encodeSensorReadingId,
-} from '@aquaculture/backend-common/sensor';
+import { anchorFromDatabaseText, encodeSensorReadingId } from '@aquaculture/backend-common/sensor';
 
 import { SensorQueryService } from '../../services/sensor-query.service';
 import { SensorReadingResolver } from '../sensor-reading.resolver';

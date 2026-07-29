@@ -8,7 +8,14 @@ import { inferChildSensorConfig, SensorType, ParameterCatalog } from '../registr
  * units/ranges.
  */
 const catalog: ParameterCatalog = {
-  water_level: { key: 'water_level', sensorType: SensorType.WATER_LEVEL, label: 'Water Level', unit: 'cm', min: 0, max: 500 },
+  water_level: {
+    key: 'water_level',
+    sensorType: SensorType.WATER_LEVEL,
+    label: 'Water Level',
+    unit: 'cm',
+    min: 0,
+    max: 500,
+  },
   ph: { key: 'ph', sensorType: SensorType.PH, label: 'pH', unit: 'pH', min: 0, max: 14 },
 };
 

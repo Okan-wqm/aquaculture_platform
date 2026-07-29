@@ -56,13 +56,21 @@ describe('registerSensor typeDefinitionId bootstrap (SENSOR-MEDIUM-071)', () => 
         },
         {
           provide: DataSource,
-          useValue: { transaction: jest.fn((cb: (m: typeof manager) => Promise<unknown>) => cb(manager)) },
+          useValue: {
+            transaction: jest.fn((cb: (m: typeof manager) => Promise<unknown>) => cb(manager)),
+          },
         },
         {
           provide: ProtocolRegistryService,
-          useValue: { hasProtocol: () => true, getProtocolDetails: () => Promise.resolve({ id: 'proto-1' }) },
+          useValue: {
+            hasProtocol: () => true,
+            getProtocolDetails: () => Promise.resolve({ id: 'proto-1' }),
+          },
         },
-        { provide: ProtocolValidatorService, useValue: { validate: () => ({ isValid: true, errors: [] }) } },
+        {
+          provide: ProtocolValidatorService,
+          useValue: { validate: () => ({ isValid: true, errors: [] }) },
+        },
         { provide: ConnectionTesterService, useValue: {} },
         { provide: EventEmitter2, useValue: { emit: jest.fn() } },
         { provide: ChannelManagementService, useValue: { createChannelsForSensor: jest.fn() } },

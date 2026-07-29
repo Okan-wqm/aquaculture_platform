@@ -32,13 +32,7 @@ function createHarness(
     failFor?: string;
   } = {},
 ): Harness {
-  const {
-    enabled = true,
-    timescale = true,
-    lock = true,
-    tenants = [TENANT_A],
-    failFor,
-  } = opts;
+  const { enabled = true, timescale = true, lock = true, tenants = [TENANT_A], failFor } = opts;
 
   // The schema the runner is currently pinned to, so current_schema() answers
   // truthfully and the service's own pin verification is actually exercised.
@@ -76,7 +70,7 @@ function createHarness(
   };
 
   const get = jest.fn((_key: string, def?: unknown): unknown =>
-    enabled ? def ?? 'true' : 'false',
+    enabled ? (def ?? 'true') : 'false',
   );
   const configService: Partial<ConfigService> = { get: get as ConfigService['get'] };
 
@@ -107,9 +101,9 @@ describe('ContinuousAggregateService — bootstrap (OPEN-ADR-030-CAGG)', () => {
     expect(sql.some((s) => s.includes('SET search_path TO "sensor"'))).toBe(false);
     // All three rollup views created.
     for (const view of ['metrics_1min', 'metrics_1hour', 'metrics_1day']) {
-      expect(
-        sql.some((s) => s.includes('CREATE MATERIALIZED VIEW') && s.includes(view)),
-      ).toBe(true);
+      expect(sql.some((s) => s.includes('CREATE MATERIALIZED VIEW') && s.includes(view))).toBe(
+        true,
+      );
     }
     // Real-time flag + refresh policy present.
     expect(sql.some((s) => s.includes('timescaledb.materialized_only = false'))).toBe(true);

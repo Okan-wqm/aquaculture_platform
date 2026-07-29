@@ -1,4 +1,7 @@
-import { getTenantSchemaName, validateTenantSchemaName } from '@aquaculture/backend-common/database';
+import {
+  getTenantSchemaName,
+  validateTenantSchemaName,
+} from '@aquaculture/backend-common/database';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager } from 'typeorm';
@@ -156,7 +159,9 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
       }
     }
 
-    this.logger.debug(`Wrote ${written} metrics across ${this.groupByTenant(valid).size} tenant(s)`);
+    this.logger.debug(
+      `Wrote ${written} metrics across ${this.groupByTenant(valid).size} tenant(s)`,
+    );
 
     if (failures.length > 0) {
       throw new Error(
@@ -300,9 +305,7 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
         continue;
       }
       if (!Number.isFinite(m.rawValue) || !Number.isFinite(m.value)) {
-        this.logger.warn(
-          `Non-finite metric dropped — rawValue: ${m.rawValue}, value: ${m.value}`,
-        );
+        this.logger.warn(`Non-finite metric dropped — rawValue: ${m.rawValue}, value: ${m.value}`);
         continue;
       }
       valid.push(m);

@@ -88,8 +88,13 @@ describe('BaseProtocolAdapter outbound host guard', () => {
     });
 
     it('throws an opaque error for an unsafe host', async () => {
-      validateHost.mockResolvedValue({ safe: false, reason: 'DNS resolved to private IP: 169.254.169.254' });
-      await expect(adapter.resolveHost('metadata.internal', 502)).rejects.toThrow('Connection failed');
+      validateHost.mockResolvedValue({
+        safe: false,
+        reason: 'DNS resolved to private IP: 169.254.169.254',
+      });
+      await expect(adapter.resolveHost('metadata.internal', 502)).rejects.toThrow(
+        'Connection failed',
+      );
     });
 
     it('throws when the verdict is safe but carries no resolved IP to pin', async () => {
@@ -106,7 +111,10 @@ describe('BaseProtocolAdapter outbound host guard', () => {
     });
 
     it('throws an opaque error for an unsafe host', async () => {
-      validateHost.mockResolvedValue({ safe: false, reason: 'Localhost addresses are not allowed.' });
+      validateHost.mockResolvedValue({
+        safe: false,
+        reason: 'Localhost addresses are not allowed.',
+      });
       await expect(adapter.assertHost('127.0.0.1', 8883)).rejects.toThrow('Connection failed');
     });
   });

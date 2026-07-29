@@ -18,10 +18,10 @@ const seedChannel = (
   calibrationMultiplier?: number,
   calibrationOffset?: number,
 ): SensorDataChannel =>
-  ({ channelKey, calibrationEnabled, calibrationMultiplier, calibrationOffset } as Pick<
+  ({ channelKey, calibrationEnabled, calibrationMultiplier, calibrationOffset }) as Pick<
     SensorDataChannel,
     'channelKey' | 'calibrationEnabled' | 'calibrationMultiplier' | 'calibrationOffset'
-  > as SensorDataChannel);
+  > as SensorDataChannel;
 
 describe('CalibrationService', () => {
   let service: CalibrationService;

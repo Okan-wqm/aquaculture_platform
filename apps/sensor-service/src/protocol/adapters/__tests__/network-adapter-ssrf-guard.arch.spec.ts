@@ -48,17 +48,24 @@ describe('network adapter SSRF guard coverage', () => {
  * raw socket.
  */
 describe('connection-test services delegate to guarded adapters', () => {
-  const RAW_SOCKET_OPENS = [/\bnet\.connect\s*\(/, /\bnet\.createConnection\s*\(/, /new\s+net\.Socket\s*\(/];
+  const RAW_SOCKET_OPENS = [
+    /\bnet\.connect\s*\(/,
+    /\bnet\.createConnection\s*\(/,
+    /new\s+net\.Socket\s*\(/,
+  ];
   const DELEGATING_SERVICES = [
     { path: '../../../plc-control/services/plc-connection.service.ts', delegate: 'opcUaAdapter' },
     { path: '../../../vfd/services/vfd-connection-tester.service.ts', delegate: 'edgeReadService' },
   ];
 
-  it.each(DELEGATING_SERVICES)('$path opens no raw socket and delegates via $delegate', ({ path, delegate }) => {
-    const source = readFileSync(join(__dirname, path), 'utf8');
-    expect(source).toContain(delegate);
-    for (const pattern of RAW_SOCKET_OPENS) {
-      expect(pattern.test(source)).toBe(false);
-    }
-  });
+  it.each(DELEGATING_SERVICES)(
+    '$path opens no raw socket and delegates via $delegate',
+    ({ path, delegate }) => {
+      const source = readFileSync(join(__dirname, path), 'utf8');
+      expect(source).toContain(delegate);
+      for (const pattern of RAW_SOCKET_OPENS) {
+        expect(pattern.test(source)).toBe(false);
+      }
+    },
+  );
 });

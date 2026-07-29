@@ -102,10 +102,7 @@ export class CreateTenantSensorMetricsHypertable1815000000000 implements Migrati
       ['idx_tenant_sensor_metrics_tenant_time', '("tenant_id", "time")'],
       ['idx_tenant_sensor_metrics_tank_time', '("tank_id", "time")'],
       ['idx_tenant_sensor_metrics_equipment_time', '("equipment_id", "time")'],
-      [
-        'idx_tenant_sensor_metrics_sensor_channel_time',
-        '("sensor_id", "channel_id", "time" DESC)',
-      ],
+      ['idx_tenant_sensor_metrics_sensor_channel_time', '("sensor_id", "channel_id", "time" DESC)'],
     ] as const) {
       await queryRunner.query(
         `CREATE INDEX IF NOT EXISTS "${name}" ON "sensor_metrics" ${columns}`,

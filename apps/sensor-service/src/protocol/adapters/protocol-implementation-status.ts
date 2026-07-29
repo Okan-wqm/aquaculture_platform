@@ -41,7 +41,9 @@ const S = ProtocolImplementationStatus;
  * PROTOCOL_ADAPTERS — the invariant spec fails the build if a registered code
  * is missing here.
  */
-export const PROTOCOL_IMPLEMENTATION_STATUS: Readonly<Record<string, ProtocolImplementationStatus>> = {
+export const PROTOCOL_IMPLEMENTATION_STATUS: Readonly<
+  Record<string, ProtocolImplementationStatus>
+> = {
   // Cloud-real: the adapter performs a real connection attempt (honest
   // success/failure), so gating ACTIVE on its result is truthful.
   MODBUS_TCP: S.CLOUD_REAL,

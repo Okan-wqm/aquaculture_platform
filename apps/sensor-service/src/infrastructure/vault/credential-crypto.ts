@@ -1,10 +1,6 @@
 import * as crypto from 'crypto';
 
-import {
-  ENCRYPTION_ALGORITHM,
-  IV_LENGTH,
-  ENCRYPTED_PREFIX,
-} from './credential-vault.constants';
+import { ENCRYPTION_ALGORITHM, IV_LENGTH, ENCRYPTED_PREFIX } from './credential-vault.constants';
 
 /**
  * Pure AES-256-GCM credential crypto (SENSOR-MEDIUM-080).
@@ -81,9 +77,7 @@ export function decryptSecretValue(value: string, key: Buffer): string {
   }
   const parts = value.slice(ENCRYPTED_PREFIX.length).split(':');
   if (parts.length !== 3) {
-    throw new Error(
-      'Malformed encrypted value: expected format enc:<iv>:<authTag>:<ciphertext>',
-    );
+    throw new Error('Malformed encrypted value: expected format enc:<iv>:<authTag>:<ciphertext>');
   }
   const [ivHex, authTagHex, ciphertextHex] = parts as [string, string, string];
   const decipher = crypto.createDecipheriv(

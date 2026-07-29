@@ -12,10 +12,7 @@ import {
   resolveEncryptionKey,
   KEY_LENGTH,
 } from '../credential-crypto';
-import {
-  hasSecretField,
-  mapProtocolSecretFields,
-} from '../protocol-secret-fields';
+import { hasSecretField, mapProtocolSecretFields } from '../protocol-secret-fields';
 import {
   SecretCipher,
   decryptProtocolConfig,

@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 
@@ -78,9 +73,7 @@ export class CalibrationRecordingService {
     // A non-finite or zero multiplier would corrupt every reading (zero collapses
     // all readings to the offset; NaN/Infinity poisons the data path).
     if (!Number.isFinite(input.calibrationMultiplier) || input.calibrationMultiplier === 0) {
-      throw new BadRequestException(
-        'calibrationMultiplier must be a finite, non-zero number',
-      );
+      throw new BadRequestException('calibrationMultiplier must be a finite, non-zero number');
     }
     if (!Number.isFinite(input.calibrationOffset)) {
       throw new BadRequestException('calibrationOffset must be a finite number');
@@ -147,10 +140,7 @@ export class CalibrationRecordingService {
    * Return the calibration history for a channel, newest first.
    * SECURITY: tenantId in the WHERE clause prevents cross-tenant IDOR.
    */
-  async getCalibrationHistory(
-    tenantId: string,
-    channelId: string,
-  ): Promise<CalibrationEvent[]> {
+  async getCalibrationHistory(tenantId: string, channelId: string): Promise<CalibrationEvent[]> {
     return this.calibrationEventRepository.find({
       where: { tenantId, channelId },
       order: { calibratedAt: 'DESC' },

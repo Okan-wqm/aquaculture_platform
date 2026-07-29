@@ -11,8 +11,22 @@ import { render, screen, fireEvent } from '@testing-library/react';
 vi.mock('../../../hooks/useSensorTypeDefinitions', () => ({
   useSensorTypeDefinitions: () => ({
     types: [
-      { id: 'td-ph', typeKey: 'ph', displayName: 'pH Probe', category: 'water', icon: null, isSystem: true },
-      { id: 'td-trout', typeKey: 'trout_multi', displayName: 'Trout Multi-Probe', category: 'aqua', icon: null, isSystem: false },
+      {
+        id: 'td-ph',
+        typeKey: 'ph',
+        displayName: 'pH Probe',
+        category: 'water',
+        icon: null,
+        isSystem: true,
+      },
+      {
+        id: 'td-trout',
+        typeKey: 'trout_multi',
+        displayName: 'Trout Multi-Probe',
+        category: 'aqua',
+        icon: null,
+        isSystem: false,
+      },
     ],
     loading: false,
     error: null,

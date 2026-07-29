@@ -41,59 +41,269 @@ const N = ChannelDataType.NUMBER;
  */
 export const SENSOR_PARAMETER_CATALOG: Record<string, ParameterDefinition> = {
   // Temperature variants
-  temperature: { sensorType: SensorType.TEMPERATURE, label: 'Temperature', unit: '°C', min: 0, max: 40, dataType: N },
-  temp: { sensorType: SensorType.TEMPERATURE, label: 'Temperature', unit: '°C', min: 0, max: 40, dataType: N },
-  water_temperature: { sensorType: SensorType.TEMPERATURE, label: 'Water Temperature', unit: '°C', min: 0, max: 40, dataType: N },
-  water_temp: { sensorType: SensorType.TEMPERATURE, label: 'Water Temperature', unit: '°C', min: 0, max: 40, dataType: N },
+  temperature: {
+    sensorType: SensorType.TEMPERATURE,
+    label: 'Temperature',
+    unit: '°C',
+    min: 0,
+    max: 40,
+    dataType: N,
+  },
+  temp: {
+    sensorType: SensorType.TEMPERATURE,
+    label: 'Temperature',
+    unit: '°C',
+    min: 0,
+    max: 40,
+    dataType: N,
+  },
+  water_temperature: {
+    sensorType: SensorType.TEMPERATURE,
+    label: 'Water Temperature',
+    unit: '°C',
+    min: 0,
+    max: 40,
+    dataType: N,
+  },
+  water_temp: {
+    sensorType: SensorType.TEMPERATURE,
+    label: 'Water Temperature',
+    unit: '°C',
+    min: 0,
+    max: 40,
+    dataType: N,
+  },
 
   // pH variants
   ph: { sensorType: SensorType.PH, label: 'pH', unit: 'pH', min: 0, max: 14, dataType: N },
-  ph_level: { sensorType: SensorType.PH, label: 'pH Level', unit: 'pH', min: 0, max: 14, dataType: N },
+  ph_level: {
+    sensorType: SensorType.PH,
+    label: 'pH Level',
+    unit: 'pH',
+    min: 0,
+    max: 14,
+    dataType: N,
+  },
 
   // Dissolved Oxygen variants
-  dissolved_oxygen: { sensorType: SensorType.DISSOLVED_OXYGEN, label: 'Dissolved Oxygen', unit: 'mg/L', min: 0, max: 20, dataType: N },
-  do: { sensorType: SensorType.DISSOLVED_OXYGEN, label: 'Dissolved Oxygen', unit: 'mg/L', min: 0, max: 20, dataType: N },
-  do_level: { sensorType: SensorType.DISSOLVED_OXYGEN, label: 'Dissolved Oxygen', unit: 'mg/L', min: 0, max: 20, dataType: N },
-  oxygen: { sensorType: SensorType.DISSOLVED_OXYGEN, label: 'Dissolved Oxygen', unit: 'mg/L', min: 0, max: 20, dataType: N },
-  o2: { sensorType: SensorType.DISSOLVED_OXYGEN, label: 'Dissolved Oxygen', unit: 'mg/L', min: 0, max: 20, dataType: N },
+  dissolved_oxygen: {
+    sensorType: SensorType.DISSOLVED_OXYGEN,
+    label: 'Dissolved Oxygen',
+    unit: 'mg/L',
+    min: 0,
+    max: 20,
+    dataType: N,
+  },
+  do: {
+    sensorType: SensorType.DISSOLVED_OXYGEN,
+    label: 'Dissolved Oxygen',
+    unit: 'mg/L',
+    min: 0,
+    max: 20,
+    dataType: N,
+  },
+  do_level: {
+    sensorType: SensorType.DISSOLVED_OXYGEN,
+    label: 'Dissolved Oxygen',
+    unit: 'mg/L',
+    min: 0,
+    max: 20,
+    dataType: N,
+  },
+  oxygen: {
+    sensorType: SensorType.DISSOLVED_OXYGEN,
+    label: 'Dissolved Oxygen',
+    unit: 'mg/L',
+    min: 0,
+    max: 20,
+    dataType: N,
+  },
+  o2: {
+    sensorType: SensorType.DISSOLVED_OXYGEN,
+    label: 'Dissolved Oxygen',
+    unit: 'mg/L',
+    min: 0,
+    max: 20,
+    dataType: N,
+  },
 
   // Salinity variants
-  salinity: { sensorType: SensorType.SALINITY, label: 'Salinity', unit: 'ppt', min: 0, max: 50, dataType: N },
-  salt: { sensorType: SensorType.SALINITY, label: 'Salinity', unit: 'ppt', min: 0, max: 50, dataType: N },
+  salinity: {
+    sensorType: SensorType.SALINITY,
+    label: 'Salinity',
+    unit: 'ppt',
+    min: 0,
+    max: 50,
+    dataType: N,
+  },
+  salt: {
+    sensorType: SensorType.SALINITY,
+    label: 'Salinity',
+    unit: 'ppt',
+    min: 0,
+    max: 50,
+    dataType: N,
+  },
 
   // Ammonia variants
-  ammonia: { sensorType: SensorType.AMMONIA, label: 'Ammonia', unit: 'mg/L', min: 0, max: 10, dataType: N },
-  nh3: { sensorType: SensorType.AMMONIA, label: 'Ammonia', unit: 'mg/L', min: 0, max: 10, dataType: N },
-  nh4: { sensorType: SensorType.AMMONIA, label: 'Ammonium', unit: 'mg/L', min: 0, max: 10, dataType: N },
-  total_ammonia: { sensorType: SensorType.AMMONIA, label: 'Total Ammonia Nitrogen', unit: 'mg/L', min: 0, max: 10, dataType: N },
-  tan: { sensorType: SensorType.AMMONIA, label: 'Total Ammonia Nitrogen', unit: 'mg/L', min: 0, max: 10, dataType: N },
+  ammonia: {
+    sensorType: SensorType.AMMONIA,
+    label: 'Ammonia',
+    unit: 'mg/L',
+    min: 0,
+    max: 10,
+    dataType: N,
+  },
+  nh3: {
+    sensorType: SensorType.AMMONIA,
+    label: 'Ammonia',
+    unit: 'mg/L',
+    min: 0,
+    max: 10,
+    dataType: N,
+  },
+  nh4: {
+    sensorType: SensorType.AMMONIA,
+    label: 'Ammonium',
+    unit: 'mg/L',
+    min: 0,
+    max: 10,
+    dataType: N,
+  },
+  total_ammonia: {
+    sensorType: SensorType.AMMONIA,
+    label: 'Total Ammonia Nitrogen',
+    unit: 'mg/L',
+    min: 0,
+    max: 10,
+    dataType: N,
+  },
+  tan: {
+    sensorType: SensorType.AMMONIA,
+    label: 'Total Ammonia Nitrogen',
+    unit: 'mg/L',
+    min: 0,
+    max: 10,
+    dataType: N,
+  },
 
   // Nitrite variants
-  nitrite: { sensorType: SensorType.NITRITE, label: 'Nitrite', unit: 'mg/L', min: 0, max: 5, dataType: N },
-  no2: { sensorType: SensorType.NITRITE, label: 'Nitrite', unit: 'mg/L', min: 0, max: 5, dataType: N },
+  nitrite: {
+    sensorType: SensorType.NITRITE,
+    label: 'Nitrite',
+    unit: 'mg/L',
+    min: 0,
+    max: 5,
+    dataType: N,
+  },
+  no2: {
+    sensorType: SensorType.NITRITE,
+    label: 'Nitrite',
+    unit: 'mg/L',
+    min: 0,
+    max: 5,
+    dataType: N,
+  },
 
   // Nitrate variants
-  nitrate: { sensorType: SensorType.NITRATE, label: 'Nitrate', unit: 'mg/L', min: 0, max: 100, dataType: N },
-  no3: { sensorType: SensorType.NITRATE, label: 'Nitrate', unit: 'mg/L', min: 0, max: 100, dataType: N },
+  nitrate: {
+    sensorType: SensorType.NITRATE,
+    label: 'Nitrate',
+    unit: 'mg/L',
+    min: 0,
+    max: 100,
+    dataType: N,
+  },
+  no3: {
+    sensorType: SensorType.NITRATE,
+    label: 'Nitrate',
+    unit: 'mg/L',
+    min: 0,
+    max: 100,
+    dataType: N,
+  },
 
   // Turbidity variants
-  turbidity: { sensorType: SensorType.TURBIDITY, label: 'Turbidity', unit: 'NTU', min: 0, max: 1000, dataType: N },
-  ntu: { sensorType: SensorType.TURBIDITY, label: 'Turbidity', unit: 'NTU', min: 0, max: 1000, dataType: N },
+  turbidity: {
+    sensorType: SensorType.TURBIDITY,
+    label: 'Turbidity',
+    unit: 'NTU',
+    min: 0,
+    max: 1000,
+    dataType: N,
+  },
+  ntu: {
+    sensorType: SensorType.TURBIDITY,
+    label: 'Turbidity',
+    unit: 'NTU',
+    min: 0,
+    max: 1000,
+    dataType: N,
+  },
 
   // Water Level variants
-  water_level: { sensorType: SensorType.WATER_LEVEL, label: 'Water Level', unit: 'cm', min: 0, max: 500, dataType: N },
-  level: { sensorType: SensorType.WATER_LEVEL, label: 'Water Level', unit: 'cm', min: 0, max: 500, dataType: N },
+  water_level: {
+    sensorType: SensorType.WATER_LEVEL,
+    label: 'Water Level',
+    unit: 'cm',
+    min: 0,
+    max: 500,
+    dataType: N,
+  },
+  level: {
+    sensorType: SensorType.WATER_LEVEL,
+    label: 'Water Level',
+    unit: 'cm',
+    min: 0,
+    max: 500,
+    dataType: N,
+  },
 
   // Flow Rate variants
-  flow_rate: { sensorType: SensorType.FLOW_RATE, label: 'Flow Rate', unit: 'L/min', min: 0, max: 1000, dataType: N },
-  flow: { sensorType: SensorType.FLOW_RATE, label: 'Flow Rate', unit: 'L/min', min: 0, max: 1000, dataType: N },
+  flow_rate: {
+    sensorType: SensorType.FLOW_RATE,
+    label: 'Flow Rate',
+    unit: 'L/min',
+    min: 0,
+    max: 1000,
+    dataType: N,
+  },
+  flow: {
+    sensorType: SensorType.FLOW_RATE,
+    label: 'Flow Rate',
+    unit: 'L/min',
+    min: 0,
+    max: 1000,
+    dataType: N,
+  },
 
   // Pressure — no dedicated SensorType, persisted as MULTI_PARAMETER (SENSOR-HIGH-028).
-  pressure: { sensorType: SensorType.MULTI_PARAMETER, label: 'Pressure', unit: 'bar', min: 0, max: 10, dataType: N },
+  pressure: {
+    sensorType: SensorType.MULTI_PARAMETER,
+    label: 'Pressure',
+    unit: 'bar',
+    min: 0,
+    max: 10,
+    dataType: N,
+  },
 
   // Conductivity variants
-  conductivity: { sensorType: SensorType.CONDUCTIVITY, label: 'Conductivity', unit: 'µS/cm', min: 0, max: 50000, dataType: N },
-  ec: { sensorType: SensorType.CONDUCTIVITY, label: 'Electrical Conductivity', unit: 'µS/cm', min: 0, max: 50000, dataType: N },
+  conductivity: {
+    sensorType: SensorType.CONDUCTIVITY,
+    label: 'Conductivity',
+    unit: 'µS/cm',
+    min: 0,
+    max: 50000,
+    dataType: N,
+  },
+  ec: {
+    sensorType: SensorType.CONDUCTIVITY,
+    label: 'Electrical Conductivity',
+    unit: 'µS/cm',
+    min: 0,
+    max: 50000,
+    dataType: N,
+  },
 
   // ORP variants
   orp: { sensorType: SensorType.ORP, label: 'ORP', unit: 'mV', min: -500, max: 500, dataType: N },
@@ -101,24 +311,94 @@ export const SENSOR_PARAMETER_CATALOG: Record<string, ParameterDefinition> = {
 
   // CO2 variants
   co2: { sensorType: SensorType.CO2, label: 'CO2', unit: 'mg/L', min: 0, max: 100, dataType: N },
-  carbon_dioxide: { sensorType: SensorType.CO2, label: 'Carbon Dioxide', unit: 'mg/L', min: 0, max: 100, dataType: N },
+  carbon_dioxide: {
+    sensorType: SensorType.CO2,
+    label: 'Carbon Dioxide',
+    unit: 'mg/L',
+    min: 0,
+    max: 100,
+    dataType: N,
+  },
 
   // Alkalinity — MULTI_PARAMETER catch-all.
-  alkalinity: { sensorType: SensorType.MULTI_PARAMETER, label: 'Alkalinity', unit: 'mg/L CaCO3', min: 0, max: 500, dataType: N },
+  alkalinity: {
+    sensorType: SensorType.MULTI_PARAMETER,
+    label: 'Alkalinity',
+    unit: 'mg/L CaCO3',
+    min: 0,
+    max: 500,
+    dataType: N,
+  },
 
   // TDS — MULTI_PARAMETER catch-all.
-  tds: { sensorType: SensorType.MULTI_PARAMETER, label: 'Total Dissolved Solids', unit: 'ppm', min: 0, max: 50000, dataType: N },
+  tds: {
+    sensorType: SensorType.MULTI_PARAMETER,
+    label: 'Total Dissolved Solids',
+    unit: 'ppm',
+    min: 0,
+    max: 50000,
+    dataType: N,
+  },
 
   // Chlorine variants
-  chlorine: { sensorType: SensorType.CHLORINE, label: 'Chlorine', unit: 'mg/L', min: 0, max: 10, dataType: N },
-  cl: { sensorType: SensorType.CHLORINE, label: 'Chlorine', unit: 'mg/L', min: 0, max: 10, dataType: N },
+  chlorine: {
+    sensorType: SensorType.CHLORINE,
+    label: 'Chlorine',
+    unit: 'mg/L',
+    min: 0,
+    max: 10,
+    dataType: N,
+  },
+  cl: {
+    sensorType: SensorType.CHLORINE,
+    label: 'Chlorine',
+    unit: 'mg/L',
+    min: 0,
+    max: 10,
+    dataType: N,
+  },
 
   // Ambient / status — MULTI_PARAMETER catch-alls.
-  humidity: { sensorType: SensorType.MULTI_PARAMETER, label: 'Humidity', unit: '%', min: 0, max: 100, dataType: N },
-  battery: { sensorType: SensorType.MULTI_PARAMETER, label: 'Battery Level', unit: '%', min: 0, max: 100, dataType: N },
-  battery_level: { sensorType: SensorType.MULTI_PARAMETER, label: 'Battery Level', unit: '%', min: 0, max: 100, dataType: N },
-  rssi: { sensorType: SensorType.MULTI_PARAMETER, label: 'Signal Strength', unit: 'dBm', min: -120, max: 0, dataType: N },
-  signal: { sensorType: SensorType.MULTI_PARAMETER, label: 'Signal Strength', unit: 'dBm', min: -120, max: 0, dataType: N },
+  humidity: {
+    sensorType: SensorType.MULTI_PARAMETER,
+    label: 'Humidity',
+    unit: '%',
+    min: 0,
+    max: 100,
+    dataType: N,
+  },
+  battery: {
+    sensorType: SensorType.MULTI_PARAMETER,
+    label: 'Battery Level',
+    unit: '%',
+    min: 0,
+    max: 100,
+    dataType: N,
+  },
+  battery_level: {
+    sensorType: SensorType.MULTI_PARAMETER,
+    label: 'Battery Level',
+    unit: '%',
+    min: 0,
+    max: 100,
+    dataType: N,
+  },
+  rssi: {
+    sensorType: SensorType.MULTI_PARAMETER,
+    label: 'Signal Strength',
+    unit: 'dBm',
+    min: -120,
+    max: 0,
+    dataType: N,
+  },
+  signal: {
+    sensorType: SensorType.MULTI_PARAMETER,
+    label: 'Signal Strength',
+    unit: 'dBm',
+    min: -120,
+    max: 0,
+    dataType: N,
+  },
 };
 
 /** A catalog entry with its lookup key, for serialization to the FE. */

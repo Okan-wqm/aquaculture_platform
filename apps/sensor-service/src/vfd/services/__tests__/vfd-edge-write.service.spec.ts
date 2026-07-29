@@ -70,7 +70,11 @@ describe('VfdEdgeWriteService (SENSOR-CRITICAL-007)', () => {
     await flushPublish();
     const { commandId } = publishMock.mock.calls[0][1];
 
-    service.handleWriteResponse({ commandId, success: false, error: 'No Modbus devices configured' });
+    service.handleWriteResponse({
+      commandId,
+      success: false,
+      error: 'No Modbus devices configured',
+    });
 
     const result = await promise;
     expect(result.success).toBe(false);
@@ -79,13 +83,19 @@ describe('VfdEdgeWriteService (SENSOR-CRITICAL-007)', () => {
 
   it('fails closed when the drive is not bound to an edge gateway', async () => {
     const unbound = { id: 'vfd-2', tenantId: 'tenant-1' } as VfdDevice;
-    await expect(service.writeRegister(unbound, 100, 1, 'START')).rejects.toThrow(BadRequestException);
+    await expect(service.writeRegister(unbound, 100, 1, 'START')).rejects.toThrow(
+      BadRequestException,
+    );
     expect(publishMock).not.toHaveBeenCalled();
   });
 
   it('rejects an out-of-range Modbus address or value', async () => {
-    await expect(service.writeRegister(boundDevice(), 70000, 1, 'X')).rejects.toThrow(BadRequestException);
-    await expect(service.writeRegister(boundDevice(), 100, -1, 'X')).rejects.toThrow(BadRequestException);
+    await expect(service.writeRegister(boundDevice(), 70000, 1, 'X')).rejects.toThrow(
+      BadRequestException,
+    );
+    await expect(service.writeRegister(boundDevice(), 100, -1, 'X')).rejects.toThrow(
+      BadRequestException,
+    );
     expect(publishMock).not.toHaveBeenCalled();
   });
 
@@ -110,11 +120,15 @@ describe('VfdEdgeWriteService (SENSOR-CRITICAL-007)', () => {
 
   it('ignores a response whose commandId is not a pending write', () => {
     // No pending writes — a ping/scan ack must not throw or mis-resolve.
-    expect(() => service.handleWriteResponse({ commandId: 'someone-elses-uuid', success: true })).not.toThrow();
+    expect(() =>
+      service.handleWriteResponse({ commandId: 'someone-elses-uuid', success: true }),
+    ).not.toThrow();
   });
 
   it('throws when the MQTT broker is not connected', async () => {
     mqtt.isConnectedToBroker.mockReturnValue(false);
-    await expect(service.writeRegister(boundDevice(), 100, 1, 'START')).rejects.toThrow(BadRequestException);
+    await expect(service.writeRegister(boundDevice(), 100, 1, 'START')).rejects.toThrow(
+      BadRequestException,
+    );
   });
 });

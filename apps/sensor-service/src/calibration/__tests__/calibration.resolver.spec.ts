@@ -15,10 +15,7 @@ async function setup() {
     getCalibrationHistory: jest.fn(),
   };
   const module = await Test.createTestingModule({
-    providers: [
-      CalibrationResolver,
-      { provide: CalibrationRecordingService, useValue: service },
-    ],
+    providers: [CalibrationResolver, { provide: CalibrationRecordingService, useValue: service }],
   }).compile();
   return { resolver: module.get(CalibrationResolver), service };
 }
@@ -59,7 +56,12 @@ describe('CalibrationResolver (SENSOR-HIGH-083)', () => {
     service.recordCalibration.mockResolvedValue(channelStub({ id: 'ch-1' }));
 
     await resolver.recordCalibration(
-      { channelId: 'ch-1', calibrationEnabled: true, calibrationMultiplier: 1, calibrationOffset: 0 },
+      {
+        channelId: 'ch-1',
+        calibrationEnabled: true,
+        calibrationMultiplier: 1,
+        calibrationOffset: 0,
+      },
       'tenant-1',
       {},
     );

@@ -107,8 +107,22 @@ describe('SensorQueryService.getAggregatedReadings — metric-store convergence'
   it('pivots channel rows into parameter-keyed points (aliases resolved via the SSoT)', async () => {
     const bucket = '2026-03-14T00:00:00.000Z';
     const { service } = createService([
-      { bucket, channel_key: 'temperature', avg_value: 24.5, min_value: 24, max_value: 25, sample_count: 10 },
-      { bucket, channel_key: 'ph', avg_value: 7.1, min_value: 7.0, max_value: 7.2, sample_count: 10 },
+      {
+        bucket,
+        channel_key: 'temperature',
+        avg_value: 24.5,
+        min_value: 24,
+        max_value: 25,
+        sample_count: 10,
+      },
+      {
+        bucket,
+        channel_key: 'ph',
+        avg_value: 7.1,
+        min_value: 7.0,
+        max_value: 7.2,
+        sample_count: 10,
+      },
       // 'do' is a device alias for dissolvedOxygen in the SSoT.
       { bucket, channel_key: 'do', avg_value: 8.2, min_value: 8, max_value: 8.5, sample_count: 10 },
     ]);
@@ -133,7 +147,14 @@ describe('SensorQueryService.getAggregatedReadings — metric-store convergence'
   it('skips channels outside the nine-parameter vocabulary', async () => {
     const bucket = '2026-03-14T00:00:00.000Z';
     const { service } = createService([
-      { bucket, channel_key: 'flow_rate', avg_value: 12, min_value: 10, max_value: 14, sample_count: 5 },
+      {
+        bucket,
+        channel_key: 'flow_rate',
+        avg_value: 12,
+        min_value: 10,
+        max_value: 14,
+        sample_count: 5,
+      },
     ]);
 
     const res = await service.getAggregatedReadings(
@@ -150,8 +171,22 @@ describe('SensorQueryService.getAggregatedReadings — metric-store convergence'
   it('merges two channels that map to the same parameter (sample-count-weighted avg)', async () => {
     const bucket = '2026-03-14T00:00:00.000Z';
     const { service } = createService([
-      { bucket, channel_key: 'temperature', avg_value: 20, min_value: 18, max_value: 22, sample_count: 10 },
-      { bucket, channel_key: 'temp', avg_value: 30, min_value: 28, max_value: 33, sample_count: 30 },
+      {
+        bucket,
+        channel_key: 'temperature',
+        avg_value: 20,
+        min_value: 18,
+        max_value: 22,
+        sample_count: 10,
+      },
+      {
+        bucket,
+        channel_key: 'temp',
+        avg_value: 30,
+        min_value: 28,
+        max_value: 33,
+        sample_count: 30,
+      },
     ]);
 
     const res = await service.getAggregatedReadings(
@@ -171,7 +206,14 @@ describe('SensorQueryService.getAggregatedReadings — metric-store convergence'
   it('does not emit min/max for avg-only parameters', async () => {
     const bucket = '2026-03-14T00:00:00.000Z';
     const { service } = createService([
-      { bucket, channel_key: 'nitrite', avg_value: 0.3, min_value: 0.1, max_value: 0.5, sample_count: 4 },
+      {
+        bucket,
+        channel_key: 'nitrite',
+        avg_value: 0.3,
+        min_value: 0.1,
+        max_value: 0.5,
+        sample_count: 4,
+      },
     ]);
 
     const res = await service.getAggregatedReadings(
@@ -362,9 +404,36 @@ describe('SensorQueryService — as-of reading projection', () => {
     it('groups the forward-filled rows into one reading per observation instant, newest-first', async () => {
       mockQrQuery.mockResolvedValueOnce([
         // instant 2 (newest) first — the SQL returns rows ORDER BY o.time DESC
-        { as_of: new Date('2026-03-14T00:10:00Z'), as_of_text: '2026-03-14T00:10:00.000000Z', channel_key: 'temperature', value: 25, quality_code: 192, source_protocol: 'mqtt', pond_id: 'p', farm_id: 'f' },
-        { as_of: new Date('2026-03-14T00:10:00Z'), as_of_text: '2026-03-14T00:10:00.000000Z', channel_key: 'ph', value: 7.0, quality_code: 192, source_protocol: 'mqtt', pond_id: 'p', farm_id: 'f' },
-        { as_of: new Date('2026-03-14T00:05:00Z'), as_of_text: '2026-03-14T00:05:00.000000Z', channel_key: 'temperature', value: 24, quality_code: 192, source_protocol: 'mqtt', pond_id: 'p', farm_id: 'f' },
+        {
+          as_of: new Date('2026-03-14T00:10:00Z'),
+          as_of_text: '2026-03-14T00:10:00.000000Z',
+          channel_key: 'temperature',
+          value: 25,
+          quality_code: 192,
+          source_protocol: 'mqtt',
+          pond_id: 'p',
+          farm_id: 'f',
+        },
+        {
+          as_of: new Date('2026-03-14T00:10:00Z'),
+          as_of_text: '2026-03-14T00:10:00.000000Z',
+          channel_key: 'ph',
+          value: 7.0,
+          quality_code: 192,
+          source_protocol: 'mqtt',
+          pond_id: 'p',
+          farm_id: 'f',
+        },
+        {
+          as_of: new Date('2026-03-14T00:05:00Z'),
+          as_of_text: '2026-03-14T00:05:00.000000Z',
+          channel_key: 'temperature',
+          value: 24,
+          quality_code: 192,
+          source_protocol: 'mqtt',
+          pond_id: 'p',
+          farm_id: 'f',
+        },
       ]);
 
       const readings = await newService().getReadingsInRange(
@@ -388,8 +457,28 @@ describe('SensorQueryService — as-of reading projection', () => {
   describe('getLatestReadingsForSensors', () => {
     it('returns one reading per sensor, each anchored at its own newest channel time', async () => {
       mockQrQuery.mockResolvedValueOnce([
-        { sensor_id: SENSOR_ID, channel_key: 'temperature', value: 22, time: new Date('2026-03-14T00:08:00Z'), time_text: '2026-03-14T00:08:00.000000Z', quality_code: 192, source_protocol: 'mqtt', pond_id: null, farm_id: null },
-        { sensor_id: SENSOR_ID_2, channel_key: 'ph', value: 6.9, time: new Date('2026-03-14T00:09:00Z'), time_text: '2026-03-14T00:09:00.000000Z', quality_code: 192, source_protocol: 'graphql', pond_id: null, farm_id: null },
+        {
+          sensor_id: SENSOR_ID,
+          channel_key: 'temperature',
+          value: 22,
+          time: new Date('2026-03-14T00:08:00Z'),
+          time_text: '2026-03-14T00:08:00.000000Z',
+          quality_code: 192,
+          source_protocol: 'mqtt',
+          pond_id: null,
+          farm_id: null,
+        },
+        {
+          sensor_id: SENSOR_ID_2,
+          channel_key: 'ph',
+          value: 6.9,
+          time: new Date('2026-03-14T00:09:00Z'),
+          time_text: '2026-03-14T00:09:00.000000Z',
+          quality_code: 192,
+          source_protocol: 'graphql',
+          pond_id: null,
+          farm_id: null,
+        },
       ]);
 
       const readings = await newService().getLatestReadingsForSensors(
@@ -414,9 +503,9 @@ describe('SensorQueryService — as-of reading projection', () => {
     it('rejects a batch larger than 100 sensors', async () => {
       const many = Array.from({ length: 101 }, () => SENSOR_ID);
 
-      await expect(
-        newService().getLatestReadingsForSensors(many, TENANT_ID),
-      ).rejects.toThrow('Maximum 100 sensors');
+      await expect(newService().getLatestReadingsForSensors(many, TENANT_ID)).rejects.toThrow(
+        'Maximum 100 sensors',
+      );
     });
   });
 
@@ -506,8 +595,24 @@ describe('SensorQueryService — as-of reading projection', () => {
     it('reconstructs the snapshot at the requested anchor and round-trips the id', async () => {
       const anchorText = '2026-03-14T00:07:00.123456Z';
       mockQrQuery.mockResolvedValueOnce([
-        { as_of: new Date('2026-03-14T00:07:00.123Z'), channel_key: 'temperature', value: 23, quality_code: 192, source_protocol: 'mqtt', pond_id: null, farm_id: null },
-        { as_of: new Date('2026-03-14T00:07:00.123Z'), channel_key: 'dissolved_oxygen', value: 8.0, quality_code: 192, source_protocol: 'modbus', pond_id: null, farm_id: null },
+        {
+          as_of: new Date('2026-03-14T00:07:00.123Z'),
+          channel_key: 'temperature',
+          value: 23,
+          quality_code: 192,
+          source_protocol: 'mqtt',
+          pond_id: null,
+          farm_id: null,
+        },
+        {
+          as_of: new Date('2026-03-14T00:07:00.123Z'),
+          channel_key: 'dissolved_oxygen',
+          value: 8.0,
+          quality_code: 192,
+          source_protocol: 'modbus',
+          pond_id: null,
+          farm_id: null,
+        },
       ]);
 
       const reading = await newService().reconstructAsOf(SENSOR_ID, anchor(anchorText), TENANT_ID);
@@ -538,7 +643,15 @@ describe('SensorQueryService — as-of reading projection', () => {
     it('recomputes quality from the projected readings via DataQualityService (D4)', async () => {
       // ph 20 is outside [0,14] and critical → the recomputed score drops below 100.
       mockQrQuery.mockResolvedValueOnce([
-        { as_of: new Date('2026-03-14T00:07:00Z'), channel_key: 'ph', value: 20, quality_code: 192, source_protocol: 'mqtt', pond_id: null, farm_id: null },
+        {
+          as_of: new Date('2026-03-14T00:07:00Z'),
+          channel_key: 'ph',
+          value: 20,
+          quality_code: 192,
+          source_protocol: 'mqtt',
+          pond_id: null,
+          farm_id: null,
+        },
       ]);
 
       const reading = await newService().reconstructAsOf(
@@ -556,8 +669,24 @@ describe('SensorQueryService — as-of reading projection', () => {
       // the projection used to select and discard — an untrustworthy sample
       // presented as a healthy reading.
       mockQrQuery.mockResolvedValueOnce([
-        { as_of: new Date('2026-03-14T00:07:00Z'), channel_key: 'temperature', value: 21, quality_code: 64, source_protocol: 'mqtt', pond_id: null, farm_id: null },
-        { as_of: new Date('2026-03-14T00:07:00Z'), channel_key: 'ph', value: 7, quality_code: 192, source_protocol: 'mqtt', pond_id: null, farm_id: null },
+        {
+          as_of: new Date('2026-03-14T00:07:00Z'),
+          channel_key: 'temperature',
+          value: 21,
+          quality_code: 64,
+          source_protocol: 'mqtt',
+          pond_id: null,
+          farm_id: null,
+        },
+        {
+          as_of: new Date('2026-03-14T00:07:00Z'),
+          channel_key: 'ph',
+          value: 7,
+          quality_code: 192,
+          source_protocol: 'mqtt',
+          pond_id: null,
+          farm_id: null,
+        },
       ]);
 
       const reading = await newService().reconstructAsOf(
@@ -573,7 +702,15 @@ describe('SensorQueryService — as-of reading projection', () => {
       // A probe that has lost comms still emits an in-range number. The device
       // says the value is unusable; no plausibility score overrides that.
       mockQrQuery.mockResolvedValueOnce([
-        { as_of: new Date('2026-03-14T00:07:00Z'), channel_key: 'temperature', value: 21, quality_code: 24, source_protocol: 'modbus', pond_id: null, farm_id: null },
+        {
+          as_of: new Date('2026-03-14T00:07:00Z'),
+          channel_key: 'temperature',
+          value: 21,
+          quality_code: 24,
+          source_protocol: 'modbus',
+          pond_id: null,
+          farm_id: null,
+        },
       ]);
 
       const reading = await newService().reconstructAsOf(
@@ -587,7 +724,15 @@ describe('SensorQueryService — as-of reading projection', () => {
 
     it('treats a null quality_code as GOOD, matching the column default', async () => {
       mockQrQuery.mockResolvedValueOnce([
-        { as_of: new Date('2026-03-14T00:07:00Z'), channel_key: 'temperature', value: 21, quality_code: null, source_protocol: 'mqtt', pond_id: null, farm_id: null },
+        {
+          as_of: new Date('2026-03-14T00:07:00Z'),
+          channel_key: 'temperature',
+          value: 21,
+          quality_code: null,
+          source_protocol: 'mqtt',
+          pond_id: null,
+          farm_id: null,
+        },
       ]);
 
       const reading = await newService().reconstructAsOf(
@@ -601,9 +746,33 @@ describe('SensorQueryService — as-of reading projection', () => {
 
     it('reports the modal source protocol across the channels (D5)', async () => {
       mockQrQuery.mockResolvedValueOnce([
-        { as_of: new Date('2026-03-14T00:07:00Z'), channel_key: 'temperature', value: 21, quality_code: 192, source_protocol: 'mqtt', pond_id: null, farm_id: null },
-        { as_of: new Date('2026-03-14T00:07:00Z'), channel_key: 'ph', value: 7, quality_code: 192, source_protocol: 'mqtt', pond_id: null, farm_id: null },
-        { as_of: new Date('2026-03-14T00:07:00Z'), channel_key: 'salinity', value: 30, quality_code: 192, source_protocol: 'modbus', pond_id: null, farm_id: null },
+        {
+          as_of: new Date('2026-03-14T00:07:00Z'),
+          channel_key: 'temperature',
+          value: 21,
+          quality_code: 192,
+          source_protocol: 'mqtt',
+          pond_id: null,
+          farm_id: null,
+        },
+        {
+          as_of: new Date('2026-03-14T00:07:00Z'),
+          channel_key: 'ph',
+          value: 7,
+          quality_code: 192,
+          source_protocol: 'mqtt',
+          pond_id: null,
+          farm_id: null,
+        },
+        {
+          as_of: new Date('2026-03-14T00:07:00Z'),
+          channel_key: 'salinity',
+          value: 30,
+          quality_code: 192,
+          source_protocol: 'modbus',
+          pond_id: null,
+          farm_id: null,
+        },
       ]);
 
       const reading = await newService().reconstructAsOf(

@@ -32,9 +32,7 @@ import { MigrationInterface } from 'typeorm';
  * and CI databases have already run it, and removing the file would leave their
  * ledgers naming a migration that no longer exists.
  */
-export class AddSensorMetricsSensorChannelTimeIndex1814000000000
-  implements MigrationInterface
-{
+export class AddSensorMetricsSensorChannelTimeIndex1814000000000 implements MigrationInterface {
   name = 'AddSensorMetricsSensorChannelTimeIndex1814000000000';
 
   public async up(): Promise<void> {

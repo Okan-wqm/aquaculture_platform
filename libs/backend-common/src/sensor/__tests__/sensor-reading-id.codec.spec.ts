@@ -46,9 +46,7 @@ describe('SensorReadingIdCodec', () => {
     });
 
     it('renders a whole-second Date with explicit zero microseconds', () => {
-      expect(anchorFromDate(new Date('2026-07-20T12:34:56Z'))).toBe(
-        '2026-07-20T12:34:56.000000Z',
-      );
+      expect(anchorFromDate(new Date('2026-07-20T12:34:56Z'))).toBe('2026-07-20T12:34:56.000000Z');
     });
   });
 
@@ -81,7 +79,10 @@ describe('SensorReadingIdCodec', () => {
 
   describe('anchorFromDatabaseText fail-closed', () => {
     it.each([
-      ['timestamptz ::text spelling (space separator, +00 offset)', '2026-07-20 12:34:56.789012+00'],
+      [
+        'timestamptz ::text spelling (space separator, +00 offset)',
+        '2026-07-20 12:34:56.789012+00',
+      ],
       ['millisecond-only fraction', '2026-07-20T12:34:56.789Z'],
       ['no fractional part', '2026-07-20T12:34:56Z'],
       ['non-UTC numeric offset', '2026-07-20T12:34:56.789012+03:30'],
@@ -106,9 +107,7 @@ describe('SensorReadingIdCodec', () => {
     });
 
     it('returns null when the anchor is not in canonical form', () => {
-      expect(
-        decodeSensorReadingId(rawId(`${SENSOR_ID}|2026-07-20 12:34:56.789012+00`)),
-      ).toBeNull();
+      expect(decodeSensorReadingId(rawId(`${SENSOR_ID}|2026-07-20 12:34:56.789012+00`))).toBeNull();
     });
 
     it('returns null when there is no separator', () => {

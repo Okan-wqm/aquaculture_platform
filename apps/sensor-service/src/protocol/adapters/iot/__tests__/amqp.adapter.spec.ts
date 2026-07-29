@@ -108,7 +108,9 @@ describe('AmqpAdapter credential handling (SENSOR-MEDIUM-059)', () => {
       .spyOn(SsrfValidatorService.prototype, 'validateHost')
       .mockResolvedValue({ safe: false, reason: 'Localhost addresses are not allowed.' });
 
-    await expect(adapter.connect({ ...baseConfig, host: '127.0.0.1' })).rejects.toThrow('Connection failed');
+    await expect(adapter.connect({ ...baseConfig, host: '127.0.0.1' })).rejects.toThrow(
+      'Connection failed',
+    );
     expect(amqplib.connect).not.toHaveBeenCalled();
   });
 });

@@ -38,18 +38,16 @@ function makeService(readAllImpl: () => Promise<VfdEdgeReadAllResult>) {
     updateConnectionStatus: jest.fn().mockResolvedValue(undefined),
   };
   const registerMapping = {
-    getMappingsForBrand: jest
-      .fn()
-      .mockResolvedValue([
-        {
-          parameterName: 'output_frequency',
-          registerAddress: 100,
-          registerCount: 1,
-          functionCode: 3,
-          scalingFactor: 0.1,
-          offset: 0,
-        },
-      ]),
+    getMappingsForBrand: jest.fn().mockResolvedValue([
+      {
+        parameterName: 'output_frequency',
+        registerAddress: 100,
+        registerCount: 1,
+        functionCode: 3,
+        scalingFactor: 0.1,
+        offset: 0,
+      },
+    ]),
     getCriticalMappings: jest.fn().mockResolvedValue([]),
   };
   const edgeRead = { readAllRegisters: jest.fn().mockImplementation(readAllImpl) };

@@ -20,7 +20,10 @@ export interface SecretCipher {
  * A secret-free config is returned verbatim (safe even with no cipher wired);
  * a config with secrets and no cipher throws rather than persist plaintext.
  */
-export function encryptProtocolConfig(value: ConfigValue, cipher: SecretCipher | null): ConfigValue {
+export function encryptProtocolConfig(
+  value: ConfigValue,
+  cipher: SecretCipher | null,
+): ConfigValue {
   if (!value || typeof value !== 'object') {
     return value;
   }
@@ -41,7 +44,10 @@ export function encryptProtocolConfig(value: ConfigValue, cipher: SecretCipher |
  * so adapters can connect. Without a cipher (startup / migration) the value is
  * returned raw.
  */
-export function decryptProtocolConfig(value: ConfigValue, cipher: SecretCipher | null): ConfigValue {
+export function decryptProtocolConfig(
+  value: ConfigValue,
+  cipher: SecretCipher | null,
+): ConfigValue {
   if (!value || typeof value !== 'object') {
     return value;
   }

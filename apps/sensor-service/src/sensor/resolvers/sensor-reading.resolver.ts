@@ -95,11 +95,7 @@ export class SensorReadingResolver {
         return null;
       }
 
-      return await this.queryService.reconstructAsOf(
-        decoded.sensorId,
-        decoded.anchor,
-        tenantId,
-      );
+      return await this.queryService.reconstructAsOf(decoded.sensorId, decoded.anchor, tenantId);
     } catch (error: unknown) {
       this.logger.debug(
         `Error in resolveReference: ${error instanceof Error ? error.message : String(error)}`,

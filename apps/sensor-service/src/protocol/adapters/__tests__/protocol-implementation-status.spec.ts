@@ -22,13 +22,17 @@ describe('protocol implementation-status SSoT', () => {
   });
 
   it('classifies every registered protocol adapter', () => {
-    const unclassified = registeredCodes.filter((code) => !(code in PROTOCOL_IMPLEMENTATION_STATUS));
+    const unclassified = registeredCodes.filter(
+      (code) => !(code in PROTOCOL_IMPLEMENTATION_STATUS),
+    );
     expect(unclassified).toEqual([]);
   });
 
   it('has no classification entry for an unregistered code', () => {
     const registered = new Set(registeredCodes);
-    const orphaned = Object.keys(PROTOCOL_IMPLEMENTATION_STATUS).filter((code) => !registered.has(code));
+    const orphaned = Object.keys(PROTOCOL_IMPLEMENTATION_STATUS).filter(
+      (code) => !registered.has(code),
+    );
     expect(orphaned).toEqual([]);
   });
 
@@ -48,7 +52,8 @@ describe('protocol implementation-status SSoT', () => {
 
   it('treats UNSUPPORTED protocols as non-selectable and others as selectable', () => {
     for (const code of registeredCodes) {
-      const selectable = getProtocolImplementationStatus(code) !== ProtocolImplementationStatus.UNSUPPORTED;
+      const selectable =
+        getProtocolImplementationStatus(code) !== ProtocolImplementationStatus.UNSUPPORTED;
       expect(isSelectableProtocol(code)).toBe(selectable);
     }
   });

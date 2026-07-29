@@ -34,9 +34,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * The index is preserved: ALTER COLUMN ... TYPE rebuilds it in place, and the
  * lookup ("which measurement came from this reading") is unchanged.
  */
-export class WidenRelatedSensorReadingIdToFederationId1806800000000
-  implements MigrationInterface
-{
+export class WidenRelatedSensorReadingIdToFederationId1806800000000 implements MigrationInterface {
   name = 'WidenRelatedSensorReadingIdToFederationId1806800000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

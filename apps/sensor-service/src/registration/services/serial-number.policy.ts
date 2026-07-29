@@ -35,10 +35,7 @@ export function generateSerialNumber(kind: SerialNumberKind): string {
  * routes through this function structurally cannot null the NOT NULL column
  * (the defect class SENSOR-MEDIUM-072 closes).
  */
-export function resolveSerialNumber(
-  provided: string | undefined,
-  kind: SerialNumberKind,
-): string {
+export function resolveSerialNumber(provided: string | undefined, kind: SerialNumberKind): string {
   const trimmed = provided?.trim();
   return trimmed ? trimmed : generateSerialNumber(kind);
 }
@@ -52,8 +49,6 @@ export function resolveSerialNumber(
 export function throwIfSerialNumberConflict(err: unknown, serialNumber: string): void {
   const e = err as { code?: string; constraint?: string };
   if (e?.code === '23505' && e.constraint === SENSOR_SERIAL_UNIQUE_INDEX) {
-    throw new ConflictException(
-      `A sensor with serial number "${serialNumber}" already exists`,
-    );
+    throw new ConflictException(`A sensor with serial number "${serialNumber}" already exists`);
   }
 }

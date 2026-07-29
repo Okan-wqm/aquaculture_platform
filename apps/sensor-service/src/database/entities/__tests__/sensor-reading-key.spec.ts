@@ -18,8 +18,7 @@ const SENSOR_READINGS_KEYS = [
   'waterLevel',
 ] as const;
 
-const camelToSnake = (s: string): string =>
-  s.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+const camelToSnake = (s: string): string => s.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
 
 describe('canonicalReadingKey (SENSOR-MEDIUM-067)', () => {
   it('maps the multi-word channel keys that were silently breaking calibration', () => {

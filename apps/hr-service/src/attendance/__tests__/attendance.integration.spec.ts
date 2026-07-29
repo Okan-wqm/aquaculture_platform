@@ -47,6 +47,31 @@ const tenantId = 'tenant-uuid-001';
 const userId = 'user-uuid-001';
 const employeeId = 'employee-uuid-001';
 
+// Every fakeable API except `Date`. A clock-window test needs the instant
+// pinned, not the event loop stopped — faking timers as well would leave the
+// awaited handler's promises unsettled.
+type ModernFakeTimersConfig = Extract<
+  NonNullable<Parameters<typeof jest.useFakeTimers>[0]>,
+  { doNotFake?: unknown }
+>;
+
+const TIMER_APIS_LEFT_REAL: NonNullable<ModernFakeTimersConfig['doNotFake']> = [
+  'hrtime',
+  'nextTick',
+  'performance',
+  'queueMicrotask',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'requestIdleCallback',
+  'cancelIdleCallback',
+  'setImmediate',
+  'clearImmediate',
+  'setInterval',
+  'clearInterval',
+  'setTimeout',
+  'clearTimeout',
+];
+
 // ============================================================================
 // Mock Factories
 // ============================================================================
@@ -244,7 +269,13 @@ describe('Attendance Clock-In Integration Tests', () => {
     handler = module.get(ClockInHandler);
   });
 
-  afterEach(() => jest.clearAllMocks());
+  afterEach(() => {
+    jest.clearAllMocks();
+    // Restored here rather than at the end of the test that fakes the clock:
+    // a failing expectation returns early, and a leaked fake clock would then
+    // corrupt every test after it.
+    jest.useRealTimers();
+  });
 
   // --------------------------------------------------------------------------
   // Basic Clock-In
@@ -259,10 +290,16 @@ describe('Attendance Clock-In Integration Tests', () => {
       employeeRepository.findOne.mockResolvedValue(employee);
       scheduleRepository.findOne.mockResolvedValue(schedule);
 
-      // Mock current time to be within shift window (e.g., 08:30 UTC)
+      // Put the clock inside the shift window. `ClockInHandler` reads the
+      // instant with `new Date()`, which never calls `Date.now()` — so spying
+      // on `Date.now` left the real clock in place and this assertion silently
+      // depended on the hour CI happened to run at: green inside the shift's
+      // 07:00-22:00 window, red every run outside it. Faking the system clock
+      // is what actually moves `new Date()`. Only `Date` is faked, so no timer
+      // is intercepted and the awaited handler still settles normally.
       const clockInTime = new Date();
       clockInTime.setHours(8, 30, 0, 0);
-      jest.spyOn(Date, 'now').mockReturnValue(clockInTime.getTime());
+      jest.useFakeTimers({ doNotFake: TIMER_APIS_LEFT_REAL, now: clockInTime });
 
       const command = new ClockInCommand(
         tenantId,
@@ -282,8 +319,6 @@ describe('Attendance Clock-In Integration Tests', () => {
       expect(result.tenantId).toBe(tenantId);
       expect(mockQueryRunner.commitTransaction).toHaveBeenCalled();
       expect(outboxPublisher.enqueue).toHaveBeenCalled();
-
-      jest.restoreAllMocks();
     });
 
     it('should clock in without a shift (unscheduled)', async () => {

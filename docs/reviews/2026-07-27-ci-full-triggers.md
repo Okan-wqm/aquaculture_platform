@@ -266,3 +266,39 @@ script is the run-once form with the watch form named separately. The cached-out
 `test` target that shells into a package-manager script runner without the `--` separator, the
 other requires the cached-outputs default and refuses an override that misses where its own
 report lands. Both were confirmed to fail when the old shapes are reintroduced.
+
+## HR-HIGH-006 — attendance clock-in test controlled a clock the handler never reads
+
+`ClockInHandler` reads the instant with `new Date()`. The test established its clock with
+`jest.spyOn(Date, 'now')`, and `new Date()` never calls `Date.now()` — so the spy changed nothing
+and the handler saw the real wall clock. The handler rejects a clock-in outside the fixture
+shift's 07:00-22:00 window, so the assertion passed whenever CI happened to run inside those hours
+and failed on every run outside them: red at 06:31 UTC, green at 21:11 UTC the evening before on
+the same code.
+
+Faking the system clock is what actually moves `new Date()`. Only `Date` is faked — every timer API
+is left real, because a clock-window test needs the instant pinned, not the event loop stopped, and
+faking timers too would leave the awaited handler's promises unsettled. The restore moved into
+`afterEach`, since a failing expectation returns early and a leaked fake clock would corrupt every
+test after it.
+
+Reproduced deterministically by moving the runner's timezone rather than waiting for the hour:
+under `TZ=Etc/GMT+6` (local 01:00) the failure is byte-identical to CI's. After the fix the suite is
+30/30 under `Etc/GMT+6`, `Etc/GMT-9` and `UTC` alike, and the full hr-service suite is 364/364 under
+UTC, the timezone CI actually runs in.
+
+## HR-HIGH-007 — payroll and leave date arithmetic shifts a calendar unit off UTC
+
+Surfaced while reproducing HR-HIGH-006 by shifting the runner timezone. Under `TZ=Etc/GMT+6` a
+January pay period is numbered `PAY-202512` instead of `PAY-202601`, and the leave half-day path
+returns 2 days where it should return 1.5. Both are UTC-versus-local calendar-boundary errors — the
+same family as HR-HIGH-006, in different code.
+
+They are invisible to CI because the runner is UTC, and invisible to the platform only for as long
+as every deployment stays on UTC. A pay period attributed to the wrong month is a finance-visible
+error, not a test artifact.
+
+Whether the production handlers or only the fixtures are wrong was NOT investigated here: these two
+specs are in different files from the one this change touches, they do not affect the gate this
+change exists to fix, and diagnosing them properly is hr-service work. The reproduction is recorded
+so the owner starts from evidence. Owner `hr-expert`, deadline 2026-08-31.

@@ -13,7 +13,11 @@
  *   - a transition INTO the operational state (ActivateTenant) revokes nothing;
  *   - a Redis blacklist failure is non-fatal (the durable kill is in-tx).
  */
-import { TenantStatus } from '@platform/event-contracts';
+import {
+  TenantStatus,
+  type AuthTenantCommandMetadata,
+  type SuspendTenantLifecycleCommand,
+} from '@platform/event-contracts';
 
 import { TenantProvisioningCommandService } from '../tenant-provisioning-command.service';
 
@@ -79,12 +83,18 @@ function createService(manager: MockManager): {
   return { service, outbox, revocation };
 }
 
-const suspendCommand = {
+// `actor.type` is 'user' | 'service' | 'system' on AuthTenantCommandActor. This
+// fixture said 'SUPER_ADMIN', which the union does not admit — a platform admin
+// suspending a tenant is a 'user'. The blanket cast on the whole literal hid it,
+// this RBAC-HIGH-007 regression guard was driving the service with a command
+// shape the contract rejects. Typed at the real command now, which also proves
+// `reason` is where SuspendTenantLifecycleCommand declares it.
+const suspendCommand: SuspendTenantLifecycleCommand = {
   operationId: '44444444-4444-4444-8444-444444444444',
   tenantId: TENANT_ID,
-  actor: { id: 'platform-admin', type: 'SUPER_ADMIN' },
+  actor: { id: 'platform-admin', type: 'user' },
   reason: 'payment overdue',
-} as never;
+};
 
 describe('TenantProvisioningCommandService — suspend session termination (RBAC-HIGH-007)', () => {
   beforeEach(() => {
@@ -188,11 +198,12 @@ describe('TenantProvisioningCommandService — suspend session termination (RBAC
     });
     const { service, revocation } = createService(manager);
 
-    const result = await service.activateTenant({
+    const activateCommand: AuthTenantCommandMetadata = {
       operationId: '55555555-5555-4555-8555-555555555555',
       tenantId: TENANT_ID,
-      actor: { id: 'platform-admin', type: 'SUPER_ADMIN' },
-    } as never);
+      actor: { id: 'platform-admin', type: 'user' },
+    };
+    const result = await service.activateTenant(activateCommand);
 
     expect(result.status).toBe(TenantStatus.ACTIVE);
     expect(

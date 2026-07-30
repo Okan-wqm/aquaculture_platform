@@ -17,6 +17,8 @@ import {
 import { isAbsolute, join } from 'node:path';
 import { TextDecoder } from 'node:util';
 
+import type { Options as PrettierOptions } from 'prettier';
+
 import { REPO_ROOT } from './lib/repo-root';
 import { computeDirtyContentSha256 } from './capability-source-inventory';
 import { resolveGitFindingAllocationAuthority } from './finding-registry';
@@ -35,6 +37,8 @@ import {
 
 const PLAN_DIRECTORY = 'docs/plans/2026-06-18-enterprise-grade-debt-closure';
 const MANIFEST_PATH = `${PLAN_DIRECTORY}/manifest.json`;
+const PRETTIER_CONFIG_PATH = '.prettierrc';
+const PACKAGE_LOCK_PATH = 'package-lock.json';
 const LEGACY_ARTIFACT_PATH = `${PLAN_DIRECTORY}/source-findings.jsonl`;
 const ARTIFACT_FILENAME_PATTERN = /^source-findings\.(?<sha256>[0-9a-f]{64})\.jsonl$/;
 const ARTIFACT_PATH_PATTERN = new RegExp(
@@ -45,6 +49,33 @@ const REGISTRY_SCHEMA_PATH = 'docs/reviews/_registry/findings.jsonl.schema.json'
 const MAX_GIT_OUTPUT_BYTES = 32 * 1024 * 1024;
 const MAX_EVIDENCE_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_REGISTRY_SCHEMA_BYTES = 1024 * 1024;
+const MAX_PRETTIER_CONFIG_BYTES = 64 * 1024;
+const MAX_PACKAGE_LOCK_BYTES = 4 * 1024 * 1024;
+const PRETTIER_FORMAT_TIMEOUT_MS = 30_000;
+const PRETTIER_FORMATTER_SCRIPT = `
+void (async () => {
+  const { format, version } = await import('prettier');
+  process.stdin.setEncoding('utf8');
+  let rawInput = '';
+  for await (const chunk of process.stdin) {
+    rawInput += chunk;
+  }
+  const input = JSON.parse(rawInput);
+  process.stdout.write(
+    JSON.stringify({
+      formatted: await format(JSON.stringify(input.manifest, null, 2), {
+        ...input.options,
+        filepath: input.filepath,
+        parser: 'json',
+      }),
+      prettierVersion: version,
+    }),
+  );
+})().catch((error) => {
+  process.stderr.write(error instanceof Error ? error.stack ?? error.message : String(error));
+  process.exitCode = 1;
+});
+`;
 const MAX_REGISTRY_BLOB_CACHE_ENTRIES = 8;
 const ISOLATED_FULL_EXECUTION_ENV = 'SOURCE_FINDING_INVENTORY_EXECUTION';
 const ISOLATED_FULL_EXECUTION_VALUE = 'isolated-evidence-runner';
@@ -3205,6 +3236,8 @@ export function assertLegacyFindingRefsResolvable(
 
 interface SourceInventoryInputSnapshot {
   manifestText: string;
+  prettierConfigText: string;
+  packageLockText: string;
   artifactPath: string | null;
   artifactText: string | null;
   governedArtifacts: ArtifactSnapshot[];
@@ -3275,6 +3308,7 @@ function assertExclusiveArtifactAuthority(authoritativePath: string): void {
 function captureInputSnapshot(
   manifestText: string,
   manifest: ParsedManifest,
+  requireCommittedFormattingContract: boolean,
 ): SourceInventoryInputSnapshot {
   const artifactPath = manifest.findingInventory?.artifact_path ?? null;
   const governedArtifacts = governedArtifactSnapshots();
@@ -3299,6 +3333,12 @@ function captureInputSnapshot(
   }
   return {
     manifestText,
+    prettierConfigText: requireCommittedFormattingContract
+      ? readCommittedPrettierConfigText()
+      : readPrettierConfigText(),
+    packageLockText: requireCommittedFormattingContract
+      ? readCommittedPackageLockText()
+      : readPackageLockText(),
     artifactPath,
     artifactText,
     governedArtifacts,
@@ -3314,6 +3354,7 @@ function assertInputSnapshotStable(
   if (currentManifest !== snapshot.manifestText) {
     throw new Error('source-finding manifest changed while the publication lease was held');
   }
+  assertFormattingContractSnapshotStable(snapshot);
   const expectedByPath = new Map(
     snapshot.governedArtifacts.map((artifact) => [artifact.path, artifact.text]),
   );
@@ -3441,6 +3482,171 @@ function fsyncParentDirectory(path: string): void {
   }
 }
 
+function readHeadIdenticalText(relativePath: string, maxBytes: number, label: string): string {
+  const worktreeText = readBoundedText(join(REPO_ROOT, relativePath), maxBytes);
+  const committedText = runGit(['show', `HEAD:${relativePath}`]).stdout;
+  if (worktreeText !== committedText) {
+    throw new Error(`source-finding publication requires ${label} to be byte-identical to HEAD`);
+  }
+  return worktreeText;
+}
+
+function readCommittedPrettierConfigText(): string {
+  return readHeadIdenticalText(
+    PRETTIER_CONFIG_PATH,
+    MAX_PRETTIER_CONFIG_BYTES,
+    PRETTIER_CONFIG_PATH,
+  );
+}
+
+function readPrettierConfigText(): string {
+  return readBoundedText(join(REPO_ROOT, PRETTIER_CONFIG_PATH), MAX_PRETTIER_CONFIG_BYTES);
+}
+
+function readCommittedPackageLockText(): string {
+  return readHeadIdenticalText(PACKAGE_LOCK_PATH, MAX_PACKAGE_LOCK_BYTES, PACKAGE_LOCK_PATH);
+}
+
+function readPackageLockText(): string {
+  return readBoundedText(join(REPO_ROOT, PACKAGE_LOCK_PATH), MAX_PACKAGE_LOCK_BYTES);
+}
+
+function assertFormattingContractSnapshotStable(snapshot: SourceInventoryInputSnapshot): void {
+  const currentPrettierConfigText = readBoundedText(
+    join(REPO_ROOT, PRETTIER_CONFIG_PATH),
+    MAX_PRETTIER_CONFIG_BYTES,
+  );
+  const currentPackageLockText = readBoundedText(
+    join(REPO_ROOT, PACKAGE_LOCK_PATH),
+    MAX_PACKAGE_LOCK_BYTES,
+  );
+  if (
+    currentPrettierConfigText !== snapshot.prettierConfigText ||
+    currentPackageLockText !== snapshot.packageLockText
+  ) {
+    throw new Error(
+      'source-finding formatting contract changed while the publication lease was held',
+    );
+  }
+}
+
+export function parseSourceFindingPrettierConfig(prettierConfigText: string): PrettierOptions {
+  const parsed: unknown = JSON.parse(prettierConfigText);
+  const config = requireRecord(parsed, PRETTIER_CONFIG_PATH);
+  const unsupportedKeys = ['overrides', 'plugins'].filter((key) => Object.hasOwn(config, key));
+  if (unsupportedKeys.length > 0) {
+    throw new Error(
+      `source-finding publication requires one hermetic global .prettierrc contract; unsupported=${unsupportedKeys.join(
+        ',',
+      )}`,
+    );
+  }
+  return config as PrettierOptions;
+}
+
+export function lockedPrettierVersion(packageLockText: string): string {
+  const packageLock = requireRecord(JSON.parse(packageLockText) as unknown, PACKAGE_LOCK_PATH);
+  const packages = requireRecord(packageLock.packages, `${PACKAGE_LOCK_PATH}.packages`);
+  const prettierPackage = requireRecord(
+    packages['node_modules/prettier'],
+    `${PACKAGE_LOCK_PATH}.packages[node_modules/prettier]`,
+  );
+  return requireString(
+    prettierPackage.version,
+    `${PACKAGE_LOCK_PATH}.packages[node_modules/prettier].version`,
+  );
+}
+
+export function assertPrettierVersionAuthority(
+  observedVersion: string,
+  expectedVersion: string,
+): void {
+  if (observedVersion !== expectedVersion) {
+    throw new Error(
+      `source-finding formatter version ${observedVersion} differs from package-lock authority ${expectedVersion}`,
+    );
+  }
+}
+
+export function assertFormattedManifestSemantics(
+  formatted: string,
+  manifest: Record<string, unknown>,
+): void {
+  let formattedValue: unknown;
+  try {
+    formattedValue = JSON.parse(formatted) as unknown;
+  } catch {
+    throw new Error('source-finding manifest formatter produced invalid JSON');
+  }
+  const formattedManifest = requireRecord(
+    formattedValue,
+    'source-finding formatter output.formatted',
+  );
+  if (stableJson(formattedManifest) !== stableJson(manifest)) {
+    throw new Error('source-finding manifest formatter changed manifest semantics');
+  }
+}
+
+async function formatSourceFindingManifestWithConfig(
+  manifest: Record<string, unknown>,
+  prettierConfigText: string,
+  expectedPrettierVersion: string,
+): Promise<string> {
+  const manifestPath = join(REPO_ROOT, MANIFEST_PATH);
+  const result = spawnSync(process.execPath, ['-e', PRETTIER_FORMATTER_SCRIPT], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    input: JSON.stringify({
+      manifest,
+      options: parseSourceFindingPrettierConfig(prettierConfigText),
+      filepath: manifestPath,
+    }),
+    maxBuffer: MAX_EVIDENCE_FILE_BYTES,
+    timeout: PRETTIER_FORMAT_TIMEOUT_MS,
+    killSignal: 'SIGKILL',
+  });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `source-finding manifest formatting failed with status ${String(result.status)}: ${
+        result.stderr.trim() || 'no stderr'
+      }`,
+    );
+  }
+  if (result.stdout.length === 0) {
+    throw new Error('source-finding manifest formatting produced no output');
+  }
+  let outputValue: unknown;
+  try {
+    outputValue = JSON.parse(result.stdout) as unknown;
+  } catch {
+    throw new Error('source-finding manifest formatter returned a non-JSON envelope');
+  }
+  const output = requireRecord(outputValue, 'source-finding formatter output');
+  requireExactKeys(output, ['formatted', 'prettierVersion'], 'source-finding formatter output');
+  const prettierVersion = requireString(
+    output.prettierVersion,
+    'source-finding formatter output.prettierVersion',
+  );
+  assertPrettierVersionAuthority(prettierVersion, expectedPrettierVersion);
+  const formatted = requireString(output.formatted, 'source-finding formatter output.formatted');
+  assertFormattedManifestSemantics(formatted, manifest);
+  return formatted;
+}
+
+export async function formatSourceFindingManifest(
+  manifest: Record<string, unknown>,
+): Promise<string> {
+  const packageLockText = readPackageLockText();
+  return formatSourceFindingManifestWithConfig(
+    manifest,
+    readPrettierConfigText(),
+    lockedPrettierVersion(packageLockText),
+  );
+}
+
 function assertPublicationIdentityStable(fence: PublicationFence): void {
   assertDiscoveryCandidateUnchanged(
     fence.candidate.headSha,
@@ -3540,15 +3746,24 @@ async function publishGeneratedState(
     await assertPublicationFenceStable(fence);
     assertInputSnapshotStable(inputSnapshot, allowedAdditionalArtifacts);
 
-    const nextManifest = `${JSON.stringify(manifest.raw, null, 2)}\n`;
+    const nextManifest = await formatSourceFindingManifestWithConfig(
+      manifest.raw,
+      inputSnapshot.prettierConfigText,
+      lockedPrettierVersion(inputSnapshot.packageLockText),
+    );
+    assertInputSnapshotStable(inputSnapshot, allowedAdditionalArtifacts);
     assertPublicationIdentityStable(fence);
+    assertFormattingContractSnapshotStable(inputSnapshot);
     mutationStarted = true;
     atomicWriteFileWithRegistryLease(join(REPO_ROOT, MANIFEST_PATH), nextManifest, lease);
+    assertFormattingContractSnapshotStable(inputSnapshot);
     await assertPublicationFenceStable(fence);
+    assertFormattingContractSnapshotStable(inputSnapshot);
 
     let removedArtifact = false;
     for (const governedArtifact of inputSnapshot.governedArtifacts) {
       if (governedArtifact.path === nextArtifactPath) continue;
+      assertFormattingContractSnapshotStable(inputSnapshot);
       assertPublicationIdentityStable(fence);
       assertRegistryLockOwned(lease);
       const governedAbsolutePath = artifactAbsolutePath(governedArtifact.path);
@@ -3559,6 +3774,7 @@ async function publishGeneratedState(
       removedArtifact = true;
     }
     if (inputSnapshot.legacyArtifactText !== null) {
+      assertFormattingContractSnapshotStable(inputSnapshot);
       assertPublicationIdentityStable(fence);
       assertRegistryLockOwned(lease);
       const legacyAbsolutePath = artifactAbsolutePath(LEGACY_ARTIFACT_PATH);
@@ -3575,7 +3791,9 @@ async function publishGeneratedState(
       fsyncParentDirectory(join(REPO_ROOT, PLAN_DIRECTORY));
     }
     assertExclusiveArtifactAuthority(nextArtifactPath);
+    assertFormattingContractSnapshotStable(inputSnapshot);
     await assertPublicationFenceStable(fence);
+    assertFormattingContractSnapshotStable(inputSnapshot);
   } catch (publicationError) {
     if (!mutationStarted) {
       throw publicationError;
@@ -3807,7 +4025,7 @@ async function executeWithSnapshot(
   const manifestText = readBoundedText(join(REPO_ROOT, MANIFEST_PATH));
   const manifestRaw: unknown = JSON.parse(manifestText);
   const manifest = parseManifest(manifestRaw, true);
-  const inputSnapshot = captureInputSnapshot(manifestText, manifest);
+  const inputSnapshot = captureInputSnapshot(manifestText, manifest, options.mode !== 'check');
   let priorOccurrences: SourceFindingOccurrence[] | null = null;
   let priorInventory: FindingInventoryManifest | null = null;
   if (options.mode !== 'check') {

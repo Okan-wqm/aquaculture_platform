@@ -399,7 +399,7 @@
       "allocator": "tools/gates/finding-registry.ts",
       "legacy_refs_are_noncanonical": true,
       "reserved_domain_floors": {
-        "ADMIN": 91,
+        "ADMIN": 100,
         "ALERT": 1,
         "ARCH": 2,
         "AUDITTRAIL": 6,
@@ -407,7 +407,7 @@
         "CIRCUIT": 1,
         "COMPLIANCE": 2,
         "CONTRACT": 3,
-        "DATA": 10,
+        "DATA": 11,
         "DB": 4,
         "DB-ADMIN": 7,
         "DB-FARMOPS": 3,
@@ -419,7 +419,7 @@
         "DB-SENSOR": 5,
         "DBR": 3,
         "EDGE": 28,
-        "FARM": 306,
+        "FARM": 308,
         "FARMOPS": 2,
         "FARMPLAT": 2,
         "FARMPROD": 2,
@@ -432,14 +432,14 @@
         "MSG": 78,
         "ORPHAN": 490,
         "PEOPLE": 4,
-        "PLAT": 903,
+        "PLAT": 908,
         "PR935": 14,
         "PROC": 17,
         "PRODUCT-JOB": 1,
         "RBAC": 14,
         "REG": 1,
         "RUST": 2,
-        "SEC": 55,
+        "SEC": 60,
         "SENSOR": 58,
         "SUPPLY": 1,
         "SVD": 1,
@@ -3704,9 +3704,13 @@
         "state": "ASSESSING",
         "strategy": "REIMPLEMENT",
         "target_date": "2026-08-05",
-        "gap": "Host-side deployment tooling lacks one inode and file-descriptor-stable Node authority.",
+        "gap": "Node runtime authority is fragmented across tools/toolchain/versions.json, .nvmrc, package engines, GitHub Actions, Dockerfiles, documentation, and the production host PATH; deployment tooling also lacks one inode and file-descriptor-stable runtime.",
         "implementation_plan": [
-          "Package and verify the exact Node runtime inside the immutable release boundary."
+          "Promote tools/toolchain/versions.json to the exact semver and platform/image producer authority without introducing another Node version owner.",
+          "Generate or fail-closed validate .nvmrc, package engines, every setup-node consumer, every Node Docker base, and documented prerequisites against that authority; reject unregistered exceptions.",
+          "Make the shared CI setup action the only workflow consumer or remove it if it remains unused, eliminating its default Node 18 authority.",
+          "Package and verify the exact Node runtime inside the immutable release boundary so production health tooling never depends on the host PATH or shared node_modules.",
+          "Add an exhaustive parity gate that inventories Node literals and host invocations and fails on every unowned surface."
         ],
         "depends_on": ["IU-RELEASE-002"],
         "finding_binding": {
@@ -6520,10 +6524,10 @@
     ],
     "finding_inventory": {
       "schema_version": 3,
-      "artifact_path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/source-findings.074abe964184bb4cf287f5d6ae55ba0ad19ba557e4488f9cefd0f9d108771026.jsonl",
-      "artifact_sha256": "074abe964184bb4cf287f5d6ae55ba0ad19ba557e4488f9cefd0f9d108771026",
-      "occurrence_count": 1012,
-      "occurrence_sha256": "35f21f0c4297c841f82a8ab1005595921b107eb7e590824058b2750e7ffb75f0",
+      "artifact_path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/source-findings.f650756bf995cf55450bbd8d0a1fa5b5e72430af2d2186983d7934b692d2efaf.jsonl",
+      "artifact_sha256": "f650756bf995cf55450bbd8d0a1fa5b5e72430af2d2186983d7934b692d2efaf",
+      "occurrence_count": 959,
+      "occurrence_sha256": "790b747ede57760093abeedc3dee140944a58b89749f91ed9b079fd260ab4ef0",
       "audit_lineage": {
         "preliminary_textual_occurrence_count": 1030,
         "preliminary_textual_occurrence_sha256": "3426306d2cd36f6b74f84303030777de1c81613c4e554c8b75888448501676ac",
@@ -6567,10 +6571,15 @@
           "schema_blob_sha": "0108785495591c1af8ab2a4882d63a3d45c1e55d"
         },
         "discovery_candidate": {
-          "registry_blob_sha": "632ef94a46d7e24f03216207bbca04739aaee5be",
+          "registry_blob_sha": "228fb0d858761085ba0401cecd2bf65b841f763f",
           "schema_blob_sha": "92fd39c02a6687b126733773e473c28963c39651"
         },
         "registry_snapshots": [
+          {
+            "blob_sha": "228fb0d858761085ba0401cecd2bf65b841f763f",
+            "sha256": "89ef5cb1ef344e6bf085aed05f216c83bda65431b3de9e1d25dc2ebf5667298f",
+            "row_count": 1251
+          },
           {
             "blob_sha": "632ef94a46d7e24f03216207bbca04739aaee5be",
             "sha256": "b446e00973afa4bcb5a13e1fc066f95e519d53d40564f644971a4fe58f7facf0",
@@ -6619,17 +6628,17 @@
         {
           "source_id": "SRC-R-001",
           "source_kind": "REMOTE_BRANCH",
-          "source_head_sha": "406b6b9f0da179a54a8acdda878668f62defe8cd",
+          "source_head_sha": "399810500bf8c1724c0da450219ab0a5e5912cec",
           "source_content_sha256": null,
           "merge_base_sha": "bdaf00bf633151927740304985551a012e5e2e5c",
           "source_adjudication_id": "SA-SRC-R-001",
-          "occurrence_count": 118,
-          "untargeted_occurrence_count": 116,
-          "registry_backed_count": 91,
+          "occurrence_count": 127,
+          "untargeted_occurrence_count": 125,
+          "registry_backed_count": 100,
           "registry_reference_count": 2,
           "review_only_count": 25,
           "collision_count": 1,
-          "occurrence_sha256": "4e0533368e9543cd4578f3f84728cbb1712a900b5ddde396ce9cb8ddfb9e3bcc"
+          "occurrence_sha256": "d1cafe70a4eb0ce41a4e1c0a5dad906e4f356aa883868323a9532bef5c4272e3"
         },
         {
           "source_id": "SRC-R-002",
@@ -6679,17 +6688,17 @@
         {
           "source_id": "SRC-R-005",
           "source_kind": "REMOTE_BRANCH",
-          "source_head_sha": "40c079c243362a4f899005e7a5bc5e7e9f247914",
+          "source_head_sha": "a08cd91d9afe7f7070462ec0fd317c0dbdd7d200",
           "source_content_sha256": null,
-          "merge_base_sha": "8cd8c4ca2b5329535080644657870dd59d8616a3",
+          "merge_base_sha": "97669af5c49348a7ef29d7849f0b1e357650ce67",
           "source_adjudication_id": "SA-SRC-R-005",
-          "occurrence_count": 79,
-          "untargeted_occurrence_count": 78,
-          "registry_backed_count": 74,
+          "occurrence_count": 5,
+          "untargeted_occurrence_count": 5,
+          "registry_backed_count": 0,
           "registry_reference_count": 5,
           "review_only_count": 0,
           "collision_count": 0,
-          "occurrence_sha256": "bfb88989b93f4c6c0ac7f41898ddc91091849832345020ba6a0fd774abf82ab0"
+          "occurrence_sha256": "4aced23874d383dfe86901f3230b255a2e17aff6cd431b1cfc1952e6cb8ac84e"
         },
         {
           "source_id": "SRC-R-006",
@@ -6724,17 +6733,17 @@
         {
           "source_id": "SRC-R-008",
           "source_kind": "REMOTE_BRANCH",
-          "source_head_sha": "22fd58426196e8a0cdeade11aacbfffa63f3a358",
+          "source_head_sha": "d19d4aabf5dc618e4f6211be8b58166e4f126444",
           "source_content_sha256": null,
           "merge_base_sha": "8cd8c4ca2b5329535080644657870dd59d8616a3",
           "source_adjudication_id": "SA-SRC-R-008",
-          "occurrence_count": 67,
-          "untargeted_occurrence_count": 66,
-          "registry_backed_count": 66,
-          "registry_reference_count": 1,
+          "occurrence_count": 79,
+          "untargeted_occurrence_count": 78,
+          "registry_backed_count": 77,
+          "registry_reference_count": 2,
           "review_only_count": 0,
-          "collision_count": 1,
-          "occurrence_sha256": "17a5db34e7d9133991c30aafbbb23d67fd67ceeef7128e70c18f88a211aa7b5b"
+          "collision_count": 2,
+          "occurrence_sha256": "4cd7ee7d55049e235b8f1dc43248d4b242406c58fd319a00bb27b54f7337d5a8"
         },
         {
           "source_id": "SRC-R-009",
@@ -7078,7 +7087,7 @@
           "registry_backed_count": 65,
           "registry_reference_count": 1,
           "review_only_count": 0,
-          "collision_count": 6,
+          "collision_count": 7,
           "occurrence_sha256": "2e2a6dfeea51bec29eebac3a078bd84bae9b43fb88645a24c5f6a88e4515fc3c"
         },
         {
@@ -7447,10 +7456,10 @@
         },
         {
           "integration_unit_id": "IU-ARIA-008",
-          "targeted_occurrence_count": 1,
-          "pending_targeted_count": 1,
+          "targeted_occurrence_count": 0,
+          "pending_targeted_count": 0,
           "collision_count": 0,
-          "occurrence_sha256": "94e880bc2ee2edc48756e2c756ab624d4fd6cbb3b9ee36f67cbd009e5d3f037b"
+          "occurrence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         },
         {
           "integration_unit_id": "IU-ARIA-009",

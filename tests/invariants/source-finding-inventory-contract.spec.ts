@@ -10,19 +10,24 @@ import {
   assertDiscoveryCandidateStable,
   assertExecutionSafety,
   assertFindingInventoryClosedSchema,
+  assertFormattedManifestSemantics,
   assertGitHubMainTransition,
   assertLegacyFindingRefsResolvable,
   assertLiveMainCompatible,
   assertOccurrenceAssignments,
   assertPendingAdjudicationStates,
+  assertPrettierVersionAuthority,
   assertRefreshAssignmentTransition,
   assertStoredFindingInventoryIntegrity,
   deriveReservedDomainFloors,
   extractAddedReviewEvidence,
   extractRawFindingIds,
+  formatSourceFindingManifest,
+  lockedPrettierVersion,
   materializeOccurrences,
   occurrenceId,
   parseCliOptions,
+  parseSourceFindingPrettierConfig,
   registryRecordChanged,
   semanticRegistryValue,
   sourceRefDigest,
@@ -37,10 +42,11 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
 const PLAN_DIRECTORY = resolve(REPO_ROOT, 'docs/plans/2026-06-18-enterprise-grade-debt-closure');
 const MANIFEST_PATH = resolve(PLAN_DIRECTORY, 'manifest.json');
 const PACKAGE_PATH = resolve(REPO_ROOT, 'package.json');
+const PACKAGE_LOCK_PATH = resolve(REPO_ROOT, 'package-lock.json');
 const CI_FULL_PATH = resolve(REPO_ROOT, '.github/workflows/ci-full.yml');
-const EXPECTED_OCCURRENCE_COUNT = 1012;
+const EXPECTED_OCCURRENCE_COUNT = 959;
 const EXPECTED_OCCURRENCE_DIGEST =
-  '35f21f0c4297c841f82a8ab1005595921b107eb7e590824058b2750e7ffb75f0';
+  '790b747ede57760093abeedc3dee140944a58b89749f91ed9b079fd260ab4ef0';
 const PRELIMINARY_OCCURRENCE_DIGEST =
   '3426306d2cd36f6b74f84303030777de1c81613c4e554c8b75888448501676ac';
 const INTERMEDIATE_OCCURRENCE_DIGEST =
@@ -836,6 +842,37 @@ describe('checked-in source finding attestation', () => {
   const units = objectArray(reconciliation.integration_units, 'integration_units');
   const rows = readArtifact();
 
+  it('is byte-identical to canonical writer formatting', async () => {
+    expect(await formatSourceFindingManifest(manifest)).toBe(readFileSync(MANIFEST_PATH, 'utf8'));
+  });
+
+  it('keeps formatter config, engine, and semantic output inside one fail-closed contract', () => {
+    expect(() =>
+      parseSourceFindingPrettierConfig(
+        JSON.stringify({
+          printWidth: 100,
+          overrides: [{ files: 'manifest.json', options: { printWidth: 80 } }],
+        }),
+      ),
+    ).toThrow(/unsupported=overrides/);
+    expect(() =>
+      parseSourceFindingPrettierConfig(
+        JSON.stringify({ printWidth: 100, plugins: ['./unattested-plugin.js'] }),
+      ),
+    ).toThrow(/unsupported=plugins/);
+
+    const pinnedVersion = lockedPrettierVersion(readFileSync(PACKAGE_LOCK_PATH, 'utf8'));
+    expect(pinnedVersion).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(() => assertPrettierVersionAuthority('0.0.0', pinnedVersion)).toThrow(
+      /differs from package-lock authority/,
+    );
+
+    expect(() => assertFormattedManifestSemantics('{"changed":true}\n', manifest)).toThrow(
+      /changed manifest semantics/,
+    );
+    expect(() => assertFormattedManifestSemantics('not-json', manifest)).toThrow(/invalid JSON/);
+  });
+
   it('verifies stored evidence against its own pins before current inputs are refreshed', () => {
     const artifactRaw = readFileSync(ARTIFACT_PATH, 'utf8');
     expect(assertStoredFindingInventoryIntegrity(artifactRaw, inventory)).toHaveLength(rows.length);
@@ -974,14 +1011,15 @@ describe('checked-in source finding attestation', () => {
     expect(
       sourceRefs.every((sourceRef, index) => occurrenceIds[index] === occurrenceId(sourceRef)),
     ).toBe(true);
-    expect(classifications.filter((value) => value === 'ID_COLLISION')).toHaveLength(25);
-    expect(classifications.filter((value) => value === 'LEGACY_UNREGISTERED')).toHaveLength(674);
-    expect(classifications.filter((value) => value === 'PENDING_ADJUDICATION')).toHaveLength(313);
-    expect(evidenceKinds.filter((value) => value === 'REGISTRY_RECORD')).toHaveLength(699);
-    expect(evidenceKinds.filter((value) => value === 'REGISTRY_REFERENCE')).toHaveLength(84);
+    expect(classifications.filter((value) => value === 'ID_COLLISION')).toHaveLength(27);
+    expect(classifications.filter((value) => value === 'LEGACY_UNREGISTERED')).toHaveLength(618);
+    expect(classifications.filter((value) => value === 'PENDING_ADJUDICATION')).toHaveLength(314);
+    expect(evidenceKinds.filter((value) => value === 'REGISTRY_RECORD')).toHaveLength(645);
+    expect(evidenceKinds.filter((value) => value === 'REGISTRY_REFERENCE')).toHaveLength(85);
     expect(evidenceKinds.filter((value) => value === 'REVIEW_MENTION')).toHaveLength(229);
     expect(sourceRefs).toContain('SRC-R-019#EDGE-CRITICAL-001-R1');
     expect(sourceRefs).toContain('SRC-R-019#RUST-CVE-002');
+    expect(sourceRefs).not.toContain('SRC-R-005#ORPHAN-HIGH-472');
   });
 
   it('keeps collisions unallocated and unresolved evidence semantically unassigned', () => {
@@ -1000,7 +1038,7 @@ describe('checked-in source finding attestation', () => {
           null,
       ),
     ).toBe(true);
-    expect(targeted).toHaveLength(13);
+    expect(targeted).toHaveLength(12);
     expect(
       rows
         .filter((row) => !targeted.includes(row))
@@ -1079,7 +1117,7 @@ describe('checked-in source finding attestation', () => {
           sum + numberValue(entry.targeted_occurrence_count, 'targeted_occurrence_count'),
         0,
       ),
-    ).toBe(13);
+    ).toBe(12);
     expect(
       unitAttestations.every(
         (entry) =>

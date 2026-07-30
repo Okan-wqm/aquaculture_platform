@@ -30817,6 +30817,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-07-30-enterprise-backup-restore-architecture/PLAN.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/multi-agent-architecture.md",
       "prettier_managed": true
     },
@@ -55362,10 +55368,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9076,
+  "file_count": 9077,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8895,
-  "managed_file_list_sha256": "68f7848cbc60c8e192fc4d3891dc8bbba44e05235aae85208dcb664ec996c03b",
+  "managed_count": 8896,
+  "managed_file_list_sha256": "ec823ec079fd8d64c7fc17917a26bb937d42ea2227afe5e5b300672ce8c6c55e",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

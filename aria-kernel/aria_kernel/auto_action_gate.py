@@ -203,31 +203,54 @@ def _load_policy_flag(base_dir: str | Path) -> bool:
     return bool(flag)
 
 
+# ORPHAN-CRITICAL-418 — the state string a safety-signal read collapses
+# to when it cannot answer. It is deliberately NOT ``ok``: every
+# consumer compares against ``ok``, so an unreadable breaker or cost
+# ledger now requires operator acknowledgement instead of waving the
+# action through.
+SAFETY_STATE_UNREADABLE: str = "unreadable"
+
+
 def _load_breaker_state(base_dir: str | Path) -> str:
-    """Plan ARIA-V3 §B2 stub — ``ok`` until Phase B2's circuit
-    breaker module lands. Returns ``ok`` when the breaker file
-    is absent (no failures recorded).
+    """Read the autonomous-failure breaker state, fail-closed.
+
+    Pre-fix this swallowed every exception into ``"ok"`` (its own
+    comment said "fail-closed-but-permissive"), so a broken kernel
+    import or an unreadable ledger read as "no failures recorded" and
+    the gate stopped requiring an operator ack. A safety signal that
+    cannot be read is not a safe signal — it returns
+    ``SAFETY_STATE_UNREADABLE`` (ORPHAN-CRITICAL-418).
+
+    ``circuit_breaker.evaluate_breaker`` already fails closed on a
+    damaged ledger; this wrapper closes the remaining hole where the
+    read itself raises.
     """
     try:
         from .circuit_breaker import current_state
     except ImportError:
-        return "ok"
+        return SAFETY_STATE_UNREADABLE
     try:
         return current_state(base_dir=base_dir)
-    except Exception:  # noqa: BLE001 — fail-closed-but-permissive
-        return "ok"
+    except Exception:  # noqa: BLE001 — any read failure is not-ok, never ok
+        return SAFETY_STATE_UNREADABLE
 
 
 def _load_cost_state(base_dir: str | Path) -> str:
-    """Plan ARIA-V3 §B0 stub — ``ok`` until cost_budget module lands."""
+    """Read the cost-budget breaker state, fail-closed.
+
+    Same defect and same fix as :func:`_load_breaker_state` — both feed
+    ``AutoActionGate.human_ack_required``, so leaving this one
+    permissive would keep the hole open on the cost side
+    (ORPHAN-CRITICAL-418).
+    """
     try:
         from .cost_budget import current_state
     except ImportError:
-        return "ok"
+        return SAFETY_STATE_UNREADABLE
     try:
         return current_state(base_dir=base_dir)
-    except Exception:  # noqa: BLE001
-        return "ok"
+    except Exception:  # noqa: BLE001 — any read failure is not-ok, never ok
+        return SAFETY_STATE_UNREADABLE
 
 
 def gate_from_policy(
@@ -290,6 +313,7 @@ def gate_from_test_fixture(
 
 
 __all__ = [
+    "SAFETY_STATE_UNREADABLE",
     "AutoActionGate",
     "ClassifierDecision",
     "gate_from_policy",

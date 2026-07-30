@@ -241,6 +241,8 @@ export default {
       displayName: 'registry',
       testMatch: [
         '<rootDir>/adoption-invariants.spec.ts',
+        '<rootDir>/workflow-npm-script-references.spec.ts',
+        '<rootDir>/git-hook-binding.spec.ts',
         '<rootDir>/billing-money-decimal-coexistence.spec.ts',
         '<rootDir>/tenant-permission-guard-adoption.spec.ts',
         '<rootDir>/sensor-enum-fe-be-parity.spec.ts',

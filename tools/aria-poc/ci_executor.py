@@ -38,6 +38,7 @@ import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,9 @@ if str(_THIS_DIR) not in sys.path:
 
 from claude_runtime import (
     CLAUDE_MOCK_ENV_VAR,
+    ClaudeCreditExhausted,
+    CREDIT_FALLBACK_EFFORT,
+    MODEL_FALLBACK_TIER,
     ClaudeAuthUnavailable,
     ClaudeCliUnavailable,
     ClaudePolicyViolation,
@@ -623,18 +627,12 @@ def _max_timeout_seconds() -> int:
     return int(os.environ.get("MAX_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS))
 
 
-def _max_budget_usd() -> float:
-    """Legacy operator-tunable USD cap for API-key mode.
-
-    Default Claude Code execution uses managed-session auth and does not use
-    this value for billing control. It remains for compatibility with
-    older cost-cap heuristics only.
-    """
-    return float(os.environ.get("MAX_BUDGET_USD_PER_RUN", "2.0"))
-
-
-def _max_budget_usd_per_cycle() -> float:
-    return float(os.environ.get("MAX_BUDGET_USD_PER_CYCLE", "3.00"))
+# ORPHAN-HIGH-472 — `_max_budget_usd` and `_max_budget_usd_per_cycle` lived
+# here and are gone. Their own docstring already conceded the point ("Default
+# Claude Code execution uses managed-session auth and does not use this value
+# for billing control"), and after the dispatch gate moved to wall clock they
+# had no readers at all. A tunable that gates nothing is worse than no
+# tunable: an operator who lowers it believes they have tightened something.
 
 
 _TRUTHY_BOOL_VALUES: frozenset[str] = frozenset({"1", "true", "yes", "on"})
@@ -686,26 +684,36 @@ def _is_mock_mode() -> bool:
 _MOCK_MODE_AT_ENTRY: bool | None = None
 
 
-def _validate_cost_cap(*, request: dict[str, Any]) -> None:
-    """Reject requests whose budget shape exceeds the configured cap.
+def _validate_dispatch_budget(
+    *,
+    request: dict[str, Any],
+    tools_dir: str | Path,
+    timeout_seconds: int,
+) -> None:
+    """Refuse a dispatch that cannot finish inside the cycle's wall clock.
 
-    The kernel's request envelope MAY carry a hint of the expected
-    verdict cardinality (e.g. judges that scan many evidence_refs). When
-    a hint is absent the executor permits the run and lets the
-    Claude Code CLI's own --max-turns enforce the second layer.
+    ORPHAN-HIGH-472 — this used to gate on estimated DOLLARS against
+    MAX_BUDGET_USD_PER_CYCLE, and that number never described anything real.
+    ARIA runs its agents through the Claude Code CLI on a logged-in
+    subscription session (``claude_runtime`` is explicit that raw
+    ANTHROPIC_API_KEY billing is disallowed, and both workflows reject those
+    env vars), so there is no marginal per-run charge to cap. The USD figures
+    price tokens at API list rates: useful as telemetry, meaningless as a
+    gate. Four values disagreed by 40x — cost_budget's $0.50 per_run, the
+    workflow's $20.00 per-run AND $3.00 per-cycle in the same invocation, and
+    a ~$1.15 measured run — because none of them was measuring spend.
 
-    Plan ARIA-V8 §4 Phase 8.0 (B-V2-11) — the per-run dollar cap is
-    enforced separately via `aria_kernel.budget.reserve_cycle_budget`
-    + `reconcile_envelope_cost`; this function preserves the legacy
-    heuristic turn-count guard as a defense-in-depth pre-flight.
+    What is actually scarce is time: the shared subscription quota and CI
+    minutes. So the ceiling is wall-clock, derived from the lane's own pinned
+    job timeout, and the refusal happens BEFORE a run that could not have
+    finished is started.
+
+    The turn-count heuristic is kept as a second, independent pre-flight —
+    it bounds envelope shape rather than elapsed time.
     """
-    estimated_cost = _estimate_envelope_cost_usd(request=request)
-    cycle_cap = _max_budget_usd_per_cycle()
-    if estimated_cost > cycle_cap:
-        raise CostCapExceeded(
-            f"estimated envelope cost ${estimated_cost:.4f} exceeds "
-            f"MAX_BUDGET_USD_PER_CYCLE=${cycle_cap:.4f}"
-        )
+    _assert_cycle_wall_clock(
+        request=request, tools_dir=tools_dir, timeout_seconds=timeout_seconds
+    )
     expected_evidence_count = len(request.get("evidence_refs") or [])
     if expected_evidence_count > _max_turns() * 4:  # rough heuristic: 4 refs per turn
         raise CostCapExceeded(
@@ -714,35 +722,132 @@ def _validate_cost_cap(*, request: dict[str, Any]) -> None:
         )
 
 
-def _estimate_envelope_cost_usd(*, request: dict[str, Any]) -> float:
-    """Plan ARIA-V8 §4 Phase 8.0 (B-V2-11) — pessimistic per-envelope cost.
+def _wall_clock_cap_seconds() -> int | None:
+    """This lane's self-imposed ceiling, from the pinned workflow contract.
 
-    WHY: per-cycle budget reservation needs a number before the LLM call.
-    HOW: count evidence_refs as a proxy for input token volume (each
-    evidence_ref is ~50-200 input tokens), assume max_turns × 500
-    output tokens cap, price at $0.27/call (V8 worst-case per
-    performance-expert HIGH-003 numerical analysis).
+    Derived rather than configured so it cannot drift from the timeout the
+    runner actually enforces — ``_verify_job_timeout_minutes`` fails the
+    contract test if the YAML and the registry disagree.
     """
-    refs = len(request.get("evidence_refs") or [])
-    if refs >= 8:
-        base = 0.30  # heavy decision-node envelope
-    elif refs >= 3:
-        base = 0.18
-    else:
-        base = 0.10
-    # K4 (ORPHAN-MEDIUM-286) — model-aware reservation. Fable prices at 2x
-    # opus on both input and output; an opus-calibrated estimate under-
-    # reserves and trips the per-cycle cap mid-cycle. Resolution is
-    # fail-safe (unknown agent -> most expensive tier -> conservative 2x).
-    target_agent = str(request.get("target_agent") or "")
-    if target_agent:
-        try:
-            from aria_kernel.agent_runtime_profile import resolve_claude_model
-            if resolve_claude_model(target_agent) == "fable":
-                return base * 2.0
-        except Exception:
-            return base * 2.0
-    return base
+    from aria_kernel.workflow_contract_registry import cycle_wall_clock_cap_seconds
+
+    workflow_id = _current_workflow_id()
+    if workflow_id is None:
+        return None
+    return cycle_wall_clock_cap_seconds(workflow_id)
+
+
+def _current_workflow_id() -> str | None:
+    """Registry key for the workflow this process is running under.
+
+    GITHUB_WORKFLOW_REF looks like
+    ``owner/repo/.github/workflows/aria-agent-executor.yml@refs/heads/main``;
+    the registry keys on the file stem.
+    """
+    ref = os.environ.get("GITHUB_WORKFLOW_REF", "")
+    if not ref:
+        return None
+    path = ref.split("@", 1)[0]
+    stem = path.rsplit("/", 1)[-1]
+    for suffix in (".yml", ".yaml"):
+        if stem.endswith(suffix):
+            return stem[: -len(suffix)]
+    return stem or None
+
+
+def _record_run_wall_clock(
+    *,
+    request: dict[str, Any],
+    tools_dir: str | Path,
+    request_id: str,
+    seconds: float,
+) -> None:
+    """Book this run's elapsed time against its cycle.
+
+    Deliberately swallows its own failures: the ledger append is accounting,
+    and a bookkeeping error must not convert a completed agent run into a
+    failed one. The cost of missing a row is a cycle that over-runs its
+    ceiling once; the cost of raising here would be losing real work.
+    """
+    from aria_kernel.budget import record_run_wall_clock
+
+    cycle_id = request.get("cycle_id")
+    if not cycle_id:
+        return
+    try:
+        record_run_wall_clock(
+            cycle_id=str(cycle_id),
+            seconds=seconds,
+            base_dir=tools_dir,
+            request_id=request_id,
+        )
+    except Exception as exc:  # noqa: BLE001 — see docstring
+        sys.stderr.write(f"wall_clock_record_failed: {exc}\n")
+
+
+def _job_elapsed_seconds() -> float | None:
+    """Seconds since this workflow RUN started, from GitHub's own timestamp.
+
+    ORPHAN-CRITICAL-495 — the first version of this gate accounted against
+    ``request["cycle_id"]``, and 15 of 17 mint paths never set it, so the
+    ceiling was inert on essentially every dispatch: exactly the
+    written-tested-and-never-reached defect this branch exists to close, in
+    the commit that claimed to close it.
+
+    Elapsed-since-job-start is also the better question for this lane. The
+    executor handles ONE request per job, so there is no cycle total to
+    accumulate; what actually matters is whether a 30-minute run still fits
+    in what remains of a 35-minute job after restore, preflight and lease
+    checks have taken their share. ``GITHUB_RUN_STARTED_AT`` needs nothing
+    threaded through the envelope to answer that.
+    """
+    started = os.environ.get("GITHUB_RUN_STARTED_AT", "").strip()
+    if not started:
+        return None
+    try:
+        parsed = datetime.fromisoformat(started.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return max(0.0, (datetime.now(timezone.utc) - parsed).total_seconds())
+
+
+def _assert_cycle_wall_clock(
+    *,
+    request: dict[str, Any],
+    tools_dir: str | Path,
+    timeout_seconds: int,
+) -> None:
+    from aria_kernel.budget import WallClockExhausted
+
+    cap_seconds = _wall_clock_cap_seconds()
+    elapsed = _job_elapsed_seconds()
+    if cap_seconds is None or elapsed is None:
+        # Not in a recognised lane, or GitHub gave us no run timestamp. The
+        # per-run timeout still bounds this run; there is simply no job
+        # ceiling to measure it against.
+        return
+    remaining = cap_seconds - elapsed
+    if remaining < timeout_seconds:
+        raise WallClockExhausted(
+            f"job_wall_clock_exhausted: remaining={remaining:.0f}s "
+            f"< per_run_timeout={timeout_seconds}s "
+            f"(cap={cap_seconds}s elapsed={elapsed:.0f}s)"
+        )
+    # The run's actual duration is booked after it finishes, in the `finally`
+    # arm around invoke_claude_cli. Nothing is recorded here: a zero-second
+    # row at gate time would be noise in a ledger whose whole purpose is to
+    # answer how long things took.
+
+
+# ORPHAN-HIGH-472 — `_estimate_envelope_cost_usd` lived here. It priced an
+# envelope before the call so a USD reservation could be checked against a
+# cap. With the dispatch gate moved to wall clock it had no callers left, and
+# its output was never spend in the first place: under a subscription session
+# the number it produced was an API-list-price estimate of a call that is not
+# billed per token. Deleted rather than left as an unused helper, because the
+# next reader would reasonably assume something enforces it.
 
 
 def _try_reconcile_envelope_cost(*, envelope_id: str, actual_cost_usd: float, tools_dir: Path) -> None:
@@ -974,18 +1079,27 @@ def invoke_claude_cli(
             except Exception:
                 pass
 
+        # ORPHAN-HIGH-478 — the audit rows named the fable->opus@xhigh hop as a
+        # literal. Once the ladder gained a second rung those strings would have
+        # written factually false entries into an append-only, hash-chained
+        # governance ledger, which is the one artifact here that cannot be
+        # corrected after the fact.
+        _credit_fallback_target = MODEL_FALLBACK_TIER.get(agent_profile.model, "(none)")
+        _refusal_fallback_target = _credit_fallback_target
+
         def _on_credit(marker: dict[str, Any]) -> None:
             _gov("model_credit_fallback_attempted", {
                 "request_id": request_id,
                 "subagent_type": subagent_type,
                 "from_model": agent_profile.model,
-                "to_model": "opus",
-                "to_effort": "xhigh",
+                "to_model": _credit_fallback_target,
+                "to_effort": CREDIT_FALLBACK_EFFORT,
                 "credit_exhaustion": marker,
             })
             _stage(
                 f"model_credit_fallback request_id={request_id} "
-                f"marker={marker.get('matched_marker')!r} fable->opus@xhigh"
+                f"marker={marker.get('matched_marker')!r} "
+                f"{agent_profile.model}->{_credit_fallback_target}@{CREDIT_FALLBACK_EFFORT}"
             )
 
         def _on_refusal(refusal: dict[str, Any]) -> None:
@@ -993,12 +1107,13 @@ def invoke_claude_cli(
                 "request_id": request_id,
                 "subagent_type": subagent_type,
                 "from_model": agent_profile.model,
-                "to_model": "opus",
+                "to_model": _refusal_fallback_target,
                 "refusal": refusal,
             })
             _stage(
                 f"model_refusal_fallback request_id={request_id} "
-                f"category={refusal.get('category')!r} fable->opus"
+                f"category={refusal.get('category')!r} "
+                f"{agent_profile.model}->{_refusal_fallback_target}"
             )
 
         completed = run_with_model_fallback(
@@ -1190,14 +1305,41 @@ def _record_claude_cli_usage(
             actual_cost_usd = float(candidate_cost)
         break
     try:
-        from aria_kernel.budget import estimate_tokens_usd, record_cost_attribution
-        estimated_usd = (
-            actual_cost_usd
-            if actual_cost_usd is not None
-            else estimate_tokens_usd(
-                model=model, input_tokens=input_tokens, output_tokens=output_tokens,
-            )
+        from aria_kernel.budget import (
+            PRICING_SOURCE_FAMILY,
+            price_tokens,
+            record_cost_attribution,
         )
+        # ORPHAN-HIGH-476 — price_tokens, not estimate_tokens_usd: the bare
+        # float discards HOW the price was derived, so a family estimate would
+        # be filed as though it were a measured rate.
+        priced = price_tokens(
+            model=model, input_tokens=input_tokens, output_tokens=output_tokens,
+        )
+        estimated_usd = actual_cost_usd if actual_cost_usd is not None else priced.usd
+        if (
+            actual_cost_usd is None
+            and priced.source == PRICING_SOURCE_FAMILY
+            and (input_tokens or output_tokens)
+        ):
+            # A new model generation the exact table has not caught up with.
+            # The charge is real enough to keep the caps binding, but the
+            # operator needs to know it is inferred so the rate can be
+            # corrected — silence here is how an estimate becomes "the number".
+            try:
+                from aria_kernel.tool_registry import append_tools_governance
+                append_tools_governance(
+                    tools_dir,
+                    "cost_pricing_inferred_from_family",
+                    {
+                        "model": model,
+                        "matched_family": priced.matched_key,
+                        "estimated_usd": priced.usd,
+                        "request_id": request_id,
+                    },
+                )
+            except Exception:
+                pass
         if estimated_usd == 0.0 and (input_tokens or output_tokens):
             # Tokens were consumed but no price resolved — make the zero
             # loud instead of silently under-counting the caps.
@@ -1704,6 +1846,12 @@ def main(argv: list[str] | None = None) -> int:
         # loop and to read the operator's intent.
         "target_agent": claim.get("target_agent") or subagent_type,
         "convergence_id": claim.get("convergence_id"),
+        # ORPHAN-CRITICAL-495 — the request ROW carries cycle_id (written by
+        # create_agent_invocation_request) and this envelope did not copy it,
+        # so every consumer that keyed on it silently no-opped. The
+        # wall-clock ledger was one; it recorded nothing at all because
+        # _record_run_wall_clock returns early on a falsy cycle_id.
+        "cycle_id": claim.get("cycle_id"),
         "suggested_prompt": claim.get("suggested_prompt"),
         "forbidden_scope": claim.get("forbidden_scope") or [],
         "impact_graph_refs": claim.get("impact_graph_refs") or [],
@@ -1741,18 +1889,31 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     expected_output_path = Path(request_envelope["expected_output_path"])
 
+    from aria_kernel.budget import WallClockExhausted
+
     try:
-        _validate_cost_cap(request=request_envelope)
-    except CostCapExceeded as exc:
-        sys.stderr.write(f"cost_cap_exceeded: {exc}\n")
+        _validate_dispatch_budget(
+            request=request_envelope,
+            tools_dir=tools_dir,
+            timeout_seconds=_max_timeout_seconds(),
+        )
+    except (CostCapExceeded, WallClockExhausted) as exc:
+        sys.stderr.write(f"dispatch_budget_refused: {exc}\n")
         # Plan 025 §B — release via the shared helper so every fail-
         # fast branch in ``main()`` releases the lease deterministically
         # (no claim row leaked in CLAIMED state until lease expiry).
+        #
+        # ORPHAN-HIGH-472 — releasing is what makes the wall-clock refusal
+        # worth having. The request goes back on the queue for the next
+        # cycle instead of being started with less time left than its own
+        # timeout, which is the case that would have been killed mid-flight
+        # by the runner with the lease still held.
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
-            agent_id=agent_id, lease_token=lease_token, reason="cost_cap_exceeded",
+            agent_id=agent_id, lease_token=lease_token,
+            reason="dispatch_budget_refused",
         )
-        return 0  # cost-cap exceedance is a budget signal, NOT a build failure
+        return 0  # a budget signal, NOT a build failure
 
     # Plan ARIA-V7 §2g v2 — write the request's suggested_prompt to
     # the canonical prompts/ path BEFORE invoking the CLI. Pre-V7
@@ -1790,6 +1951,7 @@ def main(argv: list[str] | None = None) -> int:
 
     timeout = _max_timeout_seconds()
     transcript_output_path = expected_output_path.with_suffix(".transcript.jsonl")
+    _run_started_at = time.monotonic()
     try:
         # Plan 024 v3 §B-8 — pass real lease identity + role from
         # request row into the mock envelope writer. claim_id +
@@ -1818,9 +1980,45 @@ def main(argv: list[str] | None = None) -> int:
             request_envelope=request_envelope,
             tools_dir=tools_dir,
         )
-    except ClaudeCliUnavailable as exc:
+    except (ClaudeCliUnavailable, ClaudeCreditExhausted) as exc:
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
+        # ORPHAN-HIGH-489 — ClaudeCreditExhausted belongs here too. I added that
+        # raise in ORPHAN-HIGH-475 so a quota notice could not be returned as
+        # the agent's answer, and then left it in nobody's handler: exactly the
+        # ResourceLimitsUnavailable defect one release earlier, in my own code.
+        # A quota-exhausted run would escape main() with the claim CLAIMED, so
+        # a billing event — the most likely reason to run out mid-cycle — would
+        # also block the request for the full lease window. Found by the review
+        # panel while attacking the ResourceLimitsUnavailable fix.
+        # ORPHAN-HIGH-470 follow-through — this arm is the landing site for
+        # every refused spawn: `invoke_claude_cli` re-raises the whole
+        # perimeter family (auth / CLI / policy / usage — policy now including
+        # the translated `ResourceLimitsUnavailable`) as ClaudeCliUnavailable.
+        # It used to `return 1` with the claim still CLAIMED, so a refusal
+        # caused by a missing limiter or sandbox blocked the request for the
+        # full lease window and the next cycle found nothing to do — strictly
+        # worse than the crash it replaced. The CLI-exit and submit-failure arms
+        # below both release; this arm now matches them. (An earlier draft of
+        # this comment claimed EVERY fail-fast branch in main() releases — a
+        # reviewer flagged that as unverified, and it is narrowed here rather
+        # than left as a claim nobody checked.)
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason="claude_spawn_refused",
+        )
         return 1
+    finally:
+        # ORPHAN-HIGH-472 — in `finally`, so a run that timed out or was
+        # refused still books the time it burned. Recording only successful
+        # runs would under-count precisely in the case the ceiling exists to
+        # catch: a cycle whose runs keep dying slowly.
+        _record_run_wall_clock(
+            request=request_envelope,
+            tools_dir=tools_dir,
+            request_id=request_id,
+            seconds=time.monotonic() - _run_started_at,
+        )
 
     if cli_exit != 0:
         sys.stderr.write(f"claude exec exited {cli_exit}\n")

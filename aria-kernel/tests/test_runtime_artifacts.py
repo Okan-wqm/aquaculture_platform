@@ -190,5 +190,128 @@ class RuntimeArtifactTests(unittest.TestCase):
         self.assertEqual(restored["status"], "restored")
 
 
+class AutonomySummaryDerivedCountersTests(unittest.TestCase):
+    """ORPHAN-HIGH-424 — the operator-facing counters must be derived.
+
+    ``incomplete_lifecycle_count`` was pinned to 0 in ``cycle.py`` and then
+    summed here, and ``warning_count``/``suppressed_count``/
+    ``truncated_count`` were locals initialised to 0 that nothing ever
+    incremented. Four fields reached the operator incapable of being
+    non-zero, which is how a run could report ``overall_status: ok`` with
+    ``warning_count: 0`` on top of an abandoned cycle. No test covered
+    this function before, which is how the pinned zeros survived.
+    """
+
+    @staticmethod
+    def _result(**cycle_overrides: object) -> dict:
+        cycle: dict = {
+            "cycle_id": "cyc-1",
+            "runtime_status": "ok",
+            "incomplete_lifecycle_count": 0,
+            "cycle_lifecycle": {"valid": True, "incomplete_count": 0},
+            "tool_run_summary": [{"tool_id": "t", "status": "ok"}],
+        }
+        cycle.update(cycle_overrides)
+        return {"per_cycle": [{"cycle": cycle}]}
+
+    def test_clean_cycle_reports_no_warnings(self) -> None:
+        from aria_kernel.runtime_artifacts import autonomy_output_summary
+
+        summary = autonomy_output_summary(self._result())
+        self.assertEqual(summary["overall_status"], "ok")
+        self.assertEqual(summary["warning_count"], 0)
+        self.assertEqual(summary["warnings"], [])
+        self.assertEqual(summary["incomplete_lifecycle_count"], 0)
+
+    def test_abandoned_cycle_surfaces_in_count_and_warnings(self) -> None:
+        from aria_kernel.runtime_artifacts import autonomy_output_summary
+
+        summary = autonomy_output_summary(self._result(
+            incomplete_lifecycle_count=2,
+            cycle_lifecycle={"valid": False, "incomplete_count": 2},
+        ))
+        self.assertEqual(summary["incomplete_lifecycle_count"], 2)
+        self.assertGreaterEqual(summary["warning_count"], 1)
+        self.assertIn(
+            "incomplete_cycle_lifecycle",
+            [w["code"] for w in summary["warnings"]],
+        )
+
+    def test_unreadable_cycle_ledger_is_its_own_warning(self) -> None:
+        """A 0 count with valid=False must not read as "no incomplete cycles"."""
+        from aria_kernel.runtime_artifacts import autonomy_output_summary
+
+        summary = autonomy_output_summary(self._result(
+            cycle_lifecycle={
+                "valid": False,
+                "incomplete_count": 0,
+                "ledger_integrity_error": "Invalid JSONL at cycles.jsonl:7",
+            },
+        ))
+        self.assertEqual(summary["incomplete_lifecycle_count"], 0)
+        codes = [w["code"] for w in summary["warnings"]]
+        self.assertIn("cycle_lifecycle_unreadable", codes)
+
+    def test_artifact_hash_drift_warns_but_absent_refs_do_not(self) -> None:
+        from aria_kernel.runtime_artifacts import autonomy_output_summary
+
+        drift = autonomy_output_summary(self._result(
+            artifact_refs=[{"verification_status": "mismatch"}],
+        ))
+        self.assertIn(
+            "artifact_hash_drift", [w["code"] for w in drift["warnings"]],
+        )
+        # "none" (no refs to verify) is not an anomaly.
+        self.assertEqual(autonomy_output_summary(self._result())["warning_count"], 0)
+
+    def test_suppressed_and_truncated_markers_are_summed(self) -> None:
+        from aria_kernel.runtime_artifacts import autonomy_output_summary
+
+        summary = autonomy_output_summary(self._result(
+            findings_suppressed=4,
+            tool_run_summary=[
+                {"tool_id": "t", "status": "ok", "prompt_truncated": True},
+                {"tool_id": "u", "status": "ok", "truncated_count": 3},
+            ],
+        ))
+        self.assertEqual(summary["suppressed_count"], 4)
+        # True counts as one truncation, plus the reported 3.
+        self.assertEqual(summary["truncated_count"], 4)
+
+
+class CycleLifecycleStatusTests(unittest.TestCase):
+    """ORPHAN-HIGH-424 — the count cycle.py reports must be real."""
+
+    def test_started_without_terminal_is_counted(self) -> None:
+        from aria_kernel.integrity import cycle_lifecycle_status
+
+        with tempfile.TemporaryDirectory(prefix="aria-lifecycle-") as tmp:
+            base = Path(tmp) / "aria-tools"
+            base.mkdir(parents=True, exist_ok=True)
+            cycles = base / "cycles.jsonl"
+            append_jsonl(cycles, {"cycle_id": "cyc-open", "event": "started", "at": "2026-07-01T00:00:00Z"})
+            append_jsonl(cycles, {"cycle_id": "cyc-done", "event": "started", "at": "2026-07-02T00:00:00Z"})
+            append_jsonl(cycles, {"cycle_id": "cyc-done", "event": "completed", "at": "2026-07-02T00:05:00Z"})
+            status = cycle_lifecycle_status(base)
+            self.assertFalse(status["valid"])
+            self.assertEqual(status["incomplete_count"], 1)
+            self.assertEqual(
+                [row["cycle_id"] for row in status["incomplete_cycles"]], ["cyc-open"],
+            )
+
+    def test_all_terminal_is_valid(self) -> None:
+        from aria_kernel.integrity import cycle_lifecycle_status
+
+        with tempfile.TemporaryDirectory(prefix="aria-lifecycle-ok-") as tmp:
+            base = Path(tmp) / "aria-tools"
+            base.mkdir(parents=True, exist_ok=True)
+            cycles = base / "cycles.jsonl"
+            append_jsonl(cycles, {"cycle_id": "cyc-1", "event": "started", "at": "2026-07-02T00:00:00Z"})
+            append_jsonl(cycles, {"cycle_id": "cyc-1", "event": "failed", "at": "2026-07-02T00:05:00Z"})
+            status = cycle_lifecycle_status(base)
+            self.assertTrue(status["valid"])
+            self.assertEqual(status["incomplete_count"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

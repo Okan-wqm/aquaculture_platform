@@ -11,8 +11,13 @@
     "per_run": 0.5
   },
   "circuit_breaker": {
-    "threshold_24h": 3,
+    "failure_threshold": 3,
+    "failure_window_hours": 72,
     "auto_downgrade_to": "strict"
+  },
+  "agent_request_anchor": {
+    "_doc": "ORPHAN-MEDIUM-492 — how long a minted agent-invocation request stays claimable. target_sha names the commit the request's plan and evidence are grounded at; past this window the request describes a tree the repo has moved off. The nightly cadence is daily and a request is meant to be consumed by the cycle that minted it, so 3 days is already generous. Age is the check that binds on the live lane: it needs no git history, so it works on the depth-1 shallow clone actions/checkout gives both ARIA workflows. Reachability is checked ONLY when an anchor is present AND the clone is not shallow (ORPHAN-CRITICAL-494) — in a partial clone, absence of the object is not evidence the commit is gone.",
+    "max_age_seconds": 259200
   },
   "convergent_authoring": {
     "_doc": "Plan ARIA-V6 \u00a72d v2 \u2014 convergent adapter authoring loop config. Operator opt-in via skill-genesis request --convergent.",

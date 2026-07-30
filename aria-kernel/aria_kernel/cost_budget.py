@@ -44,8 +44,11 @@ from typing import Any
 from .tool_registry import GovernanceError, ensure_tools_dir
 
 _BUDGET_DIR_RELATIVE = ("budget",)
-_DAILY_FILE = "daily.json"
-_MONTHLY_FILE = "monthly.json"
+# ORPHAN-HIGH-466 — budget/daily.json + budget/monthly.json are GONE.
+# They were a second cost ledger only record_actual_usage wrote, and
+# nothing called it. Usage is now derived from the cost-attribution
+# rows in derived_usage(); re-introducing an aggregate here would
+# recreate the divergence this finding closed.
 _STATE_FILE = "breaker_state.json"
 
 _DEFAULT_CAPS_USD: dict[str, float] = {
@@ -134,27 +137,20 @@ def assert_within_budget(
         )
     root = ensure_tools_dir(base_dir)
     caps = _load_caps(root)
-    daily = _read_json(_budget_dir(root) / _DAILY_FILE, {"date": _today_key(), "usd": 0.0})
-    monthly = _read_json(_budget_dir(root) / _MONTHLY_FILE, {"month": _month_key(), "usd": 0.0})
-
-    # Roll forward on calendar boundary.
-    if daily.get("date") != _today_key():
-        daily = {"date": _today_key(), "usd": 0.0}
-    if monthly.get("month") != _month_key():
-        monthly = {"month": _month_key(), "usd": 0.0}
+    spent_daily, spent_monthly = derived_usage(root)
 
     if estimated_run_usd > caps["per_run"]:
         _trip_breaker(root, cap_name="per_run", amount=estimated_run_usd, cap=caps["per_run"])
         raise GovernanceError(
             f"cost_budget_per_run_cap_exceeded: estimate={estimated_run_usd} cap={caps['per_run']}"
         )
-    projected_daily = float(daily.get("usd", 0.0)) + estimated_run_usd
+    projected_daily = spent_daily + estimated_run_usd
     if projected_daily > caps["daily"]:
         _trip_breaker(root, cap_name="daily", amount=projected_daily, cap=caps["daily"])
         raise GovernanceError(
             f"cost_budget_daily_cap_exceeded: projected={projected_daily} cap={caps['daily']}"
         )
-    projected_monthly = float(monthly.get("usd", 0.0)) + estimated_run_usd
+    projected_monthly = spent_monthly + estimated_run_usd
     if projected_monthly > caps["monthly"]:
         _trip_breaker(root, cap_name="monthly", amount=projected_monthly, cap=caps["monthly"])
         raise GovernanceError(
@@ -169,36 +165,43 @@ def assert_within_budget(
     }
 
 
-def record_actual_usage(
-    base_dir: str | Path,
-    *,
-    actual_usd: float,
-) -> dict[str, Any]:
-    """Plan ARIA-V3 §B0 — append actual cost to the daily +
-    monthly ledgers after a successful ``claude`` invocation.
+def derived_usage(base_dir: str | Path) -> tuple[float, float]:
+    """ORPHAN-HIGH-466 — (daily_usd, monthly_usd) derived from the
+    cost-attribution ledger the system actually writes.
+
+    Pre-fix this module kept its OWN aggregates, ``budget/daily.json`` and
+    ``budget/monthly.json``, incremented by ``record_actual_usage`` — a
+    function whose only occurrences repo-wide were its ``def`` and its
+    ``__all__`` entry. Meanwhile every real invocation recorded through
+    ``budget.record_cost_attribution``, which ``CostTelemetryHookImpl``
+    wires for standard/strict/autonomous. Two parallel cost systems, and
+    the enforcing gate read the one nothing fed: the caps could not be
+    reached no matter what was spent.
+
+    Deriving instead of dual-writing is deliberate. A second producer
+    alongside the attribution row would make the two ledgers capable of
+    disagreeing, and the telemetry hook deliberately swallows its own write
+    failures so the cycle's LLM call cannot be blocked by a cost-row error —
+    meaning the aggregate would drift silently and the gate would enforce
+    against a number nobody could reconcile. With one ledger, divergence is
+    not handled, it is impossible.
+
+    The calendar-boundary roll-forward the old aggregates needed is gone for
+    the same reason: the window is expressed in the query
+    (``since_iso``), so a stale date field cannot carry yesterday's total
+    into today.
     """
-    if actual_usd < 0:
-        raise GovernanceError(
-            f"cost_budget_negative_usage: {actual_usd}"
-        )
+    from .budget import aggregate_cost_attribution
+
     root = ensure_tools_dir(base_dir)
-    daily_path = _budget_dir(root) / _DAILY_FILE
-    monthly_path = _budget_dir(root) / _MONTHLY_FILE
-    daily = _read_json(daily_path, {"date": _today_key(), "usd": 0.0})
-    monthly = _read_json(monthly_path, {"month": _month_key(), "usd": 0.0})
-    if daily.get("date") != _today_key():
-        daily = {"date": _today_key(), "usd": 0.0}
-    if monthly.get("month") != _month_key():
-        monthly = {"month": _month_key(), "usd": 0.0}
-    daily["usd"] = float(daily.get("usd", 0.0)) + actual_usd
-    monthly["usd"] = float(monthly.get("usd", 0.0)) + actual_usd
-    _atomic_write_json(daily_path, daily)
-    _atomic_write_json(monthly_path, monthly)
-    return {
-        "status": "ok",
-        "daily_usd": daily["usd"],
-        "monthly_usd": monthly["usd"],
-    }
+    day_start = f"{_today_key()}T00:00:00Z"
+    month_start = f"{_month_key()}-01T00:00:00Z"
+    daily = aggregate_cost_attribution(since_iso=day_start, base_dir=root)
+    monthly = aggregate_cost_attribution(since_iso=month_start, base_dir=root)
+    return (
+        float(daily.get("total_usd", 0.0) or 0.0),
+        float(monthly.get("total_usd", 0.0) or 0.0),
+    )
 
 
 def _trip_breaker(
@@ -266,6 +269,6 @@ def reset_breaker(
 __all__ = [
     "assert_within_budget",
     "current_state",
-    "record_actual_usage",
+    "derived_usage",
     "reset_breaker",
 ]

@@ -23,7 +23,11 @@ from .runtime_artifacts import read_runs_for_cycle, verify_artifacts
 from .pressure import run_pressure
 from .genesis_policy import load_policy
 from .reflection import run_reflection
-from .human_required import sweep_consensus_uncertainties_for_human_required
+from .human_required import (
+    sweep_consensus_uncertainties_for_human_required,
+    sweep_lease_lifecycle_for_human_required,
+)
+from .human_required_adjudication import sweep_human_required_adjudications
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
 from .tool_registry import GovernanceError, ensure_tools_binding, list_tools, utc_now, update_tools_index
@@ -430,6 +434,8 @@ def run_enterprise_cycle(
     pressure: dict[str, Any] = {}
     reflection = None if defer_reflection else {}
     consensus_escalation: dict[str, Any] = {}
+    lease_escalation: dict[str, Any] = {}
+    human_required_adjudication: dict[str, Any] = {}
     judge_calibration: dict[str, Any] = {}
     proactive_priorities: dict[str, Any] = {}
     belief_decay: dict[str, Any] = {}
@@ -472,6 +478,33 @@ def run_enterprise_cycle(
             consensus_escalation = sweep_consensus_uncertainties_for_human_required(base_dir=root)
         except Exception as exc:
             post_tool_failure = {"phase": "consensus_escalation", "status": "failed", "error": str(exc)}
+    # P1-03 — claims-ledger escalations reach the operator-facing surface.
+    # `derive_request_state` can say HUMAN_REQUIRED while no
+    # `human-required/<id>.json` file exists, and the reconciling sweep had
+    # CLI-only callers — so an escalation was visible in one view and
+    # invisible in the one operators and the daily report read. Running it
+    # every cycle is what makes the two views agree. Idempotent.
+    if post_tool_failure is None and not shadow_only and not discovery_only:
+        try:
+            lease_escalation = sweep_lease_lifecycle_for_human_required(base_dir=root)
+        except Exception as exc:
+            post_tool_failure = {
+                "phase": "lease_lifecycle_escalation", "status": "failed", "error": str(exc),
+            }
+    # ORPHAN-HIGH-450 — act on the escalations the two sweeps above just
+    # created. ORPHAN-HIGH-426 was closed with a 498-line adjudication panel
+    # that had zero non-test importers, so escalations were still being
+    # raised every cycle and cleared by nobody: the finding's own defect,
+    # reproduced by its fix. This is the caller. Idempotent per escalation
+    # (open once, fold thereafter) and never raising, so one malformed
+    # record cannot take the cycle's remaining phases down with it.
+    if post_tool_failure is None and not shadow_only and not discovery_only:
+        try:
+            human_required_adjudication = sweep_human_required_adjudications(base_dir=root)
+        except Exception as exc:
+            post_tool_failure = {
+                "phase": "human_required_adjudication", "status": "failed", "error": str(exc),
+            }
     # Plan 024 §A — score each judge against accumulated ground truth so the
     # cheap-tier judgment is measured, not assumed. Read-only join over the
     # feedback ledger (no LLM); skipped under shadow/discovery no-write runs.
@@ -618,6 +651,13 @@ def run_enterprise_cycle(
         state_status = "completed"
     emit_progress("cycle_completed", cycle_id=cycle_id, status=state_status,
                   runtime_status=runtime_status, failed_phases=[f.get("phase") for f in failed_phases])
+    # ORPHAN-HIGH-424 — read AFTER this cycle's terminal row is appended
+    # (both branches above write one), so the snapshot counts only cycles
+    # that were genuinely abandoned. Carried whole, not just as a count:
+    # when `cycles.jsonl` cannot be read at all the count is 0 but
+    # `valid` is False, and a consumer that sees only the number would
+    # report "no incomplete cycles" for an unreadable ledger.
+    cycle_lifecycle = _cycle_lifecycle_snapshot(root)
     state = {
         "schema_version": 2,
         "cycle_id": cycle_id,
@@ -635,6 +675,8 @@ def run_enterprise_cycle(
         "belief_decay": belief_decay,
         "pressure": pressure,
         "consensus_escalation": consensus_escalation,
+        "lease_escalation": lease_escalation,
+        "human_required_adjudication": human_required_adjudication,
         "judge_calibration": judge_calibration,
         "proactive_priorities": proactive_priorities,
         "reflection": reflection,
@@ -643,7 +685,12 @@ def run_enterprise_cycle(
         "artifact_integrity": artifact_integrity,
         "artifact_refs": [run["artifact_ref"] for run in run_summary if isinstance(run.get("artifact_ref"), dict)],
         "non_ok_tools": non_ok_runs,
-        "incomplete_lifecycle_count": 0,
+        # ORPHAN-HIGH-424 — derived, not pinned. Pre-fix this was the
+        # literal 0 that runtime_artifacts then summed across cycles, so a
+        # cycle killed mid-run stayed invisible in every operator-facing
+        # summary while `integrity verify` could already see it.
+        "incomplete_lifecycle_count": int(cycle_lifecycle.get("incomplete_count") or 0),
+        "cycle_lifecycle": cycle_lifecycle,
         "tool_decisions": decisions,
         "tool_governance_decisions": decisions,
         "tool_run_summary": run_summary,
@@ -833,7 +880,9 @@ def _run_pr_lifecycle_phase(
     caught per proposal so the phase iterates the full eligible
     list and aggregates outcomes.
     """
-    from .pr_manager import open_pr_for_action
+    from .circuit_breaker import record_failure
+    from .implementation_safety import GATE_PRE_PR_OPEN
+    from .pr_manager import PERIMETER_REFUSED_PREFIX, open_pr_for_action
     from .proposal import list_proposals
 
     eligible = [
@@ -863,6 +912,53 @@ def _run_pr_lifecycle_phase(
                 "passed": False,
                 "error": str(exc),
             })
+            # ORPHAN-CRITICAL-420 S5 — the failure circuit breaker's first
+            # production producer. record_failure() has existed since Plan
+            # ARIA-V3 §B2 and `grep -rn 'record_failure('` returned exactly
+            # ONE line: its own definition. A breaker with no producer cannot
+            # trip, so the autonomous-halt control was decorative.
+            #
+            # WHY HERE. This is an observation point, not a raise site: the
+            # perimeter refusal is raised inside pr_manager, which has no
+            # business knowing the breaker exists. cycle.py already catches
+            # per proposal and aggregates, so the failure is *observed* here
+            # exactly once, on a path proven reachable from a schedule
+            # (aria-auto-cycle.yml -> autonomy run -> run_enterprise_cycle ->
+            # _run_extended_phases -> this function).
+            #
+            # WHY ONLY A PERIMETER REFUSAL. FAILURE_KINDS is a closed
+            # taxonomy and validator_rejection means "a validating gate
+            # rejected the implementation". A missing change_id or an
+            # unresolvable branch is a malformed REQUEST, not a rejected
+            # implementation; counting those would inflate the window with
+            # operator errors and trip the breaker for the wrong reason.
+            # Matching PERIMETER_REFUSED_PREFIX keeps the discrimination
+            # structural rather than a guess about message text.
+            #
+            # WHY IT CANNOT MASK THE ORIGINAL FAILURE. record_failure writes
+            # a ledger row and emits a governance event; if that write itself
+            # fails we must not lose the proposal outcome already recorded
+            # above, nor abort the remaining proposals. The breaker-write
+            # error is therefore captured onto the proposal row and the loop
+            # continues — the refusal is still reported as `passed: False`
+            # either way, so a broken breaker degrades to "not counted",
+            # never to "refusal swallowed".
+            if str(exc).startswith(PERIMETER_REFUSED_PREFIX):
+                try:
+                    record_failure(
+                        base_dir=base_dir,
+                        kind="validator_rejection",
+                        materialize_event_id=str(pid),
+                        extra={
+                            "phase": "pr_lifecycle",
+                            "gate": GATE_PRE_PR_OPEN,
+                            "detail": str(exc),
+                        },
+                    )
+                except Exception as breaker_exc:  # noqa: BLE001
+                    per_proposal[-1]["breaker_record_error"] = (
+                        f"{type(breaker_exc).__name__}:{breaker_exc}"
+                    )
     total = len(eligible)
     if total == 0:
         status = "no_op"
@@ -875,6 +971,32 @@ def _run_pr_lifecycle_phase(
         "ok": ok, "fail": total - ok,
         "proposals": per_proposal,
     }
+
+
+def _cycle_lifecycle_snapshot(root: Path) -> dict[str, Any]:
+    """ORPHAN-HIGH-424 — started-without-terminal snapshot for the summary.
+
+    Imported lazily because ``integrity`` pulls in the runtime-artifact
+    verifier, and a module-level import here would make the cycle module
+    depend on the whole verification surface just to count rows.
+
+    A read failure is reported as ``valid: False`` rather than raised: the
+    cycle has already completed and written its terminal row by this
+    point, so failing the cycle over a summary read would discard real
+    work. The falsity is what consumers gate on.
+    """
+    from .integrity import cycle_lifecycle_status
+
+    try:
+        snapshot = cycle_lifecycle_status(root)
+    except (OSError, GovernanceError) as exc:
+        return {
+            "valid": False,
+            "incomplete_count": 0,
+            "incomplete_cycles": [],
+            "lifecycle_read_error": str(exc),
+        }
+    return snapshot
 
 
 def _complete_event(

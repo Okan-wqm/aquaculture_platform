@@ -30,10 +30,21 @@ from aria_kernel import (
 )
 from aria_kernel.agent_genesis import approve_agent_pr, evaluate_genesis_sandbox
 from aria_kernel.fixture_runner import fixture_runs_path, tool_manifest_hash
+from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import get_tool
 from tests._helpers.declared_fixtures import append_declared_fixture
 from aria_kernel.tool_registry import GovernanceError
+
+
+# The product file the synthetic proposal touches. One constant so the branch
+# commit, the proposal's evidence and the action's declared changed_files
+# cannot drift: the pre-PR-open hard-fail perimeter compares the declaration
+# against READONLY_PATHS, so a fixture naming an aria-kernel/ path (or nothing
+# at all) is refused before it ever reaches the validation-gate behaviour this
+# test pins.
+CHANGED_FILE = "apps/farm-service/src/feed/feed-schedule.service.ts"
+CHANGED_FILE_CONTENT = "export const FEED_INTERVAL_MS = 3600000;\n"
 
 
 class EnterprisePlan012DTo015Tests(unittest.TestCase):
@@ -69,8 +80,15 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
             kind="test_gap",
             title="Add focused regression test",
             problem="A validated task needs a gated worktree lane",
-            evidence=["apps/api/src/app.ts"],
+            evidence=[CHANGED_FILE],
             validation_command="python3 -m unittest --help",
+            # plan_apply_worktree copies validation_scope.commands onto the
+            # action as validation_commands, which is what the perimeter's
+            # test_gate_canonical_suite reads. Sourced from the perimeter's
+            # own constant so the fixture cannot drift from what it requires;
+            # each command is its own entry, because a single string
+            # mentioning all three does not count (ORPHAN-CRITICAL-461).
+            validation_commands=list(CANONICAL_VALIDATION_COMMANDS),
             base_dir=self.tools_dir,
         )
         approve_proposal(
@@ -85,12 +103,26 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
         )
         # Plan 023 v3 §P-3 — open_pr_for_action below now fails hard
         # when `git rev-parse <branch>` fails. The dry_run plan didn't
-        # actually create the branch; create it manually pointing at
-        # HEAD so rev-parse resolves. The test's intent is to exercise
-        # the validation-gate prerequisite + open_pr lifecycle, not
-        # the branch-creation plumbing.
+        # actually create the branch; create it manually so rev-parse
+        # resolves. It carries a commit touching CHANGED_FILE rather than
+        # pointing at a bare HEAD, so the branch actually contains the
+        # change the action declares and `git diff <base_sha>..<branch>`
+        # is a real diff. The test's intent is to exercise the
+        # validation-gate prerequisite + open_pr lifecycle, not the
+        # branch-creation plumbing.
         subprocess.run(
-            ["git", "branch", action["branch"]],
+            ["git", "checkout", "-q", "-b", action["branch"]],
+            cwd=self.root, check=True, capture_output=True,
+        )
+        changed = self.root / CHANGED_FILE
+        changed.parent.mkdir(parents=True, exist_ok=True)
+        changed.write_text(CHANGED_FILE_CONTENT, encoding="utf-8")
+        subprocess.run(
+            ["git", "add", CHANGED_FILE],
+            cwd=self.root, check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "feed schedule interval"],
             cwd=self.root, check=True, capture_output=True,
         )
         with self.assertRaises(GovernanceError):
@@ -124,13 +156,18 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
         )
         self.assertEqual(validation_gate["status"], "ready_for_pr")
 
-        # Plan 022 §H-1 — pass empty diff so suppression scan runs
-        # without triggering the diff-required fail-closed branch.
+        # Plan 022 §H-1 — pass the diff explicitly so the suppression scan
+        # runs without triggering the diff-required fail-closed branch. It
+        # is the branch's own diff, so the content scanned here is the
+        # content the declared changed_files names.
         gated = gate_apply_action(
             proposal_id=proposal["proposal_id"],
             validation_comparison_ref=comparison["ledger_hash"],
             base_dir=self.tools_dir,
-            diff_text="--- a/x.md\n+++ b/x.md\n@@ -1 +1 @@\n-old\n+new\n",
+            diff_text=(
+                f"--- /dev/null\n+++ b/{CHANGED_FILE}\n"
+                f"@@ -0,0 +1 @@\n+{CHANGED_FILE_CONTENT}"
+            ),
         )
         self.assertEqual(gated["status"], "ready_for_pr")
         pr = open_pr_for_action(

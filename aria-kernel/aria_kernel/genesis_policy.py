@@ -16,6 +16,10 @@ POLICY_KEYS = {
     "cost_caps_usd",
     # Plan ARIA-V3 §B2 — circuit-breaker failure threshold.
     "circuit_breaker",
+    # ORPHAN-MEDIUM-492 — how long a minted agent-invocation request stays
+    # claimable before its target_sha no longer describes the tree it would
+    # run against. Consumed by agent_invocations.next_pending_request.
+    "agent_request_anchor",
     # Plan S4 (ORPHAN-MEDIUM-298) — per-drift-class pressure score
     # multipliers consumed by pressure.run_pressure.
     "drift_class_weights",
@@ -70,6 +74,105 @@ def genesis_lifecycle_policy(repo_root: str | Path | None = None) -> dict[str, A
     raw_block = merged.get("genesis_lifecycle")
     if isinstance(raw_block, dict):
         for key, default in GENESIS_LIFECYCLE_DEFAULTS.items():
+            if key in raw_block:
+                block[key] = raw_block[key]
+    return block
+
+
+# ORPHAN-MEDIUM-468 — circuit_breaker was the ONLY nested policy block without
+# a typed accessor + defaults dict, and that absence is what made a rename here
+# dangerous. merge_with_override is a SHALLOW top-level merge: an operator file
+# containing {"circuit_breaker": {...}} REPLACES the default block wholesale, so
+# any key the operator omits silently reverts to a hardcoded fallback deep in
+# the reading module, with no warning and no validation. Renaming a key under
+# that regime would have discarded a deployed override in silence.
+#
+# The window is now a policy value rather than a constant baked into a name.
+# 72h, not 24h: the nightly fires on cron '0 1 * * *', so a 24h window equalled
+# the producer cadence exactly and a prior night's failure sat on the boundary —
+# whether it still counted depended on where inside each run the failure landed,
+# i.e. on scheduler jitter rather than on how many failures there were. A window
+# strictly longer than the cadence makes cross-cycle accumulation deterministic:
+# three consecutive bad nights trip, and that is a property of the failures, not
+# of the clock.
+# The nightly producer's cadence (cron '0 1 * * *'). Declared so the failure
+# window is DERIVED from it rather than written as a literal in two places.
+NIGHTLY_CADENCE_HOURS: int = 24
+_DEFAULT_FAILURE_THRESHOLD: int = 3
+
+
+def minimum_window_hours(threshold: int, cadence_hours: int = NIGHTLY_CADENCE_HOURS) -> int:
+    """Smallest failure window that survives the one-per-night bleed.
+
+    ORPHAN-MEDIUM-483 — the first fix for 468 replaced a hardcoded 24 with a
+    hardcoded 72 and asserted `window > 24`, i.e. window > CADENCE. Wrong
+    relationship, and 72 is exactly the boundary for threshold 3: failures land
+    at t=0/24/48, but the breaker is read at the NEXT night's gate (t=72), where
+    a 72h window spans [0, 72] and the oldest failure sits precisely on the edge
+    — so ±30min of cron jitter flips the verdict. The requirement is
+    window > threshold x cadence.
+
+    This lives in genesis_policy, not circuit_breaker, because the value was
+    duplicated: CIRCUIT_BREAKER_DEFAULTS carried its own 72 while
+    circuit_breaker carried another. circuit_breaker imports genesis_policy, so
+    the derivation belongs at this level and is imported upward — one literal,
+    not two that can drift.
+    """
+    threshold = max(1, int(threshold))
+    cadence = max(1, int(cadence_hours))
+    return threshold * cadence + cadence
+
+
+CIRCUIT_BREAKER_DEFAULTS: dict[str, Any] = {
+    "failure_threshold": _DEFAULT_FAILURE_THRESHOLD,
+    "failure_window_hours": minimum_window_hours(_DEFAULT_FAILURE_THRESHOLD),
+    "auto_downgrade_to": "strict",
+}
+
+# Keys that were renamed, mapped to their replacement. Presence of one of these
+# in an operator override is an ERROR, not a silent no-op: the whole reason the
+# rename is safe is that a stale key is reported instead of ignored.
+CIRCUIT_BREAKER_LEGACY_KEYS: dict[str, str] = {
+    "threshold_24h": "failure_threshold",
+}
+
+
+def circuit_breaker_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """ORPHAN-MEDIUM-468 — typed accessor for the circuit_breaker block.
+
+    Mirrors genesis_lifecycle_policy / auto_promote_policy /
+    skill_genesis_drainer_policy so circuit_breaker stops being the one block
+    read by hand.
+
+    Raises GovernanceError when an override still carries a renamed key.
+    Failing loudly is the point: under the shallow merge an operator who wrote
+    ``threshold_24h: 10`` and upgraded would otherwise run on the default 3 and
+    be told nothing. A deployed aria-config/genesis_policy.json is untracked, so
+    the repo cannot migrate it — the only place the operator can learn is here.
+    """
+    if repo_root is not None:
+        merged = load_policy(repo_root)
+    else:
+        raw = json.loads(
+            (Path(__file__).resolve().parent / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
+        )
+        merged = raw if isinstance(raw, dict) else {}
+    block = dict(CIRCUIT_BREAKER_DEFAULTS)
+    raw_block = merged.get("circuit_breaker")
+    if isinstance(raw_block, dict):
+        from .tool_registry import GovernanceError
+
+        stale = sorted(k for k in CIRCUIT_BREAKER_LEGACY_KEYS if k in raw_block)
+        if stale:
+            renames = ", ".join(f"{k} -> {CIRCUIT_BREAKER_LEGACY_KEYS[k]}" for k in stale)
+            raise GovernanceError(
+                "genesis_policy_renamed_circuit_breaker_key: "
+                f"{renames}. The value under the old name is NOT applied — the "
+                "policy merge replaces the whole circuit_breaker block, so the "
+                "breaker would silently run on defaults. Rename the key in your "
+                "genesis_policy.json override."
+            )
+        for key, _default in CIRCUIT_BREAKER_DEFAULTS.items():
             if key in raw_block:
                 block[key] = raw_block[key]
     return block

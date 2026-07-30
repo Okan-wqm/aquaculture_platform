@@ -16,7 +16,7 @@ which tier each agent runs on. Two backends consume it:
 
 This module is the only reader, so both consumers can never drift from the
 frontmatter. Fail-safe by design: an unknown agent or a missing/invalid field
-resolves to the most expensive tier (``fable`` / ``xhigh``). A silent cost
+resolves to the most expensive tier (``fable`` / ``max``). A silent cost
 downgrade can therefore never be introduced by omission — only by an explicit,
 reviewable frontmatter edit.
 """
@@ -32,7 +32,11 @@ VALID_MODELS: frozenset[str] = frozenset({"opus", "sonnet", "haiku", "fable"})
 VALID_EFFORTS: frozenset[str] = frozenset({"low", "medium", "high", "xhigh", "max"})
 
 DEFAULT_MODEL: str = "fable"
-DEFAULT_EFFORT: str = "xhigh"
+# ORPHAN-HIGH-477 — ultracode depth. `max` is the CLI's deepest reasoning
+# level (verified against Claude Code 2.1.220: --effort low|medium|high|xhigh|max).
+# The fail-safe deliberately resolves UPWARD, so an unknown agent or an
+# unparseable frontmatter field can never quietly run shallower than policy.
+DEFAULT_EFFORT: str = "max"
 
 # Agents that hold write tools (Edit/Write/Bash) or author governance
 # artifacts MUST stay on the expensive tier — the cheap scout tier is for

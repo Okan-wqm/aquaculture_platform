@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describe, expect, it } from '@jest/globals';
+
+import { ariaAuthorityHash } from '../../tools/gates/aria-authority-hash';
 
 const REPO_ROOT = (() => {
   try {
@@ -81,41 +82,9 @@ const ARCHITECTURE_SECTIONS = [
   'Known Limits / Bilinen Sınırlar',
 ];
 
-const ARIA_AUTHORITY_HASH_SENTINEL =
-  'Last verified ARIA authority hash: `ARIA_AUTHORITY_HASH_SENTINEL`';
-
-function ariaAuthorityFiles(): string[] {
-  const tracked = git(['ls-files', 'docs/aria', 'aria-kernel', 'tools/aria-poc'])
-    .split(/\r?\n/)
-    .filter(Boolean);
-  const workflowFiles = git(['ls-files', '.github/workflows'])
-    .split(/\r?\n/)
-    .filter((rel) => /^\.github\/workflows\/aria-[^/]+\.ya?ml$/.test(rel));
-  return [...new Set([...tracked, ...workflowFiles])].sort();
-}
-
-function normalizedAriaAuthorityContent(rel: string): string {
-  const body = read(rel);
-  if (rel !== 'docs/aria/CURRENT_STATE.md') {
-    return body;
-  }
-  return body.replace(
-    /Last verified ARIA authority hash: `(?:[a-f0-9]{64}|ARIA_AUTHORITY_HASH_SENTINEL)`/,
-    ARIA_AUTHORITY_HASH_SENTINEL,
-  );
-}
-
-function ariaAuthorityHash(): string {
-  const hash = createHash('sha256');
-  for (const rel of ariaAuthorityFiles()) {
-    hash.update(rel);
-    hash.update('\0');
-    hash.update(normalizedAriaAuthorityContent(rel));
-    hash.update('\0');
-  }
-  return hash.digest('hex');
-}
-
+// The digest is defined once, in the module that also writes it — see the
+// header of tools/gates/aria-authority-hash.ts. A private copy here would let
+// `npm run aria:authority-hash:write` produce a value this spec rejects.
 function markdownSection(body: string, heading: string): string {
   const marker = `## ${heading}`;
   const start = body.indexOf(marker);

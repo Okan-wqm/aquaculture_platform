@@ -112,7 +112,7 @@ function usage() {
       'usage: node tools/quality/quality.mjs <command>',
       'commands:',
       '  format-scope generate|check',
-      '  format check|check-changed|write',
+      '  format check|check-changed|check-staged|write|write-changed',
       '  lint-inventory generate|check',
       '  lint-all [--max-warnings=0]',
       '  rust-toolchain generate|check',
@@ -350,13 +350,17 @@ function runPrettier(mode) {
   runPrettierFiles(mode, files);
 }
 
-function runPrettierFiles(mode, files) {
-  const bin = join(
+function prettierBin() {
+  return join(
     REPO_ROOT,
     'node_modules',
     '.bin',
     process.platform === 'win32' ? 'prettier.cmd' : 'prettier',
   );
+}
+
+function runPrettierFiles(mode, files) {
+  const bin = prettierBin();
   const action = mode === 'write' ? '--write' : '--check';
   const batchSize = 120;
   for (let i = 0; i < files.length; i += batchSize) {
@@ -374,21 +378,75 @@ function runPrettierFiles(mode, files) {
   }
 }
 
-function runPrettierChanged() {
-  checkManifest(FORMAT_SCOPE, buildFormatScope);
-  const candidate = process.env.FORMAT_BASE_SHA?.trim() ?? '';
-  let base;
+/**
+ * The regression rule, defined exactly once.
+ *
+ * A file fails only when it is drifted NOW **and** was Prettier-clean at the
+ * comparison point. A file already drifted at that point is pre-existing debt
+ * the gate deliberately tolerates, so an unrelated change is never forced to
+ * carry a formatting cleanup it did not cause.
+ *
+ * WHY the two readers are injected: the identical rule has to serve a worktree
+ * comparison (`check-changed`, what CI runs against the PR base) and an index
+ * comparison (`check-staged`, what the pre-commit hook runs against HEAD). The
+ * alternative was a second copy of the rule for the hook — and two copies of
+ * one gate drifting apart is precisely the defect this function exists to stop
+ * (ORPHAN-HIGH-500).
+ */
+function classifyFormatDrift(files, readCurrent, readBase) {
+  const bin = prettierBin();
+  const regressions = [];
+  const legacyDebt = [];
 
+  for (const path of files) {
+    const currentSource = readCurrent(path);
+    if (currentSource === null) continue;
+    if (isPrettierCleanSource(bin, path, currentSource)) continue;
+
+    const baseSource = readBase(path);
+    // No blob at the comparison point means the file is new here, so its drift
+    // cannot be inherited — it is a regression.
+    if (baseSource === null || isPrettierCleanSource(bin, path, baseSource)) {
+      regressions.push(path);
+    } else {
+      legacyDebt.push(path);
+    }
+  }
+
+  return { regressions, legacyDebt };
+}
+
+function reportFormatDrift(label, checked, regressions, legacyDebt, { fix }) {
+  for (const path of legacyDebt) {
+    process.stdout.write(`[format] existing debt retained from base: ${path}\n`);
+  }
+  if (regressions.length > 0) {
+    process.stderr.write(
+      `[format] changed file(s) introduced Prettier drift:\n${regressions
+        .map((path) => `  ${path}`)
+        .join('\n')}\n${fix}\n`,
+    );
+    process.exit(1);
+  }
+  process.stdout.write(
+    `${label}: ${checked} managed file(s) checked; ${legacyDebt.length} base-debt file(s) quarantined\n`,
+  );
+}
+
+function resolveFormatBase() {
+  const candidate = process.env.FORMAT_BASE_SHA?.trim() ?? '';
   if (candidate && !/^0+$/.test(candidate)) {
     if (!/^[0-9a-f]{40}$/i.test(candidate)) {
       fail('format check-changed: FORMAT_BASE_SHA must be a full commit SHA');
     }
     runRequired('git', ['cat-file', '-e', `${candidate}^{commit}`]);
-    base = candidate;
-  } else {
-    base = runRequired('git', ['rev-parse', '--verify', 'HEAD^']).trim();
+    return candidate;
   }
+  return runRequired('git', ['rev-parse', '--verify', 'HEAD^']).trim();
+}
 
+/** Managed files changed in the worktree since `base`. */
+function changedManagedFiles(base) {
   const changed = runRequired('git', [
     'diff',
     '--name-only',
@@ -400,55 +458,142 @@ function runPrettierChanged() {
     .split('\0')
     .filter(Boolean);
   const managed = new Set(getManagedFormatFiles());
-  const files = changed.filter((path) => managed.has(path) && existsSync(join(REPO_ROOT, path)));
+  return changed.filter((path) => managed.has(path) && existsSync(join(REPO_ROOT, path)));
+}
+
+function worktreeReaders(base) {
+  return [
+    (path) => readFileSync(join(REPO_ROOT, path), 'utf8'),
+    (path) => {
+      const blob = run('git', ['show', `${base}:${path}`]);
+      return blob.status === 0 ? (blob.stdout ?? '') : null;
+    },
+  ];
+}
+
+function runPrettierChanged() {
+  checkManifest(FORMAT_SCOPE, buildFormatScope);
+  const base = resolveFormatBase();
+  const files = changedManagedFiles(base);
 
   if (files.length === 0) {
     process.stdout.write(`format check-changed: no managed files changed since ${base}\n`);
     return;
   }
 
-  const bin = join(
-    REPO_ROOT,
-    'node_modules',
-    '.bin',
-    process.platform === 'win32' ? 'prettier.cmd' : 'prettier',
-  );
-  const regressions = [];
-  const legacyDebt = [];
+  const [readCurrent, readBase] = worktreeReaders(base);
+  const { regressions, legacyDebt } = classifyFormatDrift(files, readCurrent, readBase);
+  reportFormatDrift('format check-changed', files.length, regressions, legacyDebt, {
+    fix: '[format] fix with: node tools/quality/quality.mjs format write-changed',
+  });
+}
 
-  for (const path of files) {
-    const currentSource = readFileSync(join(REPO_ROOT, path), 'utf8');
-    if (isPrettierCleanSource(bin, path, currentSource)) continue;
+/**
+ * The scoped counterpart to `check-changed`: rewrite exactly the regression set.
+ *
+ * WHY this mode exists: without it the only one-command fix is repo-wide
+ * `format write`, which also rewrites every quarantined base-debt file and
+ * buries a small fix in unrelated churn. Making the correct scoped fix the
+ * zero-effort default is the whole point (ORPHAN-HIGH-500).
+ */
+function runPrettierWriteChanged() {
+  checkManifest(FORMAT_SCOPE, buildFormatScope);
+  const base = resolveFormatBase();
+  const files = changedManagedFiles(base);
 
-    const baseBlob = run('git', ['show', `${base}:${path}`]);
-    if (baseBlob.status !== 0) {
-      regressions.push(path);
-      continue;
-    }
-
-    const baseSource = baseBlob.stdout ?? '';
-    if (isPrettierCleanSource(bin, path, baseSource)) {
-      regressions.push(path);
-    } else {
-      legacyDebt.push(path);
-    }
+  if (files.length === 0) {
+    process.stdout.write(`format write-changed: no managed files changed since ${base}\n`);
+    return;
   }
 
-  for (const path of legacyDebt) {
-    process.stdout.write(`[format] existing debt retained from base: ${path}\n`);
-  }
-  if (regressions.length > 0) {
-    process.stderr.write(
-      `[format] changed file(s) introduced Prettier drift:\n${regressions
-        .map((path) => `  ${path}`)
-        .join('\n')}\n`,
+  const [readCurrent, readBase] = worktreeReaders(base);
+  const { regressions, legacyDebt } = classifyFormatDrift(files, readCurrent, readBase);
+
+  if (regressions.length === 0) {
+    process.stdout.write(
+      `format write-changed: nothing to rewrite; ${legacyDebt.length} base-debt file(s) left untouched\n`,
     );
-    process.exit(1);
+    return;
+  }
+
+  // Prettier's markdown printer is not always a fixed point in ONE pass: a
+  // single --write can leave a file that --check still rejects, converging only
+  // on the next pass. Observed on
+  // docs/reviews/2026-07-26-aria-codex-audit-verification.md while closing
+  // ORPHAN-HIGH-500. If this mode wrote once and returned, it would hand the
+  // developer a green command and a red CI — the exact failure it exists to
+  // prevent — so it iterates to a fixed point and refuses to claim success
+  // without reaching one.
+  const MAX_PASSES = 3;
+  let pending = regressions;
+  let passes = 0;
+
+  while (pending.length > 0 && passes < MAX_PASSES) {
+    runPrettierFiles('write', pending);
+    passes += 1;
+    pending = classifyFormatDrift(pending, readCurrent, readBase).regressions;
+  }
+
+  if (pending.length > 0) {
+    fail(
+      [
+        `format write-changed: ${pending.length} file(s) still drifted after ${MAX_PASSES} passes:`,
+        ...pending.map((path) => `  ${path}`),
+        'Prettier is not converging on these files; fix them by hand.',
+      ].join('\n'),
+    );
   }
 
   process.stdout.write(
-    `format check-changed: ${files.length} managed file(s) checked; ${legacyDebt.length} base-debt file(s) quarantined\n`,
+    `format write-changed: rewrote ${regressions.length} file(s) in ${passes} pass(es); ` +
+      `${legacyDebt.length} base-debt file(s) left untouched\n`,
   );
+}
+
+/**
+ * The pre-commit counterpart: judge the STAGED bytes against HEAD.
+ *
+ * WHY staged rather than the `HEAD^` fallback `check-changed` uses: at
+ * pre-commit time the content under test is in the index and not yet
+ * committed, so `HEAD^` compares the wrong pair. The right question is "is this
+ * file drifted as staged, when it was clean at HEAD?" — which is CI's own rule
+ * with base=HEAD, and it fires on the commit that introduces the drift instead
+ * of on the push that turns CI red.
+ */
+function runPrettierCheckStaged() {
+  checkManifest(FORMAT_SCOPE, buildFormatScope);
+
+  const staged = runRequired('git', ['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMR'])
+    .split('\0')
+    .filter(Boolean);
+  const managed = new Set(getManagedFormatFiles());
+  const files = staged.filter((path) => managed.has(path));
+
+  if (files.length === 0) {
+    process.stdout.write('format check-staged: no managed files staged\n');
+    return;
+  }
+
+  // A repository without HEAD (first commit) has no comparison point, so every
+  // drift is a regression — fail closed rather than silently passing.
+  const hasHead = run('git', ['rev-parse', '--verify', 'HEAD']).status === 0;
+
+  const { regressions, legacyDebt } = classifyFormatDrift(
+    files,
+    (path) => {
+      const blob = run('git', ['show', `:${path}`]);
+      return blob.status === 0 ? (blob.stdout ?? '') : null;
+    },
+    (path) => {
+      if (!hasHead) return null;
+      const blob = run('git', ['show', `HEAD:${path}`]);
+      return blob.status === 0 ? (blob.stdout ?? '') : null;
+    },
+  );
+
+  reportFormatDrift('format check-staged', files.length, regressions, legacyDebt, {
+    fix: '[format] fix with: node tools/quality/quality.mjs format write-changed && git add -u',
+  });
 }
 
 function isPrettierCleanSource(bin, path, source) {
@@ -912,7 +1057,9 @@ function main() {
   if (domain === 'format') {
     if (action === 'check') return runPrettier('check');
     if (action === 'check-changed') return runPrettierChanged();
+    if (action === 'check-staged') return runPrettierCheckStaged();
     if (action === 'write') return runPrettier('write');
+    if (action === 'write-changed') return runPrettierWriteChanged();
   }
   if (domain === 'lint-inventory') {
     if (action === 'generate') return writeStableJson(LINT_INVENTORY, buildLintInventory());

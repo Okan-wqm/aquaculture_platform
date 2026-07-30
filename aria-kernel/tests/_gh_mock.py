@@ -95,10 +95,14 @@ def gh_create_success(*args, **kwargs):
         result.stdout = "https://github.com/test/repo/pull/123\n"
         result.stderr = ""
         return result
-    # Plan 022 §C-4 — pr_manager.open_pr_for_action now calls
-    # `git rev-parse <branch>` to resolve head_sha; defer to the real
-    # subprocess so existing test fixtures don't need invasive surgery.
-    if call.argv[:2] == ["git", "rev-parse"]:
+    # Plan 022 §C-4 — pr_manager.open_pr_for_action calls `git rev-parse
+    # <branch>` to resolve head_sha; ORPHAN-CRITICAL-428 added `git diff
+    # <base>..<head>` to feed the perimeter's secret scan. Defer ALL git to
+    # the real subprocess rather than enumerating verbs: this mock exists to
+    # intercept `gh`, and every added git call was previously a new
+    # AssertionError in a test that had nothing to do with git. Matching on
+    # argv[0] makes the next one work without touching this file.
+    if call.argv[:1] == ["git"]:
         return _real_subprocess_run(*args, **kwargs)
     raise AssertionError(f"gh_create_success only handles gh pr create; got: {call.argv!r}")
 
@@ -112,6 +116,7 @@ def gh_create_failure(*args, **kwargs):
         result.stdout = ""
         result.stderr = "gh: insufficient permissions to create pull request\n"
         return result
-    if call.argv[:2] == ["git", "rev-parse"]:
+    # See gh_create_success: all git defers to the real subprocess.
+    if call.argv[:1] == ["git"]:
         return _real_subprocess_run(*args, **kwargs)
     raise AssertionError(f"gh_create_failure only handles gh pr create; got: {call.argv!r}")

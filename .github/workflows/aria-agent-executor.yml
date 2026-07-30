@@ -45,11 +45,15 @@ concurrency:
 
 permissions:
   contents: read
+  # ORPHAN-CRITICAL-420 S1 — actions:read is required to locate and
+  # download the previous run's aria-tools-state artifact (the queue
+  # bridge between the 01:00 producer and this 02:00 consumer).
+  actions: read
 
 jobs:
   executor:
     runs-on: [self-hosted, linux, claude]
-    timeout-minutes: 35
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -86,6 +90,143 @@ jobs:
               raise SystemExit(f"claude-code {sys.argv[2]} is below required {sys.argv[1]}")
           print(f"claude-code {sys.argv[2]} satisfies required {sys.argv[1]}")
           PY
+      # ORPHAN-CRITICAL-420 S1 — moved AHEAD of the state restore.
+      # workflow_contracts rejects a preflight that runs after the job's
+      # first governed mutation, and the restore writes the whole state
+      # tree, so the restore cannot precede this step. Moving it here also
+      # means it can no longer name request-scoped paths: the request_id
+      # does not exist until the queue has been restored and read.
+      - name: Persist enterprise workflow preflight
+        env:
+          PYTHONPATH: aria-kernel
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          from aria_kernel.preflight import verify_workflow_preflight
+
+          # The executor now restores and republishes the persistent
+          # aria-tools tree, so the declared write root is the tree itself
+          # rather than the four ledger files the pre-S1 executor touched.
+          allowed = ["aria-tools"]
+          verdict = verify_workflow_preflight(
+              workflow_id="aria-agent-executor",
+              job_id="executor",
+              profile="autonomous",
+              workspace_root=os.environ["GITHUB_WORKSPACE"],
+              allowed_write_roots=allowed,
+              path_allowlist=allowed,
+              network_policy=["github_artifact"],
+              network_enforcement_evidence=(
+                  "artifact restore/upload limited to the aria-tools-state artifact, "
+                  "the run-scoped quarantine-evidence-<run_id> artifact and the exact "
+                  "response envelope path, all via the Actions artifact API"
+              ),
+              token_provenance="github_actions_artifact_token",
+              require_github_app=False,
+              dlp_mode="fail_closed",
+              dlp_scan_clean=True,
+              audit_reason="restore, extend and republish the persistent aria-tools state tree around one bound-agent invocation",
+              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-agent-executor-preflight.json",
+              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
+          )
+          if not verdict.valid:
+              raise SystemExit(";".join(verdict.reasons))
+          PY
+
+      # ORPHAN-CRITICAL-420 S1 — bridge the agent-invocation queue.
+      # The 01:00 aria-auto-cycle mints requests into aria-tools/, which
+      # .gitignore excludes; this 02:00 executor is the only consumer that
+      # claims them (agent next-pending filters on no role). Without this
+      # step the two lanes sat either side of an unbridged artifact
+      # boundary and next_pending_request always returned None.
+      # It runs BEFORE the lease check on purpose: lease_state('aria-tools')
+      # reads this same tree, so a bootstrap-empty tree made the cross-host
+      # lease unable to observe a held lease at all.
+      - name: Restore aria-tools state from previous run
+        id: restore_state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Latest non-expired aria-tools-state artifact (endpoint sorts
+          # newest-first). Missing/expired -> fresh bootstrap (fail-open on
+          # state only; a PRESENT-but-undecodable archive raises out of
+          # zipfile and fails the step rather than reading as "no work").
+          python3 - <<'PY'
+          import io
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+          import zipfile
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          token = os.environ["GH_TOKEN"]
+
+          def api(url):
+              req = urllib.request.Request(url)
+              req.add_header("Authorization", f"Bearer {token}")
+              req.add_header("Accept", "application/vnd.github+json")
+              return urllib.request.urlopen(req, timeout=60)
+
+          listing_url = (
+              f"https://api.github.com/repos/{repo}/actions/artifacts"
+              "?name=aria-tools-state&per_page=5"
+          )
+          with api(listing_url) as resp:
+              artifacts = json.load(resp).get("artifacts", [])
+          live = [a for a in artifacts if not a.get("expired")]
+          if not live:
+              # ORPHAN-CRITICAL-488 — a GENUINE first run must still publish.
+              # The 484 gate collapsed "restore failed" and "nothing to
+              # restore" into one absent signal, so a newborn ARIA could never
+              # establish its first artifact: publish blocked, job red, forever.
+              # Three states, distinguished at the only step that knows which
+              # one occurred. A failure, a skipped step or a crash still write
+              # NEITHER, so those keep blocking exactly as before.
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+                  fh.write("bootstrap=true\n")
+              print("No prior aria-tools-state artifact; starting from bootstrap.")
+              raise SystemExit(0)
+          artifact = live[0]
+          print(f"Restoring aria-tools-state artifact {artifact['id']} ({artifact['created_at']})")
+          # The download endpoint answers 302 to blob storage, and the
+          # storage host REJECTS requests that still carry the GitHub
+          # Authorization header (ORPHAN-LOW-303) - resolve the redirect
+          # manually: authorized first hop, bare second hop.
+          class _NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+
+          opener = urllib.request.build_opener(_NoRedirect)
+          first = urllib.request.Request(artifact["archive_download_url"])
+          first.add_header("Authorization", f"Bearer {token}")
+          first.add_header("Accept", "application/vnd.github+json")
+          try:
+              with opener.open(first, timeout=60) as resp:
+                  payload = resp.read()
+          except urllib.error.HTTPError as err:
+              if err.code not in (301, 302, 307, 308):
+                  raise
+              location = err.headers["Location"]
+              with urllib.request.urlopen(location, timeout=120) as resp:
+                  payload = resp.read()
+          os.makedirs("aria-tools", exist_ok=True)
+          with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+              zf.extractall("aria-tools")
+          # ORPHAN-CRITICAL-484 — positive proof the tree DESCENDS from a
+          # restored one. Written on the success path only, so absence blocks:
+          # the no-artifact fail-open branch, a step failure, a skipped step
+          # and a crash all leave it unset. There is no restored=false to get
+          # wrong.
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write("restored=true\n")
+          print("aria-tools state restored.")
+          PY
+
 
       # Plan ARIA-V3 §B2 + §2n + INFRA-HIGH-004 — cross-host lease
       # check. If a local daemon currently holds the autonomous-loop
@@ -126,6 +267,13 @@ jobs:
               f.write('blocked=false\n')
           PY
 
+      # This step ANNOUNCES the skip; it does not perform it. `exit 0` ends a
+      # STEP, never the JOB, so before the per-step guards below existed a
+      # lease-blocked run walked straight on: it claimed a request, invoked an
+      # agent against a tree another host was actively mutating, and then
+      # discarded the result at the publish gate (which does carry the guard).
+      # The abort is the `blocked != 'true'` condition on EVERY step from here
+      # down, mirroring the sibling producer aria-auto-cycle.yml.
       - name: Skip autonomous loop when local lease is fresh
         if: steps.lease_check.outputs.blocked == 'true'
         run: |
@@ -142,6 +290,7 @@ jobs:
       # records exactly which layer decided the mock state.
       - name: Pre-flight - Claude Code auth + mock-mode kill-switch resolution
         id: preflight
+        if: steps.lease_check.outputs.blocked != 'true'
         env:
           KILL_SWITCH: ${{ vars.ARIA_MOCK_KILL_SWITCH }}
           INPUT_MOCK: ${{ github.event.inputs.mock }}
@@ -175,6 +324,7 @@ jobs:
 
       - name: Find next pending request
         id: pending
+        if: steps.lease_check.outputs.blocked != 'true'
         env:
           # Plan 024 v3 §B-3 — env-only interpolation; raw shell access
           # to ${{ github.event.inputs.request_id }} is closed because
@@ -197,51 +347,6 @@ jobs:
             echo "request_id=${REQ_ID}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Persist enterprise workflow preflight
-        env:
-          REQUEST_ID: ${{ steps.pending.outputs.request_id }}
-          PYTHONPATH: aria-kernel
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-
-          from aria_kernel.preflight import verify_workflow_preflight
-
-          allowed = [
-              "aria-tools/governance.jsonl",
-              "aria-tools/handoffs.jsonl",
-              "aria-tools/agent-invocations/claims.jsonl",
-              "aria-tools/agent-invocations/results.jsonl",
-          ]
-          request_id = os.environ.get("REQUEST_ID", "").strip()
-          if request_id:
-              allowed.extend([
-                  f"aria-tools/agent-invocations/outputs/{request_id}.json",
-                  f"aria-tools/agent-invocations/outputs/{request_id}.transcript.jsonl",
-                  f"aria-tools/agent-invocations/prompts/{request_id}.md",
-              ])
-          verdict = verify_workflow_preflight(
-              workflow_id="aria-agent-executor",
-              job_id="executor",
-              profile="autonomous",
-              workspace_root=os.environ["GITHUB_WORKSPACE"],
-              allowed_write_roots=allowed,
-              path_allowlist=allowed,
-              network_policy=["github_artifact"],
-              network_enforcement_evidence="actions/upload-artifact limited to exact response envelope path",
-              token_provenance="github_actions_artifact_token",
-              require_github_app=False,
-              dlp_mode="fail_closed",
-              dlp_scan_clean=True,
-              audit_reason="persist handoff ledger and bounded agent response envelope",
-              audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-agent-executor-preflight.json",
-              external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
-          )
-          if not verdict.valid:
-              raise SystemExit(";".join(verdict.reasons))
-          PY
 
       # Plan 020 Phase 3.C — session_start handoff snapshot.
       # WHY here: every CI executor run is a discrete session boundary.
@@ -251,6 +356,7 @@ jobs:
       # without having to grep governance.jsonl by timestamp.
       - name: Handoff snapshot — session_start
         id: handoff_start
+        if: steps.lease_check.outputs.blocked != 'true'
         run: |
           set -euo pipefail
           SESSION_ID="gha-aria-agent-executor-${{ github.run_id }}-${{ github.run_attempt }}"
@@ -262,11 +368,45 @@ jobs:
             --repo-root .
 
       - name: Skip if no pending request
-        if: steps.pending.outputs.request_id == ''
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id == ''
         run: echo "no pending requests; exiting cleanly"
 
+      # ORPHAN-CRITICAL-439 — the containment layer needs a backend to exist.
+      # claude_runtime._apply_write_containment refuses every write-capable
+      # spawn when sandbox_backend() is None, so without this the executor
+      # does not run unconfined, it does not run at all — and the failure
+      # looks like an agent problem rather than a missing package.
+      - name: Install sandbox backend (bubblewrap)
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bubblewrap
+
+      # Assert capability, not presence. bubblewrap installs cleanly on a host
+      # with unprivileged user namespaces disabled and then fails on every
+      # invocation, so sandbox_backend() probes the namespaces it will actually
+      # use. Failing here is the point: a missing or non-functional backend must
+      # stop the job rather than silently disable the implementer.
+      - name: Verify the sandbox actually confines
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 - <<'PY'
+          import sys
+          from aria_kernel.implementation_safety import sandbox_backend
+          backend = sandbox_backend()
+          if backend is None:
+              sys.exit(
+                  "sandbox_backend_unavailable: bubblewrap is installed but could not "
+                  "build the namespaces wrap_bash_in_sandbox relies on, so "
+                  "READONLY_PATHS cannot be enforced at the syscall level"
+              )
+          print(f"sandbox backend verified: {backend}")
+          PY
+
       - name: Run CI executor
-        if: steps.pending.outputs.request_id != ''
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
         env:
           CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
           CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
@@ -279,7 +419,7 @@ jobs:
             "${{ steps.pending.outputs.request_id }}"
 
       - name: Upload response envelope (artefact)
-        if: steps.pending.outputs.request_id != ''
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # Limited scope — response envelope plus its transcript anchor. claims.jsonl +
@@ -300,7 +440,7 @@ jobs:
       # reviewer can diff session_start vs session_stop snapshots and
       # see exactly what the run touched (or did not touch).
       - name: Handoff snapshot — session_stop
-        if: always() && steps.handoff_start.outputs.session_id != ''
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.handoff_start.outputs.session_id != ''
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 -m aria_kernel handoff snapshot \
@@ -308,3 +448,85 @@ jobs:
             --trigger session_stop \
             --tools-dir aria-tools \
             --repo-root .
+
+      # ORPHAN-CRITICAL-420 S1 — the return half of the queue bridge.
+      # Without a publish the executor's own writes (claims, results,
+      # governance, handoffs) die with the runner, so the next auto-cycle
+      # would re-mint work this run already claimed. Verified BEFORE
+      # publishing, mirroring aria-auto-cycle: only an integrity-clean tree
+      # is allowed to become the next run's starting state.
+      - name: Verify aria-tools state integrity
+        id: integrity
+        if: always() && steps.lease_check.outputs.blocked != 'true'
+        run: |
+          set -uo pipefail
+          # RUNNER_TEMP, not /tmp — the only external write root this job's
+          # contract allows (external_root_allowlist).
+          VERDICT="${RUNNER_TEMP}/aria-integrity-verdict.json"
+          VERDICT_ERR="${RUNNER_TEMP}/aria-integrity-verdict.err"
+          if PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify \
+               --tools-dir aria-tools \
+               --workspace-root "$GITHUB_WORKSPACE" > "$VERDICT" 2>"$VERDICT_ERR"; then
+            echo "state_valid=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "state_valid=false" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo '### aria-tools state integrity'
+            echo '```json'
+            head -c 4000 "$VERDICT" 2>/dev/null || echo '{}'
+            echo '```'
+            if [ -s "$VERDICT_ERR" ]; then
+              echo '```'
+              tail -20 "$VERDICT_ERR"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Persist aria-tools state (verified)
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true' && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aria-tools-state
+          path: aria-tools/
+          retention-days: 30
+          if-no-files-found: error
+          overwrite: true
+
+      # Unverified state is preserved for forensics under a run-scoped name
+      # the restore step never selects — restore queries
+      # `name=aria-tools-state`, so a quarantined tree cannot be picked up
+      # as the next run's starting state.
+      - name: Quarantine unverified aria-tools state
+        # The blocked guard matches the sibling producer and the publish/fail
+        # steps either side of it: when the lease check refused the run the
+        # integrity step above is skipped, so state_valid is the empty string
+        # and an unguarded `!= 'true'` would quarantine a tree this run never
+        # touched — turning every blocked night into a forensics artifact.
+        if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || (steps.restore_state.outputs.restored != 'true' && steps.restore_state.outputs.bootstrap != 'true'))
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quarantine-evidence-${{ github.run_id }}
+          path: |
+            aria-tools/
+            ${{ runner.temp }}/aria-integrity-verdict.json
+            ${{ runner.temp }}/aria-integrity-verdict.err
+          retention-days: 30
+          if-no-files-found: warn
+          overwrite: true
+
+      - name: Fail when aria-tools state was not published
+        # ORPHAN-CRITICAL-484 — mirrors the sibling producer
+        # (aria-auto-cycle.yml). Without this the executor can do real work,
+        # publish NOTHING under the canonical name, and still report green —
+        # and the failure is absorbing: each such night buries the good
+        # artifact one run deeper until the 30-day retention window closes.
+        if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || (steps.restore_state.outputs.restored != 'true' && steps.restore_state.outputs.bootstrap != 'true'))
+        run: |
+          set -euo pipefail
+          echo "::error::aria-tools state was NOT published under the canonical name."
+          echo "state_valid=${{ steps.integrity.outputs.state_valid }}"
+          echo "restored=${{ steps.restore_state.outputs.restored }}"
+          echo "bootstrap=${{ steps.restore_state.outputs.bootstrap }}"
+          echo "The tree is preserved as quarantine-evidence-${{ github.run_id }}."
+          exit 1

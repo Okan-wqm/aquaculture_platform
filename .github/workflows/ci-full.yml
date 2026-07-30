@@ -36,7 +36,17 @@ concurrency:
 jobs:
   lint-and-typecheck:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 25, not 15 (ORPHAN-HIGH-501). This job makes four heavy serial passes —
+    # lint all projects, tsc all, a SECOND full tsc pass in type-check-spec, then
+    # the format check — and the merge of main added a workspace, which grew the
+    # linter from 6m36s to 8m57s. Measured need is ~17.5m; at 15m the job was
+    # cancelled mid-`type-check-spec` and step 10 reported `skipped`, so BOTH
+    # tail gates stopped running while the job still looked configured. It failed
+    # closed (build-status treats cancelled as not-success) but printed
+    # "Lint/Typecheck failed", which sends the reader hunting a lint error that
+    # does not exist. Consistent with this file's own budgets: test 30, build 30,
+    # deploy-ssot-gates 20.
+    timeout-minutes: 25
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

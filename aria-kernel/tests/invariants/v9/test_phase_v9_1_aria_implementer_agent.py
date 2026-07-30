@@ -84,12 +84,12 @@ class TestV9ImplementerAgentFile(unittest.TestCase):
             f"tools declaration drifted: {tools}",
         )
 
-    def test_i_v9_impl_01_model_is_fable(self):
+    def test_i_v9_impl_01_model_is_opus(self):
         """Writer agent MUST run on the most capable tier (K5 tier flip,
         operator policy 2026-07-01: decision nodes on fable)."""
         m = re.search(r"^model:\s*(\S+)$", self.body, re.MULTILINE)
         self.assertIsNotNone(m)
-        self.assertEqual(m.group(1).strip(), "fable")
+        self.assertEqual(m.group(1).strip(), "opus")
 
     def test_i_v9_impl_01_pedagogy_tier_3(self):
         """Tier-3 pinned: aria-implementer has high prohibition density

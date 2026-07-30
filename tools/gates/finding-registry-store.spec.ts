@@ -24,7 +24,10 @@ import {
 } from './finding-registry';
 import {
   atomicWriteRegistryFile,
+  claimedSequences,
   nextFindingId,
+  orphanMarkdownReservedIds,
+  readOrphanMarkdownStore,
   RegistryLockError,
   type FindingSeverity,
   withRegistryFileLock,
@@ -89,6 +92,97 @@ if (childMode === '--worktree-allocator-child') {
   void test('nextFindingId rejects malformed domains and exhausted sequences', () => {
     assert.throws(() => nextFindingId('farm', 'LOW', []), /uppercase alphanumeric/);
     assert.throws(() => nextFindingId('INFRA', 'CRITICAL', ['INFRA-LOW-999']), /space exhausted/);
+  });
+
+  void test('readOrphanMarkdownStore sees every heading form the file uses', () => {
+    const path = join(fixtureRoot, 'orphan-findings.md');
+    writeFileSync(
+      path,
+      [
+        '# Orphan findings',
+        '',
+        '## ORPHAN-001 — pre-severity era',
+        '## ORPHAN-063 — pre-severity era',
+        '## ORPHAN-MEDIUM-031 — canonical',
+        '## ORPHAN-INFO-363 — severity the registry does not use',
+        '## ORPHAN-LOW-337b — suffixed re-open',
+        '### ORPHAN-HIGH-500 — H3, not a finding heading',
+        '## ULTRA-HIGH-091 — different store',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    const store = readOrphanMarkdownStore(path);
+    assert.deepEqual(
+      [...store.ids].sort(),
+      ['ORPHAN-001', 'ORPHAN-063', 'ORPHAN-INFO-363', 'ORPHAN-LOW-337b', 'ORPHAN-MEDIUM-031'],
+      'a heading form the reader cannot see is a sequence the allocator reuses',
+    );
+    assert.deepEqual(
+      [...store.sequences].sort((a, b) => a - b),
+      [1, 31, 63, 337, 363],
+    );
+  });
+
+  void test('readOrphanMarkdownStore treats a missing file as empty, not an error', () => {
+    const store = readOrphanMarkdownStore(join(fixtureRoot, 'does-not-exist.md'));
+    assert.equal(store.ids.size, 0);
+    assert.equal(store.sequences.size, 0);
+  });
+
+  void test('nextFindingId skips sequences held only by the markdown store', () => {
+    // The regression this pins: the registry's ORPHAN maximum was 332
+    // while orphan-findings.md was already at 416, and the allocator
+    // could not see the markdown. It handed out 333 — a live finding —
+    // and the next eighteen after it.
+    const path = join(fixtureRoot, 'orphan-collision.md');
+    writeFileSync(path, '## ORPHAN-HIGH-416 — occupied\n', 'utf8');
+    const registryIds = ['ORPHAN-CRITICAL-332'];
+    assert.equal(
+      nextFindingId('ORPHAN', 'HIGH', registryIds),
+      'ORPHAN-HIGH-333',
+      'registry-only view is the pre-fix behaviour',
+    );
+    assert.equal(
+      nextFindingId('ORPHAN', 'HIGH', [...registryIds, ...orphanMarkdownReservedIds(path)]),
+      'ORPHAN-HIGH-417',
+    );
+  });
+
+  void test('claimedSequences matches by sequence, not by full id string', () => {
+    // ORPHAN-HIGH-457 — the collision check on the explicit-append path
+    // compared full id strings, and never matched. Two independent reasons:
+    // the markdown store normalizes to ORPHAN-RESERVED-NNN because a heading
+    // records no severity, and the classifier segment varies with severity
+    // anyway. So `ORPHAN-MEDIUM-416` was accepted while `416` was a live
+    // heading — the very collision that forced this branch to be retraced,
+    // reachable through the other door.
+    const claimed = claimedSequences('ORPHAN', ['ORPHAN-CRITICAL-332', 'ORPHAN-RESERVED-416']);
+    assert.equal(claimed.has(332), true);
+    assert.equal(
+      claimed.has(416),
+      true,
+      'a RESERVED-form id must claim its sequence for every severity',
+    );
+    // The pre-fix comparison, shown failing, so this test cannot pass
+    // vacuously if someone reverts to string matching.
+    assert.equal(
+      ['ORPHAN-CRITICAL-332', 'ORPHAN-RESERVED-416'].includes('ORPHAN-MEDIUM-416'),
+      false,
+      'string matching does not see the collision — that was the bug',
+    );
+  });
+
+  void test('claimedSequences ignores other domains', () => {
+    const claimed = claimedSequences('ORPHAN', [
+      'ORPHAN-HIGH-005',
+      'INFRA-CRITICAL-999',
+      'SUPPLY-HIGH-005',
+    ]);
+    assert.deepEqual(
+      [...claimed].sort((a, b) => a - b),
+      [5],
+    );
   });
 
   void test('non-Error action failures remain observable with native cause semantics', () => {

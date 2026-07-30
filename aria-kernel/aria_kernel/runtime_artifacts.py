@@ -736,6 +736,40 @@ def rollback_retention(
         "retention_event_id": event.get("event_id"),
     }
 
+# ORPHAN-HIGH-424 — the marker keys producers already use to report
+# suppression and truncation (``aria_watchdog`` emits
+# ``findings_suppressed``; ``executor`` packets carry
+# ``prompt_truncated``). Pre-fix ``suppressed_count`` and
+# ``truncated_count`` were locals initialised to 0 and never
+# incremented, so no producer could ever move them. Reading the markers
+# instead means a producer that starts reporting either quantity is
+# counted without further wiring.
+_SUPPRESSED_MARKER_KEYS: tuple[str, ...] = (
+    "findings_suppressed",
+    "suppressed_count",
+)
+_TRUNCATED_MARKER_KEYS: tuple[str, ...] = (
+    "prompt_truncated",
+    "truncated_count",
+)
+
+
+def _marker_total(container: dict[str, Any], keys: tuple[str, ...]) -> int:
+    """Sum the reported marker values on one dict.
+
+    ``bool`` is checked before ``int`` because ``True`` is an ``int`` in
+    Python and a truncation flag means "one truncation", not "one".
+    """
+    total = 0
+    for key in keys:
+        value = container.get(key)
+        if isinstance(value, bool):
+            total += 1 if value else 0
+        elif isinstance(value, int):
+            total += max(0, value)
+    return total
+
+
 def autonomy_output_summary(result: dict[str, Any], *, result_detail: str = "summary") -> dict[str, Any]:
     per_cycle = result.get("per_cycle") if isinstance(result.get("per_cycle"), list) else []
     cycle_status_counts: dict[str, int] = {}
@@ -747,13 +781,34 @@ def autonomy_output_summary(result: dict[str, Any], *, result_detail: str = "sum
     failed_phases: list[dict[str, Any]] = []
     suppressed_count = 0
     truncated_count = 0
+    warnings: list[dict[str, Any]] = []
     for item in per_cycle:
         if not isinstance(item, dict):
             continue
         cycle = item.get("cycle") if isinstance(item.get("cycle"), dict) else {}
         status = str(cycle.get("runtime_status") or cycle.get("status") or "unknown")
         cycle_status_counts[status] = cycle_status_counts.get(status, 0) + 1
-        incomplete_lifecycle_count += int(cycle.get("incomplete_lifecycle_count") or 0)
+        cycle_incomplete = int(cycle.get("incomplete_lifecycle_count") or 0)
+        incomplete_lifecycle_count += cycle_incomplete
+        suppressed_count += _marker_total(cycle, _SUPPRESSED_MARKER_KEYS)
+        truncated_count += _marker_total(cycle, _TRUNCATED_MARKER_KEYS)
+        # ORPHAN-HIGH-424 — a started-without-terminal cycle, and an
+        # unreadable cycles.jsonl, are both operator-actionable and were
+        # both invisible while warning_count was pinned to 0.
+        if cycle_incomplete:
+            warnings.append({
+                "code": "incomplete_cycle_lifecycle",
+                "cycle_id": cycle.get("cycle_id"),
+                "incomplete_count": cycle_incomplete,
+            })
+        lifecycle = cycle.get("cycle_lifecycle")
+        if isinstance(lifecycle, dict) and lifecycle.get("valid") is False and not cycle_incomplete:
+            warnings.append({
+                "code": "cycle_lifecycle_unreadable",
+                "cycle_id": cycle.get("cycle_id"),
+                "detail": lifecycle.get("ledger_integrity_error")
+                or lifecycle.get("lifecycle_read_error"),
+            })
         for phase in cycle.get("failed_phases", []) if isinstance(cycle.get("failed_phases"), list) else []:
             if isinstance(phase, dict):
                 failed_phases.append(phase)
@@ -765,6 +820,8 @@ def autonomy_output_summary(result: dict[str, Any], *, result_detail: str = "sum
                 continue
             tool_status = str(run.get("status") or "unknown")
             tool_status_counts[tool_status] = tool_status_counts.get(tool_status, 0) + 1
+            suppressed_count += _marker_total(run, _SUPPRESSED_MARKER_KEYS)
+            truncated_count += _marker_total(run, _TRUNCATED_MARKER_KEYS)
             if tool_status not in {"ok"}:
                 non_ok_tools.append({
                     "cycle_id": cycle.get("cycle_id"),
@@ -789,6 +846,25 @@ def autonomy_output_summary(result: dict[str, Any], *, result_detail: str = "sum
         overall = "degraded"
     else:
         overall = "ok"
+    artifact_hash_status = _artifact_hash_status(artifact_refs)
+    # ORPHAN-HIGH-424 — anomalies that are real but not fatal. `overall`
+    # already turns "failed" on a bad cycle status or a non-ok tool, so
+    # these are precisely the signals that used to reach the operator as
+    # warning_count: 0 next to overall_status: ok.
+    # "none" means there were no artifact refs to verify, which is not an
+    # anomaly; only "drift" is (see _artifact_hash_status).
+    if artifact_hash_status == "drift":
+        warnings.append({
+            "code": "artifact_hash_drift",
+            "artifact_hash_status": artifact_hash_status,
+        })
+    if failed_phases and overall == "ok":
+        warnings.append({
+            "code": "failed_phases_without_failed_status",
+            "failed_phase_count": len(failed_phases),
+        })
+    if evidence_errors:
+        warnings.append({"code": "evidence_errors", "count": evidence_errors})
     summary = {
         "schema_version": 2,
         "result_detail": result_detail,
@@ -799,13 +875,14 @@ def autonomy_output_summary(result: dict[str, Any], *, result_detail: str = "sum
         "cycle_status_counts": dict(sorted(cycle_status_counts.items())),
         "tool_status_counts": dict(sorted(tool_status_counts.items())),
         "error_count": len(non_ok_tools),
-        "warning_count": 0,
+        "warning_count": len(warnings),
+        "warnings": warnings,
         "suppressed_count": suppressed_count,
         "truncated_count": truncated_count,
         "non_ok_tools": non_ok_tools,
         "evidence_errors": evidence_errors,
         "artifact_refs": artifact_refs,
-        "artifact_hash_status": _artifact_hash_status(artifact_refs),
+        "artifact_hash_status": artifact_hash_status,
         "quarantine_count": sum(1 for item in non_ok_tools if item.get("status") == "scope_violation"),
         "scope_out_count": sum(1 for item in non_ok_tools if item.get("status") == "scope_violation"),
         "failed_phases": failed_phases,

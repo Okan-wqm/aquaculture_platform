@@ -30811,6 +30811,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-07-26-aria-software-team-program/PLAN.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/multi-agent-architecture.md",
       "prettier_managed": true
     },
@@ -32234,6 +32240,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/2026-07-17-sensor-device-industrial-protocol-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/2026-07-26-aria-codex-audit-verification.md",
       "prettier_managed": true
     },
     {
@@ -41874,6 +41886,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/git-hook-binding.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/github-actions-tpm-deps-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -42582,6 +42600,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/workflow-npm-script-references.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/performance/api-smoke.js",
       "prettier_managed": true
     },
@@ -43050,6 +43074,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/aria-authority-hash.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/banned-construct.spec.ts",
       "prettier_managed": true
     },
@@ -43267,6 +43297,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/plan-coverage-witness.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/repin-debt-plan.ts",
       "prettier_managed": true
     },
     {
@@ -55320,10 +55356,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9069,
+  "file_count": 9075,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8888,
-  "managed_file_list_sha256": "ab897da534c2c025917cbb4d5ab2fa666f55ef5a19214b2200b0ee31d165001e",
+  "managed_count": 8894,
+  "managed_file_list_sha256": "406fb83cbb628de7017d14816291ca1447597c46512b5059def564d8833695a3",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -266,6 +266,23 @@ def _find_projected_queue_request(
             return request
     return None
 
+# ORPHAN-HIGH-456 — kept next to the summary they bound, so a reviewer sees
+# the cap and the marker list at the point the literal is built.
+_MAX_INCOMPLETE_CYCLES_IN_SUMMARY = 20
+
+# The cycle-level suppression/truncation markers `runtime_artifacts` sums.
+# Mirrored from its `_SUPPRESSED_MARKER_KEYS` / `_TRUNCATED_MARKER_KEYS`; a
+# producer that starts emitting one of these at cycle level is counted
+# without further wiring, which was the stated intent of reading markers
+# rather than incrementing locals.
+_CYCLE_MARKER_KEYS: tuple[str, ...] = (
+    "findings_suppressed",
+    "suppressed_count",
+    "prompt_truncated",
+    "truncated_count",
+)
+
+
 def _bounded_cycle_summary(cycle_result: dict[str, Any]) -> dict[str, Any]:
     tool_runs = cycle_result.get("tool_run_summary") if isinstance(cycle_result.get("tool_run_summary"), list) else []
     artifact_refs = [
@@ -278,7 +295,7 @@ def _bounded_cycle_summary(cycle_result: dict[str, Any]) -> dict[str, Any]:
             {"phase": str(item), "status": "failed"}
             for item in cycle_result.get("extended_phase_failures", [])
         ] if isinstance(cycle_result.get("extended_phase_failures"), list) else []
-    return {
+    summary = {
         "schema_version": 2,
         "cycle_id": cycle_result.get("cycle_id"),
         "status": cycle_result.get("status"),
@@ -290,19 +307,81 @@ def _bounded_cycle_summary(cycle_result: dict[str, Any]) -> dict[str, Any]:
         "failed_phases": failed_phases,
         "incomplete_lifecycle_count": cycle_result.get("incomplete_lifecycle_count", 0),
     }
+    # ORPHAN-HIGH-456 — this literal is CLOSED, so any key it does not name
+    # is deleted on the way to the publisher. Two consumers were reading
+    # keys that could therefore never arrive:
+    #
+    #   * `runtime_artifacts` raises `cycle_lifecycle_unreadable` from
+    #     `cycle.get("cycle_lifecycle")` — the distinction between "zero
+    #     incomplete cycles" and "the cycles ledger could not be read",
+    #     which is the whole point of ORPHAN-HIGH-424's fix. `cycle.py`
+    #     produces the snapshot; this function dropped it one call later,
+    #     so the warning was unreachable in production while its tests
+    #     asserted on the raw cycle dict, a shape production never emits.
+    #   * the suppression/truncation markers are summed at cycle level as
+    #     well as per tool run, and no cycle-level marker could survive
+    #     this literal either.
+    #
+    # `incomplete_cycles` is capped because it is operator-facing evidence,
+    # not a data feed, and an unbounded list from a damaged ledger is how a
+    # summary becomes unpublishable.
+    lifecycle = cycle_result.get("cycle_lifecycle")
+    if isinstance(lifecycle, dict):
+        incomplete = lifecycle.get("incomplete_cycles")
+        summary["cycle_lifecycle"] = {
+            "valid": lifecycle.get("valid"),
+            "incomplete_count": lifecycle.get("incomplete_count", 0),
+            "incomplete_cycles": (
+                list(incomplete)[:_MAX_INCOMPLETE_CYCLES_IN_SUMMARY]
+                if isinstance(incomplete, list)
+                else []
+            ),
+            "lifecycle_read_error": lifecycle.get("lifecycle_read_error"),
+            "ledger_integrity_error": lifecycle.get("ledger_integrity_error"),
+        }
+    for marker in _CYCLE_MARKER_KEYS:
+        if marker in cycle_result:
+            summary[marker] = cycle_result[marker]
+    return summary
 
 
-def _autonomous_preflight(
+def _cycle_preflight(
     *,
     base_dir: Path,
     profile_snapshot: str,
 ) -> tuple[str, str | None]:
     """Plan ARIA-V3 §B2 — cost + failure + lease preflight.
 
-    Returns ``("ok", None)`` when the cycle is permitted to enter the
-    autonomous path; ``("blocked", reason_code)`` when refused. Non-
-    autonomous profiles short-circuit OK (the preflight is autonomous-
-    only — strict/standard/observe/frozen have their own gates).
+    Returns ``("ok", None)`` when the cycle is permitted to proceed;
+    ``("blocked", reason_code)`` when refused.
+
+    ORPHAN-CRITICAL-420 S2 — renamed from ``_autonomous_preflight``. The old
+    name described the old behaviour: the whole body short-circuited OK unless
+    profile was ``autonomous``, on the stated rationale that "strict/standard/
+    observe/frozen have their own gates". They do not. `strict` holds pr_open
+    authority and `standard` holds change_committed authority, and neither
+    consulted the failure breaker anywhere — so a tripped breaker stopped
+    nothing on the profile the scheduled lane actually runs.
+
+    The checks now have three DIFFERENT scopes, which is why they can no
+    longer share one profile test:
+
+      * failure breaker — every profile in PROFILES_WITH_ACTION_AUTHORITY.
+        It exists to stop the system from acting after repeated rejections,
+        so it must cover everything that can act. observe/frozen are exempt
+        by construction (they hold no authority), which also preserves the
+        operator's ability to run a read-only diagnostic cycle while tripped.
+      * cost breaker — autonomous only, unchanged. Cost accrues through the
+        autonomous agent-invocation lane; extending it needs the B0 producer
+        and window analysis that ORPHAN-HIGH-466 tracks, and widening the
+        scope without that would gate profiles against a counter nothing
+        currently increments.
+      * host lease — autonomous only, unchanged, and correctly so: it is a
+        cross-host mutual exclusion for the autonomous daemon. A standard
+        operator-driven cycle has no daemon to race.
+
+    Autonomous evaluation ORDER is preserved exactly (cost, failure, lease)
+    so the reason code an autonomous run reports does not change.
 
     Reason codes (exit_reason values):
       * ``cost_breaker_tripped`` — B0 cost circuit breaker tripped
@@ -310,22 +389,32 @@ def _autonomous_preflight(
       * ``autonomous_host_lease_blocked`` — §2n cross-host lease held
         by a different host
     """
-    if profile_snapshot != "autonomous":
-        return ("ok", None)
+    is_autonomous = profile_snapshot == "autonomous"
     # Lazy imports — keep run_autonomy_orchestrator importable when
     # the new B2 modules are absent (e.g. cold downgrade scenarios).
-    try:
-        from .cost_budget import current_state as _cost_state
-        if _cost_state(base_dir) == "tripped":
-            return ("blocked", "cost_breaker_tripped")
-    except ImportError:
-        pass
-    try:
-        from .circuit_breaker import current_state as _failure_state
-        if _failure_state(base_dir) == "tripped":
-            return ("blocked", "failure_breaker_tripped")
-    except ImportError:
-        pass
+    if is_autonomous:
+        try:
+            from .cost_budget import current_state as _cost_state
+            if _cost_state(base_dir) == "tripped":
+                return ("blocked", "cost_breaker_tripped")
+        except ImportError:
+            pass
+    # current_state() is safe to gate on: evaluate_breaker returns
+    # BREAKER_STATE_TRIPPED for dropped/unreadable evidence as well as for a
+    # genuine threshold breach, so damaged evidence blocks rather than reading
+    # as "ok". Operators separate the two causes with `aria-kernel breaker
+    # status`, which prints the verdict reason.
+    from .runtime_profile import PROFILES_WITH_ACTION_AUTHORITY
+
+    if profile_snapshot in PROFILES_WITH_ACTION_AUTHORITY:
+        try:
+            from .circuit_breaker import current_state as _failure_state
+            if _failure_state(base_dir) == "tripped":
+                return ("blocked", "failure_breaker_tripped")
+        except ImportError:
+            pass
+    if not is_autonomous:
+        return ("ok", None)
     try:
         from .autonomous_host_lease import acquire_lease
         from .tool_registry import GovernanceError as _GE
@@ -718,16 +807,17 @@ def run_autonomy_orchestrator(
                     exit_reason = "profile_frozen"
                     break
 
-                # Plan ARIA-V3 §B2 — autonomous-profile preflight gate.
-                # ONLY fires when profile == "autonomous"; non-autonomous
-                # profiles short-circuit. The gate checks three breakers
-                # in priority order:
-                #   1. cost_budget (B0) — $cost overrun
-                #   2. circuit_breaker (B2) — failure-count overrun
-                #   3. autonomous_host_lease (§2n) — cross-host race
+                # Plan ARIA-V3 §B2 + ORPHAN-CRITICAL-420 S2 — cycle preflight
+                # gate. The FAILURE breaker fires for every profile holding
+                # governed action authority (standard/strict/autonomous), not
+                # just autonomous; cost + host-lease remain autonomous-scoped.
+                # Checks, in priority order:
+                #   1. cost_budget (B0) — $cost overrun          [autonomous]
+                #   2. circuit_breaker (B2) — failure overrun    [any actor]
+                #   3. autonomous_host_lease (§2n) — cross-host  [autonomous]
                 # On any breaker tripped, exit cleanly with the matching
                 # reason code (no error, no retry storm).
-                preflight_status, preflight_reason = _autonomous_preflight(
+                preflight_status, preflight_reason = _cycle_preflight(
                     base_dir=root,
                     profile_snapshot=profile_snapshot,
                 )
@@ -799,12 +889,27 @@ def run_autonomy_orchestrator(
                     raw_status = str(cycle_result.get("runtime_status") or cycle_result.get("status") or "failed")
                     cycle_status = "ok" if raw_status in {"ok", "completed"} and not cycle_result.get("non_ok_tools") else "failed"
                 except Exception as exc:
+                    # ORPHAN-HIGH-456 — the lifecycle counter is dropped here
+                    # precisely when it matters most: a cycle that crashed is
+                    # the one likely to have left a started-without-terminal
+                    # row behind. It cannot be read from `cycle_result` (there
+                    # is none), so the summary says so explicitly rather than
+                    # reporting a zero that reads as "nothing incomplete".
                     cycle_summary["cycle"] = {
                         "schema_version": 2,
                         "cycle_id": cycle_id,
                         "status": "failed",
                         "runtime_status": "failed",
                         "error": str(exc),
+                        "cycle_lifecycle": {
+                            "valid": False,
+                            "incomplete_count": 0,
+                            "incomplete_cycles": [],
+                            "lifecycle_read_error": (
+                                f"cycle raised before producing a lifecycle "
+                                f"snapshot: {type(exc).__name__}"
+                            ),
+                        },
                     }
                     cycle_status = "failed"
                 AutonomyStateReducer.transition(
@@ -1450,13 +1555,17 @@ def run_autonomy_orchestrator(
                 #    ıkı agent bırbırıne atarak valıde sekılde
                 #    sonlanrmalı"
                 #
-                # Profile gating (per Plan §2c step 3):
+                # Profile gating (ORPHAN-HIGH-423 revision):
                 #   * observe → never dispatch Tier-1; defensive
-                #   * standard → dispatch all; specialists_unavailable
-                #               proceeds (fail-open degraded)
-                #   * strict   → specialists_unavailable BLOCKS
-                #               (fail-closed; operator-requested gate)
-                #   * autonomous → fail-open (degraded acceptable)
+                #   * standard / strict / autonomous →
+                #       specialists_unavailable BLOCKS (fail-closed)
+                #
+                # Pre-fix only `strict` blocked, so `standard` and
+                # `autonomous` proceeded on an unreviewed domain. That put
+                # the WEAKEST specialist gate on the profile holding real
+                # merge authority — an inversion, not a trade-off. A
+                # selected specialist that did not deliver means its domain
+                # went unreviewed, which is not a degraded pass.
                 AutonomyStateReducer.transition(
                     root,
                     cycle_id=cycle_id,
@@ -1501,16 +1610,16 @@ def run_autonomy_orchestrator(
                     },
                 )
 
-                # Plan ARIA-V6 §2c v2 — profile-conditional verdict
-                # gating. Strict profile fails closed on unavailable;
-                # standard/autonomous fail open. Remediation_required
-                # ALWAYS blocks regardless of profile.
-                _is_strict = str(profile_snapshot) == "strict"
-                _blocks_cycle = specialist_verdict in {
-                    "consolidated_remediation_required",
-                    "consolidated_judge_split",
-                } or (
-                    _is_strict and specialist_verdict == "specialists_unavailable"
+                # ORPHAN-HIGH-423 — the policy lives in
+                # specialist_review_runner.specialist_verdict_blocks_cycle
+                # so it is testable without asserting on this function's
+                # source. Every write-capable profile now fails closed on
+                # an unsatisfiable gate.
+                from .specialist_review_runner import specialist_verdict_blocks_cycle
+
+                _blocks_cycle = specialist_verdict_blocks_cycle(
+                    verdict=str(specialist_verdict),
+                    profile=str(profile_snapshot),
                 )
                 if _blocks_cycle:
                     cycle_summary["dispatch_blocked_reason"] = (

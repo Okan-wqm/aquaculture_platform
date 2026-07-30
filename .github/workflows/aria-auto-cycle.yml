@@ -26,7 +26,12 @@ name: aria-auto-cycle
 #   - vars.ARIA_MOCK_KILL_SWITCH (read AHEAD of dispatch input/default)
 #   - aria-tools/ARIA_STOP file → orchestrator exits cleanly
 #   - cross-host autonomous-loop lease (refuses when a local daemon runs)
-#   - per-cycle $3.00 + per-run $20.00 budget caps
+#   - per-cycle wall-clock deadline (--cycle-deadline-seconds) + the
+#     executor's pre-dispatch wall-clock ceiling derived from this job's
+#     own timeout-minutes. ORPHAN-HIGH-472 removed the USD caps that used
+#     to be listed here: ARIA runs on a Claude Code subscription session,
+#     so there is no per-run charge for a dollar cap to bound, and the two
+#     figures ($20.00/run, $3.00/cycle) contradicted each other anyway.
 #   - concurrency group, cancel-in-progress: false
 
 on:
@@ -190,7 +195,11 @@ jobs:
               allowed_write_roots=allowed,
               path_allowlist=allowed,
               network_policy=["github_artifact"],
-              network_enforcement_evidence="artifact restore/upload limited to the aria-tools-state artifact via the Actions artifact API",
+              network_enforcement_evidence=(
+                  "artifact restore/upload limited to the aria-tools-state artifact "
+                  "and the run-scoped quarantine-evidence-<run_id> artifact, both via "
+                  "the Actions artifact API"
+              ),
               token_provenance="github_actions_artifact_token",
               require_github_app=False,
               dlp_mode="fail_closed",
@@ -346,6 +355,47 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # ORPHAN-HIGH-471 — the nightly lane spawns agents through the same
+      # run_claude_exec path the executor lane does, but shipped without a
+      # sandbox backend. bwrap is not present on a bare runner, so
+      # wrap_bash_in_sandbox raises SandboxUnavailable: the lane fails closed
+      # rather than running unconfined, which is correct but means it could
+      # not do real agent work at all. These two steps are copied from
+      # aria-agent-executor.yml so the two lanes cannot drift.
+      #
+      # Gated on effective_mock == 'false', not run unconditionally: a mock
+      # cycle spawns no agent and needs no backend, and a hard verify on a
+      # host without unprivileged user namespaces would turn a working mock
+      # nightly red for a capability it never uses.
+      - name: Install sandbox backend (bubblewrap)
+        if: steps.lease_check.outputs.blocked != 'true' && steps.preflight.outputs.effective_mock == 'false'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bubblewrap
+
+      # Assert capability, not presence. bubblewrap installs cleanly on a host
+      # with unprivileged user namespaces disabled and then fails on every
+      # invocation, so sandbox_backend() probes the namespaces it will actually
+      # use. Failing here is the point: a missing or non-functional backend must
+      # stop the job rather than silently disable containment.
+      - name: Verify the sandbox actually confines
+        if: steps.lease_check.outputs.blocked != 'true' && steps.preflight.outputs.effective_mock == 'false'
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 - <<'PY'
+          import sys
+          from aria_kernel.implementation_safety import sandbox_backend
+          backend = sandbox_backend()
+          if backend is None:
+              sys.exit(
+                  "sandbox_backend_unavailable: bubblewrap is installed but could not "
+                  "build the namespaces wrap_bash_in_sandbox relies on, so "
+                  "READONLY_PATHS cannot be enforced at the syscall level"
+              )
+          print(f"sandbox backend verified: {backend}")
+          PY
+
       - name: Run nightly standard-profile cycle
         if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
         env:
@@ -368,8 +418,6 @@ jobs:
             --tools-dir aria-tools \
             --profile standard \
             --max-cycles "$MAX_CYCLES" \
-            --max-budget-usd-per-run 20.00 \
-            --max-budget-usd-per-cycle 3.00 \
             --cycle-deadline-seconds 1800 | tee /tmp/cycle-summary.txt
           {
             echo '### Nightly cycle summary'
@@ -454,8 +502,54 @@ jobs:
             --tools-dir aria-tools \
             --trigger session_stop || true
 
-      - name: Persist aria-tools state
+      # ORPHAN-HIGH-424 — fail-closed publication gate. Pre-fix the upload
+      # below ran under a bare `if: always()` with `overwrite: true`, so a
+      # cycle killed mid-write republished its partial tree under the
+      # canonical `aria-tools-state` name and the NEXT run restored it as
+      # authoritative. `integrity verify` already exits non-zero on drift
+      # (cli.py returns 1 when status != "ok") and already reports
+      # started-without-terminal cycles, so the gate needs no new verifier
+      # — only that its verdict decide which artifact name the state gets.
+      # This step deliberately carries NO error-suppression flag, and the
+      # sentence cannot spell the flag either: the
+      # workflows_do_not_continue_on_error claim in
+      # tools/gates/sens-enterprise-validation.ts is a raw text scan over the
+      # whole file, so even a comment naming the pattern fails a required check.
+      # Suppression was never needed here — the `integrity verify` call sits
+      # inside an `if`, so `set -e` cannot abort the job on it — and the
+      # fail-closed verdict is published by the separate
+      # "Fail on unverified aria-tools state" step below.
+      - name: Verify aria-tools state integrity
+        id: integrity
         if: always() && steps.lease_check.outputs.blocked != 'true'
+        run: |
+          set -uo pipefail
+          # RUNNER_TEMP, not /tmp — it is the only external write root the
+          # workflow contract allows for this job
+          # (external_root_allowlist in workflow_contract_registry.py).
+          VERDICT="${RUNNER_TEMP}/aria-integrity-verdict.json"
+          VERDICT_ERR="${RUNNER_TEMP}/aria-integrity-verdict.err"
+          if PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify \
+               --tools-dir aria-tools \
+               --workspace-root "$GITHUB_WORKSPACE" > "$VERDICT" 2>"$VERDICT_ERR"; then
+            echo "state_valid=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "state_valid=false" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo '### aria-tools state integrity'
+            echo '```json'
+            head -c 4000 "$VERDICT" 2>/dev/null || echo '{}'
+            echo '```'
+            if [ -s "$VERDICT_ERR" ]; then
+              echo '```'
+              tail -20 "$VERDICT_ERR"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Persist aria-tools state (verified)
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aria-tools-state
@@ -463,3 +557,26 @@ jobs:
           retention-days: 30
           if-no-files-found: error
           overwrite: true
+
+      # Unverified state is still preserved for forensics, but under a
+      # run-scoped name the restore step never selects — the restore
+      # queries `name=aria-tools-state`, so quarantined trees cannot be
+      # picked up as the next run's starting state.
+      - name: Quarantine unverified aria-tools state
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quarantine-evidence-${{ github.run_id }}
+          path: |
+            aria-tools/
+            ${{ runner.temp }}/aria-integrity-verdict.json
+            ${{ runner.temp }}/aria-integrity-verdict.err
+          retention-days: 30
+          if-no-files-found: warn
+          overwrite: true
+
+      - name: Fail on unverified aria-tools state
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid != 'true'
+        run: |
+          echo "::error::aria-tools state failed integrity verification; published as quarantine-evidence-${GITHUB_RUN_ID} instead of aria-tools-state." >&2
+          exit 1

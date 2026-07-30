@@ -8,12 +8,25 @@ from typing import Any
 
 from .apply_engine import list_apply_actions
 from .auto_merge import record_pr_lifecycle
+from .implementation_safety import (
+    GATE_PRE_PR_OPEN,
+    HardFailContext,
+    run_hard_fail_checks,
+)
 from .ledger import append_declared_jsonl, load_jsonl
 from .proposal import get_proposal
 from .runtime_profile import enforce_profile_for_action
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .validation import list_validation_plans
 
+
+# ORPHAN-CRITICAL-420 — the marker cycle.py matches to tell a perimeter refusal
+# apart from the other GovernanceErrors open_pr_for_action raises (missing
+# change_id, wrong base, unresolvable branch). Exported as a constant rather than
+# left as an inline literal so the observer and the raiser cannot drift: a
+# renamed message would otherwise silently stop counting toward the breaker,
+# which is the failure shape this whole wave exists to remove.
+PERIMETER_REFUSED_PREFIX = "open_pr_hard_fail_perimeter_refused"
 
 REQUIRED_PR_SECTIONS = (
     "Problem",
@@ -24,6 +37,34 @@ REQUIRED_PR_SECTIONS = (
     "Rollback",
     "Provenance",
 )
+
+
+def _diff_text_for_action(
+    *,
+    workspace_path: Path,
+    base_sha: Any,
+    head_sha: str,
+) -> str | None:
+    """The diff the secret scan inspects, or None when it cannot be produced.
+
+    ORPHAN-CRITICAL-428 — returning None on any failure is deliberate:
+    ``_check_secret_scan_diff_clean`` treats an absent diff as UNVERIFIED and
+    refuses, so a git error here blocks the PR rather than waving it through
+    with an empty string. An empty string is a valid clean diff and would
+    pass, which is why the two cases must not be conflated.
+    """
+    if not isinstance(base_sha, str) or not base_sha.strip():
+        return None
+    completed = subprocess.run(
+        ["git", "diff", f"{base_sha.strip()}..{head_sha}"],
+        cwd=workspace_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    return completed.stdout
 
 
 def build_pr_body(*, proposal: dict[str, Any], action: dict[str, Any]) -> str:
@@ -159,6 +200,74 @@ def open_pr_for_action(
         raise GovernanceError(
             f"open_pr_head_sha_unresolvable: git rev-parse {branch!r} "
             f"produced empty stdout"
+        )
+
+    # ORPHAN-CRITICAL-428 / ORPHAN-HIGH-437 — the pre-PR-open half of the
+    # hard-fail perimeter gets its production caller here.
+    #
+    # Until this call existed, run_hard_fail_checks had ZERO production
+    # callers: ten implemented checks, an invariant test pinning their
+    # count, and nothing on a live path that ran them. `grep -rn
+    # 'run_hard_fail_checks(' aria-kernel` returned exactly one line — the
+    # definition. That is the defect class this whole audit wave is about,
+    # and a registry nobody iterates is documentation, not a gate.
+    #
+    # WHY HERE, and not one line earlier or later:
+    #   * after every existing precondition, so a caller that was already
+    #     going to be refused (missing change_id, wrong base, unresolvable
+    #     branch) still fails with its own specific error rather than a
+    #     generic perimeter refusal;
+    #   * before the `dry_run` branch, so the gate runs on BOTH paths. The
+    #     only production route into this function today is the cycle's
+    #     pr_lifecycle phase with dry_run=True (cycle.py:_run_pr_lifecycle_phase
+    #     ← _run_extended_phases ← run_enterprise_cycle ← autonomy
+    #     orchestrator ← aria-auto-cycle.yml). Gating only the live-open
+    #     path would have re-created the original defect in a new shape:
+    #     an unreachable gate that looks wired.
+    #
+    # A dry run is refused too. Its purpose is to answer "would this PR be
+    # openable", so a preview reporting `ok` while the perimeter would
+    # block is a false green — the exact failure mode this wave keeps
+    # finding. The phase catches GovernanceError per proposal and
+    # aggregates, so a refusal surfaces as that proposal's `fail` rather
+    # than aborting the cycle.
+    #
+    # Every context field is populated from data already resolved above;
+    # nothing is invented. The three that the checks fail closed on when
+    # absent (envelope, validation_commands, diff_text) are exactly the
+    # three worth stating provenance for:
+    #   envelope.affected_surfaces — action.changed_files, the surfaces this
+    #     action actually touches, which is what the mint-time
+    #     self-modification check compares against READONLY_PATHS.
+    #   validation_commands — action.validation_commands, the same field
+    #     build_pr_body renders above, sourced from the proposal's
+    #     validation_scope by apply_engine.
+    #   diff_text — computed base_sha..head_sha below; None when base_sha is
+    #     absent, which the secret scan treats as unverified and refuses.
+    hard_fail_report = run_hard_fail_checks(
+        HardFailContext(
+            workspace_root=workspace_path,
+            diff_text=_diff_text_for_action(
+                workspace_path=workspace_path,
+                base_sha=action.get("base_sha"),
+                head_sha=resolved_head_sha,
+            ),
+            envelope={"affected_surfaces": list(action.get("changed_files", []))},
+            affected_paths=tuple(action.get("changed_files", [])),
+            validation_commands=tuple(action.get("validation_commands", [])),
+            base_branch=base,
+            pr_body=body,
+        ),
+        gate=GATE_PRE_PR_OPEN,
+    )
+    if not hard_fail_report.passed:
+        raise GovernanceError(
+            PERIMETER_REFUSED_PREFIX
+            + ": "
+            + "; ".join(
+                f"{failure.name}:{failure.reason}"
+                for failure in hard_fail_report.failures
+            )
         )
 
     payload = {

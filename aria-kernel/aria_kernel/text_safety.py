@@ -119,7 +119,26 @@ def encode_untrusted_delimited_payload(
     return base64.b64encode(text.encode("utf-8")).decode("ascii")
 
 
+def contains_bidi_or_control(text: str) -> bool:
+    """True when ``text`` carries a bidi override or a control char.
+
+    The detect-only counterpart to :func:`sanitize_untrusted_text`, for
+    call sites that must REFUSE rather than clean. The pre-PR-open
+    ``pr_body_templating`` hard-fail check is one: silently stripping a
+    Trojan Source override from a PR body would leave the reviewer
+    approving a diff whose rendering differed from its content, so the
+    body is rejected instead of repaired.
+
+    Both share ``_BIDI_AND_CONTROL_RE``, so the character class cannot
+    drift between what gets stripped and what gets refused.
+    """
+    if not isinstance(text, str):
+        text = str(text)
+    return _BIDI_AND_CONTROL_RE.search(text) is not None
+
+
 __all__ = [
+    "contains_bidi_or_control",
     "encode_untrusted_delimited_payload",
     "sanitize_untrusted_text",
 ]

@@ -502,6 +502,50 @@ def _main(argv: list[str] | None = None) -> int:
     rollback_tools_v3.add_argument("--acknowledge", action="store_true")
     rollback_tools_v3.add_argument("--reason", required=True, type=_validate_reason)
 
+    # ORPHAN-CRITICAL-420 S4 — the failure circuit breaker's operator surface.
+    #
+    # circuit_breaker.py has defined evaluate_breaker/current_state/reset_breaker
+    # since Plan ARIA-V3 §B2, and `grep -n breaker cli.py` returned NOTHING: no
+    # status, no reset, no command group at all. The breaker's own ledger lives
+    # under aria-tools/, which .gitignore excludes, so a tripped breaker could
+    # only be cleared by hand-deleting an untracked artifact on whichever runner
+    # happened to write it.
+    #
+    # That is why this lands WITH the producer and not after it. Wiring a
+    # producer first would convert a transient failure into an unrecoverable
+    # halt — trading a fail-open breaker for a fail-closed one nobody can reopen,
+    # which is not an improvement.
+    #
+    # `reset` deliberately mirrors the migration commands' operator contract
+    # (--acknowledge + --reason, validated by _validate_reason) because it is the
+    # same class of action: a human overriding a governance stop. The underlying
+    # reset_breaker() truncates the 24h window, so the reason string is the only
+    # durable record of why the window was discarded.
+    # ORPHAN-HIGH-466 — the B0 cost breaker's operator surface, the exact
+    # counterpart to `breaker` below. cost_budget.reset_breaker has existed
+    # since Plan ARIA-V3 §B0 with no CLI, so a tripped cost breaker had the
+    # same unrecoverable shape the failure breaker had before ORPHAN-HIGH-465:
+    # clearable only by hand-editing a gitignored artifact. It lands with the
+    # counter fix rather than after it, for the same reason.
+    # Named `cost-breaker`, not `budget`: `budget` is already the Plan 016
+    # D6 check/record/list group for a different ledger. Parallel to the
+    # `breaker` group below, which owns the B2 failure breaker.
+    cost_parser = add_subparser(sub, "cost-breaker")
+    cost_sub = cost_parser.add_subparsers(dest="cost_breaker_command", required=True)
+    add_subparser(cost_sub, "status")
+    cost_reset = add_subparser(cost_sub, "reset")
+    cost_reset.add_argument("--acknowledge", action="store_true")
+    cost_reset.add_argument("--reason", required=True, type=_validate_reason)
+    cost_reset.add_argument("--operator-approval-ref", required=True)
+
+    breaker_parser = add_subparser(sub, "breaker")
+    breaker_sub = breaker_parser.add_subparsers(dest="breaker_command", required=True)
+    add_subparser(breaker_sub, "status")
+    breaker_reset = add_subparser(breaker_sub, "reset")
+    breaker_reset.add_argument("--acknowledge", action="store_true")
+    breaker_reset.add_argument("--reason", required=True, type=_validate_reason)
+    breaker_reset.add_argument("--operator-approval-ref", required=True)
+
     tool_parser = add_subparser(sub, "tool")
     tool_sub = tool_parser.add_subparsers(dest="tool_command", required=True)
     tool_register = add_subparser(tool_sub, "register")
@@ -2032,6 +2076,91 @@ def _main(argv: list[str] | None = None) -> int:
                 sort_keys=True,
             ),
         )
+        return 0
+
+    if args.command == "cost-breaker" and args.cost_breaker_command == "status":
+        # Spend is DERIVED from the cost-attribution ledger, so status cannot
+        # disagree with what the gate enforces — both call derived_usage.
+        from aria_kernel.cost_budget import (
+            _load_caps,
+            current_state as _cost_current_state,
+            derived_usage,
+        )
+
+        daily_usd, monthly_usd = derived_usage(args.tools_dir)
+        caps = _load_caps(args.tools_dir)
+        state = _cost_current_state(args.tools_dir)
+        print(
+            json.dumps(
+                {
+                    "state": state,
+                    "daily_usd": round(daily_usd, 6),
+                    "monthly_usd": round(monthly_usd, 6),
+                    "caps": caps,
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+        )
+        return 0 if state == "ok" else 1
+
+    if args.command == "cost-breaker" and args.cost_breaker_command == "reset":
+        from aria_kernel.cost_budget import reset_breaker as _cost_reset
+
+        if not args.acknowledge:
+            print(
+                "cost-breaker reset requires --acknowledge: it clears a cost "
+                "stop without changing the caps that produced it",
+            )
+            return 2
+        result = _cost_reset(
+            base_dir=args.tools_dir,
+            operator_approval_ref=args.operator_approval_ref,
+            reason=args.reason,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "breaker" and args.breaker_command == "status":
+        # ORPHAN-CRITICAL-420 S4 — evaluate_breaker returns the verdict rather
+        # than current_state's bare string, because an operator deciding whether
+        # to reset needs the failure rows and the threshold that produced the
+        # verdict, not just "tripped".
+        from aria_kernel.circuit_breaker import evaluate_breaker
+
+        verdict = evaluate_breaker(args.tools_dir)
+        print(
+            json.dumps(
+                {
+                    "state": verdict.state,
+                    "reason": verdict.reason,
+                    "sliding_count": verdict.sliding_count,
+                    "threshold": verdict.threshold,
+                    "window_hours": verdict.window_hours,
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+        )
+        # Exit 1 on tripped so a shell caller can gate on it without parsing
+        # JSON; a tripped breaker is a non-zero condition by construction.
+        return 0 if verdict.state == "ok" else 1
+
+    if args.command == "breaker" and args.breaker_command == "reset":
+        from aria_kernel.circuit_breaker import reset_breaker
+
+        if not args.acknowledge:
+            print(
+                "breaker reset requires --acknowledge: it truncates the 24h "
+                "failure window, discarding the evidence that tripped it",
+            )
+            return 2
+        result = reset_breaker(
+            base_dir=args.tools_dir,
+            operator_approval_ref=args.operator_approval_ref,
+            reason=args.reason,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
     if args.command == "integrity" and args.integrity_command == "verify":

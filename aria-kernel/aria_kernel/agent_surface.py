@@ -38,6 +38,11 @@ REQUEST_ROLES: tuple[str, ...] = (
     "auth_security_review",
     "access_boundary_review",
     "tenant_isolation_review",
+    # ORPHAN-HIGH-426 — independent adjudication of a HUMAN_REQUIRED
+    # escalation. Paired with THREE distinct judge agents below so a panel
+    # is composed of distinct principals by construction rather than by
+    # hope; the fold still verifies disjointness against the claims ledger.
+    "human_required_adjudication",
 )
 
 INVOCATION_ROLES: FrozenSet[str] = frozenset({
@@ -56,6 +61,7 @@ DISPATCHABLE_ROLES: FrozenSet[str] = frozenset({
     "cross_review",
     "completeness_critique",
     "implementation",
+    "human_required_adjudication",
 })
 
 DRAFTER_ROLES: FrozenSet[str] = frozenset({
@@ -116,6 +122,13 @@ ROLE_TARGET_PAIRING: dict[str, tuple[str, ...]] = {
     "evidence_judgment": ("aria-evidence-judge",),
     "adversarial_judgment": ("aria-adversarial-judge",),
     "consensus_arbitration": ("aria-consensus-arbiter",),
+    # Three read-only judges. The panel mints one envelope per target, so
+    # a three-member panel cannot be one agent wearing three hats.
+    "human_required_adjudication": (
+        "aria-evidence-judge",
+        "aria-adversarial-judge",
+        "aria-consensus-arbiter",
+    ),
     "change_intelligence": ("aria-change-intelligence",),
     "goldset_curation": ("aria-goldset-curator",),
     "architectural_arbitration": ("architectural-arbiter",),
@@ -138,6 +151,11 @@ DERIVED_REQUEST_STATES: tuple[str, ...] = (
     "ACCEPTED_PENDING_BRIDGE",
     "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
     "EXTERNAL_OUTAGE",
+    # ORPHAN-MEDIUM-492 — the request's target_sha no longer describes the
+    # repo it would be executed against. Distinct from STALE, which is a
+    # lease-expiry and is retryable: a lease can be re-claimed, but a plan
+    # grounded at an obsolete tree cannot be made current by retrying it.
+    "ANCHOR_STALE",
 )
 
 TERMINAL_REQUEST_STATES: FrozenSet[str] = frozenset({
@@ -147,6 +165,7 @@ TERMINAL_REQUEST_STATES: FrozenSet[str] = frozenset({
     "CANCELLED",
     "HUMAN_REQUIRED",
     "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
+    "ANCHOR_STALE",
 })
 
 GENESIS_LIFECYCLE_STATES: tuple[str, ...] = (

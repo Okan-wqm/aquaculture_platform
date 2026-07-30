@@ -13,7 +13,7 @@ This test asserts the SHARED contract across all three opus-tier
 agents (regardless of physical location):
 
 - the three files exist at their post-V8.1 canonical locations;
-- each frontmatter declares `model: fable` and `tools: Read, Grep, Glob`;
+- each frontmatter declares the model its tier assigns (see EXPECTED_MODEL) and `tools: Read, Grep, Glob`;
 - each `name` field matches the ARIA whitelist in agent_contract.py;
 - the body cites the kernel-issued envelope as the only invocation path;
 - the body forbids self-modification outside the Plan 009 PR lane.
@@ -41,15 +41,22 @@ EXPECTED_LOCATIONS: tuple[tuple[str, Path], ...] = (
     ("aria-challenger-planner.md", AGENTS_DIR / "aria-challenger-planner.md"),
 )
 
-# Plan 023 §A — model/effort tiering. All three stay on the opus model, but the
-# planners are dispatched per cycle and run at `high` effort under the
-# scout-and-verify split, while the maintenance prompt-writer (which authors
-# judge prompts — quality-critical) stays at `xhigh`. SSoT:
-# aria-kernel/aria_kernel/agent_runtime_profile.py.
+# Plan 023 §A model/effort tiering, as amended by the operator tier ladder.
+# These three files no longer share a model, which is why EXPECTED_MODEL is a
+# per-file map rather than one assertion applied to all of them: the two
+# planners run the PLANNING tier (fable, falling back to opus), while
+# aria-prompt-writer is in WRITE_TIER_AGENTS and runs the IMPLEMENTATION tier
+# (opus, falling back to sonnet). Effort is uniform at max (ultracode).
+# SSoT: aria-kernel/aria_kernel/agent_runtime_profile.py.
+EXPECTED_MODEL: dict[str, str] = {
+    "aria-prompt-writer.md": "opus",
+    "aria-primary-planner.md": "fable",
+    "aria-challenger-planner.md": "fable",
+}
 EXPECTED_EFFORT: dict[str, str] = {
-    "aria-prompt-writer.md": "xhigh",
-    "aria-primary-planner.md": "high",
-    "aria-challenger-planner.md": "high",
+    "aria-prompt-writer.md": "max",
+    "aria-primary-planner.md": "max",
+    "aria-challenger-planner.md": "max",
 }
 FRONTMATTER_RE = re.compile(
     r"\A---\n(.*?)\n---\n",
@@ -82,7 +89,10 @@ class MaintenanceAgentInvariantTests(unittest.TestCase):
         for name, path in self.files.items():
             text = path.read_text(encoding="utf-8")
             front = _parse_frontmatter(text)
-            self.assertEqual(front.get("model"), "fable", f"{name}: model not fable")
+            self.assertEqual(
+                front.get("model"), EXPECTED_MODEL[name],
+                f"{name}: model not {EXPECTED_MODEL[name]}",
+            )
             self.assertEqual(
                 front.get("effort"), EXPECTED_EFFORT[name],
                 f"{name}: effort not {EXPECTED_EFFORT[name]} "

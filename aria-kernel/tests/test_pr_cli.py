@@ -21,11 +21,22 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aria_kernel.cli import main as cli_main
+from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
 from aria_kernel.proposal import approve_proposal, record_proposal
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
 from tests._gh_mock import gh_create_success, recorded_calls, reset_recorded
+
+
+# ORPHAN-CRITICAL-428 — the product file this synthetic PR touches.
+# open_pr_for_action now runs the pre-PR-open hard-fail perimeter, which
+# refuses any action whose declared surfaces fall inside
+# implementation_safety.READONLY_PATHS — `aria-kernel/aria_kernel/` among
+# them. A PR over kernel sources is not a PR ARIA may open, so the CLI
+# fixture declares a real product path; the branch commit below writes that
+# same path so the declaration and the diff describe one change.
+_CHANGED_FILE = "apps/farm-service/src/farm/services/water-quality.service.ts"
 
 
 def _seed_tools() -> Path:
@@ -61,8 +72,13 @@ def _seed_tools() -> Path:
         ["git", "checkout", "-q", "-b", "aria/cli-test"],
         cwd=tmp, check=True,
     )
-    (tmp / "feature.txt").write_text("feature\n", encoding="utf-8")
-    _sp.run(["git", "add", "feature.txt"], cwd=tmp, check=True)
+    feature_file = tmp / _CHANGED_FILE
+    feature_file.parent.mkdir(parents=True, exist_ok=True)
+    feature_file.write_text(
+        "export const WATER_QUALITY_SAMPLE_INTERVAL_MS = 60_000;\n",
+        encoding="utf-8",
+    )
+    _sp.run(["git", "add", _CHANGED_FILE], cwd=tmp, check=True)
     _sp.run(
         ["git", "commit", "-q", "-m", "feature"],
         cwd=tmp, check=True, capture_output=True,
@@ -71,7 +87,17 @@ def _seed_tools() -> Path:
 
 
 def _seed_proposal_and_action(*, repo: Path, proposal_id: str = "PROP-CLI-01") -> dict:
+    import subprocess as _sp
     tools = repo / "aria-tools"
+    # ORPHAN-CRITICAL-428 — the perimeter secret-scans `git diff
+    # <base_sha>..<head_sha>`, and a diff it cannot produce counts as
+    # UNVERIFIED, not clean. The placeholder "abcd1234" this fixture used to
+    # declare resolves to no object in the seeded repo, so resolve the real
+    # branch point instead: aria/cli-test is one commit ahead of it.
+    base_sha = _sp.run(
+        ["git", "rev-parse", "aria/cli-test~1"],
+        cwd=repo, check=True, capture_output=True, text=True,
+    ).stdout.strip()
     proposal = record_proposal(
         kind="test_gap",
         title="Plan 019 Phase 3 PR CLI smoke",
@@ -92,13 +118,16 @@ def _seed_proposal_and_action(*, repo: Path, proposal_id: str = "PROP-CLI-01") -
         "recorded_at": "2026-05-07T00:00:00Z",
         "proposal_id": pid,
         "workspace_root": str(repo),
-        "base_sha": "abcd1234",
+        "base_sha": base_sha,
         "branch": "aria/cli-test",
         "worktree_path": str(repo / "aria-worktrees" / f"A-{pid}"),
-        "changed_files": ["aria-kernel/aria_kernel/cli.py"],
-        "validation_commands": [
-            {"cmd": "nx test aria-kernel", "expected_exit": 0, "timeout_ms": 60000}
-        ],
+        "changed_files": [_CHANGED_FILE],
+        # ORPHAN-CRITICAL-461 — the canonical suite must appear as whole
+        # entries, so this is a list of command strings (which is also the
+        # shape apply_engine records: proposal.validation_scope.commands).
+        # Sourced from the perimeter's own constant so the fixture cannot
+        # drift out of sync with what the gate requires.
+        "validation_commands": list(CANONICAL_VALIDATION_COMMANDS),
         "validation_gate_ref": "sha256:gate-ref-fake",
         "validation_gate_status": "ready_for_pr",
         "validation_gate_blocked_by": [],

@@ -31,9 +31,18 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
 from aria_kernel.pr_manager import open_pr_for_action
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers.declared_fixtures import append_declared_fixture
+
+
+# The product file the synthetic proposal touches. One constant so the branch
+# commit and the action's declared changed_files cannot drift: the pre-PR-open
+# hard-fail perimeter compares the declaration against READONLY_PATHS, so a
+# fixture naming an aria-kernel/ path (or nothing at all) is refused before it
+# ever reaches the head-resolution behaviour these tests pin.
+CHANGED_FILE = "apps/farm-service/src/pond/pond.service.ts"
 
 
 class OpenPrHeadResolutionTests(unittest.TestCase):
@@ -57,6 +66,13 @@ class OpenPrHeadResolutionTests(unittest.TestCase):
             ["git", "commit", "-q", "-m", "init"],
             cwd=self.workspace, check=True, capture_output=True,
         )
+        # A real base SHA, not a placeholder: the perimeter's secret scan
+        # reads `git diff <base_sha>..<head>`, so a base that does not
+        # resolve describes a PR nothing could have diffed.
+        self.base_sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=self.workspace, check=True, capture_output=True, text=True,
+        ).stdout.strip()
         self.base_dir = self.tmp / "aria-tools"
         self.base_dir.mkdir()
         # open_pr_for_action enforces runtime profile = 'strict' (Plan
@@ -95,12 +111,17 @@ class OpenPrHeadResolutionTests(unittest.TestCase):
             "schema_version": 1,
             "proposal_id": proposal_id,
             "workspace_root": str(self.workspace),
-            "base_sha": "abc123",
+            "base_sha": self.base_sha,
             "worktree_path": str(self.workspace),
             "branch": branch,
             "status": "ready_for_pr",
             "validation_gate_ref": "sha256:gate-ref",
-            "changed_files": [],
+            "changed_files": [CHANGED_FILE],
+            # The canonical suite, sourced from the perimeter's own constant
+            # so the fixture cannot drift from what test_gate_canonical_suite
+            # requires. Each command is its own entry — one string mentioning
+            # all three does not count (ORPHAN-CRITICAL-461).
+            "validation_commands": list(CANONICAL_VALIDATION_COMMANDS),
         }
         append_declared_fixture(
             self.base_dir / "apply" / "actions.jsonl",
@@ -143,7 +164,9 @@ class OpenPrHeadResolutionTests(unittest.TestCase):
             ["git", "checkout", "-q", "-b", "aria/feature-test"],
             cwd=self.workspace, check=True,
         )
-        (self.workspace / "feature.ts").write_text("export const f = 2;\n", encoding="utf-8")
+        feature = self.workspace / CHANGED_FILE
+        feature.parent.mkdir(parents=True, exist_ok=True)
+        feature.write_text("export const POND_SAMPLE_MS = 60000;\n", encoding="utf-8")
         subprocess.run(["git", "add", "."], cwd=self.workspace, check=True)
         subprocess.run(
             ["git", "commit", "-q", "-m", "feature"],
@@ -159,7 +182,7 @@ class OpenPrHeadResolutionTests(unittest.TestCase):
         self.assertIsNotNone(result.get("head_sha"))
         self.assertEqual(len(result["head_sha"]), 40)  # full git SHA
         # base_sha and head_sha are distinct concepts.
-        self.assertEqual(result.get("base_sha"), "abc123")
+        self.assertEqual(result.get("base_sha"), self.base_sha)
         self.assertNotEqual(result["head_sha"], result["base_sha"])
 
 

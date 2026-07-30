@@ -111,14 +111,22 @@ describe('git hook binding', () => {
     //
     // Discovered rather than listed: a hardcoded expectation would pass while a
     // NEWLY added CI gate went unmirrored, which is the defect itself.
+    const collectGates = (text: string, into: Set<string>): void => {
+      for (const match of text.matchAll(QUALITY_GATE)) {
+        const gate = match[1];
+        if (gate) into.add(gate);
+      }
+    };
+
     const gates = new Set<string>();
     for (const file of readdirSync(WORKFLOW_DIR).filter((n) => /\.ya?ml$/.test(n))) {
       const body = readFileSync(join(WORKFLOW_DIR, file), 'utf8');
-      for (const [, gate] of body.matchAll(QUALITY_GATE)) gates.add(gate);
+      collectGates(body, gates);
       // Gates reached through an npm script indirection count the same.
-      for (const [, script] of body.matchAll(QUALITY_SCRIPT)) {
-        const expansion = (packageJson().scripts ?? {})[script];
-        for (const [, gate] of (expansion ?? '').matchAll(QUALITY_GATE)) gates.add(gate);
+      for (const match of body.matchAll(QUALITY_SCRIPT)) {
+        const script = match[1];
+        if (!script) continue;
+        collectGates((packageJson().scripts ?? {})[script] ?? '', gates);
       }
     }
 
@@ -140,7 +148,7 @@ describe('git hook binding', () => {
         .split('\n')
         .filter((line) => !/^\s*#/.test(line))
         .join('\n');
-      for (const [, gate] of code.matchAll(QUALITY_GATE)) invoked.add(gate);
+      collectGates(code, invoked);
     }
 
     const unmirrored = assertions.filter(

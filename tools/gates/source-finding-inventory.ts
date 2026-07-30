@@ -139,11 +139,28 @@ interface SourceRecord {
   contentSha256: string | null;
 }
 
+export interface CanonicalPromotionEvidence {
+  schemaVersion: 1;
+  priorArtifactSha256: string;
+  priorOccurrenceId: string;
+  priorSourceHeadSha: string;
+  sourceRef: string;
+  integrationUnitId: string;
+  canonicalFindingId: string;
+  candidateRegistryBlobSha: string;
+  semanticSha256: string;
+  recordedAt: string;
+  recordedBy: string;
+}
+
 export interface IntegrationUnit {
   id: string;
   state: string;
   executionOwner: string;
+  findingBindingStatus: string;
+  findingIds: string[];
   legacyFindingRefs: string[];
+  canonicalPromotion: CanonicalPromotionEvidence | null;
 }
 
 export interface SourceAdjudication {
@@ -341,6 +358,17 @@ export interface SourceFindingOccurrence {
     source_adjudication_id: string;
     target_integration_unit_id: string | null;
   };
+}
+
+export interface CanonicalFindingEvidence {
+  semanticSha256: string;
+  state: string;
+}
+
+export interface RefreshAssignmentEvidenceContext {
+  priorArtifactSha256: string;
+  priorSourceHeadShaById: ReadonlyMap<string, string>;
+  candidateRegistryBlobSha: string;
 }
 
 export interface CliOptions {
@@ -1908,14 +1936,88 @@ function parseManifest(raw: unknown, includeFindingInventory: boolean = true): P
       entry.finding_binding,
       `integration_units[${index}].finding_binding`,
     );
+    const canonicalPromotionRecord =
+      binding.canonical_promotion === undefined
+        ? null
+        : requireRecord(
+            binding.canonical_promotion,
+            `integration_units[${index}].finding_binding.canonical_promotion`,
+          );
+    let canonicalPromotion: CanonicalPromotionEvidence | null = null;
+    if (canonicalPromotionRecord !== null) {
+      const field = `integration_units[${index}].finding_binding.canonical_promotion`;
+      requireExactKeys(
+        canonicalPromotionRecord,
+        [
+          'schema_version',
+          'prior_artifact_sha256',
+          'prior_occurrence_id',
+          'prior_source_head_sha',
+          'source_ref',
+          'integration_unit_id',
+          'canonical_finding_id',
+          'candidate_registry_blob_sha',
+          'semantic_sha256',
+          'recorded_at',
+          'recorded_by',
+        ],
+        field,
+      );
+      if (canonicalPromotionRecord.schema_version !== 1) {
+        throw new Error(`${field}.schema_version must be 1`);
+      }
+      canonicalPromotion = {
+        schemaVersion: 1,
+        priorArtifactSha256: requireSha256(
+          canonicalPromotionRecord.prior_artifact_sha256,
+          `${field}.prior_artifact_sha256`,
+        ),
+        priorOccurrenceId: requireSha256(
+          canonicalPromotionRecord.prior_occurrence_id,
+          `${field}.prior_occurrence_id`,
+        ),
+        priorSourceHeadSha: requireSha(
+          canonicalPromotionRecord.prior_source_head_sha,
+          `${field}.prior_source_head_sha`,
+        ),
+        sourceRef: requireString(canonicalPromotionRecord.source_ref, `${field}.source_ref`),
+        integrationUnitId: requireString(
+          canonicalPromotionRecord.integration_unit_id,
+          `${field}.integration_unit_id`,
+        ),
+        canonicalFindingId: requireString(
+          canonicalPromotionRecord.canonical_finding_id,
+          `${field}.canonical_finding_id`,
+        ),
+        candidateRegistryBlobSha: requireSha(
+          canonicalPromotionRecord.candidate_registry_blob_sha,
+          `${field}.candidate_registry_blob_sha`,
+        ),
+        semanticSha256: requireSha256(
+          canonicalPromotionRecord.semantic_sha256,
+          `${field}.semantic_sha256`,
+        ),
+        recordedAt: requireString(canonicalPromotionRecord.recorded_at, `${field}.recorded_at`),
+        recordedBy: requireString(canonicalPromotionRecord.recorded_by, `${field}.recorded_by`),
+      };
+    }
     return {
       id: requireString(entry.id, `integration_units[${index}].id`),
       state: requireString(entry.state, `integration_units[${index}].state`),
       executionOwner: requireExecutionOwner(entry, `integration_units[${index}]`),
+      findingBindingStatus: requireString(
+        binding.status,
+        `integration_units[${index}].finding_binding.status`,
+      ),
+      findingIds: requireStringArray(
+        binding.finding_ids,
+        `integration_units[${index}].finding_binding.finding_ids`,
+      ),
       legacyFindingRefs: requireStringArray(
         binding.legacy_finding_refs,
         `integration_units[${index}].finding_binding.legacy_finding_refs`,
       ),
+      canonicalPromotion,
     };
   });
 
@@ -1948,10 +2050,31 @@ function parseArtifact(
     if (line.length === 0) {
       continue;
     }
-    const record = requireRecord(JSON.parse(line), `${artifactPath}:${index + 1}`);
-    const adjudication = requireRecord(
-      record.adjudication,
-      `${artifactPath}:${index + 1}.adjudication`,
+    const coordinate = `${artifactPath}:${index + 1}`;
+    const record = requireRecord(JSON.parse(line), coordinate);
+    requireExactKeys(
+      record,
+      [
+        'occurrence_id',
+        'source_ref',
+        'source_id',
+        'raw_id',
+        'evidence_kind',
+        'evidence_paths',
+        'evidence_sha256',
+        'semantic_sha256',
+        'classification',
+        'canonical_id',
+        'main_record_sha256',
+        'adjudication',
+      ],
+      coordinate,
+    );
+    const adjudication = requireRecord(record.adjudication, `${coordinate}.adjudication`);
+    requireExactKeys(
+      adjudication,
+      ['status', 'source_adjudication_id', 'target_integration_unit_id'],
+      `${coordinate}.adjudication`,
     );
     const classification = record.classification;
     if (
@@ -2013,6 +2136,12 @@ function parseArtifact(
     );
     if (evidencePaths.length === 0) {
       throw new Error(`${artifactPath}:${index + 1}.evidence_paths must not be empty`);
+    }
+    if (
+      new Set(evidencePaths).size !== evidencePaths.length ||
+      stableJson(evidencePaths) !== stableJson([...evidencePaths].sort(compareText))
+    ) {
+      throw new Error(`${artifactPath}:${index + 1}.evidence_paths must be unique and sorted`);
     }
     if (
       (evidenceKind === 'REGISTRY_RECORD' &&
@@ -2157,6 +2286,181 @@ export function materializeOccurrences(
     });
 }
 
+export function assertOccurrenceAssignments(
+  occurrences: readonly SourceFindingOccurrence[],
+  units: readonly Pick<IntegrationUnit, 'id' | 'legacyFindingRefs'>[],
+): void {
+  const unitsById = new Map(units.map((unit) => [unit.id, unit]));
+  const occurrenceByRef = new Map(
+    occurrences.map((occurrence) => [occurrence.source_ref, occurrence]),
+  );
+
+  for (const occurrence of occurrences) {
+    const targetUnitId = occurrence.adjudication.target_integration_unit_id;
+    if (targetUnitId === null) {
+      continue;
+    }
+    const targetUnit = unitsById.get(targetUnitId);
+    if (!targetUnit) {
+      throw new Error(`${occurrence.source_ref} names an unknown target integration unit`);
+    }
+    if (!targetUnit.legacyFindingRefs.includes(occurrence.source_ref)) {
+      throw new Error(
+        `${occurrence.source_ref} targets ${targetUnit.id} without an evidence-backed legacy ref`,
+      );
+    }
+  }
+
+  for (const unit of units) {
+    for (const sourceRef of unit.legacyFindingRefs) {
+      const occurrence = occurrenceByRef.get(sourceRef);
+      if (!occurrence) {
+        throw new Error(`${unit.id} legacy ref ${sourceRef} has no artifact occurrence`);
+      }
+      if (occurrence.adjudication.target_integration_unit_id !== unit.id) {
+        throw new Error(
+          `${unit.id} legacy ref ${sourceRef} is targeted to ${String(
+            occurrence.adjudication.target_integration_unit_id,
+          )}`,
+        );
+      }
+    }
+  }
+}
+
+function isEvidenceBackedCanonicalRebind(
+  occurrence: SourceFindingOccurrence,
+  targetUnit: IntegrationUnit,
+  canonicalEvidenceById: ReadonlyMap<string, CanonicalFindingEvidence>,
+  context: RefreshAssignmentEvidenceContext,
+): boolean {
+  const canonicalEvidence = canonicalEvidenceById.get(occurrence.raw_id);
+  const promotion = targetUnit.canonicalPromotion;
+  return (
+    occurrence.classification === 'LEGACY_UNREGISTERED' &&
+    occurrence.evidence_kind === 'REGISTRY_RECORD' &&
+    occurrence.main_record_sha256 === null &&
+    targetUnit.findingBindingStatus === 'BOUND' &&
+    targetUnit.findingIds.includes(occurrence.raw_id) &&
+    !targetUnit.legacyFindingRefs.includes(occurrence.source_ref) &&
+    promotion?.priorArtifactSha256 === context.priorArtifactSha256 &&
+    promotion.priorOccurrenceId === occurrence.occurrence_id &&
+    promotion.priorSourceHeadSha === context.priorSourceHeadShaById.get(occurrence.source_id) &&
+    promotion.sourceRef === occurrence.source_ref &&
+    promotion.integrationUnitId === targetUnit.id &&
+    promotion.canonicalFindingId === occurrence.raw_id &&
+    promotion.candidateRegistryBlobSha === context.candidateRegistryBlobSha &&
+    promotion.semanticSha256 === occurrence.semantic_sha256 &&
+    promotion.recordedBy === targetUnit.executionOwner &&
+    canonicalEvidence?.semanticSha256 === occurrence.semantic_sha256 &&
+    (canonicalEvidence.state === 'OPEN' || canonicalEvidence.state === 'IN-PROGRESS')
+  );
+}
+
+export function assertRefreshAssignmentTransition(
+  priorOccurrences: readonly SourceFindingOccurrence[],
+  units: readonly IntegrationUnit[],
+  canonicalEvidenceById: ReadonlyMap<string, CanonicalFindingEvidence>,
+  context: RefreshAssignmentEvidenceContext,
+): string[] {
+  assertUnique(
+    units.map((unit) => unit.id),
+    'refresh integration unit IDs',
+  );
+  const unitsById = new Map(units.map((unit) => [unit.id, unit]));
+  const canonicalFindingOwners = new Map<string, string>();
+  for (const unit of units) {
+    if (unit.canonicalPromotion !== null) {
+      assertCanonicalUtcInstant(
+        unit.canonicalPromotion.recordedAt,
+        `${unit.id} canonical promotion recordedAt`,
+      );
+    }
+    if (new Set(unit.findingIds).size !== unit.findingIds.length) {
+      throw new Error(`${unit.id} contains duplicate canonical finding IDs`);
+    }
+    if (unit.findingBindingStatus !== 'BOUND') {
+      continue;
+    }
+    for (const findingId of unit.findingIds) {
+      const previousOwner = canonicalFindingOwners.get(findingId);
+      if (previousOwner !== undefined && previousOwner !== unit.id) {
+        throw new Error(
+          `${findingId} canonical authority is bound to both ${previousOwner} and ${unit.id}`,
+        );
+      }
+      canonicalFindingOwners.set(findingId, unit.id);
+    }
+  }
+  const occurrenceByRef = new Map(
+    priorOccurrences.map((occurrence) => [occurrence.source_ref, occurrence]),
+  );
+  const canonicalRebinds: string[] = [];
+
+  for (const occurrence of priorOccurrences) {
+    const targetUnitId = occurrence.adjudication.target_integration_unit_id;
+    if (targetUnitId === null) {
+      continue;
+    }
+    const targetUnit = unitsById.get(targetUnitId);
+    if (!targetUnit) {
+      throw new Error(
+        `${occurrence.source_ref} prior target ${targetUnitId} is absent from the current manifest`,
+      );
+    }
+    if (targetUnit.legacyFindingRefs.includes(occurrence.source_ref)) {
+      continue;
+    }
+    if (!isEvidenceBackedCanonicalRebind(occurrence, targetUnit, canonicalEvidenceById, context)) {
+      throw new Error(
+        `${occurrence.source_ref} lost its legacy target without an exact canonical semantic rebind`,
+      );
+    }
+    canonicalRebinds.push(occurrence.source_ref);
+  }
+
+  for (const unit of units) {
+    for (const sourceRef of unit.legacyFindingRefs) {
+      const occurrence = occurrenceByRef.get(sourceRef);
+      if (!occurrence) {
+        throw new Error(
+          `${unit.id} introduces legacy ref ${sourceRef} without prior attested evidence`,
+        );
+      }
+      if (occurrence.adjudication.target_integration_unit_id !== unit.id) {
+        throw new Error(
+          `${unit.id} legacy ref ${sourceRef} changes prior target ${String(
+            occurrence.adjudication.target_integration_unit_id,
+          )}`,
+        );
+      }
+    }
+  }
+  return canonicalRebinds.sort(compareText);
+}
+
+export function assertCanonicalRebindsRetiredByRemoteDiscovery(
+  canonicalRebinds: readonly string[],
+  remoteOccurrences: readonly SourceFindingOccurrence[],
+  remoteSourceIds: ReadonlySet<string>,
+): void {
+  const rediscoveredRefs = new Set(remoteOccurrences.map((occurrence) => occurrence.source_ref));
+  for (const sourceRef of canonicalRebinds) {
+    const separator = sourceRef.indexOf('#');
+    const sourceId = separator === -1 ? '' : sourceRef.slice(0, separator);
+    if (!remoteSourceIds.has(sourceId)) {
+      throw new Error(
+        `${sourceRef} canonical rebind belongs to a retained host source and requires isolated full regeneration`,
+      );
+    }
+    if (rediscoveredRefs.has(sourceRef)) {
+      throw new Error(
+        `${sourceRef} canonical rebind remains in remote discovery and cannot retire legacy authority`,
+      );
+    }
+  }
+}
+
 export function deriveReservedDomainFloors(
   occurrences: readonly Pick<SourceFindingOccurrence, 'raw_id'>[],
 ): Record<string, number> {
@@ -2164,6 +2468,39 @@ export function deriveReservedDomainFloors(
     occurrences.map((occurrence) => occurrence.raw_id),
     FINDING_REGISTRY_SCHEMA_CONTRACT,
   );
+}
+
+function sourceOccurrenceAttestation(
+  sourceId: string,
+  occurrences: readonly SourceFindingOccurrence[],
+): Pick<
+  SourceAttestation,
+  | 'occurrence_count'
+  | 'untargeted_occurrence_count'
+  | 'registry_backed_count'
+  | 'registry_reference_count'
+  | 'review_only_count'
+  | 'collision_count'
+  | 'occurrence_sha256'
+> {
+  const rows = occurrences.filter((occurrence) => occurrence.source_id === sourceId);
+  return {
+    occurrence_count: rows.length,
+    untargeted_occurrence_count: rows.filter(
+      (occurrence) => occurrence.adjudication.target_integration_unit_id === null,
+    ).length,
+    registry_backed_count: rows.filter(
+      (occurrence) => occurrence.evidence_kind === 'REGISTRY_RECORD',
+    ).length,
+    registry_reference_count: rows.filter(
+      (occurrence) => occurrence.evidence_kind === 'REGISTRY_REFERENCE',
+    ).length,
+    review_only_count: rows.filter((occurrence) => occurrence.evidence_kind === 'REVIEW_MENTION')
+      .length,
+    collision_count: rows.filter((occurrence) => occurrence.classification === 'ID_COLLISION')
+      .length,
+    occurrence_sha256: sourceRefDigest(rows.map((occurrence) => occurrence.source_ref)),
+  };
 }
 
 function buildSourceAttestations(
@@ -2177,60 +2514,49 @@ function buildSourceAttestations(
   const adjudicationsBySource = sourceAdjudicationsBySource(sourceAdjudications);
   return [...sources]
     .sort((left, right) => compareText(left.id, right.id))
-    .map((source) => {
-      const rows = occurrences.filter((occurrence) => occurrence.source_id === source.id);
-      return {
-        source_id: source.id,
-        source_kind: source.kind,
-        source_head_sha: source.headSha,
-        source_content_sha256: source.contentSha256,
-        merge_base_sha: requireSha(
-          resolveMergeBase(source, reconciledBaseSha),
-          `${source.id} merge-base attestation`,
-        ),
-        source_adjudication_id: requireSourceAdjudication(adjudicationsBySource, source.id).id,
-        occurrence_count: rows.length,
-        untargeted_occurrence_count: rows.filter(
-          (occurrence) => occurrence.adjudication.target_integration_unit_id === null,
-        ).length,
-        registry_backed_count: rows.filter(
-          (occurrence) => occurrence.evidence_kind === 'REGISTRY_RECORD',
-        ).length,
-        registry_reference_count: rows.filter(
-          (occurrence) => occurrence.evidence_kind === 'REGISTRY_REFERENCE',
-        ).length,
-        review_only_count: rows.filter(
-          (occurrence) => occurrence.evidence_kind === 'REVIEW_MENTION',
-        ).length,
-        collision_count: rows.filter((occurrence) => occurrence.classification === 'ID_COLLISION')
-          .length,
-        occurrence_sha256: sourceRefDigest(rows.map((occurrence) => occurrence.source_ref)),
-      };
-    });
+    .map((source) => ({
+      source_id: source.id,
+      source_kind: source.kind,
+      source_head_sha: source.headSha,
+      source_content_sha256: source.contentSha256,
+      merge_base_sha: requireSha(
+        resolveMergeBase(source, reconciledBaseSha),
+        `${source.id} merge-base attestation`,
+      ),
+      source_adjudication_id: requireSourceAdjudication(adjudicationsBySource, source.id).id,
+      ...sourceOccurrenceAttestation(source.id, occurrences),
+    }));
+}
+
+function unitOccurrenceAttestation(
+  unitId: string,
+  occurrences: readonly SourceFindingOccurrence[],
+): Omit<UnitAttestation, 'integration_unit_id'> {
+  const targetedRows = occurrences.filter(
+    (occurrence) => occurrence.adjudication.target_integration_unit_id === unitId,
+  );
+  return {
+    targeted_occurrence_count: targetedRows.length,
+    pending_targeted_count: targetedRows.filter(
+      (occurrence) => occurrence.adjudication.status === 'PENDING',
+    ).length,
+    collision_count: targetedRows.filter(
+      (occurrence) => occurrence.classification === 'ID_COLLISION',
+    ).length,
+    occurrence_sha256: sourceRefDigest(targetedRows.map((occurrence) => occurrence.source_ref)),
+  };
 }
 
 function buildUnitAttestations(
-  units: readonly IntegrationUnit[],
+  units: readonly Pick<IntegrationUnit, 'id'>[],
   occurrences: readonly SourceFindingOccurrence[],
 ): UnitAttestation[] {
   return [...units]
     .sort((left, right) => compareText(left.id, right.id))
-    .map((unit) => {
-      const targetedRows = occurrences.filter(
-        (occurrence) => occurrence.adjudication.target_integration_unit_id === unit.id,
-      );
-      return {
-        integration_unit_id: unit.id,
-        targeted_occurrence_count: targetedRows.length,
-        pending_targeted_count: targetedRows.filter(
-          (occurrence) => occurrence.adjudication.status === 'PENDING',
-        ).length,
-        collision_count: targetedRows.filter(
-          (occurrence) => occurrence.classification === 'ID_COLLISION',
-        ).length,
-        occurrence_sha256: sourceRefDigest(targetedRows.map((occurrence) => occurrence.source_ref)),
-      };
-    });
+    .map((unit) => ({
+      integration_unit_id: unit.id,
+      ...unitOccurrenceAttestation(unit.id, occurrences),
+    }));
 }
 
 function registryBlobAttestation(blobSha: string): RegistryBlobAttestation {
@@ -2297,15 +2623,15 @@ function registryAuthorityAttestation(
   };
 }
 
-function generationAttestation(
-  manifest: ParsedManifest,
+function generationAttestationAt(
+  reconciledAt: string,
   hostSourceState: FindingInventoryManifest['generation_attestation']['host_source_state'],
 ): FindingInventoryManifest['generation_attestation'] {
   return {
     algorithm_version: 'REGISTRY_SCHEMA_CAPABILITY_V3',
     remote_source_state: 'LIVE_REDISCOVERED',
     host_source_state: hostSourceState,
-    reconciled_at: manifest.reconciledAt,
+    reconciled_at: reconciledAt,
     pending_isolated_regeneration:
       hostSourceState === 'ISOLATED_FULL_REDISCOVERED'
         ? null
@@ -2315,6 +2641,13 @@ function generationAttestation(
             plan: 'Run the full source-finding generator from a repository-owned workflow_dispatch job whose cgroup v2 proves finite memory/swap/CPU/PID limits and an exclusive isolated CPU partition; scan every pinned local branch and dirty worktree, and replace retained rows only after content digests and the start/end dirty snapshot pins agree.',
           },
   };
+}
+
+function generationAttestation(
+  manifest: ParsedManifest,
+  hostSourceState: FindingInventoryManifest['generation_attestation']['host_source_state'],
+): FindingInventoryManifest['generation_attestation'] {
+  return generationAttestationAt(manifest.reconciledAt, hostSourceState);
 }
 
 function buildFindingInventoryManifest(
@@ -2468,16 +2801,11 @@ export function assertPendingAdjudicationStates(
   }
 }
 
-function validateInternalContract(
-  manifest: ParsedManifest,
+function validateArtifactEnvelope(
+  inventory: FindingInventoryManifest,
   artifactRaw: string,
   occurrences: readonly SourceFindingOccurrence[],
-  scope: InventoryScope | null,
 ): void {
-  const inventory = manifest.findingInventory;
-  if (!inventory) {
-    throw new Error('capability_reconciliation.finding_inventory is missing');
-  }
   if (sha256(artifactRaw) !== inventory.artifact_sha256) {
     throw new Error('source finding artifact SHA-256 differs from the manifest');
   }
@@ -2493,6 +2821,18 @@ function validateInternalContract(
   if (artifactText(occurrences) !== artifactRaw) {
     throw new Error('source finding artifact is not in canonical sorted JSONL form');
   }
+  const orderedSourceRefs = [...occurrences]
+    .sort(
+      (left, right) =>
+        compareText(left.source_id, right.source_id) || compareText(left.raw_id, right.raw_id),
+    )
+    .map((occurrence) => occurrence.source_ref);
+  if (
+    stableJson(occurrences.map((occurrence) => occurrence.source_ref)) !==
+    stableJson(orderedSourceRefs)
+  ) {
+    throw new Error('source finding artifact rows are not sorted by source_id and raw_id');
+  }
   assertJsonEqual(inventory.audit_lineage, auditLineage(), 'finding_inventory.audit_lineage');
   assertJsonEqual(
     inventory.discovery_contract,
@@ -2502,6 +2842,43 @@ function validateInternalContract(
   if (inventory.assignment_contract !== ASSIGNMENT_CONTRACT) {
     throw new Error('finding_inventory.assignment_contract differs from the queue/target SSoT');
   }
+}
+
+function assertOccurrenceIntrinsicShape(occurrence: SourceFindingOccurrence): void {
+  if (occurrence.source_ref !== `${occurrence.source_id}#${occurrence.raw_id}`) {
+    throw new Error(`${occurrence.source_ref} is not the canonical source-qualified raw ID`);
+  }
+  if (
+    extractRawFindingIds(occurrence.raw_id).length !== 1 ||
+    extractRawFindingIds(occurrence.raw_id)[0] !== occurrence.raw_id
+  ) {
+    throw new Error(`${occurrence.source_ref} does not preserve one valid raw finding ID`);
+  }
+  if (occurrence.occurrence_id !== occurrenceId(occurrence.source_ref)) {
+    throw new Error(`${occurrence.source_ref} has a non-deterministic occurrence_id`);
+  }
+  if (
+    occurrence.classification === 'ID_COLLISION' &&
+    (occurrence.canonical_id !== null ||
+      occurrence.adjudication.target_integration_unit_id !== null)
+  ) {
+    throw new Error(
+      `${occurrence.source_ref} collision cannot claim a canonical ID or capability target`,
+    );
+  }
+}
+
+function validateInternalContract(
+  manifest: ParsedManifest,
+  artifactRaw: string,
+  occurrences: readonly SourceFindingOccurrence[],
+  scope: InventoryScope | null,
+): void {
+  const inventory = manifest.findingInventory;
+  if (!inventory) {
+    throw new Error('capability_reconciliation.finding_inventory is missing');
+  }
+  validateArtifactEnvelope(inventory, artifactRaw, occurrences);
   assertJsonEqual(
     inventory.generation_attestation,
     generationAttestation(manifest, inventory.generation_attestation.host_source_state),
@@ -2544,21 +2921,9 @@ function validateInternalContract(
   if (manifest.sourceAdjudications.length !== manifest.sources.length) {
     throw new Error('every source must have exactly one source-adjudication queue');
   }
-  const unitsById = new Map(manifest.units.map((unit) => [unit.id, unit]));
   assertPendingAdjudicationStates(occurrences, manifest.sourceAdjudications, manifest.units);
   for (const occurrence of occurrences) {
-    if (occurrence.source_ref !== `${occurrence.source_id}#${occurrence.raw_id}`) {
-      throw new Error(`${occurrence.source_ref} is not the canonical source-qualified raw ID`);
-    }
-    if (
-      extractRawFindingIds(occurrence.raw_id).length !== 1 ||
-      extractRawFindingIds(occurrence.raw_id)[0] !== occurrence.raw_id
-    ) {
-      throw new Error(`${occurrence.source_ref} does not preserve one valid raw finding ID`);
-    }
-    if (occurrence.occurrence_id !== occurrenceId(occurrence.source_ref)) {
-      throw new Error(`${occurrence.source_ref} has a non-deterministic occurrence_id`);
-    }
+    assertOccurrenceIntrinsicShape(occurrence);
     if (!sourceIds.has(occurrence.source_id)) {
       throw new Error(`${occurrence.source_ref} names an unknown source`);
     }
@@ -2568,46 +2933,8 @@ function validateInternalContract(
     if (!sourceAdjudication || sourceAdjudication.sourceId !== occurrence.source_id) {
       throw new Error(`${occurrence.source_ref} does not reference its source-adjudication queue`);
     }
-    if (occurrence.adjudication.target_integration_unit_id !== null) {
-      const targetUnit = unitsById.get(occurrence.adjudication.target_integration_unit_id);
-      if (!targetUnit) {
-        throw new Error(`${occurrence.source_ref} names an unknown target integration unit`);
-      }
-      if (!targetUnit.legacyFindingRefs.includes(occurrence.source_ref)) {
-        throw new Error(
-          `${occurrence.source_ref} targets ${targetUnit.id} without an evidence-backed legacy ref`,
-        );
-      }
-    }
-    if (
-      occurrence.classification === 'ID_COLLISION' &&
-      (occurrence.canonical_id !== null ||
-        occurrence.adjudication.target_integration_unit_id !== null)
-    ) {
-      throw new Error(
-        `${occurrence.source_ref} collision cannot claim a canonical ID or capability target`,
-      );
-    }
   }
-
-  const occurrenceByRef = new Map(
-    occurrences.map((occurrence) => [occurrence.source_ref, occurrence]),
-  );
-  for (const unit of manifest.units) {
-    for (const sourceRef of unit.legacyFindingRefs) {
-      const occurrence = occurrenceByRef.get(sourceRef);
-      if (!occurrence) {
-        throw new Error(`${unit.id} legacy ref ${sourceRef} has no artifact occurrence`);
-      }
-      if (occurrence.adjudication.target_integration_unit_id !== unit.id) {
-        throw new Error(
-          `${unit.id} legacy ref ${sourceRef} is targeted to ${String(
-            occurrence.adjudication.target_integration_unit_id,
-          )}`,
-        );
-      }
-    }
-  }
+  assertOccurrenceAssignments(occurrences, manifest.units);
 
   const pinnedSourceAttestations = sourceAttestationsBySource(
     inventory.source_attestations,
@@ -2667,6 +2994,161 @@ function validateInternalContract(
     deriveReservedDomainFloors(occurrences),
     'finding_allocation_policy.reserved_domain_floors',
   );
+}
+
+function assertCanonicalUtcInstant(value: string, field: string): void {
+  const epoch = Date.parse(value);
+  const normalized = Number.isFinite(epoch)
+    ? new Date(epoch).toISOString().replace(/\.000Z$/, 'Z')
+    : '';
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(value) || normalized !== value) {
+    throw new Error(`${field} must be a canonical UTC instant`);
+  }
+}
+
+function validateStoredRegistryAuthorityTopology(authority: RegistryAuthority): void {
+  const expectedRegistryBlobs = [
+    ...new Set([
+      authority.reconciled_base.registry_blob_sha,
+      authority.discovery_candidate.registry_blob_sha,
+    ]),
+  ].sort(compareText);
+  const actualRegistryBlobs = authority.registry_snapshots.map((snapshot) => snapshot.blob_sha);
+  assertUnique(actualRegistryBlobs, 'stored registry snapshot blob IDs');
+  if (stableJson(actualRegistryBlobs) !== stableJson(expectedRegistryBlobs)) {
+    throw new Error('stored registry snapshots differ from authority coordinates');
+  }
+
+  const expectedSchemaBlobs = [
+    ...new Set([
+      authority.reconciled_base.schema_blob_sha,
+      authority.discovery_candidate.schema_blob_sha,
+    ]),
+  ].sort(compareText);
+  const actualSchemaBlobs = authority.schema_snapshots.map((snapshot) => snapshot.blob_sha);
+  assertUnique(actualSchemaBlobs, 'stored registry schema snapshot blob IDs');
+  if (stableJson(actualSchemaBlobs) !== stableJson(expectedSchemaBlobs)) {
+    throw new Error('stored registry schema snapshots differ from authority coordinates');
+  }
+}
+
+function validatePriorAttestedContract(
+  inventory: FindingInventoryManifest,
+  artifactRaw: string,
+  occurrences: readonly SourceFindingOccurrence[],
+): void {
+  validateArtifactEnvelope(inventory, artifactRaw, occurrences);
+  assertCanonicalUtcInstant(
+    inventory.generation_attestation.reconciled_at,
+    'prior finding_inventory.generation_attestation.reconciled_at',
+  );
+  assertJsonEqual(
+    inventory.generation_attestation,
+    generationAttestationAt(
+      inventory.generation_attestation.reconciled_at,
+      inventory.generation_attestation.host_source_state,
+    ),
+    'prior finding_inventory.generation_attestation',
+  );
+  validateStoredRegistryAuthorityTopology(inventory.registry_authority);
+  assertUnique(
+    occurrences.map((occurrence) => occurrence.occurrence_id),
+    'prior source finding occurrence IDs',
+  );
+  assertUnique(
+    occurrences.map((occurrence) => occurrence.source_ref),
+    'prior source finding source refs',
+  );
+  assertUnique(
+    inventory.source_attestations.map((attestation) => attestation.source_id),
+    'prior source attestation IDs',
+  );
+  assertUnique(
+    inventory.unit_attestations.map((attestation) => attestation.integration_unit_id),
+    'prior unit attestation IDs',
+  );
+
+  const sourceAttestationsById = new Map(
+    inventory.source_attestations.map((attestation) => [attestation.source_id, attestation]),
+  );
+  const unitAttestationIds = new Set(
+    inventory.unit_attestations.map((attestation) => attestation.integration_unit_id),
+  );
+  for (const attestation of inventory.source_attestations) {
+    if (
+      (attestation.source_kind === 'DIRTY_WORKTREE') !==
+      (attestation.source_content_sha256 !== null)
+    ) {
+      throw new Error(
+        `${attestation.source_id} prior source kind contradicts its content attestation`,
+      );
+    }
+    if (attestation.source_adjudication_id !== `SA-${attestation.source_id}`) {
+      throw new Error(
+        `${attestation.source_id} prior source adjudication is not deterministically named`,
+      );
+    }
+  }
+  for (const occurrence of occurrences) {
+    assertOccurrenceIntrinsicShape(occurrence);
+    const sourceAttestation = sourceAttestationsById.get(occurrence.source_id);
+    if (!sourceAttestation) {
+      throw new Error(`${occurrence.source_ref} has no prior source attestation`);
+    }
+    if (
+      occurrence.adjudication.source_adjudication_id !== sourceAttestation.source_adjudication_id
+    ) {
+      throw new Error(
+        `${occurrence.source_ref} differs from its prior source-adjudication attestation`,
+      );
+    }
+    const targetUnitId = occurrence.adjudication.target_integration_unit_id;
+    if (targetUnitId !== null && !unitAttestationIds.has(targetUnitId)) {
+      throw new Error(
+        `${occurrence.source_ref} names unattested prior target integration unit ${targetUnitId}`,
+      );
+    }
+  }
+
+  const expectedSourceAttestations = [...inventory.source_attestations]
+    .sort((left, right) => compareText(left.source_id, right.source_id))
+    .map((attestation) => ({
+      source_id: attestation.source_id,
+      source_kind: attestation.source_kind,
+      source_head_sha: attestation.source_head_sha,
+      source_content_sha256: attestation.source_content_sha256,
+      merge_base_sha: attestation.merge_base_sha,
+      source_adjudication_id: attestation.source_adjudication_id,
+      ...sourceOccurrenceAttestation(attestation.source_id, occurrences),
+    }));
+  assertJsonEqual(
+    inventory.source_attestations,
+    expectedSourceAttestations,
+    'prior finding_inventory.source_attestations',
+  );
+  assertJsonEqual(
+    inventory.unit_attestations,
+    buildUnitAttestations(
+      inventory.unit_attestations.map((attestation) => ({
+        id: attestation.integration_unit_id,
+      })),
+      occurrences,
+    ),
+    'prior finding_inventory.unit_attestations',
+  );
+}
+
+export function assertStoredFindingInventoryIntegrity(
+  artifactRaw: string,
+  inventoryValue: unknown,
+): SourceFindingOccurrence[] {
+  const inventory = parseFindingInventory(inventoryValue);
+  if (!inventory) {
+    throw new Error('stored finding inventory integrity requires an attestation');
+  }
+  const occurrences = parseArtifact(artifactRaw, inventory.artifact_path);
+  validatePriorAttestedContract(inventory, artifactRaw, occurrences);
+  return occurrences;
 }
 
 function validateRegistryAuthority(
@@ -3164,6 +3646,9 @@ async function writeGeneratedState(
     'capability_reconciliation.finding_allocation_policy',
   );
   allocationPolicy.reserved_domain_floors = deriveReservedDomainFloors(rematerialized);
+  const publishedOccurrences = parseArtifact(finalArtifact, generatedInventory.artifact_path);
+  validateInternalContract(reparsed, finalArtifact, publishedOccurrences, 'full');
+  validateStoredRegistryAuthority(reparsed);
 
   await publishGeneratedState(
     reparsed,
@@ -3253,6 +3738,9 @@ async function refreshAttestedState(
     'capability_reconciliation.finding_allocation_policy',
   );
   allocationPolicy.reserved_domain_floors = deriveReservedDomainFloors(refreshed);
+  const publishedOccurrences = parseArtifact(artifact, generatedInventory.artifact_path);
+  validateInternalContract(manifest, artifact, publishedOccurrences, 'remote');
+  validateStoredRegistryAuthority(manifest);
   await publishGeneratedState(manifest, artifact, inputSnapshot, fence, lease);
   return generatedInventory.artifact_path;
 }
@@ -3321,6 +3809,7 @@ async function executeWithSnapshot(
   const manifest = parseManifest(manifestRaw, true);
   const inputSnapshot = captureInputSnapshot(manifestText, manifest);
   let priorOccurrences: SourceFindingOccurrence[] | null = null;
+  let priorInventory: FindingInventoryManifest | null = null;
   if (options.mode !== 'check') {
     if (!lease) {
       throw new Error('source-finding writers require the repository-common publication lease');
@@ -3331,8 +3820,16 @@ async function executeWithSnapshot(
       inputSnapshot.artifactPath !== null &&
       inputSnapshot.artifactText !== null
     ) {
-      priorOccurrences = parseArtifact(inputSnapshot.artifactText, inputSnapshot.artifactPath);
-      validateInternalContract(manifest, inputSnapshot.artifactText, priorOccurrences, null);
+      if (options.mode === 'refresh') {
+        priorInventory = manifest.findingInventory;
+        priorOccurrences = assertStoredFindingInventoryIntegrity(
+          inputSnapshot.artifactText,
+          manifest.reconciliation.finding_inventory,
+        );
+      } else {
+        priorOccurrences = parseArtifact(inputSnapshot.artifactText, inputSnapshot.artifactPath);
+        validateInternalContract(manifest, inputSnapshot.artifactText, priorOccurrences, null);
+      }
       validateStoredRegistryAuthority(manifest);
     }
   }
@@ -3344,6 +3841,7 @@ async function executeWithSnapshot(
       inputSnapshot.artifactPath === null ||
       inputSnapshot.artifactText === null ||
       priorOccurrences === null ||
+      priorInventory === null ||
       !lease
     ) {
       throw new Error('host-safe refresh requires a locked prior source-finding artifact');
@@ -3356,14 +3854,50 @@ async function executeWithSnapshot(
       true,
     );
     assertLiveMainStable(liveMainStart, captureLiveMainPin());
+    const remoteOccurrences = materializeOccurrences(
+      remoteDiscovery.findings,
+      manifest.sourceAdjudications,
+      manifest.units,
+    );
+    const canonicalEvidenceById = new Map(
+      [...registryAtBlob(remoteDiscovery.discoveryRegistryBlobSha).snapshot.byId.entries()].map(
+        ([findingId, record]) => [
+          findingId,
+          {
+            semanticSha256: registrySemanticSha256(record),
+            state: requireString(record.value.state, `${findingId} canonical finding state`),
+          },
+        ],
+      ),
+    );
+    const canonicalRebinds = assertRefreshAssignmentTransition(
+      priorOccurrences,
+      manifest.units,
+      canonicalEvidenceById,
+      {
+        priorArtifactSha256: priorInventory.artifact_sha256,
+        priorSourceHeadShaById: new Map(
+          priorInventory.source_attestations.map((attestation) => [
+            attestation.source_id,
+            attestation.source_head_sha,
+          ]),
+        ),
+        candidateRegistryBlobSha: remoteDiscovery.discoveryRegistryBlobSha,
+      },
+    );
+    assertCanonicalRebindsRetiredByRemoteDiscovery(
+      canonicalRebinds,
+      remoteOccurrences,
+      new Set(
+        manifest.sources
+          .filter((source) => source.kind === 'REMOTE_BRANCH')
+          .map((source) => source.id),
+      ),
+    );
     const artifactPath = await refreshAttestedState(
       manifest,
       priorOccurrences,
-      materializeOccurrences(
-        remoteDiscovery.findings,
-        manifest.sourceAdjudications,
-        manifest.units,
-      ),
+      remoteOccurrences,
       {
         candidate: {
           headSha: remoteDiscovery.discoveryHeadSha,

@@ -6,13 +6,17 @@ import yaml from 'js-yaml';
 
 import { parseFindingRegistrySchemaContract } from '../../tools/gates/lib/finding-registry-schema-contract';
 import {
+  assertCanonicalRebindsRetiredByRemoteDiscovery,
   assertDiscoveryCandidateStable,
   assertExecutionSafety,
   assertFindingInventoryClosedSchema,
   assertGitHubMainTransition,
   assertLegacyFindingRefsResolvable,
   assertLiveMainCompatible,
+  assertOccurrenceAssignments,
   assertPendingAdjudicationStates,
+  assertRefreshAssignmentTransition,
+  assertStoredFindingInventoryIntegrity,
   deriveReservedDomainFloors,
   extractAddedReviewEvidence,
   extractRawFindingIds,
@@ -120,12 +124,21 @@ function readArtifact(): Record<string, unknown>[] {
     );
 }
 
-function fixtureUnit(id: string, legacyFindingRefs: string[] = []): IntegrationUnit {
+function fixtureUnit(
+  id: string,
+  legacyFindingRefs: string[] = [],
+  findingBindingStatus: string = 'CREATE_REQUIRED',
+  findingIds: string[] = [],
+  canonicalPromotion: IntegrationUnit['canonicalPromotion'] = null,
+): IntegrationUnit {
   return {
     id,
     state: 'ASSESSING',
     executionOwner: 'context-manager',
+    findingBindingStatus,
+    findingIds,
     legacyFindingRefs,
+    canonicalPromotion,
   };
 }
 
@@ -388,6 +401,127 @@ describe('source finding inventory pure contract', () => {
         new Set(['SRC-R-001#ADMIN-HIGH-091']),
       ),
     ).not.toThrow();
+  });
+
+  it('allows only an exact semantic legacy-to-canonical refresh transition', () => {
+    const sourceRef = 'SRC-R-001#ADMIN-HIGH-091';
+    const priorOccurrence = materializeOccurrences(
+      [fixtureFinding(sourceRef, 'REGISTRY_RECORD')],
+      [fixtureSourceAdjudication('SRC-R-001')],
+      [fixtureUnit('IU-TARGET', [sourceRef])],
+    );
+    const transitionContext = {
+      priorArtifactSha256: 'a'.repeat(64),
+      priorSourceHeadShaById: new Map([['SRC-R-001', 'd'.repeat(40)]]),
+      candidateRegistryBlobSha: 'e'.repeat(40),
+    };
+    const promotion = {
+      schemaVersion: 1 as const,
+      priorArtifactSha256: transitionContext.priorArtifactSha256,
+      priorOccurrenceId: priorOccurrence[0]!.occurrence_id,
+      priorSourceHeadSha: 'd'.repeat(40),
+      sourceRef,
+      integrationUnitId: 'IU-TARGET',
+      canonicalFindingId: 'ADMIN-HIGH-091',
+      candidateRegistryBlobSha: transitionContext.candidateRegistryBlobSha,
+      semanticSha256: 'b'.repeat(64),
+      recordedAt: '2026-07-30T09:32:43Z',
+      recordedBy: 'context-manager',
+    };
+    const reboundUnits = [fixtureUnit('IU-TARGET', [], 'BOUND', ['ADMIN-HIGH-091'], promotion)];
+    const canonicalEvidence = new Map([
+      [
+        'ADMIN-HIGH-091',
+        {
+          semanticSha256: 'b'.repeat(64),
+          state: 'OPEN',
+        },
+      ],
+    ]);
+
+    expect(() => assertOccurrenceAssignments(priorOccurrence, reboundUnits)).toThrow(
+      /without an evidence-backed legacy ref/,
+    );
+    expect(
+      assertRefreshAssignmentTransition(
+        priorOccurrence,
+        reboundUnits,
+        canonicalEvidence,
+        transitionContext,
+      ),
+    ).toEqual([sourceRef]);
+    expect(() =>
+      assertRefreshAssignmentTransition(
+        priorOccurrence,
+        reboundUnits,
+        new Map(),
+        transitionContext,
+      ),
+    ).toThrow(/without an exact canonical semantic rebind/);
+    expect(() =>
+      assertRefreshAssignmentTransition(
+        priorOccurrence,
+        [fixtureUnit('IU-TARGET', [], 'BOUND', ['ADMIN-HIGH-092'])],
+        canonicalEvidence,
+        transitionContext,
+      ),
+    ).toThrow(/without an exact canonical semantic rebind/);
+    expect(() =>
+      assertRefreshAssignmentTransition(
+        [
+          {
+            ...priorOccurrence[0]!,
+            classification: 'ID_COLLISION',
+            main_record_sha256: 'c'.repeat(64),
+          },
+        ],
+        reboundUnits,
+        canonicalEvidence,
+        transitionContext,
+      ),
+    ).toThrow(/without an exact canonical semantic rebind/);
+    expect(() =>
+      assertRefreshAssignmentTransition(
+        priorOccurrence,
+        reboundUnits,
+        new Map([
+          [
+            'ADMIN-HIGH-091',
+            {
+              semanticSha256: 'b'.repeat(64),
+              state: 'RESOLVED',
+            },
+          ],
+        ]),
+        transitionContext,
+      ),
+    ).toThrow(/without an exact canonical semantic rebind/);
+    expect(() =>
+      assertRefreshAssignmentTransition(
+        priorOccurrence,
+        [
+          fixtureUnit('IU-TARGET', [], 'BOUND', ['ADMIN-HIGH-091'], {
+            ...promotion,
+            priorArtifactSha256: 'f'.repeat(64),
+          }),
+        ],
+        canonicalEvidence,
+        transitionContext,
+      ),
+    ).toThrow(/without an exact canonical semantic rebind/);
+    expect(() =>
+      assertCanonicalRebindsRetiredByRemoteDiscovery([sourceRef], [], new Set(['SRC-R-001'])),
+    ).not.toThrow();
+    expect(() =>
+      assertCanonicalRebindsRetiredByRemoteDiscovery(
+        [sourceRef],
+        priorOccurrence,
+        new Set(['SRC-R-001']),
+      ),
+    ).toThrow(/remains in remote discovery/);
+    expect(() =>
+      assertCanonicalRebindsRetiredByRemoteDiscovery([sourceRef], [], new Set()),
+    ).toThrow(/requires isolated full regeneration/);
   });
 
   it('blocks only the source queue and an evidence-backed target while pending', () => {
@@ -701,6 +835,22 @@ describe('checked-in source finding attestation', () => {
   );
   const units = objectArray(reconciliation.integration_units, 'integration_units');
   const rows = readArtifact();
+
+  it('verifies stored evidence against its own pins before current inputs are refreshed', () => {
+    const artifactRaw = readFileSync(ARTIFACT_PATH, 'utf8');
+    expect(assertStoredFindingInventoryIntegrity(artifactRaw, inventory)).toHaveLength(rows.length);
+
+    const tamperedInventory = structuredClone(inventory);
+    const sourceAttestations = objectArray(
+      tamperedInventory.source_attestations,
+      'tampered source_attestations',
+    );
+    sourceAttestations[0]!.occurrence_count =
+      numberValue(sourceAttestations[0]!.occurrence_count, 'tampered occurrence_count') + 1;
+    expect(() => assertStoredFindingInventoryIntegrity(artifactRaw, tamperedInventory)).toThrow(
+      /prior finding_inventory.source_attestations/,
+    );
+  });
 
   it('pins the corrected semantic occurrence set and preserves preliminary audit lineage', () => {
     const artifactRaw = readFileSync(ARTIFACT_PATH);

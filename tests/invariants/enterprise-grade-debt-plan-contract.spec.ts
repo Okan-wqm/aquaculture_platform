@@ -877,6 +877,8 @@ describe('enterprise-grade debt closure plan contract', () => {
     const claimedSourceSliceIds: string[] = [];
     const ownedFindingIds: string[] = [];
     const allLegacyFindingRefs: string[] = [];
+    const canonicalPromotionOccurrences: string[] = [];
+    const canonicalPromotionFindings: string[] = [];
     const dependencyGraph = new Map<string, string[]>();
     const sourceRefPattern =
       /^(SRC-(?:R|L|W)-\d{3})#(?:(?:[A-Z][A-Z0-9]*-)*)(?:CRITICAL|HIGH|MEDIUM|LOW)-\d{3}(?:-[A-Z0-9]+)?$/;
@@ -959,6 +961,68 @@ describe('enterprise-grade debt closure plan contract', () => {
         expect(match).not.toBeNull();
         if (match) expect(knownSources.has(match[1]!)).toBe(true);
         allLegacyFindingRefs.push(legacyRef);
+      }
+      if (binding.canonical_promotion !== undefined) {
+        expect(isRecord(binding.canonical_promotion)).toBe(true);
+        if (isRecord(binding.canonical_promotion)) {
+          const promotion = binding.canonical_promotion;
+          expect(Object.keys(promotion).sort()).toEqual(
+            [
+              'schema_version',
+              'prior_artifact_sha256',
+              'prior_occurrence_id',
+              'prior_source_head_sha',
+              'source_ref',
+              'integration_unit_id',
+              'canonical_finding_id',
+              'candidate_registry_blob_sha',
+              'semantic_sha256',
+              'recorded_at',
+              'recorded_by',
+            ].sort(),
+          );
+          expect(promotion.schema_version).toBe(1);
+          expect(bindingStatus).toBe('BOUND');
+          expect(unitLegacyFindingRefs).toEqual([]);
+          expect(promotion.integration_unit_id).toBe(id);
+          expect(promotion.recorded_by).toBe(executionOwner);
+          expect(stringValue(promotion.recorded_at, id + '.promotion.recorded_at')).toMatch(
+            /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/,
+          );
+          expect(
+            stringValue(promotion.prior_artifact_sha256, id + '.promotion.prior_artifact_sha256'),
+          ).toMatch(/^[0-9a-f]{64}$/);
+          const priorOccurrenceId = stringValue(
+            promotion.prior_occurrence_id,
+            id + '.promotion.prior_occurrence_id',
+          );
+          expect(priorOccurrenceId).toMatch(/^[0-9a-f]{64}$/);
+          expect(
+            stringValue(promotion.prior_source_head_sha, id + '.promotion.prior_source_head_sha'),
+          ).toMatch(gitObjectId);
+          expect(
+            stringValue(
+              promotion.candidate_registry_blob_sha,
+              id + '.promotion.candidate_registry_blob_sha',
+            ),
+          ).toMatch(gitObjectId);
+          expect(stringValue(promotion.semantic_sha256, id + '.promotion.semantic_sha256')).toMatch(
+            /^[0-9a-f]{64}$/,
+          );
+          const promotionSourceRef = stringValue(
+            promotion.source_ref,
+            id + '.promotion.source_ref',
+          );
+          expect(promotionSourceRef).toMatch(sourceRefPattern);
+          const canonicalFindingId = stringValue(
+            promotion.canonical_finding_id,
+            id + '.promotion.canonical_finding_id',
+          );
+          expect(promotionSourceRef.endsWith(`#${canonicalFindingId}`)).toBe(true);
+          expect(findingIds).toContain(canonicalFindingId);
+          canonicalPromotionOccurrences.push(priorOccurrenceId);
+          canonicalPromotionFindings.push(canonicalFindingId);
+        }
       }
 
       if (bindingStatus === 'BOUND') {
@@ -1046,6 +1110,8 @@ describe('enterprise-grade debt closure plan contract', () => {
     expect(new Set(claimedSourceSliceIds).size).toBe(claimedSourceSliceIds.length);
     expect(new Set(ownedFindingIds).size).toBe(ownedFindingIds.length);
     expect(new Set(allLegacyFindingRefs).size).toBe(allLegacyFindingRefs.length);
+    expect(new Set(canonicalPromotionOccurrences).size).toBe(canonicalPromotionOccurrences.length);
+    expect(new Set(canonicalPromotionFindings).size).toBe(canonicalPromotionFindings.length);
 
     const visiting = new Set<string>();
     const visited = new Set<string>();

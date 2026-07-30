@@ -6082,7 +6082,20 @@
           "status": "BOUND",
           "finding_ids": ["ORPHAN-HIGH-472"],
           "reported_finding_ids": [],
-          "legacy_finding_refs": []
+          "legacy_finding_refs": [],
+          "canonical_promotion": {
+            "schema_version": 1,
+            "prior_artifact_sha256": "074abe964184bb4cf287f5d6ae55ba0ad19ba557e4488f9cefd0f9d108771026",
+            "prior_occurrence_id": "85d640aae0d3cb23670c5a51f778a38dbb42a9fdf66627b8c4960b3be1df1b73",
+            "prior_source_head_sha": "40c079c243362a4f899005e7a5bc5e7e9f247914",
+            "source_ref": "SRC-R-005#ORPHAN-HIGH-472",
+            "integration_unit_id": "IU-ARIA-008",
+            "canonical_finding_id": "ORPHAN-HIGH-472",
+            "candidate_registry_blob_sha": "228fb0d858761085ba0401cecd2bf65b841f763f",
+            "semantic_sha256": "1e69a20b28e2a7d059bb8bd3e5c9610383f840f1e053879ba945f391a39c0fa1",
+            "recorded_at": "2026-07-30T09:32:43Z",
+            "recorded_by": "performance-expert"
+          }
         },
         "main_evidence": [],
         "gate_profile": "ATOMIC_PR_V1",

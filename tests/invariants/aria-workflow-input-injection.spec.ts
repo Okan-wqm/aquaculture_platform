@@ -42,8 +42,23 @@ import { resolve, join } from 'node:path';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const WORKFLOWS_DIR = join(REPO_ROOT, '.github', 'workflows');
 
-// Match `${{ github.event.inputs.<name> }}` with optional whitespace.
-const INPUTS_INTERPOLATION_RE = /\$\{\{\s*github\.event\.inputs\.[A-Za-z0-9_]+\s*\}\}/g;
+// Match BOTH spellings of a dispatch input: the legacy
+// `${{ github.event.inputs.<name> }}` and the modern `${{ inputs.<name> }}`
+// shorthand, with optional whitespace.
+//
+// WHY BOTH, found the hard way. This pattern matched only the legacy spelling,
+// so a `run:` block interpolating `${{ inputs.runner_label }}` walked straight
+// through a green invariant — which is exactly what the first draft of
+// aria-runner-capability-probe.yml did, in the same change that added this fix.
+// The two spellings splice the same operator-supplied text into the same shell;
+// recognising one of them made the gate look like it enforced the rule while
+// enforcing half of it.
+//
+// `inputs.` is matched with a leading boundary so it cannot also fire on
+// `github.event.inputs.` (already covered by the first alternative) or on a
+// longer identifier ending in `inputs`.
+const INPUTS_INTERPOLATION_RE =
+  /\$\{\{\s*(?:github\.event\.inputs\.[A-Za-z0-9_]+|inputs\.[A-Za-z0-9_]+)\s*\}\}/g;
 
 interface Violation {
   readonly file: string;
@@ -124,7 +139,7 @@ function collectInlineMatches(
 const ARIA_WORKFLOW_PREFIX = 'aria-';
 
 describe('aria-workflow-input-injection invariant (Plan 024 v3 §B-3)', () => {
-  test('no aria-* workflow interpolates ${{ github.event.inputs.* }} inside run: blocks', () => {
+  test('no aria-* workflow interpolates a dispatch input (${{ inputs.* }} or ${{ github.event.inputs.* }}) inside run: blocks', () => {
     const workflowFiles = readdirSync(WORKFLOWS_DIR)
       .filter((f) => f.startsWith(ARIA_WORKFLOW_PREFIX))
       .filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'));

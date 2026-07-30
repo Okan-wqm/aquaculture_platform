@@ -1531,6 +1531,21 @@ finding is one nobody can navigate back to from the review that produced it.
   comment lines and matches invocations structurally — the substring-instead-of-structure defect this branch already fixed
   once, reproduced by me while fixing its sibling.
 
+- **ORPHAN-HIGH-509** — the workflow-injection invariant recognised one of two spellings of the thing it forbids  
+  Severity HIGH, layer 3, owner okan, deadline 2026-08-13. **Found by distrusting my own green result.** While adding the
+  RC-9 capability probe I wrote `echo "${{ inputs.runner_label }}"` inside a `run:` block — textbook shell injection of
+  operator-supplied text. The repo _has_ an invariant for exactly this, and it **passed** on my file. Instead of
+  accepting the pass I checked why, expecting the hardcoded-list defect of `507`. It was not that: the spec scans every
+  workflow via `readdirSync`, which is correct. The defect was the _pattern_ — it matched only the legacy
+  `${{ github.event.inputs.X }}`. GitHub also offers `${{ inputs.X }}` as the modern `workflow_dispatch` shorthand; both
+  splice the same attacker-controlled value into the same shell, and the gate knew one of them. So it reported compliance
+  on a file that violated the rule it exists to enforce. Fixed in the same change that exposed it: the pattern matches
+  both spellings, the workflow passes its input through `env:` and references `"$VAR"` — the canonical fix the spec's own
+  docstring prescribes — and the **test title was corrected too**, since naming only one spelling is the same
+  misinformation one layer up. Proven both ways: green with the fix, and failing with file, line and matched snippet when
+  the interpolation is restored. **Residual, stated because it bounds the fix:** the invariant's scope is deliberately
+  limited to `aria-*` workflows. This widens _which spellings_ are caught, not _which files_ are scanned.
+
 - **ORPHAN-HIGH-508** — no local hook type-checked anything, and the parity invariant only understood one gate family  
   Severity HIGH, layer 3, owner okan, deadline 2026-08-13. **Measured consequence, from this session:** a
   `noUncheckedIndexedAccess` error reached CI on `4aa3309e1` and failed `type-check`, taking `merge-gate` and

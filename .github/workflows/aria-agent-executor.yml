@@ -376,34 +376,14 @@ jobs:
       # spawn when sandbox_backend() is None, so without this the executor
       # does not run unconfined, it does not run at all — and the failure
       # looks like an agent problem rather than a missing package.
-      - name: Install sandbox backend (bubblewrap)
+      # RC-9 — one definition, called by both lanes. The pair of steps that
+      # used to sit here was duplicated between aria-agent-executor and
+      # aria-auto-cycle, with a comment saying they were copied so the lanes
+      # could not drift; copying is how they drift. The action also probes
+      # BEFORE installing, so an already-provisioned runner needs no apt call.
+      - name: Ensure a verified sandbox backend
         if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends bubblewrap
-
-      # Assert capability, not presence. bubblewrap installs cleanly on a host
-      # with unprivileged user namespaces disabled and then fails on every
-      # invocation, so sandbox_backend() probes the namespaces it will actually
-      # use. Failing here is the point: a missing or non-functional backend must
-      # stop the job rather than silently disable the implementer.
-      - name: Verify the sandbox actually confines
-        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
-        run: |
-          set -euo pipefail
-          PYTHONPATH=aria-kernel python3 - <<'PY'
-          import sys
-          from aria_kernel.implementation_safety import sandbox_backend
-          backend = sandbox_backend()
-          if backend is None:
-              sys.exit(
-                  "sandbox_backend_unavailable: bubblewrap is installed but could not "
-                  "build the namespaces wrap_bash_in_sandbox relies on, so "
-                  "READONLY_PATHS cannot be enforced at the syscall level"
-              )
-          print(f"sandbox backend verified: {backend}")
-          PY
+        uses: ./.github/actions/ensure-sandbox-backend
 
       - name: Run CI executor
         if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''

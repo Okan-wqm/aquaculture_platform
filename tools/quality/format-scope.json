@@ -40086,6 +40086,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "scripts/ci/aria-suite-changed.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "scripts/ci/audit-source-map.mjs",
       "prettier_managed": true
     },
@@ -55356,10 +55362,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9075,
+  "file_count": 9076,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8894,
-  "managed_file_list_sha256": "406fb83cbb628de7017d14816291ca1447597c46512b5059def564d8833695a3",
+  "managed_count": 8895,
+  "managed_file_list_sha256": "199357eaa1fc8bb6b108c39a9d66ad82f59c996b418ad54702e8397f2acc5133",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

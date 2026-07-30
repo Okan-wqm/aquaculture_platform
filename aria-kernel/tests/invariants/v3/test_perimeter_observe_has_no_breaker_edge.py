@@ -11,8 +11,10 @@ that cannot exist at that stage. `cycle.py`'s pr_lifecycle phase fed those
 refusals to `record_failure(kind="validator_rejection")`. Three
 `approved_for_apply` proposals in one cycle would trip a breaker that gates
 `standard` — the nightly halting itself on its own observations. It never fired
-only because `_run_extended_phases` is unreachable (ORPHAN-CRITICAL-498), and
-RC-1 puts that phase on the live lane.
+only because `_run_extended_phases` was unreachable (ORPHAN-CRITICAL-498). RC-1
+has since deleted that function and made `pr_lifecycle` a row in
+`cycle.CYCLE_PHASES`, so the phase is on the live lane for any profile holding
+`pr_open` authority — which is precisely why the edge had to be gone first.
 
 WHY AST AND NOT GREP. `grep` is what reported ORPHAN-CRITICAL-428 as wired. A
 substring search cannot tell a call from a mention in a comment, and the fix for

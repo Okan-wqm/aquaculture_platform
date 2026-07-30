@@ -67,11 +67,42 @@ const LOCAL_COUNTERPARTS: Record<string, readonly string[]> = {
  * is a gate that REFUSES a change on a property a developer could have checked
  * locally. Adding one is a review event, which is the point.
  */
-const SCRIPT_GATES: Record<string, string> = {
-  'scripts/ci/type-check-changed-files.mjs':
-    'the changed-file type gate — caught a noUncheckedIndexedAccess error in #1024 ' +
-    'that no local hook could have, because none type-checked anything',
-};
+interface ScriptGate {
+  /** The token that identifies this gate inside a workflow file. */
+  readonly ci: string;
+  /** The token that identifies its mirror inside a hook. */
+  readonly local: string;
+  readonly why: string;
+}
+
+/**
+ * WHY `ci` AND `local` ARE SEPARATE FIELDS. The first version keyed this map by
+ * one path and demanded that same string appear in both a workflow and a hook.
+ * That silently limited the invariant to gates whose CI and local forms are
+ * spelled identically — and the gate that mattered most was not one of them.
+ * CI runs the ARIA kernel suite as `npm run aria:test:unit`; a hook cannot
+ * mirror that verbatim, because unconditionally paying 215 seconds on every push
+ * is how a gate gets bypassed. Its mirror is a scoped wrapper with a different
+ * name, and a same-string rule would have reported parity for a gate with no
+ * local counterpart at all — which is precisely the state that let a red commit
+ * reach origin (ORPHAN-HIGH-510).
+ */
+const SCRIPT_GATES: readonly ScriptGate[] = [
+  {
+    ci: 'scripts/ci/type-check-changed-files.mjs',
+    local: 'scripts/ci/type-check-changed-files.mjs',
+    why:
+      'the changed-file type gate — caught a noUncheckedIndexedAccess error in #1024 ' +
+      'that no local hook could have, because none type-checked anything',
+  },
+  {
+    ci: 'aria:test:unit',
+    local: 'scripts/ci/aria-suite-changed.mjs',
+    why:
+      'the ARIA kernel suite — RC-9 was committed and pushed with four of its tests ' +
+      'red because both hooks were green and neither ran a line of Python',
+  },
+];
 
 function packageJson(): {
   scripts?: Record<string, string>;
@@ -203,11 +234,11 @@ describe('git hook binding', () => {
       .join('\n');
 
     const missing: Record<string, string> = {};
-    for (const [script, why] of Object.entries(SCRIPT_GATES)) {
+    for (const gate of SCRIPT_GATES) {
       // Only demand a mirror for a gate CI actually runs. A declared gate that
       // left CI is a different defect and would be a misleading failure here.
-      if (!workflows.includes(script)) continue;
-      if (!hooks.includes(script)) missing[script] = why;
+      if (!workflows.includes(gate.ci)) continue;
+      if (!hooks.includes(gate.local)) missing[gate.ci] = gate.why;
     }
 
     expect(missing).toEqual({});

@@ -7,14 +7,21 @@ The earlier test called the private ``cycle._run_pr_lifecycle_phase`` directly
 and injected a synthetic perimeter GovernanceError. It passed while the
 production path was dead four ways over:
 
-  1. ``_run_extended_phases`` only runs when ``run_phases is not None``, and the
-     autonomy orchestrator never passes it.
+  1. ``_run_extended_phases`` only ran when ``run_phases is not None``, and the
+     autonomy orchestrator never passed it.
   2. The callsite is gated on ``pr_create``, which the nightly's ``standard``
      profile does not permit — ``enforce_profile_for_action`` raises
      ``profile_violation`` 92 lines before the perimeter check, so the message
      never carries PERIMETER_REFUSED_PREFIX.
   3. The proposal set it iterates has no autonomous producer.
   4. It therefore recorded nothing on any schedule.
+
+Reason 1 is now history: RC-1 deleted ``_run_extended_phases`` and made
+``pr_lifecycle`` a row in ``cycle.CYCLE_PHASES``. Reasons 2 and 3 stand, and
+they are why this file still exists — the phase's precondition reads
+``ACTION_PERMISSIONS["pr_open"]``, so under the nightly's ``standard`` profile
+it records a skip rather than running. A breaker producer that depends on a
+phase the nightly skips is still not a producer on the scheduled lane.
 
 Calling a private function with a synthetic error proves the function works. It
 proves nothing about what reaches it. This test drives the PUBLIC entry point the

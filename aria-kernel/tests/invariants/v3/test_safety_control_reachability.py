@@ -28,25 +28,41 @@ cannot tell a call from a mention in a comment, and this repo's comments name
 these controls constantly — including in the fix for the finding that removed
 one of the edges.
 
-WHAT THIS FILE CANNOT CATCH, and why RC-1's other half is not optional.
+WHAT THIS FILE CANNOT CATCH, and why RC-1's other half was not optional.
 
-A conditional call is still an edge. `run_enterprise_cycle` really does call
-`_run_extended_phases` in the source — the call is merely guarded by
-`if run_phases is not None`, and no production caller passes that kwarg. So this
-graph reports the whole extended pipeline as reachable while it never executes.
-ORPHAN-CRITICAL-498 is exactly that shape, which means a static reachability
-invariant is structurally incapable of catching it.
+A conditional call is still an edge. Before the collapse, `run_enterprise_cycle`
+really did call `_run_extended_phases` in the source — the call was merely
+guarded by `if run_phases is not None`, and no production caller passed that
+kwarg. So this graph reported the whole extended pipeline as reachable while it
+never executed. ORPHAN-CRITICAL-498 was exactly that shape, which means a static
+reachability invariant is structurally incapable of catching it.
 
-That is an argument FOR the tier-1 half of RC-1 rather than a limitation to live
-with: once the phases are a declarative registry with explicit preconditions,
-"is this phase in the pipeline?" becomes a question about DATA that a test can
-read directly, instead of a question about control flow that static analysis has
+That was an argument FOR the tier-1 half of RC-1 rather than a limitation to
+live with: now that the phases are a declarative registry with explicit
+preconditions, "is this phase in the pipeline?" is a question about DATA a test
+can read directly, instead of a question about control flow static analysis has
 to guess. The two halves cover different failures and neither substitutes for
 the other — this file catches a control with no caller at all; the registry
 catches a control whose caller is never entered.
 
-The same applies, more weakly, to dispatch through a runtime-computed table or a
-string lookup, which this walk also does not follow.
+DISPATCH THROUGH THE PHASE TABLE, and why it is read rather than skipped. The
+cycle now calls its phases as `phase.runner(context)`, an attribute on a loop
+variable that `_resolve` deliberately drops. Left alone, the collapse would have
+made ten live controls look dead — and the first run after it did exactly that,
+accusing `sweep_human_required_adjudications` of having no production path on
+the very commit that put it in the table.
+
+The answer is NOT to loosen `_resolve`. A `CyclePhase(...)` row naming a
+function IS the call — the table is the pipeline, and reading it is the same
+fidelity as reading a call expression, not a guess about one. So the table is
+parsed as data: `_phase_table_edges` walks the `CYCLE_PHASES` assignment and
+adds an edge from `run_enterprise_cycle` to each runner named in a row. Scoped
+to that one module-level name, so it does not become a general "any function
+mentioned in a tuple is called" rule, which would be the over-approximation this
+file's docstring rejects.
+
+The same caveat still applies, unchanged, to dispatch through a runtime-computed
+table or a string lookup, which this walk does not follow.
 
 WHAT IT DOES CATCH, demonstrated on its own first two runs. Both initial
 failures were false positives produced by this resolver, not real dead controls,
@@ -261,10 +277,53 @@ class _ScopeResolver(ast.NodeVisitor):
         return None
 
 
+# The declarative pipeline and the function that walks it. Named here rather
+# than discovered, so a rename shows up as this invariant failing loudly instead
+# of silently losing every edge the table carries.
+_PHASE_TABLE = ("cycle", "CYCLE_PHASES")
+_PHASE_TABLE_DRIVER = ("cycle", "run_enterprise_cycle")
+
+
+def _phase_table_edges(tree: ast.Module, stem: str) -> set[Node]:
+    """Every function named in a ``CYCLE_PHASES`` row, as a call target.
+
+    The rows are `CyclePhase(name, stage, runner, ...)` — a bare `ast.Name`
+    in a positional or keyword slot is a reference to a module-level function
+    the driver will invoke. Only bare names are followed; a lambda or an
+    expression is not a named target and is deliberately not guessed at.
+    """
+    if stem != _PHASE_TABLE[0]:
+        return set()
+    targets: set[Node] = set()
+    for node in ast.walk(tree):
+        # The table carries a type annotation, so it parses as AnnAssign, not
+        # Assign. Handling only the latter is how the first draft of this
+        # parser found zero rows and reported ten live controls as dead.
+        if isinstance(node, ast.Assign):
+            names = [t for t in node.targets if isinstance(t, ast.Name)]
+            value = node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            names = [node.target] if isinstance(node.target, ast.Name) else []
+            value = node.value
+        else:
+            continue
+        if not any(name.id == _PHASE_TABLE[1] for name in names):
+            continue
+        for call in ast.walk(value):
+            if not isinstance(call, ast.Call):
+                continue
+            operands = list(call.args) + [kw.value for kw in call.keywords]
+            for operand in operands:
+                if isinstance(operand, ast.Name):
+                    targets.add((stem, operand.id))
+    return targets
+
+
 def _build_graph() -> tuple[dict[Node, set[Node]], dict[str, set[Node]]]:
     edges: dict[Node, set[Node]] = {}
     definitions: dict[str, set[Node]] = {}
     classes: dict[Node, set[str]] = {}
+    table_targets: set[Node] = set()
     for path in sorted(_PKG.rglob("*.py")):
         stem = path.stem
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -276,6 +335,8 @@ def _build_graph() -> tuple[dict[Node, set[Node]], dict[str, set[Node]]]:
             definitions.setdefault(name, set()).add((stem, name))
         for class_name, methods in resolver.classes.items():
             classes[(stem, class_name)] = methods
+        table_targets |= _phase_table_edges(tree, stem)
+    edges.setdefault(_PHASE_TABLE_DRIVER, set()).update(table_targets)
 
     # Constructing a callable strategy object is an intent to call it, so a
     # resolved constructor call gains an edge to that class's __call__. Scoped to
@@ -329,6 +390,24 @@ class SafetyControlReachability(unittest.TestCase):
                 "point — written, tested, and dead:\n"
                 + "\n".join(f"  {k}: {v}" for k, v in unreachable.items())
             ),
+        )
+
+    def test_the_phase_table_is_the_source_of_its_own_edges(self) -> None:
+        """The table-derived edges must come from the table, not be assumed.
+
+        If `CYCLE_PHASES` were renamed or restructured, `_phase_table_edges`
+        would silently return nothing and this file would go back to
+        accusing every phase runner of being dead — a failure that reads as
+        a real finding. Asserting the edges exist makes the parser's own
+        breakage look like what it is.
+        """
+        from_table = self.edges.get(_PHASE_TABLE_DRIVER, set())
+        runners = {node for node in from_table if node[1].startswith("_phase_")}
+        self.assertGreaterEqual(
+            len(runners), 10,
+            "the CYCLE_PHASES parse produced almost no phase runners — the table "
+            "was probably renamed or restructured, and every control reachable "
+            "only through it is about to be reported dead",
         )
 
     def test_the_control_set_is_not_silently_shrinking(self) -> None:

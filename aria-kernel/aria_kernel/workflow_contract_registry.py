@@ -494,6 +494,16 @@ AUDITED_WORKFLOW_EXCLUSIONS: dict[str, AuditedWorkflowExclusion] = {
         owner="aria-kernel",
         expires_at=_NEVER_EXPIRES,
     ),
+    "aria-runner-capability-probe": AuditedWorkflowExclusion(
+        workflow_id="aria-runner-capability-probe",
+        reason="RC-9 operator diagnostic; workflow_dispatch only, declares "
+        "`permissions: contents: read`, mutates nothing on the runner or in the "
+        "repository, and uploads no governed ARIA artifact — it prints host "
+        "capabilities so the sandbox provisioning design is chosen from evidence "
+        "instead of guesswork",
+        owner="aria-kernel",
+        expires_at=_NEVER_EXPIRES,
+    ),
 }
 
 

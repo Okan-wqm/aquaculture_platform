@@ -128,23 +128,38 @@ class AdjudicationSweepIsWired(unittest.TestCase):
     def test_the_cycle_summary_reports_the_phase(self) -> None:
         """An adjudication nobody can see is a decision nobody can audit.
 
-        Kept as an AST assertion but no longer the ONLY evidence of wiring:
-        the two invocation tests above carry that weight now. This one only
-        guards the operator-visible surface, which is a separate property from
-        the call existing.
+        RC-1 replaced this test's evidence, and the replacement is why the
+        old one had to go. It scanned `cycle.py` for a dict LITERAL carrying
+        the key `human_required_adjudication` — a source-text proxy for an
+        operator-visible surface. The collapse made the state dict a
+        PROJECTION of the phase table (`state_key` on each row), so the
+        literal is gone while the surface is intact, and the test failed on a
+        change that improved exactly the thing it was guarding. A proxy that
+        fires on a refactor and stays quiet on a deletion is worse than no
+        test.
+
+        It now runs a cycle and reads the output. Both halves matter: the
+        payload under its own key, and the outcome row that says whether the
+        phase ran, skipped or failed — the second is new surface the
+        pre-collapse cycle could not report at all.
         """
-        tree = ast.parse((_KERNEL_ROOT / "aria_kernel" / "cycle.py").read_text(encoding="utf-8"))
-        summary_keys = {
-            node.value
-            for dict_node in ast.walk(tree)
-            if isinstance(dict_node, ast.Dict)
-            for node in dict_node.keys
-            if isinstance(node, ast.Constant) and isinstance(node.value, str)
-        }
+        state = run_enterprise_cycle(
+            workspace_root=self._fixture.workspace_root,
+            cycle_id="cycle-adjudication-surface",
+            base_dir=self._fixture.tools_dir,
+        )
         self.assertIn(
-            "human_required_adjudication",
-            summary_keys,
+            "human_required_adjudication", state,
             msg="the cycle summary no longer reports the adjudication phase",
+        )
+        outcome = state.get("phases", {}).get("human_required_adjudication")
+        self.assertIsNotNone(
+            outcome,
+            msg="the phase outcome ledger does not mention the adjudication phase",
+        )
+        self.assertEqual(
+            outcome.get("outcome"), "ran",
+            msg=f"the adjudication phase did not run on a default cycle: {outcome}",
         )
 
 

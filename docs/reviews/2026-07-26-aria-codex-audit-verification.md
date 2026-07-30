@@ -1503,6 +1503,17 @@ finding is one nobody can navigate back to from the review that produced it.
   at `cycle.py:948` is dead on the same path, but the breaker producer survives via `planner_dispatch_hook.py:388`, so
   `ORPHAN-CRITICAL-485` **is** genuinely closed. Fix is RC-1 of the follow-up plan: collapse the two pipelines into one
   declarative registry, delete the kwarg seam, and add a static call-graph reachability invariant.
+  **CLOSED by RC-1.** `run_phases`, `pre_tool_phases`, `DEFAULT_CYCLE_PHASES`, `SUPPORTED_CYCLE_PHASES` and
+  `_run_extended_phases` are all deleted; `CYCLE_PHASES` is a 21-row ordered tuple and `pr_lifecycle` is a row in it, so
+  the perimeter now has a scheduled-lane caller for any profile holding `pr_open` authority. **The claim is bounded, and
+  the bound is deliberate:** the phase's precondition reads `ACTION_PERMISSIONS["pr_open"]` — `{strict, autonomous}` — so
+  under the default `standard` profile it records `precondition_unmet:profile_permits:pr_open` and the operator CLI
+  remains the only route that reaches the perimeter on a default deployment. **This deviates from the plan on purpose.**
+  The plan specified `profile_in(PROFILES_WITH_ACTION_AUTHORITY)`, the union over every action kind, which includes
+  `standard`; but `open_pr_for_action` calls `enforce_profile_for_action("pr_open")` on entry, so gating on the union
+  would have run the phase under a profile that refuses it, taken a `GovernanceError` per approved proposal, and marked
+  every nightly with an approved proposal **failed** on a lane where nothing is wrong. Reading the same table the callee
+  enforces means the gate and the guard cannot disagree.
 
 - **ORPHAN-HIGH-499** — the HUMAN*REQUIRED sweep test asserts an import, not a call  
   Severity HIGH, layer 1, owner okan, deadline 2026-08-12. Proven by mutation rather than argued: deleting the call at
@@ -1545,6 +1556,46 @@ finding is one nobody can navigate back to from the review that produced it.
   misinformation one layer up. Proven both ways: green with the fix, and failing with file, line and matched snippet when
   the interpolation is restored. **Residual, stated because it bounds the fix:** the invariant's scope is deliberately
   limited to `aria-*` workflows. This widens _which spellings_ are caught, not _which files_ are scanned.
+
+- **ORPHAN-HIGH-510** — the ARIA kernel suite had no local mirror at all, and a red commit reached origin because of it\
+  Severity HIGH, layer 3, owner okan, deadline 2026-08-13. **Found by my own violation, one increment late.** Before
+  committing RC-9 I ran `invariants:fast` and `findings:verify`, saw green, committed and **pushed**. The first command
+  of the next increment was `npm run aria:test:unit`, and four tests were red on the commit already at origin:
+  `test_every_actions_use_is_sha_pinned` (a local composite action has no SHA to pin),
+  `test_i_sbx_01_and_02_dispatching_workflows_declare_containment` (the install+verify pair moved into the composite
+  action, so neither workflow's own text declares containment any more) and both workflow-preflight contract tests (the
+  probe workflow was not in the contract registry). Every one is a **correct** finding by a gate doing its job; the
+  defect is that nothing local ran it. CLAUDE.md's "never commit with red tests" was enforced by intention only.
+  **Why the existing parity invariant did not cover it**, stated because the near-miss matters: `git-hook-binding.spec.ts`
+  scopes to `ci-full.yml`'s `lint-and-typecheck`, and `aria:test:unit` runs in `aria-operational-proof.yml` — an honestly
+  stated scope, so a gap rather than a false claim. But its `SCRIPT_GATES` map keyed each gate by **one** path and
+  demanded that same string appear in a workflow and a hook, which structurally limited it to gates whose CI and local
+  spellings match. The gate that mattered most is not one of those: a hook cannot mirror `npm run aria:test:unit`
+  verbatim, because 215 unconditional seconds per push is how a gate gets bypassed. **Fixed:**
+  `scripts/ci/aria-suite-changed.mjs` runs the suite only when the commits _this push adds_ touch a surface the suite
+  asserts on — `aria-kernel/`, `tools/aria-poc/`, `.github/workflows/`, `.github/actions/`. The last two are in the set
+  because RC-9 broke the suite **without touching a line of Python**. Scoping decides _whether_ to run, never _which_
+  tests: the suite is all-or-nothing and a per-file selection would report green on what it skipped. `SCRIPT_GATES` now
+  carries separate `ci` and `local` tokens. Proven both ways: green with the hook line, and with it deleted the invariant
+  names the missing mirror.
+
+- **ORPHAN-MEDIUM-511** — the architecture spine gate has never run in production either, for a second and separate reason\
+  Severity MEDIUM, layer 3, owner okan, deadline 2026-08-13. **Exposed by RC-1, not caused by it**, and filed separately
+  from `ORPHAN-CRITICAL-498` because the cause is different. 498 was "the phases sit behind a kwarg nobody passes"; the
+  collapse removes that, and `validation_matrix` and `pr_lifecycle` now run from `CYCLE_PHASES`. `architecture_baseline`
+  and `architecture_postcheck` do not: their precondition is `PLAN_ID_PRESENT` and neither production caller supplies a
+  `plan_id` — `cli.py`'s `cycle run` has no `--plan-id` argument at all, and the autonomy orchestrator's `cycle_runner`
+  call passes only `workspace_root`, `cycle_id`, `base_dir` and `defer_reflection`. So every production cycle now records
+  `{"outcome": "skipped", "reason": "precondition_unmet:plan_id_present"}` for both. **What changed and what did not:**
+  the behaviour is identical — the spine gate did not run before and does not run now. What changed is that the absence
+  is **readable**, where pre-collapse a phase that did not run produced no key, no reason and no trace, making "this gate
+  is not wired" and "this gate passed" the same observation from outside. That is an improvement and it is not a closure,
+  which is why this is filed rather than folded into the RC-1 commit as done. **What the real fix needs**, so the next
+  reader does not re-derive it: a `plan_id` has to reach the cycle from something that knows which plan a cycle executes.
+  The orchestrator drains a queue of promoted plans, so a candidate source exists — the open work is deciding whether a
+  cycle is scoped to one plan (pass it) or to many (the spine gate then needs a per-change shape, not a per-cycle one).
+  That is a design question, and answering it inside a pipeline-collapse commit would be the kind of guess this branch
+  exists to stop making.
 
 - **ORPHAN-HIGH-508** — no local hook type-checked anything, and the parity invariant only understood one gate family  
   Severity HIGH, layer 3, owner okan, deadline 2026-08-13. **Measured consequence, from this session:** a
@@ -1636,6 +1687,20 @@ finding is one nobody can navigate back to from the review that produced it.
   production**, so switching them on runs `pr_lifecycle` → `open_pr_for_action` on every cycle with
   `approved_for_apply` proposals — no longer able to self-halt the nightly after `ORPHAN-CRITICAL-503`, but still a
   first-time behaviour change that needs its precondition right before it is enabled.
+  **CLOSED by RC-1, in the order this finding prescribed.** The registry is derived from the body's real phases, not from
+  the constant: 21 rows across four stages (`discovery`, `pre_tool`, `tools`, `post_tool`), each carrying a precondition
+  from a closed five-value vocabulary and one of four error policies — `propagate`, `halt_sequence`,
+  `record_and_continue`, `swallow`, which are not a new design but the four behaviours the body already had, each
+  previously encoded as the presence or absence of a `post_tool_failure is None` guard. The kwargs and both constants
+  were deleted as one unit. Three consequences worth recording. The state dict is now a **projection** of the phase
+  results via a `state_key` per row, so the legacy top-level keys and the phase payloads cannot become two stores that
+  disagree; a new `state["phases"]` outcome ledger records `ran` / `skipped` / `failed` / `degraded` with the reason,
+  which is where a phase that did **not** run finally becomes visible. `_assert_pipeline_is_well_formed()` runs at import
+  — earlier than any test and earlier than any cycle — replacing the entry-time validation of an input that no longer
+  exists. And the tool-loop status filter turned out to be **two branches selecting the same set**
+  (`("SHADOW","ACTIVE","CALIBRATE")` vs `("ACTIVE","SHADOW","CALIBRATE")`), so the branch on `shadow_only` decided
+  nothing while reading as though a shadow run dispatched a narrower set; collapsed to the one check that was actually
+  happening.
 
 - **ORPHAN-HIGH-504** — the static reachability invariant cannot catch a kwarg-gated dead pipeline  
   Severity HIGH, layer 1, owner okan, deadline 2026-08-13. **Found by building the tool the plan asked for.** RC-1 calls

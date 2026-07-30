@@ -1,20 +1,23 @@
-"""ORPHAN-CRITICAL-428 — the pre-PR-open perimeter has a caller. An OPERATOR one.
+"""ORPHAN-CRITICAL-428 — the pre-PR-open perimeter has a caller. Two, now.
 
-Scope correction (ORPHAN-CRITICAL-498)
-======================================
+Scope history (ORPHAN-CRITICAL-498, then RC-1)
+==============================================
 This file's original title claimed a "PRODUCTION caller" without qualifying
-which lane. That reads as "the nightly runs the perimeter", and it does not.
+which lane. That read as "the nightly runs the perimeter", and it did not.
 `run_hard_fail_checks` has exactly one caller, `pr_manager.open_pr_for_action`,
-and that has exactly two: the operator CLI (`cli.py`, `pr open`) and
-`cycle._run_pr_lifecycle_phase`. The second is unreachable — it is entered only
-via `_run_extended_phases`, which fires only when a caller passes `run_phases`
-or `pre_tool_phases`, and no production caller passes either.
+and that had exactly two: the operator CLI (`cli.py`, `pr open`) and
+`cycle._run_pr_lifecycle_phase`. The second was unreachable — entered only via
+`_run_extended_phases`, which fired only when a caller passed `run_phases` or
+`pre_tool_phases`, and no production caller passed either.
 
-So what this file pins is real but narrower than it read: the perimeter is
-wired into the PR-open path, and that path is currently operator-driven.
-Putting it on the scheduled lane is RC-1 of the follow-up plan (collapse the
-two cycle pipelines into one declarative registry). The tests below are
-unchanged and still valid — only the claim about reach is corrected.
+RC-1 collapsed the two pipelines into `cycle.CYCLE_PHASES`, and `pr_lifecycle`
+is a row in it, gated on `ACTION_PERMISSIONS["pr_open"]`. So the second caller
+is now live on the scheduled lane for a profile that holds PR-open authority,
+and the correction above is history rather than a standing limitation. What
+remains true, and is worth stating because it bounds the claim: under the
+default `standard` profile the phase records a `precondition_unmet` skip, so
+the operator CLI is still the only route that reaches the perimeter on a
+default deployment.
 
 
 Why this file exists separately from the perimeter's own unit tests
@@ -190,21 +193,19 @@ class PrOpenPerimeterCallsiteTests(unittest.TestCase):
     def test_dry_run_is_refused_when_the_perimeter_fails(self) -> None:
         """A dry run is gated too, and the refusal names what blocked it.
 
-        ORPHAN-CRITICAL-498 corrected this docstring. It used to assert that
-        "the only production route into open_pr_for_action is the cycle's
-        pr_lifecycle phase with dry_run=True", and BOTH halves were false:
+        ORPHAN-CRITICAL-498 corrected this docstring, and RC-1 then made the
+        correction historical. It used to assert that "the only production
+        route into open_pr_for_action is the cycle's pr_lifecycle phase with
+        dry_run=True", and BOTH halves were false at the time: that phase was
+        unreachable (entered only from ``_run_extended_phases``, behind a
+        kwarg no production caller passed), and the actual live route was
+        ``cli.py`` ``pr open`` — an operator typing a command.
 
-        * that phase is unreachable — it is entered only from
-          ``_run_extended_phases``, which requires a caller to pass
-          ``run_phases`` / ``pre_tool_phases``, and no production caller does;
-        * the actual live route is ``cli.py`` ``pr open``, i.e. an operator
-          typing a command.
-
-        So ``run_hard_fail_checks`` does not execute on the scheduled lane at
-        all. The gating asserted below is real, but it is operator-path gating
-        until the cycle pipeline is collapsed (RC-1). A comment stating a dead
-        route as production fact is precisely what let that survive review,
-        which is why the correction lives here rather than only in the finding.
+        Since RC-1, ``pr_lifecycle`` is a row in ``cycle.CYCLE_PHASES`` and
+        does run on the scheduled lane under a profile that permits
+        ``pr_open``. The gating asserted below covers both routes: it is a
+        property of ``open_pr_for_action``, which is where the perimeter is
+        called, so it holds regardless of which caller arrives.
         """
         pid = self._seed(changed_files=[KERNEL_FILE], proposal_id="PROP-CALLSITE-2")
         with self.assertRaises(GovernanceError) as caught:
@@ -254,8 +255,9 @@ class BreakerProducerCallsiteTests(unittest.TestCase):
     as a rejected implementation. Three ``approved_for_apply`` proposals in one
     cycle would trip a breaker that now gates ``standard``: the nightly halting
     itself on its own observations. It never fired only because
-    ``_run_extended_phases`` is unreachable (ORPHAN-CRITICAL-498), and RC-1 puts
-    this phase on the live lane — so the edge had to go BEFORE that, not after.
+    ``_run_extended_phases`` was unreachable (ORPHAN-CRITICAL-498), and RC-1 has
+    since put this phase on the live lane as a ``CYCLE_PHASES`` row — which is
+    why the edge had to go BEFORE that landed, not after.
 
     The breaker is not left without a producer. ``planner_dispatch_hook``
     records ``subprocess_timeout`` from a single ``except`` arm, discriminated
@@ -287,7 +289,11 @@ class BreakerProducerCallsiteTests(unittest.TestCase):
             side_effect=lambda **kw: calls.append(kw),
         ):
             out = cycle_mod._run_pr_lifecycle_phase(
-                workspace_root=Path("/tmp"), base_dir=Path("/tmp"),
+                cycle_mod.build_phase_context(
+                    cycle_id="cyc-perimeter-observe",
+                    workspace_root=Path("/tmp"),
+                    base_dir=Path("/tmp"),
+                ),
             )
 
         self.assertEqual(
@@ -339,7 +345,11 @@ class BreakerProducerCallsiteTests(unittest.TestCase):
             side_effect=lambda **kw: calls.append(kw),
         ):
             out = cycle_mod._run_pr_lifecycle_phase(
-                workspace_root=Path("/tmp"), base_dir=Path("/tmp"),
+                cycle_mod.build_phase_context(
+                    cycle_id="cyc-perimeter-observe",
+                    workspace_root=Path("/tmp"),
+                    base_dir=Path("/tmp"),
+                ),
             )
 
         self.assertEqual(calls, [], "a malformed request must not count as a rejection")
@@ -369,7 +379,11 @@ class BreakerProducerCallsiteTests(unittest.TestCase):
             side_effect=OSError("ledger unwritable"),
         ):
             out = cycle_mod._run_pr_lifecycle_phase(
-                workspace_root=Path("/tmp"), base_dir=Path("/tmp"),
+                cycle_mod.build_phase_context(
+                    cycle_id="cyc-perimeter-observe",
+                    workspace_root=Path("/tmp"),
+                    base_dir=Path("/tmp"),
+                ),
             )
 
         row = out["proposals"][0]

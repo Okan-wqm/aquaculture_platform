@@ -1531,6 +1531,31 @@ finding is one nobody can navigate back to from the review that produced it.
   comment lines and matches invocations structurally — the substring-instead-of-structure defect this branch already fixed
   once, reproduced by me while fixing its sibling.
 
+- **ORPHAN-CRITICAL-503** — the perimeter authorised dry runs, and their stage artifacts fed the failure breaker  
+  Severity CRITICAL, layer 1, owner okan, deadline 2026-08-13. **Preventative, and the sequencing is the finding.**
+  `open_pr_for_action` runs the 10-check `GATE_PRE_PR_OPEN` perimeter before its `dry_run` branch so a preview cannot skip
+  the gate — but a dry run opens nothing: no `changed_files`, no `base_sha`, no diff. Checks needing those refused on data
+  that _cannot exist at that stage_, and `_run_pr_lifecycle_phase` fed every such refusal to
+  `record_failure(kind="validator_rejection")`. Three `approved_for_apply` proposals in one cycle would trip a breaker
+  that `ORPHAN-CRITICAL-420` S2 extended to gate **`standard`** — the profile the nightly runs. The lane would halt
+  itself on its own telemetry. It never fired only because `_run_extended_phases` is unreachable
+  (`ORPHAN-CRITICAL-498`), and RC-1 exists to put that phase on the live lane, so this had to land **before** RC-1, not
+  after. Fixed tier-1 rather than with a flag: **the mode is the result type.** `observe_perimeter()` returns a
+  `PerimeterObservation` with no `passed`, no `failures`, no `raise_if_blocked` — there is no attribute a breaker
+  producer can read as a refusal — while `run_hard_fail_checks()` keeps its fail-closed `HardFailReport` for real opens.
+  One registry, one implementation, so the two modes can never disagree about what a check does. `PerimeterVerdict` adds
+  a third state, `not_evaluable_at_this_stage`, distinct from `passed=False`; collapsing those two is what made a dry run
+  look like a rejected implementation. **Two correct arguments were in tension and neither was discarded:** the previous
+  design refused dry runs so a preview could not report `ok` while the perimeter would block (a false green), and RC-2
+  requires a preview not be counted as a refusal. `evaluable` separates them — a preview is _still_ refused when a check
+  that could run refused, and is not refused when the only refusals name inputs the stage cannot supply. The breaker is
+  **not** left producerless: `planner_dispatch_hook` records `subprocess_timeout` from a single `except` arm, and an
+  invariant pins that, precisely so nobody restores the removed edge believing the breaker went decorative again.
+  Enforced by six AST assertions in `tests/invariants/v3/test_perimeter_observe_has_no_breaker_edge.py` — AST and not
+  grep, because grep is what reported `ORPHAN-CRITICAL-428` as wired, and this fix's own comments name `record_failure`,
+  so a substring version would fail on its own documentation. Proven to bite: restoring the edge fails 2 of 6 naming the
+  phase.
+
 - **ORPHAN-HIGH-502** — the refuted `pr_lifecycle` route was still asserted as production fact in two artifacts  
   Severity HIGH, layer 1, owner okan, deadline 2026-08-13. `ORPHAN-CRITICAL-498` established that
   `_run_extended_phases` has no production caller, so `_run_pr_lifecycle_phase` never executes. That correction reached

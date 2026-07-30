@@ -880,9 +880,13 @@ def _run_pr_lifecycle_phase(
     caught per proposal so the phase iterates the full eligible
     list and aggregates outcomes.
     """
-    from .circuit_breaker import record_failure
-    from .implementation_safety import GATE_PRE_PR_OPEN
-    from .pr_manager import PERIMETER_REFUSED_PREFIX, open_pr_for_action
+    # RC-2 — `record_failure` and `PERIMETER_REFUSED_PREFIX` were imported here
+    # for the breaker edge this phase no longer has, and are removed with it. An
+    # import left behind after its call is deleted is not cosmetic: keeping the
+    # symbol importable while the call is gone is exactly what made
+    # ORPHAN-HIGH-499's mutation invisible to a `hasattr` test, and it would let
+    # a future reader conclude the edge is still here.
+    from .pr_manager import open_pr_for_action
     from .proposal import list_proposals
 
     eligible = [
@@ -912,53 +916,51 @@ def _run_pr_lifecycle_phase(
                 "passed": False,
                 "error": str(exc),
             })
-            # ORPHAN-CRITICAL-420 S5 — the failure circuit breaker's first
-            # production producer. record_failure() has existed since Plan
-            # ARIA-V3 §B2 and `grep -rn 'record_failure('` returned exactly
-            # ONE line: its own definition. A breaker with no producer cannot
-            # trip, so the autonomous-halt control was decorative.
+            # RC-2 — THE BREAKER EDGE WAS REMOVED FROM HERE, deliberately, and
+            # the removal is the fix rather than a walk-back of
+            # ORPHAN-CRITICAL-420 S5.
             #
-            # WHY HERE. This is an observation point, not a raise site: the
-            # perimeter refusal is raised inside pr_manager, which has no
-            # business knowing the breaker exists. cycle.py already catches
-            # per proposal and aggregates, so the failure is *observed* here
-            # exactly once, on a path proven reachable from a schedule
-            # (aria-auto-cycle.yml -> autonomy run -> run_enterprise_cycle ->
-            # _run_extended_phases -> this function).
+            # What used to be here: on a refusal whose message started with
+            # PERIMETER_REFUSED_PREFIX, `record_failure(kind=
+            # "validator_rejection")` fired. It was placed here because this is
+            # an observation point — cycle.py already aggregates per proposal —
+            # and that reasoning was sound about WHERE. It was wrong about WHAT.
             #
-            # WHY ONLY A PERIMETER REFUSAL. FAILURE_KINDS is a closed
-            # taxonomy and validator_rejection means "a validating gate
-            # rejected the implementation". A missing change_id or an
-            # unresolvable branch is a malformed REQUEST, not a rejected
-            # implementation; counting those would inflate the window with
-            # operator errors and trip the breaker for the wrong reason.
-            # Matching PERIMETER_REFUSED_PREFIX keeps the discrimination
-            # structural rather than a guess about message text.
+            # This phase calls `open_pr_for_action(dry_run=True)`, and
+            # `open_pr_for_action` runs the 10-check GATE_PRE_PR_OPEN perimeter
+            # BEFORE its dry_run branch so a preview cannot skip the gate. But a
+            # dry run opens nothing: no changed_files, no base_sha, no diff. So
+            # checks needing those refuse on data that CANNOT exist at this
+            # stage, and every such refusal was counted as a rejected
+            # implementation. Three approved_for_apply proposals in one cycle
+            # would trip a breaker that now gates `standard` — the nightly
+            # halting itself on its own observations. It has never fired only
+            # because `_run_extended_phases` is unreachable
+            # (ORPHAN-CRITICAL-498); RC-1 puts this phase on the live lane, so
+            # the edge had to go before that lands, not after.
             #
-            # WHY IT CANNOT MASK THE ORIGINAL FAILURE. record_failure writes
-            # a ledger row and emits a governance event; if that write itself
-            # fails we must not lose the proposal outcome already recorded
-            # above, nor abort the remaining proposals. The breaker-write
-            # error is therefore captured onto the proposal row and the loop
-            # continues — the refusal is still reported as `passed: False`
-            # either way, so a broken breaker degrades to "not counted",
-            # never to "refusal swallowed".
-            if str(exc).startswith(PERIMETER_REFUSED_PREFIX):
-                try:
-                    record_failure(
-                        base_dir=base_dir,
-                        kind="validator_rejection",
-                        materialize_event_id=str(pid),
-                        extra={
-                            "phase": "pr_lifecycle",
-                            "gate": GATE_PRE_PR_OPEN,
-                            "detail": str(exc),
-                        },
-                    )
-                except Exception as breaker_exc:  # noqa: BLE001
-                    per_proposal[-1]["breaker_record_error"] = (
-                        f"{type(breaker_exc).__name__}:{breaker_exc}"
-                    )
+            # An observation cannot trip a safety breaker. That is now
+            # structural, not intended: this phase evaluates the perimeter
+            # through `observe_perimeter`, which returns a PerimeterObservation
+            # with no `passed`, no `failures` and no `raise_if_blocked` — there
+            # is no attribute here a breaker producer could read as a refusal,
+            # and `tests/invariants/v3/test_perimeter_observe_has_no_breaker_edge.py`
+            # asserts no static call path from observe-mode to record_failure.
+            #
+            # The refusal is still fully REPORTED — the row above carries
+            # `passed: False` and the verbatim error — it is simply not COUNTED.
+            # Nothing is re-evaluated here: the perimeter already ran inside
+            # `open_pr_for_action`, and rebuilding a HardFailContext at this
+            # callsite to observe it a second time would duplicate the context
+            # assembly pr_manager owns. Observation belongs where the context
+            # already exists, which is why `observe_perimeter` is wired into the
+            # dry_run branch there rather than here.
+            #
+            # The breaker keeps its live producer: planner_dispatch_hook.py
+            # records `subprocess_timeout` from a single except arm, discriminated
+            # structurally rather than by message prefix. ORPHAN-CRITICAL-485
+            # stays closed; what changes is that a dry-run stage report no longer
+            # masquerades as a rejected implementation.
     total = len(eligible)
     if total == 0:
         status = "no_op"

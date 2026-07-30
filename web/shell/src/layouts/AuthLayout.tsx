@@ -1,8 +1,8 @@
 /**
  * Auth Layout Component
  *
- * Layout for login, register, and password reset pages.
- * Minimal, clean design.
+ * Industrial reef layout for login, invitation, and password reset pages.
+ * Authentication behavior remains owned by AuthContext and the routed forms.
  */
 
 import React from 'react';
@@ -19,6 +19,21 @@ import FishBackground from '../components/FishBackground';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
+const SecureLockIcon: React.FC = () => (
+  <svg
+    viewBox="0 0 24 24"
+    width="12"
+    height="12"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    aria-hidden="true"
+  >
+    <rect x="5" y="11" width="14" height="9" rx="1.5" />
+    <path d="M8 11V8a4 4 0 018 0v3" />
+  </svg>
+);
+
 // ============================================================================
 // Layout Component
 // ============================================================================
@@ -28,17 +43,18 @@ const AuthLayout: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-600 to-secondary-600">
-        <div className="animate-spin w-8 h-8 border-4 border-white border-t-transparent rounded-full" />
+      <div className="industrial-auth-loading min-h-screen flex items-center justify-center">
+        <div
+          className="animate-spin w-8 h-8 border-2 border-[#7fd6e1]/35 border-t-[#7fd6e1] rounded-full"
+          role="status"
+          aria-label="Loading authentication"
+        />
       </div>
     );
   }
 
   const hasLiveSession =
-    isAuthenticated &&
-    !!user &&
-    tokenLifecycle.getState() === 'READY' &&
-    !!getAccessToken();
+    isAuthenticated && !!user && tokenLifecycle.getState() === 'READY' && !!getAccessToken();
 
   // Redirect only when the React auth state and token lifecycle agree.
   if (hasLiveSession) {
@@ -63,66 +79,52 @@ const AuthChrome: React.FC = () => {
   const { t } = useI18n();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-600 to-secondary-600 flex flex-col">
-      {/* Decorative background elements */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-white/10 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-white/10 rounded-full blur-3xl" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-white/5 rounded-full blur-3xl" />
-      </div>
+    <div className="industrial-auth">
+      <FishBackground fishCount={20} />
 
-      {/* Animated fish background */}
-      <FishBackground fishCount={14} />
-
-      {/* Content area — logo and form combined */}
-      <main className="relative z-10 flex-1 flex items-center justify-center p-4">
+      <main className="industrial-auth-main">
         {/* Single top-level landmark heading for the auth routes (visually hidden;
             form headings are <h2>, giving a correct h1→h2 outline). */}
         <h1 className="sr-only">{BRAND.name}</h1>
 
-        <div className="w-full max-w-md">
-          {/* Card Container — glass surface SSoT (drives nested field/label/button
-              colors via the shared-ui surface="glass" variant). The inner ring +
-              soft ring-offset give the frosted card a crisp lit edge and depth. */}
-          <div className="surface-glass backdrop-blur-md bg-white/65 border border-white/70 ring-1 ring-white/40 rounded-2xl shadow-2xl shadow-primary-900/20 p-6 sm:p-8 animate-fade-in">
-            {/* Logo */}
-            <div className="flex flex-col items-center mb-4">
-              {/* logo4.png is true RGBA-transparent; logo.svg bakes in an
-                  off-white (#F4F5F4) full-canvas background that shows as a white
-                  box on the frosted card. Keep the responsive clamp() sizing. */}
-              <img
-                src="/logo4.png"
-                alt={`${BRAND.name} logo`}
-                className="object-contain drop-shadow-lg"
-                style={{ width: 'clamp(8rem, 24vw, 16rem)', height: 'auto' }}
-              />
-              <p
-                className="-mt-2 text-2xl text-center text-[var(--surface-heading-fg)]"
-                style={{ fontFamily: "'Caveat', cursive" }}
-              >
-                {BRAND.tagline}
-              </p>
+        <section
+          className="industrial-auth-card surface-glass"
+          aria-label={`${BRAND.name} authentication`}
+        >
+          <div className="industrial-auth-card-highlight" />
+          <div className="industrial-auth-card-glow" />
+
+          <div className="industrial-auth-card-header">
+            <div
+              className="industrial-auth-security-chip"
+              aria-label={t('auth.authorizedAccess')}
+            >
+              <span className="industrial-auth-security-dot" />
+              access
             </div>
 
-            {/* Form */}
+            <div className="industrial-auth-brand">
+              <img src="/logo4.png" alt={`${BRAND.name} logo`} className="industrial-auth-logo" />
+              <p className="industrial-auth-tagline">{BRAND.tagline}</p>
+            </div>
+          </div>
+
+          <div className="industrial-auth-card-body">
             <Outlet />
           </div>
 
-          {/* Footer Info */}
-          <div className="mt-6 text-center text-sm text-white/70">
-            <p>
-              {t('auth.needHelp')}{' '}
-              <a href={BRAND.supportUrl} className="text-white hover:underline font-medium">
-                {t('auth.support')}
-              </a>
-            </p>
+          <div className="industrial-auth-card-security">
+            <SecureLockIcon />
+            <span>{t('auth.authorizedAccess')}</span>
           </div>
-        </div>
+        </section>
       </main>
 
-      {/* Footer */}
-      <footer className="relative z-10 py-4 text-center text-sm text-white/60">
-        <p>&copy; {CURRENT_YEAR} {BRAND.name}. {t('auth.allRightsReserved')}</p>
+      <footer className="industrial-auth-footer">
+        <span>
+          &copy; {CURRENT_YEAR} {BRAND.name}
+        </span>
+        <a href={BRAND.supportUrl}>{t('auth.support')}</a>
       </footer>
     </div>
   );

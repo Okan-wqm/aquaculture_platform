@@ -27,6 +27,14 @@ afterEach(() => {
 });
 
 describe('FishBackground reduced-motion guard', () => {
+  it('marks the industrial reef as decorative', () => {
+    setReducedMotion(true);
+    const { container } = render(<FishBackground fishCount={3} />);
+    const reef = container.querySelector('.industrial-reef');
+    expect(reef).not.toBeNull();
+    expect(reef?.getAttribute('aria-hidden')).toBe('true');
+  });
+
   it('does NOT start the rAF loop when reduced motion is requested', () => {
     setReducedMotion(true);
     const raf = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);

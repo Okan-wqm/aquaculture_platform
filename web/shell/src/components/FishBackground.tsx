@@ -390,7 +390,7 @@ const Jellyfish: React.FC<{ tint: string }> = ({ tint }) => (
 );
 
 const SeaFloor: React.FC = () => (
-  <svg className="absolute bottom-0 left-0 w-full" style={{ height: '120px' }} viewBox="0 0 1200 120" preserveAspectRatio="xMidYMax slice">
+  <svg className="absolute bottom-0 left-0 w-full" style={{ height: 'clamp(140px, 22vh, 240px)' }} viewBox="0 0 1200 120" preserveAspectRatio="xMidYMax slice">
     <rect x="0" y="100" width="1200" height="20" fill="rgba(194,178,128,0.15)" />
     <ellipse cx="100" cy="105" rx="80" ry="8" fill="rgba(194,178,128,0.1)" />
     <ellipse cx="400" cy="108" rx="120" ry="10" fill="rgba(194,178,128,0.12)" />
@@ -693,11 +693,16 @@ const FishBackground: React.FC<FishBackgroundProps> = ({ fishCount = 20 }) => {
   return (
     <div
       ref={containerRef}
-      className="absolute inset-0 overflow-hidden pointer-events-none"
+      className="industrial-reef absolute inset-0 overflow-hidden pointer-events-none"
+      aria-hidden="true"
       style={{
-        background: 'linear-gradient(to bottom, rgba(100,180,255,0.15) 0%, rgba(30,100,180,0.25) 50%, rgba(10,50,120,0.35) 100%)',
+        background:
+          'radial-gradient(ellipse 80% 50% at 50% -10%, rgba(127, 214, 224, 0.18), transparent 60%), radial-gradient(ellipse 60% 40% at 50% 5%, rgba(200, 240, 238, 0.10), transparent 70%), linear-gradient(180deg, #0b324a 0%, #0a2b40 18%, #061b2c 40%, #04111c 70%, #020a12 100%)',
       }}
     >
+      <div className="industrial-reef-rays" />
+      <div className="industrial-reef-snow" />
+
       {/* Wave overlay */}
       <div className="absolute inset-0 wave-overlay" />
 
@@ -732,6 +737,8 @@ const FishBackground: React.FC<FishBackgroundProps> = ({ fishCount = 20 }) => {
           }}
         />
       ))}
+
+      <div className="industrial-reef-vignette" />
     </div>
   );
 };

@@ -4,11 +4,12 @@
  * PasswordInput/Checkbox/i18n are kept.
  */
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 const login = vi.fn().mockResolvedValue({ redirectPath: '/' });
+const verifyMfaLogin = vi.fn().mockResolvedValue({ redirectPath: '/' });
 const clearError = vi.fn();
 
 vi.mock('@aquaculture/shared-ui', async (importOriginal) => {
@@ -17,7 +18,7 @@ vi.mock('@aquaculture/shared-ui', async (importOriginal) => {
     ...actual,
     useAuthContext: () => ({
       login,
-      verifyMfaLogin: vi.fn(),
+      verifyMfaLogin,
       error: null,
       clearError,
     }),
@@ -29,12 +30,31 @@ import LoginForm from '../LoginForm';
 
 const renderForm = (): ReturnType<typeof render> =>
   render(
-    <MemoryRouter>
+    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <LoginForm />
     </MemoryRouter>,
   );
 
-describe('LoginForm remember-me wiring', () => {
+describe('LoginForm', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('renders the industrial sign-in surface with real auth controls only', () => {
+    const { container } = renderForm();
+
+    expect(container.querySelector('.industrial-login-form')).not.toBeNull();
+    expect(container.querySelectorAll('.industrial-auth-field')).toHaveLength(2);
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Dive back in');
+    expect(screen.getByText('Sign in to your Suderra workspace')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy();
+
+    // The DesignCanvas sample shows non-functional Passkey/SSO controls. They
+    // must not be exposed until a real frontend ceremony is wired.
+    expect(screen.queryByRole('button', { name: /passkey/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /sso/i })).toBeNull();
+  });
+
   it('passes rememberMe=true to login() when the checkbox is checked', async () => {
     const { container } = renderForm();
 
@@ -47,11 +67,66 @@ describe('LoginForm remember-me wiring', () => {
     fireEvent.change(byName('email'), { target: { value: 'a@b.com' } });
     fireEvent.change(byName('password'), { target: { value: 'password123' } });
     fireEvent.click(screen.getByRole('checkbox'));
-    fireEvent.click(screen.getByRole('button', { name: 'Sign In' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
     await waitFor(() => expect(login).toHaveBeenCalled());
     expect(login).toHaveBeenCalledWith(
       expect.objectContaining({ email: 'a@b.com', password: 'password123', rememberMe: true }),
+    );
+  });
+
+  it('blocks invalid credentials and preserves rememberMe=false by default', async () => {
+    const { container } = renderForm();
+    const submit = screen.getByRole('button', { name: 'Continue' });
+
+    fireEvent.click(submit);
+    expect(login).not.toHaveBeenCalled();
+
+    const email = container.querySelector<HTMLInputElement>('input[name="email"]');
+    const password = container.querySelector<HTMLInputElement>('input[name="password"]');
+    if (!email || !password) throw new Error('login fields not found');
+
+    fireEvent.change(email, { target: { value: 'operator@suderra.com' } });
+    fireEvent.change(password, { target: { value: 'password123' } });
+    fireEvent.click(submit);
+
+    await waitFor(() =>
+      expect(login).toHaveBeenCalledWith({
+        email: 'operator@suderra.com',
+        password: 'password123',
+        rememberMe: false,
+      }),
+    );
+  });
+
+  it('uses the real MFA challenge token and only enables verification for a valid code', async () => {
+    login.mockResolvedValueOnce({
+      mfaRequired: true,
+      mfaToken: 'mfa-challenge-token',
+    });
+    const { container } = renderForm();
+    const email = container.querySelector<HTMLInputElement>('input[name="email"]');
+    const password = container.querySelector<HTMLInputElement>('input[name="password"]');
+    if (!email || !password) throw new Error('login fields not found');
+
+    fireEvent.change(email, { target: { value: 'operator@suderra.com' } });
+    fireEvent.change(password, { target: { value: 'password123' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+
+    const verifyButton = await screen.findByRole('button', { name: 'Verify Code' });
+    expect((verifyButton as HTMLButtonElement).disabled).toBe(true);
+
+    const code = container.querySelector<HTMLInputElement>('input[name="mfaCode"]');
+    if (!code) throw new Error('MFA code field not found');
+    fireEvent.change(code, { target: { value: '123456' } });
+    expect((verifyButton as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(verifyButton);
+
+    await waitFor(() =>
+      expect(verifyMfaLogin).toHaveBeenCalledWith({
+        mfaToken: 'mfa-challenge-token',
+        code: '123456',
+      }),
     );
   });
 });

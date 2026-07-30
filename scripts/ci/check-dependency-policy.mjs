@@ -20,10 +20,7 @@ const scannedExtensions = new Set([
 const exactFiles = new Set(['.npmrc', 'Dockerfile', 'package.json', 'package-lock.json']);
 
 const policyViolations = [];
-const textOnlyHistoricalFiles = new Set([
-  'scripts/ci/check-dependency-policy.mjs',
-  'tools/scripts/seed-finding-registry.mjs',
-]);
+const textOnlyHistoricalFiles = new Set(['scripts/ci/check-dependency-policy.mjs']);
 
 function fileExtension(path) {
   const basename = path.split('/').pop() ?? path;

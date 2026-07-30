@@ -3,6 +3,17 @@
   "$id": "https://aquaculture-platform/docs/reviews/_registry/findings.schema.json",
   "title": "Finding Registry Entry",
   "description": "One JSON object per line in findings.jsonl. Hash-chained append-only state store for every CATCHER-produced finding in the enterprise-v2 review cycle. Consumed by tools/gates/finding-registry.ts CLI (Phase 2), commit-msg-validator.ts (Phase 2), finding-state-sweep.yml (Phase 6 cron), and root-cause-auditor (Phase 5).",
+  "x-source-finding-semantic-fields": [
+    "id",
+    "severity",
+    "title",
+    "layer",
+    "evidence",
+    "rule_violated",
+    "override_of",
+    "notes",
+    "narrative"
+  ],
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -138,7 +149,10 @@
       "then": { "required": ["owner_user", "deadline"] }
     },
     {
-      "if": { "properties": { "severity": { "enum": ["CRITICAL", "HIGH"] } }, "required": ["severity"] },
+      "if": {
+        "properties": { "severity": { "enum": ["CRITICAL", "HIGH"] } },
+        "required": ["severity"]
+      },
       "then": { "required": ["evidence"] }
     }
   ]

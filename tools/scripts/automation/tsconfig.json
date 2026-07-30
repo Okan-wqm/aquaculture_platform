@@ -1,0 +1,15 @@
+{
+  "extends": "../../gates/tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "ts-node": {
+    "transpileOnly": false
+  },
+  "include": [
+    "publish-automation-pr.ts",
+    "publish-automation-pr.spec.ts",
+    "../../gates/lib/automation-publication-policy.ts",
+    "../../gates/lib/automation-publication-policy.spec.ts"
+  ]
+}

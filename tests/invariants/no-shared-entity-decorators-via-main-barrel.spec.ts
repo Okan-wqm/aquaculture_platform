@@ -7,8 +7,8 @@
  * The main barrel is consumed by every microservice, often just for
  * cross-cutting utilities (TenantGuard, RedisModule, factories). If the
  * barrel chains through entity files, every consumer service ends up
- * with `AuditLogEntity`, `UserConsent`, `GdprDataRequest`, and
- * `FindingEntity` registered in TypeORM's global metadata storage —
+ * with `AuditLogEntity`, `UserConsent`, and `GdprDataRequest`
+ * registered in TypeORM's global metadata storage —
  * which then surfaces in `dataSource.entityMetadatas` and trips the
  * `SchemaDriftValidator` on services that never opted into those
  * domains.
@@ -16,24 +16,23 @@
  * # Architectural contract
  *
  * - `libs/backend-common/src/index.ts` MUST NOT have any
- *   `export * from './audit'`, `export * from './finding-registry'`, or
- *   transitive re-export that pulls in those subdirectories.
+ *   `export * from './audit'` or a transitive re-export that pulls in
+ *   that subdirectory.
  *
  * - `libs/backend-common/src/security/index.ts` MUST NOT have any
  *   `export * from './gdpr'` (which would chain through GDPR entities
  *   and re-pollute via `index.ts → security → gdpr → entities`).
  *
- * - Concrete entity-bearing modules (`AuditLogModule`, `GdprModule`,
- *   `FindingRegistryModule`) are reachable via deep import paths only:
+ * - Concrete entity-bearing modules (`AuditLogModule`, `GdprModule`) are
+ *   reachable via deep import paths only:
  *     - `@aquaculture/backend-common/audit`
  *     - `@aquaculture/backend-common/gdpr`
- *     - `@aquaculture/backend-common/finding-registry`
  *
  * # What this invariant detects
  *
  * - Direct re-export reintroductions in the two index files.
  * - Files inside `libs/backend-common/src/` that import from
- *   `./audit`, `./security/gdpr`, or `./finding-registry` AND whose
+ *   `./audit` or `./security/gdpr` AND whose
  *   import path is reachable from the main `index.ts` graph (i.e.
  *   transitive contamination via a non-entity utility file).
  *
@@ -51,10 +50,7 @@ const FORBIDDEN_RE_EXPORTS = [
   // path -> forbidden patterns inside that file
   {
     file: 'index.ts',
-    patterns: [
-      /^\s*export\s+\*\s+from\s+['"]\.\/audit['"]\s*;?$/m,
-      /^\s*export\s+\*\s+from\s+['"]\.\/finding-registry['"]\s*;?$/m,
-    ],
+    patterns: [/^\s*export\s+\*\s+from\s+['"]\.\/audit['"]\s*;?$/m],
   },
   {
     file: 'security/index.ts',
@@ -79,11 +75,9 @@ const MAIN_BARREL_GUARD_FILES = [
 ];
 
 const ENTITY_BEARING_IMPORT_RE =
-  /from\s+['"](?<path>(\.\.?\/)+(audit|finding-registry|security\/gdpr)(\/[^'"]+)?)['"]/;
+  /from\s+['"](?<path>(\.\.?\/)+(audit|security\/gdpr)(\/[^'"]+)?)['"]/;
 
-const MAIN_BARREL_SAFE_DEEP_IMPORTS = new Set([
-  '../audit/audit-log.tokens',
-]);
+const MAIN_BARREL_SAFE_DEEP_IMPORTS = new Set(['../audit/audit-log.tokens']);
 
 describe('INVARIANT (INFRA-CRITICAL-021): main barrel does not chain to @Entity decorators', () => {
   it('forbids `export *` from entity-bearing submodules in the index files', () => {
@@ -97,9 +91,7 @@ describe('INVARIANT (INFRA-CRITICAL-021): main barrel does not chain to @Entity 
       const content = readFileSync(path, 'utf8');
       for (const pattern of patterns) {
         if (pattern.test(content)) {
-          violations.push(
-            `${file}: contains forbidden re-export ${pattern.toString()}`,
-          );
+          violations.push(`${file}: contains forbidden re-export ${pattern.toString()}`);
         }
       }
     }
@@ -109,7 +101,7 @@ describe('INVARIANT (INFRA-CRITICAL-021): main barrel does not chain to @Entity 
           violations.join('\n  ') +
           `\n\nReplace the bulk re-export with explicit named exports of the non-entity-touching surface ` +
           `(token, interface, DTO, decorator). Concrete entity-bearing modules MUST be deep-import only ` +
-          `via @aquaculture/backend-common/{audit,gdpr,finding-registry}. ` +
+          `via @aquaculture/backend-common/{audit,gdpr}. ` +
           `See libs/backend-common/src/index.ts for the canonical pattern.`,
       );
     }
@@ -139,7 +131,7 @@ describe('INVARIANT (INFRA-CRITICAL-021): main barrel does not chain to @Entity 
           violations.join('\n  ') +
           `\n\nDepend on the audit DI token + interface (AUDIT_LOG_SERVICE / IAuditLogService from ` +
           `'../audit/audit-log.tokens') instead of importing the AuditLogService class. Token-only deep ` +
-          `imports are the allowed main-barrel-safe exception; concrete audit/gdpr/finding modules remain ` +
+          `imports are the allowed main-barrel-safe exception; concrete audit/gdpr modules remain ` +
           `forbidden here. The token-based ` +
           `pattern is documented in libs/backend-common/src/audit/audit-log.tokens.ts.`,
       );

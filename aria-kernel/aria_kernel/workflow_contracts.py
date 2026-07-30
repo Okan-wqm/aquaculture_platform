@@ -82,7 +82,12 @@ def discover_aria_workflows(workspace_root: str | Path) -> dict[str, Path]:
         return found
     for path in sorted([*workflows.glob("aria-*.yml"), *workflows.glob("aria-*.yaml")]):
         found[path.stem] = path
-    for name in ("finding-state-sweep", "rule-health-report"):
+    for name in (
+        "automation-publication-admission",
+        "finding-registry-authority",
+        "finding-state-sweep",
+        "rule-health-report",
+    ):
         for suffix in (".yml", ".yaml"):
             path = workflows / f"{name}{suffix}"
             if path.exists():

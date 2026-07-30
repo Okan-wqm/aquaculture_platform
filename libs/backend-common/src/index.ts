@@ -15,9 +15,8 @@
  * from the changed subtree. See AUDIT-MEDIUM-005 + ADR-028 lib-creation
  * rubric.
  *
- * The two deliberately-NOT-re-exported subtrees remain deep-import-only:
+ * The deliberately-NOT-re-exported subtrees remain deep-import-only:
  *   @aquaculture/backend-common/audit
- *   @aquaculture/backend-common/finding-registry
  *   @aquaculture/backend-common/ai-safety
  *   @aquaculture/backend-common/gdpr
  * These carry @Entity() decorators whose side-effect registers tables in
@@ -113,10 +112,7 @@ export {
   AuditResult,
   AuditSeverity,
 } from './audit/audit-log.tokens';
-export type {
-  IAuditLogService,
-  CreateAuditEntryDto,
-} from './audit/audit-log.tokens';
+export type { IAuditLogService, CreateAuditEntryDto } from './audit/audit-log.tokens';
 export {
   AuditedOperation,
   AUDITED_OPERATION_KEY,

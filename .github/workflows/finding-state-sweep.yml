@@ -22,7 +22,7 @@ name: Finding State Sweep
 
 on:
   schedule:
-    - cron: '0 7 * * *'   # 07:00 UTC daily (08:00 / 09:00 Oslo depending on DST)
+    - cron: '0 7 * * *' # 07:00 UTC daily (08:00 / 09:00 Oslo depending on DST)
   workflow_dispatch:
     inputs:
       stale_after:
@@ -35,17 +35,24 @@ on:
         required: false
 
 permissions:
-  contents: write        # open a PR with registry mutations
-  pull-requests: write
+  actions: read
+  contents: read
+  id-token: write # short-lived signed authority for registry mutation
+
+# A global concurrency group would silently replace older pending mutations.
+# Command-identity-derived, create-only branches and typed expected-head
+# compare-and-swap isolate collisions without discarding either request.
 
 jobs:
   sweep:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment: automation-publication
     steps:
       # SEC-CI-002: pinned SHA per infra-expert rule.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -58,11 +65,41 @@ jobs:
         # conflicts in reporting jobs.
         run: npm ci --ignore-scripts --no-audit --prefer-offline
 
+      - name: Resolve immutable Actions run clock
+        id: run-clock
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npm run automation:resolve-run-clock
+
+      - name: Bind sweep to exact protected-main snapshot
+        id: authority
+        env:
+          RUN_CREATED_AT: ${{ steps.run-clock.outputs.created_at }}
+          STALE_AFTER_INPUT: ${{ github.event.inputs.stale_after || '30' }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "${GITHUB_REF}" = "refs/heads/main"
+          test "${GITHUB_REF_PROTECTED}" = "true"
+          EFFECTIVE_AT="${RUN_CREATED_AT}"
+          INPUT_SHA256="$(
+            FINDING_EFFECTIVE_AT="${EFFECTIVE_AT}" \
+              npx ts-node --project tools/gates/tsconfig.json \
+              tools/gates/finding-registry.ts request-digest sweep \
+              --stale-after="${STALE_AFTER_INPUT}"
+          )"
+          {
+            echo "command_id=finding-sweep:${GITHUB_RUN_ID}"
+            echo "effective_at=${EFFECTIVE_AT}"
+            echo "input_sha256=${INPUT_SHA256}"
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Compute sweep plan (dry run)
         id: plan
         env:
           STALE_AFTER_INPUT: ${{ github.event.inputs.stale_after || '30' }}
           DRY_RUN_INPUT: ${{ github.event.inputs.dry_run || 'false' }}
+          FINDING_EFFECTIVE_AT: ${{ steps.authority.outputs.effective_at }}
         run: |
           set -euo pipefail
           STALE_AFTER="${STALE_AFTER_INPUT}"
@@ -86,9 +123,10 @@ jobs:
           echo "dry_run=${DRY_RUN}" >> "$GITHUB_OUTPUT"
           npx ts-node --project tools/gates/tsconfig.json \
             tools/gates/finding-registry.ts sweep \
-            --dry-run --stale-after=${STALE_AFTER} | tee /tmp/sweep-plan.txt
+            --dry-run --stale-after=${STALE_AFTER} |
+            tee "${RUNNER_TEMP}/finding-state-sweep-plan.txt"
           # Exit early if nothing to do.
-          if grep -q "^Sweep clean:" /tmp/sweep-plan.txt; then
+          if grep -q "^Sweep clean:" "${RUNNER_TEMP}/finding-state-sweep-plan.txt"; then
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
           else
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
@@ -114,9 +152,9 @@ jobs:
               workspace_root=os.environ["GITHUB_WORKSPACE"],
               allowed_write_roots=[registry],
               path_allowlist=[registry],
-              network_policy=["github_api"],
-              network_enforcement_evidence="GitHub App PR API via automation/open-report-pr.sh",
-              token_provenance="github_app:installation",
+              network_policy=["github_oidc", "github_api"],
+              network_enforcement_evidence="signed GitHub OIDC mutation authority plus repository-scoped GitHub App PR API",
+              token_provenance="github_actions:actions_read+oidc+github_app:installation",
               dlp_mode="fail_closed",
               dlp_scan_clean=True,
               audit_reason="publish deterministic finding state sweep through automation PR",
@@ -131,6 +169,9 @@ jobs:
         if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
         env:
           STALE_AFTER: ${{ steps.plan.outputs.stale_after }}
+          FINDING_COMMAND_ID: ${{ steps.authority.outputs.command_id }}
+          FINDING_INPUT_SHA256: ${{ steps.authority.outputs.input_sha256 }}
+          FINDING_EFFECTIVE_AT: ${{ steps.authority.outputs.effective_at }}
         run: |
           set -euo pipefail
           npx ts-node --project tools/gates/tsconfig.json \
@@ -143,10 +184,37 @@ jobs:
           npx ts-node --project tools/gates/tsconfig.json \
             tools/gates/finding-registry.ts verify
 
-      - name: Open or update sweep PR
+      - name: Upload immutable sweep input evidence
         if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        id: mutation-evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: finding-state-sweep-input-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/finding-state-sweep-preflight.json
+            ${{ runner.temp }}/finding-state-sweep-plan.txt
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Mint repository-scoped GitHub App token
+        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        id: app-token
+        uses: ./.github/actions/mint-automation-app-token
+        with:
+          client-id: ${{ vars.ARIA_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ARIA_GITHUB_APP_PRIVATE_KEY }}
+          expected-app-slug: ${{ vars.ARIA_GITHUB_APP_SLUG }}
+          expected-installation-id: ${{ vars.ARIA_GITHUB_APP_INSTALLATION_ID }}
+
+      - name: Publish idempotent sweep PR
+        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+        id: publication
         env:
-          GH_TOKEN: ${{ secrets.ARIA_GITHUB_APP_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          GH_APP_INSTALLATION_ID: ${{ steps.app-token.outputs.installation-id }}
+          COMMAND_ID: ${{ steps.authority.outputs.command_id }}
+          INPUT_SHA256: ${{ steps.authority.outputs.input_sha256 }}
         run: |
           set -euo pipefail
           BODY_FILE="$RUNNER_TEMP/finding-state-sweep-pr-body.md"
@@ -154,26 +222,41 @@ jobs:
             echo "Daily sweep output (30-day staleness + deadline-past escalation)."
             echo ""
             echo '```'
-            cat /tmp/sweep-plan.txt
+            cat "${RUNNER_TEMP}/finding-state-sweep-plan.txt"
             echo '```'
             echo ""
             echo "CODEOWNERS review is required before merge. Reject this PR if a listed transition should not apply."
           } > "$BODY_FILE"
 
-          export PR_BRANCH="automation/finding-state-sweep"
+          export PR_BRANCH="automation/finding-registry-active"
           export PR_TITLE="chore(findings): daily state sweep - OPEN to STALE, past-deadline to BLOCKED"
           export PR_BODY_FILE="$BODY_FILE"
           export COMMIT_MESSAGE="chore(findings): automated state sweep"
           export CHANGED_PATHS="docs/reviews/_registry/findings.jsonl"
-          bash tools/scripts/automation/open-report-pr.sh
+          export EXPECTED_BASE_SHA="${GITHUB_SHA}"
+          export AUTOMATION_COMMAND_ID="${COMMAND_ID}"
+          export AUTOMATION_OPERATION="sweep"
+          export AUTOMATION_INPUT_SHA256="${INPUT_SHA256}"
+          export AUTOMATION_EVIDENCE_ARTIFACT_ID="${{ steps.mutation-evidence.outputs.artifact-id }}"
+          export AUTOMATION_EVIDENCE_ARTIFACT="finding-state-sweep-input-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export AUTOMATION_EVIDENCE_SHA256="${{ steps.mutation-evidence.outputs.artifact-digest }}"
+          export AUTOMATION_RESULT_PATH="${RUNNER_TEMP}/finding-state-sweep-publication.json"
+          npm run automation:publish
 
-      # ADR-036 — upload the enterprise-preflight audit proof so the sweep
-      # job's governed-write decision is retained as CI evidence.
-      - name: Upload sweep preflight proof
-        if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'
+      - name: Upload immutable sweep publication result
+        if: always() && steps.publication.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: finding-state-sweep-proof-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/finding-state-sweep-preflight.json
+          name: automation-publication-result-${{ steps.publication.outputs.commit }}
+          path: ${{ runner.temp }}/finding-state-sweep-publication.json
           if-no-files-found: error
-          retention-days: 365
+          retention-days: 90
+
+      - name: Upload durable sweep publication failure
+        if: always() && steps.publication.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: automation-publication-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/finding-state-sweep-publication.json
+          if-no-files-found: error
+          retention-days: 90

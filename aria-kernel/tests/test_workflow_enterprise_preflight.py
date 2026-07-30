@@ -59,9 +59,9 @@ class WorkflowEnterprisePreflightTests(unittest.TestCase):
 
     def test_production_requires_github_app_provenance_and_fail_closed_dlp(self) -> None:
         # Security assertion #2 (preserved from main's 9) — fail-closed DLP +
-        # token-provenance enforcement. finding-state-sweep contracts
-        # token_source='github_app:installation', so a default-token + best-effort
-        # DLP call must hard-fail.
+        # token-provenance enforcement. finding-state-sweep contracts the
+        # combined OIDC + verified App publication identity, so a default-token
+        # + best-effort DLP call must hard-fail.
         with tempfile.TemporaryDirectory() as tmp:
             _write_runtime_workflow(Path(tmp), "finding-state-sweep")
             verdict = verify_workflow_preflight(
@@ -115,9 +115,9 @@ class WorkflowEnterprisePreflightTests(unittest.TestCase):
                 workspace_root=workspace,
                 allowed_write_roots=["aria-tools/reports/daily/2026-06-02.md"],
                 path_allowlist=["aria-tools/reports/daily/2026-06-02.md"],
-                network_policy=["github_artifact"],
-                network_enforcement_evidence="checkout/setup actions and GitHub artifact upload",
-                token_provenance="github_actions_artifact_token",
+                network_policy=["github_api", "github_artifact"],
+                network_enforcement_evidence="exact Actions run read and GitHub artifact upload",
+                token_provenance="github_actions:actions_read+artifact",
                 audit_reason="unit test",
                 audit_artifact_path=runner_temp / "aria-daily-report-generate-preflight.json",
                 external_root_allowlist=[str(runner_temp)],

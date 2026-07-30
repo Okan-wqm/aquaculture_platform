@@ -10,25 +10,21 @@ name: Rule Health Report
 #      BLOCKED counts by severity + by owner_agent + age buckets.
 #   2. Override count — allowlist entries by boundary-file + tier-4
 #      override inline-comment count per _shared/tier-claim-syntax.md.
-#   3. Agent dispatch frequency — top-N most-dispatched + least-
-#      dispatched agents across the review cycles of the month (reads
-#      docs/reviews/orchestrator/*.md headers). [Phase 12 deepens this
-#      with Prometheus `agent_dispatch_total` metric once the registry
-#      moves to PG + leader election runs on K8s.]
-#   4. Rule firing rate — gate failure frequency over the month
-#      (counted from closes-footer-check + quality-gates workflow runs
-#      that were failed-and-retried). [Phase 12 deepens via
-#      `agent_finding_issued_total` + per-gate Prometheus counters.]
+#   3. Agent dispatch frequency — repository-derived orchestrator report count
+#      for the selected month. The live `agent_dispatch_total` measure is an
+#      open acceptance requirement under IU-CI-023.
+#   4. Rule firing rate — no live rate is claimed until the
+#      `agent_finding_issued_total` and per-gate series exist with a complete
+#      monthly observation window.
 #
-# This workflow is SKELETON-STATE as of 2026-04-17: items (3) and (4)
-# compute what's readable from repo state alone (PR history + orchestrator
-# review-file headers). Full Prometheus-backed numbers arrive when
-# Phase 12 K8s readiness lands.
+# Sections (3) and (4) are explicitly incomplete. Their owner, deadline,
+# finding-allocation state, and machine-proof plan are recorded in the
+# 2026-07-30 IU-CI-023 open item in the enterprise debt-closure plan.
 # =============================================================================
 
 on:
   schedule:
-    - cron: '0 6 1 * *'   # 06:00 UTC on the 1st of every month
+    - cron: '0 6 1 * *' # 06:00 UTC on the 1st of every month
   workflow_dispatch:
     inputs:
       month_offset:
@@ -37,17 +33,21 @@ on:
         required: false
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   generate:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment: automation-publication
+    permissions:
+      actions: read
+      contents: read
     steps:
       # SEC-CI-002: pinned SHAs per infra-expert rule.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -55,13 +55,21 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install dependencies
-        run: npm ci --ignore-scripts --no-audit
+      - name: Resolve immutable Actions run clock
+        id: run-clock
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npm run automation:resolve-run-clock
 
-      - name: Compute report window
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --prefer-offline
+
+      - name: Compute report window from immutable run clock
         id: window
         env:
           MONTH_OFFSET: ${{ github.event.inputs.month_offset || '1' }}
+          RUN_CLOCK_EPOCH: ${{ steps.run-clock.outputs.epoch_seconds }}
+          RUN_CREATED_AT: ${{ steps.run-clock.outputs.created_at }}
         run: |
           set -euo pipefail
           OFFSET="${MONTH_OFFSET}"
@@ -73,15 +81,62 @@ jobs:
             echo "::error::month_offset must be between 1 and 24: $OFFSET" >&2
             exit 1
           fi
-          START=$(date -u -d "$OFFSET months ago" +%Y-%m-01)
-          # End = start-of-this-month (exclusive upper bound).
-          END=$(date -u -d "$OFFSET months ago + 1 month" +%Y-%m-01)
-          STAMP=$(date -u +%Y-%m-%d)
-          echo "start=$START" >> "$GITHUB_OUTPUT"
-          echo "end=$END" >> "$GITHUB_OUTPUT"
-          echo "stamp=$STAMP" >> "$GITHUB_OUTPUT"
-          echo "month_label=$(date -u -d "$OFFSET months ago" +%Y-%m)" >> "$GITHUB_OUTPUT"
-          echo "Reporting window: $START (inclusive) to $END (exclusive)"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          if ! [[ "$RUN_CLOCK_EPOCH" =~ ^[0-9]+$ ]]; then
+            echo "::error::immutable Actions run clock is not an epoch: $RUN_CLOCK_EPOCH" >&2
+            exit 1
+          fi
+          export OFFSET RUN_CLOCK_EPOCH RUN_CREATED_AT
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          const epochSeconds = Number(process.env.RUN_CLOCK_EPOCH);
+          const offset = Number(process.env.OFFSET);
+          const outputPath = process.env.GITHUB_OUTPUT;
+          if (!Number.isSafeInteger(epochSeconds) || epochSeconds <= 0) {
+            throw new Error('RUN_CLOCK_EPOCH must be a positive safe integer');
+          }
+          if (!Number.isSafeInteger(offset) || offset < 1 || offset > 24) {
+            throw new Error('OFFSET must be an integer between 1 and 24');
+          }
+          if (!outputPath) {
+            throw new Error('GITHUB_OUTPUT is unavailable');
+          }
+
+          const generatedAt = process.env.RUN_CREATED_AT ?? '';
+          const base = new Date(epochSeconds * 1000);
+          if (
+            !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(generatedAt) ||
+            base.toISOString().replace('.000Z', 'Z') !== generatedAt
+          ) {
+            throw new Error('RUN_CREATED_AT and RUN_CLOCK_EPOCH differ');
+          }
+          const start = new Date(
+            Date.UTC(base.getUTCFullYear(), base.getUTCMonth() - offset, 1),
+          );
+          const end = new Date(
+            Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1),
+          );
+          const startDate = start.toISOString().slice(0, 10);
+          const endDate = end.toISOString().slice(0, 10);
+          const stamp = base.toISOString().slice(0, 10);
+          const monthLabel = startDate.slice(0, 7);
+          fs.appendFileSync(
+            outputPath,
+            [
+              `start=${startDate}`,
+              `end=${endDate}`,
+              `stamp=${stamp}`,
+              `month_label=${monthLabel}`,
+              `generated_at=${generatedAt}`,
+            ].join('\n') + '\n',
+            'utf8',
+          );
+          process.stdout.write(
+            `Reporting window: ${startDate} (inclusive) to ${endDate} (exclusive); ` +
+              `immutable run clock: ${generatedAt}\n`,
+          );
+          NODE
 
       - name: Persist enterprise workflow preflight
         env:
@@ -105,9 +160,9 @@ jobs:
               workspace_root=os.environ["GITHUB_WORKSPACE"],
               allowed_write_roots=[report],
               path_allowlist=[report],
-              network_policy=["github_api"],
-              network_enforcement_evidence="GitHub App PR API via automation/open-report-pr.sh",
-              token_provenance="github_app:installation",
+              network_policy=["github_api", "github_artifact"],
+              network_enforcement_evidence="read the exact Actions run clock, upload canonical evidence, then use the typed GitHub App publication protocol",
+              token_provenance="github_actions:actions_read+artifact+github_app:installation",
               dlp_mode="fail_closed",
               dlp_scan_clean=True,
               audit_reason="publish monthly rule-health report through automation PR",
@@ -120,34 +175,51 @@ jobs:
 
       - name: Generate report
         id: generate
+        env:
+          GENERATED_AT: ${{ steps.window.outputs.generated_at }}
+          LC_ALL: C
+          MONTH_LABEL: ${{ steps.window.outputs.month_label }}
+          PROTECTED_BASE_SHA: ${{ github.sha }}
+          REPORT_END: ${{ steps.window.outputs.end }}
+          REPORT_STAMP: ${{ steps.window.outputs.stamp }}
+          REPORT_START: ${{ steps.window.outputs.start }}
         run: |
           set -euo pipefail
           REPORT_DIR="docs/reviews/rule-health"
           mkdir -p "$REPORT_DIR"
-          REPORT="$REPORT_DIR/${{ steps.window.outputs.stamp }}-rule-health-${{ steps.window.outputs.month_label }}.md"
+          REPORT="$REPORT_DIR/${REPORT_STAMP}-rule-health-${MONTH_LABEL}.md"
           echo "path=$REPORT" >> "$GITHUB_OUTPUT"
+          REGISTRY_CSV="$(
+            mktemp "${RUNNER_TEMP:?RUNNER_TEMP is required}/rule-health-registry.XXXXXX"
+          )"
+          readonly REGISTRY_CSV
+          cleanup_registry_csv() {
+            rm -f -- "${REGISTRY_CSV}"
+          }
+          trap cleanup_registry_csv EXIT
 
           {
-            echo "# Rule Health Report — ${{ steps.window.outputs.month_label }}"
+            printf '# Rule Health Report — %s\n' "${MONTH_LABEL}"
             echo ""
-            echo "**Generated**: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            echo "**Window**: ${{ steps.window.outputs.start }} (inclusive) to ${{ steps.window.outputs.end }} (exclusive)"
-            echo "**Status**: skeleton (Phase 7 deliverable; Phase 12 deepens Prometheus-backed sections)"
+            printf '**Generated**: %s\n' "${GENERATED_AT}"
+            printf '**Protected base**: `%s`\n' "${PROTECTED_BASE_SHA}"
+            printf '**Window**: %s (inclusive) to %s (exclusive)\n' "${REPORT_START}" "${REPORT_END}"
+            echo "**Status**: repository-derived measures complete; live dispatch/rule-rate telemetry remains OPEN under IU-CI-023"
             echo ""
             echo "## 1. Finding registry state"
             echo ""
             # Run finding-registry export to CSV, then aggregate.
             npx ts-node --project tools/gates/tsconfig.json \
-              tools/gates/finding-registry.ts export csv > /tmp/registry.csv
+              tools/gates/finding-registry.ts export csv > "${REGISTRY_CSV}"
             echo "| Severity | OPEN | IN-PROGRESS | RESOLVED | STALE | BLOCKED | Total |"
             echo "|---|---|---|---|---|---|---|"
             for sev in CRITICAL HIGH MEDIUM LOW; do
-              total=$(awk -F',' -v s="$sev" 'NR>1 && $2==s {c++} END {print c+0}' /tmp/registry.csv)
-              open=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="OPEN" {c++} END {print c+0}' /tmp/registry.csv)
-              inp=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="IN-PROGRESS" {c++} END {print c+0}' /tmp/registry.csv)
-              res=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="RESOLVED" {c++} END {print c+0}' /tmp/registry.csv)
-              stale=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="STALE" {c++} END {print c+0}' /tmp/registry.csv)
-              blk=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="BLOCKED" {c++} END {print c+0}' /tmp/registry.csv)
+              total=$(awk -F',' -v s="$sev" 'NR>1 && $2==s {c++} END {print c+0}' "${REGISTRY_CSV}")
+              open=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="OPEN" {c++} END {print c+0}' "${REGISTRY_CSV}")
+              inp=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="IN-PROGRESS" {c++} END {print c+0}' "${REGISTRY_CSV}")
+              res=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="RESOLVED" {c++} END {print c+0}' "${REGISTRY_CSV}")
+              stale=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="STALE" {c++} END {print c+0}' "${REGISTRY_CSV}")
+              blk=$(awk -F',' -v s="$sev" 'NR>1 && $2==s && $3=="BLOCKED" {c++} END {print c+0}' "${REGISTRY_CSV}")
               echo "| $sev | $open | $inp | $res | $stale | $blk | $total |"
             done
             echo ""
@@ -189,22 +261,22 @@ jobs:
             echo "- Inline \`// auditor-override:\` comments in source: **$OVERRIDE_COUNT**"
             echo ""
 
-            echo "## 3. Agent dispatch frequency (this month)"
+            echo "## 3. Agent dispatch frequency (selected month)"
             echo ""
             ORCHESTRATOR_DIR=docs/reviews/orchestrator
             if [ -d "$ORCHESTRATOR_DIR" ]; then
-              COUNT=$(find "$ORCHESTRATOR_DIR" -name "${{ steps.window.outputs.month_label }}-*.md" | wc -l)
+              COUNT=$(find "$ORCHESTRATOR_DIR" -name "${MONTH_LABEL}-*.md" | wc -l)
               echo "- Orchestrator unified reports in window: **$COUNT**"
               echo ""
-              echo '_Deep agent-dispatch metrics (agent_dispatch_total Prometheus counter) deferred to Phase 12; this skeleton reports the review-file count as a proxy._'
+              echo '_This is the repository-derived report count, not the live_ `agent_dispatch_total` _measure. Live telemetry acceptance is OPEN under IU-CI-023 (owner: infra-expert; reviewer: observability-expert; deadline: 2026-08-01)._'
             else
               echo "- No orchestrator reports directory found."
             fi
             echo ""
 
-            echo "## 4. Rule firing rate (this month)"
+            echo "## 4. Rule firing rate (selected month)"
             echo ""
-            echo '_Rule-firing rate requires the Phase-12 Prometheus metric_ `agent_finding_issued_total` _by rule-ID label, with at least a month of live production traffic. This skeleton is in place; metric aggregation lands when Phase 12 ships._'
+            echo '_No rule-firing rate is asserted. The_ `agent_finding_issued_total` _and per-gate series plus a complete monthly observation proof remain OPEN under IU-CI-023 (owner: infra-expert; reviewer: observability-expert; deadline: 2026-08-01)._'
             echo ""
 
             echo "## Signals"
@@ -215,43 +287,92 @@ jobs:
             echo ""
 
             echo "---"
-            echo "_Generated by_ \`.github/workflows/rule-health-report.yml\` _— Phase 7 skeleton_"
+            echo "_Generated by_ \`.github/workflows/rule-health-report.yml\` _from the exact protected-base commit; live telemetry completion is tracked by IU-CI-023._"
           } > "$REPORT"
 
           echo "Report generated at $REPORT"
           head -50 "$REPORT"
 
-      - name: Open or update report PR
+      - name: Stage canonical rule-health input evidence
         env:
-          GH_TOKEN: ${{ secrets.ARIA_GITHUB_APP_TOKEN }}
+          REPORT_PATH: ${{ steps.generate.outputs.path }}
+        run: |
+          set -euo pipefail
+          STAGE_DIR="${RUNNER_TEMP}/rule-health-input"
+          install -d -m 0700 -- "${STAGE_DIR}"
+          install -m 0600 -- \
+            "${RUNNER_TEMP}/rule-health-report-preflight.json" \
+            "${STAGE_DIR}/rule-health-report-preflight.json"
+          install -m 0600 -- \
+            "${REPORT_PATH}" \
+            "${STAGE_DIR}/$(basename -- "${REPORT_PATH}")"
+
+      - name: Upload immutable rule-health input evidence
+        id: mutation-evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rule-health-report-input-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rule-health-input/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Mint scoped automation GitHub App token
+        id: automation-app
+        uses: ./.github/actions/mint-automation-app-token
+        with:
+          client-id: ${{ vars.ARIA_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ARIA_GITHUB_APP_PRIVATE_KEY }}
+          expected-app-slug: ${{ vars.ARIA_GITHUB_APP_SLUG }}
+          expected-installation-id: ${{ vars.ARIA_GITHUB_APP_INSTALLATION_ID }}
+
+      - name: Publish idempotent report PR
+        id: publication
+        env:
+          EXPECTED_BASE_SHA: ${{ github.sha }}
+          GH_APP_INSTALLATION_ID: ${{ steps.automation-app.outputs.installation-id }}
+          GH_APP_SLUG: ${{ steps.automation-app.outputs.app-slug }}
+          GH_TOKEN: ${{ steps.automation-app.outputs.token }}
+          MONTH_LABEL: ${{ steps.window.outputs.month_label }}
           REPORT_PATH: ${{ steps.generate.outputs.path }}
         run: |
           set -euo pipefail
           BODY_FILE="$RUNNER_TEMP/rule-health-pr-body.md"
-          cat > "$BODY_FILE" <<EOF
-          Monthly rule-health aggregate for **${{ steps.window.outputs.month_label }}**.
+          {
+            printf 'Monthly rule-health aggregate for **%s**.\n\n' "${MONTH_LABEL}"
+            printf '%s\n' 'Covers: finding-registry state by severity + owner, override count,'
+            printf '%s\n\n' 'repository-derived dispatch evidence, and the explicit IU-CI-023 telemetry gap.'
+            printf 'Generated report: `%s`.\n\n' "${REPORT_PATH}"
+            printf '%s\n' 'CODEOWNERS review is required before merge.'
+          } > "$BODY_FILE"
 
-          Covers: finding-registry state by severity + owner, override count,
-          agent dispatch frequency, and rule-firing rate skeleton data.
-
-          Generated report: `${REPORT_PATH}`.
-
-          CODEOWNERS review is required before merge.
-          EOF
-
-          export PR_BRANCH="automation/rule-health-${{ steps.window.outputs.month_label }}"
-          export PR_TITLE="chore(report): monthly rule-health report - ${{ steps.window.outputs.month_label }}"
+          export PR_BRANCH="automation/rule-health-${MONTH_LABEL}"
+          export PR_TITLE="chore(report): monthly rule-health report - ${MONTH_LABEL}"
           export PR_BODY_FILE="$BODY_FILE"
-          export COMMIT_MESSAGE="chore(report): rule-health ${{ steps.window.outputs.month_label }}"
+          export COMMIT_MESSAGE="chore(report): rule-health ${MONTH_LABEL}"
           export CHANGED_PATHS="$REPORT_PATH"
-          bash tools/scripts/automation/open-report-pr.sh
+          export AUTOMATION_COMMAND_ID="rule-health-report:${MONTH_LABEL}:${EXPECTED_BASE_SHA}"
+          export AUTOMATION_OPERATION="report"
+          export AUTOMATION_INPUT_SHA256="$(sha256sum -- "$REPORT_PATH" | awk '{print $1}')"
+          export AUTOMATION_EVIDENCE_ARTIFACT_ID="${{ steps.mutation-evidence.outputs.artifact-id }}"
+          export AUTOMATION_EVIDENCE_ARTIFACT="rule-health-report-input-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export AUTOMATION_EVIDENCE_SHA256="${{ steps.mutation-evidence.outputs.artifact-digest }}"
+          export AUTOMATION_RESULT_PATH="${RUNNER_TEMP}/rule-health-report-publication.json"
+          npm run automation:publish
 
-      # ADR-036 — upload the enterprise-preflight audit proof so the generate
-      # job's governed-write decision is retained as CI evidence.
-      - name: Upload rule-health preflight proof
+      - name: Upload immutable rule-health publication result
+        if: always() && steps.publication.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: rule-health-report-proof-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/rule-health-report-preflight.json
+          name: automation-publication-result-${{ steps.publication.outputs.commit }}
+          path: ${{ runner.temp }}/rule-health-report-publication.json
           if-no-files-found: error
-          retention-days: 365
+          retention-days: 90
+
+      - name: Upload durable rule-health publication failure
+        if: always() && steps.publication.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: automation-publication-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rule-health-report-publication.json
+          if-no-files-found: error
+          retention-days: 90

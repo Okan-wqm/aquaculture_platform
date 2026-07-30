@@ -1,0 +1,123 @@
+{
+  "$schema": "aqua/github-automation-publication-authority/v1",
+  "schema_version": 1,
+  "authority_id": "aqua.github.automation-publication",
+  "state": "BOOTSTRAP_PENDING",
+  "repository": {
+    "full_name": "Okan-wqm/aquaculture_platform",
+    "repository_id": 1132698735
+  },
+  "observation": {
+    "observed_at": "2026-07-30T07:22:24Z",
+    "source": "LIVE_GITHUB_API"
+  },
+  "environment": {
+    "name": "automation-publication",
+    "deployment_branch_policy": {
+      "protected_branches": false,
+      "custom_branch_policies": true,
+      "custom_branch_policy_count": 1,
+      "custom_branch_policies": [
+        {
+          "name": "main",
+          "type": "branch"
+        }
+      ]
+    }
+  },
+  "credentials": {
+    "scope": "ENVIRONMENT_ONLY",
+    "required_environment_secret_names": ["ARIA_GITHUB_APP_PRIVATE_KEY"],
+    "required_environment_variable_names": [
+      "ARIA_GITHUB_APP_CLIENT_ID",
+      "ARIA_GITHUB_APP_INSTALLATION_ID",
+      "ARIA_GITHUB_APP_SLUG"
+    ],
+    "observed_environment_secret_names": [],
+    "observed_environment_variable_names": [],
+    "forbidden_publisher_token_references": [
+      "ARIA_GITHUB_APP_TOKEN",
+      "secrets.GITHUB_TOKEN",
+      "github.token"
+    ],
+    "requested_token_contract": {
+      "mint_action": ".github/actions/mint-automation-app-token/action.yml",
+      "repository_selection": "EXACTLY_ONE_SELECTED_REPOSITORY",
+      "repositories": [
+        {
+          "full_name": "Okan-wqm/aquaculture_platform",
+          "repository_id": 1132698735
+        }
+      ],
+      "permissions": {
+        "actions": "read",
+        "contents": "write",
+        "pull_requests": "write"
+      },
+      "installation_id_binding": "PINNED_ACTION_OUTPUT_MATCH_V1",
+      "principal_binding": "GRAPHQL_VIEWER_APP_BOT_V1",
+      "repository_scope_binding": "INSTALLATION_REPOSITORIES_EXACT_ONE_V1"
+    }
+  },
+  "authorized_publishers": [
+    {
+      "workflow_path": ".github/workflows/finding-registry-authority.yml",
+      "job_id": "mutate",
+      "environment": "automation-publication",
+      "app_token_step_id": "app-token",
+      "publisher_step_id": "publication"
+    },
+    {
+      "workflow_path": ".github/workflows/finding-state-sweep.yml",
+      "job_id": "sweep",
+      "environment": "automation-publication",
+      "app_token_step_id": "app-token",
+      "publisher_step_id": "publication"
+    },
+    {
+      "workflow_path": ".github/workflows/aria-daily-report.yml",
+      "job_id": "commit-report",
+      "environment": "automation-publication",
+      "app_token_step_id": "automation-app",
+      "publisher_step_id": "publication"
+    },
+    {
+      "workflow_path": ".github/workflows/rule-health-report.yml",
+      "job_id": "generate",
+      "environment": "automation-publication",
+      "app_token_step_id": "automation-app",
+      "publisher_step_id": "publication"
+    }
+  ],
+  "admission": {
+    "workflow_path": ".github/workflows/automation-publication-admission.yml",
+    "event": "pull_request_target",
+    "job_id": "automation-publication-admission",
+    "context": "automation-publication-admission",
+    "trust_source": "PROTECTED_BASE",
+    "checkout_ref": "${{ github.event.pull_request.base.sha }}",
+    "required_status_checks_manifest": ".github/manifests/main-required-status-checks.json",
+    "required_on_protected_main": false
+  },
+  "bootstrap_blocker": {
+    "id": "P1-AUTOMATION-PUBLICATION-001",
+    "path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/README.md",
+    "state": "OPEN",
+    "owner": "security-reviewer",
+    "deadline": "2026-07-30",
+    "missing_conditions": ["ENVIRONMENT_APP_CREDENTIALS_ABSENT", "ADMISSION_CONTEXT_NOT_REQUIRED"]
+  },
+  "activation_evidence": {
+    "activated_at": null,
+    "protected_main_sha": null,
+    "credential_scope_configuration_sha256": null,
+    "required_status_checks_configuration_sha256": null,
+    "publisher_workflow_bindings_sha256": null,
+    "github_app_id": null,
+    "github_app_slug": null,
+    "github_app_installation_id": null,
+    "admission_check_run_url": null,
+    "publication_proof_run_url": null,
+    "publication_proof_artifact_sha256": null
+  }
+}

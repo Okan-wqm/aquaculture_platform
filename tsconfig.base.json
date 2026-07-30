@@ -48,64 +48,31 @@
       "@aquaculture/backend-common/auth": ["libs/backend-common/src/auth/index.ts"],
       "@aquaculture/backend-common/audit": ["libs/backend-common/src/audit/index.ts"],
       "@aquaculture/backend-common/billing": ["libs/backend-common/src/billing/index.ts"],
-      "@aquaculture/backend-common/ai-safety": [
-        "libs/backend-common/src/ai-safety/index.ts"
-      ],
-      "@aquaculture/backend-common/bootstrap": [
-        "libs/backend-common/src/bootstrap/index.ts"
-      ],
+      "@aquaculture/backend-common/ai-safety": ["libs/backend-common/src/ai-safety/index.ts"],
+      "@aquaculture/backend-common/bootstrap": ["libs/backend-common/src/bootstrap/index.ts"],
       "@aquaculture/backend-common/config": ["libs/backend-common/src/config/index.ts"],
       "@aquaculture/backend-common/config-client": [
         "libs/backend-common/src/config-client/index.ts"
       ],
-      "@aquaculture/backend-common/constants": [
-        "libs/backend-common/src/constants/index.ts"
-      ],
-      "@aquaculture/backend-common/context": [
-        "libs/backend-common/src/context/index.ts"
-      ],
-      "@aquaculture/backend-common/database": [
-        "libs/backend-common/src/database/index.ts"
-      ],
-      "@aquaculture/backend-common/dataloader": [
-        "libs/backend-common/src/dataloader/index.ts"
-      ],
-      "@aquaculture/backend-common/decorators": [
-        "libs/backend-common/src/decorators/index.ts"
-      ],
-      "@aquaculture/backend-common/filters": [
-        "libs/backend-common/src/filters/index.ts"
-      ],
-      "@aquaculture/backend-common/finding-registry": [
-        "libs/backend-common/src/finding-registry/index.ts"
-      ],
+      "@aquaculture/backend-common/constants": ["libs/backend-common/src/constants/index.ts"],
+      "@aquaculture/backend-common/context": ["libs/backend-common/src/context/index.ts"],
+      "@aquaculture/backend-common/database": ["libs/backend-common/src/database/index.ts"],
+      "@aquaculture/backend-common/dataloader": ["libs/backend-common/src/dataloader/index.ts"],
+      "@aquaculture/backend-common/decorators": ["libs/backend-common/src/decorators/index.ts"],
+      "@aquaculture/backend-common/filters": ["libs/backend-common/src/filters/index.ts"],
       "@aquaculture/backend-common/gdpr": ["libs/backend-common/src/security/gdpr/index.ts"],
       "@aquaculture/backend-common/graphql": ["libs/backend-common/src/graphql/index.ts"],
-      "@aquaculture/backend-common/guards": [
-        "libs/backend-common/src/guards/index.ts"
-      ],
-      "@aquaculture/backend-common/health": [
-        "libs/backend-common/src/health/index.ts"
-      ],
+      "@aquaculture/backend-common/guards": ["libs/backend-common/src/guards/index.ts"],
+      "@aquaculture/backend-common/health": ["libs/backend-common/src/health/index.ts"],
       "@aquaculture/backend-common/http": ["libs/backend-common/src/http/index.ts"],
-      "@aquaculture/backend-common/logging": [
-        "libs/backend-common/src/logging/index.ts"
-      ],
-      "@aquaculture/backend-common/metrics": [
-        "libs/backend-common/src/metrics/index.ts"
-      ],
-      "@aquaculture/backend-common/middleware": [
-        "libs/backend-common/src/middleware/index.ts"
-      ],
+      "@aquaculture/backend-common/logging": ["libs/backend-common/src/logging/index.ts"],
+      "@aquaculture/backend-common/metrics": ["libs/backend-common/src/metrics/index.ts"],
+      "@aquaculture/backend-common/middleware": ["libs/backend-common/src/middleware/index.ts"],
       "@aquaculture/backend-common/mobile-command": [
         "libs/backend-common/src/mobile-command/index.ts"
       ],
-      "@aquaculture/backend-common/monetary": [
-        "libs/backend-common/src/monetary/index.ts"
-      ],
-      "@aquaculture/backend-common/monitoring": [
-        "libs/backend-common/src/monitoring/index.ts"
-      ],
+      "@aquaculture/backend-common/monetary": ["libs/backend-common/src/monetary/index.ts"],
+      "@aquaculture/backend-common/monitoring": ["libs/backend-common/src/monitoring/index.ts"],
       "@aquaculture/backend-common/nats": ["libs/backend-common/src/nats/index.ts"],
       "@aquaculture/backend-common/orchestrator-leader-election": [
         "libs/backend-common/src/orchestrator-leader-election/index.ts"
@@ -113,49 +80,25 @@
       "@aquaculture/backend-common/orchestrator-rate-limit": [
         "libs/backend-common/src/orchestrator-rate-limit/index.ts"
       ],
-      "@aquaculture/backend-common/pagination": [
-        "libs/backend-common/src/pagination/index.ts"
-      ],
+      "@aquaculture/backend-common/pagination": ["libs/backend-common/src/pagination/index.ts"],
       "@aquaculture/backend-common/quota": ["libs/backend-common/src/quota/index.ts"],
       "@aquaculture/backend-common/redis": ["libs/backend-common/src/redis/index.ts"],
-      "@aquaculture/backend-common/resilience": [
-        "libs/backend-common/src/resilience/index.ts"
-      ],
-      "@aquaculture/backend-common/rate-limit": [
-        "libs/backend-common/src/rate-limit/index.ts"
-      ],
-      "@aquaculture/backend-common/security": [
-        "libs/backend-common/src/security/index.ts"
-      ],
-      "@aquaculture/backend-common/sensor": [
-        "libs/backend-common/src/sensor/index.ts"
-      ],
-      "@aquaculture/backend-common/compliance": [
-        "libs/backend-common/src/compliance/index.ts"
-      ],
-      "@aquaculture/backend-common/telemetry": [
-        "libs/backend-common/src/telemetry/index.ts"
-      ],
-      "@aquaculture/backend-common/tenant": [
-        "libs/backend-common/src/tenant/index.ts"
-      ],
-      "@aquaculture/backend-common/types": [
-        "libs/backend-common/src/types/index.ts"
-      ],
+      "@aquaculture/backend-common/resilience": ["libs/backend-common/src/resilience/index.ts"],
+      "@aquaculture/backend-common/rate-limit": ["libs/backend-common/src/rate-limit/index.ts"],
+      "@aquaculture/backend-common/security": ["libs/backend-common/src/security/index.ts"],
+      "@aquaculture/backend-common/sensor": ["libs/backend-common/src/sensor/index.ts"],
+      "@aquaculture/backend-common/compliance": ["libs/backend-common/src/compliance/index.ts"],
+      "@aquaculture/backend-common/telemetry": ["libs/backend-common/src/telemetry/index.ts"],
+      "@aquaculture/backend-common/tenant": ["libs/backend-common/src/tenant/index.ts"],
+      "@aquaculture/backend-common/types": ["libs/backend-common/src/types/index.ts"],
       "@aquaculture/backend-common/utils": ["libs/backend-common/src/utils/index.ts"],
-      "@aquaculture/backend-common/websocket": [
-        "libs/backend-common/src/websocket/index.ts"
-      ],
+      "@aquaculture/backend-common/websocket": ["libs/backend-common/src/websocket/index.ts"],
       "@platform/event-contracts": ["libs/event-contracts/src/index.ts"],
-      "@platform/sensor-automation-types": [
-        "libs/sensor-automation-types/src/index.ts"
-      ],
+      "@platform/sensor-automation-types": ["libs/sensor-automation-types/src/index.ts"],
       "@platform/alarm-core": ["libs/alarm-core/src/index.ts"],
       "@platform/protocol-codec": ["libs/protocol-codec/src/index.ts"],
       "@platform/sensor-contracts": ["libs/sensor-contracts/src/index.ts"],
-      "@platform/sensor-contracts/validators": [
-        "libs/sensor-contracts/src/validators.ts"
-      ],
+      "@platform/sensor-contracts/validators": ["libs/sensor-contracts/src/validators.ts"],
       "@platform/storage": ["libs/storage/src/index.ts"],
       "@platform/sdk": ["libs/sdk/typescript/src/index.ts"],
       "@platform/testing": ["libs/testing/src/index.ts"],

@@ -19,15 +19,17 @@
  *
  * # When this fails
  *
- *   - Entry mid-registry edited → re-run tools/scripts/seed-finding-registry.mjs
- *     on a fresh registry OR append a corrective entry (never in-place edit).
- *   - Schema violation on a new entry → fix the entry to match schema.
- *   - Hash mismatch → content was modified after append; revert the edit.
+ *   - Entry mid-registry edited → reject the unauthorized delta and compare a
+ *     fresh checkout with the last verified protected-main state. Never seed,
+ *     rechain, dedupe, or mutate the JSONL from a checkout.
+ *   - Schema violation in an authority PR → correct the workflow request and
+ *     retry it with the same command_id.
+ *   - Hash mismatch → reject the authority PR and investigate its provenance.
  *
  * # References
  *
  *   - /root/.claude/plans/abstract-brewing-mochi.md#Phase-6
- *   - /var/aqua-saas/docs/reviews/_registry/README.md (seed + management docs)
+ *   - /var/aqua-saas/docs/reviews/_registry/README.md (authority + management docs)
  *   - /var/aqua-saas/docs/reviews/_registry/findings.jsonl.schema.json
  */
 
@@ -69,11 +71,7 @@ function canonicalJson(value: unknown): string {
   }
   const obj = value as Record<string, unknown>;
   const keys = Object.keys(obj).sort();
-  return (
-    '{' +
-    keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(obj[k])).join(',') +
-    '}'
-  );
+  return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(obj[k])).join(',') + '}';
 }
 
 function sha256hex(input: string): string {
@@ -162,11 +160,11 @@ describe('finding registry integrity invariant', () => {
   /**
    * SEC-REVIEW-005 — finding re-open detection.
    *
-   * When a finding previously closed as RESOLVED regresses, the correct
-   * shape per the schema is to APPEND a new entry with a fresh id (e.g.
-   * `AUDIT-HIGH-008-R1`) and `override_of: "AUDIT-HIGH-008"` pointing at
-   * the prior finding. The chain stays append-only; the earlier RESOLVED
-   * row is never edited.
+   * When a finding previously closed as RESOLVED regresses, request a fresh
+   * entry from the Finding Registry Authority workflow (e.g.
+   * `AUDIT-HIGH-008-R1`) with `override_of: "AUDIT-HIGH-008"` pointing at
+   * the prior finding. The chain stays append-only; the earlier RESOLVED row
+   * is never edited.
    *
    * Integrity invariant: every `override_of` value, when non-null, must
    * refer to an id that exists earlier in the chain. Without this check
@@ -279,8 +277,7 @@ describe('finding registry integrity invariant', () => {
         const evidence = (entry as { evidence?: unknown }).evidence;
         if (!Array.isArray(evidence)) continue;
         const anyDead = evidence.some(
-          (e) =>
-            typeof e === 'string' && deadPrefixes.some((p) => e.startsWith(p)),
+          (e) => typeof e === 'string' && deadPrefixes.some((p) => e.startsWith(p)),
         );
         if (anyDead) hits.push(entry.id);
       }

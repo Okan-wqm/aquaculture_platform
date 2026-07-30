@@ -344,6 +344,11 @@ jobs:
   deploy-ssot-gates:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      pull-requests: read
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -359,6 +364,47 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
+
+      - name: Verify finding registry mutation authority
+        run: npm run test:finding-registry-authority
+
+      - name: Verify automation publication authority contracts
+        run: |
+          npm run gates:automation-publication-publisher-typecheck
+          npm run test:automation-publication-admission
+          npm run test:automation-publication-archive
+          npm run test:automation-publication-policy
+          npm run test:automation-publication-publisher
+          npm run test:automation-run-clock
+
+      - name: Verify finding writer preflight
+        run: npm run findings:writer-preflight
+
+      - name: Fetch capability source refs
+        run: git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'
+
+      - name: Verify remote capability source inventory
+        run: npm run gates:capability-source-inventory:remote
+        env:
+          CAPABILITY_INVENTORY_CURRENT_REF: ${{ github.head_ref }}
+          CAPABILITY_INVENTORY_CURRENT_SHA: ${{ github.event.pull_request.head.sha }}
+
+      - name: Verify remote source finding attestations
+        # Event SHAs are immutable. The gate accepts a protected-main push
+        # without requiring that future merge/squash SHA to have been embedded
+        # in its own parent, while registry/schema authority remains fail-closed.
+        if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        run: npm run gates:source-finding-inventory:remote
+        env:
+          SOURCE_FINDING_EVENT_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          SOURCE_FINDING_EVENT_PUSH_BEFORE_SHA: ${{ github.event.before }}
+          SOURCE_FINDING_EVENT_PUSH_AFTER_SHA: ${{ github.event.after }}
+          SOURCE_FINDING_EVENT_CHECKOUT_SHA: ${{ github.sha }}
+
+      - name: Verify capability integration evidence
+        run: npm run gates:capability-integration-evidence:live
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Service catalog artifacts are fresh
         run: npm run service-catalog:check

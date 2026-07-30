@@ -3,15 +3,23 @@ import {
   closeSync,
   existsSync,
   fsyncSync,
+  lstatSync,
   openSync,
   readFileSync,
+  readdirSync,
   renameSync,
   statSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { hostname } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, normalize, sep } from 'node:path';
+
+import {
+  assertRepositoryMutationAuthority,
+  type RegistryMutationOperation,
+  type RepositoryMutationAuthority,
+} from './github-actions-oidc-authority';
 
 export type FindingSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 
@@ -26,6 +34,8 @@ export interface RegistryLockLease {
   readonly lockPath: string;
   readonly resourcePath: string;
   readonly token: string;
+  readonly bootId: string;
+  readonly processStartTicks: string;
 }
 
 type RegistryLockErrorCode =
@@ -35,10 +45,12 @@ type RegistryLockErrorCode =
   | 'LOCK_OWNERSHIP_LOST';
 
 interface LockRecord {
-  readonly version: 1;
+  readonly version: 2;
   readonly token: string;
   readonly pid: number;
   readonly hostname: string;
+  readonly boot_id: string;
+  readonly process_start_ticks: string;
   readonly acquired_at: string;
   readonly resource_path: string;
 }
@@ -53,6 +65,18 @@ const DEFAULT_LOCK_OPTIONS: RegistryLockOptions = {
   staleAfterMs: 30_000,
   pollIntervalMs: 25,
 };
+const BOOT_ID_PATH = '/proc/sys/kernel/random/boot_id';
+const BOOT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const PROCESS_START_TICKS_PATTERN = /^[1-9]\d*$/;
+const ATOMIC_WRITE_STAGING_PATTERN =
+  /^\.(?<basename>.+)\.(?<pid>[1-9]\d*)\.(?<token>[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.new$/;
+
+interface AtomicWriteStagingFile {
+  readonly name: string;
+  readonly path: string;
+  readonly pid: number;
+  readonly token: string;
+}
 
 export class RegistryLockError extends Error {
   public constructor(
@@ -94,13 +118,17 @@ function parseLockRecord(raw: string): LockRecord | null {
   if (value === null || typeof value !== 'object') return null;
   const record = value as Partial<LockRecord>;
   if (
-    record.version !== 1 ||
+    record.version !== 2 ||
     typeof record.token !== 'string' ||
     record.token.length === 0 ||
     !Number.isSafeInteger(record.pid) ||
     (record.pid ?? 0) <= 0 ||
     typeof record.hostname !== 'string' ||
     record.hostname.length === 0 ||
+    typeof record.boot_id !== 'string' ||
+    !BOOT_ID_PATTERN.test(record.boot_id) ||
+    typeof record.process_start_ticks !== 'string' ||
+    !PROCESS_START_TICKS_PATTERN.test(record.process_start_ticks) ||
     typeof record.acquired_at !== 'string' ||
     !Number.isFinite(Date.parse(record.acquired_at)) ||
     typeof record.resource_path !== 'string' ||
@@ -120,15 +148,53 @@ function readLockSnapshot(lockPath: string, nowMs: number): LockSnapshot {
   };
 }
 
-function processIsAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    if (isErrno(error, 'ESRCH')) return false;
-    // EPERM means the process exists but this user cannot signal it.
-    return true;
+interface ProcessIdentity {
+  readonly bootId: string;
+  readonly processStartTicks: string;
+}
+
+function readBootId(): string {
+  const bootId = readFileSync(BOOT_ID_PATH, 'utf8').trim().toLowerCase();
+  if (!BOOT_ID_PATTERN.test(bootId)) {
+    throw new Error(`${BOOT_ID_PATH} returned an invalid Linux boot identity`);
   }
+  return bootId;
+}
+
+function readProcessStartTicks(pid: number): string | null {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const commandEnd = stat.lastIndexOf(')');
+    if (commandEnd <= 1 || stat[commandEnd + 1] !== ' ') {
+      throw new Error(`/proc/${pid}/stat has an invalid process record`);
+    }
+    const fieldsFromState = stat
+      .slice(commandEnd + 2)
+      .trim()
+      .split(/\s+/);
+    const startTicks = fieldsFromState[19];
+    if (!startTicks || !PROCESS_START_TICKS_PATTERN.test(startTicks)) {
+      throw new Error(`/proc/${pid}/stat has an invalid start-time identity`);
+    }
+    return startTicks;
+  } catch (error) {
+    if (isErrno(error, 'ENOENT') || isErrno(error, 'ESRCH')) return null;
+    throw error;
+  }
+}
+
+function currentProcessIdentity(): ProcessIdentity {
+  const processStartTicks = readProcessStartTicks(process.pid);
+  if (processStartTicks === null) {
+    throw new Error(`Current process ${process.pid} disappeared during lock acquisition`);
+  }
+  return { bootId: readBootId(), processStartTicks };
+}
+
+function lockOwnerStillExists(record: LockRecord, localBootId: string): boolean {
+  if (record.boot_id !== localBootId) return false;
+  const observedStartTicks = readProcessStartTicks(record.pid);
+  return observedStartTicks === record.process_start_ticks;
 }
 
 function writeLockRecord(lockPath: string, record: LockRecord): void {
@@ -176,21 +242,30 @@ function acquireRegistryLock(
 ): RegistryLockLease {
   const deadlineMs = Date.now() + options.timeoutMs;
   const localHostname = hostname();
+  const processIdentity = currentProcessIdentity();
 
   for (;;) {
     const token = randomUUID();
     const record: LockRecord = {
-      version: 1,
+      version: 2,
       token,
       pid: process.pid,
       hostname: localHostname,
+      boot_id: processIdentity.bootId,
+      process_start_ticks: processIdentity.processStartTicks,
       acquired_at: new Date().toISOString(),
       resource_path: resourcePath,
     };
 
     try {
       writeLockRecord(lockPath, record);
-      return { lockPath, resourcePath, token };
+      return {
+        lockPath,
+        resourcePath,
+        token,
+        bootId: processIdentity.bootId,
+        processStartTicks: processIdentity.processStartTicks,
+      };
     } catch (error) {
       if (!isErrno(error, 'EEXIST')) throw error;
     }
@@ -218,7 +293,10 @@ function acquireRegistryLock(
           `Stale registry lock belongs to host ${owner.hostname}; refusing cross-host takeover: ${lockPath}`,
         );
       }
-      if (!processIsAlive(owner.pid) && quarantineDeadLock(lockPath, owner)) {
+      if (
+        !lockOwnerStillExists(owner, processIdentity.bootId) &&
+        quarantineDeadLock(lockPath, owner)
+      ) {
         continue;
       }
     }
@@ -245,7 +323,9 @@ export function assertRegistryLockOwned(lease: RegistryLockLease): void {
     record?.token !== lease.token ||
     record.resource_path !== lease.resourcePath ||
     record.pid !== process.pid ||
-    record.hostname !== hostname()
+    record.hostname !== hostname() ||
+    record.boot_id !== lease.bootId ||
+    record.process_start_ticks !== lease.processStartTicks
   ) {
     throw new RegistryLockError(
       'LOCK_OWNERSHIP_LOST',
@@ -264,7 +344,9 @@ function releaseRegistryLock(lease: RegistryLockLease): void {
     moved?.token !== lease.token ||
     moved.resource_path !== lease.resourcePath ||
     moved.pid !== process.pid ||
-    moved.hostname !== hostname()
+    moved.hostname !== hostname() ||
+    moved.boot_id !== lease.bootId ||
+    moved.process_start_ticks !== lease.processStartTicks
   ) {
     if (!existsSync(lease.lockPath)) renameSync(releasePath, lease.lockPath);
     throw new RegistryLockError(
@@ -280,6 +362,24 @@ export function withRegistryFileLock<T>(
   action: (lease: RegistryLockLease) => T,
   overrides: Partial<RegistryLockOptions> = {},
 ): T {
+  const lease = acquireConfiguredRegistryLock(resourcePath, overrides);
+  let outcome: RegistryActionOutcome<T>;
+  try {
+    outcome = { status: 'SUCCESS', value: action(lease) };
+  } catch (error) {
+    outcome = { status: 'FAILURE', error };
+  }
+  return finalizeRegistryAction(lease, outcome);
+}
+
+type RegistryActionOutcome<T> =
+  | { readonly status: 'SUCCESS'; readonly value: T }
+  | { readonly status: 'FAILURE'; readonly error: unknown };
+
+function acquireConfiguredRegistryLock(
+  resourcePath: string,
+  overrides: Partial<RegistryLockOptions>,
+): RegistryLockLease {
   const options: RegistryLockOptions = { ...DEFAULT_LOCK_OPTIONS, ...overrides };
   if (
     !Number.isSafeInteger(options.timeoutMs) ||
@@ -293,38 +393,66 @@ export function withRegistryFileLock<T>(
   }
 
   const lockPath = options.lockPath ?? `${resourcePath}.lock`;
-  const lease = acquireRegistryLock(resourcePath, lockPath, options);
-  let result: T | undefined;
-  let actionFailed = false;
-  let actionError: unknown;
-  try {
-    result = action(lease);
-  } catch (error) {
-    actionFailed = true;
-    actionError = error;
-  }
-
-  let releaseFailed = false;
-  let releaseError: unknown;
-  try {
-    releaseRegistryLock(lease);
-  } catch (error) {
-    releaseFailed = true;
-    releaseError = error;
-  }
-
-  if (actionFailed) {
-    if (actionError instanceof Error) throw actionError;
-    throw errorWithCause('Registry action threw a non-Error value.', actionError);
-  }
-  if (releaseFailed) {
-    if (releaseError instanceof Error) throw releaseError;
-    throw errorWithCause('Registry lock release threw a non-Error value.', releaseError);
-  }
-  return result as T;
+  return acquireRegistryLock(resourcePath, lockPath, options);
 }
 
-export function atomicWriteFileWithRegistryLease(
+function observedFailure(message: string, error: unknown): Error {
+  return error instanceof Error ? error : errorWithCause(message, error);
+}
+
+function finalizeRegistryAction<T>(lease: RegistryLockLease, outcome: RegistryActionOutcome<T>): T {
+  let releaseOutcome: RegistryActionOutcome<undefined>;
+  try {
+    releaseRegistryLock(lease);
+    releaseOutcome = { status: 'SUCCESS', value: undefined };
+  } catch (error) {
+    releaseOutcome = { status: 'FAILURE', error };
+  }
+
+  if (outcome.status === 'FAILURE' && releaseOutcome.status === 'FAILURE') {
+    throw new AggregateError(
+      [
+        observedFailure('Registry action threw a non-Error value.', outcome.error),
+        observedFailure('Registry lock release threw a non-Error value.', releaseOutcome.error),
+      ],
+      'Registry action and lock release both failed.',
+    );
+  }
+  if (outcome.status === 'FAILURE') {
+    throw observedFailure('Registry action threw a non-Error value.', outcome.error);
+  }
+  if (releaseOutcome.status === 'FAILURE') {
+    throw observedFailure('Registry lock release threw a non-Error value.', releaseOutcome.error);
+  }
+  return outcome.value;
+}
+
+export async function withRegistryFileLockAsync<T>(
+  resourcePath: string,
+  action: (lease: RegistryLockLease) => Promise<T>,
+  overrides: Partial<RegistryLockOptions> = {},
+): Promise<T> {
+  const lease = acquireConfiguredRegistryLock(resourcePath, overrides);
+  let outcome: RegistryActionOutcome<T>;
+  try {
+    outcome = { status: 'SUCCESS', value: await action(lease) };
+  } catch (error) {
+    outcome = { status: 'FAILURE', error };
+  }
+  return finalizeRegistryAction(lease, outcome);
+}
+
+const FINDING_REGISTRY_PATH_SUFFIX = ['docs', 'reviews', '_registry', 'findings.jsonl'].join(sep);
+
+function isCanonicalFindingRegistryPath(filePath: string): boolean {
+  const normalizedPath = normalize(filePath);
+  return (
+    normalizedPath === FINDING_REGISTRY_PATH_SUFFIX ||
+    normalizedPath.endsWith(`${sep}${FINDING_REGISTRY_PATH_SUFFIX}`)
+  );
+}
+
+function atomicWriteFileWithRegistryLeaseUnchecked(
   filePath: string,
   content: string,
   lease: RegistryLockLease,
@@ -360,18 +488,102 @@ export function atomicWriteFileWithRegistryLease(
   }
 }
 
+export function atomicWriteFileWithRegistryLease(
+  filePath: string,
+  content: string,
+  lease: RegistryLockLease,
+): void {
+  if (isCanonicalFindingRegistryPath(filePath)) {
+    throw new Error('Canonical finding registry writes require repository-global OIDC authority.');
+  }
+  atomicWriteFileWithRegistryLeaseUnchecked(filePath, content, lease);
+}
+
+function governedAtomicWriteStagingFiles(
+  parentPath: string,
+  isGovernedBasename: (basename: string) => boolean,
+): AtomicWriteStagingFile[] {
+  const stagingFiles: AtomicWriteStagingFile[] = [];
+  for (const entry of readdirSync(parentPath, { withFileTypes: true })) {
+    const match = ATOMIC_WRITE_STAGING_PATTERN.exec(entry.name);
+    const governedBasename = match?.groups?.basename;
+    if (!governedBasename || !isGovernedBasename(governedBasename)) continue;
+    const stagingPath = join(parentPath, entry.name);
+    if (!entry.isFile() || lstatSync(stagingPath).isSymbolicLink()) {
+      throw new Error(`Atomic staging inspection found a non-regular entry: ${entry.name}`);
+    }
+    const pid = Number.parseInt(match.groups?.pid ?? '', 10);
+    const token = match.groups?.token;
+    if (!Number.isSafeInteger(pid) || pid <= 0 || !token) {
+      throw new Error(`Atomic staging inspection found an invalid owner: ${entry.name}`);
+    }
+    stagingFiles.push({ name: entry.name, path: stagingPath, pid, token });
+  }
+  return stagingFiles.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export function listAtomicWriteStagingFiles(
+  parentPath: string,
+  isGovernedBasename: (basename: string) => boolean,
+): string[] {
+  return governedAtomicWriteStagingFiles(parentPath, isGovernedBasename).map(
+    (stagingFile) => stagingFile.name,
+  );
+}
+
+export function recoverAtomicWriteStagingFiles(
+  parentPath: string,
+  isGovernedBasename: (basename: string) => boolean,
+  lease: RegistryLockLease,
+  minimumAgeMs: number,
+): string[] {
+  if (!Number.isSafeInteger(minimumAgeMs) || minimumAgeMs <= 0) {
+    throw new TypeError('Atomic staging recovery age must be a positive safe integer.');
+  }
+  assertRegistryLockOwned(lease);
+  const recovered: string[] = [];
+  for (const stagingFile of governedAtomicWriteStagingFiles(parentPath, isGovernedBasename)) {
+    if (stagingFile.token === lease.token) {
+      throw new Error(`Atomic staging recovery found its own active owner: ${stagingFile.name}`);
+    }
+    const ageMs = Math.max(0, Date.now() - statSync(stagingFile.path).mtimeMs);
+    if (ageMs < minimumAgeMs) {
+      throw new Error(
+        `Atomic staging file is younger than the recovery threshold (pid=${stagingFile.pid}, age_ms=${Math.floor(
+          ageMs,
+        )}): ${stagingFile.name}`,
+      );
+    }
+    assertRegistryLockOwned(lease);
+    unlinkSync(stagingFile.path);
+    recovered.push(stagingFile.name);
+  }
+  if (recovered.length > 0) {
+    const parentFd = openSync(parentPath, 'r');
+    try {
+      fsyncSync(parentFd);
+    } finally {
+      closeSync(parentFd);
+    }
+  }
+  return recovered.sort();
+}
+
 export function atomicWriteRegistryFile(
   resourcePath: string,
   content: string,
   lease: RegistryLockLease,
+  repositoryAuthority: RepositoryMutationAuthority,
+  operation: RegistryMutationOperation,
 ): void {
+  assertRepositoryMutationAuthority(repositoryAuthority, operation);
   if (lease.resourcePath !== resourcePath) {
     throw new RegistryLockError(
       'LOCK_OWNERSHIP_LOST',
       `Registry lease does not fence the requested resource: ${resourcePath}`,
     );
   }
-  atomicWriteFileWithRegistryLease(resourcePath, content, lease);
+  atomicWriteFileWithRegistryLeaseUnchecked(resourcePath, content, lease);
 }
 
 /** H2 heading pattern for the markdown orphan-findings store.
@@ -443,6 +655,9 @@ export function orphanMarkdownReservedIds(path: string): string[] {
  * same way rather than each writing their own comparison.
  */
 export function claimedSequences(domain: string, existingIds: readonly string[]): Set<number> {
+  if (!/^[A-Z][A-Z0-9]*$/.test(domain)) {
+    throw new TypeError(`Finding domain must be uppercase alphanumeric: ${domain}`);
+  }
   const domainPattern = new RegExp(`^${domain}-[A-Z0-9]+-([0-9]{3})$`);
   const sequences = new Set<number>();
   for (const id of existingIds) {
@@ -458,9 +673,6 @@ export function nextFindingId(
   severity: FindingSeverity,
   existingIds: readonly string[],
 ): string {
-  if (!/^[A-Z][A-Z0-9]*$/.test(domain)) {
-    throw new TypeError(`Finding domain must be uppercase alphanumeric: ${domain}`);
-  }
   if (!['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].includes(severity)) {
     throw new TypeError(`Unsupported finding severity: ${severity}`);
   }
@@ -473,4 +685,9 @@ export function nextFindingId(
     throw new RangeError(`Finding ID space exhausted for domain ${domain} (maximum 999).`);
   }
   return `${domain}-${severity}-${String(next).padStart(3, '0')}`;
+}
+
+export function findingIdHighWater(domain: string, existingIds: readonly string[]): number {
+  const sequences = claimedSequences(domain, existingIds);
+  return sequences.size > 0 ? Math.max(...sequences) : 0;
 }

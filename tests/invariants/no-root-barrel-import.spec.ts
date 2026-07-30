@@ -217,7 +217,7 @@ describe('INVARIANT: no source file imports from the bare root barrel of @aquacu
           `  '@aquaculture/backend-common'  →  '@aquaculture/backend-common/<subtree>'\n` +
           `  '@platform/backend-common'     →  '@aquaculture/backend-common/<subtree>'   (canonical alias)\n\n` +
           `Subtree set: /auth, /audit, /ai-safety, /bootstrap, /config, /constants, ` +
-          `/context, /database, /decorators, /finding-registry, /guards, /health, ` +
+          `/context, /database, /decorators, /guards, /health, ` +
           `/mobile-command, /nats, /pagination, /redis, /utils  (full list in tsconfig.base.json paths). ` +
           `If your import target is genuinely not in any subtree, add it to a subtree ` +
           `rather than re-introducing the root barrel.`,

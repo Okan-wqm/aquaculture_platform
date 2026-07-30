@@ -1,0 +1,71 @@
+{
+  "$schema": "aqua/finding-registry-writer-authority/v4",
+  "schema_version": 4,
+  "protocol_id": "aqua.finding-registry-writer/v5",
+  "files": {
+    ".github/CODEOWNERS": "223c762c32d977dd202e3a53ef3dae5be0a09a4bd87c21c79e322703fe8b6bab",
+    ".github/actions/mint-automation-app-token/action.yml": "2ba41a0a629ff6cbac379b949f95c269d9a5852565a94845f6cfe6d231b84c14",
+    ".github/manifests/automation-publication-authority.json": "a34dfd4aad6862f843cb15c9efd1610c7d0851f146d594e5c75403b8db68f009",
+    ".github/workflows/aria-daily-report.yml": "a6fc4b59580c7195af1ac42ef04b0d8346d22646599bc8fbae67ada2c552a263",
+    ".github/workflows/automation-publication-admission.yml": "b315fe4a244c877e57c74d08ae1ffb2621352df0238f6b732a365417528e37b3",
+    ".github/workflows/ci-full.yml": "5ee8bb6c0539f4380080f6354a19ff2975260fabf8262fc3f2150772f4c3bebb",
+    ".github/workflows/finding-registry-authority.yml": "4d4fd7d7855226ee0ef705747e1b23cc20acd9dfd7badce08e12a1080d153bfc",
+    ".github/workflows/finding-state-sweep.yml": "9afcf79b2fa21694c251faa622bfaee2fd3b5da718bdeb2968c01b9ac28e6b1a",
+    ".github/workflows/rule-health-report.yml": "683f1e243faa7918d5c6a58ccb0ce437f31a43141a3b06dee68d102145f23955",
+    "docs/reviews/_registry/findings.jsonl.schema.json": "e316e2c8b6a13f2dd81a8439de543ac830326d6cdf5f4f35c2b025cf6536de3c",
+    "package.json": "ae143fb0cc6aa09180804025c52a321f6d859ca433ecb250bbbbe1c2bd810bf2",
+    "tools/gates/finding-registry-store.ts": "d096bc9c697753574c8702c3edc88cf9dff77d32db0916c40705bad1bb19b482",
+    "tools/gates/finding-registry-publication.ts": "30e21eb6a85810945660e4a58152571f09a72dd90e518a76729901c341ec5e8d",
+    "tools/gates/finding-registry.ts": "073519ab9c7694067190eb3075ff56c98bdc5085a2ef90521512a1c40193ff6f",
+    "tools/gates/github-actions-oidc-authority.ts": "41ed721c9cc5247e6e40a58d2ddd02f81c1fc8318d2ba2b14fa920936e633206",
+    "tools/gates/lib/automation-publication-policy.ts": "5d39cac5cb434572cb94b48220096b740eb2389676e8f640926008c8183abc73",
+    "tools/gates/lib/finding-registry-schema-contract.ts": "8ffa9efaacfc7350d641c185e563638a79f88636d43f52db943efb153b60ea44",
+    "tools/gates/lib/github-artifact-archive.ts": "8f217cca618bbb47b3a7c4e462c038e44ae29edce44ecc7e4d195ae1ea62eb47",
+    "tools/scripts/automation/publish-automation-pr.ts": "a413f2b72a505f932f0ad75f324320c4d3aed8e446a46aaeb9aafc23047075e7",
+    "tools/scripts/automation/resolve-github-run-clock.mjs": "bacd166fab2c81f0462a2dd2d8b6a6176f1f5e549c8f02231048999b0da4cb0e",
+    "tools/scripts/automation/tsconfig.json": "bf45331413e44da83003e323ab0441cd6e5511d2976d7cf323bee263e68964b0"
+  },
+  "repository_global_authority": {
+    "kind": "GITHUB_ACTIONS_OIDC_V1",
+    "workflow_refs": [
+      "Okan-wqm/aquaculture_platform/.github/workflows/finding-registry-authority.yml@refs/heads/main",
+      "Okan-wqm/aquaculture_platform/.github/workflows/finding-state-sweep.yml@refs/heads/main"
+    ],
+    "protected_ref": "refs/heads/main",
+    "logical_branch": "automation/finding-registry-active",
+    "branch_strategy": "command-identity-immutable-v1",
+    "physical_branch_template": "{logical_branch}--{command_identity_sha256}",
+    "branch_lifecycle": "CREATE_ONLY_IMMUTABLE_NO_DELETE_V1",
+    "branch_ref_permissions": {
+      "create": true,
+      "update": false,
+      "delete": false
+    },
+    "compare_and_swap": "GRAPHQL_CREATE_COMMIT_EXPECTED_HEAD_OID_V1",
+    "publisher": "GITHUB_GRAPHQL_SIGNED_COMMIT_V1",
+    "publisher_credential": "CURRENT_REPOSITORY_GITHUB_APP_INSTALLATION_V1",
+    "idempotency": {
+      "kind": "AUTOMATION_PUBLICATION_COMMAND_IDENTITY_V1",
+      "required_trailers": [
+        "Automation-Command-ID",
+        "Automation-Operation",
+        "Automation-Input-SHA256",
+        "Automation-Base-SHA",
+        "Automation-Retry-Identity",
+        "Automation-Changed-Path",
+        "Automation-Changed-Path-SHA256",
+        "Automation-Workflow-Ref",
+        "Automation-Workflow-SHA",
+        "Automation-Workflow-Run-ID",
+        "Automation-Workflow-Run-Attempt",
+        "Automation-Evidence-Artifact-ID",
+        "Automation-Evidence-Artifact",
+        "Automation-Evidence-SHA256"
+      ]
+    }
+  },
+  "local_fence": {
+    "kind": "GIT_COMMON_DIR_FILE_LEASE_V2",
+    "lock_record_version": 2
+  }
+}

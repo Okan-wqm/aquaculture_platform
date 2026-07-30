@@ -33,6 +33,7 @@ After a migration has landed on `main` + passed the `pre-migration-restore-test`
 **Affected files:** (no edits; verification).
 
 **Mechanism:**
+
 ```bash
 ssh root@<droplet>
 # 1. DATABASE_MIGRATIONS_RUN MUST be false
@@ -59,6 +60,7 @@ psql <prod> -c "SELECT count(*) FROM pg_locks WHERE granted = false;"
 **Affected files:** (no edits; backup).
 
 **Mechanism:**
+
 ```bash
 ./scripts/backup/backup-databases.sh --tag=pre-migration-<migration-slug>
 # Verify artefact uploaded + SHA-256 matches .github/manifests/
@@ -77,12 +79,14 @@ psql <prod> -c "SELECT count(*) FROM pg_locks WHERE granted = false;"
 **Mechanism:** choose the runner path by migration target:
 
 **Per-service runner** (migrations targeting `public`, `shared`, or a service's core schema like `auth`, `billing`, `messaging`):
+
 ```bash
 # SSH into service container, run migration
 docker exec <svc>-prod npm run migration:run -- --service=<svc> 2>&1 | tee /tmp/migration-<slug>.log
 ```
 
 **Per-tenant runner** (migrations targeting schema-per-tenant services — `farm`, `sensor`, `hr`, `hydroponics`, `alert`, `ai`, `messaging/tenant-schemas`):
+
 ```bash
 # TenantSchemaSyncService iterates every tenant schema
 docker exec <svc>-prod npm run tenant:migrate -- --service=<svc> --parallelism=4 2>&1 | tee /tmp/tenant-migration-<slug>.log
@@ -117,6 +121,7 @@ Migration runs INSIDE the deployed container so app + DB version match. `--paral
 **Affected files:** (no edits; verification).
 
 **Mechanism:**
+
 ```bash
 # 1. SchemaDriftValidator re-run
 docker exec <svc>-prod npm run schema:validate -- --service=<svc>
@@ -148,17 +153,43 @@ npx jest --config tests/invariants/jest.config.ts --testPathPatterns=adoption-in
 
 ### Step 7 — Finding registry + deploy record
 
-**Affected files:** `docs/reviews/infra-expert/{date}-prod-migration-{slug}.md`, registry via `tools/gates/finding-registry.ts close`.
+**Affected files:** `docs/reviews/infra-expert/{date}-prod-migration-{slug}.md`;
+registry transition via `.github/workflows/finding-registry-authority.yml`.
 
-**Mechanism:** infra-expert writes a prod-migration report (lock-wait max, latency p99 delta, migration duration, any warnings). If the migration closes a tracked finding (e.g. from a database-reviewer recommendation), close the finding in the registry:
+**Mechanism:** infra-expert writes a prod-migration report (lock-wait max,
+latency p99 delta, migration duration, any warnings). If the migration closes a
+tracked finding, first verify that the fix commit carrying the matching
+`Closes:` trailer is reachable from protected `main`. Then dispatch the Finding
+Registry Authority against `main` with the full lowercase 40-character commit
+SHA:
 
 ```bash
-npx ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts close <FINDING-ID> <commit-sha>
+git fetch origin main
+PROTECTED_MAIN_SHA="$(git rev-parse origin/main)"
+test "${#PROTECTED_MAIN_SHA}" -eq 40
+FIX_COMMIT_REF='origin/main' # set to the protected-main migration fix commit
+CLOSING_SHA="$(git rev-parse "${FIX_COMMIT_REF}^{commit}")"
+test "${#CLOSING_SHA}" -eq 40
+git merge-base --is-ancestor "${CLOSING_SHA}" origin/main
+
+gh workflow run finding-registry-authority.yml --ref main \
+  -f operation=close \
+  -f command_id='prod-migration:add-batch-priority:INFRA-HIGH-046:close' \
+  -f finding_id='<FINDING-ID>' \
+  -f closing_sha="${CLOSING_SHA}"
 ```
+
+The `command_id` is the durable idempotency key: use the exact same value for
+every retry of this closure, and never reuse it for another operation. Record
+the full protected-main head SHA before dispatch and accept the run only when
+its head SHA matches. Never edit `findings.jsonl` or invoke a local registry
+mutator.
 
 **Why:** the prod-migration report is the audit-trail anchor for SOC 2 + the go/no-go decision for the NEXT migration attempting the same pattern. Finding-closure closes the review-to-fix traceability loop.
 
-**Verification:** report exists; finding-registry verify returns chain-valid.
+**Verification:** report exists; the generated automation PR is merged only
+after required checks pass on its exact head; a fresh protected-main checkout
+passes `npm run findings:verify`.
 
 **Cross-domain notifications:** `context-manager` finding state transition; `architectural-arbiter` if the migration revealed a systemic pattern.
 

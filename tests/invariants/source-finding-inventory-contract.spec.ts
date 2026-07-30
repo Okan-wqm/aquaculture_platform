@@ -937,8 +937,12 @@ describe('checked-in source finding attestation', () => {
   const units = objectArray(reconciliation.integration_units, 'integration_units');
   const rows = readArtifact();
 
-  it('is byte-identical to canonical writer formatting', async () => {
-    expect(await formatSourceFindingManifest(manifest)).toBe(readFileSync(MANIFEST_PATH, 'utf8'));
+  it('is byte-identical to canonical writer formatting', () => {
+    const checkedInManifest = readFileSync(MANIFEST_PATH, 'utf8');
+    const firstPass = formatSourceFindingManifest(manifest);
+    const secondPass = formatSourceFindingManifest(readJsonRecord(MANIFEST_PATH));
+    expect(firstPass).toBe(checkedInManifest);
+    expect(secondPass).toBe(firstPass);
   });
 
   it('keeps formatter config, engine, and semantic output inside one fail-closed contract', () => {

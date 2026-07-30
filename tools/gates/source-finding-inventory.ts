@@ -1,5 +1,5 @@
 #!/usr/bin/env ts-node
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   closeSync,
@@ -8,12 +8,16 @@ import {
   fsyncSync,
   fstatSync,
   lstatSync,
+  mkdtempSync,
   openSync,
   readFileSync,
   readdirSync,
   readSync,
+  rmdirSync,
   unlinkSync,
+  writeFileSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { TextDecoder } from 'node:util';
 
@@ -54,12 +58,9 @@ const MAX_PACKAGE_LOCK_BYTES = 4 * 1024 * 1024;
 const PRETTIER_FORMAT_TIMEOUT_MS = 30_000;
 const PRETTIER_FORMATTER_SCRIPT = `
 void (async () => {
+  const { readFileSync } = await import('node:fs');
   const { format, version } = await import('prettier');
-  process.stdin.setEncoding('utf8');
-  let rawInput = '';
-  for await (const chunk of process.stdin) {
-    rawInput += chunk;
-  }
+  const rawInput = readFileSync(process.argv[1], 'utf8');
   const input = JSON.parse(rawInput);
   process.stdout.write(
     JSON.stringify({
@@ -3643,24 +3644,38 @@ export function assertFormattedManifestSemantics(
   }
 }
 
-async function formatSourceFindingManifestWithConfig(
+function formatSourceFindingManifestWithConfig(
   manifest: Record<string, unknown>,
   prettierConfigText: string,
   expectedPrettierVersion: string,
-): Promise<string> {
+): string {
   const manifestPath = join(REPO_ROOT, MANIFEST_PATH);
-  const result = spawnSync(process.execPath, ['-e', PRETTIER_FORMATTER_SCRIPT], {
-    cwd: REPO_ROOT,
-    encoding: 'utf8',
-    input: JSON.stringify({
-      manifest,
-      options: parseSourceFindingPrettierConfig(prettierConfigText),
-      filepath: manifestPath,
-    }),
-    maxBuffer: MAX_EVIDENCE_FILE_BYTES,
-    timeout: PRETTIER_FORMAT_TIMEOUT_MS,
-    killSignal: 'SIGKILL',
-  });
+  const formatterDirectory = mkdtempSync(join(tmpdir(), 'aqua-source-finding-format-'));
+  const formatterInputPath = join(formatterDirectory, 'input.json');
+  let result: SpawnSyncReturns<string>;
+  try {
+    writeFileSync(
+      formatterInputPath,
+      JSON.stringify({
+        manifest,
+        options: parseSourceFindingPrettierConfig(prettierConfigText),
+        filepath: manifestPath,
+      }),
+      { encoding: 'utf8', mode: 0o600, flag: 'wx' },
+    );
+    result = spawnSync(process.execPath, ['-e', PRETTIER_FORMATTER_SCRIPT, formatterInputPath], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      maxBuffer: MAX_EVIDENCE_FILE_BYTES,
+      timeout: PRETTIER_FORMAT_TIMEOUT_MS,
+      killSignal: 'SIGKILL',
+    });
+  } finally {
+    if (existsSync(formatterInputPath)) {
+      unlinkSync(formatterInputPath);
+    }
+    rmdirSync(formatterDirectory);
+  }
   if (result.error) {
     throw result.error;
   }
@@ -3692,9 +3707,7 @@ async function formatSourceFindingManifestWithConfig(
   return formatted;
 }
 
-export async function formatSourceFindingManifest(
-  manifest: Record<string, unknown>,
-): Promise<string> {
+export function formatSourceFindingManifest(manifest: Record<string, unknown>): string {
   const packageLockText = readPackageLockText();
   return formatSourceFindingManifestWithConfig(
     manifest,

@@ -171,6 +171,13 @@ describe('INVARIANT — RLS predicate canonical (TENANT-ISOLATION-CRITICAL-001)'
       while ((match = CREATE_POLICY_RE.exec(src)) !== null) {
         const policyName = match[1];
         const usingClause = match[2];
+        // ORPHAN-HIGH-507 — both captures guarded before use. A CREATE POLICY
+        // the regex matched but whose name or USING clause did not bind is a
+        // statement this invariant cannot judge, so it is skipped rather than
+        // asserted non-null: an assertion would crash the RLS invariant on a
+        // malformed migration, which is the one case it most needs to survive
+        // in order to report the others.
+        if (policyName === undefined || usingClause === undefined) continue;
 
         // Only tenant_isolation policies are subject to this invariant.
         // Non-tenant policies (e.g. role-based access) are out of scope.

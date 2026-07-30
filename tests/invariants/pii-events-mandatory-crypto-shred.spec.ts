@@ -95,9 +95,14 @@ describe('DATA-LOW-003 — PII-bearing events mandate cryptoShredKeyId', () => {
       );
     expect(arrayMatch).not.toBeNull();
     const arrayBody = arrayMatch![1] ?? '';
-    const eventTypes = [
-      ...arrayBody.matchAll(/['"`]([A-Za-z][A-Za-z0-9_]*)['"`]/g),
-    ].map((m) => m[1]);
+    // ORPHAN-HIGH-507 — narrowed at the SOURCE rather than at each use. `.map`
+    // over match objects yields `(string | undefined)[]`, and four downstream
+    // errors were all that one type escaping into the loop. Filtering here fixes
+    // the cause; guarding each `missing.push` would have fixed four symptoms and
+    // left the array's type still lying about its contents.
+    const eventTypes = [...arrayBody.matchAll(/['"`]([A-Za-z][A-Za-z0-9_]*)['"`]/g)]
+      .map((m) => m[1])
+      .filter((value): value is string => value !== undefined);
     expect(eventTypes.length).toBeGreaterThan(0);
 
     // Cache the file corpus once.

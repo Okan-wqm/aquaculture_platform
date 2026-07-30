@@ -1569,10 +1569,17 @@ finding is one nobody can navigate back to from the review that produced it.
   tsconfig via a depth-bounded walk, so a new tree is covered the moment it acquires one. Proven to bite: injecting one
   error reports `25 (baseline 24, +1)` and fails. **Not done, stated plainly:** widening the gate revealed **24
   pre-existing errors across six invariant files** I did not write, all `noUncheckedIndexedAccess` violations. They are
-  recorded as the project's baseline — the ratchet's designed onboarding path, the same one used for 11 of 20 projects at
-  gate introduction — which turns 24 invisible errors into 24 tracked-and-capped ones. That is tier 3, **not** tier 1.
-  Fixing them means reading six unfamiliar invariant files, and the available shortcuts (non-null assertions, casts) are
-  banned and would be worse than the debt. The ratchet guarantees the number cannot grow while the cleanup waits.
+  first recorded as the project's baseline, then **fixed: the baseline is now 0.** All 24 are gone with **no non-null
+  assertion and no cast** — and correcting my own earlier count, they spanned **ten** files, not six; I had counted from a
+  truncated error list. Two fixes were at the source rather than the symptom, which is the part worth keeping: in
+  `pii-events-mandatory-crypto-shred` a single `.map((m) => m[1])` produced `(string | undefined)[]` and four downstream
+  errors were all that one type escaping into the loop, so filtering at the source fixed the cause where four guards
+  would have fixed symptoms and left the array's type still lying; and in `dead-contract-fe-operations` the real defect
+  was `BaselineEntry.kind: string` — the baseline is _generated_ from `OperationConst`, so `string` was the lie, and the
+  union is now **earned at the trust boundary** by validating the parsed JSON rather than asserted at each call site. A
+  hand-edited baseline with a misspelled kind now names itself at load time instead of silently failing to match a key
+  and quietly shrinking the ratchet. Every remaining site is a guarded skip, chosen over an assertion because an
+  invariant that crashes on a malformed input is exactly the one that most needs to survive in order to report the rest.
 
 - **ORPHAN-CRITICAL-506** — one undecodable ledger row trips the breaker forever, and the only lever also destroyed the queue  
   Severity CRITICAL, layer 1, owner okan, deadline 2026-08-13. The ordering that causes this is itself correct —

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-30T13:18:25.721Z",
+  "generatedAt": "2026-07-30T13:46:48.307Z",
   "description": "Per-project baseline error counts for tsc -p <project>/tsconfig.spec.json --noEmit. The gate fails on any regression above these numbers; PRs that drive a count down should also update this file (via tools/gates/type-check-spec.ts --update-baseline). Projects pinned at 0 cannot regress without a CI failure.",
   "projects": {
     "apps/admin-api-service": {
@@ -105,7 +105,7 @@
       "errors": 0
     },
     "tests/invariants": {
-      "errors": 24
+      "errors": 0
     }
   }
 }

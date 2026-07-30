@@ -18,8 +18,8 @@ describe('AuthFormShell', () => {
         <div>fields</div>
       </AuthFormShell>,
     );
-    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Sign In');
-    expect(screen.getByText('Access your account')).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Dive back in');
+    expect(screen.getByText('Sign in to your Suderra workspace')).toBeTruthy();
   });
 
   it('announces the error via a single role="alert" region and omits it when absent', () => {
@@ -50,6 +50,7 @@ describe('AuthFormShell', () => {
       </AuthFormShell>,
     );
     const h2 = screen.getByRole('heading', { level: 2 });
+    expect(h2.className).toContain('auth-form-title');
     expect(h2.className).toContain('text-[var(--surface-heading-fg)]');
     expect(h2.className).not.toContain('text-white');
     expect(h2.className).not.toMatch(/text-blue-/);

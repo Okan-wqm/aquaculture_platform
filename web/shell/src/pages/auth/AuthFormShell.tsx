@@ -33,16 +33,24 @@ export const AuthFormShell: React.FC<AuthFormShellProps> = ({
   const { t } = useI18n();
 
   return (
-    <div>
-      <div className="text-center mb-6">
+    <div className="auth-form-shell">
+      <div
+        className={`auth-form-heading text-center mb-6 ${
+          icon ? 'auth-form-heading--with-icon' : ''
+        }`}
+      >
         {icon && (
-          <div className="mx-auto w-12 h-12 rounded-full bg-[var(--surface-field-bg)] text-[var(--surface-heading-fg)] flex items-center justify-center mb-4">
+          <div className="auth-form-icon mx-auto w-12 h-12 rounded-full bg-[var(--surface-field-bg)] text-[var(--surface-heading-fg)] flex items-center justify-center mb-4">
             {icon}
           </div>
         )}
-        <h2 className="text-2xl font-bold text-[var(--surface-heading-fg)]">{t(titleKey)}</h2>
+        <h2 className="auth-form-title text-2xl font-bold text-[var(--surface-heading-fg)]">
+          {t(titleKey)}
+        </h2>
         {subtitleKey && (
-          <p className="mt-1 text-sm text-[var(--surface-muted-fg)]">{t(subtitleKey)}</p>
+          <p className="auth-form-subtitle mt-1 text-sm text-[var(--surface-muted-fg)]">
+            {t(subtitleKey)}
+          </p>
         )}
       </div>
 
@@ -51,14 +59,14 @@ export const AuthFormShell: React.FC<AuthFormShellProps> = ({
           it in another aria-live container — nesting an assertive alert inside a
           polite region gives conflicting/doubled announcements (a11y HIGH). */}
       {error && (
-        <div className="mb-4">
+        <div className="auth-form-error mb-4">
           <Alert type="error" dismissible={!!onDismissError} onDismiss={onDismissError}>
             {error}
           </Alert>
         </div>
       )}
 
-      {children}
+      <div className="auth-form-content">{children}</div>
     </div>
   );
 };

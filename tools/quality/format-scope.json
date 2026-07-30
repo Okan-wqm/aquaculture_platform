@@ -43506,6 +43506,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-scope.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/quality/lint-target-inventory.json",
       "prettier_managed": true
     },
@@ -55274,6 +55286,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shell/src/layouts/__tests__/AuthLayout.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shell/src/layouts/AuthLayout.tsx",
       "prettier_managed": true
     },
@@ -55428,10 +55446,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9087,
+  "file_count": 9090,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8906,
-  "managed_file_list_sha256": "51e9f02fccd606a5d60e48690d1398837cfdd86b51b0ed8c8818b4d944933a16",
+  "managed_count": 8909,
+  "managed_file_list_sha256": "5466c409c179691f3a23afece3eca36d5f3dafca5d35cc4eddcedd022094082a",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

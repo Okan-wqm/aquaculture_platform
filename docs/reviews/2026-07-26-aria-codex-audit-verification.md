@@ -1531,6 +1531,26 @@ finding is one nobody can navigate back to from the review that produced it.
   comment lines and matches invocations structurally — the substring-instead-of-structure defect this branch already fixed
   once, reproduced by me while fixing its sibling.
 
+- **ORPHAN-HIGH-504** — the static reachability invariant cannot catch a kwarg-gated dead pipeline  
+  Severity HIGH, layer 1, owner okan, deadline 2026-08-13. **Found by building the tool the plan asked for.** RC-1 calls
+  its static call-graph invariant "the generalised answer to the defect class". It would **not** have caught
+  `ORPHAN-CRITICAL-498`, and the reason is structural, not an implementation gap: **a conditional call is still an edge.**
+  `run_enterprise_cycle` really does call `_run_extended_phases`; the call is guarded by `if run_phases is not None` and no
+  production caller passes the kwarg, so any static walk reports the whole extended pipeline as reachable while it never
+  executes. Improving the resolver cannot fix this — deciding whether the branch is entered is the halting problem in
+  miniature. So the tier-3 invariant and the tier-1 collapse cover **different** failures: the invariant catches a control
+  with no caller at all (420's breaker, whose only occurrence was its own `def`); the registry catches a control whose
+  caller is never entered (498). Treating RC-1 as closed on the invariant alone would leave the more expensive half open
+  under a green test — the exact shape of the defect class. **Two false positives on the way, both from my resolver, both
+  fixed rather than exempted** — a reachability tool that over-reports teaches its readers to ignore it. `record_failure`
+  was reported dead but is reached through callback indirection (`invoke_planner = dispatch_one_pending_planner_request`,
+  then the local is called); `assert_autonomy_unlocked` was reported dead but is reached through a Protocol-typed strategy
+  object (`RealAutoMergeRunner(...)` → `runner(...)` → `__call__` → `merge_pr_if_ready`). A false accusation is as
+  damaging as a missed defect: acting on either would have meant re-wiring a control that was already wired. All five
+  declared controls are reachable today, so the invariant's present value is preventing regression. The tier-1 collapse
+  remains open with its design settled — `CyclePhase`, `CYCLE_PHASES` as ordered SSoT, a uniform `PhaseContext`, and
+  `run_phases` / `pre_tool_phases` **deleted** rather than kept as a seam.
+
 - **ORPHAN-CRITICAL-503** — the perimeter authorised dry runs, and their stage artifacts fed the failure breaker  
   Severity CRITICAL, layer 1, owner okan, deadline 2026-08-13. **Preventative, and the sequencing is the finding.**
   `open_pr_for_action` runs the 10-check `GATE_PRE_PR_OPEN` perimeter before its `dry_run` branch so a preview cannot skip

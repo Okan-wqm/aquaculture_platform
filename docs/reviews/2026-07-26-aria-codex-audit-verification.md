@@ -1531,6 +1531,28 @@ finding is one nobody can navigate back to from the review that produced it.
   comment lines and matches invocations structurally — the substring-instead-of-structure defect this branch already fixed
   once, reproduced by me while fixing its sibling.
 
+- **ORPHAN-CRITICAL-506** — one undecodable ledger row trips the breaker forever, and the only lever also destroyed the queue  
+  Severity CRITICAL, layer 1, owner okan, deadline 2026-08-13. The ordering that causes this is itself correct —
+  `evaluate_breaker` decides `evidence_incomplete` _before_ the threshold comparison, which is what
+  `ORPHAN-CRITICAL-418` fixed. But `dropped_rows` counts lines that failed to **decode**, while the sliding window only
+  ages lines that **did** decode. A corrupt line is outside time: it can never leave the window. One truncated row trips
+  the breaker for every subsequent nightly `standard` cycle, permanently — asserted rather than argued, by re-stamping the
+  surviving row a year into the past and watching the verdict stay `evidence_incomplete`. **Compounding factor:** the
+  ledger travels between runs inside the `aria-tools-state` artifact while `breaker reset` operates on a local
+  `--tools-dir`, so the operator's only effective lever was deleting the artifact — which also destroys the
+  agent-invocation queue `ORPHAN-CRITICAL-469` exists to carry. The recovery path for one breaker was the destruction of
+  an unrelated subsystem. **Fixed here:** `quarantine_breaker_evidence()` moves only undecodable rows to a sidecar
+  (verbatim, operator-attributed), keeps every decodable row **byte-for-byte**, and does not touch the state file — the
+  breaker re-derives from the survivors, so the state becomes **evaluable, not clear.** The assertion that matters: three
+  real in-window failures plus one corrupt line quarantines to a breaker that is _still_ tripped, now reading
+  `threshold_exceeded`, which is what the operator needed to see all along. A reset would have cleared both — hence a
+  different verb, not a flag, so that reaching for "make it evaluable" cannot land on "discard the evidence". It refuses
+  on a count mismatch between its own partition and the breaker's own reader, and refuses outright when the ledger is
+  unreadable (a file-access fault is not row damage). It has a CLI, because `ORPHAN-HIGH-465` was precisely a recovery
+  function shipped with none. **Second half open:** recovery still runs where the state is not — the design is a
+  `workflow_dispatch` restore → mutate → republish through the existing S1 bridge, deliberately not a second restore
+  path, and unimplemented because verifying it needs a live artifact round-trip this container cannot perform.
+
 - **ORPHAN-HIGH-505** — the phase constants declare 5 phases while the cycle runs 15  
   Severity HIGH, layer 1, owner okan, deadline 2026-08-13. **Found while scoping RC-1's tier-1 collapse, and it changes
   that work's shape rather than adding to it.** `DEFAULT_CYCLE_PHASES` names five phases; `run_enterprise_cycle`'s body

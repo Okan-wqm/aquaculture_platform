@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, FindOptionsWhere, DataSource } from 'typeorm';
@@ -10,6 +10,8 @@ import { ProtocolValidatorService } from '../../protocol/services/protocol-valid
 import { ChannelDisplaySettings } from '../../database/entities/sensor-data-channel.entity';
 import { CreateDataChannelInput } from '../dto/data-channel.dto';
 import { ChannelManagementService, CreateChannelInput } from './channel-management.service';
+import { resolveSerialNumber, throwIfSerialNumberConflict } from './serial-number.policy';
+import { SensorTypeService } from '../../sensor-type/sensor-type.service';
 import { safeSortField, safeSortOrder, createStandardPaginatedResult, IStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { assertWithinQuota } from '@aquaculture/backend-common/quota';
 import {
@@ -62,6 +64,9 @@ export class SensorRegistrationService {
     private connectionTester: ConnectionTesterService,
     private eventEmitter: EventEmitter2,
     private channelManagement: ChannelManagementService,
+    // SENSOR-MEDIUM-071: bootstrap a custom type-definition's defaultChannels onto
+    // a newly-registered sensor inside the registration transaction.
+    private readonly sensorTypeService: SensorTypeService,
     // SENSOR-LOW-007: durable, contract-conformant registration lifecycle
     // events published through the transactional outbox → NATS (relay owns
     // delivery post-commit), replacing the in-process EventEmitter2 emissions
@@ -170,15 +175,23 @@ export class SensorRegistrationService {
     // Get protocol details
     const protocolDetails = await this.protocolRegistry.getProtocolDetails(input.protocolCode);
 
+    // SENSOR-MEDIUM-072: serial_number is NOT NULL, but the DTO marks it optional.
+    // Resolve it once (operator value, else a generated placeholder) so this path
+    // reaches parity with the parent path and never nulls the column.
+    const serialNumber = resolveSerialNumber(input.serialNumber, 'SENSOR');
+
     // Create sensor entity
     const sensor = this.sensorRepository.create({
       name: input.name,
       type: input.type,
+      // SENSOR-MEDIUM-071: persist the custom type-definition reference so the
+      // detail page and future channel re-sync can resolve it.
+      typeDefinitionId: input.typeDefinitionId,
       protocolId: protocolDetails?.id,
       protocolConfiguration: input.protocolConfiguration as Record<string, unknown>,
       manufacturer: input.manufacturer,
       model: input.model,
-      serialNumber: input.serialNumber,
+      serialNumber,
       description: input.description,
       farmId: input.farmId,
       pondId: input.pondId,
@@ -219,6 +232,18 @@ export class SensorRegistrationService {
             manager,
           );
         }
+        // SENSOR-MEDIUM-071: bootstrap the type-definition's defaultChannels in the
+        // same transaction. An unresolvable typeDefinitionId throws NotFoundException
+        // here, rolling the whole registration back — the failure is surfaced, not
+        // swallowed as the deleted createSensor back door did.
+        if (input.typeDefinitionId) {
+          await this.sensorTypeService.createChannelsFromTypeDefinition(
+            persisted.id,
+            tenantId,
+            input.typeDefinitionId,
+            manager,
+          );
+        }
         await this.outboxPublisher.enqueue(
           this.buildRegistrationStartedEvent(persisted, input.protocolCode),
           manager,
@@ -226,6 +251,10 @@ export class SensorRegistrationService {
         return persisted;
       });
     } catch (err) {
+      // SENSOR-MEDIUM-072: a duplicate operator-supplied serial is a client-side
+      // conflict, not an opaque server error — surface it as a domain
+      // ConflictException instead of the raw "duplicate key value" driver text.
+      throwIfSerialNumberConflict(err, serialNumber);
       // Full rollback already undid the sensor row and the Started event, so
       // there is nothing to compensate — just report the failure.
       return { success: false, error: (err as Error).message };
@@ -789,8 +818,8 @@ export class SensorRegistrationService {
       // Get protocol details
       const protocolDetails = await this.protocolRegistry.getProtocolDetails(parent.protocolCode);
 
-      // Generate serial number for parent if not provided
-      const parentSerialNumber = parent.serialNumber || `PARENT-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      // SENSOR-MEDIUM-072: same serial-number policy as the single path.
+      const parentSerialNumber = resolveSerialNumber(parent.serialNumber, 'PARENT');
 
       // Create parent device
       const parentSensor = queryRunner.manager.create(Sensor, {
@@ -837,6 +866,8 @@ export class SensorRegistrationService {
         const childSensor = queryRunner.manager.create(Sensor, {
           name: childInput.name,
           type: childInput.type,
+          // SENSOR-MEDIUM-071: per-child custom type-definition reference.
+          typeDefinitionId: childInput.typeDefinitionId,
           serialNumber: childSerialNumber,
           tenantId,
           farmId: parent.farmId,
@@ -878,6 +909,17 @@ export class SensorRegistrationService {
         });
 
         const savedChild = await queryRunner.manager.save(Sensor, childSensor);
+        // SENSOR-MEDIUM-071: bootstrap the child's type-definition channels in the
+        // same transaction; an unresolvable id rolls back the whole parent+children
+        // create rather than silently skipping channels.
+        if (childInput.typeDefinitionId) {
+          await this.sensorTypeService.createChannelsFromTypeDefinition(
+            savedChild.id,
+            tenantId,
+            childInput.typeDefinitionId,
+            queryRunner.manager,
+          );
+        }
         savedChildren.push(savedChild);
         this.logger.log(`Created child sensor: ${savedChild.id} (${childInput.dataPath})`);
       }
@@ -897,6 +939,9 @@ export class SensorRegistrationService {
         await queryRunner.rollbackTransaction();
       }
       this.logger.error('Failed to register parent with children', error);
+      // SENSOR-MEDIUM-072: a duplicate operator-supplied parent serial is a
+      // conflict, not an opaque failure — map it before the generic return.
+      throwIfSerialNumberConflict(error, parent.serialNumber ?? '');
       return {
         success: false,
         error: `Registration failed: ${(error as Error).message}`,

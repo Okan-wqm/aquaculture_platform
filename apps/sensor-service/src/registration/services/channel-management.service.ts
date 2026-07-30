@@ -49,8 +49,11 @@ export interface UpdateChannelInput {
   minValue?: number;
   maxValue?: number;
   calibrationEnabled?: boolean;
-  calibrationMultiplier?: number;
-  calibrationOffset?: number;
+  // SENSOR-HIGH-083: calibration COEFFICIENTS are not part of the channel-update
+  // path — they are owned by the calibration aggregate (recordCalibration), which
+  // stamps lastCalibratedAt/nextCalibrationDue. Only the schedule interval (a
+  // config choice) is settable here.
+  calibrationIntervalDays?: number;
   alertThresholds?: AlertThresholdConfig;
   displaySettings?: ChannelDisplaySettings;
   isEnabled?: boolean;
@@ -148,8 +151,7 @@ export class ChannelManagementService {
     if (input.minValue !== undefined) channel.minValue = input.minValue;
     if (input.maxValue !== undefined) channel.maxValue = input.maxValue;
     if (input.calibrationEnabled !== undefined) channel.calibrationEnabled = input.calibrationEnabled;
-    if (input.calibrationMultiplier !== undefined) channel.calibrationMultiplier = input.calibrationMultiplier;
-    if (input.calibrationOffset !== undefined) channel.calibrationOffset = input.calibrationOffset;
+    if (input.calibrationIntervalDays !== undefined) channel.calibrationIntervalDays = input.calibrationIntervalDays;
     if (input.alertThresholds !== undefined) channel.alertThresholds = input.alertThresholds;
     if (input.displaySettings !== undefined) channel.displaySettings = input.displaySettings;
     if (input.isEnabled !== undefined) channel.isEnabled = input.isEnabled;

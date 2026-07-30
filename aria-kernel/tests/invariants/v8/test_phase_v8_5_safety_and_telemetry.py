@@ -9,7 +9,7 @@ Closes F-014-D5. 6 invariants:
 - I-V8.5-05 — secret_scrub redaction_types are pattern names only (no raw values)
 - I-V8.5-06 — verify_independence combines all 3 checks
 
-ORPHAN-HIGH-336 additions — the three layers were non-functional in
+ORPHAN-HIGH-421 additions — the three layers were non-functional in
 production and two of the holes were invisible to this file's original
 fixtures, which omitted ``agent_id`` entirely:
 
@@ -232,7 +232,7 @@ class TestVerifyIndependence(unittest.TestCase):
                 f"expected jaccard_above_ceiling reason; got {reasons}",
             )
 
-    # ORPHAN-HIGH-336 — one agent wearing three hats must be rejected.
+    # ORPHAN-HIGH-421 — one agent wearing three hats must be rejected.
     def test_same_principal_across_roles_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -261,7 +261,7 @@ class TestVerifyIndependence(unittest.TestCase):
                 f"expected same_agent_id violation; got {reasons}",
             )
 
-    # ORPHAN-HIGH-336 — absent text must not score as maximally diverse.
+    # ORPHAN-HIGH-421 — absent text must not score as maximally diverse.
     def test_missing_agent_text_is_a_violation_not_a_pass(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -286,7 +286,7 @@ class TestVerifyIndependence(unittest.TestCase):
                 f"{independence_check.PRIMARY_ROLE}_text_unavailable", reasons,
             )
 
-    # ORPHAN-HIGH-336 — a kernel-seeded primary is legitimate on round 1,
+    # ORPHAN-HIGH-421 — a kernel-seeded primary is legitimate on round 1,
     # but the challenger and reviewer must still be distinct principals.
     def test_seeded_primary_still_requires_two_distinct_principals(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -325,7 +325,7 @@ class TestVerifyIndependence(unittest.TestCase):
             self.assertFalse(ok)
             self.assertTrue(any("same_agent_id" in r for r in reasons), reasons)
 
-    # ORPHAN-HIGH-336 — a placeholder cannot be constructed.
+    # ORPHAN-HIGH-421 — a placeholder cannot be constructed.
     def test_blank_request_id_is_refused_at_construction(self):
         with self.assertRaises(independence_check.IndependenceInputError):
             self._dispatch(independence_check.PRIMARY_ROLE, "   ", "rev-p", "text")

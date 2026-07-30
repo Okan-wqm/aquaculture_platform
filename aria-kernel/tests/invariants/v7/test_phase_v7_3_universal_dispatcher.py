@@ -31,7 +31,7 @@ if str(_KERNEL_ROOT) not in sys.path:
 class PhaseV7_3UniversalDispatcher(unittest.TestCase):
     # I-V7.3-01 — SUPPORTED_ROLES closed enum (exactly 11; the
     # plan-coverage gate PR-2 added completeness_critique, and
-    # ORPHAN-HIGH-341 added human_required_adjudication).
+    # ORPHAN-HIGH-426 added human_required_adjudication).
     def test_i_v7_3_01_supported_roles_closed_enum(self) -> None:
         """Plan ARIA-V7 §2g v2 — closed role enum."""
         from aria_kernel.dispatcher_factory import SUPPORTED_ROLES

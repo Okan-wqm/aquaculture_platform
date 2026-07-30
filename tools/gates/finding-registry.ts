@@ -74,7 +74,9 @@ import addFormats from 'ajv-formats';
 import {
   atomicWriteFileWithRegistryLease,
   atomicWriteRegistryFile,
+  claimedSequences,
   nextFindingId,
+  orphanMarkdownReservedIds,
   RegistryLockError,
   type RegistryLockLease,
   withRegistryFileLock,
@@ -101,6 +103,7 @@ const SCHEMA_PATH = resolve(
   '_registry',
   'findings.jsonl.schema.json',
 );
+const ORPHAN_FINDINGS_MD_PATH = resolve(REPO_ROOT, 'docs', 'reviews', 'orphan-findings.md');
 const ZERO_HASH = '0'.repeat(64);
 
 export interface RegistryPaths {
@@ -507,6 +510,47 @@ function validateAndAppendFinding(
   return 0;
 }
 
+/**
+ * Every id already claimed in `domain`, across EVERY store that claims ids.
+ *
+ * ORPHAN-HIGH-457 — the single reader both append paths must use.
+ * `ORPHAN-HIGH-417` fixed the allocator by teaching it to read the markdown
+ * orphan store as well as the registry, and left `appendExplicitFinding`
+ * reading only the registry. So the exact defect that forced this branch to
+ * be retraced — an id handed out that already names a live finding — was
+ * still reachable through the other door, and an adversarial audit walked
+ * through it: `appendExplicitFinding` accepted `ORPHAN-MEDIUM-416`, which is
+ * a live heading in `orphan-findings.md`, and returned 0.
+ *
+ * Two readers that must agree is the shape that produced the bug. One reader
+ * that both callers are forced through is the shape that cannot: a third
+ * append path added later inherits every store by construction rather than by
+ * the author remembering all of them.
+ *
+ * The stores, and why each counts:
+ *   * the JSONL registry — the obvious one;
+ *   * sibling active worktree registries via `authority`, so two concurrent
+ *     branches cannot mint the same id;
+ *   * `docs/reviews/orphan-findings.md`, which allocates from the SAME ORPHAN
+ *     sequence space. At the time this was found the registry's ORPHAN
+ *     maximum was 332 while the markdown store was already at 416, so the
+ *     next nineteen ids handed out (333-351) all named findings that already
+ *     existed. Eight collided exactly, and their commit trailers resolved —
+ *     to the wrong finding.
+ */
+export function claimedIdsForDomain(
+  domain: string,
+  entries: ReadonlyArray<{ id: string }>,
+  authority?: FindingAllocationAuthority,
+): string[] {
+  const claimed = entries.map((entry) => entry.id);
+  if (authority) claimed.push(...idsFromActiveRegistries(authority));
+  if (domain === 'ORPHAN') {
+    claimed.push(...orphanMarkdownReservedIds(ORPHAN_FINDINGS_MD_PATH));
+  }
+  return claimed;
+}
+
 export function appendAllocatedFinding(
   domain: string,
   stubPath: string,
@@ -538,8 +582,7 @@ export function appendAllocatedFinding(
 
   const entries = loadRegistry(paths.registryPath);
   const reservationLedger = authority ? loadReservationLedger(authority.reservationPath) : null;
-  const existingIds = entries.map((entry) => entry.id);
-  if (authority) existingIds.push(...idsFromActiveRegistries(authority));
+  const existingIds = claimedIdsForDomain(domain, entries, authority);
   const reserved = reservationLedger?.domains[domain];
   if (reserved) {
     existingIds.push(`${domain}-RESERVED-${String(reserved.sequence).padStart(3, '0')}`);
@@ -582,20 +625,28 @@ export function appendExplicitFinding(
     return 2;
   }
   const entries = loadRegistry(paths.registryPath);
-  const activeIds = authority
-    ? idsFromActiveRegistries(authority)
-    : entries.map((entry) => entry.id);
-  if (activeIds.includes(stub.id)) {
-    process.stderr.write(
-      `Duplicate id: ${stub.id} already exists in an active worktree registry.\n`,
-    );
-    return 1;
-  }
 
   const idParts = /^([A-Z][A-Z0-9]*)-([A-Z0-9]+)-([0-9]{3})$/.exec(stub.id);
   if (!idParts?.[1] || !idParts[2] || !idParts[3]) {
     process.stderr.write(`Explicit finding id has an invalid allocation shape: ${stub.id}\n`);
     return 2;
+  }
+  // ORPHAN-HIGH-457 — the same stores AND the same sequence extraction the
+  // allocator uses. Shape is parsed first because the domain decides which
+  // stores apply. Two things were wrong here before: this path consulted the
+  // registry alone, and it compared full id strings. Both matter — the
+  // markdown store normalizes to `ORPHAN-RESERVED-NNN` (a heading carries no
+  // severity) and the classifier segment varies with severity anyway, so
+  // `ORPHAN-MEDIUM-416` never string-matched the live `416` heading. The
+  // sequence is the identity.
+  const claimed = claimedSequences(idParts[1], claimedIdsForDomain(idParts[1], entries, authority));
+  if (claimed.has(Number.parseInt(idParts[3], 10))) {
+    process.stderr.write(
+      `Duplicate id: ${stub.id} — sequence ${idParts[3]} is already claimed in ` +
+        `domain ${idParts[1]} by the registry, a sibling worktree registry, or ` +
+        `docs/reviews/orphan-findings.md.\n`,
+    );
+    return 1;
   }
   if (Number.parseInt(idParts[3], 10) < 1) {
     process.stderr.write(`Explicit finding id suffix must be between 001 and 999: ${stub.id}\n`);

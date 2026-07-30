@@ -44,6 +44,37 @@ CLAUDE_DEFAULT_MODEL = "fable"
 # maps each agent's frontmatter to one of them.
 VALID_MODELS: tuple[str, ...] = ("opus", "sonnet", "haiku", "fable")
 VALID_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
+
+# ORPHAN-HIGH-473 — the fallback topology, as data rather than a literal string
+# test. The policy was `if model != "fable": return completed`, so moving the
+# primary tier off fable would have silently disabled the whole credit and
+# refusal fallback with nothing failing. Expressed as a map, adding or moving a
+# tier is an edit to the topology, not an invisible behaviour change.
+#
+# The value is the tier that owns a SEPARATE credit pool, which is the entire
+# reason a credit fallback can work at all.
+MODEL_FALLBACK_TIER: dict[str, str] = {
+    # Planning tier: fable is the most capable and most expensive pool.
+    "fable": "opus",
+    # Implementation tier (operator decision): opus, falling back to sonnet.
+    # Before this entry opus was a LEAF — an implementer that exhausted its
+    # quota had nowhere to go, and since ORPHAN-HIGH-475 that raises terminally
+    # rather than silently returning the usage-limit notice as an answer. The
+    # ladder is what makes running the write tier on opus safe.
+    "opus": "sonnet",
+}
+
+# The effort a credit retry escalates to ("ultra code" retry).
+CREDIT_FALLBACK_EFFORT: str = "max"
+
+
+# NOTE: a `has_fallback_tier(model)` predicate was added here alongside the
+# ladder and removed in the same branch (ORPHAN-HIGH-481). It had zero
+# production callers — run_with_model_fallback does its own
+# `MODEL_FALLBACK_TIER.get(model)` because it needs the TARGET, not a boolean —
+# so the predicate was speculative API in the one branch whose whole purpose is
+# deleting controls that are written, tested and never called. The map is the
+# SSoT; read it directly.
 ALLOW_API_KEY_MODE_ENV_VAR = "ARIA_ALLOW_CLAUDE_API_KEY_MODE"
 REQUIRE_USAGE_ENV_VAR = "ARIA_CLAUDE_REQUIRE_USAGE"
 AUTH_PREFLIGHT_SKIP_ENV_VAR = "ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP"
@@ -77,6 +108,20 @@ class ClaudeAuthUnavailable(RuntimeError):
 
 class ClaudeUsageUnavailable(RuntimeError):
     """Claude stream-json did not include the required usage data."""
+
+
+class ClaudeCreditExhausted(RuntimeError):
+    """A quota/credit exhaustion that no fallback tier can recover.
+
+    ORPHAN-HIGH-473 — raised instead of returning the run result. Per
+    extract_credit_exhaustion, the CLI delivers its usage-limit notice as
+    ASSISTANT CONTENT on a clean exit (returncode 0), so an exhausted run is
+    shaped exactly like a successful one. Neither executor inspected
+    ``.credit_exhaustion`` on the returned result, so "You've reached your
+    limit. Run /usage-credits..." was flowing downstream as the agent's answer
+    and being persisted as a real envelope. A result that cannot be told apart
+    from an answer must not be returned at all.
+    """
 
 
 class ClaudePolicyViolation(RuntimeError):
@@ -285,7 +330,7 @@ def assert_write_runner_ok(*, skip_permissions: bool, permission_mode: str | Non
         )
 
 
-# ORPHAN-CRITICAL-342 — operator escape hatch for a host with no sandbox
+# ORPHAN-CRITICAL-427 — operator escape hatch for a host with no sandbox
 # backend. Named explicitly rather than inferred, and audited in the refusal
 # message, so running a write-capable agent unconfined is a recorded decision
 # and never a silent default.
@@ -351,12 +396,70 @@ def _apply_write_containment(
             env_name=UNCONFINED_ACK_ENV_VAR,
         ):
             return argv
+        # ORPHAN-CRITICAL-451 — this message used to say "install bwrap or
+        # firejail". Following the second option satisfied the S0 exit
+        # criterion with the kernel fully writable, because the firejail
+        # branch applied none of the READONLY_PATHS. bwrap is now the only
+        # accepted backend, so it is the only one suggested.
         raise ClaudePolicyViolation(
-            f"claude_write_containment_required: {exc}. Install bwrap or "
-            f"firejail on the runner, use a read-only shape "
-            f"(skip_permissions=False), or set "
+            f"claude_write_containment_required: {exc}. Install bwrap on the "
+            f"runner AND give it unprivileged user namespaces, use a "
+            f"read-only shape (skip_permissions=False), or set "
             f"{UNCONFINED_ACK_ENV_VAR}=1 to accept an unconfined "
             f"write-capable agent on this host."
+        ) from exc
+
+
+def _apply_resource_limits(argv: list[str], *, timeout_seconds: int) -> list[str]:
+    """Bound the spawned agent's memory, CPU, task count and wall clock.
+
+    ORPHAN-MEDIUM-459 — the kernel half of this shipped with the sandbox
+    work and had no production caller; the only instruction to run it was a
+    line in `.claude/agents/aria-implementer.md`, which is prose addressed to
+    the process being limited. `ORPHAN-CRITICAL-427` fixed exactly that
+    mistake for containment and left it standing here.
+
+    Lazy import mirroring `_apply_write_containment`, and it fails the same
+    way: a kernel that cannot be imported means the perimeter cannot be
+    applied, and a write-capable agent must not be spawned unbounded on the
+    strength of an ImportError.
+
+    ORPHAN-HIGH-470 follow-through — the kernel's `ResourceLimitsUnavailable`
+    is translated into this module's policy vocabulary HERE, at the boundary,
+    exactly as `_apply_write_containment` translates `SandboxUnavailable`.
+    Pre-fix only the ImportError arm was translated, so the no-limiter tail
+    added by ORPHAN-HIGH-470 raised a kernel exception type that no caller of
+    `run_claude_exec` names: `ci_executor.invoke_claude_cli` and
+    `worker_executor.main` each catch
+    (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation,
+    ClaudeUsageUnavailable) and nothing else, so a refused spawn escaped as an
+    unhandled exception past every claim-release branch both files own.
+
+    Translating rather than asking each executor to name a kernel type is the
+    tier-2 shape: the kernel exception cannot cross this module, so a future
+    executor gets the fail-closed handling by default instead of having to
+    remember a fourth exception name. Fail CLOSED — there is deliberately no
+    acknowledgement env var and no bare-argv return, because the operator's
+    escape hatch for an unusable limiter would be an unbounded write-capable
+    agent, which is the failure `apply_resource_limits` exists to prevent.
+    """
+    try:
+        from aria_kernel.implementation_safety import (
+            ResourceLimitsUnavailable,
+            apply_resource_limits,
+        )
+    except ImportError as exc:  # pragma: no cover - kernel always importable here
+        raise ClaudePolicyViolation(
+            f"claude_resource_limits_unavailable: cannot import the limit "
+            f"helper ({exc}); refusing to spawn an unbounded agent"
+        ) from exc
+    try:
+        return apply_resource_limits(argv, timeout_seconds=timeout_seconds)
+    except ResourceLimitsUnavailable as exc:
+        raise ClaudePolicyViolation(
+            f"claude_resource_limits_required: {exc}. Install coreutils "
+            f"`timeout` on the runner, or give it a working systemd user "
+            f"session bus, so memory/CPU/task/wall-clock caps can be applied."
         ) from exc
 
 
@@ -379,7 +482,7 @@ def run_claude_exec(
         skip_permissions=skip_permissions,
         permission_mode=permission_mode,
     )
-    # ORPHAN-CRITICAL-342 — containment is applied HERE, by the code that
+    # ORPHAN-CRITICAL-427 — containment is applied HERE, by the code that
     # spawns the process, not by prose in the agent's own instruction file.
     # A write-capable shape (full permission bypass or acceptEdits) gets
     # wrapped so READONLY_PATHS are ro-bind: a write under aria-kernel/ or
@@ -391,6 +494,22 @@ def run_claude_exec(
         permission_mode=permission_mode,
         workspace_root=cwd,
     )
+    # ORPHAN-MEDIUM-459 — resource limits, applied by the spawner for the same
+    # reason containment is. `apply_resource_limits` shipped with the sandbox
+    # work, was exported, was name-pinned by a test, and had ZERO production
+    # callers: its only instruction to actually run it lived in
+    # `.claude/agents/aria-implementer.md`, addressed to the process being
+    # limited. A fork bomb or a runaway allocation in a write-capable agent
+    # was bounded by nothing.
+    #
+    # OUTSIDE the sandbox wrapper on purpose: `timeout` and `systemd-run`
+    # must own the whole process tree including bwrap, not run inside it.
+    #
+    # The caller's `timeout_seconds`, not the helper's 120s default — an
+    # agent run is minutes, and a 120s cap would kill every real invocation.
+    # The subprocess timeout below stays 30s looser so the cgroup/`timeout`
+    # limit fires first and its exit status is what the caller sees.
+    argv = _apply_resource_limits(argv, timeout_seconds=timeout_seconds)
     # In an acknowledged sandbox, pass IS_SANDBOX=1 so the CLI permits the full
     # bypass even under root; the non-root runner path needs no env change.
     run_env = os.environ.copy()
@@ -576,39 +695,77 @@ def run_with_model_fallback(
     on_credit: Callable[[dict[str, Any]], None] | None = None,
     on_refusal: Callable[[dict[str, Any]], None] | None = None,
 ) -> ClaudeRunResult:
-    """Run one dispatch and apply the fable→opus fallback policy.
+    """Run one dispatch and apply the model fallback ladder.
 
-    ``run(model, effort)`` executes a single attempt. This is the SSoT for
-    the fallback behaviour both executors share (extracted so it is unit-
-    testable without a full lease/dispatch environment):
+    ``run(model, effort)`` executes a single attempt. This is the SSoT for the
+    fallback behaviour both executors share (extracted so it is unit-testable
+    without a full lease/dispatch environment).
 
-    * Fallback fires ONLY when the primary ``model`` is ``fable``.
-    * A credit/quota exhaustion retries once on ``opus`` at ``xhigh``
-      ("ultra code") effort — opus is a separate credit pool.
-    * A refusal retries once on ``opus`` at the ORIGINAL effort (K2).
-    * Total retries are bounded to exactly ONE: each branch returns the
-      opus result directly, so a credit/refusal signal on THAT result
-      escalates at the caller (its unresolved-* branch) instead of
-      re-retrying. Credit takes precedence over refusal.
-    * A failure already on a non-fable model is returned unchanged
-      (fail-closed at the caller).
+    ORPHAN-HIGH-480 — this docstring described the pre-ladder single-hop policy
+    on five counts after the code had moved on, which is the same stale-prose
+    defect as the jest tier comments (ORPHAN-MEDIUM-477). Corrected to match:
 
-    The ``on_credit`` / ``on_refusal`` hooks receive the detection record so
-    the caller can emit its own audit (ci_executor: governance rows;
-    worker_executor: stderr). Hooks never alter control flow.
+    * Fallback fires for any tier present in ``MODEL_FALLBACK_TIER`` — currently
+      ``fable -> opus`` (planning) and ``opus -> sonnet`` (implementation). It is
+      NOT keyed to one model name.
+    * A credit/quota exhaustion retries once on the mapped tier at
+      ``CREDIT_FALLBACK_EFFORT`` — a separate credit pool at ultracode depth.
+    * A refusal retries once on the mapped tier at the ORIGINAL effort (K2).
+    * Total retries are bounded to exactly ONE per call: the ladder is walked a
+      single rung, never chained. Credit takes precedence over refusal.
+    * A credit exhaustion that cannot be recovered — the tier has no mapped
+      fallback, or the fallback tier is ALSO exhausted — RAISES
+      :class:`ClaudeCreditExhausted`. It is not returned. The earlier claim that
+      the caller escalates such a result was false: no caller inspects
+      ``credit_exhaustion`` on the returned value, so returning it silently
+      published a usage-limit notice as the agent's answer (ORPHAN-HIGH-475).
+
+    The ``on_credit`` / ``on_refusal`` hooks receive the detection record so the
+    caller can emit its own audit (ci_executor: governance rows; worker_executor:
+    stderr). Hooks never alter control flow, and on_credit fires BEFORE a raise
+    so an unrecoverable exhaustion is still recorded.
     """
     completed = run(model, effort)
-    if model != "fable":
+    fallback_model = MODEL_FALLBACK_TIER.get(model)
+    if fallback_model is None:
+        # No alternate credit pool. A credit exhaustion here is TERMINAL, and
+        # returning it would hand the caller a usage-limit notice shaped like
+        # an answer — see ClaudeCreditExhausted. The hook still fires so the
+        # audit records the exhaustion before we refuse.
+        if completed.credit_exhaustion is not None:
+            if on_credit is not None:
+                on_credit(completed.credit_exhaustion)
+            raise ClaudeCreditExhausted(
+                f"claude_credit_exhausted: model={model!r} has no fallback tier "
+                f"({completed.credit_exhaustion})"
+            )
         return completed
     if completed.credit_exhaustion is not None:
         if on_credit is not None:
             on_credit(completed.credit_exhaustion)
-        return run("opus", "xhigh")
+        return _reject_exhausted(run(fallback_model, CREDIT_FALLBACK_EFFORT), fallback_model)
     if completed.refusal is not None:
         if on_refusal is not None:
             on_refusal(completed.refusal)
-        return run("opus", effort)
+        return _reject_exhausted(run(fallback_model, effort), fallback_model)
     return completed
+
+
+def _reject_exhausted(result: ClaudeRunResult, model: str) -> ClaudeRunResult:
+    """ORPHAN-HIGH-473 — the retry's own exhaustion is terminal too.
+
+    The single-retry budget is deliberate, but the pre-fix docstring claimed the
+    caller escalates a credit signal on the retry result. It does not: neither
+    executor reads ``.credit_exhaustion`` off the value it gets back. So an
+    exhausted retry was the same silent-answer path as an exhausted primary,
+    one call further down.
+    """
+    if result.credit_exhaustion is not None:
+        raise ClaudeCreditExhausted(
+            f"claude_credit_exhausted: fallback tier {model!r} is also exhausted "
+            f"({result.credit_exhaustion})"
+        )
+    return result
 
 
 def extract_credit_exhaustion(

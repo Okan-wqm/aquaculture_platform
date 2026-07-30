@@ -31,8 +31,8 @@
     "build:types": "tsc --emitDeclarationOnly",
     "lint": "node ../../tools/toolchain/run.mjs eslint src",
     "lint:fix": "node ../../tools/toolchain/run.mjs eslint src --fix",
-    "test": "vitest",
-    "test:coverage": "vitest --coverage"
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "peerDependencies": {
     "react": "19.2.7",

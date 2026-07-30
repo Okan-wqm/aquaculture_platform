@@ -29,7 +29,7 @@ from `converged` → `cross_review_self_agreement` + emits a governance
 event `convergence_invalid_self_agreement` with the specific
 violation reasons.
 
-ORPHAN-HIGH-336 — all three layers were non-functional in production:
+ORPHAN-HIGH-421 — all three layers were non-functional in production:
 
   * Layer 1 was fed ``request_ids[0..2]`` positionally, but the drainer
     appended challenger → cross_review → completeness_critic → primary,
@@ -75,7 +75,7 @@ CROSS_REVIEW_ROLE = "cross_review"
 class IndependenceInputError(ValueError):
     """Raised when a dispatch record cannot support an independence claim.
 
-    ORPHAN-HIGH-336 — this exists so a caller CANNOT hand the checker a
+    ORPHAN-HIGH-421 — this exists so a caller CANNOT hand the checker a
     placeholder. The drainer used to pass literal strings such as
     ``"(challenger plan text)"`` and synthesized ids such as
     ``f"{plan_id}-c1"``, which made two of the three layers mathematically
@@ -141,7 +141,7 @@ def verify_principal_disjointness(
 ) -> tuple[bool, list[str]]:
     """N-party source-level independence over dispatched roles.
 
-    ORPHAN-HIGH-336 — generalises the old three-argument claim check. The
+    ORPHAN-HIGH-421 — generalises the old three-argument claim check. The
     property is pairwise: no two roles may share a ``claim_id`` (the
     receipt) or an ``agent_id`` (the principal). The principal check is
     the one that matters and the one that was missing — every claim gets a
@@ -209,7 +209,7 @@ def verify_claim_disjointness(
 ) -> tuple[bool, list[str]]:
     """Source-level: distinct claims AND distinct executing principals.
 
-    ORPHAN-HIGH-336 — the docstring here always promised that "no two
+    ORPHAN-HIGH-421 — the docstring here always promised that "no two
     claims overlap in time on the same agent_id", but the implementation
     only compared ``claim_id`` sets. Every claim gets a fresh claim_id, so
     a SINGLE agent could claim all three envelopes and pass: the identity
@@ -288,7 +288,7 @@ def _diversity_reasons(
 ) -> list[str]:
     """Diversity comparison for one pair, fail-closed on missing text.
 
-    ORPHAN-HIGH-336 — ``compute_jaccard_similarity`` returns 0.0 when
+    ORPHAN-HIGH-421 — ``compute_jaccard_similarity`` returns 0.0 when
     either side is empty, so an absent output used to score as maximally
     diverse and pass. Text we cannot read is text we cannot compare: it is
     reported as unavailable rather than treated as evidence of diversity.
@@ -319,7 +319,7 @@ def verify_independence(
     False means at least one layer flagged echo chamber; the verdict MUST
     downgrade to ``cross_review_self_agreement``.
 
-    ORPHAN-HIGH-336 — takes typed :class:`RoundDispatch` records instead
+    ORPHAN-HIGH-421 — takes typed :class:`RoundDispatch` records instead
     of nine loose strings. The old signature let the drainer pass
     placeholder text and synthesized revision ids, which made the
     revision and diversity layers unable to fire at all: measured

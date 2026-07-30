@@ -12,9 +12,12 @@ on:
     - cron: '0 2 * * 0' # Sunday at 2 AM
   workflow_dispatch:
   push:
+    branches: [main]
     tags:
       - 'v*'
       - 'release-*'
+  pull_request:
+    branches: [main]
 
 # SEC-CI-021: Minimum token permissions — prevents compromised actions from
 # pushing commits, creating releases, or modifying repository settings.
@@ -24,15 +27,26 @@ permissions:
 env:
   NODE_VERSION: '22'
 
-# Cancel in-progress runs for the same workflow
+# PR updates supersede an older run for the same PR. Every non-PR run uses
+# its immutable SHA as the group, so protected-main evidence is never cancelled.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint-and-typecheck:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 25, not 15 (ORPHAN-HIGH-501). This job makes four heavy serial passes —
+    # lint all projects, tsc all, a SECOND full tsc pass in type-check-spec, then
+    # the format check — and the merge of main added a workspace, which grew the
+    # linter from 6m36s to 8m57s. Measured need is ~17.5m; at 15m the job was
+    # cancelled mid-`type-check-spec` and step 10 reported `skipped`, so BOTH
+    # tail gates stopped running while the job still looked configured. It failed
+    # closed (build-status treats cancelled as not-success) but printed
+    # "Lint/Typecheck failed", which sends the reader hunting a lint error that
+    # does not exist. Consistent with this file's own budgets: test 30, build 30,
+    # deploy-ssot-gates 20.
+    timeout-minutes: 25
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -66,6 +80,15 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit --prefer-offline
 
+      # Nx runs every Rust-backed lint target in parallel. Install the pinned
+      # toolchain once so cargo processes never race while mutating ~/.rustup.
+      - name: Install Rust toolchain (rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
+        with:
+          toolchain: 1.88.0
+          components: rustfmt,clippy,rust-src
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+
       - name: Run linter (all projects)
         run: npm run lint:all -- --max-warnings=0
 
@@ -80,12 +103,20 @@ jobs:
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
 
-      - name: Check formatting
-        run: npm run format:check
+      # Main carries historical formatting debt. Ratchet the exact PR/push
+      # delta so new drift fails closed without rewriting unrelated files.
+      - name: Check formatting of changed files
+        run: node tools/quality/quality.mjs format check-changed
+        env:
+          FORMAT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
 
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # The coverage control plane is repository-owned and needs no external
+    # identity. Keep the job at the minimum permission needed by checkout.
+    permissions:
+      contents: read
     services:
       postgres:
         # INFRA-CRITICAL-010: HA edition includes pgvector (HNSW + vector_cosine_ops)
@@ -143,21 +174,36 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit --prefer-offline
 
+      # Nx runs every Rust-backed test target in parallel. Install the pinned
+      # toolchain once so cargo processes never race while mutating ~/.rustup.
+      - name: Install Rust toolchain (rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
+        with:
+          toolchain: 1.88.0
+          components: rustfmt,clippy,rust-src
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+
       - name: Run all tests
         run: npm run test:all -- --coverage
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/aquaculture_test
           REDIS_URL: redis://localhost:6379
 
-      - name: Upload coverage to Codecov
+      - name: Verify coverage evidence
+        run: node tools/quality/coverage-evidence.js
+
+      - name: Upload coverage evidence
         # SEC-CI-002: pinned to SHA
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          directory: ./coverage
-          # fail_ci_if_error changed from false to true.
-          # BEFORE: Codecov upload failure was silently ignored — coverage could drop to 0%
-          # with no CI signal. WHY: Coverage enforcement only works if upload failures surface.
-          fail_ci_if_error: true
+          name: coverage-${{ github.sha }}
+          path: |
+            coverage/coverage-evidence.json
+            coverage/**/lcov.info
+            libs/aquaculture-engines/coverage/lcov.info
+            web/**/coverage/lcov.info
+          if-no-files-found: error
+          retention-days: 30
 
   build:
     runs-on: ubuntu-latest
@@ -194,6 +240,15 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit --prefer-offline
+
+      # Nx runs every Rust-backed build target in parallel. Install the pinned
+      # toolchain once so cargo processes never race while mutating ~/.rustup.
+      - name: Install Rust toolchain (rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
+        with:
+          toolchain: 1.88.0
+          components: rustfmt,clippy,rust-src
+          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
 
       - name: Build all projects
         run: npm run build:all
@@ -387,16 +442,15 @@ jobs:
         run: npm run gates:production-licenses
 
   build-status:
+    name: build-status
     needs:
-      [
-        lint-and-typecheck,
-        test,
-        build,
-        generate-sri-hashes,
-        deploy-ssot-gates,
-        security-scan,
-        license-check,
-      ]
+      - lint-and-typecheck
+      - test
+      - build
+      - generate-sri-hashes
+      - deploy-ssot-gates
+      - security-scan
+      - license-check
     runs-on: ubuntu-latest
     if: always()
     steps:

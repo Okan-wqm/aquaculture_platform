@@ -21,11 +21,21 @@ from aria_kernel import (
     verify_integrity,
     run_validation_commands,
 )
+from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
 from aria_kernel.proposal import proposal_packet_from_task, record_proposal_from_amplification
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_health import runs_path
 from aria_kernel.tool_registry import GovernanceError
 from tests._helpers.declared_fixtures import append_declared_fixture
+
+
+# The product file the fixture proposal touches. One constant so the seeded
+# commit, the proposal's evidence and the action's declared changed_files
+# cannot drift. The pre-PR-open hard-fail perimeter compares the declaration
+# against READONLY_PATHS and scans the base..branch diff, so a fixture that
+# names a kernel path — or names a path no commit ever wrote — describes a PR
+# that could not legally be opened.
+CHANGED_FILE = "apps/farm-service/src/pond/pond-stocking.service.ts"
 
 
 class AutoPrFoundationTests(unittest.TestCase):
@@ -163,8 +173,13 @@ class AutoPrFoundationTests(unittest.TestCase):
             kind="architecture",
             title="Fixture proposal",
             problem="Fixture problem",
-            evidence=["src/app.ts"],
-            validation_command="npm run test",
+            evidence=[CHANGED_FILE],
+            validation_command=CANONICAL_VALIDATION_COMMANDS[0],
+            # The canonical suite, sourced from the perimeter's own constant so
+            # the fixture cannot drift from what test_gate_canonical_suite
+            # requires. Each command is its own entry — one string mentioning
+            # all three does not count (ORPHAN-CRITICAL-461).
+            validation_commands=list(CANONICAL_VALIDATION_COMMANDS),
             source_authority="deterministic_pressure",
             risk_class="runtime",
             status="ready_for_operator",
@@ -183,17 +198,33 @@ class AutoPrFoundationTests(unittest.TestCase):
             dry_run=True,
         )
         self.assertEqual(action["status"], "planned")
-        # Plan 023 v3 §P-3 — open_pr_for_action below now fails hard
-        # when `git rev-parse <branch>` fails. plan_apply_worktree(
-        # dry_run=True) plans without creating the actual branch+
-        # worktree. Manually create just the branch ref pointing at
-        # HEAD so rev-parse resolves; this preserves the test's
-        # original "dry-run pipeline" intent without the worktree
-        # creation polluting workspace_root with untracked content
-        # that would fail run_validation_commands' clean-tree check.
+        # Plan 023 v3 §P-3 — open_pr_for_action below fails hard when
+        # `git rev-parse <branch>` fails, and the pre-PR-open perimeter
+        # reads `git diff base_sha..branch` from action.worktree_path.
+        # plan_apply_worktree(dry_run=True) plans both without creating
+        # either, so the action described a branch that does not resolve
+        # and a worktree that does not exist. Build them here at the
+        # planned path, carrying one commit that edits the declared
+        # CHANGED_FILE, so the declaration and the diff describe one
+        # change; a branch left pointing at base yields an empty diff,
+        # which is a PR with no content. `aria-worktrees/` is gitignored
+        # by _init_git_workspace, so workspace_root stays clean for
+        # run_validation_commands' clean-tree check.
+        worktree_path = Path(action["worktree_path"])
         subprocess.run(
-            ["git", "branch", action["branch"]],
+            [
+                "git", "worktree", "add", "-q",
+                "-b", action["branch"], str(worktree_path), action["base_sha"],
+            ],
             cwd=self.root, check=True, capture_output=True,
+        )
+        (worktree_path / CHANGED_FILE).write_text(
+            "export const STOCKING_DENSITY_MAX_PER_M3 = 35;\n", encoding="utf-8",
+        )
+        subprocess.run(["git", "add", "."], cwd=worktree_path, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "fixture change"],
+            cwd=worktree_path, check=True, capture_output=True,
         )
         baseline = run_validation_commands(
             commands=["python3 -m unittest --help"],
@@ -233,8 +264,13 @@ class AutoPrFoundationTests(unittest.TestCase):
         self.assertIn("## Validation", pr["body"])
 
     def _init_git_workspace(self):
-        (self.root / "src").mkdir()
-        (self.root / "src/app.ts").write_text("export const app = true;\n", encoding="utf-8")
+        source = self.root / CHANGED_FILE
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("export const STOCKING_DENSITY_MAX_PER_M3 = 40;\n", encoding="utf-8")
+        # plan_apply_worktree plans its worktree under workspace_root, so the
+        # directory has to be ignored for the tree to stay clean — the same
+        # thing the real repository's .gitignore does for its worktree roots.
+        (self.root / ".gitignore").write_text("aria-worktrees/\n", encoding="utf-8")
         subprocess.run(["git", "init"], cwd=self.root, check=True, capture_output=True)
         subprocess.run(["git", "config", "user.email", "aria@example.invalid"], cwd=self.root, check=True)
         subprocess.run(["git", "config", "user.name", "ARIA"], cwd=self.root, check=True)

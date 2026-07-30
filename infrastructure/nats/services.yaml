@@ -212,6 +212,10 @@ services:
       - "events.*.TenantDataErased"
       - "events.*.TenantDataErasureFailed"
       - "events.*.TenantErasureBlocked"
+      # SENSOR-MEDIUM-070: channel-detection delegates to ai-service over NATS
+      # (request-reply) under the sensor-service service principal — replaces the
+      # forged x-user-payload HTTP call. sensor-service is the CALLER (publish).
+      - "request.ai.sensor.detectChannels"
       - "st.language.>"
       - "events.platform.schema-migration.>"
       - "events.security.events.>"
@@ -370,6 +374,9 @@ services:
       - "request.ai.generateEmbeddings"
       - "request.ai.analyzeSentiment"
       - "request.ai.isEnabled"
+      # SENSOR-MEDIUM-070: sensor channel-detection responder (analyze→suggest run
+      # under the sensor-service service principal). ai-service HANDLES it (subscribe).
+      - "request.ai.sensor.detectChannels"
       - "$JS.API.>"
       - "_INBOX.>"
 

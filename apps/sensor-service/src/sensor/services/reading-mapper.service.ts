@@ -10,6 +10,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { SensorReadings } from '../../database/entities/sensor-reading.entity';
+import { canonicalReadingKey } from '../../database/entities/sensor-reading-key';
 import { SensorType } from '../../database/entities/sensor.entity';
 import {
   IReadingMapper,
@@ -26,7 +27,10 @@ abstract class BaseReadingMapper implements IReadingMapper {
 
   mapToReadings(value: number, _config: ReadingMappingConfig): SensorReadings {
     const readings: SensorReadings = {};
-    (readings as Record<string, number>)[this.getReadingKey()] = value;
+    // SENSOR-MEDIUM-067: write through the canonical codec so a mapper key can
+    // never drift from the key calibration looks up. Idempotent on the camelCase
+    // keys the mappers already return — a structural guard, not a behaviour change.
+    (readings as Record<string, number>)[canonicalReadingKey(this.getReadingKey())] = value;
     return readings;
   }
 }

@@ -191,7 +191,7 @@ class RuntimeArtifactTests(unittest.TestCase):
 
 
 class AutonomySummaryDerivedCountersTests(unittest.TestCase):
-    """ORPHAN-HIGH-339 — the operator-facing counters must be derived.
+    """ORPHAN-HIGH-424 — the operator-facing counters must be derived.
 
     ``incomplete_lifecycle_count`` was pinned to 0 in ``cycle.py`` and then
     summed here, and ``warning_count``/``suppressed_count``/
@@ -280,7 +280,7 @@ class AutonomySummaryDerivedCountersTests(unittest.TestCase):
 
 
 class CycleLifecycleStatusTests(unittest.TestCase):
-    """ORPHAN-HIGH-339 — the count cycle.py reports must be real."""
+    """ORPHAN-HIGH-424 — the count cycle.py reports must be real."""
 
     def test_started_without_terminal_is_counted(self) -> None:
         from aria_kernel.integrity import cycle_lifecycle_status

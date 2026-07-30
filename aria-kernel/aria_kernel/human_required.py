@@ -168,7 +168,7 @@ def resolve_human_required(
     fanned into the ground-truth feedback ledger via ``record_operator_feedback``
     so judge calibration (Plan 024 §A) can score the judges that disagreed.
 
-    ORPHAN-HIGH-341 — an independent agent panel may also resolve, via
+    ORPHAN-HIGH-426 — an independent agent panel may also resolve, via
     ``human_required_adjudication.adjudicate_human_required``. Two
     properties are enforced here rather than left to the caller:
 

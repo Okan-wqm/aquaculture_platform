@@ -6,7 +6,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, QueryFailedError } from 'typeorm';
+import { Repository, In, QueryFailedError, EntityManager } from 'typeorm';
 
 /** System tenant ID for built-in sensor type definitions */
 const SYSTEM_TENANT_ID = '00000000-0000-0000-0000-000000000000';
@@ -284,8 +284,18 @@ export class SensorTypeService {
     sensorId: string,
     tenantId: string,
     typeDefinitionId: string,
+    // SENSOR-MEDIUM-071: when registration passes its transaction manager, the
+    // type-def lookup + channel writes join that transaction, so a bootstrap
+    // failure rolls back the sensor row too (no channel-less orphan). Omitted by
+    // standalone callers, which keep using the injected (auto-commit) repos.
+    manager?: EntityManager,
   ): Promise<SensorDataChannel[]> {
-    const typeDef = await this.sensorTypeRepo.findOne({
+    // withRepository binds the injected repository to the caller's transaction
+    // (not getRepository — that would bypass the tenant-aware repo, banned by lint).
+    const typeRepo = manager ? manager.withRepository(this.sensorTypeRepo) : this.sensorTypeRepo;
+    const channelRepo = manager ? manager.withRepository(this.channelRepo) : this.channelRepo;
+
+    const typeDef = await typeRepo.findOne({
       where: [
         { id: typeDefinitionId, tenantId },
         { id: typeDefinitionId, isSystem: true, tenantId: SYSTEM_TENANT_ID },
@@ -308,7 +318,7 @@ export class SensorTypeService {
     }
 
     // Check for existing channels to avoid duplicates
-    const existingChannels = await this.channelRepo.find({
+    const existingChannels = await channelRepo.find({
       where: { sensorId, tenantId },
     });
     const existingKeys = new Set(existingChannels.map((c) => c.channelKey));
@@ -323,7 +333,7 @@ export class SensorTypeService {
         continue;
       }
 
-      const channel = this.channelRepo.create({
+      const channel = channelRepo.create({
         sensorId,
         tenantId,
         channelKey: chDef.channelKey,
@@ -348,7 +358,7 @@ export class SensorTypeService {
       channels.push(channel);
     }
 
-    const created = channels.length > 0 ? await this.channelRepo.save(channels) : [];
+    const created = channels.length > 0 ? await channelRepo.save(channels) : [];
 
     this.logger.log(
       `Created ${created.length} channels for sensor ${sensorId} from type "${typeDef.typeKey}"`,

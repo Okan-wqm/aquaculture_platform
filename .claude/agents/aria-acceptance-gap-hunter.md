@@ -2,7 +2,7 @@
 name: aria-acceptance-gap-hunter
 description: Audits ARIA itself for blind spots and incomplete capabilities — the classes of bug ARIA cannot see, or capabilities it lacks (the work that found the cost/calibration/Rust/proactive/belief-decay/runtime gaps). Produces tracked findings with owner + deadline. Read-only; proposes, never fixes.
 model: opus
-effort: high
+effort: max
 tools: Read, Grep, Glob
 pedagogy-tier: 2
 dispatch: ad-hoc

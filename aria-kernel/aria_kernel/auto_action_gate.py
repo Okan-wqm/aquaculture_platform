@@ -203,7 +203,7 @@ def _load_policy_flag(base_dir: str | Path) -> bool:
     return bool(flag)
 
 
-# ORPHAN-CRITICAL-333 — the state string a safety-signal read collapses
+# ORPHAN-CRITICAL-418 — the state string a safety-signal read collapses
 # to when it cannot answer. It is deliberately NOT ``ok``: every
 # consumer compares against ``ok``, so an unreadable breaker or cost
 # ledger now requires operator acknowledgement instead of waving the
@@ -219,7 +219,7 @@ def _load_breaker_state(base_dir: str | Path) -> str:
     import or an unreadable ledger read as "no failures recorded" and
     the gate stopped requiring an operator ack. A safety signal that
     cannot be read is not a safe signal — it returns
-    ``SAFETY_STATE_UNREADABLE`` (ORPHAN-CRITICAL-333).
+    ``SAFETY_STATE_UNREADABLE`` (ORPHAN-CRITICAL-418).
 
     ``circuit_breaker.evaluate_breaker`` already fails closed on a
     damaged ledger; this wrapper closes the remaining hole where the
@@ -241,7 +241,7 @@ def _load_cost_state(base_dir: str | Path) -> str:
     Same defect and same fix as :func:`_load_breaker_state` — both feed
     ``AutoActionGate.human_ack_required``, so leaving this one
     permissive would keep the hole open on the cost side
-    (ORPHAN-CRITICAL-333).
+    (ORPHAN-CRITICAL-418).
     """
     try:
         from .cost_budget import current_state

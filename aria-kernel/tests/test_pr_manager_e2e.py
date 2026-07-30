@@ -25,6 +25,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aria_kernel.apply_engine import gate_apply_action
+from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
 from aria_kernel.pr_manager import (
     build_pr_body,
     open_pr_for_action,
@@ -40,6 +41,18 @@ from tests._gh_mock import (
     recorded_calls,
     reset_recorded,
 )
+
+
+# ORPHAN-CRITICAL-428 — the one product file this fixture's PR claims to
+# change. It must sit OUTSIDE implementation_safety.READONLY_PATHS
+# (`aria-kernel/`, `.github/`, `docs/adr/`, `scripts/`, …): the pre-PR-open
+# hard-fail perimeter refuses both a readonly write
+# (`forbidden_scope_normalized`) and a readonly mint-time declaration
+# (`kernel_self_modification_blocked_at_envelope_mint`), so a kernel path here
+# describes a PR that could never legally be opened. The branch commit in
+# _seed_tools touches this exact path so the declared surface and the real
+# base..branch diff agree.
+FIXTURE_CHANGED_FILE = "apps/farm-service/src/farm/services/water-quality.service.ts"
 
 
 def _seed_tools() -> Path:
@@ -77,8 +90,13 @@ def _seed_tools() -> Path:
         ["git", "checkout", "-q", "-b", "aria/test-proposal"],
         cwd=workspace, check=True,
     )
-    (workspace / "feature.txt").write_text("feature\n", encoding="utf-8")
-    _sp.run(["git", "add", "feature.txt"], cwd=workspace, check=True)
+    changed = workspace / FIXTURE_CHANGED_FILE
+    changed.parent.mkdir(parents=True, exist_ok=True)
+    changed.write_text(
+        "export const WATER_QUALITY_SAMPLE_INTERVAL_MS = 60000;\n",
+        encoding="utf-8",
+    )
+    _sp.run(["git", "add", FIXTURE_CHANGED_FILE], cwd=workspace, check=True)
     _sp.run(
         ["git", "commit", "-q", "-m", "feature"],
         cwd=workspace, check=True, capture_output=True,
@@ -86,12 +104,21 @@ def _seed_tools() -> Path:
     return tools
 
 
+def _rev_parse(workspace: Path, rev: str) -> str:
+    import subprocess as _sp
+    completed = _sp.run(
+        ["git", "rev-parse", rev],
+        cwd=workspace, check=True, capture_output=True, text=True,
+    )
+    return completed.stdout.strip()
+
+
 def _seed_apply_action(
     *,
     tools: Path,
     proposal_id: str,
     status: str,
-    base_sha: str = "abcd1234",
+    base_sha: str | None = None,
     branch: str = "aria/test-proposal",
 ) -> dict:
     """Bypass plan_apply_worktree (which needs git) and write the action row directly.
@@ -99,7 +126,17 @@ def _seed_apply_action(
     Plan 017 Phase 3 verifies the gate logic, not the worktree planner. The
     seeded action row mirrors what plan_apply_worktree -> gate_apply_action
     would have produced for a passing validation gate.
+
+    ORPHAN-CRITICAL-428 — that mirror now has to hold for the pre-PR-open
+    hard-fail perimeter too, so `base_sha` defaults to the branch's REAL
+    parent commit instead of the literal "abcd1234". A base SHA git cannot
+    resolve makes `git diff <base>..<head>` fail, which pr_manager reports as
+    diff_text=None, which the secret scan treats as UNVERIFIED and refuses
+    (`secret_scan_diff_clean:diff_text_absent`) — a fixture describing a PR
+    whose diff nobody can read, not a clean one.
     """
+    if base_sha is None:
+        base_sha = _rev_parse(tools.parent, f"{branch}^")
     row = {
         "schema_version": 1,
         "recorded_at": "2026-05-07T00:00:00Z",
@@ -108,8 +145,14 @@ def _seed_apply_action(
         "base_sha": base_sha,
         "branch": branch,
         "worktree_path": str(tools.parent / "aria-worktrees" / f"A-{proposal_id}"),
-        "changed_files": ["aria-kernel/aria_kernel/test_module.py"],
-        "validation_commands": [{"cmd": "nx test aria-kernel", "expected_exit": 0, "timeout_ms": 60000}],
+        "changed_files": [FIXTURE_CHANGED_FILE],
+        # apply_engine copies proposal.validation_scope.commands verbatim, so
+        # the production shape is a flat list of command strings. The perimeter
+        # requires each canonical command as its OWN entry (ORPHAN-CRITICAL-461
+        # closed the loophole where one string mentioning all three passed), and
+        # the tuple is imported rather than retyped so the fixture cannot drift
+        # from the suite it claims to declare.
+        "validation_commands": [*CANONICAL_VALIDATION_COMMANDS, "nx test aria-kernel"],
         "validation_gate_ref": "sha256:gate-ref-fake",
         "validation_gate_status": "ready_for_pr",
         "validation_gate_blocked_by": [],

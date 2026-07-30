@@ -24,6 +24,30 @@ import {
 import { ApiKeyAuthStrategy } from '../strategies/api-key-auth.strategy';
 import { BasicAuthStrategy } from '../strategies/basic-auth.strategy';
 
+type ModernFakeTimersConfig = Extract<
+  NonNullable<Parameters<typeof jest.useFakeTimers>[0]>,
+  { doNotFake?: unknown }
+>;
+
+// Every fakeable API except `Date`. A token-expiry test needs the instant
+// pinned, not the event loop stopped — the guard awaits real asynchronous work.
+const TIMER_APIS_LEFT_REAL: NonNullable<ModernFakeTimersConfig['doNotFake']> = [
+  'hrtime',
+  'nextTick',
+  'performance',
+  'queueMicrotask',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'requestIdleCallback',
+  'cancelIdleCallback',
+  'setImmediate',
+  'clearImmediate',
+  'setInterval',
+  'clearInterval',
+  'setTimeout',
+  'clearTimeout',
+];
+
 /**
  * Interface for authenticated request
  */
@@ -239,6 +263,13 @@ describe('AuthGuard', () => {
     reflector = module.get<Reflector>(Reflector);
   });
 
+  afterEach(() => {
+    // Restored here rather than at the end of the test that pins the clock: a
+    // failing expectation returns early, and a leaked fake clock would then
+    // decide the outcome of every expiry test after it.
+    jest.useRealTimers();
+  });
+
   describe('JWT Authentication', () => {
     describe('Valid Tokens', () => {
       it('should accept valid JWT token', async () => {
@@ -357,7 +388,20 @@ describe('AuthGuard', () => {
       });
 
       it('should accept token expiring in 1 second', async () => {
-        const now = Math.floor(Date.now() / 1000);
+        // The property is "a token one second short of expiry is still
+        // accepted" — not "the runner got from here to canActivate in under a
+        // second". Against the real clock those are the same assertion only on
+        // an idle machine: `now` is floored to whole seconds, so the token's
+        // real remaining life is anywhere from 1000ms down to ~0ms, and this
+        // suite takes ~40s under coverage instrumentation. Any scheduling
+        // delay expires the token for real and the guard is right to reject
+        // it. Pinning the clock makes the boundary the subject of the test
+        // instead of the runner's load. Only `Date` is faked — the guard
+        // awaits real work, so the timer APIs must keep running.
+        const frozen = Date.now();
+        jest.useFakeTimers({ doNotFake: TIMER_APIS_LEFT_REAL, now: frozen });
+
+        const now = Math.floor(frozen / 1000);
         const token = createJwtToken({
           iat: now,
           exp: now + 1,

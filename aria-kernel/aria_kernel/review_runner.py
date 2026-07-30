@@ -34,7 +34,7 @@ the correct fail-closed behaviour — no review consensus, no
 auto-merge. Future V6+ work wires real judges to consume the
 envelopes.
 
-ORPHAN-HIGH-337 evidence invariant:
+ORPHAN-HIGH-422 evidence invariant:
   ``no_gaps`` is derived ONLY from an accepted result row bound to the
   round's own request id AND role, carried back on
   ``ReviewResult.accepted_result_ref``. Pre-fix the loop inferred success
@@ -61,6 +61,7 @@ from .agent_invocations import (
     create_agent_invocation_request,
     derive_request_state,
 )
+from .agent_surface import TERMINAL_REQUEST_STATES
 from .tool_registry import ensure_tools_dir
 
 
@@ -71,20 +72,21 @@ _EVIDENCE_JUDGE_AGENT = "aria-evidence-judge"
 _ADVERSARIAL_ROLE = "adversarial_judgment"
 _EVIDENCE_ROLE = "evidence_judgment"
 
-# ORPHAN-HIGH-337 — terminal derived states that will never produce an
+# ORPHAN-HIGH-422 — terminal derived states that will never produce an
 # accepted result. Reaching one of these ends the wait immediately: no
 # amount of further polling turns a rejection or an escalation into a
 # review. ``ACCEPTED`` is deliberately absent — that path is detected by
 # the presence of the accepted result row itself, not by the state string,
 # so a state that says ACCEPTED without a readable result row still fails
 # closed.
-_NON_DELIVERING_TERMINAL_STATES: frozenset[str] = frozenset({
-    "REJECTED",
-    "HUMAN_REQUIRED",
-    "CANCELLED",
-    "STALE",
-    "ACCEPTED_PENDING_BRIDGE_PERMANENT_FAIL",
-})
+# ORPHAN-HIGH-496 — DERIVED from the terminal-state SSoT, not a copy of it.
+# This was a hand-maintained list and it silently fell behind when
+# ANCHOR_STALE was added: an anchor-refused request can never produce an
+# accepted result, but the poll loop did not recognise the state and burned
+# its full judge_timeout_seconds waiting for one. Every terminal state except
+# ACCEPTED is non-delivering by definition, so the exception is what gets
+# named and a future terminal state joins automatically.
+_NON_DELIVERING_TERMINAL_STATES: frozenset[str] = TERMINAL_REQUEST_STATES - {"ACCEPTED"}
 
 
 class ReviewResult(TypedDict):
@@ -103,7 +105,7 @@ class ReviewResult(TypedDict):
     gaps_found: list[dict[str, Any]]
     request_ids: list[str]
     convergence_id: str
-    # ORPHAN-HIGH-337 — the accepted result a ``no_gaps`` verdict was
+    # ORPHAN-HIGH-422 — the accepted result a ``no_gaps`` verdict was
     # derived from (request_id, role, agent_id, output_hash,
     # transcript_hash). ``None`` on every non-``no_gaps`` verdict, so a
     # consumer can tell an evidenced pass from an inferred one.
@@ -152,7 +154,7 @@ def _empty_review_result(
     partial state never leaks. TypedDict ensures all required keys are
     present at construction time.
 
-    ORPHAN-HIGH-337 — ``accepted_result_ref`` is refused on any verdict
+    ORPHAN-HIGH-422 — ``accepted_result_ref`` is refused on any verdict
     other than ``no_gaps``: a blocking verdict has no accepted result by
     definition, and allowing one to be attached would let a caller read
     "evidence exists" off a result that blocked.
@@ -282,7 +284,7 @@ def run_review_runner(
         adversarial_request_id = str(adversarial_request["request_id"])
         request_ids.append(adversarial_request_id)
 
-        # ORPHAN-HIGH-337 — wait for a POSITIVE result, not for the
+        # ORPHAN-HIGH-422 — wait for a POSITIVE result, not for the
         # absence of a pending row. Pre-fix this loop treated
         # ``next_pending_request(...) is None`` as "submitted", but a
         # request leaves the pending set on claim, rejection, cancellation

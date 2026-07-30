@@ -11,12 +11,14 @@ from pathlib import Path
 
 from aria_kernel.burn_in import (
     DISALLOWED_OBSERVE_SURFACES,
+    _require_clean_worktree,
     run_observe_burn_in,
     validate_burn_in_report,
     verify_burn_in_artifact_bundle,
 )
 from aria_kernel.ledger import read_jsonl
 from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.worktree import is_runtime_path as worktree_is_runtime_path
 
 
 _helpers_path = Path(__file__).parent / "_helpers" / "git_fixtures.py"
@@ -166,6 +168,67 @@ class ObserveBurnInTests(unittest.TestCase):
                 min_valid_cycles=20,
                 output_dir=self.output_dir,
             )
+
+    def test_clean_worktree_guard_ignores_the_kernels_own_runtime_writes(self) -> None:
+        """A runtime write must not make the observe burn-in unstartable.
+
+        The guard used to reject any porcelain output at all. Once
+        `aria-tools/reports/daily/*.md` became trackable, `reflection` writes it
+        every cycle, so the next burn-in dispatch died with
+        `observe_burn_in_pre_worktree_not_clean` and produced zero ladder
+        evidence — a gate defeating the thing it exists to measure. CI cannot
+        see it either, because CI points the kernel at `.aria-ci/tools`.
+
+        `_require_clean_worktree` is called directly rather than through
+        `run_observe_burn_in`. Driving it through the public entry point made
+        this assertion vacuous: `_validate_args` rejects the small cycle counts
+        a fast test wants, so the guard was never reached and the test passed
+        against the unfixed code too.
+        """
+        runtime_report = self.repo / "aria-tools" / "reports" / "daily" / "2099-01-01.md"
+        runtime_report.parent.mkdir(parents=True, exist_ok=True)
+        runtime_report.write_text("# anchor\n", encoding="utf-8")
+        subprocess.run(
+            ["git", "add", "-f", "aria-tools/reports/daily/2099-01-01.md"],
+            cwd=self.repo, check=True, capture_output=True,
+        )
+        porcelain = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=self.repo, text=True, capture_output=True, check=True,
+        ).stdout
+        self.assertIn(
+            "aria-tools/reports/daily/2099-01-01.md", porcelain,
+            msg="fixture precondition: the runtime write must be visible to git",
+        )
+        _require_clean_worktree(self.repo, "pre")
+
+    def test_clean_worktree_guard_still_rejects_a_dirty_source_tree(self) -> None:
+        """Filtering runtime paths must not weaken the guard for source dirt."""
+        (self.repo / "apps" / "api" / "src" / "main.ts").write_text(
+            "export const api = false;\n", encoding="utf-8",
+        )
+        with self.assertRaisesRegex(GovernanceError, "pre_worktree_not_clean"):
+            _require_clean_worktree(self.repo, "pre")
+
+    def test_clean_worktree_guard_agrees_with_the_preflight_gate(self) -> None:
+        """One definition of "clean" over one tree, not two.
+
+        `worktree.preflight` already excluded runtime paths while this guard did
+        not, so the same tree was clean to one gate and dirty to the other. The
+        notion is now imported, and this pins that it stays imported rather than
+        being restated and allowed to drift.
+        """
+        for line in (
+            "A  aria-tools/reports/daily/2099-01-01.md",
+            "?? aria-findings/F-999.json",
+            " M aria-debts/DEBT-2026-01-01-001.json",
+        ):
+            self.assertTrue(
+                worktree_is_runtime_path(line),
+                msg=f"preflight treats this as runtime, the burn-in guard must too: {line!r}",
+            )
+        for line in (" M apps/api/src/main.ts", "?? scratch.txt"):
+            self.assertFalse(worktree_is_runtime_path(line))
 
     def test_observe_burn_in_rejects_target_ref_mismatch(self) -> None:
         first_head = subprocess.run(

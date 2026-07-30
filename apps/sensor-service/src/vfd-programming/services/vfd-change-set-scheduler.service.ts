@@ -1,17 +1,31 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThanOrEqual } from 'typeorm';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
+import { forEachTenantSchema } from '@aquaculture/backend-common/database';
+import { withTenantContext } from '@aquaculture/backend-common/context';
 
 import { VfdChangeSet } from '../entities/vfd-change-set.entity';
 import { VfdChangeSetStatus } from '../../vfd/entities/vfd.enums';
 import { VfdParameterWriterService } from './vfd-parameter-writer.service';
 
 /**
- * VFD Change Set Scheduler Service
- * Runs on a 30-second cron interval to apply approved change sets
- * that have a scheduledAt timestamp in the past.
+ * VFD Change Set apply orchestrator.
+ *
+ * Two entry points, one apply path:
+ *  - `@OnEvent('vfd.changeset.approved')` applies a manually-approved
+ *    (unscheduled) set immediately (SENSOR-CRITICAL-009 structural continuation).
+ *  - `@Cron` sweeps every 30s for approved sets that are due — scheduled sets at
+ *    their time, and unscheduled sets as the crash-durable backstop for the
+ *    immediate path.
+ *
+ * vfd_change_sets is a PER-TENANT table, so it exists once per tenant schema.
+ * A cron runs outside any request/tenant context, so it must fan out across
+ * every provisioned tenant schema and apply each tenant's due change sets
+ * inside that tenant's context — an unscoped repository query would run against
+ * the empty source-schema template and either find nothing (scheduled applies
+ * silently never happen) or resolve to the wrong schema.
  */
 @Injectable()
 export class VfdChangeSetSchedulerService {
@@ -21,13 +35,16 @@ export class VfdChangeSetSchedulerService {
   constructor(
     @InjectRepository(VfdChangeSet)
     private readonly changeSetRepository: Repository<VfdChangeSet>,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
     private readonly parameterWriterService: VfdParameterWriterService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
   /**
-   * Check for approved change sets that are due to be applied.
-   * Runs every 30 seconds. Skips if a previous cycle is still processing.
+   * Check for approved change sets that are due to be applied, across every
+   * tenant schema. Runs every 30 seconds. Skips if a previous cycle is still
+   * processing.
    */
   @Cron('*/30 * * * * *')
   async handleScheduledChangeSets(): Promise<void> {
@@ -39,28 +56,62 @@ export class VfdChangeSetSchedulerService {
     this.isProcessing = true;
 
     try {
-      const now = new Date();
+      await forEachTenantSchema(
+        this.dataSource,
+        async ({ schema, queryRunner }) => {
+          // Discover this tenant's due change-set ids under the tenant
+          // search_path (established by forEachTenantSchema). The tenant_id
+          // column carries the full tenant UUID that the schema name (a
+          // truncated hash) cannot recover.
+          // SENSOR-CRITICAL-009: sweep BOTH scheduled sets that are due AND
+          // unscheduled (manual) approved sets. Unscheduled sets apply
+          // immediately via the vfd.changeset.approved consumer below; this
+          // NULL-inclusive sweep is the crash-durable safety net so a manual
+          // approval whose in-process apply was missed/interrupted can never be
+          // stranded at APPROVED forever (worst case it applies next cycle). The
+          // per-set status re-check under the scoped read prevents a double
+          // apply when both paths race.
+          const dueRows: { id: string; tenant_id: string }[] = await queryRunner.query(
+            `SELECT id, tenant_id FROM vfd_change_sets
+             WHERE status = $1 AND (scheduled_at IS NULL OR scheduled_at <= now())
+             ORDER BY scheduled_at ASC NULLS FIRST`,
+            [VfdChangeSetStatus.APPROVED],
+          );
 
-      const dueChangeSets = await this.changeSetRepository.find({
-        where: {
-          status: VfdChangeSetStatus.APPROVED,
-          scheduledAt: LessThanOrEqual(now),
+          if (dueRows.length === 0) {
+            return;
+          }
+
+          this.logger.log(
+            `Found ${dueRows.length} scheduled change set(s) due for application in schema ${schema}`,
+          );
+
+          for (const row of dueRows) {
+            // Apply inside the tenant context so the parameter writer's own
+            // repositories (pool connections) resolve the correct search_path.
+            await withTenantContext(row.tenant_id, async () => {
+              const changeSet = await this.changeSetRepository.findOne({
+                where: { id: row.id },
+                relations: ['items'],
+              });
+
+              // Re-check under the scoped read: the set may have been cancelled
+              // or already picked up since discovery.
+              if (!changeSet || changeSet.status !== VfdChangeSetStatus.APPROVED) {
+                return;
+              }
+
+              await this.applyLoadedChangeSet(changeSet, 'scheduled');
+            });
+          }
         },
-        relations: ['items'],
-        order: { scheduledAt: 'ASC' },
-      });
-
-      if (dueChangeSets.length === 0) {
-        return;
-      }
-
-      this.logger.log(
-        `Found ${dueChangeSets.length} scheduled change set(s) due for application`,
+        {
+          searchPathSuffix: 'sensor, public',
+          concurrency: 4,
+          perTenantTimeoutMs: 120_000,
+          logger: this.logger,
+        },
       );
-
-      for (const changeSet of dueChangeSets) {
-        await this.applyScheduledChangeSet(changeSet);
-      }
     } catch (error) {
       this.logger.error(
         `Scheduler error: ${error instanceof Error ? error.message : String(error)}`,
@@ -72,25 +123,67 @@ export class VfdChangeSetSchedulerService {
   }
 
   /**
-   * Apply a single scheduled change set.
-   * On failure: logs error, emits alert, does NOT auto-retry.
+   * Apply an approved change set the instant it is approved, without waiting for
+   * the 30s cron.
+   *
+   * SENSOR-CRITICAL-009: `approveChangeSet` emits `vfd.changeset.approved` for
+   * every UNSCHEDULED approval, but the cron sweep only reaches approved sets on
+   * its own timer. Before this consumer that event had NO listener, so a
+   * manually-approved set sat at APPROVED until (previously: never; now: the next
+   * durable sweep). This handler makes application the structural continuation of
+   * approval: it re-establishes the tenant context (the event fires outside any
+   * request scope) and applies immediately. Failures are logged; the parameter
+   * writer emits its own `vfd.changeset.failed`, and the cron sweep remains the
+   * durable backstop.
    */
-  private async applyScheduledChangeSet(changeSet: VfdChangeSet): Promise<void> {
-    this.logger.log(
-      `Applying scheduled change set ${changeSet.id} (scheduled at: ${changeSet.scheduledAt?.toISOString()})`,
-    );
+  @OnEvent('vfd.changeset.approved')
+  async handleApprovedChangeSet(payload: { changeSetId: string; tenantId: string }): Promise<void> {
+    try {
+      await withTenantContext(payload.tenantId, async () => {
+        const changeSet = await this.changeSetRepository.findOne({
+          where: { id: payload.changeSetId },
+          relations: ['items'],
+        });
+        // A scheduled set never emits this event; a set may also have been
+        // cancelled between approval and this handler, or already applied by the
+        // cron sweep. Only act on a still-APPROVED set.
+        if (!changeSet || changeSet.status !== VfdChangeSetStatus.APPROVED) {
+          return;
+        }
+        await this.applyLoadedChangeSet(changeSet, 'approved');
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to apply approved change set ${payload.changeSetId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    }
+  }
+
+  /**
+   * Apply a single change set (already loaded inside its tenant context),
+   * triggered either by the scheduled cron sweep or by immediate approval. On
+   * failure: logs error, emits an alert, does NOT auto-retry.
+   */
+  private async applyLoadedChangeSet(
+    changeSet: VfdChangeSet,
+    trigger: 'scheduled' | 'approved',
+  ): Promise<void> {
+    this.logger.log(`Applying ${trigger} change set ${changeSet.id}`);
 
     try {
       const result = await this.parameterWriterService.applyChangeSet(changeSet);
 
       this.logger.log(
-        `Scheduled change set ${changeSet.id} applied with status: ${result.status}`,
+        `${trigger} change set ${changeSet.id} applied with status: ${result.status}`,
       );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
 
       this.logger.error(
-        `Failed to apply scheduled change set ${changeSet.id}: ${errorMessage}`,
+        `Failed to apply ${trigger} change set ${changeSet.id}: ${errorMessage}`,
         error instanceof Error ? error.stack : undefined,
       );
 

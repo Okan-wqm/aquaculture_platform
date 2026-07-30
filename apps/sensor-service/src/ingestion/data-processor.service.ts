@@ -3,7 +3,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { SensorDataChannel } from '../database/entities/sensor-data-channel.entity';
-import { SensorReading } from '../database/entities/sensor-reading.entity';
 import { Sensor } from '../database/entities/sensor.entity';
 
 /**
@@ -41,8 +40,6 @@ export class DataProcessorService {
   constructor(
     @InjectRepository(Sensor)
     private readonly sensorRepository: Repository<Sensor>,
-    @InjectRepository(SensorReading)
-    private readonly readingRepository: Repository<SensorReading>,
   ) {}
 
   /**

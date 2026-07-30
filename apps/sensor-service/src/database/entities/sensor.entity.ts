@@ -7,6 +7,7 @@ import {
 } from '@nestjs/graphql';
 import { GraphQLJSON } from 'graphql-scalars';
 import { DecimalTransformer } from '@aquaculture/backend-common/database';
+import { EncryptedProtocolConfigTransformer } from '../../infrastructure/vault/protocol-config.transformer';
 import {
   Entity,
   Column,
@@ -253,8 +254,17 @@ export class Sensor {
   @JoinColumn({ name: 'protocol_id' })
   protocol?: SensorProtocol;
 
+  // SENSOR-MEDIUM-080: secret-named fields (passwords, tokens, API keys, PSKs,
+  // OAuth2 secrets) inside protocol_configuration are encrypted at rest with
+  // AES-256-GCM via a field-level transformer; non-secret fields (host, port,
+  // topic) stay plaintext so the topic index + MQTT hot path keep working.
   @Field(() => GraphQLJSON, { nullable: true })
-  @Column({ name: 'protocol_configuration', type: 'jsonb', nullable: true })
+  @Column({
+    name: 'protocol_configuration',
+    type: 'jsonb',
+    nullable: true,
+    transformer: EncryptedProtocolConfigTransformer,
+  })
   protocolConfiguration?: Record<string, unknown>;
 
   @Field(() => GraphQLJSON, { nullable: true })

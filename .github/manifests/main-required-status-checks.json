@@ -3,13 +3,13 @@
   "schema_version": 1,
   "repository": "Okan-wqm/aquaculture_platform",
   "branch": "main",
-  "finding_ids": ["EDGE-CRITICAL-001", "INFRA-CRITICAL-044"],
+  "finding_ids": ["EDGE-CRITICAL-001", "INFRA-CRITICAL-044", "INFRA-HIGH-084"],
   "branch_protection": {
     "enforce_admins": true
   },
   "required_status_checks": {
     "strict": true,
-    "contexts": ["sens-enterprise-summary", "merge-gate", "aria-merge-authority"]
+    "contexts": ["sens-enterprise-summary", "merge-gate", "aria-merge-authority", "build-status"]
   },
   "ci_affected_required_path_filters": [
     "sens-api-gateway/**",
@@ -82,6 +82,25 @@
             "npm run gates:required-status-checks",
             "npm run aria:docs:ssot"
           ]
+        }
+      ]
+    },
+    {
+      "workflow": ".github/workflows/ci-full.yml",
+      "contexts": [
+        {
+          "context": "build-status",
+          "job_id": "build-status",
+          "requires_jobs": [
+            "lint-and-typecheck",
+            "test",
+            "build",
+            "generate-sri-hashes",
+            "deploy-ssot-gates",
+            "security-scan",
+            "license-check"
+          ],
+          "required_markers": ["name: build-status", "if: always()", "All critical checks passed"]
         }
       ]
     }

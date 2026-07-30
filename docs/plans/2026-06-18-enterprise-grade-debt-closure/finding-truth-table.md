@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `986cd8f9bb2551ac2f604be79dd9d3d7dd2e32d34040611fe587a1f155104249`
+Registry tip: `173930c0f64e30085e7b09f1d1a109f9cc45b7e2e116325007720e4a80424955`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -97,6 +97,22 @@ can erase live drain writes (`FARM-CRITICAL-241`). They remain `real-open` until
 the implementation wave supplies PostgreSQL concurrency, rerun, rollback, and
 parity evidence.
 
+Updated 2026-07-18 (sensor device industrial-protocol audit): the 102-finding
+sensor `/sensor/devices` audit added 103 registry entries (the 102 findings plus
+SENSOR-MEDIUM-080). Merged onto main's farm/feed cutover chain and re-chained,
+the registry stands at 1136 entries with three new active CRITICALs from the
+sensor audit. `SENSOR-CRITICAL-007` (6 of 7 VFD adapters fake the write path —
+`EMERGENCY_STOP` returns success without transmitting) and `SENSOR-CRITICAL-009`
+(manual approve→apply never writes to the drive — `vfd.changeset.approved` has no
+consumer) are `real-open`: the edge-delegated VFD write path is the tracked fix
+(binding + write primitive + command/apply rewire have landed; telemetry reads
+are edge-delegated). `SENSOR-CRITICAL-008` (25 protocol adapters fake connection
+success — a never-contacted device is flipped ACTIVE) is
+`already-fixed-needs-close`: the `ProtocolImplementationStatus` SSoT hides
+unsupported adapters and `ConnectionTesterService` fails honestly for any
+non-`cloud-real` protocol before an adapter runs — OPEN only until the post-merge
+close ceremony records a main-reachable closing commit (PROC-HIGH-001).
+
 Updated 2026-07-18 (production host control-plane recurrence review): exact-main
 capacity evidence registered four new active findings and closed the already
 merged default-deny image-tag gap. Two findings are CRITICAL and enter the
@@ -116,25 +132,49 @@ Allowed truth buckets:
 - `stale`
 - `new-finding-required`
 
-| Finding                 | Registry state | First sprint | Owner                | Truth bucket              |
-| ----------------------- | -------------- | ------------ | -------------------- | ------------------------- |
-| `INFRA-CRITICAL-029`    | OPEN           | 1.1          | data-expert          | real-open                 |
-| `FARM-CRITICAL-061`     | OPEN           | 1.1          | farm-expert          | real-open                 |
-| `AISAFETY-CRITICAL-003` | OPEN           | —            | ai-safety-auditor    | already-fixed-needs-close |
-| `SENSOR-CRITICAL-003`   | OPEN           | —            | sensor-expert        | already-fixed-needs-close |
-| `DATA-CRITICAL-001`     | OPEN           | —            | data-expert          | real-open                 |
-| `INFRA-CRITICAL-039`    | OPEN           | —            | infra-expert         | already-fixed-needs-close |
-| `RBAC-CRITICAL-001`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
-| `RBAC-CRITICAL-002`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
-| `RBAC-CRITICAL-003`     | OPEN           | 1.2          | auth-security-expert | already-fixed-needs-close |
-| `INFRA-CRITICAL-040`    | IN-PROGRESS    | —            | infra-expert         | blocked                   |
-| `INFRA-CRITICAL-044`    | OPEN           | —            | infra-expert         | blocked                   |
-| `FARM-CRITICAL-237`     | IN-PROGRESS    | 4.1          | farm-expert          | real-open                 |
-| `FARM-CRITICAL-238`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
-| `FARM-CRITICAL-240`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
-| `FARM-CRITICAL-241`     | IN-PROGRESS    | 4.1          | data-expert          | real-open                 |
-| `INFRA-CRITICAL-077`    | IN-PROGRESS    | 1.1          | infra-expert         | real-open                 |
-| `INFRA-CRITICAL-078`    | IN-PROGRESS    | 1.1          | security-reviewer    | real-open                 |
+| Finding                 | Registry state | First sprint | Owner                      | Truth bucket              |
+| ----------------------- | -------------- | ------------ | -------------------------- | ------------------------- |
+| `INFRA-CRITICAL-029`    | OPEN           | 1.1          | data-expert                | real-open                 |
+| `FARM-CRITICAL-061`     | OPEN           | 1.1          | farm-expert                | real-open                 |
+| `AISAFETY-CRITICAL-003` | OPEN           | —            | ai-safety-auditor          | already-fixed-needs-close |
+| `SENSOR-CRITICAL-003`   | OPEN           | —            | sensor-expert              | already-fixed-needs-close |
+| `DATA-CRITICAL-001`     | OPEN           | —            | data-expert                | real-open                 |
+| `INFRA-CRITICAL-039`    | OPEN           | —            | infra-expert               | already-fixed-needs-close |
+| `RBAC-CRITICAL-001`     | OPEN           | 1.2          | auth-security-expert       | already-fixed-needs-close |
+| `RBAC-CRITICAL-002`     | OPEN           | 1.2          | auth-security-expert       | already-fixed-needs-close |
+| `RBAC-CRITICAL-003`     | OPEN           | 1.2          | auth-security-expert       | already-fixed-needs-close |
+| `INFRA-CRITICAL-040`    | IN-PROGRESS    | —            | infra-expert               | blocked                   |
+| `INFRA-CRITICAL-044`    | OPEN           | —            | infra-expert               | blocked                   |
+| `FARM-CRITICAL-237`     | IN-PROGRESS    | 4.1          | farm-expert                | real-open                 |
+| `FARM-CRITICAL-238`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
+| `FARM-CRITICAL-240`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
+| `FARM-CRITICAL-241`     | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
+| `SENSOR-CRITICAL-007`   | OPEN           | —            | sensor-expert              | real-open                 |
+| `SENSOR-CRITICAL-008`   | OPEN           | —            | sensor-expert              | already-fixed-needs-close |
+| `SENSOR-CRITICAL-009`   | OPEN           | —            | sensor-expert              | real-open                 |
+| `INFRA-CRITICAL-077`    | IN-PROGRESS    | 1.1          | infra-expert               | real-open                 |
+| `INFRA-CRITICAL-078`    | IN-PROGRESS    | 1.1          | security-reviewer          | real-open                 |
+| `DATA-CRITICAL-010`     | OPEN           | —            | data-expert                | real-open                 |
+| `ORPHAN-CRITICAL-418`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-419`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-420`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-427`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-428`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-439`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-440`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-446`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-451`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-460`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-461`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-469`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-479`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-484`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-485`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-488`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-494`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-495`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-497`   | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-498`   | OPEN           | 2026-08-12   | aria-acceptance-gap-fixer  | real-open                 |
 
 ## Mutation Rules
 

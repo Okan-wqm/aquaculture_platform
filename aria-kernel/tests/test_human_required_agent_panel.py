@@ -1,4 +1,4 @@
-"""ORPHAN-HIGH-341 — independent-agent adjudication of HUMAN_REQUIRED.
+"""ORPHAN-HIGH-426 — independent-agent adjudication of HUMAN_REQUIRED.
 
 Operator direction: escalations should be adjudicated by independent
 agents rather than waiting on a human. The safety of that rests entirely
@@ -320,6 +320,75 @@ class PanelFold(unittest.TestCase):
                 resolved_by="some_other_actor",
                 base_dir=self.tools,
             )
+
+
+class AdjudicationPublicApiPin(unittest.TestCase):
+    """The module's five siblings pin __all__ exactly; this one did not.
+
+    An exact-set assertion is the only thing that makes an accidental export a
+    build failure rather than a new public surface nobody chose. Without it a
+    helper renamed from `_fold` to `fold` silently becomes API, and callers grow
+    against it before anyone decides that was intended.
+    """
+
+    CANONICAL: frozenset[str] = frozenset({
+        # policy constants
+        "ADJUDICABLE_CONTEXT_KINDS",
+        "ADJUDICATION_ROLE",
+        "ADJUDICATOR_VERDICTS",
+        "DEFAULT_PANEL_SIZE",
+        "DEFAULT_QUORUM",
+        "INSUFFICIENT_VERDICT",
+        "IRREDUCIBLE_CONTEXT_KINDS",
+        "IRREDUCIBLE_RISK_LANES",
+        "OUTCOME_REFUSED",
+        "OUTCOME_RESOLVED",
+        "OUTCOME_STILL_ESCALATED",
+        "REFUSE_VERDICT",
+        "RESOLVE_VERDICT",
+        # value types
+        "AdjudicabilityVerdict",
+        "AdjudicatorOpinion",
+        "PanelVerdict",
+        # behaviour
+        "adjudicate_human_required",
+        "escalation_adjudicability",
+        "fold_adjudication",
+        "open_adjudication",
+        # ORPHAN-HIGH-450 — the production caller. Pinned here because the
+        # panel having no caller is what made ORPHAN-HIGH-426's fix inert,
+        # so dropping this export is a regression, not a cleanup.
+        "sweep_human_required_adjudications",
+    })
+
+    def test_all_matches_the_canonical_set_exactly(self) -> None:
+        from aria_kernel import human_required_adjudication as _hra
+
+        actual = set(_hra.__all__)
+        self.assertEqual(
+            actual, set(self.CANONICAL),
+            f"__all__ drifted; missing={set(self.CANONICAL) - actual} "
+            f"extra={actual - set(self.CANONICAL)}",
+        )
+
+    def test_every_exported_name_resolves(self) -> None:
+        """A name in __all__ that does not exist breaks `from … import *`."""
+        from aria_kernel import human_required_adjudication as _hra
+
+        for name in _hra.__all__:
+            with self.subTest(name=name):
+                self.assertTrue(hasattr(_hra, name), f"{name} is exported but absent")
+
+    def test_irreducible_lanes_are_not_adjudicable_by_agents(self) -> None:
+        """The one policy line that must not quietly widen.
+
+        An agent panel may resolve an escalation; it may not grant itself the
+        L3/blocked lanes, which are the lanes that carry real merge authority.
+        Pinned here because widening this set is a one-word edit.
+        """
+        from aria_kernel import human_required_adjudication as _hra
+
+        self.assertEqual(set(_hra.IRREDUCIBLE_RISK_LANES), {"L3", "blocked"})
 
 
 if __name__ == "__main__":

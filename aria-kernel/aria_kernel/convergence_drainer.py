@@ -46,12 +46,14 @@ import time
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
 
+from .agent_invocations import accepted_result_for_request
 from .bridge_exceptions import BridgeContractViolation
 from .convergent_planning_bridge import (
     issue_challenger_envelope,
     start_convergent_plan_drafted_by_primary,
 )
 from .cross_review_bridge import (
+    CROSS_REVIEW_ROLE as CROSS_REVIEW_TARGET_AND_ROLE,
     issue_completeness_critic_envelope,
     issue_cross_review_envelope,
     issue_primary_envelope,
@@ -476,6 +478,48 @@ def _structured_revision_content(state: dict[str, Any]) -> dict[str, Any] | None
     return None
 
 
+def _accepted_output_text(
+    *, request_id: str, role: str, base_dir: str | Path
+) -> str | None:
+    """The text an agent actually produced, or ``None`` if unreadable.
+
+    ORPHAN-CRITICAL-446 — the independence gate compares what the
+    primary, the challenger and the cross-reviewer WROTE. Reading that
+    text needs the accepted result row, because the row is the only
+    evidence the agent delivered at all: ``accepted_result_for_request``
+    rejects a claim with no result, a rejection, and a HUMAN_REQUIRED
+    escalation, which is exactly the distinction ORPHAN-HIGH-422
+    established.
+
+    Every failure returns ``None`` rather than an empty string. The two
+    are not interchangeable here: :class:`RoundDispatch` treats ``None``
+    as "no text to compare" and the diversity layer fails closed on it,
+    whereas an empty string would score as maximally diverse against
+    anything and pass.
+    """
+    if not request_id:
+        return None
+    try:
+        accepted = accepted_result_for_request(
+            request_id=request_id, role=role, base_dir=base_dir,
+        )
+    except Exception:
+        return None
+    if not accepted:
+        return None
+    output_path = accepted.get("output_path")
+    if not isinstance(output_path, str) or not output_path:
+        return None
+    path = Path(output_path)
+    if not path.exists():
+        return None
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    return text or None
+
+
 def run_convergence_drainer(
     *,
     cycle_id: str,
@@ -553,7 +597,7 @@ def run_convergence_drainer(
     rounds_executed = 0
     poll_sleep = max(0.05, min(5.0, challenger_timeout_seconds / 60.0))
 
-    # ORPHAN-HIGH-336 — role→dispatch map per round, recorded where the
+    # ORPHAN-HIGH-421 — role→dispatch map per round, recorded where the
     # real values live instead of reconstructed by indexing request_ids.
     round_dispatches: dict[int, dict[str, RoundDispatch]] = {}
     # The primary is only agent-dispatched on a REVISION (round 2+); on
@@ -781,7 +825,7 @@ def run_convergence_drainer(
                         primary_plan_text = primary_candidate
         except Exception:
             pass
-        # ORPHAN-HIGH-336 — capture whether each text is REAL before the
+        # ORPHAN-HIGH-421 — capture whether each text is REAL before the
         # error-envelope substitution below overwrites that fact. The
         # substituted envelope is still handed to the cross-reviewer (it is
         # the operator-visible mint-time signal), but independence must not
@@ -846,7 +890,7 @@ def run_convergence_drainer(
         cross_review_request_id = cross_review_request.get("request_id")
         if cross_review_request_id:
             request_ids.append(cross_review_request_id)
-        # ORPHAN-HIGH-336 — record this round's REAL role→dispatch mapping
+        # ORPHAN-HIGH-421 — record this round's REAL role→dispatch mapping
         # while every value is still in scope. The independence check ~400
         # lines below used to rebuild it by indexing request_ids
         # positionally, which mismapped the roles because appends run
@@ -874,6 +918,14 @@ def run_convergence_drainer(
             # verify_revision_id_distinctness skips a None third id rather
             # than inventing a comparison.
             revision_id=None,
+            # No text YET — the request was minted microseconds ago and the
+            # reviewer has not run. This record exists so a cross-review that
+            # never delivers is a VIOLATION rather than a missing record, and
+            # it is replaced below with the reviewer's real output once the
+            # plan reaches CROSS_REVIEWED. See ORPHAN-CRITICAL-446: leaving
+            # this None at gate time is what made the diversity layer
+            # short-circuit on `cross_review_text_unavailable` in every
+            # production round.
             agent_text=None,
         )
         cross_review_state = _poll_for_state(
@@ -924,6 +976,29 @@ def run_convergence_drainer(
                 resumed_from_persistence=resumed,
                 convergence_id=convergence_id,
             )
+        # ORPHAN-CRITICAL-446 — the cross-review has now DELIVERED, so its
+        # text exists. Re-record the dispatch with the real output; without
+        # this the record minted before the poll keeps `agent_text=None` all
+        # the way to the independence gate, `_diversity_reasons`
+        # short-circuits on `cross_review_text_unavailable` for both pairs
+        # that involve the reviewer, and every `converged` verdict is
+        # downgraded to `cross_review_self_agreement`. Two comparisons the
+        # diversity layer exists for were never computed.
+        #
+        # Read failure is left as a None text on purpose: a reviewer whose
+        # output cannot be read has not demonstrated independence, and the
+        # gate must say so rather than assume it.
+        _record_round_dispatch(
+            current_round,
+            role=IND_CROSS_REVIEW_ROLE,
+            request_id=str(cross_review_request_id or ""),
+            revision_id=None,
+            agent_text=_accepted_output_text(
+                request_id=str(cross_review_request_id or ""),
+                role=CROSS_REVIEW_TARGET_AND_ROLE[1],
+                base_dir=base_dir,
+            ),
+        )
         return challenger_revision_id, None
 
     resolved_coverage_computer = coverage_computer or compute_plan_coverage
@@ -1173,7 +1248,7 @@ def run_convergence_drainer(
             primary_revision_request_id = primary_revision_request.get("request_id")
             if primary_revision_request_id:
                 request_ids.append(primary_revision_request_id)
-                # ORPHAN-HIGH-336 — from the next round on, the primary IS
+                # ORPHAN-HIGH-421 — from the next round on, the primary IS
                 # agent-dispatched, so its claim becomes checkable against
                 # the challenger's and the reviewer's.
                 primary_dispatch_state["request_id"] = str(primary_revision_request_id)
@@ -1294,7 +1369,7 @@ def run_convergence_drainer(
             # downgrades to cross_review_self_agreement so the operator
             # sees the fake-consensus signal in the reflection.
             if arbiter_verdict == "converged":
-                # ORPHAN-HIGH-336 — the gate no longer depends on
+                # ORPHAN-HIGH-421 — the gate no longer depends on
                 # `len(request_ids) >= 3`, which silently skipped the whole
                 # check on any round that minted fewer envelopes, and no
                 # longer rebuilds the role mapping by position. A missing

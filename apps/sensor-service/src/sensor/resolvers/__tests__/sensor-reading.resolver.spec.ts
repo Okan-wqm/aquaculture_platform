@@ -1,55 +1,59 @@
 /**
  * SensorReadingResolver — federation reference resolver tests.
  *
- * Scope B Phase S1.2. Pins the tenant-isolation contract for the
- * `__resolveReference` entry point: empty tenantId returns null
- * (NOT a 500), and a populated tenant routes to the repository
- * lookup.
+ * Scope B Phase S1.2 + SENSOR-HIGH-085. Pins the tenant-isolation and
+ * as-of-reconstruction contract for the `__resolveReference` entry point:
+ *   - the tenant comes ONLY from the authenticated context — the
+ *     reference is never a tenant source (D7, fail-closed);
+ *   - a decodable id routes to SensorQueryService.reconstructAsOf with the
+ *     decoded (sensorId, anchor);
+ *   - an undecodable id or a missing tenant returns null (NOT a 500) and
+ *     issues no reconstruction.
  */
 
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { anchorFromDatabaseText, encodeSensorReadingId } from '@aquaculture/backend-common/sensor';
 
-import { SensorReading } from '../../../database/entities/sensor-reading.entity';
+import { SensorQueryService } from '../../services/sensor-query.service';
 import { SensorReadingResolver } from '../sensor-reading.resolver';
 
 describe('SensorReadingResolver', () => {
   let resolver: SensorReadingResolver;
-  let readingRepository: jest.Mocked<Repository<SensorReading>>;
+  let queryService: { reconstructAsOf: jest.Mock };
 
-  const tenantId = '11111111-1111-1111-1111-111111111111';
-  const otherTenantId = '22222222-2222-2222-2222-222222222222';
-  const readingId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  const tenantId = '11111111-1111-4111-8111-111111111111';
+  const otherTenantId = '22222222-2222-4222-8222-222222222222';
+  const sensorId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const anchorText = '2026-04-25T12:00:00.123456Z';
+  const anchor = anchorFromDatabaseText(anchorText)!;
+  const readingId = encodeSensorReadingId(sensorId, anchor);
 
   const mockReading = {
     id: readingId,
-    sensorId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+    sensorId,
     tenantId,
-    timestamp: new Date('2026-04-25T12:00:00Z'),
+    timestamp: new Date('2026-04-25T12:00:00.123Z'),
     readings: { temperature: 22.5 },
-  } as unknown as SensorReading;
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SensorReadingResolver,
         {
-          provide: getRepositoryToken(SensorReading),
-          useValue: {
-            findOne: jest.fn(),
-          },
+          provide: SensorQueryService,
+          useValue: { reconstructAsOf: jest.fn() },
         },
       ],
     }).compile();
 
     resolver = module.get(SensorReadingResolver);
-    readingRepository = module.get(getRepositoryToken(SensorReading));
+    queryService = module.get(SensorQueryService);
   });
 
   describe('resolveReference', () => {
-    it('returns the reading when the gateway forwards an authenticated tenant context', async () => {
-      readingRepository.findOne.mockResolvedValue(mockReading);
+    it('reconstructs the as-of snapshot when the gateway forwards an authenticated tenant', async () => {
+      queryService.reconstructAsOf.mockResolvedValue(mockReading);
 
       const result = await resolver.resolveReference(
         { __typename: 'SensorReading', id: readingId },
@@ -57,81 +61,87 @@ describe('SensorReadingResolver', () => {
       );
 
       expect(result).toEqual(mockReading);
-      expect(readingRepository.findOne).toHaveBeenCalledWith({
-        where: { id: readingId, tenantId },
-      });
+      // The decoded anchor drives the reconstruction; the tenant is the
+      // authenticated one, never taken from the reference.
+      expect(queryService.reconstructAsOf).toHaveBeenCalledWith(sensorId, anchor, tenantId);
     });
 
-    it('returns null and does NOT throw when neither context nor reference carries tenantId', async () => {
+    it('returns null and does NOT reconstruct when no authenticated tenant is present', async () => {
       const result = await resolver.resolveReference(
         { __typename: 'SensorReading', id: readingId },
         {},
       );
 
       expect(result).toBeNull();
-      // Critical: no DB call when tenant is missing — the resolver
-      // MUST NOT issue a tenant-less query that could leak rows.
-      expect(readingRepository.findOne).not.toHaveBeenCalled();
+      expect(queryService.reconstructAsOf).not.toHaveBeenCalled();
     });
 
-    it('returns null when context user object is present but tenantId is missing', async () => {
+    it('returns null when the context user object is present but tenantId is missing', async () => {
       const result = await resolver.resolveReference(
         { __typename: 'SensorReading', id: readingId },
         { req: { user: {} } },
       );
 
       expect(result).toBeNull();
-      expect(readingRepository.findOne).not.toHaveBeenCalled();
+      expect(queryService.reconstructAsOf).not.toHaveBeenCalled();
     });
 
-    it('falls back to reference.tenantId when the producing subgraph included it', async () => {
-      readingRepository.findOne.mockResolvedValue(mockReading);
-
+    it('NEVER takes the tenant from the reference — a reference-only tenant is rejected (D7)', async () => {
+      // A peer subgraph could put any tenantId on the reference; without an
+      // authenticated context tenant the resolver must fail closed, not read
+      // another tenant's data under the reference's say-so.
       const result = await resolver.resolveReference(
-        { __typename: 'SensorReading', id: readingId, tenantId },
-        // No context user — emulates a federation hop where the
-        // gateway didn't forward auth (rare but supported).
+        {
+          __typename: 'SensorReading',
+          id: readingId,
+          // deliberately smuggled — must be ignored
+          ...({ tenantId: otherTenantId } as Record<string, unknown>),
+        },
         {},
       );
 
-      expect(result).toEqual(mockReading);
-      expect(readingRepository.findOne).toHaveBeenCalledWith({
-        where: { id: readingId, tenantId },
-      });
+      expect(result).toBeNull();
+      expect(queryService.reconstructAsOf).not.toHaveBeenCalled();
     });
 
-    it('prefers context.req.user.tenantId over reference.tenantId on conflict', async () => {
-      // The gateway-forwarded user context is the source of truth;
-      // the reference's `tenantId` is a hint at best (the producing
-      // subgraph could have been wrong about the tenant).
-      readingRepository.findOne.mockResolvedValue(mockReading);
+    it('reconstructs under the AUTHENTICATED tenant even if the reference smuggles another', async () => {
+      queryService.reconstructAsOf.mockResolvedValue(mockReading);
 
       await resolver.resolveReference(
-        { __typename: 'SensorReading', id: readingId, tenantId: otherTenantId },
+        {
+          __typename: 'SensorReading',
+          id: readingId,
+          ...({ tenantId: otherTenantId } as Record<string, unknown>),
+        },
         { req: { user: { tenantId } } },
       );
 
-      expect(readingRepository.findOne).toHaveBeenCalledWith({
-        where: { id: readingId, tenantId },
-      });
+      expect(queryService.reconstructAsOf).toHaveBeenCalledWith(sensorId, anchor, tenantId);
     });
 
-    it('returns null on repository error (does not propagate to the gateway)', async () => {
-      readingRepository.findOne.mockRejectedValue(new Error('connection lost'));
+    it('returns null and does NOT reconstruct when the id cannot be decoded (D3 fail-closed)', async () => {
+      const result = await resolver.resolveReference(
+        { __typename: 'SensorReading', id: 'not-a-valid-codec-id' },
+        { req: { user: { tenantId } } },
+      );
+
+      expect(result).toBeNull();
+      expect(queryService.reconstructAsOf).not.toHaveBeenCalled();
+    });
+
+    it('returns null on reconstruction error (does not propagate to the gateway)', async () => {
+      queryService.reconstructAsOf.mockRejectedValue(new Error('connection lost'));
 
       const result = await resolver.resolveReference(
         { __typename: 'SensorReading', id: readingId },
         { req: { user: { tenantId } } },
       );
 
-      // Federation expects null on miss; throwing surfaces 500s in
-      // the gateway and breaks composition for ALL subgraphs in the
-      // request. The resolver swallows + logs.
       expect(result).toBeNull();
     });
 
-    it('returns null when the repository finds no matching row', async () => {
-      readingRepository.findOne.mockResolvedValue(null);
+    it('returns null when the reconstruction finds no data for the anchor', async () => {
+      queryService.reconstructAsOf.mockResolvedValue(null);
 
       const result = await resolver.resolveReference(
         { __typename: 'SensorReading', id: readingId },

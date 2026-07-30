@@ -399,7 +399,7 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("validation_gates", "validation/validation-gates.jsonl", "ledger", "validation", "runtime", True, "append_fsync", True, profile_surface="validation_matrix", observe_class="mutation"),
     StateSurface("critical_observations", "critical-observations/*.json", "artifact", "critical_observation", "runtime", True, "rewrite_fsync", True, profile_surface="critical_observation", observe_class="mutation"),
     StateSurface("human_required_requests", "human-required/*.json", "artifact", "human_required", "runtime", True, "rewrite_fsync", True, profile_surface="human_required", observe_class="mutation"),
-    # ORPHAN-HIGH-341 — the panel's decision ledger. Declared so the
+    # ORPHAN-HIGH-426 — the panel's decision ledger. Declared so the
     # record that can CLEAR an escalation is covered by the same integrity
     # chain as the escalation itself; an adjudication ledger outside the
     # manifest would be a decision surface nothing verifies.

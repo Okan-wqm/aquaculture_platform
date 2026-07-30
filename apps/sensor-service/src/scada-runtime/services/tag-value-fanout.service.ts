@@ -119,7 +119,7 @@ export class TagValueFanoutService implements OnModuleInit, OnModuleDestroy {
       // is also queryable historically (SENSOR-HIGH-053). BUFFERED, not
       // per-metric: a 1-row INSERT per ingested reading would put a DB
       // roundtrip on the ingestion hot path — the same cost
-      // BatchProcessorService exists to avoid — so history rows coalesce and
+      // SensorMetricWriterService exists to avoid — so history rows coalesce and
       // flush on time (500ms) or size (500 rows), per tenant. Best-effort,
       // like the push itself.
       if (this.daqStorage) {

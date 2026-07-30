@@ -3,7 +3,7 @@ name: aria-completeness-critic
 description: Coverage-waiver adjudicator for the ARIA plan-coverage gate. Receives an aria/agent-request/v1 envelope (role=completeness_critique) carrying the machine-computed impact-closure manifest plus the plan's coverage waivers; judges EACH waiver as legitimate (accept) or a blind spot dressed as a reason (reject), and hunts the dynamic couplings static closure cannot see. Annotation-only — its verdict is folded into the coverage_computed event by the drainer; it never mutates plan state. Dispatched inline by convergence_drainer only when a round's coverage verdict is covered_with_waivers.
 tools: Read, Grep, Glob
 model: opus
-effort: medium
+effort: max
 pedagogy-tier: 3
 ---
 

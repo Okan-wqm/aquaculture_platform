@@ -47,6 +47,8 @@ class ProtocolInfoType {
   @Field() subcategory!: string;
   @Field() connectionType!: string;
   @Field(() => ProtocolCapabilitiesType) capabilities!: ProtocolCapabilitiesType;
+  // 'cloud-real' | 'edge-delegated' — UNSUPPORTED protocols are never returned.
+  @Field() implementationStatus!: string;
 }
 
 @ObjectType()

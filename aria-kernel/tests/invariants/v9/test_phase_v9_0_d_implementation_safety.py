@@ -12,13 +12,15 @@ import dataclasses
 import re
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
+from unittest import mock
 
 from . import _helpers  # noqa: F401
 
 from aria_kernel import implementation_safety as _is
 
-# ORPHAN-CRITICAL-343 — resolved from this file so the workspace root is
+# ORPHAN-CRITICAL-428 — resolved from this file so the workspace root is
 # deterministic regardless of the runner's cwd.
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -35,7 +37,7 @@ class TestV9HardFailRegistry(unittest.TestCase):
             f"HARD_FAIL_CHECKS count drifted: {len(_is.HARD_FAIL_CHECKS)} (expected 17)",
         )
 
-    # ORPHAN-CRITICAL-343 — the count above was the ONLY thing pinned, and
+    # ORPHAN-CRITICAL-428 — the count above was the ONLY thing pinned, and
     # it passed green while the registry was a name list nothing executed.
     # These cases pin executability instead of arithmetic.
     def test_i_v9_safety_every_check_is_executable(self):
@@ -124,7 +126,7 @@ class TestV9HardFailRegistry(unittest.TestCase):
         )
 
     def test_i_v9_safety_gate_split_keeps_merge_unsatisfiable(self):
-        """ORPHAN-CRITICAL-343 — two gates, and merge is closed by the
+        """ORPHAN-CRITICAL-428 — two gates, and merge is closed by the
         perimeter rather than by a separate switch.
 
         Splitting the registry is what lets pre-PR-open become satisfiable
@@ -458,7 +460,7 @@ class TestV9SizeCap(unittest.TestCase):
 
 
 class TestPhaseAPrePrOpenChecks(unittest.TestCase):
-    """ORPHAN-CRITICAL-343 phase A — the five mechanical checks.
+    """ORPHAN-CRITICAL-428 phase A — the five mechanical checks.
 
     Every case is behavioural: it calls the bound implementation and
     asserts a verdict. Pinning names or counts is what let a registry of
@@ -666,6 +668,91 @@ class TestPhaseAPrePrOpenChecks(unittest.TestCase):
         self.assertEqual(result.reason, "pr_body_absent")
 
 
+class TestSandboxAvailabilityIsCapabilityNotPresence(unittest.TestCase):
+    """ORPHAN-CRITICAL-439 — a backend on PATH is not a backend that confines.
+
+    Presence and capability come apart in exactly the environment ARIA runs
+    in: inside a container without unprivileged user namespaces, bubblewrap
+    installs cleanly and then fails on every invocation. A PATH-only check
+    reports a backend, `wrap_bash_in_sandbox` builds an argv, and the spawn
+    dies at runtime — or a caller that swallows the error proceeds unconfined.
+    """
+
+    def setUp(self) -> None:
+        # These are process-cached; a stale entry would make the assertions
+        # below test the cache rather than the logic.
+        _is._bwrap_available.cache_clear()
+
+    def tearDown(self) -> None:
+        _is._bwrap_available.cache_clear()
+
+    def test_binary_present_but_probe_failing_reports_unavailable(self) -> None:
+        with mock.patch.object(_is.shutil, "which", return_value="/usr/bin/bwrap"), \
+             mock.patch.object(_is, "_sandbox_probe_succeeds", return_value=False):
+            self.assertFalse(
+                _is._bwrap_available(),
+                "a backend that cannot build its namespaces must not be reported",
+            )
+            self.assertIsNone(_is.sandbox_backend())
+
+    def test_binary_present_and_probe_passing_reports_available(self) -> None:
+        with mock.patch.object(_is.shutil, "which", return_value="/usr/bin/bwrap"), \
+             mock.patch.object(_is, "_sandbox_probe_succeeds", return_value=True):
+            self.assertTrue(_is._bwrap_available())
+            self.assertEqual(_is.sandbox_backend(), "bwrap")
+
+    def test_probe_exercises_every_feature_the_real_wrapper_relies_on(self) -> None:
+        """A probe weaker than the wrapper can pass while the wrapper fails."""
+        probe = set(_is._bwrap_probe_argv())
+        for required in ("--unshare-net", "--tmpfs", "--proc", "--dev", "--ro-bind"):
+            self.assertIn(
+                required, probe,
+                f"probe omits {required}, which wrap_bash_in_sandbox depends on",
+            )
+        # The dynamic loader lives under /lib64; binding only /usr would let the
+        # probe pass on a host where the real wrapper cannot exec anything.
+        for mount in ("/usr", "/lib", "/lib64", "/bin"):
+            self.assertIn(mount, probe, f"probe omits the {mount} ro-bind")
+
+    def test_firejail_is_not_an_accepted_backend(self) -> None:
+        """ORPHAN-CRITICAL-451 — it applied none of the READONLY_PATHS.
+
+        `sandbox_backend()` returning non-None is PLAN.md's S0 exit
+        criterion and is read by callers as proof containment is in force.
+        The firejail branch whitelisted the workspace — kernel included —
+        and ro-bound nothing, so selecting it cleared the gate with the
+        property the gate exists for entirely absent.
+        """
+        self.assertFalse(hasattr(_is, "_firejail_available"))
+        self.assertFalse(hasattr(_is, "_FIREJAIL_PROBE_ARGV"))
+        with mock.patch.object(_is, "_bwrap_available", return_value=False):
+            self.assertIsNone(_is.sandbox_backend())
+
+    def test_probe_and_wrapper_agree_on_the_system_binds(self) -> None:
+        """ORPHAN-MEDIUM-452 — the comment above the probe demands this."""
+        with mock.patch.object(_is, "_bwrap_available", return_value=True), \
+             tempfile.TemporaryDirectory() as workspace:
+            wrapper = _is.wrap_bash_in_sandbox(["true"], workspace_root=workspace)
+        probe = _is._bwrap_probe_argv()
+        for root in _is._SANDBOX_SYSTEM_ROOTS:
+            if root in wrapper:
+                self.assertIn(
+                    root, probe,
+                    f"the wrapper binds {root} and the probe does not",
+                )
+
+    def test_probe_treats_a_missing_binary_as_unavailable_without_raising(self) -> None:
+        self.assertFalse(
+            _is._sandbox_probe_succeeds(("definitely-not-a-real-binary-xyz", "true"))
+        )
+
+    def test_no_backend_means_wrap_raises_rather_than_returning_bare_argv(self) -> None:
+        with mock.patch.object(_is, "_bwrap_available", return_value=False), \
+             tempfile.TemporaryDirectory() as workspace:
+            with self.assertRaises(_is.SandboxUnavailable):
+                _is.wrap_bash_in_sandbox(["true"], workspace_root=workspace)
+
+
 class TestPhaseAGateExitCriterion(unittest.TestCase):
     """The S0 exit criterion, asserted rather than described.
 
@@ -781,15 +868,19 @@ class TestV9PublicApi(unittest.TestCase):
             "is_gh_api_path_forbidden", "wrap_bash_in_sandbox",
             "apply_resource_limits", "truncate_validation_result",
             "HardFailCheck", "HARD_FAIL_CHECKS",
-            # ORPHAN-CRITICAL-342 — the sandbox contract is now typed:
+            # ORPHAN-CRITICAL-427 — the sandbox contract is now typed:
             # wrap_bash_in_sandbox RAISES SandboxUnavailable rather than
             # returning bare argv, and sandbox_backend lets a caller fail
             # closed before it builds a command.
             "SandboxUnavailable", "sandbox_backend",
-            # ORPHAN-CRITICAL-343 — the perimeter is two gates, so the
+            # ORPHAN-HIGH-470 — the limiter contract is typed for the same
+            # reason: apply_resource_limits RAISES rather than handing back
+            # bare argv when no limiter is usable.
+            "ResourceLimitsUnavailable",
+            # ORPHAN-CRITICAL-428 — the perimeter is two gates, so the
             # stage names and the runner filter are public contract.
             "GATE_PRE_PR_OPEN", "GATE_PRE_MERGE", "HARD_FAIL_GATES",
-            # ORPHAN-CRITICAL-343 phase A — the ARIA-branch grammar is
+            # ORPHAN-CRITICAL-428 phase A — the ARIA-branch grammar is
             # shared between the argv allowlist and the refspec check so
             # the two cannot disagree, and the canonical validation suite
             # is what the test gate requires an implementation to declare.
@@ -803,3 +894,76 @@ class TestV9PublicApi(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResourceLimitSelectionTests(unittest.TestCase):
+    """ORPHAN-HIGH-470 — limits are selected on capability, not presence.
+
+    `apply_resource_limits` chose systemd-run whenever `shutil.which` found
+    the binary. On any host without a user session bus — every container this
+    runs in — /usr/bin/systemd-run exists and every invocation fails with
+    "Failed to connect to bus: No medium found", so the wrapper contributed a
+    guaranteed spawn failure instead of limits, and the working `timeout`
+    branch below it was unreachable.
+    """
+
+    def test_a_present_but_broken_systemd_run_falls_through_to_timeout(self) -> None:
+        from aria_kernel import implementation_safety as impl
+
+        impl._systemd_run_available.cache_clear()
+        try:
+            with unittest.mock.patch.object(
+                impl.shutil, "which", side_effect=lambda name: f"/usr/bin/{name}"
+            ), unittest.mock.patch.object(
+                impl, "_sandbox_probe_succeeds", return_value=False
+            ):
+                argv = impl.apply_resource_limits(["claude"], timeout_seconds=1800)
+            self.assertEqual(argv[:2], ["timeout", "1800"])
+        finally:
+            impl._systemd_run_available.cache_clear()
+
+    def test_a_working_systemd_run_bounds_wall_clock_with_runtimemaxsec(self) -> None:
+        """TimeoutStopSec bounds how long systemd waits for a unit to die
+        AFTER asking it to stop; it places no bound on how long the unit may
+        run. The one limit the caller passes a value for was the one not
+        being applied."""
+        from aria_kernel import implementation_safety as impl
+
+        impl._systemd_run_available.cache_clear()
+        try:
+            with unittest.mock.patch.object(
+                impl.shutil, "which", side_effect=lambda name: f"/usr/bin/{name}"
+            ), unittest.mock.patch.object(
+                impl, "_sandbox_probe_succeeds", return_value=True
+            ):
+                argv = impl.apply_resource_limits(["claude"], timeout_seconds=1800)
+            self.assertEqual(argv[0], "systemd-run")
+            self.assertIn("--property=RuntimeMaxSec=1800", argv)
+            self.assertNotIn(
+                "--property=TimeoutStopSec=1800", argv,
+                "TimeoutStopSec does not bound runtime",
+            )
+        finally:
+            impl._systemd_run_available.cache_clear()
+
+    def test_the_probe_carries_the_properties_the_wrapper_applies(self) -> None:
+        """A host can accept systemd-run and reject an individual property, so
+        a probe that omitted them would prove less than it appears to."""
+        from aria_kernel import implementation_safety as impl
+
+        probe = impl._systemd_run_probe_argv()
+        for prop in ("MemoryMax=2G", "CPUQuota=200%", "TasksMax=50"):
+            self.assertIn(f"--property={prop}", probe)
+        self.assertTrue(any(p.startswith("--property=RuntimeMaxSec=") for p in probe))
+
+    def test_no_usable_limiter_refuses_instead_of_spawning_unbounded(self) -> None:
+        from aria_kernel import implementation_safety as impl
+
+        impl._systemd_run_available.cache_clear()
+        try:
+            with unittest.mock.patch.object(impl.shutil, "which", return_value=None):
+                with self.assertRaises(impl.ResourceLimitsUnavailable) as ctx:
+                    impl.apply_resource_limits(["claude"], timeout_seconds=1800)
+            self.assertIn("resource_limits_unavailable", str(ctx.exception))
+        finally:
+            impl._systemd_run_available.cache_clear()

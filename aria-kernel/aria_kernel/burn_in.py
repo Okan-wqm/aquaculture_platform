@@ -19,6 +19,7 @@ from .state_manifest import iter_surfaces, observe_disallowed_tool_surfaces
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding, utc_now
 from .triage import triage_policy_apply
 from .workspace import ensure_workspace, workspace_paths
+from .worktree import is_runtime_path
 
 
 BURN_IN_SCHEMA_VERSION = "aria/autonomy-burn-in-report/v1"
@@ -400,11 +401,32 @@ def _is_inside(child: Path, parent: Path) -> bool:
 
 
 def _require_clean_worktree(repo: Path, phase: str) -> None:
+    """Refuse to start or finish a burn-in on a dirty SOURCE tree.
+
+    "Dirty" means source-dirty. The kernel appends to its own runtime ledgers
+    on every cycle, and a burn-in runs thirty of them, so treating any
+    porcelain output as dirt makes the gate self-defeating: the post-check
+    fails on the evidence the burn-in was run to produce, and the pre-check
+    fails on the previous night's restored state.
+
+    This used to reject any porcelain line at all, while ``worktree.preflight``
+    — the other guard over the same question — already excluded runtime paths.
+    Two definitions of "clean" over one tree is one definition too many, so the
+    notion is imported rather than restated. The concrete failure it caused:
+    once ``aria-tools/reports/daily/*.md`` became trackable, ``reflection``
+    writes it every cycle, and the next burn-in dispatch died with
+    ``observe_burn_in_pre_worktree_not_clean`` — no ladder evidence, from a gate
+    that CI cannot see because CI points the kernel at ``.aria-ci/tools``.
+    """
     dirty = _git(repo, "status", "--porcelain")
-    if dirty.strip():
+    source_dirty = [
+        line for line in dirty.splitlines()
+        if line.strip() and not is_runtime_path(line)
+    ]
+    if source_dirty:
         raise GovernanceError(
             f"observe_burn_in_{phase}_worktree_not_clean: "
-            f"{len(dirty.splitlines())} path(s)"
+            f"{len(source_dirty)} path(s)"
         )
 
 

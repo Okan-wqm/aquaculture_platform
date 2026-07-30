@@ -33,7 +33,7 @@ Locked invariants (13 cases, I-V3-24..29c):
   * I-V3-29c — cross-host lease lock blocks concurrent autonomous
     loops (INFRA-HIGH-004)
 
-ORPHAN-CRITICAL-333 fail-closed cases (I-V3-25d..25i) — each of these
+ORPHAN-CRITICAL-418 fail-closed cases (I-V3-25d..25i) — each of these
 returned ``ok`` before the fix, i.e. damaging the breaker's own ledger
 un-tripped the kernel's safety net:
 
@@ -76,7 +76,7 @@ def _write_threshold_policy(base_dir: Path, threshold: int) -> None:
                 "materialization_requires_acknowledge": True,
                 "fitness_staleness_threshold_days": 14,
                 "circuit_breaker": {
-                    "threshold_24h": threshold,
+                    "failure_threshold": threshold,
                     "auto_downgrade_to": "strict",
                 },
             },
@@ -431,7 +431,7 @@ class PhaseB2AutonomousProfileBreaker(unittest.TestCase):
             self.assertEqual(lease_a_refreshed.host_id, "local:host-a")
 
     # ------------------------------------------------------------------
-    # ORPHAN-CRITICAL-333 — the breaker must not un-trip when its own
+    # ORPHAN-CRITICAL-418 — the breaker must not un-trip when its own
     # evidence is damaged. Each case below returned "ok" pre-fix.
     # ------------------------------------------------------------------
 

@@ -47,7 +47,7 @@ def verify_integrity(
 
 
 def cycle_lifecycle_status(base_dir: str | Path | None = None) -> dict[str, Any]:
-    """ORPHAN-HIGH-339 — public reader for the started-without-terminal set.
+    """ORPHAN-HIGH-424 — public reader for the started-without-terminal set.
 
     ``verify_integrity`` has always computed this, but the number was
     reachable only by running the whole verifier. ``cycle.py`` therefore

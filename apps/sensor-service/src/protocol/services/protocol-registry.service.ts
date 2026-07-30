@@ -1,11 +1,16 @@
 import { Injectable, Inject, OnModuleInit, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ModuleRef } from '@nestjs/core';
-import { Repository, DeepPartial, QueryDeepPartialEntity } from 'typeorm';
+import { Repository, EntityManager, DeepPartial, QueryDeepPartialEntity } from 'typeorm';
+import { forEachTenantSchema } from '@aquaculture/backend-common/database';
 
 import { SensorProtocol, ProtocolCategory } from '../../database/entities/sensor-protocol.entity';
 import { BaseProtocolAdapter, ProtocolCapabilities } from '../adapters/base-protocol.adapter';
 import { PROTOCOL_ADAPTERS } from '../adapters/protocol-adapters.registry';
+import {
+  ProtocolImplementationStatus,
+  getProtocolImplementationStatus,
+} from '../adapters/protocol-implementation-status';
 
 export interface ProtocolInfo {
   code: string;
@@ -15,6 +20,7 @@ export interface ProtocolInfo {
   subcategory?: string;
   connectionType: string;
   capabilities: ProtocolCapabilities;
+  implementationStatus: ProtocolImplementationStatus;
 }
 
 export interface ProtocolSummary {
@@ -63,31 +69,82 @@ export class ProtocolRegistryService implements OnModuleInit {
   }
 
   /**
-   * Sync protocol definitions to database
+   * Sync protocol definitions to database.
+   *
+   * SENSOR-MEDIUM-069: `sensor_protocols` is per-tenant cloned reference data.
+   * This sync previously wrote only the default (`sensor` source) schema, so
+   * every tenant copy froze at provision time: a protocol adapter added in a
+   * later release never reached an existing tenant, and registerSensor's
+   * `getProtocolDetails` — which reads the TENANT copy — returned null, so the
+   * sensor persisted with a NULL protocol_id and testSensorConnection failed
+   * with "No protocol configured". The code-defined catalog is now fanned out to
+   * the source schema AND every provisioned tenant schema, so a new protocol is
+   * available to the oldest tenants too. Per-tenant work is bounded, error-
+   * isolated, and non-fatal (in-memory adapters keep working regardless).
    */
   private async syncProtocolsToDatabase(): Promise<void> {
+    // 1. Canonical source schema (`sensor`) via the default connection manager.
     for (const adapter of this.adapters) {
-      const existing = await this.protocolRepository.findOne({
-        where: { code: adapter.protocolCode },
-      });
+      await this.upsertProtocol(this.protocolRepository.manager, adapter);
+    }
 
-      const protocolData = {
-        code: adapter.protocolCode,
-        name: adapter.displayName,
-        category: adapter.category,
-        subcategory: adapter.subcategory,
-        connectionType: adapter.connectionType,
-        description: adapter.description,
-        configurationSchema: adapter.getConfigurationSchema(),
-        defaultConfiguration: adapter.getDefaultConfiguration(),
-        isActive: true,
-      };
+    // 2. Fan the catalog out to every provisioned tenant schema.
+    const results = await forEachTenantSchema(
+      this.protocolRepository.manager.connection,
+      async ({ queryRunner }) => {
+        for (const adapter of this.adapters) {
+          await this.upsertProtocol(queryRunner.manager, adapter);
+        }
+      },
+      { searchPathSuffix: 'sensor, public', logger: this.logger },
+    );
 
-      if (existing) {
-        await this.protocolRepository.update(existing.id, protocolData as QueryDeepPartialEntity<SensorProtocol>);
-      } else {
-        await this.protocolRepository.save(this.protocolRepository.create(protocolData as DeepPartial<SensorProtocol>));
-      }
+    const notOk = results.filter((r) => r.outcome !== 'ok');
+    if (notOk.length > 0) {
+      this.logger.warn(
+        `Protocol sync reached ${results.length - notOk.length}/${results.length} tenant schema(s); ` +
+          `unsynced: ${notOk.map((r) => r.schema).join(', ')}`,
+      );
+    }
+  }
+
+  /**
+   * Upsert one adapter's definition into whichever schema `manager` is bound to
+   * (the source `sensor` schema, or a tenant schema via forEachTenantSchema's
+   * search_path-pinned QueryRunner).
+   */
+  private async upsertProtocol(
+    manager: EntityManager,
+    adapter: BaseProtocolAdapter<unknown>,
+  ): Promise<void> {
+    const protocolData = {
+      code: adapter.protocolCode,
+      name: adapter.displayName,
+      category: adapter.category,
+      subcategory: adapter.subcategory,
+      connectionType: adapter.connectionType,
+      description: adapter.description,
+      configurationSchema: adapter.getConfigurationSchema(),
+      defaultConfiguration: adapter.getDefaultConfiguration(),
+      // Unsupported (stub) protocols are persisted inactive so no product
+      // surface offers them (SENSOR-CRITICAL-008).
+      isActive:
+        getProtocolImplementationStatus(adapter.protocolCode) !==
+        ProtocolImplementationStatus.UNSUPPORTED,
+    };
+
+    const existing = await manager.findOne(SensorProtocol, {
+      where: { code: adapter.protocolCode },
+    });
+
+    if (existing) {
+      await manager.update(
+        SensorProtocol,
+        existing.id,
+        protocolData as QueryDeepPartialEntity<SensorProtocol>,
+      );
+    } else {
+      await manager.save(manager.create(SensorProtocol, protocolData as DeepPartial<SensorProtocol>));
     }
   }
 
@@ -106,18 +163,27 @@ export class ProtocolRegistryService implements OnModuleInit {
   }
 
   /**
-   * Get all protocols
+   * Get all selectable protocols.
+   *
+   * UNSUPPORTED protocols (stub adapters with no real cloud or edge I/O) are
+   * excluded so they can never be chosen in the registration wizard
+   * (SENSOR-CRITICAL-008). CLOUD_REAL and EDGE_DELEGATED protocols are
+   * returned, each carrying its implementationStatus so the UI can badge
+   * edge-only protocols honestly.
    */
   getAllProtocols(): ProtocolInfo[] {
-    return this.adapters.map((adapter) => ({
-      code: adapter.protocolCode,
-      displayName: adapter.displayName,
-      description: adapter.description,
-      category: adapter.category,
-      subcategory: adapter.subcategory,
-      connectionType: adapter.connectionType,
-      capabilities: adapter.getCapabilities(),
-    }));
+    return this.adapters
+      .map((adapter) => ({
+        code: adapter.protocolCode,
+        displayName: adapter.displayName,
+        description: adapter.description,
+        category: adapter.category,
+        subcategory: adapter.subcategory,
+        connectionType: adapter.connectionType,
+        capabilities: adapter.getCapabilities(),
+        implementationStatus: getProtocolImplementationStatus(adapter.protocolCode),
+      }))
+      .filter((p) => p.implementationStatus !== ProtocolImplementationStatus.UNSUPPORTED);
   }
 
   /**

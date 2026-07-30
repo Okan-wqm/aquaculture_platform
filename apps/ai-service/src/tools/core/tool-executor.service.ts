@@ -47,10 +47,32 @@ export class ToolExecutorService {
 
     const metadata = tool.getMetadata();
 
+    // SENSOR-MEDIUM-070: a first-class internal service principal is authorized
+    // for exactly the tools it declares in `grantedToolNames` — no user-role
+    // fabrication. Read-only by construction: an actuation tool (requires
+    // confirmation) is refused even when granted, so a service principal can
+    // never actuate. A human request has no servicePrincipal and falls through
+    // to the user-RBAC check below unchanged.
+    const serviceGrant = ctx.servicePrincipal?.grantedToolNames.includes(toolName) ?? false;
+    if (serviceGrant && metadata.requiresConfirmation) {
+      this.logger.warn(
+        `Service principal ${ctx.servicePrincipal?.name} denied actuation tool ${toolName} — ` +
+          `service principals are read-only by construction`,
+      );
+      const denied: ToolResult = {
+        success: false,
+        error: `Service principals may not run actuation tool ${toolName}`,
+        durationMs: 0,
+        cacheable: false,
+      };
+      await this.audit(toolName, inputRecord, denied, ctx);
+      return denied;
+    }
+
     // Permission check
-    const hasPermission = metadata.requiredPermissions.some((perm) =>
-      ctx.userRoles.includes(perm),
-    );
+    const hasPermission =
+      serviceGrant ||
+      metadata.requiredPermissions.some((perm) => ctx.userRoles.includes(perm));
     if (!hasPermission) {
       this.logger.warn(
         `Permission denied: ${ctx.userId} (roles: ${ctx.userRoles.join(',')}) attempted ${toolName}`,

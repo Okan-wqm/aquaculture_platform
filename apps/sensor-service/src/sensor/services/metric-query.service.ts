@@ -120,7 +120,7 @@ export class MetricQueryService {
         1 AS "sampleCount",
         CASE WHEN quality_code >= 192 THEN 1 ELSE 0 END AS "goodCount",
         CASE WHEN quality_code >= 192 THEN 100.0 ELSE 0.0 END AS "qualityPct"
-      FROM sensor_metrics
+      FROM sensor.sensor_metrics
       WHERE tenant_id = $1
         AND time >= $2
         AND time <= $3
@@ -185,7 +185,7 @@ export class MetricQueryService {
         sample_count AS "sampleCount",
         good_count AS "goodCount",
         quality_pct AS "qualityPct"
-      FROM ${dataSource}
+      FROM sensor.${dataSource}
       WHERE tenant_id = $1
         AND bucket >= $2
         AND bucket <= $3
@@ -245,7 +245,7 @@ export class MetricQueryService {
           WHEN m.value > (c.alert_thresholds->>'warningHigh')::FLOAT THEN 'warning'
           ELSE 'normal'
         END AS "alertStatus"
-      FROM sensor_metrics m
+      FROM sensor.sensor_metrics m
       JOIN sensor_data_channels c ON c.id = m.channel_id
       WHERE m.sensor_id = $1
         AND m.tenant_id = $2
@@ -280,7 +280,7 @@ export class MetricQueryService {
           WHEN m.value > (c.alert_thresholds->>'warningHigh')::FLOAT THEN 'warning'
           ELSE 'normal'
         END AS "alertStatus"
-      FROM sensor_metrics m
+      FROM sensor.sensor_metrics m
       JOIN sensor_data_channels c ON c.id = m.channel_id
       WHERE m.tank_id = $1
         AND m.tenant_id = $2
@@ -324,7 +324,7 @@ export class MetricQueryService {
         time,
         value,
         quality_code AS "qualityCode"
-      FROM sensor_metrics
+      FROM sensor.sensor_metrics
       WHERE channel_id = $1
         AND tenant_id = $2
         AND time >= NOW() - make_interval(hours => $3)
@@ -372,7 +372,7 @@ export class MetricQueryService {
           STDDEV(value) AS stddev,
           COUNT(*) AS count,
           (COUNT(*) FILTER (WHERE quality_code >= 192)::FLOAT / NULLIF(COUNT(*), 0) * 100) AS "qualityPct"
-        FROM sensor_metrics
+        FROM sensor.sensor_metrics
         WHERE channel_id = $1
           AND tenant_id = $2
           AND time >= $3
@@ -387,7 +387,7 @@ export class MetricQueryService {
           SQRT(AVG(POWER(COALESCE(stddev_value, 0), 2))) AS stddev,
           SUM(sample_count) AS count,
           AVG(quality_pct) AS "qualityPct"
-        FROM ${dataSource}
+        FROM sensor.${dataSource}
         WHERE channel_id = $1
           AND tenant_id = $2
           AND bucket >= $3
@@ -452,7 +452,7 @@ export class MetricQueryService {
         last_value AS "lastValue",
         sample_count AS "sampleCount",
         quality_pct AS "qualityPct"
-      FROM ${dataSource}
+      FROM sensor.${dataSource}
       WHERE channel_id = $1
         AND tenant_id = $2
         AND bucket >= $3

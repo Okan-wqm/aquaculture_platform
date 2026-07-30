@@ -2,6 +2,7 @@ import { QueryHandler, IQueryHandler } from '@nestjs/cqrs';
 import { BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { toIsoCalendarDate } from '../../common/utc-calendar-date';
 import { GetRotationChangeoversQuery } from '../queries/get-rotation-changeovers.query';
 import { WorkRotation, RotationStatus } from '../entities/work-rotation.entity';
 import {
@@ -82,8 +83,8 @@ export class GetRotationChangeoversHandler
         : rotation.employeeId;
       const workAreaName = workArea ? workArea.name : rotation.workAreaId;
 
-      const start = this.toIsoDate(rotation.startDate);
-      const end = this.toIsoDate(rotation.endDate);
+      const start = toIsoCalendarDate(rotation.startDate);
+      const end = toIsoCalendarDate(rotation.endDate);
 
       if (start >= startDate && start <= endDate) {
         const movement = new ChangeoverMovement();
@@ -107,12 +108,5 @@ export class GetRotationChangeoversHandler
     }
 
     return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
-  }
-
-  private toIsoDate(value: Date | string): string {
-    if (value instanceof Date) {
-      return value.toISOString().slice(0, 10);
-    }
-    return String(value).slice(0, 10);
   }
 }

@@ -2,8 +2,8 @@
 name: aria-worker
 description: Assignment executor for ARIA's promoted-plan dispatch lane. Claims kernel-leased aria/dispatch-request/v2 assignments minted by promotion_controller, applies the assigned change inside an isolated worktree under the compatibility lane, runs the required tests, and submits the result via worker-result submit. Spawned only by tools/aria-poc/worker_executor.py; never Agent-tool dispatched.
 tools: Read, Grep, Glob, Edit, Write, Bash
-model: fable
-effort: xhigh
+model: opus
+effort: max
 pedagogy-tier: 1
 dispatch: maintenance
 ---

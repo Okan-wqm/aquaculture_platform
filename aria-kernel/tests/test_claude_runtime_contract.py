@@ -300,7 +300,7 @@ class CreditExhaustionDetectionTests(unittest.TestCase):
 
 
 class WriteContainmentTests(unittest.TestCase):
-    """ORPHAN-CRITICAL-342 — containment is applied by the spawner.
+    """ORPHAN-CRITICAL-427 — containment is applied by the spawner.
 
     Pre-fix ``wrap_bash_in_sandbox`` had no kernel caller and returned argv
     unchanged when no backend existed, so a write-capable agent always ran
@@ -310,6 +310,67 @@ class WriteContainmentTests(unittest.TestCase):
     """
 
     _ARGV = ["claude", "-p", "--model", "opus"]
+
+    def test_resource_limits_are_applied_by_the_spawner(self) -> None:
+        """ORPHAN-MEDIUM-459 — the perimeter half that had no caller.
+
+        `apply_resource_limits` shipped with the sandbox work, was exported,
+        was name-pinned by an invariant, and nothing in production called it.
+        The only instruction to run it lived in
+        `.claude/agents/aria-implementer.md` — prose addressed to the process
+        being limited, which is the exact mistake ORPHAN-CRITICAL-427 fixed
+        for containment. A fork bomb or runaway allocation in a
+        write-capable agent was bounded by nothing.
+        """
+        import claude_runtime as cr
+
+        limited = cr._apply_resource_limits(["bwrap", "--", "claude"], timeout_seconds=900)
+        self.assertNotEqual(limited, ["bwrap", "--", "claude"])
+        # Whichever mechanism the host offers, the ORIGINAL argv must survive
+        # intact as the tail — limits wrap, they never replace.
+        self.assertEqual(limited[-3:], ["bwrap", "--", "claude"])
+        self.assertIn(limited[0], {"systemd-run", "timeout"})
+
+    def test_resource_limits_honour_the_callers_timeout(self) -> None:
+        """A 120s default would kill every real agent run.
+
+        `apply_resource_limits` defaults to 120 seconds; an agent invocation
+        is minutes. The spawner must pass its own `timeout_seconds` through,
+        so the limit is the one the caller chose.
+        """
+        import claude_runtime as cr
+
+        limited = cr._apply_resource_limits(["claude"], timeout_seconds=900)
+        self.assertTrue(
+            any("900" in token for token in limited),
+            msg=f"the caller's timeout did not reach the limiter: {limited}",
+        )
+
+    def test_run_claude_exec_applies_limits_after_containment(self) -> None:
+        """Order is load-bearing: `timeout`/`systemd-run` must own the whole
+        tree including bwrap, so the limits go OUTSIDE the sandbox wrapper."""
+        import ast
+
+        source = (
+            _REPO_ROOT / "tools" / "aria-poc" / "claude_runtime.py"
+        ).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        fn = next(
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "run_claude_exec"
+        )
+        called = [
+            node.func.id
+            for node in ast.walk(fn)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        ]
+        self.assertIn("_apply_write_containment", called)
+        self.assertIn("_apply_resource_limits", called)
+        self.assertLess(
+            called.index("_apply_write_containment"),
+            called.index("_apply_resource_limits"),
+            msg="limits must wrap the sandboxed argv, not be wrapped by it",
+        )
 
     def test_read_only_shapes_need_no_containment(self) -> None:
         for permission_mode, skip in ((None, False), ("plan", True), ("default", True)):
@@ -344,7 +405,6 @@ class WriteContainmentTests(unittest.TestCase):
         from aria_kernel import implementation_safety
 
         with patch.object(implementation_safety, "_bwrap_available", return_value=False), \
-             patch.object(implementation_safety, "_firejail_available", return_value=False), \
              patch.dict(os.environ, {claude_runtime.UNCONFINED_ACK_ENV_VAR: "0"}):
             with self.assertRaises(claude_runtime.ClaudePolicyViolation) as ctx:
                 claude_runtime._apply_write_containment(
@@ -384,7 +444,6 @@ class WriteContainmentTests(unittest.TestCase):
         from aria_kernel import implementation_safety
 
         with patch.object(implementation_safety, "_bwrap_available", return_value=False), \
-             patch.object(implementation_safety, "_firejail_available", return_value=False), \
              patch.dict(os.environ, {claude_runtime.UNCONFINED_ACK_ENV_VAR: "1"}):
             self.assertEqual(
                 claude_runtime._apply_write_containment(
@@ -404,10 +463,155 @@ class WriteContainmentTests(unittest.TestCase):
         )
         from aria_kernel import implementation_safety
 
-        with patch.object(implementation_safety, "_bwrap_available", return_value=False), \
-             patch.object(implementation_safety, "_firejail_available", return_value=False):
+        # ORPHAN-CRITICAL-451 — one patch, because bwrap is now the only
+        # backend. firejail used to be the second, and it applied none of
+        # the READONLY_PATHS while still making sandbox_backend() non-None.
+        with patch.object(implementation_safety, "_bwrap_available", return_value=False):
             self.assertIsNone(sandbox_backend())
             with self.assertRaises(SandboxUnavailable):
                 wrap_bash_in_sandbox(
                     ["echo", "hi"], workspace_root=_REPO_ROOT, allow_network=False,
                 )
+
+
+def _unusable_limiter():
+    """Context managers making BOTH limiter backends unusable on this host.
+
+    ``_systemd_run_available`` is ``lru_cache``d, so it is patched by name
+    (the patch replaces the cached callable rather than trying to defeat it).
+    """
+    from aria_kernel import implementation_safety
+
+    return (
+        patch.object(implementation_safety, "_systemd_run_available", return_value=False),
+        patch.object(implementation_safety.shutil, "which", return_value=None),
+    )
+
+
+def _exception_names_handled_in(source: str, function_name: str) -> set[str]:
+    """Every name appearing in an ``except`` clause inside ``function_name``.
+
+    Read from the executor's own source rather than from a hand-maintained
+    list, because the defect being pinned is precisely a divergence between
+    what the runtime raises and what the executors were written to name.
+    """
+    import ast
+
+    tree = ast.parse(source)
+    fn = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == function_name
+    )
+    names: set[str] = set()
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.ExceptHandler) or node.type is None:
+            continue
+        targets = node.type.elts if isinstance(node.type, ast.Tuple) else [node.type]
+        for target in targets:
+            if isinstance(target, ast.Name):
+                names.add(target.id)
+            elif isinstance(target, ast.Attribute):
+                names.add(target.attr)
+    return names
+
+
+class RefusedSpawnReachesAnExecutorHandler(unittest.TestCase):
+    """ORPHAN-HIGH-470 follow-through — the fail-closed tail had no handler.
+
+    `implementation_safety.apply_resource_limits` was given a raising tail so
+    an unusable limiter could not fall through to an unbounded spawn. But
+    `_apply_resource_limits` translated only the ImportError arm, so
+    `ResourceLimitsUnavailable` — a KERNEL type — travelled out through
+    `run_claude_exec` to executors that name four `claude_runtime` types and
+    nothing else. `grep -c ResourceLimitsUnavailable` over both executors
+    returned 0. The refusal therefore escaped as an unhandled exception,
+    past every claim-release branch, and the fail-closed fix read to an
+    operator as a crash.
+
+    Translating at the boundary (as `_apply_write_containment` already did for
+    `SandboxUnavailable`) is the tier-2 shape: the kernel type cannot cross
+    this module, so no executor — including one written later — can fail to
+    name it.
+    """
+
+    def test_unusable_limiter_raises_a_type_the_executors_name(self) -> None:
+        systemd_patch, which_patch = _unusable_limiter()
+        with systemd_patch, which_patch:
+            with self.assertRaises(claude_runtime.ClaudePolicyViolation) as ctx:
+                claude_runtime._apply_resource_limits(["claude"], timeout_seconds=900)
+        self.assertIn("claude_resource_limits_required", str(ctx.exception))
+        # The kernel's own message survives the translation — an operator must
+        # still learn WHICH limiter was missing.
+        self.assertIn("resource_limits_unavailable", str(ctx.exception))
+
+    def test_the_kernel_exception_type_does_not_escape_this_module(self) -> None:
+        from aria_kernel.implementation_safety import ResourceLimitsUnavailable
+
+        systemd_patch, which_patch = _unusable_limiter()
+        with systemd_patch, which_patch:
+            with self.assertRaises(Exception) as ctx:
+                claude_runtime._apply_resource_limits(["claude"], timeout_seconds=900)
+        self.assertNotIsInstance(
+            ctx.exception, ResourceLimitsUnavailable,
+            msg=(
+                "the kernel perimeter exception reached a caller of "
+                "run_claude_exec; the executors name only claude_runtime "
+                "types, so this is an unhandled crash mid-claim"
+            ),
+        )
+        # ...and the cause is preserved, so the audit trail keeps the origin.
+        self.assertIsInstance(ctx.exception.__cause__, ResourceLimitsUnavailable)
+
+    def test_both_executors_catch_a_refused_spawn(self) -> None:
+        """Behavioural, not name-based: the raised object must be an instance
+        of a class each executor's dispatch handler actually names."""
+        systemd_patch, which_patch = _unusable_limiter()
+        with systemd_patch, which_patch:
+            with self.assertRaises(Exception) as ctx:
+                claude_runtime._apply_resource_limits(["claude"], timeout_seconds=900)
+        raised = ctx.exception
+
+        poc = _REPO_ROOT / "tools" / "aria-poc"
+        for filename, function_name in (
+            ("ci_executor.py", "invoke_claude_cli"),
+            ("worker_executor.py", "main"),
+        ):
+            with self.subTest(executor=filename):
+                names = _exception_names_handled_in(
+                    (poc / filename).read_text(encoding="utf-8"), function_name,
+                )
+                # Only names the executor imports FROM claude_runtime count.
+                # A nested `except Exception` elsewhere in the function must
+                # not be able to satisfy this contract.
+                handled = tuple(
+                    resolved for resolved in (
+                        getattr(claude_runtime, name, None) for name in sorted(names)
+                    )
+                    if isinstance(resolved, type) and issubclass(resolved, BaseException)
+                )
+                self.assertTrue(
+                    handled,
+                    f"{filename}:{function_name} names no claude_runtime exception",
+                )
+                self.assertIsInstance(
+                    raised, handled,
+                    msg=(
+                        f"{filename}:{function_name} handles {sorted(names)} but a "
+                        f"refused spawn raises {type(raised).__name__}, so the "
+                        "refusal escapes unhandled and the claim leaks"
+                    ),
+                )
+
+    def test_an_unusable_limiter_never_returns_bare_argv(self) -> None:
+        """Fail CLOSED. A returned argv is indistinguishable from a limited
+        one, which is the exact defect the raising tail was added to close —
+        so no env var and no fallback may make this function return here."""
+        systemd_patch, which_patch = _unusable_limiter()
+        with systemd_patch, which_patch:
+            for env in ({}, {"ARIA_ALLOW_UNCONFINED_WRITE": "1"}):
+                with self.subTest(env=env), patch.dict(os.environ, env, clear=False):
+                    with self.assertRaises(claude_runtime.ClaudePolicyViolation):
+                        claude_runtime._apply_resource_limits(
+                            ["claude"], timeout_seconds=900,
+                        )

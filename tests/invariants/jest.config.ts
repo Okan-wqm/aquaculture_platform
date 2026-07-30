@@ -96,6 +96,7 @@ const commonProjectOptions = {
 export default {
   displayName: 'invariants',
   rootDir: INVARIANT_DIR,
+  coverageDirectory: resolve(process.cwd(), 'coverage/tests/invariants'),
   passWithNoTests: false,
   projects: [
     {
@@ -162,6 +163,8 @@ export default {
         '<rootDir>/tenant-provisioning-ssot.spec.ts',
         '<rootDir>/repo-hygiene-invariants.spec.ts',
         '<rootDir>/dependency-policy-source-scope.spec.ts',
+        '<rootDir>/ci-full-trigger-contract.spec.ts',
+        '<rootDir>/coverage-evidence-contract.spec.ts',
         '<rootDir>/enterprise-grade-debt-plan-contract.spec.ts',
         '<rootDir>/admin-route-contract-ci.spec.ts',
         '<rootDir>/stabilization-manifest.spec.ts',
@@ -238,9 +241,14 @@ export default {
       displayName: 'registry',
       testMatch: [
         '<rootDir>/adoption-invariants.spec.ts',
+        '<rootDir>/workflow-npm-script-references.spec.ts',
+        '<rootDir>/git-hook-binding.spec.ts',
         '<rootDir>/billing-money-decimal-coexistence.spec.ts',
         '<rootDir>/tenant-permission-guard-adoption.spec.ts',
         '<rootDir>/sensor-enum-fe-be-parity.spec.ts',
+        '<rootDir>/sensor-no-forged-user-payload.spec.ts',
+        '<rootDir>/sensor-single-write-path.spec.ts',
+        '<rootDir>/sensor-parameter-catalog-ssot.spec.ts',
         '<rootDir>/authoritative-runtime-ddl-contract.spec.ts',
         '<rootDir>/source-schema-write-guard-ssot.spec.ts',
         '<rootDir>/no-runtime-synchronize.spec.ts',

@@ -1,4 +1,4 @@
-"""ORPHAN-HIGH-337 / ORPHAN-HIGH-338 — a gate may only pass on evidence.
+"""ORPHAN-HIGH-422 / ORPHAN-HIGH-423 — a gate may only pass on evidence.
 
 Both the post-implementation review gate (``review_runner``) and the
 domain-specialist gate (``specialist_review_runner``) used to infer success
@@ -23,6 +23,8 @@ Locked cases:
     and its findings reach the consolidated verdict
   * I-GATE-07 — a specialist whose accepted output is unreadable counts as
     non-delivery, not as a clean review
+  * I-GATE-07b/c — a zero-finding review must ASSERT itself; unparseable
+    output is non-delivery, and an asserted clean review still passes
   * I-GATE-08 — an unsatisfiable specialist gate blocks in every
     write-capable profile, not only strict
   * I-GATE-09 — the orchestrator delegates that decision to the extracted
@@ -31,6 +33,7 @@ Locked cases:
 
 from __future__ import annotations
 
+import ast
 import sys
 import tempfile
 import unittest
@@ -51,7 +54,12 @@ from aria_kernel.agent_invocations import (  # noqa: E402
 )
 from aria_kernel.review_runner import (  # noqa: E402
     _NON_DELIVERING_TERMINAL_STATES,
+    ReviewResult,
     run_review_runner,
+)
+from aria_kernel.specialist_review_runner import (  # noqa: E402
+    SpecialistReviewResult,
+    run_specialist_review_runner,
 )
 from aria_kernel.tool_registry import ensure_tools_dir  # noqa: E402
 
@@ -92,7 +100,7 @@ def _escalate_to_human_required(tools: Path, request_id: str) -> None:
         )
 
 
-def _run_review(tools: Path, **overrides: object) -> dict:
+def _run_review(tools: Path, **overrides: object) -> ReviewResult:
     kwargs: dict = {
         "cycle_id": "cyc-gate-001",
         "base_dir": tools,
@@ -106,7 +114,7 @@ def _run_review(tools: Path, **overrides: object) -> dict:
         "judge_timeout_seconds": 0.4,
     }
     kwargs.update(overrides)
-    return run_review_runner(**kwargs)  # type: ignore[arg-type]
+    return run_review_runner(**kwargs)
 
 
 class ReviewGateEvidenceBinding(unittest.TestCase):
@@ -169,7 +177,10 @@ class ReviewGateEvidenceBinding(unittest.TestCase):
             result = _run_review(self.tools)
         self.assertEqual(result["review_verdict"], "no_gaps")
         ref = result["accepted_result_ref"]
-        self.assertIsNotNone(ref)
+        # A bare assert rather than assertIsNotNone: the latter is not a
+        # TypeGuard, so every dereference below stays `dict | None` to the
+        # checker. Same assertion, and the narrowing is real.
+        assert ref is not None, "a passing review must carry its accepted_result_ref"
         self.assertEqual(ref["role"], _ADVERSARIAL_ROLE)
         self.assertEqual(ref["agent_id"], "aria-adversarial-judge")
         self.assertEqual(ref["output_hash"], accepted["output_hash"])
@@ -214,9 +225,7 @@ class SpecialistGateEvidenceBinding(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def _run(self, **overrides: object) -> dict:
-        from aria_kernel.specialist_review_runner import run_specialist_review_runner
-
+    def _run(self, **overrides: object) -> SpecialistReviewResult:
         kwargs: dict = {
             "cycle_id": "cyc-spec-001",
             "base_dir": self.tools,
@@ -230,7 +239,7 @@ class SpecialistGateEvidenceBinding(unittest.TestCase):
             "specialist_timeout_seconds": 0.4,
         }
         kwargs.update(overrides)
-        return run_specialist_review_runner(**kwargs)  # type: ignore[arg-type]
+        return run_specialist_review_runner(**kwargs)
 
     # I-GATE-06 — a submitting specialist is not reported as timed out.
     def test_i_gate_06_submitted_specialist_is_not_timed_out(self) -> None:
@@ -252,8 +261,15 @@ class SpecialistGateEvidenceBinding(unittest.TestCase):
             return_value=accepted,
         ):
             result = self._run()
-        if not result["specialists_dispatched"]:
-            self.skipTest("selection produced no specialists for this touch-map input")
+        # NOT a skipTest. These two cases are the ones that pin ORPHAN-HIGH-423,
+        # and the fixture pins the input: touched_services is
+        # ["apps/auth-service/"], which _DOMAIN_TOUCH_MAP maps to two
+        # specialists. If selection ever returns nothing, the gate under test
+        # was never exercised — that has to be red, not green-with-an-asterisk.
+        self.assertTrue(
+            result["specialists_dispatched"],
+            msg="selection produced no specialists, so this gate test asserted nothing",
+        )
         self.assertEqual(result["specialists_timed_out"], [])
         self.assertTrue(
             result["findings_by_specialist"],
@@ -274,14 +290,90 @@ class SpecialistGateEvidenceBinding(unittest.TestCase):
             return_value=accepted,
         ):
             result = self._run()
-        if not result["specialists_dispatched"]:
-            self.skipTest("selection produced no specialists for this touch-map input")
+        # NOT a skipTest. These two cases are the ones that pin ORPHAN-HIGH-423,
+        # and the fixture pins the input: touched_services is
+        # ["apps/auth-service/"], which _DOMAIN_TOUCH_MAP maps to two
+        # specialists. If selection ever returns nothing, the gate under test
+        # was never exercised — that has to be red, not green-with-an-asterisk.
+        self.assertTrue(
+            result["specialists_dispatched"],
+            msg="selection produced no specialists, so this gate test asserted nothing",
+        )
         self.assertEqual(result["consolidated_verdict"], "specialists_unavailable")
         self.assertEqual(
             result["findings_by_specialist"], {},
             msg="an unreadable output must not register as zero findings",
         )
         self.assertTrue(result["specialists_timed_out"])
+
+    # I-GATE-07b — a zero-finding review must be asserted, not inferred.
+    def test_i_gate_07b_unparseable_output_is_not_a_clean_review(self) -> None:
+        """ORPHAN-HIGH-462 — the perverse incentive this branch created.
+
+        `transform_specialist_output` returns `[]` for anything it cannot
+        parse, and `[]` was passed back as "reviewed, found nothing". So a
+        specialist whose whole output was an apology was recorded as a clean
+        domain review and the consolidated verdict came back
+        `consolidated_no_gaps`.
+
+        What makes it worse than a plain fail-open is the surrounding work:
+        I-GATE-07 made non-delivery block and I-GATE-08b made an unrecognised
+        verdict block, so submitting GARBAGE became strictly better for a
+        degraded or hostile agent than submitting nothing. It was the last
+        path that still cleared the gate.
+        """
+        from aria_kernel.specialist_review_runner import (
+            _findings_from_accepted_result,
+        )
+
+        not_a_review = {
+            "an apology": "I ran out of context and could not complete this review.\n",
+            "empty": "",
+            "unrelated prose": "Some notes.\n\nIt looks fine to me.\n",
+            "the word verdict mid-sentence": "My verdict is that things are fine.\n",
+        }
+        for label, body in not_a_review.items():
+            with self.subTest(case=label):
+                output = Path(self._tmp.name) / "specialist-output.md"
+                output.write_text(body, encoding="utf-8")
+                self.assertIsNone(
+                    _findings_from_accepted_result(
+                        agent_name="auth-security-expert",
+                        accepted={"output_path": output.as_posix()},
+                        workspace_root=None,
+                    ),
+                    msg=f"{label!r} was accepted as a review",
+                )
+
+    def test_i_gate_07c_an_asserted_clean_review_is_accepted(self) -> None:
+        """The other half: the gate must stay satisfiable.
+
+        A gate a clean review cannot pass is not fail-closed, it is broken,
+        and it gets disabled. These are the three forms
+        `.claude/shared/output-format.md` sanctions.
+        """
+        from aria_kernel.specialist_review_runner import (
+            _findings_from_accepted_result,
+        )
+
+        asserted = {
+            "## Verdict heading": "## Findings\nNone.\n\n## Verdict\nPASS\n",
+            "VERDICT: inline": "No issues found.\n\nVERDICT: PASS\n",
+            "RULING: inline": "RULING: no architectural conflict\n",
+        }
+        for label, body in asserted.items():
+            with self.subTest(case=label):
+                output = Path(self._tmp.name) / "specialist-output.md"
+                output.write_text(body, encoding="utf-8")
+                self.assertEqual(
+                    _findings_from_accepted_result(
+                        agent_name="auth-security-expert",
+                        accepted={"output_path": output.as_posix()},
+                        workspace_root=None,
+                    ),
+                    [],
+                    msg=f"{label!r} was rejected as non-delivery",
+                )
 
     # I-GATE-08 — the gate blocks in every write-capable profile.
     def test_i_gate_08_unavailable_blocks_outside_observe(self) -> None:
@@ -324,32 +416,80 @@ class SpecialistGateEvidenceBinding(unittest.TestCase):
                     ),
                 )
 
-    # I-GATE-09 — the orchestrator consumes the policy, not its own copy.
-    def test_i_gate_09_orchestrator_delegates_the_block_decision(self) -> None:
-        """A behavioural check that the orchestrator honours the policy.
+    # I-GATE-08b — an unrecognised verdict is not a pass.
+    def test_i_gate_08b_unknown_verdict_blocks_outside_observe(self) -> None:
+        """ORPHAN-HIGH-443 — the policy is an allowlist, not a denylist.
 
-        Asserting the call rather than the source keeps this test valid
-        under any refactor that preserves the delegation.
+        The pre-fix body named the blocking verdicts and returned False
+        for everything else, so any string the module did not recognise
+        was indistinguishable from ``consolidated_no_gaps`` and the cycle
+        proceeded to worker_drainer on a domain nobody reviewed.
+
+        This is reachable, not theoretical: ``specialist_review_runner``
+        is an injected kwarg with a Protocol contract, and the
+        orchestrator reads the verdict via ``dict.get()``, so nothing
+        between a runner and this policy constrains the value to the four
+        declared verdicts. A typo, a renamed verdict, or a row written by
+        a newer build all arrive here as an arbitrary string.
         """
-        import aria_kernel.specialist_review_runner as srr
+        from aria_kernel.specialist_review_runner import specialist_verdict_blocks_cycle
 
-        calls: list[dict] = []
-        real = srr.specialist_verdict_blocks_cycle
+        unknown = (
+            "",  # a missing field defaulted to empty
+            "consolidated_no_gap",  # one character off the passing verdict
+            "CONSOLIDATED_NO_GAPS",  # right value, wrong case
+            "consolidated_pass",  # a verdict from some other schema
+            "specialists_partially_available",  # a plausible future value
+        )
+        for verdict in unknown:
+            for profile in ("standard", "strict", "autonomous"):
+                with self.subTest(profile=profile, verdict=verdict):
+                    self.assertTrue(
+                        specialist_verdict_blocks_cycle(
+                            verdict=verdict, profile=profile,
+                        ),
+                        msg=(
+                            f"{profile} treats unrecognised verdict {verdict!r} "
+                            "as a clean specialist review"
+                        ),
+                    )
 
-        def _recording(*, verdict: str, profile: str) -> bool:
-            calls.append({"verdict": verdict, "profile": profile})
-            return real(verdict=verdict, profile=profile)
+    # I-GATE-09 — the orchestrator consumes the policy, not its own copy.
+    def test_i_gate_09_the_orchestrator_callsite_is_covered_elsewhere(self) -> None:
+        """ORPHAN-HIGH-455 — this test used to be a tautology.
 
-        with unittest.mock.patch.object(
-            srr, "specialist_verdict_blocks_cycle", _recording,
-        ):
-            self.assertTrue(
-                srr.specialist_verdict_blocks_cycle(
-                    verdict="specialists_unavailable", profile="autonomous",
-                ),
-            )
-        self.assertEqual(
-            calls, [{"verdict": "specialists_unavailable", "profile": "autonomous"}],
+        It saved `specialist_verdict_blocks_cycle`, patched the module
+        attribute with a recording wrapper, then called the thing it had
+        just patched and asserted the wrapper recorded the call. The
+        orchestrator was never imported. Its docstring said "A behavioural
+        check that the orchestrator honours the policy," and it checked no
+        such thing — an adversarial audit later demonstrated that reverting
+        `autonomy_orchestrator.py` wholesale left the entire 2805-test suite
+        green, and this was the one test that claimed to prevent exactly
+        that.
+
+        Real coverage now lives in `test_autonomy_orchestrator.py`, which
+        drives `run_autonomy_orchestrator` with an injected specialist
+        runner and asserts the cycle blocks. Those tests were confirmed to
+        fail against the base orchestrator. This one remains only to assert
+        the delegation still exists at all — a claim it CAN honestly make,
+        and which is cheap to keep here next to the policy it guards.
+        """
+        import aria_kernel.autonomy_orchestrator as orchestrator
+
+        source = Path(orchestrator.__file__ or "").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        imported_names = {
+            alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            and (node.module or "").endswith("specialist_review_runner")
+            for alias in node.names
+        }
+        self.assertIn(
+            "specialist_verdict_blocks_cycle",
+            imported_names,
+            msg="the orchestrator no longer delegates to the extracted policy",
         )
 
 

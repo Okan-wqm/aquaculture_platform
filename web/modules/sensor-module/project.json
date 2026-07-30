@@ -3,11 +3,7 @@
   "$schema": "../../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "web/modules/sensor-module/src",
   "projectType": "application",
-  "tags": [
-    "scope:web",
-    "type:app",
-    "module-federation:remote"
-  ],
+  "tags": ["scope:web", "type:app", "module-federation:remote"],
   "targets": {
     "serve": {
       "executor": "nx:run-commands",
@@ -15,23 +11,16 @@
         "cwd": "web/modules/sensor-module",
         "command": "npm run dev"
       },
-      "dependsOn": [
-        "shared-ui:build"
-      ]
+      "dependsOn": ["shared-ui:build"]
     },
     "build": {
       "executor": "nx:run-commands",
-      "outputs": [
-        "{projectRoot}/dist"
-      ],
+      "outputs": ["{projectRoot}/dist"],
       "options": {
         "cwd": "web/modules/sensor-module",
         "command": "npm run build"
       },
-      "dependsOn": [
-        "shared-ui:build",
-        "@aquaculture/node-components:build"
-      ]
+      "dependsOn": ["shared-ui:build", "@aquaculture/node-components:build"]
     },
     "preview": {
       "executor": "nx:run-commands",
@@ -39,9 +28,7 @@
         "cwd": "web/modules/sensor-module",
         "command": "npm run preview"
       },
-      "dependsOn": [
-        "build"
-      ]
+      "dependsOn": ["build"]
     },
     "lint": {
       "executor": "nx:run-commands",
@@ -49,16 +36,7 @@
         "cwd": "web/modules/sensor-module",
         "command": "npm run lint"
       }
-    },
-    "test": {
-      "executor": "nx:run-commands",
-      "options": {
-        "cwd": "web/modules/sensor-module",
-        "command": "npm run test"
-      }
     }
   },
-  "implicitDependencies": [
-    "shared-ui"
-  ]
+  "implicitDependencies": ["shared-ui"]
 }

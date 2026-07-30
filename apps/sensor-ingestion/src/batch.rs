@@ -221,7 +221,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::{BatchAggregator, BatchError, BatchOpts};
-    use crate::payload::SensorReading;
+    use crate::payload::{QUALITY_GOOD_MIN, QualityCode, SensorReading};
     use tenant_context::TenantId;
 
     fn fixed_uuid(seed: u8) -> Uuid {
@@ -241,7 +241,7 @@ mod tests {
             // payload.rs tests), so the legacy default is the
             // semantically-correct shape here.
             raw_value: 24.5,
-            quality: 1,
+            quality: QualityCode::try_new(QUALITY_GOOD_MIN).expect("192 is the GOOD band"),
             producer_ts: Utc::now().timestamp_millis(),
             source: crate::payload::PayloadSource::UpcastedFromV1,
         }

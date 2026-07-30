@@ -23,11 +23,20 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
 from aria_kernel.pr_manager import open_pr_for_action
 from aria_kernel.proposal import approve_proposal, record_proposal
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
+
+
+# The product file the synthetic proposal touches. One constant so the seeded
+# commit and the action's declared changed_files cannot drift: the pre-PR-open
+# hard-fail perimeter compares the declaration against READONLY_PATHS, so a
+# fixture naming an aria-kernel/ path (or nothing at all) is refused before it
+# ever reaches the provenance behaviour these tests pin.
+CHANGED_FILE = "apps/farm-service/src/water-quality/water-quality.service.ts"
 
 
 class _GhResult:
@@ -52,7 +61,9 @@ def _seed_workspace() -> tuple[Path, Path, str]:
     ).stdout.strip()
     # Create + commit a fake proposal branch with a different SHA.
     subprocess.run(["git", "checkout", "-q", "-b", "aria/test-proposal"], cwd=repo, check=True)
-    (repo / "patch.txt").write_text("patch\n", encoding="utf-8")
+    patch_target = repo / CHANGED_FILE
+    patch_target.parent.mkdir(parents=True, exist_ok=True)
+    patch_target.write_text("export const WATER_QUALITY_SAMPLE_MS = 60000;\n", encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-q", "-m", "proposal commit"], cwd=repo, check=True, capture_output=True)
     tools = tmp / "aria-tools"
@@ -86,8 +97,12 @@ def _seed_action_and_proposal(*, tools: Path, repo: Path, base_sha: str, proposa
         "base_sha": base_sha,
         "branch": "aria/test-proposal",
         "worktree_path": str(repo),
-        "changed_files": ["patch.txt"],
-        "validation_commands": [{"cmd": "nx test", "expected_exit": 0, "timeout_ms": 60000}],
+        "changed_files": [CHANGED_FILE],
+        # The canonical suite, sourced from the perimeter's own constant so the
+        # fixture cannot drift from what test_gate_canonical_suite requires.
+        # Each command is its own entry — one string mentioning all three does
+        # not count (ORPHAN-CRITICAL-461).
+        "validation_commands": list(CANONICAL_VALIDATION_COMMANDS),
         "validation_gate_ref": "sha256:gate-fake",
         "validation_gate_status": "ready_for_pr",
         "validation_gate_blocked_by": [],
@@ -139,7 +154,18 @@ class PrNumberParseTests(unittest.TestCase):
         real_run = subprocess.run
         with patch("aria_kernel.pr_manager.subprocess.run") as mock_run:
             def fake_run(argv, **kw):
-                if argv[:2] == ["git", "rev-parse"]:
+                # Defer ALL git, not just rev-parse. This mock exists to stand
+                # in for `gh pr create`; every git call open_pr_for_action
+                # makes must reach the real repo. When only rev-parse was
+                # passed through, the perimeter's `git diff base..head` fell
+                # through to the gh stdout fixture, so
+                # secret_scan_diff_clean scanned a PR URL — or, for the
+                # empty-stdout case, "" — instead of a diff. An empty string
+                # is a VALID CLEAN diff, so the check passed vacuously: green
+                # for the wrong reason, which is the defect class
+                # ORPHAN-CRITICAL-428 exists to remove, reproduced inside the
+                # very tests that cover it.
+                if argv[:1] == ["git"]:
                     return real_run(argv, **kw)
                 return _GhResult(stdout=stdout, returncode=0)
             mock_run.side_effect = fake_run

@@ -21,7 +21,7 @@ ci_executor:
     - --model
     - fable
     - --effort
-    - xhigh
+    - max
     - --dangerously-skip-permissions
   stdin: "<contents of aria-tools/agent-invocations/prompts/${REQUEST_ID}.md>"
   persisted_output: "<sanitized aria/agent-response/v1 envelope at expected_output_path>"
@@ -42,7 +42,7 @@ worker_executor:
     - --model
     - fable
     - --effort
-    - xhigh
+    - max
     - --dangerously-skip-permissions
   stdin: "<contents of aria-tools/dispatch/prompts/${ASSIGNMENT_ID}.md>"
   cwd: "<assigned worktree path>"

@@ -66,7 +66,15 @@ function toCreateInput(cfg: DataChannelConfig): CreateChannelInput {
   };
 }
 
-/** Map ChannelEditorModal output back to API update input */
+/**
+ * Map ChannelEditorModal output back to API update input.
+ *
+ * SENSOR-HIGH-083: calibration coefficients (multiplier/offset) and the enable
+ * toggle are intentionally NOT sent here. Calibration is owned by the calibration
+ * aggregate (Calibration page → recordCalibration), which stamps
+ * lastCalibratedAt/nextCalibrationDue; the channel editor no longer writes those
+ * coefficients (its calibration tab is read-only).
+ */
 function toUpdateInput(cfg: DataChannelConfig): UpdateChannelInput {
   return {
     displayLabel: cfg.displayLabel,
@@ -75,9 +83,6 @@ function toUpdateInput(cfg: DataChannelConfig): UpdateChannelInput {
     unitSymbol: cfg.unit,
     operationalMin: cfg.minValue,
     operationalMax: cfg.maxValue,
-    calibrationEnabled: cfg.calibrationEnabled,
-    calibrationMultiplier: cfg.calibrationMultiplier,
-    calibrationOffset: cfg.calibrationOffset,
     alertThresholds: cfg.alertThresholds as Record<string, unknown> | undefined,
     displaySettings: cfg.displaySettings as Record<string, unknown> | undefined,
     isEnabled: cfg.isEnabled,

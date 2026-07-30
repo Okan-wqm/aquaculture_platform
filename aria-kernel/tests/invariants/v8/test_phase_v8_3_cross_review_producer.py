@@ -161,7 +161,7 @@ class TestCrossReviewerAgentFile(unittest.TestCase):
         # scorer, so it runs on the judge tier (opus/medium).
         # SSoT: aria_kernel/agent_runtime_profile.py.
         self.assertRegex(content, r"(?m)^model:\s*opus\s*$", msg="model: opus (judge tier)")
-        self.assertRegex(content, r"(?m)^effort:\s*medium\s*$", msg="effort: medium (scout tier)")
+        self.assertRegex(content, r"(?m)^effort:\s*max\s*$", msg="effort: max (ultracode depth)")
         self.assertRegex(content, r"(?m)^tools:\s*Read,\s*Grep,\s*Glob\s*$", msg="tools: Read, Grep, Glob")
 
     def test_agent_file_has_untrusted_data_clause(self):

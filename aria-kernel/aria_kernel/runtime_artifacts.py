@@ -736,7 +736,7 @@ def rollback_retention(
         "retention_event_id": event.get("event_id"),
     }
 
-# ORPHAN-HIGH-339 — the marker keys producers already use to report
+# ORPHAN-HIGH-424 — the marker keys producers already use to report
 # suppression and truncation (``aria_watchdog`` emits
 # ``findings_suppressed``; ``executor`` packets carry
 # ``prompt_truncated``). Pre-fix ``suppressed_count`` and
@@ -792,7 +792,7 @@ def autonomy_output_summary(result: dict[str, Any], *, result_detail: str = "sum
         incomplete_lifecycle_count += cycle_incomplete
         suppressed_count += _marker_total(cycle, _SUPPRESSED_MARKER_KEYS)
         truncated_count += _marker_total(cycle, _TRUNCATED_MARKER_KEYS)
-        # ORPHAN-HIGH-339 — a started-without-terminal cycle, and an
+        # ORPHAN-HIGH-424 — a started-without-terminal cycle, and an
         # unreadable cycles.jsonl, are both operator-actionable and were
         # both invisible while warning_count was pinned to 0.
         if cycle_incomplete:
@@ -847,7 +847,7 @@ def autonomy_output_summary(result: dict[str, Any], *, result_detail: str = "sum
     else:
         overall = "ok"
     artifact_hash_status = _artifact_hash_status(artifact_refs)
-    # ORPHAN-HIGH-339 — anomalies that are real but not fatal. `overall`
+    # ORPHAN-HIGH-424 — anomalies that are real but not fatal. `overall`
     # already turns "failed" on a bad cycle status or a non-ok tool, so
     # these are precisely the signals that used to reach the operator as
     # warning_count: 0 next to overall_status: ok.

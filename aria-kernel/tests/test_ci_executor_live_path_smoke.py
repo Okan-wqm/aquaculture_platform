@@ -298,6 +298,49 @@ class LivePathFetchTests(unittest.TestCase):
             "prompt_hash_binding_mismatch",
         )
 
+    def test_refused_spawn_releases_the_claim(self) -> None:
+        """ORPHAN-HIGH-470 follow-through — a refused spawn must not hold the
+        claim.
+
+        `invoke_claude_cli` re-raises the whole perimeter family (auth / CLI /
+        policy / usage — policy now including the `ResourceLimitsUnavailable`
+        translated at the `claude_runtime._apply_resource_limits` boundary) as
+        ClaudeCliUnavailable. Its handler in `main()` used to `sys.stderr.write`
+        + `return 1` with the request still CLAIMED, so a runner missing
+        `timeout` or bwrap blocked that request for the whole lease window and
+        the next cycle found nothing to do. Every other fail-fast branch in
+        `main()` releases; this one skipped it, and the branch it skipped is
+        the one a fail-closed perimeter reaches first.
+        """
+        fake_run = _make_fake_run_sequence(
+            self.claim_response,
+            self.release_response_ok,
+        )
+        refusal = ci_executor.ClaudeCliUnavailable(
+            "claude_resource_limits_required: resource_limits_unavailable"
+        )
+        with patch.object(ci_executor, "invoke_claude_cli", side_effect=refusal):
+            exit_code = self._run_main(fake_run)
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(
+            len(fake_run.captured), 2,
+            "a refused spawn must stop after claim + release; argvs: "
+            f"{[list(c) for c in fake_run.captured]}",
+        )
+        release_argv = fake_run.captured[1]
+        self.assertIn("release", release_argv)
+        self.assertIn("--claim-id", release_argv)
+        self.assertEqual(
+            release_argv[release_argv.index("--claim-id") + 1], self.claim_id,
+        )
+        self.assertEqual(
+            release_argv[release_argv.index("--reason") + 1],
+            "claude_spawn_refused",
+        )
+        # The lease token never reaches argv — release carries it by env name.
+        self.assertNotIn(self.lease_token, release_argv)
+        self.assertIn("--lease-token-from-env", release_argv)
+
     def test_invoke_claude_cli_mock_empty_role_raises_no_string_mangle(self) -> None:
         # Plan 025 §B latent-bug-2 closure — invoke_claude_cli mock
         # branch refuses empty role. Pre-fix ``role or subagent_type

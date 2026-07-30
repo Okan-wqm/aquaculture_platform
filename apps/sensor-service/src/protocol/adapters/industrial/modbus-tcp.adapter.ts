@@ -65,8 +65,12 @@ export class ModbusTcpAdapter extends BaseProtocolAdapter<ModbusTcpConfiguration
     // Create typed Modbus client
     const client = await createModbusClient();
 
+    // SENSOR-HIGH-075: operator-supplied host — validate + DNS-pin before
+    // dialing so it cannot target metadata/loopback/RFC-1918 internal hosts.
+    const targetIp = await this.resolveAndValidateHost(modbusConfig.host, modbusConfig.port);
+
     await this.withTimeout(
-      client.connectTCP(modbusConfig.host, { port: modbusConfig.port }),
+      client.connectTCP(targetIp, { port: modbusConfig.port }),
       modbusConfig.timeout || 10000,
       'Connection timeout'
     );

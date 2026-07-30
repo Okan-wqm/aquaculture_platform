@@ -152,16 +152,12 @@ def _load_breaker_policy(base_dir: str | Path) -> tuple[int, int]:
         window_hours = int(block.get("failure_window_hours", _DEFAULT_FAILURE_WINDOW_HOURS))
     except (TypeError, ValueError):
         window_hours = _DEFAULT_FAILURE_WINDOW_HOURS
-    if window_hours <= 0:
-        window_hours = _DEFAULT_FAILURE_WINDOW_HOURS
-    # An override narrower than threshold x cadence puts the oldest failure on
-    # the window edge at the next night's gate, which is the ORPHAN-MEDIUM-483
-    # coin-flip. Widen to the derived floor rather than honouring a value that
-    # makes the breaker non-deterministic; the breaker failing OPEN on jitter is
-    # the outcome this whole finding exists to prevent.
-    floor = _minimum_window_hours(threshold)
-    if window_hours < floor:
-        window_hours = floor
+    # RC-4 — the floor is no longer applied here. `circuit_breaker_policy`
+    # REFUSES a below-floor window (naming both numbers) instead of silently
+    # widening it, so by the time the block arrives the value is already known
+    # good. Re-applying the floor here would restore the silence one layer down
+    # and give the block two validation sites that can disagree — the exact
+    # duplication ORPHAN-MEDIUM-483 was closed to remove.
     return threshold, window_hours
 
 

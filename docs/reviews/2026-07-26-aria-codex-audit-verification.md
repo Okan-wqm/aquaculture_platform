@@ -1530,3 +1530,17 @@ finding is one nobody can navigate back to from the review that produced it.
   inside the hook's own explanatory comment, so it stayed green when the real invocation was deleted. It now strips
   comment lines and matches invocations structurally — the substring-instead-of-structure defect this branch already fixed
   once, reproduced by me while fixing its sibling.
+
+- **ORPHAN-HIGH-501** — `lint-and-typecheck` outgrew its 15-minute budget, so its last two gates stopped running  
+  Severity HIGH, layer 3, owner okan, deadline 2026-08-13. Measured, not inferred. On head `5967d7285` the job started
+  06:45:42 and was cancelled 07:00:55 — **15m13s against `timeout-minutes: 15`** — inside step 9 `type-check-spec`, with
+  step 10 `Check formatting of changed files` reported `skipped`. Nothing was pushed after that head, so this was the job
+  timeout and not the concurrency cancel that killed the run before it. The merge of main added a workspace, which grew the
+  linter from 6m36s to 8m57s and tipped a job that had fit in 12m25s. **The consequence is the point:** a cancelled job
+  runs none of its remaining steps, so the format gate — the very gate whose missing local mirror is `ORPHAN-HIGH-500` —
+  was not executing in CI either, one layer up. It still failed closed, because `build-status` treats `cancelled` as
+  not-success, but it printed `Lint/Typecheck failed` and sent the reader hunting a lint error that did not exist. Budget
+  raised to 25 min against a ~17.5 min measured need, consistent with this file's own conventions (test 30, build 30,
+  deploy-ssot-gates 20). Deliberately **not** fixed here: splitting the four serial passes into parallel jobs is the better
+  design, but the job names are wired into the `build-status` aggregate and the required-status-check manifest, so a split
+  touches branch protection and needs the ruleset moved in lockstep.

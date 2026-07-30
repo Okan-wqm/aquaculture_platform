@@ -1531,6 +1531,23 @@ finding is one nobody can navigate back to from the review that produced it.
   comment lines and matches invocations structurally — the substring-instead-of-structure defect this branch already fixed
   once, reproduced by me while fixing its sibling.
 
+- **ORPHAN-HIGH-502** — the refuted `pr_lifecycle` route was still asserted as production fact in two artifacts  
+  Severity HIGH, layer 1, owner okan, deadline 2026-08-13. `ORPHAN-CRITICAL-498` established that
+  `_run_extended_phases` has no production caller, so `_run_pr_lifecycle_phase` never executes. That correction reached
+  one test docstring and **missed two other artifacts repeating the refuted claim.** First,
+  `tests/invariants/v3/test_breaker_end_to_end_reachability.py` claimed to run "the REAL chain" while calling
+  `cycle_mod._run_pr_lifecycle_phase` directly — a green invariant whose _name_ is exactly what someone greps before
+  shipping a lane with no producer, and whose successor already existed with a header enumerating four ways the old path
+  was dead. Two files claiming one invariant. Second, `pr_manager.py` carried, inside the load-bearing comment justifying
+  where the perimeter check sits, the assertion that the only production route was the cycle's `pr_lifecycle` phase with
+  `dry_run=True`. A reader trusting that comment concludes the perimeter is on the scheduled lane — which is how 498
+  survived review. Closed here: superseded invariant **deleted** (successor plus the callsite test cover the behaviour,
+  10 tests green after removal; the only remaining reference was a generated nx cache artifact, so nothing name-pinned
+  it) and the comment corrected in place with the refuted chain quoted, so the correction is auditable rather than a
+  silent edit. **Plan correction recorded rather than followed:** RC-8 also specified moving a misplaced `__main__` guard
+  at `test_pr_open_perimeter_callsite.py:185`. That is stale — the guard sits at line 302, after both test classes. The
+  plan predates the current file; no move was needed and none was made.
+
 - **ORPHAN-HIGH-501** — `lint-and-typecheck` outgrew its 15-minute budget, so its last two gates stopped running  
   Severity HIGH, layer 3, owner okan, deadline 2026-08-13. Measured, not inferred. On head `5967d7285` the job started
   06:45:42 and was cancelled 07:00:55 — **15m13s against `timeout-minutes: 15`** — inside step 9 `type-check-spec`, with

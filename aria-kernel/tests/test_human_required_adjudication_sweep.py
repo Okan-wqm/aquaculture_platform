@@ -32,17 +32,21 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _KERNEL_ROOT = _REPO_ROOT / "aria-kernel"
 if str(_KERNEL_ROOT) not in sys.path:
     sys.path.insert(0, str(_KERNEL_ROOT))
 
+from aria_kernel.cycle import run_enterprise_cycle  # noqa: E402
 from aria_kernel.human_required import record_human_required  # noqa: E402
 from aria_kernel.human_required_adjudication import (  # noqa: E402
     sweep_human_required_adjudications,
 )
 from aria_kernel.tool_registry import ensure_tools_dir  # noqa: E402
+
+from tests._helpers.production_shaped import cycle_workspace  # noqa: E402
 
 
 def _adjudication_rows(tools: Path) -> list[dict]:
@@ -53,31 +57,81 @@ def _adjudication_rows(tools: Path) -> list[dict]:
 
 
 class AdjudicationSweepIsWired(unittest.TestCase):
-    def test_run_cycle_can_reach_the_panel(self) -> None:
-        """The property whose absence WAS the bug.
+    """RC-7 rewrote this class, and the reason is the point.
 
-        Asserted on the module object rather than by grepping source, so it
-        survives any refactor that keeps the call and fails on any refactor
-        that drops it.
+    Both tests here used to be BLIND, while their own docstrings claimed they
+    were not. The first asserted ``hasattr(cycle, "sweep_...")`` plus symbol
+    identity — an import, not a call — under a docstring promising it "fails on
+    any refactor that drops it". The second asserted only that SOME dict literal
+    in ``cycle.py`` carries the key, which a constant satisfies.
+
+    Proven blind by mutation (ORPHAN-HIGH-499): replacing the call at
+    ``cycle.py`` with a literal, keeping the import, left all six tests in this
+    file green AND the entire kernel suite byte-identical. Zero delta.
+
+    They now patch where ``cycle`` LOOKED THE NAME UP and run a real cycle, so
+    deleting the call fails them. Same shape as the already-correct
+    ``test_pr_open_perimeter_callsite.py::test_open_pr_invokes_the_pre_pr_open_gate``
+    — the right pattern existed in this repo and this file simply did not use it.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory(prefix="aria-adj-wired-")
+        self._fixture = cycle_workspace(Path(self._tmp.name))
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _run_cycle(self) -> None:
+        run_enterprise_cycle(
+            workspace_root=self._fixture.workspace_root,
+            cycle_id="cycle-adjudication-wired",
+            base_dir=self._fixture.tools_dir,
+        )
+
+    def test_a_real_cycle_invokes_the_panel_sweep(self) -> None:
+        """The property whose absence WAS the bug, asserted by invocation."""
+        with patch("aria_kernel.cycle.sweep_human_required_adjudications") as sweep:
+            sweep.return_value = {
+                "status": "ok",
+                "escalations_seen": 0,
+                "opened": [],
+                "folded": [],
+                "resolved": [],
+                "skipped": [],
+            }
+            self._run_cycle()
+
+        sweep.assert_called_once()
+
+    def test_the_sweep_receives_the_cycle_tools_dir(self) -> None:
+        """Called is not enough: called against the cycle's own ledger.
+
+        A sweep pointed at some other ``base_dir`` would run, return ok, and
+        act on nothing — green, and as dead as no call at all.
         """
-        import aria_kernel.cycle as cycle
+        with patch("aria_kernel.cycle.sweep_human_required_adjudications") as sweep:
+            sweep.return_value = {
+                "status": "ok",
+                "escalations_seen": 0,
+                "opened": [],
+                "folded": [],
+                "resolved": [],
+                "skipped": [],
+            }
+            self._run_cycle()
 
-        self.assertTrue(
-            hasattr(cycle, "sweep_human_required_adjudications"),
-            msg="cycle.py no longer imports the adjudication sweep; the panel is dead again",
-        )
-        self.assertIs(
-            cycle.sweep_human_required_adjudications,
-            sweep_human_required_adjudications,
-        )
+        passed = sweep.call_args.kwargs.get("base_dir")
+        self.assertIsNotNone(passed, msg="the sweep was called without a base_dir")
+        self.assertEqual(Path(str(passed)).resolve(), self._fixture.tools_dir.resolve())
 
     def test_the_cycle_summary_reports_the_phase(self) -> None:
         """An adjudication nobody can see is a decision nobody can audit.
 
-        Node-shape rather than substring: Plan 026R §H.1 bans source-marker
-        assertions, and rightly — a grep for the literal line passes on a
-        commented-out call and breaks on a reformat. This asserts that some
-        dict literal in `cycle.py` actually carries the key.
+        Kept as an AST assertion but no longer the ONLY evidence of wiring:
+        the two invocation tests above carry that weight now. This one only
+        guards the operator-visible surface, which is a separate property from
+        the call existing.
         """
         tree = ast.parse((_KERNEL_ROOT / "aria_kernel" / "cycle.py").read_text(encoding="utf-8"))
         summary_keys = {

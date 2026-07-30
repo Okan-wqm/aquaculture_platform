@@ -217,13 +217,21 @@ def open_pr_for_action(
     #     going to be refused (missing change_id, wrong base, unresolvable
     #     branch) still fails with its own specific error rather than a
     #     generic perimeter refusal;
-    #   * before the `dry_run` branch, so the gate runs on BOTH paths. The
-    #     only production route into this function today is the cycle's
-    #     pr_lifecycle phase with dry_run=True (cycle.py:_run_pr_lifecycle_phase
-    #     ← _run_extended_phases ← run_enterprise_cycle ← autonomy
-    #     orchestrator ← aria-auto-cycle.yml). Gating only the live-open
-    #     path would have re-created the original defect in a new shape:
-    #     an unreachable gate that looks wired.
+    #   * before the `dry_run` branch, so the gate runs on BOTH paths. Gating
+    #     only the live-open path would have re-created the original defect in
+    #     a new shape: an unreachable gate that looks wired.
+    #
+    #     CORRECTED (ORPHAN-CRITICAL-498). This comment used to state that the
+    #     only production route here was "the cycle's pr_lifecycle phase with
+    #     dry_run=True (cycle.py:_run_pr_lifecycle_phase ← _run_extended_phases
+    #     ← run_enterprise_cycle ← autonomy orchestrator ← aria-auto-cycle.yml)".
+    #     That chain does not execute: `_run_extended_phases` is entered only
+    #     when a caller passes `run_phases` / `pre_tool_phases`, and no
+    #     production caller passes either. The live route is `cli.py` `pr open`
+    #     — an operator typing a command. The equivalent claim was corrected in
+    #     test_pr_open_perimeter_callsite.py and missed here, which is the same
+    #     defect one file over: a comment asserting a dead route as production
+    #     fact is what let 498 survive review in the first place.
     #
     # A dry run is refused too. Its purpose is to answer "would this PR be
     # openable", so a preview reporting `ok` while the perimeter would

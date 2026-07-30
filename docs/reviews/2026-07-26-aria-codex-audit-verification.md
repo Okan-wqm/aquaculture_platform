@@ -1531,6 +1531,27 @@ finding is one nobody can navigate back to from the review that produced it.
   comment lines and matches invocations structurally — the substring-instead-of-structure defect this branch already fixed
   once, reproduced by me while fixing its sibling.
 
+- **ORPHAN-HIGH-508** — no local hook type-checked anything, and the parity invariant only understood one gate family  
+  Severity HIGH, layer 3, owner okan, deadline 2026-08-13. **Measured consequence, from this session:** a
+  `noUncheckedIndexedAccess` error reached CI on `4aa3309e1` and failed `type-check`, taking `merge-gate` and
+  `sens-enterprise-summary` down as derivatives. I had verified the file with jest, which transpiles without full
+  type-checking, so the suite was green while `tsc --noEmit` was not. No local hook could have caught it: `pre-commit`
+  runs staged-only gates and `pre-push` ran exactly one thing — Rust clippy. TypeScript had **no local gate at all** —
+  the same missing-mirror shape as `ORPHAN-HIGH-500`, one gate over. **The architectural part is which gate to mirror.**
+  Platform-wide `npm run type-check` costs ~2.5 min, and a hook people bypass is worse than no hook; so the mirror is the
+  gate that actually catches this class in CI — `type-check-changed-files.mjs`, whose cost is proportional to the change
+  and whose scope is exactly the risky set. Wired into **pre-push**, which is the correct stage because that script
+  compares a _committed_ range (`origin/main..HEAD`); the same script in pre-commit would compare the wrong pair. When
+  `origin/main` is unresolvable it skips **loudly** with the reason printed — a base that cannot be computed makes
+  "changed" undefined, and blocking an offline branch push would be wrong, but skipping silently is the blind-gate defect
+  already fixed once this session. **Second half, and why this is not merely "add a hook line":** the parity invariant
+  added for `ORPHAN-HIGH-500` understood only `quality.mjs` gates, so it enforced parity for one family and silently
+  ignored every other kind — the same shape as `507`'s hardcoded root list, one layer up. It now also asserts a declared
+  set of **script** gates, matched on script path rather than command line so a hook passing different arguments than CI
+  still counts as the mirror. Declared rather than "every script any workflow runs", because builds and uploads have no
+  business in a git hook and asserting they do would make the invariant noise. Proven to bite: deleting the pre-push line
+  fails the new assertion, naming the script and why it exists.
+
 - **ORPHAN-HIGH-507** — the spec type ratchet looked in three hardcoded roots, so the invariants directory was ungated  
   Severity HIGH, layer 3, owner okan, deadline 2026-08-13. **Found by chasing a symptom I had mis-diagnosed, and the
   correction comes first.** Earlier this session I flagged that "two type gates disagree about one tree" after

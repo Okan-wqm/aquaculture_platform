@@ -51,6 +51,28 @@ const LOCAL_COUNTERPARTS: Record<string, readonly string[]> = {
   'format check-changed': ['format check-staged', 'format check-changed'],
 };
 
+/**
+ * CI gates that are plain scripts rather than `quality.mjs` subcommands, and
+ * which a local hook must also run.
+ *
+ * WHY THIS LIST EXISTS AT ALL, and why it is short. The first version of this
+ * spec only understood `quality.mjs` gates, so it enforced parity for exactly
+ * one family and silently ignored every other kind of CI gate — the same shape
+ * as ORPHAN-HIGH-507's hardcoded root list, one layer up. A parity invariant
+ * that covers one gate family teaches its readers that parity is enforced.
+ *
+ * It is a declared list rather than "every script any workflow runs" on purpose:
+ * most CI steps (builds, uploads, container setup) have no business in a git
+ * hook, and asserting they do would make the invariant noise. What belongs here
+ * is a gate that REFUSES a change on a property a developer could have checked
+ * locally. Adding one is a review event, which is the point.
+ */
+const SCRIPT_GATES: Record<string, string> = {
+  'scripts/ci/type-check-changed-files.mjs':
+    'the changed-file type gate — caught a noUncheckedIndexedAccess error in #1024 ' +
+    'that no local hook could have, because none type-checked anything',
+};
+
 function packageJson(): {
   scripts?: Record<string, string>;
 } {
@@ -156,5 +178,38 @@ describe('git hook binding', () => {
     );
 
     expect(unmirrored).toEqual([]);
+  });
+
+  it('mirrors the script-based CI gates a developer could run locally', () => {
+    // The generalisation of the test above. Matched on the script PATH rather
+    // than on a command line, so a hook that calls it with different arguments
+    // than CI does still counts as the mirror — pre-push legitimately passes
+    // `--base origin/main` where CI passes the PR base ref.
+    const hooks = readdirSync(HUSKY_DIR)
+      .filter((n) => !n.startsWith('_'))
+      .map((name) => join(HUSKY_DIR, name))
+      .filter((path) => statSync(path).isFile())
+      .map((path) =>
+        readFileSync(path, 'utf8')
+          .split('\n')
+          .filter((line) => !/^\s*#/.test(line))
+          .join('\n'),
+      )
+      .join('\n');
+
+    const workflows = readdirSync(WORKFLOW_DIR)
+      .filter((n) => /\.ya?ml$/.test(n))
+      .map((name) => readFileSync(join(WORKFLOW_DIR, name), 'utf8'))
+      .join('\n');
+
+    const missing: Record<string, string> = {};
+    for (const [script, why] of Object.entries(SCRIPT_GATES)) {
+      // Only demand a mirror for a gate CI actually runs. A declared gate that
+      // left CI is a different defect and would be a misleading failure here.
+      if (!workflows.includes(script)) continue;
+      if (!hooks.includes(script)) missing[script] = why;
+    }
+
+    expect(missing).toEqual({});
   });
 });

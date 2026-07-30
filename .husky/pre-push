@@ -44,3 +44,25 @@ GATE_TS_NODE="./node_modules/.bin/ts-node"
 GATE_TSCONFIG="--project tools/gates/tsconfig.json"
 
 "$GATE_TS_NODE" $GATE_TSCONFIG tools/gates/clippy-affected.ts --mode=prepush || exit 1
+
+# ORPHAN-HIGH-507 sibling — TypeScript'in yerel aynası. Bu hook'ta bugüne kadar
+# yalnızca Rust clippy vardı; hiçbir yerel kapı tip kontrolü yapmıyordu
+# (pre-commit staged-only gate'ler koşar). Sonuç: jest tam tip kontrolü
+# yapmadığı için süit yeşilken `tsc --noEmit` kırmızı olabiliyordu ve
+# noUncheckedIndexedAccess hatası ancak CI'da görünüyordu (#1024).
+#
+# NEDEN platform çapında `npm run type-check` DEĞİL: o ~2.5 dakika ve her
+# push'a eklenirse insanlar hook'u atlamanın yolunu arar. Aynaladığımız kapı,
+# bu sınıfı CI'da fiilen yakalayan kapı: ci-affected'ın değişen-dosya
+# muhafızı. Maliyeti değişiklik boyutuyla orantılı, kapsamı ise tam olarak
+# riskli olan küme.
+#
+# origin/main çözülemezse GÜRÜLTÜLÜ atlar: taban hesaplanamıyorsa "değişen"
+# tanımlanamaz, ve çevrimdışı bir dalı push etmeyi bloklamak yanlış olur.
+# Sessizce atlamak ise bu oturumda düzelttiğim kör-test hatasının kendisi
+# olurdu — o yüzden sebebi yazar. CI otorite olarak kalır.
+if git rev-parse --verify --quiet origin/main >/dev/null; then
+  node scripts/ci/type-check-changed-files.mjs --base origin/main --head HEAD || exit 1
+else
+  echo "pre-push: origin/main çözülemedi, değişen-dosya tip kontrolü ATLANDI (CI yine koşacak)." >&2
+fi

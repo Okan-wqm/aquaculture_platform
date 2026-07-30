@@ -2787,6 +2787,62 @@ function sourceAttestationsBySource(
   return bySource;
 }
 
+export function sourceAttestationsForRefresh(
+  attestations: readonly SourceAttestation[],
+  sources: readonly Pick<SourceRecord, 'id' | 'kind' | 'headSha' | 'contentSha256'>[],
+): Map<string, SourceAttestation> {
+  assertUnique(
+    attestations.map((attestation) => attestation.source_id),
+    'prior finding inventory source attestation IDs',
+  );
+  assertUnique(
+    sources.map((source) => source.id),
+    'current source IDs',
+  );
+  const sourcesById = new Map(sources.map((source) => [source.id, source]));
+  const bySource = new Map(attestations.map((attestation) => [attestation.source_id, attestation]));
+  const removed = [...bySource.keys()].filter((sourceId) => !sourcesById.has(sourceId)).sort();
+  const undiscoverableAdditions = sources
+    .filter((source) => !bySource.has(source.id) && source.kind !== 'REMOTE_BRANCH')
+    .map((source) => source.id)
+    .sort();
+  const kindChanges = attestations
+    .filter((attestation) => {
+      const current = sourcesById.get(attestation.source_id);
+      return current !== undefined && current.kind !== attestation.source_kind;
+    })
+    .map((attestation) => attestation.source_id)
+    .sort();
+  const hostPinChanges = attestations
+    .filter((attestation) => {
+      const current = sourcesById.get(attestation.source_id);
+      return (
+        current !== undefined &&
+        current.kind !== 'REMOTE_BRANCH' &&
+        current.kind === attestation.source_kind &&
+        (current.headSha !== attestation.source_head_sha ||
+          current.contentSha256 !== attestation.source_content_sha256)
+      );
+    })
+    .map((attestation) => attestation.source_id)
+    .sort();
+  if (
+    removed.length > 0 ||
+    undiscoverableAdditions.length > 0 ||
+    kindChanges.length > 0 ||
+    hostPinChanges.length > 0
+  ) {
+    throw new Error(
+      `host-safe refresh source transition is invalid; removed=${
+        removed.join(',') || '<none>'
+      }; new_non_remote=${undiscoverableAdditions.join(',') || '<none>'}; kind_changed=${
+        kindChanges.join(',') || '<none>'
+      }; host_pin_changed=${hostPinChanges.join(',') || '<none>'}`,
+    );
+  }
+  return bySource;
+}
+
 export function assertPendingAdjudicationStates(
   occurrences: readonly SourceFindingOccurrence[],
   sourceAdjudications: readonly SourceAdjudication[],
@@ -3920,7 +3976,7 @@ async function refreshAttestedState(
   if (!inventory) {
     throw new Error('host-safe refresh requires the prior finding inventory attestation');
   }
-  const priorSourceAttestations = sourceAttestationsBySource(
+  const priorSourceAttestations = sourceAttestationsForRefresh(
     inventory.source_attestations,
     manifest.sources,
   );

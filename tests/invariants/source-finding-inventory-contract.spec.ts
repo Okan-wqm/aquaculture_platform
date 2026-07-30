@@ -30,12 +30,14 @@ import {
   parseSourceFindingPrettierConfig,
   registryRecordChanged,
   semanticRegistryValue,
+  sourceAttestationsForRefresh,
   sourceRefDigest,
   type DiscoveredFinding,
   type FullExecutionSafetyEvidence,
   type GitHubMainTransitionEvidence,
   type IntegrationUnit,
   type SourceAdjudication,
+  type SourceAttestation,
 } from '../../tools/gates/source-finding-inventory';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -44,9 +46,9 @@ const MANIFEST_PATH = resolve(PLAN_DIRECTORY, 'manifest.json');
 const PACKAGE_PATH = resolve(REPO_ROOT, 'package.json');
 const PACKAGE_LOCK_PATH = resolve(REPO_ROOT, 'package-lock.json');
 const CI_FULL_PATH = resolve(REPO_ROOT, '.github/workflows/ci-full.yml');
-const EXPECTED_OCCURRENCE_COUNT = 959;
+const EXPECTED_OCCURRENCE_COUNT = 964;
 const EXPECTED_OCCURRENCE_DIGEST =
-  '790b747ede57760093abeedc3dee140944a58b89749f91ed9b079fd260ab4ef0';
+  'dd4c57f30de688a6c640862b8c1e50ddd44226f8adbe033d5a8a9dd773054cd2';
 const PRELIMINARY_OCCURRENCE_DIGEST =
   '3426306d2cd36f6b74f84303030777de1c81613c4e554c8b75888448501676ac';
 const INTERMEDIATE_OCCURRENCE_DIGEST =
@@ -159,6 +161,44 @@ function fixtureSourceAdjudication(
     executionOwner: 'context-manager',
     deadline: '2026-08-01',
     plan: `Adjudicate ${sourceId}.`,
+  };
+}
+
+function fixtureSourceAttestation(
+  sourceId: string,
+  sourceKind: SourceAttestation['source_kind'] = 'REMOTE_BRANCH',
+): SourceAttestation {
+  return {
+    source_id: sourceId,
+    source_kind: sourceKind,
+    source_head_sha: 'a'.repeat(40),
+    source_content_sha256: sourceKind === 'DIRTY_WORKTREE' ? 'b'.repeat(64) : null,
+    merge_base_sha: 'c'.repeat(40),
+    source_adjudication_id: `SA-${sourceId}`,
+    occurrence_count: 0,
+    untargeted_occurrence_count: 0,
+    registry_backed_count: 0,
+    registry_reference_count: 0,
+    review_only_count: 0,
+    collision_count: 0,
+    occurrence_sha256: createHash('sha256').update('').digest('hex'),
+  };
+}
+
+function fixtureRefreshSource(
+  id: string,
+  kind: SourceAttestation['source_kind'] = 'REMOTE_BRANCH',
+): {
+  id: string;
+  kind: SourceAttestation['source_kind'];
+  headSha: string;
+  contentSha256: string | null;
+} {
+  return {
+    id,
+    kind,
+    headSha: 'a'.repeat(40),
+    contentSha256: kind === 'DIRTY_WORKTREE' ? 'b'.repeat(64) : null,
   };
 }
 
@@ -407,6 +447,61 @@ describe('source finding inventory pure contract', () => {
         new Set(['SRC-R-001#ADMIN-HIGH-091']),
       ),
     ).not.toThrow();
+  });
+
+  it('allows host-safe refresh to attest a newly declared remote source', () => {
+    const prior = fixtureSourceAttestation('SRC-R-001');
+    expect(
+      sourceAttestationsForRefresh(
+        [prior],
+        [fixtureRefreshSource('SRC-R-001'), fixtureRefreshSource('SRC-R-002')],
+      ),
+    ).toEqual(new Map([['SRC-R-001', prior]]));
+  });
+
+  it('rejects source removal and undiscoverable host-source additions during refresh', () => {
+    const prior = fixtureSourceAttestation('SRC-R-001');
+    expect(() =>
+      sourceAttestationsForRefresh([prior], [fixtureRefreshSource('SRC-R-002')]),
+    ).toThrow(/removed=SRC-R-001/);
+    expect(() =>
+      sourceAttestationsForRefresh(
+        [prior],
+        [fixtureRefreshSource('SRC-R-001'), fixtureRefreshSource('SRC-W-001', 'DIRTY_WORKTREE')],
+      ),
+    ).toThrow(/new_non_remote=SRC-W-001/);
+  });
+
+  it('rejects both directions of source-kind replacement during host-safe refresh', () => {
+    expect(() =>
+      sourceAttestationsForRefresh(
+        [fixtureSourceAttestation('SRC-W-001', 'DIRTY_WORKTREE')],
+        [fixtureRefreshSource('SRC-W-001', 'REMOTE_BRANCH')],
+      ),
+    ).toThrow(/kind_changed=SRC-W-001/);
+    expect(() =>
+      sourceAttestationsForRefresh(
+        [fixtureSourceAttestation('SRC-R-001', 'REMOTE_BRANCH')],
+        [fixtureRefreshSource('SRC-R-001', 'LOCAL_BRANCH')],
+      ),
+    ).toThrow(/kind_changed=SRC-R-001/);
+  });
+
+  it('rejects retained local or dirty source pin mutation during host-safe refresh', () => {
+    const local = fixtureRefreshSource('SRC-L-001', 'LOCAL_BRANCH');
+    const dirty = fixtureRefreshSource('SRC-W-001', 'DIRTY_WORKTREE');
+    expect(() =>
+      sourceAttestationsForRefresh(
+        [fixtureSourceAttestation(local.id, local.kind)],
+        [{ ...local, headSha: 'd'.repeat(40) }],
+      ),
+    ).toThrow(/host_pin_changed=SRC-L-001/);
+    expect(() =>
+      sourceAttestationsForRefresh(
+        [fixtureSourceAttestation(dirty.id, dirty.kind)],
+        [{ ...dirty, contentSha256: 'e'.repeat(64) }],
+      ),
+    ).toThrow(/host_pin_changed=SRC-W-001/);
   });
 
   it('allows only an exact semantic legacy-to-canonical refresh transition', () => {
@@ -1013,9 +1108,9 @@ describe('checked-in source finding attestation', () => {
     ).toBe(true);
     expect(classifications.filter((value) => value === 'ID_COLLISION')).toHaveLength(27);
     expect(classifications.filter((value) => value === 'LEGACY_UNREGISTERED')).toHaveLength(618);
-    expect(classifications.filter((value) => value === 'PENDING_ADJUDICATION')).toHaveLength(314);
+    expect(classifications.filter((value) => value === 'PENDING_ADJUDICATION')).toHaveLength(319);
     expect(evidenceKinds.filter((value) => value === 'REGISTRY_RECORD')).toHaveLength(645);
-    expect(evidenceKinds.filter((value) => value === 'REGISTRY_REFERENCE')).toHaveLength(85);
+    expect(evidenceKinds.filter((value) => value === 'REGISTRY_REFERENCE')).toHaveLength(90);
     expect(evidenceKinds.filter((value) => value === 'REVIEW_MENTION')).toHaveLength(229);
     expect(sourceRefs).toContain('SRC-R-019#EDGE-CRITICAL-001-R1');
     expect(sourceRefs).toContain('SRC-R-019#RUST-CVE-002');

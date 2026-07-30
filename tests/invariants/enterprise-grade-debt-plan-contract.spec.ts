@@ -496,7 +496,7 @@ describe('enterprise-grade debt closure plan contract', () => {
     expect(
       validateExecutionIdentityDefinitions(evidenceManifest, new LocalDispatchIdentityCatalog()),
     ).toEqual([]);
-    expect(parseInventoryManifest(manifest).sources).toHaveLength(44);
+    expect(parseInventoryManifest(manifest).sources).toHaveLength(45);
 
     const gitObjectId = /^[0-9a-f]{40}$/;
     const visitGitObjectIds = (value: unknown, path: string): void => {
@@ -578,7 +578,7 @@ describe('enterprise-grade debt closure plan contract', () => {
     }
 
     const sources = objectArray(reconciliation.sources);
-    expect(sources).toHaveLength(44);
+    expect(sources).toHaveLength(45);
     const sourceIds = sources.map((source) => stringValue(source.id, 'source.id'));
     const sourceCoordinates = sources.map((source) => {
       const id = stringValue(source.id, 'source.id');
@@ -735,9 +735,9 @@ describe('enterprise-grade debt closure plan contract', () => {
     expect(findingInventory.artifact_path).toBe(
       `docs/plans/${PLAN_ID}/source-findings.${artifactSha256}.jsonl`,
     );
-    expect(findingInventory.occurrence_count).toBe(959);
+    expect(findingInventory.occurrence_count).toBe(964);
     expect(stringValue(findingInventory.occurrence_sha256, 'finding_inventory.digest')).toBe(
-      '790b747ede57760093abeedc3dee140944a58b89749f91ed9b079fd260ab4ef0',
+      'dd4c57f30de688a6c640862b8c1e50ddd44226f8adbe033d5a8a9dd773054cd2',
     );
     expect(objectArray(findingInventory.source_attestations)).toHaveLength(sources.length);
     const sourceFindingRows = readFileSync(sourceFindingsPath, 'utf8')
@@ -748,7 +748,7 @@ describe('enterprise-grade debt closure plan contract', () => {
         if (!isRecord(row)) throw new Error('source finding row must be an object');
         return row;
       });
-    expect(sourceFindingRows).toHaveLength(959);
+    expect(sourceFindingRows).toHaveLength(964);
     expect(sourceFindingRows.filter((row) => row.classification === 'ID_COLLISION')).toHaveLength(
       27,
     );
@@ -757,7 +757,7 @@ describe('enterprise-grade debt closure plan contract', () => {
     ).toHaveLength(618);
     expect(
       sourceFindingRows.filter((row) => row.classification === 'PENDING_ADJUDICATION'),
-    ).toHaveLength(314);
+    ).toHaveLength(319);
 
     const gateProfiles = reconciliation.gate_profiles;
     expect(isRecord(gateProfiles)).toBe(true);
@@ -804,8 +804,8 @@ describe('enterprise-grade debt closure plan contract', () => {
     );
     const orderIndex = new Map(integrationOrder.map((id, index) => [id, index]));
 
-    expect(units).toHaveLength(126);
-    expect(integrationOrder).toHaveLength(126);
+    expect(units).toHaveLength(127);
+    expect(integrationOrder).toHaveLength(127);
     expect(new Set(integrationOrder).size).toBe(integrationOrder.length);
     expect([...integrationOrder].sort()).toEqual([...unitIds].sort());
     expect(new Set(unitIds).size).toBe(unitIds.length);

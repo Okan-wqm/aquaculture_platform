@@ -55,15 +55,15 @@ reverse-engineering review lanes. The initial Wave 0 finding truth table is
   SENS required checks, RustSec, ADR-034 parity, and edge truth matrix are not
   final packaging tasks.
 
-## Capability Reconciliation Frontier — 2026-07-29
+## Capability Reconciliation Frontier — 2026-07-29, refreshed 2026-07-30
 
 `manifest.json.capability_reconciliation` is the sole execution record for the
 unmerged branches, unmerged local refs, and dirty worktrees observed at
-`2026-07-29T10:17:45Z`. The refs are pinned as evidence sources; they are not
-the integration unit.
+`2026-07-29T10:17:45Z` or discovered by a later live reconciliation. The refs
+are pinned as evidence sources; they are not the integration unit.
 
-The dated observation contains 44 losslessly retained sources, 44
-source-adjudication queues, 13 typed source slices, and 126 atomic integration
+The reconciled inventory contains 45 losslessly retained sources, 45
+source-adjudication queues, 14 typed source slices, and 127 atomic integration
 units. The exact base is read only from
 `manifest.json.capability_reconciliation.reconciled_base_sha`; the narrative
 does not duplicate it. Every source has exactly one adjudication queue, but a
@@ -169,7 +169,7 @@ The content-addressed `source-findings.<sha256>.jsonl` selected by
 SSoT. It contains one deterministic row per unique `source_id#raw_id`,
 preserving noncanonical legacy variants such as `EDGE-CRITICAL-001-R1`
 verbatim. The manifest pins the artifact bytes, its source-ref set, normalized
-registry-and-schema authority, all 44 source attestations including zero-result
+registry-and-schema authority, all 45 source attestations including zero-result
 sources, and every integration-unit targeted-occurrence count. Finding
 authority is one joint coordinate: the registry JSONL blob and the schema blob
 that defines semantic projection and raw-ID grammar. Reconciled-base and

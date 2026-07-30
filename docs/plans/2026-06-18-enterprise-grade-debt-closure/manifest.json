@@ -376,9 +376,9 @@
   ],
   "capability_reconciliation": {
     "recorded_at": "2026-07-29T10:17:45Z",
-    "last_reconciled_at": "2026-07-29T12:09:57Z",
+    "last_reconciled_at": "2026-07-30T11:37:52Z",
     "reconciled_base_sha": "97669af5c49348a7ef29d7849f0b1e357650ce67",
-    "scope": "Every unmerged remote branch, unmerged local branch, and dirty worktree observed at recorded_at. A branch is evidence only; one root-cause behavior with one authority_key is the integration unit.",
+    "scope": "Every unmerged remote branch, unmerged local branch, and dirty worktree observed at recorded_at or a later live reconciliation. A branch is evidence only; one root-cause behavior with one authority_key is the integration unit.",
     "execution_policy": {
       "production_droplet": {
         "broad_test_execution": "FORBIDDEN",
@@ -1002,6 +1002,22 @@
         "next_action": "Reimplement atomically: root-owned forced-command broker and global lock, immutable runner-built runtime bundle, manifest release ledger, evolved capacity GC, encrypted backup/restore, pinned Node runtime, then DR bootstrap."
       },
       {
+        "id": "SRC-R-032",
+        "kind": "REMOTE_BRANCH",
+        "locator": "refs/remotes/origin/feature/industrial-login",
+        "head_sha": "17daed6b97a0fa82e34d3279dc1798669b612785",
+        "state": "ASSESSING",
+        "disposition": "REIMPLEMENT",
+        "assessed_at": "2026-07-30",
+        "assessment": "The branch is one signed, single-purpose commit on reconciled main with a unique industrial authentication presentation, but its shell-owned duplicate surface tokens, specificity overrides, shared-component DOM selectors, and unproven error contrast cannot become a second design authority.",
+        "evidence": [
+          "Commit 17daed6b97a0fa82e34d3279dc1798669b612785 is the only commit after main 19eee899fa1ed1562716e23f36b39a4dca88a9e3",
+          "The branch preserves the production AuthContext, login, MFA, remember-me, reset, session, and safe-redirect paths without adding a second authentication client",
+          "The shell CSS redefines the shared-ui --surface-* token family, reaches through shared Input DOM structure, adds seven specificity overrides, and introduces an error color without canonical contrast proof"
+        ],
+        "next_action": "Reimplement IU-WEB-001 on fresh main with shared-ui as the single typed presentation authority; retain the industrial visual intent but do not merge PR #1039 as implemented."
+      },
+      {
         "id": "SRC-L-032",
         "kind": "LOCAL_BRANCH",
         "locator": "refs/heads/refactor/messaging-partition-authority-ssot",
@@ -1480,6 +1496,18 @@
         "selector_sha256": "67990f10a692d2046156087a5ad1210afa137bc1e3594ca7e7e8772fcca5e971"
       },
       {
+        "id": "SS-R032-WEB-001",
+        "source_id": "SRC-R-032",
+        "purpose": "IMPLEMENTATION_CANDIDATE",
+        "authority_role": "PROVENANCE_ONLY",
+        "resolution": "UNRESOLVED",
+        "selector": {
+          "kind": "COMMIT_SET",
+          "commit_shas": ["17daed6b97a0fa82e34d3279dc1798669b612785"]
+        },
+        "selector_sha256": "942d65d446c982f9fb7ec46a7cd7529f2dca31b20946f3bb3fa784f4b3f66ae1"
+      },
+      {
         "id": "SS-W039-DATA-HIGH-010",
         "source_id": "SRC-W-039",
         "purpose": "IMPLEMENTATION_CANDIDATE",
@@ -1760,6 +1788,14 @@
         "plan": "Adjudicate SRC-R-031 evidence by frozen capability semantics; record canonical allocation, typed supersession, or rejection before any target integration."
       },
       {
+        "id": "SA-SRC-R-032",
+        "source_id": "SRC-R-032",
+        "status": "ASSESSING",
+        "execution_owner": "frontend-expert",
+        "deadline": "2026-07-31",
+        "plan": "Use SRC-R-032 slice SS-R032-WEB-001 as provenance for IU-WEB-001; reimplement the industrial intent through the shared-ui authority and prove authentication, accessibility, responsive-browser, and exact-head Actions gates."
+      },
+      {
         "id": "SA-SRC-L-032",
         "source_id": "SRC-L-032",
         "status": "ASSESSING",
@@ -1908,6 +1944,7 @@
       "IU-RELEASE-007",
       "IU-RELEASE-008",
       "IU-PLATFORM-001",
+      "IU-WEB-001",
       "IU-MSG-001",
       "IU-FIN-001",
       "IU-FIN-002",
@@ -2063,6 +2100,12 @@
         "title": "Platform parity",
         "reporting_key": "report.platform",
         "integration_unit_ids": ["IU-PLATFORM-001"]
+      },
+      {
+        "id": "CAP-WEB-001",
+        "title": "Web authentication surface",
+        "reporting_key": "report.web-auth",
+        "integration_unit_ids": ["IU-WEB-001"]
       },
       {
         "id": "CAP-MESSAGING-001",
@@ -3800,6 +3843,40 @@
           "execution_owner": "data-expert",
           "accountable_registry_owner": null,
           "mandatory_reviewers": []
+        }
+      },
+      {
+        "id": "IU-WEB-001",
+        "title": "Authentication presentation contract",
+        "authority_key": "web.auth.presentation-contract",
+        "state": "ASSESSING",
+        "strategy": "REIMPLEMENT",
+        "target_date": "2026-07-31",
+        "gap": "Main lacks the reviewed industrial presentation, while SRC-R-032 implements it through a second surface-token owner, specificity overrides, shared-component DOM coupling, duplicated redirect validation, and an error color without WCAG contrast proof.",
+        "implementation_plan": [
+          "Create one typed industrial authentication surface variant in shared-ui; keep shell ownership limited to composition and background, delete duplicate --surface-* tokens and specificity overrides, and never target shared component internals.",
+          "Keep redirect sanitization in one AuthContext authority and apply the shared presentation contract to login, MFA, forgot-password, reset-password, and invitation routes without changing token or session semantics.",
+          "Prove light/dark/error/focus contrast, keyboard and reduced-motion behavior, hostile and valid redirects, mobile and short viewports, CSP, and fatal-console absence in focused tests and browser smoke.",
+          "Reimplement on fresh main in its own exact-head PR; regenerate format-scope through its canonical generator and merge only after all required and PR-specific Actions are green."
+        ],
+        "depends_on": ["IU-CONTROL-002"],
+        "source_slice_ids": ["SS-R032-WEB-001"],
+        "finding_binding": {
+          "status": "CREATE_REQUIRED",
+          "domain": "FE",
+          "severity": "HIGH",
+          "reason": "No semantically matching canonical finding exists at reconciled_base_sha; allocate one identity for the missing single-authority authentication presentation and its accessibility proof before implementation.",
+          "finding_ids": [],
+          "reported_finding_ids": [],
+          "legacy_finding_refs": []
+        },
+        "main_evidence": [],
+        "gate_profile": "ATOMIC_PR_V1",
+        "gate_results": [],
+        "ownership": {
+          "execution_owner": "frontend-expert",
+          "accountable_registry_owner": null,
+          "mandatory_reviewers": ["architectural-arbiter", "auth-security-expert", "test-runner"]
         }
       },
       {
@@ -6524,10 +6601,10 @@
     ],
     "finding_inventory": {
       "schema_version": 3,
-      "artifact_path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/source-findings.f650756bf995cf55450bbd8d0a1fa5b5e72430af2d2186983d7934b692d2efaf.jsonl",
-      "artifact_sha256": "f650756bf995cf55450bbd8d0a1fa5b5e72430af2d2186983d7934b692d2efaf",
-      "occurrence_count": 959,
-      "occurrence_sha256": "790b747ede57760093abeedc3dee140944a58b89749f91ed9b079fd260ab4ef0",
+      "artifact_path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/source-findings.77c394781f08f9203d2548a6a898adcfaffee623b809791dbc81636c8debf3a1.jsonl",
+      "artifact_sha256": "77c394781f08f9203d2548a6a898adcfaffee623b809791dbc81636c8debf3a1",
+      "occurrence_count": 964,
+      "occurrence_sha256": "dd4c57f30de688a6c640862b8c1e50ddd44226f8adbe033d5a8a9dd773054cd2",
       "audit_lineage": {
         "preliminary_textual_occurrence_count": 1030,
         "preliminary_textual_occurrence_sha256": "3426306d2cd36f6b74f84303030777de1c81613c4e554c8b75888448501676ac",
@@ -6601,7 +6678,7 @@
         "algorithm_version": "REGISTRY_SCHEMA_CAPABILITY_V3",
         "remote_source_state": "LIVE_REDISCOVERED",
         "host_source_state": "RETAINED_PENDING_ISOLATED_REDISCOVERY",
-        "reconciled_at": "2026-07-29T12:09:57Z",
+        "reconciled_at": "2026-07-30T11:37:52Z",
         "pending_isolated_regeneration": {
           "execution_owner": "infra-expert",
           "deadline": "2026-07-30",
@@ -7089,6 +7166,21 @@
           "review_only_count": 0,
           "collision_count": 7,
           "occurrence_sha256": "2e2a6dfeea51bec29eebac3a078bd84bae9b43fb88645a24c5f6a88e4515fc3c"
+        },
+        {
+          "source_id": "SRC-R-032",
+          "source_kind": "REMOTE_BRANCH",
+          "source_head_sha": "17daed6b97a0fa82e34d3279dc1798669b612785",
+          "source_content_sha256": null,
+          "merge_base_sha": "97669af5c49348a7ef29d7849f0b1e357650ce67",
+          "source_adjudication_id": "SA-SRC-R-032",
+          "occurrence_count": 5,
+          "untargeted_occurrence_count": 5,
+          "registry_backed_count": 0,
+          "registry_reference_count": 5,
+          "review_only_count": 0,
+          "collision_count": 0,
+          "occurrence_sha256": "3afc6b2666ea2e7ea37b4975d64a66cc59ad049cfbf6453730b07e63e086e5d3"
         },
         {
           "source_id": "SRC-W-033",
@@ -8149,6 +8241,13 @@
         },
         {
           "integration_unit_id": "IU-SUPPLY-004",
+          "targeted_occurrence_count": 0,
+          "pending_targeted_count": 0,
+          "collision_count": 0,
+          "occurrence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "integration_unit_id": "IU-WEB-001",
           "targeted_occurrence_count": 0,
           "pending_targeted_count": 0,
           "collision_count": 0,

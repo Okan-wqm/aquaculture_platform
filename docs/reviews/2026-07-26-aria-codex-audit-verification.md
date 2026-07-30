@@ -1531,6 +1531,25 @@ finding is one nobody can navigate back to from the review that produced it.
   comment lines and matches invocations structurally — the substring-instead-of-structure defect this branch already fixed
   once, reproduced by me while fixing its sibling.
 
+- **ORPHAN-HIGH-505** — the phase constants declare 5 phases while the cycle runs 15  
+  Severity HIGH, layer 1, owner okan, deadline 2026-08-13. **Found while scoping RC-1's tier-1 collapse, and it changes
+  that work's shape rather than adding to it.** `DEFAULT_CYCLE_PHASES` names five phases; `run_enterprise_cycle`'s body
+  actually runs fifteen — `belief_decay`, `consensus_escalation`, `human_required_adjudication`, `judge_calibration`,
+  `lease_lifecycle_escalation`, `learning_post_evidence_closure`, `metrics`, `observability_dashboard`,
+  `proactive_priority`, `service_examination` and more, enumerated from its own `emit_progress` calls. Even the overlap is
+  inexact: the constant says `discover`, the body emits `discovery`. And the constants exist **only** to validate the
+  `run_phases` / `pre_tool_phases` kwargs, which have no production caller (`ORPHAN-CRITICAL-498`) — so they validate
+  input nobody passes against a list that misdescribes the cycle, carrying the appearance of a phase SSoT with none of
+  its duties. **Consequence for RC-1:** the plan treats that constant as the set to formalise. A `CYCLE_PHASES` registry
+  built from those five names would encode the wrong pipeline and leave ten phases outside the SSoT meant to be
+  authoritative — the duplicate representation the collapse exists to remove. So the collapse is materially larger than
+  "move four extended phases behind preconditions": it restructures ~300 lines of inline sequential phase code. The
+  kwargs and the constants that validate them must be deleted as **one unit**; removing either alone leaves a dangling
+  half. A separate risk it must handle rather than discover: the four extended phases have **never executed in
+  production**, so switching them on runs `pr_lifecycle` → `open_pr_for_action` on every cycle with
+  `approved_for_apply` proposals — no longer able to self-halt the nightly after `ORPHAN-CRITICAL-503`, but still a
+  first-time behaviour change that needs its precondition right before it is enabled.
+
 - **ORPHAN-HIGH-504** — the static reachability invariant cannot catch a kwarg-gated dead pipeline  
   Severity HIGH, layer 1, owner okan, deadline 2026-08-13. **Found by building the tool the plan asked for.** RC-1 calls
   its static call-graph invariant "the generalised answer to the defect class". It would **not** have caught

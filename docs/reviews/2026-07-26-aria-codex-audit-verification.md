@@ -1531,6 +1531,28 @@ finding is one nobody can navigate back to from the review that produced it.
   comment lines and matches invocations structurally — the substring-instead-of-structure defect this branch already fixed
   once, reproduced by me while fixing its sibling.
 
+- **ORPHAN-HIGH-507** — the spec type ratchet looked in three hardcoded roots, so the invariants directory was ungated  
+  Severity HIGH, layer 3, owner okan, deadline 2026-08-13. **Found by chasing a symptom I had mis-diagnosed, and the
+  correction comes first.** Earlier this session I flagged that "two type gates disagree about one tree" after
+  `CI - Full`'s type-check passed on `4aa3309e1` while `Quality Gates`' `type-check` job failed. The scopes are
+  **deliberate and layered**, not contradictory: `type-check-all.mjs` covers app/lib _compile_ tsconfigs and documents
+  that it excludes `.spec.json`; `gates:type-check-spec` owns spec tsconfigs as a baseline-aware ratchet;
+  `type-check-changed-files.mjs` covers changed files anywhere. **That framing was wrong and is withdrawn.** The real
+  defect sits one layer down: `discoverProjects()` enumerated `['apps','libs','platform/libs']`, and its own comment
+  recorded that `platform/libs` had been _appended_ the first time a platform lib grew a spec config — which is the tell.
+  The list is a log of the times someone noticed. **Measured:** the repo holds 30 `tsconfig.spec.json` files; those roots
+  reach 29. The one missed is **`tests/invariants`** — the directory holding the invariants that enforce every other rule
+  in the platform, so the ratchet guarding spec type errors was blind to the specs that guard everything else. A file
+  there was covered only by the changed-files guard, which sees a file when it _changes_ and never guards the rest; a
+  pre-existing error was invisible to every gate. Fixed by **deriving** the project set from the presence of a spec
+  tsconfig via a depth-bounded walk, so a new tree is covered the moment it acquires one. Proven to bite: injecting one
+  error reports `25 (baseline 24, +1)` and fails. **Not done, stated plainly:** widening the gate revealed **24
+  pre-existing errors across six invariant files** I did not write, all `noUncheckedIndexedAccess` violations. They are
+  recorded as the project's baseline — the ratchet's designed onboarding path, the same one used for 11 of 20 projects at
+  gate introduction — which turns 24 invisible errors into 24 tracked-and-capped ones. That is tier 3, **not** tier 1.
+  Fixing them means reading six unfamiliar invariant files, and the available shortcuts (non-null assertions, casts) are
+  banned and would be worse than the debt. The ratchet guarantees the number cannot grow while the cleanup waits.
+
 - **ORPHAN-CRITICAL-506** — one undecodable ledger row trips the breaker forever, and the only lever also destroyed the queue  
   Severity CRITICAL, layer 1, owner okan, deadline 2026-08-13. The ordering that causes this is itself correct —
   `evaluate_breaker` decides `evidence_incomplete` _before_ the threshold comparison, which is what

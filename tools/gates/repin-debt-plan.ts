@@ -193,9 +193,7 @@ function main(): number {
   const state = registryState();
 
   // PRECONDITION — nothing below this point may run if the id list moved.
-  if (
-    JSON.stringify(previous.active_critical_ids) !== JSON.stringify(state.active_critical_ids)
-  ) {
+  if (JSON.stringify(previous.active_critical_ids) !== JSON.stringify(state.active_critical_ids)) {
     process.stderr.write(
       'debt-plan repin: active_critical_ids CHANGED — refusing, nothing was written.\n' +
         '  A new active CRITICAL needs a truth-table row with an owner and a bucket,\n' +

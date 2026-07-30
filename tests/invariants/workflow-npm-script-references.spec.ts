@@ -42,9 +42,7 @@ function trackedPackageManifests(): string[] {
     encoding: 'utf8',
     maxBuffer: 32 * 1024 * 1024,
   });
-  return out
-    .split(/\r?\n/)
-    .filter((rel) => rel.trim() && !rel.includes('node_modules/'));
+  return out.split(/\r?\n/).filter((rel) => rel.trim() && !rel.includes('node_modules/'));
 }
 
 function declaredScriptNames(): Set<string> {
@@ -99,13 +97,9 @@ describe('workflow npm script references', () => {
     const declared = declaredScriptNames();
     expect(declared.size).toBeGreaterThan(50);
 
-    const orphaned = workflowScriptReferences().filter(
-      (ref) => !declared.has(ref.script),
-    );
+    const orphaned = workflowScriptReferences().filter((ref) => !declared.has(ref.script));
 
-    expect(orphaned.map((r) => `${r.workflow}:${r.line} -> npm run ${r.script}`)).toEqual(
-      [],
-    );
+    expect(orphaned.map((r) => `${r.workflow}:${r.line} -> npm run ${r.script}`)).toEqual([]);
   });
 
   it('keeps the gate self-tests this repo runs in CI declared', () => {

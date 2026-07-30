@@ -142,10 +142,7 @@ export function writeAriaAuthorityHash(repoRoot: string = ariaRepoRoot()): {
   if (from === to) return { from, to, changed: false };
   writeFileSync(
     path,
-    body.replace(
-      ARIA_AUTHORITY_HASH_LINE,
-      `Last verified ARIA authority hash: \`${to}\``,
-    ),
+    body.replace(ARIA_AUTHORITY_HASH_LINE, `Last verified ARIA authority hash: \`${to}\``),
     'utf8',
   );
   return { from, to, changed: true };

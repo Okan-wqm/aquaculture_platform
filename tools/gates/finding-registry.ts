@@ -639,10 +639,7 @@ export function appendExplicitFinding(
   // severity) and the classifier segment varies with severity anyway, so
   // `ORPHAN-MEDIUM-416` never string-matched the live `416` heading. The
   // sequence is the identity.
-  const claimed = claimedSequences(
-    idParts[1],
-    claimedIdsForDomain(idParts[1], entries, authority),
-  );
+  const claimed = claimedSequences(idParts[1], claimedIdsForDomain(idParts[1], entries, authority));
   if (claimed.has(Number.parseInt(idParts[3], 10))) {
     process.stderr.write(
       `Duplicate id: ${stub.id} — sequence ${idParts[3]} is already claimed in ` +

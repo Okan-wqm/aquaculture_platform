@@ -63,3 +63,12 @@ node tools/quality/quality.mjs format-scope check || {
   echo "format-scope bayat: 'npm run quality:format-scope:generate' koşup manifesti bu commit'e ekleyin." >&2
   exit 1
 }
+
+# Prettier sapması — yukarıdaki format-scope gate'i manifestin TAZELİĞİNİ
+# doğrular, biçimin kendisini DEĞİL. CI (`ci-full.yml`, lint-and-typecheck
+# adım 10) iki format kapısı koşar; bu hook uzun süre yalnızca ilkini
+# aynaladı, dolayısıyla `format check-changed` sapmayı push sonrasında CI'da
+# yakaladı. ORPHAN-HIGH-500: bu dalda 8 commit yeşil hook'la sapma taşıdı.
+# Staged mod, HEAD^ yerine indeksi HEAD'e karşı yargılar — commit anında
+# doğru karşılaştırma budur (tier-3 make-it-detectable).
+node tools/quality/quality.mjs format check-staged || exit 1

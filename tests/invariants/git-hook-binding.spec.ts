@@ -23,14 +23,33 @@
  * install path unnoticed). It is not tier 1 and does not pretend to be.
  */
 
-import { accessSync, constants, readFileSync, statSync } from 'node:fs';
+import { accessSync, constants, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const HUSKY_DIR = join(REPO_ROOT, '.husky');
+const WORKFLOW_DIR = join(REPO_ROOT, '.github', 'workflows');
 
 /** Hooks whose absence silently removes a gate rather than breaking something. */
 const REQUIRED_HOOKS = ['commit-msg', 'pre-commit', 'pre-push'] as const;
+
+/** `quality.mjs <domain> <action>` — the gate's identity, ignoring flags. */
+const QUALITY_GATE = /quality\.mjs\s+([a-z][a-z-]*\s+[a-z][a-z-]*)/g;
+
+/** `npm run quality:<name>` — the same gate reached through package.json. */
+const QUALITY_SCRIPT = /npm\s+run\s+(quality:[A-Za-z0-9:_.-]+)/g;
+
+/**
+ * Where a local gate is deliberately a different mode of the same rule.
+ *
+ * `check-changed` compares the worktree against the PR base — the right question
+ * in CI. `check-staged` compares the index against HEAD — the right question at
+ * commit time, when the content under test is not committed yet. Same rule, same
+ * implementation, different comparison point, so it counts as the mirror.
+ */
+const LOCAL_COUNTERPARTS: Record<string, readonly string[]> = {
+  'format check-changed': ['format check-staged', 'format check-changed'],
+};
 
 function packageJson(): {
   scripts?: Record<string, string>;
@@ -79,5 +98,55 @@ describe('git hook binding', () => {
     if (scripts['prepare']?.includes('husky')) {
       expect(scripts['hooks:install']).toBeTruthy();
     }
+  });
+
+  it('mirrors every quality.mjs gate CI runs into a local hook', () => {
+    // WHY: `.husky/pre-commit` ran `format-scope check` — manifest freshness —
+    // and its own comment claimed the intent was to catch CI redness at commit
+    // time. But CI runs TWO format gates, and the one that catches actual
+    // Prettier drift (`format check-changed`) had no local counterpart at all.
+    // Eight commits shipped drift with a green hook every time before CI
+    // objected (ORPHAN-HIGH-500). Mirroring one gate of a pair is worse than
+    // mirroring neither, because the developer stops looking.
+    //
+    // Discovered rather than listed: a hardcoded expectation would pass while a
+    // NEWLY added CI gate went unmirrored, which is the defect itself.
+    const gates = new Set<string>();
+    for (const file of readdirSync(WORKFLOW_DIR).filter((n) => /\.ya?ml$/.test(n))) {
+      const body = readFileSync(join(WORKFLOW_DIR, file), 'utf8');
+      for (const [, gate] of body.matchAll(QUALITY_GATE)) gates.add(gate);
+      // Gates reached through an npm script indirection count the same.
+      for (const [, script] of body.matchAll(QUALITY_SCRIPT)) {
+        const expansion = (packageJson().scripts ?? {})[script];
+        for (const [, gate] of (expansion ?? '').matchAll(QUALITY_GATE)) gates.add(gate);
+      }
+    }
+
+    // Only assertions are mirrored. `generate` rewrites a manifest; running it
+    // from a hook would silently mutate the developer's tree, not gate it.
+    const assertions = [...gates].filter((gate) => /\b(check|check-[a-z]+)$/.test(gate));
+    expect(assertions.length).toBeGreaterThan(0);
+
+    // Gates the hooks actually INVOKE, parsed structurally. A substring search
+    // over raw hook text passes on a mention inside a comment — this test was
+    // written that way first and stayed green when the real invocation was
+    // deleted, which is the same substring-instead-of-structure defect the
+    // branch is closing. Comment lines are stripped before matching.
+    const invoked = new Set<string>();
+    for (const name of readdirSync(HUSKY_DIR).filter((n) => !n.startsWith('_'))) {
+      const path = join(HUSKY_DIR, name);
+      if (!statSync(path).isFile()) continue;
+      const code = readFileSync(path, 'utf8')
+        .split('\n')
+        .filter((line) => !/^\s*#/.test(line))
+        .join('\n');
+      for (const [, gate] of code.matchAll(QUALITY_GATE)) invoked.add(gate);
+    }
+
+    const unmirrored = assertions.filter(
+      (gate) => !(LOCAL_COUNTERPARTS[gate] ?? [gate]).some((local) => invoked.has(local)),
+    );
+
+    expect(unmirrored).toEqual([]);
   });
 });

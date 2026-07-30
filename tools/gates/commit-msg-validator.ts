@@ -38,10 +38,7 @@ import { execFileSync, execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import {
-  ORPHAN_MD_HEADING_REGEX,
-  readOrphanMarkdownStore,
-} from './finding-registry-store';
+import { ORPHAN_MD_HEADING_REGEX, readOrphanMarkdownStore } from './finding-registry-store';
 
 // Resolve repo root via `git rev-parse --show-toplevel`
 // (Batch #349) — switched away from

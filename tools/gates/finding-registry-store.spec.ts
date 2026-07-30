@@ -115,16 +115,13 @@ if (childMode === '--worktree-allocator-child') {
     const store = readOrphanMarkdownStore(path);
     assert.deepEqual(
       [...store.ids].sort(),
-      [
-        'ORPHAN-001',
-        'ORPHAN-063',
-        'ORPHAN-INFO-363',
-        'ORPHAN-LOW-337b',
-        'ORPHAN-MEDIUM-031',
-      ],
+      ['ORPHAN-001', 'ORPHAN-063', 'ORPHAN-INFO-363', 'ORPHAN-LOW-337b', 'ORPHAN-MEDIUM-031'],
       'a heading form the reader cannot see is a sequence the allocator reuses',
     );
-    assert.deepEqual([...store.sequences].sort((a, b) => a - b), [1, 31, 63, 337, 363]);
+    assert.deepEqual(
+      [...store.sequences].sort((a, b) => a - b),
+      [1, 31, 63, 337, 363],
+    );
   });
 
   void test('readOrphanMarkdownStore treats a missing file as empty, not an error', () => {
@@ -147,10 +144,7 @@ if (childMode === '--worktree-allocator-child') {
       'registry-only view is the pre-fix behaviour',
     );
     assert.equal(
-      nextFindingId('ORPHAN', 'HIGH', [
-        ...registryIds,
-        ...orphanMarkdownReservedIds(path),
-      ]),
+      nextFindingId('ORPHAN', 'HIGH', [...registryIds, ...orphanMarkdownReservedIds(path)]),
       'ORPHAN-HIGH-417',
     );
   });
@@ -163,10 +157,7 @@ if (childMode === '--worktree-allocator-child') {
     // anyway. So `ORPHAN-MEDIUM-416` was accepted while `416` was a live
     // heading — the very collision that forced this branch to be retraced,
     // reachable through the other door.
-    const claimed = claimedSequences('ORPHAN', [
-      'ORPHAN-CRITICAL-332',
-      'ORPHAN-RESERVED-416',
-    ]);
+    const claimed = claimedSequences('ORPHAN', ['ORPHAN-CRITICAL-332', 'ORPHAN-RESERVED-416']);
     assert.equal(claimed.has(332), true);
     assert.equal(
       claimed.has(416),
@@ -188,7 +179,10 @@ if (childMode === '--worktree-allocator-child') {
       'INFRA-CRITICAL-999',
       'SUPPLY-HIGH-005',
     ]);
-    assert.deepEqual([...claimed].sort((a, b) => a - b), [5]);
+    assert.deepEqual(
+      [...claimed].sort((a, b) => a - b),
+      [5],
+    );
   });
 
   void test('non-Error action failures remain observable with native cause semantics', () => {

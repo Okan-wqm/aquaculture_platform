@@ -9,7 +9,7 @@ Method: every claim was re-derived from source at the audited commit. Where a cl
 falsifiable by execution, it was **executed** rather than reasoned about (breaker state machine,
 Jaccard/revision independence layers, `poll_pr_checks` empty-set behaviour, the
 `feat/aria-autonomous-mode` summary parser). Claims about the live GitHub Actions artifact were
-**not** re-fetched; instead the code paths that *produce* each reported number were verified, which
+**not** re-fetched; instead the code paths that _produce_ each reported number were verified, which
 independently explains every figure the report cited.
 
 ## Verdict
@@ -17,17 +17,17 @@ independently explains every figure the report cited.
 The Codex report is substantially accurate. **All 15 P0 findings are confirmed.** Eight are more
 severe than described. Three framings are too harsh and are corrected below. Four findings are new.
 
-The report's central thesis — *code exists, is not connected to a production call chain, and is
-reported as green* — is verified in its strongest possible form:
+The report's central thesis — _code exists, is not connected to a production call chain, and is
+reported as green_ — is verified in its strongest possible form:
 
-| Structural fact | Evidence |
-|---|---|
-| 4 policy functions with **zero** production callers | `assert_within_budget`, `record_actual_usage`, `reserve_cycle_budget`, `circuit_breaker.record_failure` |
-| 1 function the orchestrator calls that **does not exist** | `replay_pending_bridges` |
-| 2 of 3 independence layers that **cannot fire**, proven by execution | `independence_check` layers 2 + 3 |
-| 4 summary counters structurally pinned to zero | `incomplete_lifecycle_count`, `warning_count`, `suppressed_count`, `truncated_count` |
-| the agent queue directory is gitignored **out of its own consumer's filesystem** | `.gitignore:205` vs `aria-agent-executor.yml` |
-| the canonical schema validator has zero callers **and** would reject every production envelope | `validate_request` vs `must_satisfy[].statement` |
+| Structural fact                                                                                | Evidence                                                                                                |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| 4 policy functions with **zero** production callers                                            | `assert_within_budget`, `record_actual_usage`, `reserve_cycle_budget`, `circuit_breaker.record_failure` |
+| 1 function the orchestrator calls that **does not exist**                                      | `replay_pending_bridges`                                                                                |
+| 2 of 3 independence layers that **cannot fire**, proven by execution                           | `independence_check` layers 2 + 3                                                                       |
+| 4 summary counters structurally pinned to zero                                                 | `incomplete_lifecycle_count`, `warning_count`, `suppressed_count`, `truncated_count`                    |
+| the agent queue directory is gitignored **out of its own consumer's filesystem**               | `.gitignore:205` vs `aria-agent-executor.yml`                                                           |
+| the canonical schema validator has zero callers **and** would reject every production envelope | `validate_request` vs `must_satisfy[].statement`                                                        |
 
 Autonomous write/merge must stay closed. That conclusion is unchanged.
 
@@ -37,57 +37,57 @@ This document is the SSoT for the finding IDs below; the hash-chained registry e
 state. IDs were allocated by `npm run findings:add` (which mints the sequence itself, so the audit
 report's `P0-*` / `NEW-*` labels are the analysis names and these are the tracked names).
 
-| Registry ID | Audit label | Severity | Finding |
-|---|---|---|---|
-| `ORPHAN-CRITICAL-418` | NEW-01 | CRITICAL | corrupting the failure ledger un-trips the breaker |
-| `ORPHAN-CRITICAL-419` | P0-02 | CRITICAL | producer and executor share no queue |
-| `ORPHAN-CRITICAL-420` | P0-07 | CRITICAL | budget + breaker have zero production callers |
-| `ORPHAN-HIGH-421` | P0-10 / NEW-02 | HIGH | all three independence layers non-functional |
-| `ORPHAN-HIGH-422` | P0-15 | HIGH | HUMAN_REQUIRED becomes `no_gaps` |
-| `ORPHAN-HIGH-423` | P0-09 | HIGH | specialist gate fails open in `standard` and `autonomous` |
-| `ORPHAN-HIGH-424` | P0-01 | HIGH | summary counters pinned to zero; invalid state published |
-| `ORPHAN-HIGH-425` | P0-14 | HIGH | installation token full-scope; TTL is fiction |
-| `ORPHAN-HIGH-426` | P1-03 + operator direction | HIGH | HUMAN_REQUIRED waits on a human indefinitely, and the sweep that makes it visible has CLI-only callers |
-| `ORPHAN-CRITICAL-427` | hunt | CRITICAL | The bash sandbox perimeter has no kernel caller |
-| `ORPHAN-CRITICAL-428` | hunt | CRITICAL | HARD_FAIL_CHECKS is a pure-data registry with no callable field and zero production i… |
-| `ORPHAN-HIGH-429` | hunt | HIGH | Gate B oscillation guard has no caller while the streak it reads only ever increments |
-| `ORPHAN-HIGH-430` | hunt | HIGH | ARIA-Watchdog goes permanently silent after its first poll because the daemon's own g… |
-| `ORPHAN-HIGH-431` | hunt | HIGH | The banned-phrase HARD-reject check scans envelope keys the production submission nev… |
-| `ORPHAN-MEDIUM-432` | hunt | MEDIUM | Architecture Spine Gate drops unreadable or undecodable files from the invariant viol… |
-| `ORPHAN-HIGH-433` | hunt | HIGH | The aria-tools publication integrity gate verifies only a small fraction of the decla… |
-| `ORPHAN-HIGH-434` | hunt | HIGH | The daily report PR can never be staged |
-| `ORPHAN-HIGH-435` | this session | HIGH | The kernel test suite inherits the agent container's global git config |
-| `ORPHAN-MEDIUM-436` | this session | MEDIUM | The test_gate_canonical_suite policy named mutation and coverage gates that do not ex… |
-| `ORPHAN-HIGH-437` | this session | HIGH | The hard-fail perimeter is one undifferentiated gate |
-| `ORPHAN-HIGH-438` | this session | HIGH | Five declared pre-PR-open hard-fail checks have no implementation |
-| `ORPHAN-HIGH-417` | this session | HIGH | the ID allocator and the trailer resolver each read only half the ORPHAN identifier space |
-| `ORPHAN-CRITICAL-439` | this session | CRITICAL | no sandbox backend is installed anywhere, so write containment refuses every spawn |
-| `ORPHAN-CRITICAL-440` | this session | CRITICAL | the observe burn-in rejects the runtime writes it exists to produce |
-| `ORPHAN-HIGH-441` | this session | HIGH | the commit-msg traceability hook binds for nobody — `prepare` never runs under `--ignore-scripts` |
-| `SUPPLY-HIGH-001` | this session | HIGH | four high advisories block a required check; the suggested fix breaks the build |
-| `ORPHAN-MEDIUM-442` | self-audit of this branch | MEDIUM | a `# type: ignore` was added on the Gate C verdict — the value that decides whether the specialist gate blocks |
-| `ORPHAN-HIGH-443` | self-audit of this branch | HIGH | the Gate C block policy is a denylist, so an unrecognised verdict passes as a clean review |
-| `ORPHAN-MEDIUM-444` | self-audit of this branch | MEDIUM | the debt-plan repin script wrote all three mirror files before refusing, contradicting its own docstring |
-| `ORPHAN-MEDIUM-445` | self-audit of this branch | MEDIUM | the ARIA authority hash had a checker and no writer, so refreshing it meant copying a value out of a Jest failure |
-| `ORPHAN-CRITICAL-446` | adversarial re-audit | CRITICAL | the independence gate never receives the cross-reviewer's text, so the diversity layer computes neither comparison and every `converged` verdict is downgraded |
-| `ORPHAN-HIGH-447` | adversarial re-audit | HIGH | the two tests pinning the specialist gate can silently skip themselves instead of failing |
-| `ORPHAN-MEDIUM-448` | adversarial re-audit | MEDIUM | the repin script silently no-ops on anchor drift and exits 0, and was the one gate script nothing type-checked |
-| `ORPHAN-MEDIUM-449` | caught by CI | MEDIUM | the authority-hash writer read the git index, so running it before staging wrote a value the commit could not match |
-| `ORPHAN-HIGH-450` | adversarial re-audit | HIGH | the HUMAN_REQUIRED adjudication panel that closed `426` had zero production callers |
-| `ORPHAN-CRITICAL-451` | 13-agent audit | CRITICAL | the firejail sandbox backend applied none of the READONLY_PATHS while satisfying the S0 containment exit criterion |
-| `ORPHAN-MEDIUM-452` | 13-agent audit | MEDIUM | the bwrap probe did not mirror the wrapper, so it could report available on a host where every spawn dies |
-| `ORPHAN-HIGH-453` | 13-agent audit | HIGH | a doubled slash walked a kernel path past the self-modification check |
-| `ORPHAN-HIGH-454` | 13-agent audit | HIGH | `git push origin aria-impl-<sha> -f` passed the whole bash perimeter |
-| `ORPHAN-HIGH-455` | 13-agent audit | HIGH | three headline fixes had no callsite coverage, and the test claiming otherwise was a tautology |
-| `ORPHAN-HIGH-456` | 13-agent audit | HIGH | the bounded cycle summary deletes the two keys the publisher reads |
-| `ORPHAN-HIGH-457` | claim re-verification | HIGH | the explicit-append path was blind to the markdown store AND compared full id strings — the retrace's own collision, still reachable |
-| `ORPHAN-MEDIUM-458` | claim re-verification | MEDIUM | a YAML comment satisfied the sandbox-contract invariant, so the real verification step could be deleted unnoticed |
-| `ORPHAN-MEDIUM-459` | claim re-verification | MEDIUM | `apply_resource_limits` had zero production callers; a write-capable agent spawn was bounded by nothing |
-| `ORPHAN-CRITICAL-460` | fresh coverage lens | CRITICAL | a shell operator after an allowed prefix bypassed the allowlist, the denylist and the force-push check at once |
-| `ORPHAN-CRITICAL-461` | fresh coverage lens | CRITICAL | broader-scope claims, globs, empty surface lists, an echoed test suite, and every gh-api route that writes `main` all passed |
-| `ORPHAN-HIGH-462` | fresh coverage lens | HIGH | a specialist submitting garbage was recorded as a clean review, so hardening two sides of the gate made garbage better than silence |
-| `ORPHAN-MEDIUM-463` | observed in CI | MEDIUM | `deploy-ssot-contract`'s hostile-filename test is flaky under parallel workers, in a required check |
-| `ORPHAN-MEDIUM-464` | operator decision | MEDIUM | one pushed commit's missing trailer required an allowlist exception the author would not grant himself |
+| Registry ID           | Audit label                | Severity | Finding                                                                                                                                                        |
+| --------------------- | -------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ORPHAN-CRITICAL-418` | NEW-01                     | CRITICAL | corrupting the failure ledger un-trips the breaker                                                                                                             |
+| `ORPHAN-CRITICAL-419` | P0-02                      | CRITICAL | producer and executor share no queue                                                                                                                           |
+| `ORPHAN-CRITICAL-420` | P0-07                      | CRITICAL | budget + breaker have zero production callers                                                                                                                  |
+| `ORPHAN-HIGH-421`     | P0-10 / NEW-02             | HIGH     | all three independence layers non-functional                                                                                                                   |
+| `ORPHAN-HIGH-422`     | P0-15                      | HIGH     | HUMAN_REQUIRED becomes `no_gaps`                                                                                                                               |
+| `ORPHAN-HIGH-423`     | P0-09                      | HIGH     | specialist gate fails open in `standard` and `autonomous`                                                                                                      |
+| `ORPHAN-HIGH-424`     | P0-01                      | HIGH     | summary counters pinned to zero; invalid state published                                                                                                       |
+| `ORPHAN-HIGH-425`     | P0-14                      | HIGH     | installation token full-scope; TTL is fiction                                                                                                                  |
+| `ORPHAN-HIGH-426`     | P1-03 + operator direction | HIGH     | HUMAN_REQUIRED waits on a human indefinitely, and the sweep that makes it visible has CLI-only callers                                                         |
+| `ORPHAN-CRITICAL-427` | hunt                       | CRITICAL | The bash sandbox perimeter has no kernel caller                                                                                                                |
+| `ORPHAN-CRITICAL-428` | hunt                       | CRITICAL | HARD_FAIL_CHECKS is a pure-data registry with no callable field and zero production i…                                                                         |
+| `ORPHAN-HIGH-429`     | hunt                       | HIGH     | Gate B oscillation guard has no caller while the streak it reads only ever increments                                                                          |
+| `ORPHAN-HIGH-430`     | hunt                       | HIGH     | ARIA-Watchdog goes permanently silent after its first poll because the daemon's own g…                                                                         |
+| `ORPHAN-HIGH-431`     | hunt                       | HIGH     | The banned-phrase HARD-reject check scans envelope keys the production submission nev…                                                                         |
+| `ORPHAN-MEDIUM-432`   | hunt                       | MEDIUM   | Architecture Spine Gate drops unreadable or undecodable files from the invariant viol…                                                                         |
+| `ORPHAN-HIGH-433`     | hunt                       | HIGH     | The aria-tools publication integrity gate verifies only a small fraction of the decla…                                                                         |
+| `ORPHAN-HIGH-434`     | hunt                       | HIGH     | The daily report PR can never be staged                                                                                                                        |
+| `ORPHAN-HIGH-435`     | this session               | HIGH     | The kernel test suite inherits the agent container's global git config                                                                                         |
+| `ORPHAN-MEDIUM-436`   | this session               | MEDIUM   | The test_gate_canonical_suite policy named mutation and coverage gates that do not ex…                                                                         |
+| `ORPHAN-HIGH-437`     | this session               | HIGH     | The hard-fail perimeter is one undifferentiated gate                                                                                                           |
+| `ORPHAN-HIGH-438`     | this session               | HIGH     | Five declared pre-PR-open hard-fail checks have no implementation                                                                                              |
+| `ORPHAN-HIGH-417`     | this session               | HIGH     | the ID allocator and the trailer resolver each read only half the ORPHAN identifier space                                                                      |
+| `ORPHAN-CRITICAL-439` | this session               | CRITICAL | no sandbox backend is installed anywhere, so write containment refuses every spawn                                                                             |
+| `ORPHAN-CRITICAL-440` | this session               | CRITICAL | the observe burn-in rejects the runtime writes it exists to produce                                                                                            |
+| `ORPHAN-HIGH-441`     | this session               | HIGH     | the commit-msg traceability hook binds for nobody — `prepare` never runs under `--ignore-scripts`                                                              |
+| `SUPPLY-HIGH-001`     | this session               | HIGH     | four high advisories block a required check; the suggested fix breaks the build                                                                                |
+| `ORPHAN-MEDIUM-442`   | self-audit of this branch  | MEDIUM   | a `# type: ignore` was added on the Gate C verdict — the value that decides whether the specialist gate blocks                                                 |
+| `ORPHAN-HIGH-443`     | self-audit of this branch  | HIGH     | the Gate C block policy is a denylist, so an unrecognised verdict passes as a clean review                                                                     |
+| `ORPHAN-MEDIUM-444`   | self-audit of this branch  | MEDIUM   | the debt-plan repin script wrote all three mirror files before refusing, contradicting its own docstring                                                       |
+| `ORPHAN-MEDIUM-445`   | self-audit of this branch  | MEDIUM   | the ARIA authority hash had a checker and no writer, so refreshing it meant copying a value out of a Jest failure                                              |
+| `ORPHAN-CRITICAL-446` | adversarial re-audit       | CRITICAL | the independence gate never receives the cross-reviewer's text, so the diversity layer computes neither comparison and every `converged` verdict is downgraded |
+| `ORPHAN-HIGH-447`     | adversarial re-audit       | HIGH     | the two tests pinning the specialist gate can silently skip themselves instead of failing                                                                      |
+| `ORPHAN-MEDIUM-448`   | adversarial re-audit       | MEDIUM   | the repin script silently no-ops on anchor drift and exits 0, and was the one gate script nothing type-checked                                                 |
+| `ORPHAN-MEDIUM-449`   | caught by CI               | MEDIUM   | the authority-hash writer read the git index, so running it before staging wrote a value the commit could not match                                            |
+| `ORPHAN-HIGH-450`     | adversarial re-audit       | HIGH     | the HUMAN_REQUIRED adjudication panel that closed `426` had zero production callers                                                                            |
+| `ORPHAN-CRITICAL-451` | 13-agent audit             | CRITICAL | the firejail sandbox backend applied none of the READONLY_PATHS while satisfying the S0 containment exit criterion                                             |
+| `ORPHAN-MEDIUM-452`   | 13-agent audit             | MEDIUM   | the bwrap probe did not mirror the wrapper, so it could report available on a host where every spawn dies                                                      |
+| `ORPHAN-HIGH-453`     | 13-agent audit             | HIGH     | a doubled slash walked a kernel path past the self-modification check                                                                                          |
+| `ORPHAN-HIGH-454`     | 13-agent audit             | HIGH     | `git push origin aria-impl-<sha> -f` passed the whole bash perimeter                                                                                           |
+| `ORPHAN-HIGH-455`     | 13-agent audit             | HIGH     | three headline fixes had no callsite coverage, and the test claiming otherwise was a tautology                                                                 |
+| `ORPHAN-HIGH-456`     | 13-agent audit             | HIGH     | the bounded cycle summary deletes the two keys the publisher reads                                                                                             |
+| `ORPHAN-HIGH-457`     | claim re-verification      | HIGH     | the explicit-append path was blind to the markdown store AND compared full id strings — the retrace's own collision, still reachable                           |
+| `ORPHAN-MEDIUM-458`   | claim re-verification      | MEDIUM   | a YAML comment satisfied the sandbox-contract invariant, so the real verification step could be deleted unnoticed                                              |
+| `ORPHAN-MEDIUM-459`   | claim re-verification      | MEDIUM   | `apply_resource_limits` had zero production callers; a write-capable agent spawn was bounded by nothing                                                        |
+| `ORPHAN-CRITICAL-460` | fresh coverage lens        | CRITICAL | a shell operator after an allowed prefix bypassed the allowlist, the denylist and the force-push check at once                                                 |
+| `ORPHAN-CRITICAL-461` | fresh coverage lens        | CRITICAL | broader-scope claims, globs, empty surface lists, an echoed test suite, and every gh-api route that writes `main` all passed                                   |
+| `ORPHAN-HIGH-462`     | fresh coverage lens        | HIGH     | a specialist submitting garbage was recorded as a clean review, so hardening two sides of the gate made garbage better than silence                            |
+| `ORPHAN-MEDIUM-463`   | observed in CI             | MEDIUM   | `deploy-ssot-contract`'s hostile-filename test is flaky under parallel workers, in a required check                                                            |
+| `ORPHAN-MEDIUM-464`   | operator decision          | MEDIUM   | one pushed commit's missing trailer required an allowlist exception the author would not grant himself                                                         |
 
 Every ID above is listed here on purpose: this document is the `Closes:` target for all of them, and
 a trailer pointing at a file that does not name the finding is traceability theatre. Remaining
@@ -106,27 +106,28 @@ and force-push is forbidden here.
 
 ## 1. P0 verification table
 
-| ID | Status | Severity vs report |
-|---|---|---|
-| P0-01 invalid state published as `ok` | CONFIRMED | **worse** — 4 pinned counters, not 2 |
-| P0-02 producer/executor share no queue | CONFIRMED | **worse** — structural certainty, not observation |
-| P0-03 scheduled path never reaches code/PR | CONFIRMED | as described |
-| P0-04 "read-only" roles are unrestricted Claude | CONFIRMED | **worse** — unconditional, all roles |
-| P0-05 profile downgrade does not revoke authority | CONFIRMED | as described |
-| P0-06 cross-host lease/CAS is a local file | CONFIRMED | **worse** — no compare at all |
-| P0-07 budget + breaker are decoration | CONFIRMED | **worse** — literally zero callers |
-| P0-08 role/request schema is not single-source | CONFIRMED | **worse** — mismatch is bidirectional |
-| P0-09 specialist gate cannot complete, fails open | CONFIRMED | **worse** — autonomous is fail-open too |
-| P0-10 "three independent agents" proves nothing | CONFIRMED | **worse** — 2 layers provably inert |
-| P0-11 dual lanes + global PR scan | CONFIRMED | see Correction 2 |
-| P0-12 intake/approval identity untrustworthy | CONFIRMED | as described |
-| P0-13 required check is not merge authority | CONFIRMED | see Correction 1 |
-| P0-14 credential/signer isolation absent | CONFIRMED | **worse** — `repositories` key absent entirely |
-| P0-15 review can report `no_gaps` unverified | CONFIRMED | **worse** — HUMAN_REQUIRED becomes approval |
+| ID                                                | Status    | Severity vs report                                |
+| ------------------------------------------------- | --------- | ------------------------------------------------- |
+| P0-01 invalid state published as `ok`             | CONFIRMED | **worse** — 4 pinned counters, not 2              |
+| P0-02 producer/executor share no queue            | CONFIRMED | **worse** — structural certainty, not observation |
+| P0-03 scheduled path never reaches code/PR        | CONFIRMED | as described                                      |
+| P0-04 "read-only" roles are unrestricted Claude   | CONFIRMED | **worse** — unconditional, all roles              |
+| P0-05 profile downgrade does not revoke authority | CONFIRMED | as described                                      |
+| P0-06 cross-host lease/CAS is a local file        | CONFIRMED | **worse** — no compare at all                     |
+| P0-07 budget + breaker are decoration             | CONFIRMED | **worse** — literally zero callers                |
+| P0-08 role/request schema is not single-source    | CONFIRMED | **worse** — mismatch is bidirectional             |
+| P0-09 specialist gate cannot complete, fails open | CONFIRMED | **worse** — autonomous is fail-open too           |
+| P0-10 "three independent agents" proves nothing   | CONFIRMED | **worse** — 2 layers provably inert               |
+| P0-11 dual lanes + global PR scan                 | CONFIRMED | see Correction 2                                  |
+| P0-12 intake/approval identity untrustworthy      | CONFIRMED | as described                                      |
+| P0-13 required check is not merge authority       | CONFIRMED | see Correction 1                                  |
+| P0-14 credential/signer isolation absent          | CONFIRMED | **worse** — `repositories` key absent entirely    |
+| P0-15 review can report `no_gaps` unverified      | CONFIRMED | **worse** — HUMAN_REQUIRED becomes approval       |
 
 ### P0-01 — four counters, not two
+
 `cycle.py:646` pins `"incomplete_lifecycle_count": 0` in the per-cycle state dict.
-`runtime_artifacts.py:756` then *sums that field across cycles* — so the aggregate is structurally
+`runtime_artifacts.py:756` then _sums that field across cycles_ — so the aggregate is structurally
 zero no matter what happened. `runtime_artifacts.py:802` pins `"warning_count": 0`. Additionally
 `runtime_artifacts.py:750-751` declare `suppressed_count = 0` and `truncated_count = 0` as locals
 that are **never incremented** before being emitted at lines 803-804. Four fields, all reported to
@@ -137,14 +138,16 @@ Publication side: `aria-auto-cycle.yml` uploads under the canonical name `aria-t
 its partial tree as the canonical snapshot, and the next run restores it.
 
 ### P0-02 — structural, not observational
+
 `.gitignore:205` ignores `aria-tools/agent-invocations/`. `aria-agent-executor.yml` checks out
 `ref: main` with `persist-credentials: false` and has **no artifact-restore step**. Therefore the
-queue directory *cannot exist* in the executor's filesystem, and
+queue directory _cannot exist_ in the executor's filesystem, and
 `aria-kernel agent next-pending --tools-dir aria-tools` returns empty on every run by construction.
 The report inferred this from one live run; it is a guarantee of the code. The response envelope is
 uploaded as `aria-response-<request_id>` and is never read back by the producer.
 
 ### P0-03 — the production default is a refusal
+
 `autonomy_orchestrator.py:460-462` sets `v9_implementation_runner = NoOpV9ImplementationRunner()`
 when no runner is injected — which is the case on the scheduled path.
 `cycle_phases/implementer.py:125-130` returns
@@ -152,6 +155,7 @@ when no runner is injected — which is the case on the scheduled path.
 `aria_kernel/task.py` exists and has **zero non-test importers**.
 
 ### P0-04 — unconditional, every role
+
 `agent_runtime_profile.py:102-105` parses only `model` and `effort` from agent frontmatter;
 `AgentRuntimeProfile` (line 59-61) has no tool/permission field at all. The declared
 `tools: Read, Grep, Glob` lines in `.claude/agents/*.md` are never consumed as policy.
@@ -169,13 +173,14 @@ return run_claude_exec(
 
 No `skip_permissions`, no `permission_mode`, no `cwd`. `claude_runtime.py:205` defaults
 `skip_permissions: bool = True`, so line 245 appends `--dangerously-skip-permissions` — for
-adversarial judges, cross-reviewers and planners identically. `ci_executor.py:929-944` *audits* the
+adversarial judges, cross-reviewers and planners identically. `ci_executor.py:929-944` _audits_ the
 inherited `CLAUDE_*`/`ANTHROPIC_*`/`HOME`/`USER` environment into a governance event but never
 strips it.
 
 ### P0-06 — the compare is missing, not just remote-invisible
-The module docstring (lines 32-34) states plainly: *"The lease is NOT a mutex (no kernel-side
-locking primitive). It is a TRUSTED-WITNESS contract."*
+
+The module docstring (lines 32-34) states plainly: _"The lease is NOT a mutex (no kernel-side
+locking primitive). It is a TRUSTED-WITNESS contract."_
 
 `acquire_remote_cas_lease` (lines 256-315) is `_read_remote_cas_lease` → decide →
 `_atomic_write_remote_cas_lease`. The **write** is atomic (`tmp.replace(path)`); the **compare** does
@@ -187,17 +192,20 @@ describes a check that is performed only against the value the same process just
 other host.
 
 ### P0-07 — zero callers, verified
+
 ```
 assert_within_budget    → cost_budget.py:122 (def), :267 (__all__)
 record_actual_usage     → cost_budget.py:172 (def), :269 (__all__)
 reserve_cycle_budget    → budget.py:282 (def) + log strings
 record_failure          → circuit_breaker.py:168 (def), :312 (__all__)
 ```
+
 The only other hits are prose: `genesis_policy.py:15` is a comment describing an intent, and
 `ci_executor.py:698` is a comment saying enforcement happens "separately". There is no separate
 enforcement. Every budget cap and every breaker threshold in the documentation is unreachable.
 
 ### P0-08 — the mismatch runs both ways
+
 `agent_contract.py:83` defines `REQUEST_SCHEMA = "aria/agent-request/v1"` and `validate_request` at
 line 139 — with **zero callers anywhere**, test or production. Production mints
 `"$schema": "aria/agent-invocation-request/v1"` (`agent_invocations.py:480`).
@@ -209,6 +217,7 @@ The second half matters for sequencing: `agent_contract.py:126-135` requires
 must land in the same change.**
 
 ### P0-09 — and `autonomous` is fail-open, which is the dangerous half
+
 `run_specialist_review_runner` (lines 340-462) never opens `results.jsonl`. Its poll loop's only
 effect is delay; the tail return (lines 452-462) is unconditional:
 
@@ -237,11 +246,12 @@ acceptable)`. The profile that holds real merge authority has the weakest specia
 system. That inversion is the finding.
 
 ### P0-10 — two of three layers are provably inert
+
 `convergence_drainer.py:1211-1224` calls `verify_independence` with:
 
-* `primary_revision_id=f"{plan_id}-r1"`, `challenger_revision_id=f"{plan_id}-c1"`,
+- `primary_revision_id=f"{plan_id}-r1"`, `challenger_revision_id=f"{plan_id}-c1"`,
   `cross_review_revision_id=None` — synthesized constants, never real revision ids;
-* `primary_text="(primary plan text — not loaded at convergence; ...)"`,
+- `primary_text="(primary plan text — not loaded at convergence; ...)"`,
   `challenger_text="(challenger plan text)"`, `cross_review_text="(cross_review text)"` — literal
   placeholders, never agent output.
 
@@ -262,6 +272,7 @@ primary/challenger/cross-review. The whole block is additionally skipped unless
 `len(request_ids) >= 3`.
 
 ### P0-11 — global candidate set, real merge
+
 `auto_merge_runners.py:149` takes `candidate_prs = self.pr_enumerator(adapter)`, wired to
 `enumerate_prs_with_readiness_claims` (lines 235-250), which reads the **global**
 `enterprise/readiness-claims.jsonl` and collects every `pr_number` it finds. Line 153 sets
@@ -269,11 +280,13 @@ primary/challenger/cross-review. The whole block is additionally skipped unless
 `merge_pr_if_ready`. Cycle X's verdict can therefore be spent on PR Y.
 
 ### P0-12 — a single character is a valid approval
+
 `runtime_profile.py:328`: `if not (operator_approval_ref or "").strip():`. That is the entire
 validation. `"x"` transitions the kernel to `autonomous`. No signature, TTL, nonce, actor binding,
 or replay protection.
 
 ### P0-14 — the `repositories` scope key does not exist
+
 `gh_token_factory.py:304` documents `repositories=[<repo>]`. The actual request body (lines 411-415)
 is:
 
@@ -295,6 +308,7 @@ neither. The token is written to `aria-debts/keys/<cycle_id>.token` inside the w
 copies the operator PAT there verbatim.
 
 ### P0-15 — HUMAN_REQUIRED is converted into approval
+
 `agent_invocations.py:1153-1170`: `next_pending_request` returns non-`None` **only** for derived
 state `PENDING` or `REQUEUED`; its docstring states HUMAN_REQUIRED, CANCELLED and terminal states
 are skipped.
@@ -318,17 +332,17 @@ signal that means "a human must look at this" is the signal that clears the gate
 
 ## 2. P1 verification
 
-| ID | Status | Note |
-|---|---|---|
-| P1-01 manifest covers half the surfaces | CONFIRMED | 129 raw `append_jsonl(` sites outside `ledger.py` vs 116 `append_declared_jsonl(` |
-| P1-02 restore source unverified | CONFIRMED | takes `live[0]`; no run-conclusion/branch/commit/producer check; missing artifact → silent fresh bootstrap; only `aria-tools/` carried |
-| P1-03 HUMAN_REQUIRED lost between views | CONFIRMED | `sweep_lease_lifecycle_for_human_required` has CLI-only callers (`cli.py:3457,3482`) |
-| P1-04 cycle lifecycle not crash-safe | CONFIRMED | no outer `try/finally` terminal guarantee around the phase chain |
-| P1-05 claim/worker heartbeat gaps | CONFIRMED | `heartbeat` + reaper reachable only from CLI |
-| P1-06 bridge "replay" does not exist | CONFIRMED (root cause found) | see below |
-| P1-07 memory counts repetition as confidence | CONFIRMED | `memory.py:589` unconditional `support_count + 1`; `:598` `+ min(0.05, support_count*0.005)`; no `evidence_hash` dedup |
-| P1-13 ProfileGate injected, never called | CONFIRMED | `grep "profile_gate\."` → **zero hits**; defaulted to `NoOpProfileGate()` at `autonomy_orchestrator.py:469-471` |
-| P1-15 daily report runs on empty state | CONFIRMED | `aria-daily-report.yml` has no state-restore step |
+| ID                                           | Status                       | Note                                                                                                                                   |
+| -------------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| P1-01 manifest covers half the surfaces      | CONFIRMED                    | 129 raw `append_jsonl(` sites outside `ledger.py` vs 116 `append_declared_jsonl(`                                                      |
+| P1-02 restore source unverified              | CONFIRMED                    | takes `live[0]`; no run-conclusion/branch/commit/producer check; missing artifact → silent fresh bootstrap; only `aria-tools/` carried |
+| P1-03 HUMAN_REQUIRED lost between views      | CONFIRMED                    | `sweep_lease_lifecycle_for_human_required` has CLI-only callers (`cli.py:3457,3482`)                                                   |
+| P1-04 cycle lifecycle not crash-safe         | CONFIRMED                    | no outer `try/finally` terminal guarantee around the phase chain                                                                       |
+| P1-05 claim/worker heartbeat gaps            | CONFIRMED                    | `heartbeat` + reaper reachable only from CLI                                                                                           |
+| P1-06 bridge "replay" does not exist         | CONFIRMED (root cause found) | see below                                                                                                                              |
+| P1-07 memory counts repetition as confidence | CONFIRMED                    | `memory.py:589` unconditional `support_count + 1`; `:598` `+ min(0.05, support_count*0.005)`; no `evidence_hash` dedup                 |
+| P1-13 ProfileGate injected, never called     | CONFIRMED                    | `grep "profile_gate\."` → **zero hits**; defaulted to `NoOpProfileGate()` at `autonomy_orchestrator.py:469-471`                        |
+| P1-15 daily report runs on empty state       | CONFIRMED                    | `aria-daily-report.yml` has no state-restore step                                                                                      |
 
 **P1-06 root cause.** `replay_pending_bridges` **does not exist anywhere in the repository.**
 `_default_bridge_drainer` (`autonomy_orchestrator.py:159-167`) does
@@ -342,6 +356,7 @@ deterministic, every-cycle outcome and it exactly explains the live artifact's 2
 ## 3. New findings (not in the Codex report)
 
 ### NEW-01 (CRITICAL) — corrupting the breaker ledger silently un-trips the breaker
+
 Executed against the real implementation with `threshold_24h = 3`:
 
 ```
@@ -358,23 +373,25 @@ A crash mid-append, a truncated artifact round-trip, or deliberate tampering all
 net to `ok`.
 
 Combined with `auto_action_gate._load_breaker_state` returning `"ok"` on any exception
-(`auto_action_gate.py:206-218`, comment: *"fail-closed-but-permissive"*), **every** failure mode of
+(`auto_action_gate.py:206-218`, comment: _"fail-closed-but-permissive"_), **every** failure mode of
 the breaker subsystem resolves to "allow".
 
-The module's in-code rationale inverts the correct direction: it argues that *"failing closed on a
-single bad row should NOT block the breaker's current-state read"*. For a safety net the opposite
+The module's in-code rationale inverts the correct direction: it argues that _"failing closed on a
+single bad row should NOT block the breaker's current-state read"_. For a safety net the opposite
 holds — unreadable failure evidence must read as `tripped`, never as `ok`. This is a Tier-1 fixable
 defect (make the state derivation refuse to answer `ok` on a corrupt or unreadable ledger).
 
 ### NEW-02 (HIGH) — the independence check needs a decision, not a repair
+
 Split out from P0-10 because the remediation differs. P0-10's fix is correct request-ID plumbing;
-NEW-02 is that layers 2 and 3 are *decoration with a security-sounding name*. Either real revision
+NEW-02 is that layers 2 and 3 are _decoration with a security-sounding name_. Either real revision
 ids and real agent output get plumbed in, or both layers should be deleted and the contract restated
 honestly as "independence rests on claim disjointness alone". Leaving a provably-inert check named
 `verify_independence` in the merge-gating path is worse than having no check, because it reads as
 coverage in every review.
 
 ### NEW-03 (MEDIUM, latent) — `poll_pr_checks` reports a check-less PR as fully green
+
 Executed with `gh` on PATH returning `[]`:
 
 ```
@@ -387,10 +404,11 @@ reason, reads as "every required check completed with SUCCESS".
 
 Currently **latent**: the function has no caller (only the `__all__` entry at line 323), and its
 former consumer `evaluate_v9_implementation_merge` is demoted to always-refuse. It must be fixed
-*before* any rewiring — require a non-empty result set intersected against an explicit
+_before_ any rewiring — require a non-empty result set intersected against an explicit
 required-context list.
 
 ### NEW-04 (MEDIUM) — the report's §19.2 parser claim, empirically confirmed
+
 On `feat/aria-autonomous-mode`, the bridge-replay loop parses the CLI summary with
 `start = text.rfind("{")`. Executed against a realistic `autonomy_output_summary` payload, the
 fragment after the last `{` is:
@@ -411,21 +429,23 @@ recommendation not to merge that branch as-is.
 These matter because they change what should be built versus rewritten.
 
 ### Correction 1 — `merge_pr_if_ready` **is** head-SHA-bound
+
 P0-13's conclusion holds: the required CI check `aria-merge-authority` is a contract-test suite, not
 an authority decision (its only assertion step runs `npm run aria:compile`, three unittest modules,
 `gates:required-status-checks`, `aria:docs:ssot`, and never reads a PR number or head SHA).
 
 But "no head-bound live gate exists" is wrong. `merge_authority.py` does exactly this:
 
-* `:55-57` requires `head_sha`, raising `merge_authority_head_sha_required` when absent;
-* `:142-160` re-fetches the PR and re-evaluates immediately before merging;
-* `:178-189` blocks with reason `"PR head SHA changed after green evaluation"`;
-* `:191-197` passes `expected_head_sha` and arms `authority_token = f"merge-authority:{pr}:{head_sha}"`.
+- `:55-57` requires `head_sha`, raising `merge_authority_head_sha_required` when absent;
+- `:142-160` re-fetches the PR and re-evaluates immediately before merging;
+- `:178-189` blocks with reason `"PR head SHA changed after green evaluation"`;
+- `:191-197` passes `expected_head_sha` and arms `authority_token = f"merge-authority:{pr}:{head_sha}"`.
 
 This is the right foundation. P0-13's fix is to **promote this existing kernel gate into the required
 check**, not to design a head-binding mechanism from scratch.
 
 ### Correction 2 — the V9 merge path is already disabled, not merely orphaned
+
 `evaluate_v9_implementation_merge` (`auto_merge_runners.py:564-591`) unconditionally returns
 `eligible=False` with `rejection_class="v9_merge_path_disabled_use_merge_if_green"`. Its docstring
 states it "must never call `gh pr merge`". So `auto_merge.merge_if_green` / `merge_pr_if_ready`
@@ -433,10 +453,11 @@ genuinely is the single merge executor. The report's §19.2 implication that ena
 re-opens a second merge executor is inaccurate. P0-11's real risk is the **candidate set** being
 global, not two competing executors — which narrows the fix considerably.
 
-### Correction 3 — `AutoActionGate` is fail-closed on a *tripped* breaker
+### Correction 3 — `AutoActionGate` is fail-closed on a _tripped_ breaker
+
 `auto_action_gate.py:103-104` forces `human_ack_required = True` whenever `breaker_state != "ok"`,
 and `AUTONOMOUS_AUTO_ACK_LANES` is empty so it returns `True` on every path today. The fail-open is
-narrower than the report states: it is specifically the *unreadable-state* path, which NEW-01 now
+narrower than the report states: it is specifically the _unreadable-state_ path, which NEW-01 now
 covers with a concrete reproduction. Worth recording precisely, because the report's phrasing
 suggests the tripped-breaker path itself is permissive, and it is not.
 
@@ -446,14 +467,14 @@ suggests the tripped-breaker path itself is permissive, and it is not.
 
 Re-verified against live remote heads:
 
-| Claim | Result |
-|---|---|
-| 58 remote branches | 59 now (one added since the report) |
-| `feat/aria-autonomous-mode` — 1 commit ahead, touches ARIA workflow | CONFIRMED (`aria-auto-cycle.yml` +130, `.gitignore` +4, `workflow_contract_registry.py` +7, 1 new test +88, docs) |
-| `fix/production-host-control-plane` — 3 ahead, no ARIA paths | CONFIRMED. The report's own "23 aria matches" would be a false positive: those paths match the substring inside *inv**aria**nt* (`tests/invariants/**`, `backup-manifest-invariant.yml`). No ARIA kernel or ARIA workflow file is touched. |
-| `dependabot/.../setup-node-7.0.0` — 1 ahead, no functional ARIA fix | CONFIRMED |
-| Registry at ~1,033 entries on current `main` | CONFIRMED (`docs/reviews/_registry/findings.jsonl` = 1033 lines) |
-| No P0 is closed on any other branch | CONFIRMED |
+| Claim                                                               | Result                                                                                                                                                                                                                                     |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 58 remote branches                                                  | 59 now (one added since the report)                                                                                                                                                                                                        |
+| `feat/aria-autonomous-mode` — 1 commit ahead, touches ARIA workflow | CONFIRMED (`aria-auto-cycle.yml` +130, `.gitignore` +4, `workflow_contract_registry.py` +7, 1 new test +88, docs)                                                                                                                          |
+| `fix/production-host-control-plane` — 3 ahead, no ARIA paths        | CONFIRMED. The report's own "23 aria matches" would be a false positive: those paths match the substring inside _inv**aria**nt_ (`tests/invariants/**`, `backup-manifest-invariant.yml`). No ARIA kernel or ARIA workflow file is touched. |
+| `dependabot/.../setup-node-7.0.0` — 1 ahead, no functional ARIA fix | CONFIRMED                                                                                                                                                                                                                                  |
+| Registry at ~1,033 entries on current `main`                        | CONFIRMED (`docs/reviews/_registry/findings.jsonl` = 1033 lines)                                                                                                                                                                           |
+| No P0 is closed on any other branch                                 | CONFIRMED                                                                                                                                                                                                                                  |
 
 Conclusion unchanged: do not merge `feat/aria-autonomous-mode`; do not merge archive tags; build
 forward from current `main`.
@@ -468,6 +489,7 @@ largest correctness gain, and because every other fail-closed fix is worth less 
 itself reads `ok` under damage.
 
 **Wave 0 — truth and fail-closed**
+
 1. **NEW-01** — breaker state derivation refuses `ok` on a corrupt/unreadable ledger;
    `_load_breaker_state` stops swallowing exceptions into `"ok"`.
 2. **P0-01** — derive `incomplete_lifecycle_count` / `warning_count` / `suppressed_count` /
@@ -526,23 +548,23 @@ pieces are wired to each other.
 
 ## 8. Second-round defect hunt (independent, adversarially verified)
 
-A six-lens hunt was run over the kernel, executors and workflows looking for the *shape* of NEW-01
+A six-lens hunt was run over the kernel, executors and workflows looking for the _shape_ of NEW-01
 — declared authority with no caller, and damaged evidence reading as success. Each finding was
 handed to an adversarial verifier instructed to refute it by default and to reproduce it or drop it.
 **Six were confirmed, none refuted.** Two further workflow findings were reproduced independently
 here. All are registered.
 
-| ID | Severity | Finding |
-|---|---|---|
-| `ORPHAN-CRITICAL-427` | CRITICAL | the bash sandbox perimeter has no kernel caller — `wrap_bash_in_sandbox` returns argv unchanged, so containment is prose addressed to the process being contained |
-| `ORPHAN-CRITICAL-428` | CRITICAL | `HARD_FAIL_CHECKS` is 17 names with no callable field and zero iterators; `expert_review_gate.py` has zero production callers; a count-pinning test passes green |
-| `ORPHAN-HIGH-429` | HIGH | Gate B oscillation guard has no caller while its streak only increments — fix/reopen loops unbounded, and a runbook points operators at a file that can never be written |
-| `ORPHAN-HIGH-430` | HIGH | ARIA-Watchdog goes silent after its first poll: its own governance writes advance the read cursor past the events it should see (zero findings in 15 iterations) |
-| `ORPHAN-HIGH-431` | HIGH | the banned-phrase hard-reject check reads keys the production envelope never has — 11 of 12 banned phrases present, `hits: []`, on 100% of submissions |
-| `ORPHAN-MEDIUM-432` | MEDIUM | Architecture Spine Gate drops unreadable files from the violation count; deleting `apps/`+`libs/` scores as improvement (latent) |
-| `ORPHAN-HIGH-433` | HIGH | **the publication integrity gate added in this session covers only a fraction of the declared state surfaces** |
-| `ORPHAN-HIGH-434` | HIGH | the daily report can never be staged — `.gitignore` excludes the parent directory, so no chain-tip anchor has been committed since 2026-05-08 |
-| `ORPHAN-HIGH-435` | HIGH | the kernel test suite inherits the agent container's global git config, so every fixture commit invokes an external signing binary and the suite can redden for reasons unrelated to the code under test |
+| ID                    | Severity | Finding                                                                                                                                                                                                  |
+| --------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ORPHAN-CRITICAL-427` | CRITICAL | the bash sandbox perimeter has no kernel caller — `wrap_bash_in_sandbox` returns argv unchanged, so containment is prose addressed to the process being contained                                        |
+| `ORPHAN-CRITICAL-428` | CRITICAL | `HARD_FAIL_CHECKS` is 17 names with no callable field and zero iterators; `expert_review_gate.py` has zero production callers; a count-pinning test passes green                                         |
+| `ORPHAN-HIGH-429`     | HIGH     | Gate B oscillation guard has no caller while its streak only increments — fix/reopen loops unbounded, and a runbook points operators at a file that can never be written                                 |
+| `ORPHAN-HIGH-430`     | HIGH     | ARIA-Watchdog goes silent after its first poll: its own governance writes advance the read cursor past the events it should see (zero findings in 15 iterations)                                         |
+| `ORPHAN-HIGH-431`     | HIGH     | the banned-phrase hard-reject check reads keys the production envelope never has — 11 of 12 banned phrases present, `hits: []`, on 100% of submissions                                                   |
+| `ORPHAN-MEDIUM-432`   | MEDIUM   | Architecture Spine Gate drops unreadable files from the violation count; deleting `apps/`+`libs/` scores as improvement (latent)                                                                         |
+| `ORPHAN-HIGH-433`     | HIGH     | **the publication integrity gate added in this session covers only a fraction of the declared state surfaces**                                                                                           |
+| `ORPHAN-HIGH-434`     | HIGH     | the daily report can never be staged — `.gitignore` excludes the parent directory, so no chain-tip anchor has been committed since 2026-05-08                                                            |
+| `ORPHAN-HIGH-435`     | HIGH     | the kernel test suite inherits the agent container's global git config, so every fixture commit invokes an external signing binary and the suite can redden for reasons unrelated to the code under test |
 
 ### `ORPHAN-HIGH-435` — the gate that every other gate depends on
 
@@ -600,10 +622,10 @@ adversarial audit, not by me.
 The commit on THIS branch is `2da9bf1f9`, and its footer reads
 `Closes: …#ORPHAN-CRITICAL-427`. That is wrong on both counts:
 
-* the commit's subject is the **`ORPHAN-CRITICAL-428`** work (the executable hard-fail registry);
+- the commit's subject is the **`ORPHAN-CRITICAL-428`** work (the executable hard-fail registry);
   `ORPHAN-CRITICAL-427` was closed by `05153e93d`, the preceding commit, whose trailer says so —
   so `427` now has two closing trailers and `428` has none;
-* **`ORPHAN-CRITICAL-428` is NOT closed.** Five of its 17 checks are bound to real implementations;
+- **`ORPHAN-CRITICAL-428` is NOT closed.** Five of its 17 checks are bound to real implementations;
   twelve bind an explicit failing `_not_implemented`, and the report is not threaded into
   `pr_manager.open_pr_for_action` or `auto_merge.merge_if_green`. An independent verifier later
   confirmed the whole perimeter still has **zero non-test callers**.
@@ -622,12 +644,12 @@ implementations and the two call sites land. Autonomous merge stays closed until
 `pre_merge` set. Two things surfaced while building them, both worth recording because they change
 what the registry means:
 
-* `kernel_self_modification_blocked_at_envelope_mint` and `forbidden_scope_normalized` are **not**
+- `kernel_self_modification_blocked_at_envelope_mint` and `forbidden_scope_normalized` are **not**
   duplicates, and a reader who assumes they are would delete the wrong one. The mint check is purely
   lexical over the envelope's declared `affected_surfaces` — no filesystem — which is precisely why
   it works at mint time; the scope check resolves real paths through a workspace and returns
   `workspace_root_absent` at that point. A test asserts the difference directly.
-* The registry described the canonical validation suite as "nx affected, type-check, mutation,
+- The registry described the canonical validation suite as "nx affected, type-check, mutation,
   coverage". This repository has **no** mutation-testing script and **no** coverage target, so that
   gate could never have been satisfied. It was invisible because the check bound `_not_implemented`
   and failed for that reason instead — an unsatisfiable requirement hiding behind an unbuilt one.
@@ -657,7 +679,7 @@ production by path. It did not resolve `python3 -m aria_kernel <subcommand>` str
 YAML, nor compute reachability from real entrypoints — a symbol with one production caller that is
 itself unreachable still counts as wired. The Tier-3 generalisation of
 `ORPHAN-CRITICAL-427`/`-428`/`ORPHAN-HIGH-429` is a CI check that
-diffs the gates *declared* in the plan and policy documents against the set actually reachable from
+diffs the gates _declared_ in the plan and policy documents against the set actually reachable from
 an entrypoint.
 
 ## 9. The traceability machinery itself was broken (`ORPHAN-HIGH-417`)
@@ -822,7 +844,7 @@ naming it as a blocker was simply wrong. And three real blockers went unnamed, o
 which is the dependency this very section argues for reverting.
 
 The conclusion survives — the check stays red, it is pre-existing against a lockfile byte-identical
-to base, and it belongs in its own dependency PR — but the stated *cause* did not, and this section
+to base, and it belongs in its own dependency PR — but the stated _cause_ did not, and this section
 was itself the replacement for an earlier account that was also wrong. Two consecutive attempts at
 one paragraph, both confidently incorrect, both about numbers a single command prints. Recorded
 because it is the clearest instance in this document of the difference between reasoning about a
@@ -1052,20 +1074,20 @@ one `insufficient_evidence` blocks resolution. All correct. None of it executed.
 `cycle.py` runs the two sweeps that **create** escalations on every cycle and ran nothing that acted
 on them, so the observable behaviour after the fix was identical to the behaviour `ORPHAN-HIGH-426`
 described: an escalation waits for a person. A control is the code that runs it. This is the audit's
-own subject — *declared authority with no production caller* — reproduced inside the fix for an
+own subject — _declared authority with no production caller_ — reproduced inside the fix for an
 instance of it, which is why it is registered separately rather than quietly folded into `426`.
 
 `sweep_human_required_adjudications()` is now the caller, running in `cycle.py` immediately after the
 two creating sweeps, under the same shadow/discovery guards, with its result in the cycle summary.
 Three properties make it safe to run every cycle, and each has a test:
 
-* **reachable from `run_cycle`** — asserted against the module object, not source text, so it
+- **reachable from `run_cycle`** — asserted against the module object, not source text, so it
   survives a refactor that keeps the call and fails one that drops it. This is the property whose
-  absence *was* the bug;
-* **idempotent** — asserted over five consecutive sweeps of an escalation whose panel never
+  absence _was_ the bug;
+- **idempotent** — asserted over five consecutive sweeps of an escalation whose panel never
   delivers, which is the exact case that would otherwise mint three fresh envelopes and a new ledger
   row every cycle forever, because `open_adjudication` is not idempotent;
-* **skips rather than attempts the irreducible class** — verified across `profile_transition`,
+- **skips rather than attempts the irreducible class** — verified across `profile_transition`,
   `credential_mint`, `merge_authority`, an unadmitted future kind, and a context-free record, none of
   which mint anything. Those escalations must keep waiting for a person, and now they do so without
   a panel being asked about them.
@@ -1090,14 +1112,14 @@ the production callsite unpinned. It produced four independent instances in one 
 files), the tautological `test_i_gate_09`, the untested allocator wire, and `456`'s fixtures asserting
 on a dict shape production never emits.
 
-| | |
-|---|---|
+|                       |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ORPHAN-CRITICAL-451` | `wrap_bash_in_sandbox`'s firejail branch was `firejail --quiet --private-tmp --whitelist=<workspace>` — **zero** of the eighteen `READONLY_PATHS`, workspace writable, kernel included. `sandbox_backend()` returned non-None for it, which is PLAN.md's S0 exit criterion, and the refusal message told the operator to install it. Fixed by removing firejail entirely rather than adding `--read-only` flags: it cannot be verified here, and shipping an unverified security control is the defect being closed. |
-| `ORPHAN-MEDIUM-452` | The probe bound `/usr /lib /lib64 /bin`; the wrapper additionally bound `/etc/alternatives` and `/etc/ssl` **unguarded**, in violation of the comment directly above the probe demanding they match. On an image lacking either, the probe says "available" and every spawn then dies. Both now build from one existence-guarded list. |
-| `ORPHAN-HIGH-453` | `_normalize_declared_path` collapsed a leading `./` and outer slashes only, so `aria-kernel//aria_kernel/cli.py` did not match the READONLY prefix and walked past `_check_kernel_self_modification_at_mint`. Now reconstructed segment-wise; `..` deliberately preserved so the caller's traversal rejection still fires. |
-| `ORPHAN-HIGH-454` | `_check_no_force_push` read `push_refspecs` and never `bash_argv`, while the allowlist entry for push ends in `(\s+\S+)*` — which admits a flag. Three layers each missed `git push origin aria-impl-abc123 -f`. Fixed argv-token-wise, deliberately **not** by a blanket short-flag denial: `-n` is `--no-verify` on commit but a count on `git log`, and a gate that refuses safe commands gets routed around. |
-| `ORPHAN-HIGH-455` | Above. Real callsite tests now drive `run_autonomy_orchestrator`; reverting it to base produces 4 failures where it previously produced none. |
-| `ORPHAN-HIGH-456` | `_bounded_cycle_summary` is a closed literal that deletes `cycle_lifecycle`, so `cycle_lifecycle_unreadable` — the "zero incomplete" versus "ledger unreadable" distinction that `424`'s commit message sells as the feature — could never fire. Same for every cycle-level suppression marker. The exception path dropped the counter entirely, and a crashed cycle is the one most likely to have left an incomplete lifecycle. |
+| `ORPHAN-MEDIUM-452`   | The probe bound `/usr /lib /lib64 /bin`; the wrapper additionally bound `/etc/alternatives` and `/etc/ssl` **unguarded**, in violation of the comment directly above the probe demanding they match. On an image lacking either, the probe says "available" and every spawn then dies. Both now build from one existence-guarded list.                                                                                                                                                                               |
+| `ORPHAN-HIGH-453`     | `_normalize_declared_path` collapsed a leading `./` and outer slashes only, so `aria-kernel//aria_kernel/cli.py` did not match the READONLY prefix and walked past `_check_kernel_self_modification_at_mint`. Now reconstructed segment-wise; `..` deliberately preserved so the caller's traversal rejection still fires.                                                                                                                                                                                           |
+| `ORPHAN-HIGH-454`     | `_check_no_force_push` read `push_refspecs` and never `bash_argv`, while the allowlist entry for push ends in `(\s+\S+)*` — which admits a flag. Three layers each missed `git push origin aria-impl-abc123 -f`. Fixed argv-token-wise, deliberately **not** by a blanket short-flag denial: `-n` is `--no-verify` on commit but a count on `git log`, and a gate that refuses safe commands gets routed around.                                                                                                     |
+| `ORPHAN-HIGH-455`     | Above. Real callsite tests now drive `run_autonomy_orchestrator`; reverting it to base produces 4 failures where it previously produced none.                                                                                                                                                                                                                                                                                                                                                                        |
+| `ORPHAN-HIGH-456`     | `_bounded_cycle_summary` is a closed literal that deletes `cycle_lifecycle`, so `cycle_lifecycle_unreadable` — the "zero incomplete" versus "ledger unreadable" distinction that `424`'s commit message sells as the feature — could never fire. Same for every cycle-level suppression marker. The exception path dropped the counter entirely, and a crashed cycle is the one most likely to have left an incomplete lifecycle.                                                                                    |
 
 Every fix above is pinned by a test demonstrated failing against the pre-fix code: 20/20 subtests for
 the perimeter set, 4 failures for the orchestrator revert, 3 failures and 1 error for the summary
@@ -1122,7 +1144,7 @@ recording that matters as much as the findings, because §9f could not say it at
 Three were code defects still live and are fixed here.
 
 **`ORPHAN-HIGH-457` — the retrace's own collision, reachable through the other door.**
-`ORPHAN-HIGH-417` taught the *allocator* to read `orphan-findings.md` alongside the registry and left
+`ORPHAN-HIGH-417` taught the _allocator_ to read `orphan-findings.md` alongside the registry and left
 `appendExplicitFinding` reading the registry alone. A verifier drove the exported function directly
 and it **accepted `ORPHAN-MEDIUM-416`** — a live markdown heading — returning 0.
 
@@ -1169,7 +1191,7 @@ two CRITICAL and five HIGH that the claim set never mentioned**.
 
 That is worth stating plainly, because it is a result about method rather than about ARIA: verifying
 a list of claims is bounded by the imagination of whoever wrote the list. The lenses were pointed at
-defect *classes* this branch had already demonstrated twice, and that is where everything serious
+defect _classes_ this branch had already demonstrated twice, and that is where everything serious
 was.
 
 **`ORPHAN-CRITICAL-460` — three layers defeated by one prefix.** `ALLOWED_BASH_COMMANDS` patterns are
@@ -1197,8 +1219,8 @@ This one is **live, not latent.** Unlike the rest of the hard-fail perimeter —
 has four: `tool_runner`, `tool_registry`, `verification_gate` and `fixture_runner`, and `tool_runner`
 feeds it argv straight from tool config.
 
-The fix is a precondition that runs before either list, because both lists reason about *a single
-command* and a chained argv is several. It tokenizes with `shlex(punctuation_chars=True)` rather than
+The fix is a precondition that runs before either list, because both lists reason about _a single
+command_ and a chained argv is several. It tokenizes with `shlex(punctuation_chars=True)` rather than
 regex-scanning, because the distinction that matters is quoting: `git commit -m 'fix A && B'` carries
 `&&` as data and must still pass, while `git status && git push` carries it as an operator and must
 not. An argv that cannot be lexed fails closed. Eleven bypass spellings refused, nine ordinary
@@ -1214,17 +1236,17 @@ and this document's own lesson is that a fix written in a hurry is where the nex
 ### `ORPHAN-CRITICAL-461` — three checks that passed on inputs asserting nothing
 
 Same lens, same shape three times: the check asks a narrower question than the property it is named
-for, so an input *vaguer* than the one it rejects sails through.
+for, so an input _vaguer_ than the one it rejects sails through.
 
-| | measured before the fix |
-|---|---|
-| `_check_kernel_self_modification_at_mint` | `["aria-kernel/aria_kernel/cli.py"]` **blocked**, but `["aria-kernel"]` — which contains it — **PASSED**. So did `["tools"]`, `["*"]`, `["**"]`, `["aria-kernel/**/*.py"]`, and `[]`. |
-| `_check_test_gate_canonical_suite` | `("echo 'nx affected --target=test nx affected --target=lint npm run type-check'",)` **PASSED**. An echo of a comment cleared the test gate. |
-| `is_gh_api_path_forbidden` | `PUT /contents/{path}` (commits straight to main), `PATCH /git/refs/heads/main` (moves the tip), `merges`, `rulesets`, `hooks`, `collaborators`, `keys` — all **allowed**. Only `branches/main/protection` was caught. |
+|                                           | measured before the fix                                                                                                                                                                                                |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `_check_kernel_self_modification_at_mint` | `["aria-kernel/aria_kernel/cli.py"]` **blocked**, but `["aria-kernel"]` — which contains it — **PASSED**. So did `["tools"]`, `["*"]`, `["**"]`, `["aria-kernel/**/*.py"]`, and `[]`.                                  |
+| `_check_test_gate_canonical_suite`        | `("echo 'nx affected --target=test nx affected --target=lint npm run type-check'",)` **PASSED**. An echo of a comment cleared the test gate.                                                                           |
+| `is_gh_api_path_forbidden`                | `PUT /contents/{path}` (commits straight to main), `PATCH /git/refs/heads/main` (moves the tip), `merges`, `rulesets`, `hooks`, `collaborators`, `keys` — all **allowed**. Only `branches/main/protection` was caught. |
 
 The first one is the one worth sitting with: **it is in the function `ORPHAN-HIGH-453` fixed hours
 earlier.** I corrected how the path is normalized and never asked which direction the comparison ran.
-A scope claim that *contains* a protected path is not safer than one that names it — it is the same
+A scope claim that _contains_ a protected path is not safer than one that names it — it is the same
 write with a vaguer envelope. The check now matches both directions, rejects globs as unclassifiable
 (a glob cannot be prefix-compared without a filesystem that does not exist at mint time), and fails
 an empty list the way an absent key already did.
@@ -1244,9 +1266,9 @@ that broke it.
 
 `transform_specialist_output` returns `[]` both for "reviewed, found nothing" and for any content it
 cannot parse. `_findings_from_accepted_result` passed that straight back, so a specialist whose
-entire output was *"I ran out of context and could not complete this review"* produced
-`consolidated_no_gaps` and did not block. The function's own docstring said *"returning an empty
-findings list here would read as this specialist found nothing"* — while the code did exactly that.
+entire output was _"I ran out of context and could not complete this review"_ produced
+`consolidated_no_gaps` and did not block. The function's own docstring said _"returning an empty
+findings list here would read as this specialist found nothing"_ — while the code did exactly that.
 
 What makes it worse than a plain fail-open is what this branch did around it. `ORPHAN-HIGH-423` made
 non-delivery block; `ORPHAN-HIGH-443` made an unrecognised verdict block. Between them they left a
@@ -1288,7 +1310,7 @@ next finding gets created.
 
 `9fb8efce` is a `fix(gates):` commit with no `Closes:` trailer. The finding it should have cited is
 real and registered — `ORPHAN-HIGH-417`, whose gate self-test wiring that commit restores — so this
-is a missing *reference*, not a missing finding.
+is a missing _reference_, not a missing finding.
 
 It cannot be repaired: `closes-footer-check` validates the whole PR range, so no follow-up commit
 satisfies it, and amending a pushed commit needs a force-push that `CLAUDE.md` forbids outright. That
@@ -1310,13 +1332,13 @@ rather than discovered in CI, where it is unrepairable.
 
 ## 10. Limits of this verification
 
-* The live GitHub Actions artifact was not re-downloaded. Every figure the report cited was instead
+- The live GitHub Actions artifact was not re-downloaded. Every figure the report cited was instead
   explained from source (21/21 bridge `skipped` ⇒ P1-06; 0 tool runs ⇒ NoOp implementer; 13
   HUMAN_REQUIRED invisible ⇒ P1-03; cost dashboard 0 alongside 55 attribution rows ⇒ P0-07's zero
   callers). This is corroboration by mechanism rather than re-measurement.
-* The report's P2 claim that 29 modules lack direct test imports was not independently re-derived;
+- The report's P2 claim that 29 modules lack direct test imports was not independently re-derived;
   it is recorded as-is and remains a static signal, not proof of missing coverage.
-* Branch protection rulesets and the GitHub App installation scope cannot be read from inside the
+- Branch protection rulesets and the GitHub App installation scope cannot be read from inside the
   repository and remain externally unverified — which is itself part of P0-14's exposure.
 
 ## 11. Wave-1 findings raised while closing the S1–S9 remediation sequence
@@ -1326,94 +1348,94 @@ remediation pass that followed this verification. They are anchored here because
 three-store invariant requires a finding's `review_file` to name it — an unanchored
 finding is one nobody can navigate back to from the review that produced it.
 
-* **ORPHAN-CRITICAL-469** — The agent-invocation queue was stranded between two workflows: the 01:00 producer wrote to a gitignored tree the 02:00 consumer never restored, so no agent work was ever claimed  
+- **ORPHAN-CRITICAL-469** — The agent-invocation queue was stranded between two workflows: the 01:00 producer wrote to a gitignored tree the 02:00 consumer never restored, so no agent work was ever claimed  
   Severity CRITICAL, layer 2, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
 
-* **ORPHAN-HIGH-465** — The failure circuit breaker had no operator surface: reset_breaker existed with no CLI, so a tripped breaker could only be cleared by hand-deleting a gitignored artifact  
+- **ORPHAN-HIGH-465** — The failure circuit breaker had no operator surface: reset_breaker existed with no CLI, so a tripped breaker could only be cleared by hand-deleting a gitignored artifact  
   Severity HIGH, layer 4, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
 
-* **ORPHAN-HIGH-466** — The B0 cost breaker reads a counter nothing increments: cost_budget.record_actual_usage has zero callers while live cost telemetry writes to a different module  
+- **ORPHAN-HIGH-466** — The B0 cost breaker reads a counter nothing increments: cost_budget.record_actual_usage has zero callers while live cost telemetry writes to a different module  
   Severity HIGH, layer 2, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
 
-* **ORPHAN-HIGH-467** — The B2 failure breaker preflight was gated on profile == autonomous, so a tripped breaker stopped nothing on standard or strict, which hold action authority  
+- **ORPHAN-HIGH-467** — The B2 failure breaker preflight was gated on profile == autonomous, so a tripped breaker stopped nothing on standard or strict, which hold action authority  
   Severity HIGH, layer 2, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
 
-* **ORPHAN-HIGH-470** — Agent resource limits were selected on binary presence, applied the wrong wall-clock property, and fell through to an unbounded spawn  
+- **ORPHAN-HIGH-470** — Agent resource limits were selected on binary presence, applied the wrong wall-clock property, and fell through to an unbounded spawn  
   Severity HIGH, layer 2, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
 
-* **ORPHAN-HIGH-471** — The nightly lane spawns agents through the same path as the executor but shipped with no sandbox backend installed  
+- **ORPHAN-HIGH-471** — The nightly lane spawns agents through the same path as the executor but shipped with no sandbox backend installed  
   Severity HIGH, layer 2, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
 
-* **ORPHAN-HIGH-472** — Cost caps are mis-calibrated by 40x against real agent-run cost, so wiring the pre-spawn gate would trip the cost breaker on the first live run  
+- **ORPHAN-HIGH-472** — Cost caps are mis-calibrated by 40x against real agent-run cost, so wiring the pre-spawn gate would trip the cost breaker on the first live run  
   Severity HIGH, layer 4, owner okan, deadline 2026-08-24. OPEN — see notes.
 
-* **ORPHAN-HIGH-473** — Moving ARIA to claude-opus-5 at max effort is a multi-surface migration: the model would silently downgrade to fable, record $0.00, and disable the credit-exhaustion fallback  
+- **ORPHAN-HIGH-473** — Moving ARIA to claude-opus-5 at max effort is a multi-surface migration: the model would silently downgrade to fable, record $0.00, and disable the credit-exhaustion fallback  
   Severity HIGH, layer 2, owner okan, deadline 2026-08-24. OPEN — see notes.
 
-* **ORPHAN-HIGH-474** — The opus CLI alias resolves to claude-opus-5, which had no pricing row, so every opus-tier dispatch recorded $0.00  
+- **ORPHAN-HIGH-474** — The opus CLI alias resolves to claude-opus-5, which had no pricing row, so every opus-tier dispatch recorded $0.00  
   Severity HIGH, layer 3, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
 
-* **ORPHAN-HIGH-475** — A quota-exhausted run was returned as the agent's answer: the fallback was gated on a literal model name and no caller inspected credit_exhaustion  
+- **ORPHAN-HIGH-475** — A quota-exhausted run was returned as the agent's answer: the fallback was gated on a literal model name and no caller inspected credit_exhaustion  
   Severity HIGH, layer 1, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
 
-* **ORPHAN-HIGH-476** — Cost pricing was keyed only on exact model ids, so every new model generation silently priced at $0.00 until a human added a row  
+- **ORPHAN-HIGH-476** — Cost pricing was keyed only on exact model ids, so every new model generation silently priced at $0.00 until a human added a row  
   Severity HIGH, layer 2, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
 
-* **ORPHAN-MEDIUM-468** — The failure breaker's 24h window equals the nightly cadence, so cross-cycle accumulation depends on sub-cycle timing jitter rather than on failure count  
+- **ORPHAN-MEDIUM-468** — The failure breaker's 24h window equals the nightly cadence, so cross-cycle accumulation depends on sub-cycle timing jitter rather than on failure count  
   Severity MEDIUM, layer 3, owner okan, deadline 2026-08-24. closed by the commit carrying its `Closes:` trailer.
 
-* **ORPHAN-MEDIUM-477** — ARIA agents ran below ultracode depth, and the tier documentation contradicted the executable assertions  
+- **ORPHAN-MEDIUM-477** — ARIA agents ran below ultracode depth, and the tier documentation contradicted the executable assertions  
   Severity MEDIUM, layer 3, owner okan, deadline 2026-08-24.
 
-* **ORPHAN-HIGH-478** — The model fallback was a single hardcoded hop: audit rows named fable->opus@xhigh as a literal and the budget multiplier keyed on the alias string  
+- **ORPHAN-HIGH-478** — The model fallback was a single hardcoded hop: audit rows named fable->opus@xhigh as a literal and the budget multiplier keyed on the alias string  
   Severity HIGH, layer 2, owner okan, deadline 2026-08-24.
 
-* **ORPHAN-CRITICAL-479** — A NameError on the only real worker-dispatch path shipped with 2905 passing tests, and the first two detectors written for it were themselves theatre  
+- **ORPHAN-CRITICAL-479** — A NameError on the only real worker-dispatch path shipped with 2905 passing tests, and the first two detectors written for it were themselves theatre  
   Severity CRITICAL, layer 3, owner okan, deadline 2026-08-25.
 
-* **ORPHAN-HIGH-480** — The run_with_model_fallback docstring described the pre-ladder single-hop policy on five counts after the code had moved on  
+- **ORPHAN-HIGH-480** — The run_with_model_fallback docstring described the pre-ladder single-hop policy on five counts after the code had moved on  
   Severity HIGH, layer 2, owner okan, deadline 2026-08-25.
 
-* **ORPHAN-HIGH-481** — has_fallback_tier was added with the ladder and had zero production callers  
+- **ORPHAN-HIGH-481** — has_fallback_tier was added with the ladder and had zero production callers  
   Severity HIGH, layer 2, owner okan, deadline 2026-08-25.
 
-* **ORPHAN-MEDIUM-482** — Cost rows recorded at exactly a window boundary were dropped, under-counting spend against a safety cap  
+- **ORPHAN-MEDIUM-482** — Cost rows recorded at exactly a window boundary were dropped, under-counting spend against a safety cap  
   Severity MEDIUM, layer 2, owner okan, deadline 2026-08-25.
 
-* **ORPHAN-MEDIUM-483** — The 72h failure window that fixed ORPHAN-MEDIUM-468 was itself the boundary value, so the bleed case still coin-flipped at the enforcement gate  
+- **ORPHAN-MEDIUM-483** — The 72h failure window that fixed ORPHAN-MEDIUM-468 was itself the boundary value, so the bleed case still coin-flipped at the enforcement gate  
   Severity MEDIUM, layer 2, owner okan, deadline 2026-08-25.
 
-* **ORPHAN-CRITICAL-484** — The executor could publish a queue-less bootstrapped tree under the canonical aria-tools-state name, burying the producer's queue with no automated recovery  
+- **ORPHAN-CRITICAL-484** — The executor could publish a queue-less bootstrapped tree under the canonical aria-tools-state name, burying the producer's queue with no automated recovery  
   Severity CRITICAL, layer 1, owner okan, deadline 2026-08-25.
 
-* **ORPHAN-CRITICAL-485** — The failure breaker's producer was unreachable on the scheduled lane at four independent levels, and its end-to-end test could not see any of them  
+- **ORPHAN-CRITICAL-485** — The failure breaker's producer was unreachable on the scheduled lane at four independent levels, and its end-to-end test could not see any of them  
   Severity CRITICAL, layer 1, owner okan, deadline 2026-08-25.
 
-* **ORPHAN-HIGH-486** — ARIA can open an unbounded PR: plan_pr_split exists but no autonomous path calls it, so nothing caps what the implementer submits  
+- **ORPHAN-HIGH-486** — ARIA can open an unbounded PR: plan_pr_split exists but no autonomous path calls it, so nothing caps what the implementer submits  
   Severity HIGH, layer 1, owner okan, deadline 2026-08-25. OPEN — scheduled for a follow-up PR.
 
-* **ORPHAN-HIGH-487** — Nothing stops ARIA promoting a second plan while one is still in flight, so it can leave half-finished work behind  
+- **ORPHAN-HIGH-487** — Nothing stops ARIA promoting a second plan while one is still in flight, so it can leave half-finished work behind  
   Severity HIGH, layer 1, owner okan, deadline 2026-08-25. OPEN — scheduled for a follow-up PR.
 
-* **ORPHAN-CRITICAL-488** — The ORPHAN-CRITICAL-484 ancestry gate made a first-ever ARIA run impossible: a newborn tree could never publish, permanently  
+- **ORPHAN-CRITICAL-488** — The ORPHAN-CRITICAL-484 ancestry gate made a first-ever ARIA run impossible: a newborn tree could never publish, permanently  
   Severity CRITICAL, layer 1, owner okan, deadline 2026-08-25.
 
-* **ORPHAN-HIGH-489** — ClaudeCreditExhausted escaped ci_executor.main() uncaught, leaking the claim for the full lease window  
+- **ORPHAN-HIGH-489** — ClaudeCreditExhausted escaped ci_executor.main() uncaught, leaking the claim for the full lease window  
   Severity HIGH, layer 2, owner okan, deadline 2026-08-25.
 
-* **ORPHAN-MEDIUM-491** — The workflow abort gate matched its guard by substring, so an `||`-joined `always()` disjunct passed as guarded  
+- **ORPHAN-MEDIUM-491** — The workflow abort gate matched its guard by substring, so an `||`-joined `always()` disjunct passed as guarded  
   Severity MEDIUM, layer 1, owner okan, deadline 2026-08-26. `_verify_abort_gate` compared the guard with `in`, so
   `if: ${{ <guard> || always() }}` contained the guard verbatim while being unconditionally true — the step ran during a
   blocked cycle, which is the exact failure the gate's own docstring says it prevents.
 
-* **ORPHAN-MEDIUM-492** — `next_pending_request` never read the `target_sha` it selects on, so a request minted against an obsolete tree stayed claimable forever  
+- **ORPHAN-MEDIUM-492** — `next_pending_request` never read the `target_sha` it selects on, so a request minted against an obsolete tree stayed claimable forever  
   Severity MEDIUM, layer 1, owner okan, deadline 2026-08-26. The sharpest instance of this branch's defect class: the anchor
   was minted, persisted, hashed into the context envelope and read by the evidence-validator — and the selection path ignored
   it. The ~20 requests stranded by `ORPHAN-CRITICAL-469` are anchored at commits that ARE ancestors of HEAD, 60+ commits back,
   so reachability alone would have passed every one; age is checked too. New terminal state `ANCHOR_STALE`, kept separate from
   the retryable `STALE`.
 
-* **ORPHAN-HIGH-472 reframed and closed** — the "40× cost cap disagreement" was a units error, not a calibration one.
+- **ORPHAN-HIGH-472 reframed and closed** — the "40× cost cap disagreement" was a units error, not a calibration one.
   ARIA runs its agents through the Claude Code CLI on a logged-in subscription session (`claude_runtime.py:3-13`; both
   workflows reject `ANTHROPIC_API_KEY`), so there is no marginal per-run charge for a dollar cap to bound. Four figures
   disagreed — `cost_budget` `per_run` $0.50, the workflow's `--max-budget-usd-per-run 20.00` **and**
@@ -1421,24 +1443,24 @@ finding is one nobody can navigate back to from the review that produced it.
   The dispatch gate is now per-cycle wall clock, derived from each lane's pinned `timeout-minutes`, refusing any dispatch
   whose own timeout exceeds the remaining budget. USD stays as telemetry, labelled `usd_basis: notional_api_equivalent`.
 
-* **ORPHAN-HIGH-493** — `reserve_cycle_budget` remains an orphaned USD enforcement point  
+- **ORPHAN-HIGH-493** — `reserve_cycle_budget` remains an orphaned USD enforcement point  
   Severity HIGH, layer 1, owner okan, deadline 2026-08-26. **Declared incomplete work.** The approved plan said the third
   orphaned cost control would be consolidated in the same commit; it was not, because it is pinned by v8 prerequisite
   invariants and its CLI flags by another, and editing pinned invariants late in a green 65-commit PR is the trade
   `ORPHAN-HIGH-486` exists to discourage. Recorded rather than implied.
 
-* **ORPHAN-CRITICAL-494** — the `492` anchor guard read absence-in-a-shallow-clone as proof of unreachability  
+- **ORPHAN-CRITICAL-494** — the `492` anchor guard read absence-in-a-shallow-clone as proof of unreachability  
   Severity CRITICAL, layer 1, owner okan, deadline 2026-08-26. **Self-inflicted, caught before it ever ran, and strictly
   worse than the defect it was introduced to fix.** Neither ARIA lane sets `fetch-depth`, so both run on the default
   depth-1 clone. A request minted by the 01:00 producer and consumed by the 02:00 executor therefore has an anchor that is
-  simply *absent* once any commit lands in between — and the guard would have marked it **terminally** `ANCHOR_STALE`,
+  simply _absent_ once any commit lands in between — and the guard would have marked it **terminally** `ANCHOR_STALE`,
   silently discarding the very queue `ORPHAN-CRITICAL-469` exists to carry, while emitting a governance row that reads like
   correct enforcement. Reachability is now consulted only when the repo is not shallow; age needs no history and still
   fires, so `492`'s case is still caught on the checkout production actually uses. Found by asking what the guard does
-  under the *production* checkout rather than the fixture's full clone — the same fixture-does-not-match-production
+  under the _production_ checkout rather than the fixture's full clone — the same fixture-does-not-match-production
   blindness that let the original `492` defect survive, which is why seven passing tests said nothing about it.
 
-* **ORPHAN-CRITICAL-495** — two more self-inflicted defects in the same closeout, found by the regression review lens  
+- **ORPHAN-CRITICAL-495** — two more self-inflicted defects in the same closeout, found by the regression review lens  
   Severity CRITICAL, layer 1, owner okan, deadline 2026-08-26. **(a)** A missing anchor was terminal, and an AST count of all
   17 `create_agent_invocation_request` callsites shows only **6** pass `target_sha` — the other 11 include the operator's own
   `aria-kernel agent request` CLI and this branch's new HUMAN_REQUIRED panel, which could therefore never have been
@@ -1448,14 +1470,14 @@ finding is one nobody can navigate back to from the review that produced it.
   defect class this branch exists to close, in the commit that claimed to close it. The ceiling now derives from
   `GITHUB_RUN_STARTED_AT`, which is also the better question for a lane that handles one request per job.
 
-* **ORPHAN-HIGH-496** — two hand-maintained copies of the non-delivering terminal-state set fell behind the SSoT  
+- **ORPHAN-HIGH-496** — two hand-maintained copies of the non-delivering terminal-state set fell behind the SSoT  
   Severity HIGH, layer 1, owner okan, deadline 2026-08-26. `review_runner` and `specialist_review_runner` each carried a
   literal frozenset; adding `ANCHOR_STALE` updated neither, so an anchor-refused request was terminal-but-unrecognised and
   each poll loop would burn its full timeout waiting for a result that could not arrive. Both are now derived as
   `TERMINAL_REQUEST_STATES - {"ACCEPTED"}` — tier 2 replacing what was effectively two comments asking future readers to
   remember.
 
-* **ORPHAN-CRITICAL-497** — the wall-clock gate refused *every* dispatch under production values  
+- **ORPHAN-CRITICAL-497** — the wall-clock gate refused _every_ dispatch under production values  
   Severity CRITICAL, layer 1, owner okan, deadline 2026-08-26. Found by the test-quality lens, which **executed** the code.
   Cap was `(35−5)×60 = 1800s` and the executor sets `MAX_TIMEOUT_SECONDS=1800`, so `remaining < per_run_timeout` was false
   only at `elapsed == 0`. `main()` catches the refusal, releases the claim and returns **0** — the lane would have gone
@@ -1463,14 +1485,14 @@ finding is one nobody can navigate back to from the review that produced it.
   exposed a real latent config problem: an 1800s run does not fit a 2100s job once startup and publish are counted, so the
   executor timeout moves **35 → 45 min** with the contract pinned in lockstep. Tests now read cap and per-run timeout from
   their sources. Second half: `_step_is_gated` exempted the announce expression **globally**, so flipping one character
-  (`!=` → `==`) on a worker step made the executor run *only* while another host held the lease —
+  (`!=` → `==`) on a worker step made the executor run _only_ while another host held the lease —
   `ORPHAN-CRITICAL-469` restored with the gate green. Exemption is now scoped to the declared announce step.
 
 > **Pattern, four times in one session.** Every defect above survived because the fixture did not resemble production: a
 > full clone where production is shallow (`494`), a request dict carrying a field 11 mint paths omit (`495`), a timeout
 > literal production never emits (`497`). The lens that caught them ran the code; the lenses that missed them read it.
 
-* **ORPHAN-CRITICAL-498** — the pre-PR-open perimeter is **not on the scheduled lane**  
+- **ORPHAN-CRITICAL-498** — the pre-PR-open perimeter is **not on the scheduled lane**  
   Severity CRITICAL, layer 1, owner okan, deadline 2026-08-12. Successor to `ORPHAN-CRITICAL-428`, whose closure claim is
   narrower than it reads. The two lenses contradicted each other — one predicted the perimeter would trip the breaker on
   the nightly lane, the other said that path is unreachable — and the source settles it: `grep` for `run_phases=` /
@@ -1482,9 +1504,29 @@ finding is one nobody can navigate back to from the review that produced it.
   `ORPHAN-CRITICAL-485` **is** genuinely closed. Fix is RC-1 of the follow-up plan: collapse the two pipelines into one
   declarative registry, delete the kwarg seam, and add a static call-graph reachability invariant.
 
-* **ORPHAN-HIGH-499** — the HUMAN_REQUIRED sweep test asserts an import, not a call  
+- **ORPHAN-HIGH-499** — the HUMAN*REQUIRED sweep test asserts an import, not a call  
   Severity HIGH, layer 1, owner okan, deadline 2026-08-12. Proven by mutation rather than argued: deleting the call at
   `cycle.py:503` while keeping the import leaves all 6 tests in the file green **and the entire 2943-test suite
-  byte-identical**. No Python linter runs in CI, so the orphaned import is not flagged either. The sweep call itself *is*
+  byte-identical**. No Python linter runs in CI, so the orphaned import is not flagged either. The sweep call itself \_is*
   live (inside `run_enterprise_cycle`, not the dead branch) — this is a blind-test defect, not a dead-path one, and the two
   must not be conflated. Fix reuses the pattern already correct at `test_pr_open_perimeter_callsite.py:132-142`.
+
+- **ORPHAN-HIGH-500** — the pre-commit hook mirrors one of CI's two format gates  
+  Severity HIGH, layer 3, owner okan, deadline 2026-08-13. **Found by CI, not by review**, which is the point: this PR's
+  first real CI run went red on `quality.mjs format check-changed` with ten drifted files, every one authored in this
+  session. `.husky/pre-commit` ran `format-scope check` — manifest freshness — while its own comment claimed the intent was
+  to catch CI redness at commit time; the gate that catches actual drift had **no local counterpart at all**, and eight
+  commits shipped drift with a green hook. Same defect class as `ORPHAN-HIGH-455` in mirror image: here the CI side is
+  wired and the local mirror is the missing half. Second-order defect: `quality.mjs` offered no `write-changed`, so the
+  only one-command fix was repo-wide `format write`, which also rewrites the ~24 files `check-changed` deliberately
+  quarantines as base debt — a 10-file fix buried in 34 files of churn. Closed here: the regression rule extracted to one
+  `classifyFormatDrift` shared by `check-changed`, a new `check-staged` and a new `write-changed`; the staged gate wired
+  into the hook (staged-vs-HEAD, because at commit time the content is not committed yet and `HEAD^` compares the wrong
+  pair); and the mirror pinned by a `git-hook-binding` invariant that **discovers** CI's gates instead of listing them.
+  Two negative results worth recording. `write-changed` needed a convergence loop: Prettier's markdown printer left
+  `2026-07-26-aria-codex-audit-verification.md` still drifted after one `--write`, converging only on a second pass — so a
+  single-pass fixer would have handed the developer a green command and a red CI, the exact failure it exists to prevent.
+  And the parity invariant's **first version was blind**: `hooks.includes('format check-changed')` matched the phrase
+  inside the hook's own explanatory comment, so it stayed green when the real invocation was deleted. It now strips
+  comment lines and matches invocations structurally — the substring-instead-of-structure defect this branch already fixed
+  once, reproduced by me while fixing its sibling.

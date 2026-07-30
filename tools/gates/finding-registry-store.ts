@@ -442,10 +442,7 @@ export function orphanMarkdownReservedIds(path: string): string[] {
  * allocator and the explicit-append collision check extract sequences the
  * same way rather than each writing their own comparison.
  */
-export function claimedSequences(
-  domain: string,
-  existingIds: readonly string[],
-): Set<number> {
+export function claimedSequences(domain: string, existingIds: readonly string[]): Set<number> {
   const domainPattern = new RegExp(`^${domain}-[A-Z0-9]+-([0-9]{3})$`);
   const sequences = new Set<number>();
   for (const id of existingIds) {

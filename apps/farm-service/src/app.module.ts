@@ -126,10 +126,18 @@ import { GraphQLContextModule } from './common/graphql-context.module';
 // directory and the production db-migrate numeric glob. The numeric glob
 // intentionally excludes manifest.js so TypeORM does not load the same classes
 // twice via the manifest import graph.
+import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { FARM_MIGRATIONS } from './database/migrations/manifest';
 
 @Module({
   imports: [
+    // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.
+    // @AuditedOperation() is only metadata; without this forRoot() the
+    // decorator is structurally inert and a labelled handler writes zero audit
+    // rows. farm-service was the last service in the required set still
+    // missing it — the invariant that says so was itself dormant, so the gap
+    // was reported by nothing (ORPHAN-HIGH-512).
+    AuditedOperationModule.forRoot(),
     // Global configuration
     ConfigModule.forRoot({
       isGlobal: true,

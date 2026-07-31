@@ -2129,6 +2129,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1801600000000-RestoreSharedAccessLogs.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1801700000000-RestoreAuditImmutabilityContract.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -4686,6 +4698,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/migrations/1807200000000-DropModulePriceFromAuthModules.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/migrations/1807300000000-RestoreAuthUsersTenantFk.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/migrations/1807400000000-RestoreAuditImmutabilityContract.ts",
       "prettier_managed": true
     },
     {
@@ -9766,6 +9790,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/migrations/1806800000000-WidenRelatedSensorReadingIdToFederationId.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1806900000000-RestoreAuditImmutabilityContract.ts",
       "prettier_managed": true
     },
     {
@@ -35902,6 +35932,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/database/audit-immutability.sql.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/database/base-migration.ts",
       "prettier_managed": true
     },
@@ -42007,6 +42043,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/lib/dead-contract-scan.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/lib/migration-corpus.ts",
       "prettier_managed": true
     },
     {
@@ -55368,10 +55410,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9077,
+  "file_count": 9084,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8896,
-  "managed_file_list_sha256": "2dffab5446283d792b30cf2d968b3349f589d2a41da8c29334845cc99ff85f69",
+  "managed_count": 8903,
+  "managed_file_list_sha256": "8a882b70fe876a04dbfa5aa952fbe92f0db5aef7df981ae1982486e854041b87",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

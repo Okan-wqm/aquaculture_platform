@@ -210,8 +210,46 @@ export interface ConsentWithdrawnEvent extends BaseEvent {
 /**
  * Union type for all auth events
  */
+/**
+ * User Profile Updated Event
+ *
+ * Published when a user changes their own profile fields (name, locale,
+ * contact preferences) through `AccountService.updateMyProfile`. Consumers
+ * refresh denormalised user copies; nothing security-relevant changes here,
+ * which is why the payload carries no field-level diff — a profile diff would
+ * put PII on the bus for consumers that only need the invalidation signal.
+ *
+ * DATA-HIGH-004: the emitter existed with no declared interface, so the event
+ * crossed the bus with a shape no consumer could type against and no upcaster
+ * could version. Declaring it is what makes the contract enforceable.
+ */
+export interface UserProfileUpdatedEvent extends BaseEvent {
+  eventType: 'UserProfileUpdated';
+}
+
+/**
+ * User Password Changed Event
+ *
+ * Published when a user changes their own password through
+ * `AccountService.changeMyPassword`, AFTER the credential revocation sweep has
+ * run. Consumers holding cached sessions or derived credentials for the user
+ * must treat them as void.
+ *
+ * Deliberately carries no credential material and no indication of the old or
+ * new secret — the event's whole purpose is the invalidation signal, and any
+ * additional field would be a secret on the bus.
+ *
+ * DATA-HIGH-004: same as its sibling above — emitted since the account service
+ * was written, declared nowhere.
+ */
+export interface UserPasswordChangedEvent extends BaseEvent {
+  eventType: 'UserPasswordChanged';
+}
+
 export type AuthEvent =
   | UserLoggedInEvent
+  | UserProfileUpdatedEvent
+  | UserPasswordChangedEvent
   | UserAccountLockedEvent
   | InvitationAcceptedEvent
   | PasswordResetRequestedEvent

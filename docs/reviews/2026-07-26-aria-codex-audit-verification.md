@@ -1557,6 +1557,49 @@ finding is one nobody can navigate back to from the review that produced it.
   the interpolation is restored. **Residual, stated because it bounds the fix:** the invariant's scope is deliberately
   limited to `aria-*` workflows. This widens _which spellings_ are caught, not _which files_ are scanned.
 
+- **ORPHAN-CRITICAL-516** — the squash dropped DDL, and the invariant guarding it read the archive\
+  Severity CRITICAL, layer 1, owner okan, deadline 2026-08-14. **Found by checking RC-6's precondition, then
+  following the thread.** Four services squashed their migrations into a `Baseline` on 2026-05-18 and moved 55
+  originals to `src/…/migrations/.archive/`. That archive is dead by construction — every service registers
+  `migrations: ['src/…/migrations/[0-9]*…']`, which neither matches a dot-directory nor descends into one.
+  **The false green:** `auth-users-tenant-fk.spec.ts` guards `FK_auth_users_tenantId` (DBR-HIGH-002 — a tenant must
+  not be deletable while user rows still claim it) and was **passing**. It collected migrations with
+  `git ls-files 'apps/auth-service/src/migrations/*.ts'`, and a git pathspec `*` crosses `/`, so it read all 32 files
+  including the 13 archived. The constraint exists **only** in the archive; a freshly migrated database has no such
+  FK. Its sibling test in the same file pinned one filename and failed with an ENOENT naming a file — which is why
+  the breakage read as a stale test rather than as a missing constraint. **Second drop, same cause:**
+  `shared.access_logs` is created by no live migration, while `AccessLogMiddleware` writes a row per request (wired
+  into `gateway-api` and `admin-api-service`), `AccessLogEntity` maps it, `protected-tables.ts` lists it and the RLS
+  infrastructure ledger declares it. Its guard read the migration by hardcoded filename, so it failed to _load_
+  rather than reporting the table gone — and it was dormant, so nobody saw even that. **Fixed in two parts:**
+  `tests/invariants/lib/migration-corpus.ts` is now the one answer to "which migrations does service X apply?",
+  deriving each service's directory from its own `data-source.ts` (four use `src/migrations`, ten use
+  `src/database/migrations`) and refusing rather than guessing when a declaration cannot be parsed — eight specs each
+  answered this privately, four wrongly, one with a private function literally named `loadMigrationCorpus`. And two
+  forward-only idempotent restorations bring back the FK (with its orphan pre-flight) and the table. The FK assertion
+  going from passing-on-dead-evidence to failing, before the restoration landed, is what proves the old green was
+  false.
+
+- **ORPHAN-CRITICAL-517** — the squash rewrote audit immutability into a rule that breaks retention\
+  Severity CRITICAL, layer 1, owner okan, deadline 2026-08-14. The contract was **two** triggers per audit table:
+  `_prevent_update` (BEFORE UPDATE, always raises) and `_prevent_legal_hold_delete` (BEFORE DELETE, raises **only**
+  when `OLD."legalHold"` is true, else returns the row). The second is what lets retention expire audit rows while
+  legal hold blocks it — the retention module's own docstring names that trigger as its database-level backstop
+  behind the application-layer `legalHold = false` filter. The Baseline hand-authored **one** function per table,
+  `_prevent_update_or_delete`, raising on `BEFORE UPDATE OR DELETE` unconditionally. That is not a stricter version
+  of the rule, it is a different rule: retention can now delete nothing, and an audit table that can only grow is its
+  own incident. **A stricter rule is not a safer rule.** Worse for `shared.audit_logs` — the live set has no function
+  and no trigger for it at all, so the canonical cross-service audit table lost the guarantee outright. The guard
+  asserted the pre-squash _spelling_ against a corpus that also contained the archived pre-squash files, and it was
+  dormant. **Fixed** with one generator in `@aquaculture/backend-common/database` — four tables across three
+  services, and a migration cannot be shared across services, so the SQL is produced once and each service's
+  migration calls it; hand-copying is precisely what produced the fifth variant. Three forward-only migrations apply
+  it, each dropping the superseded consolidated trigger by name before creating the pair and dropping the orphaned
+  function only after the trigger using it is gone. `down()` refuses. The invariant now asserts the **generator's**
+  output — including that DELETE is conditional on `legalHold`, the half the squash lost — **and** that each owning
+  service's effective migration set invokes it for that table, a correct generator nobody calls being the
+  `ORPHAN-HIGH-455` shape.
+
 - **ORPHAN-CRITICAL-513** — the two restore implementations had drifted, and the producer lane could overwrite everything\
   Severity CRITICAL, layer 1, owner okan, deadline 2026-08-14. **Found while satisfying RC-6's own
   precondition.** The plan's rule for the recovery dispatch was "no second restore path: a duplicate transaction
@@ -1626,6 +1669,17 @@ finding is one nobody can navigate back to from the review that produced it.
   domain rather than a test edit. Switching them on would make an ARIA breaker-recovery branch red for reasons wholly
   outside it; deleting them would discard invariants written deliberately. They carry a 2026-09-30 expiry that now
   **fails the build** when it passes — the difference between this waiver and the ones it replaces.
+  **CLOSED.** All seven were fixed at their roots rather than re-dated, and the dormancy manifest is now **empty**:
+  204 of 204 specs run. Two of the seven were not test rot at all but the visible edge of `ORPHAN-CRITICAL-516` /
+  `517` — dropped DDL and a rewritten audit-immutability contract. The other five split three ways: two asserted a
+  _spelling_ the 2026-05-18 squash legitimately changed (the `ALTER TABLE … ADD COLUMN` form for `legalHold`, and an
+  explicit class-name registration where the service moved to a glob); one was a genuine wiring gap (farm-service
+  never registered `AuditedOperationModule.forRoot()`, so `@AuditedOperation()` there was inert); one was two real
+  missing event contracts (`UserProfileUpdated`, `UserPasswordChanged`, emitted by `AccountService` and declared
+  nowhere); and one demanded that **paid-off debt persist** — it asserted "all 4 grandfathered ad-hoc breaker paths
+  still exist" and went red when the W3 sweep deleted the OPA client's breaker, which its own docstring calls the
+  success condition. That one is now a ratchet: a vanished path is a _stale entry to delete_, and the count is a
+  ceiling that only falls.
 
 - **ORPHAN-HIGH-510** — the ARIA kernel suite had no local mirror at all, and a red commit reached origin because of it\
   Severity HIGH, layer 3, owner okan, deadline 2026-08-13. **Found by my own violation, one increment late.** Before

@@ -1557,6 +1557,76 @@ finding is one nobody can navigate back to from the review that produced it.
   the interpolation is restored. **Residual, stated because it bounds the fix:** the invariant's scope is deliberately
   limited to `aria-*` workflows. This widens _which spellings_ are caught, not _which files_ are scanned.
 
+- **ORPHAN-CRITICAL-513** — the two restore implementations had drifted, and the producer lane could overwrite everything\
+  Severity CRITICAL, layer 1, owner okan, deadline 2026-08-14. **Found while satisfying RC-6's own
+  precondition.** The plan's rule for the recovery dispatch was "no second restore path: a duplicate transaction
+  around a hash-chained ledger is how the ledger diverges". Checking that before building on it showed the rule was
+  _already_ violated, and not harmlessly. Both lanes carried their own copy of the same ~70-line Python heredoc, and
+  a diff proves the copies are **not equal**: the executor's writes `restored=true` / `bootstrap=true` to
+  `$GITHUB_OUTPUT` — `ORPHAN-CRITICAL-484`'s ancestry proof plus `488`'s split between "nothing to restore" and
+  "restore failed" — while the producer's writes **neither**, and its restore step carries no `id:` at all, so no
+  publish gate could read an output even in principle. **The 484/488 fix reached the consumer and never reached the
+  producer** — the 01:00 lane that mints the entire queue, publishing on `state_valid == 'true'` alone. There, a
+  restore that fails or is skipped leaves a bootstrap-empty tree, which _passes_ `integrity verify` (an empty tree is
+  trivially consistent) and is uploaded under the canonical name with `overwrite: true`. Not a missed publish: the
+  accumulated state — queue, ledgers, breaker evidence — overwritten by nothing, which is the absorbing failure 484
+  exists to prevent, on the lane where it costs most. **Fixed** with the RC-9 move applied to a bigger pair: one
+  composite action both lanes `uses:`, exposing the two proof outputs, and the producer's publish/quarantine/fail
+  gates now carrying the ancestry condition the consumer always had. Pinned by
+  `tests/invariants/aria-single-restore-path.spec.ts` — exactly one implementation, both lanes using it, outputs
+  present with no negative form, both gates checking ancestry — proven to bite by reintroducing an inline copy. A
+  second gate was wrong about this too: `test_the_publish_gate_is_strictly_stronger_than_the_producers` asserted only
+  that both conditions _mention_ `state_valid`, which is not a comparison and held for the whole life of the drift
+  for exactly that reason; it now compares every guard term.
+
+- **ORPHAN-HIGH-514** — a composite action is outside every `workflows_do_not_*` gate\
+  Severity HIGH, layer 3, owner okan, deadline 2026-08-14. **Found by auditing my own previous commit before
+  building on it.** `listWorkflowFiles()` reads `.github/workflows/` only, and three checks scan its output for
+  content a governed job may not run. That scope was complete while every step lived in a workflow file — and RC-9
+  ended that, carrying a `continue-on-error` into `.github/actions/ensure-sandbox-backend` and out of enforcement
+  with the gate still reporting compliance. **Fourth instance of one class on this branch** after `507`'s hardcoded
+  roots, `509`'s single spelling and `510`'s single gate family: each checked part of its domain while reporting
+  full compliance. Fixed in two halves. The scan now includes local composite actions — wired into exactly the three
+  _content_ checks, not the workflow-shaped ones (`on:`, top-level `permissions:`, curated matrices), because an
+  `action.yml` legitimately has none of those and a gate that fails for unrelated reasons gets deleted for being
+  noise; third-party `uses:` stays out, being SHA-pinned and reviewed as a dependency. And the action was changed to
+  **satisfy** the rule rather than be exempted from it — the install tolerates apt failure through a shell `if`,
+  which is exempt from `set -e` and prints why, instead of the banned per-step key. No exemption list was created.
+  Verified both ways; the baseline is unchanged at 6 pass / 0 fail. The gate is a raw text scan, so my own comment
+  _explaining_ the choice failed it by spelling the key — the same trap `aria-auto-cycle.yml` already documents.
+
+- **ORPHAN-HIGH-515** — every dormancy waiver expired a month ago and nothing checked\
+  Severity HIGH, layer 3, owner okan, deadline 2026-08-14. **Found by adding one spec.**
+  `aria-single-restore-path.spec.ts` passed when run directly and ran under **no** command: all three Jest projects
+  used explicit `testMatch` file lists, and a new file matches none. `jest --listTests` returned 179 against 204 spec
+  files. **My first conclusion — 24 specs silently dropped — was wrong, and the correction is the finding.**
+  `invariant-reachability.spec.ts` already asserted that every spec is either listed or declared in
+  `invariant-reachability.dormant.json` with owner, reason and expiry; it worked, and all 24 were declared. What did
+  not exist was any comparison of `expires_on` to the clock. The spec asserted `/^\d{4}-\d{2}-\d{2}$/` and stopped.
+  All 25 entries read `2026-06-30`; on 2026-07-31 every one was a month past expiry with the suite green. **An expiry
+  nothing checks is not an expiry** — checking the syntax of a date instead of the date, which is this branch's
+  recurring shape. Fixed in three parts: the date is load-bearing; shard membership is a glob so a spec is in the
+  suite because it exists, and the manifest becomes the one exclusion list the config reads; and every waiver must
+  name a finding, because owner + reason + expiry says who, why and until when, but without an ID nothing gets
+  worked — which is how 25 waivers reached one shared date and passed it together. **Measured outcome:** expiring all
+  25 at once and running them showed **18 need no waiver at all**, so they were revived rather than re-dated —
+  179 → 197 specs now run, real coverage the repo already believed it had. The remaining 7 are genuinely red and are
+  tracked as `ORPHAN-HIGH-512`. Three other specs pinned the enumeration as config _text_ and failed on the glob;
+  each asserted a spelling where the property was reachability, and all three now assert the property — because the
+  obvious way to make that failure go away is to put the filename back in a list, which is the wrong direction.
+
+- **ORPHAN-HIGH-512** — seven invariant specs are red, not merely dormant\
+  Severity HIGH, layer 3, owner okan, deadline 2026-09-30. **Split from `515` deliberately:** that finding is the
+  _mechanism_ and is closed here; this is the _debt_ the mechanism was hiding, and it is not. Making the expiry
+  load-bearing expired all 25 waivers; 18 passed and were revived. These 7 fail — an access-log stream shape the
+  platform does not emit, audit-immutability triggers absent from every migration, audited operations that are not
+  module-wired, an auth-users FK spec reading a migration file that **does not exist**, emitted events with no
+  declared interface, legal-hold checks bypassing the canonical lib, and ad-hoc circuit breakers outside it. **Not
+  fixed here, and why:** each belongs to a domain lane this change does not touch, and each needs a real fix in that
+  domain rather than a test edit. Switching them on would make an ARIA breaker-recovery branch red for reasons wholly
+  outside it; deleting them would discard invariants written deliberately. They carry a 2026-09-30 expiry that now
+  **fails the build** when it passes — the difference between this waiver and the ones it replaces.
+
 - **ORPHAN-HIGH-510** — the ARIA kernel suite had no local mirror at all, and a red commit reached origin because of it\
   Severity HIGH, layer 3, owner okan, deadline 2026-08-13. **Found by my own violation, one increment late.** Before
   committing RC-9 I ran `invariants:fast` and `findings:verify`, saw green, committed and **pushed**. The first command
@@ -1665,9 +1735,20 @@ finding is one nobody can navigate back to from the review that produced it.
   different verb, not a flag, so that reaching for "make it evaluable" cannot land on "discard the evidence". It refuses
   on a count mismatch between its own partition and the breaker's own reader, and refuses outright when the ledger is
   unreadable (a file-access fault is not row damage). It has a CLI, because `ORPHAN-HIGH-465` was precisely a recovery
-  function shipped with none. **Second half open:** recovery still runs where the state is not — the design is a
-  `workflow_dispatch` restore → mutate → republish through the existing S1 bridge, deliberately not a second restore
-  path, and unimplemented because verifying it needs a live artifact round-trip this container cannot perform.
+  function shipped with none. **Second half CLOSED.** Recovery now runs where the state
+  is: a `workflow_dispatch` pair of inputs on `aria-agent-executor` turns a run into a repair — restore, quarantine,
+  republish — inside the transaction that job already performs, so there is no second restore and no second publish.
+  A recovery run claims no request and invokes no agent (a repair must be one auditable transaction, not a repair
+  mixed with a night's work), and it deliberately runs BEFORE the Claude CLI and auth preflights, which hard-fail the
+  job without a managed session: a recovery lever that depends on the agent lane being healthy is no lever on the
+  night it is needed. It keeps the lease guard, because the repair mutates a tree a local daemon may hold. The step
+  is pinned in the workflow contract's `required_steps` with both ordering bounds — after the restore, before the
+  publish — since before the restore it would quarantine a bootstrap-empty ledger and report a clean no-op, and after
+  the publish it would repair a tree nothing persists. Satisfying the plan's "no second restore path" is what
+  uncovered `ORPHAN-CRITICAL-513`: there were already two, and they had drifted. **What remains unverified, stated
+  rather than implied:** no live artifact round-trip has run. Everything statically assertable is asserted — the
+  single restore path, both publish gates, the contract's step set and order, the input-injection discipline — but
+  the first real dispatch is still the first real dispatch.
 
 - **ORPHAN-HIGH-505** — the phase constants declare 5 phases while the cycle runs 15  
   Severity HIGH, layer 1, owner okan, deadline 2026-08-13. **Found while scoping RC-1's tier-1 collapse, and it changes

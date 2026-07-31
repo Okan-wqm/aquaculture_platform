@@ -1,0 +1,147 @@
+name: Restore aria-tools state
+description: >-
+  Restore the persistent aria-tools tree from the newest live aria-tools-state
+  artifact, and report whether the tree descends from a restored one or from a
+  genuine first-run bootstrap.
+
+# ORPHAN-CRITICAL-420 S1 — the queue bridge. `aria-tools/` is gitignored, so the
+# 01:00 producer's minted requests and the 02:00 consumer's claims only survive
+# the runner by travelling inside the `aria-tools-state` artifact. Both lanes
+# restore at the start of their job and republish at the end.
+#
+# WHY THIS IS ONE FILE NOW, AND WHAT IT COST TO NOT BE.
+#
+# Both workflows carried their own copy of this ~70-line Python heredoc. They
+# were not equal, and the inequality was load-bearing:
+#
+#   * aria-agent-executor's copy wrote `restored=true` / `bootstrap=true` to
+#     $GITHUB_OUTPUT — ORPHAN-CRITICAL-484's positive proof that the tree
+#     descends from a restored one, plus ORPHAN-CRITICAL-488's separation of
+#     "nothing to restore" from "restore failed";
+#   * aria-auto-cycle's copy wrote NEITHER, and its restore step had no `id:`,
+#     so there was no output for a publish gate to read even if one had wanted
+#     to.
+#
+# So the fix for 484/488 landed on the CONSUMER and never reached the PRODUCER —
+# the 01:00 lane that mints the entire queue. On that lane a restore that failed
+# or was skipped left a bootstrap-empty `aria-tools/`, which passes `integrity
+# verify` (an empty tree is trivially consistent) and was then published under
+# the canonical name with `overwrite: true`. That is not a missed publish; it is
+# the accumulated state being overwritten by nothing, which is the exact
+# absorbing failure 484 was raised to stop.
+#
+# Copying is how two texts drift. Extracting is not tidiness here — it is how the
+# producer gets the fix the consumer already had, and how it cannot lose it again.
+#
+# ONE RESTORE PATH IS ALSO AN RC-6 PRECONDITION. The breaker-evidence recovery
+# dispatch mutates this same hash-chained tree; a second restore implementation
+# would mean two transactions around one ledger, which is how a ledger diverges.
+# `tests/invariants/aria-single-restore-path.spec.ts` asserts there is exactly
+# one.
+
+inputs:
+  github-token:
+    description: >-
+      Token used to list and download the artifact. Passed explicitly because a
+      composite action does not inherit `github.token`; the calling job needs
+      `permissions: actions: read`.
+    required: true
+
+outputs:
+  restored:
+    description: >-
+      'true' only when a prior artifact was found AND extracted. Never 'false' —
+      absence is the signal, so a step failure, a skipped step and a crash all
+      read the same as a failed restore.
+    value: ${{ steps.restore.outputs.restored }}
+  bootstrap:
+    description: >-
+      'true' only on a genuine first run (no live artifact exists yet). Distinct
+      from `restored` so a newborn ARIA can publish its first artifact while a
+      broken restore still cannot.
+    value: ${{ steps.restore.outputs.bootstrap }}
+
+runs:
+  using: composite
+  steps:
+    - name: Download and extract the newest aria-tools-state artifact
+      id: restore
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        set -euo pipefail
+        # Latest non-expired aria-tools-state artifact (the endpoint sorts
+        # newest-first). Missing/expired -> fresh bootstrap (fail-open on state
+        # only; a PRESENT-but-undecodable archive raises out of zipfile and
+        # fails the step rather than reading as "no work").
+        python3 - <<'PY'
+        import io
+        import json
+        import os
+        import urllib.error
+        import urllib.request
+        import zipfile
+
+        repo = os.environ["GITHUB_REPOSITORY"]
+        token = os.environ["GH_TOKEN"]
+
+        def api(url):
+            req = urllib.request.Request(url)
+            req.add_header("Authorization", f"Bearer {token}")
+            req.add_header("Accept", "application/vnd.github+json")
+            return urllib.request.urlopen(req, timeout=60)
+
+        listing_url = (
+            f"https://api.github.com/repos/{repo}/actions/artifacts"
+            "?name=aria-tools-state&per_page=5"
+        )
+        with api(listing_url) as resp:
+            artifacts = json.load(resp).get("artifacts", [])
+        live = [a for a in artifacts if not a.get("expired")]
+        if not live:
+            # ORPHAN-CRITICAL-488 — a GENUINE first run must still publish. The
+            # 484 gate collapsed "restore failed" and "nothing to restore" into
+            # one absent signal, so a newborn ARIA could never establish its
+            # first artifact: publish blocked, job red, forever. Three states,
+            # distinguished at the only step that knows which one occurred. A
+            # failure, a skipped step or a crash still write NEITHER, so those
+            # keep blocking exactly as before.
+            with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+                fh.write("bootstrap=true\n")
+            print("No prior aria-tools-state artifact; starting from bootstrap.")
+            raise SystemExit(0)
+        artifact = live[0]
+        print(f"Restoring aria-tools-state artifact {artifact['id']} ({artifact['created_at']})")
+        # The download endpoint answers 302 to blob storage, and the storage
+        # host REJECTS requests that still carry the GitHub Authorization
+        # header (ORPHAN-LOW-303) - resolve the redirect manually: authorized
+        # first hop, bare second hop.
+        class _NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, req, fp, code, msg, headers, newurl):
+                return None
+
+        opener = urllib.request.build_opener(_NoRedirect)
+        first = urllib.request.Request(artifact["archive_download_url"])
+        first.add_header("Authorization", f"Bearer {token}")
+        first.add_header("Accept", "application/vnd.github+json")
+        try:
+            with opener.open(first, timeout=60) as resp:
+                payload = resp.read()
+        except urllib.error.HTTPError as err:
+            if err.code not in (301, 302, 307, 308):
+                raise
+            location = err.headers["Location"]
+            with urllib.request.urlopen(location, timeout=120) as resp:
+                payload = resp.read()
+        os.makedirs("aria-tools", exist_ok=True)
+        with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+            zf.extractall("aria-tools")
+        # ORPHAN-CRITICAL-484 — positive proof the tree DESCENDS from a restored
+        # one. Written on the success path only, so absence blocks: the
+        # no-artifact fail-open branch, a step failure, a skipped step and a
+        # crash all leave it unset. There is no restored=false to get wrong.
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+            fh.write("restored=true\n")
+        print("aria-tools state restored.")
+        PY

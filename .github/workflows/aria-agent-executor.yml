@@ -38,6 +38,22 @@ on:
         options:
           - 'true'
           - 'false'
+      breaker_quarantine_reason:
+        description: >-
+          RC-6 RECOVERY MODE. Non-empty turns this run into a breaker-evidence
+          repair instead of an agent run: restore, quarantine the undecodable
+          rows of the failure ledger, republish. No request is claimed and no
+          agent is invoked -- a repair must be one auditable transaction, not a
+          repair mixed with a night's work. Requires operator_approval_ref.
+        required: false
+        type: string
+      operator_approval_ref:
+        description: >-
+          Audit reference recorded against the quarantine (issue, incident or
+          approval ID). Required whenever breaker_quarantine_reason is set; the
+          kernel refuses the operation without one.
+        required: false
+        type: string
 
 concurrency:
   group: aria-agent-executor-main
@@ -76,6 +92,10 @@ jobs:
       # --ignore-scripts flag satisfies V2 I-25 clause 4
       # (INFRA-CRITICAL-001 supply chain).
       - name: Pre-flight - Claude Code CLI present
+        # RC-6 — skipped in recovery mode. A breaker repair invokes no agent, and
+        # refusing the run because the Claude CLI is absent would make the
+        # recovery lever depend on the very lane that may be broken.
+        if: inputs.breaker_quarantine_reason == ''
         run: |
           set -euo pipefail
           REQUIRED_CLAUDE_VERSION="2.1.197"
@@ -147,97 +167,14 @@ jobs:
       # lease unable to observe a held lease at all.
       - name: Restore aria-tools state from previous run
         id: restore_state
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # Latest non-expired aria-tools-state artifact (endpoint sorts
-          # newest-first). Missing/expired -> fresh bootstrap (fail-open on
-          # state only; a PRESENT-but-undecodable archive raises out of
-          # zipfile and fails the step rather than reading as "no work").
-          python3 - <<'PY'
-          import io
-          import json
-          import os
-          import urllib.error
-          import urllib.request
-          import zipfile
-
-          repo = os.environ["GITHUB_REPOSITORY"]
-          token = os.environ["GH_TOKEN"]
-
-          def api(url):
-              req = urllib.request.Request(url)
-              req.add_header("Authorization", f"Bearer {token}")
-              req.add_header("Accept", "application/vnd.github+json")
-              return urllib.request.urlopen(req, timeout=60)
-
-          listing_url = (
-              f"https://api.github.com/repos/{repo}/actions/artifacts"
-              "?name=aria-tools-state&per_page=5"
-          )
-          with api(listing_url) as resp:
-              artifacts = json.load(resp).get("artifacts", [])
-          live = [a for a in artifacts if not a.get("expired")]
-          if not live:
-              # ORPHAN-CRITICAL-488 — a GENUINE first run must still publish.
-              # The 484 gate collapsed "restore failed" and "nothing to
-              # restore" into one absent signal, so a newborn ARIA could never
-              # establish its first artifact: publish blocked, job red, forever.
-              # Three states, distinguished at the only step that knows which
-              # one occurred. A failure, a skipped step or a crash still write
-              # NEITHER, so those keep blocking exactly as before.
-              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-                  fh.write("bootstrap=true\n")
-              print("No prior aria-tools-state artifact; starting from bootstrap.")
-              raise SystemExit(0)
-          artifact = live[0]
-          print(f"Restoring aria-tools-state artifact {artifact['id']} ({artifact['created_at']})")
-          # The download endpoint answers 302 to blob storage, and the
-          # storage host REJECTS requests that still carry the GitHub
-          # Authorization header (ORPHAN-LOW-303) - resolve the redirect
-          # manually: authorized first hop, bare second hop.
-          class _NoRedirect(urllib.request.HTTPRedirectHandler):
-              def redirect_request(self, req, fp, code, msg, headers, newurl):
-                  return None
-
-          opener = urllib.request.build_opener(_NoRedirect)
-          first = urllib.request.Request(artifact["archive_download_url"])
-          first.add_header("Authorization", f"Bearer {token}")
-          first.add_header("Accept", "application/vnd.github+json")
-          try:
-              with opener.open(first, timeout=60) as resp:
-                  payload = resp.read()
-          except urllib.error.HTTPError as err:
-              if err.code not in (301, 302, 307, 308):
-                  raise
-              location = err.headers["Location"]
-              with urllib.request.urlopen(location, timeout=120) as resp:
-                  payload = resp.read()
-          os.makedirs("aria-tools", exist_ok=True)
-          with zipfile.ZipFile(io.BytesIO(payload)) as zf:
-              zf.extractall("aria-tools")
-          # ORPHAN-CRITICAL-484 — positive proof the tree DESCENDS from a
-          # restored one. Written on the success path only, so absence blocks:
-          # the no-artifact fail-open branch, a step failure, a skipped step
-          # and a crash all leave it unset. There is no restored=false to get
-          # wrong.
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
-              fh.write("restored=true\n")
-          print("aria-tools state restored.")
-          PY
-
-
-      # Plan ARIA-V3 §B2 + §2n + INFRA-HIGH-004 — cross-host lease
-      # check. If a local daemon currently holds the autonomous-loop
-      # lease (e.g. operator is running ``aria-kernel autonomy run``
-      # on their laptop), this GHA cron MUST refuse to enter the
-      # autonomous path to prevent double-claim / double-materialize
-      # races. The lease state is read from the mainline
-      # ``aria-tools/locks/autonomous-host.lock`` file; a fresh lease
-      # (< 5 min old) belonging to a different host blocks the cron.
-      # The cron exits cleanly with reason ``autonomous_host_lease_blocked``
-      # rather than failing — no retry storm.
+        # RC-6 — one definition, both lanes. The two hand-copied heredocs that
+        # used to sit here had already drifted: only the executor's carried the
+        # ORPHAN-CRITICAL-484/488 restore-proof outputs, so the producer lane
+        # could publish a bootstrap-empty tree over the accumulated state. The
+        # action's header records what that cost.
+        uses: ./.github/actions/restore-aria-tools-state
+        with:
+          github-token: ${{ github.token }}
       - name: Pre-flight — cross-host autonomous-loop lease check
         id: lease_check
         run: |
@@ -280,6 +217,68 @@ jobs:
           echo "Local host holds autonomous-loop lease; exiting cleanly per Plan ARIA-V3 §2n."
           exit 0
 
+      # RC-6 second half — recovery runs WHERE THE STATE LIVES.
+      #
+      # `quarantine_breaker_evidence` moves the undecodable rows of
+      # autonomous-failures.jsonl to a sidecar so the breaker can be judged on
+      # the surviving evidence. It shipped with a CLI, and that CLI operates on
+      # a local `--tools-dir` — while the ledger travels between runs inside the
+      # aria-tools-state artifact. An operator running it on their laptop
+      # repairs a copy nothing reads. The only lever that reached the real
+      # ledger was deleting the artifact, which also destroys the agent queue
+      # ORPHAN-CRITICAL-469 exists to carry: the recovery path for one breaker
+      # was the destruction of an unrelated subsystem.
+      #
+      # WHY HERE AND NOT IN A NEW WORKFLOW. A recovery workflow would need its
+      # own restore and its own publish -- a second transaction around a
+      # hash-chained ledger, which is how a ledger diverges. This job already
+      # restores, verifies and republishes; the repair is one step inside that
+      # existing transaction.
+      #
+      # WHY BEFORE THE CLAUDE PREFLIGHT. A recovery must not depend on the agent
+      # path being healthy. The steps below refuse the job when the Claude CLI
+      # or its managed session is absent, and a runner in that state is exactly
+      # where an operator still needs to repair a breaker.
+      #
+      # WHY IT STILL CARRIES THE LEASE GUARD. The repair mutates the same tree a
+      # local daemon may be holding; publishing over it would race.
+      - name: Quarantine damaged breaker evidence (recovery dispatch)
+        id: breaker_quarantine
+        if: steps.lease_check.outputs.blocked != 'true' && inputs.breaker_quarantine_reason != ''
+        env:
+          # Plan 024 v3 §B-3 — operator text reaches the shell through the
+          # environment, never through `${{ }}` splicing into the script source.
+          QUARANTINE_REASON: ${{ inputs.breaker_quarantine_reason }}
+          QUARANTINE_APPROVAL_REF: ${{ inputs.operator_approval_ref }}
+        run: |
+          set -euo pipefail
+          if [ -z "${QUARANTINE_APPROVAL_REF:-}" ]; then
+            echo "::error::operator_approval_ref is required with breaker_quarantine_reason" >&2
+            exit 1
+          fi
+          # Validate BEFORE any use, per the §B-3 pattern. The kernel validates
+          # again; this refuses early with a message naming the input rather
+          # than surfacing an argparse error from three layers down.
+          if ! [[ "$QUARANTINE_APPROVAL_REF" =~ ^[A-Za-z0-9/_.:#-]{1,128}$ ]]; then
+            echo "::error::operator_approval_ref has an unexpected format" >&2
+            exit 1
+          fi
+          if ! [[ "$QUARANTINE_REASON" =~ ^[A-Za-z0-9\ _.,:;()/#-]{8,256}$ ]]; then
+            echo "::error::breaker_quarantine_reason must be 8-256 plain characters" >&2
+            exit 1
+          fi
+          # `--acknowledge` is the kernel's own refusal-to-guess gate; dispatching
+          # this workflow with a reason and an approval ref IS the acknowledgement.
+          # Exits non-zero when the breaker is still tripped after the repair,
+          # which is the CORRECT outcome for real in-window failures: quarantine
+          # makes the state evaluable, it does not clear it. The publish below
+          # runs under `always()`, so the repaired tree is still republished.
+          PYTHONPATH=aria-kernel python3 -m aria_kernel breaker quarantine \
+            --tools-dir aria-tools \
+            --acknowledge \
+            --reason "$QUARANTINE_REASON" \
+            --operator-approval-ref "$QUARANTINE_APPROVAL_REF"
+
       # Plan ARIA-V3 §B1 INFRA-CRITICAL-002 — refuse to start when
       # the workflow is in live mode but managed Claude Code auth is
       # absent. The kill switch (vars.ARIA_MOCK_KILL_SWITCH) is read
@@ -290,7 +289,9 @@ jobs:
       # records exactly which layer decided the mock state.
       - name: Pre-flight - Claude Code auth + mock-mode kill-switch resolution
         id: preflight
-        if: steps.lease_check.outputs.blocked != 'true'
+        # RC-6 — see the CLI floor above: a recovery run needs no managed
+        # Claude session, and this step hard-fails the job without one.
+        if: steps.lease_check.outputs.blocked != 'true' && inputs.breaker_quarantine_reason == ''
         env:
           KILL_SWITCH: ${{ vars.ARIA_MOCK_KILL_SWITCH }}
           INPUT_MOCK: ${{ github.event.inputs.mock }}
@@ -324,7 +325,11 @@ jobs:
 
       - name: Find next pending request
         id: pending
-        if: steps.lease_check.outputs.blocked != 'true'
+        # RC-6 — a recovery run claims nothing. Leaving request_id empty is what
+        # skips the executor, the envelope upload and the sandbox provisioning:
+        # they are already guarded on it, so recovery mode needs no second
+        # condition threaded through each of them.
+        if: steps.lease_check.outputs.blocked != 'true' && inputs.breaker_quarantine_reason == ''
         env:
           # Plan 024 v3 §B-3 — env-only interpolation; raw shell access
           # to ${{ github.event.inputs.request_id }} is closed because
@@ -368,7 +373,11 @@ jobs:
             --repo-root .
 
       - name: Skip if no pending request
-        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id == ''
+        # RC-6 — excluded in recovery mode, where request_id is empty BY DESIGN.
+        # Announcing "no pending requests" for a deliberate repair would be a
+        # message that misdescribes the run, which is the class of defect this
+        # branch keeps closing.
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id == '' && inputs.breaker_quarantine_reason == ''
         run: echo "no pending requests; exiting cleanly"
 
       # ORPHAN-CRITICAL-439 — the containment layer needs a backend to exist.

@@ -41460,6 +41460,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/aria-single-restore-path.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/aria-workflow-input-injection.spec.ts",
       "prettier_managed": true
     },
@@ -55362,10 +55368,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9076,
+  "file_count": 9077,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 8895,
-  "managed_file_list_sha256": "199357eaa1fc8bb6b108c39a9d66ad82f59c996b418ad54702e8397f2acc5133",
+  "managed_count": 8896,
+  "managed_file_list_sha256": "2dffab5446283d792b30cf2d968b3349f589d2a41da8c29334845cc99ff85f69",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

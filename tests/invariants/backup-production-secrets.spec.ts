@@ -716,14 +716,26 @@ describe('production backup secret contract', () => {
   });
 
   it('is wired into invariants:fast via a selected Jest project', () => {
+    // The property is that THIS spec runs in the fast suite. It used to be
+    // spelled as "the layer-1 block of the config text names this file", which
+    // held only while shard membership was an enumeration. Membership is a glob
+    // now — a spec runs unless the dormancy manifest excludes it — so the
+    // filename is correctly absent from the config and the property is
+    // unchanged. Asserting the spelling would report a coverage improvement as
+    // a coverage regression, and the obvious way to make that failure go away
+    // is to put this file back in a list, which is the wrong direction.
     const jestConfig = read(JEST_CONFIG_PATH);
-    const layer1Start = jestConfig.indexOf("displayName: 'layer-1'");
-    const layer3Start = jestConfig.indexOf("displayName: 'layer-3'");
+    expect(jestConfig).toContain("testMatch: ['<rootDir>/*.spec.ts']");
 
-    expect(layer1Start).toBeGreaterThanOrEqual(0);
-    expect(layer3Start).toBeGreaterThan(layer1Start);
+    const dormant = JSON.parse(
+      read(join(REPO_ROOT, 'tests', 'invariants', 'invariant-reachability.dormant.json')),
+    ) as Record<string, unknown>;
+    expect(Object.keys(dormant)).not.toContain('backup-production-secrets.spec.ts');
 
-    const layer1Block = jestConfig.slice(layer1Start, layer3Start);
-    expect(layer1Block).toContain('<rootDir>/backup-production-secrets.spec.ts');
+    // And the fast script must still select the project this spec lands in.
+    const pkg = JSON.parse(read(join(REPO_ROOT, 'package.json'))) as {
+      scripts?: Record<string, string>;
+    };
+    expect(pkg.scripts?.['invariants:fast']).toContain('layer-1');
   });
 });

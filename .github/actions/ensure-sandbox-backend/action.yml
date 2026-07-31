@@ -65,19 +65,31 @@ runs:
           echo "no functional sandbox backend on this host yet"
         fi
 
-    # Only reached when the probe came back empty. `continue-on-error` is
-    # deliberate and narrow: a failed install must not end the job here, because
-    # the verify step below is the authority and it produces a message naming the
-    # actual cause. Dying inside apt reports "exit 100" and sends the reader to
-    # the wrong problem.
+    # Only reached when the probe came back empty. A failed install must not end
+    # the job HERE, because the verify step below is the authority and produces a
+    # message naming the actual cause; dying inside apt reports "exit 100" and
+    # sends the reader to the wrong problem.
+    #
+    # Expressed as a shell `if` rather than the per-step error-tolerance key,
+    # and the difference is not cosmetic. The repo forbids that key in any file
+    # whose steps a governed job runs (`workflows_do_not_continue_on_error`),
+    # and until this change the gate could not see composite actions at all — so
+    # the first draft of this action satisfied the rule only by being invisible
+    # to it. A command inside an `if` condition is exempt from `set -e`, so this
+    # tolerates the failure without the banned key AND prints why, which the key
+    # never did. The sentence above cannot spell the key either: the gate is a
+    # raw text scan over the whole file, so even prose naming the pattern fails
+    # it — the sibling comment in aria-auto-cycle.yml documents the same trap.
     - name: Install sandbox backend (bubblewrap)
       if: steps.probe.outputs.backend == '' && inputs.install-if-missing == 'true'
-      continue-on-error: true
       shell: bash
       run: |
         set -euo pipefail
-        sudo apt-get update -qq
-        sudo apt-get install -y --no-install-recommends bubblewrap
+        if sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap; then
+          echo "bubblewrap installed"
+        else
+          echo "apt install did not succeed here; the verify step below decides and names the cause" >&2
+        fi
 
     - name: Verify the sandbox actually confines
       id: verify

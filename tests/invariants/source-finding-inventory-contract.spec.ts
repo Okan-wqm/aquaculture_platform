@@ -46,9 +46,9 @@ const MANIFEST_PATH = resolve(PLAN_DIRECTORY, 'manifest.json');
 const PACKAGE_PATH = resolve(REPO_ROOT, 'package.json');
 const PACKAGE_LOCK_PATH = resolve(REPO_ROOT, 'package-lock.json');
 const CI_FULL_PATH = resolve(REPO_ROOT, '.github/workflows/ci-full.yml');
-const EXPECTED_OCCURRENCE_COUNT = 964;
+const EXPECTED_OCCURRENCE_COUNT = 876;
 const EXPECTED_OCCURRENCE_DIGEST =
-  'dd4c57f30de688a6c640862b8c1e50ddd44226f8adbe033d5a8a9dd773054cd2';
+  '214b001d493a3c552e4d5d499ab6273e9ee5e4d1ec2cb4829f287727b9a78a8c';
 const PRELIMINARY_OCCURRENCE_DIGEST =
   '3426306d2cd36f6b74f84303030777de1c81613c4e554c8b75888448501676ac';
 const INTERMEDIATE_OCCURRENCE_DIGEST =
@@ -1031,19 +1031,9 @@ describe('checked-in source finding attestation', () => {
     expect(generation).toMatchObject({
       algorithm_version: 'REGISTRY_SCHEMA_CAPABILITY_V3',
       remote_source_state: 'LIVE_REDISCOVERED',
-      host_source_state: 'RETAINED_PENDING_ISOLATED_REDISCOVERY',
+      host_source_state: 'ISOLATED_FULL_REDISCOVERED',
     });
-    const pendingRegeneration = recordValue(
-      generation.pending_isolated_regeneration,
-      'pending_isolated_regeneration',
-    );
-    expect(pendingRegeneration).toMatchObject({
-      execution_owner: 'infra-expert',
-      deadline: '2026-07-30',
-    });
-    expect(stringValue(pendingRegeneration.plan, 'regeneration plan')).toContain(
-      'exclusive isolated CPU partition',
-    );
+    expect(generation.pending_isolated_regeneration).toBeNull();
   });
 
   it('normalizes registry and schema authority to unique content-attested Git blobs', () => {
@@ -1110,11 +1100,11 @@ describe('checked-in source finding attestation', () => {
     expect(
       sourceRefs.every((sourceRef, index) => occurrenceIds[index] === occurrenceId(sourceRef)),
     ).toBe(true);
-    expect(classifications.filter((value) => value === 'ID_COLLISION')).toHaveLength(27);
-    expect(classifications.filter((value) => value === 'LEGACY_UNREGISTERED')).toHaveLength(618);
-    expect(classifications.filter((value) => value === 'PENDING_ADJUDICATION')).toHaveLength(319);
-    expect(evidenceKinds.filter((value) => value === 'REGISTRY_RECORD')).toHaveLength(645);
-    expect(evidenceKinds.filter((value) => value === 'REGISTRY_REFERENCE')).toHaveLength(90);
+    expect(classifications.filter((value) => value === 'ID_COLLISION')).toHaveLength(28);
+    expect(classifications.filter((value) => value === 'LEGACY_UNREGISTERED')).toHaveLength(604);
+    expect(classifications.filter((value) => value === 'PENDING_ADJUDICATION')).toHaveLength(244);
+    expect(evidenceKinds.filter((value) => value === 'REGISTRY_RECORD')).toHaveLength(632);
+    expect(evidenceKinds.filter((value) => value === 'REGISTRY_REFERENCE')).toHaveLength(15);
     expect(evidenceKinds.filter((value) => value === 'REVIEW_MENTION')).toHaveLength(229);
     expect(sourceRefs).toContain('SRC-R-019#EDGE-CRITICAL-001-R1');
     expect(sourceRefs).toContain('SRC-R-019#RUST-CVE-002');

@@ -376,8 +376,8 @@
   ],
   "capability_reconciliation": {
     "recorded_at": "2026-07-29T10:17:45Z",
-    "last_reconciled_at": "2026-07-30T11:37:52Z",
-    "reconciled_base_sha": "97669af5c49348a7ef29d7849f0b1e357650ce67",
+    "last_reconciled_at": "2026-07-30T18:25:00Z",
+    "reconciled_base_sha": "f723a488432eccb3c63bd15e9161026956df7c61",
     "scope": "Every unmerged remote branch, unmerged local branch, and dirty worktree observed at recorded_at or a later live reconciliation. A branch is evidence only; one root-cause behavior with one authority_key is the integration unit.",
     "execution_policy": {
       "production_droplet": {
@@ -400,7 +400,6 @@
       "legacy_refs_are_noncanonical": true,
       "reserved_domain_floors": {
         "ADMIN": 100,
-        "ALERT": 1,
         "ARCH": 2,
         "AUDITTRAIL": 6,
         "BILLING": 5,
@@ -430,20 +429,17 @@
         "LEGAL": 2,
         "MOB": 18,
         "MSG": 78,
-        "ORPHAN": 490,
+        "ORPHAN": 508,
         "PEOPLE": 4,
         "PLAT": 908,
         "PR935": 14,
         "PROC": 17,
-        "PRODUCT-JOB": 1,
-        "RBAC": 14,
-        "REG": 1,
+        "RBAC": 12,
         "RUST": 2,
         "SEC": 60,
         "SENSOR": 58,
         "SUPPLY": 1,
         "SVD": 1,
-        "TENANTPANEL": 6,
         "UNSCOPED": 57
       }
     },
@@ -539,7 +535,7 @@
         "id": "SRC-R-004",
         "kind": "REMOTE_BRANCH",
         "locator": "refs/remotes/origin/claude/aria-security-audit-findings-8l9it5",
-        "head_sha": "2f178b6cac65428c077b08fe22c68b9d34dd0c3b",
+        "head_sha": "007d88b0537090a1835f691134a7d8f7ca05c9c0",
         "state": "SUPERSEDED",
         "disposition": "SUPERSEDE",
         "assessed_at": "2026-07-29",
@@ -1060,8 +1056,8 @@
         "id": "SRC-W-033",
         "kind": "DIRTY_WORKTREE",
         "locator": "/var/aqua-saas",
-        "head_sha": "97669af5c49348a7ef29d7849f0b1e357650ce67",
-        "content_sha256": "a96f5a05251c7990e9aae7280baf2ceede18f5109a2308e90d4e9b9fd1a85d54",
+        "head_sha": "f723a488432eccb3c63bd15e9161026956df7c61",
+        "content_sha256": "75b7da2586d16619a2a1d2ff56156cd394099fd0d060682a6f520f9dca0a0759",
         "state": "PRESERVED_DIRTY",
         "disposition": "REIMPLEMENT",
         "assessed_at": "2026-07-29",
@@ -6601,10 +6597,10 @@
     ],
     "finding_inventory": {
       "schema_version": 3,
-      "artifact_path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/source-findings.77c394781f08f9203d2548a6a898adcfaffee623b809791dbc81636c8debf3a1.jsonl",
-      "artifact_sha256": "77c394781f08f9203d2548a6a898adcfaffee623b809791dbc81636c8debf3a1",
-      "occurrence_count": 964,
-      "occurrence_sha256": "dd4c57f30de688a6c640862b8c1e50ddd44226f8adbe033d5a8a9dd773054cd2",
+      "artifact_path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/source-findings.1283b6297e35ff4c090565aa3ac8caef11239fee620fde13a159c1ad4a1249d6.jsonl",
+      "artifact_sha256": "1283b6297e35ff4c090565aa3ac8caef11239fee620fde13a159c1ad4a1249d6",
+      "occurrence_count": 876,
+      "occurrence_sha256": "214b001d493a3c552e4d5d499ab6273e9ee5e4d1ec2cb4829f287727b9a78a8c",
       "audit_lineage": {
         "preliminary_textual_occurrence_count": 1030,
         "preliminary_textual_occurrence_sha256": "3426306d2cd36f6b74f84303030777de1c81613c4e554c8b75888448501676ac",
@@ -6644,7 +6640,7 @@
       },
       "registry_authority": {
         "reconciled_base": {
-          "registry_blob_sha": "632ef94a46d7e24f03216207bbca04739aaee5be",
+          "registry_blob_sha": "228fb0d858761085ba0401cecd2bf65b841f763f",
           "schema_blob_sha": "0108785495591c1af8ab2a4882d63a3d45c1e55d"
         },
         "discovery_candidate": {
@@ -6656,11 +6652,6 @@
             "blob_sha": "228fb0d858761085ba0401cecd2bf65b841f763f",
             "sha256": "89ef5cb1ef344e6bf085aed05f216c83bda65431b3de9e1d25dc2ebf5667298f",
             "row_count": 1251
-          },
-          {
-            "blob_sha": "632ef94a46d7e24f03216207bbca04739aaee5be",
-            "sha256": "b446e00973afa4bcb5a13e1fc066f95e519d53d40564f644971a4fe58f7facf0",
-            "row_count": 1166
           }
         ],
         "schema_snapshots": [
@@ -6677,13 +6668,9 @@
       "generation_attestation": {
         "algorithm_version": "REGISTRY_SCHEMA_CAPABILITY_V3",
         "remote_source_state": "LIVE_REDISCOVERED",
-        "host_source_state": "RETAINED_PENDING_ISOLATED_REDISCOVERY",
-        "reconciled_at": "2026-07-30T11:37:52Z",
-        "pending_isolated_regeneration": {
-          "execution_owner": "infra-expert",
-          "deadline": "2026-07-30",
-          "plan": "Run the full source-finding generator from a repository-owned workflow_dispatch job whose cgroup v2 proves finite memory/swap/CPU/PID limits and an exclusive isolated CPU partition; scan every pinned local branch and dirty worktree, and replace retained rows only after content digests and the start/end dirty snapshot pins agree."
-        }
+        "host_source_state": "ISOLATED_FULL_REDISCOVERED",
+        "reconciled_at": "2026-07-30T18:25:00Z",
+        "pending_isolated_regeneration": null
       },
       "assignment_contract": "Every source_id has exactly one source_adjudications queue, which owns evidence adjudication without claiming capability ownership; only a surviving explicit legacy_finding_ref may target an atomic integration unit.",
       "source_attestations": [
@@ -6750,32 +6737,32 @@
         {
           "source_id": "SRC-R-004",
           "source_kind": "REMOTE_BRANCH",
-          "source_head_sha": "2f178b6cac65428c077b08fe22c68b9d34dd0c3b",
+          "source_head_sha": "007d88b0537090a1835f691134a7d8f7ca05c9c0",
           "source_content_sha256": null,
-          "merge_base_sha": "8cd8c4ca2b5329535080644657870dd59d8616a3",
+          "merge_base_sha": "19eee899fa1ed1562716e23f36b39a4dca88a9e3",
           "source_adjudication_id": "SA-SRC-R-004",
-          "occurrence_count": 20,
-          "untargeted_occurrence_count": 20,
-          "registry_backed_count": 20,
+          "occurrence_count": 7,
+          "untargeted_occurrence_count": 7,
+          "registry_backed_count": 7,
           "registry_reference_count": 0,
           "review_only_count": 0,
           "collision_count": 0,
-          "occurrence_sha256": "c89cbecd36bb4e8ef89058640753fea88c20ce1fb29c8fbbeb82f957a5e03462"
+          "occurrence_sha256": "05ed65178e98c3ed3525cd5f0fd93f9bfaec96bbba5e9858d7effed519d01f44"
         },
         {
           "source_id": "SRC-R-005",
           "source_kind": "REMOTE_BRANCH",
           "source_head_sha": "a08cd91d9afe7f7070462ec0fd317c0dbdd7d200",
           "source_content_sha256": null,
-          "merge_base_sha": "97669af5c49348a7ef29d7849f0b1e357650ce67",
+          "merge_base_sha": "a08cd91d9afe7f7070462ec0fd317c0dbdd7d200",
           "source_adjudication_id": "SA-SRC-R-005",
-          "occurrence_count": 5,
-          "untargeted_occurrence_count": 5,
+          "occurrence_count": 0,
+          "untargeted_occurrence_count": 0,
           "registry_backed_count": 0,
-          "registry_reference_count": 5,
+          "registry_reference_count": 0,
           "review_only_count": 0,
           "collision_count": 0,
-          "occurrence_sha256": "4aced23874d383dfe86901f3230b255a2e17aff6cd431b1cfc1952e6cb8ac84e"
+          "occurrence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         },
         {
           "source_id": "SRC-R-006",
@@ -7172,22 +7159,22 @@
           "source_kind": "REMOTE_BRANCH",
           "source_head_sha": "17daed6b97a0fa82e34d3279dc1798669b612785",
           "source_content_sha256": null,
-          "merge_base_sha": "97669af5c49348a7ef29d7849f0b1e357650ce67",
+          "merge_base_sha": "19eee899fa1ed1562716e23f36b39a4dca88a9e3",
           "source_adjudication_id": "SA-SRC-R-032",
-          "occurrence_count": 5,
-          "untargeted_occurrence_count": 5,
+          "occurrence_count": 0,
+          "untargeted_occurrence_count": 0,
           "registry_backed_count": 0,
-          "registry_reference_count": 5,
+          "registry_reference_count": 0,
           "review_only_count": 0,
           "collision_count": 0,
-          "occurrence_sha256": "3afc6b2666ea2e7ea37b4975d64a66cc59ad049cfbf6453730b07e63e086e5d3"
+          "occurrence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         },
         {
           "source_id": "SRC-W-033",
           "source_kind": "DIRTY_WORKTREE",
-          "source_head_sha": "97669af5c49348a7ef29d7849f0b1e357650ce67",
-          "source_content_sha256": "a96f5a05251c7990e9aae7280baf2ceede18f5109a2308e90d4e9b9fd1a85d54",
-          "merge_base_sha": "97669af5c49348a7ef29d7849f0b1e357650ce67",
+          "source_head_sha": "f723a488432eccb3c63bd15e9161026956df7c61",
+          "source_content_sha256": "75b7da2586d16619a2a1d2ff56156cd394099fd0d060682a6f520f9dca0a0759",
+          "merge_base_sha": "f723a488432eccb3c63bd15e9161026956df7c61",
           "source_adjudication_id": "SA-SRC-W-033",
           "occurrence_count": 0,
           "untargeted_occurrence_count": 0,
@@ -7204,13 +7191,13 @@
           "source_content_sha256": "6bd9d1432d9963d3b444967224c1354d86ddb8a94c5312992073538d7566a6b9",
           "merge_base_sha": "8ab198264e0d2551b1c99d68d458301410bd3030",
           "source_adjudication_id": "SA-SRC-W-034",
-          "occurrence_count": 159,
-          "untargeted_occurrence_count": 159,
+          "occurrence_count": 149,
+          "untargeted_occurrence_count": 149,
           "registry_backed_count": 0,
-          "registry_reference_count": 10,
+          "registry_reference_count": 0,
           "review_only_count": 149,
           "collision_count": 0,
-          "occurrence_sha256": "5a14a71b180472dea0c4e6e7ae0f576233ade0507bc774d9f5630fcebcd95adb"
+          "occurrence_sha256": "59839096c439ed49ac4b77e65b2c2ddb1a1b2062def25da0fe933baf50bb31a8"
         },
         {
           "source_id": "SRC-W-035",
@@ -7299,7 +7286,7 @@
           "registry_backed_count": 67,
           "registry_reference_count": 1,
           "review_only_count": 0,
-          "collision_count": 6,
+          "collision_count": 7,
           "occurrence_sha256": "269da29b6b96d367f42d96c6964dd74b5039bd299bcd5450a5b8668960946ad9"
         },
         {
@@ -7309,13 +7296,13 @@
           "source_content_sha256": "71c8280f73fb09e9f15d54d397cfd7b3dce738b1565d3c96fe093a81044b4993",
           "merge_base_sha": "ccce62224a2cdae02f176155f8a147aed5163209",
           "source_adjudication_id": "SA-SRC-W-041",
-          "occurrence_count": 26,
-          "untargeted_occurrence_count": 26,
+          "occurrence_count": 0,
+          "untargeted_occurrence_count": 0,
           "registry_backed_count": 0,
-          "registry_reference_count": 26,
+          "registry_reference_count": 0,
           "review_only_count": 0,
           "collision_count": 0,
-          "occurrence_sha256": "33fa4e3ec0434b8df0e7d9ef477e103d1664c8c9144d149bed00522e07804be5"
+          "occurrence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         },
         {
           "source_id": "SRC-W-042",
@@ -7324,13 +7311,13 @@
           "source_content_sha256": "9ae4b51541e184eab42441083ae03855223d6c2804b6dd038c68559679aa34fd",
           "merge_base_sha": "219a7b2f112567abaf67622fed9570015bb20f83",
           "source_adjudication_id": "SA-SRC-W-042",
-          "occurrence_count": 29,
-          "untargeted_occurrence_count": 29,
+          "occurrence_count": 0,
+          "untargeted_occurrence_count": 0,
           "registry_backed_count": 0,
-          "registry_reference_count": 29,
+          "registry_reference_count": 0,
           "review_only_count": 0,
           "collision_count": 0,
-          "occurrence_sha256": "c9aa3c20d58b96cb16dc26ffbfefb1d9acc38bb8ee5007bb9efaf129df32b80c"
+          "occurrence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         },
         {
           "source_id": "SRC-W-043",

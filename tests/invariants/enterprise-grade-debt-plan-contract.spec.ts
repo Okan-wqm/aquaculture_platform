@@ -735,9 +735,9 @@ describe('enterprise-grade debt closure plan contract', () => {
     expect(findingInventory.artifact_path).toBe(
       `docs/plans/${PLAN_ID}/source-findings.${artifactSha256}.jsonl`,
     );
-    expect(findingInventory.occurrence_count).toBe(964);
+    expect(findingInventory.occurrence_count).toBe(876);
     expect(stringValue(findingInventory.occurrence_sha256, 'finding_inventory.digest')).toBe(
-      'dd4c57f30de688a6c640862b8c1e50ddd44226f8adbe033d5a8a9dd773054cd2',
+      '214b001d493a3c552e4d5d499ab6273e9ee5e4d1ec2cb4829f287727b9a78a8c',
     );
     expect(objectArray(findingInventory.source_attestations)).toHaveLength(sources.length);
     const sourceFindingRows = readFileSync(sourceFindingsPath, 'utf8')
@@ -748,16 +748,16 @@ describe('enterprise-grade debt closure plan contract', () => {
         if (!isRecord(row)) throw new Error('source finding row must be an object');
         return row;
       });
-    expect(sourceFindingRows).toHaveLength(964);
+    expect(sourceFindingRows).toHaveLength(876);
     expect(sourceFindingRows.filter((row) => row.classification === 'ID_COLLISION')).toHaveLength(
-      27,
+      28,
     );
     expect(
       sourceFindingRows.filter((row) => row.classification === 'LEGACY_UNREGISTERED'),
-    ).toHaveLength(618);
+    ).toHaveLength(604);
     expect(
       sourceFindingRows.filter((row) => row.classification === 'PENDING_ADJUDICATION'),
-    ).toHaveLength(319);
+    ).toHaveLength(244);
 
     const gateProfiles = reconciliation.gate_profiles;
     expect(isRecord(gateProfiles)).toBe(true);

@@ -144,7 +144,9 @@ export class EffectiveTenantMiddleware implements NestMiddleware {
       // belt-and-suspenders).
       if (requested && user.tenantId && requested !== user.tenantId) {
         this.logger.warn(
-          `Rejected cross-tenant act-as by non-SUPER_ADMIN user=${user.sub} (requested=${requested})`,
+          JSON.stringify({
+            event: 'non_super_admin_cross_tenant_act_as_rejected',
+          }),
         );
         throw new ForbiddenException('Cross-tenant access is not permitted for this account');
       }
@@ -183,7 +185,7 @@ export class EffectiveTenantMiddleware implements NestMiddleware {
     const isCrossTenant = requested !== sourceTenant;
     if (
       isCrossTenant &&
-      process.env['MFA_REQUIRED_FOR_CROSS_TENANT'] === 'true' &&
+      process.env['MFA_REQUIRED_FOR_CROSS_TENANT'] !== 'false' &&
       !user.mfaVerified
     ) {
       throw new ForbiddenException('MFA step-up is required for cross-tenant access');
@@ -195,7 +197,10 @@ export class EffectiveTenantMiddleware implements NestMiddleware {
       // signed assertion carries effectiveTenantId; downstream services audit
       // per-operation.)
       this.logger.log(
-        `SUPER_ADMIN cross-tenant access: user=${user.sub} acting as tenant=${requested}`,
+        JSON.stringify({
+          event: 'super_admin_cross_tenant_context_resolved',
+          mfaVerified: user.mfaVerified === true,
+        }),
       );
     }
     next();

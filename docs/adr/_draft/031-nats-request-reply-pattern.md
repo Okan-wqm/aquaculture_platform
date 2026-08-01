@@ -14,7 +14,7 @@
 
 The Rust sensor-ingestion sidecar needs an **authoritative policy snapshot** at boot: which tenants use the Rust backend and which stay on the Node backend (per ADR-027 the toggle is per-tenant). The plan (`snappy-sniffing-pine.md` Kör Nokta 6) prescribes NATS request-reply — sidecar requests `policy.ingest_backend.snapshot`, a responder returns the current global + per-tenant override state, the sidecar holds it in `ArcSwap` for lock-free hot-path reads.
 
-Audit finding: `@platform/event-bus` (`platform/libs/event-bus/src/nats/nats-event-bus.ts`) exposes only `publish` / `subscribe` / `subscribeTo`. No `request` / `respond` primitives. The Rust side can call `async-nats::request()` directly, but there is no symmetric TS responder abstraction — every service wanting to reply would hand-roll its own NATS handler, losing mTLS cert-CN identity checks, retry semantics, and telemetry wiring.
+Audit finding: `@platform/event-bus` (`platform/libs/event-bus/src/nats/nats-event-bus.ts`) exposes only `publish` / `subscribe` / `subscribeTo`. No `request` / `respond` primitives. The Rust side can call `async-nats::request()` directly, but there is no symmetric TS responder abstraction — every service wanting to reply would hand-roll its own NATS handler, losing the broker-ACL subject contract, retry semantics, and telemetry wiring.
 
 The decision is whether to extend the platform lib, hand-roll the Rust side only, or route the bootstrap through HTTP/gRPC instead.
 
@@ -49,7 +49,6 @@ type RequestReplyHandler<Req, Res> = (
 
 interface RequestReplyContext {
   subject: string;
-  authenticatedIdentity?: string; // mTLS cert CN of the requester
 }
 
 interface RequestReplyResponderHandle {
@@ -67,7 +66,7 @@ Error taxonomy — one class per operator-alarm shelf:
 
 Variance from original proposal:
 - Method renamed from `request` → `requestTyped` for callsite clarity (there is already a `NatsConnection.request`; the typed variant communicates intent).
-- `correlationId` dropped from the per-call options — the transport already surfaces it via NATS headers; the caller-owned field added complexity without a concrete consumer in the first adopter.
+- `correlationId` dropped from the per-call options because the request-reply primitive has no implemented trace-header contract or concrete consumer yet. A future tracing extension must define propagation and trust semantics explicitly.
 - `RequestMeta` → `RequestReplyContext` rename — matches the `Handler(request, context)` callback shape that feels natural to TS developers.
 - `respond()` returns a handle with `drain()` (vs raw `Subscription`) so the lifecycle is explicit at shutdown.
 
@@ -93,13 +92,14 @@ The Rust sidecar uses `request_typed` at cold-start in `apps/sensor-ingestion/sr
 
 ### Identity + authorization
 
-- `authenticatedIdentity` is derived from the NATS connection (verified at mTLS handshake, per ADR-015). Applications MAY further check it against an expected list (e.g. only `gateway_service` allowed to call `policy.ingest_backend.set`).
-- `nats.conf` `authorization.users[]` block lists `allow_publish`/`allow_subscribe` subjects per CN; the generate script (`scripts/nats/generate-nats-conf.py`) is extended to emit request-reply subjects per service declaration in `services.yaml`.
+- Service identity is enforced only at the broker boundary: `nats.conf` maps each mTLS certificate to a NATS user whose `allow_publish`/`allow_subscribe` subjects come from `services.yaml`.
+- Core NATS does not attach the publisher certificate CN to an application message. A caller-supplied header such as `authenticated-identity` is forgeable and MUST NOT participate in responder authorization. `RequestReplyContext` therefore exposes only the matched subject.
+- Responders rely on exact broker ACLs for caller admission and still validate the request payload as untrusted input. The generate script (`scripts/nats/generate-nats-conf.py`) emits the request-reply subjects per service declaration.
 
 ### Correlation + tracing
 
-- `authenticated-identity` NATS header surfaces the requester's mTLS cert CN to the responder via `RequestReplyContext`; applications can check it against an expected list (e.g. the policy-snapshot responder only replies to `sensor_ingestion`).
-- W3C `traceparent` header (ADR-032 Kör Nokta 3 — implemented by `crates/observability::trace_propagation`) piggybacks on the NATS message header; request-reply pairs appear as a single distributed trace.
+- The current request-reply primitive does not propagate a trusted caller identity or W3C `traceparent` header. Request and response timing remains observable through the typed timeout/transport shelves.
+- Adding distributed tracing is a follow-up wire-contract change: both language implementations must inject/extract `traceparent` consistently and tests must prove propagation. Trace headers remain telemetry, never authorization evidence.
 
 ### First adoption (as landed)
 
@@ -125,7 +125,7 @@ This prevents the race where a NATS outage at sidecar boot causes wrong routing,
 ## Consequences
 
 **Positive:**
-- Policy snapshot, capability discovery, health probes — any request-reply pattern — has a single sanctioned primitive with telemetry, identity, tracing, and timeout built in.
+- Policy snapshot, capability discovery, health probes — any request-reply pattern — has a single sanctioned primitive with typed errors, lifecycle control, broker-ACL admission, and caller-owned timeout built in.
 - Rust ↔ TS symmetry; the Rust sidecar is not a second-class citizen.
 - No new transport (HTTP/gRPC) added — NATS stays the single-plane identity SSoT.
 
@@ -142,7 +142,7 @@ This prevents the race where a NATS outage at sidecar boot causes wrong routing,
 
 1. **HTTP call from Rust → admin-api-service REST endpoint** — rejected. Introduces second auth surface (service-identity HMAC), breaks ADR-014/015 "NATS is the identity SSoT" principle, adds HTTP client + cert management to the Rust sidecar.
 2. **gRPC** — rejected. Same two-plane concern + protobuf tooling overhead for a single endpoint today.
-3. **Rust calls `async-nats::request()` directly, no TS abstraction** — rejected. The responder side (admin-api-service) would hand-roll NATS handling, losing identity checks + telemetry + timeout uniformity. Every new responder re-implements the same code.
+3. **Rust calls `async-nats::request()` directly, no TS abstraction** — rejected. The responder side (admin-api-service) would hand-roll NATS handling, losing subject-policy, telemetry, and timeout uniformity. Every new responder re-implements the same code.
 4. **Polling pub-sub (`policy.ingest_backend.announce` periodic broadcast)** — rejected. Either the broadcast is too frequent (bandwidth waste) or the sidecar's startup window may miss an announce (cold-start race).
 
 ---
@@ -154,5 +154,5 @@ This prevents the race where a NATS outage at sidecar boot causes wrong routing,
   - `sidecar_blocks_ingestion_until_policy_snapshot_received`
   - `sidecar_uses_last_known_policy_after_nats_timeout`
   - `policy_request_reply_round_trip_under_100ms_p99`
-- E2E: `e2e/tests/integration/nats-request-reply-invariants.spec.ts` — responder registered; request returns authoritative state; identity check rejects unauthorized CN.
+- E2E: `e2e/tests/integration/nats-request-reply-invariants.spec.ts` — responder registered; request returns authoritative state; broker ACL rejects an unauthorized publisher, and a forged application identity header grants no authority.
 - `scripts/nats/generate-nats-conf.py` emits the request-reply subjects in `authorization.users[]`; `nats-invariants.spec.ts` asserts their presence.

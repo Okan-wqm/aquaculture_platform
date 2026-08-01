@@ -1,5 +1,6 @@
-import { TenantContextMiddleware } from '../tenant-context.middleware';
 import { Response, NextFunction } from 'express';
+
+import { TenantContextMiddleware, TenantRequest } from '../tenant-context.middleware';
 
 describe('TenantContextMiddleware - subdomain hardening', () => {
   let middleware: TenantContextMiddleware;
@@ -13,13 +14,15 @@ describe('TenantContextMiddleware - subdomain hardening', () => {
     mockNext = jest.fn();
   });
 
-  function createRequest(overrides: Record<string, unknown> = {}): any {
-    return {
+  function createRequest(overrides: Partial<TenantRequest> = {}): TenantRequest {
+    const request: Partial<TenantRequest> = {
       headers: {},
       query: {},
       hostname: 'localhost',
       ...overrides,
     };
+
+    return request as TenantRequest;
   }
 
   describe('subdomain UUID validation', () => {
@@ -84,7 +87,7 @@ describe('TenantContextMiddleware - subdomain hardening', () => {
       expect(req2.tenantId).toBeUndefined();
     });
 
-    it('should allow any domain when ALLOWED_BASE_DOMAINS is not set', () => {
+    it('should reject subdomain extraction in production when ALLOWED_BASE_DOMAINS is not set', () => {
       process.env = {
         ...originalEnv,
         NODE_ENV: 'production',
@@ -96,7 +99,9 @@ describe('TenantContextMiddleware - subdomain hardening', () => {
         hostname: `${validUuid}.any-domain.example.com`,
       });
       prodMiddleware.use(req, mockRes as Response, mockNext);
-      expect(req.tenantId).toBe(validUuid);
+      expect(req.tenantId).toBeUndefined();
+      expect(req.tenantContext).toBeUndefined();
+      expect(mockNext).toHaveBeenCalledTimes(1);
     });
 
     it('should always allow subdomain extraction in development', () => {
@@ -128,7 +133,11 @@ describe('TenantContextMiddleware - subdomain hardening', () => {
   describe('JWT-based tenant extraction still works', () => {
     it('should extract tenant from user JWT', () => {
       const req = createRequest({
-        user: { sub: 'user-1', tenantId: validUuid },
+        user: {
+          sub: 'user-1',
+          email: 'test-user@example.invalid',
+          tenantId: validUuid,
+        },
       });
       middleware.use(req, mockRes as Response, mockNext);
       expect(req.tenantId).toBe(validUuid);

@@ -1,210 +1,496 @@
 openapi: 3.0.3
 info:
-  title: Farm Service Internal REST API
-  version: 1.0.0
-  description: Internal REST surface retained for probes, metrics, and Sentinel Hub proxying. Business operations are GraphQL-first.
+  title: Farm Service Operational and Environment REST API
+  version: 2.0.0
+  description: |
+    Internal farm-service REST contract. Farm business reads and writes are
+    GraphQL-first. The only live environmental binary route renders an exact,
+    previously catalogued Sentinel scene for an authorized SEA_CAGE site.
+
+    Provider credentials and tenant selection are never accepted from this API.
+    The gateway supplies an HMAC-v2 service identity and a signed user assertion;
+    farm-service derives tenant, user, roles, and assigned sites from that
+    verified context.
 servers:
   - url: http://farm-service:3000
     description: Internal service network
 security:
   - serviceIdentityV2: []
+    verifiedUserAssertion: []
 paths:
+  /health:
+    get:
+      operationId: farmHealth
+      summary: Sanitized service health
+      security: []
+      responses:
+        '200':
+          description: Process health and framework versions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
   /health/live:
     get:
+      operationId: farmLiveness
       summary: Process liveness probe
       security: []
       responses:
         '200':
           description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LivenessResponse'
   /health/ready:
     get:
-      summary: Readiness probe
+      operationId: farmReadiness
+      summary: Database and tenant-schema readiness probe
       security: []
       responses:
         '200':
-          description: Critical dependencies are ready
+          description: Service is ready or degraded but can still serve traffic
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
         '503':
-          description: One or more critical dependencies are unavailable
+          description: All critical readiness checks failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
   /metrics:
     get:
+      operationId: farmMetrics
       summary: Prometheus metrics
       security: []
       responses:
         '200':
           description: Prometheus text exposition
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
           content:
             text/plain:
               schema:
                 type: string
-  /api/sentinel-hub/wms/{layerId}:
-    get:
-      summary: Proxy Sentinel Hub WMS image data
+  /api/internal/marine/sites/{siteId}/render:
+    post:
+      operationId: renderSiteSentinelScene
+      summary: Render one exact Sentinel scene over an authorized site area
+      description: |
+        Returns PNG imagery for a scene already persisted by the environmental
+        ingestion pipeline. The scene must belong to the current monitoring
+        revision of the authenticated tenant's active SEA_CAGE site. Callers
+        require TENANT_ADMIN, MODULE_MANAGER, or MODULE_USER and must be
+        authorized for the requested site.
+
+        The deployment gate `FARM_ENVIRONMENT_MONITORING_ENABLED` must be true.
+        Responses are never shared or cached. Upstream and streamed response
+        bodies are both capped at 15 MiB.
       parameters:
-        - name: layerId
-          in: path
-          required: true
-          schema:
-            type: string
-            pattern: '^[A-Za-z0-9_-]+$'
-        - name: bbox
-          in: query
-          required: false
-          schema:
-            type: string
-        - name: width
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 2048
-        - name: height
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 2048
+        - $ref: '#/components/parameters/SiteId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MarineRenderRequest'
       responses:
         '200':
-          description: Image response from Sentinel Hub
+          description: Exact-scene PNG render
+          x-response-max-bytes: 15728640
+          headers:
+            Cache-Control:
+              description: Authenticated imagery must not be cached.
+              required: true
+              schema:
+                type: string
+                enum: [no-store]
+            Vary:
+              description: Authentication-bearing headers that partition the response.
+              required: true
+              schema:
+                type: string
+                example: Authorization, Cookie
+            X-Environment-Scene-Id:
+              description: Exact persisted CDSE scene identifier used for the render.
+              required: true
+              schema:
+                type: string
+                maxLength: 512
+            X-Environment-Valid-At:
+              description: UTC acquisition timestamp of the rendered scene.
+              required: true
+              schema:
+                type: string
+                format: date-time
+            Content-Length:
+              description: PNG byte length when declared by the upstream provider.
+              schema:
+                type: integer
+                minimum: 0
+                maximum: 15728640
           content:
             image/png:
               schema:
                 type: string
                 format: binary
         '400':
-          $ref: '#/components/responses/BadRequest'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/sentinel-hub/process:
-    get:
-      summary: Proxy Sentinel Hub Processing API
-      parameters:
-        - name: bbox
-          in: query
-          required: true
-          schema:
-            type: string
-        - name: fromDate
-          in: query
-          required: true
-          schema:
-            type: string
-            format: date-time
-        - name: toDate
-          in: query
-          required: true
-          schema:
-            type: string
-            format: date-time
-        - name: width
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 2048
-        - name: height
-          in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 2048
-        - name: evalscript
-          in: query
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Processed image response
-          content:
-            image/png:
-              schema:
-                type: string
-                format: binary
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/sentinel-hub/catalog/search:
-    get:
-      summary: Proxy Sentinel Hub STAC catalog search
-      parameters:
-        - name: bbox
-          in: query
-          required: true
-          schema:
-            type: string
-        - name: fromDate
-          in: query
-          required: true
-          schema:
-            type: string
-            format: date-time
-        - name: toDate
-          in: query
-          required: true
-          schema:
-            type: string
-            format: date-time
-        - name: collections
-          in: query
-          required: false
-          schema:
-            type: string
-      responses:
-        '200':
-          description: STAC search response
+          description: |
+            Invalid UUID/body, unsupported layer, non-SEA_CAGE site, unusable
+            scene, invalid monitoring geometry, or unavailable tenant provider
+            configuration.
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '500':
-          $ref: '#/components/responses/InternalError'
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Site or exact scene was not found in the authenticated tenant scope.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: CDSE failed, returned an invalid response, or exceeded the 15 MiB limit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Environmental monitoring is disabled for this deployment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/internal/marine/sites/{siteId}/tiles/{layerId}/{z}/{x}/{y}.png:
+    get:
+      operationId: retiredSiteMarineTile
+      summary: Retired XYZ satellite tile route
+      deprecated: true
+      parameters:
+        - $ref: '#/components/parameters/SiteId'
+        - $ref: '#/components/parameters/LayerId'
+        - $ref: '#/components/parameters/TileZ'
+        - $ref: '#/components/parameters/TileX'
+        - $ref: '#/components/parameters/TileY'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '410':
+          $ref: '#/components/responses/RetiredEndpoint'
+  /api/internal/marine/sites/{siteId}/point-query:
+    post:
+      operationId: retiredSiteMarinePointQuery
+      summary: Retired satellite point-sampling route
+      deprecated: true
+      parameters:
+        - $ref: '#/components/parameters/SiteId'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '410':
+          $ref: '#/components/responses/RetiredEndpoint'
+  /api/internal/marine/layers:
+    get:
+      operationId: retiredMarineLayers
+      summary: Retired non-site-bound layer catalog
+      deprecated: true
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '410':
+          $ref: '#/components/responses/RetiredEndpoint'
+  /api/internal/marine/layers/{layerId}/availability:
+    get:
+      operationId: retiredMarineLayerAvailability
+      summary: Retired non-site-bound availability route
+      deprecated: true
+      parameters:
+        - $ref: '#/components/parameters/LayerId'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '410':
+          $ref: '#/components/responses/RetiredEndpoint'
+  /api/internal/marine/tiles/{layerId}/{z}/{x}/{y}.png:
+    get:
+      operationId: retiredMarineTile
+      summary: Retired non-site-bound XYZ tile route
+      deprecated: true
+      parameters:
+        - $ref: '#/components/parameters/LayerId'
+        - $ref: '#/components/parameters/TileZ'
+        - $ref: '#/components/parameters/TileX'
+        - $ref: '#/components/parameters/TileY'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '410':
+          $ref: '#/components/responses/RetiredEndpoint'
+  /api/internal/marine/point-query:
+    post:
+      operationId: retiredMarinePointQuery
+      summary: Retired non-site-bound point query
+      deprecated: true
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '410':
+          $ref: '#/components/responses/RetiredEndpoint'
+  /api/internal/marine/aoi-analysis:
+    post:
+      operationId: retiredMarineAoiAnalysis
+      summary: Retired browser-owned AOI analysis route
+      deprecated: true
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '410':
+          $ref: '#/components/responses/RetiredEndpoint'
+  /api/sentinel-hub/wms/{layerId}:
+    get:
+      operationId: retiredSentinelWms
+      summary: Retired browser-directed Sentinel WMS proxy
+      deprecated: true
+      parameters:
+        - $ref: '#/components/parameters/LayerId'
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '410':
+          $ref: '#/components/responses/RetiredEndpoint'
+  /api/sentinel-hub/process:
+    get:
+      operationId: retiredSentinelProcess
+      summary: Retired browser-directed Sentinel Processing proxy
+      deprecated: true
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '410':
+          $ref: '#/components/responses/RetiredEndpoint'
+  /api/sentinel-hub/catalog/search:
+    get:
+      operationId: retiredSentinelCatalog
+      summary: Retired browser-directed Sentinel catalog proxy
+      deprecated: true
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '410':
+          $ref: '#/components/responses/RetiredEndpoint'
 components:
   securitySchemes:
     serviceIdentityV2:
       type: apiKey
       in: header
       name: x-service-signature
-      description: HMAC v2 service identity headers are required for internal service calls.
+      description: |
+        HMAC-v2 gateway identity. The signature is verified together with the
+        companion x-service-name, x-service-kid, x-service-timestamp,
+        x-service-nonce, x-service-body-sha256, and x-tenant-id headers.
+    verifiedUserAssertion:
+      type: apiKey
+      in: header
+      name: x-verified-user-assertion
+      description: Gateway-signed user, tenant, role, and assigned-site claims.
+  parameters:
+    SiteId:
+      name: siteId
+      in: path
+      required: true
+      description: Active site in the authenticated tenant scope.
+      schema:
+        type: string
+        format: uuid
+    LayerId:
+      name: layerId
+      in: path
+      required: true
+      schema:
+        type: string
+        maxLength: 100
+    TileZ:
+      name: z
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 0
+    TileX:
+      name: x
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 0
+    TileY:
+      name: y
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 0
   responses:
-    BadRequest:
-      description: Invalid request or missing tenant context
+    Unauthorized:
+      description: Service identity or verified user assertion is absent or invalid.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
-    InternalError:
-      description: Safe internal error response
+    Forbidden:
+      description: Role or assigned-site authorization denied the request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RetiredEndpoint:
+      description: |
+        The browser-directed/non-site-bound endpoint is permanently retired.
+        Use GraphQL site environment queries and the exact-scene site render route.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
   schemas:
+    MarineRenderRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - layerId
+        - sceneId
+      properties:
+        layerId:
+          type: string
+          maxLength: 100
+          description: Backend-owned, scientifically labelled Sentinel imagery product.
+          enum:
+            - sentinel:natural-color
+            - sentinel:ndwi
+            - sentinel:chlorophyll-proxy
+            - sentinel:turbidity-proxy
+        sceneId:
+          type: string
+          minLength: 1
+          maxLength: 512
+          description: Exact scene identifier returned by the GraphQL environmentScenes query.
+        width:
+          type: integer
+          minimum: 64
+          maximum: 2048
+          default: 1024
+        height:
+          type: integer
+          minimum: 64
+          maximum: 2048
+          default: 1024
     ErrorResponse:
       type: object
+      additionalProperties: false
       required:
-        - code
-        - userMessage
-        - correlationId
+        - statusCode
+        - message
+        - timestamp
+        - path
       properties:
-        code:
-          type: string
-        userMessage:
-          type: string
-        fieldPath:
-          type: string
-          nullable: true
-        retryable:
-          type: boolean
         statusCode:
           type: integer
+          minimum: 400
+          maximum: 599
+        message:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        path:
+          type: string
         correlationId:
           type: string
+          nullable: true
+    LivenessResponse:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+    ReadinessResponse:
+      type: object
+      additionalProperties: false
+      required: [status, checks]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, not_ready]
+        checks:
+          type: object
+          required: [database, tenant_schema]
+          additionalProperties:
+            type: string
+            enum: [ok, error]
+          properties:
+            database:
+              type: string
+              enum: [ok, error]
+            tenant_schema:
+              type: string
+              enum: [ok, error]
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required: [status, timestamp, uptime, version, service, framework]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        timestamp:
+          type: string
+          format: date-time
+        uptime:
+          type: number
+          minimum: 0
+        version:
+          type: string
+        service:
+          type: string
+          enum: [farm-service]
+        framework:
+          type: object
+          additionalProperties: false
+          required: [nestjs, express, node]
+          properties:
+            nestjs:
+              type: string
+            express:
+              type: string
+            node:
+              type: string

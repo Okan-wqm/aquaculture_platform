@@ -16,14 +16,19 @@
  */
 import {
   createBaseEvent,
+  type BaseEvent,
   type TenantErasureRequestedEvent,
 } from '@platform/event-contracts';
+import { DataSource, EntityManager } from 'typeorm';
 
 import {
   TenantErasureTargetExecutor,
+  type TenantErasureTargetDataSource,
   type TenantErasurePostErasureHook,
   type TenantErasureTargetExecutorDependencies,
+  type TenantErasureTargetLegalHold,
   type TenantErasureTargetExecutorOptions,
+  type TenantErasureTargetOutbox,
 } from '../tenant-erasure-target-executor';
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -51,6 +56,23 @@ const TENANT_COLUMN_TABLES = new Set([
   'event_store_outbox',
 ]);
 
+type EnqueueMock = jest.Mock<
+  Promise<void>,
+  [BaseEvent, EntityManager, { idempotencyKey?: string; aggregateId?: string }?]
+>;
+
+interface ExecutorHarness {
+  readonly executor: TenantErasureTargetExecutor;
+  readonly manager: EntityManager;
+  readonly outbox: { readonly enqueue: EnqueueMock };
+  readonly logger: {
+    readonly log: jest.Mock;
+    readonly warn: jest.Mock;
+    readonly error: jest.Mock;
+    readonly debug: jest.Mock;
+  };
+}
+
 function makeRequest(
   overrides: Partial<TenantErasureRequestedEvent> = {},
 ): TenantErasureRequestedEvent {
@@ -75,51 +97,51 @@ function makeRequest(
  * table list, so the delete set observed in `calls` reflects exactly which
  * candidates the executor allowed through its exclusion filter.
  */
-function makeManager(calls: string[]) {
-  return {
-    query: jest.fn((sql: string, params?: readonly unknown[]) => {
-      const norm = sql.replace(/\s+/g, ' ').trim();
-      if (norm.includes('pg_advisory_xact_lock')) {
-        return Promise.resolve([]);
-      }
-      if (norm.startsWith('INSERT INTO "event_store"."tenant_erasure_target_proofs"')) {
-        calls.push('proof-ledger-insert');
-        return Promise.resolve([]);
-      }
-      if (norm.includes('information_schema.columns')) {
-        const requestedRaw = params ? params[1] : undefined;
-        const requested = Array.isArray(requestedRaw) ? requestedRaw : [];
-        return Promise.resolve(
-          requested
-            .filter((table): table is string => typeof table === 'string')
-            .filter((table) => TENANT_COLUMN_TABLES.has(table))
-            .map((table) => ({ table_name: table, column_name: 'tenantId' })),
-        );
-      }
-      if (norm.includes('information_schema.table_constraints')) {
-        return Promise.resolve([]); // no FKs among test tables
-      }
-      if (norm.includes('"tenant_erasure_target_proofs"')) {
-        return Promise.resolve([]); // no stored proof — first execution
-      }
-      if (norm.startsWith('SELECT COUNT(*)::text AS count')) {
-        return Promise.resolve([{ count: '2' }]);
-      }
-      const deleteMatch = norm.match(/^DELETE FROM "event_store"\."([^"]+)"/);
-      if (deleteMatch) {
-        calls.push(`table-delete:${deleteMatch[1]}`);
-        return Promise.resolve([[], 2]);
-      }
-      return Promise.reject(new Error(`unrouted query in test manager: ${norm}`));
-    }),
-  };
+function makeManager(calls: string[], storedProof?: Record<string, unknown>): EntityManager {
+  const dataSource = new DataSource({
+    type: 'postgres',
+    database: 'tenant-erasure-target-executor-spec',
+  });
+  const manager = new EntityManager(dataSource);
+  jest.spyOn(manager, 'query').mockImplementation((sql, params) => {
+    const norm = sql.replace(/\s+/g, ' ').trim();
+    if (norm.includes('pg_advisory_xact_lock')) {
+      return Promise.resolve([]);
+    }
+    if (norm.startsWith('INSERT INTO "event_store"."tenant_erasure_target_proofs"')) {
+      calls.push('proof-ledger-insert');
+      return Promise.resolve([]);
+    }
+    if (norm.includes('information_schema.columns')) {
+      const requestedRaw: unknown = params?.[1];
+      const requested = Array.isArray(requestedRaw) ? requestedRaw : [];
+      return Promise.resolve(
+        requested
+          .filter((table): table is string => typeof table === 'string')
+          .filter((table) => TENANT_COLUMN_TABLES.has(table))
+          .map((table) => ({ table_name: table, column_name: 'tenantId' })),
+      );
+    }
+    if (norm.includes('information_schema.table_constraints')) {
+      return Promise.resolve([]); // no FKs among test tables
+    }
+    if (norm.includes('"tenant_erasure_target_proofs"')) {
+      return Promise.resolve(storedProof ? [storedProof] : []);
+    }
+    if (norm.startsWith('SELECT COUNT(*)::text AS count')) {
+      return Promise.resolve([{ count: '2' }]);
+    }
+    const deleteMatch = norm.match(/^DELETE FROM "event_store"\."([^"]+)"/);
+    if (deleteMatch) {
+      calls.push(`table-delete:${deleteMatch[1]}`);
+      return Promise.resolve([[], 2]);
+    }
+    return Promise.reject(new Error(`unrouted query in test manager: ${norm}`));
+  });
+  return manager;
 }
 
-function makeHook(
-  name: string,
-  calls: string[],
-  failWith?: Error,
-): TenantErasurePostErasureHook {
+function makeHook(name: string, calls: string[], failWith?: Error): TenantErasurePostErasureHook {
   return {
     hookName: name,
     onTenantErased: jest.fn(() => {
@@ -133,27 +155,39 @@ function makeHarness(
   calls: string[],
   hooks?: readonly TenantErasurePostErasureHook[],
   options: TenantErasureTargetExecutorOptions = OPTIONS,
-) {
-  const manager = makeManager(calls);
-  const outbox = {
-    enqueue: jest.fn((event: { eventType: string } & Record<string, unknown>) => {
+  storedProof?: Record<string, unknown>,
+): ExecutorHarness {
+  const manager = makeManager(calls, storedProof);
+  const enqueue: EnqueueMock = jest.fn(
+    (
+      event: BaseEvent,
+      _manager: EntityManager,
+      _options?: { idempotencyKey?: string; aggregateId?: string },
+    ): Promise<void> => {
       calls.push(`enqueue:${event.eventType}`);
       return Promise.resolve();
-    }),
+    },
+  );
+  const outbox = {
+    enqueue,
   };
-  const dataSource = {
-    transaction: jest.fn((cb: (m: unknown) => Promise<unknown>) => cb(manager)),
+  const dataSource: TenantErasureTargetDataSource = {
+    transaction: async <T>(work: (transactionManager: EntityManager) => Promise<T>) =>
+      work(manager),
     // The executor's pre-transaction proof lookup queries the DataSource
     // directly; route it through the same SQL router as the manager.
-    query: jest.fn((sql: string) => manager.query(sql)),
+    query: (sql, params) => manager.query(sql, params),
   };
-  const legalHold = { assertNoHold: jest.fn(() => Promise.resolve()) };
+  const legalHold: TenantErasureTargetLegalHold = {
+    assertNoHold: jest.fn().mockResolvedValue(undefined),
+  };
   const logger = { log: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
+  const outboxWriter: TenantErasureTargetOutbox = outbox;
   const deps: TenantErasureTargetExecutorDependencies = {
-    dataSource: dataSource as never,
-    outboxPublisher: outbox as never,
-    legalHoldService: legalHold as never,
-    logger: logger as never,
+    dataSource,
+    outboxPublisher: outboxWriter,
+    legalHoldService: legalHold,
+    logger,
     postErasureHooks: hooks,
   };
   return {
@@ -181,13 +215,11 @@ describe('TenantErasureTargetExecutor post-erasure hooks', () => {
     );
     // Deletion → hooks (registration order) → proof row → proof event.
     expect(calls.indexOf('table-delete:event_streams')).toBeGreaterThanOrEqual(0);
-    expect(calls.indexOf('table-delete:event_streams')).toBeLessThan(
-      calls.indexOf('hook:shred-a'),
-    );
+    expect(calls.indexOf('table-delete:event_streams')).toBeLessThan(calls.indexOf('hook:shred-a'));
     expect(calls.indexOf('hook:shred-a')).toBeLessThan(calls.indexOf('hook:shred-b'));
     expect(calls.indexOf('hook:shred-b')).toBeLessThan(calls.indexOf('proof-ledger-insert'));
     expect(calls.indexOf('proof-ledger-insert')).toBeLessThan(
-      calls.indexOf('enqueue:TenantDataErased'),
+      calls.indexOf('enqueue:EventStoreServiceTenantDataErased'),
     );
   });
 
@@ -200,11 +232,11 @@ describe('TenantErasureTargetExecutor post-erasure hooks', () => {
 
     expect(result.state).toBe('FAILED');
     expect(calls).not.toContain('proof-ledger-insert');
-    expect(calls).not.toContain('enqueue:TenantDataErased');
-    expect(calls).toContain('enqueue:TenantDataErasureFailed');
+    expect(calls).not.toContain('enqueue:EventStoreServiceTenantDataErased');
+    expect(calls).toContain('enqueue:EventStoreServiceTenantDataErasureFailed');
     const failure = outbox.enqueue.mock.calls
       .map((call) => call[0])
-      .find((event) => event.eventType === 'TenantDataErasureFailed');
+      .find((event) => event.eventType === 'EventStoreServiceTenantDataErasureFailed');
     expect(failure).toMatchObject({
       operationId: OPERATION,
       targetService: 'event-store-service',
@@ -220,12 +252,56 @@ describe('TenantErasureTargetExecutor post-erasure hooks', () => {
 
     const result = await executor.eraseFromRequest(makeRequest({ dryRun: true }));
 
-    expect(result.state).toBe('PURGED');
+    expect(result.state).toBe('DRY_RUN_COMPLETED');
     expect(hook.onTenantErased).not.toHaveBeenCalled();
     // Deletes are counted, not run, on a dry run.
     expect(calls.some((entry) => entry.startsWith('table-delete:'))).toBe(false);
     expect(calls).toContain('proof-ledger-insert');
-    expect(calls).toContain('enqueue:TenantDataErased');
+    expect(calls).toContain('enqueue:EventStoreServiceTenantDataErased');
+  });
+
+  it('returns the honest dry-run state when replaying a stored dry-run proof', async () => {
+    const calls: string[] = [];
+    const storedProof = {
+      operationId: OPERATION,
+      tenantId: TENANT,
+      targetService: 'event-store-service',
+      eventId: '22222222-2222-4222-8222-222222222222',
+      proofHash: 'sha256:stored-dry-run',
+      erasedAt: '2026-07-12T00:00:02.000Z',
+      dryRun: true,
+      matchedRecordCount: 2,
+      erasedRecordCount: 0,
+    };
+    const { executor } = makeHarness(calls, undefined, OPTIONS, storedProof);
+
+    const result = await executor.eraseFromRequest(makeRequest({ dryRun: true }));
+
+    expect(result.state).toBe('DRY_RUN_COMPLETED');
+    expect(result.matchedRecordCount).toBe(2);
+    expect(result.erasedRecordCount).toBe(0);
+    expect(calls.some((entry) => entry.startsWith('table-delete:'))).toBe(false);
+  });
+
+  it('rejects a stored proof whose execution mode differs from the request', async () => {
+    const calls: string[] = [];
+    const storedProof = {
+      operationId: OPERATION,
+      tenantId: TENANT,
+      targetService: 'event-store-service',
+      eventId: '22222222-2222-4222-8222-222222222222',
+      proofHash: 'sha256:stored-dry-run',
+      erasedAt: '2026-07-12T00:00:02.000Z',
+      dryRun: true,
+      matchedRecordCount: 2,
+      erasedRecordCount: 0,
+    };
+    const { executor } = makeHarness(calls, undefined, OPTIONS, storedProof);
+
+    await expect(executor.eraseFromRequest(makeRequest({ dryRun: false }))).rejects.toThrow(
+      'stored proof mode mismatch',
+    );
+    expect(calls.some((entry) => entry.startsWith('table-delete:'))).toBe(false);
   });
 
   it('keeps the pre-hook behavior when no hooks are registered', async () => {
@@ -237,7 +313,7 @@ describe('TenantErasureTargetExecutor post-erasure hooks', () => {
     expect(result.state).toBe('PURGED');
     expect(result.erasedRecordCount).toBe(2);
     expect(calls).toContain('proof-ledger-insert');
-    expect(calls).toContain('enqueue:TenantDataErased');
+    expect(calls).toContain('enqueue:EventStoreServiceTenantDataErased');
   });
 });
 

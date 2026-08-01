@@ -13,11 +13,11 @@
  * WHY the factory replaces more than useAuth/graphqlClient: module hooks built
  * on `useTenantQuery`/`useTenantMutation` read shared-ui's INTERNAL AuthContext,
  * which these tests never mount — so both are replicated here on top of the
- * stub session (same contract: tenant-prefixed key, auth gate, keepPreviousData,
- * tenant-scoped invalidation). The stubs keep the module's own hook files under
- * test; only the auth/transport boundary is faked.
+ * stub session. The stubs keep the module's own hook files under test; only the
+ * auth/transport boundary is faked.
  */
 import { vi } from 'vitest';
+import type { QueryFunction } from '@tanstack/react-query';
 
 export const TEST_TENANT_ID = 'aaaaaaaa-1111-4222-8333-444444444444';
 export const TEST_USER_ID = 'bbbbbbbb-2222-4333-8444-555555555555';
@@ -43,8 +43,7 @@ type TenantMutationOptions<TData, TVariables> = {
 export async function createSharedUiMock(): Promise<Record<string, unknown>> {
   const actual =
     await vi.importActual<typeof import('@aquaculture/shared-ui')>('@aquaculture/shared-ui');
-  const rq =
-    await vi.importActual<typeof import('@tanstack/react-query')>('@tanstack/react-query');
+  const rq = await vi.importActual<typeof import('@tanstack/react-query')>('@tanstack/react-query');
 
   const useAuth = (): Record<string, unknown> => ({
     user: { id: TEST_USER_ID, email: 'operator@farm.test', roles: ['TENANT_ADMIN'] },
@@ -65,23 +64,26 @@ export async function createSharedUiMock(): Promise<Record<string, unknown>> {
 
   function useTenantQuery<TData>(
     segments: readonly unknown[],
-    queryFn: () => Promise<TData>,
+    queryFn: QueryFunction<TData, readonly unknown[]>,
     options?: TenantQueryOptions,
   ): unknown {
     const { enabled, keepPreviousData: keep = true, ...rest } = options ?? {};
+    const queryKey = actual.createTenantQueryKey(TEST_TENANT_ID, ...segments);
     return rq.useQuery<TData>({
       ...rest,
-      queryKey: ['tenant', TEST_TENANT_ID, ...segments],
+      queryKey,
       queryFn,
-      // FARM-LOW-151: the real hook additionally gates on token && tenantId, but the
-      // stub session is ALWAYS authenticated so that gate is a constant no-op here —
-      // replicating it would be a `!!'jwt'` constant expression, not real fidelity.
-      // The session-epoch key segment is likewise omitted: production applies it
-      // symmetrically to the query AND invalidation keys, so prefix-matching holds
-      // without it. This mock faithfully replicates the tenant-prefixed key,
-      // keepPreviousData, and caller `enabled` — the parts that affect test behavior.
+      // The stub session is immutable and authenticated, so the production
+      // token/tenant gate is represented by the caller gate. Use the production
+      // key and boundary predicate nevertheless: test scaffolding must never teach
+      // callers that unconditional keepPreviousData is tenant-safe.
       enabled: enabled ?? true,
-      placeholderData: keep ? rq.keepPreviousData : undefined,
+      placeholderData: keep
+        ? (previousData, previousQuery) =>
+            previousQuery && actual.hasSameTenantSessionBoundary(previousQuery.queryKey, queryKey)
+              ? previousData
+              : undefined
+        : undefined,
     });
   }
 
@@ -97,7 +99,7 @@ export async function createSharedUiMock(): Promise<Record<string, unknown>> {
       onSuccess: (data, variables, context) => {
         for (const segments of invalidate ?? []) {
           void queryClient.invalidateQueries({
-            queryKey: ['tenant', TEST_TENANT_ID, ...segments],
+            queryKey: actual.createTenantInvalidationKey(TEST_TENANT_ID, ...segments),
           });
         }
         onSuccess?.(data, variables, context);
@@ -108,6 +110,13 @@ export async function createSharedUiMock(): Promise<Record<string, unknown>> {
   return {
     ...actual,
     useAuth,
+    getSessionSnapshot: () => ({
+      accessToken: 'jwt',
+      effectiveTenantId: TEST_TENANT_ID,
+      sessionEpoch: 0,
+      tokenState: 'READY',
+      ready: true,
+    }),
     graphqlClient: { request: requestMock },
     useToast: () => ({ toast: toastMock }),
     useTenantQuery,

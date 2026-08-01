@@ -26,6 +26,31 @@ export const TENANT_USERS_QUERY = `
   }
 `;
 
+/**
+ * Farm-service is the SSoT for the tenant's active Site catalog. The gateway
+ * supplies the authenticated tenant boundary; callers must not pass a tenant
+ * id as user-controlled GraphQL input.
+ */
+export const ACTIVE_SITE_ACCESS_CATALOG_QUERY = `
+  query ActiveSiteAccessCatalog {
+    activeSiteAccessCatalog {
+      id
+      name
+      code
+    }
+  }
+`;
+
+/**
+ * Auth-service is the SSoT for user_site_assignments. This read is deliberately
+ * target-user scoped and guarded by TenantAdminOrHigher on the backend.
+ */
+export const USER_ASSIGNED_SITE_IDS_QUERY = `
+  query UserAssignedSiteIds($userId: ID!) {
+    userAssignedSiteIds(userId: $userId)
+  }
+`;
+
 // ============================================================================
 // Mutations
 // ============================================================================
@@ -68,6 +93,28 @@ export const DEACTIVATE_TENANT_USER_MUTATION = `
     deactivateTenantUser(userId: $userId) {
       id
       isActive
+    }
+  }
+`;
+
+export const ASSIGN_USER_TO_SITE_MUTATION = `
+  mutation AssignUserToSite($input: AssignUserToSiteInput!) {
+    assignUserToSite(input: $input) {
+      success
+      message
+      userId
+      siteId
+    }
+  }
+`;
+
+export const UNASSIGN_USER_FROM_SITE_MUTATION = `
+  mutation UnassignUserFromSite($userId: ID!, $siteId: ID!) {
+    unassignUserFromSite(userId: $userId, siteId: $siteId) {
+      success
+      message
+      userId
+      siteId
     }
   }
 `;

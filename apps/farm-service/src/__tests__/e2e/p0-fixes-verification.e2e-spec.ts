@@ -47,7 +47,6 @@ describe('Fix 1: @Roles Authorization on Mutations', () => {
     'supplier/supplier.resolver.ts',
     'chemical/chemical.resolver.ts',
     'storage/storage.resolver.ts',
-    'sentinel-hub/sentinel-hub.resolver.ts',
     'regulatory/regulatory.resolver.ts',
     'batch/resolvers/batch-feed-assignment.resolver.ts',
     'department/department.resolver.ts',
@@ -56,7 +55,9 @@ describe('Fix 1: @Roles Authorization on Mutations', () => {
 
   it.each(resolversToCheck)('should have Roles import in %s', (resolverPath) => {
     const content = readFile(resolverPath);
-    expect(content).toMatch(/import\s+\{[^}]*Roles[^}]*\}\s+from\s+'@platform\/backend-common'/);
+    expect(content).toMatch(
+      /import\s+\{[^}]*Roles[^}]*\}\s+from\s+'@aquaculture\/backend-common\/decorators'/,
+    );
   });
 
   it.each(resolversToCheck)('should have @Roles before every @Mutation in %s', (resolverPath) => {
@@ -64,7 +65,7 @@ describe('Fix 1: @Roles Authorization on Mutations', () => {
     const lines = content.split('\n');
 
     for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes('@Mutation(')) {
+      if (lines[i]?.includes('@Mutation(')) {
         // Check that @Roles appears in the 1-3 lines BEFORE this @Mutation
         const precedingLines = lines.slice(Math.max(0, i - 3), i).join('\n');
         expect(precedingLines).toMatch(/@Roles\(/);
@@ -72,13 +73,23 @@ describe('Fix 1: @Roles Authorization on Mutations', () => {
     }
   });
 
-  it('should use TENANT_ADMIN only for sentinel-hub credential mutations', () => {
-    const content = readFile('sentinel-hub/sentinel-hub.resolver.ts');
-    const mutations = content.match(/@Roles\([^)]+\)\s*\n\s*@Mutation/g) || [];
-    for (const m of mutations) {
-      expect(m).toContain('Role.TENANT_ADMIN');
-      expect(m).not.toContain('Role.MODULE_MANAGER');
-    }
+  it('keeps CDSE credentials off the public GraphQL surface', () => {
+    expect(fs.existsSync(path.join(SRC_ROOT, 'sentinel-hub/sentinel-hub.resolver.ts'))).toBe(false);
+
+    const module = readFile('sentinel-hub/sentinel-hub.module.ts');
+    const internalResolver = readFile('sentinel-hub/marine-provider-credentials.service.ts');
+    const signedClient = fs.readFileSync(
+      path.resolve(
+        SRC_ROOT,
+        '../../../libs/backend-common/src/config-client/marine-provider-credential.client.ts',
+      ),
+      'utf-8',
+    );
+    expect(module).not.toContain('SentinelHubResolver');
+    expect(internalResolver).toContain("this.client.resolve('CDSE', tenantId)");
+    expect(internalResolver).not.toMatch(/@(Resolver|Query|Mutation)\b/);
+    expect(signedClient).toContain('buildSignedInternalHeaders');
+    expect(signedClient).toContain('MARINE_PROVIDER_CREDENTIAL_SUBJECTS.RESOLVE');
   });
 });
 
@@ -130,13 +141,14 @@ describe('Fix 3: Transaction Safety', () => {
     'harvest/handlers/delete-harvest-record.handler.ts',
   ];
 
-  it.each(handlersNeedingTransactions)('should have DataSource and transaction pattern in %s', (handlerPath) => {
+  it.each(handlersNeedingTransactions)('uses the tenant transaction SSoT in %s', (handlerPath) => {
     const content = readFile(handlerPath);
     expect(content).toMatch(/DataSource/);
-    expect(content).toMatch(/createQueryRunner/);
-    expect(content).toMatch(/startTransaction/);
-    expect(content).toMatch(/commitTransaction/);
-    expect(content).toMatch(/rollbackTransaction/);
+    expect(content).toMatch(
+      /import\s+\{[^}]*runInTenantTransaction[^}]*\}\s+from\s+'@aquaculture\/backend-common\/database'/,
+    );
+    expect(content).toMatch(/runInTenantTransaction\(this\.dataSource,\s*'farm',\s*tenantId,/);
+    expect(content).not.toMatch(/createQueryRunner\(/);
   });
 });
 
@@ -151,7 +163,8 @@ describe('Fix 5: Race Condition Protection', () => {
 
   it('should not have deprecated updateTankBatchAfterTransfer in transfer-batch.handler.ts', () => {
     const content = readFile('batch/handlers/transfer-batch.handler.ts');
-    expect(content).not.toMatch(/updateTankBatchAfterTransfer/);
+    expect(content).not.toMatch(/(?:function|private|protected|public)\s+updateTankBatchAfterTransfer\b/);
+    expect(content).not.toMatch(/\.updateTankBatchAfterTransfer\s*\(/);
   });
 });
 
@@ -162,26 +175,20 @@ describe('Fix 6: CQRS Import Standardization', () => {
   it('should not have any direct @nestjs/cqrs imports in farm-service', () => {
     const tsFiles = findTsFiles(SRC_ROOT);
     const violations: string[] = [];
+    const nestCqrsModule = ['@nestjs', 'cqrs'].join('/');
 
     for (const file of tsFiles) {
       if (file.includes('node_modules') || file.includes('__tests__')) continue;
       const content = fs.readFileSync(file, 'utf-8');
-      if (content.includes("from '@platform/cqrs'")) {
+      if (
+        content.includes(`from '${nestCqrsModule}'`) ||
+        content.includes(`from "${nestCqrsModule}"`)
+      ) {
         violations.push(file.replace(SRC_ROOT + '/', ''));
       }
     }
 
-    // This test will fail until Fix 6 is implemented
-    // Uncomment when Fix 6 is complete:
-    // expect(violations).toEqual([]);
-
-    // For now, just report violations
-    if (violations.length > 0) {
-      // WHY: Test file — using expect + fail message instead of console.warn per CLAUDE.md rules.
-      // Uncomment the assertion below when Fix 6 is complete:
-      // expect(violations).toEqual([]);
-      expect(violations.length).toBeGreaterThanOrEqual(0); // tracked, not yet enforced
-    }
+    expect(violations).toEqual([]);
   });
 });
 
@@ -191,12 +198,7 @@ describe('Fix 6: CQRS Import Standardization', () => {
 describe('Fix 2: REST Controller Security', () => {
   it('should not use @Headers for tenant/user in batch controller', () => {
     const content = readFile('batch/controllers/batch.controller.ts');
-    // This test will fail until Fix 2 is implemented
-    // Uncomment when Fix 2 is complete:
-    // expect(content).not.toMatch(/@Headers\('x-tenant-id'\)/);
-    // expect(content).not.toMatch(/@Headers\('x-user-id'\)/);
-
-    // For now, just check the file exists
-    expect(content.length).toBeGreaterThan(0);
+    expect(content).not.toMatch(/@Headers\(['"]x-tenant-id['"]\)/);
+    expect(content).not.toMatch(/@Headers\(['"]x-user-id['"]\)/);
   });
 });

@@ -17,12 +17,24 @@ import { Tenant } from '../../tenant/entities/tenant.entity';
 @Index('IDX_refresh_tokens_expires', ['expiresAt'])
 @Index('IDX_refresh_tokens_tenant', ['tenantId'])
 @Index('IDX_refresh_tokens_family', ['familyId'])
+@Index('IDX_refresh_tokens_token_id', ['tokenId'], {
+  unique: true,
+  where: '"tokenId" IS NOT NULL',
+})
 export class RefreshToken {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
   @Column({ type: 'varchar', length: 255 })
   token!: string;
+
+  /**
+   * Non-secret lookup identity embedded into the rolling-compatible opaque
+   * transport. New tokens resolve exactly one row without scanning bcrypt
+   * hashes; NULL preserves bounded legacy-token compatibility during rollout.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  tokenId?: string | null;
 
   @Column({ type: 'uuid' })
   userId!: string;
@@ -75,6 +87,10 @@ export class RefreshToken {
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   revokedReason?: string | null;
+
+  /** First-writer marker for idempotent refresh-token reuse containment. */
+  @Column({ type: 'timestamptz', nullable: true })
+  reuseContainedAt?: Date | null;
 
   @Column({ type: 'varchar', length: 500, nullable: true })
   userAgent?: string | null;

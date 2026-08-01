@@ -1,15 +1,16 @@
 import { Role } from '@aquaculture/backend-common/decorators';
-import { SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { SESSION_MANAGER } from '@aquaculture/backend-common/security';
+import { BadRequestException, Logger, UnauthorizedException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { User } from '../entities/user.entity';
 import { AccountService } from '../services/account.service';
+import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
 
 const createUser = (overrides: Partial<User> = {}): User => {
@@ -41,13 +42,6 @@ const refreshTokenRepository = {
   update: jest.fn().mockResolvedValue({ affected: 1 }),
 };
 
-const configService = {
-  get: jest.fn((key: string, defaultValue?: string) => {
-    const values: Record<string, string> = { JWT_EXPIRES_IN: '15m' };
-    return values[key] ?? defaultValue;
-  }),
-};
-
 const auditLogService = {
   log: jest.fn().mockResolvedValue(undefined),
 };
@@ -56,8 +50,9 @@ const eventBus = {
   publish: jest.fn().mockResolvedValue(undefined),
 };
 
-const tokenBlacklist = {
-  blacklistUserTokens: jest.fn().mockResolvedValue(undefined),
+const durableUserTokenInvalidation = {
+  enqueue: jest.fn().mockResolvedValue(undefined),
+  applyImmediately: jest.fn().mockResolvedValue(undefined),
 };
 
 const sessionManager = {
@@ -69,6 +64,17 @@ const mfaService = {
   getMfaUnavailableReason: jest.fn().mockReturnValue(null),
 };
 
+const transactionManager = {
+  withRepository: jest.fn((repository: unknown) => repository),
+};
+
+const dataSource = {
+  transaction: jest.fn(
+    async <T>(callback: (manager: typeof transactionManager) => Promise<T>): Promise<T> =>
+      callback(transactionManager),
+  ),
+};
+
 describe('AccountService', () => {
   let service: AccountService;
 
@@ -76,17 +82,25 @@ describe('AccountService', () => {
     jest.clearAllMocks();
     mfaService.isMfaAvailable.mockReturnValue(true);
     mfaService.getMfaUnavailableReason.mockReturnValue(null);
+    userRepository.save.mockImplementation((user: User) => Promise.resolve(user));
+    refreshTokenRepository.update.mockResolvedValue({ affected: 1 });
+    durableUserTokenInvalidation.enqueue.mockResolvedValue(undefined);
+    durableUserTokenInvalidation.applyImmediately.mockResolvedValue(undefined);
+    sessionManager.revokeAllSessions.mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AccountService,
         { provide: getRepositoryToken(User), useValue: userRepository },
         { provide: getRepositoryToken(RefreshToken), useValue: refreshTokenRepository },
-        { provide: ConfigService, useValue: configService },
+        { provide: DataSource, useValue: dataSource },
         { provide: AuditLogService, useValue: auditLogService },
         { provide: MfaService, useValue: mfaService },
         { provide: BestEffortEventPublisher, useValue: new BestEffortEventPublisher(eventBus) },
-        { provide: TOKEN_BLACKLIST, useValue: tokenBlacklist },
+        {
+          provide: DurableUserTokenInvalidationService,
+          useValue: durableUserTokenInvalidation,
+        },
         { provide: SESSION_MANAGER, useValue: sessionManager },
       ],
     }).compile();
@@ -112,7 +126,9 @@ describe('AccountService', () => {
   it('rejects blank profile names', async () => {
     userRepository.findOne.mockResolvedValue(createUser());
 
-    await expect(service.updateMyProfile('user-1', { firstName: '   ' })).rejects.toThrow(BadRequestException);
+    await expect(service.updateMyProfile('user-1', { firstName: '   ' })).rejects.toThrow(
+      BadRequestException,
+    );
   });
 
   it('rejects deprecated alias email changes', async () => {
@@ -137,16 +153,73 @@ describe('AccountService', () => {
       { userId: 'user-1', isRevoked: false },
       expect.objectContaining({ isRevoked: true, revokedReason: 'Password changed' }),
     );
-    expect(tokenBlacklist.blacklistUserTokens).toHaveBeenCalledWith(
-      'user-1',
-      expect.any(Date),
-      'password_change',
+    expect(durableUserTokenInvalidation.enqueue).toHaveBeenCalledWith(
+      transactionManager,
+      expect.objectContaining({
+        userId: 'user-1',
+        tenantId: 'tenant-1',
+        invalidatedAt: expect.any(Date),
+        reason: 'password_changed',
+      }),
     );
+    const intent = durableUserTokenInvalidation.enqueue.mock.calls[0]?.[1];
+    expect(durableUserTokenInvalidation.applyImmediately).toHaveBeenCalledWith(intent);
     expect(sessionManager.revokeAllSessions).toHaveBeenCalledWith('user-1');
   });
 
+  it('fails closed before commit when password-change invalidation cannot be enqueued', async () => {
+    userRepository.findOne.mockResolvedValue(createUser());
+    durableUserTokenInvalidation.enqueue.mockRejectedValueOnce(new Error('outbox unavailable'));
+
+    await expect(
+      service.changeMyPassword('user-1', {
+        currentPassword: 'OldPass1!',
+        newPassword: 'NewPass1!',
+      }),
+    ).rejects.toThrow('outbox unavailable');
+
+    expect(durableUserTokenInvalidation.applyImmediately).not.toHaveBeenCalled();
+    expect(sessionManager.revokeAllSessions).not.toHaveBeenCalled();
+  });
+
+  it('returns success after commit when immediate password-change effects fail', async () => {
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    userRepository.findOne.mockResolvedValue(createUser());
+    durableUserTokenInvalidation.applyImmediately.mockRejectedValueOnce(
+      new TypeError('redis unavailable for user-1'),
+    );
+    sessionManager.revokeAllSessions.mockRejectedValueOnce(
+      new RangeError('session store unavailable for user-1'),
+    );
+
+    await expect(
+      service.changeMyPassword('user-1', {
+        currentPassword: 'OldPass1!',
+        newPassword: 'NewPass1!',
+      }),
+    ).resolves.toEqual({
+      success: true,
+      message: 'Password changed successfully',
+    });
+
+    expect(durableUserTokenInvalidation.enqueue).toHaveBeenCalledTimes(1);
+    const [serializedLog] = errorSpy.mock.calls.at(-1) ?? [];
+    expect(JSON.parse(String(serializedLog))).toEqual({
+      event: 'post_commit_security_effect_failed',
+      operation: 'password_change',
+      failedCount: 2,
+      effectCount: 2,
+      failedEffectTypes: ['user_token_invalidation', 'session_revocation'],
+      errorTypes: ['TypeError', 'RangeError'],
+    });
+    expect(String(serializedLog)).not.toContain('user-1');
+    expect(String(serializedLog)).not.toContain('unavailable');
+    errorSpy.mockRestore();
+  });
+
   it('rejects wrong current password', async () => {
-    const user = createUser({ validatePassword: jest.fn().mockResolvedValue(false) as unknown as User['validatePassword'] });
+    const user = createUser();
+    jest.spyOn(user, 'validatePassword').mockResolvedValue(false);
     userRepository.findOne.mockResolvedValue(user);
 
     await expect(

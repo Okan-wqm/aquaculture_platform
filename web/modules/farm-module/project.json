@@ -36,6 +36,13 @@
         "cwd": "web/modules/farm-module",
         "command": "npm run lint"
       }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "web/modules/farm-module",
+        "command": "npm test"
+      }
     }
   },
   "implicitDependencies": ["shared-ui"]

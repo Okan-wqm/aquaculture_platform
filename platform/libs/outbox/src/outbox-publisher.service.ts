@@ -1,12 +1,31 @@
 import { Injectable, Inject, Logger, Type } from '@nestjs/common';
-import { EntityManager } from 'typeorm';
 import type { BaseEvent } from '@platform/event-contracts';
-import { OutboxEntityBase } from './outbox-entity.base';
+import { EntityManager } from 'typeorm';
+
 import {
   OUTBOX_ENTITY_CLASS,
+  OUTBOX_OPTIONS,
   OUTBOX_UUID_REGEX,
   OUTBOX_EVENT_TYPE_REGEX,
 } from './constants';
+import { OutboxEntityBase } from './outbox-entity.base';
+import {
+  OUTBOX_DELIVERY_POLICY_FIELD,
+  OUTBOX_ROUTING_SCOPE_FIELD,
+  OUTBOX_SECURITY_RECOVERY_POLICY,
+  OUTBOX_SYSTEM_TENANT_ID,
+  type OutboxDeliveryPolicy,
+  type OutboxFeatureOptions,
+  type OutboxRoutingScope,
+  type OutboxStoredPayload,
+} from './outbox-routing';
+
+export interface OutboxEnqueueOptions {
+  idempotencyKey?: string;
+  aggregateId?: string;
+  routingScope?: OutboxRoutingScope;
+  deliveryPolicy?: OutboxDeliveryPolicy;
+}
 
 /**
  * OutboxPublisher
@@ -63,6 +82,11 @@ export class OutboxPublisher {
   constructor(
     @Inject(OUTBOX_ENTITY_CLASS)
     private readonly entityClass: Type<OutboxEntityBase>,
+    @Inject(OUTBOX_OPTIONS)
+    private readonly featureOptions: Required<OutboxFeatureOptions> = {
+      allowSystemRouting: false,
+      allowSecurityRecovery: false,
+    },
   ) {}
 
   /**
@@ -84,13 +108,11 @@ export class OutboxPublisher {
   async enqueue<TEvent extends BaseEvent>(
     event: TEvent,
     manager: EntityManager,
-    options?: { idempotencyKey?: string; aggregateId?: string },
+    options: OutboxEnqueueOptions = {},
   ): Promise<void> {
     // ── Event type validation ───────────────────────────────────────
     if (!event.eventType) {
-      throw new Error(
-        'OutboxPublisher.enqueue: event.eventType is required (got empty string)',
-      );
+      throw new Error('OutboxPublisher.enqueue: event.eventType is required (got empty string)');
     }
     if (!OUTBOX_EVENT_TYPE_REGEX.test(event.eventType)) {
       throw new Error(
@@ -104,17 +126,54 @@ export class OutboxPublisher {
     // ── Tenant ID validation — the single most important check ──────
     if (!event.tenantId) {
       throw new Error(
-        `OutboxPublisher.enqueue: event.tenantId is required ` +
-          `(event: ${event.eventType})`,
+        `OutboxPublisher.enqueue: event.tenantId is required ` + `(event: ${event.eventType})`,
       );
     }
-    if (!OUTBOX_UUID_REGEX.test(event.tenantId)) {
+    const systemRouted = options.routingScope === 'system';
+    if (systemRouted) {
+      if (!this.featureOptions.allowSystemRouting) {
+        throw new Error(
+          'OutboxPublisher.enqueue: system routing requires an explicit service capability',
+        );
+      }
+      if (event.tenantId !== OUTBOX_SYSTEM_TENANT_ID) {
+        throw new Error(
+          'OutboxPublisher.enqueue: system routing requires event.tenantId to be the reserved system identity',
+        );
+      }
+      if (!options.idempotencyKey) {
+        throw new Error('OutboxPublisher.enqueue: system-routed events require an idempotencyKey');
+      }
+    } else if (!OUTBOX_UUID_REGEX.test(event.tenantId)) {
       throw new Error(
         `OutboxPublisher.enqueue: event.tenantId must be a UUID ` +
           `(got: ${JSON.stringify(event.tenantId)}, event: ${event.eventType}). ` +
           `The tenantId becomes a NATS subject segment AND a Socket.IO ` +
           `room key downstream — a malformed value could inject NATS ` +
           `wildcards or cross-tenant leak the event.`,
+      );
+    }
+
+    if (
+      options.deliveryPolicy !== undefined &&
+      options.deliveryPolicy !== 'default' &&
+      options.deliveryPolicy !== OUTBOX_SECURITY_RECOVERY_POLICY
+    ) {
+      throw new Error('OutboxPublisher.enqueue: unsupported delivery policy');
+    }
+    if (
+      options.deliveryPolicy === OUTBOX_SECURITY_RECOVERY_POLICY &&
+      !this.featureOptions.allowSecurityRecovery
+    ) {
+      throw new Error(
+        'OutboxPublisher.enqueue: security recovery requires an explicit service capability',
+      );
+    }
+
+    const eventRecord = event as object;
+    if (OUTBOX_ROUTING_SCOPE_FIELD in eventRecord || OUTBOX_DELIVERY_POLICY_FIELD in eventRecord) {
+      throw new Error(
+        'OutboxPublisher.enqueue: event payload contains reserved outbox storage metadata',
       );
     }
 
@@ -144,23 +203,39 @@ export class OutboxPublisher {
     //
     // Performance: negligible — outbox rows are single-digit KB, enqueued
     // at most a few hundred per second. The round-trip takes <0.1ms per event.
-    const payload = JSON.parse(JSON.stringify(event)) as OutboxEntityBase['payload'];
+    const payload = JSON.parse(JSON.stringify(event)) as OutboxStoredPayload;
+    if (systemRouted) {
+      payload[OUTBOX_ROUTING_SCOPE_FIELD] = OUTBOX_SYSTEM_TENANT_ID;
+    }
+    if (options.deliveryPolicy === OUTBOX_SECURITY_RECOVERY_POLICY) {
+      payload[OUTBOX_DELIVERY_POLICY_FIELD] = OUTBOX_SECURITY_RECOVERY_POLICY;
+    }
 
-    await manager.save(this.entityClass, {
+    const row: Partial<OutboxEntityBase> = {
       eventType: event.eventType,
-      tenantId: event.tenantId,
-      aggregateId: options?.aggregateId ?? null,
-      idempotencyKey: options?.idempotencyKey ?? null,
+      tenantId: systemRouted ? null : event.tenantId,
+      aggregateId: options.aggregateId ?? null,
+      idempotencyKey: options.idempotencyKey ?? null,
       payload,
       retryCount: 0,
       publishedAt: null,
       lastError: null,
       nextAttemptAt: null,
       isDeadLettered: false,
-    });
+    };
 
-    this.logger.debug(
-      `Enqueued ${event.eventType} for tenant ${event.tenantId} (eventId: ${event.eventId})`,
-    );
+    if (options.idempotencyKey) {
+      await manager
+        .createQueryBuilder()
+        .insert()
+        .into(this.entityClass)
+        .values(row)
+        .orIgnore()
+        .execute();
+    } else {
+      await manager.save(this.entityClass, row);
+    }
+
+    this.logger.debug(`Enqueued ${event.eventType} outbox event`);
   }
 }

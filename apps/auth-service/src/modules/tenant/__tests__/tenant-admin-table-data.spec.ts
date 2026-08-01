@@ -60,6 +60,8 @@ function makeService(opts: { columns: string[]; moduleCodes?: string[] }): {
     {} as never, // refreshTokenRepository
     dataSource, // dataSource
     { log: jest.fn().mockResolvedValue(undefined) } as never, // auditLogService
+    {} as never, // farmSiteAssignmentValidator
+    {} as never, // durableUserTokenInvalidation
   );
   return { service, queries, dataParams };
 }

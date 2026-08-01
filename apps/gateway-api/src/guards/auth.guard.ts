@@ -9,6 +9,7 @@
  * request unless the route is marked with @Public().
  */
 
+import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
 import {
   Injectable,
   CanActivate,
@@ -17,27 +18,16 @@ import {
   Logger,
   SetMetadata,
   Inject,
-  Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { JwtService } from '@nestjs/jwt';
 
-import {
-  JwtPayload,
-  AuthenticatedRequest,
-  GqlContext,
-} from '../types/index';
-import { getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
-import {
-  TokenBlacklistStore,
-  TOKEN_BLACKLIST_STORE,
-  InMemoryTokenBlacklistStore,
-} from './redis-token-blacklist.store';
+import { AuthenticatedRequest, GqlContext, JwtPayload } from '../types/index';
+import { TokenBlacklistStore, TOKEN_BLACKLIST_STORE } from './redis-token-blacklist.store';
 import { ApiKeyAuthStrategy } from './strategies/api-key-auth.strategy';
 import { BasicAuthStrategy } from './strategies/basic-auth.strategy';
-import { enforceAccessTokenType } from '@aquaculture/backend-common/auth';
 
 /**
  * Public route decorator — marks a route as publicly accessible without authentication
@@ -74,20 +64,15 @@ export class AuthGuard implements CanActivate {
   // (if payload.iss && ... / if payload.aud). These checks silently accepted tokens
   // without iss/aud claims. Now enforced at library level via getJwtVerifyOptions().
   private readonly isProduction: boolean;
-  private readonly tokenBlacklist: TokenBlacklistStore;
-
   constructor(
     @Inject(Reflector) private readonly reflector: Reflector,
     @Inject(ConfigService) private readonly configService: ConfigService,
     @Inject(JwtService) private readonly jwtService: JwtService,
     @Inject(ApiKeyAuthStrategy) private readonly apiKeyAuthStrategy: ApiKeyAuthStrategy,
     @Inject(BasicAuthStrategy) private readonly basicAuthStrategy: BasicAuthStrategy,
-    @Optional()
     @Inject(TOKEN_BLACKLIST_STORE)
-    tokenBlacklistStore?: TokenBlacklistStore,
+    private readonly tokenBlacklist: TokenBlacklistStore,
   ) {
-    // Use injected store or fallback to in-memory
-    this.tokenBlacklist = tokenBlacklistStore ?? new InMemoryTokenBlacklistStore();
     this.isProduction = this.configService.get<string>('NODE_ENV', 'development') === 'production';
   }
 
@@ -137,6 +122,10 @@ export class AuthGuard implements CanActivate {
    * perform the blacklist check to avoid double cryptographic verification.
    */
   private async validateJwt(request: AuthenticatedRequest): Promise<boolean> {
+    if (request.jwtAuthenticationFailure === 'TOKEN_REVOKED') {
+      throw this.revokedTokenError();
+    }
+
     // If JwtMiddleware already verified and set req.user (HTTP context),
     // trust it and only do the blacklist check
     if (request.user) {
@@ -144,13 +133,10 @@ export class AuthGuard implements CanActivate {
 
       enforceAccessTokenType(payload, this.logger, this.isProduction);
 
-      // Blacklist check already done in JwtMiddleware, but verify again for safety
-      if (payload.jti && await this.tokenBlacklist.isBlacklisted(payload.jti)) {
+      if (!(await this.hasValidRevocationState(payload))) {
         request.user = undefined;
-        throw new UnauthorizedException({
-          code: 'TOKEN_REVOKED',
-          message: 'Token has been revoked',
-        });
+        request.jwtAuthenticationFailure = 'TOKEN_REVOKED';
+        throw this.revokedTokenError();
       }
 
       request.authMethod = 'jwt';
@@ -191,12 +177,9 @@ export class AuthGuard implements CanActivate {
 
       enforceAccessTokenType(payload, this.logger, this.isProduction);
 
-      // Check blacklist
-      if (payload.jti && await this.tokenBlacklist.isBlacklisted(payload.jti)) {
-        throw new UnauthorizedException({
-          code: 'TOKEN_REVOKED',
-          message: 'Token has been revoked',
-        });
+      if (!(await this.hasValidRevocationState(payload))) {
+        request.jwtAuthenticationFailure = 'TOKEN_REVOKED';
+        throw this.revokedTokenError();
       }
 
       request.user = payload;
@@ -208,16 +191,49 @@ export class AuthGuard implements CanActivate {
         throw error;
       }
 
-      this.logger.warn('JWT validation failed', {
-        error: (error as Error).message,
-        ip: request.ip,
-      });
+      this.logger.warn(
+        JSON.stringify({
+          event: 'gateway_jwt_validation_failed',
+          errorType: error instanceof Error ? error.name : 'UnknownError',
+        }),
+      );
 
       throw new UnauthorizedException({
         code: 'INVALID_TOKEN',
         message: 'Invalid or expired token',
       });
     }
+  }
+
+  private async hasValidRevocationState(payload: JwtPayload): Promise<boolean> {
+    if (
+      typeof payload.jti !== 'string' ||
+      payload.jti.trim().length === 0 ||
+      typeof payload.sub !== 'string' ||
+      payload.sub.trim().length === 0 ||
+      !Number.isSafeInteger(payload.iat) ||
+      payload.iat <= 0
+    ) {
+      return false;
+    }
+    try {
+      return await this.tokenBlacklist.isValidToken(payload.jti, payload.sub, payload.iat);
+    } catch (error) {
+      this.logger.error(
+        JSON.stringify({
+          event: 'gateway_composite_token_validity_check_failed',
+          errorType: error instanceof Error ? error.name : 'UnknownError',
+        }),
+      );
+      return false;
+    }
+  }
+
+  private revokedTokenError(): UnauthorizedException {
+    return new UnauthorizedException({
+      code: 'TOKEN_REVOKED',
+      message: 'Token has been revoked',
+    });
   }
 
   /**
@@ -233,19 +249,4 @@ export class AuthGuard implements CanActivate {
 
     return context.switchToHttp().getRequest<AuthenticatedRequest>();
   }
-
-  /**
-   * Add token to blacklist
-   *
-   * SECURITY: Use this when user logs out or token is compromised.
-   * In distributed deployments, this uses Redis for cross-instance revocation.
-   */
-  async blacklistToken(jti: string, exp: number): Promise<void> {
-    await this.tokenBlacklist.add(jti, exp);
-    this.logger.log(`Token blacklisted: ${jti.substring(0, 8)}...`);
-  }
-
-  // Note: Blacklist cleanup is handled by TokenBlacklistStore implementation
-  // - Redis store uses TTL for automatic cleanup
-  // - In-memory store has its own cleanup interval
 }

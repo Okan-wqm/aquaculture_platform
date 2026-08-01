@@ -22,7 +22,12 @@ const DEV_SECRET = 'unit-test-signing-secret';
 const CALLER = 'billing-service';
 const SECRET_KEY = 'platform/billing.stripe_secret_key';
 
-type FetchResult = { value: string; isSecret: boolean } | null;
+type FetchResult = {
+  value: string;
+  isSecret: boolean;
+  sourceTenantId: string;
+  configVersion: number;
+} | null;
 
 interface Mocks {
   handler: ConfigRuntimeNatsHandler;
@@ -32,7 +37,15 @@ interface Mocks {
 
 function build(fetchImpl?: () => Promise<FetchResult>): Mocks {
   const fetch = jest.fn();
-  fetch.mockImplementation(fetchImpl ?? (async () => ({ value: 'sk_live_super', isSecret: true })));
+  fetch.mockImplementation(
+    fetchImpl ??
+      (async () => ({
+        value: 'sk_live_super',
+        isSecret: true,
+        sourceTenantId: CONFIG_RUNTIME_SYSTEM_TENANT_ID,
+        configVersion: 1,
+      })),
+  );
   const audit = jest.fn();
   audit.mockResolvedValue(undefined);
   // Repo cast-free mock idiom: a Pick-typed partial + single `as` at the seam.
@@ -78,7 +91,12 @@ function signedRequest(
 
 describe('ConfigRuntimeNatsHandler — GET_SECRET trusted path', () => {
   it('allowed caller + allowed key + valid HMAC → returns the decrypted value and audits ALLOW', async () => {
-    const { handler, audit } = build(async () => ({ value: 'sk_live_super', isSecret: true }));
+    const { handler, audit } = build(async () => ({
+      value: 'sk_live_super',
+      isSecret: true,
+      sourceTenantId: CONFIG_RUNTIME_SYSTEM_TENANT_ID,
+      configVersion: 1,
+    }));
     const req = signedRequest(
       CONFIG_RUNTIME_SUBJECTS.GET_SECRET,
       'platform',
@@ -143,7 +161,12 @@ describe('ConfigRuntimeNatsHandler — GET_SECRET trusted path', () => {
   });
 
   it('replayed nonce → first ALLOW, second DENY (replay)', async () => {
-    const { handler, audit } = build(async () => ({ value: 'sk_live_super', isSecret: true }));
+    const { handler, audit } = build(async () => ({
+      value: 'sk_live_super',
+      isSecret: true,
+      sourceTenantId: CONFIG_RUNTIME_SYSTEM_TENANT_ID,
+      configVersion: 1,
+    }));
     const req = signedRequest(
       CONFIG_RUNTIME_SUBJECTS.GET_SECRET,
       'platform',
@@ -171,7 +194,12 @@ describe('ConfigRuntimeNatsHandler — GET_SECRET trusted path', () => {
   });
 
   it('SEC-MEDIUM-002: secret-path audit write failure → secret is NOT returned (fail-closed)', async () => {
-    const { handler, audit } = build(async () => ({ value: 'sk_live_super', isSecret: true }));
+    const { handler, audit } = build(async () => ({
+      value: 'sk_live_super',
+      isSecret: true,
+      sourceTenantId: CONFIG_RUNTIME_SYSTEM_TENANT_ID,
+      configVersion: 1,
+    }));
     // The allow-audit recordAwait throws (DB down).
     audit.mockRejectedValue(new Error('audit db unavailable'));
     const req = signedRequest(
@@ -192,7 +220,12 @@ describe('ConfigRuntimeNatsHandler — GET non-secret path cannot leak a secret 
   });
 
   it('GET for an allowlisted non-secret key → returns the value', async () => {
-    const { handler } = build(async () => ({ value: 'true', isSecret: false }));
+    const { handler } = build(async () => ({
+      value: 'true',
+      isSecret: false,
+      sourceTenantId: CONFIG_RUNTIME_SYSTEM_TENANT_ID,
+      configVersion: 1,
+    }));
     const req = signedRequest(CONFIG_RUNTIME_SUBJECTS.GET, 'platform', 'billing.stripe_enabled');
     expect(await handler.getValue(req)).toEqual({ found: true, value: 'true' });
   });
@@ -200,7 +233,12 @@ describe('ConfigRuntimeNatsHandler — GET non-secret path cannot leak a secret 
   it('SEC-MEDIUM-001: GET for an allowlisted key whose row IS a secret → refused (structural guard)', async () => {
     // Misconfiguration: an allowlisted non-secret key resolves to a secret row.
     // GET must refuse regardless of the allowlist.
-    const { handler, audit } = build(async () => ({ value: 'leaked', isSecret: true }));
+    const { handler, audit } = build(async () => ({
+      value: 'leaked',
+      isSecret: true,
+      sourceTenantId: CONFIG_RUNTIME_SYSTEM_TENANT_ID,
+      configVersion: 1,
+    }));
     const req = signedRequest(CONFIG_RUNTIME_SUBJECTS.GET, 'platform', 'billing.stripe_public_key');
     expect(await handler.getValue(req)).toEqual({ found: false, value: null });
     const denyCall = audit.mock.calls.find((c) => c[0].action === 'config.value.denied');

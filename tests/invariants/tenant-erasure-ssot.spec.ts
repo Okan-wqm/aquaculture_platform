@@ -14,6 +14,7 @@ import {
 } from '../../libs/event-contracts/src/tenant-erasure-targets';
 import { TENANT_ERASURE_TARGET_PROOF_LEDGER_TABLE } from '../../platform/libs/outbox/src/outbox-migration';
 import { TENANT_ERASURE_TARGET_OPTIONS_BY_SERVICE } from '../../libs/backend-common/src/compliance/tenant-erasure/tenant-erasure-target-registry';
+import { TENANT_ERASURE_REQUEST_SUBSCRIPTION_OPTIONS } from '../../libs/backend-common/src/compliance/tenant-erasure/tenant-erasure-subscription.options';
 import { MODULE_SCHEMAS } from '../../libs/backend-common/src/database/schema-manager.service';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -136,9 +137,7 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): tenant-erasure target roster is S
     expect(registryKeys).toEqual([...TENANT_ERASURE_TARGET_SERVICES].sort());
     for (const service of TENANT_ERASURE_TARGET_SERVICES) {
       expect(registry).toContain(`targetService: '${service}'`);
-      expect(registry).toContain(
-        "proofLedger: { schema: '",
-      );
+      expect(registry).toContain("proofLedger: { schema: '");
     }
   });
 
@@ -160,7 +159,9 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): tenant-erasure target roster is S
 describe('INVARIANT (COMPLIANCE-CRITICAL-001): final TenantErased is orchestrator-only', () => {
   it('farm-service emits TenantDataErased proof, never final TenantErased', () => {
     const src = repoFile('apps/farm-service/src/compliance/services/tenant-erasure.service.ts');
-    expect(src).toContain("createBaseEvent<TenantDataErasedEvent>('TenantDataErased'");
+    expect(src).toMatch(
+      /createBaseEvent<TenantDataErasedEvent>\(\s*tenantErasureOutcomeEventType\(\s*'farm-service',\s*'erased'/u,
+    );
     expect(src).not.toContain("createBaseEvent<TenantErasedEvent>('TenantErased'");
     expect(src).not.toContain("createBaseEvent('TenantErased'");
   });
@@ -191,9 +192,11 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): final TenantErased is orchestrato
 
   it('admin-api owns final proof aggregation and status purge finalization', () => {
     const src = repoFile('apps/admin-api-service/src/tenant/handlers/tenant-erasure.handler.ts');
-    expect(src).toContain("subscribeWildcard('TenantDataErased'");
-    expect(src).toContain("subscribeWildcard('TenantDataErasureFailed'");
-    expect(src).toContain("subscribeWildcard('TenantErasureBlocked'");
+    expect(src).toContain('TENANT_ERASURE_OUTCOME_EVENT_TYPES_BY_TARGET');
+    expect(src).toContain('TENANT_ERASURE_OUTCOME_KINDS');
+    expect(src).toContain('resolveTenantErasureOutcomeEventType(event.eventType)');
+    expect(src).toContain('Tenant-erasure outcome identity mismatch');
+    expect(src).not.toContain("subscribeWildcard('TenantDataErased'");
     expect(src).toContain('platform.request_tenant_schema_deletion');
     expect(src).toContain('isSchemaDeletionComplete');
     expect(src).toContain("createBaseEvent<TenantErasedEvent>('TenantErased'");
@@ -225,14 +228,34 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): final TenantErased is orchestrato
     const targetModule = repoFile(
       'libs/backend-common/src/compliance/tenant-erasure/tenant-erasure-target.module.ts',
     );
-    expect(targetModule).toContain("subscribeWildcard('TenantErasureRequested'");
+    expect(targetModule).toMatch(/subscribeWildcard\(\s*['"]TenantErasureRequested['"]/u);
+    expect(targetModule).toContain('TENANT_ERASURE_REQUEST_SUBSCRIPTION_OPTIONS');
     expect(targetModule).toContain('TenantErasureTargetExecutor');
 
     const farmHandler = repoFile(
       'apps/farm-service/src/compliance/tenant-erasure-requested.handler.ts',
     );
-    expect(farmHandler).toContain("subscribeWildcard('TenantErasureRequested'");
+    expect(farmHandler).toMatch(/subscribeWildcard\(\s*['"]TenantErasureRequested['"]/u);
+    expect(farmHandler).toContain('TENANT_ERASURE_REQUEST_SUBSCRIPTION_OPTIONS');
     expect(farmHandler).toContain('TenantErasureService');
+  });
+
+  it('uses a versioned full-replay durable for compliance request liveness', () => {
+    expect(TENANT_ERASURE_REQUEST_SUBSCRIPTION_OPTIONS).toEqual({
+      durable: true,
+      consumerVersion: 'tenant-erasure-v2',
+      startFrom: 'beginning',
+      ackWait: 60,
+      maxRetries: -1,
+    });
+
+    const eventBusInterface = repoFile(
+      'platform/libs/event-bus/src/interfaces/event-bus.interface.ts',
+    );
+    const natsEventBus = repoFile('platform/libs/event-bus/src/nats/nats-event-bus.ts');
+    expect(eventBusInterface).toContain('consumerVersion?: string');
+    expect(natsEventBus).toContain('options?.consumerVersion');
+    expect(natsEventBus).toContain('`${baseName}-${consumerVersion}`');
   });
 
   it('shared target erasure is fail-closed on the canonical LegalHoldService', () => {
@@ -245,13 +268,19 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): final TenantErased is orchestrato
 
     expect(moduleSrc).toContain('LegalHoldModule.forRoot()');
     expect(moduleSrc).toMatch(/legalHoldService:\s*LegalHoldService/);
-    expect(executorSrc).toMatch(/readonly legalHoldService:\s*LegalHoldService/);
+    expect(executorSrc).toMatch(
+      /readonly legalHoldService:\s*TenantErasureTargetLegalHold/,
+    );
+    expect(executorSrc).toMatch(
+      /interface TenantErasureTargetLegalHold[\s\S]{0,160}assertNoHold\(tenantId: string, scope: 'tenant'\): Promise<void>/,
+    );
     expect(executorSrc).toContain(
       "await this.deps.legalHoldService.assertNoHold(event.tenantId, 'tenant')",
     );
     expect(executorSrc).toContain('error instanceof LegalHoldActiveError');
-    expect(executorSrc).toContain(
-      "createBaseEvent<TenantErasureBlockedEvent>('TenantErasureBlocked'",
+    expect(executorSrc).toMatch(/createBaseEvent<TenantErasureBlockedEvent>\(\s*blockedEventType/u);
+    expect(executorSrc).toMatch(
+      /tenantErasureOutcomeEventType\(\s*this\.options\.targetService,\s*'blocked'/u,
     );
 
     const holdOffset = executorSrc.indexOf('await this.deps.legalHoldService.assertNoHold');
@@ -309,7 +338,9 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): final TenantErased is orchestrato
   it('admin erasure request validates legal hold before operation creation', () => {
     const src = repoFile('apps/admin-api-service/src/tenant/handlers/tenant-erasure.handler.ts');
 
-    expect(src).toMatch(/private readonly legalHoldService:\s*LegalHoldService/);
+    expect(src).toMatch(
+      /@Inject\(LegalHoldService\)[\s\S]{0,120}private readonly legalHoldService:\s*TenantErasureLegalHoldService/,
+    );
     expect(src).not.toMatch(/@Optional\s*\(\s*\)[\s\S]{0,160}legalHoldService/);
     expect(src).toContain("await this.legalHoldService.assertNoHold(command.tenantId, 'tenant')");
 
@@ -323,7 +354,7 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): final TenantErased is orchestrato
 
   it('admin finalizer re-checks legal hold before schema deletion and final proof', () => {
     const src = repoFile('apps/admin-api-service/src/tenant/handlers/tenant-erasure.handler.ts');
-    expect(src).toContain('private readonly legalHoldService: LegalHoldService');
+    expect(src).toContain('private readonly legalHoldService: TenantErasureLegalHoldService');
     expect(src).toContain('const legalHoldCheckedAt = await this.assertLiveLegalHold');
     expect(src).toContain('const finalLegalHoldCheckedAt = await this.assertLiveLegalHold');
     expect(src).toContain('"legalHoldCheckedAt" = $5');
@@ -336,16 +367,17 @@ describe('INVARIANT (COMPLIANCE-CRITICAL-001): final TenantErased is orchestrato
       'apps/farm-service/src/compliance/tenant-erasure-requested.handler.ts',
     );
     const service = repoFile('apps/farm-service/src/compliance/services/tenant-erasure.service.ts');
-    expect(handler).toContain("subscribeWildcard('TenantErasureRequested'");
+    expect(handler).toMatch(/subscribeWildcard\(\s*['"]TenantErasureRequested['"]/u);
+    expect(handler).toContain('TENANT_ERASURE_REQUEST_SUBSCRIPTION_OPTIONS');
     expect(handler).toContain('eraseFromTenantErasureRequest(event)');
     expect(service).toContain('eraseFromTenantErasureRequest');
     expect(service).toContain('idempotencyKey: `tenant-erasure:${operationId}:farm-service`');
     expect(service).toContain('event.dryRun');
     expect(service).toContain('recordProofLedger(mgr, erasedEvent)');
     expect(service).toContain('createBaseEvent<TenantErasureBlockedEvent>');
-    expect(service).toContain("'TenantErasureBlocked'");
+    expect(service).toMatch(/tenantErasureOutcomeEventType\(\s*'farm-service',\s*'blocked'/u);
     expect(service).toContain('createBaseEvent<TenantDataErasureFailedEvent>');
-    expect(service).toContain("'TenantDataErasureFailed'");
+    expect(service).toMatch(/tenantErasureOutcomeEventType\(\s*'farm-service',\s*'failed'/u);
   });
 
   it('farm erasure dependencies are required and legal-hold is checked before erasure work', () => {

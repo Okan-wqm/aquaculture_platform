@@ -160,7 +160,10 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) =>
-        buildRedisOptions(configService, 'config', 'optional'),
+        // Marine credential disclosure/mutation uses Redis SET-NX as its
+        // cross-replica replay ledger. Production must fail at boot when the
+        // shared store is not configured; a pod-local fallback is unsafe.
+        buildRedisOptions(configService, 'config', 'required'),
     }),
     EventBusModule.forRootAsync({
       imports: [ConfigModule],

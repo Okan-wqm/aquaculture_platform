@@ -10,6 +10,7 @@
  *   source schema doğrulaması yapar.
  */
 import { Module, Global } from '@nestjs/common';
+import { AUDIT_LOG_SERVICE } from '@aquaculture/backend-common/audit';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuditLog } from './entities/audit-log.entity';
@@ -28,11 +29,18 @@ import { MigrationRunnerService } from './services/migration-runner.service';
   ],
   providers: [
     AuditLogService,
+    { provide: AUDIT_LOG_SERVICE, useExisting: AuditLogService },
     AuditRedactionService,
     CodeGeneratorService,
     MigrationRunnerService,
     FarmSeedService,
   ],
-  exports: [AuditLogService, AuditRedactionService, CodeGeneratorService, TypeOrmModule],
+  exports: [
+    AuditLogService,
+    AUDIT_LOG_SERVICE,
+    AuditRedactionService,
+    CodeGeneratorService,
+    TypeOrmModule,
+  ],
 })
 export class DatabaseModule {}

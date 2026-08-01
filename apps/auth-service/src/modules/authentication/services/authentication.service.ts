@@ -1,10 +1,24 @@
 import * as crypto from 'crypto';
 
-import { hashPassword, verifyPassword, enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
+import {
+  hashPassword,
+  verifyPassword,
+  enforceAccessTokenType,
+  getJwtVerifyOptions,
+} from '@aquaculture/backend-common/auth';
 import { BypassRlsService, updateReturningRows } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { requestContextStorage, getRequestContext } from '@aquaculture/backend-common/logging';
-import { TimingSafeService, ISessionManager, ITokenBlacklist, SESSION_MANAGER, TOKEN_BLACKLIST, SecurityEventService } from '@aquaculture/backend-common/security';
+import {
+  TimingSafeService,
+  ISessionManager,
+  ITokenBlacklist,
+  IUserTokenRevocation,
+  SESSION_MANAGER,
+  TOKEN_BLACKLIST,
+  USER_TOKEN_REVOCATION,
+  SecurityEventService,
+} from '@aquaculture/backend-common/security';
 import {
   Injectable,
   UnauthorizedException,
@@ -20,22 +34,43 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { createBaseEvent, isLoginAllowed } from '@platform/event-contracts';
 import type { UserAccountLockedEvent } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
-import { DataSource, EntityManager, EntityTarget, ObjectLiteral, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  EntityTarget,
+  IsNull,
+  ObjectLiteral,
+  Repository,
+} from 'typeorm';
 
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { SECURITY_CONSTANTS, TOKEN_CONSTANTS } from '../../../constants/auth.constants';
+import { parseHashRefreshTokens } from '../../../config/hash-refresh-tokens';
 import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 import { Tenant } from '../../tenant/entities/tenant.entity';
 import { AuthPayload, MePayload } from '../dto/auth-response.dto';
 import { LoginInput } from '../dto/login.dto';
-import { ActionToken, ActionTokenPurpose, ActionTokenStatus } from '../entities/action-token.entity';
+import {
+  ActionToken,
+  ActionTokenPurpose,
+  ActionTokenStatus,
+} from '../entities/action-token.entity';
 import { Invitation, InvitationStatus } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { User } from '../entities/user.entity';
 
 import { MfaService } from './mfa.service';
-import { TokenService, parseExpiresIn } from './token.service';
+import { DurableAccessTokenInvalidationService } from './durable-access-token-invalidation.service';
+import {
+  DurableUserTokenInvalidationService,
+  type UserTokenInvalidationIntent,
+} from './durable-user-token-invalidation.service';
+import {
+  type PostCommitSecurityEffect,
+  settlePostCommitSecurityEffects,
+} from './post-commit-security-effects';
+import { TokenService } from './token.service';
 import type { JwtPayload } from './token.service';
 
 // Re-export JwtPayload from its canonical location for backward compatibility
@@ -47,6 +82,25 @@ export type { JwtPayload } from './token.service';
  */
 const INVALID_CREDENTIALS_MSG = 'Invalid email or password';
 const GENERIC_AUTH_ERROR_MSG = 'Authentication failed';
+const UUID_V4_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const LEGACY_REFRESH_SECRET_PATTERN = /^[0-9a-f]{128}$/;
+const VERSIONED_REFRESH_SECRET_PATTERN = /^[0-9a-f]{160}$/;
+
+interface ParsedHashedRefreshToken {
+  userId: string;
+  secret: string;
+  tokenId?: string;
+}
+
+interface RefreshReuseContainment {
+  intent: UserTokenInvalidationIntent;
+  suspectToken: RefreshToken;
+}
+
+interface RefreshTransactionResult {
+  payload?: AuthPayload;
+  containment?: RefreshReuseContainment;
+}
 
 /**
  * Recover the canonical refresh-token SSoT (`${userId}:${random}`) from its
@@ -106,6 +160,8 @@ export class AuthenticationService {
     private readonly bestEffort: BestEffortEventPublisher,
     private readonly auditLogService: AuditLogService,
     private readonly tokenService: TokenService,
+    private readonly durableAccessTokenInvalidation: DurableAccessTokenInvalidationService,
+    private readonly durableUserTokenInvalidation: DurableUserTokenInvalidationService,
     private readonly mfaService: MfaService,
     /**
      * SECURITY (DEPLOY-CRITICAL-007): audit-logged RLS bypass primitive for
@@ -115,9 +171,11 @@ export class AuthenticationService {
      * architectural rationale.
      */
     private readonly bypassRls: BypassRlsService,
+    @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist: ITokenBlacklist,
+    @Inject(USER_TOKEN_REVOCATION)
+    private readonly userTokenRevocation: IUserTokenRevocation,
     @Optional() private readonly timingSafe?: TimingSafeService,
     @Optional() @Inject(SESSION_MANAGER) private readonly sessionManager?: ISessionManager,
-    @Optional() @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist?: ITokenBlacklist,
     // SEC-HIGH-009 cure: when refresh-token reuse is detected (a
     // previously-revoked token is presented again, indicating either
     // a captured-token replay or a buggy client retry on a now-stale
@@ -136,7 +194,7 @@ export class AuthenticationService {
       'LOCKOUT_DURATION_MINUTES',
       SECURITY_CONSTANTS.DEFAULT_LOCKOUT_DURATION_MINUTES,
     );
-    this.hashRefreshTokens = this.configService.get<boolean>('HASH_REFRESH_TOKENS', true);
+    this.hashRefreshTokens = parseHashRefreshTokens(this.configService);
     this.minLoginDurationMs = this.configService.get<number>(
       'MIN_LOGIN_DURATION_MS',
       SECURITY_CONSTANTS.MIN_LOGIN_DURATION_MS,
@@ -149,6 +207,37 @@ export class AuthenticationService {
   ): Repository<T> {
     const getRepository = manager.getRepository.bind(manager);
     return getRepository(entity);
+  }
+
+  /**
+   * Canonical serialization fence for every per-user refresh-credential write.
+   *
+   * The user row is the one stable lock key shared by rotation, reuse
+   * containment, logout, and logout-all. Taking this lock before any refresh
+   * token row lock or set-based UPDATE prevents a replacement token INSERT from
+   * committing just after a revocation statement's PostgreSQL snapshot. It also
+   * gives every path one lock order (User -> RefreshToken), avoiding the
+   * token-first/user-first deadlock cycle that otherwise appears under load.
+   */
+  private async lockCredentialPrincipal(manager: EntityManager, userId: string): Promise<User> {
+    const user = await this.preTenantAuthRepository(manager, User).findOne({
+      where: { id: userId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!user) {
+      throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+    }
+    return user;
+  }
+
+  private invalidationTenantForUser(user: User): string | null {
+    if (user.tenantId) {
+      return user.tenantId;
+    }
+    if (user.role === Role.SUPER_ADMIN) {
+      return null;
+    }
+    throw new ForbiddenException('Tenant-scoped user has no tenant identity');
   }
 
   /**
@@ -168,8 +257,9 @@ export class AuthenticationService {
     user: User,
   ): Promise<void> {
     if (!user.tenantId) return;
-    const tenant = await this.preTenantAuthRepository(manager, Tenant)
-      .findOne({ where: { id: user.tenantId } });
+    const tenant = await this.preTenantAuthRepository(manager, Tenant).findOne({
+      where: { id: user.tenantId },
+    });
     if (tenant && !isLoginAllowed(tenant.status)) {
       this.logger.debug(`Refresh blocked: tenant ${user.tenantId} is ${tenant.status}`);
       throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
@@ -309,13 +399,17 @@ export class AuthenticationService {
         await this.ensureMinDuration(startTime);
         this.logger.debug(`Login failed: user not found`);
         // SECURITY AUDIT: Log failed login attempt
-        await this.logSecurityEvent('LOGIN_FAILED', {
-          email: input.email,
-          ipAddress,
-          userAgent,
-          success: false,
-          reason: 'User not found',
-        }, AuditLogSeverity.WARNING);
+        await this.logSecurityEvent(
+          'LOGIN_FAILED',
+          {
+            email: input.email,
+            ipAddress,
+            userAgent,
+            success: false,
+            reason: 'User not found',
+          },
+          AuditLogSeverity.WARNING,
+        );
         throw new UnauthorizedException(INVALID_CREDENTIALS_MSG);
       }
 
@@ -335,15 +429,19 @@ export class AuthenticationService {
         // SECURITY: Log user ID instead of email to prevent PII exposure (H-14)
         this.logger.debug(`Login failed: account locked for userId=${user.id}`);
         // SECURITY AUDIT: Log locked account access attempt
-        await this.logSecurityEvent('LOGIN_BLOCKED_ACCOUNT_LOCKED', {
-          userId: user.id,
-          email: user.email,
-          tenantId: user.tenantId,
-          ipAddress,
-          userAgent,
-          success: false,
-          reason: 'Account locked due to failed attempts',
-        }, AuditLogSeverity.WARNING);
+        await this.logSecurityEvent(
+          'LOGIN_BLOCKED_ACCOUNT_LOCKED',
+          {
+            userId: user.id,
+            email: user.email,
+            tenantId: user.tenantId,
+            ipAddress,
+            userAgent,
+            success: false,
+            reason: 'Account locked due to failed attempts',
+          },
+          AuditLogSeverity.WARNING,
+        );
         throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
       }
 
@@ -367,15 +465,19 @@ export class AuthenticationService {
         if (tenant && !isLoginAllowed(tenant.status)) {
           await this.ensureMinDuration(startTime);
           this.logger.debug(`Login failed: tenant ${user.tenantId} is ${tenant.status}`);
-          await this.logSecurityEvent('LOGIN_BLOCKED_TENANT_INACTIVE', {
-            userId: user.id,
-            email: user.email,
-            tenantId: user.tenantId,
-            ipAddress,
-            userAgent,
-            success: false,
-            reason: `Tenant account status is ${tenant.status}`,
-          }, AuditLogSeverity.WARNING);
+          await this.logSecurityEvent(
+            'LOGIN_BLOCKED_TENANT_INACTIVE',
+            {
+              userId: user.id,
+              email: user.email,
+              tenantId: user.tenantId,
+              ipAddress,
+              userAgent,
+              success: false,
+              reason: `Tenant account status is ${tenant.status}`,
+            },
+            AuditLogSeverity.WARNING,
+          );
           throw new UnauthorizedException('Tenant account is not active');
         }
       }
@@ -395,15 +497,19 @@ export class AuthenticationService {
         const updatedAttempts = await this.handleFailedLogin(user);
         await this.ensureMinDuration(startTime);
         // SECURITY AUDIT: Log failed password attempt
-        await this.logSecurityEvent('LOGIN_FAILED_INVALID_PASSWORD', {
-          userId: user.id,
-          email: user.email,
-          tenantId: user.tenantId,
-          ipAddress,
-          userAgent,
-          success: false,
-          reason: `Invalid password (attempt ${updatedAttempts})`,
-        }, AuditLogSeverity.WARNING);
+        await this.logSecurityEvent(
+          'LOGIN_FAILED_INVALID_PASSWORD',
+          {
+            userId: user.id,
+            email: user.email,
+            tenantId: user.tenantId,
+            ipAddress,
+            userAgent,
+            success: false,
+            reason: `Invalid password (attempt ${updatedAttempts})`,
+          },
+          AuditLogSeverity.WARNING,
+        );
         throw new UnauthorizedException(INVALID_CREDENTIALS_MSG);
       }
 
@@ -420,14 +526,18 @@ export class AuthenticationService {
       if (user.mfaEnabled && !this.mfaService?.isMfaAvailable()) {
         await this.ensureMinDuration(startTime);
         this.logger.error(`Login blocked: MFA enabled but unavailable for userId=${user.id}`);
-        await this.logSecurityEvent('LOGIN_BLOCKED_MFA_UNAVAILABLE', {
-          userId: user.id,
-          tenantId: user.tenantId,
-          ipAddress,
-          userAgent,
-          success: false,
-          reason: 'MFA enabled but MFA_ENCRYPTION_KEY is unavailable',
-        }, AuditLogSeverity.CRITICAL);
+        await this.logSecurityEvent(
+          'LOGIN_BLOCKED_MFA_UNAVAILABLE',
+          {
+            userId: user.id,
+            tenantId: user.tenantId,
+            ipAddress,
+            userAgent,
+            success: false,
+            reason: 'MFA enabled but MFA_ENCRYPTION_KEY is unavailable',
+          },
+          AuditLogSeverity.CRITICAL,
+        );
         throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
       }
 
@@ -495,7 +605,11 @@ export class AuthenticationService {
           success: true,
         }),
         this.bestEffort.publish(
-          createBaseEvent('UserLoggedIn', user.tenantId ?? 'system', { aggregateId: user.id, aggregateType: 'User', userId: user.id }),
+          createBaseEvent('UserLoggedIn', user.tenantId ?? 'system', {
+            aggregateId: user.id,
+            aggregateType: 'User',
+            userId: user.id,
+          }),
         ),
       ]);
 
@@ -567,12 +681,10 @@ export class AuthenticationService {
         );
       }
       // SUPER_ADMIN: audited bypass for platform-level session creation.
-      return await this.bypassRls.withBypass(
-        'auth-service:super-admin-login-tokens',
-        () =>
-          this.tokenService.generateTokens(user, ipAddress, userAgent, {
-            rememberMe: input.rememberMe ?? false,
-          }),
+      return await this.bypassRls.withBypass('auth-service:super-admin-login-tokens', () =>
+        this.tokenService.generateTokens(user, ipAddress, userAgent, {
+          rememberMe: input.rememberMe ?? false,
+        }),
       );
     } catch (error) {
       await this.ensureMinDuration(startTime);
@@ -591,7 +703,7 @@ export class AuthenticationService {
       const elapsed = Date.now() - startTime;
       const remaining = this.minLoginDurationMs - elapsed;
       if (remaining > 0) {
-        await new Promise(resolve => setTimeout(resolve, remaining));
+        await new Promise((resolve) => setTimeout(resolve, remaining));
       }
     }
   }
@@ -663,13 +775,15 @@ export class AuthenticationService {
 
       // Find user by invitation token hash (within transaction).
       // Same cross-tenant-before-tenant-resolved rationale as above.
-      let user = await this.preTenantAuthRepository(manager, User)
-        .findOne({ where: { invitationToken: lookupTokenHash } });
+      let user = await this.preTenantAuthRepository(manager, User).findOne({
+        where: { invitationToken: lookupTokenHash },
+      });
 
       if (!user && !actionToken) {
         // Backward compatibility: try plaintext token for pre-migration users
-        user = await this.preTenantAuthRepository(manager, User)
-          .findOne({ where: { invitationToken: token } });
+        user = await this.preTenantAuthRepository(manager, User).findOne({
+          where: { invitationToken: token },
+        });
       }
 
       if (!user) {
@@ -719,7 +833,11 @@ export class AuthenticationService {
       }),
       // Publish event (outside transaction - events can be retried)
       this.bestEffort.publish(
-        createBaseEvent('InvitationAccepted', result.tenantId ?? 'system', { aggregateId: result.id, aggregateType: 'User', userId: result.id }),
+        createBaseEvent('InvitationAccepted', result.tenantId ?? 'system', {
+          aggregateId: result.id,
+          aggregateType: 'User',
+          userId: result.id,
+        }),
       ),
     ]);
 
@@ -815,278 +933,286 @@ export class AuthenticationService {
     // the token lock and user fetch into separate queries.
     return this.bypassRls.withBypass('auth-service:refresh-token-rotation', () =>
       this.dataSource.transaction(async (manager) => {
-      // RefreshToken rotation runs before tenant context is
-      // re-established — the bearer's tenant is derived from the token
-      // row's userId after the row is resolved. Cross-tenant scan is
-      // intrinsic to the refresh-token protocol.
-      const tokenRepo = this.preTenantAuthRepository(manager, RefreshToken);
+        // RefreshToken rotation runs before tenant context is
+        // re-established — the bearer's tenant is derived from the token
+        // row's userId after the row is resolved. Cross-tenant scan is
+        // intrinsic to the refresh-token protocol.
+        const tokenRepo = this.preTenantAuthRepository(manager, RefreshToken);
 
-      // SELECT FOR UPDATE to lock the token row and prevent concurrent refresh
-      const refreshToken = await tokenRepo
-        .createQueryBuilder('rt')
-        .setLock('pessimistic_write')
-        .where('rt.token = :token', { token })
-        .andWhere('rt.isRevoked = :isRevoked', { isRevoked: false })
-        .andWhere('rt.expiresAt > :now', { now: new Date() })
-        .getOne();
-
-      if (!refreshToken) {
-        throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
-      }
-
-      // Fetch the associated user separately (no lock needed on user row).
-      const user = await this.preTenantAuthRepository(manager, User)
-        .findOne({ where: { id: refreshToken.userId } });
-
-      if (!user || !user.isActive) {
-        throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
-      }
-
-      // RBAC-HIGH-007: a non-operational tenant must not rotate tokens.
-      await this.assertTenantOperationalForRefresh(manager, user);
-
-      // Revoke the token within the same transaction
-      refreshToken.isRevoked = true;
-      refreshToken.revokedAt = new Date();
-      refreshToken.revokedReason = 'Token refreshed';
-      await tokenRepo.save(refreshToken);
-
-      // Preserve the rememberMe choice across rotation so a remembered session
-      // stays persistent (the resolver re-issues a persistent vs session cookie).
-      return this.tokenService.generateTokens(
-        user,
-        refreshToken.ipAddress ?? undefined,
-        refreshToken.userAgent ?? undefined,
-        { rememberMe: refreshToken.rememberMe },
-      );
-    }));
-  }
-
-  /**
-   * Refresh token with hashed tokens
-   *
-   * SECURITY:
-   * - Extracts userId from the first 36 chars of the token (UUID prefix)
-   *   to scope the query to a single user's tokens, avoiding cross-tenant lock contention
-   * - Uses transaction with pessimistic locking on per-user tokens only
-   * - Limits bcrypt comparisons to the user's active tokens (typically 1-5)
-   */
-  private async refreshTokenWithHash(plainToken: string): Promise<AuthPayload> {
-    // Extract userId prefix from token (first 36 chars = UUID)
-    // Token format: {userId}:{randomBytes} — see generateTokens()
-    const separatorIndex = plainToken.indexOf(':');
-    const userIdPrefix = separatorIndex > 0 ? plainToken.substring(0, separatorIndex) : null;
-    const tokenPart = separatorIndex > 0 ? plainToken.substring(separatorIndex + 1) : plainToken;
-
-    return this.dataSource.transaction(async (manager) => {
-      // RefreshToken rotation runs before tenant context is
-      // re-established — the bearer's tenant is derived from the token
-      // row's userId after the row is resolved. Cross-tenant scan is
-      // intrinsic to the refresh-token protocol.
-      const tokenRepo = this.preTenantAuthRepository(manager, RefreshToken);
-
-      // Build query scoped to user if userId prefix is available
-      const queryBuilder = tokenRepo
-        .createQueryBuilder('rt')
-        .setLock('pessimistic_write')
-        .where('rt.isRevoked = :isRevoked', { isRevoked: false })
-        .andWhere('rt.expiresAt > :now', { now: new Date() });
-
-      if (userIdPrefix) {
-        // SECURITY: Scope lock to single user's tokens — prevents global lock contention
-        queryBuilder.andWhere('rt.userId = :userId', { userId: userIdPrefix });
-      }
-
-      const validTokens = await queryBuilder
-        .orderBy('rt.createdAt', 'DESC')
-        .take(TOKEN_CONSTANTS.MAX_ACTIVE_REFRESH_TOKEN_CHECK)
-        .getMany();
-
-      // Find matching token by comparing hashes
-      // SECURITY: bcrypt.compare prevents timing attacks on refresh token validation
-      let matchedToken: RefreshToken | null = null;
-      for (const storedToken of validTokens) {
-        const isMatch = await bcrypt.compare(tokenPart, storedToken.token);
-        if (isMatch) {
-          matchedToken = storedToken;
-          break;
+        // The legacy plaintext transport has no user id. Resolve only the
+        // serialization key first, without taking a token lock or trusting the
+        // row as authorization state. The authoritative token read is repeated
+        // under FOR UPDATE after the canonical User lock is held.
+        const discoveredToken = await tokenRepo.findOne({
+          select: { userId: true },
+          where: { token },
+        });
+        if (!discoveredToken) {
+          throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
         }
-      }
+        const user = await this.lockCredentialPrincipal(manager, discoveredToken.userId);
 
-      if (!matchedToken) {
-        // SEC-HIGH-009 cure: refresh-token reuse detection.
-        //
-        // Before throwing the generic 401, check whether the presented
-        // token matches a REVOKED token for the same user. A match means:
-        //   (a) An attacker captured the original refresh token and is
-        //       replaying it AFTER the legitimate user already rotated it
-        //       (RFC 6819 § 5.2.2 captured-token attack), OR
-        //   (b) A buggy client cached a stale token and is retrying.
-        //
-        // Both cases are operationally indistinguishable; the security
-        // posture must assume (a) and invalidate every active token for
-        // the user — the attacker may have captured BOTH the original
-        // and the rotated copy. This is the OWASP-recommended response
-        // ("revoke the entire refresh-token chain on reuse-detection").
-        if (userIdPrefix) {
-          const revokedMatch = await this.detectRefreshTokenReuse(
+        // SELECT FOR UPDATE after User FOR UPDATE: one global lock order for
+        // rotation and every per-user credential revocation path.
+        const refreshToken = await tokenRepo
+          .createQueryBuilder('rt')
+          .setLock('pessimistic_write')
+          .where('rt.token = :token', { token })
+          .andWhere('rt.isRevoked = :isRevoked', { isRevoked: false })
+          .andWhere('rt.expiresAt > :now', { now: new Date() })
+          .getOne();
+
+        if (!refreshToken) {
+          throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+        }
+        if (refreshToken.userId !== user.id || !user.isActive) {
+          throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+        }
+
+        // RBAC-HIGH-007: a non-operational tenant must not rotate tokens.
+        await this.assertTenantOperationalForRefresh(manager, user);
+
+        // Revoke the token within the same transaction
+        refreshToken.isRevoked = true;
+        refreshToken.revokedAt = new Date();
+        refreshToken.revokedReason = 'Token refreshed';
+        await tokenRepo.save(refreshToken);
+
+        // Preserve the rememberMe choice across rotation so a remembered session
+        // stays persistent (the resolver re-issues a persistent vs session cookie).
+        return this.tokenService.generateTokens(
+          user,
+          refreshToken.ipAddress ?? undefined,
+          refreshToken.userAgent ?? undefined,
+          {
+            rememberMe: refreshToken.rememberMe,
             manager,
-            userIdPrefix,
-            tokenPart,
-          );
-          if (revokedMatch) {
-            await this.revokeTokenFamilyOnReuseDetection(
-              manager,
-              userIdPrefix,
-              revokedMatch,
-            );
-          }
-        }
-        throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
-      }
-
-      // Double-check the token is still not revoked (within locked transaction)
-      if (matchedToken.isRevoked) {
-        throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
-      }
-
-      // Fetch the associated user separately.
-      const user = await this.preTenantAuthRepository(manager, User)
-        .findOne({ where: { id: matchedToken.userId } });
-
-      if (!user || !user.isActive) {
-        throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
-      }
-
-      // RBAC-HIGH-007: a non-operational tenant must not rotate tokens.
-      await this.assertTenantOperationalForRefresh(manager, user);
-
-      // Revoke the token within the same transaction
-      matchedToken.isRevoked = true;
-      matchedToken.revokedAt = new Date();
-      matchedToken.revokedReason = 'Token refreshed';
-      await tokenRepo.save(matchedToken);
-
-      // SECURITY (SEC-MEDIUM-003): the rotated token inherits the family of
-      // the token it replaces, so reuse-detection can scope revocation to
-      // this lineage instead of the whole user.
-      return this.tokenService.generateTokens(
-        user,
-        matchedToken.ipAddress ?? undefined,
-        matchedToken.userAgent ?? undefined,
-        { familyId: matchedToken.familyId ?? undefined, rememberMe: matchedToken.rememberMe },
-      );
-    });
+            establishSession: false,
+          },
+        );
+      }),
+    );
   }
 
-  /**
-   * SEC-HIGH-009 cure helper: scan REVOKED tokens for the user to
-   * decide whether the presented token corresponds to a previously-
-   * issued (now-revoked) refresh token. Returns the matching revoked
-   * row on hit, null otherwise. Used only on the no-match branch of
-   * the main refresh path; keep the bcrypt scan intentionally tiny so
-   * stale browser cookies cannot turn silent refresh into a long request.
-   */
-  private async detectRefreshTokenReuse(
-    manager: import('typeorm').EntityManager,
-    userId: string,
-    tokenPart: string,
-  ): Promise<RefreshToken | null> {
+  private parseHashedRefreshToken(plainToken: string): ParsedHashedRefreshToken | null {
+    const segments = plainToken.split(':');
+    if (segments.length !== 2) {
+      return null;
+    }
+    const [userId, secret] = segments;
+    if (!userId || !secret || !UUID_V4_PATTERN.test(userId)) {
+      return null;
+    }
+    if (LEGACY_REFRESH_SECRET_PATTERN.test(secret)) {
+      return { userId, secret };
+    }
+    if (!VERSIONED_REFRESH_SECRET_PATTERN.test(secret)) {
+      return null;
+    }
+    const tokenIdHex = secret.slice(0, 32);
+    const tokenId = [
+      tokenIdHex.slice(0, 8),
+      tokenIdHex.slice(8, 12),
+      tokenIdHex.slice(12, 16),
+      tokenIdHex.slice(16, 20),
+      tokenIdHex.slice(20),
+    ].join('-');
+    if (!UUID_V4_PATTERN.test(tokenId)) {
+      return null;
+    }
+    return { userId, secret, tokenId };
+  }
+
+  private async refreshTokenWithHash(plainToken: string): Promise<AuthPayload> {
+    const parsed = this.parseHashedRefreshToken(plainToken);
+    if (!parsed) {
+      throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+    }
+
+    const result = await this.dataSource.transaction(async (manager) => {
+      const user = await this.lockCredentialPrincipal(manager, parsed.userId);
+      return parsed.tokenId
+        ? this.rotateVersionedRefreshToken(manager, user, parsed)
+        : this.rotateLegacyRefreshToken(manager, user, parsed);
+    });
+
+    if (result.payload) {
+      return result.payload;
+    }
+    if (result.containment) {
+      await this.applyReuseContainment(result.containment);
+    }
+    throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+  }
+
+  private async rotateVersionedRefreshToken(
+    manager: EntityManager,
+    user: User,
+    parsed: ParsedHashedRefreshToken & { tokenId?: string },
+  ): Promise<RefreshTransactionResult> {
+    if (!parsed.tokenId) {
+      return {};
+    }
     const tokenRepo = this.preTenantAuthRepository(manager, RefreshToken);
+    const token = await tokenRepo
+      .createQueryBuilder('rt')
+      .setLock('pessimistic_write')
+      .where('rt.userId = :userId', { userId: parsed.userId })
+      .andWhere('rt.tokenId = :tokenId', { tokenId: parsed.tokenId })
+      .getOne();
+    if (!token || !(await bcrypt.compare(parsed.secret, token.token))) {
+      return {};
+    }
+    return this.rotateMatchedRefreshToken(manager, user, token);
+  }
+
+  private async rotateLegacyRefreshToken(
+    manager: EntityManager,
+    user: User,
+    parsed: ParsedHashedRefreshToken,
+  ): Promise<RefreshTransactionResult> {
+    const tokenRepo = this.preTenantAuthRepository(manager, RefreshToken);
+    const now = new Date();
+    const activeTokens = await tokenRepo
+      .createQueryBuilder('rt')
+      .setLock('pessimistic_write')
+      .where('rt.userId = :userId', { userId: parsed.userId })
+      .andWhere('rt.isRevoked = :isRevoked', { isRevoked: false })
+      .andWhere('rt.expiresAt > :now', { now })
+      .orderBy('rt.createdAt', 'DESC')
+      .take(TOKEN_CONSTANTS.MAX_ACTIVE_REFRESH_TOKEN_CHECK)
+      .getMany();
+    const activeMatch = await this.findRefreshTokenHashMatch(activeTokens, parsed.secret);
+    if (activeMatch) {
+      return this.rotateMatchedRefreshToken(manager, user, activeMatch);
+    }
+
     const revokedTokens = await tokenRepo
       .createQueryBuilder('rt')
-      .where('rt.isRevoked = :isRevoked', { isRevoked: true })
-      .andWhere('rt.userId = :userId', { userId })
+      .setLock('pessimistic_write')
+      .where('rt.userId = :userId', { userId: parsed.userId })
+      .andWhere('rt.isRevoked = :isRevoked', { isRevoked: true })
       .orderBy('rt.revokedAt', 'DESC')
       .take(TOKEN_CONSTANTS.MAX_REVOKED_REFRESH_TOKEN_REUSE_CHECK)
       .getMany();
-    for (const storedToken of revokedTokens) {
-      const isMatch = await bcrypt.compare(tokenPart, storedToken.token);
-      if (isMatch) return storedToken;
+    const revokedMatch = await this.findRefreshTokenHashMatch(revokedTokens, parsed.secret);
+    if (!revokedMatch) {
+      return {};
+    }
+    return this.rotateMatchedRefreshToken(manager, user, revokedMatch);
+  }
+
+  private async findRefreshTokenHashMatch(
+    tokens: RefreshToken[],
+    secret: string,
+  ): Promise<RefreshToken | null> {
+    for (const token of tokens) {
+      if (await bcrypt.compare(secret, token.token)) {
+        return token;
+      }
     }
     return null;
   }
 
-  /**
-   * SEC-HIGH-009 + SEC-MEDIUM-003 cure: when reuse is detected, revoke the
-   * suspect token's FAMILY (its rotation lineage) — not the whole user's
-   * chain. A single stale-cookie replay therefore invalidates only the
-   * compromised lineage, leaving the user's other devices logged in, while
-   * the emitted SecurityEvent carries a true family-id for correlation.
-   *
-   * Blacklisting outstanding access tokens + session revocation remain
-   * user-scoped on purpose: an access token in the wild carries no family
-   * id, so the blacklist cannot be family-narrowed; revoking the user's
-   * access tokens + sessions is the correct conservative response to a
-   * confirmed captured-token replay.
-   *
-   * Defense layers fail open independently — if SecurityEventService is
-   * down, the token revocations still land. If sessionManager /
-   * tokenBlacklist are missing (local-dev), the refresh-token revoke still
-   * happens.
-   *
-   * Legacy rows pre-dating the familyId column have familyId=NULL; for those
-   * we fall back to the user-wide revoke (the old behaviour) so a
-   * pre-migration token replay is still fully contained.
-   */
-  private async revokeTokenFamilyOnReuseDetection(
-    manager: import('typeorm').EntityManager,
-    userId: string,
+  private async rotateMatchedRefreshToken(
+    manager: EntityManager,
+    user: User,
+    token: RefreshToken,
+  ): Promise<RefreshTransactionResult> {
+    if (token.userId !== user.id) {
+      return {};
+    }
+    if (token.isRevoked) {
+      if (token.expiresAt.getTime() <= Date.now()) {
+        return {};
+      }
+      const containment = await this.containRefreshTokenReuse(manager, token);
+      return containment ? { containment } : {};
+    }
+    if (token.expiresAt.getTime() <= Date.now()) {
+      return {};
+    }
+
+    if (!user.isActive) {
+      throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+    }
+    await this.assertTenantOperationalForRefresh(manager, user);
+
+    token.isRevoked = true;
+    token.revokedAt = new Date();
+    token.revokedReason = 'Token refreshed';
+    await this.preTenantAuthRepository(manager, RefreshToken).save(token);
+    const payload = await this.tokenService.generateTokens(
+      user,
+      token.ipAddress ?? undefined,
+      token.userAgent ?? undefined,
+      {
+        familyId: token.familyId ?? undefined,
+        rememberMe: token.rememberMe,
+        manager,
+        establishSession: false,
+      },
+    );
+    return { payload };
+  }
+
+  private async containRefreshTokenReuse(
+    manager: EntityManager,
     suspectToken: RefreshToken,
-  ): Promise<void> {
+  ): Promise<RefreshReuseContainment | null> {
     const tokenRepo = this.preTenantAuthRepository(manager, RefreshToken);
-    const familyId = suspectToken.familyId ?? null;
-    const revokeReason = familyId
-      ? `Reuse detected: family ${familyId} revoked (token id=${suspectToken.id} replayed)`
-      : `Reuse detected: revoked token id=${suspectToken.id} replayed (legacy no-family)`;
+    const invalidatedAt = new Date();
+    const claim = await tokenRepo.update(
+      { id: suspectToken.id, reuseContainedAt: IsNull() },
+      { reuseContainedAt: invalidatedAt },
+    );
+    if (claim.affected !== 1) {
+      return null;
+    }
+
     await tokenRepo.update(
-      familyId ? { userId, familyId, isRevoked: false } : { userId, isRevoked: false },
-      { isRevoked: true, revokedAt: new Date(), revokedReason: revokeReason },
+      suspectToken.familyId
+        ? { userId: suspectToken.userId, familyId: suspectToken.familyId, isRevoked: false }
+        : { userId: suspectToken.userId, isRevoked: false },
+      {
+        isRevoked: true,
+        revokedAt: invalidatedAt,
+        revokedReason: 'Refresh-token reuse detected',
+      },
     );
+    const intent: UserTokenInvalidationIntent = {
+      userId: suspectToken.userId,
+      tenantId: suspectToken.tenantId ?? null,
+      invalidatedAt,
+      reason: 'refresh_token_reuse',
+      idempotencyKey: `refresh-token-reuse:${suspectToken.id}`,
+    };
+    await this.durableUserTokenInvalidation.enqueue(manager, intent);
+    return { intent, suspectToken };
+  }
 
-    if (this.tokenBlacklist) {
-      const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
-      const expiresInSeconds = parseExpiresIn(expiresIn);
-      const expiryDate = new Date(Date.now() + expiresInSeconds * 1000);
-      await this.tokenBlacklist.blacklistUserTokens(
-        userId,
-        expiryDate,
-        'refresh_token_reuse_detected',
-      );
-    }
-    if (this.sessionManager) {
-      await this.sessionManager.revokeAllSessions(userId);
-    }
-
-    this.logger.warn(
-      `Refresh-token reuse detected for user ${userId}; ` +
-        `${familyId ? `family ${familyId}` : 'all (legacy no-family)'} tokens revoked. ` +
-        `Suspect token id=${suspectToken.id} (revoked at ${suspectToken.revokedAt?.toISOString() ?? 'unknown'}, reason='${suspectToken.revokedReason ?? 'unknown'}'). ` +
-        `Source IP=${suspectToken.ipAddress ?? 'unknown'}.`,
-    );
-
-    // SecurityEvent emission. Defensive try/catch — a downstream
-    // event-bus outage MUST NOT block the 401 response (otherwise a
-    // failed event publish becomes a token-rotation request DOS).
-    try {
-      await this.securityEventService?.publishSuspiciousActivity({
+  private async applyReuseContainment(containment: RefreshReuseContainment): Promise<void> {
+    const { intent, suspectToken } = containment;
+    await Promise.allSettled([
+      this.durableUserTokenInvalidation.applyImmediately(intent),
+      this.sessionManager?.revokeAllSessions(intent.userId) ?? Promise.resolve(),
+      this.securityEventService?.publishSuspiciousActivity({
         ip: suspectToken.ipAddress ?? undefined,
-        userId,
+        userId: intent.userId,
         userAgent: suspectToken.userAgent ?? undefined,
         description: 'refresh-token-reuse-detected',
-        // SEC-MEDIUM-003: carry the true family-id for incident correlation.
-        familyId: familyId ?? undefined,
+        familyId: suspectToken.familyId ?? undefined,
         suspectTokenId: suspectToken.id,
         suspectTokenRevokedAt: suspectToken.revokedAt?.toISOString(),
         suspectTokenRevokedReason: suspectToken.revokedReason ?? undefined,
-      });
-    } catch (err) {
-      this.logger.warn(
-        `RefreshTokenReuseDetected SecurityEvent publish failed (non-fatal): ${
-          err instanceof Error ? err.message : 'Unknown'
-        }`,
-      );
-    }
+      }) ?? Promise.resolve(),
+    ]);
+    this.logger.warn(
+      JSON.stringify({
+        event: 'refresh_token_reuse_contained',
+        familyScoped: suspectToken.familyId !== null && suspectToken.familyId !== undefined,
+      }),
+    );
   }
 
   /**
@@ -1097,23 +1223,47 @@ export class AuthenticationService {
    * - Revokes all sessions
    */
   async logout(userId: string, jti?: string, accessTokenExpiry?: Date): Promise<boolean> {
-    // Revoke all refresh tokens for user
-    await this.refreshTokenRepository.update(
-      { userId, isRevoked: false },
-      { isRevoked: true, revokedAt: new Date(), revokedReason: 'User logged out' },
-    );
+    const intent = await this.dataSource.transaction(async (manager) => {
+      const user = await this.lockCredentialPrincipal(manager, userId);
+      await this.preTenantAuthRepository(manager, RefreshToken).update(
+        { userId, isRevoked: false },
+        { isRevoked: true, revokedAt: new Date(), revokedReason: 'User logged out' },
+      );
+      if (!jti || !accessTokenExpiry || accessTokenExpiry.getTime() <= Date.now()) {
+        return null;
+      }
+      const accessIntent = {
+        targetJti: jti,
+        tenantId: this.invalidationTenantForUser(user),
+        expiresAt: accessTokenExpiry,
+        reason: 'user_logout' as const,
+        idempotencyKey: `user-logout:${jti}`,
+      };
+      await this.durableAccessTokenInvalidation.enqueue(manager, accessIntent);
+      return accessIntent;
+    });
 
-    // Blacklist current access token if JTI provided
-    if (jti && accessTokenExpiry && this.tokenBlacklist) {
-      await this.tokenBlacklist.add(jti, accessTokenExpiry, 'user_logout');
+    const effects: PostCommitSecurityEffect[] = [];
+    if (intent) {
+      effects.push({
+        type: 'access_token_invalidation',
+        apply: () => this.durableAccessTokenInvalidation.applyImmediately(intent),
+      });
     }
-
-    // Revoke all sessions
-    if (this.sessionManager) {
-      await this.sessionManager.revokeAllSessions(userId);
+    const sessionManager = this.sessionManager;
+    if (sessionManager) {
+      effects.push({
+        type: 'session_revocation',
+        apply: () => sessionManager.revokeAllSessions(userId),
+      });
     }
+    await settlePostCommitSecurityEffects({
+      logger: this.logger,
+      operation: 'user_logout',
+      effects,
+    });
 
-    this.logger.log(`User logged out: ${userId}`);
+    this.logger.log(JSON.stringify({ event: 'user_logged_out' }));
     return true;
   }
 
@@ -1121,27 +1271,51 @@ export class AuthenticationService {
    * Logout from all devices
    */
   async logoutAllDevices(userId: string): Promise<number> {
-    // Revoke all refresh tokens
-    const result = await this.refreshTokenRepository.update(
-      { userId, isRevoked: false },
-      { isRevoked: true, revokedAt: new Date(), revokedReason: 'Logged out from all devices' },
-    );
+    const transactionResult = await this.dataSource.transaction(async (manager) => {
+      const user = await this.lockCredentialPrincipal(manager, userId);
+      const invalidatedAt = new Date();
+      const updateResult = await this.preTenantAuthRepository(manager, RefreshToken).update(
+        { userId, isRevoked: false },
+        {
+          isRevoked: true,
+          revokedAt: invalidatedAt,
+          revokedReason: 'Logged out from all devices',
+        },
+      );
+      const userIntent: UserTokenInvalidationIntent = {
+        userId,
+        tenantId: this.invalidationTenantForUser(user),
+        invalidatedAt,
+        reason: 'logout_all_devices',
+        idempotencyKey: `logout-all-devices:${userId}:${Math.floor(
+          invalidatedAt.getTime() / 1000,
+        )}`,
+      };
+      await this.durableUserTokenInvalidation.enqueue(manager, userIntent);
+      return { affected: updateResult.affected ?? 0, intent: userIntent };
+    });
 
-    // Blacklist all user tokens
-    if (this.tokenBlacklist) {
-      const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
-      const expiresInSeconds = parseExpiresIn(expiresIn);
-      const expiryDate = new Date(Date.now() + expiresInSeconds * 1000);
-      await this.tokenBlacklist.blacklistUserTokens(userId, expiryDate, 'logout_all_devices');
+    const effects: PostCommitSecurityEffect[] = [
+      {
+        type: 'user_token_invalidation',
+        apply: () => this.durableUserTokenInvalidation.applyImmediately(transactionResult.intent),
+      },
+    ];
+    const sessionManager = this.sessionManager;
+    if (sessionManager) {
+      effects.push({
+        type: 'session_revocation',
+        apply: () => sessionManager.revokeAllSessions(userId),
+      });
     }
+    await settlePostCommitSecurityEffects({
+      logger: this.logger,
+      operation: 'logout_all_devices',
+      effects,
+    });
 
-    // Revoke all sessions
-    if (this.sessionManager) {
-      await this.sessionManager.revokeAllSessions(userId);
-    }
-
-    this.logger.log(`User logged out from all devices: ${userId}`);
-    return result.affected || 0;
+    this.logger.log(JSON.stringify({ event: 'user_logged_out_all_devices' }));
+    return transactionResult.affected;
   }
 
   /**
@@ -1171,31 +1345,43 @@ export class AuthenticationService {
         this.configService.get<string>('NODE_ENV', 'development') === 'production';
       enforceAccessTokenType(payload, this.logger, isProduction);
 
-      // Check if token is blacklisted (by JTI or user-level blacklist)
-      if (this.tokenBlacklist && payload.jti) {
-        const isBlacklisted = await this.tokenBlacklist.isBlacklisted(payload.jti);
-        if (isBlacklisted) {
-          this.logger.debug(`Token blacklisted: ${payload.jti}`);
-          return { valid: false };
-        }
+      // Independent, mandatory revocation gates: a token without any identity
+      // component is not introspectable and must fail closed before Redis.
+      const issuedAt = payload.iat;
+      if (
+        typeof payload.jti !== 'string' ||
+        payload.jti.trim().length === 0 ||
+        typeof payload.sub !== 'string' ||
+        payload.sub.trim().length === 0 ||
+        typeof issuedAt !== 'number' ||
+        !Number.isSafeInteger(issuedAt) ||
+        issuedAt <= 0
+      ) {
+        return { valid: false };
+      }
 
-        // Check user-level blacklist
-        if (payload.iat) {
-          const tokenIssuedAt = new Date(payload.iat * 1000);
-          const isUserBlacklisted = await this.tokenBlacklist.isUserBlacklisted(
-            payload.sub,
-            tokenIssuedAt,
-          );
-          if (isUserBlacklisted) {
-            this.logger.debug(`User tokens blacklisted: ${payload.sub}`);
-            return { valid: false };
-          }
-        }
+      const tokenIssuedAt = new Date(issuedAt * 1000);
+      const [isBlacklisted, isUserTokenValid] = await Promise.all([
+        this.tokenBlacklist.isBlacklisted(payload.jti),
+        this.userTokenRevocation.isTokenValid(payload.sub, tokenIssuedAt),
+      ]);
+      if (isBlacklisted) {
+        this.logger.debug(JSON.stringify({ event: 'token_validation_revoked_jti' }));
+        return { valid: false };
+      }
+      if (!isUserTokenValid) {
+        this.logger.debug(JSON.stringify({ event: 'token_validation_revoked_user' }));
+        return { valid: false };
       }
 
       return { valid: true, payload };
     } catch (error) {
-      this.logger.debug(`Token validation failed: ${(error as Error).message}`);
+      this.logger.debug(
+        JSON.stringify({
+          event: 'token_validation_failed',
+          errorType: error instanceof Error ? error.name : 'UnknownError',
+        }),
+      );
       return { valid: false };
     }
   }
@@ -1311,13 +1497,17 @@ export class AuthenticationService {
       // SECURITY: Log user ID instead of email to prevent PII exposure (H-14)
       this.logger.warn(`Account locked for userId=${user.id} until ${lockoutUntil.toISOString()}`);
       // SECURITY AUDIT: Log account lockout (critical security event)
-      await this.logSecurityEvent('ACCOUNT_LOCKED', {
-        userId: user.id,
-        email: user.email,
-        tenantId: user.tenantId,
-        success: false,
-        reason: `Account locked after ${this.maxFailedAttempts} failed attempts. Locked until ${lockoutUntil.toISOString()}`,
-      }, AuditLogSeverity.CRITICAL);
+      await this.logSecurityEvent(
+        'ACCOUNT_LOCKED',
+        {
+          userId: user.id,
+          email: user.email,
+          tenantId: user.tenantId,
+          success: false,
+          reason: `Account locked after ${this.maxFailedAttempts} failed attempts. Locked until ${lockoutUntil.toISOString()}`,
+        },
+        AuditLogSeverity.CRITICAL,
+      );
 
       // ORPHAN-MEDIUM-320: owner-facing lockout channel. The wire response
       // stays the generic anti-enumeration message, so this event is the
@@ -1412,7 +1602,12 @@ export class AuthenticationService {
       // service calls auth-service's internal API with this ID to get the action URL
       // without the raw token ever touching the event bus.
       await this.bestEffort.publish({
-        ...createBaseEvent('PasswordResetRequested', user.tenantId ?? 'system', { aggregateId: user.id, aggregateType: 'User', userId: user.id, version: 2 }),
+        ...createBaseEvent('PasswordResetRequested', user.tenantId ?? 'system', {
+          aggregateId: user.id,
+          aggregateType: 'User',
+          userId: user.id,
+          version: 2,
+        }),
         actionTokenId: actionToken.id,
         cryptoShredKeyId: user.id,
       });
@@ -1452,83 +1647,91 @@ export class AuthenticationService {
     ipAddress?: string,
     userAgent?: string,
   ): Promise<AuthPayload> {
-    // SECURITY: Hash the provided token with SHA-256 to compare against stored hash
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-    const actionToken = await this.actionTokenRepository.findOne({
-      where: {
-        id: token,
-        purpose: ActionTokenPurpose.PASSWORD_RESET,
-        status: ActionTokenStatus.ACTIVE,
-      },
+    const transactionResult = await this.dataSource.transaction(async (manager) => {
+      const actionTokenRepository = this.preTenantAuthRepository(manager, ActionToken);
+      const userRepository = this.preTenantAuthRepository(manager, User);
+      const refreshTokenRepository = this.preTenantAuthRepository(manager, RefreshToken);
+      const actionToken = await actionTokenRepository.findOne({
+        where: {
+          id: token,
+          purpose: ActionTokenPurpose.PASSWORD_RESET,
+          status: ActionTokenStatus.ACTIVE,
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (actionToken && !actionToken.isActive()) {
+        throw new BadRequestException('Invalid or expired password reset token');
+      }
+
+      const userQuery = userRepository
+        .createQueryBuilder('user')
+        .setLock('pessimistic_write')
+        .where('user.passwordResetExpires > :now', { now: new Date() });
+      if (actionToken) {
+        userQuery
+          .andWhere('user.id = :userId', { userId: actionToken.userId })
+          .andWhere('user.passwordResetToken = :tokenHash', {
+            tokenHash: actionToken.tokenHash,
+          });
+      } else {
+        userQuery.andWhere('user.passwordResetToken = :tokenHash', { tokenHash });
+      }
+      const user = await userQuery.getOne();
+      if (!user?.isActive) {
+        throw new BadRequestException('Invalid or expired password reset token');
+      }
+
+      user.password = newPassword;
+      user.passwordResetToken = null;
+      user.passwordResetExpires = null;
+      user.failedLoginAttempts = 0;
+      user.lockedUntil = null;
+      await userRepository.save(user);
+
+      if (actionToken) {
+        actionToken.status = ActionTokenStatus.CONSUMED;
+        actionToken.consumedAt = new Date();
+        await actionTokenRepository.save(actionToken);
+      }
+
+      const invalidatedAt = new Date();
+      await refreshTokenRepository.update(
+        { userId: user.id, isRevoked: false },
+        { isRevoked: true, revokedAt: invalidatedAt, revokedReason: 'Password reset' },
+      );
+      const intent: UserTokenInvalidationIntent = {
+        userId: user.id,
+        tenantId: this.invalidationTenantForUser(user),
+        invalidatedAt,
+        reason: 'password_reset',
+        idempotencyKey: `password-reset:${actionToken?.id ?? tokenHash}`,
+      };
+      await this.durableUserTokenInvalidation.enqueue(manager, intent);
+      return { user, intent };
     });
 
-    if (actionToken && !actionToken.isActive()) {
-      throw new BadRequestException('Invalid or expired password reset token');
+    const effects: PostCommitSecurityEffect[] = [
+      {
+        type: 'user_token_invalidation',
+        apply: () => this.durableUserTokenInvalidation.applyImmediately(transactionResult.intent),
+      },
+    ];
+    const sessionManager = this.sessionManager;
+    if (sessionManager) {
+      effects.push({
+        type: 'session_revocation',
+        apply: () => sessionManager.revokeAllSessions(transactionResult.user.id),
+      });
     }
+    await settlePostCommitSecurityEffects({
+      logger: this.logger,
+      operation: 'password_reset',
+      effects,
+    });
 
-    // Find user by hashed token and ensure it hasn't expired
-    const userQuery = this.userRepository
-      .createQueryBuilder('user')
-      .where('user.passwordResetExpires > :now', { now: new Date() });
-
-    if (actionToken) {
-      userQuery
-        .andWhere('user.id = :userId', { userId: actionToken.userId })
-        .andWhere('user.passwordResetToken = :tokenHash', { tokenHash: actionToken.tokenHash });
-    } else {
-      userQuery.andWhere('user.passwordResetToken = :tokenHash', { tokenHash });
-    }
-
-    const user = await userQuery.getOne();
-
-    if (!user) {
-      throw new BadRequestException('Invalid or expired password reset token');
-    }
-
-    // Check if account is active
-    if (!user.isActive) {
-      throw new BadRequestException('Invalid or expired password reset token');
-    }
-
-    // Update password (BeforeUpdate hook will bcrypt-hash it)
-    user.password = newPassword;
-
-    // SECURITY: Clear reset token (single-use)
-    user.passwordResetToken = null;
-    user.passwordResetExpires = null;
-
-    // Reset any account lockout from failed login attempts
-    user.failedLoginAttempts = 0;
-    user.lockedUntil = null;
-
-    await this.userRepository.save(user);
-
-    if (actionToken) {
-      actionToken.status = ActionTokenStatus.CONSUMED;
-      actionToken.consumedAt = new Date();
-      await this.actionTokenRepository.save(actionToken);
-    }
-
-    // SECURITY: Revoke ALL refresh tokens (force re-auth on all devices)
-    await this.refreshTokenRepository.update(
-      { userId: user.id, isRevoked: false },
-      { isRevoked: true, revokedAt: new Date(), revokedReason: 'Password reset' },
-    );
-
-    // Blacklist all existing access tokens for this user
-    if (this.tokenBlacklist) {
-      const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
-      const expiresInSeconds = parseExpiresIn(expiresIn);
-      const expiryDate = new Date(Date.now() + expiresInSeconds * 1000);
-      await this.tokenBlacklist.blacklistUserTokens(user.id, expiryDate, 'password_reset');
-    }
-
-    // Revoke all sessions
-    if (this.sessionManager) {
-      await this.sessionManager.revokeAllSessions(user.id);
-    }
-
-    this.logger.log(`Password reset successful for user: ${user.id}`);
+    const { user } = transactionResult;
+    this.logger.log(JSON.stringify({ event: 'password_reset_success' }));
 
     // Audit log + event publish in parallel
     await Promise.allSettled([
@@ -1541,7 +1744,11 @@ export class AuthenticationService {
         success: true,
       }),
       this.bestEffort.publish(
-        createBaseEvent('PasswordResetCompleted', user.tenantId ?? 'system', { aggregateId: user.id, aggregateType: 'User', userId: user.id }),
+        createBaseEvent('PasswordResetCompleted', user.tenantId ?? 'system', {
+          aggregateId: user.id,
+          aggregateType: 'User',
+          userId: user.id,
+        }),
       ),
     ]);
 

@@ -2,6 +2,7 @@
  * Get Site Query Handler
  */
 import { runInTenantRead } from '@aquaculture/backend-common/database';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { DataSource } from 'typeorm';
@@ -14,10 +15,13 @@ export class GetSiteHandler implements IQueryHandler<GetSiteQuery> {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly siteAuthorization: SiteAuthorizationService,
   ) {}
 
   async execute(query: GetSiteQuery): Promise<Site | null> {
-    const { siteId, tenantId } = query;
+    const { siteId, tenantId, caller } = query;
+
+    this.siteAuthorization.assertSiteAssignment({ caller, siteId });
 
     // Read through the fail-closed tenant boundary. A lost tenant context or a
     // wrong/un-provisioned tenant schema now throws TenantContextError at the

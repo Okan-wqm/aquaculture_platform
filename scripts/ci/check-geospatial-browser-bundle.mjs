@@ -31,7 +31,8 @@ const forbiddenPatterns = [
   {
     id: 'legacy-sentinel-route',
     pattern: /\/api\/sentinel-hub\b/i,
-    message: 'Browser bundle must use /api/marine, not the legacy Sentinel proxy route.',
+    message:
+      'The legacy Sentinel proxy is retired; the browser must use site-scoped environment queries and exact scene renders.',
   },
   {
     id: 'deleted-sentinel-tile-service',
@@ -41,12 +42,14 @@ const forbiddenPatterns = [
   {
     id: 'frontend-owned-cmems-url-builder',
     pattern: /getCMEMSWMTSTileUrl|CMEMS_WMTS/i,
-    message: 'CMEMS URL construction belongs to the backend marine data module.',
+    message:
+      'Arbitrary CMEMS URL construction is retired; upstream access and site-scoped products belong to farm-service.',
   },
   {
     id: 'frontend-owned-cmems-point-query',
     pattern: /getCMEMSPointValue|GetFeatureInfo/i,
-    message: 'CMEMS point queries belong to the backend marine data module.',
+    message:
+      'Arbitrary CMEMS point queries are retired; the browser must consume persisted site-scoped observations.',
   },
 ];
 

@@ -3,7 +3,7 @@
  */
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { assertWithinQuota } from '@aquaculture/backend-common/quota';
-import { ConflictException, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import {
   SiteCreatedEvent,
@@ -17,8 +17,9 @@ import { DataSource } from 'typeorm';
 import { AuditAction } from '../../database/entities/audit-log.entity';
 import { AuditLogService } from '../../database/services/audit-log.service';
 import { CreateSiteCommand } from '../commands/create-site.command';
-import { Site, SiteStatus, SiteLocation, SiteAddress, SiteSettings } from '../entities/site.entity';
+import { Site, SiteStatus, SiteType } from '../entities/site.entity';
 
+import { siteMonitoringContractError } from '../dto/site-monitoring.validation';
 import { siteAuditSnapshot } from './site-audit.util';
 
 @CommandHandler(CreateSiteCommand)
@@ -33,6 +34,18 @@ export class CreateSiteHandler implements ICommandHandler<CreateSiteCommand, Sit
 
   async execute(command: CreateSiteCommand): Promise<Site> {
     const { input, tenantId, userId, planLevel } = command;
+    const type = input.type ?? SiteType.LAND_BASED;
+    const monitoringRadiusM = input.monitoringRadiusM ?? 2_000;
+    const monitoringArea = input.monitoringArea ?? null;
+    const contractError = siteMonitoringContractError({
+      type,
+      location: input.location,
+      monitoringRadiusM,
+      monitoringArea,
+    });
+    if (contractError) {
+      throw new BadRequestException(contractError);
+    }
 
     this.logger.log(`Creating site "${input.name}" for tenant ${tenantId}`);
 
@@ -68,14 +81,23 @@ export class CreateSiteHandler implements ICommandHandler<CreateSiteCommand, Sit
       const site = siteRepository.create({
         name: input.name,
         code,
+        lokalitetsnummer: input.lokalitetsnummer,
+        organisationNumberOverride: input.organisationNumberOverride,
+        type,
         description: input.description,
-        location: input.location as SiteLocation | undefined,
-        address: input.address as SiteAddress | undefined,
-        country: input.country,
+        location: input.location,
+        monitoringRadiusM,
+        monitoringArea,
+        monitoringLocationRevision: 1,
+        address: input.address,
+        city: input.address?.city,
+        country: input.country ?? input.address?.country,
+        region: input.region,
         timezone: input.timezone || 'UTC',
         status: input.status || SiteStatus.ACTIVE,
-        settings: input.settings as SiteSettings | undefined,
+        settings: input.settings,
         areaM2: input.totalArea,
+        siteManager: input.siteManager,
         contactEmail: input.contactEmail,
         contactPhone: input.contactPhone,
         isActive: true,
@@ -107,7 +129,7 @@ export class CreateSiteHandler implements ICommandHandler<CreateSiteCommand, Sit
         name: savedSite.name,
         code: savedSite.code,
         country: savedSite.country || '',
-        region: input.region,
+        region: savedSite.region,
         status: savedSite.status,
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager, {

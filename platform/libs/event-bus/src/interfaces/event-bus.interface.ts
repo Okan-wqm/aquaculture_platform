@@ -116,6 +116,7 @@ export interface IEventSubscriber {
   subscribeWildcard<TEvent extends IEvent>(
     eventType: string,
     handler: IEventHandler<TEvent>,
+    options?: SubscriptionOptions,
   ): Promise<void>;
 
   /**
@@ -145,6 +146,7 @@ export interface IEventSubscriber {
   subscribeTo<TEvent extends IEvent>(
     topic: string,
     handler: IEventHandler<TEvent>,
+    options?: SubscriptionOptions,
   ): Promise<void>;
 
   /**
@@ -201,6 +203,7 @@ export interface IRequestReply {
   respond<Req, Res>(
     subject: string,
     handler: RequestReplyHandler<Req, Res>,
+    options?: RequestReplyResponderOptions,
   ): Promise<RequestReplyResponderHandle>;
 }
 
@@ -216,6 +219,15 @@ export interface RequestReplyOptions {
   timeoutMs: number;
 }
 
+/** Core-NATS responder placement options. */
+export interface RequestReplyResponderOptions {
+  /**
+   * Queue group shared by horizontally scaled instances. Exactly one member
+   * handles each request, preventing duplicate authority reads.
+   */
+  queue?: string;
+}
+
 /**
  * Responder callback shape. Must be async — JSON encode / decode
  * boundaries are sync but the handler's own work (DB read,
@@ -227,17 +239,13 @@ export type RequestReplyHandler<Req, Res> = (
 ) => Promise<Res>;
 
 /**
- * Metadata a responder can access about the incoming request: the
- * subject it hit (for fan-out responders) and the cert CN that
- * NATS mapped to the connection when available. The CN is the
- * ADR-015 identity anchor — responders that guard by service can
- * reject unauthorised callers before reading the body.
+ * Broker-derived metadata a responder can access about the incoming request.
+ * Caller identity is enforced by NATS account/certificate ACLs and is not
+ * copied from application-controlled message headers.
  */
 export interface RequestReplyContext {
   /** Subject the responder was invoked on. */
   subject: string;
-  /** Client cert CN NATS mapped at connect time, when present. */
-  authenticatedIdentity?: string;
 }
 
 /**
@@ -309,6 +317,14 @@ export interface EventBusConfig {
 export interface SubscriptionOptions {
   groupId?: string;
   durable?: boolean;
+  /**
+   * Explicit durable-consumer configuration revision.
+   *
+   * JetStream does not permit changing every consumer property in place
+   * (notably DeliverPolicy). Bumping this value creates a new durable during a
+   * rolling migration instead of attempting to mutate the old consumer.
+   */
+  consumerVersion?: string;
   startFrom?: 'beginning' | 'latest' | Date;
   maxInflight?: number;
   ackWait?: number;

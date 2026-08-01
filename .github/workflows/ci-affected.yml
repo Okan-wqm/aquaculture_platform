@@ -732,7 +732,7 @@ jobs:
             docker-compose.prod.yml \
             docker-compose.yml
 
-      # ── Phase A3 — NATS SSoT drift check (services.yaml ↔ nats.conf) ────
+      # ── Phase A3 — NATS SSoT drift check (broker + Helm identities) ─────
       # ADR-015: `infrastructure/nats/services.yaml` is the single source
       # of truth for NATS authorization. `scripts/nats/generate-nats-conf.py`
       # regenerates the `authorization.users[]` block in nats.conf between
@@ -740,16 +740,16 @@ jobs:
       # generator and asserting `git diff --quiet` catches the most common
       # drift pattern (operator edits services.yaml but forgets to run the
       # generator, OR hand-edits the generated block).
-      - name: Phase A3 — NATS SSoT drift (services.yaml to nats.conf)
+      - name: Phase A3 — NATS SSoT drift (broker ACL and certificate roster)
         run: |
           python3 scripts/nats/generate-nats-conf.py
-          if ! git diff --quiet infrastructure/docker/nats/nats.conf; then
-            echo "::error::nats.conf drifted from infrastructure/nats/services.yaml"
+          if [ -n "$(git status --porcelain -- infrastructure/docker/nats/nats.conf infrastructure/helm/aquaculture/files/nats-service-identities.yaml)" ]; then
+            echo "::error::NATS generated artifacts drifted from infrastructure/nats/services.yaml"
             echo "Run 'python3 scripts/nats/generate-nats-conf.py' locally and commit the diff."
-            git diff infrastructure/docker/nats/nats.conf | head -100
+            git diff -- infrastructure/docker/nats/nats.conf infrastructure/helm/aquaculture/files/nats-service-identities.yaml | head -100
             exit 1
           fi
-          echo "OK: nats.conf matches services.yaml"
+          echo "OK: broker ACL and Helm certificate roster match services.yaml"
 
       # ── Phase A3 — cert CN list structural SSoT check ────────────────────
       # WS1 landed 2026-04-14 (commit 0d249dd0): generate-internal-certs.sh

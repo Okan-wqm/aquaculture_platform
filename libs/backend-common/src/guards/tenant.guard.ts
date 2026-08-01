@@ -4,6 +4,7 @@ import {
   ExecutionContext,
   BadRequestException,
   ForbiddenException,
+  ServiceUnavailableException,
   Inject,
   Logger,
   Optional,
@@ -38,11 +39,10 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
  *   excluded. An authenticated user can trivially set any of those values, so
  *   accepting them would allow tenant context spoofing.
  *
- *   **SUPER_ADMIN** — May impersonate a specific tenant via the dedicated
- *   `X-Act-As-Tenant` header. This header is validated for UUID format and
- *   audit-logged with userId, source tenant, target tenant, endpoint, and
- *   timestamp. The generic X-Tenant-Id header is NOT accepted even for super
- *   admins to maintain a single, auditable impersonation vector.
+ *   **SUPER_ADMIN** — May impersonate a specific tenant only through the
+ *   gateway-resolved, HMAC-bound effective-tenant context. Regular subgraphs
+ *   consume the verified user assertion; auth-service consumes the verified
+ *   gateway service identity because it verifies the user's JWT itself.
  *
  * Skip behaviour:
  * - `@SkipTenantGuard()` skips tenant validation for a single route that
@@ -63,6 +63,7 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 @Injectable()
 export class TenantGuard implements CanActivate {
   private readonly logger = new Logger(TenantGuard.name);
+  private readonly isProduction = process.env['NODE_ENV'] === 'production';
 
   /** Whether MFA step-up is required for SUPER_ADMIN cross-tenant access. */
   private readonly mfaRequiredForCrossTenant: boolean;
@@ -72,19 +73,22 @@ export class TenantGuard implements CanActivate {
   // The audit dependency uses the AUDIT_LOG_SERVICE token + IAuditLogService
   // interface (NOT the concrete class) so this guard never imports the
   // `AuditLogEntity` decorator, even transitively. Services that wire
-  // `AuditLogModule.forRoot()` provide the token; services that don't get
-  // `undefined` and fall back to ephemeral `logger.warn()`.
+  // `AuditLogModule.forRoot()` provide the token. Production cross-tenant
+  // requests fail closed if that mandatory append capability is unavailable.
   constructor(
     @Inject(Reflector) private reflector: Reflector,
     @Optional() @Inject(AUDIT_LOG_SERVICE) private readonly auditLogService?: IAuditLogService,
     @Optional() @Inject(ConfigService) private readonly configService?: ConfigService,
   ) {
     this.mfaRequiredForCrossTenant =
-      this.configService?.get<string>('MFA_REQUIRED_FOR_CROSS_TENANT', 'true') === 'true';
+      this.configService?.get<string>('MFA_REQUIRED_FOR_CROSS_TENANT', 'true') !== 'false';
 
     if (!this.auditLogService) {
       this.logger.warn(
-        'AuditLogService not available — SUPER_ADMIN cross-tenant access will only be logged ephemerally',
+        JSON.stringify({
+          event: 'cross_tenant_audit_capability_unavailable',
+          productionFailClosed: this.isProduction,
+        }),
       );
     }
   }
@@ -132,34 +136,39 @@ export class TenantGuard implements CanActivate {
 
     // ---------------------------------------------------------------
     // SUPER_ADMIN: operates in system scope, no tenant enforcement.
-    // May impersonate a tenant via the dedicated X-Act-As-Tenant header.
+    // A tenant impersonation target must come from the gateway's verified
+    // assertion, or from the HMAC-bound effective tenant on auth's direct
+    // JWT-verification path.
     //
     // SECURITY (H-13): Cross-tenant access is mandatory audit-logged.
     // ---------------------------------------------------------------
     if (this.isSuperAdmin(user)) {
-      const actAsTenant = this.extractActAsTenantHeader(request);
-      if (actAsTenant) {
-        if (!UUID_REGEX.test(actAsTenant)) {
-          throw new BadRequestException(
-            'X-Act-As-Tenant header must be a valid UUID',
-          );
-        }
-
-        const sourceTenantId = user?.tenantId ?? 'system';
-        const isCrossTenant = actAsTenant !== sourceTenantId;
+      const actAs = this.resolveTrustedActAs(request, user);
+      if (actAs) {
+        const isCrossTenant = actAs.targetTenantId !== actAs.sourceTenantId;
 
         // SECURITY (H-13): MFA step-up enforcement for cross-tenant access
         if (isCrossTenant) {
-          this.enforceMfaStepUp(user);
+          this.enforceMfaStepUp(actAs.mfaVerified);
         }
-
-        request.tenantId = actAsTenant;
 
         // SECURITY (H-13 + BULGU-4): Persistent audit logging for cross-tenant access.
         // Critical security events MUST be awaited to prevent silent audit loss.
         if (isCrossTenant) {
-          await this.auditCrossTenantAccess(request, user, sourceTenantId, actAsTenant);
+          await this.auditCrossTenantAccess(
+            request,
+            user,
+            actAs.sourceTenantId,
+            actAs.targetTenantId,
+            actAs.clientIp,
+            actAs.clientUserAgent,
+            actAs.mfaVerified,
+          );
         }
+
+        // Publish the tenant context only after all mandatory security checks
+        // and the production audit append have succeeded.
+        request.tenantId = actAs.targetTenantId;
       }
       return true;
     }
@@ -207,15 +216,18 @@ export class TenantGuard implements CanActivate {
    *
    * @throws ForbiddenException if MFA is required but not verified
    */
-  private enforceMfaStepUp(user: TenantRequest['user']): void {
+  private enforceMfaStepUp(mfaVerified: boolean): void {
     if (!this.mfaRequiredForCrossTenant) {
       return;
     }
 
-    if (!user?.mfaVerified) {
-      this.logger.warn('SUPER_ADMIN cross-tenant access denied: MFA not verified', {
-        userId: user?.sub,
-      });
+    if (!mfaVerified) {
+      this.logger.warn(
+        JSON.stringify({
+          event: 'super_admin_cross_tenant_access_denied',
+          reason: 'mfa_not_verified',
+        }),
+      );
       throw new ForbiddenException(
         'MFA verification is required for cross-tenant access. ' +
         'Please complete MFA step-up authentication before accessing another tenant.',
@@ -239,62 +251,200 @@ export class TenantGuard implements CanActivate {
    * - timestamp: ISO 8601 timestamp
    * - client IP and user agent for forensic traceability
    *
-   * If AuditLogService is not available, falls back to ephemeral logger.warn().
-   * If the awaited write fails, the error is logged but not propagated — the
-   * guard still allows the request (audit failure must not block legitimate
-   * admin operations, but the failure IS counted and logged).
+   * Production fails closed if the service is missing or the append fails;
+   * otherwise a privileged mutation could succeed without a forensic record.
+   * Non-production keeps an ephemeral fallback for isolated unit/E2E harnesses.
    */
   private async auditCrossTenantAccess(
     request: TenantRequest,
     user: TenantRequest['user'],
     sourceTenantId: string,
     targetTenantId: string,
+    assertedClientIp: string | undefined,
+    assertedClientUserAgent: string | undefined,
+    mfaVerified: boolean,
   ): Promise<void> {
     const endpoint = `${request.method} ${request.url}`;
     const timestamp = new Date().toISOString();
-    const ip = this.extractClientIp(request);
-    const userAgent = typeof request.headers['user-agent'] === 'string'
-      ? request.headers['user-agent']
-      : undefined;
+    const ip = assertedClientIp ?? this.extractClientIp(request);
+    const userAgent =
+      assertedClientUserAgent ??
+      (typeof request.headers['user-agent'] === 'string'
+        ? request.headers['user-agent']
+        : undefined);
 
     // Always emit an ephemeral log for real-time observability
-    this.logger.warn('SUPER_ADMIN cross-tenant access', {
-      userId: user?.sub,
-      sourceTenantId,
-      targetTenantId,
-      endpoint,
-      timestamp,
-    });
+    this.logger.warn(
+      JSON.stringify({
+        event: 'super_admin_cross_tenant_access',
+        mfaVerified,
+      }),
+    );
 
     // Persist to audit trail via AuditLogService (awaited for critical events)
-    if (this.auditLogService) {
-      try {
-        await this.auditLogService.recordAwait({
-          action: 'SUPER_ADMIN_CROSS_TENANT_ACCESS',
-          resource: 'TenantGuard',
-          resourceId: targetTenantId,
-          userId: user?.sub ?? null,
-          userEmail: user?.email ?? null,
-          tenantId: targetTenantId,
-          metadata: {
-            sourceTenantId,
-            targetTenantId,
-            endpoint,
-            timestamp,
-            mfaVerified: user?.mfaVerified ?? false,
-          },
-          ip: ip ?? null,
-          userAgent: userAgent ?? null,
-          severity: AuditSeverity.WARNING,
-        });
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        this.logger.error(
-          `Critical audit write failed for SUPER_ADMIN cross-tenant access: ${message}`,
-          { userId: user?.sub, sourceTenantId, targetTenantId, endpoint },
+    if (!this.auditLogService) {
+      if (this.isProduction) {
+        throw new ServiceUnavailableException(
+          'Cross-tenant audit trail is unavailable',
         );
-        // Do not re-throw: audit failure must not block legitimate admin operations
       }
+      return;
+    }
+
+    try {
+      await this.auditLogService.recordAwait({
+        action: 'SUPER_ADMIN_CROSS_TENANT_ACCESS',
+        resource: 'TenantGuard',
+        resourceId: targetTenantId,
+        userId: user?.sub ?? null,
+        userEmail: user?.email ?? null,
+        tenantId: targetTenantId,
+        metadata: {
+          sourceTenantId,
+          targetTenantId,
+          endpoint,
+          timestamp,
+          mfaVerified,
+        },
+        actorHomeTenantId:
+          sourceTenantId === 'system' ? null : sourceTenantId,
+        actedOnTenantId: targetTenantId,
+        mfaVerified,
+        ip: ip ?? null,
+        userAgent: userAgent ?? null,
+        severity: AuditSeverity.WARNING,
+      });
+    } catch (err: unknown) {
+      this.logger.error(
+        JSON.stringify({
+          event: 'super_admin_cross_tenant_audit_failed',
+          errorType: err instanceof Error ? err.name : 'UnknownError',
+        }),
+      );
+      if (this.isProduction) {
+        throw new ServiceUnavailableException(
+          'Cross-tenant audit trail is unavailable',
+        );
+      }
+    }
+  }
+
+  /**
+   * Resolve the single trusted SUPER_ADMIN tenant target.
+   *
+   * The verified assertion is authoritative in regular subgraphs. Auth-service
+   * verifies the access JWT itself, so it consumes the HMAC-bound effective
+   * tenant from the verified gateway service identity. Raw browser headers are
+   * never trusted in production.
+   */
+  private resolveTrustedActAs(
+    request: TenantRequest,
+    user: TenantRequest['user'],
+  ):
+    | {
+        sourceTenantId: string;
+        targetTenantId: string;
+        mfaVerified: boolean;
+        clientIp?: string;
+        clientUserAgent?: string;
+      }
+    | undefined {
+    const assertion = request.verifiedUserAssertion;
+    const rawActAs = this.extractActAsTenantHeader(request);
+
+    if (assertion) {
+      if (
+        assertion.issuer !== 'gateway-api' ||
+        assertion.subject !== user?.sub ||
+        !assertion.roles.includes(Role.SUPER_ADMIN)
+      ) {
+        throw new ForbiddenException('Verified user assertion does not match authenticated user');
+      }
+
+      const targetTenantId = assertion.effectiveTenantId ?? undefined;
+      if (!targetTenantId) {
+        if (rawActAs) {
+          throw new ForbiddenException('Act-as tenant conflicts with verified user assertion');
+        }
+        return undefined;
+      }
+      this.assertValidActAsTenant(targetTenantId);
+      if (rawActAs && rawActAs !== targetTenantId) {
+        throw new ForbiddenException('Act-as tenant conflicts with verified user assertion');
+      }
+      this.assertGatewayIdentityMatchesTarget(request, targetTenantId);
+
+      return {
+        sourceTenantId: assertion.tenantId ?? 'system',
+        targetTenantId,
+        mfaVerified: assertion.mfaVerified,
+        clientIp: assertion.clientIp ?? undefined,
+        clientUserAgent: assertion.clientUserAgent ?? undefined,
+      };
+    }
+
+    const identityTarget =
+      request.verifiedIdentity?.serviceName === 'gateway-api'
+        ? request.verifiedIdentity.effectiveTenantId
+        : undefined;
+    if (identityTarget) {
+      this.assertValidActAsTenant(identityTarget);
+      if (rawActAs && rawActAs !== identityTarget) {
+        throw new ForbiddenException(
+          'Act-as tenant conflicts with verified gateway identity',
+        );
+      }
+      this.assertGatewayIdentityMatchesTarget(request, identityTarget);
+      return {
+        sourceTenantId: user?.tenantId ?? 'system',
+        targetTenantId: identityTarget,
+        mfaVerified: user?.mfaVerified === true,
+      };
+    }
+
+    if (!rawActAs) {
+      return undefined;
+    }
+
+    this.assertValidActAsTenant(rawActAs);
+    this.assertGatewayIdentityMatchesTarget(request, rawActAs);
+    return {
+      sourceTenantId: user?.tenantId ?? 'system',
+      targetTenantId: rawActAs,
+      mfaVerified: user?.mfaVerified === true,
+    };
+  }
+
+  private assertValidActAsTenant(tenantId: string): void {
+    if (!UUID_REGEX.test(tenantId)) {
+      throw new BadRequestException(
+        'X-Act-As-Tenant header must be a valid UUID',
+      );
+    }
+  }
+
+  private assertGatewayIdentityMatchesTarget(
+    request: TenantRequest,
+    targetTenantId: string,
+  ): void {
+    const identity = request.verifiedIdentity;
+    if (!identity) {
+      if (this.isProduction) {
+        throw new ForbiddenException(
+          'Cross-tenant access requires a verified gateway identity',
+        );
+      }
+      return;
+    }
+
+    if (
+      identity.serviceName !== 'gateway-api' ||
+      identity.tenantId !== targetTenantId ||
+      identity.effectiveTenantId !== targetTenantId
+    ) {
+      throw new ForbiddenException(
+        'Cross-tenant target does not match verified gateway identity',
+      );
     }
   }
 

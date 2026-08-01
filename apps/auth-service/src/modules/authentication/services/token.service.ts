@@ -2,27 +2,35 @@ import * as crypto from 'crypto';
 
 import { getActiveSigningKid } from '@aquaculture/backend-common/auth';
 import { Role } from '@aquaculture/backend-common/decorators';
-import { ISessionManager, SESSION_MANAGER } from '@aquaculture/backend-common/security';
+import {
+  ISessionManager,
+  IUserTokenRevocation,
+  SESSION_MANAGER,
+  USER_TOKEN_REVOCATION,
+} from '@aquaculture/backend-common/security';
 import { Injectable, Logger, Optional, Inject, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { TenantPlan, PLAN_LEVEL } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
 
+import { parseHashRefreshTokens } from '../../../config/hash-refresh-tokens';
+import { parseAccessTokenLifetimeSeconds } from '../../../config/jwt-lifetime';
+import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
 import { MobileSettingsService } from '../../tenant/services/mobile-settings.service';
 import { resolveEntitledCapabilities } from '../../tenant/services/permission-catalogue';
 import {
   applyPermissionOverrides,
   parsePermissionOverrides,
 } from '../../tenant/services/permission-overrides.util';
-import { SECURITY_CONSTANTS } from '../../../constants/auth.constants';
 import { AuthPayload } from '../dto/auth-response.dto';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { UserSiteAssignment } from '../entities/user-site-assignment.entity';
 import { User } from '../entities/user.entity';
+import { readEffectiveUserSiteAssignments } from './user-site-assignment-reader';
 
 /**
  * JWT access token payload.
@@ -98,30 +106,28 @@ interface TenantModuleRow {
   defaultRoute: string;
 }
 
+interface AssignedSiteSnapshot {
+  siteIds: string[];
+  earliestExpiryEpochSeconds?: number;
+}
+
+interface GenerateTokensOptions {
+  mfaVerified?: boolean;
+  familyId?: string;
+  rememberMe?: boolean;
+  manager?: EntityManager;
+  establishSession?: boolean;
+}
+
+interface LockedGenerateTokensOptions extends GenerateTokensOptions {
+  manager: EntityManager;
+}
+
 /**
  * Parse a time-duration string (e.g. '15m', '1h', '7d') into seconds.
  */
 export function parseExpiresIn(expiresIn: string): number {
-  const match = expiresIn.match(/^(\d+)([smhdw])$/);
-  if (!match || !match[1] || !match[2]) return SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_SECONDS;
-
-  const value = parseInt(match[1], 10);
-  const unit = match[2];
-
-  switch (unit) {
-    case 's':
-      return value;
-    case 'm':
-      return value * 60;
-    case 'h':
-      return value * 60 * 60;
-    case 'd':
-      return value * 24 * 60 * 60;
-    case 'w':
-      return value * 7 * 24 * 60 * 60;
-    default:
-      return SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_SECONDS;
-  }
+  return parseAccessTokenLifetimeSeconds(expiresIn);
 }
 
 /**
@@ -142,39 +148,9 @@ export class TokenService {
   private readonly hashRefreshTokens: boolean;
   private readonly maxSessionsPerUser: number;
 
-  // PERF: In-memory cache for user module assignments (CRIT-03)
-  // SECURITY (AUTH-M2): Bounded to MAX_MODULE_CACHE_SIZE using Map insertion-order LRU.
-  // BEFORE: raw Map with no size bound — mass account creation / enumeration attacks
-  // could grow this map to hundreds of thousands of entries, exhausting process memory.
-  // AFTER: when the cache reaches capacity, the oldest (least-recently-inserted) entry
-  // is evicted before the new one is added. Map preserves insertion order in JS/TS,
-  // so keys().next().value is always the oldest entry — O(1) eviction.
-  // Combined with 60-second TTL (lazy eviction on access), memory is always bounded.
-  private static readonly MAX_MODULE_CACHE_SIZE = 5_000;
-  private readonly moduleCache = new Map<string, {
-    modules: Array<{ code: string; name: string; defaultRoute: string }>;
-    cachedAt: number;
-  }>();
-  // WHY: In-memory cache — stale for up to TTL across pods. Use Redis pub/sub for instant invalidation when multi-pod.
-  private readonly moduleCacheTtlMs = 60 * 1000; // 60 seconds
-
-  // PERF (PERF-HIGH-001): In-memory LRU cache for resolved tenant-level resource
-  // permissions, mirroring the module cache above.
-  // WHY: getUserResourcePermissions runs on every token mint and performs a
-  // two-table JOIN against the role-assignment tables. Resource permissions
-  // change far less often than tokens are minted, so caching the resolved set
-  // per user collapses the hot-path read to a single round-trip on a miss.
-  // WHAT: Same Map insertion-order LRU + MAX_MODULE_CACHE_SIZE cap + 60s TTL as
-  // the module cache, keyed by user.id, so memory is always bounded against
-  // mass account creation / enumeration. A miss (or stale entry) re-queries;
-  // capacity eviction drops the oldest (least-recently-inserted) entry first.
-  private readonly resourcePermissionCache = new Map<string, {
-    permissions: string[];
-    cachedAt: number;
-  }>();
-  private readonly resourcePermissionCacheTtlMs = 60 * 1000; // 60 seconds
-
   constructor(
+    @InjectRepository(User)
+    private readonly userRepository: Repository<User>,
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     @InjectRepository(UserModuleAssignment)
@@ -187,6 +163,8 @@ export class TokenService {
     // SEC-HIGH-052: the SINGLE mobile-feature read path. Injected (not
     // re-queried inline) so allowedFeatures has exactly one source of truth.
     private readonly mobileSettingsService: MobileSettingsService,
+    @Inject(USER_TOKEN_REVOCATION)
+    private readonly userTokenRevocation: IUserTokenRevocation,
     @Optional() @Inject(SESSION_MANAGER) private readonly sessionManager?: ISessionManager,
   ) {
     this.refreshTokenExpiryDays = this.configService.get<number>(
@@ -197,7 +175,7 @@ export class TokenService {
       'REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS',
       SECURITY_CONSTANTS.DEFAULT_REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS,
     );
-    this.hashRefreshTokens = this.configService.get<boolean>('HASH_REFRESH_TOKENS', true);
+    this.hashRefreshTokens = parseHashRefreshTokens(this.configService);
     this.maxSessionsPerUser = this.configService.get<number>(
       'MAX_SESSIONS_PER_USER',
       SECURITY_CONSTANTS.DEFAULT_MAX_SESSIONS_PER_USER,
@@ -214,11 +192,44 @@ export class TokenService {
     user: User,
     ipAddress?: string,
     userAgent?: string,
-    options?: {
-      mfaVerified?: boolean;
-      familyId?: string;
-      rememberMe?: boolean;
-    },
+    options?: GenerateTokensOptions,
+  ): Promise<AuthPayload> {
+    const mintUnderUserFence = async (manager: EntityManager): Promise<AuthPayload> => {
+      // Canonical credential lock order: every RefreshToken INSERT takes the
+      // stable User row first. Snapshot fields are part of the predicate so a
+      // password/role/tenant/deactivation mutation that committed after the
+      // caller authenticated makes this mint fail closed instead of issuing a
+      // token from stale authorization state.
+      const lockedPrincipal = await manager.withRepository(this.userRepository).findOne({
+        select: { id: true },
+        where: {
+          id: user.id,
+          role: user.role,
+          tenantId: user.tenantId ?? IsNull(),
+          isActive: true,
+          ...(user.updatedAt ? { updatedAt: user.updatedAt } : {}),
+        },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!lockedPrincipal) {
+        throw new ForbiddenException('User credentials changed during token issuance');
+      }
+      return this.generateTokensUnderUserFence(user, ipAddress, userAgent, {
+        ...options,
+        manager,
+      });
+    };
+
+    return options?.manager
+      ? mintUnderUserFence(options.manager)
+      : this.dataSource.transaction(mintUnderUserFence);
+  }
+
+  private async generateTokensUnderUserFence(
+    user: User,
+    ipAddress: string | undefined,
+    userAgent: string | undefined,
+    options: LockedGenerateTokensOptions,
   ): Promise<AuthPayload> {
     // SSoT: the effective tenant this token is scoped to — the user's own tenant.
     const effectiveTenantId = user.tenantId ?? null;
@@ -234,8 +245,13 @@ export class TokenService {
       );
     }
 
-    // Enforce concurrent session limit
-    if (this.sessionManager) {
+    const issuedAtEpochSeconds = await this.resolveIssuableEpochSeconds(user.id);
+    const establishSession = options?.establishSession ?? true;
+
+    // Rotation already belongs to an established session. Only fresh login
+    // paths enforce/create a session; otherwise every refresh would consume a
+    // new slot and could evict the very session being rotated.
+    if (this.sessionManager && establishSession) {
       await this.sessionManager.enforceSessionLimit(user.id, this.maxSessionsPerUser);
     }
 
@@ -246,25 +262,30 @@ export class TokenService {
     // instead of serially after them. When HASH_REFRESH_TOKENS is off the raw
     // value is wrapped in an already-resolved promise so the await below is a
     // no-op — semantics are preserved either way.
+    const refreshTokenId = this.hashRefreshTokens ? crypto.randomUUID() : undefined;
     const refreshTokenRandom = crypto.randomBytes(64).toString('hex');
+    const transportedRefreshSecret = refreshTokenId
+      ? `${refreshTokenId.replaceAll('-', '')}${refreshTokenRandom}`
+      : refreshTokenRandom;
     const tokenToStorePromise: Promise<string> = this.hashRefreshTokens
-      ? bcrypt.hash(refreshTokenRandom, SECURITY_CONSTANTS.BCRYPT_SALT_ROUNDS)
-      : Promise.resolve(refreshTokenRandom);
+      ? bcrypt.hash(transportedRefreshSecret, SECURITY_CONSTANTS.BCRYPT_SALT_ROUNDS)
+      : Promise.resolve(transportedRefreshSecret);
 
     // Hot-path reads run concurrently: the user's module codes, tenant-level
     // resource permissions, the tenant's plan-tier ordinal (the MT-MEDIUM-001
     // JWT claim), the user's assigned site ids (SEC-HIGH-051) and enabled mobile
     // features (SEC-HIGH-052) are independent, so a single Promise.all keeps
     // token mint to one read latency instead of five serial round-trips.
-    const [modules, resourcePermissions, planLevel, assignedSiteIds, mobileFeatures] =
+    const [modules, resourcePermissions, planLevel, assignedSites, mobileFeatures] =
       await Promise.all([
         this.getUserModules(user),
         this.getUserResourcePermissions(user),
         this.resolveTenantPlanLevel(effectiveTenantId),
-        this.getUserAssignedSiteIds(user),
+        this.getUserAssignedSites(user, issuedAtEpochSeconds, options.manager),
         this.getUserMobileFeatures(user),
       ]);
     const moduleCodes = modules.map((m) => m.code);
+    const assignedSiteIds = assignedSites.siteIds;
 
     // Generate JWT ID for token blacklisting
     const jti = crypto.randomUUID();
@@ -295,6 +316,7 @@ export class TokenService {
       ...(mobileFeatures.length > 0 ? { mobileFeatures } : {}),
       type: 'access',
       jti,
+      iat: issuedAtEpochSeconds,
       // IP-2: MFA step-up claim — set after successful TOTP verification.
       // TenantGuard checks this claim for cross-tenant access (MFA_REQUIRED_FOR_CROSS_TENANT=true).
       ...(options?.mfaVerified ? { mfaVerified: true } : {}),
@@ -305,15 +327,25 @@ export class TokenService {
     // matching JWKS public key during a rotation overlap. The kid is derived
     // from the same SSoT (getActiveSigningKid) the JWKS controller publishes,
     // making header/JWKS drift impossible.
+    const configuredExpiresInSeconds = parseAccessTokenLifetimeSeconds(
+      this.configService.get<string>('JWT_EXPIRES_IN', SECURITY_CONSTANTS.DEFAULT_JWT_EXPIRES_IN),
+    );
+    const assignmentExpiresInSeconds =
+      assignedSites.earliestExpiryEpochSeconds === undefined
+        ? configuredExpiresInSeconds
+        : assignedSites.earliestExpiryEpochSeconds - issuedAtEpochSeconds;
+    const expiresInSeconds = Math.min(configuredExpiresInSeconds, assignmentExpiresInSeconds);
+
     const accessToken = await this.jwtService.signAsync(payload, {
       audience: this.configService.get<string>('JWT_AUDIENCE', 'aquaculture-platform'),
       keyid: getActiveSigningKid(this.configService),
+      expiresIn: expiresInSeconds,
     });
 
     // SECURITY: Prefix refresh token with userId so the lookup can be scoped per-user.
     const refreshTokenValue = this.hashRefreshTokens
-      ? `${user.id}:${refreshTokenRandom}`
-      : refreshTokenRandom;
+      ? `${user.id}:${transportedRefreshSecret}`
+      : transportedRefreshSecret;
 
     // PERF (PERF-HIGH-003): collect the bcrypt result started before the reads.
     // By now the hash has run concurrently with the module/permission/plan
@@ -335,8 +367,10 @@ export class TokenService {
       : this.refreshTokenExpiryDays;
 
     // Create refresh token
-    const refreshToken = this.refreshTokenRepository.create({
+    const refreshTokenRepository = options.manager.withRepository(this.refreshTokenRepository);
+    const refreshToken = refreshTokenRepository.create({
       token: tokenToStore,
+      ...(refreshTokenId ? { tokenId: refreshTokenId } : {}),
       userId: user.id,
       tenantId: user.tenantId,
       familyId,
@@ -350,10 +384,8 @@ export class TokenService {
     // creation are independent writes (the session limit was already enforced
     // up front), so issue both concurrently and await together rather than
     // serially. Order does not matter: neither depends on the other's result.
-    const persistPromises: Array<Promise<unknown>> = [
-      this.refreshTokenRepository.save(refreshToken),
-    ];
-    if (this.sessionManager) {
+    const persistPromises: Array<Promise<unknown>> = [refreshTokenRepository.save(refreshToken)];
+    if (this.sessionManager && establishSession) {
       persistPromises.push(
         this.sessionManager.createSession(user.id, {
           ipAddress,
@@ -363,9 +395,6 @@ export class TokenService {
       );
     }
     await Promise.all(persistPromises);
-
-    const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
-    const expiresInSeconds = parseExpiresIn(expiresIn);
 
     // Determine redirect URL based on role
     const redirectUrl = this.getRedirectUrl(user, modules);
@@ -383,37 +412,50 @@ export class TokenService {
     };
   }
 
-  /**
-   * Invalidate the per-user hot-path caches (call when module OR role
-   * assignments change). Clears both the module cache and the
-   * resource-permission cache (PERF-HIGH-001) so a permission change is not
-   * masked for up to the TTL after an explicit invalidation.
-   */
-  invalidateModuleCache(userId: string): void {
-    this.moduleCache.delete(userId);
-    this.resourcePermissionCache.delete(userId);
-  }
-
   // ==========================================================================
   // Private Helpers
   // ==========================================================================
 
-  async getUserModules(user: User): Promise<Array<{ code: string; name: string; defaultRoute: string }>> {
+  /**
+   * Never mint an access token on an invalidated second. JWT iat precision is
+   * one second, so a synthetic future iat would be unsafe clock fabrication.
+   * Instead, wait for the real next second and re-read the distributed marker.
+   */
+  private async resolveIssuableEpochSeconds(userId: string): Promise<number> {
+    const maximumAttempts = 3;
+    for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
+      const now = Date.now();
+      const issuedAtEpochSeconds = Math.floor(now / 1000);
+      const issuedAt = new Date(issuedAtEpochSeconds * 1000);
+      if (await this.userTokenRevocation.isTokenValid(userId, issuedAt)) {
+        return issuedAtEpochSeconds;
+      }
+      if (attempt === maximumAttempts - 1) {
+        break;
+      }
+      const millisecondsUntilNextSecond = 1000 - (Date.now() % 1000);
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, millisecondsUntilNextSecond);
+      });
+    }
+    throw new ForbiddenException('Access-token issuance is temporarily unavailable');
+  }
+
+  async getUserModules(
+    user: User,
+  ): Promise<Array<{ code: string; name: string; defaultRoute: string }>> {
     if (user.role === Role.SUPER_ADMIN) {
       // SUPER_ADMIN sees ALL active modules (platform-wide, not tenant-scoped).
       // Previous behavior returned [] which made the sidebar empty.
-      const allModules = await this.dataSource.query<Array<{ code: string; name: string; defaultRoute: string }>>(
+      const allModules = await this.dataSource.query<
+        Array<{ code: string; name: string; defaultRoute: string }>
+      >(
         `SELECT code, name, "defaultRoute"
          FROM auth.modules
          WHERE "isActive" = true
          ORDER BY "sortOrder" ASC, name ASC`,
       );
       return allModules;
-    }
-
-    const cached = this.moduleCache.get(user.id);
-    if (cached && (Date.now() - cached.cachedAt) < this.moduleCacheTtlMs) {
-      return cached.modules;
     }
 
     let modules: Array<{ code: string; name: string; defaultRoute: string }>;
@@ -448,15 +490,6 @@ export class TokenService {
         }));
     }
 
-    // LRU eviction: if at capacity, remove the oldest entry before inserting.
-    // Map.keys() returns keys in insertion order — first key is the oldest entry.
-    if (this.moduleCache.size >= TokenService.MAX_MODULE_CACHE_SIZE) {
-      const oldestKey = this.moduleCache.keys().next().value;
-      if (oldestKey !== undefined) {
-        this.moduleCache.delete(oldestKey);
-      }
-    }
-    this.moduleCache.set(user.id, { modules, cachedAt: Date.now() });
     return modules;
   }
 
@@ -464,25 +497,50 @@ export class TokenService {
    * SEC-HIGH-051: resolve the user's assigned farm-service Site ids for the
    * `assignedSiteIds` JWT claim.
    *
-   * SUPER_ADMIN/TENANT_ADMIN return [] — they bypass site checks via the
-   * canonical `roleHasPermission(role, MODULE_MANAGER)` hierarchy (mirroring the
-   * user_module_assignments TENANT_ADMIN-inherits precedent). MODULE_MANAGER and
-   * MODULE_USER load their active, non-expired assignments. MODULE_MANAGER also
-   * bypasses at the guard, but we still emit its sites so a future tighter
-   * policy has the data and the claim is consistent.
+   * The caller already holds the canonical User row FOR UPDATE. Assignment
+   * rows are read under the same transaction so the principal fence, site
+   * claim and RefreshToken INSERT form one ordered authorization snapshot.
    */
-  private async getUserAssignedSiteIds(user: User): Promise<string[]> {
-    if (user.role === Role.SUPER_ADMIN || user.role === Role.TENANT_ADMIN) {
-      return [];
+  private async getUserAssignedSites(
+    user: User,
+    issuedAtEpochSeconds: number,
+    activeManager: EntityManager,
+  ): Promise<AssignedSiteSnapshot> {
+    if (
+      user.role === Role.SUPER_ADMIN ||
+      user.role === Role.TENANT_ADMIN ||
+      user.role === Role.MODULE_MANAGER
+    ) {
+      return { siteIds: [] };
     }
+    if (!user.tenantId) {
+      return { siteIds: [] };
+    }
+    const tenantId = user.tenantId;
 
-    const assignments = await this.userSiteAssignmentRepository.find({
-      where: { userId: user.id, isActive: true },
-    });
+    const assignmentRepository = activeManager.withRepository(this.userSiteAssignmentRepository);
+    // JWT times have whole-second precision. An assignment that expires
+    // before the next representable token second cannot safely be carried
+    // as a claim, even when a few milliseconds remain on the wall clock.
+    const claimBoundary = new Date((issuedAtEpochSeconds + 1) * 1000 - 1);
+    const effectiveAssignments = await readEffectiveUserSiteAssignments(
+      assignmentRepository,
+      user.id,
+      tenantId,
+      claimBoundary,
+      { lock: 'pessimistic_read' },
+    );
 
-    return assignments
-      .filter((a) => a.isAccessible())
-      .map((a) => a.siteId);
+    return {
+      siteIds: effectiveAssignments.siteIds,
+      ...(effectiveAssignments.earliestExpiresAt
+        ? {
+            earliestExpiryEpochSeconds: Math.floor(
+              effectiveAssignments.earliestExpiresAt.getTime() / 1000,
+            ),
+          }
+        : {}),
+    };
   }
 
   /**
@@ -516,9 +574,7 @@ export class TokenService {
    * plan, so the claim is omitted. An unrecognised plan string falls back to 0
    * (FREE-equivalent) so a data anomaly can never silently unlock a paid tier.
    */
-  private async resolveTenantPlanLevel(
-    tenantId: string | null,
-  ): Promise<number | undefined> {
+  private async resolveTenantPlanLevel(tenantId: string | null): Promise<number | undefined> {
     if (!tenantId) {
       return undefined;
     }
@@ -546,9 +602,8 @@ export class TokenService {
    * (generateTokens) rejects and the login fails cleanly instead of handing out
    * an under-privileged token.
    *
-   * PERF-HIGH-001 (b) — the resolved permission set is cached per user in a
-   * bounded LRU (see resourcePermissionCache) so this two-table JOIN does not
-   * run on every token mint.
+   * Authorization reads are deliberately authoritative on every mint. A
+   * process-local cache would allow a removed grant to survive on one replica.
    */
   private async getUserResourcePermissions(user: User): Promise<string[]> {
     if (user.role === Role.SUPER_ADMIN || user.role === Role.TENANT_ADMIN) {
@@ -557,13 +612,6 @@ export class TokenService {
 
     if (!user.tenantId) {
       return [];
-    }
-
-    // Cache hit within TTL short-circuits the JOIN. Same lazy-TTL eviction as
-    // the module cache: stale entries fall through and re-query below.
-    const cached = this.resourcePermissionCache.get(user.id);
-    if (cached && (Date.now() - cached.cachedAt) < this.resourcePermissionCacheTtlMs) {
-      return cached.permissions;
     }
 
     let permissions: string[];
@@ -645,15 +693,6 @@ export class TokenService {
       throw error;
     }
 
-    // LRU eviction: if at capacity, remove the oldest entry before inserting.
-    // Map.keys() returns keys in insertion order — first key is the oldest entry.
-    if (this.resourcePermissionCache.size >= TokenService.MAX_MODULE_CACHE_SIZE) {
-      const oldestKey = this.resourcePermissionCache.keys().next().value;
-      if (oldestKey !== undefined) {
-        this.resourcePermissionCache.delete(oldestKey);
-      }
-    }
-    this.resourcePermissionCache.set(user.id, { permissions, cachedAt: Date.now() });
     return permissions;
   }
 

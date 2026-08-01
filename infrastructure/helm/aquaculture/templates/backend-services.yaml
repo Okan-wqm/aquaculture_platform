@@ -62,11 +62,15 @@ spec:
               value: {{ .Values.authService.env.JWT_EXPIRES_IN | quote }}
             - name: REFRESH_TOKEN_EXPIRES_IN
               value: {{ .Values.authService.env.REFRESH_TOKEN_EXPIRES_IN | quote }}
+          volumeMounts:
+            {{- include "aquaculture.natsServiceVolumeMount" . | nindent 12 }}
           resources:
             {{- toYaml .Values.authService.resources | nindent 12 }}
           {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.authService.service.targetPort) | nindent 10 }}
           {{- include "aquaculture.readinessProbe" (dict "Values" .Values "port" .Values.authService.service.targetPort) | nindent 10 }}
           {{- include "aquaculture.securityContext" . | nindent 10 }}
+      volumes:
+        {{- include "aquaculture.natsServiceVolume" (list . "auth_service") | nindent 8 }}
 
 ---
 apiVersion: v1
@@ -135,11 +139,24 @@ spec:
           env:
             {{- include "aquaculture.backendEnv" . | nindent 12 }}
             {{- include "aquaculture.natsServiceEnv" (list . "farm_service") | nindent 12 }}
+            {{- range $name, $value := .Values.farmService.env }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
+            - name: SENTINEL_HUB_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "aquaculture.fullname" . }}-farm-environment-secrets
+                  key: sentinelHubEncryptionKey
+          volumeMounts:
+            {{- include "aquaculture.natsServiceVolumeMount" . | nindent 12 }}
           resources:
             {{- toYaml .Values.farmService.resources | nindent 12 }}
           {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.farmService.service.targetPort) | nindent 10 }}
           {{- include "aquaculture.readinessProbe" (dict "Values" .Values "port" .Values.farmService.service.targetPort) | nindent 10 }}
           {{- include "aquaculture.securityContext" . | nindent 10 }}
+      volumes:
+        {{- include "aquaculture.natsServiceVolume" (list . "farm_service") | nindent 8 }}
 
 ---
 apiVersion: v1
@@ -213,11 +230,15 @@ spec:
           env:
             {{- include "aquaculture.backendEnv" . | nindent 12 }}
             {{- include "aquaculture.natsServiceEnv" (list . "sensor_service") | nindent 12 }}
+          volumeMounts:
+            {{- include "aquaculture.natsServiceVolumeMount" . | nindent 12 }}
           resources:
             {{- toYaml .Values.sensorService.resources | nindent 12 }}
           {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.sensorService.service.targetPort) | nindent 10 }}
           {{- include "aquaculture.readinessProbe" (dict "Values" .Values "port" .Values.sensorService.service.targetPort) | nindent 10 }}
           {{- include "aquaculture.securityContext" . | nindent 10 }}
+      volumes:
+        {{- include "aquaculture.natsServiceVolume" (list . "sensor_service") | nindent 8 }}
 
 ---
 apiVersion: v1
@@ -311,11 +332,15 @@ spec:
           env:
             {{- include "aquaculture.backendEnv" . | nindent 12 }}
             {{- include "aquaculture.natsServiceEnv" (list . "alert_engine") | nindent 12 }}
+          volumeMounts:
+            {{- include "aquaculture.natsServiceVolumeMount" . | nindent 12 }}
           resources:
             {{- toYaml .Values.alertEngine.resources | nindent 12 }}
           {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.alertEngine.service.targetPort) | nindent 10 }}
           {{- include "aquaculture.readinessProbe" (dict "Values" .Values "port" .Values.alertEngine.service.targetPort) | nindent 10 }}
           {{- include "aquaculture.securityContext" . | nindent 10 }}
+      volumes:
+        {{- include "aquaculture.natsServiceVolume" (list . "alert_engine") | nindent 8 }}
 
 ---
 apiVersion: v1
@@ -384,11 +409,15 @@ spec:
           env:
             {{- include "aquaculture.backendEnv" . | nindent 12 }}
             {{- include "aquaculture.natsServiceEnv" (list . "notification_service") | nindent 12 }}
+          volumeMounts:
+            {{- include "aquaculture.natsServiceVolumeMount" . | nindent 12 }}
           resources:
             {{- toYaml .Values.notificationService.resources | nindent 12 }}
           {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.notificationService.service.targetPort) | nindent 10 }}
           {{- include "aquaculture.readinessProbe" (dict "Values" .Values "port" .Values.notificationService.service.targetPort) | nindent 10 }}
           {{- include "aquaculture.securityContext" . | nindent 10 }}
+      volumes:
+        {{- include "aquaculture.natsServiceVolume" (list . "notification_service") | nindent 8 }}
 
 ---
 apiVersion: v1
@@ -482,11 +511,15 @@ spec:
             - name: {{ $key }}
               value: {{ $val | quote }}
             {{- end }}
+          volumeMounts:
+            {{- include "aquaculture.natsServiceVolumeMount" . | nindent 12 }}
           resources:
             {{- toYaml .Values.billingService.resources | nindent 12 }}
           {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.billingService.service.targetPort) | nindent 10 }}
           {{- include "aquaculture.readinessProbe" (dict "Values" .Values "port" .Values.billingService.service.targetPort) | nindent 10 }}
           {{- include "aquaculture.securityContext" . | nindent 10 }}
+      volumes:
+        {{- include "aquaculture.natsServiceVolume" (list . "billing_service") | nindent 8 }}
 
 ---
 apiVersion: v1
@@ -559,11 +592,15 @@ spec:
             - name: {{ $key }}
               value: {{ $val | quote }}
             {{- end }}
+          volumeMounts:
+            {{- include "aquaculture.natsServiceVolumeMount" . | nindent 12 }}
           resources:
             {{- toYaml .Values.hrService.resources | nindent 12 }}
           {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.hrService.service.targetPort) | nindent 10 }}
           {{- include "aquaculture.readinessProbe" (dict "Values" .Values "port" .Values.hrService.service.targetPort) | nindent 10 }}
           {{- include "aquaculture.securityContext" . | nindent 10 }}
+      volumes:
+        {{- include "aquaculture.natsServiceVolume" (list . "hr_service") | nindent 8 }}
 
 ---
 apiVersion: v1

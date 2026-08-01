@@ -15,6 +15,7 @@ import {
   TimingSafeService,
   SESSION_MANAGER,
   TOKEN_BLACKLIST,
+  USER_TOKEN_REVOCATION,
   SecurityEventService,
 } from '@aquaculture/backend-common/security';
 import { UnauthorizedException } from '@nestjs/common';
@@ -35,6 +36,8 @@ import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
 import { AuthenticationService } from '../services/authentication.service';
+import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
+import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
 
@@ -68,6 +71,7 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
     token: '$2a$12$hashedlive',
     isRevoked: false,
     rememberMe: false,
+    expiresAt: new Date('2099-01-01T00:00:00.000Z'),
     ipAddress: null,
     userAgent: null,
   };
@@ -143,15 +147,34 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
         },
         { provide: AuditLogService, useValue: { log: jest.fn() } },
         { provide: TokenService, useValue: mockTokenService },
+        {
+          provide: DurableAccessTokenInvalidationService,
+          useValue: { enqueue: jest.fn(), applyImmediately: jest.fn() },
+        },
+        {
+          provide: DurableUserTokenInvalidationService,
+          useValue: { enqueue: jest.fn(), applyImmediately: jest.fn() },
+        },
         { provide: MfaService, useValue: { isMfaAvailable: jest.fn() } },
         { provide: TimingSafeService, useValue: { ensureMinDuration: jest.fn() } },
         {
           provide: SESSION_MANAGER,
-          useValue: { enforceSessionLimit: jest.fn(), revokeAllSessions: jest.fn(), createSession: jest.fn() },
+          useValue: {
+            enforceSessionLimit: jest.fn(),
+            revokeAllSessions: jest.fn(),
+            createSession: jest.fn(),
+          },
         },
         {
           provide: TOKEN_BLACKLIST,
-          useValue: { add: jest.fn(), isBlacklisted: jest.fn(), blacklistUserTokens: jest.fn() },
+          useValue: { add: jest.fn(), isBlacklisted: jest.fn().mockResolvedValue(false) },
+        },
+        {
+          provide: USER_TOKEN_REVOCATION,
+          useValue: {
+            revokeUserTokens: jest.fn(),
+            isTokenValid: jest.fn().mockResolvedValue(true),
+          },
         },
         { provide: SecurityEventService, useValue: { publishSuspiciousActivity: jest.fn() } },
         {
@@ -167,7 +190,7 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
     service = module.get<AuthenticationService>(AuthenticationService);
   });
 
-  const presentedToken = `${USER_ID}:live-random-hex`;
+  const presentedToken = `${USER_ID}:${'a'.repeat(128)}`;
 
   function tenantUser(tenantId: string | null): Record<string, unknown> {
     return { id: USER_ID, email: 'user@farm.test', isActive: true, tenantId };
@@ -178,15 +201,18 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
     TenantStatus.DEACTIVATED,
     TenantStatus.CANCELLED,
     TenantStatus.ARCHIVED,
-  ])('rejects refresh and does NOT rotate when the tenant is %s (fail-closed allow-list)', async (status) => {
-    mockUserRepository.findOne.mockResolvedValue(tenantUser(TENANT_ID));
-    mockTenantFindOne.mockResolvedValue({ id: TENANT_ID, status });
+  ])(
+    'rejects refresh and does NOT rotate when the tenant is %s (fail-closed allow-list)',
+    async (status) => {
+      mockUserRepository.findOne.mockResolvedValue(tenantUser(TENANT_ID));
+      mockTenantFindOne.mockResolvedValue({ id: TENANT_ID, status });
 
-    await expect(service.refreshToken(presentedToken)).rejects.toThrow(UnauthorizedException);
+      await expect(service.refreshToken(presentedToken)).rejects.toThrow(UnauthorizedException);
 
-    // The gate fires BEFORE rotation: no new tokens minted.
-    expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
-  });
+      // The gate fires BEFORE rotation: no new tokens minted.
+      expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
+    },
+  );
 
   it('refreshes normally for an ACTIVE tenant', async () => {
     mockUserRepository.findOne.mockResolvedValue(tenantUser(TENANT_ID));

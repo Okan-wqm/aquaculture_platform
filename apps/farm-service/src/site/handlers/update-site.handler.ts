@@ -2,7 +2,7 @@
  * Update Site Command Handler
  */
 import { runInTenantTransaction, tenantManagerRepo } from '@aquaculture/backend-common/database';
-import { ConflictException, NotFoundException, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException, Logger } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { SiteUpdatedEvent, createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
@@ -13,6 +13,10 @@ import { AuditLogService } from '../../database/services/audit-log.service';
 import { UpdateSiteCommand } from '../commands/update-site.command';
 import { Site } from '../entities/site.entity';
 
+import {
+  monitoringLocationChanged,
+  siteMonitoringContractError,
+} from '../dto/site-monitoring.validation';
 import { siteAuditSnapshot } from './site-audit.util';
 
 @CommandHandler(UpdateSiteCommand)
@@ -62,11 +66,94 @@ export class UpdateSiteHandler implements ICommandHandler<UpdateSiteCommand, Sit
         }
       }
 
-      Object.assign(site, {
-        ...input,
-        code: normalizedCode ?? site.code,
-        updatedBy: userId,
-      });
+      const nextMonitoring = {
+        type: input.type ?? site.type,
+        location: Object.prototype.hasOwnProperty.call(input, 'location')
+          ? input.location
+          : site.location,
+        monitoringRadiusM: input.monitoringRadiusM ?? site.monitoringRadiusM,
+        monitoringArea: Object.prototype.hasOwnProperty.call(input, 'monitoringArea')
+          ? input.monitoringArea
+          : site.monitoringArea,
+      };
+      const contractError = siteMonitoringContractError(nextMonitoring);
+      if (contractError) {
+        throw new BadRequestException(contractError);
+      }
+      const monitoringChanged = monitoringLocationChanged(
+        {
+          type: site.type,
+          location: site.location,
+          monitoringRadiusM: site.monitoringRadiusM,
+          monitoringArea: site.monitoringArea,
+        },
+        nextMonitoring,
+      );
+
+      if (input.name !== undefined) {
+        site.name = input.name;
+      }
+      if (normalizedCode !== undefined) {
+        site.code = normalizedCode;
+      }
+      if (input.lokalitetsnummer !== undefined) {
+        site.lokalitetsnummer = input.lokalitetsnummer;
+      }
+      if (input.organisationNumberOverride !== undefined) {
+        site.organisationNumberOverride = input.organisationNumberOverride;
+      }
+      if (input.type !== undefined) {
+        site.type = input.type;
+      }
+      if (input.description !== undefined) {
+        site.description = input.description;
+      }
+      if (Object.prototype.hasOwnProperty.call(input, 'location')) {
+        site.location = input.location;
+      }
+      if (input.monitoringRadiusM !== undefined) {
+        site.monitoringRadiusM = input.monitoringRadiusM;
+      }
+      if (Object.prototype.hasOwnProperty.call(input, 'monitoringArea')) {
+        site.monitoringArea = input.monitoringArea;
+      }
+      if (input.address !== undefined) {
+        site.address = input.address;
+        site.city = input.address?.city;
+      }
+      if (input.country !== undefined) {
+        site.country = input.country;
+      }
+      if (input.region !== undefined) {
+        site.region = input.region;
+      }
+      if (input.timezone !== undefined) {
+        site.timezone = input.timezone;
+      }
+      if (input.status !== undefined) {
+        site.status = input.status;
+      }
+      if (input.settings !== undefined) {
+        site.settings = input.settings;
+      }
+      if (input.siteManager !== undefined) {
+        site.siteManager = input.siteManager;
+      }
+      if (input.contactEmail !== undefined) {
+        site.contactEmail = input.contactEmail;
+      }
+      if (input.contactPhone !== undefined) {
+        site.contactPhone = input.contactPhone;
+      }
+      if (input.isActive !== undefined) {
+        site.isActive = input.isActive;
+      }
+      if (monitoringChanged) {
+        site.monitoringLocationRevision += 1;
+      }
+      site.updatedBy = userId;
+
+      // totalArea is the public contract; areaM2 remains the persisted SSoT.
       if (Object.prototype.hasOwnProperty.call(input, 'totalArea')) {
         site.areaM2 = input.totalArea;
       }

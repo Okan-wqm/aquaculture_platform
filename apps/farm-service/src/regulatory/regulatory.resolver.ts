@@ -13,7 +13,6 @@ import { Resolver, Mutation, Query, Args, Context } from '@nestjs/graphql';
 import { BadRequestException, Logger, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { GqlAuthGuard } from '../common/guards/gql-auth.guard';
 import { Roles, Role } from '@aquaculture/backend-common/decorators';
-import { maskAndTruncatePii } from '@aquaculture/backend-common/utils';
 import {
   MattilsynetApiService,
   MattilsynetBasePayload,
@@ -316,9 +315,8 @@ export class RegulatoryResolver {
     ).length;
     // The slaughter-facility catalog is the SSoT — a configured default facility
     // is what makes the slakt godkjenningsnummer resolvable (Phase 4 dedup).
-    const hasSlaughterApproval = !!(await this.slaughterFacilityService.getDefaultFacility(
-      tenantId,
-    ));
+    const hasSlaughterApproval =
+      !!(await this.slaughterFacilityService.getDefaultFacility(tenantId));
 
     return {
       hasCompanyInfo,
@@ -417,16 +415,18 @@ export class RegulatoryResolver {
         success: false,
         error: 'Failed to obtain access token',
       };
-    } catch (error) {
-      // SEC-MEDIUM-004: the error can carry the masked-but-still-sensitive
-      // Maskinporten token-endpoint body — mask + bound before logging.
-      const masked = maskAndTruncatePii(
-        error instanceof Error ? error.message : String(error),
-      );
-      this.logger.error(`Maskinporten connection test failed: ${masked ?? 'unknown error'}`);
+    } catch {
+      // The provider/JWT/crypto error is an untrusted integration boundary. It
+      // may contain a token response body, endpoint URL, issuer, key material,
+      // or a library-specific diagnostic. Keep both the GraphQL response and
+      // the application log on a stable, non-reflective contract.
+      this.logger.error({
+        message: 'Maskinporten connection test failed',
+        phase: 'connection_test',
+      });
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Connection test failed',
+        error: 'Maskinporten connection test failed',
       };
     }
   }

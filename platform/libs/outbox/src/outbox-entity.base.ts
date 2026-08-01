@@ -1,9 +1,6 @@
-import {
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-} from 'typeorm';
-import type { IEvent } from '@platform/event-bus';
+import { PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
+
+import type { OutboxStoredPayload } from './outbox-routing';
 
 /**
  * Abstract base class for transactional outbox entities.
@@ -65,7 +62,7 @@ export abstract class OutboxEntityBase {
    * back to Date objects if needed.
    */
   @Column({ type: 'jsonb' })
-  payload!: IEvent;
+  payload!: OutboxStoredPayload;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;

@@ -17,7 +17,7 @@
  * Usage: ts-node ... emit-subgraph-sdl.ts <subgraph-name> <service-dir>
  *   e.g. emit-subgraph-sdl.ts auth apps/auth-service
  */
-import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 
@@ -97,7 +97,17 @@ async function main(): Promise<void> {
 
   const outPath = join(root, 'dist', 'graphql', 'subgraphs', `${subgraphName}.graphql`);
   mkdirSync(dirname(outPath), { recursive: true });
-  writeFileSync(outPath, `${sdl}\n`);
+  const artifact = `${sdl}\n`;
+  writeFileSync(outPath, artifact);
+
+  // Some services retain a committed schema.graphql snapshot for tooling that
+  // cannot consume the composed supergraph. Keep that snapshot derived from
+  // the exact same code-first metadata as the runtime subgraph artifact.
+  // Services without a committed snapshot do not gain a second schema copy.
+  const committedSnapshotPath = join(root, serviceDir, 'schema.graphql');
+  if (existsSync(committedSnapshotPath)) {
+    writeFileSync(committedSnapshotPath, artifact);
+  }
   await app.close();
 
   process.stdout.write(

@@ -52,6 +52,12 @@ import { ServiceMetricsService } from '@aquaculture/backend-common/metrics';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import * as client from 'prom-client';
 
+import {
+  EnvironmentProvider,
+  EnvironmentSyncScopeOutcome,
+  EnvironmentSyncStatus,
+} from '../../weather/entities/environment-observation.types';
+
 export type MutationOutcome = 'success' | 'error';
 export type CapacityBlockMode = 'hard' | 'admin_override' | 'soft';
 export type CapacityBlockAxis = 'biomass' | 'density' | 'status';
@@ -71,6 +77,21 @@ export type RegulatorySubmissionOutcome = 'submitted' | 'failed' | 'queued';
 /** OBS-HIGH-002 — terminal outcome of a scheduled regulatory cron job run. */
 export type RegulatoryCronOutcome = 'success' | 'error' | 'skipped_locked';
 
+export type EnvironmentTerminalSyncStatus = Exclude<
+  EnvironmentSyncStatus,
+  EnvironmentSyncStatus.PENDING | EnvironmentSyncStatus.RUNNING
+>;
+export type EnvironmentCronJob = 'provider_sync' | 'retention';
+export type EnvironmentCronOutcome = 'success' | 'partial_failure' | 'error' | 'disabled';
+export type EnvironmentInternalFailurePhase =
+  | 'tenant_discovery'
+  | 'state_reconciliation'
+  | 'backlog_measurement'
+  | 'claim'
+  | 'lease_execution'
+  | 'retention';
+export type EnvironmentRetentionKind = 'weather' | 'marine' | 'scene' | 'obsolete_sync_state';
+
 @Injectable()
 export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(FarmDomainMetricsService.name);
@@ -88,6 +109,22 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
   private regulatorySubmissions!: client.Counter;
   private regulatoryCronRuns!: client.Counter;
   private regulatoryCronLastRun!: client.Gauge;
+  private environmentMonitoringEnabled!: client.Gauge;
+  private environmentCronRuns!: client.Counter;
+  private environmentCronDuration!: client.Histogram;
+  private environmentCronLastRun!: client.Gauge;
+  private environmentCronHeartbeat!: client.Gauge;
+  private environmentCronLastSuccess!: client.Gauge;
+  private environmentCronLastFailure!: client.Gauge;
+  private environmentProviderCompletions!: client.Counter;
+  private environmentProviderScopeOutcomes!: client.Counter;
+  private environmentProviderLastSuccess!: client.Gauge;
+  private environmentProviderLastFailure!: client.Gauge;
+  private environmentLeaseDiscards!: client.Counter;
+  private environmentInternalFailures!: client.Counter;
+  private environmentRetentionDeleted!: client.Counter;
+  private environmentDueBacklog!: client.Gauge;
+  private environmentOldestDueAge!: client.Gauge;
 
   constructor() {
     this.registry = new client.Registry();
@@ -303,6 +340,122 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
       labelNames: ['job'],
       registers: [this.registry],
     });
+
+    this.environmentMonitoringEnabled = new client.Gauge({
+      name: 'farm_environment_monitoring_enabled',
+      help: 'Whether the canonical farm environmental monitoring rollout gate is enabled',
+      registers: [this.registry],
+    });
+    this.environmentMonitoringEnabled.set(0);
+
+    this.environmentCronRuns = new client.Counter({
+      name: 'farm_environment_cron_runs_total',
+      help: 'Environmental monitoring scheduler runs by bounded job and terminal outcome',
+      labelNames: ['job', 'outcome'],
+      registers: [this.registry],
+    });
+    this.environmentCronDuration = new client.Histogram({
+      name: 'farm_environment_cron_run_duration_seconds',
+      help: 'Environmental monitoring scheduler run duration by bounded job and terminal outcome',
+      labelNames: ['job', 'outcome'],
+      buckets: [0.1, 0.5, 1, 5, 15, 30, 60, 300, 900, 1800, 3600, 5400],
+      registers: [this.registry],
+    });
+    this.environmentCronLastRun = new client.Gauge({
+      name: 'farm_environment_cron_last_run_timestamp_seconds',
+      help: 'Unix timestamp of the last invocation of each environmental monitoring job',
+      labelNames: ['job'],
+      registers: [this.registry],
+    });
+    this.environmentCronHeartbeat = new client.Gauge({
+      name: 'farm_environment_cron_heartbeat_timestamp_seconds',
+      help: 'Unix timestamp of the latest start or completed work item for each environmental job',
+      labelNames: ['job'],
+      registers: [this.registry],
+    });
+    this.environmentCronLastSuccess = new client.Gauge({
+      name: 'farm_environment_cron_last_success_timestamp_seconds',
+      help: 'Unix timestamp of the last fully successful environmental monitoring job run',
+      labelNames: ['job'],
+      registers: [this.registry],
+    });
+    this.environmentCronLastFailure = new client.Gauge({
+      name: 'farm_environment_cron_last_failure_timestamp_seconds',
+      help: 'Unix timestamp of the last partial or complete environmental monitoring job failure',
+      labelNames: ['job'],
+      registers: [this.registry],
+    });
+    for (const job of ['provider_sync', 'retention'] as const) {
+      this.environmentCronLastRun.set({ job }, 0);
+      this.environmentCronHeartbeat.set({ job }, 0);
+      this.environmentCronLastSuccess.set({ job }, 0);
+      this.environmentCronLastFailure.set({ job }, 0);
+    }
+
+    this.environmentProviderCompletions = new client.Counter({
+      name: 'farm_environment_provider_completions_total',
+      help: 'Classified environmental provider responses by canonical provider and sync status',
+      labelNames: ['provider', 'status'],
+      registers: [this.registry],
+    });
+    this.environmentProviderScopeOutcomes = new client.Counter({
+      name: 'farm_environment_provider_scope_outcomes_total',
+      help: 'Typed provider metric/window coverage outcomes by canonical provider',
+      labelNames: ['provider', 'outcome'],
+      registers: [this.registry],
+    });
+    this.environmentProviderLastSuccess = new client.Gauge({
+      name: 'farm_environment_provider_last_success_timestamp_seconds',
+      help: 'Unix timestamp of the last successful response from each canonical provider',
+      labelNames: ['provider'],
+      registers: [this.registry],
+    });
+    this.environmentProviderLastFailure = new client.Gauge({
+      name: 'farm_environment_provider_last_failure_timestamp_seconds',
+      help: 'Unix timestamp of the last failed or unavailable canonical provider response',
+      labelNames: ['provider'],
+      registers: [this.registry],
+    });
+    for (const provider of [
+      EnvironmentProvider.MET_LOCATIONFORECAST,
+      EnvironmentProvider.MET_FROST,
+      EnvironmentProvider.CMEMS,
+      EnvironmentProvider.CDSE_SENTINEL_2,
+    ] as const) {
+      this.environmentProviderLastSuccess.set({ provider }, 0);
+      this.environmentProviderLastFailure.set({ provider }, 0);
+    }
+
+    this.environmentLeaseDiscards = new client.Counter({
+      name: 'farm_environment_lease_discarded_total',
+      help: 'Environmental provider results rejected by the lease and site-revision fence',
+      labelNames: ['provider'],
+      registers: [this.registry],
+    });
+    this.environmentInternalFailures = new client.Counter({
+      name: 'farm_environment_internal_failures_total',
+      help: 'Environmental monitoring internal failures by bounded scheduler phase',
+      labelNames: ['phase'],
+      registers: [this.registry],
+    });
+    this.environmentRetentionDeleted = new client.Counter({
+      name: 'farm_environment_retention_deleted_total',
+      help: 'Canonical environmental rows removed by retention, grouped by bounded row kind',
+      labelNames: ['kind'],
+      registers: [this.registry],
+    });
+    this.environmentDueBacklog = new client.Gauge({
+      name: 'farm_environment_due_backlog',
+      help: 'Number of provider sync leases currently due across active tenant schemas',
+      registers: [this.registry],
+    });
+    this.environmentOldestDueAge = new client.Gauge({
+      name: 'farm_environment_oldest_due_age_seconds',
+      help: 'Age in seconds of the oldest currently due provider sync lease',
+      registers: [this.registry],
+    });
+    this.environmentDueBacklog.set(0);
+    this.environmentOldestDueAge.set(0);
   }
 
   /** One temperature source failed and was degraded to null by the bulkhead. */
@@ -342,6 +495,97 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
   recordRegulatoryCronRun(params: { job: string; outcome: RegulatoryCronOutcome }): void {
     this.regulatoryCronRuns.inc({ job: params.job, outcome: params.outcome });
     this.regulatoryCronLastRun.set({ job: params.job }, Date.now() / 1000);
+  }
+
+  setEnvironmentMonitoringEnabled(enabled: boolean): void {
+    this.environmentMonitoringEnabled.set(enabled ? 1 : 0);
+  }
+
+  recordEnvironmentCronRun(params: {
+    job: EnvironmentCronJob;
+    outcome: EnvironmentCronOutcome;
+    durationSeconds: number;
+  }): void {
+    const nowSeconds = Date.now() / 1000;
+    this.environmentCronRuns.inc({ job: params.job, outcome: params.outcome });
+    this.environmentCronDuration.observe(
+      { job: params.job, outcome: params.outcome },
+      params.durationSeconds,
+    );
+    this.environmentCronLastRun.set({ job: params.job }, nowSeconds);
+    if (params.outcome === 'success') {
+      this.environmentCronLastSuccess.set({ job: params.job }, nowSeconds);
+    } else if (params.outcome !== 'disabled') {
+      this.environmentCronLastFailure.set({ job: params.job }, nowSeconds);
+    }
+  }
+
+  recordEnvironmentCronHeartbeat(job: EnvironmentCronJob): void {
+    this.environmentCronHeartbeat.set({ job }, Date.now() / 1000);
+  }
+
+  recordEnvironmentProviderCompletion(params: {
+    provider: EnvironmentProvider;
+    status: EnvironmentTerminalSyncStatus;
+    successfulProviderResponse: boolean;
+    scopeOutcomes: readonly EnvironmentSyncScopeOutcome[];
+  }): void {
+    const labels = {
+      provider: params.provider,
+      status: params.status,
+    };
+    this.environmentProviderCompletions.inc(labels);
+    const counts = new Map<EnvironmentSyncScopeOutcome, number>();
+    for (const outcome of params.scopeOutcomes) {
+      counts.set(outcome, (counts.get(outcome) ?? 0) + 1);
+    }
+    for (const [outcome, count] of counts) {
+      this.environmentProviderScopeOutcomes.inc({ provider: params.provider, outcome }, count);
+    }
+    if (params.successfulProviderResponse) {
+      this.environmentProviderLastSuccess.set({ provider: params.provider }, Date.now() / 1000);
+    }
+    if (
+      !params.successfulProviderResponse ||
+      params.status === EnvironmentSyncStatus.PARTIAL_FAILURE
+    ) {
+      this.environmentProviderLastFailure.set({ provider: params.provider }, Date.now() / 1000);
+    }
+  }
+
+  recordEnvironmentLeaseDiscard(provider: EnvironmentProvider): void {
+    this.environmentLeaseDiscards.inc({ provider });
+  }
+
+  recordEnvironmentInternalFailure(phase: EnvironmentInternalFailurePhase): void {
+    this.environmentInternalFailures.inc({ phase });
+  }
+
+  recordEnvironmentRetentionDeleted(params: {
+    kind: EnvironmentRetentionKind;
+    count: number;
+  }): void {
+    if (!Number.isInteger(params.count) || params.count < 0) {
+      throw new RangeError('environment retention metric count must be a non-negative integer');
+    }
+    this.environmentRetentionDeleted.inc({ kind: params.kind }, params.count);
+  }
+
+  setEnvironmentDueBacklog(params: {
+    dueCount: number;
+    oldestDueAgeSeconds: number;
+  }): void {
+    if (!Number.isInteger(params.dueCount) || params.dueCount < 0) {
+      throw new RangeError('environment due backlog must be a non-negative integer');
+    }
+    if (
+      !Number.isFinite(params.oldestDueAgeSeconds) ||
+      params.oldestDueAgeSeconds < 0
+    ) {
+      throw new RangeError('environment oldest due age must be a finite non-negative number');
+    }
+    this.environmentDueBacklog.set(params.dueCount);
+    this.environmentOldestDueAge.set(params.oldestDueAgeSeconds);
   }
 
 }

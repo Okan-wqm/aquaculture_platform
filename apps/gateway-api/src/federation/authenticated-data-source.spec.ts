@@ -188,6 +188,76 @@ describe('AuthenticatedDataSource service identity signing', () => {
     ).toMatchObject({ valid: true, version: 'v2' });
   });
 
+  it('mints a signed effective-tenant context for a platform SUPER_ADMIN', async () => {
+    const { dataSource, calls } = createCapturingDataSource();
+    const { headers, record } = createHeaderCollector();
+    const context = createContext();
+    context.req.user = {
+      sub: 'platform-admin',
+      email: 'platform-admin@example.test',
+      roles: ['SUPER_ADMIN'],
+      mfaVerified: true,
+      iat: 1,
+      exp: 2,
+    };
+    context.req.effectiveTenantId = TENANT_ID;
+    const request = {
+      query: 'mutation SetAccess { setUserSiteAccess { id } }',
+      http: {
+        method: 'POST',
+        url: 'http://auth-service:3000/graphql',
+        headers,
+      },
+    };
+
+    dataSource.willSendRequest(willSendRequestOptions(request, context));
+
+    expect(record['x-tenant-id']).toBe(TENANT_ID);
+    expect(record['x-act-as-tenant']).toBeUndefined();
+    const assertionHeader = record['x-verified-user-assertion'];
+    if (!assertionHeader) {
+      throw new Error('expected a verified assertion for SUPER_ADMIN act-as');
+    }
+    expect(
+      JSON.parse(Buffer.from(assertionHeader, 'base64url').toString('utf8')),
+    ).toMatchObject({
+      issuer: 'gateway-api',
+      subject: 'platform-admin',
+      tenantId: null,
+      effectiveTenantId: TENANT_ID,
+      roles: ['SUPER_ADMIN'],
+      mfaVerified: true,
+    });
+
+    const wireBody = JSON.stringify({ query: request.query });
+    await dataSource.fetcher('http://auth-service:3000/graphql', {
+      method: 'POST',
+      headers: { ...record, 'content-type': 'application/json' },
+      body: wireBody,
+    });
+
+    const sent = calls[0]?.init;
+    expect(
+      verifyServiceIdentityRequest({
+        headers: lowerCaseHeaders(sent?.headers),
+        observedMethod: 'POST',
+        observedPath: '/graphql',
+        observedBody: wireBody,
+        observedQuery: '',
+        observedContentType: 'application/json',
+        observedAssertionHash: assertionHash(sent?.headers),
+        secret: SECRET,
+        allowUnscopedDevKey: true,
+        expectedTenantId: TENANT_ID,
+      }),
+    ).toMatchObject({
+      valid: true,
+      version: 'v2',
+      effectiveTenantId: TENANT_ID,
+      serviceName: 'gateway-api',
+    });
+  });
+
   it('ORPHAN-MEDIUM-319: mints x-client-ip/x-client-user-agent on EVERY subgraph request (pre-auth included)', () => {
     const { dataSource } = createCapturingDataSource();
     const { headers, record } = createHeaderCollector();

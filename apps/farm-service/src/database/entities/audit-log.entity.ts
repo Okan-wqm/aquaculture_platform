@@ -72,6 +72,11 @@ export enum AuditAction {
    * audited fact.
    */
   REGULATORY_OVERRIDDEN = 'REGULATORY_OVERRIDDEN',
+  /**
+   * HMAC-verified SUPER_ADMIN operation against an acted-on tenant. Written
+   * synchronously by the global TenantGuard before the operation proceeds.
+   */
+  SUPER_ADMIN_CROSS_TENANT_ACCESS = 'SUPER_ADMIN_CROSS_TENANT_ACCESS',
 }
 
 export interface AuditChanges {

@@ -1,11 +1,4 @@
-import {
-  Column,
-  CreateDateColumn,
-  Entity,
-  Index,
-  PrimaryColumn,
-  UpdateDateColumn,
-} from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, PrimaryColumn, UpdateDateColumn } from 'typeorm';
 
 export enum TenantErasureOperationStatus {
   IN_PROGRESS = 'IN_PROGRESS',
@@ -39,6 +32,9 @@ export class TenantErasureOperation {
 
   @Column({ type: 'timestamptz' })
   legalHoldCheckedAt!: Date;
+
+  @Column({ type: 'boolean' })
+  dryRun!: boolean;
 
   @Column({ type: 'text', array: true })
   targetServices!: string[];

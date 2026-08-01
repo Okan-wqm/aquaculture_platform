@@ -22,8 +22,13 @@
 // (PROC-MEDIUM-007 ratchet).
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
-import { TimingSafeService, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
-import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import {
+  TimingSafeService,
+  SESSION_MANAGER,
+  TOKEN_BLACKLIST,
+  USER_TOKEN_REVOCATION,
+} from '@aquaculture/backend-common/security';
+import { ForbiddenException, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -43,6 +48,8 @@ import {
   AuthenticationService,
   decodeRefreshTokenTransport,
 } from '../services/authentication.service';
+import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
+import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
 
@@ -57,8 +64,7 @@ jest.mock('bcryptjs', () => {
   // overloaded functions resolves the callback overload and trips
   // no-misused-promises.
   const promiseCompare: (data: string, encrypted: string) => Promise<boolean> = actual.compare;
-  const promiseHash: (data: string, saltOrRounds: string | number) => Promise<string> =
-    actual.hash;
+  const promiseHash: (data: string, saltOrRounds: string | number) => Promise<string> = actual.hash;
   return { ...actual, compare: jest.fn(promiseCompare), hash: jest.fn(promiseHash) };
 });
 
@@ -160,10 +166,12 @@ const mockInvitationRepository = {
 
 const mockActionTokenRepository = {
   create: jest.fn((data: Record<string, unknown>) => ({ ...data })),
-  save: jest.fn((entity: Record<string, unknown>) => Promise.resolve({
-    id: 'action-token-id',
-    ...entity,
-  })),
+  save: jest.fn((entity: Record<string, unknown>) =>
+    Promise.resolve({
+      id: 'action-token-id',
+      ...entity,
+    }),
+  ),
   findOne: jest.fn(),
 };
 
@@ -246,9 +254,10 @@ const mockDataSource = {
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
       getOne: jest.fn().mockImplementation(async () => {
-        const token = (await mockRefreshTokenRepository.findOne()) as
-          | { isRevoked?: boolean; expiresAt?: Date }
-          | null;
+        const token = (await mockRefreshTokenRepository.findOne()) as {
+          isRevoked?: boolean;
+          expiresAt?: Date;
+        } | null;
         if (
           !token ||
           token.isRevoked === true ||
@@ -308,6 +317,21 @@ const mockTokenBlacklist = {
   isBlacklisted: jest.fn().mockResolvedValue(false),
 };
 
+const mockUserTokenRevocation = {
+  revokeUserTokens: jest.fn().mockResolvedValue(undefined),
+  isTokenValid: jest.fn().mockResolvedValue(true),
+};
+
+const mockDurableAccessTokenInvalidation = {
+  enqueue: jest.fn().mockResolvedValue(undefined),
+  applyImmediately: jest.fn().mockResolvedValue(undefined),
+};
+
+const mockDurableUserTokenInvalidation = {
+  enqueue: jest.fn().mockResolvedValue(undefined),
+  applyImmediately: jest.fn().mockResolvedValue(undefined),
+};
+
 // ============================================================================
 // Test Suite
 // ============================================================================
@@ -324,8 +348,12 @@ describe('AuthenticationService', () => {
     mockUserModuleAssignmentRepository.find.mockResolvedValue([]);
     mockActionTokenRepository.findOne.mockResolvedValue(null);
     mockRefreshTokenRepository.count.mockResolvedValue(0);
-    mockRefreshTokenRepository.create.mockImplementation((data: Partial<RefreshToken>) => ({ ...data }));
-    mockRefreshTokenRepository.save.mockImplementation((token: Partial<RefreshToken>) => Promise.resolve(token));
+    mockRefreshTokenRepository.create.mockImplementation((data: Partial<RefreshToken>) => ({
+      ...data,
+    }));
+    mockRefreshTokenRepository.save.mockImplementation((token: Partial<RefreshToken>) =>
+      Promise.resolve(token),
+    );
     mockRefreshTokenRepository.createQueryBuilder.mockReturnValue({
       setLock: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
@@ -335,6 +363,7 @@ describe('AuthenticationService', () => {
     mockTransactionManager.getRepository.mockImplementation((entity: unknown) => {
       if (entity === RefreshToken) return mockRefreshTokenRepository;
       if (entity === User) return mockUserRepository;
+      if (entity === Tenant) return mockTenantRepository;
       if (entity === Invitation) return mockInvitationRepository;
       if (entity === ActionToken) return mockActionTokenRepository;
       return {};
@@ -344,17 +373,22 @@ describe('AuthenticationService', () => {
         callback(mockTransactionManager),
     );
     // Postgres UPDATE…RETURNING tuple shape [rows, affected] (ORPHAN-HIGH-318).
-    mockDataSource.query.mockResolvedValue([
-      [{ failedLoginAttempts: 3, lockedUntil: null }],
-      1,
-    ]);
+    mockDataSource.query.mockResolvedValue([[{ failedLoginAttempts: 3, lockedUntil: null }], 1]);
     mockSessionManager.countActiveSessions.mockResolvedValue(0);
     mockSessionManager.revokeAllSessions.mockResolvedValue(undefined);
-    mockTokenService.generateTokens.mockImplementation((user: User) => Promise.resolve({
-      accessToken: 'mock-access-token',
-      refreshToken: 'mock-refresh-token',
-      user,
-    }));
+    mockTokenBlacklist.isBlacklisted.mockResolvedValue(false);
+    mockUserTokenRevocation.isTokenValid.mockResolvedValue(true);
+    mockDurableAccessTokenInvalidation.enqueue.mockResolvedValue(undefined);
+    mockDurableAccessTokenInvalidation.applyImmediately.mockResolvedValue(undefined);
+    mockDurableUserTokenInvalidation.enqueue.mockResolvedValue(undefined);
+    mockDurableUserTokenInvalidation.applyImmediately.mockResolvedValue(undefined);
+    mockTokenService.generateTokens.mockImplementation((user: User) =>
+      Promise.resolve({
+        accessToken: 'mock-access-token',
+        refreshToken: 'mock-refresh-token',
+        user,
+      }),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -363,7 +397,10 @@ describe('AuthenticationService', () => {
         { provide: getRepositoryToken(RefreshToken), useValue: mockRefreshTokenRepository },
         { provide: getRepositoryToken(Invitation), useValue: mockInvitationRepository },
         { provide: getRepositoryToken(ActionToken), useValue: mockActionTokenRepository },
-        { provide: getRepositoryToken(UserModuleAssignment), useValue: mockUserModuleAssignmentRepository },
+        {
+          provide: getRepositoryToken(UserModuleAssignment),
+          useValue: mockUserModuleAssignmentRepository,
+        },
         { provide: getRepositoryToken(Tenant), useValue: mockTenantRepository },
         { provide: DataSource, useValue: mockDataSource },
         { provide: JwtService, useValue: mockJwtService },
@@ -375,10 +412,19 @@ describe('AuthenticationService', () => {
         },
         { provide: AuditLogService, useValue: mockAuditLogService },
         { provide: TokenService, useValue: mockTokenService },
+        {
+          provide: DurableAccessTokenInvalidationService,
+          useValue: mockDurableAccessTokenInvalidation,
+        },
+        {
+          provide: DurableUserTokenInvalidationService,
+          useValue: mockDurableUserTokenInvalidation,
+        },
         { provide: MfaService, useValue: mockMfaService },
         { provide: TimingSafeService, useValue: mockTimingSafe },
         { provide: SESSION_MANAGER, useValue: mockSessionManager },
         { provide: TOKEN_BLACKLIST, useValue: mockTokenBlacklist },
+        { provide: USER_TOKEN_REVOCATION, useValue: mockUserTokenRevocation },
         // DEPLOY-CRITICAL-007: AuthenticationService injects BypassRlsService
         // so the SUPER_ADMIN login path can create refresh tokens on a
         // tenantId=NULL row (which cannot satisfy tenant_isolation_policy
@@ -455,10 +501,7 @@ describe('AuthenticationService', () => {
       mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
       // Below threshold: attempts 3 of 5, no lock set.
-      mockDataSource.query.mockResolvedValue([
-        [{ failedLoginAttempts: 3, lockedUntil: null }],
-        1,
-      ]);
+      mockDataSource.query.mockResolvedValue([[{ failedLoginAttempts: 3, lockedUntil: null }], 1]);
 
       await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
 
@@ -527,16 +570,14 @@ describe('AuthenticationService', () => {
       mockUserRepository.findOne.mockResolvedValue(user);
       mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
       jest.spyOn(bcrypt, 'compare').mockResolvedValue(false as never);
-      mockDataSource.query.mockResolvedValue([
-        [{ failedLoginAttempts: 2, lockedUntil: null }],
-        1,
-      ]);
+      mockDataSource.query.mockResolvedValue([[{ failedLoginAttempts: 2, lockedUntil: null }], 1]);
 
       await expect(service.login(validInput)).rejects.toThrow(UnauthorizedException);
 
       expect(mockEventBus.publish).not.toHaveBeenCalledWith(
         expect.objectContaining({ eventType: 'UserAccountLocked' }),
-      );    });
+      );
+    });
 
     it('SEC-LOW-001(c): casts the lockout deadline to timestamptz (not tz-stripping timestamp)', async () => {
       const user = createMockUser({ failedLoginAttempts: 2 });
@@ -651,9 +692,14 @@ describe('AuthenticationService', () => {
       // token.service.spec.ts where the collaborator lives.
       expect(result.accessToken).toBe('mock-access-token');
       // ORPHAN-LOW-135: login threads the rememberMe choice (default false) into issuance.
-      expect(mockTokenService.generateTokens).toHaveBeenCalledWith(user, '127.0.0.1', 'test-agent', {
-        rememberMe: false,
-      });
+      expect(mockTokenService.generateTokens).toHaveBeenCalledWith(
+        user,
+        '127.0.0.1',
+        'test-agent',
+        {
+          rememberMe: false,
+        },
+      );
     });
 
     it('records audit log entry on successful login', async () => {
@@ -684,6 +730,47 @@ describe('AuthenticationService', () => {
   // refreshToken()
   // ==========================================================================
   describe('refreshToken()', () => {
+    it('discovers the plaintext owner, then locks User before the authoritative token row', async () => {
+      const user = createMockUser();
+      const storedToken = Object.assign(new RefreshToken(), {
+        id: 'refresh-token-id',
+        token: 'valid-token',
+        userId: user.id,
+        expiresAt: new Date(Date.now() + 86_400_000),
+        isRevoked: false,
+        rememberMe: false,
+      });
+      const queryBuilder = {
+        setLock: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(storedToken),
+      };
+      mockRefreshTokenRepository.findOne.mockResolvedValue(storedToken);
+      mockRefreshTokenRepository.createQueryBuilder.mockReturnValue(queryBuilder);
+      mockUserRepository.findOne.mockResolvedValue(user);
+
+      await expect(service.refreshToken('valid-token')).resolves.toMatchObject({
+        accessToken: 'mock-access-token',
+      });
+
+      expect(mockRefreshTokenRepository.findOne).toHaveBeenCalledWith({
+        select: { userId: true },
+        where: { token: 'valid-token' },
+      });
+      expect(mockUserRepository.findOne).toHaveBeenCalledWith({
+        where: { id: user.id },
+        lock: { mode: 'pessimistic_write' },
+      });
+      expect(queryBuilder.setLock).toHaveBeenCalledWith('pessimistic_write');
+      expect(mockRefreshTokenRepository.findOne.mock.invocationCallOrder[0]).toBeLessThan(
+        mockUserRepository.findOne.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+      );
+      expect(mockUserRepository.findOne.mock.invocationCallOrder[0]).toBeLessThan(
+        queryBuilder.getOne.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+      );
+    });
+
     it('throws UnauthorizedException for a token that is not in the store', async () => {
       mockRefreshTokenRepository.findOne = jest.fn().mockResolvedValue(null);
 
@@ -739,22 +826,129 @@ describe('AuthenticationService', () => {
   // ==========================================================================
   describe('logout()', () => {
     it('revokes the refresh token and returns true', async () => {
+      mockUserRepository.findOne.mockResolvedValue(createMockUser());
       mockRefreshTokenRepository.update = jest.fn().mockResolvedValue({ affected: 1 });
 
       const result = await service.logout('user-uuid-123');
 
       expect(result).toBe(true);
+      expect(mockUserRepository.findOne).toHaveBeenCalledWith({
+        where: { id: 'user-uuid-123' },
+        lock: { mode: 'pessimistic_write' },
+      });
     });
 
-    it('blacklists the access token when jti is provided', async () => {
+    it('durably invalidates the access token when a JTI is provided', async () => {
+      mockUserRepository.findOne.mockResolvedValue(createMockUser());
       mockRefreshTokenRepository.update = jest.fn().mockResolvedValue({ affected: 1 });
       const accessExpiry = new Date(Date.now() + 900000);
 
       await service.logout('user-uuid-123', 'jti-123', accessExpiry);
 
-      // WHAT: third argument is the blacklist reason — logout() always tags
-      // entries with 'user_logout' for incident-triage attribution.
-      expect(mockTokenBlacklist.add).toHaveBeenCalledWith('jti-123', accessExpiry, 'user_logout');
+      expect(mockDurableAccessTokenInvalidation.enqueue).toHaveBeenCalledWith(
+        mockTransactionManager,
+        expect.objectContaining({
+          targetJti: 'jti-123',
+          tenantId: 'tenant-uuid-123',
+          expiresAt: accessExpiry,
+          reason: 'user_logout',
+        }),
+      );
+      const intent = mockDurableAccessTokenInvalidation.enqueue.mock.calls[0]?.[1];
+      expect(mockDurableAccessTokenInvalidation.applyImmediately).toHaveBeenCalledWith(intent);
+    });
+
+    it('fails closed before commit when logout invalidation cannot be enqueued', async () => {
+      mockUserRepository.findOne.mockResolvedValue(createMockUser());
+      mockRefreshTokenRepository.update.mockResolvedValue({ affected: 1 });
+      mockDurableAccessTokenInvalidation.enqueue.mockRejectedValueOnce(
+        new Error('outbox unavailable'),
+      );
+
+      await expect(
+        service.logout('user-uuid-123', 'jti-123', new Date(Date.now() + 900000)),
+      ).rejects.toThrow('outbox unavailable');
+
+      expect(mockDurableAccessTokenInvalidation.applyImmediately).not.toHaveBeenCalled();
+      expect(mockSessionManager.revokeAllSessions).not.toHaveBeenCalled();
+    });
+
+    it('returns success after commit when immediate logout effects fail', async () => {
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      mockUserRepository.findOne.mockResolvedValue(createMockUser());
+      mockRefreshTokenRepository.update.mockResolvedValue({ affected: 1 });
+      mockDurableAccessTokenInvalidation.applyImmediately.mockRejectedValueOnce(
+        new TypeError('redis unavailable for jti-123'),
+      );
+      mockSessionManager.revokeAllSessions.mockRejectedValueOnce(
+        new RangeError('session store unavailable for user-uuid-123'),
+      );
+
+      await expect(
+        service.logout('user-uuid-123', 'jti-123', new Date(Date.now() + 900000)),
+      ).resolves.toBe(true);
+
+      expect(mockDurableAccessTokenInvalidation.enqueue).toHaveBeenCalledTimes(1);
+      const [serializedLog] = errorSpy.mock.calls.at(-1) ?? [];
+      expect(JSON.parse(String(serializedLog))).toEqual({
+        event: 'post_commit_security_effect_failed',
+        operation: 'user_logout',
+        failedCount: 2,
+        effectCount: 2,
+        failedEffectTypes: ['access_token_invalidation', 'session_revocation'],
+        errorTypes: ['TypeError', 'RangeError'],
+      });
+      expect(String(serializedLog)).not.toContain('jti-123');
+      expect(String(serializedLog)).not.toContain('user-uuid-123');
+      expect(String(serializedLog)).not.toContain('unavailable');
+      errorSpy.mockRestore();
+    });
+  });
+
+  describe('logoutAllDevices()', () => {
+    it('fails closed before commit when user-wide invalidation cannot be enqueued', async () => {
+      mockUserRepository.findOne.mockResolvedValue(createMockUser());
+      mockRefreshTokenRepository.update.mockResolvedValue({ affected: 3 });
+      mockDurableUserTokenInvalidation.enqueue.mockRejectedValueOnce(
+        new Error('outbox unavailable'),
+      );
+
+      await expect(service.logoutAllDevices('user-uuid-123')).rejects.toThrow('outbox unavailable');
+
+      expect(mockDurableUserTokenInvalidation.applyImmediately).not.toHaveBeenCalled();
+      expect(mockSessionManager.revokeAllSessions).not.toHaveBeenCalled();
+    });
+
+    it('returns the committed count when immediate all-device effects fail', async () => {
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      mockUserRepository.findOne.mockResolvedValue(createMockUser());
+      mockRefreshTokenRepository.update.mockResolvedValue({ affected: 3 });
+      mockDurableUserTokenInvalidation.applyImmediately.mockRejectedValueOnce(
+        new TypeError('redis unavailable for user-uuid-123'),
+      );
+      mockSessionManager.revokeAllSessions.mockRejectedValueOnce(
+        new RangeError('session store unavailable for user-uuid-123'),
+      );
+
+      await expect(service.logoutAllDevices('user-uuid-123')).resolves.toBe(3);
+
+      expect(mockUserRepository.findOne).toHaveBeenCalledWith({
+        where: { id: 'user-uuid-123' },
+        lock: { mode: 'pessimistic_write' },
+      });
+      expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenCalledTimes(1);
+      const [serializedLog] = errorSpy.mock.calls.at(-1) ?? [];
+      expect(JSON.parse(String(serializedLog))).toEqual({
+        event: 'post_commit_security_effect_failed',
+        operation: 'logout_all_devices',
+        failedCount: 2,
+        effectCount: 2,
+        failedEffectTypes: ['user_token_invalidation', 'session_revocation'],
+        errorTypes: ['TypeError', 'RangeError'],
+      });
+      expect(String(serializedLog)).not.toContain('user-uuid-123');
+      expect(String(serializedLog)).not.toContain('unavailable');
+      errorSpy.mockRestore();
     });
   });
 
@@ -789,6 +983,7 @@ describe('AuthenticationService', () => {
         roles: [Role.MODULE_USER],
         tenantId: 'tenant-uuid-123',
         jti: 'mock-jti',
+        iat: Math.floor(Date.now() / 1000),
       });
 
       const result = await service.validateToken('a-real-access-token');

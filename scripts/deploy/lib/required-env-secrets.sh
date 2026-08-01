@@ -91,6 +91,15 @@ generate_service_identity_signing_kid() {
   printf '%s' "${kid}"
 }
 
+# This key may already protect legacy tenant Sentinel credential rows. Creating
+# a different value during a normal deploy would make those rows
+# undecryptable. Fresh environments and existing installations must provision
+# it deliberately before the environmental-monitoring release is deployed.
+require_preprovisioned_sentinel_hub_key() {
+  echo "SENTINEL_HUB_ENCRYPTION_KEY must be provisioned explicitly; it may protect existing legacy Sentinel rows" >&2
+  return 1
+}
+
 # WHY the two 2026-06-11 additions:
 #   SERVICE_IDENTITY_SIGNING_KID — active signing key selector for
 #                             signed-http-client (must match a keyring kid;
@@ -115,6 +124,7 @@ REQUIRED_ENV_SECRETS=(
   "SERVICE_IDENTITY_SIGNING_KID:generate_service_identity_signing_kid"
   "CONFIG_ENCRYPTION_KEY:openssl rand -hex 32"
   "AI_TENANT_SECRET_ENCRYPTION_KEY:openssl rand -hex 32"
+  "SENTINEL_HUB_ENCRYPTION_KEY:require_preprovisioned_sentinel_hub_key"
 )
 
 # Convenience helper: extract just the names, for preflight checks.

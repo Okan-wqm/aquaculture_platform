@@ -477,7 +477,7 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     // (entity metadata + migrations check) and the current SLA-defining max.
     startupBudgetSeconds: 120,
     requiredSignals: ['nats_auth_mode_mtls', 'schema_drift_clean'],
-    requiredEnv: ['FARM_SERVICE_DB_PASS', 'ENCRYPTION_KEY'],
+    requiredEnv: ['FARM_SERVICE_DB_PASS', 'ENCRYPTION_KEY', 'SENTINEL_HUB_ENCRYPTION_KEY'],
     gatewaySubgraph: subgraph(
       'farm',
       'farm-service',

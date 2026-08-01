@@ -90,6 +90,7 @@ describe('VerifiedUserAssertionMiddleware', () => {
         mfaVerified: true,
       }),
     );
+    expect(req.tenantId).toBe(EFFECTIVE_TENANT);
     expect(req.headers['x-user-id']).toBeUndefined();
     expect(req.headers['x-user-roles']).toBeUndefined();
     expect(req.headers['x-user-payload']).toBeUndefined();
@@ -115,14 +116,26 @@ describe('VerifiedUserAssertionMiddleware', () => {
     expect(req.verifiedUserAssertion).toBeUndefined();
   });
 
-  it('fails closed for production gateway requests without a verified assertion', () => {
-    const req = createRequest();
+  it('fails closed for authenticated production gateway requests without a verified assertion', () => {
+    const req = createRequest({ headers: { authorization: 'Bearer access-token' } });
 
     middleware.use(req, {} as Response, next);
 
     const error = next.mock.calls[0]?.[0];
     expect(error).toBeInstanceOf(BadRequestException);
-    expect(error).toHaveProperty('message', expect.stringContaining('Verified user assertion is required'));
+    expect(error).toHaveProperty(
+      'message',
+      expect.stringContaining('Verified user assertion is required'),
+    );
+  });
+
+  it('allows signed pre-auth gateway requests without a user assertion', () => {
+    const req = createRequest();
+
+    middleware.use(req, {} as Response, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(req.verifiedUserAssertion).toBeUndefined();
   });
 
   it('does not require user assertions on probe paths', () => {
@@ -162,7 +175,6 @@ describe('VerifiedUserAssertionMiddleware', () => {
 
     expect(next).toHaveBeenCalledWith();
   });
-
 
   it('rejects assertions whose effective tenant differs from the signed service tenant', () => {
     const req = createRequest({
@@ -277,10 +289,7 @@ describe('VerifiedUserAssertionMiddleware', () => {
 
     const error = next.mock.calls[0]?.[0];
     expect(error).toBeInstanceOf(BadRequestException);
-    expect(error).toHaveProperty(
-      'message',
-      expect.stringContaining('resourcePermissions'),
-    );
+    expect(error).toHaveProperty('message', expect.stringContaining('resourcePermissions'));
   });
 
   it('ORPHAN-MEDIUM-319: round-trips clientIp + clientUserAgent onto the parsed assertion', () => {

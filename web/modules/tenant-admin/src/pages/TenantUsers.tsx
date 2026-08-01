@@ -6,7 +6,9 @@ import { AddEditUserModal, type UserFormData } from '../components/users/AddEdit
 import { UserFilters } from '../components/users/UserFilters';
 import { BulkActions } from '../components/users/BulkActions';
 import { UserListSection, type DisplayUser } from '../components/users/UserListSection';
+import { SiteAccessModal } from '../components/users/SiteAccessModal';
 import { useTenantRoles } from '../hooks/useTenantRoles';
+import { canManageUserSiteAccess } from '../hooks/useUserSiteAccess';
 import {
   useTenantUsersRaw,
   useCreateTenantUser,
@@ -45,7 +47,8 @@ function transformUser(apiUser: ApiUser): DisplayUser {
 
   return {
     id: apiUser.id,
-    name: `${apiUser.firstName || ''} ${apiUser.lastName || ''}`.trim() || apiUser.email.split('@')[0],
+    name:
+      `${apiUser.firstName || ''} ${apiUser.lastName || ''}`.trim() || apiUser.email.split('@')[0],
     email: apiUser.email,
     role: apiUser.role,
     status,
@@ -70,10 +73,11 @@ const TenantUsers: React.FC = () => {
   // the backend enforces, not the coarse TENANT_ADMIN role. Admins bypass inside
   // hasResourcePermission, so this is a superset that additionally honours a
   // delegate holding the specific users:* capability (previously blocked).
-  const { hasPermission } = useAuth();
+  const { hasPermission, user: currentUser } = useAuth();
   const canInviteUsers = hasPermission('users:invite');
   const canEditUsers = hasPermission('users:edit_permissions');
   const canDeactivateUsers = hasPermission('users:deactivate');
+  const canManageSiteAccess = canManageUserSiteAccess(currentUser?.role);
   const queryClient = useQueryClient();
 
   // Filters
@@ -94,6 +98,7 @@ const TenantUsers: React.FC = () => {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<DisplayUser | null>(null);
   const [deletingUser, setDeletingUser] = useState<DisplayUser | null>(null);
+  const [siteAccessUser, setSiteAccessUser] = useState<DisplayUser | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Roles
@@ -104,7 +109,9 @@ const TenantUsers: React.FC = () => {
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => setDebouncedSearch(searchQuery), 300);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, [searchQuery]);
 
   // Data
@@ -183,7 +190,8 @@ const TenantUsers: React.FC = () => {
     [deactivateUserMutation],
   );
 
-  const handleRefresh = () => queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateUsers() });
+  const handleRefresh = () =>
+    queryClient.invalidateQueries({ queryKey: tenantKeys.invalidateUsers() });
 
   const toggleUserSelection = useCallback((userId: string) => {
     setSelectedUsers((prev) =>
@@ -197,8 +205,14 @@ const TenantUsers: React.FC = () => {
     );
   }, [filteredUsers]);
 
-  const handleRoleChange = (value: string) => { setRoleFilter(value); setPage(0); };
-  const handleStatusChange = (value: string) => { setStatusFilter(value); setPage(0); };
+  const handleRoleChange = (value: string) => {
+    setRoleFilter(value);
+    setPage(0);
+  };
+  const handleStatusChange = (value: string) => {
+    setStatusFilter(value);
+    setPage(0);
+  };
 
   if (loading) {
     return (
@@ -214,10 +228,16 @@ const TenantUsers: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Users</h1>
-          <p className="text-sm text-gray-500 mt-1">Manage users and their access to modules</p>
+          <p className="text-sm text-gray-500 mt-1">
+            Manage users and their access to modules and farm sites
+          </p>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={handleRefresh} className="p-2 rounded-lg hover:bg-gray-100 transition-colors" title="Refresh">
+          <button
+            onClick={handleRefresh}
+            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+            title="Refresh"
+          >
             <RefreshCw className="w-5 h-5 text-gray-500" />
           </button>
           {/* RBAC-L6: the previous "Export" button was UNWIRED (no onClick, no
@@ -226,7 +246,11 @@ const TenantUsers: React.FC = () => {
               export path AND a capability gate. */}
           {canInviteUsers && (
             <button
-              onClick={() => { setSaveError(null); setEditingUser(null); setIsModalOpen(true); }}
+              onClick={() => {
+                setSaveError(null);
+                setEditingUser(null);
+                setIsModalOpen(true);
+              }}
               className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
             >
               <UserPlus className="w-4 h-4" />
@@ -244,7 +268,10 @@ const TenantUsers: React.FC = () => {
             <p className="text-sm font-medium text-red-800">Failed to load users</p>
             <p className="text-sm text-red-600">{error}</p>
           </div>
-          <button onClick={handleRefresh} className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors">
+          <button
+            onClick={handleRefresh}
+            className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors"
+          >
             Retry
           </button>
         </div>
@@ -273,22 +300,40 @@ const TenantUsers: React.FC = () => {
         onSelectUser={toggleUserSelection}
         selectedUsers={selectedUsers}
         onToggleAll={toggleAllSelection}
-        onEditUser={(user) => { setEditingUser(user); setSaveError(null); setIsModalOpen(true); }}
-        onDeleteUser={(user) => { setDeletingUser(user); setDeleteError(null); }}
+        onEditUser={(user) => {
+          setEditingUser(user);
+          setSaveError(null);
+          setIsModalOpen(true);
+        }}
+        onDeleteUser={(user) => {
+          setDeletingUser(user);
+          setDeleteError(null);
+        }}
+        onManageSiteAccess={setSiteAccessUser}
         canEditUsers={canEditUsers}
         canDeactivateUsers={canDeactivateUsers}
+        canManageSiteAccess={canManageSiteAccess}
         totalUsersInPage={users.length}
       />
 
       <AddEditUserModal
         isOpen={isModalOpen}
-        onClose={() => { setIsModalOpen(false); setEditingUser(null); }}
+        onClose={() => {
+          setIsModalOpen(false);
+          setEditingUser(null);
+        }}
         user={editingUser}
         roles={roles}
         rolesLoading={rolesLoading}
         onSave={handleSaveUser}
         isLoading={isSaving}
         error={saveError}
+      />
+
+      <SiteAccessModal
+        isOpen={siteAccessUser !== null}
+        onClose={() => setSiteAccessUser(null)}
+        user={siteAccessUser}
       />
 
       {deletingUser && (

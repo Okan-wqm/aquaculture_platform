@@ -1,0 +1,110 @@
+{
+  "type": "Feature",
+  "geometry": {
+    "type": "Point",
+    "coordinates": [5.3221, 60.3929, 0]
+  },
+  "properties": {
+    "meta": {
+      "updated_at": "2026-07-30T23:30:00Z",
+      "units": {
+        "air_pressure_at_sea_level": "hPa",
+        "air_temperature": "celsius",
+        "cloud_area_fraction": "%",
+        "precipitation_amount": "mm",
+        "relative_humidity": "%",
+        "wind_from_direction": "degrees",
+        "wind_speed": "m/s",
+        "wind_speed_of_gust": "m/s"
+      }
+    },
+    "timeseries": [
+      {
+        "time": "2026-07-31T00:00:00Z",
+        "data": {
+          "instant": {
+            "details": {
+              "air_pressure_at_sea_level": 1012.4,
+              "air_temperature": 0,
+              "cloud_area_fraction": 0,
+              "relative_humidity": 84.2,
+              "wind_from_direction": 0,
+              "wind_speed": 0,
+              "wind_speed_of_gust": 0
+            }
+          },
+          "next_1_hours": {
+            "summary": {
+              "symbol_code": "clearsky_day"
+            },
+            "details": {
+              "precipitation_amount": 0
+            }
+          }
+        }
+      },
+      {
+        "time": "2026-07-31T01:00:00Z",
+        "data": {
+          "instant": {
+            "details": {
+              "air_pressure_at_sea_level": 1012.1,
+              "air_temperature": 8.1,
+              "cloud_area_fraction": 12.5,
+              "relative_humidity": 82.1,
+              "wind_from_direction": 180,
+              "wind_speed": 3.4,
+              "wind_speed_of_gust": 5.2
+            }
+          },
+          "next_6_hours": {
+            "summary": {
+              "symbol_code": "partlycloudy_day"
+            },
+            "details": {
+              "precipitation_amount": 1.5
+            }
+          }
+        }
+      },
+      {
+        "time": "2026-08-07T00:00:00Z",
+        "data": {
+          "instant": {
+            "details": {
+              "air_pressure_at_sea_level": 1008.2,
+              "air_temperature": 10.4,
+              "cloud_area_fraction": 70,
+              "relative_humidity": 91,
+              "wind_from_direction": 210,
+              "wind_speed": 6.8
+            }
+          },
+          "next_6_hours": {
+            "summary": {
+              "symbol_code": "rain"
+            },
+            "details": {
+              "precipitation_amount": 4.3
+            }
+          }
+        }
+      },
+      {
+        "time": "2026-08-07T01:00:00Z",
+        "data": {
+          "instant": {
+            "details": {
+              "air_pressure_at_sea_level": 1007.9,
+              "air_temperature": 10.1,
+              "cloud_area_fraction": 82,
+              "relative_humidity": 93,
+              "wind_from_direction": 215,
+              "wind_speed": 7.2
+            }
+          }
+        }
+      }
+    ]
+  }
+}

@@ -7,8 +7,8 @@
  * Uses TanStack Query for data fetching and caching.
  */
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey, createTenantInvalidationKey, getTenantId } from '@aquaculture/shared-ui';
+import { useQueryClient } from '@tanstack/react-query';
+import { createTenantInvalidationKey, useAuth, useTenantQuery } from '@aquaculture/shared-ui';
 import { useState, useCallback, useMemo } from 'react';
 import { graphqlRequest } from '../services/tenant-api.service';
 import { TENANT_AUDIT_LOGS_QUERY } from '../graphql';
@@ -45,27 +45,50 @@ export interface AuditLogPage {
   total: number;
 }
 
+export interface UseTenantAuditLogResult {
+  entries: AuditLogEntry[];
+  total: number;
+  totalPages: number;
+  page: number;
+  pageSize: number;
+  filters: AuditLogFilters;
+  isLoading: boolean;
+  isFetching: boolean;
+  error: Error | null;
+  updateFilters: (newFilters: Partial<AuditLogFilters>) => void;
+  resetFilters: () => void;
+  goToPage: (page: number) => void;
+  nextPage: () => void;
+  prevPage: () => void;
+  refresh: () => Promise<void>;
+  exportCsv: () => void;
+}
+
 // ============================================================================
 // Query Keys
 // ============================================================================
 
-// Tenant-scoped keys; functions because the tenantId is only known at call
-// time (web/CLAUDE.md FE-CRITICAL-014/015/016). `all` is an INVALIDATION
-// prefix (createTenantInvalidationKey, NO epoch): used as a filter, an epoch'd
-// key left-prefix-mismatches every stored `list` key ({epoch} lands where the
-// stored key holds 'list'), so the previous epoch'd `all()` made refresh() a
-// silent no-op (RBAC-HIGH-006 class).
-export const auditLogKeys = {
-  all: () => createTenantInvalidationKey(getTenantId(), 'tenant-audit-log'),
+const auditLogSegments = {
+  all: ['tenant-audit-log'] as const,
   list: (filters: AuditLogFilters, page: number, pageSize: number) =>
-    createTenantQueryKey(getTenantId(), 'tenant-audit-log', 'list', filters, page, pageSize),
+    ['tenant-audit-log', 'list', filters, page, pageSize] as const,
+};
+
+// Query consumers pass domain-only segments to useTenantQuery, which owns the
+// authenticated tenant prefix and session epoch. Invalidations intentionally
+// use the epoch-less builder so refresh matches every list key generation for
+// only the active tenant.
+export const auditLogKeys = {
+  all: (tenantId: string | null) => createTenantInvalidationKey(tenantId, ...auditLogSegments.all),
+  list: auditLogSegments.list,
 };
 
 // ============================================================================
 // Hook
 // ============================================================================
 
-export function useTenantAuditLog(pageSize = 20) {
+export function useTenantAuditLog(pageSize = 20): UseTenantAuditLogResult {
+  const { tenantId } = useAuth();
   const queryClient = useQueryClient();
 
   // State
@@ -96,9 +119,9 @@ export function useTenantAuditLog(pageSize = 20) {
   }, [filters, pageSize, offset]);
 
   // Query
-  const query = useQuery({
-    queryKey: auditLogKeys.list(filters, page, pageSize),
-    queryFn: async (): Promise<AuditLogPage> => {
+  const query = useTenantQuery<AuditLogPage>(
+    auditLogKeys.list(filters, page, pageSize),
+    async (): Promise<AuditLogPage> => {
       try {
         const data = await graphqlRequest<{ tenantAuditLogs: AuditLogPage }>(
           TENANT_AUDIT_LOGS_QUERY,
@@ -111,9 +134,8 @@ export function useTenantAuditLog(pageSize = 20) {
         throw err;
       }
     },
-    staleTime: 30 * 1000, // 30 seconds
-    placeholderData: (previousData) => previousData,
-  });
+    { staleTime: 30 * 1000 },
+  );
 
   // Actions
   const updateFilters = useCallback((newFilters: Partial<AuditLogFilters>) => {
@@ -144,16 +166,24 @@ export function useTenantAuditLog(pageSize = 20) {
     setPage((prev) => Math.max(1, prev - 1));
   }, []);
 
-  const refresh = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: auditLogKeys.all() });
-  }, [queryClient]);
+  const refresh = useCallback(async (): Promise<void> => {
+    await queryClient.invalidateQueries({ queryKey: auditLogKeys.all(tenantId) });
+  }, [queryClient, tenantId]);
 
   // CSV export
   const exportCsv = useCallback(() => {
     const entries = query.data?.data;
     if (!entries || entries.length === 0) return;
 
-    const headers = ['Timestamp', 'Action', 'User', 'IP Address', 'Severity', 'Entity Type', 'Details'];
+    const headers = [
+      'Timestamp',
+      'Action',
+      'User',
+      'IP Address',
+      'Severity',
+      'Entity Type',
+      'Details',
+    ];
     const rows = entries.map((entry) => [
       new Date(entry.createdAt).toISOString(),
       entry.action,

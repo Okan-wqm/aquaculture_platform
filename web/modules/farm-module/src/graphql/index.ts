@@ -27,3 +27,6 @@ export * from './regulatory.operations';
 
 // Site Setup Operations
 export * from './sites.operations';
+
+// Environmental monitoring operations
+export * from './environment.operations';

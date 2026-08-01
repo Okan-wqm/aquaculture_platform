@@ -1,13 +1,19 @@
-import { Injectable, Logger, NotFoundException, ConflictException, ForbiddenException, Inject } from '@nestjs/common';
 import {
-  USER_TOKEN_REVOCATION,
-  IUserTokenRevocation,
-} from '@aquaculture/backend-common/security';
+  Injectable,
+  Logger,
+  NotFoundException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, QueryRunner } from 'typeorm';
 
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { AuditLogService } from '../../../audit/audit-log.service';
+import {
+  DurableUserTokenInvalidationService,
+  type UserTokenInvalidationIntent,
+} from '../../authentication/services/durable-user-token-invalidation.service';
 
 import { CapabilityAuthorityService } from './capability-authority';
 import {
@@ -77,7 +83,10 @@ const DEFAULT_TENANT_ROLES = [
 /**
  * Default role permissions
  */
-const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, Record<string, boolean>>>> = {
+const DEFAULT_ROLE_PERMISSIONS: Record<
+  string,
+  Record<string, Record<string, Record<string, boolean>>>
+> = {
   Supervisor: {
     farm: {
       sites: { view: true, create: false, edit: true, delete: false },
@@ -88,7 +97,15 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, Rec
       equipment: { view: true, create: true, edit: true, delete: false, assign: true },
     },
     batch: {
-      batches: { view: true, create: true, edit: true, delete: false, transfer: true, split: true, merge: true },
+      batches: {
+        view: true,
+        create: true,
+        edit: true,
+        delete: false,
+        transfer: true,
+        split: true,
+        merge: true,
+      },
       species: { view: true, create: false, edit: false, delete: false },
       mortality: { view: true, record: true },
       growth: { view: true, record: true, analyze: true },
@@ -186,7 +203,12 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, Rec
     operations: {
       feeding: { view: true, record: true, manage_schedules: false, manage_inventory: false },
       sensors: { view: true, configure: false, calibrate: false, manage_alerts: false },
-      maintenance: { view: true, create_work_orders: true, complete: true, manage_schedules: false },
+      maintenance: {
+        view: true,
+        create_work_orders: true,
+        complete: true,
+        manage_schedules: false,
+      },
       water_quality: { view: true, record: true },
     },
     hr: {
@@ -226,7 +248,12 @@ const DEFAULT_ROLE_PERMISSIONS: Record<string, Record<string, Record<string, Rec
     operations: {
       feeding: { view: true, record: false, manage_schedules: false, manage_inventory: false },
       sensors: { view: true, configure: false, calibrate: false, manage_alerts: false },
-      maintenance: { view: true, create_work_orders: false, complete: false, manage_schedules: false },
+      maintenance: {
+        view: true,
+        create_work_orders: false,
+        complete: false,
+        manage_schedules: false,
+      },
       water_quality: { view: true, record: false },
     },
     reports: {
@@ -284,11 +311,10 @@ export class TenantRoleService {
     // audit row on its own transaction (fail-CLOSED: a throwing audit rolls the
     // mutation back), mirroring the tenant-user-management assignment paths.
     private readonly auditLogService: AuditLogService,
-    // SECURITY (RBAC-HIGH-001): editing a role's permissions changes the
-    // effective set of EVERY active holder — revoke their live tokens so the new
-    // (possibly reduced) permissions take effect on the next request.
-    @Inject(USER_TOKEN_REVOCATION)
-    private readonly userTokenRevocation: IUserTokenRevocation,
+    // SECURITY (RBAC-HIGH-001): permission changes and their invalidation
+    // intents share one transaction. Redis remains the immediate enforcement
+    // path after commit; the outbox provides outage recovery.
+    private readonly durableUserTokenInvalidation: DurableUserTokenInvalidationService,
   ) {}
 
   /**
@@ -420,13 +446,18 @@ export class TenantRoleService {
     // capability the actor does not themselves hold. A TENANT_ADMIN/SUPER_ADMIN
     // author may grant any catalogue capability. The branded return value is the
     // only value the permission INSERT below accepts.
-    const actorAuthority = await this.capabilityAuthority.resolveActorAuthority(tenantId, createdBy);
-    const grantableResourcePermissions = this.capabilityAuthority.assertGrantableResourcePermissions(
-      panelPermissionsToResourceArray(input.panelPermissions),
-      actorAuthority,
+    const actorAuthority = await this.capabilityAuthority.resolveActorAuthority(
+      tenantId,
+      createdBy,
     );
+    const grantableResourcePermissions =
+      this.capabilityAuthority.assertGrantableResourcePermissions(
+        panelPermissionsToResourceArray(input.panelPermissions),
+        actorAuthority,
+      );
 
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
+    let createdRoleId: string | null = null;
 
     await queryRunner.connect();
     await queryRunner.startTransaction('SERIALIZABLE');
@@ -476,7 +507,11 @@ export class TenantRoleService {
         ],
       );
 
-      const roleId = roleResult[0].id;
+      const roleId = roleResult[0]?.id as string | undefined;
+      if (!roleId) {
+        throw new Error('Role insert did not return an identifier');
+      }
+      createdRoleId = roleId;
 
       // Create role permissions within the same transaction. tenant_role_permissions
       // has no tenantId column; ownership is transitive via the role_id of the
@@ -515,24 +550,28 @@ export class TenantRoleService {
       );
 
       await queryRunner.commitTransaction();
-
-      this.logger.log(`Created role "${input.name}" in tenant ${tenantId}`);
-
-      const createdRole = await this.getRoleById(tenantId, roleId);
-      if (!createdRole) {
-        throw new Error('Failed to retrieve created role');
-      }
-      return createdRole;
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(
-        `Failed to create role "${input.name}" in tenant ${tenantId}: ${(error as Error).message}`,
-        (error as Error).stack,
+        JSON.stringify({
+          event: 'tenant_role_create_failed',
+          errorType: error instanceof Error ? error.name : 'UnknownError',
+        }),
       );
       throw error;
     } finally {
       await queryRunner.release();
     }
+
+    this.logger.log(JSON.stringify({ event: 'tenant_role_created' }));
+    if (!createdRoleId) {
+      throw new Error('Role transaction committed without an identifier');
+    }
+    const createdRole = await this.getRoleById(tenantId, createdRoleId);
+    if (!createdRole) {
+      throw new Error('Failed to retrieve created role');
+    }
+    return createdRole;
   }
 
   /**
@@ -571,6 +610,7 @@ export class TenantRoleService {
       : null;
 
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
+    let invalidationIntents: UserTokenInvalidationIntent[] = [];
 
     await queryRunner.connect();
     await queryRunner.startTransaction('SERIALIZABLE');
@@ -682,7 +722,22 @@ export class TenantRoleService {
           FROM "auth"."tenant_roles" tr
           WHERE trp.role_id = tr.id AND trp.role_id = $3 AND tr."tenantId" = $4
           `,
-          [JSON.stringify(input.panelPermissions), [...grantableResourcePermissions], roleId, tenantId],
+          [
+            JSON.stringify(input.panelPermissions),
+            [...grantableResourcePermissions],
+            roleId,
+            tenantId,
+          ],
+        );
+      }
+
+      if (grantableResourcePermissions) {
+        invalidationIntents = await this.enqueueRoleHolderInvalidations(
+          queryRunner,
+          tenantId,
+          [roleId],
+          'update',
+          new Date(),
         );
       }
 
@@ -716,33 +771,36 @@ export class TenantRoleService {
       );
 
       await queryRunner.commitTransaction();
-
-      this.logger.log(`Updated role "${existing.name}" (${roleId}) in tenant ${tenantId}`);
-
-      // RBAC-HIGH-001: if the permission set changed, every active holder's
-      // effective permissions changed — revoke their live tokens (fleet-wide via
-      // the shared user_blacklist key) so the new set is enforced on their next
-      // request rather than after the access-token TTL. Runs AFTER commit so a
-      // revoke is never issued for a change that rolled back.
-      if (grantableResourcePermissions) {
-        await this.revokeTokensForRoleHolders(tenantId, roleId);
-      }
-
-      const updatedRole = await this.getRoleById(tenantId, roleId);
-      if (!updatedRole) {
-        throw new Error('Failed to retrieve updated role');
-      }
-      return updatedRole;
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(
-        `Failed to update role ${roleId} in tenant ${tenantId}: ${(error as Error).message}`,
-        (error as Error).stack,
+        JSON.stringify({
+          event: 'tenant_role_update_failed',
+          errorType: error instanceof Error ? error.name : 'UnknownError',
+        }),
       );
       throw error;
     } finally {
       await queryRunner.release();
     }
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'tenant_role_updated',
+        permissionSetChanged: grantableResourcePermissions !== null,
+        invalidationIntentCount: invalidationIntents.length,
+      }),
+    );
+    await this.applyInvalidationsBestEffort(
+      invalidationIntents,
+      'tenant_role_update_immediate_invalidation_failed',
+    );
+
+    const updatedRole = await this.getRoleById(tenantId, roleId);
+    if (!updatedRole) {
+      throw new Error('Failed to retrieve updated role');
+    }
+    return updatedRole;
   }
 
   /**
@@ -834,20 +892,21 @@ export class TenantRoleService {
       );
 
       await queryRunner.commitTransaction();
-
-      this.logger.log(`Deleted role "${existing.name}" (${roleId}) in tenant ${tenantId}`);
-
-      return true;
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(
-        `Failed to delete role ${roleId} in tenant ${tenantId}: ${(error as Error).message}`,
-        (error as Error).stack,
+        JSON.stringify({
+          event: 'tenant_role_delete_failed',
+          errorType: error instanceof Error ? error.name : 'UnknownError',
+        }),
       );
       throw error;
     } finally {
       await queryRunner.release();
     }
+
+    this.logger.log(JSON.stringify({ event: 'tenant_role_deleted' }));
+    return true;
   }
 
   /**
@@ -879,6 +938,10 @@ export class TenantRoleService {
    */
   async seedDefaultRoles(tenantId: string, createdBy: string): Promise<TenantRoleWithDetails[]> {
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
+    const createdNames: string[] = [];
+    let reconciled: Array<{ id: string; name: string }> = [];
+    let reconciledNames: string[] = [];
+    let invalidationIntents: UserTokenInvalidationIntent[] = [];
 
     await queryRunner.connect();
     await queryRunner.startTransaction('SERIALIZABLE');
@@ -916,7 +979,6 @@ export class TenantRoleService {
       );
 
       // ---- Phase 1: create the ABSENT named defaults --------------------------
-      const createdNames: string[] = [];
       for (const roleTemplate of DEFAULT_TENANT_ROLES) {
         // Idempotent: a default already present (by name, this tenant) is left to
         // the reconcile phase. Re-running only fills gaps — it never duplicates.
@@ -961,16 +1023,22 @@ export class TenantRoleService {
         );
 
         createdNames.push(roleTemplate.name);
-        this.logger.debug(`Created default role: ${roleTemplate.name}`);
+        this.logger.debug(JSON.stringify({ event: 'tenant_default_role_created' }));
       }
 
       // ---- Phase 2: reconcile EXISTING default-named system roles -------------
-      const reconciled = await this.reconcileDefaultRolePermissions(
-        queryRunner,
-        existingRoles,
-        entitled,
-      );
-      const reconciledNames = reconciled.map((r) => r.name);
+      reconciled = await this.reconcileDefaultRolePermissions(queryRunner, existingRoles, entitled);
+      reconciledNames = reconciled.map((r) => r.name);
+
+      if (reconciled.length > 0) {
+        invalidationIntents = await this.enqueueRoleHolderInvalidations(
+          queryRunner,
+          tenantId,
+          reconciled.map((role) => role.id),
+          'seed',
+          new Date(),
+        );
+      }
 
       // RBAC-C3: fail-CLOSED audit, atomic with the writes. One row for the
       // create phase (real names/count, not the template list) and one for the
@@ -1011,33 +1079,34 @@ export class TenantRoleService {
       }
 
       await queryRunner.commitTransaction();
-
-      this.logger.log(
-        `Seeded ${createdNames.length} and reconciled ${reconciledNames.length} default role(s) for tenant ${tenantId}` +
-          (createdNames.length === 0 && reconciledNames.length === 0
-            ? ' (all defaults already current)'
-            : ''),
-      );
-
-      // RBAC-HIGH-001: a reconcile widened at least one active role's effective
-      // set — revoke live tokens of every holder so the new grants take effect on
-      // the next request. Runs AFTER commit so a revoke is never issued for a
-      // change that rolled back. Best-effort per user (see helper).
-      for (const role of reconciled) {
-        await this.revokeTokensForRoleHolders(tenantId, role.id);
-      }
-
-      return this.getTenantRoles(tenantId);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       this.logger.error(
-        `Failed to seed default roles for tenant ${tenantId}: ${(error as Error).message}`,
-        (error as Error).stack,
+        JSON.stringify({
+          event: 'tenant_default_roles_seed_failed',
+          errorType: error instanceof Error ? error.name : 'UnknownError',
+        }),
       );
       throw error;
     } finally {
       await queryRunner.release();
     }
+
+    this.logger.log(
+      JSON.stringify({
+        event: 'tenant_default_roles_seeded',
+        createdCount: createdNames.length,
+        reconciledCount: reconciledNames.length,
+        invalidationIntentCount: invalidationIntents.length,
+        alreadyCurrent: createdNames.length === 0 && reconciledNames.length === 0,
+      }),
+    );
+    await this.applyInvalidationsBestEffort(
+      invalidationIntents,
+      'tenant_default_roles_immediate_invalidation_failed',
+    );
+
+    return this.getTenantRoles(tenantId);
   }
 
   /**
@@ -1107,7 +1176,10 @@ export class TenantRoleService {
 
       reconciled.push({ id: role.id, name: templateName });
       this.logger.debug(
-        `Reconciled default role "${templateName}" (${role.id}): +${missing.length} capability(ies)`,
+        JSON.stringify({
+          event: 'tenant_default_role_reconciled',
+          capabilityCount: missing.length,
+        }),
       );
     }
 
@@ -1184,9 +1256,7 @@ export class TenantRoleService {
    * (RBAC-HIGH-010 third enforcement point: the UI never offers what the write
    * boundary would reject). An unlicensed module's category is absent entirely.
    */
-  async getPermissionCategories(
-    tenantId: string,
-  ): Promise<Record<string, CatalogueCategoryView>> {
+  async getPermissionCategories(tenantId: string): Promise<Record<string, CatalogueCategoryView>> {
     const entitled = await resolveEntitledCapabilities(
       (sql, params) => this.dataSource.query(sql, [...params]),
       tenantId,
@@ -1195,31 +1265,78 @@ export class TenantRoleService {
   }
 
   /**
-   * RBAC-HIGH-001: revoke the live tokens of every ACTIVE holder of a role after
-   * its permission set changed. Tenant-scoped via the tenant_roles join
-   * (ORPHAN-CRITICAL-100). Best-effort per user — one Redis hiccup must not undo
-   * the committed role edit — but each failure is logged.
+   * Persist one user-wide invalidation intent per distinct active role holder.
+   * The holder read is tenant-scoped and locked in the caller's SERIALIZABLE
+   * transaction, so role permissions and their recovery signal cannot diverge.
    */
-  private async revokeTokensForRoleHolders(tenantId: string, roleId: string): Promise<void> {
-    const holders = await this.dataSource.query<Array<{ user_id: string }>>(
+  private async enqueueRoleHolderInvalidations(
+    queryRunner: QueryRunner,
+    tenantId: string,
+    roleIds: readonly string[],
+    operation: 'update' | 'seed',
+    invalidatedAt: Date,
+  ): Promise<UserTokenInvalidationIntent[]> {
+    if (roleIds.length === 0) {
+      return [];
+    }
+
+    const holders = (await queryRunner.query(
       `
       SELECT ura.user_id
       FROM "auth"."user_role_assignments" ura
       JOIN "auth"."tenant_roles" tr ON tr.id = ura.role_id
-      WHERE ura.role_id = $1 AND ura.is_active = true AND tr."tenantId" = $2
+      WHERE ura.role_id = ANY($1::uuid[])
+        AND ura.is_active = true
+        AND tr."tenantId" = $2
+      FOR SHARE OF ura
       `,
-      [roleId, tenantId],
+      [[...roleIds], tenantId],
+    )) as Array<{ user_id: string }>;
+
+    const invalidatedAtEpochSeconds = Math.floor(invalidatedAt.getTime() / 1000);
+    const intents = [...new Set(holders.map(({ user_id: userId }) => userId))].map(
+      (userId): UserTokenInvalidationIntent => ({
+        userId,
+        tenantId,
+        invalidatedAt,
+        reason: 'role_permissions_changed',
+        idempotencyKey: `role-permissions:${operation}:${userId}:${invalidatedAtEpochSeconds}`,
+      }),
     );
 
-    for (const { user_id: userId } of holders) {
-      try {
-        await this.userTokenRevocation.revokeUserTokens(userId);
-      } catch (error) {
-        this.logger.error(
-          `Failed to revoke tokens for role holder ${userId} after role ${roleId} edit: ${(error as Error).message}`,
-        );
-      }
+    for (const intent of intents) {
+      await this.durableUserTokenInvalidation.enqueue(queryRunner.manager, intent);
     }
+    return intents;
+  }
+
+  /** Apply the low-latency Redis path without turning a committed DB change into an error. */
+  private async applyInvalidationsBestEffort(
+    intents: readonly UserTokenInvalidationIntent[],
+    failureEvent: string,
+  ): Promise<void> {
+    const results = await Promise.allSettled(
+      intents.map((intent) => this.durableUserTokenInvalidation.applyImmediately(intent)),
+    );
+    const failures = results.filter(
+      (result): result is PromiseRejectedResult => result.status === 'rejected',
+    );
+    if (failures.length === 0) {
+      return;
+    }
+
+    this.logger.error(
+      JSON.stringify({
+        event: failureEvent,
+        failedCount: failures.length,
+        intentCount: intents.length,
+        errorTypes: [
+          ...new Set(
+            failures.map(({ reason }) => (reason instanceof Error ? reason.name : 'UnknownError')),
+          ),
+        ],
+      }),
+    );
   }
 
   private mapRowToRole(row: Record<string, unknown>): TenantRoleWithDetails {
@@ -1240,7 +1357,10 @@ export class TenantRoleService {
             panelPermissions:
               typeof row['panel_permissions'] === 'string'
                 ? JSON.parse(row['panel_permissions'])
-                : (row['panel_permissions'] as Record<string, Record<string, Record<string, boolean>>>) || {},
+                : (row['panel_permissions'] as Record<
+                    string,
+                    Record<string, Record<string, boolean>>
+                  >) || {},
             resourcePermissions: (row['resource_permissions'] as string[]) || [],
           }
         : null,

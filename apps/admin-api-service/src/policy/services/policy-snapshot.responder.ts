@@ -66,18 +66,15 @@ export class PolicySnapshotResponder
   /**
    * Public so unit tests can drive the handler directly without
    * a live NATS broker. The request object is empty by design
-   * (ADR-031 — subject disambiguates intent; cert CN is the
-   * caller identity).
+   * (ADR-031 — subject disambiguates intent; broker ACLs authorize callers).
    */
   async handleSnapshotRequest(
     _req: IngestBackendSnapshotRequest,
-    ctx: RequestReplyContext,
+    _ctx: RequestReplyContext,
   ): Promise<IngestBackendSnapshot> {
     const snapshot = await this.policyService.getSnapshot();
     this.logger.debug(
-      `policy.ingest_backend.snapshot requested by identity=${
-        ctx.authenticatedIdentity ?? 'unknown'
-      }; defaultBackend=${snapshot.defaultBackend} overrides=${
+      `policy.ingest_backend.snapshot requested; defaultBackend=${snapshot.defaultBackend} overrides=${
         Object.keys(snapshot.overrides).length
       }`,
     );

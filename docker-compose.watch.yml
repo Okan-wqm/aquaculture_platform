@@ -16,6 +16,15 @@
 #   docker compose -f docker-compose.yml up
 # =============================================================================
 
+networks:
+  aqua-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  nats_data:
+
 services:
   # ---------------------------------------------------------------------------
   # Infrastructure (from infra file)
@@ -54,7 +63,7 @@ services:
       - JWT_SECRET="${JWT_SECRET:?JWT_SECRET is required}"
       - PORT=3000
     ports:
-      - "3001:3000"
+      - '3001:3000'
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,6 +83,53 @@ services:
           path: ./package.json
 
   # ---------------------------------------------------------------------------
+  # Config Service (Development Mode)
+  # ---------------------------------------------------------------------------
+  config-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend.dev
+      args:
+        SERVICE_NAME: config-service
+    environment:
+      - SERVICE_NAME=config-service
+      - NODE_ENV=development
+      - DATABASE_URL=postgres://aquaculture:${DB_PASSWORD:-devpassword}@postgres:5432/aquaculture
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
+      - NATS_URL=nats://nats:4222
+      - JWT_PUBLIC_KEY_PATH=/var/run/jwt/public.pem
+      - CONFIG_ENCRYPTION_KEY=${CONFIG_ENCRYPTION_KEY:?CONFIG_ENCRYPTION_KEY is required}
+      - SERVICE_IDENTITY_SIGNING_SECRET=${SERVICE_IDENTITY_SIGNING_SECRET:-local-dev-only-change-me}
+      - CONFIG_SERVICE_PORT=3000
+    ports:
+      - '3007:3000'
+    volumes:
+      - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health/live']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    develop:
+      watch:
+        - action: sync
+          path: ./apps/config-service/src
+          target: /app/apps/config-service/src
+        - action: sync
+          path: ./libs
+          target: /app/libs
+        - action: rebuild
+          path: ./package.json
+
+  # ---------------------------------------------------------------------------
   # Farm Service (Development Mode)
   # ---------------------------------------------------------------------------
   farm-service:
@@ -86,18 +142,29 @@ services:
       - SERVICE_NAME=farm-service
       - NODE_ENV=development
       - DATABASE_URL=postgres://aquaculture:${DB_PASSWORD:-devpassword}@postgres:5432/aquaculture
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       - NATS_URL=nats://nats:4222
       - PORT=3000
       # SEC-NEW08: Encryption key must be unique per environment — generate with: openssl rand -base64 32
       - ENCRYPTION_KEY="${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
+      - SENTINEL_HUB_ENCRYPTION_KEY=${SENTINEL_HUB_ENCRYPTION_KEY:?SENTINEL_HUB_ENCRYPTION_KEY is required during credential cutover}
+      - FARM_ENVIRONMENT_MONITORING_ENABLED=${FARM_ENVIRONMENT_MONITORING_ENABLED:-false}
+      - MET_NORWAY_APPLICATION_NAME=${MET_NORWAY_APPLICATION_NAME:-}
+      - MET_NORWAY_CONTACT=${MET_NORWAY_CONTACT:-}
+      - MET_NORWAY_FROST_CLIENT_ID=${MET_NORWAY_FROST_CLIENT_ID:-}
+      - SERVICE_IDENTITY_SIGNING_SECRET=${SERVICE_IDENTITY_SIGNING_SECRET:-local-dev-only-change-me}
       - FARM_SEED_ENABLED=false
     ports:
-      - "3002:3000"
+      - '3002:3000'
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       nats:
         condition: service_started
+      config-service:
+        condition: service_healthy
     develop:
       watch:
         - action: sync
@@ -126,7 +193,7 @@ services:
       - NATS_URL=nats://nats:4222
       - PORT=3000
     ports:
-      - "3003:3000"
+      - '3003:3000'
     depends_on:
       postgres:
         condition: service_healthy
@@ -161,7 +228,7 @@ services:
       - NATS_URL=nats://nats:4222
       - PORT=3000
     ports:
-      - "3005:3000"
+      - '3005:3000'
     depends_on:
       postgres:
         condition: service_healthy
@@ -192,15 +259,17 @@ services:
       - NODE_ENV=development
       - AUTH_SERVICE_URL=http://auth-service:3000/graphql
       - FARM_SERVICE_URL=http://farm-service:3000/graphql
+      - CONFIG_SERVICE_URL=http://config-service:3000/graphql
       - SENSOR_SERVICE_URL=http://sensor-service:3000/graphql
       - HR_SERVICE_URL=http://hr-service:3000/graphql
       - REDIS_URL=redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       - PORT=3000
     ports:
-      - "3000:3000"
+      - '3000:3000'
     depends_on:
       - auth-service
       - farm-service
+      - config-service
       - sensor-service
       - hr-service
     develop:

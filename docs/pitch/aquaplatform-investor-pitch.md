@@ -20,13 +20,13 @@ Dunya nufusu 2050'ye kadar 10 milyar kisiye ulasacak. Gida uretiminin %70 artmas
 
 ### Firsat: $18+ Milyar IoT Tarim Pazari
 
-| Pazar Segmenti | 2025 | 2030 Tahmini | CAGR |
-|---|---|---|---|
-| **Tarimda IoT** | $17.8B | $37.4B | ~9.7% |
-| **Hassas Tarim (Precision)** | Pazarin %39.5'i | En buyuk segment | %13+ |
-| **Dikey Tarim (Vertical Farming)** | $9.6B | $107B (2035) | %20-27 |
-| **RAS Su Urunu Sistemleri** | $5.4B | $11.6B (2033) | %8.9 |
-| **Tarim SaaS** | $2.6B | $12.3B (2031) | %18.8 |
+| Pazar Segmenti                     | 2025            | 2030 Tahmini     | CAGR   |
+| ---------------------------------- | --------------- | ---------------- | ------ |
+| **Tarimda IoT**                    | $17.8B          | $37.4B           | ~9.7%  |
+| **Hassas Tarim (Precision)**       | Pazarin %39.5'i | En buyuk segment | %13+   |
+| **Dikey Tarim (Vertical Farming)** | $9.6B           | $107B (2035)     | %20-27 |
+| **RAS Su Urunu Sistemleri**        | $5.4B           | $11.6B (2033)    | %8.9   |
+| **Tarim SaaS**                     | $2.6B           | $12.3B (2031)    | %18.8  |
 
 > Kaynak: MarketsandMarkets, Precedence Research, SkyQuest, Grand View Research
 
@@ -42,14 +42,14 @@ Dunya nufusu 2050'ye kadar 10 milyar kisiye ulasacak. Gida uretiminin %70 artmas
 
 ### Neden Farkliyiz?
 
-| Ozellik | Rakipler | AquaPlatform |
-|---|---|---|
-| **Mimari** | Monolitik, tek sektor | Mikroservis, modular, sektor-agnostik |
-| **Multi-Tenancy** | Ortak DB veya uygulama bazli | PostgreSQL schema izolasyonu (enterprise-grade) |
-| **IoT Entegrasyonu** | Temel sensor okuma | VFD, PLC, Edge Device, MQTT, OPC-UA, Modbus |
-| **Mobil** | Online-only | Offline-first PWA, IndexedDB kuyruk |
-| **Dikey Genisleme** | Yeni urun gelistir | Modul ekle, ayni altyapi |
-| **Otomasyon** | Basit kural motoru | Gorsel workflow editoru, adim bazli program |
+| Ozellik              | Rakipler                     | AquaPlatform                                    |
+| -------------------- | ---------------------------- | ----------------------------------------------- |
+| **Mimari**           | Monolitik, tek sektor        | Mikroservis, modular, sektor-agnostik           |
+| **Multi-Tenancy**    | Ortak DB veya uygulama bazli | PostgreSQL schema izolasyonu (enterprise-grade) |
+| **IoT Entegrasyonu** | Temel sensor okuma           | VFD, PLC, Edge Device, MQTT, OPC-UA, Modbus     |
+| **Mobil**            | Online-only                  | Offline-first PWA, IndexedDB kuyruk             |
+| **Dikey Genisleme**  | Yeni urun gelistir           | Modul ekle, ayni altyapi                        |
+| **Otomasyon**        | Basit kural motoru           | Gorsel workflow editoru, adim bazli program     |
 
 ---
 
@@ -122,13 +122,13 @@ Sensor modulu **endustriden bagimsiz** tasarlanmistir. Herhangi bir fiziksel sen
 
 ### 4.1 Desteklenen Protokoller & Cihazlar
 
-| Kategori | Detay |
-|---|---|
-| **Iletisim** | MQTT, Modbus TCP/RTU, OPC-UA, HTTP REST |
+| Kategori                      | Detay                                                                            |
+| ----------------------------- | -------------------------------------------------------------------------------- |
+| **Iletisim**                  | MQTT, Modbus TCP/RTU, OPC-UA, HTTP REST                                          |
 | **VFD (Frekans Donusturucu)** | ABB, Danfoss, Delta, Mitsubishi, Rockwell, Schneider, Siemens, Yaskawa (8 marka) |
-| **PLC Kontrol** | Siemens S7, Modbus, OPC-UA - alarm izleme, telemetri |
-| **Edge Cihazlar** | Self-registration, tenant provisioning keys, uzaktan yonetim |
-| **Sensor Turleri** | Sicaklik, pH, DO, iletkenlik, amonyak, nem, CO2, basinc, debi, seviye... |
+| **PLC Kontrol**               | Siemens S7, Modbus, OPC-UA - alarm izleme, telemetri                             |
+| **Edge Cihazlar**             | Self-registration, tenant provisioning keys, uzaktan yonetim                     |
+| **Sensor Turleri**            | Sicaklik, pH, DO, iletkenlik, amonyak, nem, CO2, basinc, debi, seviye...         |
 
 ### 4.2 Otomasyon Motoru (Visual Workflow)
 
@@ -168,17 +168,17 @@ Sensor --> MQTT Broker --> MQTT Listener Service --> TimescaleDB
 
 Sensor modulundeki **HIC BIR entity** balik, su, veya akuakulture ozel degildir:
 
-| Entity | Tanim | Evrensel mi? |
-|---|---|---|
-| `sensor_readings` | Ham sensor okumasi (value, timestamp, channel) | EVET |
-| `sensor_metrics` | Hesaplanmis metrikler | EVET |
-| `sensor_channels` | Veri kanallari (sicaklik, pH, nem...) | EVET |
-| `vfd_devices` | Frekans donusturucu kaydi | EVET |
-| `plc_devices` | PLC baglanti bilgisi | EVET |
-| `edge_devices` | Saha cihazi kaydi | EVET |
-| `automation_programs` | Otomasyon is akislari | EVET |
-| `dashboard_layouts` | Kullanici dashboard'lari | EVET |
-| `alert_rules` | Alarm kurallari | EVET |
+| Entity                | Tanim                                          | Evrensel mi? |
+| --------------------- | ---------------------------------------------- | ------------ |
+| `sensor_readings`     | Ham sensor okumasi (value, timestamp, channel) | EVET         |
+| `sensor_metrics`      | Hesaplanmis metrikler                          | EVET         |
+| `sensor_channels`     | Veri kanallari (sicaklik, pH, nem...)          | EVET         |
+| `vfd_devices`         | Frekans donusturucu kaydi                      | EVET         |
+| `plc_devices`         | PLC baglanti bilgisi                           | EVET         |
+| `edge_devices`        | Saha cihazi kaydi                              | EVET         |
+| `automation_programs` | Otomasyon is akislari                          | EVET         |
+| `dashboard_layouts`   | Kullanici dashboard'lari                       | EVET         |
+| `alert_rules`         | Alarm kurallari                                | EVET         |
 
 > **Sonuc**: Sensor modulu `sensor_channel` olarak "su sicakligi" yerine "sicaklik" kaydeder. Ayni kanal bir tavuk kumesinde de, serada da, biyoreaktorde de calisir.
 
@@ -189,6 +189,7 @@ Sensor modulundeki **HIC BIR entity** balik, su, veya akuakulture ozel degildir:
 ### Su Urunleri Modulu Ozellikleri
 
 #### Uretim Yonetimi
+
 - **Batch Yasam Dongusu**: Stocking -> Buyume -> Hasat
 - **Tank/Kafes Yonetimi**: Kapasite, yogunluk, transfer
 - **Mortalite Takibi**: Neden analizi (hastalik, su kalitesi, stres, sicaklik, oksijen)
@@ -196,6 +197,7 @@ Sensor modulundeki **HIC BIR entity** balik, su, veya akuakulture ozel degildir:
 - **FCR Analizi**: Yem Donusum Orani trend grafikleri
 
 #### Yemleme Sistemi (Feeding Intelligence)
+
 - **Gunluk yemleme planlari** otomatik olusturma (biyomas x oran)
 - **Planlanan vs Gerceklesen** karsilastirma (varyans analizi)
 - **Renk kodlu sapma**: Yesil (+-5%), Sari (+-15%), Kirmizi (>15%)
@@ -203,23 +205,28 @@ Sensor modulundeki **HIC BIR entity** balik, su, veya akuakulture ozel degildir:
 - **Yem stok tahmini**: Kac gun yeterli, siparis noktasi uyarisi
 
 #### Ekipman & Bakim
+
 - **Hiyerarsik ekipman agaci**: Sistem > Alt-Sistem > Ekipman > Alt-Ekipman
 - **Yemleyici kalibrasyon** yonetimi
 - **Bakim is emirleri** ve yedek parca envanter
 - **Planli bakim takvimi**
 
 #### Su Kalitesi & Cevre
+
 - **Gercek zamanli sensor verileri**: pH, DO, sicaklik, tuzluluk, amonyak
 - **Su kimyasi hesaplayici**: Millero denklemleri, Deffeyes diagrami
 - **Dozaj tarifleri**: Otomatik kimyasal dozaj hesaplama
-- **Hava durumu entegrasyonu**: Open-Meteo API, deniz sicakligi, dalga yuksekligi
+- **Saha bazli cevre paneli**: MET Norway hava tahmini, Copernicus Marine model
+  deniz sicakligi/dalga/akinti degerleri ve CDSE Sentinel-2 goruntuleri
 
 #### Regulasyon & Uyumluluk
+
 - **Maskinporten** entegrasyonu (Norvec regulasyonlari)
 - **Uretim raporlari**: Biyomas, hastalik, mortalite, deniz biti, refah olaylari
 - **Denetim izi**: Tum islemler kaydedilir
 
 #### Depolama & Stok
+
 - **Envanter lokasyonlari** ve stok hareketleri
 - **Satin alma siparisleri** ve teslimat is akislari
 - **Sarf malzeme takibi**: Kimyasal, yem, yedek parca
@@ -246,17 +253,20 @@ Hidroponik modulu, **sensor modulunu ayni altyapi uzerinde kullanarak** tamamen 
 ```
 
 ### Desteklenen Turler & Profiller
+
 - **9 tur**: Domates, salatalik, biber, marul, cilek, patlican, kavun, gul, gerbera
 - **Buyume asamalari**: Fide, vejetatif, ciceklenme, meyve 1/2
 - **3 mevsim**: Soguk kis, ilkbahar/sonbahar, sicak yaz
 - **24+ on tanimli profil**: Tur x asama x mevsim kombinasyonlari
 
 ### Sistem Turleri
+
 - **Acik sistem** (drain-to-waste): Sera, acik tarla
 - **Kapali dongu** (recirculating): Dikey tarim, kontrolllu ortam
 - **Alt katman turleri**: Tas yunu, perlit, hindistancevizi lifi, pomza
 
 ### Mimari Dersler
+
 - Ayri backend servisi (`hydroponics-service`) - bagimsiz olcekleme
 - Ayni multi-tenant altyapisi - `tenant_xxx, hydroponics, public`
 - Ayni auth/guard/middleware - sifir kod tekrari
@@ -294,6 +304,7 @@ Hidroponik modulu, **sensor modulunu ayni altyapi uzerinde kullanarak** tamamen 
 ### Temel Ozellikler
 
 **Offline-First Mimari:**
+
 - Islemler IndexedDB'de kuyruge alinir
 - Internet geldiginde otomatik senkronize
 - Manuel senkron butonu
@@ -301,20 +312,21 @@ Hidroponik modulu, **sensor modulunu ayni altyapi uzerinde kullanarak** tamamen 
 - Cihaz offline olsa bile TUM islemler kaydedilebilir
 
 **Ozellik Kapilama (Feature Gating):**
+
 - Her kullanici icin hangi ozelliklerin erisilebildigi tenant admin tarafindan belirlenir
 - Kod degisikligi gerektirmez - yayin yapilmadan acilir/kapanir
 - Roller bazli: Operator sadece yemleme ve mortalite gorebilir
 
 **Desteklenen Islemler:**
 
-| Islem | Detay |
-|---|---|
-| **Yemleme Kaydi** | Planlanan vs gerceklesen, varyans gostergesi, yemleyici secimi |
-| **Mortalite Kaydi** | Adet, neden (8 kategori), emoji bazli secim, tank secimi |
-| **Ayiklama (Cull)** | Bocek/hastaliklilarin ayiklanmasi |
-| **Hasat Kaydi** | Miktar, ortalama agirlik, kalite notu, alici, fiyat |
-| **Vardiya Takvimi** | Haftalik gorunum, vardiya detaylari, mesai hesabi |
-| **Senkron Durumu** | Bekleyen islemler, hata detaylari, tekrar deneme |
+| Islem               | Detay                                                          |
+| ------------------- | -------------------------------------------------------------- |
+| **Yemleme Kaydi**   | Planlanan vs gerceklesen, varyans gostergesi, yemleyici secimi |
+| **Mortalite Kaydi** | Adet, neden (8 kategori), emoji bazli secim, tank secimi       |
+| **Ayiklama (Cull)** | Bocek/hastaliklilarin ayiklanmasi                              |
+| **Hasat Kaydi**     | Miktar, ortalama agirlik, kalite notu, alici, fiyat            |
+| **Vardiya Takvimi** | Haftalik gorunum, vardiya detaylari, mesai hesabi              |
+| **Senkron Durumu**  | Bekleyen islemler, hata detaylari, tekrar deneme               |
 
 ### Mobil Mimari - Diger Sektorlere Uyarlanabilirlik
 
@@ -340,16 +352,17 @@ Hasat -> Hasat                Hasat -> Kesim Kaydi         Hasat -> Hasat
 
 **Ihtiyac Duyulan Sensorler** (hepsi mevcut sensor moduluyle uyumlu):
 
-| Parametre | Sensor Tipi | Kritik Esik |
-|---|---|---|
-| Sicaklik | DHT22 / PT100 | 32.2-35°C (civciv), 18-24°C (yetiskin) |
-| Nem | DHT22 | %60-70 |
-| Amonyak (NH3) | MQ-135 | <25 ppm (uyari), >80 ppm (tehlike) |
-| CO2 | MH-Z19 | <3000 ppm |
-| Isik (Lux) | BH1750 | Tur/yasam asamasina gore |
-| Hava Akisi | Anemometre | Minimum ventilasyon orani |
+| Parametre     | Sensor Tipi   | Kritik Esik                            |
+| ------------- | ------------- | -------------------------------------- |
+| Sicaklik      | DHT22 / PT100 | 32.2-35°C (civciv), 18-24°C (yetiskin) |
+| Nem           | DHT22         | %60-70                                 |
+| Amonyak (NH3) | MQ-135        | <25 ppm (uyari), >80 ppm (tehlike)     |
+| CO2           | MH-Z19        | <3000 ppm                              |
+| Isik (Lux)    | BH1750        | Tur/yasam asamasina gore               |
+| Hava Akisi    | Anemometre    | Minimum ventilasyon orani              |
 
 **Farm Modulunden Uyarlanacak Ozellikler**:
+
 - Batch -> Suru yonetimi (civciv girisi, buyume, kesim)
 - Mortalite takibi -> Ayni mekanizma, farkli nedenler
 - Yemleme sistemi -> Planlanan vs gerceklesen, FCR analizi
@@ -357,6 +370,7 @@ Hasat -> Hasat                Hasat -> Kesim Kaydi         Hasat -> Hasat
 - Depolama -> Yem stok, ilac stok
 
 **Ek Moduller (Yeni)**:
+
 - Yumurta uretim takibi (yumurtaci kumesler icin)
 - Canli agirlik olcum (platform tartim)
 - Asilama & ilac takvimi
@@ -368,6 +382,7 @@ Hasat -> Hasat                Hasat -> Kesim Kaydi         Hasat -> Hasat
 **Pazar Buyuklugu**: Kuresel sut urunu pazari $900B+ (2025)
 
 **Sensor Uygulamalari**:
+
 - Vucut sicakligi (implant/kulaklik sensor) -> hastaligi erken tespit
 - Ruminasyon izleme -> Sindirim sagligi gostergesi
 - Adim sayaci / GPS -> Otlak yonetimi, topal tespit
@@ -376,6 +391,7 @@ Hasat -> Hasat                Hasat -> Kesim Kaydi         Hasat -> Hasat
 - Cevresel: Sicaklik, nem, CO2, metan
 
 **Platform Uyumluluklari**:
+
 - Batch -> Suru yonetimi
 - Yemleme -> Rasyon yonetimi (TMR - Total Mix Ration)
 - Mortalite -> Kayip kaydi
@@ -388,6 +404,7 @@ Hasat -> Hasat                Hasat -> Kesim Kaydi         Hasat -> Hasat
 **Pazar Buyuklugu**: Dikey tarim $9.6B (2025) -> $107B (2035)
 
 **Sensor Uygulamalari**:
+
 - Sicaklik / Nem (ic & dis)
 - Toprak nemi / EC / pH
 - Isik yogunlugu (PAR sensoru)
@@ -397,6 +414,7 @@ Hasat -> Hasat                Hasat -> Kesim Kaydi         Hasat -> Hasat
 - Yaprak islaklik sensoru
 
 **Platform Uyumluluklari**:
+
 - Hidroponik modul zaten mevcut - toprak bazli tarima genisletilebilir
 - Yemleme sistemi -> Gubleme/sulama plani (planlanan vs gerceklesen)
 - Otomasyon -> Perde, fan, isitma, sulama otomasyonu
@@ -406,6 +424,7 @@ Hasat -> Hasat                Hasat -> Kesim Kaydi         Hasat -> Hasat
 ### 8.4 ARICILIK (Apiculture - Beekeeping)
 
 **Sensor Uygulamalari**:
+
 - Kovan agirligi (tartim sensoru) -> Bal uretim trendi
 - Ic sicaklik -> Koloni sagligi (35°C ideal)
 - Ic nem -> %50-60 ideal
@@ -415,6 +434,7 @@ Hasat -> Hasat                Hasat -> Kesim Kaydi         Hasat -> Hasat
 ### 8.5 MANTAR YETISTIRICILIGI (Mushroom Cultivation)
 
 **Sensor Uygulamalari**:
+
 - Sicaklik (%20-24°C)
 - Nem (%85-95 - kritik)
 - CO2 (%800-1500 ppm)
@@ -422,6 +442,7 @@ Hasat -> Hasat                Hasat -> Kesim Kaydi         Hasat -> Hasat
 - Hava akisi
 
 **Platform Uyumluluklari**:
+
 - Batch -> Ekim donemi, misel gelisimi, hasat
 - Yemleme -> Substrat hazirlama, sulama kaydi
 - Cevre -> 7/24 izleme, otomatik alarm
@@ -431,6 +452,7 @@ Hasat -> Hasat                Hasat -> Kesim Kaydi         Hasat -> Hasat
 **Pazar Buyuklugu**: $5.4B (2025) -> $11.6B (2033)
 
 Mevcut platform zaten RAS icin ideal. Ek olarak:
+
 - Biyofiltre izleme
 - UV sterilizasyon durumu
 - Oksijen jeneratoru kontrolu
@@ -439,13 +461,13 @@ Mevcut platform zaten RAS icin ideal. Ek olarak:
 
 ### 8.7 DIGER POTANSIYEL SEKTORLER
 
-| Sektor | Sensor Ihtiyaci | Uyumluluk |
-|---|---|---|
-| **Bira Fabrikasi** | Sicaklik, pH, yogunluk, basinc | Batch yonetimi, tarif uyumu |
-| **Biyoreaktor/Lab** | pH, DO, sicaklik, karistirma | Batch izleme, otomasyon |
-| **Depo/Soguk Zincir** | Sicaklik, nem, kapi durumu | Alarm, uyumluluk kaydi |
-| **Atik Su Aritma** | pH, iletkenlik, bulaniklik, klor | 7/24 izleme, regulasyon |
-| **Enerji Santrali** | Voltaj, akim, sicaklik, titresim | VFD kontrolu, bakim |
+| Sektor                | Sensor Ihtiyaci                  | Uyumluluk                   |
+| --------------------- | -------------------------------- | --------------------------- |
+| **Bira Fabrikasi**    | Sicaklik, pH, yogunluk, basinc   | Batch yonetimi, tarif uyumu |
+| **Biyoreaktor/Lab**   | pH, DO, sicaklik, karistirma     | Batch izleme, otomasyon     |
+| **Depo/Soguk Zincir** | Sicaklik, nem, kapi durumu       | Alarm, uyumluluk kaydi      |
+| **Atik Su Aritma**    | pH, iletkenlik, bulaniklik, klor | 7/24 izleme, regulasyon     |
+| **Enerji Santrali**   | Voltaj, akim, sicaklik, titresim | VFD kontrolu, bakim         |
 
 ---
 
@@ -455,12 +477,12 @@ Mevcut platform zaten RAS icin ideal. Ek olarak:
 
 Platform zaten **modul bazli abonelik** altyapisina sahiptir (Billing Service):
 
-| Plan | Icerik | Ornek Fiyat |
-|---|---|---|
-| **Starter** | Farm modulu + 10 sensor | $99/ay |
-| **Professional** | Farm + Sensor + HR + 50 sensor | $299/ay |
-| **Enterprise** | Tum moduller + sinirsiz sensor + API | $799/ay |
-| **White Label** | Ozel markalama + ozel modul | Gorusme ile |
+| Plan             | Icerik                               | Ornek Fiyat |
+| ---------------- | ------------------------------------ | ----------- |
+| **Starter**      | Farm modulu + 10 sensor              | $99/ay      |
+| **Professional** | Farm + Sensor + HR + 50 sensor       | $299/ay     |
+| **Enterprise**   | Tum moduller + sinirsiz sensor + API | $799/ay     |
+| **White Label**  | Ozel markalama + ozel modul          | Gorusme ile |
 
 ### Ek Gelir Kanallari
 
@@ -476,13 +498,13 @@ Platform zaten **modul bazli abonelik** altyapisina sahiptir (Billing Service):
 
 ### Neden Mevcut Cozumler Yetersiz?
 
-| Rakip Tipi | Zayif Noktasi | AquaPlatform Avantaji |
-|---|---|---|
-| **AKVA Group, InnovaSea** | Sadece aquaculture, monolitik | Multi-sektor, modular |
-| **Stellapps (Sut)** | Sadece sut sektoru | Herhangi bir sektore uyarlanabilir |
-| **CropX, Arable** | Sadece tarla tarimi | IoT + operasyon birlikte |
-| **Genel IoT (ThingsBoard)** | Operasyon yonetimi yok | Sektor bilgisi gomulu |
-| **ERP (SAP, Oracle)** | IoT yok, pahali, yavas | Gercek zamanli, uygun fiyat |
+| Rakip Tipi                  | Zayif Noktasi                 | AquaPlatform Avantaji              |
+| --------------------------- | ----------------------------- | ---------------------------------- |
+| **AKVA Group, InnovaSea**   | Sadece aquaculture, monolitik | Multi-sektor, modular              |
+| **Stellapps (Sut)**         | Sadece sut sektoru            | Herhangi bir sektore uyarlanabilir |
+| **CropX, Arable**           | Sadece tarla tarimi           | IoT + operasyon birlikte           |
+| **Genel IoT (ThingsBoard)** | Operasyon yonetimi yok        | Sektor bilgisi gomulu              |
+| **ERP (SAP, Oracle)**       | IoT yok, pahali, yavas        | Gercek zamanli, uygun fiyat        |
 
 ### Rekabet Avantajlarimiz
 
@@ -501,33 +523,33 @@ Platform zaten **modul bazli abonelik** altyapisina sahiptir (Billing Service):
 
 ### Uretim Hazir Ozellikler (Production-Ready)
 
-| Katman | Durum | Detay |
-|---|---|---|
+| Katman                     | Durum | Detay                                           |
+| -------------------------- | ----- | ----------------------------------------------- |
 | **Multi-Tenant Izolasyon** | HAZIR | Schema-per-tenant, binlerce kiraciya olceklenir |
-| **GraphQL Federation** | HAZIR | 13 mikroservis, schema stitching |
-| **Sensor Veri Toplama** | HAZIR | MQTT, VFD (8 marka), PLC, Edge |
-| **Otomasyon Motoru** | HAZIR | Gorsel workflow, edge deploy |
-| **Alarm Sistemi** | HAZIR | Esik tabanli, coklu bildirim kanali |
-| **Mobil (PWA)** | HAZIR | Offline kuyruk, feature gating |
-| **HR & Vardiya** | HAZIR | Isci yonetimi, devamlilik, izin |
-| **Faturalama** | HAZIR | Abonelik, fatura, odeme |
-| **GDPR Uyumluluk** | HAZIR | Veri silme, anonim, ihrac |
-| **CI/CD** | HAZIR | GitHub Actions, Docker, K8s |
-| **Hidroponik Modul** | BETA | 8 sekmeli hesaplayici, 24 profil |
+| **GraphQL Federation**     | HAZIR | 13 mikroservis, schema stitching                |
+| **Sensor Veri Toplama**    | HAZIR | MQTT, VFD (8 marka), PLC, Edge                  |
+| **Otomasyon Motoru**       | HAZIR | Gorsel workflow, edge deploy                    |
+| **Alarm Sistemi**          | HAZIR | Esik tabanli, coklu bildirim kanali             |
+| **Mobil (PWA)**            | HAZIR | Offline kuyruk, feature gating                  |
+| **HR & Vardiya**           | HAZIR | Isci yonetimi, devamlilik, izin                 |
+| **Faturalama**             | HAZIR | Abonelik, fatura, odeme                         |
+| **GDPR Uyumluluk**         | HAZIR | Veri silme, anonim, ihrac                       |
+| **CI/CD**                  | HAZIR | GitHub Actions, Docker, K8s                     |
+| **Hidroponik Modul**       | BETA  | 8 sekmeli hesaplayici, 24 profil                |
 
 ### Kod Istatistikleri
 
-| Metrik | Deger |
-|---|---|
-| Backend Mikroservisler | 13 |
-| Frontend Moduller | 7 + Shell |
-| Paylasilan Kutuphaneler | 8 |
-| Farm Modulu Tablolari | 160+ |
-| Sensor Modulu Tablolari | 50+ |
-| HR Modulu Tablolari | 30+ |
-| Desteklenen VFD Markalari | 8 |
+| Metrik                       | Deger                  |
+| ---------------------------- | ---------------------- |
+| Backend Mikroservisler       | 13                     |
+| Frontend Moduller            | 7 + Shell              |
+| Paylasilan Kutuphaneler      | 8                      |
+| Farm Modulu Tablolari        | 160+                   |
+| Sensor Modulu Tablolari      | 50+                    |
+| HR Modulu Tablolari          | 30+                    |
+| Desteklenen VFD Markalari    | 8                      |
 | Desteklenen PLC Protokolleri | 3 (S7, Modbus, OPC-UA) |
-| GraphQL Tipleri | 1000+ |
+| GraphQL Tipleri              | 1000+                  |
 
 ---
 
@@ -546,7 +568,7 @@ S4 2026: Buyukbas/sut modulu + Aricilik pilot
          |
 2027:    API marketplace + 3. parti modul ekosistemi
          |
-2028:    AI/ML tahmin modulleri + Uydu goruntu entegrasyonu
+2028:    AI/ML tahmin modulleri + uydu/model destekli risk skorlama
 ```
 
 ### Neden Simdi?
@@ -562,22 +584,26 @@ S4 2026: Buyukbas/sut modulu + Aricilik pilot
 ## BOLUM 13: DEMO SENARYOLARI
 
 ### Demo 1: Su Urunleri Ciftligi (Mevcut)
+
 > Canli sensor verileri, tank biyomas gorunumu, gunluk yemleme plani, mobil uzerinden mortalite kaydi, otomasyon programi ile pompa kontrolu
 
 ### Demo 2: Tavuk Kumesi (Konsept)
+
 > Ayni sensor moduluyle: Kumes sicakligi/nem/NH3 izleme, alarm (>25ppm), fan otomasyon, suru mortalite kaydi, yem tuketim varyans analizi
 
 ### Demo 3: Sera (Hidroponik Mevcut)
+
 > Besin cozeltisi hesaplayici, EC/pH izleme, sulama otomasyon, hasat kaydi, cevre sensor dashboard
 
 ### Demo 4: Mobil Saha Operasyonu
+
 > Offline ortamda mortalite kaydi -> Internete baglandi -> Otomatik senkronizasyon -> Dashboard'da aninda gorulme
 
 ---
 
 ## BOLUM 14: EKIP & ILETISIM
 
-*[Bu bolum sunuma ozel doldurulacak]*
+_[Bu bolum sunuma ozel doldurulacak]_
 
 ---
 
@@ -600,36 +626,49 @@ S4 2026: Buyukbas/sut modulu + Aricilik pilot
 - [RAS IoT Integration - GM Insights](https://www.gminsights.com/industry-analysis/recirculating-aquaculture-system-market)
 - [AgriTech Platform Market - Persistence](https://www.persistencemarketresearch.com/market-research/agritech-platform-market.asp)
 
-
 # Aquaculture Platform - Production Environment Variables
+
 # Copy this file to .env on your server and fill in the values
+
 #
+
 # cp .env.production.example .env
+
 # nano .env
+
 # =============================================================================
 
 # --- Database ---
+
 POSTGRES_USER=aquaculture
 POSTGRES_PASSWORD=JFnkR8QuSnsuQklHyWqV45PX
 POSTGRES_DB=aquaculture
 
 # --- Redis ---
+
 REDIS_PASSWORD=O5LWb1R9Ky10qUakWqi6xkB7
 
 # --- JWT ---
+
 JWT_SECRET=OponN9FQ6A45cflI1JxLWOEAyBnoQd1I6v5BLd8kPhZDsAtB
 JWT_EXPIRES_IN=1h
 
 # --- Encryption ---
+
 ENCRYPTION_KEY=c24b93a2703ddd47f01378e5b2e85db0
 
 # --- Email (optional) ---
+
 # SMTP_HOST=smtp.gmail.com
+
 # SMTP_PORT=587
+
 # SMTP_USER=your-email@gmail.com
+
 # SMTP_PASS=your-app-password
 
-#  sımdı gıthuba serverdan commıtler yaptım ıstersen buraya lokale cek  token lazım olursa dıgıtal ocean ısın kullanıcı adı Okan-wqm
+# sımdı gıthuba serverdan commıtler yaptım ıstersen buraya lokale cek token lazım olursa dıgıtal ocean ısın kullanıcı adı Okan-wqm
 
 # SUPER_ADMIN_EMAIL=by-okan@live.com
-  # SUPER_ADMIN_PASSWORD=OkanAdmin2024!#
+
+# SUPER_ADMIN_PASSWORD=OkanAdmin2024!#

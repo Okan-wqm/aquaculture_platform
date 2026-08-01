@@ -10,8 +10,9 @@
  *      cross-tenant data);
  *   2. `enabled` gated on an authenticated tenant session (token + tenantId present),
  *      so a query never fires before the session resolves a tenant;
- *   3. placeholderData: keepPreviousData, so a transient error or background refetch
- *      keeps the last-good tenant data on screen instead of BLANKING it (plan A5).
+ *   3. boundary-aware placeholder data, so pagination/filter changes keep the
+ *      last-good data within one tenant session while tenant and session changes
+ *      fail closed instead of rendering the previous principal's data.
  *
  * These hooks bake all three in while forwarding every other standard option, so a
  * call site reduces to its segments + queryFn. Migrating a hand-rolled hook to
@@ -25,24 +26,28 @@ import {
   useQuery,
   useMutation,
   useQueryClient,
-  keepPreviousData,
   type UseQueryOptions,
   type UseQueryResult,
   type UseMutationOptions,
   type UseMutationResult,
+  type QueryFunction,
 } from '@tanstack/react-query';
 
 import { useAuth } from './useAuth';
-import { createTenantQueryKey, createTenantInvalidationKey } from '../utils/tenant-query-keys';
+import {
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+  hasSameTenantSessionBoundary,
+} from '../utils/tenant-query-keys';
 
 export type TenantQueryOptions<TData, TError> = Omit<
   UseQueryOptions<TData, TError, TData, readonly unknown[]>,
   'queryKey' | 'queryFn' | 'placeholderData'
 > & {
   /**
-   * Keep the last-good data on a transient error / background refetch instead of
-   * blanking the UI (default true — the whole point of A5). Set false for the rare
-   * query that must hard-reset on every refetch.
+   * Keep the last-good data while this query's domain segments change within the
+   * same tenant-session generation (default true). Tenant, logout/login, and
+   * anonymous boundaries always hard-reset regardless of this option.
    */
   keepPreviousData?: boolean;
 };
@@ -54,18 +59,25 @@ export type TenantQueryOptions<TData, TError> = Omit<
  */
 export function useTenantQuery<TData = unknown, TError = Error>(
   segments: readonly unknown[],
-  queryFn: () => Promise<TData>,
+  queryFn: QueryFunction<TData, readonly unknown[]>,
   options?: TenantQueryOptions<TData, TError>,
 ): UseQueryResult<TData, TError> {
   const { token, tenantId } = useAuth();
   const { keepPreviousData: keep = true, enabled, ...rest } = options ?? {};
+  const authenticatedTenantId = token && tenantId ? tenantId : null;
+  const queryKey = createTenantQueryKey(authenticatedTenantId, ...segments);
 
   return useQuery<TData, TError, TData, readonly unknown[]>({
     ...rest,
-    queryKey: createTenantQueryKey(tenantId, ...segments),
+    queryKey,
     queryFn,
-    enabled: !!token && !!tenantId && (enabled ?? true),
-    placeholderData: keep ? keepPreviousData : undefined,
+    enabled: authenticatedTenantId !== null && (enabled ?? true),
+    placeholderData: keep
+      ? (previousData, previousQuery) =>
+          previousQuery && hasSameTenantSessionBoundary(previousQuery.queryKey, queryKey)
+            ? previousData
+            : undefined
+      : undefined,
   });
 }
 

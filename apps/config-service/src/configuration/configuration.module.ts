@@ -20,6 +20,7 @@ import { DeleteConfigurationHandler } from './handlers/delete-configuration.hand
 import { UpsertConfigurationHandler } from './handlers/upsert-configuration.handler';
 // Faz C (D6): trusted NATS read surface for effective config (incl. decrypted secrets).
 import { ConfigRuntimeNatsHandler } from './handlers/config-runtime-nats.handler';
+import { MarineProviderCredentialsNatsHandler } from './handlers/marine-provider-credentials-nats.handler';
 
 // Query Handlers
 import {
@@ -51,7 +52,7 @@ const QueryHandlers = [
   imports: [TypeOrmModule.forFeature([Configuration, ConfigurationHistory])],
   // ConfigRuntimeNatsHandler is a @Controller so the NATS microservice
   // transport registers its @MessagePattern subscribers (config.runtime.*).
-  controllers: [ConfigRuntimeNatsHandler],
+  controllers: [ConfigRuntimeNatsHandler, MarineProviderCredentialsNatsHandler],
   providers: [
     ConfigurationResolver,
     ConfigurationService,

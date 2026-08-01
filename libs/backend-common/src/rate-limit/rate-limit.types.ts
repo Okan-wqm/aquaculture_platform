@@ -102,16 +102,18 @@ export interface RateLimitTier {
 }
 
 /**
- * Exact-match (normalized) path → tier mapping. SECREV-LOW-001 cure: paths are
- * matched EXACTLY after stripping query string + trailing slash, so a forged
- * URL containing a tier path as a substring/suffix (e.g. `/auth/login/foo`,
- * `/wrap/upload-something`) does NOT share the protected bucket.
+ * Normalized path → tier mapping. Literal paths are matched exactly. Optional
+ * path templates match one non-empty segment per `:parameter`, never a loose
+ * prefix/substr/suffix, so dynamic resource routes can be protected without
+ * reopening the SECREV-LOW-001 classifier bypass.
  */
 export interface RateLimitEndpointBucket {
   /** Tier name this path family resolves to (must exist in `tiers`). */
   tier: string;
   /** Exact request paths owned by this tier. */
   paths: readonly string[];
+  /** Segment-exact templates, e.g. `/api/marine/sites/:siteId/render`. */
+  pathTemplates?: readonly string[];
 }
 
 /**
@@ -129,7 +131,7 @@ export interface RateLimitEdgeConfig {
     anonymous: RateLimitTier;
     tenant: RateLimitTier;
   } & Record<string, RateLimitTier>;
-  /** Exact-match path → tier mapping (overrides identity tier when matched). */
+  /** Exact or segment-template path → tier mapping (overrides identity tier). */
   endpointBuckets: readonly RateLimitEndpointBucket[];
   /**
    * Tier applied ADDITIONALLY to GraphQL Mutation operations (not replacing the

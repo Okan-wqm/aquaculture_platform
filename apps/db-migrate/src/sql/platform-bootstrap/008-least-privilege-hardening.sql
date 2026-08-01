@@ -177,6 +177,25 @@ BEGIN
     );
   END LOOP;
 
+  -- admin.tenant_schemas is the committed tenant-schema identity ledger.
+  -- The admin runtime may read it and may update only the lifecycle evidence
+  -- written by its provisioning/deprovisioning sagas. Stage 004 and the
+  -- generic loop above intentionally grant the common DML envelope first;
+  -- this object-specific contract must therefore run after that loop on every
+  -- bootstrap invocation. On a fresh database the admin migration chain
+  -- creates the table later and asserts the same envelope itself.
+  IF to_regclass('admin.tenant_schemas') IS NOT NULL THEN
+    REVOKE INSERT, UPDATE, DELETE
+      ON TABLE admin.tenant_schemas
+      FROM admin_service;
+    GRANT SELECT
+      ON TABLE admin.tenant_schemas
+      TO admin_service;
+    GRANT UPDATE ("status", "metadata", "updatedAt")
+      ON TABLE admin.tenant_schemas
+      TO admin_service;
+  END IF;
+
   IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'shared_schema_owner') THEN
     CREATE ROLE shared_schema_owner NOLOGIN;
   END IF;

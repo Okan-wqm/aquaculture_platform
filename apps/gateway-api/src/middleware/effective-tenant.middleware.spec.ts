@@ -25,7 +25,11 @@ const res = {} as Response;
 
 // A SUPER_ADMIN platform account omits tenantId (null at runtime) — undefined
 // here exercises the same `?? null`/`?? undefined` paths in the middleware.
-const SUPER_ADMIN: MockUser = { sub: 'admin', roles: ['SUPER_ADMIN'] };
+const SUPER_ADMIN: MockUser = {
+  sub: 'admin',
+  roles: ['SUPER_ADMIN'],
+  mfaVerified: true,
+};
 
 describe('CaptureRequestedTenantMiddleware', () => {
   const mw = new CaptureRequestedTenantMiddleware();
@@ -56,10 +60,20 @@ describe('CaptureRequestedTenantMiddleware', () => {
 describe('EffectiveTenantMiddleware', () => {
   let lookup: { lookupTenant: jest.Mock };
   let mw: EffectiveTenantMiddleware;
+  const originalMfaRequirement = process.env['MFA_REQUIRED_FOR_CROSS_TENANT'];
 
   beforeEach(() => {
+    delete process.env['MFA_REQUIRED_FOR_CROSS_TENANT'];
     lookup = { lookupTenant: jest.fn().mockResolvedValue({ status: TenantStatus.ACTIVE }) };
     mw = new EffectiveTenantMiddleware(lookup);
+  });
+
+  afterAll(() => {
+    if (originalMfaRequirement === undefined) {
+      delete process.env['MFA_REQUIRED_FOR_CROSS_TENANT'];
+    } else {
+      process.env['MFA_REQUIRED_FOR_CROSS_TENANT'] = originalMfaRequirement;
+    }
   });
 
   it('unauthenticated request: no effective tenant, passes through', async () => {
@@ -163,6 +177,28 @@ describe('EffectiveTenantMiddleware', () => {
       lookup.lookupTenant.mockResolvedValue(null);
       const req = mockReq({ user: SUPER_ADMIN, requestedActAsTenant: TENANT_A });
       await expect(mw.use(req, res, jest.fn())).rejects.toBeInstanceOf(ForbiddenException);
+    });
+
+    it('requires MFA by default when the deployment omits the configuration', async () => {
+      const req = mockReq({
+        user: { ...SUPER_ADMIN, mfaVerified: false },
+        requestedActAsTenant: TENANT_A,
+      });
+
+      await expect(mw.use(req, res, jest.fn())).rejects.toThrow(
+        'MFA step-up is required for cross-tenant access',
+      );
+    });
+
+    it('allows an explicit MFA opt-out only when configured as false', async () => {
+      process.env['MFA_REQUIRED_FOR_CROSS_TENANT'] = 'false';
+      const req = mockReq({
+        user: { ...SUPER_ADMIN, mfaVerified: false },
+        requestedActAsTenant: TENANT_A,
+      });
+
+      await expect(mw.use(req, res, jest.fn())).resolves.toBeUndefined();
+      expect(req.effectiveTenantId).toBe(TENANT_A);
     });
   });
 });

@@ -132,19 +132,14 @@ Per-service NATS client cert mount (ADR-015: cert-is-identity).
 
 Each service authenticates to NATS via mTLS. Server runs `verify_and_map: true`
 (nats-tls-enabled.conf), mapping the client cert's CN directly to the NATS
-user — no username / password are sent in the CONNECT frame. This helper
-emits the cert + key + CA volume mounts and the NATS_TLS_* env vars that
-point at them.
+user — no username / password are sent in the CONNECT frame. The requested
+identity must exist in the generated SSoT roster, and the pod receives only
+that identity's Secret.
 
 Usage:
   {{- include "aquaculture.natsServiceEnv" (list . "farm_service") | nindent 12 }}
 
-The second argument is the lowercase snake_case service name from
-infrastructure/nats/services.yaml — it must match the cert CN baked in by
-generate-internal-certs.sh. Valid values:
-  auth_service, farm_service, sensor_service, gateway_service,
-  notification_service, billing_service, alert_engine, hr_service,
-  messaging_service, hydroponics_service.
+The second argument is the certificate CN from infrastructure/nats/services.yaml.
 
 Historical: prior to ADR-015 this helper injected NATS_AUTH_USER /
 NATS_AUTH_PASS from a per-service Secret. Those env vars are removed;
@@ -154,14 +149,43 @@ wired was the drift surface that caused the 2026-04-14 outage.
 {{- define "aquaculture.natsServiceEnv" -}}
 {{- $root := index . 0 -}}
 {{- $svcName := index . 1 -}}
+{{- $registry := $root.Files.Get "files/nats-service-identities.yaml" | fromYaml -}}
+{{- if not (has $svcName $registry.identities) -}}
+{{- fail (printf "NATS identity %q is absent from generated nats-service-identities.yaml" $svcName) -}}
+{{- end -}}
 - name: NATS_TLS_ENABLED
   value: "true"
 - name: NATS_TLS_CA
-  value: /etc/ssl/nats-ca.pem
+  value: /etc/ssl/nats-client/ca.crt
 - name: NATS_TLS_CERT
-  value: /etc/ssl/nats-clients/{{ $svcName }}-cert.pem
+  value: /etc/ssl/nats-client/tls.crt
 - name: NATS_TLS_KEY
-  value: /etc/ssl/nats-clients/{{ $svcName }}-key.pem
+  value: /etc/ssl/nats-client/tls.key
+{{- end }}
+
+{{/* Kubernetes Secret name for one NATS certificate identity. */}}
+{{- define "aquaculture.natsClientSecretName" -}}
+{{- $root := index . 0 -}}
+{{- $svcName := index . 1 | replace "_" "-" -}}
+{{- $suffix := printf "-nats-%s" $svcName -}}
+{{- $prefixMax := sub 63 (len $suffix) | int -}}
+{{- $prefix := include "aquaculture.fullname" $root | trunc $prefixMax | trimSuffix "-" -}}
+{{- printf "%s%s" $prefix $suffix | trimSuffix "-" -}}
+{{- end }}
+
+{{/* Mount only the current runtime's cert-manager Secret. */}}
+{{- define "aquaculture.natsServiceVolumeMount" -}}
+- name: nats-client-tls
+  mountPath: /etc/ssl/nats-client
+  readOnly: true
+{{- end }}
+
+{{- define "aquaculture.natsServiceVolume" -}}
+{{- $root := index . 0 -}}
+{{- $svcName := index . 1 -}}
+- name: nats-client-tls
+  secret:
+    secretName: {{ include "aquaculture.natsClientSecretName" (list $root $svcName) }}
 {{- end }}
 
 {{/*

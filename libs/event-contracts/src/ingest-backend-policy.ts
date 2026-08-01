@@ -183,10 +183,11 @@ export const INGEST_BACKEND_POLICY_SUBJECTS = {
 
 /**
  * Request body for `policy.ingest_backend.snapshot`. Intentionally
- * empty — the subject disambiguates the intent; the caller's cert
- * CN (surfaced by NATS via `authenticated-identity` header) tells
- * the responder who is asking. No per-caller parameter adds
- * information.
+ * empty — the subject disambiguates the intent. Caller authorization is
+ * enforced by the broker's mTLS account/certificate ACL for this subject.
+ * NATS does not project peer-certificate identity into an individual message;
+ * application headers are caller-controlled and must never be trusted as
+ * authentication evidence. No per-caller parameter adds information.
  *
  * Export the type so admin-api-service + Rust sidecar both pin
  * the same wire shape; the empty-object literal is canonical.

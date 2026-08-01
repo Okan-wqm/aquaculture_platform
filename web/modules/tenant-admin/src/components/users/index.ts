@@ -14,3 +14,4 @@ export { BulkActions } from './BulkActions';
 export type { BulkActionsProps } from './BulkActions';
 export { UserListSection } from './UserListSection';
 export type { UserListSectionProps, DisplayUser, PaginationState } from './UserListSection';
+export { SiteAccessModal } from './SiteAccessModal';

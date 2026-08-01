@@ -9,7 +9,9 @@ import { Repository } from 'typeorm';
 import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
+import type { SiteScopeCaller } from '@aquaculture/backend-common/security';
 import { SiteResponse, PaginatedSitesResponse } from './dto/site.response';
+import { SiteAccessCatalogItemResponse } from './dto/site-access-catalog.response';
 import { SiteDeletePreviewResponse } from './dto/site-delete-preview.response';
 import { SiteContactResponse } from './dto/site-contact.response';
 import { CreateSiteInput } from './dto/create-site.input';
@@ -21,7 +23,12 @@ import { UpdateSiteCommand } from './commands/update-site.command';
 import { DeleteSiteCommand } from './commands/delete-site.command';
 import { UpsertSiteContactsCommand } from './commands/upsert-site-contacts.command';
 import { GetSiteQuery } from './queries/get-site.query';
+import { GetActiveSiteAccessCatalogQuery } from './queries/get-active-site-access-catalog.query';
 import { ListSitesQuery } from './queries/list-sites.query';
+import {
+  ACTIVE_SITE_COLLECTION_HARD_CAP,
+  ActiveSiteCollectionLimitExceededError,
+} from './handlers/get-active-site-access-catalog.handler';
 import { GetSiteDeletePreviewQuery } from './queries/get-site-delete-preview.query';
 import { ListSiteContactsQuery } from './queries/list-site-contacts.query';
 import { Site } from './entities/site.entity';
@@ -78,9 +85,10 @@ export class SiteResolver {
   async siteDeletePreview(
     @Args('id', { type: () => ID }) id: string,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: SiteScopeCaller,
   ): Promise<SiteDeletePreviewResponse> {
     this.logger.log(`Getting delete preview for site ${id} for tenant ${tenantId}`);
-    const query = new GetSiteDeletePreviewQuery(id, tenantId);
+    const query = new GetSiteDeletePreviewQuery(id, tenantId, user);
     return this.queryBus.execute(query);
   }
 
@@ -96,7 +104,9 @@ export class SiteResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
   ): Promise<boolean> {
-    this.logger.log(`Deleting site ${id} for tenant ${tenantId} by user ${user.sub} (cascade: ${cascade})`);
+    this.logger.log(
+      `Deleting site ${id} for tenant ${tenantId} by user ${user.sub} (cascade: ${cascade})`,
+    );
     const command = new DeleteSiteCommand(id, tenantId, user.sub, cascade);
     return this.commandBus.execute(command);
   }
@@ -142,10 +152,12 @@ export class SiteResolver {
   @Query(() => SiteResponse, { nullable: true })
   async site(
     @Args('id', { type: () => ID }) id: string,
-    @Args('includeRelations', { type: () => Boolean, nullable: true, defaultValue: false }) includeRelations: boolean,
+    @Args('includeRelations', { type: () => Boolean, nullable: true, defaultValue: false })
+    includeRelations: boolean,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: SiteScopeCaller,
   ): Promise<SiteResponse | null> {
-    const query = new GetSiteQuery(id, tenantId, includeRelations);
+    const query = new GetSiteQuery(id, tenantId, user, includeRelations);
     return this.queryBus.execute(query);
   }
 
@@ -155,29 +167,64 @@ export class SiteResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedSitesResponse)
   async sites(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: SiteScopeCaller,
     @Args('filter', { type: () => SiteFilterInput, nullable: true }) filter?: SiteFilterInput,
-    @Args('pagination', { type: () => PaginationInput, nullable: true }) pagination?: PaginationInput,
-    @CurrentTenant() tenantId?: string,
+    @Args('pagination', { type: () => PaginationInput, nullable: true })
+    pagination?: PaginationInput,
   ): Promise<PaginatedSitesResponse> {
-    if (!tenantId) {
-      throw new Error('Tenant ID is required');
-    }
-    const query = new ListSitesQuery(tenantId, filter, pagination);
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SiteResponse>;
+    const query = new ListSitesQuery(tenantId, user, filter, pagination);
+    const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<SiteResponse>;
     return fromCqrsPaginated(result);
   }
 
   /**
-   * Get active sites for dropdowns
+   * Operational active-site list retained as a first-class API for existing
+   * farm consumers. Unlike the legacy implementation, this fails closed when
+   * the bounded response would be incomplete or its count/data snapshots
+   * disagree; callers never receive a silently truncated list.
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [SiteResponse])
   async activeSites(
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: SiteScopeCaller,
   ): Promise<SiteResponse[]> {
-    const query = new ListSitesQuery(tenantId, { isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SiteResponse>;
-    return fromCqrsPaginated(result).items;
+    const result = (await this.queryBus.execute(
+      new ListSitesQuery(
+        tenantId,
+        user,
+        { isActive: true },
+        {
+          page: 1,
+          limit: ACTIVE_SITE_COLLECTION_HARD_CAP + 1,
+          sortBy: 'id',
+          sortOrder: 'ASC',
+        },
+      ),
+    )) as PaginatedQueryResult<SiteResponse>;
+
+    if (
+      result.pagination.total > ACTIVE_SITE_COLLECTION_HARD_CAP ||
+      result.data.length > ACTIVE_SITE_COLLECTION_HARD_CAP ||
+      result.data.length !== result.pagination.total
+    ) {
+      throw new ActiveSiteCollectionLimitExceededError();
+    }
+    return result.data;
+  }
+
+  /**
+   * Canonical tenant-wide catalog for user-to-site access administration.
+   * The handler owns the bounded, single-snapshot read; this resolver accepts
+   * no pagination input that could produce a silently incomplete catalog.
+   */
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  @Query(() => [SiteAccessCatalogItemResponse])
+  async activeSiteAccessCatalog(
+    @CurrentTenant() tenantId: string,
+  ): Promise<SiteAccessCatalogItemResponse[]> {
+    return this.queryBus.execute(new GetActiveSiteAccessCatalogQuery(tenantId));
   }
 
   // -------------------------------------------------------------------------
@@ -198,9 +245,7 @@ export class SiteResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
   ): Promise<SiteContactResponse[]> {
-    this.logger.log(
-      `Upserting ${contacts.length} contact(s) for site ${siteId}`,
-    );
+    this.logger.log(`Upserting ${contacts.length} contact(s) for site ${siteId}`);
     return this.commandBus.execute(
       new UpsertSiteContactsCommand(siteId, contacts, tenantId, user.sub),
     );
@@ -214,8 +259,9 @@ export class SiteResolver {
   async siteContacts(
     @Args('siteId', { type: () => ID }) siteId: string,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: SiteScopeCaller,
   ): Promise<SiteContactResponse[]> {
-    return this.queryBus.execute(new ListSiteContactsQuery(siteId, tenantId));
+    return this.queryBus.execute(new ListSiteContactsQuery(siteId, tenantId, user));
   }
 
   /**
@@ -226,7 +272,8 @@ export class SiteResolver {
   async contacts(
     @Parent() parent: SiteResponse,
     @CurrentTenant() tenantId: string,
+    @CurrentUser() user: SiteScopeCaller,
   ): Promise<SiteContactResponse[]> {
-    return this.queryBus.execute(new ListSiteContactsQuery(parent.id, tenantId));
+    return this.queryBus.execute(new ListSiteContactsQuery(parent.id, tenantId, user));
   }
 }

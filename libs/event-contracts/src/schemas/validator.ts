@@ -5,6 +5,10 @@ import Ajv, {
 } from 'ajv';
 import addFormats from 'ajv-formats';
 
+import type {
+  AccessTokenInvalidationRequestedEvent,
+  UserAccessTokenInvalidationRequestedEvent,
+} from '../auth-events';
 import { AUTH_EVENT_SCHEMAS, type AuthEventType } from './auth-events.schema';
 import { FARM_EVENT_SCHEMAS, type FarmEventType } from './farm-events.schema';
 import {
@@ -453,6 +457,18 @@ export function validateAuthEvent(
     };
   }
   return { valid: true };
+}
+
+export function isUserAccessTokenInvalidationRequestedEvent(
+  payload: unknown,
+): payload is UserAccessTokenInvalidationRequestedEvent {
+  return validateAuthEvent('UserAccessTokenInvalidationRequested', payload).valid;
+}
+
+export function isAccessTokenInvalidationRequestedEvent(
+  payload: unknown,
+): payload is AccessTokenInvalidationRequestedEvent {
+  return validateAuthEvent('AccessTokenInvalidationRequested', payload).valid;
 }
 
 /**

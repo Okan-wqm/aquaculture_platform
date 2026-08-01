@@ -18,13 +18,10 @@ import { resolve } from 'node:path';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const COMPOSE = 'docker-compose.droplet.yml';
 
-// A service references one of these mount anchors iff it talks to NATS.
-const NATS_CERT_ANCHORS = [
-  '*nats-client-cert-mount',
-  '*nats-client-key-mount',
-  '*nats-clients-mount',
-  '*nats-ca-mount',
-];
+// A service references exactly one identity-scoped certificate mount iff it
+// talks to NATS. Matching the identity anchor (rather than the common CA)
+// preserves this signal without permitting the old all-clients directory.
+const NATS_IDENTITY_CERT_MOUNT = /\*nats-[a-z0-9-]+-cert-mount/;
 
 interface ServiceBlock {
   name: string;
@@ -55,7 +52,7 @@ describe('NATS boot dependency', () => {
     const offenders: string[] = [];
     for (const svc of serviceBlocks()) {
       if (svc.name === 'nats') continue;
-      const connectsToNats = NATS_CERT_ANCHORS.some((a) => svc.body.includes(a));
+      const connectsToNats = NATS_IDENTITY_CERT_MOUNT.test(svc.body);
       if (!connectsToNats) continue;
       const dep = dependsOnBlock(svc.body);
       const healthy = / {6}nats:\n {8}condition: service_healthy/.test(dep);

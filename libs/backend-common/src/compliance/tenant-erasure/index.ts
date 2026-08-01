@@ -1,6 +1,8 @@
-export {
-  TenantErasureTargetExecutor,
-} from './tenant-erasure-target-executor';
+export { TenantErasureTargetExecutor } from './tenant-erasure-target-executor';
+export { tenantErasureFenceLockKey, TenantErasureTombstoneError } from './tenant-erasure-fence';
+export { TENANT_ERASURE_REQUEST_SUBSCRIPTION_OPTIONS } from './tenant-erasure-subscription.options';
+export { tenantErasureCompletionState } from './tenant-erasure-result';
+export type { TenantErasureExecutionState } from './tenant-erasure-result';
 export {
   TENANT_ERASURE_POST_ERASURE_HOOKS,
   TENANT_ERASURE_TARGET_OPTIONS,

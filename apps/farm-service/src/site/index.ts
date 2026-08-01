@@ -12,4 +12,5 @@ export { DeleteSiteCommand } from './commands/delete-site.command';
 
 // Export queries
 export * from './queries/get-site.query';
+export * from './queries/get-active-site-access-catalog.query';
 export * from './queries/list-sites.query';

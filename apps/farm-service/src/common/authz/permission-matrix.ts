@@ -115,7 +115,6 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   deleteParameterConfig: [Role.TENANT_ADMIN],
   deleteMaintenanceSchedule: [Role.TENANT_ADMIN],
   deleteRecurringTemplate: [Role.TENANT_ADMIN],
-  deleteSentinelHubSettings: [Role.TENANT_ADMIN],
   deleteSite: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   deleteSparePart: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   deleteSpecies: [Role.TENANT_ADMIN],
@@ -187,7 +186,6 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   restoreSupplier: [Role.TENANT_ADMIN],
   restoreSystem: [Role.TENANT_ADMIN],
   saveFeederCalibrations: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
-  saveSentinelHubSettings: [Role.TENANT_ADMIN],
   scheduleHarvestPlan: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   seedDefaultWaterQualityParameterConfigs: [Role.TENANT_ADMIN],
   setDefaultFeedingProtocol: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
@@ -223,7 +221,6 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   dismissReportDraft: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   approveAndSubmitReportDraft: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateAutoSubmitPolicy: [Role.TENANT_ADMIN],
-  syncWeatherData: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   testMaskinportenConnection: [Role.TENANT_ADMIN],
   transferBatch: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   transferCleanerFish: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
@@ -261,7 +258,6 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   updatePurchaseOrderStatus: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateRecurringTemplate: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateRegulatorySettings: [Role.TENANT_ADMIN],
-  updateSentinelHubInstanceId: [Role.TENANT_ADMIN],
   updateSite: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateSlaughterFacility: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateSparePart: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
@@ -274,7 +270,6 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   updateTankStatus: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateTask: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   updateWaterQualityMeasurement: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
-  updateWeatherSettings: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateWorker: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateWorkOrder: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   verifyMeasurement: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
@@ -287,6 +282,7 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
  */
 export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.freeze({
   activeFeedingPrograms: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  activeSiteAccessCatalog: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   activeSites: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   activeSpecies: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   activeTanks: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -323,7 +319,8 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   criticalHealthEvents: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   criticalWaterQuality: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   effectiveUnitTemperatures: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
-  currentWeather: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  environmentLayerCatalog: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  environmentScenes: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   dailyFeedingExecution: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   dailyFeedingExecutions: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   dailyFeedingPlan: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -388,7 +385,6 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   growthSimulation: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   harvest: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   harvestPlan: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
-  isSentinelHubConfigured: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   harvestPlanByCode: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   harvestPlans: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   harvestPlansByBatch: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -410,7 +406,6 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   liceCounts: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   lowStockAlerts: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   maintenanceAlerts: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
-  marineObservations: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   maskinportenStatus: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   mattilsynetStatus: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   // maintenanceComplianceReport is supervisory / audit output —
@@ -452,11 +447,10 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   regulatoryReports: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   regulatorySettings: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   rootSystems: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
-  sentinelHubCredentials: [Role.TENANT_ADMIN],
-  sentinelHubStatus: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
-  sentinelHubToken: [Role.TENANT_ADMIN],
-  sentinelHubWmtsConfig: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   site: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  siteEnvironmentCurrent: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  siteEnvironmentForecast: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  siteEnvironmentHistory: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   siteContacts: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   siteDeletePreview: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   sites: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -517,9 +511,6 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   waterQualityMeasurements: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   waterQualityStatistics: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   waterQualityStatisticsBySystem: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
-  weatherForecast: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
-  weatherObservations: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
-  weatherSettings: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   warehouseSummary: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   workOrder: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   workOrderByCode: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -550,8 +541,8 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(
     // / batchGrowthHistory / batchGrowthPrediction / batchHarvestEligibility
     // / batchHistory / batchPerformance / availableTanks /
     // generateBatchNumber / projectHarvestDate. Phase 6.1.1
-    // (site-dept-system-tank queries) moved 20 more: activeSites /
-    // activeTanks / site / sites / siteDeletePreview / department /
+    // (site-dept-system-tank queries) moved 21 more: activeSites /
+    // activeSiteAccessCatalog / activeTanks / site / sites / siteDeletePreview / department /
     // departments / departmentsBySite / departmentDeletePreview /
     // system / systems / systemsBySite / systemsByDepartment /
     // systemDeletePreview / rootSystems / childSystems / tank /
@@ -599,22 +590,16 @@ export const UNGATED_OPERATIONS: ReadonlySet<string> = Object.freeze(
     // upcomingMaintenanceSchedules / overdueMaintenanceSchedules /
     // maintenanceAlerts / maintenanceComplianceReport / autoRule /
     // autoRules / recurringTemplate / recurringTemplates.
-    // Phase 6.1.1 (sensitive-regulatory-credentials queries)
-    // moved 10 with tighter gates: sentinelHubStatus /
-    // isSentinelHubConfigured / sentinelHubWmtsConfig
-    // (MANAGER + ADMIN), sentinelHubToken (ADMIN only —
-    // deepest credential), maskinportenStatus /
+    // Phase 6.1.1 (sensitive-regulatory queries)
+    // moved with tighter gates: maskinportenStatus /
     // mattilsynetStatus / regulatoryConfigurationStatus /
     // regulatoryHealth / regulatorySettings (MANAGER + ADMIN),
     // workers (MANAGER + ADMIN — HR-adjacent PII).
-    // Phase 6.1.1 final — farm-legacy / harvest / weather /
+    // Phase 6.1.1 final — farm-legacy / harvest /
     // purchase / inventory / cleaner-fish / AI queries — moved 21:
     // farm / farms / pond (legacy); harvest / harvests /
     // harvestsByBatch (MODULE_USER+MANAGER+ADMIN);
     // harvestStatistics (MANAGER+ADMIN — financial aggregate);
-    // weatherObservations / marineObservations / currentWeather /
-    // weatherForecast (MODULE_USER+MANAGER+ADMIN);
-    // weatherSettings (MANAGER+ADMIN — sync config);
     // purchaseOrder / purchaseOrders / pendingDeliveries /
     // inventoryCount / inventoryCounts (MODULE_USER+MANAGER+ADMIN);
     // cleanerFishBatches (MODULE_USER+MANAGER+ADMIN — note:

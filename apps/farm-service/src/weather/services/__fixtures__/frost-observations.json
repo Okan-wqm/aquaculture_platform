@@ -1,0 +1,30 @@
+{
+  "@context": "https://frost.met.no/schema",
+  "@type": "ObservationResponse",
+  "apiVersion": "v0",
+  "currentItemCount": 1,
+  "data": [
+    {
+      "sourceId": "SN99999:0",
+      "referenceTime": "2026-07-31T12:00:00Z",
+      "observations": [
+        {
+          "elementId": "air_temperature",
+          "value": 0,
+          "unit": "degC",
+          "timeOffset": "PT0H",
+          "timeResolution": "PT1H",
+          "qualityCode": 0
+        },
+        {
+          "elementId": "wind_speed",
+          "value": 4.6,
+          "unit": "m/s",
+          "timeOffset": "PT0H",
+          "timeResolution": "PT1H",
+          "qualityCode": 2
+        }
+      ]
+    }
+  ]
+}

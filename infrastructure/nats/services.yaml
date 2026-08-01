@@ -3,6 +3,9 @@
 # ============================================================================
 #
 # Every NATS client identity is the mTLS client cert CN (verify_and_map).
+# `application` binds that certificate identity to exactly one runtime app.
+# Sharing a certificate between runtimes is forbidden: the generator and CI
+# validate this mapping and deployment consumes the same registry.
 # This file drives BOTH:
 #   - infrastructure/docker/nats/nats.conf authorization users[] block
 #     (regenerate: scripts/nats/generate-nats-conf.py — same commit, always)
@@ -49,184 +52,198 @@ services:
   # auth-service: tenant/user/JWT lifecycle
   # ---------------------------------------------------------------------------
   - name: auth_service
+    application: auth-service
     description: Authentication — tenant and user lifecycle, JWT issuance, invitations, password reset
     publish:
-      - "events.*.InvitationAccepted"
-      - "events.*.PasswordResetCompleted"
-      - "events.*.PasswordResetRequested"
-      - "events.*.TenantStatusChanged"
-      - "events.*.UserAccountLocked"
-      - "events.*.UserDeleted"
-      - "events.*.UserInvited"
-      - "events.*.UserLoggedIn"
-      - "events.*.UserPasswordChanged"
-      - "events.*.UserProfileUpdated"
-      - "events.platform.schema-migration.>"
-      - "events.security.events.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'events.*.AccessTokenInvalidationRequested'
+      - 'events.*.InvitationAccepted'
+      - 'events.*.PasswordResetCompleted'
+      - 'events.*.PasswordResetRequested'
+      - 'events.*.TenantStatusChanged'
+      - 'events.*.UserAccountLocked'
+      - 'events.*.UserAccessTokenInvalidationRequested'
+      - 'events.*.UserDeleted'
+      - 'events.*.UserInvited'
+      - 'events.*.UserLoggedIn'
+      - 'events.*.UserPasswordChanged'
+      - 'events.*.UserProfileUpdated'
+      - 'events.platform.schema-migration.>'
+      - 'events.security.events.>'
+      - 'request.farm.validateSiteAssignment'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "request.auth.user.validateTenantMembership"
-      - "request.auth.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'request.auth.user.validateTenantMembership'
+      - 'request.auth.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # farm-service: batch / pond / feeding / equipment / water quality
   # ---------------------------------------------------------------------------
   - name: farm_service
+    application: farm-service
     description: Farm domain — batches, feedings, water quality, mortality/cull, ponds, equipment, feed inventory
     publish:
-      - "events.*.BatchAllocatedToTank"
-      - "events.*.BatchClosed"
-      - "events.*.BatchCreated"
-      - "events.*.BatchGraded"
-      - "events.*.BatchHarvested"
-      - "events.*.BatchMetadataUpdated"
-      - "events.*.BatchProductionCompleted"
-      - "events.*.BatchStatusChanged"
-      - "events.*.BatchTransferred"
-      - "events.*.CleanerFishBatchCreated"
-      - "events.*.CleanerFishDeployed"
-      - "events.*.CleanerFishMortalityRecorded"
-      - "events.*.CleanerFishRemoved"
-      - "events.*.CleanerFishTransferred"
-      - "events.*.CullRecorded"
-      - "events.*.DepartmentCreated"
-      - "events.*.DepartmentDeleted"
-      - "events.*.DepartmentUpdated"
-      - "events.*.DiseaseOutbreakReported"
-      - "events.*.EquipmentCreated"
-      - "events.*.EquipmentDeleted"
-      - "events.*.EquipmentUpdated"
-      - "events.*.EscapeIncidentRecorded"
-      - "events.*.EscapeReported"
-      - "events.*.FeedInventoryAdjusted"
-      - "events.*.FeedInventoryConsumed"
-      - "events.*.FeedInventoryLow"
-      - "events.*.FeedInventoryReceived"
-      - "events.*.FeederCalibrationsSaved"
-      - "events.*.FeedingProtocolAssigned"
-      - "events.*.FeedingProtocolAssignmentPaused"
-      - "events.*.FeedingRecordUpdated"
-      - "events.*.FeedingRecorded"
+      - 'events.*.BatchAllocatedToTank'
+      - 'events.*.BatchClosed'
+      - 'events.*.BatchCreated'
+      - 'events.*.BatchGraded'
+      - 'events.*.BatchHarvested'
+      - 'events.*.BatchMetadataUpdated'
+      - 'events.*.BatchProductionCompleted'
+      - 'events.*.BatchStatusChanged'
+      - 'events.*.BatchTransferred'
+      - 'events.*.CleanerFishBatchCreated'
+      - 'events.*.CleanerFishDeployed'
+      - 'events.*.CleanerFishMortalityRecorded'
+      - 'events.*.CleanerFishRemoved'
+      - 'events.*.CleanerFishTransferred'
+      - 'events.*.CullRecorded'
+      - 'events.*.DepartmentCreated'
+      - 'events.*.DepartmentDeleted'
+      - 'events.*.DepartmentUpdated'
+      - 'events.*.DiseaseOutbreakReported'
+      - 'events.*.EquipmentCreated'
+      - 'events.*.EquipmentDeleted'
+      - 'events.*.EquipmentUpdated'
+      - 'events.*.EscapeIncidentRecorded'
+      - 'events.*.EscapeReported'
+      - 'events.*.FeedInventoryAdjusted'
+      - 'events.*.FeedInventoryConsumed'
+      - 'events.*.FeedInventoryLow'
+      - 'events.*.FeedInventoryReceived'
+      - 'events.*.FeederCalibrationsSaved'
+      - 'events.*.FeedingProtocolAssigned'
+      - 'events.*.FeedingProtocolAssignmentPaused'
+      - 'events.*.FeedingRecordUpdated'
+      - 'events.*.FeedingRecorded'
       # Öğün motoru v2 (Faz 5) — plan §7/§10; K-2 toplu pencere şekli.
-      - "events.*.MealWindowUpcoming"
-      - "events.*.MealFed"
-      - "events.*.MealSkipped"
-      - "events.*.MealUnderfed"
-      - "events.*.MealMissed"
-      - "events.*.FeedTypeTransitioned"
-      - "events.*.UnfedUnitDetected"
-      - "events.*.FeedingDailySummary"
+      - 'events.*.MealWindowUpcoming'
+      - 'events.*.MealFed'
+      - 'events.*.MealSkipped'
+      - 'events.*.MealUnderfed'
+      - 'events.*.MealMissed'
+      - 'events.*.FeedTypeTransitioned'
+      - 'events.*.UnfedUnitDetected'
+      - 'events.*.FeedingDailySummary'
       # C-1: FCRAlert ilk kez durable (18:00 cron outbox'a yazar).
-      - "events.*.FCRAlert"
+      - 'events.*.FCRAlert'
       # Faz 7 kapsama süpürmesi (07:00) — durable forecast sinyalleri.
-      - "events.*.FeedStockoutForecast"
-      - "events.*.FeedTransitionUpcoming"
-      - "events.*.FinanceCategoryArchived"
-      - "events.*.FinanceCategoryCreated"
-      - "events.*.FinanceCategoryUpdated"
-      - "events.*.FinanceEntryDeleted"
-      - "events.*.FinanceEntryRecorded"
-      - "events.*.FinanceEntryUpdated"
-      - "events.*.FinanceSettingsUpdated"
-      - "events.*.GrowthSampleRecorded"
-      - "events.*.HarvestRecordCancelled"
-      - "events.*.HarvestRecordUpdated"
-      - "events.*.HarvestRegulatoryRecorded"
-      - "events.*.LowStockDetected"
-      - "events.*.MortalityAlertRaised"
-      - "events.*.MortalityRecorded"
-      - "events.*.RegulatoryReportDeadlineApproaching"
-      - "events.*.RegulatoryReportSubmissionFailed"
-      - "events.*.SiteContactsChanged"
-      - "events.*.SiteCreated"
-      - "events.*.SiteDeleted"
-      - "events.*.SiteUpdated"
-      - "events.*.StockMovementRecorded"
-      - "events.*.SubEquipmentCreated"
-      - "events.*.SubEquipmentDeleted"
-      - "events.*.SubEquipmentUpdated"
-      - "events.*.SupplierApprovedSitesChanged"
-      - "events.*.SystemCreated"
-      - "events.*.SystemDeleted"
-      - "events.*.SystemUpdated"
-      - "events.*.TankCleared"
-      - "events.*.TankCreated"
-      - "events.*.TankDeleted"
-      - "events.*.TankStatusChanged"
-      - "events.*.TankUpdated"
-      - "events.*.TaskAssigned"
-      - "events.*.TaskCompleted"
-      - "events.*.TaskCreated"
-      - "events.*.TaskOverdue"
-      - "events.*.TaskStatusChanged"
-      - "events.*.TenantDataErased"
-      - "events.*.TenantDataErasureFailed"
-      - "events.*.TenantErasureBlocked"
-      - "events.*.TenantOnboardingAck"
-      - "events.*.TenantOnboardingFailed"
-      - "events.*.WaterQualityCritical"
-      - "events.*.WaterQualityMeasurementCreated"
-      - "events.*.WelfareEventReported"
-      - "events.platform.schema-migration.>"
-      - "events.security.events.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'events.*.FeedStockoutForecast'
+      - 'events.*.FeedTransitionUpcoming'
+      - 'events.*.FinanceCategoryArchived'
+      - 'events.*.FinanceCategoryCreated'
+      - 'events.*.FinanceCategoryUpdated'
+      - 'events.*.FinanceEntryDeleted'
+      - 'events.*.FinanceEntryRecorded'
+      - 'events.*.FinanceEntryUpdated'
+      - 'events.*.FinanceSettingsUpdated'
+      - 'events.*.GrowthSampleRecorded'
+      - 'events.*.HarvestRecordCancelled'
+      - 'events.*.HarvestRecordUpdated'
+      - 'events.*.HarvestRegulatoryRecorded'
+      - 'events.*.LowStockDetected'
+      - 'events.*.MortalityAlertRaised'
+      - 'events.*.MortalityRecorded'
+      - 'events.*.RegulatoryReportDeadlineApproaching'
+      - 'events.*.RegulatoryReportSubmissionFailed'
+      - 'events.*.SiteContactsChanged'
+      - 'events.*.SiteCreated'
+      - 'events.*.SiteDeleted'
+      - 'events.*.SiteUpdated'
+      - 'events.*.StockMovementRecorded'
+      - 'events.*.SubEquipmentCreated'
+      - 'events.*.SubEquipmentDeleted'
+      - 'events.*.SubEquipmentUpdated'
+      - 'events.*.SupplierApprovedSitesChanged'
+      - 'events.*.SystemCreated'
+      - 'events.*.SystemDeleted'
+      - 'events.*.SystemUpdated'
+      - 'events.*.TankCleared'
+      - 'events.*.TankCreated'
+      - 'events.*.TankDeleted'
+      - 'events.*.TankStatusChanged'
+      - 'events.*.TankUpdated'
+      - 'events.*.TaskAssigned'
+      - 'events.*.TaskCompleted'
+      - 'events.*.TaskCreated'
+      - 'events.*.TaskOverdue'
+      - 'events.*.TaskStatusChanged'
+      - 'events.*.FarmServiceTenantDataErased'
+      - 'events.*.FarmServiceTenantDataErasureFailed'
+      - 'events.*.FarmServiceTenantErasureBlocked'
+      - 'events.*.TenantOnboardingAck'
+      - 'events.*.TenantOnboardingFailed'
+      - 'events.*.WaterQualityCritical'
+      - 'events.*.WaterQualityMeasurementCreated'
+      - 'events.*.WelfareEventReported'
+      # Exact credential RPCs for company-owned environmental providers.
+      - 'config.marine_credentials.resolve'
+      - 'config.marine_credentials.upsert'
+      - 'events.platform.schema-migration.>'
+      - 'events.security.events.>'
+      - 'request.farm.validateSiteAssignment'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
       # ai-service create_task actuation tool (request-reply responder)
-      - "request.farm.createTask"
-      - "request.farm.getTankRegistry"
-      - "request.farm.getBatchOverview"
-      - "request.farm.getWaterQualityOverview"
-      - "request.farm.getHarvestOverview"
-      - "request.farm.getFeedingOverview"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'request.farm.createTask'
+      - 'request.farm.getTankRegistry'
+      - 'request.farm.getBatchOverview'
+      - 'request.farm.getWaterQualityOverview'
+      - 'request.farm.getHarvestOverview'
+      - 'request.farm.getFeedingOverview'
+      - 'request.farm.validateSiteAssignment'
+      # Dedicated first-token inbox: generic `_INBOX.>` grants cannot read
+      # decrypted marine-provider credential replies.
+      - '_INBOXFARMMARINECFG.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # sensor-service: IoT/edge device readings, VFDs, LoRa, automation
   # ---------------------------------------------------------------------------
   - name: sensor_service
+    application: sensor-service
     description: Sensor/edge devices, VFD readings, LoRa, automation, ST Language runtime
     publish:
-      - "events.*.AutomationFBDefinitionsChanged"
-      - "events.*.AutomationProgramDeployed"
-      - "events.*.AutomationProgramSaved"
-      - "events.*.AutomationTagsUpdated"
-      - "events.*.DeployBundleRequested"
-      - "events.*.EdgeDeviceAlarm"
-      - "events.*.EdgeDeviceHeartbeat"
-      - "events.*.EdgeDeviceIoData"
-      - "events.*.EdgeDeviceResponse"
-      - "events.*.IoConfigPushResult"
-      - "events.*.LoRaDeviceEvent"
-      - "events.*.ParentReadingRouted"
-      - "events.*.SensorDeleted"
-      - "events.*.SensorDeprovisioned"
-      - "events.*.SensorReading"
-      - "events.*.SensorRegistered"
-      - "events.*.SensorRegistrationCompleted"
-      - "events.*.SensorRegistrationStarted"
-      - "events.*.TenantDataErased"
-      - "events.*.TenantDataErasureFailed"
-      - "events.*.TenantErasureBlocked"
+      - 'events.*.AutomationFBDefinitionsChanged'
+      - 'events.*.AutomationProgramDeployed'
+      - 'events.*.AutomationProgramSaved'
+      - 'events.*.AutomationTagsUpdated'
+      - 'events.*.DeployBundleRequested'
+      - 'events.*.EdgeDeviceAlarm'
+      - 'events.*.EdgeDeviceHeartbeat'
+      - 'events.*.EdgeDeviceIoData'
+      - 'events.*.EdgeDeviceResponse'
+      - 'events.*.IoConfigPushResult'
+      - 'events.*.LoRaDeviceEvent'
+      - 'events.*.ParentReadingRouted'
+      - 'events.*.SensorDeleted'
+      - 'events.*.SensorDeprovisioned'
+      - 'events.*.SensorReading'
+      - 'events.*.SensorRegistered'
+      - 'events.*.SensorRegistrationCompleted'
+      - 'events.*.SensorRegistrationStarted'
+      - 'events.*.SensorServiceTenantDataErased'
+      - 'events.*.SensorServiceTenantDataErasureFailed'
+      - 'events.*.SensorServiceTenantErasureBlocked'
       # SENSOR-MEDIUM-070: channel-detection delegates to ai-service over NATS
       # (request-reply) under the sensor-service service principal — replaces the
       # forged x-user-payload HTTP call. sensor-service is the CALLER (publish).
-      - "request.ai.sensor.detectChannels"
-      - "st.language.>"
-      - "events.platform.schema-migration.>"
-      - "events.security.events.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'request.ai.sensor.detectChannels'
+      - 'st.language.>'
+      - 'events.platform.schema-migration.>'
+      - 'events.security.events.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "request.sensor.>"
-      - "sensor.lookup.by-topic"
-      - "st.language.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'request.sensor.>'
+      - 'sensor.lookup.by-topic'
+      - 'st.language.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # sensor-ingestion: Rust sidecar (ADR-025 / ADR-027) — co-equal producer of
@@ -235,190 +252,211 @@ services:
   # to its actual producer (audit + per-tenant rollback granularity).
   # ---------------------------------------------------------------------------
   - name: sensor-ingestion
+    application: sensor-ingestion
     description: Rust ingestion sidecar — MQTT subscribe → COPY → SensorReading event publish
     publish:
-      - "events.*.SensorReading"
-      - "sensor.lookup.by-topic"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'events.*.SensorReading'
+      - 'sensor.lookup.by-topic'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "policy.ingest_backend.>"
-      - "_INBOX.>"
-      - "$JS.API.>"
+      - 'policy.ingest_backend.>'
+      - '_INBOX.>'
+      - '$JS.API.>'
 
   # ---------------------------------------------------------------------------
-  # gateway-api + admin-api-service (shared account)
+  # admin-api-service: tenant lifecycle and erasure coordinator
+  # ---------------------------------------------------------------------------
+  - name: admin_api_service
+    application: admin-api-service
+    description: Admin API — tenant lifecycle, erasure aggregation, ingest policy and admin RPC
+    publish:
+      - 'events.*.ModuleRemovedFromTenant'
+      - 'events.*.TenantActivated'
+      - 'events.*.TenantArchived'
+      - 'events.*.TenantCreated'
+      - 'events.*.TenantErased'
+      - 'events.*.TenantErasureRequested'
+      - 'events.*.TenantModulesAssigned'
+      - 'events.*.TenantOnboardingRequested'
+      - 'events.*.TenantProvisioned'
+      - 'events.*.TenantProvisioningFailed'
+      - 'events.*.TenantProvisioningRequested'
+      - 'events.*.TenantStatusChanged'
+      - 'events.*.TenantSuspended'
+      - 'events.*.AdminApiServiceTenantDataErased'
+      - 'events.*.AdminApiServiceTenantDataErasureFailed'
+      - 'events.*.AdminApiServiceTenantErasureBlocked'
+      - 'events.*.TenantErasureDryRunSchemaDeletionRejected'
+      - 'request.messaging.admin.complianceStats'
+      - 'request.messaging.admin.getLegalHolds'
+      - 'request.messaging.admin.createLegalHold'
+      - 'request.messaging.admin.releaseLegalHold'
+      - 'request.messaging.admin.getRetentionPolicies'
+      - 'request.messaging.admin.updateRetentionPolicy'
+      - 'request.messaging.admin.getAuditLog'
+      - 'request.messaging.admin.triggerExport'
+      - 'request.messaging.admin.getPersonas'
+      - 'request.billing.admin.createInvoice'
+      - 'request.billing.admin.markInvoicePaid'
+      - 'request.billing.admin.voidInvoice'
+      - 'request.billing.admin.recordPayment'
+      - 'request.billing.admin.refundPayment'
+      - 'request.billing.admin.changeSubscriptionPlan'
+      - 'request.billing.admin.cancelSubscription'
+      - 'request.billing.admin.reactivateSubscription'
+      - 'request.billing.admin.extendSubscriptionTrial'
+      - 'request.billing.tenant.provisionSubscription'
+      - 'request.auth.admin.createUser'
+      - 'request.auth.admin.resetUserPassword'
+      - 'request.auth.admin.updateUser'
+      - 'request.auth.admin.deactivateUser'
+      - 'request.auth.admin.forceLogoutUser'
+      - 'request.auth.admin.inviteUser'
+      - 'request.auth.admin.checkUserLimit'
+      - 'request.auth.tenant.ReserveTenant'
+      - 'request.auth.tenant.SetupRoles'
+      - 'request.auth.tenant.AssignModules'
+      - 'request.auth.tenant.CreateFirstAdminInvite'
+      - 'request.auth.tenant.ActivateTenant'
+      - 'request.auth.tenant.FailProvisioning'
+      - 'request.auth.tenant.DeprovisionTenant'
+      - 'request.auth.tenant.SuspendTenant'
+      - 'request.auth.tenant.ArchiveTenant'
+      - 'request.auth.tenant.RemoveModule'
+      - 'request.auth.tenant.RollbackProvisioning'
+      - 'policy.ingest_backend.changed'
+      - 'events.platform.schema-migration.>'
+      - 'events.security.events.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
+    subscribe:
+      - 'events.*.TenantOnboardingAck'
+      - 'events.*.TenantOnboardingFailed'
+      - 'policy.ingest_backend.snapshot'
+      - '_INBOX.>'
+      - '$JS.API.>'
+
+  # ---------------------------------------------------------------------------
+  # gateway-api: public GraphQL edge and request/reply bridge
   # ---------------------------------------------------------------------------
   - name: gateway_service
-    description: Gateway API + admin-api-service (shared account) — tenant lifecycle events, ST bridge, cross-service RPC
+    application: gateway-api
+    description: Gateway API — public GraphQL edge, ST bridge and scoped cross-service RPC
     publish:
-      - "events.*.ModuleRemovedFromTenant"
-      - "events.*.TenantActivated"
-      - "events.*.TenantArchived"
-      - "events.*.TenantCreated"
-      - "events.*.TenantErased"
-      - "events.*.TenantErasureRequested"
-      - "events.*.TenantModulesAssigned"
-      - "events.*.TenantOnboardingRequested"
-      - "events.*.TenantProvisioned"
-      - "events.*.TenantProvisioningFailed"
-      - "events.*.TenantProvisioningRequested"
-      - "events.*.TenantReserved"
-      - "events.*.TenantSchemaDeletionFailed"
-      - "events.*.TenantStatusChanged"
-      - "events.*.TenantSuspended"
-      - "events.*.TenantDataErased"
-      - "events.*.TenantDataErasureFailed"
-      - "events.*.TenantErasureBlocked"
-      - "st.language.>"
-      - "request.messaging.verifyMembership"
-      - "request.messaging.resolveNotificationRef"
-      - "request.messaging.getMessageForBroadcast"
-      - "request.sensor.verifyDeviceOwnership"
-      - "request.ai.chat"
-      - "request.messaging.admin.complianceStats"
-      - "request.messaging.admin.getLegalHolds"
-      - "request.messaging.admin.createLegalHold"
-      - "request.messaging.admin.releaseLegalHold"
-      - "request.messaging.admin.getRetentionPolicies"
-      - "request.messaging.admin.updateRetentionPolicy"
-      - "request.messaging.admin.getAuditLog"
-      - "request.messaging.admin.triggerExport"
-      - "request.messaging.admin.getPersonas"
-      - "request.billing.admin.createInvoice"
-      - "request.billing.admin.markInvoicePaid"
-      - "request.billing.admin.voidInvoice"
-      - "request.billing.admin.recordPayment"
-      - "request.billing.admin.refundPayment"
-      - "request.billing.admin.changeSubscriptionPlan"
-      - "request.billing.admin.cancelSubscription"
-      - "request.billing.admin.reactivateSubscription"
-      - "request.billing.admin.extendSubscriptionTrial"
-      - "request.billing.tenant.provisionSubscription"
-      - "request.auth.admin.createUser"
-      - "request.auth.admin.resetUserPassword"
-      - "request.auth.admin.updateUser"
-      - "request.auth.admin.deactivateUser"
-      - "request.auth.admin.forceLogoutUser"
-      - "request.auth.admin.inviteUser"
-      - "request.auth.admin.checkUserLimit"
-      - "request.auth.tenant.ReserveTenant"
-      - "request.auth.tenant.SetupRoles"
-      - "request.auth.tenant.AssignModules"
-      - "request.auth.tenant.CreateFirstAdminInvite"
-      - "request.auth.tenant.ActivateTenant"
-      - "request.auth.tenant.FailProvisioning"
-      - "request.auth.tenant.DeprovisionTenant"
-      - "request.auth.tenant.SuspendTenant"
-      - "request.auth.tenant.ArchiveTenant"
-      - "request.auth.tenant.RemoveModule"
-      - "request.auth.tenant.RollbackProvisioning"
-      - "policy.ingest_backend.>"
-      - "events.platform.schema-migration.>"
-      - "events.security.events.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'st.language.>'
+      - 'request.messaging.verifyMembership'
+      - 'request.messaging.resolveNotificationRef'
+      - 'request.messaging.getMessageForBroadcast'
+      - 'request.sensor.verifyDeviceOwnership'
+      - 'request.ai.chat'
+      - 'events.platform.schema-migration.>'
+      - 'events.security.events.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "events.>"
-      - "policy.ingest_backend.snapshot"
-      - "st.language.>"
-      - "_INBOX.>"
-      - "$JS.API.>"
+      - 'events.>'
+      - 'st.language.>'
+      - '_INBOX.>'
+      - '$JS.API.>'
 
   # ---------------------------------------------------------------------------
   # notification-service: outbound push/email command handling
   # ---------------------------------------------------------------------------
   - name: notification_service
+    application: notification-service
     description: Outbound push / email notification commands, delivery tracking
     publish:
-      - "events.*.AlertTriggered"
-      - "events.*.NotificationDelivered"
-      - "events.*.NotificationFailed"
-      - "events.*.NotificationSent"
-      - "events.*.TenantDataErased"
-      - "events.*.TenantDataErasureFailed"
-      - "events.*.TenantErasureBlocked"
-      - "events.platform.schema-migration.>"
-      - "events.security.events.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'events.*.AlertTriggered'
+      - 'events.*.NotificationDelivered'
+      - 'events.*.NotificationFailed'
+      - 'events.*.NotificationSent'
+      - 'events.*.NotificationServiceTenantDataErased'
+      - 'events.*.NotificationServiceTenantDataErasureFailed'
+      - 'events.*.NotificationServiceTenantErasureBlocked'
+      - 'events.platform.schema-migration.>'
+      - 'events.security.events.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "commands.notification.sendEmail"
-      - "commands.notification.sendPush"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'commands.notification.sendEmail'
+      - 'commands.notification.sendPush'
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # ai-service: AI chat, tool execution, conversations
   # ---------------------------------------------------------------------------
   - name: ai_service
+    application: ai-service
     description: AI domain — model/tool execution and agent conversations
     publish:
-      - "events.*.TenantDataErased"
-      - "events.*.TenantDataErasureFailed"
-      - "events.*.TenantErasureBlocked"
-      - "events.platform.schema-migration.>"
-      - "events.security.events.>"
+      - 'events.*.AiServiceTenantDataErased'
+      - 'events.*.AiServiceTenantDataErasureFailed'
+      - 'events.*.AiServiceTenantErasureBlocked'
+      - 'events.platform.schema-migration.>'
+      - 'events.security.events.>'
       # create_task actuation tool → farm-service responder (request-reply)
-      - "request.farm.createTask"
-      - "request.farm.getTankRegistry"
-      - "request.farm.getBatchOverview"
-      - "request.farm.getWaterQualityOverview"
-      - "request.farm.getHarvestOverview"
-      - "request.farm.getFeedingOverview"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'request.farm.createTask'
+      - 'request.farm.getTankRegistry'
+      - 'request.farm.getBatchOverview'
+      - 'request.farm.getWaterQualityOverview'
+      - 'request.farm.getHarvestOverview'
+      - 'request.farm.getFeedingOverview'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "request.ai.chat"
-      - "request.ai.executeAction"
-      - "request.ai.generateEmbeddings"
-      - "request.ai.analyzeSentiment"
-      - "request.ai.isEnabled"
+      - 'request.ai.chat'
+      - 'request.ai.executeAction'
+      - 'request.ai.generateEmbeddings'
+      - 'request.ai.analyzeSentiment'
+      - 'request.ai.isEnabled'
       # SENSOR-MEDIUM-070: sensor channel-detection responder (analyze→suggest run
       # under the sensor-service service principal). ai-service HANDLES it (subscribe).
-      - "request.ai.sensor.detectChannels"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'request.ai.sensor.detectChannels'
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # billing-service: subscriptions, invoices, payments, Stripe webhooks
   # ---------------------------------------------------------------------------
   - name: billing_service
+    application: billing-service
     description: Subscriptions, invoicing, Stripe payment processing
     publish:
-      - "events.*.InvoiceGenerated"
-      - "events.*.PaymentFailed"
-      - "events.*.PaymentReceived"
-      - "events.*.PaymentRefunded"
-      - "events.*.SubscriptionCancelled"
-      - "events.*.SubscriptionCreated"
-      - "events.*.SubscriptionExpired"
-      - "events.*.SubscriptionPastDue"
-      - "events.*.SubscriptionProvisioningFailed"
-      - "events.*.SubscriptionUpdated"
-      - "events.*.TenantSubscriptionChanged"
-      - "events.*.TenantDataErased"
-      - "events.*.TenantDataErasureFailed"
-      - "events.*.TenantErasureBlocked"
-      - "events.platform.schema-migration.>"
-      - "events.security.events.>"
+      - 'events.*.InvoiceGenerated'
+      - 'events.*.PaymentFailed'
+      - 'events.*.PaymentReceived'
+      - 'events.*.PaymentRefunded'
+      - 'events.*.SubscriptionCancelled'
+      - 'events.*.SubscriptionCreated'
+      - 'events.*.SubscriptionExpired'
+      - 'events.*.SubscriptionPastDue'
+      - 'events.*.SubscriptionProvisioningFailed'
+      - 'events.*.SubscriptionUpdated'
+      - 'events.*.TenantSubscriptionChanged'
+      - 'events.*.BillingServiceTenantDataErased'
+      - 'events.*.BillingServiceTenantDataErasureFailed'
+      - 'events.*.BillingServiceTenantErasureBlocked'
+      - 'events.platform.schema-migration.>'
+      - 'events.security.events.>'
       # Faz C (D6): billing is the ONLY CN allowed to PUBLISH the config-runtime
       # read subjects — the get_secret grant is the cert-CN half of the
       # defense-in-depth around the plaintext Stripe secret. Reply arrives on
       # billing's own _INBOX.> (already granted).
-      - "config.runtime.get"
-      - "config.runtime.get_secret"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'config.runtime.get'
+      - 'config.runtime.get_secret'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "request.billing.admin.>"
-      - "request.billing.tenant.>"
+      - 'request.billing.admin.>'
+      - 'request.billing.tenant.>'
       # Faz C (SEC-CRITICAL-001): SCOPED reply inbox for the config-runtime secret
       # read — billing is the ONLY CN that subscribes this token, so the decrypted
       # Stripe secret never returns on the platform-wide `_INBOX.>` every cert holds.
-      - "_INBOXBILLINGCFG.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - '_INBOXBILLINGCFG.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # alert-engine: rule-based alerting from sensor readings
@@ -426,147 +464,151 @@ services:
   # Naming note: user is `alert_engine` (NOT `alert_service`). Historical;
   # preserved to avoid cert churn. See ADR-014.
   - name: alert_engine
+    application: alert-engine
     description: Sensor-reading → alert-rule evaluation, alert lifecycle events
     publish:
-      - "events.*.AlertEscalated"
-      - "events.*.AlertResolved"
-      - "events.*.AlertTriggered"
-      - "events.*.SensorReading"
-      - "events.*.TenantDataErased"
-      - "events.*.TenantDataErasureFailed"
-      - "events.*.TenantErasureBlocked"
-      - "events.platform.schema-migration.>"
-      - "events.security.events.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'events.*.AlertEscalated'
+      - 'events.*.AlertResolved'
+      - 'events.*.AlertTriggered'
+      - 'events.*.SensorReading'
+      - 'events.*.AlertEngineTenantDataErased'
+      - 'events.*.AlertEngineTenantDataErasureFailed'
+      - 'events.*.AlertEngineTenantErasureBlocked'
+      - 'events.platform.schema-migration.>'
+      - 'events.security.events.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # hr-service: employees, leave, attendance, certifications, payroll
   # ---------------------------------------------------------------------------
   - name: hr_service
+    application: hr-service
     description: HR domain — employees, leave, attendance, certifications, payroll, scheduling
     publish:
-      - "events.*.CertificationAdded"
-      - "events.*.CertificationExpired"
-      - "events.*.CertificationRevoked"
-      - "events.*.EmployeeClockedIn"
-      - "events.*.EmployeeClockedOut"
-      - "events.*.EmployeeCreated"
-      - "events.*.EmployeeRotationEnded"
-      - "events.*.EmployeeRotationStarted"
-      - "events.*.EmployeeTerminated"
-      - "events.*.EmployeeUpdated"
-      - "events.*.FinanceCategoryArchived"
-      - "events.*.FinanceCategoryCreated"
-      - "events.*.FinanceCategoryUpdated"
-      - "events.*.FinanceEntryDeleted"
-      - "events.*.FinanceEntryRecorded"
-      - "events.*.FinanceEntryUpdated"
-      - "events.*.LeaveApproved"
-      - "events.*.LeaveCancelled"
-      - "events.*.LeaveRejected"
-      - "events.*.LeaveRequestSubmitted"
-      - "events.*.PayrollProcessed"
-      - "events.*.TrainingCompleted"
-      - "events.*.TenantDataErased"
-      - "events.*.TenantDataErasureFailed"
-      - "events.*.TenantErasureBlocked"
-      - "commands.notification.sendEmail"
-      - "events.platform.schema-migration.>"
-      - "events.security.events.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'events.*.CertificationAdded'
+      - 'events.*.CertificationExpired'
+      - 'events.*.CertificationRevoked'
+      - 'events.*.EmployeeClockedIn'
+      - 'events.*.EmployeeClockedOut'
+      - 'events.*.EmployeeCreated'
+      - 'events.*.EmployeeRotationEnded'
+      - 'events.*.EmployeeRotationStarted'
+      - 'events.*.EmployeeTerminated'
+      - 'events.*.EmployeeUpdated'
+      - 'events.*.FinanceCategoryArchived'
+      - 'events.*.FinanceCategoryCreated'
+      - 'events.*.FinanceCategoryUpdated'
+      - 'events.*.FinanceEntryDeleted'
+      - 'events.*.FinanceEntryRecorded'
+      - 'events.*.FinanceEntryUpdated'
+      - 'events.*.LeaveApproved'
+      - 'events.*.LeaveCancelled'
+      - 'events.*.LeaveRejected'
+      - 'events.*.LeaveRequestSubmitted'
+      - 'events.*.PayrollProcessed'
+      - 'events.*.TrainingCompleted'
+      - 'events.*.HrServiceTenantDataErased'
+      - 'events.*.HrServiceTenantDataErasureFailed'
+      - 'events.*.HrServiceTenantErasureBlocked'
+      - 'commands.notification.sendEmail'
+      - 'events.platform.schema-migration.>'
+      - 'events.security.events.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # messaging-service: channels, messages, retention, compliance
   # ---------------------------------------------------------------------------
   - name: messaging_service
+    application: messaging-service
     description: Messaging domain — channels, messages, retention policies, compliance audit
     publish:
-      - "events.*.AnnouncementAcknowledged"
-      - "events.*.AnnouncementExpired"
-      - "events.*.AnnouncementPublished"
-      - "events.*.BulkThreadsCreated"
-      - "events.*.ChannelArchived"
-      - "events.*.ChannelCreated"
-      - "events.*.ChannelMemberAdded"
-      - "events.*.ChannelMemberRemoved"
-      - "events.*.ChannelUpdated"
-      - "events.*.GdprAnonymizeRequested"
-      - "events.*.LegalHoldToggled"
-      - "events.*.MessageDeleted"
-      - "events.*.MessageForwarded"
-      - "events.*.MessagePinned"
-      - "events.*.MessageRead"
-      - "events.*.MessageSent"
-      - "events.*.MessageUnpinned"
-      - "events.*.MessageUpdated"
-      - "events.*.ReactionAdded"
-      - "events.*.ReactionRemoved"
-      - "events.*.RetentionPolicyChanged"
-      - "events.*.SentimentAlert"
-      - "events.*.StorageWarning"
-      - "events.*.ThreadCreated"
-      - "events.*.ThreadStatusChanged"
-      - "events.*.UserDataAnonymized"
-      - "events.*.TenantDataErased"
-      - "events.*.TenantDataErasureFailed"
-      - "events.*.TenantErasureBlocked"
-      - "commands.notification.sendPush"
-      - "request.auth.user.validateTenantMembership"
-      - "request.auth.user.listTenantUserIds"
-      - "request.auth.verifyPassword"
-      - "request.ai.chat"
-      - "request.ai.executeAction"
-      - "request.ai.generateEmbeddings"
-      - "request.ai.analyzeSentiment"
-      - "request.ai.isEnabled"
-      - "request.farm.getTankRegistry"
-      - "events.platform.schema-migration.>"
-      - "events.security.events.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'events.*.AnnouncementAcknowledged'
+      - 'events.*.AnnouncementExpired'
+      - 'events.*.AnnouncementPublished'
+      - 'events.*.BulkThreadsCreated'
+      - 'events.*.ChannelArchived'
+      - 'events.*.ChannelCreated'
+      - 'events.*.ChannelMemberAdded'
+      - 'events.*.ChannelMemberRemoved'
+      - 'events.*.ChannelUpdated'
+      - 'events.*.GdprAnonymizeRequested'
+      - 'events.*.LegalHoldToggled'
+      - 'events.*.MessageDeleted'
+      - 'events.*.MessageForwarded'
+      - 'events.*.MessagePinned'
+      - 'events.*.MessageRead'
+      - 'events.*.MessageSent'
+      - 'events.*.MessageUnpinned'
+      - 'events.*.MessageUpdated'
+      - 'events.*.ReactionAdded'
+      - 'events.*.ReactionRemoved'
+      - 'events.*.RetentionPolicyChanged'
+      - 'events.*.SentimentAlert'
+      - 'events.*.StorageWarning'
+      - 'events.*.ThreadCreated'
+      - 'events.*.ThreadStatusChanged'
+      - 'events.*.UserDataAnonymized'
+      - 'events.*.MessagingServiceTenantDataErased'
+      - 'events.*.MessagingServiceTenantDataErasureFailed'
+      - 'events.*.MessagingServiceTenantErasureBlocked'
+      - 'commands.notification.sendPush'
+      - 'request.auth.user.validateTenantMembership'
+      - 'request.auth.user.listTenantUserIds'
+      - 'request.auth.verifyPassword'
+      - 'request.ai.chat'
+      - 'request.ai.executeAction'
+      - 'request.ai.generateEmbeddings'
+      - 'request.ai.analyzeSentiment'
+      - 'request.ai.isEnabled'
+      - 'request.farm.getTankRegistry'
+      - 'events.platform.schema-migration.>'
+      - 'events.security.events.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "request.messaging.verifyMembership"
-      - "request.messaging.getChannelMembers"
-      - "request.messaging.getMessageBatch"
-      - "request.messaging.getMessageForBroadcast"
-      - "request.messaging.resolveNotificationRef"
-      - "request.messaging.admin.complianceStats"
-      - "request.messaging.admin.getLegalHolds"
-      - "request.messaging.admin.createLegalHold"
-      - "request.messaging.admin.releaseLegalHold"
-      - "request.messaging.admin.getRetentionPolicies"
-      - "request.messaging.admin.updateRetentionPolicy"
-      - "request.messaging.admin.getAuditLog"
-      - "request.messaging.admin.triggerExport"
-      - "request.messaging.admin.getPersonas"
-      - "events.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'request.messaging.verifyMembership'
+      - 'request.messaging.getChannelMembers'
+      - 'request.messaging.getMessageBatch'
+      - 'request.messaging.getMessageForBroadcast'
+      - 'request.messaging.resolveNotificationRef'
+      - 'request.messaging.admin.complianceStats'
+      - 'request.messaging.admin.getLegalHolds'
+      - 'request.messaging.admin.createLegalHold'
+      - 'request.messaging.admin.releaseLegalHold'
+      - 'request.messaging.admin.getRetentionPolicies'
+      - 'request.messaging.admin.updateRetentionPolicy'
+      - 'request.messaging.admin.getAuditLog'
+      - 'request.messaging.admin.triggerExport'
+      - 'request.messaging.admin.getPersonas'
+      - 'events.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # hydroponics-service: grow cycles, hydroponics operations
   # ---------------------------------------------------------------------------
   - name: hydroponics_service
+    application: hydroponics-service
     description: Hydroponics domain — grow cycles, nutrient dosing, climate control
     publish:
-      - "events.*.TenantDataErased"
-      - "events.*.TenantDataErasureFailed"
-      - "events.*.TenantErasureBlocked"
-      - "events.platform.schema-migration.>"
-      - "events.security.events.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'events.*.HydroponicsServiceTenantDataErased'
+      - 'events.*.HydroponicsServiceTenantDataErasureFailed'
+      - 'events.*.HydroponicsServiceTenantErasureBlocked'
+      - 'events.platform.schema-migration.>'
+      - 'events.security.events.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # observability-service: migration audit sink + security events sink
@@ -574,17 +616,18 @@ services:
   # Consumer-only for domain purposes; publish grants cover its OWN
   # migration-runner + security-event sinks (shared backend-common code).
   - name: observability_service
+    application: observability-service
     description: Observability — migration audit sink, security events sink, Prometheus/OTEL exporter
     publish:
-      - "events.platform.schema-migration.>"
-      - "events.security.events.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'events.platform.schema-migration.>'
+      - 'events.security.events.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "events.platform.schema-migration.>"
-      - "events.security.events.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'events.platform.schema-migration.>'
+      - 'events.security.events.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # config-service: dynamic per-tenant configuration
@@ -594,28 +637,33 @@ services:
   # JetStream pull consumer ($JS.API.> + _INBOX.>) and publishes the erasure
   # proof events via its own outbox worker (own cert). No domain events.
   - name: config_service
+    application: config-service
     description: Dynamic per-tenant configuration — GDPR tenant-erasure target (proof publisher); config-runtime read responder
     publish:
-      - "events.*.TenantDataErased"
-      - "events.*.TenantDataErasureFailed"
-      - "events.*.TenantErasureBlocked"
+      - 'events.*.ConfigServiceTenantDataErased'
+      - 'events.*.ConfigServiceTenantDataErasureFailed'
+      - 'events.*.ConfigServiceTenantErasureBlocked'
       # Faz C (D6): metadata-only config-change signal, emitted via config_outbox
       # on every mutating config write (consumers filter). NEVER carries the value/secret.
-      - "events.*.ConfigurationChanged"
+      - 'events.*.ConfigurationChanged'
       # Faz C (SEC-CRITICAL-001): config replies to billing's SCOPED secret-read
       # inbox — config is the ONLY CN that publishes this token.
-      - "_INBOXBILLINGCFG.>"
-      - "events.platform.schema-migration.>"
-      - "events.security.events.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - '_INBOXBILLINGCFG.>'
+      # Config is the only publisher to farm's scoped credential reply inbox.
+      - '_INBOXFARMMARINECFG.>'
+      - 'events.platform.schema-migration.>'
+      - 'events.security.events.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
       # Faz C (D6): config-runtime request-reply responder subjects. The secret
       # reply is published back on the caller's SCOPED `_INBOXBILLINGCFG.>` inbox.
-      - "config.runtime.get"
-      - "config.runtime.get_secret"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'config.runtime.get'
+      - 'config.runtime.get_secret'
+      - 'config.marine_credentials.resolve'
+      - 'config.marine_credentials.upsert'
+      - '$JS.API.>'
+      - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
   # event-store-service: event persistence + projections
@@ -625,15 +673,16 @@ services:
   # consumer and publishes proof events via its own outbox. Erases the tenant-
   # column projection tables; stored_events (immutable) awaits crypto-shred.
   - name: event_store_service
+    application: event-store-service
     description: Event persistence + projections — GDPR tenant-erasure target (proof publisher)
     publish:
-      - "events.*.TenantDataErased"
-      - "events.*.TenantDataErasureFailed"
-      - "events.*.TenantErasureBlocked"
-      - "events.platform.schema-migration.>"
-      - "events.security.events.>"
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - 'events.*.EventStoreServiceTenantDataErased'
+      - 'events.*.EventStoreServiceTenantDataErasureFailed'
+      - 'events.*.EventStoreServiceTenantErasureBlocked'
+      - 'events.platform.schema-migration.>'
+      - 'events.security.events.>'
+      - '$JS.API.>'
+      - '_INBOX.>'
     subscribe:
-      - "$JS.API.>"
-      - "_INBOX.>"
+      - '$JS.API.>'
+      - '_INBOX.>'

@@ -1,0 +1,19 @@
+{
+  "@context": "https://frost.met.no/schema",
+  "@type": "SourceResponse",
+  "apiVersion": "v0",
+  "currentItemCount": 1,
+  "data": [
+    {
+      "@type": "SensorSystem",
+      "id": "SN99999",
+      "name": "SANITIZED COASTAL STATION",
+      "geometry": {
+        "@type": "Point",
+        "type": "Point",
+        "coordinates": [5.3412, 60.4011]
+      },
+      "distance": 1.42
+    }
+  ]
+}

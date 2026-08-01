@@ -11,9 +11,9 @@ import { ConfigService } from '@nestjs/config';
  * counts it through the SAME atomic Lua store every other service uses.
  *
  * This reproduces the gateway guard's ENFORCED tiers
- * (login / upload / tenant / anonymous / default) and the previously-separate,
- * in-memory MutationRateLimitGuard cap (`mutations`) — now distributed. Defaults
- * are unchanged, so an un-tuned deploy behaves identically.
+ * (login / upload / tenant / anonymous / default), the costly marine-render
+ * route, and the previously-separate in-memory MutationRateLimitGuard cap
+ * (`mutations`) — all counted through the distributed store.
  *
  * NOTE — passwordReset: the old rate-limit.config.ts also DECLARED a
  * passwordReset tier, but the gateway guard NEVER enforced it (it had no
@@ -26,8 +26,11 @@ function num(config: ConfigService, key: string, fallback: number): number {
   if (raw === undefined || raw === null || raw === '') {
     return fallback;
   }
-  const parsed = typeof raw === 'number' ? raw : parseInt(raw, 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  if (typeof raw === 'string' && !/^\d+$/u.test(raw)) {
+    return fallback;
+  }
+  const parsed = typeof raw === 'number' ? raw : Number(raw);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 export function buildGatewayEdgeConfig(config: ConfigService): RateLimitEdgeConfig {
@@ -47,6 +50,11 @@ export function buildGatewayEdgeConfig(config: ConfigService): RateLimitEdgeConf
         limit: num(config, 'RATE_LIMIT_UPLOAD_MAX', 10),
         windowMs: num(config, 'RATE_LIMIT_UPLOAD_WINDOW_MS', 60_000),
       },
+      marineRender: {
+        name: 'marine-render',
+        limit: num(config, 'RATE_LIMIT_MARINE_RENDER_MAX', 6),
+        windowMs: num(config, 'RATE_LIMIT_MARINE_RENDER_WINDOW_MS', 60_000),
+      },
       mutations: {
         name: 'mutations',
         limit: num(config, 'RATE_LIMIT_MUTATION_MAX', 30),
@@ -57,6 +65,11 @@ export function buildGatewayEdgeConfig(config: ConfigService): RateLimitEdgeConf
       // Exact-match (SECREV-LOW-001): substring/suffix paths do NOT share these.
       { tier: 'login', paths: ['/api/auth/login', '/auth/login'] },
       { tier: 'upload', paths: ['/api/files/upload', '/api/v1/files/upload'] },
+      {
+        tier: 'marineRender',
+        paths: [],
+        pathTemplates: ['/api/marine/sites/:siteId/render'],
+      },
     ],
     mutationTier: 'mutations',
   };

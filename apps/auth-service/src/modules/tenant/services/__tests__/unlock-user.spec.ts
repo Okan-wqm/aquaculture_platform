@@ -8,9 +8,11 @@ import { RefreshToken } from '../../../authentication/entities/refresh-token.ent
 import { User } from '../../../authentication/entities/user.entity';
 import { UserModuleAssignment } from '../../../authentication/entities/user-module-assignment.entity';
 import { UserSiteAssignment } from '../../../authentication/entities/user-site-assignment.entity';
+import { DurableUserTokenInvalidationService } from '../../../authentication/services/durable-user-token-invalidation.service';
 import { Module as TenantModuleEntity } from '../../../system-module/entities/module.entity';
 import { Tenant } from '../../entities/tenant.entity';
 import { TenantModule } from '../../entities/tenant-module.entity';
+import { FarmSiteAssignmentValidator } from '../farm-site-assignment-validator.service';
 import { TenantAdminService } from '../tenant-admin.service';
 
 /**
@@ -53,6 +55,8 @@ describe('TenantAdminService.unlockUser', () => {
         { provide: getRepositoryToken(RefreshToken), useValue: {} },
         { provide: DataSource, useValue: {} },
         { provide: AuditLogService, useValue: mockAuditLogService },
+        { provide: FarmSiteAssignmentValidator, useValue: {} },
+        { provide: DurableUserTokenInvalidationService, useValue: {} },
       ],
     }).compile();
     service = module.get(TenantAdminService);

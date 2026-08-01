@@ -23,6 +23,7 @@ const SITE_FIELDS = `
   name
   code
   lokalitetsnummer
+  organisationNumberOverride
   type
   status
   description
@@ -42,22 +43,15 @@ const SITE_FIELDS = `
   region
   timezone
   totalArea
+  monitoringRadiusM
+  monitoringArea
+  monitoringLocationRevision
   siteManager
   contactEmail
   contactPhone
   isActive
   createdAt
   updatedAt
-`;
-
-/** Minimal fields returned by the create/update mutations. */
-const SITE_MUTATION_RESULT_FIELDS = `
-  id
-  name
-  code
-  lokalitetsnummer
-  status
-  isActive
 `;
 
 /** Site contact row fields (mirror the backend SiteContactResponse type). */
@@ -158,7 +152,7 @@ export const SITE_CONTACTS_QUERY = `
 export const CREATE_SITE_MUTATION = `
   mutation CreateSite($input: CreateSiteInput!) {
     createSite(input: $input) {
-      ${SITE_MUTATION_RESULT_FIELDS}
+      ${SITE_FIELDS}
     }
   }
 `;
@@ -166,7 +160,7 @@ export const CREATE_SITE_MUTATION = `
 export const UPDATE_SITE_MUTATION = `
   mutation UpdateSite($input: UpdateSiteInput!) {
     updateSite(input: $input) {
-      ${SITE_MUTATION_RESULT_FIELDS}
+      ${SITE_FIELDS}
     }
   }
 `;

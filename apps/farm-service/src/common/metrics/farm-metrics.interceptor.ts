@@ -139,12 +139,6 @@ const SETUP_OPERATION_SURFACES: Readonly<Record<string, string>> = {
   farm: 'legacy_farms',
   ponds: 'legacy_ponds',
   pond: 'legacy_ponds',
-
-  updateSentinelHubCredentials: 'sentinel_settings',
-  deleteSentinelHubCredentials: 'sentinel_settings',
-  sentinelHubStatus: 'sentinel_settings',
-  sentinelHubCredentials: 'sentinel_settings',
-  isSentinelHubConfigured: 'sentinel_settings',
 };
 
 @Injectable()

@@ -11,8 +11,8 @@
     "per_run": 0.5
   },
   "circuit_breaker": {
+    "_doc": "ORPHAN-MEDIUM-483 / RC-4 — failure_window_hours is DELIBERATELY ABSENT. It is derived as minimum_window_hours(failure_threshold) = threshold x cadence + cadence, so for threshold 3 on the nightly's 24h cadence the window is 96. This file used to ship the literal 72, which is exactly the boundary the derivation exists to forbid: failures land at t=0/24/48 and the gate reads at t=72, so a 72h window puts the oldest failure on the edge and ±30min of cron jitter flips the verdict. Worse, the loader silently widened 72 to 96, so this file documented a number the code refused to honour and an operator reading it learned the wrong thing about their own breaker. Setting the key here again, or below the floor in an override, is now REFUSED with both numbers named rather than silently corrected.",
     "failure_threshold": 3,
-    "failure_window_hours": 72,
     "auto_downgrade_to": "strict"
   },
   "agent_request_anchor": {

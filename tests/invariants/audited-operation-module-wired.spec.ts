@@ -115,7 +115,10 @@ function listDecoratorUsageServices(): Set<string> {
     if (!src.includes('@AuditedOperation(')) continue;
     // Path shape: apps/<service>/src/...
     const match = rel.match(/^apps\/([^/]+)\//);
-    if (match) services.add(match[1]);
+    const service = match?.[1];
+    // ORPHAN-HIGH-507 — guarded, not asserted: a capture the regex matched
+    // but did not bind must skip the row, never crash the invariant.
+    if (service !== undefined) services.add(service);
   }
   return services;
 }

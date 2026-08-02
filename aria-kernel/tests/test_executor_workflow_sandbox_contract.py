@@ -68,6 +68,77 @@ def _workflows_invoking(executor: str) -> list[Path]:
     ]
 
 
+# `uses: ./.github/actions/<name>` — a composite action living in this repo.
+_LOCAL_ACTION_USES = re.compile(r"^\s*(?:-\s*)?uses:\s*(\./[^\s#]+)", re.MULTILINE)
+
+
+def containment_text(workflow: Path) -> str:
+    """What the RUNNER executes for this workflow, composite actions included.
+
+    RC-9 moved the install + verify pair out of two workflows and into
+    `.github/actions/ensure-sandbox-backend`, because two hand-copied
+    copies of a safety step is how the two lanes drift. This contract
+    then failed both workflows — correctly, on its own terms: neither
+    file declared containment any more.
+
+    Forcing the steps back inline to satisfy the gate would be the tail
+    wagging the dog: the gate exists to ensure the JOB has containment,
+    and a composite action the job `uses:` is part of that job. So the
+    contract now follows local `uses: ./...` references and reads the
+    action's steps as what they are — steps this workflow runs.
+
+    Deliberately NOT recursive and deliberately local-only: a third-party
+    `uses:` is pinned by SHA and reviewed as a dependency, and following
+    it would mean asserting containment on code this repo does not own.
+    """
+    text = workflow.read_text(encoding="utf-8")
+    parts = [executable_yaml(text)]
+    for match in _LOCAL_ACTION_USES.finditer(text):
+        action_dir = _REPO_ROOT / match.group(1)[2:]
+        for filename in ("action.yml", "action.yaml"):
+            action = action_dir / filename
+            if action.is_file():
+                parts.append(executable_yaml(action.read_text(encoding="utf-8")))
+                break
+    return "\n".join(parts)
+
+
+def enclosing_step(text: str, position: int) -> str:
+    """The YAML step containing ``position``, found by indentation.
+
+    Pre-RC-9 this was `text.rfind("\\n      - name:")` — the exact indent a
+    step has inside a workflow job. A composite action indents its steps
+    two levels less, so against an action the search found nothing, the
+    "step" became the whole file, and the `continue-on-error: true` on an
+    unrelated step read as if it were on the verification step. The
+    boundary is a step marker at ANY indent, and the step ends at the
+    next marker at the SAME indent.
+    """
+    lines = text.splitlines(keepends=True)
+    offsets: list[int] = []
+    running = 0
+    for line in lines:
+        offsets.append(running)
+        running += len(line)
+    index = max(i for i, offset in enumerate(offsets) if offset <= position)
+
+    marker = re.compile(r"^(\s*)-\s+(name|uses|run|id):")
+    start = 0
+    indent = ""
+    for i in range(index, -1, -1):
+        found = marker.match(lines[i])
+        if found:
+            start, indent = i, found.group(1)
+            break
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        found = marker.match(lines[i])
+        if found and found.group(1) == indent:
+            end = i
+            break
+    return "".join(lines[start:end])
+
+
 class ExecutorWorkflowSandboxContract(unittest.TestCase):
     def test_i_sbx_04_executor_enumeration_matches_the_repo(self) -> None:
         """The covered set must not silently fall behind the repo."""
@@ -135,8 +206,9 @@ class ExecutorWorkflowSandboxContract(unittest.TestCase):
                 checked += 1
                 # ORPHAN-MEDIUM-458 — comments stripped before matching, so
                 # the assertions below read what the runner executes rather
-                # than what the file says about itself.
-                text = executable_yaml(workflow.read_text(encoding="utf-8"))
+                # than what the file says about itself. RC-9 — and composite
+                # actions the workflow `uses:` are part of what it executes.
+                text = containment_text(workflow)
                 # Deliberately not assertRegex: it embeds the entire workflow in
                 # the failure message, which buries the one sentence a reader
                 # needs. A gate whose failure output is unreadable gets skipped.
@@ -163,15 +235,23 @@ class ExecutorWorkflowSandboxContract(unittest.TestCase):
         )
 
     def test_i_sbx_03_the_assertion_is_not_advisory(self) -> None:
-        """A verification step that cannot fail verifies nothing."""
+        """A verification step that cannot fail verifies nothing.
+
+        Scoped to the step that CALLS `sandbox_backend()`, not to the job.
+        RC-9's composite action marks its apt-get install
+        `continue-on-error: true` on purpose — a host with no apt egress
+        must reach the verify step and get its named cause, rather than
+        dying inside apt and reporting "exit 100". Tolerating a failed
+        install is not the same as tolerating a failed verification, and
+        this assertion is about the second one.
+        """
+        checked = 0
         for executor in WRITE_CAPABLE_EXECUTORS:
             for workflow in _workflows_invoking(executor):
-                text = workflow.read_text(encoding="utf-8")
+                text = containment_text(workflow)
                 for match in _ASSERT_PATTERN.finditer(text):
-                    # Look back to the enclosing step and forward to the next one.
-                    start = text.rfind("\n      - name:", 0, match.start())
-                    end = text.find("\n      - name:", match.end())
-                    step = text[start if start >= 0 else 0: end if end >= 0 else len(text)]
+                    checked += 1
+                    step = enclosing_step(text, match.start())
                     with self.subTest(workflow=workflow.name):
                         self.assertNotIn(
                             "continue-on-error: true", step,
@@ -181,6 +261,12 @@ class ExecutorWorkflowSandboxContract(unittest.TestCase):
                                 "then ignored"
                             ),
                         )
+        self.assertGreater(
+            checked, 0,
+            "no sandbox_backend() call was found in any dispatching workflow or the "
+            "composite actions it uses — this assertion passed vacuously, which is "
+            "how it survived RC-9 moving the verify step into a composite action",
+        )
 
 
 if __name__ == "__main__":

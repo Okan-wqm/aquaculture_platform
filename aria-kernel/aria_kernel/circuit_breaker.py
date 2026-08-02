@@ -152,16 +152,12 @@ def _load_breaker_policy(base_dir: str | Path) -> tuple[int, int]:
         window_hours = int(block.get("failure_window_hours", _DEFAULT_FAILURE_WINDOW_HOURS))
     except (TypeError, ValueError):
         window_hours = _DEFAULT_FAILURE_WINDOW_HOURS
-    if window_hours <= 0:
-        window_hours = _DEFAULT_FAILURE_WINDOW_HOURS
-    # An override narrower than threshold x cadence puts the oldest failure on
-    # the window edge at the next night's gate, which is the ORPHAN-MEDIUM-483
-    # coin-flip. Widen to the derived floor rather than honouring a value that
-    # makes the breaker non-deterministic; the breaker failing OPEN on jitter is
-    # the outcome this whole finding exists to prevent.
-    floor = _minimum_window_hours(threshold)
-    if window_hours < floor:
-        window_hours = floor
+    # RC-4 — the floor is no longer applied here. `circuit_breaker_policy`
+    # REFUSES a below-floor window (naming both numbers) instead of silently
+    # widening it, so by the time the block arrives the value is already known
+    # good. Re-applying the floor here would restore the silence one layer down
+    # and give the block two validation sites that can disagree — the exact
+    # duplication ORPHAN-MEDIUM-483 was closed to remove.
     return threshold, window_hours
 
 
@@ -509,6 +505,154 @@ def reset_breaker(
     return {"status": "ok"}
 
 
+def _quarantine_path(root: Path) -> Path:
+    return _failures_path(root).with_suffix(".quarantine.jsonl")
+
+
+def quarantine_breaker_evidence(
+    *,
+    base_dir: str | Path,
+    operator_approval_ref: str,
+    reason: str,
+) -> dict[str, Any]:
+    """RC-6 — set damaged ledger rows aside so the SURVIVING evidence can be judged.
+
+    THE DEFECT. ``evaluate_breaker`` decides ``evidence_incomplete`` before the
+    threshold comparison, and rightly: unreadable evidence must not read as
+    permissive (ORPHAN-CRITICAL-418). But ``dropped_rows`` is a count of lines
+    that failed to decode, and the sliding window only ages ``rows`` — the lines
+    that decoded. A corrupt line therefore never ages out. One truncated row in
+    ``autonomous-failures.jsonl`` trips the breaker for every subsequent nightly
+    ``standard`` cycle, permanently, and the ledger travels between runs inside
+    the ``aria-tools-state`` artifact, so the only lever was deleting that
+    artifact — which also destroys the agent queue ORPHAN-CRITICAL-469 exists to
+    carry.
+
+    An unexitable safety state is an outage, not a safety property. Exiting it,
+    though, must not mean discarding evidence — so this is deliberately NOT a
+    reset:
+
+      * :func:`reset_breaker` means "investigated, resolved, clean slate": it
+        truncates the whole ledger and sets the state file to ok.
+      * this operation means "the ledger is damaged": it preserves every
+        decodable row, moves only the undecodable ones to a sidecar, and does
+        NOT touch the state file. The breaker re-derives from the survivors and
+        stays tripped if they still exceed the threshold.
+
+    So the state becomes EVALUABLE, not clear. That is the whole point, and it is
+    why this needs its own verb rather than a flag on reset.
+
+    WHY IT REFUSES ON A COUNT MISMATCH. Partitioning needs per-line decoding,
+    while the breaker's own verdict comes from ``read_strict_jsonl``. If those
+    two disagree about how many rows are decodable, then repairing on this
+    function's notion of "decodable" would rewrite the ledger against a
+    different definition than the evaluator uses — two sites disagreeing about
+    one file, which is the defect class this branch exists to close. The
+    disagreement is reported with both counts instead.
+    """
+    if not (operator_approval_ref or "").strip():
+        raise GovernanceError("circuit_breaker_quarantine_requires_approval_ref")
+    if not (reason or "").strip():
+        raise GovernanceError("circuit_breaker_quarantine_requires_reason")
+
+    root = ensure_tools_dir(base_dir)
+    failures_path = _failures_path(root)
+    if not failures_path.exists():
+        return {"status": "no_op", "reason": "no_failure_ledger", "quarantined": 0}
+
+    evidence = _read_failures_evidence(root)
+    if evidence.unreadable:
+        # The file itself cannot be read — a permissions or IO fault, not row
+        # damage. Rewriting it here would be writing over something we could not
+        # read, so this refuses and names the read error.
+        raise GovernanceError(
+            "circuit_breaker_quarantine_ledger_unreadable: "
+            f"{evidence.read_error} — fix the file access fault first; "
+            "quarantine repairs ROW damage, not an unreadable ledger"
+        )
+    if not evidence.dropped_rows:
+        return {"status": "no_op", "reason": "no_damaged_rows", "quarantined": 0}
+
+    raw_lines = [
+        line
+        for line in failures_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    kept: list[str] = []
+    damaged: list[str] = []
+    for line in raw_lines:
+        try:
+            parsed = json.loads(line)
+        except (ValueError, TypeError):
+            damaged.append(line)
+            continue
+        if isinstance(parsed, dict):
+            kept.append(line)
+        else:
+            # A valid JSON scalar or array is still not a failure row; the
+            # authoritative reader filters on `isinstance(row, dict)` too.
+            damaged.append(line)
+
+    if len(kept) != len(evidence.rows):
+        raise GovernanceError(
+            "circuit_breaker_quarantine_partition_disagrees_with_reader: "
+            f"per-line decode kept {len(kept)} row(s) while the breaker's reader "
+            f"decoded {len(evidence.rows)}. Refusing to rewrite the ledger "
+            "against a different definition of decodable than the evaluator uses."
+        )
+
+    stamped = _utc_now_iso()
+    quarantine_path = _quarantine_path(root)
+    with quarantine_path.open("a", encoding="utf-8") as sidecar:
+        sidecar.write(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "quarantined_at": stamped,
+                    "operator_approval_ref": operator_approval_ref,
+                    "reason": reason,
+                    "damaged_row_count": len(damaged),
+                    "surviving_row_count": len(kept),
+                },
+                sort_keys=True,
+            )
+            + "\n",
+        )
+        for line in damaged:
+            # Verbatim, so the evidence is preserved exactly as it was found.
+            # A "repaired" copy would destroy the only record of what happened.
+            sidecar.write(json.dumps({"quarantined_at": stamped, "raw": line}) + "\n")
+
+    failures_path.write_text(
+        "".join(f"{line}\n" for line in kept),
+        encoding="utf-8",
+    )
+
+    append_tools_governance(
+        root,
+        "circuit_breaker_evidence_quarantined",
+        {
+            "operator_approval_ref": operator_approval_ref,
+            "reason": reason,
+            "damaged_row_count": len(damaged),
+            "surviving_row_count": len(kept),
+            "quarantine_path": str(quarantine_path.relative_to(root)),
+        },
+    )
+
+    verdict = evaluate_breaker(root)
+    return {
+        "status": "ok",
+        "quarantined": len(damaged),
+        "surviving": len(kept),
+        "quarantine_path": str(quarantine_path),
+        # Reported so the operator sees immediately that quarantine did not
+        # clear anything by itself.
+        "breaker_state_after": verdict.state,
+        "breaker_reason_after": verdict.reason,
+    }
+
+
 def assert_within_breaker(base_dir: str | Path) -> dict[str, Any]:
     """Plan ARIA-V3 §B2 — call BEFORE entering the autonomous path.
     Raises ``GovernanceError`` when the breaker is tripped.
@@ -551,5 +695,6 @@ __all__ = [
     "evaluate_breaker",
     "record_attempt_started",
     "record_failure",
+    "quarantine_breaker_evidence",
     "reset_breaker",
 ]

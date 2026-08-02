@@ -1,0 +1,131 @@
+name: ARIA runner capability probe
+
+# RC-9 step 0. A DIAGNOSTIC, not a gate: it changes nothing and blocks nothing.
+#
+# WHY IT EXISTS. Both ARIA lanes need a working sandbox backend, and the design
+# for how to provision one branches on facts nobody currently has:
+#
+#   * image/setup changeable  -> bubblewrap becomes a runner PRECONDITION, the
+#     workflows stop installing it, and preflight asserts a verified backend;
+#   * sudo available, image not ours -> the install stays but must be idempotent
+#     and its failure must route into a named preflight reason (this half is
+#     already done — see .github/actions/ensure-sandbox-backend);
+#   * no sudo / no apt -> a user-space backend (vendored static bwrap), with a
+#     write-capable spawn refused outright when no backend verifies.
+#
+# Choosing between those from guesswork would mean rewriting the provisioning
+# path twice. This reports the facts instead, into a governance row, so the
+# choice is made from evidence.
+#
+# IT DEDUCES NOTHING IT CANNOT OBSERVE. Each check prints what it ran and what
+# came back; none of them infer a cause from a symptom. `bubblewrap installs but
+# every invocation fails` and `bubblewrap is absent` produce different lines,
+# because conflating them is what made the current failure mode read as an agent
+# problem rather than a host one.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner_label:
+        description: 'Runner label set to probe (comma-separated).'
+        required: false
+        default: 'self-hosted,linux,claude'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    # Deliberately NOT parameterised by the input at the `runs-on` level: GitHub
+    # resolves runs-on before inputs are usable in every context, so the label
+    # set is pinned here and the input is recorded in the report for the
+    # operator to compare against.
+    runs-on: [self-hosted, linux, claude]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        # SEC-CI-002: pinned to SHA
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Report host capabilities
+        shell: bash
+        env:
+          # Passed through the environment rather than interpolated into the
+          # script. `${{ inputs.x }}` inside `run:` splices operator-supplied
+          # text into the shell before bash ever sees it, so a label containing
+          # `"; rm -rf …` would execute. This is the same rule
+          # aria-workflow-input-injection.spec.ts enforces; my first draft of
+          # this file used the interpolated form and the invariant did not catch
+          # it, because it matched only the older `github.event.inputs.` spelling
+          # — fixed in the same change as this workflow.
+          REQUESTED_LABELS: ${{ inputs.runner_label }}
+        run: |
+          # No `set -e`: every probe must run even when an earlier one fails.
+          # A probe that stops at the first missing capability reports one fact
+          # and hides the rest, which is the opposite of its purpose.
+          echo "=== requested label set ==============================="
+          echo "${REQUESTED_LABELS}"
+
+          echo "=== identity =========================================="
+          echo "user=$(id -un 2>/dev/null) uid=$(id -u 2>/dev/null)"
+          echo "kernel=$(uname -r 2>/dev/null)"
+          if [ -r /etc/os-release ]; then . /etc/os-release; echo "os=${PRETTY_NAME:-unknown}"; fi
+
+          echo "=== passwordless sudo ================================="
+          if sudo -n true 2>/dev/null; then
+            echo "sudo_nonint=yes"
+          else
+            echo "sudo_nonint=no  (an apt install cannot run unattended here)"
+          fi
+
+          echo "=== apt reachability =================================="
+          if command -v apt-get >/dev/null 2>&1; then
+            echo "apt_get=present"
+            if sudo -n apt-get update -qq >/dev/null 2>&1; then
+              echo "apt_update=ok"
+            else
+              echo "apt_update=failed  (no egress, no sudo, or no configured source)"
+            fi
+          else
+            echo "apt_get=absent"
+          fi
+
+          echo "=== existing sandbox binaries ========================="
+          for tool in bwrap firejail; do
+            path="$(command -v "$tool" 2>/dev/null || true)"
+            if [ -n "$path" ]; then
+              echo "${tool}=${path}"
+            else
+              echo "${tool}=absent"
+            fi
+          done
+
+          echo "=== unprivileged user namespaces ======================"
+          # The capability bubblewrap actually needs. A host can carry the
+          # binary and still refuse every invocation, which is exactly the case
+          # the workflows' verify step exists to catch.
+          for knob in /proc/sys/kernel/unprivileged_userns_clone \
+                      /proc/sys/user/max_user_namespaces; do
+            if [ -r "$knob" ]; then
+              echo "$(basename "$knob")=$(cat "$knob" 2>/dev/null)"
+            else
+              echo "$(basename "$knob")=unreadable"
+            fi
+          done
+
+          echo "=== what the kernel itself reports ===================="
+          # The authoritative answer: the same accessor the runtime uses to
+          # decide whether a write-capable spawn is permitted. Reported last so
+          # the lines above explain whatever it says.
+          PYTHONPATH=aria-kernel python3 - <<'PY' || echo "sandbox_backend=probe_failed"
+          from aria_kernel.implementation_safety import sandbox_backend
+
+          backend = sandbox_backend()
+          print(f"sandbox_backend={backend if backend else 'none'}")
+          PY
+
+          echo "======================================================="
+          echo "Compare against RC-9's three branches; the design follows the"
+          echo "facts above rather than choosing one and hoping."

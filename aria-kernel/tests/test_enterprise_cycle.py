@@ -944,31 +944,37 @@ class EnterpriseCycleTests(unittest.TestCase):
           - integrity recognises `aborted` as a terminal event
           - the (event, status) discriminated union is consistent.
         """
-        from aria_kernel import cycle as cycle_module
-
-        # Inject a failed pre-phase by patching _run_extended_phases.
-        # The cycle's contract is "if any pre-phase result has
-        # status='failed'/'blocked'/'regression', abort"; this test
-        # pins that contract end-to-end against the persistent ledger.
-        def fake_run_extended_phases(**kwargs):
-            return {
-                "architecture_baseline": {
-                    "status": "failed",
-                    "reason": "fixture-injected baseline failure",
-                },
-            }
-
-        with patch.object(
-            cycle_module,
-            "_run_extended_phases",
-            side_effect=fake_run_extended_phases,
+        # RC-1 — the pre-tool phase is `architecture_baseline`, a row in
+        # CYCLE_PHASES rather than something a caller opts into, so the
+        # deleted `_run_extended_phases` is no longer the injection point.
+        # The contract under test is unchanged: a pre-tool phase reporting
+        # failed / blocked / regression aborts the cycle before tools
+        # dispatch, and the ledger's terminal row says `aborted`.
+        #
+        # Injected at `take_baseline`, the gate primitive the phase runner
+        # calls, NOT at the runner itself. Patching `cycle._phase_...`
+        # would be inert: CYCLE_PHASES captured the function object at
+        # import, so rebinding the module attribute changes nothing the
+        # driver reads — a patch that silently does nothing while the test
+        # around it goes green is the ORPHAN-HIGH-499 shape.
+        #
+        # `plan_id` is supplied because the phase's precondition is
+        # PLAN_ID_PRESENT; without one the phase records a skip and never
+        # reaches the injected failure, which is itself behaviour the
+        # collapse made visible.
+        with patch(
+            "aria_kernel.architecture_spine_gate.take_baseline",
+            return_value={
+                "status": "failed",
+                "reason": "fixture-injected baseline failure",
+            },
         ):
             result = run_cycle(
                 workspace_root=self.root,
                 cycle_id="cycle-pre-phase-abort",
                 base_dir=self.tools_dir,
                 shadow_only=True,
-                pre_tool_phases=("architecture_baseline",),
+                plan_id="PLAN-PRE-PHASE-ABORT",
             )
         self.assertEqual(result["status"], "aborted")
         self.assertEqual(result["aborted_by_phase"], "architecture_baseline")

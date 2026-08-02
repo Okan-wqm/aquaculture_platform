@@ -51,6 +51,59 @@ const LOCAL_COUNTERPARTS: Record<string, readonly string[]> = {
   'format check-changed': ['format check-staged', 'format check-changed'],
 };
 
+/**
+ * CI gates that are plain scripts rather than `quality.mjs` subcommands, and
+ * which a local hook must also run.
+ *
+ * WHY THIS LIST EXISTS AT ALL, and why it is short. The first version of this
+ * spec only understood `quality.mjs` gates, so it enforced parity for exactly
+ * one family and silently ignored every other kind of CI gate — the same shape
+ * as ORPHAN-HIGH-507's hardcoded root list, one layer up. A parity invariant
+ * that covers one gate family teaches its readers that parity is enforced.
+ *
+ * It is a declared list rather than "every script any workflow runs" on purpose:
+ * most CI steps (builds, uploads, container setup) have no business in a git
+ * hook, and asserting they do would make the invariant noise. What belongs here
+ * is a gate that REFUSES a change on a property a developer could have checked
+ * locally. Adding one is a review event, which is the point.
+ */
+interface ScriptGate {
+  /** The token that identifies this gate inside a workflow file. */
+  readonly ci: string;
+  /** The token that identifies its mirror inside a hook. */
+  readonly local: string;
+  readonly why: string;
+}
+
+/**
+ * WHY `ci` AND `local` ARE SEPARATE FIELDS. The first version keyed this map by
+ * one path and demanded that same string appear in both a workflow and a hook.
+ * That silently limited the invariant to gates whose CI and local forms are
+ * spelled identically — and the gate that mattered most was not one of them.
+ * CI runs the ARIA kernel suite as `npm run aria:test:unit`; a hook cannot
+ * mirror that verbatim, because unconditionally paying 215 seconds on every push
+ * is how a gate gets bypassed. Its mirror is a scoped wrapper with a different
+ * name, and a same-string rule would have reported parity for a gate with no
+ * local counterpart at all — which is precisely the state that let a red commit
+ * reach origin (ORPHAN-HIGH-510).
+ */
+const SCRIPT_GATES: readonly ScriptGate[] = [
+  {
+    ci: 'scripts/ci/type-check-changed-files.mjs',
+    local: 'scripts/ci/type-check-changed-files.mjs',
+    why:
+      'the changed-file type gate — caught a noUncheckedIndexedAccess error in #1024 ' +
+      'that no local hook could have, because none type-checked anything',
+  },
+  {
+    ci: 'aria:test:unit',
+    local: 'scripts/ci/aria-suite-changed.mjs',
+    why:
+      'the ARIA kernel suite — RC-9 was committed and pushed with four of its tests ' +
+      'red because both hooks were green and neither ran a line of Python',
+  },
+];
+
 function packageJson(): {
   scripts?: Record<string, string>;
 } {
@@ -156,5 +209,38 @@ describe('git hook binding', () => {
     );
 
     expect(unmirrored).toEqual([]);
+  });
+
+  it('mirrors the script-based CI gates a developer could run locally', () => {
+    // The generalisation of the test above. Matched on the script PATH rather
+    // than on a command line, so a hook that calls it with different arguments
+    // than CI does still counts as the mirror — pre-push legitimately passes
+    // `--base origin/main` where CI passes the PR base ref.
+    const hooks = readdirSync(HUSKY_DIR)
+      .filter((n) => !n.startsWith('_'))
+      .map((name) => join(HUSKY_DIR, name))
+      .filter((path) => statSync(path).isFile())
+      .map((path) =>
+        readFileSync(path, 'utf8')
+          .split('\n')
+          .filter((line) => !/^\s*#/.test(line))
+          .join('\n'),
+      )
+      .join('\n');
+
+    const workflows = readdirSync(WORKFLOW_DIR)
+      .filter((n) => /\.ya?ml$/.test(n))
+      .map((name) => readFileSync(join(WORKFLOW_DIR, name), 'utf8'))
+      .join('\n');
+
+    const missing: Record<string, string> = {};
+    for (const gate of SCRIPT_GATES) {
+      // Only demand a mirror for a gate CI actually runs. A declared gate that
+      // left CI is a different defect and would be a misleading failure here.
+      if (!workflows.includes(gate.ci)) continue;
+      if (!hooks.includes(gate.local)) missing[gate.ci] = gate.why;
+    }
+
+    expect(missing).toEqual({});
   });
 });

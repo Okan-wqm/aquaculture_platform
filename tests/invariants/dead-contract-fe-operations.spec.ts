@@ -37,7 +37,12 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
-import { scanDeadContracts, deadContractKey } from './lib/dead-contract-scan';
+import {
+  scanDeadContracts,
+  deadContractKey,
+  type OperationConst,
+  type OperationKind,
+} from './lib/dead-contract-scan';
 
 const REPO_ROOT = join(__dirname, '..', '..');
 const BASELINE_PATH = join(
@@ -45,17 +50,48 @@ const BASELINE_PATH = join(
   'dead-contract-fe-operations.baseline.json',
 );
 
-interface BaselineEntry {
-  id: string;
-  file: string;
-  kind: string;
+/**
+ * ORPHAN-HIGH-507 — `kind` is the scanner's union, not a bare string.
+ *
+ * It was typed `string`, which made every `deadContractKey(entry)` call a type
+ * error, and the tempting fixes were a cast at each call site or widening
+ * `deadContractKey` to accept `string`. Both push the problem outward: the
+ * baseline file is GENERATED from `OperationConst`s, so its `kind` values really
+ * are the union — declaring `string` was the lie, not the mismatch.
+ *
+ * The type is therefore earned at the trust boundary instead of asserted: this
+ * file is untrusted JSON on disk, so `loadBaseline` VALIDATES each entry and
+ * fails loudly on anything else. A hand-edited baseline with `kind: "mutaton"`
+ * now names itself at load time rather than silently failing to match a key and
+ * quietly shrinking the ratchet.
+ */
+type BaselineEntry = Pick<OperationConst, 'id' | 'file' | 'kind'>;
+
+const OPERATION_KINDS: readonly OperationKind[] = ['mutation', 'query', 'subscription'];
+
+function isBaselineEntry(value: unknown): value is BaselineEntry {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.id === 'string' &&
+    typeof candidate.file === 'string' &&
+    typeof candidate.kind === 'string' &&
+    (OPERATION_KINDS as readonly string[]).includes(candidate.kind)
+  );
 }
 
 function loadBaseline(): BaselineEntry[] {
-  const raw = JSON.parse(readFileSync(BASELINE_PATH, 'utf8')) as {
-    entries: BaselineEntry[];
-  };
-  return raw.entries;
+  const raw = JSON.parse(readFileSync(BASELINE_PATH, 'utf8')) as { entries?: unknown };
+  const entries = Array.isArray(raw.entries) ? raw.entries : [];
+  const invalid = entries.filter((entry) => !isBaselineEntry(entry));
+  if (invalid.length > 0) {
+    throw new Error(
+      `dead-contract baseline has ${invalid.length} malformed entr(ies); ` +
+        `each needs id, file and kind in ${OPERATION_KINDS.join('|')}: ` +
+        JSON.stringify(invalid.slice(0, 3)),
+    );
+  }
+  return entries.filter(isBaselineEntry);
 }
 
 describe('FE dead-contract ratchet invariant', () => {

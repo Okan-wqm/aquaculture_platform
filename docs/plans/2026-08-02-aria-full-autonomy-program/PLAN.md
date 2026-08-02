@@ -3,7 +3,7 @@
 - **Plan date:** 2026-08-02
 - **Owner:** okan
 - **Audit baseline:** `main@7e1563e6` (ARIA kernel surfaces byte-identical to `f723a488`, the external review's reference)
-- **Design source:** operator design document "ARIA Tam Otonom Yazılım Ekibi Tasarımı" (47 sections, 2026-08-02) — target state is its §47 *Final Definition of Done*
+- **Design source:** operator design document "ARIA Tam Otonom Yazılım Ekibi Tasarımı" (47 sections, 2026-08-02) — target state is its §47 _Final Definition of Done_
 - **Supersedes:** `docs/plans/2026-07-26-aria-software-team-program/PLAN.md` (stage map below); that plan's registered findings remain authoritative in the registry
 - **Status:** Wave R in progress
 - **Revision 2 (2026-08-02):** operator asked for a second pass over the design
@@ -76,12 +76,12 @@ genesis/eval/quarantine skeleton; watchdog + circuit breaker; profile/ladder.
 
 ## 3. Operator decisions (recorded 2026-08-02)
 
-| Decision | Choice |
-|---|---|
-| Canonical state store | Dedicated orphan git branch **`aria/state`** (hash-chained JSONL segments + signed snapshot manifests, fast-forward-only push as CAS); the Actions artifact is demoted to cache |
-| Open ARIA PRs | Land **#1041** first (rebased/merged with main); close **#936** as superseded — autonomous mode is rebuilt on the Mission + signed-permit architecture |
-| Merge-autonomy activation | **Staged automatic promotion** (§44.1 rungs); each promotion is decided by the executable acceptance suite + outcome thresholds, not per-task human approval |
-| Runtime signal sources (first) | **GitHub-native + operator CLI** (Actions failures, deploy workflow results, main CI status); Prometheus/Sentry connectors are a later phase |
+| Decision                       | Choice                                                                                                                                                                          |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Canonical state store          | Dedicated orphan git branch **`aria/state`** (hash-chained JSONL segments + signed snapshot manifests, fast-forward-only push as CAS); the Actions artifact is demoted to cache |
+| Open ARIA PRs                  | Land **#1041** first (rebased/merged with main); close **#936** as superseded — autonomous mode is rebuilt on the Mission + signed-permit architecture                          |
+| Merge-autonomy activation      | **Staged automatic promotion** (§44.1 rungs); each promotion is decided by the executable acceptance suite + outcome thresholds, not per-task human approval                    |
+| Runtime signal sources (first) | **GitHub-native + operator CLI** (Actions failures, deploy workflow results, main CI status); Prometheus/Sentry connectors are a later phase                                    |
 
 ## 4. Program principles
 
@@ -119,7 +119,7 @@ genesis/eval/quarantine skeleton; watchdog + circuit breaker; profile/ladder.
   human-owned infra prerequisite, tracked as debt.
 - **ARIA ownership of §35 aquaculture domain invariants:** biology/tenant
   business rules belong to the platform's own invariant suites and the
-  Lane-A/B domain agents. ARIA verifies their *existence and coverage* (twin
+  Lane-A/B domain agents. ARIA verifies their _existence and coverage_ (twin
   TESTED_BY), it does not own the rules — duplicate ownership is exactly what
   the repo's retired-roster rule forbids.
 - **The design's §40 module tree as a file plan** — flat evolution instead.
@@ -178,6 +178,7 @@ for `state_continuity` (W2), `mission_reconcile`/`mission_ingest`/
 `failure_policy="halt_integrate_chain"`.
 
 Key rulings:
+
 - `pr_lifecycle` is gated by `ACTION_PERMISSIONS["pr_open"]` (**not**
   `PROFILES_WITH_ACTION_AUTHORITY` — that would fail every `standard` nightly);
   under `standard` it runs dry-run (making the breaker's only
@@ -351,7 +352,7 @@ one `lifecycle_common.py` SSoT; separate ledgers remain). Reuse-first
 capability search (`agent_priors` scope-glob overlap) becomes a mandatory step
 before genesis (§43 scenario 31). Real eval mode unlocked (closes
 DEBT-2026-05-08-001) with the existing provenance binding.
-`IMMUTABLE_AGENT_FILE_HASH_REGISTRY` populated (18 aria-* files hash-pinned;
+`IMMUTABLE_AGENT_FILE_HASH_REGISTRY` populated (18 aria-\* files hash-pinned;
 changes route through evaluator_integrity). Eval Lab: whole-cycle historical
 replay harness seeded from `run_cycle_acceptance`; prompt-injection +
 permission-escalation fixture corpora (§43 scenarios 13, 14, 15). Mission
@@ -473,14 +474,14 @@ passes.
 
 ## 6. Supersession map (2026-07-26 program → this program)
 
-| 2026-07-26 stage | Status there | Lands here |
-|---|---|---|
-| S0 Containment | blocked (sandbox reality) | Wave R item 4 + Wave 0 executor lane |
-| S1 Draft-PR capable | not started | Waves 0 + 1 |
-| S2 Supervised merge | not started | Wave 8 |
-| S3 Autonomous merge | not started | Wave 11 activation |
-| S4 Deploy/canary/rollback | not started | Wave 9 |
-| S5 Institutional memory | not started | Wave 2 |
+| 2026-07-26 stage          | Status there              | Lands here                           |
+| ------------------------- | ------------------------- | ------------------------------------ |
+| S0 Containment            | blocked (sandbox reality) | Wave R item 4 + Wave 0 executor lane |
+| S1 Draft-PR capable       | not started               | Waves 0 + 1                          |
+| S2 Supervised merge       | not started               | Wave 8                               |
+| S3 Autonomous merge       | not started               | Wave 11 activation                   |
+| S4 Deploy/canary/rollback | not started               | Wave 9                               |
+| S5 Institutional memory   | not started               | Wave 2                               |
 
 Registered findings from that program (ORPHAN-417..499 etc.) stay authoritative;
 open ones become mission sources in Wave 1's backlog ingest.

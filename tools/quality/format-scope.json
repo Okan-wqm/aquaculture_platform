@@ -31447,6 +31447,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-08-02-aria-full-autonomy-program/PLAN.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/multi-agent-architecture.md",
       "prettier_managed": true
     },
@@ -56076,10 +56082,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9195,
+  "file_count": 9196,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9014,
-  "managed_file_list_sha256": "6f4078de662af49a266c6077e41f34228b86539a44646de1a7e8e365b9c96866",
+  "managed_count": 9015,
+  "managed_file_list_sha256": "53c9acdb57bce803e6fa2d03ce3e305c9350f7c231da944493ae92aaa7d9137f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

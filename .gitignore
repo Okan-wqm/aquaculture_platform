@@ -264,6 +264,11 @@ aria-tools/budget/
 aria-tools/locks/
 aria-tools/preflight/
 aria-findings/
+# Per-cycle ed25519 signing keys + scoped-token files minted by
+# gh_token_factory under profile=autonomous. PRIVATE KEY MATERIAL -
+# never stageable; aria-debts/ itself stays tracked (debt JSONs).
+# ORPHAN-HIGH-518 (salvaged from PR #936's branch-local ORPHAN-HIGH-334).
+aria-debts/keys/
 
 # Plan ARIA-V4 §2e — inter-agent question envelope ledger. Hash-
 # chained (gitignored per V2 I-23 update); operator-local audit

@@ -40,10 +40,10 @@ stays conservatively open for that lane.
 
 ### Program metrics (baseline at Wave R close)
 
-| Metric | Value |
-| --- | --- |
-| Mission loss | n/a (mission layer lands in Wave 2) |
-| Unauthorized merges | 0 |
-| Registry chain | valid, 1326 entries |
-| Open ORPHAN findings feeding the backlog | 104 |
-| Waves complete | R (0-11 pending) |
+| Metric                                   | Value                               |
+| ---------------------------------------- | ----------------------------------- |
+| Mission loss                             | n/a (mission layer lands in Wave 2) |
+| Unauthorized merges                      | 0                                   |
+| Registry chain                           | valid, 1326 entries                 |
+| Open ORPHAN findings feeding the backlog | 104                                 |
+| Waves complete                           | R (0-11 pending)                    |

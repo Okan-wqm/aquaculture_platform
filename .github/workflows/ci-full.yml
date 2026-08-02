@@ -193,6 +193,7 @@ jobs:
             coverage/coverage-evidence.json
             coverage/**/lcov.info
             libs/aquaculture-engines/coverage/lcov.info
+            mcp/**/coverage/lcov.info
             web/**/coverage/lcov.info
           if-no-files-found: error
           retention-days: 30

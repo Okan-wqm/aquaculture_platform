@@ -43,37 +43,100 @@ function projectRootOf(report: string): string {
     : path.dirname(path.dirname(report));
 }
 
-function testTargetOf(projectRoot: string): Record<string, unknown> | undefined {
-  const projectJsonPath = path.join(REPO_ROOT, projectRoot, 'project.json');
-  if (!fs.existsSync(projectJsonPath)) {
-    return undefined;
-  }
-  const targets = (
-    JSON.parse(fs.readFileSync(projectJsonPath, 'utf8')) as {
-      targets?: Record<string, Record<string, unknown>>;
-    }
-  ).targets;
-  return targets?.test;
+interface DeclaredTestTarget {
+  source: string;
+  target: Record<string, unknown>;
 }
-const VITEST_CONFIGS = [
-  'libs/aquaculture-engines/vitest.config.ts',
-  'web/modules/admin-panel/vite.config.ts',
-  'web/modules/dashboard/vite.config.ts',
-  'web/modules/farm-module/vite.config.ts',
-  'web/modules/hr-module/vite.config.ts',
-  'web/modules/messaging-module/vite.config.ts',
-  'web/modules/sensor-module/vite.config.ts',
-  'web/modules/tenant-admin/vite.config.ts',
-  'web/shared-ui/vitest.config.ts',
-  'web/shell/vitest.config.ts',
-];
+
+interface VitestProducer {
+  root: string;
+  config: string;
+  report: string;
+}
+
+function declaredTestTargetsOf(projectRoot: string): DeclaredTestTarget[] {
+  const declared: DeclaredTestTarget[] = [];
+  const projectJsonPath = path.join(REPO_ROOT, projectRoot, 'project.json');
+  if (fs.existsSync(projectJsonPath)) {
+    const target = (
+      JSON.parse(fs.readFileSync(projectJsonPath, 'utf8')) as {
+        targets?: Record<string, Record<string, unknown>>;
+      }
+    ).targets?.test;
+    if (target !== undefined) {
+      declared.push({ source: path.relative(REPO_ROOT, projectJsonPath), target });
+    }
+  }
+
+  const packageJsonPath = path.join(REPO_ROOT, projectRoot, 'package.json');
+  if (fs.existsSync(packageJsonPath)) {
+    const target = (
+      JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as {
+        nx?: { targets?: Record<string, Record<string, unknown>> };
+      }
+    ).nx?.targets?.test;
+    if (target !== undefined) {
+      declared.push({ source: path.relative(REPO_ROOT, packageJsonPath), target });
+    }
+  }
+
+  return declared;
+}
+
+function discoverVitestProducers(): VitestProducer[] {
+  const producers: VitestProducer[] = [];
+  const ignoredDirectories = new Set(['coverage', 'dist', 'node_modules', 'target']);
+
+  function visit(directory: string): void {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (!ignoredDirectories.has(entry.name)) {
+          visit(absolute);
+        }
+        continue;
+      }
+      if (entry.name !== 'package.json') {
+        continue;
+      }
+
+      const packageJson = JSON.parse(fs.readFileSync(absolute, 'utf8')) as {
+        scripts?: { test?: string };
+      };
+      if (!/\bvitest\b/.test(packageJson.scripts?.test ?? '')) {
+        continue;
+      }
+
+      const root = path.relative(REPO_ROOT, path.dirname(absolute));
+      const configName = ['vitest.config.ts', 'vite.config.ts'].find((candidate) =>
+        fs.existsSync(path.join(REPO_ROOT, root, candidate)),
+      );
+      if (configName === undefined) {
+        throw new Error(`${root} runs Vitest but has no Vitest/Vite config`);
+      }
+      producers.push({
+        root,
+        config: path.join(root, configName),
+        report: path.join(root, 'coverage', 'lcov.info'),
+      });
+    }
+  }
+
+  for (const scope of ['apps', 'libs', 'mcp', 'platform', 'tests', 'web']) {
+    visit(path.join(REPO_ROOT, scope));
+  }
+
+  return producers.sort((left, right) => left.root.localeCompare(right.root));
+}
+
+const VITEST_PRODUCERS = discoverVitestProducers();
 
 describe('repository-owned coverage evidence contract', () => {
   it('keeps every JS/TS coverage producer in one sorted, duplicate-free inventory', () => {
     const inventory = readInventory();
 
     expect(inventory.schema_version).toBe(1);
-    expect(inventory.reports).toHaveLength(34);
+    expect(inventory.reports).toHaveLength(35);
     expect(new Set(inventory.reports).size).toBe(inventory.reports.length);
     expect(inventory.reports).toEqual([...inventory.reports].sort());
     expect(
@@ -82,6 +145,10 @@ describe('repository-owned coverage evidence contract', () => {
           !path.isAbsolute(report) && !report.includes('..') && report.endsWith('lcov.info'),
       ),
     ).toBe(true);
+    expect(VITEST_PRODUCERS).toHaveLength(11);
+    expect(inventory.reports.filter((report) => !report.startsWith('coverage/'))).toEqual(
+      VITEST_PRODUCERS.map(({ report }) => report),
+    );
   });
 
   it('aggregates LCOV counters deterministically across source records', () => {
@@ -125,7 +192,7 @@ describe('repository-owned coverage evidence contract', () => {
       },
     });
 
-    for (const configPath of VITEST_CONFIGS) {
+    for (const { config: configPath } of VITEST_PRODUCERS) {
       const config = fs.readFileSync(path.join(REPO_ROOT, configPath), 'utf8');
       expect(config).toContain('@aquaculture/testing/vitest');
 
@@ -171,33 +238,40 @@ describe('repository-owned coverage evidence contract', () => {
     expect(first.coverage.reporter).not.toBe(second.coverage.reporter);
   });
 
-  it('lets the forwarded --coverage flag reach every producer rather than npm', () => {
+  it('keeps Vitest producers on the inferred test runner so forwarded flags reach Vitest', () => {
     // `npm run test:all -- --coverage` becomes `nx run-many --target=test --all
     // --coverage`, and Nx forwards that flag to each task. An `nx:run-commands`
-    // target APPENDS forwarded args to its command string, so a target spelled
-    // `command: "npm run test"` ran as `npm run test --coverage` — where npm
-    // reads `--coverage` as one of ITS OWN config flags and never hands it to
-    // the test runner. Eight producers therefore ran with coverage silently
-    // off and wrote no report at all, which is how the evidence gate came to
-    // fail on a run whose tests had all passed. The `--` separator is what
-    // makes an appended flag reach the script; without it, the wrapper must go
-    // and the target must be the one Nx infers from the package.json script
-    // (`nx:run-script`), which forwards options properly.
+    // target APPENDS forwarded args to its command string, so targets wrapping
+    // either `npm run test` or its `npm test` shorthand swallow `--coverage`
+    // as an npm config option. Nx also accepts a top-level `command` shorthand
+    // for that executor, and package.json can declare the same override under
+    // `nx.targets`. None of those wrappers may exist: the target Nx infers from
+    // the package.json script (`nx:run-script`) forwards options properly. A
+    // target may still add metadata such as `dependsOn` without replacing the
+    // inferred executor (admin-panel does this).
     const offenders: string[] = [];
-
-    for (const report of readInventory().reports) {
-      const projectRoot = projectRootOf(report);
-      const target = testTargetOf(projectRoot);
-      if (target === undefined) {
-        continue;
+    const targetDefault = (
+      JSON.parse(fs.readFileSync(NX_JSON_PATH, 'utf8')) as {
+        targetDefaults?: { test?: Record<string, unknown> };
       }
-      const options = (target.options ?? {}) as { command?: string; commands?: string[] };
-      const commands = [options.command, ...(options.commands ?? [])].filter(
-        (command): command is string => typeof command === 'string',
-      );
-      for (const command of commands) {
-        if (/\b(?:npm|yarn|pnpm)\s+run\b/.test(command) && !command.trimEnd().endsWith('--')) {
-          offenders.push(`${projectRoot}: ${command}`);
+    ).targetDefaults?.test;
+
+    if (targetDefault !== undefined) {
+      if ('executor' in targetDefault) {
+        offenders.push('nx.json: explicit test executor');
+      }
+      if ('command' in targetDefault) {
+        offenders.push('nx.json: explicit test command shorthand');
+      }
+    }
+
+    for (const { root: projectRoot } of VITEST_PRODUCERS) {
+      for (const { source, target } of declaredTestTargetsOf(projectRoot)) {
+        if ('executor' in target) {
+          offenders.push(`${source}: explicit test executor`);
+        }
+        if ('command' in target) {
+          offenders.push(`${source}: explicit test command shorthand`);
         }
       }
     }
@@ -217,7 +291,7 @@ describe('repository-owned coverage evidence contract', () => {
     const policyTimeout = createVitestTestPolicy().testTimeout;
     const undercuts: string[] = [];
 
-    for (const configPath of VITEST_CONFIGS) {
+    for (const { config: configPath } of VITEST_PRODUCERS) {
       const projectRoot = path.join(REPO_ROOT, path.dirname(configPath), 'src');
       if (!fs.existsSync(projectRoot)) {
         continue;
@@ -272,15 +346,17 @@ describe('repository-owned coverage evidence contract', () => {
 
     for (const report of readInventory().reports) {
       const projectRoot = projectRootOf(report);
-      const declared = testTargetOf(projectRoot)?.outputs as string[] | undefined;
-      if (declared === undefined) {
-        continue;
-      }
-      const resolved = declared.map((output) =>
-        output.replace('{workspaceRoot}/', '').replace('{projectRoot}', projectRoot),
-      );
-      if (!resolved.includes(path.dirname(report))) {
-        misdirected.push(`${projectRoot}: ${resolved.join(', ')} misses ${path.dirname(report)}`);
+      for (const { source, target } of declaredTestTargetsOf(projectRoot)) {
+        const declared = target.outputs as string[] | undefined;
+        if (declared === undefined) {
+          continue;
+        }
+        const resolved = declared.map((output) =>
+          output.replace('{workspaceRoot}/', '').replace('{projectRoot}', projectRoot),
+        );
+        if (!resolved.includes(path.dirname(report))) {
+          misdirected.push(`${source}: ${resolved.join(', ')} misses ${path.dirname(report)}`);
+        }
       }
     }
 

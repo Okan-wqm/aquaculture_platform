@@ -234,6 +234,7 @@ describe('CI Full protected-main and PR contract', () => {
         'coverage/coverage-evidence.json\n' +
         'coverage/**/lcov.info\n' +
         'libs/aquaculture-engines/coverage/lcov.info\n' +
+        'mcp/**/coverage/lcov.info\n' +
         'web/**/coverage/lcov.info\n',
       'if-no-files-found': 'error',
       'retention-days': 30,

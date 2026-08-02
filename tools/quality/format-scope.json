@@ -31477,6 +31477,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-08-02-aria-full-autonomy-program/PLAN.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/plans/2026-08-02-aria-full-autonomy-program/PROGRESS.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/multi-agent-architecture.md",
       "prettier_managed": true
     },
@@ -33074,6 +33086,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/claude/2026-07-17-droplet-capacity-gate.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-02-aria-wave-r-reconciliation.md",
       "prettier_managed": true
     },
     {
@@ -56130,10 +56148,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9204,
+  "file_count": 9207,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9023,
-  "managed_file_list_sha256": "a5db729b738c2231965fedf6e93fd66e4ad2241062d32fdc057dc6b75a4ab885",
+  "managed_count": 9026,
+  "managed_file_list_sha256": "ce2d97baf85457078c5d7136c01ac95f9f7200fafc1e6836e9c18d15ab1c23e7",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

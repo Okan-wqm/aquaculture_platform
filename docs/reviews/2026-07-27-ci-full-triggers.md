@@ -43,9 +43,15 @@ repository's pinned Rust toolchain. Multiple cargo-backed targets therefore invo
 concurrently. Observed failures included a partial toolchain without cargo, failed component
 directory replacement, and a partial toolchain without rustc.
 
-Each full-surface job now installs Rust 1.88.0 and the required components and targets exactly
-once before Nx starts. An invariant locks the action SHA, toolchain inputs, and ordering ahead of
-all three full-surface commands.
+The first repair copied Rust 1.88.0, its components, and two native targets into each workflow.
+It omitted the repository's `wasm32-unknown-unknown` target, so parallel cargo processes still
+raced to complete the shared toolchain when Lighthouse built the affected graph.
+
+Every root-workspace fan-out now uses one repository-owned setup action. The action derives all
+inputs from the generated Rust manifest, installs them once with the pinned upstream action, then
+fails closed unless the manifest matches `rust-toolchain.toml` and every declared component and
+target is installed. Invariants lock the action SHA, generated-manifest derivation, trigger
+coverage, and setup ordering before every broad Nx command.
 
 ## INFRA-HIGH-087 — full CI promoted historical format debt into a blocking gate
 

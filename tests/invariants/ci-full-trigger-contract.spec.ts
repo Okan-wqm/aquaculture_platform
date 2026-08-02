@@ -108,19 +108,13 @@ describe('CI Full protected-main and PR contract', () => {
     for (const [jobId, command] of Object.entries(jobsAndCommands)) {
       const steps = readWorkflow().jobs?.[jobId]?.steps ?? [];
       const toolchainIndex = steps.findIndex(
-        (step) => step.uses === 'dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537',
+        (step) => step.uses === './.github/actions/setup-rust-workspace',
       );
       const commandIndex = steps.findIndex((step) => step.run?.includes(command));
-      const toolchain = steps[toolchainIndex];
 
       expect(toolchainIndex).toBeGreaterThan(-1);
       expect(commandIndex).toBeGreaterThan(-1);
       expect(toolchainIndex).toBeLessThan(commandIndex);
-      expect(toolchain?.with).toEqual({
-        toolchain: '1.88.0',
-        components: 'rustfmt,clippy,rust-src',
-        targets: 'x86_64-unknown-linux-musl,aarch64-unknown-linux-musl',
-      });
     }
   });
 

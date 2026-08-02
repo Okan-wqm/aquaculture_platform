@@ -909,6 +909,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/actions/setup-rust-workspace/resolve-toolchain.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/ARCHITECTURE.md",
       "prettier_managed": true
     },
@@ -56070,10 +56076,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9194,
+  "file_count": 9195,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9013,
-  "managed_file_list_sha256": "6690ce2a0dcae38fe8c44fa2507caffadf9885fe38ae90126d2935652936762f",
+  "managed_count": 9014,
+  "managed_file_list_sha256": "6f4078de662af49a266c6077e41f34228b86539a44646de1a7e8e365b9c96866",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

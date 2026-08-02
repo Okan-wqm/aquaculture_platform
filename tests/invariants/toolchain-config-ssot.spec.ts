@@ -1,8 +1,37 @@
 import { execFileSync } from 'child_process';
-import { readFileSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
 import { resolve } from 'path';
 
+import * as YAML from 'yaml';
+
 const REPO_ROOT = process.cwd();
+const RUST_SETUP_ACTION = './.github/actions/setup-rust-workspace';
+const RUST_FANOUT_WORKFLOWS = [
+  '.github/workflows/ci-affected.yml',
+  '.github/workflows/ci-full.yml',
+  '.github/workflows/performance-benchmark.yml',
+] as const;
+
+interface WorkflowStep {
+  uses?: string;
+  run?: string;
+  with?: Record<string, string>;
+}
+
+interface Workflow {
+  on?: {
+    pull_request?: {
+      paths?: string[];
+    };
+  };
+  jobs?: Record<
+    string,
+    {
+      steps?: WorkflowStep[];
+    }
+  >;
+}
 
 function readRepoFile(path: string): string {
   return readFileSync(resolve(REPO_ROOT, path), 'utf8');
@@ -15,6 +44,23 @@ function rootScriptDirectNxCommands(scripts: Record<string, string>): Array<[str
     }
     return !command.includes('tools/toolchain/run.mjs nx ');
   });
+}
+
+function readWorkflow(path: string): Workflow {
+  return YAML.parse(readRepoFile(path)) as Workflow;
+}
+
+function isRootWorkspaceRustFanout(step: WorkflowStep): boolean {
+  const command = step.run ?? '';
+  return [
+    /npm run lint:all\b/,
+    /npm run test:all\b/,
+    /npm run build:all\b/,
+    /npm run build --/,
+    /affected-target-policy\.sh --target (?:lint|test)\b/,
+    /npx nx affected -t (?:type-check|build)\b/,
+    /npx nx run-many\b[^\n]*--all\b/,
+  ].some((pattern) => pattern.test(command));
 }
 
 describe('Toolchain Config SSoT', () => {
@@ -173,5 +219,114 @@ describe('Toolchain Config SSoT', () => {
         expect(line).toContain('node tools/toolchain/run.mjs npx nx');
       }
     }
+  });
+
+  it('derives the workspace Rust setup from the verified generated manifest', () => {
+    const action = YAML.parse(readRepoFile(`${RUST_SETUP_ACTION}/action.yml`)) as {
+      runs?: {
+        steps?: Array<WorkflowStep & { id?: string; name?: string }>;
+      };
+    };
+    const steps = action.runs?.steps ?? [];
+    const resolver = steps.find((step) => step.id === 'toolchain');
+    const installer = steps.find((step) => step.uses?.startsWith('dtolnay/rust-toolchain@'));
+    const verifier = steps.find((step) => step.name === 'Verify repository Rust toolchain');
+
+    expect(resolver?.run).toBe('node "${{ github.action_path }}/resolve-toolchain.mjs"');
+    expect(installer?.uses).toBe('dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537');
+    expect(installer?.with).toEqual({
+      toolchain: '${{ steps.toolchain.outputs.toolchain }}',
+      components: '${{ steps.toolchain.outputs.components }}',
+      targets: '${{ steps.toolchain.outputs.targets }}',
+    });
+    expect(verifier?.run).toBe(
+      'node "$GITHUB_WORKSPACE/tools/quality/quality.mjs" rust-toolchain check',
+    );
+
+    const temporaryDirectory = mkdtempSync(resolve(tmpdir(), 'aqua-rust-toolchain-'));
+    const githubOutput = resolve(temporaryDirectory, 'github-output');
+    try {
+      execFileSync(
+        process.execPath,
+        [resolve(REPO_ROOT, RUST_SETUP_ACTION, 'resolve-toolchain.mjs')],
+        {
+          cwd: REPO_ROOT,
+          env: {
+            ...process.env,
+            GITHUB_OUTPUT: githubOutput,
+            GITHUB_WORKSPACE: REPO_ROOT,
+          },
+        },
+      );
+
+      const outputs: Record<string, string> = {};
+      for (const line of readFileSync(githubOutput, 'utf8').trim().split('\n')) {
+        const separator = line.indexOf('=');
+        expect(separator).toBeGreaterThan(0);
+        outputs[line.slice(0, separator)] = line.slice(separator + 1);
+      }
+
+      const manifest = JSON.parse(readRepoFile('tools/quality/rust-toolchain-manifest.json')) as {
+        channel: string;
+        components: string[];
+        targets: string[];
+      };
+      expect(outputs).toEqual({
+        toolchain: manifest.channel,
+        components: manifest.components.join(','),
+        targets: manifest.targets.join(','),
+      });
+    } finally {
+      rmSync(temporaryDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it('prepares the complete Rust workspace before every broad root Nx fan-out', () => {
+    const guardedJobs: string[] = [];
+
+    for (const workflowPath of RUST_FANOUT_WORKFLOWS) {
+      for (const [jobId, job] of Object.entries(readWorkflow(workflowPath).jobs ?? {})) {
+        const steps = job.steps ?? [];
+        const fanoutIndexes = steps
+          .map((step, index) => (isRootWorkspaceRustFanout(step) ? index : -1))
+          .filter((index) => index >= 0);
+        if (fanoutIndexes.length === 0) continue;
+
+        const setupIndexes = steps
+          .map((step, index) => (step.uses === RUST_SETUP_ACTION ? index : -1))
+          .filter((index) => index >= 0);
+        guardedJobs.push(`${workflowPath}:${jobId}`);
+
+        expect(setupIndexes).toHaveLength(1);
+        expect(setupIndexes[0]).toBeLessThan(Math.min(...fanoutIndexes));
+        expect(steps.some((step) => step.uses?.startsWith('dtolnay/rust-toolchain@'))).toBe(false);
+      }
+    }
+
+    expect(guardedJobs.sort()).toEqual(
+      [
+        '.github/workflows/ci-affected.yml:build',
+        '.github/workflows/ci-affected.yml:lint',
+        '.github/workflows/ci-affected.yml:test',
+        '.github/workflows/ci-affected.yml:type-check',
+        '.github/workflows/ci-full.yml:build',
+        '.github/workflows/ci-full.yml:lint-and-typecheck',
+        '.github/workflows/ci-full.yml:test',
+        '.github/workflows/performance-benchmark.yml:lighthouse',
+      ].sort(),
+    );
+  });
+
+  it('reruns Lighthouse when its workspace Rust setup authority changes', () => {
+    const paths = readWorkflow('.github/workflows/performance-benchmark.yml').on?.pull_request
+      ?.paths;
+
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        '.github/actions/setup-rust-workspace/**',
+        'rust-toolchain.toml',
+        'tools/quality/rust-toolchain-manifest.json',
+      ]),
+    );
   });
 });

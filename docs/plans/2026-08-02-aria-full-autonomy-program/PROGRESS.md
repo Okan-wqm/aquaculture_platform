@@ -2,6 +2,43 @@
 
 Program plan: [`PLAN.md`](./PLAN.md). Newest entries first.
 
+## 2026-08-02 — Wave 0 re-scoped: the pipeline collapse was already aboard #1045
+
+Preparing PR 0.2 surfaced that `main` already contains the full pipeline
+collapse: `cycle.py` carries the ordered `CYCLE_PHASES` SSoT (22 rows, all
+extended phases registered — `validation_matrix` live under
+`writes_permitted`, `pr_lifecycle` gated on `ACTION_PERMISSIONS["pr_open"]`
+exactly as this program's plan ruled), the closed `CYCLE_PRECONDITIONS`
+set, four named error policies, `build_phase_context` as the single
+constructor, an import-time well-formedness assert, and the
+`run_phases`/`pre_tool_phases` kwargs deleted outright
+(`test_cycle_phase_pipeline.py` pins it). The work rode the #1041 branch's
+later commits — after that PR's description declared the collapse "not
+started" — and landed on `main` inside #1045's byte-identical squash
+(`fd963861`), validated by this program's own Wave R run (2993 tests,
+invariants green) without knowing what it carried.
+
+Consequences, recorded rather than papered over:
+
+- **PLAN.md's Wave 0 PR sequence is largely moot:** 0.2 (registry), 0.3
+  (body flip + legacy deletion), 0.4 (extended-phase registration) and 0.6
+  (kwarg deletion + single-entrance pinning) are on `main`. Remaining Wave 0
+  work: **0.5** (`burn_in.py` still hand-rolls a third cycle loop importing
+  `cycle` internals) and **0.7** (executor-lane PR centralization —
+  verification first). PR 0.1 (`replay_pending_bridges`, #1047) was real and
+  is merged.
+- **`ORPHAN-CRITICAL-498` is fixed on `main` but OPEN in the registry:** the
+  fix's landing commit (`fd963861`) carries no `Closes:` trailer for it —
+  nobody knew at merge time. The commit registering this note carries the
+  trailer; the close ceremony (PROC-HIGH-001) records the main-reachable
+  SHA in the next registry commit after this lands.
+- **Process lesson:** a superseding squash inherits the branch's WHOLE tree,
+  including work its PR description disclaims. Wave R's reconciliation
+  audited the diff mechanically (tests, invariants, registry) but took the
+  description's scope claims on trust. From now on a re-land PR's scope
+  summary is derived from `git diff --stat` against the merge base, not
+  from the superseded PR's prose.
+
 ## 2026-08-02 — Wave R executed
 
 - **#1045 merged to main (`fd963861`)** — the RC closeout (supersedes #1041):

@@ -33091,6 +33091,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-02-aria-w0-bridge-replay.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-08-02-aria-wave-r-reconciliation.md",
       "prettier_managed": true
     },
@@ -56148,10 +56154,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9207,
+  "file_count": 9208,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9026,
-  "managed_file_list_sha256": "ce2d97baf85457078c5d7136c01ac95f9f7200fafc1e6836e9c18d15ab1c23e7",
+  "managed_count": 9027,
+  "managed_file_list_sha256": "041c268baf0160a6812d48333b94441ce9051ecbfe1f7b4145a7bbf19b00e594",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -1,5 +1,12 @@
 # ARIA — Industrial-Grade Program Plan: from control plane to software team
 
+> **SUPERSEDED-BY:** `docs/plans/2026-08-02-aria-full-autonomy-program/PLAN.md`
+> (2026-08-02). This file is no longer the plan of record. Its registered
+> findings stay authoritative in the registry; its unfinished stages map into
+> the successor program as S0→Wave R/0, S1→Waves 0+1, S2→Wave 8, S3→Wave 11,
+> S4→Wave 9, S5→Wave 1 (Revision 2 numbering: durable state before missions).
+> Do not update stage status here — progress lives in the successor plan.
+
 |                     |                                                                                                                                              |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Plan date**       | 2026-07-26                                                                                                                                   |

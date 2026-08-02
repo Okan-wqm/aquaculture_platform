@@ -28,10 +28,12 @@ from aria_kernel.circuit_breaker import (
     evaluate_breaker,
     record_failure,
 )
+from aria_kernel import genesis_policy
 from aria_kernel.genesis_policy import (
     CIRCUIT_BREAKER_DEFAULTS,
     CIRCUIT_BREAKER_LEGACY_KEYS,
     circuit_breaker_policy,
+    minimum_window_hours,
 )
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 
@@ -113,12 +115,66 @@ class RenameMigrationTests(unittest.TestCase):
                 self.assertNotIn(old, CIRCUIT_BREAKER_DEFAULTS)
 
     def test_new_keys_are_honoured_including_a_custom_window(self) -> None:
+        """A custom window ABOVE the derived floor is honoured verbatim.
+
+        RC-4 migrated this test, and what it used to assert is the finding. It
+        wrote ``{failure_threshold: 10, failure_window_hours: 48}`` and asserted
+        the accessor returned 48 — but 48 is far below ``minimum_window_hours(10)``
+        = 264, and the floor was applied one layer down in
+        ``circuit_breaker._breaker_policy``. So the accessor answered 48 while the
+        breaker ran on 264, and this invariant pinned the answer that was never
+        used. Two validation sites disagreeing about one key, blessed by a green
+        test.
+
+        The window is now validated where it is read, so the honoured case must
+        use a value production would accept.
+        """
         with tempfile.TemporaryDirectory(prefix="aria-468-new-") as tmp:
             root = Path(tmp)
-            _write_override(root, {"failure_threshold": 10, "failure_window_hours": 48})
+            above_floor = minimum_window_hours(10) + 24
+            _write_override(
+                root, {"failure_threshold": 10, "failure_window_hours": above_floor}
+            )
             block = circuit_breaker_policy(root)
             self.assertEqual(block["failure_threshold"], 10)
-            self.assertEqual(block["failure_window_hours"], 48)
+            self.assertEqual(block["failure_window_hours"], above_floor)
+
+    def test_a_window_below_the_derived_floor_is_refused_not_widened(self) -> None:
+        """RC-4 — the operator learns, instead of running on a number they never wrote.
+
+        Silently widening 48 to 264 left the operator's model of their own
+        breaker wrong with nothing to reconcile it. The refusal names both the
+        value given and the minimum required.
+        """
+        with tempfile.TemporaryDirectory(prefix="aria-468-floor-") as tmp:
+            root = Path(tmp)
+            _write_override(root, {"failure_threshold": 10, "failure_window_hours": 48})
+            with self.assertRaises(GovernanceError) as ctx:
+                circuit_breaker_policy(root)
+            msg = str(ctx.exception)
+            self.assertIn("genesis_policy_circuit_breaker_window_below_floor", msg)
+            self.assertIn("48", msg)
+            self.assertIn(str(minimum_window_hours(10)), msg)
+
+    def test_the_shipped_default_carries_no_window_literal(self) -> None:
+        """The value is derived, so the one place it must NOT appear is the file.
+
+        A literal here is what made the default document 72 while the code ran
+        on 96. Asserted against the shipped JSON rather than the accessor, because
+        the accessor would happily fill a literal back in.
+        """
+        shipped = json.loads(
+            (
+                Path(genesis_policy.__file__).resolve().parent
+                / "data"
+                / genesis_policy.DEFAULT_FILENAME
+            ).read_text(encoding="utf-8")
+        )
+        self.assertNotIn("failure_window_hours", shipped.get("circuit_breaker", {}))
+        self.assertEqual(
+            circuit_breaker_policy()["failure_window_hours"],
+            minimum_window_hours(circuit_breaker_policy()["failure_threshold"]),
+        )
 
     def test_an_override_reaches_the_breaker_verdict(self) -> None:
         """End to end: policy -> evaluate_breaker, not just the accessor."""

@@ -4,6 +4,7 @@ import errno
 import json
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +31,7 @@ from .human_required import (
 from .human_required_adjudication import sweep_human_required_adjudications
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
+from .runtime_profile import ACTION_PERMISSIONS, get_profile
 from .tool_registry import GovernanceError, ensure_tools_binding, list_tools, utc_now, update_tools_index
 from .tool_runner import run_tool
 from .ledger import append_declared_jsonl
@@ -206,21 +208,260 @@ def run_cycle(paths: WorkspacePaths | None = None, **kwargs: Any) -> dict[str, o
     return state
 
 
-# Plan 022 §M-1 — opt-in cycle phase chain. The base set keeps Plan 016
-# behaviour intact; operators can opt into extended phases that link
-# the architecture spine gate, validation matrix, and PR lifecycle into
-# the same cycle invocation. NOTE: 'pr_lifecycle' currently emits a
-# placeholder governance event (no real PR action) — fully wiring it
-# requires a proposal_id which the cycle entry point doesn't carry.
-DEFAULT_CYCLE_PHASES: tuple[str, ...] = (
-    "discover", "tools", "memory", "pressure", "reflection",
+# =====================================================================
+# The cycle pipeline, declared as data.
+#
+# RC-1 tier-1, closing ORPHAN-CRITICAL-498 and ORPHAN-HIGH-505 together
+# because they are one defect seen from two sides.
+#
+# WHAT WAS HERE. `DEFAULT_CYCLE_PHASES` named five phases and
+# `SUPPORTED_CYCLE_PHASES` added four more, and their only job was to
+# validate the `run_phases` / `pre_tool_phases` keyword arguments. No
+# production caller passed either one, so four safety-relevant phases —
+# the architecture spine gate, the validation matrix, and the PR
+# lifecycle perimeter — were implemented, unit-tested, and never
+# executed. Optional safety is not safety.
+#
+# The constants were also wrong about the cycle they claimed to
+# describe: the body ran fifteen phases, not five, and the one name that
+# overlapped ('discover') did not even match what the body emitted
+# ('discovery'). A constant that names a pipeline's steps is either that
+# pipeline's SSoT or it is misinformation; this one had the appearance
+# of authority and none of the duties.
+#
+# WHAT IS HERE NOW. One ordered tuple, `CYCLE_PHASES`, whose entries are
+# the phases the cycle actually runs. Each entry carries:
+#
+#   * the STAGE it belongs to, replacing the two kwargs. A phase runs
+#     before tools or after them because the table says so, not because
+#     a caller picked a keyword argument;
+#   * a PRECONDITION drawn from a closed set (`CYCLE_PRECONDITIONS`).
+#     "The caller did not ask for this phase" is no longer a category,
+#     so a phase cannot be silently absent — an unmet precondition
+#     produces a recorded skip naming the precondition;
+#   * an ERROR POLICY, because the body already had three different ones
+#     and they were expressed only by the presence or absence of a
+#     `post_tool_failure is None` guard on each block.
+#
+# The kwargs and both constants are DELETED, not kept as a compatibility
+# seam. A second entrance into the same phases is the cause of this
+# finding, and the constants existed only to validate that entrance;
+# removing either half alone would leave a dangling other half.
+# =====================================================================
+
+# Where a phase sits relative to the two structural boundaries of a
+# cycle: discovery (which can end the cycle early) and the tool loop.
+PhaseStage = Literal["discovery", "pre_tool", "tools", "post_tool"]
+CYCLE_STAGES: tuple[PhaseStage, ...] = ("discovery", "pre_tool", "tools", "post_tool")
+
+# What happens when a phase runner raises. These four are not a design
+# choice made here — they are the four behaviours the cycle body already
+# had, each previously encoded as the shape of an ad-hoc try/except.
+#
+#   propagate           — no handler; the exception ends the cycle.
+#                         Discovery and the tool loop: if they cannot
+#                         run there is no cycle to report on.
+#   halt_sequence       — the failure is recorded and every LATER
+#                         halt_sequence phase is skipped. This is the
+#                         `if post_tool_failure is None:` chain.
+#   record_and_continue — runs even after an upstream failure, and its
+#                         own failure is recorded. Bookkeeping phases
+#                         (learning closure, metrics, dashboard) must
+#                         still close out a failed cycle.
+#   swallow             — the error is absorbed and the phase reports
+#                         degraded. Reserved for phases that are pure
+#                         operator convenience and must never be able to
+#                         fail a cycle.
+PhaseErrorPolicy = Literal["propagate", "halt_sequence", "record_and_continue", "swallow"]
+
+
+@dataclass(frozen=True, slots=True)
+class PhaseContext:
+    """Everything a phase runner is allowed to read.
+
+    One object rather than a long parameter list, so a phase cannot
+    quietly reach for cycle-local state the table never promised it —
+    and so adding a phase never means widening a dispatch signature.
+
+    ``results`` and ``outcomes`` are deliberately mutable and owned by
+    the driver: they are how a later phase reads an earlier one (
+    reflection needs judge calibration; metrics needs the tool run
+    summary). Storing that once and reading it back is what keeps the
+    cycle from carrying a second, parallel copy of its own state.
+    """
+
+    cycle_id: str
+    workspace_root: Path
+    base_dir: Path
+    workspace: WorkspacePaths
+    plan_id: str | None
+    shadow_only: bool
+    defer_reflection: bool
+    snapshot_mode: str
+    profile: str
+    cycle_started_at: datetime
+    started_monotonic: float
+    results: dict[str, Any]
+    outcomes: dict[str, dict[str, Any]]
+
+    def result(self, phase_name: str) -> Any:
+        """The payload a completed phase returned, or None if it did not run."""
+        return self.results.get(phase_name)
+
+
+@dataclass(frozen=True, eq=False, slots=True)
+class PhasePrecondition:
+    """A named, reusable answer to "may this phase run in this cycle?".
+
+    Identity-compared (``eq=False``) so the closed set below is a set of
+    THESE objects: a phase declaring a freshly-built lookalike is
+    rejected by ``_assert_pipeline_is_well_formed`` at import time rather
+    than quietly widening the vocabulary.
+    """
+
+    name: str
+    test: Callable[[PhaseContext], bool]
+
+    def satisfied_by(self, context: PhaseContext) -> bool:
+        return self.test(context)
+
+
+def _always(_context: PhaseContext) -> bool:
+    return True
+
+
+def _writes_permitted(context: PhaseContext) -> bool:
+    return not context.shadow_only
+
+
+def _reflection_not_deferred(context: PhaseContext) -> bool:
+    return not context.defer_reflection
+
+
+def _plan_id_present(context: PhaseContext) -> bool:
+    return context.plan_id is not None
+
+
+def _profile_permits_pr_open(context: PhaseContext) -> bool:
+    """Derived from the same table `open_pr_for_action` enforces.
+
+    THIS DEVIATES FROM THE PLAN, deliberately, and the deviation is the
+    difference between a live nightly and a nightly that reports failure
+    every night. The plan specified `profile_in(
+    PROFILES_WITH_ACTION_AUTHORITY)`, which is the UNION over every
+    action kind — {standard, strict, autonomous}. But `pr_open` is
+    permitted to {strict, autonomous} only, and `open_pr_for_action`
+    calls `enforce_profile_for_action('pr_open')` on entry. Gating the
+    phase on the union would let it run under `standard` (the default
+    profile) and take a GovernanceError per approved proposal, marking
+    the phase — and therefore the cycle — failed, on a lane where
+    nothing is actually wrong.
+
+    Reading `ACTION_PERMISSIONS['pr_open']` means the phase's gate and
+    the callee's guard cannot disagree: they are the same table. A
+    literal profile set here would rot the first time that table moved,
+    which is exactly how the hardcoded `profile == "autonomous"` checks
+    that ORPHAN-CRITICAL-420 S2 removed came to be wrong.
+    """
+    return context.profile in ACTION_PERMISSIONS["pr_open"]
+
+
+ALWAYS = PhasePrecondition("always", _always)
+WRITES_PERMITTED = PhasePrecondition("writes_permitted", _writes_permitted)
+REFLECTION_NOT_DEFERRED = PhasePrecondition("reflection_not_deferred", _reflection_not_deferred)
+PLAN_ID_PRESENT = PhasePrecondition("plan_id_present", _plan_id_present)
+PROFILE_PERMITS_PR_OPEN = PhasePrecondition("profile_permits:pr_open", _profile_permits_pr_open)
+
+# The closed set. A phase may only declare one of these, enforced at
+# import time. Widening the vocabulary is therefore a deliberate edit
+# here rather than an inline lambda nobody reviews.
+#
+# `not_discovery_only` is ABSENT ON PURPOSE, though the plan named it: a
+# discovery-only cycle returns before the pre_tool stage is reached, so
+# every post-discovery phase already runs with `discovery_only` false.
+# Declaring it would put a condition in the table that is structurally
+# always true — the same species of misinformation this table replaces.
+CYCLE_PRECONDITIONS: tuple[PhasePrecondition, ...] = (
+    ALWAYS,
+    WRITES_PERMITTED,
+    REFLECTION_NOT_DEFERRED,
+    PLAN_ID_PRESENT,
+    PROFILE_PERMITS_PR_OPEN,
 )
-SUPPORTED_CYCLE_PHASES: tuple[str, ...] = DEFAULT_CYCLE_PHASES + (
-    "architecture_baseline",
-    "architecture_postcheck",
-    "validation_matrix",
-    "pr_lifecycle",
-)
+
+
+@dataclass(frozen=True, slots=True)
+class CyclePhase:
+    """One step of the cycle, and everything the driver needs to run it.
+
+    ``state_key`` is the legacy top-level key in the returned state dict
+    that this phase's payload lands under. The projection is declared
+    here so the state dict is DERIVED from the phase results rather than
+    assembled beside them — one storage, two views.
+
+    ``absent`` builds the payload recorded when the phase does not run.
+    A factory rather than a value so two skipped cycles cannot end up
+    sharing one dict, and per-phase because the shapes genuinely differ
+    (reflection's absence is ``None``, and the Plan ARIA-V3.3 §2b
+    deferred-reflection contract the autonomy orchestrator relies on reads
+    exactly that).
+    """
+
+    name: str
+    stage: PhaseStage
+    runner: Callable[[PhaseContext], Any]
+    precondition: PhasePrecondition = ALWAYS
+    on_error: PhaseErrorPolicy = "halt_sequence"
+    state_key: str | None = None
+    absent: Callable[[], Any] = dict
+    error_payload: Callable[[PhaseContext, Exception], Any] | None = None
+
+
+def build_phase_context(
+    *,
+    cycle_id: str,
+    workspace_root: str | Path,
+    base_dir: Path,
+    workspace: WorkspacePaths | None = None,
+    plan_id: str | None = None,
+    shadow_only: bool = False,
+    defer_reflection: bool = False,
+    snapshot_mode: str = "committed",
+    cycle_started_at: datetime | None = None,
+    started_monotonic: float | None = None,
+) -> PhaseContext:
+    """The ONE constructor for a PhaseContext, used by production and tests.
+
+    RC-3's finding was that four defects survived every green suite because
+    the fixtures were shaped unlike production — a request dict carrying a
+    field 15 of 17 mint paths omit, a timeout of 600 where production uses
+    1800. The cure is that there is no second way to build the value: this is
+    what `run_enterprise_cycle` calls, so a test exercising a phase runner
+    gets the context production gets, including a profile READ FROM THE TOOLS
+    DIRECTORY rather than passed in. A test that needs a different profile
+    has to set one, which is the production gesture.
+    """
+    return PhaseContext(
+        cycle_id=cycle_id,
+        # Resolved once here rather than at each callsite: the pre-collapse
+        # code passed the raw argument to most phases and
+        # `Path(...).resolve()` to the extended ones, so two phases could
+        # disagree about which directory they were looking at. Production
+        # always supplies an absolute path, so resolving is a no-op there;
+        # what it buys is that the disagreement is no longer expressible.
+        workspace_root=Path(workspace_root).resolve(),
+        base_dir=base_dir,
+        workspace=workspace if workspace is not None else workspace_paths(Path(workspace_root), None),
+        plan_id=plan_id,
+        shadow_only=shadow_only,
+        defer_reflection=defer_reflection,
+        snapshot_mode=snapshot_mode,
+        profile=get_profile(base_dir=base_dir),
+        cycle_started_at=cycle_started_at if cycle_started_at is not None else datetime.now(timezone.utc),
+        started_monotonic=started_monotonic if started_monotonic is not None else time.monotonic(),
+        results={},
+        outcomes={},
+    )
 
 
 def run_enterprise_cycle(
@@ -232,11 +473,16 @@ def run_enterprise_cycle(
     shadow_only: bool = False,
     discovery_only: bool = False,
     snapshot_mode: str = "committed",
-    run_phases: tuple[str, ...] | None = None,
-    pre_tool_phases: tuple[str, ...] | None = None,
     plan_id: str | None = None,
     defer_reflection: bool = False,
 ) -> dict[str, Any]:
+    """Run one cycle by walking ``CYCLE_PHASES``.
+
+    This function owns the two boundaries the table cannot express —
+    a discovery-only cycle returns before the pre_tool stage, and a
+    failed pre_tool phase aborts before tools dispatch — and nothing
+    else. Every other step is a row in the table.
+    """
     # Plan ARIA-V3.3 §2b — ``defer_reflection`` opt-in for the autonomy
     # orchestrator. When True, the in-cycle ``run_reflection`` call
     # (line ~397 below) is skipped and ``state["reflection"]`` is
@@ -248,37 +494,16 @@ def run_enterprise_cycle(
     # Default ``False`` preserves the direct CLI contract (``aria-
     # kernel cycle run``) so non-orchestrator callers still receive a
     # reflection payload in the state dict.
-    # Plan 023 v3 §R-1 — pre_tool_phases kwarg runs extended phases
-    # BEFORE the tool loop. Pre-Plan-023 all extended phases ran
-    # AFTER tools, so architecture_baseline / validation_matrix_pre /
-    # pr_lifecycle_pre observed consequences instead of preconditions
-    # and could not gate tool dispatch. Post-fix: pre_tool_phases
-    # fires first; failure aborts the cycle with cycle_aborted_by_
-    # pre_phase. The legacy run_phases kwarg continues to run AFTER
-    # tools (post-tool observation).
-    # Plan ARIA-V2 §3.4 + CRITICAL-009 fix — input validation runs at
-    # function entry BEFORE any side effect (discovery, memory write,
-    # ledger append, FATES integrity recompute). Pre-fix the unknown-
-    # phase check at line 391 fired AFTER ``update_memory`` had already
-    # raised ``memory_fates_content_hash_mismatch`` against the (mutating)
-    # governance.jsonl, so operators received the wrong error class for
-    # a structurally-detectable input mistake. Validating preconditions
-    # at entry is the Tier-1 architectural shape (impossible to ship a
-    # cycle that mutates ledgers under a malformed run_phases tuple).
-    if run_phases is not None:
-        _unknown_run = [p for p in tuple(run_phases) if p not in SUPPORTED_CYCLE_PHASES]
-        if _unknown_run:
-            raise ValueError(
-                f"unknown cycle phase(s): {_unknown_run}; "
-                f"supported phases: {SUPPORTED_CYCLE_PHASES}"
-            )
-    if pre_tool_phases is not None:
-        _unknown_pre = [p for p in tuple(pre_tool_phases) if p not in SUPPORTED_CYCLE_PHASES]
-        if _unknown_pre:
-            raise ValueError(
-                f"unknown pre_tool_phases: {_unknown_pre}; "
-                f"supported phases: {SUPPORTED_CYCLE_PHASES}"
-            )
+    #
+    # Plan ARIA-V2 §3.4 + CRITICAL-009 established that input validation
+    # must run at function entry, BEFORE any side effect, so an operator
+    # gets the right error class for a structurally-detectable mistake.
+    # That principle is now satisfied structurally rather than by a
+    # check: the phase list is not an input at all. There is no
+    # `run_phases` tuple to be malformed, so there is nothing to validate
+    # and nothing that can be validated too late — the tier-1 form of the
+    # same guarantee. `_assert_pipeline_is_well_formed` checks the table
+    # itself at import time, which is earlier still.
     started = time.monotonic()
     # Plan 025 §C — UTC wall-clock of cycle start. Bounds the
     # change_committed window for validation_matrix phase so the
@@ -311,11 +536,25 @@ def run_enterprise_cycle(
         "hooks": list(learning_pre.get("hooks", [])),
     }
     emit_progress("cycle_started", cycle_id=cycle_id, shadow_only=shadow_only, discovery_only=discovery_only)
-    emit_progress("discovery", cycle_id=cycle_id, phase="started")
-    discovery = run_discovery(workspace_root=workspace_root, cycle_id=cycle_id, base_dir=root, snapshot_mode=snapshot_mode)
-    emit_progress("discovery", cycle_id=cycle_id, phase="completed",
-                  fated_file_count=(discovery.get("completion_proof") or {}).get("fated_file_count"))
-    diff = run_cycle_diff(cycle_id=cycle_id, base_dir=root)
+
+    # The context is built ONCE and handed to every phase.
+    context = build_phase_context(
+        cycle_id=cycle_id,
+        workspace_root=workspace_root,
+        base_dir=root,
+        workspace=workspace,
+        plan_id=plan_id,
+        shadow_only=shadow_only,
+        defer_reflection=defer_reflection,
+        snapshot_mode=snapshot_mode,
+        cycle_started_at=cycle_started_at,
+        started_monotonic=started,
+    )
+
+    _run_phase_stage("discovery", context)
+    discovery = context.result("discovery")
+    diff = context.result("cycle_diff")
+
     if discovery_only:
         emit_progress("cycle_completed", cycle_id=cycle_id, status="completed", discovery_only=True)
         event = _complete_event(root, cycle_id, 0, git_head_sha_at_cycle=git_head_sha_at_cycle)
@@ -328,308 +567,78 @@ def run_enterprise_cycle(
             "learning": learning,
             "discovery": discovery,
             "cycle_diff": diff,
+            "phases": dict(context.outcomes),
         }
         _write_workspace_cycle_artifact(workspace, _workspace_cycle_state(workspace, state))
         return state
 
-    # Plan 023 v3 §R-1 — pre_tool_phases run BEFORE the tool loop so
-    # architecture_baseline / validation_matrix_pre / pr_lifecycle_pre
-    # gate tool dispatch (observe preconditions, not consequences).
-    # Failure short-circuits the cycle with cycle_aborted_by_pre_phase.
-    pre_phase_results: dict[str, Any] = {}
-    if pre_tool_phases is not None:
-        active_pre = tuple(pre_tool_phases)
-        unknown_pre = [p for p in active_pre if p not in SUPPORTED_CYCLE_PHASES]
-        if unknown_pre:
-            raise ValueError(
-                f"unknown pre_tool_phases: {unknown_pre}; "
-                f"supported phases: {SUPPORTED_CYCLE_PHASES}"
-            )
-        pre_phase_results = _run_extended_phases(
-            phases=active_pre,
-            workspace_root=Path(workspace_root).resolve(),
-            cycle_id=cycle_id,
-            base_dir=root,
-            plan_id=plan_id,
-        )
-        # Plan 023 v3 §R-1 — pre-tool phase failure aborts cycle.
-        # _run_extended_phases returns dict with phase results; if any
-        # phase result is dict-shaped with status=='failed' or
-        # 'blocked', short-circuit before tools run.
-        for phase_name, phase_result in pre_phase_results.items():
-            if not isinstance(phase_result, dict):
-                continue
-            phase_status = phase_result.get("status") or phase_result.get("decision")
-            if phase_status in ("failed", "blocked", "regression"):
-                # Plan 024 §E — pre-fix this path called _complete_event
-                # which appended a row with event="completed" even
-                # though the cycle was being aborted, AND the in-memory
-                # state.status was "aborted" — persisted ledger and
-                # in-memory shape disagreed. Post-fix we persist a
-                # typed `aborted` terminal row whose (event, status)
-                # match the in-memory state. The tool loop hasn't run
-                # yet at this point, so decision_count is structurally
-                # zero (no decisions have been emitted).
-                event = _aborted_event(
-                    cycle_id,
-                    git_head_sha_at_cycle=git_head_sha_at_cycle,
-                    decision_count=0,
-                )
-                append_declared_jsonl(root / "cycles.jsonl", event, expected_surface="cycles")
-                return {
-                    "schema_version": 2,
-                    "cycle_id": cycle_id,
-                    "git_head_sha_at_cycle": git_head_sha_at_cycle,
-                    "status": "aborted",
-                    "event": {**event, "reason": f"cycle_aborted_by_pre_phase:{phase_name}"},
-                    "pre_phase_results": pre_phase_results,
-                    "aborted_by_phase": phase_name,
-                }
-
-    decisions = []
-    run_summary = []
-    pressure_summary: dict[str, Any] = {}
-    emit_progress("tools", cycle_id=cycle_id, phase="started")
-    for tool in list_tools(base_dir=root):
-        if shadow_only and tool.get("status") not in ("SHADOW", "ACTIVE", "CALIBRATE"):
-            continue
-        if not shadow_only and tool.get("status") not in ("ACTIVE", "SHADOW", "CALIBRATE"):
-            continue
-        payload = dict(tool.get("default_input") or {})
-        payload.update({"cycle_id": cycle_id, "pressure_summary": pressure_summary})
-        decision = run_tool(
-            str(tool["tool_id"]),
-            payload,
+    # Plan 023 v3 §R-1 — the pre_tool stage runs BEFORE the tool loop so a
+    # gate observes preconditions rather than consequences. That ordering
+    # used to depend on the caller picking the `pre_tool_phases` keyword
+    # instead of `run_phases`; it is now a property of the table, so a
+    # pre-tool gate cannot be demoted to a post-tool observation by a
+    # caller's choice of argument.
+    _run_phase_stage("pre_tool", context)
+    aborted_by = _first_blocking_pre_phase(context)
+    if aborted_by is not None:
+        # Plan 024 §E — pre-fix this path called _complete_event which
+        # appended a row with event="completed" even though the cycle was
+        # being aborted, AND the in-memory state.status was "aborted" —
+        # persisted ledger and in-memory shape disagreed. Post-fix we
+        # persist a typed `aborted` terminal row whose (event, status)
+        # match the in-memory state. The tool loop hasn't run yet at this
+        # point, so decision_count is structurally zero.
+        event = _aborted_event(
             cycle_id,
-            workspace_root=workspace_root,
-            base_dir=root,
+            git_head_sha_at_cycle=git_head_sha_at_cycle,
+            decision_count=0,
         )
-        decisions.append(decision)
-    # v2 runtime contract — prefer the per-cycle run index to avoid
-    # O(N) scans over a growing runs.jsonl. The helper falls back to the
-    # strict runs reader for legacy ledgers.
-    for run in read_runs_for_cycle(base_dir=root, cycle_uid=cycle_id):
-        runner = run.get("runner") if isinstance(run.get("runner"), dict) else {}
-        artifact_ref = run.get("artifact_ref") if isinstance(run.get("artifact_ref"), dict) else None
-        run_summary.append(
-            {
-                "tool_id": run.get("tool_id"),
-                "run_id": run.get("run_id"),
-                "status": run.get("status"),
-                "artifact_status": run.get("artifact_status", "legacy_inline_or_sample_only"),
-                "artifact_ref": artifact_ref,
-                "artifact_hash": run.get("artifact_hash"),
-                "raw_findings_count": int(runner.get("raw_findings_count") or 0),
-                "raw_observations_count": int(runner.get("raw_observations_count") or 0),
-                "emitted_findings_count": len(run.get("emitted_findings", [])) if isinstance(run.get("emitted_findings"), list) else 0,
-                "emitted_observations_count": len(run.get("emitted_observations", [])) if isinstance(run.get("emitted_observations"), list) else 0,
-            },
-        )
-    # Plan 026R §E.7 — pass workspace_root so update_memory's FATES
-    # hash recompute check fires. Pre-§E.7 legacy callers omitted
-    # workspace_root and the integrity check silently skipped.
-    # Runtime hardening: post-tool phase failures must still close the
-    # cycle ledger and retain tool artifact evidence in the returned state.
-    memory: dict[str, Any] = {}
-    pressure: dict[str, Any] = {}
-    reflection = None if defer_reflection else {}
-    consensus_escalation: dict[str, Any] = {}
-    lease_escalation: dict[str, Any] = {}
-    human_required_adjudication: dict[str, Any] = {}
-    judge_calibration: dict[str, Any] = {}
-    proactive_priorities: dict[str, Any] = {}
-    belief_decay: dict[str, Any] = {}
-    post_tool_failure = None
-    emit_progress("memory", cycle_id=cycle_id, phase="started")
-    try:
-        memory = update_memory(
-            cycle_id=cycle_id, base_dir=root, workspace_root=workspace_root,
-        )
-    except Exception as exc:
-        post_tool_failure = {"phase": "memory", "status": "failed", "error": str(exc)}
-    # Plan 028 §D4 — age-based belief decay BEFORE pressure, so a belief about
-    # unchanged code that has aged past its TTL becomes needs_revalidation and
-    # run_pressure surfaces it this same cycle. Skipped under no-write runs.
-    if post_tool_failure is None and not shadow_only and not discovery_only:
-        try:
-            belief_decay = decay_stale_beliefs_by_age(cycle_id=cycle_id, base_dir=root)
-        except Exception as exc:
-            post_tool_failure = {"phase": "belief_decay", "status": "failed", "error": str(exc)}
-    if post_tool_failure is None:
-        emit_progress("pressure", cycle_id=cycle_id, phase="started")
-        try:
-            # Plan S4 (ORPHAN-MEDIUM-298) — operator drift-class targeting:
-            # genesis-policy weights bias pressure scores per class. The
-            # loader is fail-soft (defaults on any error), and _doc keys are
-            # not classes, so passing the block through unfiltered is safe.
-            drift_weights = load_policy(workspace_root).get("drift_class_weights")
-            pressure = run_pressure(
-                cycle_id=cycle_id, base_dir=root,
-                drift_class_weights=drift_weights,
-            )
-        except Exception as exc:
-            post_tool_failure = {"phase": "pressure", "status": "failed", "error": str(exc)}
-    # Plan 023 §B — drain consensus disagreements / low-confidence verdicts into
-    # HUMAN_REQUIRED so a split judge vote reaches an operator instead of being
-    # silently held. Skipped under shadow/discovery runs (no-write profiles);
-    # idempotent so re-running a cycle never double-escalates.
-    if post_tool_failure is None and not shadow_only and not discovery_only:
-        try:
-            consensus_escalation = sweep_consensus_uncertainties_for_human_required(base_dir=root)
-        except Exception as exc:
-            post_tool_failure = {"phase": "consensus_escalation", "status": "failed", "error": str(exc)}
-    # P1-03 — claims-ledger escalations reach the operator-facing surface.
-    # `derive_request_state` can say HUMAN_REQUIRED while no
-    # `human-required/<id>.json` file exists, and the reconciling sweep had
-    # CLI-only callers — so an escalation was visible in one view and
-    # invisible in the one operators and the daily report read. Running it
-    # every cycle is what makes the two views agree. Idempotent.
-    if post_tool_failure is None and not shadow_only and not discovery_only:
-        try:
-            lease_escalation = sweep_lease_lifecycle_for_human_required(base_dir=root)
-        except Exception as exc:
-            post_tool_failure = {
-                "phase": "lease_lifecycle_escalation", "status": "failed", "error": str(exc),
-            }
-    # ORPHAN-HIGH-450 — act on the escalations the two sweeps above just
-    # created. ORPHAN-HIGH-426 was closed with a 498-line adjudication panel
-    # that had zero non-test importers, so escalations were still being
-    # raised every cycle and cleared by nobody: the finding's own defect,
-    # reproduced by its fix. This is the caller. Idempotent per escalation
-    # (open once, fold thereafter) and never raising, so one malformed
-    # record cannot take the cycle's remaining phases down with it.
-    if post_tool_failure is None and not shadow_only and not discovery_only:
-        try:
-            human_required_adjudication = sweep_human_required_adjudications(base_dir=root)
-        except Exception as exc:
-            post_tool_failure = {
-                "phase": "human_required_adjudication", "status": "failed", "error": str(exc),
-            }
-    # Plan 024 §A — score each judge against accumulated ground truth so the
-    # cheap-tier judgment is measured, not assumed. Read-only join over the
-    # feedback ledger (no LLM); skipped under shadow/discovery no-write runs.
-    if post_tool_failure is None and not shadow_only and not discovery_only:
-        try:
-            judge_calibration = compute_judge_calibration(cycle_id=cycle_id, base_dir=root)
-        except Exception as exc:
-            post_tool_failure = {"phase": "judge_calibration", "status": "failed", "error": str(exc)}
-    # Plan 027 §D3 — proactive Impact x Opportunity ranking, computed every cycle
-    # regardless of reactive pressure, so ARIA always has a "where to invest next"
-    # list even when nothing is on fire. Read-only; skipped under no-write runs.
-    if post_tool_failure is None and not shadow_only and not discovery_only:
-        try:
-            proactive_priorities = compute_proactive_priorities(cycle_id=cycle_id, base_dir=root)
-        except Exception as exc:
-            post_tool_failure = {"phase": "proactive_priority", "status": "failed", "error": str(exc)}
-    if post_tool_failure is None and not defer_reflection:
-        emit_progress("reflection", cycle_id=cycle_id, phase="started")
-        try:
-            reflection = run_reflection(
-                cycle_id=cycle_id, base_dir=root, repo_root=workspace_root,
-                calibration_result=judge_calibration or None,
-                proactive_result=proactive_priorities or None,
-            )
-        except Exception as exc:
-            post_tool_failure = {"phase": "reflection", "status": "failed", "error": str(exc)}
-    # Per-service examination plan (ORPHAN-MEDIUM-258/259): surface the changed
-    # services + their downstream ripple in DEPENDENCY (topological) order, and
-    # scope this cycle's pressures to the service(s) their evidence touches —
-    # grouped per-service in that same order (ORPHAN-MEDIUM-259). Cached by graph
-    # fingerprint (no re-scan when the project graph is unchanged); skipped when
-    # there is neither a change nor a pressure. Never fails the cycle.
-    service_examination: dict[str, Any] = {}
-    if not discovery_only:
-        try:
-            changed_paths = (diff.get("changed_paths") if isinstance(diff, dict) else None) or []
-            cycle_pressures = pressure.get("pressures") if isinstance(pressure, dict) else None
-            if changed_paths or cycle_pressures:
-                emit_progress("service_examination", cycle_id=cycle_id, phase="started",
-                              changed_paths=len(changed_paths), pressures=len(cycle_pressures or []))
-                service_examination = cycle_service_examination(
-                    workspace_root=workspace_root, base_dir=root,
-                    changed_files=changed_paths, pressures=cycle_pressures,
-                )
-        except Exception:
-            service_examination = {}
-    try:
-        learning_post = run_learning_post_evidence_closure(workspace, cycle_id=cycle_id, tools_root=root)
-    except Exception as exc:
-        learning_post = {"schema_version": 1, "cycle_id": cycle_id, "status": "failed", "error": str(exc), "hooks": []}
-        if post_tool_failure is None:
-            post_tool_failure = {"phase": "learning_post_evidence_closure", "status": "failed", "error": str(exc)}
+        append_declared_jsonl(root / "cycles.jsonl", event, expected_surface="cycles")
+        return {
+            "schema_version": 2,
+            "cycle_id": cycle_id,
+            "git_head_sha_at_cycle": git_head_sha_at_cycle,
+            "status": "aborted",
+            "event": {**event, "reason": f"cycle_aborted_by_pre_phase:{aborted_by}"},
+            "phases": dict(context.outcomes),
+            "aborted_by_phase": aborted_by,
+        }
+
+    _run_phase_stage("tools", context)
+    tools_result = context.result("tools") or {}
+    decisions = tools_result.get("decisions") or []
+    run_summary = tools_result.get("run_summary") or []
+
+    _run_phase_stage("post_tool", context)
+
     learning = {
         "schema_version": 2,
         "cycle_id": cycle_id,
         "pre_cycle": learning_pre,
-        "post_evidence_closure": learning_post,
-        "hooks": list(learning_pre.get("hooks", [])) + list(learning_post.get("hooks", [])),
+        "post_evidence_closure": context.result("learning_post_evidence_closure"),
+        "hooks": (
+            list(learning_pre.get("hooks", []))
+            + list((context.result("learning_post_evidence_closure") or {}).get("hooks", []))
+        ),
     }
-    artifact_integrity = verify_artifacts(base_dir=root)
-    non_ok_runs = [
-        run for run in run_summary
-        if run.get("status") != "ok" or run.get("artifact_status") in {"missing", "hash_mismatch", "write_failed"}
-    ]
-    runtime_status = "ok" if not non_ok_runs and artifact_integrity.get("valid") else "integrity_failed"
-    if post_tool_failure is not None:
-        runtime_status = "failed"
-    try:
-        metrics = record_cycle_metrics(
-            cycle_id=cycle_id,
-            phase_durations_ms={"cycle": int((time.monotonic() - started) * 1000)},
-            artifact_count=len(run_summary) + 4,
-            status="ok" if runtime_status == "ok" else "failed",
-            cost_units=sum(float((decision.get("envelope") or {}).get("cost_units") or 0) for decision in decisions if isinstance(decision, dict)),
-            base_dir=root,
-        )
-    except Exception as exc:
-        metrics = {"schema_version": 1, "cycle_id": cycle_id, "status": "failed", "error": str(exc)}
-        if post_tool_failure is None:
-            post_tool_failure = {"phase": "metrics", "status": "failed", "error": str(exc)}
-        runtime_status = "failed"
-    try:
-        dashboard = generate_observability_dashboard(cycle_id=cycle_id, base_dir=root)
-    except Exception as exc:
-        dashboard = {"schema_version": 1, "cycle_id": cycle_id, "status": "failed", "error": str(exc)}
-        if post_tool_failure is None:
-            post_tool_failure = {"phase": "observability_dashboard", "status": "failed", "error": str(exc)}
-        runtime_status = "failed"
+    artifact_integrity = context.result("artifact_integrity")
+    non_ok_runs = _non_ok_runs(context)
+    runtime_status = _runtime_status(context)
+    post_tool_failure = _first_phase_failure(context)
 
-    # Plan 022 §M-1 — extended-phase dispatch. Default behaviour
-    # (run_phases=None) is unchanged; only when the operator opts into
-    # extra phases do we invoke the architecture spine gate +
-    # validation matrix + PR lifecycle from inside the cycle.
-    extended_phase_results: dict[str, Any] = {}
-    if run_phases is not None:
-        active_phases = tuple(run_phases)
-        unknown = [p for p in active_phases if p not in SUPPORTED_CYCLE_PHASES]
-        if unknown:
-            raise ValueError(
-                f"unknown cycle phase(s): {unknown}; "
-                f"supported phases: {SUPPORTED_CYCLE_PHASES}"
-            )
-        extended_phase_results = _run_extended_phases(
-            phases=active_phases,
-            workspace_root=Path(workspace_root).resolve(),
-            cycle_id=cycle_id,
-            base_dir=root,
-            plan_id=plan_id,
-            cycle_started_at=cycle_started_at,
-        )
-
-    # Plan 025 §C — cycle status propagation. If any extended phase
-    # returned ``status=="fail"`` the cycle's terminal row is written
-    # via _failed_event (factory at line 161); otherwise the
-    # legacy _complete_event happy path. Pre-fix _complete_event was
-    # called unconditionally — a failed validation_matrix or
-    # pr_lifecycle phase silently passed through to a "completed"
-    # cycle, defeating the purpose of running the gate.
+    # Plan 025 §C — cycle status propagation. A phase whose payload
+    # declares ``status == "fail"`` downgrades the cycle's terminal row
+    # via _failed_event; otherwise the happy path. Pre-fix _complete_event
+    # was called unconditionally, so a failed validation_matrix or
+    # pr_lifecycle silently passed through as a "completed" cycle,
+    # defeating the purpose of running the gate.
     phase_failures = [
-        name for name, result in extended_phase_results.items()
-        if isinstance(result, dict) and result.get("status") == "fail"
+        phase.name for phase in CYCLE_PHASES
+        if isinstance(context.result(phase.name), dict)
+        and context.result(phase.name).get("status") == "fail"
     ]
-    failed_phases = [
-        {"phase": str(name), "status": "failed"}
-        for name in phase_failures
+    failed_phases: list[dict[str, Any]] = [
+        {"phase": name, "status": "failed"} for name in phase_failures
     ]
     if post_tool_failure is not None:
         failed_phases.append(post_tool_failure)
@@ -658,30 +667,18 @@ def run_enterprise_cycle(
     # `valid` is False, and a consumer that sees only the number would
     # report "no incomplete cycles" for an unreadable ledger.
     cycle_lifecycle = _cycle_lifecycle_snapshot(root)
-    state = {
+    state: dict[str, Any] = {
         "schema_version": 2,
         "cycle_id": cycle_id,
         "git_head_sha_at_cycle": git_head_sha_at_cycle,
         "status": state_status,
         "runtime_status": runtime_status,
-        "extended_phase_failures": phase_failures,
+        "phase_failures": phase_failures,
         "failed_phases": failed_phases,
         "event": event,
         "learning": learning,
-        "discovery": discovery,
         "cycle_diff": diff,
-        "service_examination": service_examination,
-        "memory": memory,
-        "belief_decay": belief_decay,
-        "pressure": pressure,
-        "consensus_escalation": consensus_escalation,
-        "lease_escalation": lease_escalation,
-        "human_required_adjudication": human_required_adjudication,
-        "judge_calibration": judge_calibration,
-        "proactive_priorities": proactive_priorities,
-        "reflection": reflection,
-        "cycle_metrics": metrics,
-        "observability_dashboard": dashboard,
+        "cycle_metrics": context.result("metrics"),
         "artifact_integrity": artifact_integrity,
         "artifact_refs": [run["artifact_ref"] for run in run_summary if isinstance(run.get("artifact_ref"), dict)],
         "non_ok_tools": non_ok_runs,
@@ -694,95 +691,313 @@ def run_enterprise_cycle(
         "tool_decisions": decisions,
         "tool_governance_decisions": decisions,
         "tool_run_summary": run_summary,
-        "extended_phases": extended_phase_results,
-        "pre_phase_results": pre_phase_results,
+        # The outcome ledger: ran / skipped / failed / degraded per phase,
+        # with the reason. This is where a phase that did NOT run becomes
+        # visible — the whole failure mode this collapse exists to remove
+        # was a phase being absent with nothing to read about it.
+        "phases": dict(context.outcomes),
     }
+    # The remaining top-level keys are a PROJECTION of the phase results,
+    # declared by `state_key` on each table row rather than assembled a
+    # second time here. That is what keeps the state dict and the phase
+    # results from being two stores that can disagree.
+    for phase in CYCLE_PHASES:
+        if phase.state_key is not None:
+            state[phase.state_key] = context.result(phase.name)
     _write_workspace_cycle_artifact(workspace, _workspace_cycle_state(workspace, state))
     return state
 
 
-def _run_extended_phases(
-    *,
-    phases: tuple[str, ...],
-    workspace_root: Path,
-    cycle_id: str,
-    base_dir: Path,
-    plan_id: str | None,
-    cycle_started_at: datetime | None = None,
-) -> dict[str, Any]:
-    """Plan 022 §M-1 — opt-in extended phase chain.
+# ---------------------------------------------------------------------
+# Phase runners.
+#
+# One function per row of CYCLE_PHASES, each taking the context and
+# returning that phase's payload. They contain no ordering, no guards and
+# no error handling: ordering is the table's `stage` + position,
+# permission is `precondition`, and failure is `on_error`. That split is
+# what makes the pipeline readable as data — a runner that re-implemented
+# any of the three would put the pipeline back into control flow where it
+# cannot be inspected.
+# ---------------------------------------------------------------------
 
-    Each extended phase calls the corresponding kernel primitive that
-    already exists as a public API (Plan 020 Phase 4 fresh
-    orchestrator + Phase 8 validation matrix gate + Plan 016 PR
-    lifecycle). The cycle becomes the orchestrator that strings them
-    together; primitives unchanged.
+
+def _phase_discovery(context: PhaseContext) -> dict[str, Any]:
+    emit_progress("discovery", cycle_id=context.cycle_id, phase="started")
+    discovery = run_discovery(
+        workspace_root=context.workspace_root,
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+        snapshot_mode=context.snapshot_mode,
+    )
+    emit_progress(
+        "discovery", cycle_id=context.cycle_id, phase="completed",
+        fated_file_count=(discovery.get("completion_proof") or {}).get("fated_file_count"),
+    )
+    return discovery
+
+
+def _phase_cycle_diff(context: PhaseContext) -> dict[str, Any]:
+    return run_cycle_diff(cycle_id=context.cycle_id, base_dir=context.base_dir)
+
+
+def _phase_tools(context: PhaseContext) -> dict[str, Any]:
+    """Run every dispatchable tool and summarise the runs it produced.
+
+    THE STATUS FILTER WAS TWO BRANCHES THAT SELECTED THE SAME SET.
+    Pre-collapse this read `if shadow_only and status not in ("SHADOW",
+    "ACTIVE", "CALIBRATE"): continue` followed by `if not shadow_only and
+    status not in ("ACTIVE", "SHADOW", "CALIBRATE"): continue` — the same
+    three values in a different order, so the branch on `shadow_only`
+    decided nothing. It read as though a shadow run dispatched a narrower
+    set of tools, and it never did. Collapsed to the one check that was
+    actually happening; the no-write behaviour of a shadow cycle lives in
+    the phase preconditions and in `enforce_profile_for_write`, not here.
     """
-    out: dict[str, Any] = {}
-    if plan_id is None:
-        # architecture_baseline / postcheck require a plan_id; emit a
-        # skip notice so the operator knows why the phase didn't fire.
-        skip = {"status": "skipped", "reason": "plan_id_required"}
-        if "architecture_baseline" in phases:
-            out["architecture_baseline"] = skip
-        if "architecture_postcheck" in phases:
-            out["architecture_postcheck"] = skip
-    else:
-        if "architecture_baseline" in phases:
-            from .architecture_spine_gate import take_baseline
-            out["architecture_baseline"] = take_baseline(
-                plan_id=plan_id, cycle_id=cycle_id,
-                workspace_root=workspace_root, base_dir=base_dir,
-            )
-        if "architecture_postcheck" in phases:
-            from .architecture_spine_gate import take_postcheck
-            out["architecture_postcheck"] = take_postcheck(
-                plan_id=plan_id, cycle_id=cycle_id,
-                workspace_root=workspace_root, base_dir=base_dir,
-            )
-    if "validation_matrix" in phases:
-        # Plan 025 §C — closed-loop wiring. Pre-fix this branch emitted
-        # only an informational notice ("invoke the matrix CLI outside
-        # the cycle"); the cycle never actually invoked enforce_
-        # validation_matrix even though the kernel primitive existed.
-        # The fix is per-change_id discovery (bounded by cycle window)
-        # + per-change gate invocation + aggregated per-id results.
-        # Failure of ANY change_id's matrix gate downgrades the cycle
-        # terminal status via _failed_event (see run_enterprise_cycle
-        # status propagation).
-        out["validation_matrix"] = _run_validation_matrix_phase(
-            cycle_started_at=cycle_started_at,
-            workspace_root=workspace_root,
-            base_dir=base_dir,
+    emit_progress("tools", cycle_id=context.cycle_id, phase="started")
+    decisions: list[Any] = []
+    pressure_summary: dict[str, Any] = {}
+    for tool in list_tools(base_dir=context.base_dir):
+        if tool.get("status") not in ("ACTIVE", "SHADOW", "CALIBRATE"):
+            continue
+        payload = dict(tool.get("default_input") or {})
+        payload.update({"cycle_id": context.cycle_id, "pressure_summary": pressure_summary})
+        decisions.append(
+            run_tool(
+                str(tool["tool_id"]),
+                payload,
+                context.cycle_id,
+                workspace_root=context.workspace_root,
+                base_dir=context.base_dir,
+            ),
         )
-    if "pr_lifecycle" in phases:
-        # Plan 025 §C — closed-loop wiring. Pre-fix this branch emitted
-        # only an informational notice ("invoke the PR CLI outside the
-        # cycle"); the cycle never invoked pr_manager.open_pr_for_
-        # action even though the primitive existed. The fix is
-        # per-proposal discovery (filtering on status=approved_for_
-        # apply) + per-proposal dry-run action + aggregated per-id
-        # results. Failure of ANY proposal action downgrades the
-        # cycle terminal status. Live PR open is operator-explicit
-        # (dry_run=True default; live mode is out of cycle scope).
-        out["pr_lifecycle"] = _run_pr_lifecycle_phase(
-            workspace_root=workspace_root,
-            base_dir=base_dir,
+    # v2 runtime contract — prefer the per-cycle run index to avoid an
+    # O(N) scan over a growing runs.jsonl. The helper falls back to the
+    # strict runs reader for legacy ledgers.
+    run_summary: list[dict[str, Any]] = []
+    for run in read_runs_for_cycle(base_dir=context.base_dir, cycle_uid=context.cycle_id):
+        runner = run.get("runner") if isinstance(run.get("runner"), dict) else {}
+        artifact_ref = run.get("artifact_ref") if isinstance(run.get("artifact_ref"), dict) else None
+        run_summary.append(
+            {
+                "tool_id": run.get("tool_id"),
+                "run_id": run.get("run_id"),
+                "status": run.get("status"),
+                "artifact_status": run.get("artifact_status", "legacy_inline_or_sample_only"),
+                "artifact_ref": artifact_ref,
+                "artifact_hash": run.get("artifact_hash"),
+                "raw_findings_count": int(runner.get("raw_findings_count") or 0),
+                "raw_observations_count": int(runner.get("raw_observations_count") or 0),
+                "emitted_findings_count": len(run.get("emitted_findings", [])) if isinstance(run.get("emitted_findings"), list) else 0,
+                "emitted_observations_count": len(run.get("emitted_observations", [])) if isinstance(run.get("emitted_observations"), list) else 0,
+            },
         )
-    return out
+    return {"decisions": decisions, "run_summary": run_summary}
 
 
-def _run_validation_matrix_phase(
-    *,
-    cycle_started_at: datetime | None,
-    workspace_root: Path,
-    base_dir: Path,
-) -> dict[str, Any]:
+def _phase_memory(context: PhaseContext) -> dict[str, Any]:
+    # Plan 026R §E.7 — pass workspace_root so update_memory's FATES hash
+    # recompute check fires. Pre-§E.7 legacy callers omitted it and the
+    # integrity check silently skipped.
+    emit_progress("memory", cycle_id=context.cycle_id, phase="started")
+    return update_memory(
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+        workspace_root=context.workspace_root,
+    )
+
+
+def _phase_belief_decay(context: PhaseContext) -> dict[str, Any]:
+    # Plan 028 §D4 — age-based belief decay runs BEFORE pressure, so a
+    # belief about unchanged code that has aged past its TTL becomes
+    # needs_revalidation and run_pressure surfaces it this same cycle.
+    return decay_stale_beliefs_by_age(cycle_id=context.cycle_id, base_dir=context.base_dir)
+
+
+def _phase_pressure(context: PhaseContext) -> dict[str, Any]:
+    # Plan S4 (ORPHAN-MEDIUM-298) — operator drift-class targeting:
+    # genesis-policy weights bias pressure scores per class. The loader is
+    # fail-soft (defaults on any error), and _doc keys are not classes, so
+    # passing the block through unfiltered is safe.
+    emit_progress("pressure", cycle_id=context.cycle_id, phase="started")
+    drift_weights = load_policy(context.workspace_root).get("drift_class_weights")
+    return run_pressure(
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+        drift_class_weights=drift_weights,
+    )
+
+
+def _phase_consensus_escalation(context: PhaseContext) -> dict[str, Any]:
+    # Plan 023 §B — drain consensus disagreements / low-confidence verdicts
+    # into HUMAN_REQUIRED so a split judge vote reaches an operator instead
+    # of being silently held. Idempotent, so re-running a cycle never
+    # double-escalates.
+    return sweep_consensus_uncertainties_for_human_required(base_dir=context.base_dir)
+
+
+def _phase_lease_lifecycle_escalation(context: PhaseContext) -> dict[str, Any]:
+    # P1-03 — claims-ledger escalations reach the operator-facing surface.
+    # `derive_request_state` can say HUMAN_REQUIRED while no
+    # `human-required/<id>.json` file exists, and the reconciling sweep had
+    # CLI-only callers — so an escalation was visible in one view and
+    # invisible in the one operators and the daily report read. Running it
+    # every cycle is what makes the two views agree.
+    return sweep_lease_lifecycle_for_human_required(base_dir=context.base_dir)
+
+
+def _phase_human_required_adjudication(context: PhaseContext) -> dict[str, Any]:
+    # ORPHAN-HIGH-450 — act on the escalations the two sweeps above just
+    # created. ORPHAN-HIGH-426 was closed with a 498-line adjudication
+    # panel that had zero non-test importers, so escalations were still
+    # being raised every cycle and cleared by nobody: the finding's own
+    # defect, reproduced by its fix. This is the caller.
+    return sweep_human_required_adjudications(base_dir=context.base_dir)
+
+
+def _phase_judge_calibration(context: PhaseContext) -> dict[str, Any]:
+    # Plan 024 §A — score each judge against accumulated ground truth so
+    # the cheap-tier judgment is measured, not assumed. Read-only join over
+    # the feedback ledger (no LLM).
+    return compute_judge_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir)
+
+
+def _phase_proactive_priority(context: PhaseContext) -> dict[str, Any]:
+    # Plan 027 §D3 — proactive Impact x Opportunity ranking, computed every
+    # cycle regardless of reactive pressure, so ARIA always has a "where to
+    # invest next" list even when nothing is on fire.
+    return compute_proactive_priorities(cycle_id=context.cycle_id, base_dir=context.base_dir)
+
+
+def _phase_reflection(context: PhaseContext) -> dict[str, Any]:
+    emit_progress("reflection", cycle_id=context.cycle_id, phase="started")
+    return run_reflection(
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+        repo_root=context.workspace_root,
+        calibration_result=context.result("judge_calibration") or None,
+        proactive_result=context.result("proactive_priority") or None,
+    )
+
+
+def _phase_service_examination(context: PhaseContext) -> dict[str, Any]:
+    """Per-service examination plan (ORPHAN-MEDIUM-258/259).
+
+    Surfaces the changed services + their downstream ripple in DEPENDENCY
+    (topological) order, and scopes this cycle's pressures to the
+    service(s) their evidence touches. Cached by graph fingerprint (no
+    re-scan when the project graph is unchanged).
+    """
+    diff = context.result("cycle_diff")
+    changed_paths = (diff.get("changed_paths") if isinstance(diff, dict) else None) or []
+    pressure = context.result("pressure")
+    cycle_pressures = pressure.get("pressures") if isinstance(pressure, dict) else None
+    if not changed_paths and not cycle_pressures:
+        return {}
+    emit_progress(
+        "service_examination", cycle_id=context.cycle_id, phase="started",
+        changed_paths=len(changed_paths), pressures=len(cycle_pressures or []),
+    )
+    return cycle_service_examination(
+        workspace_root=context.workspace_root,
+        base_dir=context.base_dir,
+        changed_files=changed_paths,
+        pressures=cycle_pressures,
+    )
+
+
+def _phase_learning_post_evidence_closure(context: PhaseContext) -> dict[str, Any]:
+    return run_learning_post_evidence_closure(
+        context.workspace, cycle_id=context.cycle_id, tools_root=context.base_dir,
+    )
+
+
+def _learning_post_error_payload(context: PhaseContext, exc: Exception) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "cycle_id": context.cycle_id,
+        "status": "failed",
+        "error": str(exc),
+        "hooks": [],
+    }
+
+
+def _phase_artifact_integrity(context: PhaseContext) -> dict[str, Any]:
+    return verify_artifacts(base_dir=context.base_dir)
+
+
+def _phase_metrics(context: PhaseContext) -> dict[str, Any]:
+    tools_result = context.result("tools") or {}
+    run_summary = tools_result.get("run_summary") or []
+    decisions = tools_result.get("decisions") or []
+    return record_cycle_metrics(
+        cycle_id=context.cycle_id,
+        phase_durations_ms={"cycle": int((time.monotonic() - context.started_monotonic) * 1000)},
+        artifact_count=len(run_summary) + 4,
+        status="ok" if _runtime_status(context) == "ok" else "failed",
+        cost_units=sum(
+            float((decision.get("envelope") or {}).get("cost_units") or 0)
+            for decision in decisions if isinstance(decision, dict)
+        ),
+        base_dir=context.base_dir,
+    )
+
+
+def _phase_observability_dashboard(context: PhaseContext) -> dict[str, Any]:
+    return generate_observability_dashboard(cycle_id=context.cycle_id, base_dir=context.base_dir)
+
+
+def _observability_error_payload(context: PhaseContext, exc: Exception) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "cycle_id": context.cycle_id,
+        "status": "failed",
+        "error": str(exc),
+    }
+
+
+def _phase_architecture_baseline(context: PhaseContext) -> dict[str, Any]:
+    from .architecture_spine_gate import take_baseline
+
+    return take_baseline(
+        plan_id=_required_plan_id(context),
+        cycle_id=context.cycle_id,
+        workspace_root=context.workspace_root,
+        base_dir=context.base_dir,
+    )
+
+
+def _phase_architecture_postcheck(context: PhaseContext) -> dict[str, Any]:
+    from .architecture_spine_gate import take_postcheck
+
+    return take_postcheck(
+        plan_id=_required_plan_id(context),
+        cycle_id=context.cycle_id,
+        workspace_root=context.workspace_root,
+        base_dir=context.base_dir,
+    )
+
+
+def _required_plan_id(context: PhaseContext) -> str:
+    """Narrow ``plan_id`` for the two phases whose precondition demands it.
+
+    The precondition already guarantees this, but only at runtime — the
+    type is still ``str | None`` at the callsite, and the alternative
+    spellings are a cast or a non-null assertion, both of which this
+    repository bans for the same reason: they assert rather than check. A
+    GovernanceError here is unreachable while `PLAN_ID_PRESENT` gates both
+    phases, and it is the correct failure if that ever stops being true.
+    """
+    if context.plan_id is None:
+        raise GovernanceError(
+            "cycle_phase_requires_plan_id: a phase gated on PLAN_ID_PRESENT ran "
+            "without one, which means the table and the driver have diverged"
+        )
+    return context.plan_id
+
+
+def _run_validation_matrix_phase(context: PhaseContext) -> dict[str, Any]:
     """Plan 025 §C — invoke enforce_validation_matrix per change_id
     committed inside the cycle window.
-
-    cycle_started_at = None (legacy callers) → no_op. Production
-    callers (run_enterprise_cycle) always pass a UTC datetime.
 
     Returns per-id aggregate dict with ``status`` ∈
     {``no_op``, ``ok``, ``fail``}. ``fail`` propagates to the cycle's
@@ -793,6 +1008,14 @@ def _run_validation_matrix_phase(
     change_id so a single failure does not abort the entire phase
     (operator sees every change's outcome, not just the first
     failure).
+
+    THE ``cycle_started_at is None`` DEGRADATION IS GONE. It existed for
+    "legacy callers" that omitted the kwarg, and returned a ``no_op``
+    that is indistinguishable in the ledger from "there was nothing to
+    validate". There are no such callers now: the window bound comes from
+    the context every cycle builds, so the phase cannot be invoked
+    without one and cannot report a silent no-op that means "I was called
+    wrong".
     """
     from .change_ledger import (
         get_change_chain,
@@ -800,15 +1023,10 @@ def _run_validation_matrix_phase(
     )
     from .validation_matrix_gate import enforce_validation_matrix
 
-    if cycle_started_at is None:
-        return {
-            "status": "no_op",
-            "total": 0, "ok": 0, "fail": 0,
-            "change_ids": [],
-            "reason": "cycle_started_at_required",
-        }
+    workspace_root = context.workspace_root
+    base_dir = context.base_dir
     change_ids = list_committed_change_ids_in_window(
-        since=cycle_started_at, base_dir=base_dir,
+        since=context.cycle_started_at, base_dir=base_dir,
     )
     per_change: list[dict[str, Any]] = []
     ok = 0
@@ -860,11 +1078,7 @@ def _run_validation_matrix_phase(
     }
 
 
-def _run_pr_lifecycle_phase(
-    *,
-    workspace_root: Path,
-    base_dir: Path,
-) -> dict[str, Any]:
+def _run_pr_lifecycle_phase(context: PhaseContext) -> dict[str, Any]:
     """Plan 025 §C — invoke pr_manager.open_pr_for_action(dry_run=True)
     per approved-for-apply proposal.
 
@@ -879,12 +1093,30 @@ def _run_pr_lifecycle_phase(
     available); GovernanceError raised by any precondition is
     caught per proposal so the phase iterates the full eligible
     list and aggregates outcomes.
+
+    RC-1 — THIS IS THE PHASE THAT WAS NEVER ON THE LANE. Until the
+    collapse it ran only when a caller passed `run_phases` /
+    `pre_tool_phases`, and no production caller did, so
+    `ORPHAN-CRITICAL-428`'s pre-PR-open perimeter had exactly one live
+    entrance: an operator typing `aria-kernel pr open`. The table now
+    puts it on every cycle whose profile permits `pr_open`. Two things
+    had to be true first, and both are: the breaker edge is gone
+    (ORPHAN-CRITICAL-503, so a dry-run stage report cannot self-halt the
+    nightly), and the precondition reads the same permission table
+    `open_pr_for_action` enforces (so the phase does not run under a
+    profile that will refuse it and call that a cycle failure).
     """
-    from .circuit_breaker import record_failure
-    from .implementation_safety import GATE_PRE_PR_OPEN
-    from .pr_manager import PERIMETER_REFUSED_PREFIX, open_pr_for_action
+    # RC-2 — `record_failure` and `PERIMETER_REFUSED_PREFIX` were imported here
+    # for the breaker edge this phase no longer has, and are removed with it. An
+    # import left behind after its call is deleted is not cosmetic: keeping the
+    # symbol importable while the call is gone is exactly what made
+    # ORPHAN-HIGH-499's mutation invisible to a `hasattr` test, and it would let
+    # a future reader conclude the edge is still here.
+    from .pr_manager import open_pr_for_action
     from .proposal import list_proposals
 
+    workspace_root = context.workspace_root
+    base_dir = context.base_dir
     eligible = [
         p for p in list_proposals(base_dir=base_dir)
         if p.get("status") == "approved_for_apply"
@@ -912,53 +1144,51 @@ def _run_pr_lifecycle_phase(
                 "passed": False,
                 "error": str(exc),
             })
-            # ORPHAN-CRITICAL-420 S5 — the failure circuit breaker's first
-            # production producer. record_failure() has existed since Plan
-            # ARIA-V3 §B2 and `grep -rn 'record_failure('` returned exactly
-            # ONE line: its own definition. A breaker with no producer cannot
-            # trip, so the autonomous-halt control was decorative.
+            # RC-2 — THE BREAKER EDGE WAS REMOVED FROM HERE, deliberately, and
+            # the removal is the fix rather than a walk-back of
+            # ORPHAN-CRITICAL-420 S5.
             #
-            # WHY HERE. This is an observation point, not a raise site: the
-            # perimeter refusal is raised inside pr_manager, which has no
-            # business knowing the breaker exists. cycle.py already catches
-            # per proposal and aggregates, so the failure is *observed* here
-            # exactly once, on a path proven reachable from a schedule
-            # (aria-auto-cycle.yml -> autonomy run -> run_enterprise_cycle ->
-            # _run_extended_phases -> this function).
+            # What used to be here: on a refusal whose message started with
+            # PERIMETER_REFUSED_PREFIX, `record_failure(kind=
+            # "validator_rejection")` fired. It was placed here because this is
+            # an observation point — cycle.py already aggregates per proposal —
+            # and that reasoning was sound about WHERE. It was wrong about WHAT.
             #
-            # WHY ONLY A PERIMETER REFUSAL. FAILURE_KINDS is a closed
-            # taxonomy and validator_rejection means "a validating gate
-            # rejected the implementation". A missing change_id or an
-            # unresolvable branch is a malformed REQUEST, not a rejected
-            # implementation; counting those would inflate the window with
-            # operator errors and trip the breaker for the wrong reason.
-            # Matching PERIMETER_REFUSED_PREFIX keeps the discrimination
-            # structural rather than a guess about message text.
+            # This phase calls `open_pr_for_action(dry_run=True)`, and
+            # `open_pr_for_action` runs the 10-check GATE_PRE_PR_OPEN perimeter
+            # BEFORE its dry_run branch so a preview cannot skip the gate. But a
+            # dry run opens nothing: no changed_files, no base_sha, no diff. So
+            # checks needing those refuse on data that CANNOT exist at this
+            # stage, and every such refusal was counted as a rejected
+            # implementation. Three approved_for_apply proposals in one cycle
+            # would trip a breaker that now gates `standard` — the nightly
+            # halting itself on its own observations. It has never fired only
+            # because `_run_extended_phases` is unreachable
+            # (ORPHAN-CRITICAL-498); RC-1 puts this phase on the live lane, so
+            # the edge had to go before that lands, not after.
             #
-            # WHY IT CANNOT MASK THE ORIGINAL FAILURE. record_failure writes
-            # a ledger row and emits a governance event; if that write itself
-            # fails we must not lose the proposal outcome already recorded
-            # above, nor abort the remaining proposals. The breaker-write
-            # error is therefore captured onto the proposal row and the loop
-            # continues — the refusal is still reported as `passed: False`
-            # either way, so a broken breaker degrades to "not counted",
-            # never to "refusal swallowed".
-            if str(exc).startswith(PERIMETER_REFUSED_PREFIX):
-                try:
-                    record_failure(
-                        base_dir=base_dir,
-                        kind="validator_rejection",
-                        materialize_event_id=str(pid),
-                        extra={
-                            "phase": "pr_lifecycle",
-                            "gate": GATE_PRE_PR_OPEN,
-                            "detail": str(exc),
-                        },
-                    )
-                except Exception as breaker_exc:  # noqa: BLE001
-                    per_proposal[-1]["breaker_record_error"] = (
-                        f"{type(breaker_exc).__name__}:{breaker_exc}"
-                    )
+            # An observation cannot trip a safety breaker. That is now
+            # structural, not intended: this phase evaluates the perimeter
+            # through `observe_perimeter`, which returns a PerimeterObservation
+            # with no `passed`, no `failures` and no `raise_if_blocked` — there
+            # is no attribute here a breaker producer could read as a refusal,
+            # and `tests/invariants/v3/test_perimeter_observe_has_no_breaker_edge.py`
+            # asserts no static call path from observe-mode to record_failure.
+            #
+            # The refusal is still fully REPORTED — the row above carries
+            # `passed: False` and the verbatim error — it is simply not COUNTED.
+            # Nothing is re-evaluated here: the perimeter already ran inside
+            # `open_pr_for_action`, and rebuilding a HardFailContext at this
+            # callsite to observe it a second time would duplicate the context
+            # assembly pr_manager owns. Observation belongs where the context
+            # already exists, which is why `observe_perimeter` is wired into the
+            # dry_run branch there rather than here.
+            #
+            # The breaker keeps its live producer: planner_dispatch_hook.py
+            # records `subprocess_timeout` from a single except arm, discriminated
+            # structurally rather than by message prefix. ORPHAN-CRITICAL-485
+            # stays closed; what changes is that a dry-run stage report no longer
+            # masquerades as a rejected implementation.
     total = len(eligible)
     if total == 0:
         status = "no_op"
@@ -971,6 +1201,280 @@ def _run_pr_lifecycle_phase(
         "ok": ok, "fail": total - ok,
         "proposals": per_proposal,
     }
+
+
+# =====================================================================
+# CYCLE_PHASES — the pipeline. This tuple IS the cycle.
+#
+# Ordered exactly as the phases execute. Reading it top to bottom is
+# reading what a cycle does, which was not true of anything in this file
+# before: `DEFAULT_CYCLE_PHASES` named five of these and got one of the
+# five names wrong.
+#
+# Adding a phase means adding a row. There is no second place to also
+# register it, no kwarg to also thread through, and no caller to also
+# update — which is the property that made the four extended phases
+# possible to write and never notice were dead.
+# =====================================================================
+CYCLE_PHASES: tuple[CyclePhase, ...] = (
+    # --- discovery: what changed, and is that all we were asked for? ---
+    CyclePhase(
+        "discovery", "discovery", _phase_discovery,
+        on_error="propagate", state_key="discovery",
+    ),
+    CyclePhase(
+        "cycle_diff", "discovery", _phase_cycle_diff,
+        on_error="propagate",
+    ),
+
+    # --- pre_tool: gates that must observe preconditions, not results ---
+    CyclePhase(
+        "architecture_baseline", "pre_tool", _phase_architecture_baseline,
+        precondition=PLAN_ID_PRESENT, on_error="record_and_continue",
+    ),
+
+    # --- tools: the adapters run ---
+    CyclePhase(
+        "tools", "tools", _phase_tools,
+        on_error="propagate",
+    ),
+
+    # --- post_tool: everything that reads what the tools produced ---
+    CyclePhase("memory", "post_tool", _phase_memory, state_key="memory"),
+    CyclePhase(
+        "belief_decay", "post_tool", _phase_belief_decay,
+        precondition=WRITES_PERMITTED, state_key="belief_decay",
+    ),
+    CyclePhase("pressure", "post_tool", _phase_pressure, state_key="pressure"),
+    CyclePhase(
+        "consensus_escalation", "post_tool", _phase_consensus_escalation,
+        precondition=WRITES_PERMITTED, state_key="consensus_escalation",
+    ),
+    CyclePhase(
+        "lease_lifecycle_escalation", "post_tool", _phase_lease_lifecycle_escalation,
+        precondition=WRITES_PERMITTED, state_key="lease_escalation",
+    ),
+    CyclePhase(
+        "human_required_adjudication", "post_tool", _phase_human_required_adjudication,
+        precondition=WRITES_PERMITTED, state_key="human_required_adjudication",
+    ),
+    CyclePhase(
+        "judge_calibration", "post_tool", _phase_judge_calibration,
+        precondition=WRITES_PERMITTED, state_key="judge_calibration",
+    ),
+    CyclePhase(
+        "proactive_priority", "post_tool", _phase_proactive_priority,
+        precondition=WRITES_PERMITTED, state_key="proactive_priorities",
+    ),
+    CyclePhase(
+        "reflection", "post_tool", _phase_reflection,
+        precondition=REFLECTION_NOT_DEFERRED, state_key="reflection",
+        # Plan ARIA-V3.3 §2b — the autonomy orchestrator defers reflection
+        # and runs it after its drainers, and it reads `state["reflection"]
+        # is None` to know that happened. So this phase's absence is None,
+        # not {}: an empty dict would read as "reflection ran and found
+        # nothing".
+        absent=lambda: None,
+    ),
+    CyclePhase(
+        "service_examination", "post_tool", _phase_service_examination,
+        # Operator convenience: a per-service examination plan. It must
+        # never be able to fail a cycle whose real work succeeded, which
+        # is why it is the one phase with `swallow`.
+        on_error="swallow", state_key="service_examination",
+    ),
+    CyclePhase(
+        "learning_post_evidence_closure", "post_tool", _phase_learning_post_evidence_closure,
+        on_error="record_and_continue", error_payload=_learning_post_error_payload,
+    ),
+    CyclePhase(
+        "artifact_integrity", "post_tool", _phase_artifact_integrity,
+        on_error="propagate", state_key="artifact_integrity",
+    ),
+    CyclePhase(
+        "metrics", "post_tool", _phase_metrics,
+        on_error="record_and_continue", state_key="cycle_metrics",
+        error_payload=_observability_error_payload,
+    ),
+    CyclePhase(
+        "observability_dashboard", "post_tool", _phase_observability_dashboard,
+        on_error="record_and_continue", state_key="observability_dashboard",
+        error_payload=_observability_error_payload,
+    ),
+    CyclePhase(
+        "architecture_postcheck", "post_tool", _phase_architecture_postcheck,
+        precondition=PLAN_ID_PRESENT, on_error="record_and_continue",
+        state_key="architecture_postcheck",
+    ),
+    CyclePhase(
+        "validation_matrix", "post_tool", _run_validation_matrix_phase,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="validation_matrix",
+    ),
+    CyclePhase(
+        "pr_lifecycle", "post_tool", _run_pr_lifecycle_phase,
+        precondition=PROFILE_PERMITS_PR_OPEN, on_error="record_and_continue",
+        state_key="pr_lifecycle",
+    ),
+)
+
+
+def _assert_pipeline_is_well_formed() -> None:
+    """Import-time checks on the table itself.
+
+    Earlier than any test and earlier than any cycle: a malformed table
+    makes `import aria_kernel.cycle` fail, so it cannot reach a runtime
+    where the damage is a half-run pipeline. This is the check that
+    replaced validating `run_phases` at function entry — the input is
+    gone, so what remains to validate is the declaration.
+    """
+    seen: set[str] = set()
+    for phase in CYCLE_PHASES:
+        if phase.name in seen:
+            raise ValueError(f"duplicate cycle phase name: {phase.name!r}")
+        seen.add(phase.name)
+        if phase.stage not in CYCLE_STAGES:
+            raise ValueError(f"phase {phase.name!r} declares unknown stage {phase.stage!r}")
+        if not any(phase.precondition is known for known in CYCLE_PRECONDITIONS):
+            raise ValueError(
+                f"phase {phase.name!r} declares a precondition that is not in "
+                f"CYCLE_PRECONDITIONS; the vocabulary is closed on purpose",
+            )
+    # Stage order is the table's order. A row placed out of stage order
+    # would run in the position the table implies but be grouped under a
+    # stage that runs elsewhere — the ambiguity the two kwargs created.
+    stages = [phase.stage for phase in CYCLE_PHASES]
+    if stages != sorted(stages, key=CYCLE_STAGES.index):
+        raise ValueError(
+            f"CYCLE_PHASES rows are not grouped in stage order {CYCLE_STAGES}; got {stages}",
+        )
+    keys = [phase.state_key for phase in CYCLE_PHASES if phase.state_key is not None]
+    if len(keys) != len(set(keys)):
+        raise ValueError(
+            f"two phases project onto the same state key: "
+            f"{sorted({k for k in keys if keys.count(k) > 1})}",
+        )
+
+
+_assert_pipeline_is_well_formed()
+
+
+# ---------------------------------------------------------------------
+# The driver.
+# ---------------------------------------------------------------------
+
+
+def _run_phase_stage(stage: PhaseStage, context: PhaseContext) -> None:
+    """Run every phase of one stage, in table order.
+
+    Writes into ``context.results`` (payloads) and ``context.outcomes``
+    (ran / skipped / failed / degraded, with a reason). Nothing is
+    returned: a second copy of what the context already holds is exactly
+    the duplication this collapse removes.
+    """
+    for phase in CYCLE_PHASES:
+        if phase.stage != stage:
+            continue
+        upstream = _first_phase_failure(context)
+        if phase.on_error == "halt_sequence" and upstream is not None:
+            _record_skip(context, phase, f"upstream_failure:{upstream.get('phase')}")
+            continue
+        if not phase.precondition.satisfied_by(context):
+            _record_skip(context, phase, f"precondition_unmet:{phase.precondition.name}")
+            continue
+        if phase.on_error == "propagate":
+            # No handler by design: if discovery or the tool loop cannot
+            # run there is no cycle to report on, and swallowing that
+            # would produce a "completed" cycle that did nothing.
+            context.results[phase.name] = phase.runner(context)
+            context.outcomes[phase.name] = {"outcome": "ran"}
+            continue
+        try:
+            context.results[phase.name] = phase.runner(context)
+        except Exception as exc:
+            context.results[phase.name] = (
+                phase.error_payload(context, exc)
+                if phase.error_payload is not None
+                else phase.absent()
+            )
+            context.outcomes[phase.name] = {
+                "outcome": "degraded" if phase.on_error == "swallow" else "failed",
+                "error": str(exc),
+            }
+        else:
+            context.outcomes[phase.name] = {"outcome": "ran"}
+
+
+def _record_skip(context: PhaseContext, phase: CyclePhase, reason: str) -> None:
+    """A phase that did not run still leaves a row.
+
+    This is the whole point. Pre-collapse, a phase that was not requested
+    produced nothing at all — no key, no reason, no trace — so "this gate
+    is not wired" and "this gate passed" were the same observation from
+    outside. They are now different rows.
+    """
+    context.results[phase.name] = phase.absent()
+    context.outcomes[phase.name] = {"outcome": "skipped", "reason": reason}
+
+
+def _first_phase_failure(context: PhaseContext) -> dict[str, Any] | None:
+    """The first phase that failed, in execution order, or None.
+
+    Derived from the outcome ledger rather than tracked in a parallel
+    variable, so "did something fail?" has one answer. ``degraded`` is
+    deliberately not a failure: that is what the `swallow` policy means.
+    """
+    for name, outcome in context.outcomes.items():
+        if outcome.get("outcome") == "failed":
+            return {"phase": name, "status": "failed", "error": outcome.get("error")}
+    return None
+
+
+def _first_blocking_pre_phase(context: PhaseContext) -> str | None:
+    """Plan 023 v3 §R-1 — the pre_tool phase, if any, that aborts the cycle.
+
+    Two ways a pre-tool phase blocks: it raised (an outcome of
+    ``failed``), or it returned a payload declaring itself failed,
+    blocked or a regression. The second is how the architecture spine
+    gate reports a regression — it returns rather than raises — and
+    missing it would let a detected regression proceed to tool dispatch.
+    """
+    for phase in CYCLE_PHASES:
+        if phase.stage != "pre_tool":
+            continue
+        if context.outcomes.get(phase.name, {}).get("outcome") == "failed":
+            return phase.name
+        payload = context.result(phase.name)
+        if not isinstance(payload, dict):
+            continue
+        if (payload.get("status") or payload.get("decision")) in ("failed", "blocked", "regression"):
+            return phase.name
+    return None
+
+
+def _non_ok_runs(context: PhaseContext) -> list[dict[str, Any]]:
+    run_summary = (context.result("tools") or {}).get("run_summary") or []
+    return [
+        run for run in run_summary
+        if run.get("status") != "ok"
+        or run.get("artifact_status") in {"missing", "hash_mismatch", "write_failed"}
+    ]
+
+
+def _runtime_status(context: PhaseContext) -> str:
+    """The cycle's runtime verdict, derived from the phases that ran.
+
+    One definition, two readers — the metrics phase records it and the
+    state assembly reports it. Pre-collapse those were two expressions of
+    the same rule evaluated at different points in one function, which is
+    how the metrics row could disagree with the cycle it described.
+    """
+    if _first_phase_failure(context) is not None:
+        return "failed"
+    integrity = context.result("artifact_integrity") or {}
+    if _non_ok_runs(context) or not integrity.get("valid"):
+        return "integrity_failed"
+    return "ok"
 
 
 def _cycle_lifecycle_snapshot(root: Path) -> dict[str, Any]:

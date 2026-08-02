@@ -2159,6 +2159,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1808100000000-RestoreSharedAccessLogs.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1808200000000-RestoreAuditImmutabilityContract.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -4800,6 +4812,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/migrations/1807800000000-AddRefreshTokenLookupId.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/migrations/1808300000000-RestoreAuthUsersTenantFk.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/migrations/1808400000000-RestoreAuditImmutabilityContract.ts",
       "prettier_managed": true
     },
     {
@@ -10096,6 +10120,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/migrations/1808000000000-AddSatelliteCoverageProvenance.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1808500000000-RestoreAuditImmutabilityContract.ts",
       "prettier_managed": true
     },
     {
@@ -36586,6 +36616,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/database/audit-immutability.sql.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/database/base-migration.ts",
       "prettier_managed": true
     },
@@ -40854,6 +40890,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "scripts/ci/aria-suite-changed.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "scripts/ci/audit-source-map.mjs",
       "prettier_managed": true
     },
@@ -42228,6 +42270,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/aria-single-restore-path.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/aria-workflow-input-injection.spec.ts",
       "prettier_managed": true
     },
@@ -42781,6 +42829,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/lib/dead-contract-scan.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/lib/migration-corpus.ts",
       "prettier_managed": true
     },
     {
@@ -56082,10 +56136,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9196,
+  "file_count": 9205,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9015,
-  "managed_file_list_sha256": "53c9acdb57bce803e6fa2d03ce3e305c9350f7c231da944493ae92aaa7d9137f",
+  "managed_count": 9024,
+  "managed_file_list_sha256": "d03f9383e03dcddcea2429523598bd9c983027615933acfcd219a347cc7ef650",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

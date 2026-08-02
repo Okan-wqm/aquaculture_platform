@@ -245,7 +245,17 @@ describe('INVARIANT (INFRA-CRITICAL-029/032): admin and HR drift closure has own
     const validator = repoFile('libs/backend-common/src/database/schema-drift-validator.service.ts');
     const appModule = repoFile('apps/admin-api-service/src/app.module.ts');
 
-    expect(jestConfig).toContain("'<rootDir>/admin-api-schema-boundaries.spec.ts'");
+    // The property is "this boundary invariant RUNS", and it used to be spelled
+    // as "the config text contains this filename" — true only while shard
+    // membership was an enumeration. Membership is a glob now, so the filename
+    // is correctly absent and the property is unchanged; asserting the spelling
+    // would have made a coverage improvement look like a coverage regression.
+    // Reachability is the dormancy manifest's complement, so that is what is
+    // read.
+    const dormant = JSON.parse(
+      repoFile('tests/invariants/invariant-reachability.dormant.json'),
+    ) as Record<string, unknown>;
+    expect(Object.keys(dormant)).not.toContain('admin-api-schema-boundaries.spec.ts');
     expect(boundarySpec).toContain("const WRITE_ALLOWED: ReadonlySet<string> = new Set(['admin', 'auth', 'shared'])");
     expect(boundarySpec).toContain('must declare synchronize: false');
     expect(validator).toContain('if (entity.synchronize === false)');

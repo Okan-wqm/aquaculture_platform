@@ -1,20 +1,23 @@
-"""ORPHAN-CRITICAL-428 — the pre-PR-open perimeter has a caller. An OPERATOR one.
+"""ORPHAN-CRITICAL-428 — the pre-PR-open perimeter has a caller. Two, now.
 
-Scope correction (ORPHAN-CRITICAL-498)
-======================================
+Scope history (ORPHAN-CRITICAL-498, then RC-1)
+==============================================
 This file's original title claimed a "PRODUCTION caller" without qualifying
-which lane. That reads as "the nightly runs the perimeter", and it does not.
+which lane. That read as "the nightly runs the perimeter", and it did not.
 `run_hard_fail_checks` has exactly one caller, `pr_manager.open_pr_for_action`,
-and that has exactly two: the operator CLI (`cli.py`, `pr open`) and
-`cycle._run_pr_lifecycle_phase`. The second is unreachable — it is entered only
-via `_run_extended_phases`, which fires only when a caller passes `run_phases`
-or `pre_tool_phases`, and no production caller passes either.
+and that had exactly two: the operator CLI (`cli.py`, `pr open`) and
+`cycle._run_pr_lifecycle_phase`. The second was unreachable — entered only via
+`_run_extended_phases`, which fired only when a caller passed `run_phases` or
+`pre_tool_phases`, and no production caller passed either.
 
-So what this file pins is real but narrower than it read: the perimeter is
-wired into the PR-open path, and that path is currently operator-driven.
-Putting it on the scheduled lane is RC-1 of the follow-up plan (collapse the
-two cycle pipelines into one declarative registry). The tests below are
-unchanged and still valid — only the claim about reach is corrected.
+RC-1 collapsed the two pipelines into `cycle.CYCLE_PHASES`, and `pr_lifecycle`
+is a row in it, gated on `ACTION_PERMISSIONS["pr_open"]`. So the second caller
+is now live on the scheduled lane for a profile that holds PR-open authority,
+and the correction above is history rather than a standing limitation. What
+remains true, and is worth stating because it bounds the claim: under the
+default `standard` profile the phase records a `precondition_unmet` skip, so
+the operator CLI is still the only route that reaches the perimeter on a
+default deployment.
 
 
 Why this file exists separately from the perimeter's own unit tests
@@ -146,36 +149,63 @@ class PrOpenPerimeterCallsiteTests(unittest.TestCase):
         unimplemented, so selecting it here would refuse every PR forever.
         """
         pid = self._seed(changed_files=[CHANGED_FILE], proposal_id="PROP-CALLSITE-1")
-        with patch("aria_kernel.pr_manager.run_hard_fail_checks") as gate:
-            gate.return_value.passed = True
-            gate.return_value.failures = ()
+
+        # RC-2 — a dry run OBSERVES; only a real open AUTHORISES. Both must name
+        # GATE_PRE_PR_OPEN: selecting GATE_PRE_MERGE would refuse every PR
+        # forever, since its seven checks are all unimplemented. Asserted per
+        # mode rather than once, because "some perimeter ran" is the assertion
+        # that would survive the modes being swapped.
+        with patch("aria_kernel.pr_manager.observe_perimeter") as observe:
+            observe.return_value.refused = ()
+            observe.return_value.summary = {"checks": 0}
             open_pr_for_action(
                 proposal_id=pid,
                 workspace_root=self.workspace,
                 base_dir=self.base_dir,
                 dry_run=True,
             )
-        gate.assert_called_once()
-        self.assertEqual(gate.call_args.kwargs.get("gate"), GATE_PRE_PR_OPEN)
+        observe.assert_called_once()
+        self.assertEqual(observe.call_args.kwargs.get("gate"), GATE_PRE_PR_OPEN)
+
+    def test_a_dry_run_does_not_reach_the_authorising_gate(self) -> None:
+        """The two modes are not interchangeable, and this pins the direction.
+
+        An authorisation on a preview is what counted stage artifacts as
+        rejected implementations; an observation on a real open would be a gate
+        that reports instead of blocking. Either swap is a safety regression, so
+        each mode asserts the ABSENCE of the other.
+        """
+        pid = self._seed(changed_files=[CHANGED_FILE], proposal_id="PROP-CALLSITE-3")
+        with patch("aria_kernel.pr_manager.run_hard_fail_checks") as authorise, patch(
+            "aria_kernel.pr_manager.observe_perimeter"
+        ) as observe:
+            observe.return_value.refused = ()
+            observe.return_value.summary = {"checks": 0}
+            open_pr_for_action(
+                proposal_id=pid,
+                workspace_root=self.workspace,
+                base_dir=self.base_dir,
+                dry_run=True,
+            )
+        observe.assert_called_once()
+        authorise.assert_not_called()
 
     def test_dry_run_is_refused_when_the_perimeter_fails(self) -> None:
         """A dry run is gated too, and the refusal names what blocked it.
 
-        ORPHAN-CRITICAL-498 corrected this docstring. It used to assert that
-        "the only production route into open_pr_for_action is the cycle's
-        pr_lifecycle phase with dry_run=True", and BOTH halves were false:
+        ORPHAN-CRITICAL-498 corrected this docstring, and RC-1 then made the
+        correction historical. It used to assert that "the only production
+        route into open_pr_for_action is the cycle's pr_lifecycle phase with
+        dry_run=True", and BOTH halves were false at the time: that phase was
+        unreachable (entered only from ``_run_extended_phases``, behind a
+        kwarg no production caller passed), and the actual live route was
+        ``cli.py`` ``pr open`` — an operator typing a command.
 
-        * that phase is unreachable — it is entered only from
-          ``_run_extended_phases``, which requires a caller to pass
-          ``run_phases`` / ``pre_tool_phases``, and no production caller does;
-        * the actual live route is ``cli.py`` ``pr open``, i.e. an operator
-          typing a command.
-
-        So ``run_hard_fail_checks`` does not execute on the scheduled lane at
-        all. The gating asserted below is real, but it is operator-path gating
-        until the cycle pipeline is collapsed (RC-1). A comment stating a dead
-        route as production fact is precisely what let that survive review,
-        which is why the correction lives here rather than only in the finding.
+        Since RC-1, ``pr_lifecycle`` is a row in ``cycle.CYCLE_PHASES`` and
+        does run on the scheduled lane under a profile that permits
+        ``pr_open``. The gating asserted below covers both routes: it is a
+        property of ``open_pr_for_action``, which is where the perimeter is
+        called, so it holds regardless of which caller arrives.
         """
         pid = self._seed(changed_files=[KERNEL_FILE], proposal_id="PROP-CALLSITE-2")
         with self.assertRaises(GovernanceError) as caught:
@@ -210,22 +240,39 @@ class PrOpenPerimeterCallsiteTests(unittest.TestCase):
 
 
 class BreakerProducerCallsiteTests(unittest.TestCase):
-    """ORPHAN-CRITICAL-420 — the failure breaker has a PRODUCTION producer.
+    """RC-2 — an OBSERVATION cannot trip a safety breaker.
 
-    Same reasoning as the perimeter tests above, one layer out.
-    ``circuit_breaker.record_failure`` had complete unit tests and, until this
-    change, exactly one occurrence repo-wide: its own ``def``. A breaker with
-    no producer cannot trip, so the autonomous-halt control was decorative
-    while every test covering it was green.
+    This class previously asserted the opposite, and the reversal is the fix
+    rather than a walk-back of ORPHAN-CRITICAL-420 S5.
 
-    These tests therefore assert the WIRING, not the breaker's arithmetic:
-    that a perimeter refusal observed in the cycle's pr_lifecycle phase records
-    a ``validator_rejection``, that a malformed-request GovernanceError does
-    NOT (it is not a rejected implementation), and that a breaker-write failure
-    cannot swallow the refusal it was trying to count.
+    S5 was right that ``record_failure`` had no production producer and right
+    that the cycle's aggregation point is where a failure should be *observed*.
+    It was wrong about WHAT it observed. This phase calls
+    ``open_pr_for_action(dry_run=True)``, and the perimeter runs before the
+    dry_run branch so a preview cannot skip the gate — but a dry run has no
+    changed_files, no base_sha and no diff, so checks needing those refuse on
+    data that cannot exist at that stage. Every one of those was being counted
+    as a rejected implementation. Three ``approved_for_apply`` proposals in one
+    cycle would trip a breaker that now gates ``standard``: the nightly halting
+    itself on its own observations. It never fired only because
+    ``_run_extended_phases`` was unreachable (ORPHAN-CRITICAL-498), and RC-1 has
+    since put this phase on the live lane as a ``CYCLE_PHASES`` row — which is
+    why the edge had to go BEFORE that landed, not after.
+
+    The breaker is not left without a producer. ``planner_dispatch_hook``
+    records ``subprocess_timeout`` from a single ``except`` arm, discriminated
+    structurally rather than by message prefix, so ORPHAN-CRITICAL-485 stays
+    closed. That is pinned below precisely so nobody restores this edge
+    believing the breaker went decorative again.
     """
 
-    def test_perimeter_refusal_records_a_validator_rejection(self) -> None:
+    def test_a_dry_run_perimeter_refusal_does_not_reach_the_breaker(self) -> None:
+        """The inverse of what this test used to assert, on purpose.
+
+        The refusal is still fully REPORTED — ``passed: False`` plus the verbatim
+        error — it is simply not COUNTED. Reported-but-not-counted is the whole
+        distinction between observing and authorising.
+        """
         from aria_kernel import cycle as cycle_mod
         from aria_kernel.pr_manager import PERIMETER_REFUSED_PREFIX
 
@@ -242,13 +289,41 @@ class BreakerProducerCallsiteTests(unittest.TestCase):
             side_effect=lambda **kw: calls.append(kw),
         ):
             out = cycle_mod._run_pr_lifecycle_phase(
-                workspace_root=Path("/tmp"), base_dir=Path("/tmp"),
+                cycle_mod.build_phase_context(
+                    cycle_id="cyc-perimeter-observe",
+                    workspace_root=Path("/tmp"),
+                    base_dir=Path("/tmp"),
+                ),
             )
 
-        self.assertEqual(len(calls), 1, "a perimeter refusal must reach the breaker")
-        self.assertEqual(calls[0]["kind"], "validator_rejection")
-        self.assertEqual(calls[0]["materialize_event_id"], "PROP-1")
+        self.assertEqual(
+            calls, [], "an observation must not reach the failure breaker",
+        )
         self.assertEqual(out["proposals"][0]["passed"], False)
+        self.assertIn(PERIMETER_REFUSED_PREFIX, out["proposals"][0]["error"])
+
+    def test_the_breaker_still_has_a_live_producer_elsewhere(self) -> None:
+        """Removing this edge must not return the breaker to zero producers.
+
+        Asserted by invocation against the live path rather than by grepping for
+        the symbol: ORPHAN-CRITICAL-420 existed because `record_failure` was
+        importable and never called, so importability proves nothing here.
+        """
+        import inspect
+
+        from aria_kernel import planner_dispatch_hook
+
+        source = inspect.getsource(planner_dispatch_hook)
+        self.assertIn(
+            "record_failure(",
+            source,
+            msg="the breaker's live producer left planner_dispatch_hook",
+        )
+        self.assertIn(
+            'kind="subprocess_timeout"',
+            source,
+            msg="the live producer no longer records a declared FAILURE_KIND",
+        )
 
     def test_malformed_request_error_does_not_count_toward_the_breaker(self) -> None:
         """A missing change_id is a bad REQUEST, not a rejected implementation.
@@ -270,14 +345,27 @@ class BreakerProducerCallsiteTests(unittest.TestCase):
             side_effect=lambda **kw: calls.append(kw),
         ):
             out = cycle_mod._run_pr_lifecycle_phase(
-                workspace_root=Path("/tmp"), base_dir=Path("/tmp"),
+                cycle_mod.build_phase_context(
+                    cycle_id="cyc-perimeter-observe",
+                    workspace_root=Path("/tmp"),
+                    base_dir=Path("/tmp"),
+                ),
             )
 
         self.assertEqual(calls, [], "a malformed request must not count as a rejection")
         self.assertEqual(out["proposals"][0]["passed"], False)
 
     def test_a_broken_breaker_cannot_swallow_the_refusal(self) -> None:
-        """Degrade to 'not counted', never to 'refusal disappeared'."""
+        """Degrade to 'not counted', never to 'refusal disappeared'.
+
+        The property is unchanged; RC-2 made it unconditional. It used to hold
+        because the breaker-write error was caught and pinned onto the proposal
+        row. Now there is no breaker write on this path at all, so a breaker
+        that cannot be written to cannot affect this phase's report — the
+        strongest form of the same guarantee, and the reason the assertion moved
+        from "the error was recorded" to "the refusal survives an unwritable
+        ledger untouched".
+        """
         from aria_kernel import cycle as cycle_mod
         from aria_kernel.pr_manager import PERIMETER_REFUSED_PREFIX
 
@@ -291,13 +379,21 @@ class BreakerProducerCallsiteTests(unittest.TestCase):
             side_effect=OSError("ledger unwritable"),
         ):
             out = cycle_mod._run_pr_lifecycle_phase(
-                workspace_root=Path("/tmp"), base_dir=Path("/tmp"),
+                cycle_mod.build_phase_context(
+                    cycle_id="cyc-perimeter-observe",
+                    workspace_root=Path("/tmp"),
+                    base_dir=Path("/tmp"),
+                ),
             )
 
         row = out["proposals"][0]
         self.assertEqual(row["passed"], False, "the refusal must still be reported")
-        self.assertIn("breaker_record_error", row)
-        self.assertIn("OSError", row["breaker_record_error"])
+        self.assertIn(PERIMETER_REFUSED_PREFIX, row["error"])
+        self.assertNotIn(
+            "breaker_record_error",
+            row,
+            msg="no breaker write is attempted here, so there is no write error to carry",
+        )
 
 if __name__ == "__main__":
     unittest.main()

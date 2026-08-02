@@ -22,6 +22,8 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { migrationCorpus } from './lib/migration-corpus';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const LIB_BARREL = 'libs/backend-common/src/compliance/legal-hold/index.ts';
 const COMPLIANCE_BARREL = 'libs/backend-common/src/compliance/index.ts';
@@ -94,12 +96,22 @@ describe('INVARIANT (LEGAL-CRITICAL-001): canonical LegalHold registry library',
     ).trim();
     expect(migration).toBe('apps/admin-api-service/src/migrations/1787500000000-CreateComplianceLegalHolds.ts');
 
-    // The migration MUST appear in admin-api app.module.ts migrations array.
-    const appModuleSrc = readFileSync(
-      resolve(REPO_ROOT, 'apps/admin-api-service/src/app.module.ts'),
-      'utf8',
+    // The migration must be one the service ACTUALLY APPLIES.
+    //
+    // This asserted that the class NAME appears in admin-api's app.module.ts —
+    // true only while that service registered migrations as an explicit import
+    // list. It registers a glob (`migrations/[0-9]*{.ts,.js}`), so the name is
+    // correctly absent and the migration is correctly registered. Asserting the
+    // spelling reports a service that moved to the safer registration form as a
+    // regression, and the obvious way to silence it is to add a redundant
+    // hand-maintained list — the wrong direction.
+    //
+    // The corpus is the set that glob selects, so membership in it IS
+    // registration. It also excludes `.archive/`, which is what makes this a
+    // real check: the same file exists there, retired (ORPHAN-CRITICAL-516).
+    expect(migrationCorpus('admin-api-service').files).toContain(
+      'apps/admin-api-service/src/migrations/1787500000000-CreateComplianceLegalHolds.ts',
     );
-    expect(appModuleSrc).toMatch(/CreateComplianceLegalHolds1787500000000/);
   });
 
   it('the compliance event-contract family includes the 3 lifecycle events', () => {

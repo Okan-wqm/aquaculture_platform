@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-04-26T19:30:00.000Z",
+  "generatedAt": "2026-07-30T13:46:48.307Z",
   "description": "Per-project baseline error counts for tsc -p <project>/tsconfig.spec.json --noEmit. The gate fails on any regression above these numbers; PRs that drive a count down should also update this file (via tools/gates/type-check-spec.ts --update-baseline). Projects pinned at 0 cannot regress without a CI failure.",
   "projects": {
     "apps/admin-api-service": {
@@ -62,6 +62,12 @@
       "errors": 0,
       "notes": "Cleaned by PR #162 (chore/sensor-service-spec-baseline-cleanup-pr21). Locked at 0."
     },
+    "libs/alarm-core": {
+      "errors": 0
+    },
+    "libs/aquaculture-engines": {
+      "errors": 0
+    },
     "libs/backend-common": {
       "errors": 0,
       "notes": "Cleaned by PR-29 (chore/backend-common-spec-baseline-cleanup-pr29). Three root causes: (1) WatchdogViolation.timestamp typed as string but spec passed `new Date()` — fixed to `.toISOString()`; (2) two gate specs (gha-sha-pin, npm-audit) had no import/export, making them script-mode files with conflicting global `runCheck` declarations — added `export {}` to both; (3) FakeRedis mock declared `implements RedisLike = Pick<Redis, 'set'|'eval'|...>` but ioredis's set/eval have 16+ overloads no test double can narrow to — dropped the implements clause; the downstream `as unknown as Redis` cast at the service-construction site is the typed boundary. Locked at 0."
@@ -73,12 +79,33 @@
       "errors": 0,
       "notes": "Cleaned by PR-32 (chore/migration-harness-spec-baseline-cleanup-pr32). Root cause: tsconfig.spec.json inherited `noPropertyAccessFromIndexSignature: true` (from tsconfig.json) AND added `isolatedModules: true` — both stricter than peer libs' own compile configs. The spec compile traversed cross-lib imports (libs/backend-common, libs/event-contracts, platform/libs/event-bus) and found 26 violations IN CODE THIS PROJECT DOESN'T OWN. Fix: overrode the two settings to false in the spec config, aligning strictness with peer libs. The remaining 1 error was a real spec issue: `result.added.sort()` on a readonly string[] — fixed with `[...result.added].sort()` copy. Tightening the two settings monorepo-wide is captured as PROC-MEDIUM-011 candidate. Locked at 0."
     },
+    "libs/protocol-codec": {
+      "errors": 0
+    },
+    "libs/sensor-contracts": {
+      "errors": 0
+    },
+    "libs/shared-contracts": {
+      "errors": 0
+    },
     "libs/storage": {
+      "errors": 0
+    },
+    "libs/testing": {
+      "errors": 0
+    },
+    "platform/libs/event-bus": {
       "errors": 0
     },
     "platform/libs/outbox": {
       "errors": 0,
       "notes": "Added by PR-39 (chore/outbox-tests-pr39). New tsconfig.spec.json + first test suite (outbox-publisher.service.spec.ts) closed PROC-MEDIUM-008. Locked at 0 from inception. Worker / notify-listener / metrics specs are follow-up work."
+    },
+    "platform/libs/service-catalog": {
+      "errors": 0
+    },
+    "tests/invariants": {
+      "errors": 0
     }
   }
 }

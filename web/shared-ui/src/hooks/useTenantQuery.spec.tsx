@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, type QueryFunctionContext } from '@tanstack/react-query';
 
 // Controllable auth — useTenantQuery reads token/tenantId from useAuth.
 const auth = vi.hoisted(() => ({
@@ -14,6 +14,7 @@ vi.mock('./useAuth', () => ({
 
 import { useTenantQuery, useTenantMutation } from './useTenantQuery';
 import { createTenantQueryKey } from '../utils/tenant-query-keys';
+import { bumpSessionEpoch } from '../utils/session-epoch';
 
 function makeWrapper(client: QueryClient) {
   return ({ children }: { children: React.ReactNode }) =>
@@ -56,21 +57,40 @@ describe('useTenantQuery', () => {
 
   it('ANDs a caller-provided enabled:false', () => {
     const fn = vi.fn().mockResolvedValue({});
-    const { result } = renderHook(
-      () => useTenantQuery(['x'], fn, { enabled: false }),
-      { wrapper: makeWrapper(qc) },
-    );
+    const { result } = renderHook(() => useTenantQuery(['x'], fn, { enabled: false }), {
+      wrapper: makeWrapper(qc),
+    });
     expect(result.current.fetchStatus).toBe('idle');
     expect(fn).not.toHaveBeenCalled();
   });
 
-  it('keeps the previous tenant data when the key changes (A5 keepPreviousData)', async () => {
+  it('forwards the TanStack cancellation signal to tenant query functions', async () => {
+    let requestSignal: AbortSignal | undefined;
+    const fn = vi.fn(
+      async ({ signal }: QueryFunctionContext<readonly unknown[]>) =>
+        await new Promise((_resolve, reject) => {
+          requestSignal = signal;
+          signal.addEventListener(
+            'abort',
+            () => reject(new DOMException('Aborted', 'AbortError')),
+            { once: true },
+          );
+        }),
+    );
+    const rendered = renderHook(() => useTenantQuery(['cancel'], fn), {
+      wrapper: makeWrapper(qc),
+    });
+
+    await waitFor(() => expect(requestSignal).toBeDefined());
+    rendered.unmount();
+    expect(requestSignal?.aborted).toBe(true);
+  });
+
+  it('keeps previous data when domain segments change within one tenant session', async () => {
     const fn = vi
       .fn()
       .mockResolvedValueOnce('first')
-      .mockImplementation(
-        () => new Promise((resolve) => setTimeout(() => resolve('second'), 50)),
-      );
+      .mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve('second'), 50)));
     const { result, rerender } = renderHook(
       ({ seg }: { seg: string }) => useTenantQuery(['n', seg], fn, { staleTime: 0 }),
       { wrapper: makeWrapper(qc), initialProps: { seg: 'a' } },
@@ -82,6 +102,57 @@ describe('useTenantQuery', () => {
     rerender({ seg: 'b' });
     expect(result.current.data).toBe('first');
     expect(result.current.isPlaceholderData).toBe(true);
+  });
+
+  it('does not expose previous data when the active tenant changes', async () => {
+    const fn = vi
+      .fn()
+      .mockResolvedValueOnce('tenant-A-data')
+      .mockImplementation(() => new Promise<string>(() => undefined));
+    const { result, rerender } = renderHook(() => useTenantQuery(['sites'], fn), {
+      wrapper: makeWrapper(qc),
+    });
+    await waitFor(() => expect(result.current.data).toBe('tenant-A-data'));
+
+    auth.tenantId = 'tenant-B';
+    rerender();
+
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.isPlaceholderData).toBe(false);
+  });
+
+  it('does not expose previous data after the session epoch changes', async () => {
+    const fn = vi
+      .fn()
+      .mockResolvedValueOnce('previous-user-data')
+      .mockImplementation(() => new Promise<string>(() => undefined));
+    const { result, rerender } = renderHook(() => useTenantQuery(['sites'], fn), {
+      wrapper: makeWrapper(qc),
+    });
+    await waitFor(() => expect(result.current.data).toBe('previous-user-data'));
+
+    auth.token = 'next-user-token';
+    bumpSessionEpoch();
+    rerender();
+
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.isPlaceholderData).toBe(false);
+  });
+
+  it('does not expose or refetch previous data when the token disappears but tenant context remains', async () => {
+    const fn = vi.fn().mockResolvedValue('private-data');
+    const { result, rerender } = renderHook(() => useTenantQuery(['sites'], fn), {
+      wrapper: makeWrapper(qc),
+    });
+    await waitFor(() => expect(result.current.data).toBe('private-data'));
+
+    auth.token = null;
+    rerender();
+
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.isPlaceholderData).toBe(false);
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(fn).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -1,21 +1,21 @@
 import { Module, Global } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
-import { ThrottlerModule } from './throttler';
-import { TokenBlacklistModule } from './token-blacklist';
-import { SessionManagerModule } from './session-manager';
-import { TimingSafeService } from './timing-safe';
-import { IpValidatorService } from './ip-validation';
-import { InputSanitizerService } from './validators/input-sanitizer.service';
-import { IdorGuard } from './validators/idor-guard';
 import { IP_VALIDATOR } from './interfaces';
+import { IpValidatorService } from './ip-validation';
+import { SessionManagerModule } from './session-manager';
+import { ThrottlerModule } from './throttler';
+import { TimingSafeService } from './timing-safe';
+import { IdorGuard } from './validators/idor-guard';
+import { InputSanitizerService } from './validators/input-sanitizer.service';
 
 /**
  * Security Module
  *
  * Comprehensive security module providing:
  * - Rate limiting (Throttler)
- * - Token blacklisting (Access token invalidation)
+ * Per-JTI token blacklisting is deliberately not aggregated here: auth-service
+ * is the sole writer and imports TokenBlacklistModule explicitly.
  * - Session management (Concurrent session limits)
  * - Timing attack protection
  * - IP validation and extraction
@@ -36,12 +36,7 @@ import { IP_VALIDATOR } from './interfaces';
  */
 @Global()
 @Module({
-  imports: [
-    ConfigModule,
-    ThrottlerModule,
-    TokenBlacklistModule,
-    SessionManagerModule,
-  ],
+  imports: [ConfigModule, ThrottlerModule, SessionManagerModule],
   providers: [
     TimingSafeService,
     IpValidatorService,
@@ -55,7 +50,6 @@ import { IP_VALIDATOR } from './interfaces';
   exports: [
     // Modules
     ThrottlerModule,
-    TokenBlacklistModule,
     SessionManagerModule,
     // Services
     TimingSafeService,

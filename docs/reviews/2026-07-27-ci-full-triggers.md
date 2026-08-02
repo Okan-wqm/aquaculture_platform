@@ -43,9 +43,15 @@ repository's pinned Rust toolchain. Multiple cargo-backed targets therefore invo
 concurrently. Observed failures included a partial toolchain without cargo, failed component
 directory replacement, and a partial toolchain without rustc.
 
-Each full-surface job now installs Rust 1.88.0 and the required components and targets exactly
-once before Nx starts. An invariant locks the action SHA, toolchain inputs, and ordering ahead of
-all three full-surface commands.
+The first repair copied Rust 1.88.0, its components, and two native targets into each workflow.
+It omitted the repository's `wasm32-unknown-unknown` target, so parallel cargo processes still
+raced to complete the shared toolchain when Lighthouse built the affected graph.
+
+Every root-workspace fan-out now uses one repository-owned setup action. The action derives all
+inputs from the generated Rust manifest, installs them once with the pinned upstream action, then
+fails closed unless the manifest matches `rust-toolchain.toml` and every declared component and
+target is installed. Invariants lock the action SHA, generated-manifest derivation, trigger
+coverage, and setup ordering before every broad Nx command.
 
 ## INFRA-HIGH-087 — full CI promoted historical format debt into a blocking gate
 
@@ -263,9 +269,23 @@ Both halves are now structural. The eight wrappers are deleted, so every Vitest 
 same inferred `nx:run-script` target as the two that already worked, and each package's `test`
 script is the run-once form with the watch form named separately. The cached-outputs default in
 `nx.json` covers both layouts the inventory contains. Two invariants hold the line: one rejects a
-`test` target that shells into a package-manager script runner without the `--` separator, the
-other requires the cached-outputs default and refuses an override that misses where its own
-report lands. Both were confirmed to fail when the old shapes are reintroduced.
+Vitest producer that replaces the inferred target with any explicit executor or command, whether
+declared in `project.json`, `package.json`, or the workspace target defaults, and the other requires
+the cached-outputs default and refuses an override that misses where its own report lands. Both
+were confirmed to fail when the old shapes are reintroduced.
+
+A later farm branch reintroduced the wrapper with npm's `npm test` shorthand. The original
+invariant recognized only the longer `npm run test` spelling, so the same flag-swallowing path
+returned and farm-module emitted no LCOV after all of its tests passed. The strengthened contract
+now rejects any Vitest producer that replaces Nx's inferred test executor or uses Nx's equivalent
+top-level `command` shorthand, independent of package-manager spelling; metadata-only target
+extensions remain valid.
+
+The same audit found an eleventh Vitest producer, `mcp/farm-management`, outside the shared policy,
+LCOV inventory, and retained CI artifact. Producer discovery is now filesystem-derived from every
+workspace package whose test script invokes Vitest, so adding another producer without its shared
+configuration and inventory report fails the invariant. The MCP target now uses the inferred
+runner, emits repository-owned LCOV, and is retained with the other coverage evidence.
 
 ## HR-HIGH-006 — attendance clock-in test controlled a clock the handler never reads
 

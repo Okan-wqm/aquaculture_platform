@@ -2,6 +2,7 @@
  * List Sites Query
  */
 import { IQuery } from '@platform/cqrs';
+import type { SiteScopeCaller } from '@aquaculture/backend-common/security';
 import { SiteStatus } from '../entities/site.entity';
 
 export interface ListSitesFilter {
@@ -22,6 +23,7 @@ export interface ListSitesPagination {
 export class ListSitesQuery implements IQuery {
   constructor(
     public readonly tenantId: string,
+    public readonly caller: SiteScopeCaller,
     public readonly filter?: ListSitesFilter,
     public readonly pagination?: ListSitesPagination,
   ) {}

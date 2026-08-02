@@ -1,3 +1,4 @@
+import { TENANT_ERASURE_REQUEST_SUBSCRIPTION_OPTIONS } from '@aquaculture/backend-common/compliance';
 import { withTenantContext } from '@aquaculture/backend-common/context';
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
@@ -18,7 +19,11 @@ export class TenantErasureRequestedHandler
   ) {}
 
   async onModuleInit(): Promise<void> {
-    await this.eventBus.subscribeWildcard('TenantErasureRequested', this);
+    await this.eventBus.subscribeWildcard(
+      'TenantErasureRequested',
+      this,
+      TENANT_ERASURE_REQUEST_SUBSCRIPTION_OPTIONS,
+    );
     this.logger.log('Subscribed to TenantErasureRequested for farm tenant erasure');
   }
 

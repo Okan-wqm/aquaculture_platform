@@ -56,6 +56,10 @@ export type FrontendMutationName =
   | 'allocateBatchToTank'
   | 'createSubEquipment'
   | 'assignFeedsToBatch'
+  // Site setup CRUD
+  | 'createSite'
+  | 'updateSite'
+  | 'deleteSite'
   // Phase 3 Tier 2 (Scope C PR-2..PR-5)
   | 'updateBatch'
   | 'updateBatchFeedAssignment'
@@ -69,8 +73,6 @@ export type FrontendMutationName =
   // Sub-Equipment CRUD (Scope C PR-9)
   | 'updateSubEquipment'
   | 'deleteSubEquipment'
-  // Admin-only (Scope C PR-10)
-  | 'updateSentinelHubInstanceId'
   // Scope A Phase 4.4.2 — supplier ↔ site approvals
   | 'setSupplierApprovedSites'
   // Scope A Phase 4.4.3 — per-site contact upsert
@@ -112,59 +114,56 @@ export type FrontendMutationName =
  *   4. Run `npx vitest --run permission-matrix.parity` — if it
  *      fails you've diverged from the backend.
  */
-export const FRONTEND_MUTATION_ROLES: Readonly<
-  Record<FrontendMutationName, readonly UserRole[]>
-> = Object.freeze({
-  // Phase 3 Tier 1
-  updateBatchStatus: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
-  closeBatch: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
-  allocateBatchToTank: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
-  createSubEquipment: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
-  assignFeedsToBatch: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  // Phase 3 Tier 2
-  updateBatch: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
-  updateBatchFeedAssignment: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  deleteBatchFeedAssignment: ['TENANT_ADMIN'],
-  generateWorkOrderFromSchedule: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  completeMaintenance: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
-  // Phase 3 Tier 3
-  createBatchWaterQualityMeasurements: [
-    'MODULE_MANAGER',
-    'MODULE_USER',
-    'TENANT_ADMIN',
-  ],
-  processAutoGenerateWorkOrders: ['TENANT_ADMIN'],
-  updateMeterReading: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
-  // Sub-Equipment CRUD
-  updateSubEquipment: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
-  deleteSubEquipment: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  // Admin-only
-  updateSentinelHubInstanceId: ['TENANT_ADMIN'],
-  // Scope A Phase 4.4.2 — supplier ↔ site approvals
-  setSupplierApprovedSites: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  // Scope A Phase 4.4.3 — per-site contact upsert
-  upsertSiteContacts: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  // Finance capability — mirrors apps/farm-service/src/common/authz/permission-matrix.ts
-  createFinanceEntry: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  updateFinanceEntry: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  deleteFinanceEntry: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  createFinanceCategory: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  updateFinanceCategory: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  archiveFinanceCategory: ['TENANT_ADMIN'],
-  restoreFinanceCategory: ['TENANT_ADMIN'],
-  updateFinanceSettings: ['TENANT_ADMIN'],
-  // Feeding Protocol v2 — mirrors apps/farm-service/src/common/authz/permission-matrix.ts
-  createFeedingProtocolV2: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  updateFeedingProtocolV2: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  archiveFeedingProtocolV2: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  assignProtocolToUnit: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  assignProtocolToBatchUnits: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  updateProtocolAssignment: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  unassignProtocolFromUnit: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  // Öğün motoru v2 (Faz 6) — BE aynası birebir.
-  recordMealFeeding: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
-  skipMeal: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
-  correctMealPour: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  regenerateDayPlan: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-  transitionUnitFeed: ['MODULE_MANAGER', 'TENANT_ADMIN'],
-});
+export const FRONTEND_MUTATION_ROLES: Readonly<Record<FrontendMutationName, readonly UserRole[]>> =
+  Object.freeze({
+    // Phase 3 Tier 1
+    updateBatchStatus: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
+    closeBatch: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
+    allocateBatchToTank: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
+    createSubEquipment: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
+    assignFeedsToBatch: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    // Site setup CRUD
+    createSite: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    updateSite: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    deleteSite: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    // Phase 3 Tier 2
+    updateBatch: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
+    updateBatchFeedAssignment: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    deleteBatchFeedAssignment: ['TENANT_ADMIN'],
+    generateWorkOrderFromSchedule: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    completeMaintenance: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
+    // Phase 3 Tier 3
+    createBatchWaterQualityMeasurements: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
+    processAutoGenerateWorkOrders: ['TENANT_ADMIN'],
+    updateMeterReading: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
+    // Sub-Equipment CRUD
+    updateSubEquipment: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
+    deleteSubEquipment: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    // Scope A Phase 4.4.2 — supplier ↔ site approvals
+    setSupplierApprovedSites: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    // Scope A Phase 4.4.3 — per-site contact upsert
+    upsertSiteContacts: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    // Finance capability — mirrors apps/farm-service/src/common/authz/permission-matrix.ts
+    createFinanceEntry: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    updateFinanceEntry: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    deleteFinanceEntry: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    createFinanceCategory: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    updateFinanceCategory: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    archiveFinanceCategory: ['TENANT_ADMIN'],
+    restoreFinanceCategory: ['TENANT_ADMIN'],
+    updateFinanceSettings: ['TENANT_ADMIN'],
+    // Feeding Protocol v2 — mirrors apps/farm-service/src/common/authz/permission-matrix.ts
+    createFeedingProtocolV2: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    updateFeedingProtocolV2: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    archiveFeedingProtocolV2: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    assignProtocolToUnit: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    assignProtocolToBatchUnits: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    updateProtocolAssignment: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    unassignProtocolFromUnit: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    // Öğün motoru v2 (Faz 6) — BE aynası birebir.
+    recordMealFeeding: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
+    skipMeal: ['MODULE_MANAGER', 'MODULE_USER', 'TENANT_ADMIN'],
+    correctMealPour: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    regenerateDayPlan: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+    transitionUnitFeed: ['MODULE_MANAGER', 'TENANT_ADMIN'],
+  });

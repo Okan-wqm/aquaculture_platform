@@ -259,7 +259,7 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
     label: 'Site Management',
     icon: 'farm',
     children: [
-      { id: 'sites-map', label: 'Site Map', path: '/sites/map' },
+      { id: 'sites-environment', label: 'Environment', path: '/sites/environment' },
       { id: 'sites-setup', label: 'Setup', path: '/sites/setup' },
       { id: 'sites-tanks', label: 'Tanks & Ponds', path: '/sites/tanks' },
       { id: 'sites-feeding', label: 'Feeding', path: '/sites/feeding' },

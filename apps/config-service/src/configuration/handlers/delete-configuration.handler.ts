@@ -8,11 +8,14 @@ import {
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
+import { TenantErasureTombstoneError } from '@aquaculture/backend-common/compliance';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { DeleteConfigurationCommand } from '../commands/delete-configuration.command';
 import { Configuration } from '../entities/configuration.entity';
 import { emitConfigurationChanged } from '../events/emit-configuration-changed';
 import { ConfigurationService } from '../services/configuration.service';
-import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { assertTenantConfigurationNotErased } from '../services/configuration-erasure-fence';
+import { pinRlsTenantScope } from '../../database/rls-scoped-session';
 
 @Injectable()
 @CommandHandler(DeleteConfigurationCommand)
@@ -35,6 +38,8 @@ export class DeleteConfigurationHandler
     await queryRunner.startTransaction('READ COMMITTED');
 
     try {
+      await pinRlsTenantScope(queryRunner, tenantId);
+      await assertTenantConfigurationNotErased(queryRunner, tenantId);
       const configRepo = tenantManagerRepo(queryRunner.manager, Configuration, tenantId);
 
       const configuration = await configRepo.findOne({
@@ -76,6 +81,10 @@ export class DeleteConfigurationHandler
       return true;
     } catch (error) {
       await queryRunner.rollbackTransaction();
+
+      if (error instanceof TenantErasureTombstoneError) {
+        throw error;
+      }
 
       if (error instanceof NotFoundException || error instanceof ForbiddenException) {
         throw error;

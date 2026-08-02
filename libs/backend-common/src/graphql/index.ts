@@ -6,3 +6,4 @@
  * composes the `Decimal` scalar by name across subgraphs.
  */
 export { DecimalScalar } from './decimal.scalar';
+export * from './graphql-operation-limit.plugin';

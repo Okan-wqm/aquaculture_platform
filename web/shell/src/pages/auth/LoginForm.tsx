@@ -25,8 +25,57 @@ import type { MfaChallengeResult } from '@aquaculture/shared-ui';
 import { AuthFormShell } from './AuthFormShell';
 
 const LockIcon: React.FC = () => (
-  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+  <svg
+    className="w-6 h-6"
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke="currentColor"
+    strokeWidth={1.7}
+    aria-hidden="true"
+  >
+    <path d="M12 2 4 5v6c0 5 3.5 9 8 11 4.5-2 8-6 8-11V5l-8-3Z" />
+    <path d="m9 12 2 2 4-4" />
+  </svg>
+);
+
+const EmailIcon: React.FC = () => (
+  <svg
+    className="w-full h-full"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.7}
+    aria-hidden="true"
+  >
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="m3 7 9 6 9-6" />
+  </svg>
+);
+
+const PasswordIcon: React.FC = () => (
+  <svg
+    className="w-full h-full"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.7}
+    aria-hidden="true"
+  >
+    <rect x="4" y="10" width="16" height="11" rx="2" />
+    <path d="M8 10V7a4 4 0 018 0v3" />
+  </svg>
+);
+
+const ArrowRightIcon: React.FC = () => (
+  <svg
+    className="w-4 h-4"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    aria-hidden="true"
+  >
+    <path d="M5 12h14M13 5l7 7-7 7" />
   </svg>
 );
 
@@ -113,7 +162,9 @@ const LoginForm: React.FC = () => {
 
       const code = mfaCode.trim();
       if (!code) {
-        setMfaError(useRecoveryCode ? t('login.mfa.recoveryRequired') : t('login.mfa.codeRequired'));
+        setMfaError(
+          useRecoveryCode ? t('login.mfa.recoveryRequired') : t('login.mfa.codeRequired'),
+        );
         return;
       }
       if (!useRecoveryCode && !/^\d{6}$/.test(code)) {
@@ -152,6 +203,11 @@ const LoginForm: React.FC = () => {
     clearError();
   }, [clearError]);
 
+  const normalizedMfaCode = mfaCode.trim();
+  const isMfaCodeReady = useRecoveryCode
+    ? normalizedMfaCode.length >= 6 && normalizedMfaCode.length <= 12
+    : /^\d{6}$/.test(normalizedMfaCode);
+
   // ── MFA Challenge Screen ──────────────────────────────────────────────────
   if (mfaChallenge) {
     return (
@@ -165,11 +221,12 @@ const LoginForm: React.FC = () => {
           clearError();
         }}
       >
-        <form onSubmit={handleMfaSubmit} className="space-y-5">
+        <form onSubmit={handleMfaSubmit} className="industrial-login-form industrial-mfa-form">
           {useRecoveryCode ? (
             <Input
               ref={mfaInputRef}
               surface="glass"
+              className="industrial-auth-field industrial-mfa-field"
               label={t('login.mfa.verifyRecovery')}
               type="text"
               name="recoveryCode"
@@ -185,6 +242,7 @@ const LoginForm: React.FC = () => {
             <Input
               ref={mfaInputRef}
               surface="glass"
+              className="industrial-auth-field industrial-mfa-field"
               label={t('login.mfa.verifyCode')}
               type="text"
               inputMode="numeric"
@@ -202,11 +260,19 @@ const LoginForm: React.FC = () => {
             />
           )}
 
-          <Button surface="glass" type="submit" fullWidth loading={isSubmitting}>
+          <Button
+            surface="glass"
+            type="submit"
+            size="lg"
+            fullWidth
+            loading={isSubmitting}
+            disabled={!isMfaCodeReady}
+            className="industrial-auth-submit"
+          >
             {useRecoveryCode ? t('login.mfa.verifyRecovery') : t('login.mfa.verifyCode')}
           </Button>
 
-          <div className="flex items-center justify-between text-sm pt-2">
+          <div className="industrial-mfa-actions">
             <button
               type="button"
               onClick={() => {
@@ -214,15 +280,11 @@ const LoginForm: React.FC = () => {
                 setMfaCode('');
                 setMfaError('');
               }}
-              className="font-medium text-[var(--surface-label-fg)] hover:underline"
+              className="industrial-auth-link"
             >
               {useRecoveryCode ? t('login.mfa.useAuthenticator') : t('login.mfa.useRecovery')}
             </button>
-            <button
-              type="button"
-              onClick={handleBackToLogin}
-              className="font-medium text-[var(--surface-label-fg)] hover:underline"
-            >
+            <button type="button" onClick={handleBackToLogin} className="industrial-auth-link">
               {t('login.mfa.backToLogin')}
             </button>
           </div>
@@ -239,76 +301,110 @@ const LoginForm: React.FC = () => {
       error={authError}
       onDismissError={clearError}
     >
-      <form method="post" autoComplete="off" onSubmit={handleSubmit} className="space-y-5">
+      <form
+        method="post"
+        autoComplete="off"
+        onSubmit={handleSubmit}
+        className="industrial-login-form"
+      >
         <Input
           surface="glass"
+          className="industrial-auth-field"
           label={t('login.email')}
           type="email"
           name="email"
           value={formData.email}
           onChange={handleChange}
-          placeholder={t('login.emailPlaceholder')}
           error={errors.email}
           autoComplete="username"
+          leftIcon={<EmailIcon />}
+          size="lg"
           required
         />
 
         <PasswordInput
           surface="glass"
+          className="industrial-auth-field industrial-password-field"
           label={t('login.password')}
           name="password"
           value={formData.password}
           onChange={handleChange}
-          placeholder={t('login.passwordPlaceholder')}
           error={errors.password}
           autoComplete="current-password"
           maxLength={128}
+          leftIcon={<PasswordIcon />}
+          size="lg"
           required
           showPasswordLabel={t('common.showPassword')}
           hidePasswordLabel={t('common.hidePassword')}
           capsLockLabel={t('common.capsLockOn')}
         />
 
-        <div className="flex items-center justify-between text-sm">
+        <div className="industrial-login-options">
           <Checkbox
             surface="glass"
+            className="industrial-login-remember"
+            size="sm"
             label={t('login.rememberMe')}
             checked={formData.rememberMe}
             onChange={(e) => setFormData((prev) => ({ ...prev, rememberMe: e.target.checked }))}
           />
-          <Link
-            to="/forgot-password"
-            className="font-medium text-[var(--surface-label-fg)] hover:underline"
-          >
+          <Link to="/forgot-password" className="industrial-auth-link">
             {t('login.forgotPassword')}
           </Link>
         </div>
 
-        <Button surface="glass" type="submit" fullWidth loading={isSubmitting}>
+        <Button
+          surface="glass"
+          type="submit"
+          size="lg"
+          fullWidth
+          loading={isSubmitting}
+          rightIcon={isSubmitting ? undefined : <ArrowRightIcon />}
+          className="industrial-auth-submit"
+        >
           {t('login.signIn')}
         </Button>
 
         {/* Mobile App Download Banner */}
-        <div className="mt-6 pt-5 border-t border-primary-200/50">
+        <div className="industrial-mobile-link-wrap">
           <a
             href="/mobile"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-3 p-3 bg-gradient-to-r from-primary-50 to-secondary-50 hover:from-primary-100 hover:to-secondary-100 rounded-xl border border-primary-200/60 transition-all group"
+            className="industrial-mobile-link group"
           >
-            <div className="w-10 h-10 bg-primary-600 rounded-xl flex items-center justify-center flex-shrink-0 shadow-md group-hover:scale-105 transition-transform">
-              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+            <div className="industrial-mobile-icon">
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.8}
+                aria-hidden="true"
+              >
                 <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
                 <line x1="12" y1="18" x2="12.01" y2="18" />
               </svg>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-bold text-[var(--surface-heading-fg)]">{t('login.mobile.title')}</div>
-              <div className="text-xs text-[var(--surface-muted-fg)]">{t('login.mobile.subtitle')}</div>
+            <div className="industrial-mobile-copy">
+              <span>{t('login.mobile.title')}</span>
+              <small>{t('login.mobile.subtitle')}</small>
             </div>
-            <div className="text-[var(--surface-label-fg)] group-hover:translate-x-0.5 transition-transform flex-shrink-0">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            <div className="industrial-mobile-arrow">
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.8}
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                />
               </svg>
             </div>
           </a>

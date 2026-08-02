@@ -1,16 +1,9 @@
- 
- 
- 
- 
- 
- 
- 
-import { USER_TOKEN_REVOCATION } from '@aquaculture/backend-common/security';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { DataSource, QueryRunner } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
+import { DurableUserTokenInvalidationService } from '../../authentication/services/durable-user-token-invalidation.service';
 import { CapabilityAuthorityService } from '../services/capability-authority';
 import { CATALOGUE_CAPABILITIES } from '../services/permission-catalogue';
 import { TenantRoleService } from '../services/tenant-role.service';
@@ -29,7 +22,15 @@ const ADMIN_USER_ID = 'admin-uuid-001';
 // ============================================================================
 
 const createMockQueryRunner = (): jest.Mocked<
-  Pick<QueryRunner, 'connect' | 'startTransaction' | 'commitTransaction' | 'rollbackTransaction' | 'release' | 'query'>
+  Pick<
+    QueryRunner,
+    | 'connect'
+    | 'startTransaction'
+    | 'commitTransaction'
+    | 'rollbackTransaction'
+    | 'release'
+    | 'query'
+  >
 > & { manager: { create: jest.Mock; save: jest.Mock } } => ({
   connect: jest.fn().mockResolvedValue(undefined),
   startTransaction: jest.fn().mockResolvedValue(undefined),
@@ -76,7 +77,10 @@ describe('TenantRoleService', () => {
   let mockDataSource: jest.Mocked<Pick<DataSource, 'query' | 'createQueryRunner'>>;
   let mockQueryRunner: ReturnType<typeof createMockQueryRunner>;
   let mockAuditLogService: { log: jest.Mock };
-  let mockUserTokenRevocation: { revokeUserTokens: jest.Mock; isTokenValid: jest.Mock };
+  let mockDurableUserTokenInvalidation: {
+    enqueue: jest.Mock;
+    applyImmediately: jest.Mock;
+  };
 
   beforeEach(async () => {
     mockQueryRunner = createMockQueryRunner();
@@ -87,9 +91,9 @@ describe('TenantRoleService', () => {
     };
 
     mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
-    mockUserTokenRevocation = {
-      revokeUserTokens: jest.fn().mockResolvedValue(undefined),
-      isTokenValid: jest.fn().mockResolvedValue(true),
+    mockDurableUserTokenInvalidation = {
+      enqueue: jest.fn().mockResolvedValue(undefined),
+      applyImmediately: jest.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -97,7 +101,10 @@ describe('TenantRoleService', () => {
         TenantRoleService,
         { provide: DataSource, useValue: mockDataSource },
         { provide: AuditLogService, useValue: mockAuditLogService },
-        { provide: USER_TOKEN_REVOCATION, useValue: mockUserTokenRevocation },
+        {
+          provide: DurableUserTokenInvalidationService,
+          useValue: mockDurableUserTokenInvalidation,
+        },
         {
           // Default: an admin author who may grant any catalogue capability;
           // the validator passes the derived resource permissions through. Tests
@@ -110,10 +117,12 @@ describe('TenantRoleService', () => {
               entitled: new Set<string>(),
             }),
             assertGrantableResourcePermissions: jest.fn((requested: string[]) => requested),
-            assertGrantableOverrides: jest.fn((o: { grants?: string[]; revokes?: string[] } | null) => ({
-              grants: o?.grants ?? [],
-              revokes: o?.revokes ?? [],
-            })),
+            assertGrantableOverrides: jest.fn(
+              (o: { grants?: string[]; revokes?: string[] } | null) => ({
+                grants: o?.grants ?? [],
+                revokes: o?.revokes ?? [],
+              }),
+            ),
             emptyOverrides: jest.fn(() => ({ grants: [], revokes: [] })),
           },
         },
@@ -191,7 +200,9 @@ describe('TenantRoleService', () => {
       await service.getTenantRoles(TENANT_ID);
 
       const [sql] = mockDataSource.query.mock.calls[0]!;
-      expect(sql).toContain('JOIN "auth"."tenant_roles" trc ON trc.id = ura.role_id AND trc."tenantId" = $1');
+      expect(sql).toContain(
+        'JOIN "auth"."tenant_roles" trc ON trc.id = ura.role_id AND trc."tenantId" = $1',
+      );
     });
   });
 
@@ -333,7 +344,13 @@ describe('TenantRoleService', () => {
       // non-default TENANT_ADMIN row is never reconciled.
       mockQueryRunner.query
         .mockResolvedValueOnce([
-          { id: 'admin-role', name: 'tenant administrator', is_system: true, panel_permissions: {}, resource_permissions: [] },
+          {
+            id: 'admin-role',
+            name: 'tenant administrator',
+            is_system: true,
+            panel_permissions: {},
+            resource_permissions: [],
+          },
         ]) // existence
         .mockResolvedValueOnce([]); // entitlement
       for (let i = 0; i < 5; i++) {
@@ -346,7 +363,8 @@ describe('TenantRoleService', () => {
       await service.seedDefaultRoles(TENANT_ID, ADMIN_USER_ID);
 
       const roleInserts = mockQueryRunner.query.mock.calls.filter(
-        (call) => typeof call[0] === 'string' && call[0].includes('INSERT INTO "auth"."tenant_roles"'),
+        (call) =>
+          typeof call[0] === 'string' && call[0].includes('INSERT INTO "auth"."tenant_roles"'),
       );
       expect(roleInserts).toHaveLength(5);
       // The TENANT_ADMIN row is not a shipped default name → never reconciled.
@@ -387,19 +405,23 @@ describe('TenantRoleService', () => {
       // active holders' tokens.
       mockQueryRunner.query
         .mockResolvedValueOnce([
-          { id: 'sup-1', name: 'supervisor', is_system: true, panel_permissions: {}, resource_permissions: [] },
+          {
+            id: 'sup-1',
+            name: 'supervisor',
+            is_system: true,
+            panel_permissions: {},
+            resource_permissions: [],
+          },
           fullyReconciledRow('Technician'),
           fullyReconciledRow('Feed Manager'),
           fullyReconciledRow('Operator'),
           fullyReconciledRow('Viewer'),
         ]) // existence
         .mockResolvedValueOnce([{ code: 'hr' }, { code: 'ai' }]) // entitlement: all modules
-        .mockResolvedValueOnce([]); // reconcile UPDATE for Supervisor
+        .mockResolvedValueOnce([]) // reconcile UPDATE for Supervisor
+        .mockResolvedValueOnce([{ user_id: 'holder-1' }]); // locked active holders
 
-      // revokeTokensForRoleHolders (dataSource.query) then getTenantRoles.
-      mockDataSource.query
-        .mockResolvedValueOnce([{ user_id: 'holder-1' }]) // active holders of Supervisor
-        .mockResolvedValue([]); // getTenantRoles
+      mockDataSource.query.mockResolvedValue([]); // getTenantRoles
 
       await service.seedDefaultRoles(TENANT_ID, ADMIN_USER_ID);
 
@@ -410,14 +432,28 @@ describe('TenantRoleService', () => {
       );
       expect(updates).toHaveLength(1);
       // Scoped to Supervisor's role_id; resource_permissions is a non-empty UNION.
-      expect(updates[0]![1]).toEqual([expect.any(String), expect.arrayContaining(['sites:view']), 'sup-1']);
+      expect(updates[0]![1]).toEqual([
+        expect.any(String),
+        expect.arrayContaining(['sites:view']),
+        'sup-1',
+      ]);
 
       expect(mockAuditLogService.log).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'ROLES_RECONCILED', entityType: 'TenantRole' }),
         mockQueryRunner.manager,
       );
-      // RBAC-HIGH-001: the widened role's active holders are revoked post-commit.
-      expect(mockUserTokenRevocation.revokeUserTokens).toHaveBeenCalledWith('holder-1');
+      // RBAC-HIGH-001: the outbox intent is atomic; Redis is applied post-commit.
+      expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenCalledWith(
+        mockQueryRunner.manager,
+        expect.objectContaining({
+          userId: 'holder-1',
+          tenantId: TENANT_ID,
+          reason: 'role_permissions_changed',
+        }),
+      );
+      expect(mockDurableUserTokenInvalidation.applyImmediately).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'holder-1' }),
+      );
     });
 
     it('RBAC-HIGH-010: a non-entitled (module-gated) capability is never seeded', async () => {
@@ -551,7 +587,9 @@ describe('TenantRoleService', () => {
         .mockResolvedValueOnce([]) // no duplicate
         .mockResolvedValueOnce([{ id: 'new-role-id' }]) // INSERT role
         .mockResolvedValueOnce([]); // INSERT permissions
-      mockDataSource.query.mockResolvedValue([createMockRoleRow({ id: 'new-role-id', name: 'Custom Role' })]);
+      mockDataSource.query.mockResolvedValue([
+        createMockRoleRow({ id: 'new-role-id', name: 'Custom Role' }),
+      ]);
 
       await service.createRole(TENANT_ID, createInput, ADMIN_USER_ID);
 
@@ -568,6 +606,22 @@ describe('TenantRoleService', () => {
       );
     });
 
+    it('does not try to roll back after a committed create when the response read fails', async () => {
+      mockQueryRunner.query
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: 'new-role-id' }])
+        .mockResolvedValueOnce([]);
+      mockDataSource.query.mockRejectedValueOnce(new Error('post-commit read failed'));
+
+      await expect(service.createRole(TENANT_ID, createInput, ADMIN_USER_ID)).rejects.toThrow(
+        'post-commit read failed',
+      );
+
+      expect(mockQueryRunner.commitTransaction).toHaveBeenCalledTimes(1);
+      expect(mockQueryRunner.rollbackTransaction).not.toHaveBeenCalled();
+      expect(mockQueryRunner.release).toHaveBeenCalledTimes(1);
+    });
+
     it('RBAC-C3: an audit failure ROLLS BACK the role creation (fail-closed)', async () => {
       mockQueryRunner.query
         .mockResolvedValueOnce([]) // no duplicate
@@ -575,7 +629,9 @@ describe('TenantRoleService', () => {
         .mockResolvedValueOnce([]); // INSERT permissions
       mockAuditLogService.log.mockRejectedValueOnce(new Error('audit DB down'));
 
-      await expect(service.createRole(TENANT_ID, createInput, ADMIN_USER_ID)).rejects.toThrow('audit DB down');
+      await expect(service.createRole(TENANT_ID, createInput, ADMIN_USER_ID)).rejects.toThrow(
+        'audit DB down',
+      );
       expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
       expect(mockQueryRunner.commitTransaction).not.toHaveBeenCalled();
     });
@@ -584,9 +640,9 @@ describe('TenantRoleService', () => {
       // Duplicate check returns existing
       mockQueryRunner.query.mockResolvedValueOnce([{ id: 'existing-id' }]);
 
-      await expect(
-        service.createRole(TENANT_ID, createInput, ADMIN_USER_ID),
-      ).rejects.toThrow(ConflictException);
+      await expect(service.createRole(TENANT_ID, createInput, ADMIN_USER_ID)).rejects.toThrow(
+        ConflictException,
+      );
 
       expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
     });
@@ -673,9 +729,9 @@ describe('TenantRoleService', () => {
         .mockResolvedValueOnce([]) // no duplicate
         .mockRejectedValueOnce(new Error('INSERT failed'));
 
-      await expect(
-        service.createRole(TENANT_ID, createInput, ADMIN_USER_ID),
-      ).rejects.toThrow('INSERT failed');
+      await expect(service.createRole(TENANT_ID, createInput, ADMIN_USER_ID)).rejects.toThrow(
+        'INSERT failed',
+      );
 
       expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
       expect(mockQueryRunner.release).toHaveBeenCalled();
@@ -684,9 +740,7 @@ describe('TenantRoleService', () => {
     it('should always release queryRunner even on error', async () => {
       mockQueryRunner.query.mockRejectedValue(new Error('any error'));
 
-      await expect(
-        service.createRole(TENANT_ID, createInput, ADMIN_USER_ID),
-      ).rejects.toThrow();
+      await expect(service.createRole(TENANT_ID, createInput, ADMIN_USER_ID)).rejects.toThrow();
 
       expect(mockQueryRunner.release).toHaveBeenCalledTimes(1);
     });
@@ -735,12 +789,7 @@ describe('TenantRoleService', () => {
 
       mockDataSource.query.mockResolvedValue([createMockRoleRow()]);
 
-      await service.updateRole(
-        TENANT_ID,
-        ROLE_ID,
-        { name: 'Renamed', level: 80 },
-        ADMIN_USER_ID,
-      );
+      await service.updateRole(TENANT_ID, ROLE_ID, { name: 'Renamed', level: 80 }, ADMIN_USER_ID);
 
       // Find the dynamic UPDATE on tenant_roles (not the permissions update)
       const updateCall = mockQueryRunner.query.mock.calls.find(
@@ -758,9 +807,7 @@ describe('TenantRoleService', () => {
     });
 
     it('should throw ForbiddenException when modifying name of system role', async () => {
-      mockQueryRunner.query.mockResolvedValueOnce([
-        createMockRoleRow({ is_system: true }),
-      ]);
+      mockQueryRunner.query.mockResolvedValueOnce([createMockRoleRow({ is_system: true })]);
 
       await expect(
         service.updateRole(TENANT_ID, ROLE_ID, { name: 'New Name' }, ADMIN_USER_ID),
@@ -770,9 +817,7 @@ describe('TenantRoleService', () => {
     });
 
     it('should throw ForbiddenException when modifying level of system role', async () => {
-      mockQueryRunner.query.mockResolvedValueOnce([
-        createMockRoleRow({ is_system: true }),
-      ]);
+      mockQueryRunner.query.mockResolvedValueOnce([createMockRoleRow({ is_system: true })]);
 
       await expect(
         service.updateRole(TENANT_ID, ROLE_ID, { level: 99 }, ADMIN_USER_ID),
@@ -828,12 +873,7 @@ describe('TenantRoleService', () => {
 
       mockDataSource.query.mockResolvedValue([createMockRoleRow()]);
 
-      await service.updateRole(
-        TENANT_ID,
-        ROLE_ID,
-        { panelPermissions: newPerms },
-        ADMIN_USER_ID,
-      );
+      await service.updateRole(TENANT_ID, ROLE_ID, { panelPermissions: newPerms }, ADMIN_USER_ID);
 
       // Verify that one of the queryRunner calls UPDATEs tenant_role_permissions.
       // (The lock-load SELECT also references panel_permissions, so match on the
@@ -861,23 +901,72 @@ describe('TenantRoleService', () => {
       const newPerms = { operations: { sensors: { view: true } } };
       mockQueryRunner.query
         .mockResolvedValueOnce([createMockRoleRow()]) // existing
-        .mockResolvedValueOnce([]) // UPDATE role fields
-        .mockResolvedValueOnce([]); // UPDATE permissions
-      // After commit: (1) the holders SELECT, then (2) getRoleById.
-      mockDataSource.query
-        .mockResolvedValueOnce([{ user_id: 'holder-1' }, { user_id: 'holder-2' }]) // holders
-        .mockResolvedValueOnce([createMockRoleRow()]); // getRoleById
+        .mockResolvedValueOnce([]) // UPDATE permissions
+        .mockResolvedValueOnce([
+          { user_id: 'holder-1' },
+          { user_id: 'holder-2' },
+          { user_id: 'holder-1' },
+        ]); // locked active holders, including a duplicate assignment
+      mockDataSource.query.mockResolvedValueOnce([createMockRoleRow()]); // getRoleById
 
       await service.updateRole(TENANT_ID, ROLE_ID, { panelPermissions: newPerms }, ADMIN_USER_ID);
 
-      expect(mockUserTokenRevocation.revokeUserTokens).toHaveBeenCalledWith('holder-1');
-      expect(mockUserTokenRevocation.revokeUserTokens).toHaveBeenCalledWith('holder-2');
+      expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenCalledTimes(2);
+      expect(mockDurableUserTokenInvalidation.applyImmediately).toHaveBeenCalledTimes(2);
+      expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenCalledWith(
+        mockQueryRunner.manager,
+        expect.objectContaining({ userId: 'holder-1', tenantId: TENANT_ID }),
+      );
+      expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenCalledWith(
+        mockQueryRunner.manager,
+        expect.objectContaining({ userId: 'holder-2', tenantId: TENANT_ID }),
+      );
       // The holders query is tenant-scoped via the tenant_roles join.
-      const holdersCall = mockDataSource.query.mock.calls.find(
+      const holdersCall = mockQueryRunner.query.mock.calls.find(
         (call) => typeof call[0] === 'string' && call[0].includes('SELECT ura.user_id'),
       );
       expect(holdersCall).toBeDefined();
       expect(holdersCall![0]).toContain('tr."tenantId" = $2');
+      expect(holdersCall![0]).toContain('FOR SHARE OF ura');
+      expect(holdersCall![1]).toEqual([[ROLE_ID], TENANT_ID]);
+    });
+
+    it('rolls back the permission edit when its durable invalidation cannot be enqueued', async () => {
+      const newPerms = { operations: { sensors: { view: true } } };
+      mockQueryRunner.query
+        .mockResolvedValueOnce([createMockRoleRow()])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ user_id: 'holder-1' }]);
+      mockDurableUserTokenInvalidation.enqueue.mockRejectedValueOnce(
+        new Error('outbox unavailable'),
+      );
+
+      await expect(
+        service.updateRole(TENANT_ID, ROLE_ID, { panelPermissions: newPerms }, ADMIN_USER_ID),
+      ).rejects.toThrow('outbox unavailable');
+
+      expect(mockQueryRunner.commitTransaction).not.toHaveBeenCalled();
+      expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);
+      expect(mockDurableUserTokenInvalidation.applyImmediately).not.toHaveBeenCalled();
+    });
+
+    it('does not roll back a committed permission edit when immediate Redis application fails', async () => {
+      const newPerms = { operations: { sensors: { view: true } } };
+      mockQueryRunner.query
+        .mockResolvedValueOnce([createMockRoleRow()])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ user_id: 'holder-1' }]);
+      mockDataSource.query.mockResolvedValueOnce([createMockRoleRow()]);
+      mockDurableUserTokenInvalidation.applyImmediately.mockRejectedValueOnce(
+        new Error('redis unavailable'),
+      );
+
+      await expect(
+        service.updateRole(TENANT_ID, ROLE_ID, { panelPermissions: newPerms }, ADMIN_USER_ID),
+      ).resolves.toEqual(expect.objectContaining({ id: ROLE_ID }));
+
+      expect(mockQueryRunner.commitTransaction).toHaveBeenCalledTimes(1);
+      expect(mockQueryRunner.rollbackTransaction).not.toHaveBeenCalled();
     });
 
     it('does NOT revoke holders when only metadata (no panelPermissions) changed', async () => {
@@ -888,7 +977,8 @@ describe('TenantRoleService', () => {
 
       await service.updateRole(TENANT_ID, ROLE_ID, { description: 'new desc' }, ADMIN_USER_ID);
 
-      expect(mockUserTokenRevocation.revokeUserTokens).not.toHaveBeenCalled();
+      expect(mockDurableUserTokenInvalidation.enqueue).not.toHaveBeenCalled();
+      expect(mockDurableUserTokenInvalidation.applyImmediately).not.toHaveBeenCalled();
     });
   });
 
@@ -911,14 +1001,25 @@ describe('TenantRoleService', () => {
       // Role DELETE carries its own tenant guard
       expect(mockQueryRunner.query).toHaveBeenNthCalledWith(
         3,
-        expect.stringContaining('DELETE FROM "auth"."tenant_roles" WHERE id = $1 AND "tenantId" = $2'),
+        expect.stringContaining(
+          'DELETE FROM "auth"."tenant_roles" WHERE id = $1 AND "tenantId" = $2',
+        ),
         [ROLE_ID, TENANT_ID],
       );
     });
 
     it('RBAC-C3: writes a ROLE_DELETED audit row snapshotting the role (fail-closed)', async () => {
       mockQueryRunner.query
-        .mockResolvedValueOnce([{ id: ROLE_ID, name: 'Custom', is_system: false, is_default: false, level: 40, user_count: 0 }])
+        .mockResolvedValueOnce([
+          {
+            id: ROLE_ID,
+            name: 'Custom',
+            is_system: false,
+            is_default: false,
+            level: 40,
+            user_count: 0,
+          },
+        ])
         .mockResolvedValueOnce([]) // DELETE permissions
         .mockResolvedValueOnce([]); // DELETE role
 
@@ -941,9 +1042,9 @@ describe('TenantRoleService', () => {
         { id: ROLE_ID, name: 'Supervisor', is_system: true, user_count: 0 },
       ]);
 
-      await expect(
-        service.deleteRole(TENANT_ID, ROLE_ID, ADMIN_USER_ID),
-      ).rejects.toThrow(ForbiddenException);
+      await expect(service.deleteRole(TENANT_ID, ROLE_ID, ADMIN_USER_ID)).rejects.toThrow(
+        ForbiddenException,
+      );
 
       expect(mockQueryRunner.rollbackTransaction).toHaveBeenCalled();
     });
@@ -966,9 +1067,9 @@ describe('TenantRoleService', () => {
     it('should throw NotFoundException when role does not exist', async () => {
       mockQueryRunner.query.mockResolvedValueOnce([]);
 
-      await expect(
-        service.deleteRole(TENANT_ID, 'non-existent', ADMIN_USER_ID),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.deleteRole(TENANT_ID, 'non-existent', ADMIN_USER_ID)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should delete permissions before deleting the role', async () => {
@@ -985,7 +1086,11 @@ describe('TenantRoleService', () => {
         (c) => typeof c[0] === 'string' && c[0].includes('tenant_role_permissions'),
       );
       const roleDeleteIndex = calls.findIndex(
-        (c) => typeof c[0] === 'string' && c[0].includes('DELETE') && c[0].includes('tenant_roles') && !c[0].includes('tenant_role_permissions'),
+        (c) =>
+          typeof c[0] === 'string' &&
+          c[0].includes('DELETE') &&
+          c[0].includes('tenant_roles') &&
+          !c[0].includes('tenant_role_permissions'),
       );
       expect(permDeleteIndex).toBeLessThan(roleDeleteIndex);
     });
@@ -1102,11 +1207,7 @@ describe('TenantRoleService', () => {
       mockQueryRunner.commitTransaction.mockRejectedValueOnce(new Error('commit failed'));
 
       await expect(
-        service.createRole(
-          TENANT_ID,
-          { name: 'Fail', panelPermissions: {} },
-          ADMIN_USER_ID,
-        ),
+        service.createRole(TENANT_ID, { name: 'Fail', panelPermissions: {} }, ADMIN_USER_ID),
       ).rejects.toThrow('commit failed');
 
       expect(mockQueryRunner.release).toHaveBeenCalledTimes(1);
@@ -1119,9 +1220,9 @@ describe('TenantRoleService', () => {
       mockQueryRunner.query.mockResolvedValue([]);
       mockQueryRunner.commitTransaction.mockRejectedValueOnce(new Error('commit failed'));
 
-      await expect(
-        service.deleteRole(TENANT_ID, ROLE_ID, ADMIN_USER_ID),
-      ).rejects.toThrow('commit failed');
+      await expect(service.deleteRole(TENANT_ID, ROLE_ID, ADMIN_USER_ID)).rejects.toThrow(
+        'commit failed',
+      );
 
       expect(mockQueryRunner.release).toHaveBeenCalledTimes(1);
     });

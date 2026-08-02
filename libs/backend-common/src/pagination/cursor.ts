@@ -93,8 +93,7 @@ export class CursorPaginationInput {
   @Field(() => Int, {
     nullable: true,
     defaultValue: DEFAULT_FIRST,
-    description:
-      'Number of items to return (default: 20). Resolver MAY cap at 100.',
+    description: 'Number of items to return (default: 20). Resolver MAY cap at 100.',
   })
   @IsOptional()
   @IsInt()
@@ -104,8 +103,7 @@ export class CursorPaginationInput {
 
   @Field({
     nullable: true,
-    description:
-      'Opaque cursor returned from a previous page. Pass null/omit for the first page.',
+    description: 'Opaque cursor returned from a previous page. Pass null/omit for the first page.',
   })
   @IsOptional()
   @IsString()
@@ -165,11 +163,11 @@ export function CursorEdge<T>(classRef: Type<T>): Type<ICursorEdge<T>> {
 /** Page info summary — Relay-style, `endCursor` / `hasNextPage` are the ones callers actually use. */
 @ObjectType({ isAbstract: true })
 export class CursorPageInfo {
-  @Field({
+  @Field(() => String, {
     nullable: true,
-    description: 'Cursor to pass as `after` for the next page. null when hasNextPage=false.',
+    description: 'Cursor of the final edge in this page. null only when the page has no edges.',
   })
-  endCursor?: string;
+  endCursor!: string | null;
 
   @Field()
   hasNextPage!: boolean;
@@ -251,9 +249,7 @@ export function decodeCursor(cursor: string): CursorPayload {
   const { id, createdAt } = parsed as { id: string; createdAt: string };
   const createdAtDate = new Date(createdAt);
   if (Number.isNaN(createdAtDate.getTime())) {
-    throw new BadRequestException(
-      `Cursor createdAt is not a valid ISO timestamp: '${createdAt}'`,
-    );
+    throw new BadRequestException(`Cursor createdAt is not a valid ISO timestamp: '${createdAt}'`);
   }
   return { id, createdAt: createdAtDate };
 }
@@ -305,7 +301,7 @@ export function normaliseCursorInput(
   firstCap: number = DEFAULT_FIRST_CAP,
 ): { first: number; after: CursorPayload | null } {
   const rawFirst = input?.first ?? DEFAULT_FIRST;
-  if (!Number.isFinite(rawFirst) || rawFirst < 1) {
+  if (!Number.isInteger(rawFirst) || rawFirst < 1) {
     throw new BadRequestException(
       `Cursor pagination 'first' must be a positive integer (got ${rawFirst}).`,
     );

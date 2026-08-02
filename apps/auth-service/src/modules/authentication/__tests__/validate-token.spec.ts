@@ -5,6 +5,7 @@ import {
   TimingSafeService,
   SESSION_MANAGER,
   TOKEN_BLACKLIST,
+  USER_TOKEN_REVOCATION,
 } from '@aquaculture/backend-common/security';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -21,6 +22,8 @@ import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
 import { AuthenticationService } from '../services/authentication.service';
+import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
+import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
 
@@ -65,14 +68,36 @@ describe('AuthenticationService.validateToken (SEC-MEDIUM-004)', () => {
   const mockTokenBlacklist = {
     add: jest.fn(),
     isBlacklisted: jest.fn().mockResolvedValue(false),
-    isUserBlacklisted: jest.fn().mockResolvedValue(false),
+  };
+
+  const mockUserTokenRevocation = {
+    revokeUserTokens: jest.fn().mockResolvedValue(undefined),
+    isTokenValid: jest.fn().mockResolvedValue(true),
+  };
+
+  const mockDurableAccessTokenInvalidation = {
+    enqueue: jest.fn().mockResolvedValue(undefined),
+    applyImmediately: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const mockDurableUserTokenInvalidation = {
+    enqueue: jest.fn().mockResolvedValue(undefined),
+    applyImmediately: jest.fn().mockResolvedValue(undefined),
   };
 
   const signToken = (type: string): string =>
-    jwtService.sign({ sub: 'user-1', role: 'MODULE_USER', tenantId: 'tenant-1', type, jti: 'jti-1' });
+    jwtService.sign({
+      sub: 'user-1',
+      role: 'MODULE_USER',
+      tenantId: 'tenant-1',
+      type,
+      jti: 'jti-1',
+    });
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockTokenBlacklist.isBlacklisted.mockResolvedValue(false);
+    mockUserTokenRevocation.isTokenValid.mockResolvedValue(true);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthenticationService,
@@ -92,10 +117,19 @@ describe('AuthenticationService.validateToken (SEC-MEDIUM-004)', () => {
         },
         { provide: AuditLogService, useValue: { log: jest.fn() } },
         { provide: TokenService, useValue: { generateTokens: jest.fn() } },
+        {
+          provide: DurableAccessTokenInvalidationService,
+          useValue: mockDurableAccessTokenInvalidation,
+        },
+        {
+          provide: DurableUserTokenInvalidationService,
+          useValue: mockDurableUserTokenInvalidation,
+        },
         { provide: MfaService, useValue: {} },
         { provide: TimingSafeService, useValue: { ensureMinDuration: jest.fn() } },
         { provide: SESSION_MANAGER, useValue: { revokeAllSessions: jest.fn() } },
         { provide: TOKEN_BLACKLIST, useValue: mockTokenBlacklist },
+        { provide: USER_TOKEN_REVOCATION, useValue: mockUserTokenRevocation },
         {
           provide: BypassRlsService,
           useValue: {
@@ -145,5 +179,31 @@ describe('AuthenticationService.validateToken (SEC-MEDIUM-004)', () => {
     mockTokenBlacklist.isBlacklisted.mockResolvedValueOnce(true);
     const result = await service.validateToken(signToken('access'));
     expect(result.valid).toBe(false);
+    expect(mockTokenBlacklist.isBlacklisted).toHaveBeenCalledWith('jti-1');
+    expect(mockUserTokenRevocation.isTokenValid).toHaveBeenCalledWith('user-1', expect.any(Date));
+  });
+
+  it.each([
+    ['jti', { sub: 'user-1', type: 'access', jti: '   ' }, {}],
+    ['sub', { sub: '', type: 'access', jti: 'jti-1' }, {}],
+    ['iat', { sub: 'user-1', type: 'access', jti: 'jti-1' }, { noTimestamp: true }],
+  ])(
+    'fails closed before revocation stores when %s is missing or blank',
+    async (_field, claims, options) => {
+      const result = await service.validateToken(jwtService.sign(claims, options));
+
+      expect(result.valid).toBe(false);
+      expect(mockTokenBlacklist.isBlacklisted).not.toHaveBeenCalled();
+      expect(mockUserTokenRevocation.isTokenValid).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects a token issued before the user-wide invalidation epoch', async () => {
+    mockUserTokenRevocation.isTokenValid.mockResolvedValueOnce(false);
+
+    const result = await service.validateToken(signToken('access'));
+
+    expect(result.valid).toBe(false);
+    expect(mockUserTokenRevocation.isTokenValid).toHaveBeenCalledWith('user-1', expect.any(Date));
   });
 });

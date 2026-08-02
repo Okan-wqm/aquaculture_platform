@@ -41,7 +41,9 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
           throw new BadRequestException('Verified user assertion requires service identity');
         }
         if (req.verifiedIdentity.serviceName !== 'gateway-api') {
-          throw new BadRequestException('Verified user assertion issuer must match gateway service identity');
+          throw new BadRequestException(
+            'Verified user assertion issuer must match gateway service identity',
+          );
         }
 
         const assertion = this.parseAssertion(assertionHeader);
@@ -52,7 +54,9 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
           req.verifiedIdentity.tenantId &&
           assertion.effectiveTenantId !== req.verifiedIdentity.tenantId
         ) {
-          throw new BadRequestException('Verified user assertion tenant does not match signed service tenant');
+          throw new BadRequestException(
+            'Verified user assertion tenant does not match signed service tenant',
+          );
         }
 
         req.verifiedUserAssertion = assertion;
@@ -76,9 +80,7 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
             : {}),
           // SSOT-C-13: expose the plan tier ordinal so resource-create handlers
           // can enforce per-plan quotas on the production gateway path.
-          ...(assertion.planLevel !== undefined
-            ? { planLevel: assertion.planLevel }
-            : {}),
+          ...(assertion.planLevel !== undefined ? { planLevel: assertion.planLevel } : {}),
           // MT-HIGH-054: expose the tenant-RBAC capabilities so subgraph
           // @RequireTenantPermission / hasResourcePermission work on the prod
           // gateway path. Without this every non-admin fails closed on any
@@ -240,8 +242,20 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
   private requiresGatewayAssertion(req: TenantRequest): boolean {
     return (
       this.requiresServiceIdentity(req) &&
-      req.verifiedIdentity?.serviceName === 'gateway-api'
+      req.verifiedIdentity?.serviceName === 'gateway-api' &&
+      this.hasAuthorizationHeader(req)
     );
+  }
+
+  /**
+   * Public login/refresh GraphQL operations are still transported by the
+   * certificate-authenticated gateway but have no authenticated user to bind
+   * into an assertion. Once a bearer credential is present, the matching
+   * gateway assertion is mandatory and fail-closed.
+   */
+  private hasAuthorizationHeader(req: TenantRequest): boolean {
+    const authorization = this.getHeader(req, 'authorization');
+    return typeof authorization === 'string' && authorization.trim().length > 0;
   }
 
   private requiresServiceIdentity(req: TenantRequest): boolean {

@@ -200,11 +200,7 @@ jobs:
       # toolchain once before Nx starts prevents competing cargo/rustup
       # processes from mutating ~/.rustup concurrently.
       - name: Install Rust toolchain (rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
-        with:
-          toolchain: 1.88.0
-          components: rustfmt,clippy,rust-src
-          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+        uses: ./.github/actions/setup-rust-workspace
 
       - name: Restore Nx cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -263,11 +259,7 @@ jobs:
       # 2026-05-05: Type-check targets can include Rust-backed crates. Prepare the exact
       # pinned toolchain before Nx starts parallel cargo-backed tasks.
       - name: Install Rust toolchain (rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
-        with:
-          toolchain: 1.88.0
-          components: rustfmt,clippy,rust-src
-          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+        uses: ./.github/actions/setup-rust-workspace
 
       - name: Restore Nx cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -321,11 +313,7 @@ jobs:
       # 2026-05-05: Test targets include Rust crates. Prepare the exact
       # pinned toolchain before Nx starts parallel cargo-backed tasks.
       - name: Install Rust toolchain (rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
-        with:
-          toolchain: 1.88.0
-          components: rustfmt,clippy,rust-src
-          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+        uses: ./.github/actions/setup-rust-workspace
 
       - name: Restore Nx cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -580,11 +568,7 @@ jobs:
       # 2026-05-05: Build targets include Rust crates. Prepare the exact
       # pinned toolchain before Nx starts parallel cargo-backed tasks.
       - name: Install Rust toolchain (rust-toolchain.toml)
-        uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
-        with:
-          toolchain: 1.88.0
-          components: rustfmt,clippy,rust-src
-          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+        uses: ./.github/actions/setup-rust-workspace
 
       - name: Restore Nx cache
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -708,9 +692,7 @@ jobs:
         run: node scripts/ci/check-auth-db-ownership.mjs
 
       - name: Setup Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
-        with:
-          version: 'v3.16.3'
+        uses: ./.github/actions/setup-helm
 
       # ── Phase A2 — compose interpolation validation ──────────────────────
       # `docker compose config --quiet` expands every `${VAR:?...}` in the
@@ -732,7 +714,7 @@ jobs:
             docker-compose.prod.yml \
             docker-compose.yml
 
-      # ── Phase A3 — NATS SSoT drift check (services.yaml ↔ nats.conf) ────
+      # ── Phase A3 — NATS SSoT drift check (broker + Helm identities) ─────
       # ADR-015: `infrastructure/nats/services.yaml` is the single source
       # of truth for NATS authorization. `scripts/nats/generate-nats-conf.py`
       # regenerates the `authorization.users[]` block in nats.conf between
@@ -740,16 +722,16 @@ jobs:
       # generator and asserting `git diff --quiet` catches the most common
       # drift pattern (operator edits services.yaml but forgets to run the
       # generator, OR hand-edits the generated block).
-      - name: Phase A3 — NATS SSoT drift (services.yaml to nats.conf)
+      - name: Phase A3 — NATS SSoT drift (broker ACL and certificate roster)
         run: |
           python3 scripts/nats/generate-nats-conf.py
-          if ! git diff --quiet infrastructure/docker/nats/nats.conf; then
-            echo "::error::nats.conf drifted from infrastructure/nats/services.yaml"
+          if [ -n "$(git status --porcelain -- infrastructure/docker/nats/nats.conf infrastructure/helm/aquaculture/files/nats-service-identities.yaml)" ]; then
+            echo "::error::NATS generated artifacts drifted from infrastructure/nats/services.yaml"
             echo "Run 'python3 scripts/nats/generate-nats-conf.py' locally and commit the diff."
-            git diff infrastructure/docker/nats/nats.conf | head -100
+            git diff -- infrastructure/docker/nats/nats.conf infrastructure/helm/aquaculture/files/nats-service-identities.yaml | head -100
             exit 1
           fi
-          echo "OK: nats.conf matches services.yaml"
+          echo "OK: broker ACL and Helm certificate roster match services.yaml"
 
       # ── Phase A3 — cert CN list structural SSoT check ────────────────────
       # WS1 landed 2026-04-14 (commit 0d249dd0): generate-internal-certs.sh
@@ -783,12 +765,9 @@ jobs:
       #   - struct/list type mismatches
       # Both staging and production values files are rendered so neither
       # environment's manifest shape can regress silently.
-      # Helm template dummy values — these are rendering-stage placeholders
-      # so `{{ required ... }}` template directives pass; real values live
-      # in a Kubernetes Secret / ExternalSecret at install time. The values
-      # here deliberately do NOT match any real credential and would fail at
-      # container runtime — exactly as intended (same design contract as the
-      # auto-derived dummy env in Phase A2 above).
+      # Helm template dummy values are owned by values-ci.yaml beside the
+      # chart. Both render paths consume that one overlay so a new required
+      # chart value cannot drift across parallel workflow-local flag lists.
 
       # Tier-2 Make-Automatic: the chart's `dependencies:` block in Chart.yaml
       # is the SSoT for postgresql / redis / nats subchart versions and source
@@ -817,45 +796,21 @@ jobs:
             infrastructure/helm/aquaculture \
             --values infrastructure/helm/aquaculture/values.yaml \
             --values infrastructure/helm/aquaculture/values-production.yaml \
-            --set-string secrets.databaseUrl=postgres://ci:dummy@localhost:5432/ci \
-            --set-string secrets.redisUrl=redis://:dummy@localhost:6379 \
-            --set-string secrets.natsUrl=tls://nats:4222 \
-            --set-string secrets.jwtPrivateKey=ci-dummy-jwt-private-key \
-            --set-string secrets.jwtPublicKey=ci-dummy-jwt-public-key \
-            --set-string secrets.passwordPepper=ci-dummy-password-pepper \
-            --set-string secrets.mfaEncryptionKey=ci-dummy-mfa-encryption-key-not-for-runtime \
-            --set-string secrets.stripeWebhookSecret=ci-dummy-stripe-webhook \
-            --set-string secrets.stripeApiKey=ci-dummy-stripe-api-key \
+            --values infrastructure/helm/aquaculture/values-ci.yaml \
             --skip-tests \
             > /tmp/helm-prod.yaml
           echo "OK: helm template (production) rendered $(wc -l < /tmp/helm-prod.yaml) lines"
 
-      # Staging-only dummy passwords: values-staging.yaml sets
-      # `postgresql.enabled: true` and `redis.enabled: true` (in-cluster
-      # subcharts), so the chart's validatePasswords helper requires both
-      # `postgresql.auth.password` and `redis.auth.password` at template
-      # time. Production overlay disables both subcharts (RDS + ElastiCache),
-      # so the production step above does not need these set. The dummies
-      # are rendering-stage placeholders only — the chart's required
-      # guards bypass at runtime via the externalSecrets path or operator-
-      # supplied --set values. Same design contract as the secrets.* dummies.
+      # values-ci.yaml also owns the in-cluster PostgreSQL and Redis dummy
+      # passwords required by staging. Production disables those subcharts,
+      # so the same overlay is harmless on its ExternalSecret render path.
       - name: Phase A4 — helm chart template (values-staging.yaml)
         run: |
           helm template aquaculture \
             infrastructure/helm/aquaculture \
             --values infrastructure/helm/aquaculture/values.yaml \
             --values infrastructure/helm/aquaculture/values-staging.yaml \
-            --set-string secrets.databaseUrl=postgres://ci:dummy@localhost:5432/ci \
-            --set-string secrets.redisUrl=redis://:dummy@localhost:6379 \
-            --set-string secrets.natsUrl=tls://nats:4222 \
-            --set-string secrets.jwtPrivateKey=ci-dummy-jwt-private-key \
-            --set-string secrets.jwtPublicKey=ci-dummy-jwt-public-key \
-            --set-string secrets.passwordPepper=ci-dummy-password-pepper \
-            --set-string secrets.mfaEncryptionKey=ci-dummy-mfa-encryption-key-not-for-runtime \
-            --set-string secrets.stripeWebhookSecret=ci-dummy-stripe-webhook \
-            --set-string secrets.stripeApiKey=ci-dummy-stripe-api-key \
-            --set-string postgresql.auth.password=ci-dummy-postgres-pw \
-            --set-string redis.auth.password=ci-dummy-redis-pw \
+            --values infrastructure/helm/aquaculture/values-ci.yaml \
             --skip-tests \
             > /tmp/helm-staging.yaml
           echo "OK: helm template (staging) rendered $(wc -l < /tmp/helm-staging.yaml) lines"

@@ -9,6 +9,7 @@ import { CommandBus, QueryBus, PaginatedQueryResult } from '@platform/cqrs';
 import { CurrentTenant, CurrentUser, Role, Roles } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
+import type { SiteScopeCaller } from '@aquaculture/backend-common/security';
 import { SystemResponse, PaginatedSystemsResponse } from './dto/system.response';
 import { SystemDeletePreviewResponse } from './dto/system-delete-preview.response';
 import { CreateSystemInput } from './dto/create-system.input';
@@ -51,7 +52,7 @@ export class SystemResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
   ): Promise<SystemResponse> {
-    this.logger.log(`Creating system: ${input.name} for tenant ${tenantId} by user ${user.sub}`);
+    this.logger.log('action=system.create');
     const command = new CreateSystemCommand(input, tenantId, user.sub);
     return this.commandBus.execute(command);
   }
@@ -66,7 +67,7 @@ export class SystemResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
   ): Promise<SystemResponse> {
-    this.logger.log(`Updating system: ${input.id} for tenant ${tenantId} by user ${user.sub}`);
+    this.logger.log('action=system.update');
     const command = new UpdateSystemCommand(input, tenantId, user.sub);
     return this.commandBus.execute(command);
   }
@@ -81,7 +82,7 @@ export class SystemResolver {
     @Args('id', { type: () => ID }) id: string,
     @CurrentTenant() tenantId: string,
   ): Promise<SystemDeletePreviewResponse> {
-    this.logger.log(`Getting delete preview for system ${id} for tenant ${tenantId}`);
+    this.logger.log('action=system.delete_preview');
     const query = new GetSystemDeletePreviewQuery(id, tenantId);
     return this.queryBus.execute(query);
   }
@@ -98,7 +99,7 @@ export class SystemResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
   ): Promise<boolean> {
-    this.logger.log(`Deleting system: ${id} for tenant ${tenantId} by user ${user.sub} (cascade: ${cascade})`);
+    this.logger.log(`action=system.delete cascade=${cascade}`);
     const command = new DeleteSystemCommand(id, tenantId, user.sub, cascade);
     return this.commandBus.execute(command);
   }
@@ -122,7 +123,7 @@ export class SystemResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string; name?: string },
   ): Promise<System> {
-    this.logger.log(`Restoring system ${id} for tenant ${tenantId} by user ${user.sub}`);
+    this.logger.log('action=system.restore');
     return this.restoreService.restore(
       this.systemRepository,
       System,
@@ -146,7 +147,8 @@ export class SystemResolver {
   @Query(() => SystemResponse, { nullable: true })
   async system(
     @Args('id', { type: () => ID }) id: string,
-    @Args('includeRelations', { type: () => Boolean, nullable: true, defaultValue: false }) includeRelations: boolean,
+    @Args('includeRelations', { type: () => Boolean, nullable: true, defaultValue: false })
+    includeRelations: boolean,
     @CurrentTenant() tenantId: string,
   ): Promise<SystemResponse | null> {
     const query = new GetSystemQuery(id, tenantId, includeRelations);
@@ -160,14 +162,15 @@ export class SystemResolver {
   @Query(() => PaginatedSystemsResponse)
   async systems(
     @Args('filter', { type: () => SystemFilterInput, nullable: true }) filter?: SystemFilterInput,
-    @Args('pagination', { type: () => PaginationInput, nullable: true }) pagination?: PaginationInput,
+    @Args('pagination', { type: () => PaginationInput, nullable: true })
+    pagination?: PaginationInput,
     @CurrentTenant() tenantId?: string,
   ): Promise<PaginatedSystemsResponse> {
     if (!tenantId) {
       throw new Error('Tenant ID is required');
     }
     const query = new ListSystemsQuery(tenantId, filter, pagination);
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SystemResponse>;
+    const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<SystemResponse>;
     return fromCqrsPaginated(result);
   }
 
@@ -181,7 +184,7 @@ export class SystemResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<SystemResponse[]> {
     const query = new ListSystemsQuery(tenantId, { siteId, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SystemResponse>;
+    const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<SystemResponse>;
     return fromCqrsPaginated(result).items;
   }
 
@@ -195,7 +198,7 @@ export class SystemResolver {
     @CurrentTenant() tenantId: string,
   ): Promise<SystemResponse[]> {
     const query = new ListSystemsQuery(tenantId, { departmentId, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SystemResponse>;
+    const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<SystemResponse>;
     return fromCqrsPaginated(result).items;
   }
 
@@ -208,8 +211,12 @@ export class SystemResolver {
     @Args('parentSystemId', { type: () => ID }) parentSystemId: string,
     @CurrentTenant() tenantId: string,
   ): Promise<SystemResponse[]> {
-    const query = new ListSystemsQuery(tenantId, { parentSystemId, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SystemResponse>;
+    const query = new ListSystemsQuery(
+      tenantId,
+      { parentSystemId, isActive: true },
+      { limit: 1000 },
+    );
+    const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<SystemResponse>;
     return fromCqrsPaginated(result).items;
   }
 
@@ -225,8 +232,12 @@ export class SystemResolver {
     if (!tenantId) {
       throw new Error('Tenant ID is required');
     }
-    const query = new ListSystemsQuery(tenantId, { siteId, rootOnly: true, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SystemResponse>;
+    const query = new ListSystemsQuery(
+      tenantId,
+      { siteId, rootOnly: true, isActive: true },
+      { limit: 1000 },
+    );
+    const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<SystemResponse>;
     return fromCqrsPaginated(result).items;
   }
 
@@ -234,16 +245,21 @@ export class SystemResolver {
    * Resolve site field
    */
   @ResolveField(() => SiteResponse, { nullable: true })
-  async site(@Parent() system: SystemResponse): Promise<SiteResponse | null> {
+  async site(
+    @Parent() system: SystemResponse,
+    @CurrentUser() user: SiteScopeCaller,
+  ): Promise<SiteResponse | null> {
     if ('site' in system && system.site) return system.site as SiteResponse;
 
     if (!system.siteId || !system.tenantId) return null;
 
     try {
-      const query = new GetSiteQuery(system.siteId, system.tenantId);
+      const query = new GetSiteQuery(system.siteId, system.tenantId, user);
       return await this.queryBus.execute(query);
     } catch (error: unknown) {
-      this.logger.debug(`Error resolving site for system ${system.id}: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.debug(
+        `Error resolving site for system ${system.id}: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return null;
     }
   }
@@ -261,7 +277,9 @@ export class SystemResolver {
       const query = new GetDepartmentQuery(system.departmentId, system.tenantId);
       return await this.queryBus.execute(query);
     } catch (error: unknown) {
-      this.logger.debug(`Error resolving department for system ${system.id}: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.debug(
+        `Error resolving department for system ${system.id}: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return null;
     }
   }
@@ -271,7 +289,8 @@ export class SystemResolver {
    */
   @ResolveField(() => SystemResponse, { nullable: true })
   async parentSystem(@Parent() system: SystemResponse): Promise<SystemResponse | null> {
-    if ('parentSystem' in system && system.parentSystem) return system.parentSystem as SystemResponse;
+    if ('parentSystem' in system && system.parentSystem)
+      return system.parentSystem as SystemResponse;
 
     if (!system.parentSystemId || !system.tenantId) return null;
 
@@ -294,15 +313,20 @@ export class SystemResolver {
    */
   @ResolveField(() => [SystemResponse], { nullable: true })
   async childSystemsField(@Parent() system: SystemResponse): Promise<SystemResponse[]> {
-    if ('childSystems' in system && system.childSystems) return system.childSystems as SystemResponse[];
+    if ('childSystems' in system && system.childSystems)
+      return system.childSystems as SystemResponse[];
 
     if (!system.id || !system.tenantId) return [];
 
     // ListSystemsQuery returns an empty list when there are no children, so a
     // genuine "no children" needs no catch. A query error (e.g. a lost tenant
     // context) must surface rather than be masked as an empty child list.
-    const query = new ListSystemsQuery(system.tenantId, { parentSystemId: system.id, isActive: true }, { limit: 1000 });
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<SystemResponse>;
+    const query = new ListSystemsQuery(
+      system.tenantId,
+      { parentSystemId: system.id, isActive: true },
+      { limit: 1000 },
+    );
+    const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<SystemResponse>;
     return fromCqrsPaginated(result).items;
   }
 }

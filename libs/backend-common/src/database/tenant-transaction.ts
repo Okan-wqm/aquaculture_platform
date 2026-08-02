@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import { Logger } from '@nestjs/common';
 import { DataSource, QueryRunner } from 'typeorm';
 
@@ -23,28 +21,14 @@ const SOURCE_SCHEMA_RE = /^[a-z][a-z0-9_]*$/;
  * by default); a tenant-context mismatch is warn-level. Emitting the trace must
  * NEVER break a read — any error inside the tracer is swallowed.
  */
-export type TenantBoundaryResultState =
-  | 'SUCCESS'
-  | 'SCHEMA_MISMATCH'
-  | 'RLS_MISMATCH'
-  | 'ERROR';
+export type TenantBoundaryResultState = 'SUCCESS' | 'SCHEMA_MISMATCH' | 'RLS_MISMATCH' | 'ERROR';
 
 const boundaryLogger = new Logger('TenantBoundary');
-
-/** Hash the tenant id — a tenant label is never logged raw (plan + maskPii rule). */
-function tenantHash(tenantId: string | undefined): string {
-  if (!tenantId) return 'none';
-  return createHash('sha256').update(tenantId).digest('hex').slice(0, 12);
-}
 
 /** Best-effort row count for the common array / paginated-`data` result shapes. */
 function rowCountOf(result: unknown): number | undefined {
   if (Array.isArray(result)) return result.length;
-  if (
-    result &&
-    typeof result === 'object' &&
-    Array.isArray((result as { data?: unknown }).data)
-  ) {
+  if (result && typeof result === 'object' && Array.isArray((result as { data?: unknown }).data)) {
     return (result as { data: unknown[] }).data.length;
   }
   return undefined;
@@ -67,14 +51,6 @@ function traceTenantBoundary(input: TenantBoundaryTraceInput): void {
       event: 'TenantBoundaryTrace',
       operation: input.operation,
       resultState: input.resultState,
-      sourceSchema: input.sourceSchema,
-      expectedSchema:
-        input.tenantId !== undefined && isValidUUID(input.tenantId)
-          ? getTenantSchemaName(input.tenantId)
-          : input.sourceSchema,
-      resolvedSchema:
-        input.error instanceof TenantContextError ? input.error.resolvedSchema : undefined,
-      tenantHash: tenantHash(input.tenantId),
       correlationId: ctx.correlationId,
       traceId: ctx.traceId,
       durationMs: Date.now() - input.startedAt,
@@ -121,14 +97,10 @@ export async function pinTenantTransactionSearchPath(
   tenantId: string,
 ): Promise<void> {
   if (!SOURCE_SCHEMA_RE.test(sourceSchema)) {
-    throw new Error(
-      `pinTenantTransactionSearchPath: invalid source schema "${sourceSchema}"`,
-    );
+    throw new Error(`pinTenantTransactionSearchPath: invalid source schema "${sourceSchema}"`);
   }
   if (!isValidUUID(tenantId)) {
-    throw new Error(
-      `pinTenantTransactionSearchPath: invalid tenantId "${tenantId}"`,
-    );
+    throw new Error(`pinTenantTransactionSearchPath: invalid tenantId "${tenantId}"`);
   }
 
   const tenantSchema = getTenantSchemaName(tenantId);
@@ -147,10 +119,9 @@ export async function pinTenantSchemaTransactionSearchPath(
   }
   validateTenantSchemaName(tenantSchema);
 
-  await queryRunner.query(
-    `SELECT pg_catalog.set_config('search_path', $1, true)`,
-    [`"${tenantSchema}", "${sourceSchema}", public`],
-  );
+  await queryRunner.query(`SELECT pg_catalog.set_config('search_path', $1, true)`, [
+    `"${tenantSchema}", "${sourceSchema}", public`,
+  ]);
 }
 
 /**
@@ -186,32 +157,32 @@ export async function assertTenantTransactionContext(
   tenantId: string,
 ): Promise<void> {
   if (!SOURCE_SCHEMA_RE.test(sourceSchema)) {
-    throw new Error(
-      `assertTenantTransactionContext: invalid source schema "${sourceSchema}"`,
-    );
+    throw new Error(`assertTenantTransactionContext: invalid source schema "${sourceSchema}"`);
   }
   if (!isValidUUID(tenantId)) {
-    throw new Error(
-      `assertTenantTransactionContext: invalid tenantId "${tenantId}"`,
-    );
+    throw new Error(`assertTenantTransactionContext: invalid tenantId "${tenantId}"`);
   }
 
   const expectedSchema = getTenantSchemaName(tenantId);
 
   // The boundary OWNS the RLS GUC transaction-locally so it cannot be left
   // unset by a missing checkout patch or inherited stale from a pooled session.
-  await queryRunner.query(`SELECT set_config($1, $2, true)`, [
-    RLS_TENANT_GUC,
-    tenantId,
-  ]);
+  await queryRunner.query(`SELECT set_config($1, $2, true)`, [RLS_TENANT_GUC, tenantId]);
+  // A pooled connection may previously have served an audited system path.
+  // Tenant transactions own both RLS controls transaction-locally: setting
+  // the tenant UUID without forcing bypass off would leave a stale `on`
+  // capable of exposing every row in the otherwise-correct tenant schema.
+  await queryRunner.query(`SELECT set_config($1, 'off', true)`, [RLS_BYPASS_GUC]);
 
   // Read back the schema + GUC the connection ACTUALLY resolves to.
   const rows = await queryRunner.query(
-    `SELECT current_schema() AS schema, current_setting($1, true) AS tenant`,
-    [RLS_TENANT_GUC],
+    `SELECT current_schema() AS schema,
+            current_setting($1, true) AS tenant,
+            current_setting($2, true) AS bypass`,
+    [RLS_TENANT_GUC, RLS_BYPASS_GUC],
   );
   const row = (Array.isArray(rows) ? rows[0] : rows) as
-    | { schema?: string | null; tenant?: string | null }
+    | { schema?: string | null; tenant?: string | null; bypass?: string | null }
     | undefined
     | null;
 
@@ -225,6 +196,7 @@ export async function assertTenantTransactionContext(
 
   const resolvedSchema: string | null = row.schema ?? null;
   const resolvedTenant: string | null = row.tenant ?? null;
+  const resolvedBypass: string | null = row.bypass ?? null;
 
   if (resolvedSchema !== expectedSchema) {
     throw new TenantContextError({
@@ -234,7 +206,11 @@ export async function assertTenantTransactionContext(
       sourceSchema,
     });
   }
-  if (!resolvedTenant || resolvedTenant.toLowerCase() !== tenantId.toLowerCase()) {
+  if (
+    !resolvedTenant ||
+    resolvedTenant.toLowerCase() !== tenantId.toLowerCase() ||
+    resolvedBypass !== 'off'
+  ) {
     throw new TenantContextError({
       state: 'RLS_MISMATCH',
       expectedSchema,
@@ -412,10 +388,9 @@ export async function runInSourceRead<T>(
 
   try {
     await queryRunner.query('SET TRANSACTION READ ONLY');
-    await queryRunner.query(
-      `SELECT pg_catalog.set_config('search_path', $1, true)`,
-      [`"${sourceSchema}", public`],
-    );
+    await queryRunner.query(`SELECT pg_catalog.set_config('search_path', $1, true)`, [
+      `"${sourceSchema}", public`,
+    ]);
     // Cross-tenant by design: the tenant-isolation policy USING clause honors
     // `app.bypass_rls = 'on'`, so a reference / federation read is not denied.
     await queryRunner.query(`SELECT set_config($1, 'on', true)`, [RLS_BYPASS_GUC]);

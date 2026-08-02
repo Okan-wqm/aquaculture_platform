@@ -4,6 +4,11 @@ import { RateLimitEndpointBucket } from '../rate-limit.types';
 const BUCKETS: readonly RateLimitEndpointBucket[] = [
   { tier: 'login', paths: ['/api/auth/login', '/auth/login'] },
   { tier: 'upload', paths: ['/api/files/upload', '/api/v1/files/upload'] },
+  {
+    tier: 'marine-render',
+    paths: [],
+    pathTemplates: ['/api/marine/sites/:siteId/render'],
+  },
 ];
 
 describe('classifyEndpoint — exact match (SECREV-LOW-001 cure)', () => {
@@ -12,9 +17,29 @@ describe('classifyEndpoint — exact match (SECREV-LOW-001 cure)', () => {
     expect(classifyEndpoint('/auth/login', BUCKETS)).toBe('login');
   });
 
+  it('matches literal and template static segments with Express default case-insensitive semantics', () => {
+    expect(classifyEndpoint('/API/AUTH/LOGIN', BUCKETS)).toBe('login');
+    expect(classifyEndpoint('/API/MARINE/SITES/site-1/RENDER', BUCKETS)).toBe('marine-render');
+  });
+
   it('maps exact upload paths to the upload tier', () => {
     expect(classifyEndpoint('/api/files/upload', BUCKETS)).toBe('upload');
     expect(classifyEndpoint('/api/v1/files/upload', BUCKETS)).toBe('upload');
+  });
+
+  it('maps a dynamic route only when every static and parameter segment matches', () => {
+    expect(classifyEndpoint('/api/marine/sites/site-1/render', BUCKETS)).toBe('marine-render');
+    expect(classifyEndpoint('/api/marine/sites/site-1/render?scene=one', BUCKETS)).toBe(
+      'marine-render',
+    );
+    expect(classifyEndpoint('/api/marine/sites/site-1/render/', BUCKETS)).toBe('marine-render');
+  });
+
+  it('does not treat a dynamic route template as a loose prefix or suffix', () => {
+    expect(classifyEndpoint('/api/marine/sites/site-1/render/extra', BUCKETS)).toBe(DEFAULT_TIER);
+    expect(classifyEndpoint('/wrap/api/marine/sites/site-1/render', BUCKETS)).toBe(DEFAULT_TIER);
+    expect(classifyEndpoint('/api/marine/sites//render', BUCKETS)).toBe(DEFAULT_TIER);
+    expect(classifyEndpoint('/api/marine/site/site-1/render', BUCKETS)).toBe(DEFAULT_TIER);
   });
 
   it('does NOT match a suffix-attack path', () => {

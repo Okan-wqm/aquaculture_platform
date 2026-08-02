@@ -43,11 +43,11 @@ export class AssignUserToModuleInput {
 @InputType()
 export class AssignUserToSiteInput {
   @Field(() => ID)
-  @IsUUID()
+  @IsUUID('4')
   userId!: string;
 
   @Field(() => ID)
-  @IsUUID()
+  @IsUUID('4')
   siteId!: string;
 }
 

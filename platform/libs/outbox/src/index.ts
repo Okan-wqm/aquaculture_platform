@@ -12,11 +12,25 @@ export { OutboxEntityBase } from './outbox-entity.base';
 
 // Public API
 export { OutboxPublisher } from './outbox-publisher.service';
+export type { OutboxEnqueueOptions } from './outbox-publisher.service';
 export { OutboxWorkerService } from './outbox-worker.service';
 export {
-  assertOutboxTenantIntegrity,
-  OutboxTenantIntegrityError,
-} from './tenant-integrity';
+  OUTBOX_DELIVERY_POLICY_FIELD,
+  OUTBOX_ROUTING_SCOPE_FIELD,
+  OUTBOX_SECURITY_RECOVERY_POLICY,
+  OUTBOX_SYSTEM_TENANT_ID,
+  OutboxStorageMetadataError,
+  assertOutboxDeliveryPolicyIntegrity,
+  hasSecurityRecoveryDeliveryPolicy,
+  withoutOutboxRoutingAttestation,
+} from './outbox-routing';
+export type {
+  OutboxDeliveryPolicy,
+  OutboxFeatureOptions,
+  OutboxRoutingScope,
+  OutboxStoredPayload,
+} from './outbox-routing';
+export { assertOutboxTenantIntegrity, OutboxTenantIntegrityError } from './tenant-integrity';
 export { OutboxMetricsService } from './outbox-metrics.service';
 export { OutboxModule } from './outbox.module';
 export {

@@ -95,6 +95,37 @@ export interface PasswordResetCompletedEvent extends BaseEvent {
   userId: string;
 }
 
+export const USER_ACCESS_TOKEN_INVALIDATION_REASONS = [
+  'refresh_token_reuse',
+  'logout_all_devices',
+  'password_changed',
+  'password_reset',
+  'role_permissions_changed',
+  'site_assignment_changed',
+] as const;
+export type UserAccessTokenInvalidationReason =
+  (typeof USER_ACCESS_TOKEN_INVALIDATION_REASONS)[number];
+
+/** Durable request to advance one user's canonical invalidation epoch. */
+export interface UserAccessTokenInvalidationRequestedEvent extends BaseEvent {
+  eventType: 'UserAccessTokenInvalidationRequested';
+  /** Target principal; BaseEvent.userId remains the actor when known. */
+  targetUserId: string;
+  invalidatedAtEpochSeconds: number;
+  reason: UserAccessTokenInvalidationReason;
+}
+
+export const ACCESS_TOKEN_INVALIDATION_REASONS = ['user_logout'] as const;
+export type AccessTokenInvalidationReason = (typeof ACCESS_TOKEN_INVALIDATION_REASONS)[number];
+
+/** Durable request to invalidate one access token by its opaque JWT ID. */
+export interface AccessTokenInvalidationRequestedEvent extends BaseEvent {
+  eventType: 'AccessTokenInvalidationRequested';
+  targetJti: string;
+  expiresAtEpochSeconds: number;
+  reason: AccessTokenInvalidationReason;
+}
+
 /**
  * User Deleted Event
  *
@@ -254,6 +285,8 @@ export type AuthEvent =
   | InvitationAcceptedEvent
   | PasswordResetRequestedEvent
   | PasswordResetCompletedEvent
+  | UserAccessTokenInvalidationRequestedEvent
+  | AccessTokenInvalidationRequestedEvent
   | UserDeletedEvent
   | UserDataAnonymizedEvent
   | GdprAnonymizeRequestedEvent

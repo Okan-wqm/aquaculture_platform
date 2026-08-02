@@ -175,6 +175,21 @@ describe('enterprise-grade debt closure plan contract', () => {
       registryActiveCriticalIds.length,
     );
     expect(activeCriticalIds).toEqual(registryActiveCriticalIds);
+
+    const expectedReadmeLines = [
+      `- Registry entries: ${registryEntries.length}`,
+      `- Registry tip hash: \`${registryTip}\``,
+      `- OPEN findings: ${registryOpenCount}`,
+      `- IN-PROGRESS findings: ${registryInProgressCount}`,
+      `- Active CRITICAL findings: ${registryActiveCriticalIds.length}`,
+      `- \`npm run findings:verify\`: passing against registry tip \`${registryTip}\``,
+    ];
+    for (const line of expectedReadmeLines) {
+      expect(readme.split(/\r?\n/).filter((candidate) => candidate === line)).toEqual([line]);
+    }
+    expect(
+      truthTable.split(/\r?\n/).filter((line) => line === `Registry tip: \`${registryTip}\``),
+    ).toEqual([`Registry tip: \`${registryTip}\``]);
   });
 
   it('keeps active criticals, core agents, and attacker lanes explicit', () => {

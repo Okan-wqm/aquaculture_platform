@@ -2,8 +2,13 @@ import * as crypto from 'crypto';
 
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
-import { TimingSafeService, SESSION_MANAGER, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
-import { BadRequestException } from '@nestjs/common';
+import {
+  TimingSafeService,
+  SESSION_MANAGER,
+  TOKEN_BLACKLIST,
+  USER_TOKEN_REVOCATION,
+} from '@aquaculture/backend-common/security';
+import { BadRequestException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -19,6 +24,8 @@ import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
 import { AuthenticationService } from '../services/authentication.service';
+import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
+import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
 
@@ -88,10 +95,12 @@ const mockInvitationRepository = {
 
 const mockActionTokenRepository = {
   create: jest.fn((data: Record<string, unknown>) => ({ ...data })),
-  save: jest.fn((entity: Record<string, unknown>) => Promise.resolve({
-    id: 'action-token-id',
-    ...entity,
-  })),
+  save: jest.fn((entity: Record<string, unknown>) =>
+    Promise.resolve({
+      id: 'action-token-id',
+      ...entity,
+    }),
+  ),
   findOne: jest.fn(),
 };
 
@@ -151,8 +160,22 @@ const mockMfaService = {
   generateMfaChallenge: jest.fn(),
 };
 
+const mockTransactionManager = {
+  getRepository: jest.fn((entity: unknown) => {
+    if (entity === User) return mockUserRepository;
+    if (entity === RefreshToken) return mockRefreshTokenRepository;
+    if (entity === Invitation) return mockInvitationRepository;
+    if (entity === ActionToken) return mockActionTokenRepository;
+    if (entity === Tenant) return mockTenantRepository;
+    return {};
+  }),
+};
+
 const mockDataSource = {
-  transaction: jest.fn(),
+  transaction: jest.fn(
+    async <T>(callback: (manager: typeof mockTransactionManager) => Promise<T>): Promise<T> =>
+      callback(mockTransactionManager),
+  ),
   query: jest.fn(),
 };
 
@@ -160,22 +183,59 @@ const mockTimingSafe = {
   ensureMinDuration: jest.fn().mockResolvedValue(undefined),
 };
 
+const mockTokenBlacklist = {
+  add: jest.fn().mockResolvedValue(undefined),
+  isBlacklisted: jest.fn().mockResolvedValue(false),
+};
+
+const mockUserTokenRevocation = {
+  revokeUserTokens: jest.fn().mockResolvedValue(undefined),
+  isTokenValid: jest.fn().mockResolvedValue(true),
+};
+
+const mockDurableAccessTokenInvalidation = {
+  enqueue: jest.fn().mockResolvedValue(undefined),
+  applyImmediately: jest.fn().mockResolvedValue(undefined),
+};
+
+const mockDurableUserTokenInvalidation = {
+  enqueue: jest.fn().mockResolvedValue(undefined),
+  applyImmediately: jest.fn().mockResolvedValue(undefined),
+};
+
+const mockSessionManager = {
+  revokeAllSessions: jest.fn().mockResolvedValue(undefined),
+};
+
 describe('AuthenticationService - Password Reset Flow', () => {
   let service: AuthenticationService;
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    mockActionTokenRepository.create.mockImplementation((data: Record<string, unknown>) => ({ ...data }));
-    mockActionTokenRepository.save.mockImplementation((entity: Record<string, unknown>) => Promise.resolve({
-      id: 'action-token-id',
-      ...entity,
+    mockActionTokenRepository.create.mockImplementation((data: Record<string, unknown>) => ({
+      ...data,
     }));
+    mockActionTokenRepository.save.mockImplementation((entity: Record<string, unknown>) =>
+      Promise.resolve({
+        id: 'action-token-id',
+        ...entity,
+      }),
+    );
     mockActionTokenRepository.findOne.mockResolvedValue(null);
-    mockTokenService.generateTokens.mockImplementation((user: User) => Promise.resolve({
-      accessToken: 'mock-access-token',
-      refreshToken: 'mock-refresh-token',
-      user,
-    }));
+    mockTokenService.generateTokens.mockImplementation((user: User) =>
+      Promise.resolve({
+        accessToken: 'mock-access-token',
+        refreshToken: 'mock-refresh-token',
+        user,
+      }),
+    );
+    mockTokenBlacklist.isBlacklisted.mockResolvedValue(false);
+    mockUserTokenRevocation.isTokenValid.mockResolvedValue(true);
+    mockDurableAccessTokenInvalidation.enqueue.mockResolvedValue(undefined);
+    mockDurableAccessTokenInvalidation.applyImmediately.mockResolvedValue(undefined);
+    mockDurableUserTokenInvalidation.enqueue.mockResolvedValue(undefined);
+    mockDurableUserTokenInvalidation.applyImmediately.mockResolvedValue(undefined);
+    mockSessionManager.revokeAllSessions.mockResolvedValue(undefined);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -184,7 +244,10 @@ describe('AuthenticationService - Password Reset Flow', () => {
         { provide: getRepositoryToken(RefreshToken), useValue: mockRefreshTokenRepository },
         { provide: getRepositoryToken(Invitation), useValue: mockInvitationRepository },
         { provide: getRepositoryToken(ActionToken), useValue: mockActionTokenRepository },
-        { provide: getRepositoryToken(UserModuleAssignment), useValue: mockUserModuleAssignmentRepository },
+        {
+          provide: getRepositoryToken(UserModuleAssignment),
+          useValue: mockUserModuleAssignmentRepository,
+        },
         { provide: getRepositoryToken(Tenant), useValue: mockTenantRepository },
         { provide: DataSource, useValue: mockDataSource },
         { provide: JwtService, useValue: mockJwtService },
@@ -196,10 +259,19 @@ describe('AuthenticationService - Password Reset Flow', () => {
         },
         { provide: AuditLogService, useValue: mockAuditLogService },
         { provide: TokenService, useValue: mockTokenService },
+        {
+          provide: DurableAccessTokenInvalidationService,
+          useValue: mockDurableAccessTokenInvalidation,
+        },
+        {
+          provide: DurableUserTokenInvalidationService,
+          useValue: mockDurableUserTokenInvalidation,
+        },
         { provide: MfaService, useValue: mockMfaService },
         { provide: TimingSafeService, useValue: mockTimingSafe },
-        { provide: SESSION_MANAGER, useValue: null },
-        { provide: TOKEN_BLACKLIST, useValue: null },
+        { provide: SESSION_MANAGER, useValue: mockSessionManager },
+        { provide: TOKEN_BLACKLIST, useValue: mockTokenBlacklist },
+        { provide: USER_TOKEN_REVOCATION, useValue: mockUserTokenRevocation },
         // WHY: the SUPER_ADMIN reset path persists refresh tokens through the
         // audited RLS bypass; the mock forwards through withBypass so the
         // spec exercises the same call chain without the audit WARN log.
@@ -305,9 +377,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
       const user = createMockUser({ isActive: false });
       mockUserRepository.findOne.mockResolvedValue(user);
 
-      await expect(
-        service.initiatePasswordReset('test@example.com'),
-      ).resolves.toBeUndefined();
+      await expect(service.initiatePasswordReset('test@example.com')).resolves.toBeUndefined();
 
       expect(mockUserRepository.save).not.toHaveBeenCalled();
       expect(mockEventBus.publish).not.toHaveBeenCalled();
@@ -345,9 +415,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
       mockUserRepository.save.mockRejectedValue(new Error('DB error'));
 
       // Should NOT throw
-      await expect(
-        service.initiatePasswordReset('test@example.com'),
-      ).resolves.toBeUndefined();
+      await expect(service.initiatePasswordReset('test@example.com')).resolves.toBeUndefined();
     });
   });
 
@@ -362,6 +430,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
     beforeEach(() => {
       mockQueryBuilder = {
+        setLock: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
         andWhere: jest.fn().mockReturnThis(),
         getOne: jest.fn(),
@@ -475,14 +544,83 @@ describe('AuthenticationService - Password Reset Flow', () => {
           revokedReason: 'Password reset',
         }),
       );
+      expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenCalledWith(
+        mockTransactionManager,
+        expect.objectContaining({
+          userId: 'user-uuid-123',
+          tenantId: 'tenant-uuid-123',
+          invalidatedAt: expect.any(Date),
+          reason: 'password_reset',
+        }),
+      );
+      const intent = mockDurableUserTokenInvalidation.enqueue.mock.calls[0]?.[1];
+      expect(mockDurableUserTokenInvalidation.applyImmediately).toHaveBeenCalledWith(intent);
+      expect(mockSessionManager.revokeAllSessions).toHaveBeenCalledWith('user-uuid-123');
+    });
+
+    it('fails closed before commit when password-reset invalidation cannot be enqueued', async () => {
+      const user = createMockUser({
+        passwordResetToken: tokenHash,
+        passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000),
+      });
+      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(user);
+      mockUserRepository.save.mockResolvedValue(user);
+      mockRefreshTokenRepository.update.mockResolvedValue({ affected: 1 });
+      mockDurableUserTokenInvalidation.enqueue.mockRejectedValueOnce(
+        new Error('outbox unavailable'),
+      );
+
+      await expect(service.resetPassword(plainToken, 'NewPass123!')).rejects.toThrow(
+        'outbox unavailable',
+      );
+
+      expect(mockDurableUserTokenInvalidation.applyImmediately).not.toHaveBeenCalled();
+      expect(mockSessionManager.revokeAllSessions).not.toHaveBeenCalled();
+      expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
+    });
+
+    it('returns tokens after commit when immediate password-reset effects fail', async () => {
+      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      const user = createMockUser({
+        passwordResetToken: tokenHash,
+        passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000),
+      });
+      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(user);
+      mockUserRepository.save.mockResolvedValue(user);
+      mockRefreshTokenRepository.update.mockResolvedValue({ affected: 1 });
+      mockDurableUserTokenInvalidation.applyImmediately.mockRejectedValueOnce(
+        new TypeError('redis unavailable for user-uuid-123'),
+      );
+      mockSessionManager.revokeAllSessions.mockRejectedValueOnce(
+        new RangeError('session store unavailable for user-uuid-123'),
+      );
+
+      await expect(service.resetPassword(plainToken, 'NewPass123!')).resolves.toMatchObject({
+        accessToken: 'mock-access-token',
+        refreshToken: 'mock-refresh-token',
+      });
+
+      expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenCalledTimes(1);
+      const [serializedLog] = errorSpy.mock.calls.at(-1) ?? [];
+      expect(JSON.parse(String(serializedLog))).toEqual({
+        event: 'post_commit_security_effect_failed',
+        operation: 'password_reset',
+        failedCount: 2,
+        effectCount: 2,
+        failedEffectTypes: ['user_token_invalidation', 'session_revocation'],
+        errorTypes: ['TypeError', 'RangeError'],
+      });
+      expect(String(serializedLog)).not.toContain('user-uuid-123');
+      expect(String(serializedLog)).not.toContain('unavailable');
+      errorSpy.mockRestore();
     });
 
     it('should throw BadRequestException for invalid token', async () => {
       (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(null);
 
-      await expect(
-        service.resetPassword('invalid-token', 'NewPass123!'),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.resetPassword('invalid-token', 'NewPass123!')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should throw BadRequestException for expired token', async () => {
@@ -490,9 +628,9 @@ describe('AuthenticationService - Password Reset Flow', () => {
       // so expired token results in null from getOne
       (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(null);
 
-      await expect(
-        service.resetPassword(plainToken, 'NewPass123!'),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.resetPassword(plainToken, 'NewPass123!')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should throw BadRequestException for inactive user', async () => {
@@ -503,9 +641,9 @@ describe('AuthenticationService - Password Reset Flow', () => {
       });
       (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(user);
 
-      await expect(
-        service.resetPassword(plainToken, 'NewPass123!'),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.resetPassword(plainToken, 'NewPass123!')).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should publish PasswordResetCompleted event', async () => {

@@ -3,6 +3,7 @@
  * Gathers all items that will be affected by site deletion
  */
 import { runInTenantRead } from '@aquaculture/backend-common/database';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, In } from 'typeorm';
@@ -32,12 +33,13 @@ export class GetSiteDeletePreviewHandler
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly siteAuthorization: SiteAuthorizationService,
   ) {}
 
-  async execute(
-    query: GetSiteDeletePreviewQuery,
-  ): Promise<SiteDeletePreviewResponse> {
-    const { siteId, tenantId } = query;
+  async execute(query: GetSiteDeletePreviewQuery): Promise<SiteDeletePreviewResponse> {
+    const { siteId, tenantId, caller } = query;
+
+    this.siteAuthorization.assertSiteAssignment({ caller, siteId });
 
     this.logger.log(`Getting delete preview for site: ${siteId}`);
 
@@ -166,11 +168,7 @@ export class GetSiteDeletePreviewHandler
       }));
 
       // Calculate total count
-      const totalCount =
-        departments.length +
-        systems.length +
-        equipment.length +
-        tanks.length;
+      const totalCount = departments.length + systems.length + equipment.length + tanks.length;
 
       return {
         site: site as SiteResponse,

@@ -111,11 +111,27 @@ interface PlannedWrite {
 
 /** Replaces `from` with `to`, refusing when the anchor is absent. */
 function substituteOrThrow(raw: string, from: string, to: string, where: string): string {
-  if (from === to) return raw;
   if (!raw.includes(from)) {
     throw new Error(`${where}: anchor not found — ${from}`);
   }
+  if (from === to) return raw;
   return raw.replaceAll(from, to);
+}
+
+/** Replaces exactly one governed Markdown line, regardless of its stale value. */
+function replaceLineOrThrow(
+  raw: string,
+  pattern: RegExp,
+  replacement: string,
+  where: string,
+): string {
+  const matches = raw.match(pattern);
+  if (matches?.length !== 1) {
+    throw new Error(
+      `${where}: expected exactly one governed anchor, found ${matches?.length ?? 0}`,
+    );
+  }
+  return raw.replace(pattern, replacement);
 }
 
 /**
@@ -144,44 +160,57 @@ function planManifest(state: RegistryState): { write: PlannedWrite; changed: str
   return { write: { path, contents: raw }, changed };
 }
 
-function planTruthTable(state: RegistryState, previousTip: string): PlannedWrite {
+function planTruthTable(state: RegistryState): PlannedWrite {
   const path = resolve(PLAN_DIR, 'finding-truth-table.md');
   const raw = readFileSync(path, 'utf8');
   return {
     path,
-    contents: substituteOrThrow(
+    contents: replaceLineOrThrow(
       raw,
-      previousTip,
-      state.registry_tip_hash,
-      'finding-truth-table.md no longer quotes the manifest tip hash',
+      /^Registry tip: `(?:[0-9a-f]{64})`$/gm,
+      `Registry tip: \`${state.registry_tip_hash}\``,
+      'finding-truth-table.md registry tip',
     ),
   };
 }
 
-function planReadme(state: RegistryState, previous: RegistryState): PlannedWrite {
+function planReadme(state: RegistryState): PlannedWrite {
   const path = resolve(PLAN_DIR, 'README.md');
   let raw = readFileSync(path, 'utf8');
-  const subs: ReadonlyArray<readonly [string, string]> = [
+  const lines: ReadonlyArray<readonly [RegExp, string, string]> = [
     [
-      `- Registry entries: ${previous.registry_entries}`,
+      /^- Registry entries: \d+$/gm,
       `- Registry entries: ${state.registry_entries}`,
+      'README.md registry entries',
     ],
     [
-      `- OPEN findings: ${previous.open_findings_count}`,
+      /^- OPEN findings: \d+$/gm,
       `- OPEN findings: ${state.open_findings_count}`,
+      'README.md open findings',
     ],
     [
-      `- IN-PROGRESS findings: ${previous.in_progress_findings_count}`,
+      /^- IN-PROGRESS findings: \d+$/gm,
       `- IN-PROGRESS findings: ${state.in_progress_findings_count}`,
+      'README.md in-progress findings',
     ],
     [
-      `- Active CRITICAL findings: ${previous.active_critical_count}`,
+      /^- Active CRITICAL findings: \d+$/gm,
       `- Active CRITICAL findings: ${state.active_critical_count}`,
+      'README.md active critical findings',
     ],
-    [previous.registry_tip_hash, state.registry_tip_hash],
+    [
+      /^- Registry tip hash: `(?:[0-9a-f]{64})`$/gm,
+      `- Registry tip hash: \`${state.registry_tip_hash}\``,
+      'README.md registry tip hash',
+    ],
+    [
+      /^- `npm run findings:verify`: passing against registry tip `(?:[0-9a-f]{64})`$/gm,
+      `- \`npm run findings:verify\`: passing against registry tip \`${state.registry_tip_hash}\``,
+      'README.md findings verify tip',
+    ],
   ];
-  for (const [from, to] of subs) {
-    raw = substituteOrThrow(raw, from, to, 'README.md');
+  for (const [pattern, replacement, where] of lines) {
+    raw = replaceLineOrThrow(raw, pattern, replacement, where);
   }
   return { path, contents: raw };
 }
@@ -207,11 +236,7 @@ function main(): number {
   // PLAN EVERYTHING FIRST. Any anchor miss throws here, with the filesystem
   // untouched — see property 2 in the header.
   const manifest = planManifest(state);
-  const writes: PlannedWrite[] = [
-    manifest.write,
-    planTruthTable(state, previous.registry_tip_hash),
-    planReadme(state, previous),
-  ];
+  const writes: PlannedWrite[] = [manifest.write, planTruthTable(state), planReadme(state)];
   for (const { path, contents } of writes) writeFileSync(path, contents, 'utf8');
   const { changed } = manifest;
 

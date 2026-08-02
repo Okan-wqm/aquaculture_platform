@@ -8,13 +8,16 @@ import {
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
+import { TenantErasureTombstoneError } from '@aquaculture/backend-common/compliance';
+import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { CreateConfigurationCommand } from '../commands/create-configuration.command';
 import { Configuration, ConfigValueType } from '../entities/configuration.entity';
 import { emitConfigurationChanged } from '../events/emit-configuration-changed';
 import { ConfigurationService } from '../services/configuration.service';
 import { ConfigurationValidationService } from '../services/configuration-validation.service';
 import { EncryptionService } from '../services/encryption.service';
-import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { assertTenantConfigurationNotErased } from '../services/configuration-erasure-fence';
+import { pinRlsTenantScope } from '../../database/rls-scoped-session';
 
 @Injectable()
 @CommandHandler(CreateConfigurationCommand)
@@ -41,6 +44,8 @@ export class CreateConfigurationHandler
     await queryRunner.startTransaction('READ COMMITTED');
 
     try {
+      await pinRlsTenantScope(queryRunner, tenantId);
+      await assertTenantConfigurationNotErased(queryRunner, tenantId);
       const configRepo = tenantManagerRepo(queryRunner.manager, Configuration, tenantId);
 
       const existing = await configRepo.findOne({
@@ -59,11 +64,16 @@ export class CreateConfigurationHandler
       }
 
       const isSecret = input.valueType === ConfigValueType.SECRET || input.isSecret === true;
+      if (isSecret && !this.encryptionService.isAvailable()) {
+        throw new InternalServerErrorException(
+          'Secret configuration writes require CONFIG_ENCRYPTION_KEY',
+        );
+      }
 
       // Encrypt secret values before saving
       // PLAT-HIGH-003: Pass tenantId + key as AAD to bind ciphertext to context
       let valueToStore = input.value;
-      if (isSecret && this.encryptionService.isAvailable()) {
+      if (isSecret) {
         valueToStore = this.encryptionService.encrypt(input.value, tenantId, input.key);
       }
 
@@ -106,6 +116,10 @@ export class CreateConfigurationHandler
       return savedConfig;
     } catch (error) {
       await queryRunner.rollbackTransaction();
+
+      if (error instanceof TenantErasureTombstoneError) {
+        throw error;
+      }
 
       if (error instanceof ConflictException || error instanceof BadRequestException) {
         throw error;

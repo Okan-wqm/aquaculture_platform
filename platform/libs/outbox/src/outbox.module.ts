@@ -1,12 +1,14 @@
 import { Module, DynamicModule, Type } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
+import { TypeOrmModule } from '@nestjs/typeorm';
+
+import { OUTBOX_ENTITY_CLASS, OUTBOX_OPTIONS } from './constants';
 import { OutboxEntityBase } from './outbox-entity.base';
-import { OutboxPublisher } from './outbox-publisher.service';
-import { OutboxWorkerService } from './outbox-worker.service';
 import { OutboxMetricsService } from './outbox-metrics.service';
 import { OutboxNotifyListener } from './outbox-notify-listener.service';
-import { OUTBOX_ENTITY_CLASS } from './constants';
+import { OutboxPublisher } from './outbox-publisher.service';
+import type { OutboxFeatureOptions } from './outbox-routing';
+import { OutboxWorkerService } from './outbox-worker.service';
 
 /**
  * OutboxModule
@@ -40,17 +42,24 @@ import { OUTBOX_ENTITY_CLASS } from './constants';
 export class OutboxModule {
   static forFeature<T extends OutboxEntityBase>(
     entityClass: Type<T>,
+    options: OutboxFeatureOptions = {},
   ): DynamicModule {
+    const normalizedOptions: Required<OutboxFeatureOptions> = {
+      allowSystemRouting: options.allowSystemRouting === true,
+      allowSecurityRecovery: options.allowSecurityRecovery === true,
+    };
+
     return {
       module: OutboxModule,
-      imports: [
-        TypeOrmModule.forFeature([entityClass]),
-        ScheduleModule.forRoot(),
-      ],
+      imports: [TypeOrmModule.forFeature([entityClass]), ScheduleModule.forRoot()],
       providers: [
         {
           provide: OUTBOX_ENTITY_CLASS,
           useValue: entityClass,
+        },
+        {
+          provide: OUTBOX_OPTIONS,
+          useValue: normalizedOptions,
         },
         OutboxMetricsService,
         OutboxPublisher,

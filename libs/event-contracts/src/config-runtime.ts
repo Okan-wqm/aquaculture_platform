@@ -96,6 +96,336 @@ export const CONFIG_RUNTIME_NONSECRET_ALLOWLIST: Readonly<Record<string, readonl
 };
 
 /**
+ * Atomic CDSE credential bundle owned by config-service.
+ *
+ * Company defaults use CONFIG_RUNTIME_SYSTEM_TENANT_ID. Existing tenant
+ * overrides can only enter through the one-shot legacy cutover; farm-service
+ * exposes no tenant credential management API. Individual secret fields are
+ * never stored separately, which prevents mixed-generation credentials.
+ */
+export const MARINE_PROVIDER_CREDENTIAL_SERVICE = 'farm-service' as const;
+export const MARINE_PROVIDER_CREDENTIAL_RUNTIME_ACTOR_ID = 'farm-service:runtime' as const;
+export const MARINE_PROVIDER_CREDENTIAL_CUTOVER_ACTOR_ID =
+  'farm-service:sentinel-credential-cutover' as const;
+
+export const MARINE_PROVIDER_CREDENTIAL_KEYS = {
+  CDSE: 'marine.cdse.credentials',
+} as const;
+
+export const MARINE_PROVIDER_CREDENTIAL_MAX_BUNDLE_BYTES = 8 * 1024;
+
+export interface MarineProviderCdseCredentialBundle {
+  clientId: string;
+  clientSecret: string;
+  instanceId?: string;
+}
+
+const MARINE_PROVIDER_CDSE_FIELDS: ReadonlySet<string> = new Set([
+  'clientId',
+  'clientSecret',
+  'instanceId',
+]);
+
+/**
+ * Canonical CDSE bundle validator shared by the config trust boundary and the
+ * farm runtime. Unknown fields, partial bundles, empty fields, oversized
+ * values and oversized UTF-8 JSON are rejected identically on both sides.
+ */
+export function parseMarineProviderCdseCredentialBundle(
+  value: string,
+): MarineProviderCdseCredentialBundle | null {
+  if (
+    value.length === 0 ||
+    new TextEncoder().encode(value).byteLength > MARINE_PROVIDER_CREDENTIAL_MAX_BUNDLE_BYTES
+  ) {
+    return null;
+  }
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (
+      !isRecord(parsed) ||
+      Object.keys(parsed).some((field) => !MARINE_PROVIDER_CDSE_FIELDS.has(field)) ||
+      !isBoundedString(parsed['clientId'], 1, 512) ||
+      !isBoundedString(parsed['clientSecret'], 1, 4096) ||
+      (parsed['instanceId'] !== undefined && !isBoundedString(parsed['instanceId'], 1, 512))
+    ) {
+      return null;
+    }
+    return {
+      clientId: parsed['clientId'],
+      clientSecret: parsed['clientSecret'],
+      ...(parsed['instanceId'] === undefined ? {} : { instanceId: parsed['instanceId'] }),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function serializeMarineProviderCdseCredentialBundle(
+  bundle: MarineProviderCdseCredentialBundle,
+): string {
+  const value = JSON.stringify({
+    clientId: bundle.clientId,
+    clientSecret: bundle.clientSecret,
+    ...(bundle.instanceId === undefined ? {} : { instanceId: bundle.instanceId }),
+  });
+  if (parseMarineProviderCdseCredentialBundle(value) === null) {
+    throw new TypeError('Invalid CDSE credential bundle');
+  }
+  return value;
+}
+
+export type MarineProviderCredentialProvider = keyof typeof MARINE_PROVIDER_CREDENTIAL_KEYS;
+
+export function marineProviderCredentialKey(
+  provider: MarineProviderCredentialProvider,
+): (typeof MARINE_PROVIDER_CREDENTIAL_KEYS)[MarineProviderCredentialProvider] {
+  return MARINE_PROVIDER_CREDENTIAL_KEYS[provider];
+}
+
+/**
+ * Exact request-reply subjects. They deliberately live outside config.runtime
+ * so the billing-only grants on that namespace cannot accidentally authorize
+ * farm-service credential lifecycle operations.
+ */
+export const MARINE_PROVIDER_CREDENTIAL_SUBJECTS = {
+  RESOLVE: 'config.marine_credentials.resolve',
+  UPSERT: 'config.marine_credentials.upsert',
+} as const;
+
+export type MarineProviderCredentialSubject =
+  (typeof MARINE_PROVIDER_CREDENTIAL_SUBJECTS)[keyof typeof MARINE_PROVIDER_CREDENTIAL_SUBJECTS];
+
+/**
+ * Dedicated first-token reply inbox. Only farm_service may subscribe and only
+ * config_service may publish, so plaintext resolve replies never traverse the
+ * platform-wide `_INBOX.>` namespace.
+ */
+export const MARINE_PROVIDER_CREDENTIAL_INBOX_PREFIX = '_INBOXFARMMARINECFG';
+
+/**
+ * Handler-side caller/resource allowlist. Keys use the application identity
+ * spelling carried by ServiceIdentity; the NATS invariant maps that identity
+ * to its cert CN and verifies the matching exact broker grants.
+ */
+export const MARINE_PROVIDER_CREDENTIAL_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
+  'farm-service': [`${MARINE_PROVIDER_CREDENTIAL_SERVICE}/${MARINE_PROVIDER_CREDENTIAL_KEYS.CDSE}`],
+};
+
+export type MarineProviderCredentialOperation = 'resolve' | 'upsert';
+
+export interface MarineProviderCredentialRequest {
+  tenantId: string;
+  service: string;
+  key: string;
+  actorId: string;
+  /**
+   * Present only for upsert. This is the complete deterministic JSON bundle,
+   * never an individual secret field.
+   */
+  bundleJson?: string;
+  identity: ConfigRuntimeIdentity;
+}
+
+export interface MarineProviderCredentialCanonicalInput {
+  operation: MarineProviderCredentialOperation;
+  tenantId: string;
+  service: string;
+  key: string;
+  actorId: string;
+  bundleJson?: string;
+}
+
+/**
+ * Exact HMAC body shared by signer and verifier. The bundle occupies the last
+ * line (empty for non-write operations), binding every credential byte to the
+ * tenant, actor, key and requested operation.
+ */
+export function canonicalMarineProviderCredentialBody(
+  input: MarineProviderCredentialCanonicalInput,
+): string {
+  return [
+    input.operation,
+    input.tenantId,
+    input.service,
+    input.key,
+    input.actorId,
+    input.bundleJson ?? '',
+  ].join('\n');
+}
+
+/**
+ * Sanitized credential-resolution outcome. `UNAVAILABLE` carries no provider,
+ * persistence, replay-ledger, or secret detail; it exists solely so a trusted
+ * runtime consumer cannot mistake an infrastructure failure for an absent
+ * company credential.
+ */
+export enum MarineProviderCredentialResolveOutcome {
+  RESOLVED = 'RESOLVED',
+  NOT_FOUND = 'NOT_FOUND',
+  UNAVAILABLE = 'UNAVAILABLE',
+}
+
+export interface MarineProviderCredentialResolvedResult {
+  outcome: MarineProviderCredentialResolveOutcome.RESOLVED;
+  found: true;
+  bundleJson: string;
+  sourceTenantId: string;
+  configVersion: number;
+}
+
+export interface MarineProviderCredentialNotFoundResult {
+  outcome: MarineProviderCredentialResolveOutcome.NOT_FOUND;
+  found: false;
+  bundleJson: null;
+  sourceTenantId: string | null;
+  configVersion: number | null;
+}
+
+export interface MarineProviderCredentialUnavailableResult {
+  outcome: MarineProviderCredentialResolveOutcome.UNAVAILABLE;
+  found: false;
+  bundleJson: null;
+  sourceTenantId: null;
+  configVersion: null;
+}
+
+export type MarineProviderCredentialResolveResult =
+  | MarineProviderCredentialResolvedResult
+  | MarineProviderCredentialNotFoundResult
+  | MarineProviderCredentialUnavailableResult;
+
+const MARINE_PROVIDER_CREDENTIAL_RESOLVE_FIELDS: ReadonlySet<string> = new Set([
+  'outcome',
+  'found',
+  'bundleJson',
+  'sourceTenantId',
+  'configVersion',
+]);
+
+/**
+ * Runtime parser for the secret-bearing NATS reply boundary. It returns a new
+ * exact object so an upstream implementation cannot append internal failure
+ * details to the supposedly sanitized `UNAVAILABLE` outcome.
+ */
+export function parseMarineProviderCredentialResolveResult(
+  value: unknown,
+): MarineProviderCredentialResolveResult | null {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).some((field) => !MARINE_PROVIDER_CREDENTIAL_RESOLVE_FIELDS.has(field))
+  ) {
+    return null;
+  }
+  const outcome = value['outcome'];
+  const found = value['found'];
+  const bundleJson = value['bundleJson'];
+  const sourceTenantId = value['sourceTenantId'];
+  const configVersion = value['configVersion'];
+
+  if (outcome === MarineProviderCredentialResolveOutcome.RESOLVED) {
+    if (
+      found !== true ||
+      typeof bundleJson !== 'string' ||
+      parseMarineProviderCdseCredentialBundle(bundleJson) === null ||
+      !isBoundedString(sourceTenantId, 1, 64) ||
+      !isPositiveSafeInteger(configVersion)
+    ) {
+      return null;
+    }
+    return { outcome, found, bundleJson, sourceTenantId, configVersion };
+  }
+
+  if (outcome === MarineProviderCredentialResolveOutcome.NOT_FOUND) {
+    const hasNoSource = sourceTenantId === null && configVersion === null;
+    const hasValidSource =
+      isBoundedString(sourceTenantId, 1, 64) && isPositiveSafeInteger(configVersion);
+    if (found !== false || bundleJson !== null || (!hasNoSource && !hasValidSource)) {
+      return null;
+    }
+    return { outcome, found, bundleJson, sourceTenantId, configVersion };
+  }
+
+  if (
+    outcome === MarineProviderCredentialResolveOutcome.UNAVAILABLE &&
+    found === false &&
+    bundleJson === null &&
+    sourceTenantId === null &&
+    configVersion === null
+  ) {
+    return { outcome, found, bundleJson, sourceTenantId, configVersion };
+  }
+
+  return null;
+}
+
+export enum MarineProviderCredentialMutationOutcome {
+  APPLIED = 'APPLIED',
+  TENANT_ERASED = 'TENANT_ERASED',
+  RETRYABLE_FAILURE = 'RETRYABLE_FAILURE',
+}
+
+export interface MarineProviderCredentialMutationResult {
+  outcome: MarineProviderCredentialMutationOutcome;
+  success: boolean;
+  sourceTenantId: string | null;
+  configVersion: number | null;
+}
+
+const MARINE_PROVIDER_CREDENTIAL_MUTATION_FIELDS = new Set([
+  'outcome',
+  'success',
+  'sourceTenantId',
+  'configVersion',
+]);
+
+/** Exact runtime parser for the secret mutation request-reply boundary. */
+export function parseMarineProviderCredentialMutationResult(
+  value: unknown,
+): MarineProviderCredentialMutationResult | null {
+  if (
+    !isRecord(value) ||
+    Object.keys(value).some((field) => !MARINE_PROVIDER_CREDENTIAL_MUTATION_FIELDS.has(field))
+  ) {
+    return null;
+  }
+  const outcome = value['outcome'];
+  const success = value['success'];
+  const sourceTenantId = value['sourceTenantId'];
+  const configVersion = value['configVersion'];
+  if (
+    outcome === MarineProviderCredentialMutationOutcome.APPLIED &&
+    success === true &&
+    isBoundedString(sourceTenantId, 1, 64) &&
+    isPositiveSafeInteger(configVersion)
+  ) {
+    return { outcome, success, sourceTenantId, configVersion };
+  }
+  if (
+    (outcome === MarineProviderCredentialMutationOutcome.TENANT_ERASED ||
+      outcome === MarineProviderCredentialMutationOutcome.RETRYABLE_FAILURE) &&
+    success === false &&
+    sourceTenantId === null &&
+    configVersion === null
+  ) {
+    return { outcome, success, sourceTenantId, configVersion };
+  }
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isBoundedString(value: unknown, min: number, max: number): value is string {
+  return typeof value === 'string' && value.length >= min && value.length <= max;
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+/**
  * ServiceIdentity HMAC-v2 headers, carried inside the NATS request payload
  * because core-NATS request-reply has no HTTP header channel. The handler
  * rebuilds a header map from this object and runs the same

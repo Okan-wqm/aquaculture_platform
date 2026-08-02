@@ -25,7 +25,12 @@ export interface RequestHeaders {
 
 export interface RequestWithUser {
   headers: RequestHeaders;
-  user?: JwtPayload;
+  user?: Omit<JwtPayload, 'tenantId'> & {
+    /** Platform SUPER_ADMIN tokens intentionally have no home tenant. */
+    tenantId?: string | null;
+    /** MFA step-up state carried by auth-service access tokens. */
+    mfaVerified?: boolean;
+  };
   cookies?: Record<string, string>;
   /**
    * ORPHAN-MEDIUM-319: Express-resolved client IP. Under TRUST_PROXY=1 this
@@ -271,7 +276,7 @@ export class AuthenticatedDataSource extends RemoteGraphQLDataSource<GatewayCont
           effectiveTenantId: req.effectiveTenantId ?? user.tenantId,
           roles: user.roles ?? [],
           email: user.email,
-          mfaVerified: (user as JwtPayload & { mfaVerified?: boolean }).mfaVerified,
+          mfaVerified: user.mfaVerified,
           // SEC-HIGH-051 / SEC-HIGH-052: thread the object-level authorization
           // claims into the HMAC-bound assertion so farm/hr resolvers can
           // enforce site + mobile-feature gates on the production gateway path.

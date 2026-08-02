@@ -1,0 +1,96 @@
+# Farm environmental-monitoring rules for the vanilla Prometheus droplet stack.
+# app/namespace labels are attached by file_sd/aqua-services.json.
+groups:
+  - name: aquaculture.farm.environment
+    rules:
+      - alert: FarmEnvironmentProviderSyncStalled
+        expr: |
+          max(farm_environment_monitoring_enabled{namespace="aquaculture",app="farm-service"}) == 1
+          and on()
+          (
+            absent(farm_environment_cron_heartbeat_timestamp_seconds{namespace="aquaculture",app="farm-service",job="provider_sync"})
+            or
+            time() - max(farm_environment_cron_heartbeat_timestamp_seconds{namespace="aquaculture",app="farm-service",job="provider_sync"}) > 9000
+          )
+          and on()
+          (
+            time() - max(process_start_time_seconds{namespace="aquaculture",app="farm-service"}) > 9000
+          )
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Farm environmental provider scheduler is stalled'
+          description: 'Environmental monitoring is enabled, but the bounded provider queue has emitted no start or completion heartbeat for 150 minutes. This exceeds the worst-case provider lease budget.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/farm-environment-monitoring.md'
+
+      - alert: FarmEnvironmentRetentionStalled
+        expr: |
+          (
+            absent(farm_environment_cron_last_run_timestamp_seconds{namespace="aquaculture",app="farm-service",job="retention"})
+            or
+            time() - max(farm_environment_cron_last_run_timestamp_seconds{namespace="aquaculture",app="farm-service",job="retention"}) > 129600
+          )
+          and on()
+          (
+            time() - max(process_start_time_seconds{namespace="aquaculture",app="farm-service"}) > 129600
+          )
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Farm environmental retention job is stalled'
+          description: 'The always-on daily retention heartbeat is older than 36 hours, including rollback-disabled operation.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/farm-environment-monitoring.md'
+
+      - alert: FarmEnvironmentCronFailures
+        expr: |
+          sum(increase(farm_environment_cron_runs_total{namespace="aquaculture",app="farm-service",outcome=~"partial_failure|error"}[30m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Farm environmental scheduler reported failures'
+          description: 'One or more environmental scheduler runs were partial or aborted in the last 30 minutes. Inspect bounded phase metrics and farm-service structured logs.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/farm-environment-monitoring.md'
+
+      - alert: FarmEnvironmentBacklogSloBreached
+        expr: |
+          max(farm_environment_monitoring_enabled{namespace="aquaculture",app="farm-service"}) == 1
+          and on()
+          max(farm_environment_due_backlog{namespace="aquaculture",app="farm-service"}) > 0
+          and on()
+          max(farm_environment_oldest_due_age_seconds{namespace="aquaculture",app="farm-service"}) > 1800
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Farm environmental provider backlog breached its scheduling SLO'
+          description: 'At least one provider lease has remained due for more than 30 minutes. The continuously draining worker pool is under upstream, quota, or capacity pressure.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/farm-environment-monitoring.md'
+
+      - alert: FarmEnvironmentProviderFailuresElevated
+        expr: |
+          sum by (provider) (
+            increase(farm_environment_provider_completions_total{namespace="aquaculture",app="farm-service",status=~"PARTIAL_FAILURE|PROVIDER_UNAVAILABLE|CONFIGURATION_ERROR"}[30m])
+          ) >= 3
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Farm environmental provider failures elevated'
+          description: 'Provider {{ $labels.provider }} produced at least three partial, unavailable, or configuration-error completions in 30 minutes. Check metric-scope outcomes, company-owned provider configuration, and upstream status.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/farm-environment-monitoring.md'
+
+      - alert: FarmEnvironmentLeaseDiscardsElevated
+        expr: |
+          sum by (provider) (
+            increase(farm_environment_lease_discarded_total{namespace="aquaculture",app="farm-service"}[30m])
+          ) >= 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Farm environmental lease discards elevated'
+          description: 'Provider {{ $labels.provider }} had at least five results rejected by the lease or site-revision fence in 30 minutes. Investigate replica latency, lease duration, and repeated site edits.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/farm-environment-monitoring.md'

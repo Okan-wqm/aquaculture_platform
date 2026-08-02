@@ -1,9 +1,14 @@
 import { RLS_TENANT_GUC } from '@aquaculture/backend-common/database';
 import { DataSource, EntityManager, QueryRunner } from 'typeorm';
 
-import { pinRlsTenantScope, runInRlsScopedRead } from '../rls-scoped-session';
+import {
+  pinRlsTenantScope,
+  runInRlsScopedRead,
+  runInRlsScopedSnapshotRead,
+} from '../rls-scoped-session';
 
 const TENANT_ID = '123e4567-e89b-42d3-a456-426614174000';
+const SYSTEM_TENANT_ID = '00000000-0000-0000-0000-000000000000';
 
 type QueryRunnerSurface = Pick<
   QueryRunner,
@@ -93,5 +98,52 @@ describe('runInRlsScopedRead', () => {
       runInRlsScopedRead(dataSource, 'nope', () => Promise.resolve(null)),
     ).rejects.toThrow(/invalid tenantId/);
     expect(queryRunner.connect).not.toHaveBeenCalled();
+  });
+});
+
+describe('runInRlsScopedSnapshotRead', () => {
+  it('reads tenant and fallback scopes inside one read-only repeatable-read snapshot', async () => {
+    const { queryRunner, dataSource } = makeHarness();
+    const visited: string[] = [];
+
+    const result = await runInRlsScopedSnapshotRead(
+      dataSource,
+      TENANT_ID,
+      async (_manager, pinScope) => {
+        visited.push('tenant');
+        await pinScope(SYSTEM_TENANT_ID);
+        visited.push('system');
+        return 'effective';
+      },
+    );
+
+    expect(result).toBe('effective');
+    expect(visited).toEqual(['tenant', 'system']);
+    expect(queryRunner.startTransaction).toHaveBeenCalledWith('REPEATABLE READ');
+    expect(queryRunner.query).toHaveBeenNthCalledWith(1, 'SET TRANSACTION READ ONLY');
+    expect(queryRunner.query).toHaveBeenNthCalledWith(2, `SELECT set_config($1, $2, true)`, [
+      RLS_TENANT_GUC,
+      TENANT_ID,
+    ]);
+    expect(queryRunner.query).toHaveBeenNthCalledWith(3, `SELECT set_config($1, $2, true)`, [
+      RLS_TENANT_GUC,
+      SYSTEM_TENANT_ID,
+    ]);
+    expect(queryRunner.commitTransaction).toHaveBeenCalledTimes(1);
+    expect(queryRunner.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an invalid later scope and rolls back the shared snapshot', async () => {
+    const { queryRunner, dataSource } = makeHarness();
+
+    await expect(
+      runInRlsScopedSnapshotRead(dataSource, TENANT_ID, async (_manager, pinScope) => {
+        await pinScope('invalid-system-scope');
+      }),
+    ).rejects.toThrow(/invalid tenantId/);
+
+    expect(queryRunner.commitTransaction).not.toHaveBeenCalled();
+    expect(queryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);
+    expect(queryRunner.release).toHaveBeenCalledTimes(1);
   });
 });

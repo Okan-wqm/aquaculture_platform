@@ -128,6 +128,7 @@ const LAYER_3_SPECS: string[] = [
   '<rootDir>/farm-service-security-hardening.spec.ts',
   '<rootDir>/tenant-erasure-ssot.spec.ts',
   '<rootDir>/agent-prompt-contract.spec.ts',
+  '<rootDir>/graphql-operation-limit-ssot.spec.ts',
 ];
 
 const REGISTRY_SPECS: string[] = [
@@ -185,6 +186,8 @@ const REGISTRY_SPECS: string[] = [
   '<rootDir>/init-scripts-no-schema-ddl.spec.ts',
   '<rootDir>/toolchain-config-ssot.spec.ts',
   '<rootDir>/strict-property-initialization-ssot.spec.ts',
+  '<rootDir>/farm-environment-deployment-contract.spec.ts',
+  '<rootDir>/token-revocation-writer-reader-ssot.spec.ts',
 ];
 
 /**

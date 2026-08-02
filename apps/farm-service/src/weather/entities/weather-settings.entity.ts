@@ -1,6 +1,11 @@
 /**
- * Weather Settings Entity
- * Tenant bazlı hava durumu sync ayarları
+ * Frozen legacy weather-sync settings row.
+ *
+ * The Open-Meteo reader, writer, scheduler, resolver, and tenant settings UI
+ * are retired. This persistence entity remains registered only so existing
+ * tenant schemas keep the baseline table during the environmental-monitoring
+ * contract transition. It is deliberately not a GraphQL type and has no
+ * runtime reader or writer.
  */
 import {
   Entity,
@@ -9,40 +14,30 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { ObjectType, Field, ID, Int } from '@nestjs/graphql';
 
-@ObjectType()
 @Entity('weather_settings')
 export class WeatherSettings {
-  @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Field()
   @Column({ type: 'uuid', name: 'tenant_id', unique: true })
   tenantId!: string;
 
-  @Field(() => Int)
   @Column({ type: 'int', name: 'sync_interval_minutes', default: 60 })
   syncIntervalMinutes!: number;
 
-  @Field(() => Int)
   @Column({ type: 'int', name: 'forecast_days', default: 7 })
   forecastDays!: number;
 
-  @Field()
   @Column({ type: 'boolean', default: true })
   enabled!: boolean;
 
-  @Field({ nullable: true })
   @Column({ type: 'timestamptz', name: 'last_synced_at', nullable: true })
   lastSyncedAt?: Date;
 
-  @Field()
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt!: Date;
 
-  @Field()
   @UpdateDateColumn({ type: 'timestamptz', name: 'updated_at' })
   updatedAt!: Date;
 }

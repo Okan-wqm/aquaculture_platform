@@ -1,7 +1,9 @@
 import { LoggerService, LogLevel } from '@nestjs/common';
-import { getRequestContext } from './request-context';
-import { maskPii } from '../utils/pii-mask.util';
+
 import { SENSITIVE_FIELDS } from '../security/security-constants';
+import { maskPii } from '../utils/pii-mask.util';
+
+import { getRequestContext } from './request-context';
 
 /**
  * Sensitive keys whose values are replaced with [REDACTED] before serialisation.
@@ -140,15 +142,15 @@ export class StructuredLoggerService implements LoggerService {
     this.writeLog('warn', message, optionalParams);
   }
 
-  debug?(message: unknown, ...optionalParams: unknown[]): void {
+  debug(message: unknown, ...optionalParams: unknown[]): void {
     this.writeLog('debug', message, optionalParams);
   }
 
-  verbose?(message: unknown, ...optionalParams: unknown[]): void {
+  verbose(message: unknown, ...optionalParams: unknown[]): void {
     this.writeLog('verbose', message, optionalParams);
   }
 
-  fatal?(message: unknown, ...optionalParams: unknown[]): void {
+  fatal(message: unknown, ...optionalParams: unknown[]): void {
     this.writeLog('error', message, optionalParams);
   }
 
@@ -156,7 +158,7 @@ export class StructuredLoggerService implements LoggerService {
    * Called by NestJS internally to set log levels at runtime.
    * We accept but do not mutate because our levels are fixed at construction.
    */
-  setLogLevels?(_levels: LogLevel[]): void {
+  setLogLevels(_levels: LogLevel[]): void {
     // Intentionally no-op. Levels are fixed by constructor / NODE_ENV.
   }
 
@@ -176,7 +178,11 @@ export class StructuredLoggerService implements LoggerService {
     // NestJS convention: the LAST string in optionalParams is the "context"
     // (i.e., the class / module name). Non-string params are extra metadata.
     let context: string | undefined;
-    let stack: string | undefined;
+    // Error fields are non-enumerable, so extract only the diagnostic stack.
+    // Keeping the primary Error separate also prevents enumerable custom
+    // properties attached by upstream libraries from becoming log metadata.
+    let stack: string | undefined =
+      message instanceof Error ? message.stack : undefined;
     let extra: Record<string, unknown> | undefined;
 
     for (const param of optionalParams) {
@@ -189,7 +195,9 @@ export class StructuredLoggerService implements LoggerService {
           context = param;
         }
       } else if (param instanceof Error) {
-        stack = param.stack;
+        // The message Error is the primary failure. Optional Error parameters
+        // may supply a stack only when the primary value did not have one.
+        stack ??= param.stack;
         if (!message || message === '') {
           message = param.message;
         }

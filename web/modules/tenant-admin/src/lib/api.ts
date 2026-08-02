@@ -25,6 +25,10 @@ import {
   UPDATE_USER_MUTATION,
   DELETE_USER_MUTATION,
   DEACTIVATE_TENANT_USER_MUTATION,
+  ACTIVE_SITE_ACCESS_CATALOG_QUERY,
+  USER_ASSIGNED_SITE_IDS_QUERY,
+  ASSIGN_USER_TO_SITE_MUTATION,
+  UNASSIGN_USER_FROM_SITE_MUTATION,
   TENANT_ROLES_QUERY,
   TENANT_ROLE_QUERY,
   DEFAULT_TENANT_ROLE_QUERY,
@@ -116,9 +120,7 @@ export async function getMyTenant(): Promise<Tenant> {
 }
 
 export async function getTenantStats(): Promise<TenantStats> {
-  const data = await apiClient.graphql<{ tenantStats: TenantStats }>(
-    TENANT_STATS_QUERY,
-  );
+  const data = await apiClient.graphql<{ tenantStats: TenantStats }>(TENANT_STATS_QUERY);
   return data.tenantStats;
 }
 
@@ -127,20 +129,14 @@ export async function updateTenant(
   input: Partial<
     Pick<
       Tenant,
-      | 'name'
-      | 'description'
-      | 'logoUrl'
-      | 'contactEmail'
-      | 'contactPhone'
-      | 'address'
-      | 'settings'
+      'name' | 'description' | 'logoUrl' | 'contactEmail' | 'contactPhone' | 'address' | 'settings'
     >
   >,
 ): Promise<Tenant> {
-  const data = await apiClient.graphql<{ updateTenant: Tenant }>(
-    UPDATE_TENANT_MUTATION,
-    { id, input },
-  );
+  const data = await apiClient.graphql<{ updateTenant: Tenant }>(UPDATE_TENANT_MUTATION, {
+    id,
+    input,
+  });
   return data.updateTenant;
 }
 
@@ -157,10 +153,7 @@ export async function getTenantUsers(options?: {
   limit?: number;
   offset?: number;
 }): Promise<User[]> {
-  const data = await apiClient.graphql<{ tenantUsers: User[] }>(
-    TENANT_USERS_QUERY,
-    options,
-  );
+  const data = await apiClient.graphql<{ tenantUsers: User[] }>(TENANT_USERS_QUERY, options);
   return data.tenantUsers;
 }
 
@@ -201,18 +194,17 @@ export async function updateTenantUser(
     roleId?: string;
   },
 ): Promise<User> {
-  const data = await apiClient.graphql<{ updateTenantUser: User }>(
-    UPDATE_USER_MUTATION,
-    { userId, input },
-  );
+  const data = await apiClient.graphql<{ updateTenantUser: User }>(UPDATE_USER_MUTATION, {
+    userId,
+    input,
+  });
   return data.updateTenantUser;
 }
 
 export async function deleteTenantUser(userId: string): Promise<boolean> {
-  const data = await apiClient.graphql<{ deleteTenantUser: boolean }>(
-    DELETE_USER_MUTATION,
-    { userId },
-  );
+  const data = await apiClient.graphql<{ deleteTenantUser: boolean }>(DELETE_USER_MUTATION, {
+    userId,
+  });
   return data.deleteTenantUser;
 }
 
@@ -225,20 +217,135 @@ export async function deactivateTenantUser(
   return data.deactivateTenantUser;
 }
 
+export interface TenantSiteAccessOption {
+  id: string;
+  name: string;
+  code: string;
+}
+
+export interface SiteAssignmentResult {
+  success: boolean;
+  message: string;
+  userId: string;
+  siteId: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function requireNonEmptyString(value: unknown, field: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(`Invalid site-access response: ${field} must be a non-empty string`);
+  }
+  return value;
+}
+
+function decodeActiveSites(value: unknown, seen: Set<string>): TenantSiteAccessOption[] {
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid site-access response: activeSiteAccessCatalog must be an array');
+  }
+
+  return value.map((candidate, index) => {
+    if (!isRecord(candidate)) {
+      throw new Error(
+        `Invalid site-access response: activeSiteAccessCatalog[${index}] must be an object`,
+      );
+    }
+
+    const record: TenantSiteAccessOption = {
+      id: requireNonEmptyString(candidate.id, `activeSiteAccessCatalog[${index}].id`),
+      name: requireNonEmptyString(candidate.name, `activeSiteAccessCatalog[${index}].name`),
+      code: requireNonEmptyString(candidate.code, `activeSiteAccessCatalog[${index}].code`),
+    };
+
+    if (seen.has(record.id)) {
+      throw new Error(`Invalid site-access response: duplicate site id ${record.id}`);
+    }
+    seen.add(record.id);
+
+    return record;
+  });
+}
+
+function decodeAssignedSiteIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid site-access response: userAssignedSiteIds must be an array');
+  }
+
+  const seen = new Set<string>();
+  return value.map((candidate, index) => {
+    const siteId = requireNonEmptyString(candidate, `userAssignedSiteIds[${index}]`);
+    if (seen.has(siteId)) {
+      throw new Error(`Invalid site-access response: duplicate assigned site id ${siteId}`);
+    }
+    seen.add(siteId);
+    return siteId;
+  });
+}
+
+function decodeSiteAssignmentResult(value: unknown): SiteAssignmentResult {
+  if (!isRecord(value) || typeof value.success !== 'boolean') {
+    throw new Error('Invalid site-assignment mutation response');
+  }
+
+  return {
+    success: value.success,
+    message: requireNonEmptyString(value.message, 'siteAssignment.message'),
+    userId: requireNonEmptyString(value.userId, 'siteAssignment.userId'),
+    siteId: requireNonEmptyString(value.siteId, 'siteAssignment.siteId'),
+  };
+}
+
+/** Tenant-scoped active Site catalog from farm-service. */
+export async function getActiveTenantSites(): Promise<TenantSiteAccessOption[]> {
+  const data = await apiClient.graphql<{ activeSiteAccessCatalog: unknown }>(
+    ACTIVE_SITE_ACCESS_CATALOG_QUERY,
+  );
+  return decodeActiveSites(data.activeSiteAccessCatalog, new Set<string>());
+}
+
+/** Canonical active site assignments for one same-tenant user from auth-service. */
+export async function getUserAssignedSiteIds(userId: string): Promise<string[]> {
+  const data = await apiClient.graphql<{ userAssignedSiteIds: unknown }>(
+    USER_ASSIGNED_SITE_IDS_QUERY,
+    { userId },
+  );
+  return decodeAssignedSiteIds(data.userAssignedSiteIds);
+}
+
+export async function assignUserToSite(
+  userId: string,
+  siteId: string,
+): Promise<SiteAssignmentResult> {
+  const data = await apiClient.graphql<{ assignUserToSite: unknown }>(
+    ASSIGN_USER_TO_SITE_MUTATION,
+    { input: { userId, siteId } },
+  );
+  return decodeSiteAssignmentResult(data.assignUserToSite);
+}
+
+export async function unassignUserFromSite(
+  userId: string,
+  siteId: string,
+): Promise<SiteAssignmentResult> {
+  const data = await apiClient.graphql<{ unassignUserFromSite: unknown }>(
+    UNASSIGN_USER_FROM_SITE_MUTATION,
+    { userId, siteId },
+  );
+  return decodeSiteAssignmentResult(data.unassignUserFromSite);
+}
+
 // ============================================================================
 // Modules
 // ============================================================================
 
 export async function getMyModules(): Promise<MyModule[]> {
-  const data = await apiClient.graphql<{ myModules: MyModule[] }>(
-    MY_MODULES_QUERY,
-  );
+  const data = await apiClient.graphql<{ myModules: MyModule[] }>(MY_MODULES_QUERY);
   return data.myModules;
 }
 
-export async function getMyModuleIds(): Promise<
-  Array<{ id: string; code: string }>
-> {
+export async function getMyModuleIds(): Promise<Array<{ id: string; code: string }>> {
   const data = await apiClient.graphql<{
     myModules: Array<{ id: string; code: string }>;
   }>(MY_MODULES_ID_QUERY);
@@ -259,10 +366,7 @@ export async function getModuleUsageStats(): Promise<ModuleUsageStat[]> {
   return data.moduleUsageStats;
 }
 
-export async function assignModuleManager(
-  moduleId: string,
-  userId: string,
-): Promise<TenantModule> {
+export async function assignModuleManager(moduleId: string, userId: string): Promise<TenantModule> {
   const data = await apiClient.graphql<{ assignModuleManager: TenantModule }>(
     ASSIGN_MODULE_MANAGER_MUTATION,
     { input: { moduleId, userId } },
@@ -270,9 +374,7 @@ export async function assignModuleManager(
   return data.assignModuleManager;
 }
 
-export async function removeModuleManager(
-  moduleId: string,
-): Promise<TenantModule> {
+export async function removeModuleManager(moduleId: string): Promise<TenantModule> {
   const data = await apiClient.graphql<{ removeModuleManager: TenantModule }>(
     REMOVE_MODULE_MANAGER_MUTATION,
     { moduleId },
@@ -295,20 +397,15 @@ export async function getTableSchema(
   schemaName: string,
   tableName: string,
 ): Promise<TableSchemaInfo> {
-  const data = await apiClient.graphql<{ tableSchema: TableSchemaInfo }>(
-    TABLE_SCHEMA_QUERY,
-    { schemaName, tableName },
-  );
+  const data = await apiClient.graphql<{ tableSchema: TableSchemaInfo }>(TABLE_SCHEMA_QUERY, {
+    schemaName,
+    tableName,
+  });
   return data.tableSchema;
 }
 
-export async function getTableData(
-  input: GetTableDataInput,
-): Promise<TableDataResult> {
-  const data = await apiClient.graphql<{ tableData: TableDataResult }>(
-    TABLE_DATA_QUERY,
-    { input },
-  );
+export async function getTableData(input: GetTableDataInput): Promise<TableDataResult> {
+  const data = await apiClient.graphql<{ tableData: TableDataResult }>(TABLE_DATA_QUERY, { input });
   return data.tableData;
 }
 
@@ -317,17 +414,12 @@ export async function getTableData(
 // ============================================================================
 
 export async function getTenantRoles(): Promise<TenantRole[]> {
-  const data = await apiClient.graphql<{ tenantRoles: TenantRole[] }>(
-    TENANT_ROLES_QUERY,
-  );
+  const data = await apiClient.graphql<{ tenantRoles: TenantRole[] }>(TENANT_ROLES_QUERY);
   return data.tenantRoles;
 }
 
 export async function getTenantRole(roleId: string): Promise<TenantRole> {
-  const data = await apiClient.graphql<{ tenantRole: TenantRole }>(
-    TENANT_ROLE_QUERY,
-    { roleId },
-  );
+  const data = await apiClient.graphql<{ tenantRole: TenantRole }>(TENANT_ROLE_QUERY, { roleId });
   return data.tenantRole;
 }
 
@@ -338,18 +430,14 @@ export async function getDefaultTenantRole(): Promise<TenantRole | null> {
   return data.defaultTenantRole;
 }
 
-export async function getPermissionCategories(): Promise<
-  PermissionCategory[]
-> {
+export async function getPermissionCategories(): Promise<PermissionCategory[]> {
   const data = await apiClient.graphql<{
     permissionCategories: PermissionCategory[];
   }>(PERMISSION_CATEGORIES_QUERY);
   return data.permissionCategories;
 }
 
-export async function createTenantRole(
-  input: CreateTenantRoleInput,
-): Promise<TenantRole> {
+export async function createTenantRole(input: CreateTenantRoleInput): Promise<TenantRole> {
   const data = await apiClient.graphql<{ createTenantRole: TenantRole }>(
     CREATE_TENANT_ROLE_MUTATION,
     { input },
@@ -369,10 +457,9 @@ export async function updateTenantRole(
 }
 
 export async function deleteTenantRole(roleId: string): Promise<boolean> {
-  const data = await apiClient.graphql<{ deleteTenantRole: boolean }>(
-    DELETE_TENANT_ROLE_MUTATION,
-    { roleId },
-  );
+  const data = await apiClient.graphql<{ deleteTenantRole: boolean }>(DELETE_TENANT_ROLE_MUTATION, {
+    roleId,
+  });
   return data.deleteTenantRole;
 }
 
@@ -439,9 +526,7 @@ export interface TenantBillingData {
 }
 
 export async function getTenantBilling(): Promise<TenantBillingData> {
-  const data = await apiClient.graphql<{ tenantBilling: TenantBillingData }>(
-    TENANT_BILLING_QUERY,
-  );
+  const data = await apiClient.graphql<{ tenantBilling: TenantBillingData }>(TENANT_BILLING_QUERY);
   return data.tenantBilling;
 }
 
@@ -485,9 +570,7 @@ export interface TenantActivityData {
   }>;
 }
 
-export async function getTenantActivity(
-  period?: string,
-): Promise<TenantActivityData> {
+export async function getTenantActivity(period?: string): Promise<TenantActivityData> {
   const data = await apiClient.graphql<{
     tenantActivity: TenantActivityData;
   }>(TENANT_ACTIVITY_QUERY, period ? { period } : undefined);
@@ -547,9 +630,7 @@ export async function updateNotificationPreferences(
   return data.updateMyNotificationPreferences;
 }
 
-export async function getMobileUsersSettings(): Promise<
-  MobileUserSettingsData[]
-> {
+export async function getMobileUsersSettings(): Promise<MobileUserSettingsData[]> {
   const data = await apiClient.graphql<{
     getMobileUsersSettings: MobileUserSettingsData[];
   }>(GET_MOBILE_USERS_SETTINGS_QUERY);
@@ -632,9 +713,7 @@ export interface EdgeDeviceDetail {
   }>;
 }
 
-export async function getEdgeDevice(
-  id: string,
-): Promise<EdgeDeviceDetail | null> {
+export async function getEdgeDevice(id: string): Promise<EdgeDeviceDetail | null> {
   const data = await apiClient.graphql<{
     edgeDevice: EdgeDeviceDetail | null;
   }>(EDGE_DEVICE_QUERY, { id });
@@ -652,32 +731,25 @@ export async function getDeviceEvents(
   return data.deviceEvents;
 }
 
-export async function approveDevice(
-  id: string,
-): Promise<{ id: string; lifecycleState: string }> {
+export async function approveDevice(id: string): Promise<{ id: string; lifecycleState: string }> {
   const data = await apiClient.graphql<{
     approveEdgeDevice: { id: string; lifecycleState: string };
   }>(APPROVE_DEVICE_MUTATION, { id });
   return data.approveEdgeDevice;
 }
 
-export async function pingDevice(
-  id: string,
-): Promise<{ success: boolean; latencyMs: number }> {
+export async function pingDevice(id: string): Promise<{ success: boolean; latencyMs: number }> {
   const data = await apiClient.graphql<{
     pingEdgeDevice: { success: boolean; latencyMs: number };
   }>(PING_DEVICE_MUTATION, { id });
   return data.pingEdgeDevice;
 }
 
-export async function rebootDevice(
-  id: string,
-  reason?: string,
-): Promise<boolean> {
-  const data = await apiClient.graphql<{ rebootEdgeDevice: boolean }>(
-    REBOOT_DEVICE_MUTATION,
-    { id, reason },
-  );
+export async function rebootDevice(id: string, reason?: string): Promise<boolean> {
+  const data = await apiClient.graphql<{ rebootEdgeDevice: boolean }>(REBOOT_DEVICE_MUTATION, {
+    id,
+    reason,
+  });
   return data.rebootEdgeDevice;
 }
 
@@ -717,9 +789,7 @@ export async function createProvisioningKey(input: {
   return data.createTenantProvisioningKey;
 }
 
-export async function listProvisioningKeys(): Promise<
-  TenantProvisioningKey[]
-> {
+export async function listProvisioningKeys(): Promise<TenantProvisioningKey[]> {
   const data = await apiClient.graphql<{
     tenantProvisioningKeys: TenantProvisioningKey[];
   }>(LIST_PROVISIONING_KEYS_QUERY);
@@ -751,9 +821,7 @@ export async function getMyThreads(variables?: {
   }));
 }
 
-export async function getThreadMessages(
-  threadId: string,
-): Promise<Message[]> {
+export async function getThreadMessages(threadId: string): Promise<Message[]> {
   const data = await apiClient.graphql<{ supportThreadMessages: Message[] }>(
     THREAD_MESSAGES_QUERY,
     { threadId },
@@ -765,14 +833,10 @@ export async function getThreadMessages(
 // isInternal. senderName/senderId are derived server-side from the authenticated
 // user, so they are NOT part of the input. Tenant-admin replies are always public
 // (isInternal=false; internal notes are an admin-only capability).
-export async function sendMessage(input: {
-  threadId: string;
-  content: string;
-}): Promise<Message> {
-  const data = await apiClient.graphql<{ sendSupportMessage: Message }>(
-    SEND_MESSAGE_MUTATION,
-    { input: { threadId: input.threadId, content: input.content, isInternal: false } },
-  );
+export async function sendMessage(input: { threadId: string; content: string }): Promise<Message> {
+  const data = await apiClient.graphql<{ sendSupportMessage: Message }>(SEND_MESSAGE_MUTATION, {
+    input: { threadId: input.threadId, content: input.content, isInternal: false },
+  });
   return data.sendSupportMessage;
 }
 
@@ -791,18 +855,14 @@ export async function createThread(input: {
   return data.createSupportThread;
 }
 
-export async function closeThread(
-  threadId: string,
-): Promise<{ id: string; status: string }> {
+export async function closeThread(threadId: string): Promise<{ id: string; status: string }> {
   const data = await apiClient.graphql<{
     closeSupportThread: { id: string; status: string; updatedAt: string };
   }>(CLOSE_THREAD_MUTATION, { threadId });
   return data.closeSupportThread;
 }
 
-export async function reopenThread(
-  threadId: string,
-): Promise<{ id: string; status: string }> {
+export async function reopenThread(threadId: string): Promise<{ id: string; status: string }> {
   const data = await apiClient.graphql<{
     reopenSupportThread: { id: string; status: string; updatedAt: string };
   }>(REOPEN_THREAD_MUTATION, { threadId });
@@ -825,9 +885,7 @@ export async function getMyTickets(variables?: {
   return data.myTickets || [];
 }
 
-export async function getTicketComments(
-  ticketId: string,
-): Promise<ApiTicketComment[]> {
+export async function getTicketComments(ticketId: string): Promise<ApiTicketComment[]> {
   const data = await apiClient.graphql<{
     ticketComments: ApiTicketComment[];
   }>(TICKET_COMMENTS_QUERY, { ticketId });
@@ -865,7 +923,12 @@ export async function rateTicket(input: {
   comment?: string;
 }): Promise<{ id: string; satisfactionRating: number }> {
   const data = await apiClient.graphql<{
-    rateTicket: { id: string; satisfactionRating: number; satisfactionComment: string; updatedAt: string };
+    rateTicket: {
+      id: string;
+      satisfactionRating: number;
+      satisfactionComment: string;
+      updatedAt: string;
+    };
   }>(RATE_TICKET_MUTATION, { input });
   return data.rateTicket;
 }
@@ -888,7 +951,13 @@ export async function viewAnnouncement(
   id: string,
 ): Promise<{ id: string; announcementId: string; viewedAt: string }> {
   const data = await apiClient.graphql<{
-    viewAnnouncement: { id: string; announcementId: string; userId: string; viewedAt: string; acknowledgedAt: string };
+    viewAnnouncement: {
+      id: string;
+      announcementId: string;
+      userId: string;
+      viewedAt: string;
+      acknowledgedAt: string;
+    };
   }>(VIEW_ANNOUNCEMENT_MUTATION, { id });
   return data.viewAnnouncement;
 }
@@ -897,7 +966,13 @@ export async function acknowledgeAnnouncement(
   id: string,
 ): Promise<{ id: string; announcementId: string; acknowledgedAt: string }> {
   const data = await apiClient.graphql<{
-    acknowledgeAnnouncement: { id: string; announcementId: string; userId: string; viewedAt: string; acknowledgedAt: string };
+    acknowledgeAnnouncement: {
+      id: string;
+      announcementId: string;
+      userId: string;
+      viewedAt: string;
+      acknowledgedAt: string;
+    };
   }>(ACKNOWLEDGE_ANNOUNCEMENT_MUTATION, { id });
   return data.acknowledgeAnnouncement;
 }

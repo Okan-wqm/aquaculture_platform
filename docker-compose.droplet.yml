@@ -73,6 +73,15 @@ x-nats-gateway-env: &nats-gateway-env
   NATS_TLS_KEY: /etc/ssl/nats-clients/gateway_service-key.pem
   NATS_TLS_ENABLED: 'true'
 
+x-nats-admin-api-env: &nats-admin-api-env
+  NATS_URL: tls://nats:4222
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  # Dedicated CN: admin erasure proofs and tenant lifecycle operations cannot
+  # be forged by the public gateway runtime.
+  NATS_TLS_CERT: /etc/ssl/nats-clients/admin_api_service-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/admin_api_service-key.pem
+  NATS_TLS_ENABLED: 'true'
+
 x-nats-notification-env: &nats-notification-env
   NATS_URL: tls://nats:4222
   NATS_TLS_CA: /etc/ssl/nats-ca.pem
@@ -150,16 +159,47 @@ x-nats-observability-env: &nats-observability-env
   NATS_TLS_KEY: /etc/ssl/nats-clients/observability_service-key.pem
   NATS_TLS_ENABLED: 'true'
 
+x-nats-config-env: &nats-config-env
+  NATS_URL: tls://nats:4222
+  NATS_TLS_CA: /etc/ssl/nats-ca.pem
+  NATS_TLS_CERT: /etc/ssl/nats-clients/config_service-cert.pem
+  NATS_TLS_KEY: /etc/ssl/nats-clients/config_service-key.pem
+  NATS_TLS_ENABLED: 'true'
+
 x-nats-ca-mount: &nats-ca-mount ./certs/nats/ca-cert.pem:/etc/ssl/nats-ca.pem:ro
-# SECURITY (HIGH-002 / V4): per-service mTLS client certs.
-# NATS runs `verify_and_map: true` — cert CN maps directly to NATS user.
-# Each service mounts the entire per-service certs/clients dir read-only;
-# its NATS_TLS_CERT / NATS_TLS_KEY env vars point to its specific files
-# (e.g. farm_service-cert.pem, CN=farm_service, mapped to user farm_service).
-# The legacy shared client cert mount is kept for transitional deploys.
-x-nats-clients-mount: &nats-clients-mount ./certs/nats/clients:/etc/ssl/nats-clients:ro
-x-nats-client-cert-mount: &nats-client-cert-mount ./certs/nats/client-cert.pem:/etc/ssl/nats-client-cert.pem:ro
-x-nats-client-key-mount: &nats-client-key-mount ./certs/nats/client-key.pem:/etc/ssl/nats-client-key.pem:ro
+# SECURITY (HIGH-002 / V4): cert-is-identity is an isolation boundary only if
+# each runtime can read its own private key and no other identity's key. Never
+# mount the clients directory or the legacy shared key into an application.
+x-nats-auth-cert-mount: &nats-auth-cert-mount ./certs/nats/clients/auth_service-cert.pem:/etc/ssl/nats-clients/auth_service-cert.pem:ro
+x-nats-auth-key-mount: &nats-auth-key-mount ./certs/nats/clients/auth_service-key.pem:/etc/ssl/nats-clients/auth_service-key.pem:ro
+x-nats-farm-cert-mount: &nats-farm-cert-mount ./certs/nats/clients/farm_service-cert.pem:/etc/ssl/nats-clients/farm_service-cert.pem:ro
+x-nats-farm-key-mount: &nats-farm-key-mount ./certs/nats/clients/farm_service-key.pem:/etc/ssl/nats-clients/farm_service-key.pem:ro
+x-nats-sensor-cert-mount: &nats-sensor-cert-mount ./certs/nats/clients/sensor_service-cert.pem:/etc/ssl/nats-clients/sensor_service-cert.pem:ro
+x-nats-sensor-key-mount: &nats-sensor-key-mount ./certs/nats/clients/sensor_service-key.pem:/etc/ssl/nats-clients/sensor_service-key.pem:ro
+x-nats-gateway-cert-mount: &nats-gateway-cert-mount ./certs/nats/clients/gateway_service-cert.pem:/etc/ssl/nats-clients/gateway_service-cert.pem:ro
+x-nats-gateway-key-mount: &nats-gateway-key-mount ./certs/nats/clients/gateway_service-key.pem:/etc/ssl/nats-clients/gateway_service-key.pem:ro
+x-nats-admin-api-cert-mount: &nats-admin-api-cert-mount ./certs/nats/clients/admin_api_service-cert.pem:/etc/ssl/nats-clients/admin_api_service-cert.pem:ro
+x-nats-admin-api-key-mount: &nats-admin-api-key-mount ./certs/nats/clients/admin_api_service-key.pem:/etc/ssl/nats-clients/admin_api_service-key.pem:ro
+x-nats-notification-cert-mount: &nats-notification-cert-mount ./certs/nats/clients/notification_service-cert.pem:/etc/ssl/nats-clients/notification_service-cert.pem:ro
+x-nats-notification-key-mount: &nats-notification-key-mount ./certs/nats/clients/notification_service-key.pem:/etc/ssl/nats-clients/notification_service-key.pem:ro
+x-nats-billing-cert-mount: &nats-billing-cert-mount ./certs/nats/clients/billing_service-cert.pem:/etc/ssl/nats-clients/billing_service-cert.pem:ro
+x-nats-billing-key-mount: &nats-billing-key-mount ./certs/nats/clients/billing_service-key.pem:/etc/ssl/nats-clients/billing_service-key.pem:ro
+x-nats-alert-cert-mount: &nats-alert-cert-mount ./certs/nats/clients/alert_engine-cert.pem:/etc/ssl/nats-clients/alert_engine-cert.pem:ro
+x-nats-alert-key-mount: &nats-alert-key-mount ./certs/nats/clients/alert_engine-key.pem:/etc/ssl/nats-clients/alert_engine-key.pem:ro
+x-nats-hr-cert-mount: &nats-hr-cert-mount ./certs/nats/clients/hr_service-cert.pem:/etc/ssl/nats-clients/hr_service-cert.pem:ro
+x-nats-hr-key-mount: &nats-hr-key-mount ./certs/nats/clients/hr_service-key.pem:/etc/ssl/nats-clients/hr_service-key.pem:ro
+x-nats-messaging-cert-mount: &nats-messaging-cert-mount ./certs/nats/clients/messaging_service-cert.pem:/etc/ssl/nats-clients/messaging_service-cert.pem:ro
+x-nats-messaging-key-mount: &nats-messaging-key-mount ./certs/nats/clients/messaging_service-key.pem:/etc/ssl/nats-clients/messaging_service-key.pem:ro
+x-nats-ai-cert-mount: &nats-ai-cert-mount ./certs/nats/clients/ai_service-cert.pem:/etc/ssl/nats-clients/ai_service-cert.pem:ro
+x-nats-ai-key-mount: &nats-ai-key-mount ./certs/nats/clients/ai_service-key.pem:/etc/ssl/nats-clients/ai_service-key.pem:ro
+x-nats-event-store-cert-mount: &nats-event-store-cert-mount ./certs/nats/clients/event_store_service-cert.pem:/etc/ssl/nats-clients/event_store_service-cert.pem:ro
+x-nats-event-store-key-mount: &nats-event-store-key-mount ./certs/nats/clients/event_store_service-key.pem:/etc/ssl/nats-clients/event_store_service-key.pem:ro
+x-nats-hydroponics-cert-mount: &nats-hydroponics-cert-mount ./certs/nats/clients/hydroponics_service-cert.pem:/etc/ssl/nats-clients/hydroponics_service-cert.pem:ro
+x-nats-hydroponics-key-mount: &nats-hydroponics-key-mount ./certs/nats/clients/hydroponics_service-key.pem:/etc/ssl/nats-clients/hydroponics_service-key.pem:ro
+x-nats-observability-cert-mount: &nats-observability-cert-mount ./certs/nats/clients/observability_service-cert.pem:/etc/ssl/nats-clients/observability_service-cert.pem:ro
+x-nats-observability-key-mount: &nats-observability-key-mount ./certs/nats/clients/observability_service-key.pem:/etc/ssl/nats-clients/observability_service-key.pem:ro
+x-nats-config-cert-mount: &nats-config-cert-mount ./certs/nats/clients/config_service-cert.pem:/etc/ssl/nats-clients/config_service-cert.pem:ro
+x-nats-config-key-mount: &nats-config-key-mount ./certs/nats/clients/config_service-key.pem:/etc/ssl/nats-clients/config_service-key.pem:ro
 x-jwt-public-key-mount: &jwt-public-key-mount ./certs/jwt/public.pem:/etc/ssl/jwt/public.pem:ro
 x-jwt-private-key-mount: &jwt-private-key-mount ./certs/jwt/private.pem:/etc/ssl/jwt/private.pem:ro
 
@@ -677,9 +717,8 @@ services:
         condition: service_started
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-gateway-cert-mount
+      - *nats-gateway-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-network
@@ -765,9 +804,8 @@ services:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-auth-cert-mount
+      - *nats-auth-key-mount
       - *jwt-private-key-mount
       - *jwt-public-key-mount
     networks:
@@ -820,6 +858,13 @@ services:
       <<: *nats-farm-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      # Legacy provider credentials are decrypted during the blocking startup
+      # cutover; all ongoing provider reads come from config-service.
+      SENTINEL_HUB_ENCRYPTION_KEY: ${SENTINEL_HUB_ENCRYPTION_KEY:?SENTINEL_HUB_ENCRYPTION_KEY is required during credential cutover}
+      FARM_ENVIRONMENT_MONITORING_ENABLED: ${FARM_ENVIRONMENT_MONITORING_ENABLED:-false}
+      MET_NORWAY_APPLICATION_NAME: ${MET_NORWAY_APPLICATION_NAME:-}
+      MET_NORWAY_CONTACT: ${MET_NORWAY_CONTACT:-}
+      MET_NORWAY_FROST_CLIENT_ID: ${MET_NORWAY_FROST_CLIENT_ID:-}
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
       SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
     depends_on:
@@ -829,14 +874,15 @@ services:
         condition: service_healthy
       nats:
         condition: service_healthy
+      config-service:
+        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-farm-cert-mount
+      - *nats-farm-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -916,9 +962,8 @@ services:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-sensor-cert-mount
+      - *nats-sensor-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -973,8 +1018,8 @@ services:
       MINIO_SECRET_KEY: ${MINIO_PASSWORD:?MINIO_PASSWORD is required}
       MINIO_BUCKET: ${MINIO_BUCKET:-aquaculture}
       MINIO_REGION: us-east-1
-      # SEC-015 (CRITICAL-002): Per-service NATS credentials — admin uses gateway account
-      <<: *nats-gateway-env
+      # SEC-015 (CRITICAL-002): dedicated admin certificate identity.
+      <<: *nats-admin-api-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
@@ -1001,9 +1046,8 @@ services:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-admin-api-cert-mount
+      - *nats-admin-api-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -1058,9 +1102,8 @@ services:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-alert-cert-mount
+      - *nats-alert-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -1150,9 +1193,8 @@ services:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-billing-cert-mount
+      - *nats-billing-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -1206,9 +1248,8 @@ services:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-hr-cert-mount
+      - *nats-hr-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -1262,9 +1303,8 @@ services:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-hydroponics-cert-mount
+      - *nats-hydroponics-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -1324,9 +1364,8 @@ services:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-notification-cert-mount
+      - *nats-notification-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -1391,9 +1430,8 @@ services:
     # aligned with the same pattern so the env paths actually resolve.
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-observability-cert-mount
+      - *nats-observability-key-mount
     # Attached to aqua-internal only — no published ports, not reachable from external network
     networks:
       - aqua-internal
@@ -1441,8 +1479,8 @@ services:
       DB_MIGRATE_AUTHORITATIVE: 'true'
       DATABASE_MIGRATIONS_RUN: 'false'
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
-      # SEC-015 (CRITICAL-002): Per-service NATS credentials — config uses gateway account
-      <<: *nats-gateway-env
+      # SEC-015 (CRITICAL-002): dedicated CN=config_service.
+      <<: *nats-config-env
       JWT_PUBLIC_KEY_PATH: /etc/ssl/jwt/public.pem
       CONFIG_ENCRYPTION_KEY: ${CONFIG_ENCRYPTION_KEY:?CONFIG_ENCRYPTION_KEY is required}
       SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
@@ -1459,9 +1497,8 @@ services:
         condition: service_completed_successfully
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-config-cert-mount
+      - *nats-config-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -1505,7 +1542,8 @@ services:
       <<: *nats-event-store-env
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
+      - *nats-event-store-cert-mount
+      - *nats-event-store-key-mount
     depends_on:
       postgres:
         condition: service_healthy
@@ -1574,9 +1612,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-https://aquamonitoring.net}
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
-      - *nats-client-cert-mount
-      - *nats-client-key-mount
+      - *nats-messaging-cert-mount
+      - *nats-messaging-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal
@@ -1651,7 +1688,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-https://aquamonitoring.net}
     volumes:
       - *nats-ca-mount
-      - *nats-clients-mount
+      - *nats-ai-cert-mount
+      - *nats-ai-key-mount
       - *jwt-public-key-mount
     networks:
       - aqua-internal

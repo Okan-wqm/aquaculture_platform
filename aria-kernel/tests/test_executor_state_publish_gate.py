@@ -46,6 +46,39 @@ def _by_name(fragment: str) -> dict:
     raise AssertionError(f"no step whose name contains {fragment!r}")
 
 
+def _script_of(step: dict) -> str:
+    """The shell a step runs, following a LOCAL composite action.
+
+    RC-6 moved the restore body out of both workflows and into
+    `.github/actions/restore-aria-tools-state`, because the two hand-copied
+    heredocs had drifted: only the executor's wrote the 484/488 proof outputs,
+    so the producer lane could publish a bootstrap-empty tree over the
+    accumulated state. These assertions then failed on the extraction — the
+    property was untouched, the `run:` key had simply moved.
+
+    Following the `uses:` is the same correction the sandbox containment
+    contract needed for the same reason. A composite action's steps run inside
+    the calling job; reading them is reading what the job runs, not guessing.
+    Deliberately local-only: a third-party `uses:` is SHA-pinned and reviewed as
+    a dependency.
+    """
+    if isinstance(step.get("run"), str):
+        return step["run"]
+    uses = step.get("uses")
+    if isinstance(uses, str) and uses.startswith("./"):
+        action_dir = WF.resolve().parents[2] / uses[2:]
+        for filename in ("action.yml", "action.yaml"):
+            candidate = action_dir / filename
+            if candidate.is_file():
+                doc = yaml.safe_load(candidate.read_text(encoding="utf-8"))
+                return "\n".join(
+                    inner["run"]
+                    for inner in doc.get("runs", {}).get("steps", [])
+                    if isinstance(inner.get("run"), str)
+                )
+    raise AssertionError(f"step {step.get('name')!r} runs no resolvable script")
+
+
 class PublishGateTests(unittest.TestCase):
 
     def test_the_restore_step_exposes_an_id_the_gate_can_read(self) -> None:
@@ -61,7 +94,7 @@ class PublishGateTests(unittest.TestCase):
         the only step that knows which occurred; a failure, a skipped step and a
         crash still write neither and still block.
         """
-        body = _by_name("Restore aria-tools state")["run"]
+        body = _script_of(_by_name("Restore aria-tools state"))
         self.assertIn('fh.write("bootstrap=true', body)
         # bootstrap is claimed ONLY on the no-live-artifact branch, before the
         # clean exit — never after a failed download.
@@ -86,7 +119,7 @@ class PublishGateTests(unittest.TestCase):
     def test_ancestry_proof_is_written_only_on_the_success_path(self) -> None:
         """`restored=true` must be emitted AFTER extraction, never on the
         no-artifact fail-open branch — absence is what blocks the publish."""
-        body = _by_name("Restore aria-tools state")["run"]
+        body = _script_of(_by_name("Restore aria-tools state"))
         self.assertIn('fh.write("restored=true', body)
         extract_at = body.index('zf.extractall("aria-tools")')
         write_at = body.index('fh.write("restored=true')
@@ -144,9 +177,17 @@ class PublishGateTests(unittest.TestCase):
         consumer = next(
             s for s in _steps() if (s.get("with") or {}).get("name") == CANONICAL
         )["if"]
-        for pcond in pconds:
-            self.assertIn("state_valid", pcond)
-        self.assertIn("state_valid", consumer)
+        # "Strictly stronger" used to be asserted as "both mention state_valid",
+        # which is not a comparison at all — it would have held while the
+        # producer published on integrity ALONE and the consumer additionally
+        # required ancestry, and it did hold, for exactly that reason, for as
+        # long as the drift existed. The real property is that every guard term
+        # the producer relies on is also present in the consumer's condition.
+        for term in ("state_valid", "restore_state.outputs.restored",
+                     "restore_state.outputs.bootstrap"):
+            for pcond in pconds:
+                self.assertIn(term, pcond, f"producer gate lost {term}")
+            self.assertIn(term, consumer, f"consumer gate weaker than producer on {term}")
 
 
 if __name__ == "__main__":

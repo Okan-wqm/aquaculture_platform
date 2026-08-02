@@ -119,7 +119,12 @@ describe('INVARIANT (DATA-CRITICAL-002 / LEGAL-HIGH-004): TenantSchemaSyncServic
     // triggers a fail.
     const queryCalls = executableSrc.matchAll(/this\.dataSource\.query\(\s*[`'"]([^`'"]*?)[`'"]/g);
     for (const match of queryCalls) {
-      const sql = match[1].trim().toUpperCase();
+      // ORPHAN-HIGH-507 — an empty capture is a real possibility here: the
+      // pattern allows a zero-length SQL string, so skipping is correct and an
+      // assertion would have crashed the invariant on `query('')`.
+      const rawSql = match[1];
+      if (rawSql === undefined) continue;
+      const sql = rawSql.trim().toUpperCase();
       const firstWord = sql.split(/\s+/)[0];
       expect(['SELECT', 'SHOW', 'WITH']).toContain(firstWord);
     }

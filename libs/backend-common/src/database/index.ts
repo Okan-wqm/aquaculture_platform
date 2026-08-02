@@ -4,6 +4,8 @@ export * from './schema-manager.service';
 // SQL identifier validator — single canonical helper for identifier
 // interpolation (DDL paths use it instead of inlining a private regex).
 export { validateSqlIdentifier } from './sql-identifier.util';
+// Audit append-only contract SQL — one definition for all four audit tables.
+export * from './audit-immutability.sql';
 export type { SqlIdentifierKind } from './sql-identifier.util';
 
 // TypeORM driver query result normalizer — single canonical adapter for

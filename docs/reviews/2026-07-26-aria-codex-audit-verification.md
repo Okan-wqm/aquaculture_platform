@@ -1503,6 +1503,17 @@ finding is one nobody can navigate back to from the review that produced it.
   at `cycle.py:948` is dead on the same path, but the breaker producer survives via `planner_dispatch_hook.py:388`, so
   `ORPHAN-CRITICAL-485` **is** genuinely closed. Fix is RC-1 of the follow-up plan: collapse the two pipelines into one
   declarative registry, delete the kwarg seam, and add a static call-graph reachability invariant.
+  **CLOSED by RC-1.** `run_phases`, `pre_tool_phases`, `DEFAULT_CYCLE_PHASES`, `SUPPORTED_CYCLE_PHASES` and
+  `_run_extended_phases` are all deleted; `CYCLE_PHASES` is a 21-row ordered tuple and `pr_lifecycle` is a row in it, so
+  the perimeter now has a scheduled-lane caller for any profile holding `pr_open` authority. **The claim is bounded, and
+  the bound is deliberate:** the phase's precondition reads `ACTION_PERMISSIONS["pr_open"]` — `{strict, autonomous}` — so
+  under the default `standard` profile it records `precondition_unmet:profile_permits:pr_open` and the operator CLI
+  remains the only route that reaches the perimeter on a default deployment. **This deviates from the plan on purpose.**
+  The plan specified `profile_in(PROFILES_WITH_ACTION_AUTHORITY)`, the union over every action kind, which includes
+  `standard`; but `open_pr_for_action` calls `enforce_profile_for_action("pr_open")` on entry, so gating on the union
+  would have run the phase under a profile that refuses it, taken a `GovernanceError` per approved proposal, and marked
+  every nightly with an approved proposal **failed** on a lane where nothing is wrong. Reading the same table the callee
+  enforces means the gate and the guard cannot disagree.
 
 - **ORPHAN-HIGH-499** — the HUMAN*REQUIRED sweep test asserts an import, not a call  
   Severity HIGH, layer 1, owner okan, deadline 2026-08-12. Proven by mutation rather than argued: deleting the call at
@@ -1530,6 +1541,363 @@ finding is one nobody can navigate back to from the review that produced it.
   inside the hook's own explanatory comment, so it stayed green when the real invocation was deleted. It now strips
   comment lines and matches invocations structurally — the substring-instead-of-structure defect this branch already fixed
   once, reproduced by me while fixing its sibling.
+
+- **ORPHAN-HIGH-509** — the workflow-injection invariant recognised one of two spellings of the thing it forbids  
+  Severity HIGH, layer 3, owner okan, deadline 2026-08-13. **Found by distrusting my own green result.** While adding the
+  RC-9 capability probe I wrote `echo "${{ inputs.runner_label }}"` inside a `run:` block — textbook shell injection of
+  operator-supplied text. The repo _has_ an invariant for exactly this, and it **passed** on my file. Instead of
+  accepting the pass I checked why, expecting the hardcoded-list defect of `507`. It was not that: the spec scans every
+  workflow via `readdirSync`, which is correct. The defect was the _pattern_ — it matched only the legacy
+  `${{ github.event.inputs.X }}`. GitHub also offers `${{ inputs.X }}` as the modern `workflow_dispatch` shorthand; both
+  splice the same attacker-controlled value into the same shell, and the gate knew one of them. So it reported compliance
+  on a file that violated the rule it exists to enforce. Fixed in the same change that exposed it: the pattern matches
+  both spellings, the workflow passes its input through `env:` and references `"$VAR"` — the canonical fix the spec's own
+  docstring prescribes — and the **test title was corrected too**, since naming only one spelling is the same
+  misinformation one layer up. Proven both ways: green with the fix, and failing with file, line and matched snippet when
+  the interpolation is restored. **Residual, stated because it bounds the fix:** the invariant's scope is deliberately
+  limited to `aria-*` workflows. This widens _which spellings_ are caught, not _which files_ are scanned.
+
+- **ORPHAN-CRITICAL-516** — the squash dropped DDL, and the invariant guarding it read the archive\
+  Severity CRITICAL, layer 1, owner okan, deadline 2026-08-14. **Found by checking RC-6's precondition, then
+  following the thread.** Four services squashed their migrations into a `Baseline` on 2026-05-18 and moved 55
+  originals to `src/…/migrations/.archive/`. That archive is dead by construction — every service registers
+  `migrations: ['src/…/migrations/[0-9]*…']`, which neither matches a dot-directory nor descends into one.
+  **The false green:** `auth-users-tenant-fk.spec.ts` guards `FK_auth_users_tenantId` (DBR-HIGH-002 — a tenant must
+  not be deletable while user rows still claim it) and was **passing**. It collected migrations with
+  `git ls-files 'apps/auth-service/src/migrations/*.ts'`, and a git pathspec `*` crosses `/`, so it read all 32 files
+  including the 13 archived. The constraint exists **only** in the archive; a freshly migrated database has no such
+  FK. Its sibling test in the same file pinned one filename and failed with an ENOENT naming a file — which is why
+  the breakage read as a stale test rather than as a missing constraint. **Second drop, same cause:**
+  `shared.access_logs` is created by no live migration, while `AccessLogMiddleware` writes a row per request (wired
+  into `gateway-api` and `admin-api-service`), `AccessLogEntity` maps it, `protected-tables.ts` lists it and the RLS
+  infrastructure ledger declares it. Its guard read the migration by hardcoded filename, so it failed to _load_
+  rather than reporting the table gone — and it was dormant, so nobody saw even that. **Fixed in two parts:**
+  `tests/invariants/lib/migration-corpus.ts` is now the one answer to "which migrations does service X apply?",
+  deriving each service's directory from its own `data-source.ts` (four use `src/migrations`, ten use
+  `src/database/migrations`) and refusing rather than guessing when a declaration cannot be parsed — eight specs each
+  answered this privately, four wrongly, one with a private function literally named `loadMigrationCorpus`. And two
+  forward-only idempotent restorations bring back the FK (with its orphan pre-flight) and the table. The FK assertion
+  going from passing-on-dead-evidence to failing, before the restoration landed, is what proves the old green was
+  false.
+
+- **ORPHAN-CRITICAL-517** — the squash rewrote audit immutability into a rule that breaks retention\
+  Severity CRITICAL, layer 1, owner okan, deadline 2026-08-14. The contract was **two** triggers per audit table:
+  `_prevent_update` (BEFORE UPDATE, always raises) and `_prevent_legal_hold_delete` (BEFORE DELETE, raises **only**
+  when `OLD."legalHold"` is true, else returns the row). The second is what lets retention expire audit rows while
+  legal hold blocks it — the retention module's own docstring names that trigger as its database-level backstop
+  behind the application-layer `legalHold = false` filter. The Baseline hand-authored **one** function per table,
+  `_prevent_update_or_delete`, raising on `BEFORE UPDATE OR DELETE` unconditionally. That is not a stricter version
+  of the rule, it is a different rule: retention can now delete nothing, and an audit table that can only grow is its
+  own incident. **A stricter rule is not a safer rule.** Worse for `shared.audit_logs` — the live set has no function
+  and no trigger for it at all, so the canonical cross-service audit table lost the guarantee outright. The guard
+  asserted the pre-squash _spelling_ against a corpus that also contained the archived pre-squash files, and it was
+  dormant. **Fixed** with one generator in `@aquaculture/backend-common/database` — four tables across three
+  services, and a migration cannot be shared across services, so the SQL is produced once and each service's
+  migration calls it; hand-copying is precisely what produced the fifth variant. Three forward-only migrations apply
+  it, each dropping the superseded consolidated trigger by name before creating the pair and dropping the orphaned
+  function only after the trigger using it is gone. `down()` refuses. The invariant now asserts the **generator's**
+  output — including that DELETE is conditional on `legalHold`, the half the squash lost — **and** that each owning
+  service's effective migration set invokes it for that table, a correct generator nobody calls being the
+  `ORPHAN-HIGH-455` shape.
+
+- **ORPHAN-CRITICAL-513** — the two restore implementations had drifted, and the producer lane could overwrite everything\
+  Severity CRITICAL, layer 1, owner okan, deadline 2026-08-14. **Found while satisfying RC-6's own
+  precondition.** The plan's rule for the recovery dispatch was "no second restore path: a duplicate transaction
+  around a hash-chained ledger is how the ledger diverges". Checking that before building on it showed the rule was
+  _already_ violated, and not harmlessly. Both lanes carried their own copy of the same ~70-line Python heredoc, and
+  a diff proves the copies are **not equal**: the executor's writes `restored=true` / `bootstrap=true` to
+  `$GITHUB_OUTPUT` — `ORPHAN-CRITICAL-484`'s ancestry proof plus `488`'s split between "nothing to restore" and
+  "restore failed" — while the producer's writes **neither**, and its restore step carries no `id:` at all, so no
+  publish gate could read an output even in principle. **The 484/488 fix reached the consumer and never reached the
+  producer** — the 01:00 lane that mints the entire queue, publishing on `state_valid == 'true'` alone. There, a
+  restore that fails or is skipped leaves a bootstrap-empty tree, which _passes_ `integrity verify` (an empty tree is
+  trivially consistent) and is uploaded under the canonical name with `overwrite: true`. Not a missed publish: the
+  accumulated state — queue, ledgers, breaker evidence — overwritten by nothing, which is the absorbing failure 484
+  exists to prevent, on the lane where it costs most. **Fixed** with the RC-9 move applied to a bigger pair: one
+  composite action both lanes `uses:`, exposing the two proof outputs, and the producer's publish/quarantine/fail
+  gates now carrying the ancestry condition the consumer always had. Pinned by
+  `tests/invariants/aria-single-restore-path.spec.ts` — exactly one implementation, both lanes using it, outputs
+  present with no negative form, both gates checking ancestry — proven to bite by reintroducing an inline copy. A
+  second gate was wrong about this too: `test_the_publish_gate_is_strictly_stronger_than_the_producers` asserted only
+  that both conditions _mention_ `state_valid`, which is not a comparison and held for the whole life of the drift
+  for exactly that reason; it now compares every guard term.
+
+- **ORPHAN-HIGH-514** — a composite action is outside every `workflows_do_not_*` gate\
+  Severity HIGH, layer 3, owner okan, deadline 2026-08-14. **Found by auditing my own previous commit before
+  building on it.** `listWorkflowFiles()` reads `.github/workflows/` only, and three checks scan its output for
+  content a governed job may not run. That scope was complete while every step lived in a workflow file — and RC-9
+  ended that, carrying a `continue-on-error` into `.github/actions/ensure-sandbox-backend` and out of enforcement
+  with the gate still reporting compliance. **Fourth instance of one class on this branch** after `507`'s hardcoded
+  roots, `509`'s single spelling and `510`'s single gate family: each checked part of its domain while reporting
+  full compliance. Fixed in two halves. The scan now includes local composite actions — wired into exactly the three
+  _content_ checks, not the workflow-shaped ones (`on:`, top-level `permissions:`, curated matrices), because an
+  `action.yml` legitimately has none of those and a gate that fails for unrelated reasons gets deleted for being
+  noise; third-party `uses:` stays out, being SHA-pinned and reviewed as a dependency. And the action was changed to
+  **satisfy** the rule rather than be exempted from it — the install tolerates apt failure through a shell `if`,
+  which is exempt from `set -e` and prints why, instead of the banned per-step key. No exemption list was created.
+  Verified both ways; the baseline is unchanged at 6 pass / 0 fail. The gate is a raw text scan, so my own comment
+  _explaining_ the choice failed it by spelling the key — the same trap `aria-auto-cycle.yml` already documents.
+
+- **ORPHAN-HIGH-515** — every dormancy waiver expired a month ago and nothing checked\
+  Severity HIGH, layer 3, owner okan, deadline 2026-08-14. **Found by adding one spec.**
+  `aria-single-restore-path.spec.ts` passed when run directly and ran under **no** command: all three Jest projects
+  used explicit `testMatch` file lists, and a new file matches none. `jest --listTests` returned 179 against 204 spec
+  files. **My first conclusion — 24 specs silently dropped — was wrong, and the correction is the finding.**
+  `invariant-reachability.spec.ts` already asserted that every spec is either listed or declared in
+  `invariant-reachability.dormant.json` with owner, reason and expiry; it worked, and all 24 were declared. What did
+  not exist was any comparison of `expires_on` to the clock. The spec asserted `/^\d{4}-\d{2}-\d{2}$/` and stopped.
+  All 25 entries read `2026-06-30`; on 2026-07-31 every one was a month past expiry with the suite green. **An expiry
+  nothing checks is not an expiry** — checking the syntax of a date instead of the date, which is this branch's
+  recurring shape. Fixed in three parts: the date is load-bearing; shard membership is a glob so a spec is in the
+  suite because it exists, and the manifest becomes the one exclusion list the config reads; and every waiver must
+  name a finding, because owner + reason + expiry says who, why and until when, but without an ID nothing gets
+  worked — which is how 25 waivers reached one shared date and passed it together. **Measured outcome:** expiring all
+  25 at once and running them showed **18 need no waiver at all**, so they were revived rather than re-dated —
+  179 → 197 specs now run, real coverage the repo already believed it had. The remaining 7 are genuinely red and are
+  tracked as `ORPHAN-HIGH-512`. Three other specs pinned the enumeration as config _text_ and failed on the glob;
+  each asserted a spelling where the property was reachability, and all three now assert the property — because the
+  obvious way to make that failure go away is to put the filename back in a list, which is the wrong direction.
+
+- **ORPHAN-HIGH-512** — seven invariant specs are red, not merely dormant\
+  Severity HIGH, layer 3, owner okan, deadline 2026-09-30. **Split from `515` deliberately:** that finding is the
+  _mechanism_ and is closed here; this is the _debt_ the mechanism was hiding, and it is not. Making the expiry
+  load-bearing expired all 25 waivers; 18 passed and were revived. These 7 fail — an access-log stream shape the
+  platform does not emit, audit-immutability triggers absent from every migration, audited operations that are not
+  module-wired, an auth-users FK spec reading a migration file that **does not exist**, emitted events with no
+  declared interface, legal-hold checks bypassing the canonical lib, and ad-hoc circuit breakers outside it. **Not
+  fixed here, and why:** each belongs to a domain lane this change does not touch, and each needs a real fix in that
+  domain rather than a test edit. Switching them on would make an ARIA breaker-recovery branch red for reasons wholly
+  outside it; deleting them would discard invariants written deliberately. They carry a 2026-09-30 expiry that now
+  **fails the build** when it passes — the difference between this waiver and the ones it replaces.
+  **CLOSED.** All seven were fixed at their roots rather than re-dated, and the dormancy manifest is now **empty**:
+  204 of 204 specs run. Two of the seven were not test rot at all but the visible edge of `ORPHAN-CRITICAL-516` /
+  `517` — dropped DDL and a rewritten audit-immutability contract. The other five split three ways: two asserted a
+  _spelling_ the 2026-05-18 squash legitimately changed (the `ALTER TABLE … ADD COLUMN` form for `legalHold`, and an
+  explicit class-name registration where the service moved to a glob); one was a genuine wiring gap (farm-service
+  never registered `AuditedOperationModule.forRoot()`, so `@AuditedOperation()` there was inert); one was two real
+  missing event contracts (`UserProfileUpdated`, `UserPasswordChanged`, emitted by `AccountService` and declared
+  nowhere); and one demanded that **paid-off debt persist** — it asserted "all 4 grandfathered ad-hoc breaker paths
+  still exist" and went red when the W3 sweep deleted the OPA client's breaker, which its own docstring calls the
+  success condition. That one is now a ratchet: a vanished path is a _stale entry to delete_, and the count is a
+  ceiling that only falls.
+
+- **ORPHAN-HIGH-510** — the ARIA kernel suite had no local mirror at all, and a red commit reached origin because of it\
+  Severity HIGH, layer 3, owner okan, deadline 2026-08-13. **Found by my own violation, one increment late.** Before
+  committing RC-9 I ran `invariants:fast` and `findings:verify`, saw green, committed and **pushed**. The first command
+  of the next increment was `npm run aria:test:unit`, and four tests were red on the commit already at origin:
+  `test_every_actions_use_is_sha_pinned` (a local composite action has no SHA to pin),
+  `test_i_sbx_01_and_02_dispatching_workflows_declare_containment` (the install+verify pair moved into the composite
+  action, so neither workflow's own text declares containment any more) and both workflow-preflight contract tests (the
+  probe workflow was not in the contract registry). Every one is a **correct** finding by a gate doing its job; the
+  defect is that nothing local ran it. CLAUDE.md's "never commit with red tests" was enforced by intention only.
+  **Why the existing parity invariant did not cover it**, stated because the near-miss matters: `git-hook-binding.spec.ts`
+  scopes to `ci-full.yml`'s `lint-and-typecheck`, and `aria:test:unit` runs in `aria-operational-proof.yml` — an honestly
+  stated scope, so a gap rather than a false claim. But its `SCRIPT_GATES` map keyed each gate by **one** path and
+  demanded that same string appear in a workflow and a hook, which structurally limited it to gates whose CI and local
+  spellings match. The gate that mattered most is not one of those: a hook cannot mirror `npm run aria:test:unit`
+  verbatim, because 215 unconditional seconds per push is how a gate gets bypassed. **Fixed:**
+  `scripts/ci/aria-suite-changed.mjs` runs the suite only when the commits _this push adds_ touch a surface the suite
+  asserts on — `aria-kernel/`, `tools/aria-poc/`, `.github/workflows/`, `.github/actions/`. The last two are in the set
+  because RC-9 broke the suite **without touching a line of Python**. Scoping decides _whether_ to run, never _which_
+  tests: the suite is all-or-nothing and a per-file selection would report green on what it skipped. `SCRIPT_GATES` now
+  carries separate `ci` and `local` tokens. Proven both ways: green with the hook line, and with it deleted the invariant
+  names the missing mirror.
+
+- **ORPHAN-MEDIUM-511** — the architecture spine gate has never run in production either, for a second and separate reason\
+  Severity MEDIUM, layer 3, owner okan, deadline 2026-08-13. **Exposed by RC-1, not caused by it**, and filed separately
+  from `ORPHAN-CRITICAL-498` because the cause is different. 498 was "the phases sit behind a kwarg nobody passes"; the
+  collapse removes that, and `validation_matrix` and `pr_lifecycle` now run from `CYCLE_PHASES`. `architecture_baseline`
+  and `architecture_postcheck` do not: their precondition is `PLAN_ID_PRESENT` and neither production caller supplies a
+  `plan_id` — `cli.py`'s `cycle run` has no `--plan-id` argument at all, and the autonomy orchestrator's `cycle_runner`
+  call passes only `workspace_root`, `cycle_id`, `base_dir` and `defer_reflection`. So every production cycle now records
+  `{"outcome": "skipped", "reason": "precondition_unmet:plan_id_present"}` for both. **What changed and what did not:**
+  the behaviour is identical — the spine gate did not run before and does not run now. What changed is that the absence
+  is **readable**, where pre-collapse a phase that did not run produced no key, no reason and no trace, making "this gate
+  is not wired" and "this gate passed" the same observation from outside. That is an improvement and it is not a closure,
+  which is why this is filed rather than folded into the RC-1 commit as done. **What the real fix needs**, so the next
+  reader does not re-derive it: a `plan_id` has to reach the cycle from something that knows which plan a cycle executes.
+  The orchestrator drains a queue of promoted plans, so a candidate source exists — the open work is deciding whether a
+  cycle is scoped to one plan (pass it) or to many (the spine gate then needs a per-change shape, not a per-cycle one).
+  That is a design question, and answering it inside a pipeline-collapse commit would be the kind of guess this branch
+  exists to stop making.
+
+- **ORPHAN-HIGH-508** — no local hook type-checked anything, and the parity invariant only understood one gate family  
+  Severity HIGH, layer 3, owner okan, deadline 2026-08-13. **Measured consequence, from this session:** a
+  `noUncheckedIndexedAccess` error reached CI on `4aa3309e1` and failed `type-check`, taking `merge-gate` and
+  `sens-enterprise-summary` down as derivatives. I had verified the file with jest, which transpiles without full
+  type-checking, so the suite was green while `tsc --noEmit` was not. No local hook could have caught it: `pre-commit`
+  runs staged-only gates and `pre-push` ran exactly one thing — Rust clippy. TypeScript had **no local gate at all** —
+  the same missing-mirror shape as `ORPHAN-HIGH-500`, one gate over. **The architectural part is which gate to mirror.**
+  Platform-wide `npm run type-check` costs ~2.5 min, and a hook people bypass is worse than no hook; so the mirror is the
+  gate that actually catches this class in CI — `type-check-changed-files.mjs`, whose cost is proportional to the change
+  and whose scope is exactly the risky set. Wired into **pre-push**, which is the correct stage because that script
+  compares a _committed_ range (`origin/main..HEAD`); the same script in pre-commit would compare the wrong pair. When
+  `origin/main` is unresolvable it skips **loudly** with the reason printed — a base that cannot be computed makes
+  "changed" undefined, and blocking an offline branch push would be wrong, but skipping silently is the blind-gate defect
+  already fixed once this session. **Second half, and why this is not merely "add a hook line":** the parity invariant
+  added for `ORPHAN-HIGH-500` understood only `quality.mjs` gates, so it enforced parity for one family and silently
+  ignored every other kind — the same shape as `507`'s hardcoded root list, one layer up. It now also asserts a declared
+  set of **script** gates, matched on script path rather than command line so a hook passing different arguments than CI
+  still counts as the mirror. Declared rather than "every script any workflow runs", because builds and uploads have no
+  business in a git hook and asserting they do would make the invariant noise. Proven to bite: deleting the pre-push line
+  fails the new assertion, naming the script and why it exists.
+
+- **ORPHAN-HIGH-507** — the spec type ratchet looked in three hardcoded roots, so the invariants directory was ungated  
+  Severity HIGH, layer 3, owner okan, deadline 2026-08-13. **Found by chasing a symptom I had mis-diagnosed, and the
+  correction comes first.** Earlier this session I flagged that "two type gates disagree about one tree" after
+  `CI - Full`'s type-check passed on `4aa3309e1` while `Quality Gates`' `type-check` job failed. The scopes are
+  **deliberate and layered**, not contradictory: `type-check-all.mjs` covers app/lib _compile_ tsconfigs and documents
+  that it excludes `.spec.json`; `gates:type-check-spec` owns spec tsconfigs as a baseline-aware ratchet;
+  `type-check-changed-files.mjs` covers changed files anywhere. **That framing was wrong and is withdrawn.** The real
+  defect sits one layer down: `discoverProjects()` enumerated `['apps','libs','platform/libs']`, and its own comment
+  recorded that `platform/libs` had been _appended_ the first time a platform lib grew a spec config — which is the tell.
+  The list is a log of the times someone noticed. **Measured:** the repo holds 30 `tsconfig.spec.json` files; those roots
+  reach 29. The one missed is **`tests/invariants`** — the directory holding the invariants that enforce every other rule
+  in the platform, so the ratchet guarding spec type errors was blind to the specs that guard everything else. A file
+  there was covered only by the changed-files guard, which sees a file when it _changes_ and never guards the rest; a
+  pre-existing error was invisible to every gate. Fixed by **deriving** the project set from the presence of a spec
+  tsconfig via a depth-bounded walk, so a new tree is covered the moment it acquires one. Proven to bite: injecting one
+  error reports `25 (baseline 24, +1)` and fails. **Not done, stated plainly:** widening the gate revealed **24
+  pre-existing errors across six invariant files** I did not write, all `noUncheckedIndexedAccess` violations. They are
+  first recorded as the project's baseline, then **fixed: the baseline is now 0.** All 24 are gone with **no non-null
+  assertion and no cast** — and correcting my own earlier count, they spanned **ten** files, not six; I had counted from a
+  truncated error list. Two fixes were at the source rather than the symptom, which is the part worth keeping: in
+  `pii-events-mandatory-crypto-shred` a single `.map((m) => m[1])` produced `(string | undefined)[]` and four downstream
+  errors were all that one type escaping into the loop, so filtering at the source fixed the cause where four guards
+  would have fixed symptoms and left the array's type still lying; and in `dead-contract-fe-operations` the real defect
+  was `BaselineEntry.kind: string` — the baseline is _generated_ from `OperationConst`, so `string` was the lie, and the
+  union is now **earned at the trust boundary** by validating the parsed JSON rather than asserted at each call site. A
+  hand-edited baseline with a misspelled kind now names itself at load time instead of silently failing to match a key
+  and quietly shrinking the ratchet. Every remaining site is a guarded skip, chosen over an assertion because an
+  invariant that crashes on a malformed input is exactly the one that most needs to survive in order to report the rest.
+
+- **ORPHAN-CRITICAL-506** — one undecodable ledger row trips the breaker forever, and the only lever also destroyed the queue  
+  Severity CRITICAL, layer 1, owner okan, deadline 2026-08-13. The ordering that causes this is itself correct —
+  `evaluate_breaker` decides `evidence_incomplete` _before_ the threshold comparison, which is what
+  `ORPHAN-CRITICAL-418` fixed. But `dropped_rows` counts lines that failed to **decode**, while the sliding window only
+  ages lines that **did** decode. A corrupt line is outside time: it can never leave the window. One truncated row trips
+  the breaker for every subsequent nightly `standard` cycle, permanently — asserted rather than argued, by re-stamping the
+  surviving row a year into the past and watching the verdict stay `evidence_incomplete`. **Compounding factor:** the
+  ledger travels between runs inside the `aria-tools-state` artifact while `breaker reset` operates on a local
+  `--tools-dir`, so the operator's only effective lever was deleting the artifact — which also destroys the
+  agent-invocation queue `ORPHAN-CRITICAL-469` exists to carry. The recovery path for one breaker was the destruction of
+  an unrelated subsystem. **Fixed here:** `quarantine_breaker_evidence()` moves only undecodable rows to a sidecar
+  (verbatim, operator-attributed), keeps every decodable row **byte-for-byte**, and does not touch the state file — the
+  breaker re-derives from the survivors, so the state becomes **evaluable, not clear.** The assertion that matters: three
+  real in-window failures plus one corrupt line quarantines to a breaker that is _still_ tripped, now reading
+  `threshold_exceeded`, which is what the operator needed to see all along. A reset would have cleared both — hence a
+  different verb, not a flag, so that reaching for "make it evaluable" cannot land on "discard the evidence". It refuses
+  on a count mismatch between its own partition and the breaker's own reader, and refuses outright when the ledger is
+  unreadable (a file-access fault is not row damage). It has a CLI, because `ORPHAN-HIGH-465` was precisely a recovery
+  function shipped with none. **Second half CLOSED.** Recovery now runs where the state
+  is: a `workflow_dispatch` pair of inputs on `aria-agent-executor` turns a run into a repair — restore, quarantine,
+  republish — inside the transaction that job already performs, so there is no second restore and no second publish.
+  A recovery run claims no request and invokes no agent (a repair must be one auditable transaction, not a repair
+  mixed with a night's work), and it deliberately runs BEFORE the Claude CLI and auth preflights, which hard-fail the
+  job without a managed session: a recovery lever that depends on the agent lane being healthy is no lever on the
+  night it is needed. It keeps the lease guard, because the repair mutates a tree a local daemon may hold. The step
+  is pinned in the workflow contract's `required_steps` with both ordering bounds — after the restore, before the
+  publish — since before the restore it would quarantine a bootstrap-empty ledger and report a clean no-op, and after
+  the publish it would repair a tree nothing persists. Satisfying the plan's "no second restore path" is what
+  uncovered `ORPHAN-CRITICAL-513`: there were already two, and they had drifted. **What remains unverified, stated
+  rather than implied:** no live artifact round-trip has run. Everything statically assertable is asserted — the
+  single restore path, both publish gates, the contract's step set and order, the input-injection discipline — but
+  the first real dispatch is still the first real dispatch.
+
+- **ORPHAN-HIGH-505** — the phase constants declare 5 phases while the cycle runs 15  
+  Severity HIGH, layer 1, owner okan, deadline 2026-08-13. **Found while scoping RC-1's tier-1 collapse, and it changes
+  that work's shape rather than adding to it.** `DEFAULT_CYCLE_PHASES` names five phases; `run_enterprise_cycle`'s body
+  actually runs fifteen — `belief_decay`, `consensus_escalation`, `human_required_adjudication`, `judge_calibration`,
+  `lease_lifecycle_escalation`, `learning_post_evidence_closure`, `metrics`, `observability_dashboard`,
+  `proactive_priority`, `service_examination` and more, enumerated from its own `emit_progress` calls. Even the overlap is
+  inexact: the constant says `discover`, the body emits `discovery`. And the constants exist **only** to validate the
+  `run_phases` / `pre_tool_phases` kwargs, which have no production caller (`ORPHAN-CRITICAL-498`) — so they validate
+  input nobody passes against a list that misdescribes the cycle, carrying the appearance of a phase SSoT with none of
+  its duties. **Consequence for RC-1:** the plan treats that constant as the set to formalise. A `CYCLE_PHASES` registry
+  built from those five names would encode the wrong pipeline and leave ten phases outside the SSoT meant to be
+  authoritative — the duplicate representation the collapse exists to remove. So the collapse is materially larger than
+  "move four extended phases behind preconditions": it restructures ~300 lines of inline sequential phase code. The
+  kwargs and the constants that validate them must be deleted as **one unit**; removing either alone leaves a dangling
+  half. A separate risk it must handle rather than discover: the four extended phases have **never executed in
+  production**, so switching them on runs `pr_lifecycle` → `open_pr_for_action` on every cycle with
+  `approved_for_apply` proposals — no longer able to self-halt the nightly after `ORPHAN-CRITICAL-503`, but still a
+  first-time behaviour change that needs its precondition right before it is enabled.
+  **CLOSED by RC-1, in the order this finding prescribed.** The registry is derived from the body's real phases, not from
+  the constant: 21 rows across four stages (`discovery`, `pre_tool`, `tools`, `post_tool`), each carrying a precondition
+  from a closed five-value vocabulary and one of four error policies — `propagate`, `halt_sequence`,
+  `record_and_continue`, `swallow`, which are not a new design but the four behaviours the body already had, each
+  previously encoded as the presence or absence of a `post_tool_failure is None` guard. The kwargs and both constants
+  were deleted as one unit. Three consequences worth recording. The state dict is now a **projection** of the phase
+  results via a `state_key` per row, so the legacy top-level keys and the phase payloads cannot become two stores that
+  disagree; a new `state["phases"]` outcome ledger records `ran` / `skipped` / `failed` / `degraded` with the reason,
+  which is where a phase that did **not** run finally becomes visible. `_assert_pipeline_is_well_formed()` runs at import
+  — earlier than any test and earlier than any cycle — replacing the entry-time validation of an input that no longer
+  exists. And the tool-loop status filter turned out to be **two branches selecting the same set**
+  (`("SHADOW","ACTIVE","CALIBRATE")` vs `("ACTIVE","SHADOW","CALIBRATE")`), so the branch on `shadow_only` decided
+  nothing while reading as though a shadow run dispatched a narrower set; collapsed to the one check that was actually
+  happening.
+
+- **ORPHAN-HIGH-504** — the static reachability invariant cannot catch a kwarg-gated dead pipeline  
+  Severity HIGH, layer 1, owner okan, deadline 2026-08-13. **Found by building the tool the plan asked for.** RC-1 calls
+  its static call-graph invariant "the generalised answer to the defect class". It would **not** have caught
+  `ORPHAN-CRITICAL-498`, and the reason is structural, not an implementation gap: **a conditional call is still an edge.**
+  `run_enterprise_cycle` really does call `_run_extended_phases`; the call is guarded by `if run_phases is not None` and no
+  production caller passes the kwarg, so any static walk reports the whole extended pipeline as reachable while it never
+  executes. Improving the resolver cannot fix this — deciding whether the branch is entered is the halting problem in
+  miniature. So the tier-3 invariant and the tier-1 collapse cover **different** failures: the invariant catches a control
+  with no caller at all (420's breaker, whose only occurrence was its own `def`); the registry catches a control whose
+  caller is never entered (498). Treating RC-1 as closed on the invariant alone would leave the more expensive half open
+  under a green test — the exact shape of the defect class. **Two false positives on the way, both from my resolver, both
+  fixed rather than exempted** — a reachability tool that over-reports teaches its readers to ignore it. `record_failure`
+  was reported dead but is reached through callback indirection (`invoke_planner = dispatch_one_pending_planner_request`,
+  then the local is called); `assert_autonomy_unlocked` was reported dead but is reached through a Protocol-typed strategy
+  object (`RealAutoMergeRunner(...)` → `runner(...)` → `__call__` → `merge_pr_if_ready`). A false accusation is as
+  damaging as a missed defect: acting on either would have meant re-wiring a control that was already wired. All five
+  declared controls are reachable today, so the invariant's present value is preventing regression. The tier-1 collapse
+  remains open with its design settled — `CyclePhase`, `CYCLE_PHASES` as ordered SSoT, a uniform `PhaseContext`, and
+  `run_phases` / `pre_tool_phases` **deleted** rather than kept as a seam.
+
+- **ORPHAN-CRITICAL-503** — the perimeter authorised dry runs, and their stage artifacts fed the failure breaker  
+  Severity CRITICAL, layer 1, owner okan, deadline 2026-08-13. **Preventative, and the sequencing is the finding.**
+  `open_pr_for_action` runs the 10-check `GATE_PRE_PR_OPEN` perimeter before its `dry_run` branch so a preview cannot skip
+  the gate — but a dry run opens nothing: no `changed_files`, no `base_sha`, no diff. Checks needing those refused on data
+  that _cannot exist at that stage_, and `_run_pr_lifecycle_phase` fed every such refusal to
+  `record_failure(kind="validator_rejection")`. Three `approved_for_apply` proposals in one cycle would trip a breaker
+  that `ORPHAN-CRITICAL-420` S2 extended to gate **`standard`** — the profile the nightly runs. The lane would halt
+  itself on its own telemetry. It never fired only because `_run_extended_phases` is unreachable
+  (`ORPHAN-CRITICAL-498`), and RC-1 exists to put that phase on the live lane, so this had to land **before** RC-1, not
+  after. Fixed tier-1 rather than with a flag: **the mode is the result type.** `observe_perimeter()` returns a
+  `PerimeterObservation` with no `passed`, no `failures`, no `raise_if_blocked` — there is no attribute a breaker
+  producer can read as a refusal — while `run_hard_fail_checks()` keeps its fail-closed `HardFailReport` for real opens.
+  One registry, one implementation, so the two modes can never disagree about what a check does. `PerimeterVerdict` adds
+  a third state, `not_evaluable_at_this_stage`, distinct from `passed=False`; collapsing those two is what made a dry run
+  look like a rejected implementation. **Two correct arguments were in tension and neither was discarded:** the previous
+  design refused dry runs so a preview could not report `ok` while the perimeter would block (a false green), and RC-2
+  requires a preview not be counted as a refusal. `evaluable` separates them — a preview is _still_ refused when a check
+  that could run refused, and is not refused when the only refusals name inputs the stage cannot supply. The breaker is
+  **not** left producerless: `planner_dispatch_hook` records `subprocess_timeout` from a single `except` arm, and an
+  invariant pins that, precisely so nobody restores the removed edge believing the breaker went decorative again.
+  Enforced by six AST assertions in `tests/invariants/v3/test_perimeter_observe_has_no_breaker_edge.py` — AST and not
+  grep, because grep is what reported `ORPHAN-CRITICAL-428` as wired, and this fix's own comments name `record_failure`,
+  so a substring version would fail on its own documentation. Proven to bite: restoring the edge fails 2 of 6 naming the
+  phase.
+
+- **ORPHAN-HIGH-502** — the refuted `pr_lifecycle` route was still asserted as production fact in two artifacts  
+  Severity HIGH, layer 1, owner okan, deadline 2026-08-13. `ORPHAN-CRITICAL-498` established that
+  `_run_extended_phases` has no production caller, so `_run_pr_lifecycle_phase` never executes. That correction reached
+  one test docstring and **missed two other artifacts repeating the refuted claim.** First,
+  `tests/invariants/v3/test_breaker_end_to_end_reachability.py` claimed to run "the REAL chain" while calling
+  `cycle_mod._run_pr_lifecycle_phase` directly — a green invariant whose _name_ is exactly what someone greps before
+  shipping a lane with no producer, and whose successor already existed with a header enumerating four ways the old path
+  was dead. Two files claiming one invariant. Second, `pr_manager.py` carried, inside the load-bearing comment justifying
+  where the perimeter check sits, the assertion that the only production route was the cycle's `pr_lifecycle` phase with
+  `dry_run=True`. A reader trusting that comment concludes the perimeter is on the scheduled lane — which is how 498
+  survived review. Closed here: superseded invariant **deleted** (successor plus the callsite test cover the behaviour,
+  10 tests green after removal; the only remaining reference was a generated nx cache artifact, so nothing name-pinned
+  it) and the comment corrected in place with the refuted chain quoted, so the correction is auditable rather than a
+  silent edit. **Plan correction recorded rather than followed:** RC-8 also specified moving a misplaced `__main__` guard
+  at `test_pr_open_perimeter_callsite.py:185`. That is stale — the guard sits at line 302, after both test classes. The
+  plan predates the current file; no move was needed and none was made.
 
 - **ORPHAN-HIGH-501** — `lint-and-typecheck` outgrew its 15-minute budget, so its last two gates stopped running  
   Severity HIGH, layer 3, owner okan, deadline 2026-08-13. Measured, not inferred. On head `5967d7285` the job started

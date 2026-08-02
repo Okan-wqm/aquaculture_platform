@@ -62,7 +62,7 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 
 from .autonomy_state import AutonomyStateReducer
 from .file_lock import with_exclusive_lock
@@ -345,15 +345,30 @@ def _bounded_cycle_summary(cycle_result: dict[str, Any]) -> dict[str, Any]:
     return summary
 
 
+class PreflightVerdict(NamedTuple):
+    """RC-5 — a preflight outcome that can carry WHY without a positional tuple.
+
+    ``detail`` exists because a refused policy is only actionable if the
+    operator is told which key in which file is wrong. The reason code is for
+    the state machine; the detail is for the human, carried verbatim from the
+    GovernanceError rather than re-worded, so the message the operator reads is
+    the message the code raised.
+    """
+
+    status: str
+    reason: str | None = None
+    detail: str | None = None
+
+
 def _cycle_preflight(
     *,
     base_dir: Path,
     profile_snapshot: str,
-) -> tuple[str, str | None]:
+) -> PreflightVerdict:
     """Plan ARIA-V3 §B2 — cost + failure + lease preflight.
 
-    Returns ``("ok", None)`` when the cycle is permitted to proceed;
-    ``("blocked", reason_code)`` when refused.
+    Returns ``PreflightVerdict("ok")`` when the cycle is permitted to proceed;
+    ``PreflightVerdict("blocked", reason_code, detail)`` when refused.
 
     ORPHAN-CRITICAL-420 S2 — renamed from ``_autonomous_preflight``. The old
     name described the old behaviour: the whole body short-circuited OK unless
@@ -388,6 +403,15 @@ def _cycle_preflight(
       * ``failure_breaker_tripped`` — B2 failure circuit breaker tripped
       * ``autonomous_host_lease_blocked`` — §2n cross-host lease held
         by a different host
+      * ``policy_refused`` — RC-5. The genesis policy itself is invalid, so no
+        breaker verdict can be computed. Named for the class rather than for
+        one cause: ``circuit_breaker_policy`` refuses BOTH a renamed key
+        (``threshold_24h``) and a ``failure_window_hours`` below the derived
+        floor, and calling the reason ``policy_migration_required`` — as the
+        plan specified — would mislabel the second as a migration when it is a
+        range violation. The specific GovernanceError message is carried in
+        ``detail`` and lands in the governance row, so nothing is lost by
+        having one code.
     """
     is_autonomous = profile_snapshot == "autonomous"
     # Lazy imports — keep run_autonomy_orchestrator importable when
@@ -396,7 +420,7 @@ def _cycle_preflight(
         try:
             from .cost_budget import current_state as _cost_state
             if _cost_state(base_dir) == "tripped":
-                return ("blocked", "cost_breaker_tripped")
+                return PreflightVerdict("blocked", "cost_breaker_tripped")
         except ImportError:
             pass
     # current_state() is safe to gate on: evaluate_breaker returns
@@ -407,14 +431,34 @@ def _cycle_preflight(
     from .runtime_profile import PROFILES_WITH_ACTION_AUTHORITY
 
     if profile_snapshot in PROFILES_WITH_ACTION_AUTHORITY:
+        from .tool_registry import GovernanceError as _PolicyError
+
         try:
             from .circuit_breaker import current_state as _failure_state
             if _failure_state(base_dir) == "tripped":
-                return ("blocked", "failure_breaker_tripped")
+                return PreflightVerdict("blocked", "failure_breaker_tripped")
         except ImportError:
             pass
+        except _PolicyError as exc:
+            # RC-5. This guard used to catch ImportError ONLY, while the call it
+            # wraps reads the genesis policy: `current_state` -> evaluate_breaker
+            # -> circuit_breaker_policy, which raises GovernanceError by design
+            # when an override carries a renamed key. So an operator with an
+            # untracked aria-config/genesis_policy.json got a traceback out of
+            # run_autonomy_orchestrator, on a path whose whole purpose is to exit
+            # cleanly with a reason code.
+            #
+            # RC-4 widened the trigger rather than leaving it latent: a
+            # failure_window_hours below the derived floor now raises here too.
+            # That is why the two land in one commit — shipping RC-4 alone would
+            # have turned a documented misconfiguration into a crash.
+            #
+            # A misconfiguration is an operator-actionable BLOCKED cycle: not a
+            # crash, and not a swallowed exception that runs the breaker on
+            # defaults the operator never chose.
+            return PreflightVerdict("blocked", "policy_refused", str(exc))
     if not is_autonomous:
-        return ("ok", None)
+        return PreflightVerdict("ok")
     try:
         from .autonomous_host_lease import acquire_lease
         from .tool_registry import GovernanceError as _GE
@@ -422,11 +466,11 @@ def _cycle_preflight(
             acquire_lease(base_dir=base_dir)
         except _GE as exc:
             if "autonomous_host_lease_blocked" in str(exc):
-                return ("blocked", "autonomous_host_lease_blocked")
+                return PreflightVerdict("blocked", "autonomous_host_lease_blocked")
             raise
     except ImportError:
         pass
-    return ("ok", None)
+    return PreflightVerdict("ok")
 
 
 def run_autonomy_orchestrator(
@@ -817,7 +861,7 @@ def run_autonomy_orchestrator(
                 #   3. autonomous_host_lease (§2n) — cross-host  [autonomous]
                 # On any breaker tripped, exit cleanly with the matching
                 # reason code (no error, no retry storm).
-                preflight_status, preflight_reason = _cycle_preflight(
+                preflight_status, preflight_reason, preflight_detail = _cycle_preflight(
                     base_dir=root,
                     profile_snapshot=profile_snapshot,
                 )
@@ -832,6 +876,11 @@ def run_autonomy_orchestrator(
                             "cycle_index": cycle_n,
                             "daemon_id": daemon_id,
                             "preflight_reason": preflight_reason,
+                            # RC-5 — the operator-actionable half. Absent for the
+                            # breaker/lease reasons, which are self-describing;
+                            # present for policy_refused, where the reason code
+                            # alone would not say which key in which file.
+                            "preflight_detail": preflight_detail,
                         },
                     )
                     exit_reason = preflight_reason or "autonomous_preflight_blocked"

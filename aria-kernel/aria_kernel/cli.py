@@ -545,6 +545,17 @@ def _main(argv: list[str] | None = None) -> int:
     breaker_reset.add_argument("--acknowledge", action="store_true")
     breaker_reset.add_argument("--reason", required=True, type=_validate_reason)
     breaker_reset.add_argument("--operator-approval-ref", required=True)
+    # RC-6 — `quarantine` is a DIFFERENT verb from `reset`, not a flag on it,
+    # because the guarantees differ: reset discards the whole window and clears
+    # the state, quarantine preserves every decodable row and clears nothing.
+    # Collapsing them into one command with a flag is how an operator reaching
+    # for "make the breaker evaluable" would end up discarding the evidence.
+    # It gets a CLI at all because ORPHAN-HIGH-465 was exactly this: an
+    # operator-recovery function that existed with no command surface.
+    breaker_quarantine = add_subparser(breaker_sub, "quarantine")
+    breaker_quarantine.add_argument("--acknowledge", action="store_true")
+    breaker_quarantine.add_argument("--reason", required=True, type=_validate_reason)
+    breaker_quarantine.add_argument("--operator-approval-ref", required=True)
 
     tool_parser = add_subparser(sub, "tool")
     tool_sub = tool_parser.add_subparsers(dest="tool_command", required=True)
@@ -2161,6 +2172,29 @@ def _main(argv: list[str] | None = None) -> int:
             reason=args.reason,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "breaker" and args.breaker_command == "quarantine":
+        from aria_kernel.circuit_breaker import quarantine_breaker_evidence
+
+        if not args.acknowledge:
+            print(
+                "breaker quarantine requires --acknowledge: it moves undecodable "
+                "ledger rows to a sidecar. Every decodable row is KEPT and the "
+                "breaker is NOT cleared — it re-derives from the survivors and "
+                "stays tripped if they still exceed the threshold.",
+            )
+            return 2
+        result = quarantine_breaker_evidence(
+            base_dir=args.tools_dir,
+            operator_approval_ref=args.operator_approval_ref,
+            reason=args.reason,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        # A no-op is not a failure, but a still-tripped breaker must not exit 0
+        # as though recovery finished: the operator has more to do.
+        if result.get("breaker_state_after") == "tripped":
+            return 1
         return 0
 
     if args.command == "integrity" and args.integrity_command == "verify":

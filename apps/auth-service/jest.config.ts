@@ -9,6 +9,9 @@ export default {
   },
   moduleFileExtensions: ['ts', 'js', 'html'],
   coverageDirectory: '../../coverage/apps/auth-service',
+  // Real-Postgres migration contracts have an explicit, serial integration
+  // target. Keep Docker/Testcontainers out of the fast unit target.
+  testPathIgnorePatterns: ['\\.postgres\\.spec\\.ts$'],
   // AUDIT-MEDIUM-015 mock hygiene: without these, jest.spyOn/mock state leaks
   // across the service's spec files. restoreMocks restores spied originals and
   // clearMocks resets call counts between tests. resetMocks stays FALSE on

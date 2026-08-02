@@ -33,12 +33,12 @@ services:
       NOTIFICATION_SERVICE_DB_PASS: ${NOTIFICATION_SERVICE_DB_PASS:-}
       HYDROPONICS_SERVICE_DB_PASS: ${HYDROPONICS_SERVICE_DB_PASS:-}
     ports:
-      - "5433:5432"
+      - '5433:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/docker/init-scripts:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aquaculture"]
+      test: ['CMD-SHELL', 'pg_isready -U aquaculture']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -53,12 +53,12 @@ services:
     container_name: aqua-redis
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-devpassword}
     ports:
-      - "6379:6379"
+      - '6379:6379'
     volumes:
       - redis_data:/data
     healthcheck:
       # SEC-014: Use REDISCLI_AUTH env var to avoid password in process list
-      test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD:-devpassword} redis-cli ping"]
+      test: ['CMD-SHELL', 'REDISCLI_AUTH=${REDIS_PASSWORD:-devpassword} redis-cli ping']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -71,16 +71,17 @@ services:
   nats:
     image: nats:2.10-alpine
     container_name: aqua-nats
-    # ARCH-010/ARCH-018: Use config file for JetStream limits + store_dir
-    command: ["--config", "/etc/nats/nats.conf"]
+    # Local Nx development has no certificate identity. Keep the broker
+    # explicitly anonymous here; the production droplet topology mounts the
+    # generated cert-CN ACL and mTLS configuration.
+    command: ['-js', '--store_dir', '/data', '--http_port', '8222']
     ports:
-      - "4222:4222"
-      - "127.0.0.1:8222:8222"
+      - '4222:4222'
+      - '127.0.0.1:8222:8222'
     volumes:
       - nats_data:/data
-      - ./infrastructure/docker/nats/nats.conf:/etc/nats/nats.conf:ro
     healthcheck:
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 4222 || exit 1"]
+      test: ['CMD-SHELL', 'nc -z 127.0.0.1 4222 || exit 1']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -98,12 +99,12 @@ services:
       MINIO_ROOT_USER: ${MINIO_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-minioadmin}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - '9000:9000'
+      - '9001:9001'
     volumes:
       - minio_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -118,8 +119,8 @@ services:
     image: mailhog/mailhog:v1.0.1
     container_name: aqua-mailhog
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - '1025:1025'
+      - '8025:8025'
     networks:
       - aqua-network
 
@@ -128,7 +129,7 @@ services:
     container_name: aqua-adminer
     # SEC-024: Bind to localhost only — not accessible from LAN
     ports:
-      - "127.0.0.1:8081:8080"
+      - '127.0.0.1:8081:8080'
     depends_on:
       - postgres
     networks:

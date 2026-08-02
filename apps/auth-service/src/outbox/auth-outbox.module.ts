@@ -1,6 +1,10 @@
 import { Global, Module } from '@nestjs/common';
 import { OutboxModule } from '@platform/outbox';
 
+import { AccessTokenInvalidationHandler } from '../modules/authentication/controllers/access-token-invalidation.handler';
+import { UserAccessTokenInvalidationHandler } from '../modules/authentication/controllers/user-access-token-invalidation.handler';
+import { DurableAccessTokenInvalidationService } from '../modules/authentication/services/durable-access-token-invalidation.service';
+import { DurableUserTokenInvalidationService } from '../modules/authentication/services/durable-user-token-invalidation.service';
 import { AuthOutbox } from './auth-outbox.entity';
 import { BestEffortEventPublisher } from './best-effort-event-publisher';
 
@@ -22,8 +26,26 @@ import { BestEffortEventPublisher } from './best-effort-event-publisher';
  */
 @Global()
 @Module({
-  imports: [OutboxModule.forFeature(AuthOutbox)],
-  providers: [BestEffortEventPublisher],
-  exports: [OutboxModule, BestEffortEventPublisher],
+  imports: [
+    OutboxModule.forFeature(AuthOutbox, {
+      allowSystemRouting: true,
+      allowSecurityRecovery: true,
+    }),
+  ],
+  providers: [
+    BestEffortEventPublisher,
+    DurableAccessTokenInvalidationService,
+    DurableUserTokenInvalidationService,
+    AccessTokenInvalidationHandler,
+    UserAccessTokenInvalidationHandler,
+  ],
+  exports: [
+    OutboxModule,
+    BestEffortEventPublisher,
+    DurableAccessTokenInvalidationService,
+    DurableUserTokenInvalidationService,
+    AccessTokenInvalidationHandler,
+    UserAccessTokenInvalidationHandler,
+  ],
 })
 export class AuthOutboxModule {}

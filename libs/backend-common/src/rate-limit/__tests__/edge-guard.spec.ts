@@ -14,9 +14,17 @@ const EDGE: RateLimitEdgeConfig = {
     anonymous: { name: 'anonymous', limit: 2, windowMs: 60_000 },
     tenant: { name: 'tenant', limit: 5, windowMs: 60_000 },
     login: { name: 'login', limit: 1, windowMs: 60_000 },
+    marineRender: { name: 'marine-render', limit: 1, windowMs: 60_000 },
     mutations: { name: 'mutations', limit: 2, windowMs: 60_000 },
   },
-  endpointBuckets: [{ tier: 'login', paths: ['/auth/login'] }],
+  endpointBuckets: [
+    { tier: 'login', paths: ['/auth/login'] },
+    {
+      tier: 'marineRender',
+      paths: [],
+      pathTemplates: ['/api/marine/sites/:siteId/render'],
+    },
+  ],
   mutationTier: 'mutations',
 };
 
@@ -100,6 +108,20 @@ describe('RateLimitGuard — edge mode', () => {
     await expect(guard.canActivate(ctx())).resolves.toBe(true);
     await expect(guard.canActivate(ctx())).resolves.toBe(true);
     await expect(guard.canActivate(ctx())).rejects.toThrow(HttpException);
+  });
+
+  it('limits costly dynamic marine renders per verified user', async () => {
+    const guard = edgeGuard();
+    const context = (userId: string): ExecutionContext =>
+      httpContext({
+        ip: '198.51.100.99',
+        url: '/api/marine/sites/site-1/render',
+        user: { sub: userId, tenantId: 'tenant-1' },
+      }).context;
+
+    await expect(guard.canActivate(context('user-1'))).resolves.toBe(true);
+    await expect(guard.canActivate(context('user-1'))).rejects.toThrow(HttpException);
+    await expect(guard.canActivate(context('user-2'))).resolves.toBe(true);
   });
 
   it('decorator config WINS over edge config when both are present', async () => {

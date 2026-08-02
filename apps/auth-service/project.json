@@ -45,6 +45,14 @@
       "options": {
         "jestConfig": "apps/auth-service/jest.config.ts"
       }
+    },
+    "test:integration": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}-integration"],
+      "options": {
+        "jestConfig": "apps/auth-service/jest.integration.config.ts",
+        "runInBand": true
+      }
     }
   }
 }

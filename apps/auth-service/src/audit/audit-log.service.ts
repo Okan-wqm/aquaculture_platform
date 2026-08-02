@@ -1,3 +1,8 @@
+import {
+  AuditSeverity as PlatformAuditSeverity,
+  type CreateAuditEntryDto,
+  type IAuditLogService,
+} from '@aquaculture/backend-common/audit';
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
@@ -24,7 +29,7 @@ export interface CreateAuditLogDto {
 }
 
 @Injectable()
-export class AuditLogService {
+export class AuditLogService implements IAuditLogService {
   private readonly logger = new Logger(AuditLogService.name);
 
   constructor(
@@ -33,6 +38,67 @@ export class AuditLogService {
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
   ) {}
+
+  /**
+   * Canonical cross-cutting audit port used by TenantGuard.
+   *
+   * Auth owns a richer, auth-schema-specific audit entity, so this method
+   * translates the platform contract into that schema while preserving every
+   * forensic field in queryable auth columns or the immutable details payload.
+   */
+  record(dto: CreateAuditEntryDto): void {
+    void this.recordAwait(dto).catch((error: unknown) => {
+      this.logger.error(
+        JSON.stringify({
+          event: 'auth_audit_record_failed',
+          errorType: error instanceof Error ? error.name : typeof error,
+        }),
+      );
+    });
+  }
+
+  async recordAwait(dto: CreateAuditEntryDto): Promise<void> {
+    await this.log({
+      tenantId: dto.actedOnTenantId ?? dto.tenantId ?? undefined,
+      performedBy: dto.userId ?? 'system',
+      performedByEmail: dto.userEmail ?? undefined,
+      action: dto.action,
+      entityType: dto.resource,
+      entityId: dto.resourceId ?? undefined,
+      details: {
+        ...(dto.metadata ?? {}),
+        resourceId: dto.resourceId ?? null,
+        schemaName: dto.schemaName ?? null,
+        actorHomeTenantId: dto.actorHomeTenantId ?? null,
+        actedOnTenantId: dto.actedOnTenantId ?? dto.tenantId ?? null,
+        method: dto.method ?? null,
+        mfaVerified: dto.mfaVerified ?? null,
+        result: dto.result ?? null,
+        preStateHash: dto.preStateHash ?? null,
+        postStateHash: dto.postStateHash ?? null,
+        justification: dto.justification ?? null,
+        relatedAuditIds: dto.relatedAuditIds ?? null,
+      },
+      severity: this.toAuthSeverity(dto.severity),
+      requestId: dto.correlationId ?? undefined,
+      ipAddress: dto.ip ?? undefined,
+      userAgent: dto.userAgent ?? undefined,
+    });
+  }
+
+  private toAuthSeverity(severity?: PlatformAuditSeverity): AuditLogSeverity {
+    switch (severity) {
+      case PlatformAuditSeverity.WARNING:
+        return AuditLogSeverity.WARNING;
+      case PlatformAuditSeverity.ERROR:
+        return AuditLogSeverity.ERROR;
+      case PlatformAuditSeverity.CRITICAL:
+        return AuditLogSeverity.CRITICAL;
+      case PlatformAuditSeverity.INFO:
+      default:
+        return AuditLogSeverity.INFO;
+    }
+  }
 
   /**
    * Persist an audit-log row.
@@ -112,7 +178,8 @@ export class AuditLogService {
       offset?: number;
     },
   ): Promise<{ data: AuditLog[]; total: number }> {
-    const query = this.auditLogRepository.createQueryBuilder('audit')
+    const query = this.auditLogRepository
+      .createQueryBuilder('audit')
       .where('audit.tenantId = :tenantId', { tenantId });
 
     if (options?.startDate && options?.endDate) {
@@ -144,11 +211,7 @@ export class AuditLogService {
     return { data, total };
   }
 
-  async findByPerformer(
-    performedBy: string,
-    tenantId: string,
-    limit = 100,
-  ): Promise<AuditLog[]> {
+  async findByPerformer(performedBy: string, tenantId: string, limit = 100): Promise<AuditLog[]> {
     return this.auditLogRepository.find({
       where: { performedBy, tenantId },
       order: { createdAt: 'DESC' },
@@ -156,11 +219,7 @@ export class AuditLogService {
     });
   }
 
-  async findByEntity(
-    entityType: string,
-    entityId: string,
-    tenantId: string,
-  ): Promise<AuditLog[]> {
+  async findByEntity(entityType: string, entityId: string, tenantId: string): Promise<AuditLog[]> {
     return this.auditLogRepository.find({
       where: { entityType, entityId, tenantId },
       order: { createdAt: 'DESC' },

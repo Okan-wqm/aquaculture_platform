@@ -4,10 +4,7 @@
   "title": "NATS Per-Service Identity + ACL Registry",
   "description": "Single source of truth for NATS per-service authentication. Validates infrastructure/nats/services.yaml. Consumed by the CI invariant test nats-invariants.spec.ts.",
   "type": "object",
-  "required": [
-    "version",
-    "services"
-  ],
+  "required": ["version", "services"],
   "additionalProperties": false,
   "properties": {
     "version": {
@@ -27,12 +24,7 @@
   "definitions": {
     "service": {
       "type": "object",
-      "required": [
-        "name",
-        "description",
-        "publish",
-        "subscribe"
-      ],
+      "required": ["name", "application", "description", "publish", "subscribe"],
       "additionalProperties": false,
       "properties": {
         "name": {
@@ -41,6 +33,13 @@
           "minLength": 3,
           "maxLength": 40,
           "description": "NATS user identifier. MUST exactly match the mTLS client cert CN for this service (verify_and_map maps CN \u2192 user). Lowercase snake_case."
+        },
+        "application": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*[a-z0-9]$",
+          "minLength": 3,
+          "maxLength": 64,
+          "description": "Unique apps/<directory> runtime that owns this certificate identity. APP_TO_SERVICE and deploy invariants derive from this field; identities may not be shared."
         },
         "description": {
           "type": "string",
@@ -67,10 +66,10 @@
     },
     "subject": {
       "type": "string",
-      "pattern": "^(events\\.|commands\\.|request\\.|config\\.runtime\\.|sensor\\.|st\\.language\\.|policy\\.|\\$JS\\.API\\.|_INBOX\\.|_INBOXBILLINGCFG\\.)[A-Za-z0-9_.*>-]+$",
+      "pattern": "^(events\\.|commands\\.|request\\.|config\\.runtime\\.|config\\.marine_credentials\\.|sensor\\.|st\\.language\\.|policy\\.|\\$JS\\.API\\.|_INBOX\\.|_INBOXBILLINGCFG\\.|_INBOXFARMMARINECFG\\.)[A-Za-z0-9_.*>-]+$",
       "minLength": 3,
       "maxLength": 120,
-      "description": "NATS subject pattern. Must begin with one of: events., commands., request., config.runtime., sensor., st.language., policy., $JS.API., _INBOX. \u2014 platform subject-space conventions enforced by SSoT. The legacy AQUACULTURE_EVENTS. prefix is STRUCTURALLY REJECTED (ORPHAN-HIGH-317): it is the JetStream stream NAME, never a subject prefix \u2014 grants written in that scheme are dead weight that silently deny the real events.* publishes. The `policy.` namespace carries dynamic-policy propagation (e.g. policy.ingest_backend.> \u2014 ADR-027 per-tenant toggle + ADR-031 request-reply snapshot); `sensor.lookup.by-topic` is the Rust sidecar cache-miss RPC (ADR-029); `config.runtime.get`/`config.runtime.get_secret` are config-service's request-reply reads for effective configuration (Billing Revival Faz C / D6) \u2014 the get_secret subject is granted to exactly one CN (billing_service); `_INBOXBILLINGCFG.` is the SCOPED reply-inbox token for that secret read (a DISTINCT first token from `_INBOX.` so the platform-wide `_INBOX.>` grant cannot match it \u2014 SEC-CRITICAL-001), granted only to billing_service (subscribe) + config_service (publish)."
+      "description": "NATS subject pattern in a canonical platform namespace. The legacy AQUACULTURE_EVENTS. prefix is structurally rejected because it is a stream name, never a publish subject. Secret-bearing request/reply paths use distinct first-token inboxes: `_INBOXBILLINGCFG.` is restricted to billing_service and config_service, while `_INBOXFARMMARINECFG.` is restricted to farm_service and config_service, so the platform-wide `_INBOX.>` grant cannot read either reply stream."
     }
   }
 }

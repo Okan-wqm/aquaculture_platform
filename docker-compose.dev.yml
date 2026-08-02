@@ -1,7 +1,7 @@
 # =============================================================================
 # Aquaculture Platform - Docker Compose (Development - Simplified)
 # Uses pre-built artifacts from host for MUCH faster builds
-# USAGE: 
+# USAGE:
 #   1. Build all services: npm run build:all
 #   2. Start containers: docker-compose -f docker-compose.dev.yml up
 # =============================================================================
@@ -35,12 +35,12 @@ services:
       NOTIFICATION_SERVICE_DB_PASS: ${NOTIFICATION_SERVICE_DB_PASS:-}
       HYDROPONICS_SERVICE_DB_PASS: ${HYDROPONICS_SERVICE_DB_PASS:-}
     ports:
-      - "5432:5432"
+      - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/docker/init-scripts:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aquaculture"]
+      test: ['CMD-SHELL', 'pg_isready -U aquaculture']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -52,11 +52,11 @@ services:
     container_name: aqua-redis
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-devpassword}
     ports:
-      - "6379:6379"
+      - '6379:6379'
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ['CMD-SHELL', 'REDISCLI_AUTH=${REDIS_PASSWORD:-devpassword} redis-cli ping']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -66,14 +66,14 @@ services:
   nats:
     image: nats:2.10-alpine
     container_name: aqua-nats
-    command: ["-js", "-m", "8222"]
+    command: ['-js', '-m', '8222']
     ports:
-      - "4222:4222"
-      - "8222:8222"
+      - '4222:4222'
+      - '8222:8222'
     volumes:
       - nats_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 4222 || exit 1"]
+      test: ['CMD-SHELL', 'nc -z 127.0.0.1 4222 || exit 1']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -88,12 +88,12 @@ services:
       MINIO_ROOT_USER: ${MINIO_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-minioadmin}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - '9000:9000'
+      - '9001:9001'
     volumes:
       - minio_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
       interval: 30s
       timeout: 20s
       retries: 3
@@ -128,9 +128,9 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
-      ALLOW_DEV_JWT_SECRET: "true"
-      DEV_JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      JWT_SECRET: '${JWT_SECRET:?JWT_SECRET is required}'
+      ALLOW_DEV_JWT_SECRET: 'true'
+      DEV_JWT_SECRET: '${JWT_SECRET:?JWT_SECRET is required}'
       AUTH_SERVICE_URL: http://auth-service:3000/graphql
       FARM_SERVICE_URL: http://farm-service:3000/graphql
       SENSOR_SERVICE_URL: http://sensor-service:3000/graphql
@@ -143,13 +143,13 @@ services:
       MESSAGING_SERVICE_URL: http://messaging-service:3000/graphql
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
-      MINIO_USE_SSL: "false"
+      MINIO_USE_SSL: 'false'
       MINIO_ACCESS_KEY: ${MINIO_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-aquaculture}
       MINIO_REGION: us-east-1
     ports:
-      - "3000:3000"
+      - '3000:3000'
     depends_on:
       postgres:
         condition: service_healthy
@@ -170,6 +170,8 @@ services:
       hr-service:
         condition: service_started
       billing-service:
+        condition: service_started
+      config-service:
         condition: service_started
     networks:
       - aqua-network
@@ -195,12 +197,56 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      JWT_SECRET: '${JWT_SECRET:?JWT_SECRET is required}'
       JWT_EXPIRES_IN: 1h
       REFRESH_TOKEN_EXPIRES_IN: 7d
       SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD:-DevPassword123!}
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health/live']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - aqua-network
+    restart: unless-stopped
+
+  config-service:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend.simple
+      args:
+        SERVICE_NAME: config-service
+    container_name: aqua-config
+    environment:
+      SERVICE_NAME: config-service
+      NODE_ENV: development
+      PORT: 3000
+      CONFIG_SERVICE_PORT: 3000
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: aquaculture
+      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      DATABASE_NAME: aquaculture
+      DATABASE_SCHEMA: config
+      REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
+      CONFIG_ENCRYPTION_KEY: '${CONFIG_ENCRYPTION_KEY:?CONFIG_ENCRYPTION_KEY is required}'
+      SERVICE_IDENTITY_SIGNING_SECRET: '${SERVICE_IDENTITY_SIGNING_SECRET:-local-dev-only-change-me}'
+    ports:
+      - '3007:3000'
+    volumes:
+      - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -234,20 +280,25 @@ services:
       DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
       DATABASE_NAME: aquaculture
       DATABASE_SCHEMA: farm
-      DATABASE_LOGGING: "true"
+      DATABASE_LOGGING: 'true'
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
-      FARM_SEED_ENABLED: "false"
+      FARM_SEED_ENABLED: 'false'
       # SEC-NEW08: Encryption key must be unique per environment — generate with: openssl rand -base64 32
-      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
+      ENCRYPTION_KEY: '${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}'
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      JWT_SECRET: '${JWT_SECRET:?JWT_SECRET is required}'
       # SEC-NEW08: Credential encryption key must be unique per environment — generate with: openssl rand -base64 32
-      CREDENTIAL_ENCRYPTION_KEY: "${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY is required}"
-      # SEC-NEW08: Sentinel Hub encryption key must be unique per environment
-      SENTINEL_HUB_ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
+      CREDENTIAL_ENCRYPTION_KEY: '${CREDENTIAL_ENCRYPTION_KEY:?CREDENTIAL_ENCRYPTION_KEY is required}'
+      # Legacy tenant credential cutover decrypts existing rows before config-service becomes the only SSoT.
+      SENTINEL_HUB_ENCRYPTION_KEY: '${SENTINEL_HUB_ENCRYPTION_KEY:?SENTINEL_HUB_ENCRYPTION_KEY is required during credential cutover}'
+      FARM_ENVIRONMENT_MONITORING_ENABLED: '${FARM_ENVIRONMENT_MONITORING_ENABLED:-false}'
+      MET_NORWAY_APPLICATION_NAME: '${MET_NORWAY_APPLICATION_NAME:-}'
+      MET_NORWAY_CONTACT: '${MET_NORWAY_CONTACT:-}'
+      MET_NORWAY_FROST_CLIENT_ID: '${MET_NORWAY_FROST_CLIENT_ID:-}'
+      SERVICE_IDENTITY_SIGNING_SECRET: '${SERVICE_IDENTITY_SIGNING_SECRET:-local-dev-only-change-me}'
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -255,7 +306,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       nats:
+        condition: service_healthy
+      config-service:
         condition: service_healthy
     networks:
       - aqua-network
@@ -283,11 +338,11 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:-devpassword}
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
-      MQTT_ENABLED: "true"
+      JWT_SECRET: '${JWT_SECRET:?JWT_SECRET is required}'
+      MQTT_ENABLED: 'true'
       MQTT_BROKER_URL: mqtt://host.docker.internal:1883
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -323,9 +378,9 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      JWT_SECRET: '${JWT_SECRET:?JWT_SECRET is required}'
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -361,7 +416,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -395,9 +450,9 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      JWT_SECRET: '${JWT_SECRET:?JWT_SECRET is required}'
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -460,7 +515,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      JWT_SECRET: '${JWT_SECRET:?JWT_SECRET is required}'
     depends_on:
       postgres:
         condition: service_healthy
@@ -489,18 +544,18 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-devpassword}
-      REDIS_DB: "3"
+      REDIS_DB: '3'
       NATS_URL: nats://nats:4222
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
-      MINIO_USE_SSL: "false"
+      MINIO_USE_SSL: 'false'
       MINIO_ACCESS_KEY: ${MINIO_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
-      NODE_OPTIONS: "--max-old-space-size=256"
+      JWT_SECRET: '${JWT_SECRET:?JWT_SECRET is required}'
+      NODE_OPTIONS: '--max-old-space-size=256'
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/health/live"]
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/health/live']
       interval: 30s
       timeout: 5s
       retries: 3
@@ -533,7 +588,7 @@ services:
       ADMIN_PANEL_URL: http://admin-panel:80
       TENANT_ADMIN_URL: http://tenant-admin:80
     ports:
-      - "8080:80"
+      - '8080:80'
     depends_on:
       - dashboard
       - farm-module
@@ -619,7 +674,7 @@ services:
     environment:
       VITE_API_URL: http://localhost:3000/graphql
     ports:
-      - "8082:80"
+      - '8082:80'
     networks:
       - aqua-network
     restart: unless-stopped
@@ -632,8 +687,8 @@ services:
     image: mailhog/mailhog:latest
     container_name: aqua-mailhog
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - '1025:1025'
+      - '8025:8025'
     networks:
       - aqua-network
 
@@ -641,7 +696,7 @@ services:
     image: adminer:latest
     container_name: aqua-adminer
     ports:
-      - "8081:8080"
+      - '8081:8080'
     depends_on:
       - postgres
     networks:

@@ -1,10 +1,17 @@
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import {
+  AUDIT_LOG_SERVICE,
+  AuditMethod,
+  AuditResult,
+  AuditSeverity as PlatformAuditSeverity,
+} from '@aquaculture/backend-common/audit';
 import { DataSource } from 'typeorm';
 
 import { AuditLog, AuditLogSeverity } from './audit-log.entity';
 import { AuditLogService } from './audit-log.service';
+import { AuditModule } from './audit.module';
 
 /**
  * AuditLogService.log — manager-aware overload coverage (FINDING #5 / SEC-MEDIUM-002)
@@ -96,7 +103,10 @@ describe('AuditLogService.log — manager-aware overload (FINDING #5)', () => {
     await service.log(dto, txManager);
 
     // The passed manager performs the write, scoped to the AuditLog entity...
-    expect(txManager.create).toHaveBeenCalledWith(AuditLog, expect.objectContaining({ action: dto.action }));
+    expect(txManager.create).toHaveBeenCalledWith(
+      AuditLog,
+      expect.objectContaining({ action: dto.action }),
+    );
     expect(txManager.save).toHaveBeenCalledTimes(1);
     // ...and the injected manager is NEVER touched (no separate connection —
     // this is what makes the audit atomic with the rolled-back mutation).
@@ -141,5 +151,73 @@ describe('AuditLogService.log — manager-aware overload (FINDING #5)', () => {
       AuditLog,
       expect.objectContaining({ severity: AuditLogSeverity.CRITICAL }),
     );
+  });
+
+  it('adapts the canonical audit contract into the auth audit schema', async () => {
+    const targetTenantId = '22222222-2222-4222-8222-222222222222';
+
+    await service.recordAwait({
+      action: 'SUPER_ADMIN_CROSS_TENANT_ACCESS',
+      resource: 'TenantGuard',
+      resourceId: targetTenantId,
+      userId: 'platform-admin',
+      userEmail: 'admin@example.com',
+      tenantId: targetTenantId,
+      actorHomeTenantId: null,
+      actedOnTenantId: targetTenantId,
+      method: AuditMethod.GRAPHQL,
+      mfaVerified: true,
+      result: AuditResult.SUCCESS,
+      correlationId: 'correlation-1',
+      metadata: { endpoint: 'POST /graphql' },
+      ip: '198.51.100.44',
+      userAgent: 'signed-client-agent',
+      severity: PlatformAuditSeverity.WARNING,
+    });
+
+    expect(txnManager.create).toHaveBeenCalledWith(
+      AuditLog,
+      expect.objectContaining({
+        tenantId: targetTenantId,
+        performedBy: 'platform-admin',
+        performedByEmail: 'admin@example.com',
+        action: 'SUPER_ADMIN_CROSS_TENANT_ACCESS',
+        entityType: 'TenantGuard',
+        entityId: targetTenantId,
+        requestId: 'correlation-1',
+        ipAddress: '198.51.100.44',
+        userAgent: 'signed-client-agent',
+        severity: AuditLogSeverity.WARNING,
+        details: expect.objectContaining({
+          endpoint: 'POST /graphql',
+          actorHomeTenantId: null,
+          actedOnTenantId: targetTenantId,
+          method: AuditMethod.GRAPHQL,
+          mfaVerified: true,
+          result: AuditResult.SUCCESS,
+        }),
+      }),
+    );
+  });
+});
+
+describe('AuditModule canonical audit port', () => {
+  it('binds AUDIT_LOG_SERVICE to the auth AuditLogService singleton', () => {
+    const providers: unknown = Reflect.getMetadata('providers', AuditModule);
+    if (!Array.isArray(providers)) {
+      throw new Error('AuditModule providers metadata is missing');
+    }
+
+    const hasCanonicalAlias = providers.some(
+      (provider: unknown) =>
+        typeof provider === 'object' &&
+        provider !== null &&
+        'provide' in provider &&
+        'useExisting' in provider &&
+        provider.provide === AUDIT_LOG_SERVICE &&
+        provider.useExisting === AuditLogService,
+    );
+
+    expect(hasCanonicalAlias).toBe(true);
   });
 });

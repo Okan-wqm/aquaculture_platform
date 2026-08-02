@@ -1,15 +1,10 @@
-import {
-  UnauthorizedException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import {
-  Resolver,
-  Query,
-  Mutation,
-  Args,
-  Context,
-} from '@nestjs/graphql';
+  MARINE_PROVIDER_CREDENTIAL_KEYS,
+  MARINE_PROVIDER_CREDENTIAL_SERVICE,
+} from '@platform/event-contracts';
+import { Resolver, Query, Mutation, Args, Context } from '@nestjs/graphql';
 
 import { UpsertConfigurationCommand } from './commands/upsert-configuration.command';
 import { SYSTEM_TENANT_ID } from './configuration.constants';
@@ -17,10 +12,7 @@ import {
   EffectiveConfigurationDto,
   toEffectiveConfigurationDto,
 } from './dto/effective-configuration.dto';
-import {
-  Configuration,
-  ConfigEnvironment,
-} from './entities/configuration.entity';
+import { Configuration, ConfigEnvironment } from './entities/configuration.entity';
 import { GetConfigurationQuery } from './queries/get-configuration.query';
 import { GetConfigurationsByServiceQuery } from './queries/get-configurations.query';
 
@@ -44,6 +36,15 @@ interface GraphQLContext {
  * so the two checks can never drift apart.
  */
 const PLATFORM_ADMIN_ROLES: readonly string[] = ['admin', 'platform_admin', 'SUPER_ADMIN'];
+const RESTRICTED_PROVIDER_CREDENTIAL_KEYS: ReadonlySet<string> = new Set(
+  Object.values(MARINE_PROVIDER_CREDENTIAL_KEYS),
+);
+
+function isRestrictedProviderCredential(service: string, key: string): boolean {
+  return (
+    service === MARINE_PROVIDER_CREDENTIAL_SERVICE && RESTRICTED_PROVIDER_CREDENTIAL_KEYS.has(key)
+  );
+}
 
 @Resolver(() => EffectiveConfigurationDto)
 export class ConfigurationResolver {
@@ -55,6 +56,34 @@ export class ConfigurationResolver {
   private hasPlatformAdminRole(context: GraphQLContext): boolean {
     const roles = context.req.user?.roles ?? [];
     return PLATFORM_ADMIN_ROLES.some((role) => roles.includes(role));
+  }
+
+  /**
+   * Provider credential metadata is an operations-only surface. A tenant
+   * principal must not learn whether a company or legacy tenant credential
+   * exists, which source won, or when it rotated. The only public GraphQL
+   * exception is the tenantless SUPER_ADMIN system scope.
+   */
+  private canReadRestrictedProviderCredentials(context: GraphQLContext): boolean {
+    const user = context.req.user;
+    return (
+      user !== undefined &&
+      (user.tenantId === undefined || user.tenantId === null) &&
+      (user.roles ?? []).includes('SUPER_ADMIN')
+    );
+  }
+
+  private assertConfigurationReadAllowed(
+    service: string,
+    key: string,
+    context: GraphQLContext,
+  ): void {
+    if (
+      isRestrictedProviderCredential(service, key) &&
+      !this.canReadRestrictedProviderCredentials(context)
+    ) {
+      throw new ForbiddenException('Configuration is not available through tenant APIs');
+    }
   }
 
   /**
@@ -113,6 +142,7 @@ export class ConfigurationResolver {
     @Context() context: GraphQLContext,
   ): Promise<EffectiveConfigurationDto> {
     const tenantId = this.getTenantId(context);
+    this.assertConfigurationReadAllowed(serviceId, key, context);
     const configuration = await this.queryBus.execute<GetConfigurationQuery, Configuration>(
       new GetConfigurationQuery(tenantId, serviceId, key, environment),
     );
@@ -130,10 +160,14 @@ export class ConfigurationResolver {
     const configurations = await this.queryBus.execute<
       GetConfigurationsByServiceQuery,
       Configuration[]
-    >(
-      new GetConfigurationsByServiceQuery(tenantId, service, environment),
-    );
-    return configurations.map((configuration) =>
+    >(new GetConfigurationsByServiceQuery(tenantId, service, environment));
+    const visibleConfigurations = this.canReadRestrictedProviderCredentials(context)
+      ? configurations
+      : configurations.filter(
+          (configuration) =>
+            !isRestrictedProviderCredential(configuration.service, configuration.key),
+        );
+    return visibleConfigurations.map((configuration) =>
       toEffectiveConfigurationDto(tenantId, configuration),
     );
   }
@@ -161,12 +195,27 @@ export class ConfigurationResolver {
     const tenantId = this.getTenantId(context);
     const userId = this.getUserId(context);
     this.checkAdminAccess(context);
+    const restrictedProviderCredential = isRestrictedProviderCredential(service, key);
+    if (
+      restrictedProviderCredential &&
+      !this.canReadRestrictedProviderCredentials(context)
+    ) {
+      throw new ForbiddenException(
+        'Provider credentials are writable only by tenantless SUPER_ADMIN operations',
+      );
+    }
 
-    const configuration = await this.commandBus.execute<
-      UpsertConfigurationCommand,
-      Configuration
-    >(
-      new UpsertConfigurationCommand(tenantId, service, key, value, environment, userId, isSecret, reason),
+    const configuration = await this.commandBus.execute<UpsertConfigurationCommand, Configuration>(
+      new UpsertConfigurationCommand(
+        tenantId,
+        service,
+        key,
+        value,
+        environment,
+        userId,
+        restrictedProviderCredential ? true : isSecret,
+        reason,
+      ),
     );
     return toEffectiveConfigurationDto(tenantId, configuration);
   }

@@ -17,16 +17,26 @@ import {
   Max,
 } from 'class-validator';
 import { GraphQLJSON } from 'graphql-type-json';
-import { SiteStatus } from '../entities/site.entity';
+import {
+  MonitoringAreaGeometry,
+  SiteSettings,
+  SiteStatus,
+  SiteType,
+} from '../entities/site.entity';
+import { IsMonitoringArea } from './site-monitoring.validation';
 
 @InputType()
 export class SiteLocationInput {
   @Field(() => Float)
-  @IsNumber()
+  @IsNumber({ allowInfinity: false, allowNaN: false })
+  @Min(-90)
+  @Max(90)
   latitude!: number;
 
   @Field(() => Float)
-  @IsNumber()
+  @IsNumber({ allowInfinity: false, allowNaN: false })
+  @Min(-180)
+  @Max(180)
   longitude!: number;
 
   @Field(() => Float, { nullable: true })
@@ -102,6 +112,11 @@ export class CreateSiteInput {
   @MaxLength(20)
   organisationNumberOverride?: string;
 
+  @Field(() => SiteType, { nullable: true, defaultValue: SiteType.LAND_BASED })
+  @IsOptional()
+  @IsEnum(SiteType)
+  type?: SiteType;
+
   @Field({ nullable: true })
   @IsOptional()
   @IsString()
@@ -111,7 +126,19 @@ export class CreateSiteInput {
   @Field(() => SiteLocationInput, { nullable: true })
   @IsOptional()
   @IsObject()
-  location?: SiteLocationInput;
+  location?: SiteLocationInput | null;
+
+  @Field(() => Int, { nullable: true, defaultValue: 2000 })
+  @IsOptional()
+  @IsInt()
+  @Min(100)
+  @Max(20000)
+  monitoringRadiusM?: number;
+
+  @Field(() => GraphQLJSON, { nullable: true })
+  @IsOptional()
+  @IsMonitoringArea()
+  monitoringArea?: MonitoringAreaGeometry | null;
 
   @Field(() => SiteAddressInput, { nullable: true })
   @IsOptional()
@@ -144,7 +171,7 @@ export class CreateSiteInput {
   @Field(() => GraphQLJSON, { nullable: true })
   @IsOptional()
   @IsObject()
-  settings?: Record<string, unknown>;
+  settings?: SiteSettings;
 
   @Field(() => Float, { nullable: true })
   @IsOptional()

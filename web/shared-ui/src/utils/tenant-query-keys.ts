@@ -16,6 +16,56 @@
  */
 import { sessionEpochSegment } from './session-epoch';
 
+interface TenantSessionBoundary {
+  readonly tenantId: string;
+  readonly sessionEpoch: number;
+}
+
+function tenantSessionBoundary(queryKey: readonly unknown[]): TenantSessionBoundary | null {
+  const tenantId = queryKey[1];
+  const epochSegment = queryKey[queryKey.length - 1];
+
+  if (
+    queryKey[0] !== 'tenant' ||
+    typeof tenantId !== 'string' ||
+    tenantId.length === 0 ||
+    typeof epochSegment !== 'object' ||
+    epochSegment === null ||
+    !('__sessionEpoch' in epochSegment) ||
+    typeof epochSegment.__sessionEpoch !== 'number' ||
+    !Number.isSafeInteger(epochSegment.__sessionEpoch) ||
+    epochSegment.__sessionEpoch < 0
+  ) {
+    return null;
+  }
+
+  return { tenantId, sessionEpoch: epochSegment.__sessionEpoch };
+}
+
+/**
+ * True only when both keys belong to the same authenticated tenant-session
+ * generation. Malformed, anonymous, and epoch-less keys fail closed.
+ *
+ * TanStack Query's generic `keepPreviousData` crosses every query-key change,
+ * including tenant and logout/login boundaries. Tenant-aware observers use this
+ * predicate before carrying prior data into a new query so pagination remains
+ * smooth within one session without exposing a previous principal's cache.
+ */
+export function hasSameTenantSessionBoundary(
+  previousQueryKey: readonly unknown[],
+  currentQueryKey: readonly unknown[],
+): boolean {
+  const previous = tenantSessionBoundary(previousQueryKey);
+  const current = tenantSessionBoundary(currentQueryKey);
+
+  return (
+    previous !== null &&
+    current !== null &&
+    previous.tenantId === current.tenantId &&
+    previous.sessionEpoch === current.sessionEpoch
+  );
+}
+
 /**
  * Creates a tenant-scoped query key by prepending ['tenant', tenantId] to
  * the provided key segments. All React Query hooks in multi-tenant contexts

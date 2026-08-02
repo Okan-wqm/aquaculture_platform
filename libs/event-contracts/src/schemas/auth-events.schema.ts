@@ -20,6 +20,10 @@
  * @see libs/event-contracts/src/schemas/validator.ts
  */
 import {
+  ACCESS_TOKEN_INVALIDATION_REASONS,
+  USER_ACCESS_TOKEN_INVALIDATION_REASONS,
+} from '../auth-events';
+import {
   BASE_EVENT_PROPERTIES,
   BASE_EVENT_REQUIRED,
   MAX_FREE_TEXT_LENGTH,
@@ -32,6 +36,8 @@ export type AuthEventType =
   | 'InvitationAccepted'
   | 'PasswordResetRequested'
   | 'PasswordResetCompleted'
+  | 'UserAccessTokenInvalidationRequested'
+  | 'AccessTokenInvalidationRequested'
   | 'UserDeleted'
   | 'UserDataAnonymized'
   | 'GdprAnonymizeRequested'
@@ -64,6 +70,7 @@ const OPAQUE_REF = {
 } as const;
 
 const BOOLEAN = { type: 'boolean' } as const;
+const MAX_DATE_EPOCH_SECONDS = 8_640_000_000_000;
 
 const INITIATED_BY = {
   type: 'string',
@@ -108,6 +115,34 @@ export const AUTH_EVENT_SCHEMAS = {
     'PasswordResetCompleted',
     { userId: UUID_SCHEMA },
     ['userId'],
+  ),
+  UserAccessTokenInvalidationRequested: authEventSchema(
+    'UserAccessTokenInvalidationRequested',
+    {
+      tenantId: { anyOf: [UUID_SCHEMA, { const: 'system' }] },
+      targetUserId: UUID_SCHEMA,
+      invalidatedAtEpochSeconds: {
+        type: 'integer',
+        minimum: 1,
+        maximum: MAX_DATE_EPOCH_SECONDS,
+      },
+      reason: { type: 'string', enum: USER_ACCESS_TOKEN_INVALIDATION_REASONS },
+    },
+    ['targetUserId', 'invalidatedAtEpochSeconds', 'reason'],
+  ),
+  AccessTokenInvalidationRequested: authEventSchema(
+    'AccessTokenInvalidationRequested',
+    {
+      tenantId: { anyOf: [UUID_SCHEMA, { const: 'system' }] },
+      targetJti: UUID_SCHEMA,
+      expiresAtEpochSeconds: {
+        type: 'integer',
+        minimum: 1,
+        maximum: MAX_DATE_EPOCH_SECONDS,
+      },
+      reason: { type: 'string', enum: ACCESS_TOKEN_INVALIDATION_REASONS },
+    },
+    ['targetJti', 'expiresAtEpochSeconds', 'reason'],
   ),
   UserDeleted: authEventSchema(
     'UserDeleted',

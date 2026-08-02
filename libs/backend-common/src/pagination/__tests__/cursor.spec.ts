@@ -61,18 +61,16 @@ describe('encodeCursor / decodeCursor', () => {
     ).toString('base64url');
     expect(() => decodeCursor(missingId)).toThrow(BadRequestException);
 
-    const missingCreatedAt = Buffer.from(
-      JSON.stringify({ id: 'abc' }),
-      'utf8',
-    ).toString('base64url');
+    const missingCreatedAt = Buffer.from(JSON.stringify({ id: 'abc' }), 'utf8').toString(
+      'base64url',
+    );
     expect(() => decodeCursor(missingCreatedAt)).toThrow(BadRequestException);
   });
 
   it('decode throws on invalid ISO timestamp', () => {
-    const badTs = Buffer.from(
-      JSON.stringify({ id: 'a', createdAt: 'nope' }),
-      'utf8',
-    ).toString('base64url');
+    const badTs = Buffer.from(JSON.stringify({ id: 'a', createdAt: 'nope' }), 'utf8').toString(
+      'base64url',
+    );
     expect(() => decodeCursor(badTs)).toThrow(BadRequestException);
   });
 
@@ -103,9 +101,7 @@ describe('buildCursorResponse', () => {
     const response = buildCursorResponse(rows, 10);
     expect(response.edges).toHaveLength(4);
     expect(response.pageInfo.hasNextPage).toBe(false);
-    expect(response.pageInfo.endCursor).toBe(
-      encodeCursor(rows[3]!),
-    );
+    expect(response.pageInfo.endCursor).toBe(encodeCursor(rows[3]!));
   });
 
   it('drops the extra row and flags hasNextPage=true when rows.length > first', () => {
@@ -115,9 +111,7 @@ describe('buildCursorResponse', () => {
     const response = buildCursorResponse(rows, 3);
     expect(response.edges).toHaveLength(3);
     expect(response.pageInfo.hasNextPage).toBe(true);
-    expect(response.pageInfo.endCursor).toBe(
-      encodeCursor(rows[2]!),
-    );
+    expect(response.pageInfo.endCursor).toBe(encodeCursor(rows[2]!));
     // Ensure the 4th row is NOT in the returned edges — it's
     // the signal-only row, not a page member.
     expect(response.edges.some((e) => e.node.id === '4')).toBe(false);
@@ -164,36 +158,34 @@ describe('normaliseCursorInput', () => {
   });
 
   it('first > DEFAULT_FIRST_CAP throws BadRequestException', () => {
-    expect(() =>
-      normaliseCursorInput({ first: DEFAULT_FIRST_CAP + 1 }),
-    ).toThrow(BadRequestException);
+    expect(() => normaliseCursorInput({ first: DEFAULT_FIRST_CAP + 1 })).toThrow(
+      BadRequestException,
+    );
   });
 
   it('caller-supplied firstCap tightens the default cap', () => {
     // A resolver that's heavy per row (document metadata,
     // analytics rollups) passes a tighter cap. The primitive
     // enforces the stricter of the two.
-    expect(() => normaliseCursorInput({ first: 60 }, 50)).toThrow(
-      BadRequestException,
-    );
+    expect(() => normaliseCursorInput({ first: 60 }, 50)).toThrow(BadRequestException);
     // Still OK at the tighter cap.
     const { first } = normaliseCursorInput({ first: 50 }, 50);
     expect(first).toBe(50);
   });
 
   it('first < 1 throws BadRequestException', () => {
-    expect(() => normaliseCursorInput({ first: 0 })).toThrow(
-      BadRequestException,
-    );
-    expect(() => normaliseCursorInput({ first: -5 })).toThrow(
-      BadRequestException,
-    );
+    expect(() => normaliseCursorInput({ first: 0 })).toThrow(BadRequestException);
+    expect(() => normaliseCursorInput({ first: -5 })).toThrow(BadRequestException);
+  });
+
+  it('fractional first throws BadRequestException', () => {
+    expect(() => normaliseCursorInput({ first: 1.5 })).toThrow(BadRequestException);
   });
 
   it('malformed after propagates the decodeCursor BadRequestException', () => {
-    expect(() =>
-      normaliseCursorInput({ first: 10, after: 'not-a-cursor' }),
-    ).toThrow(BadRequestException);
+    expect(() => normaliseCursorInput({ first: 10, after: 'not-a-cursor' })).toThrow(
+      BadRequestException,
+    );
   });
 });
 

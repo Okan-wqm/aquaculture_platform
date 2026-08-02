@@ -1,3 +1,4 @@
+import { TENANT_ERASURE_REQUEST_SUBSCRIPTION_OPTIONS } from '@aquaculture/backend-common/compliance';
 import { IEventBus } from '@platform/event-bus';
 import type { TenantErasureRequestedEvent } from '@platform/event-contracts';
 
@@ -51,7 +52,15 @@ describe('TenantErasureRequestedHandler', () => {
     expect(eventBus.subscribeWildcard).toHaveBeenCalledWith(
       'TenantErasureRequested',
       handler,
+      TENANT_ERASURE_REQUEST_SUBSCRIPTION_OPTIONS,
     );
+    expect(TENANT_ERASURE_REQUEST_SUBSCRIPTION_OPTIONS).toEqual({
+      durable: true,
+      consumerVersion: 'tenant-erasure-v2',
+      startFrom: 'beginning',
+      ackWait: 60,
+      maxRetries: -1,
+    });
     expect(service.eraseFromTenantErasureRequest).toHaveBeenCalledWith(event);
   });
 });

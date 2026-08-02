@@ -1,10 +1,21 @@
 /**
  * Update Site Input DTO
  */
-import { InputType, Field, Float, PartialType, ID } from '@nestjs/graphql';
-import { IsUUID, IsOptional, IsBoolean, IsString, MinLength, MaxLength, IsEnum } from 'class-validator';
+import { InputType, Field, PartialType, ID, Int } from '@nestjs/graphql';
+import {
+  IsUUID,
+  IsOptional,
+  IsBoolean,
+  IsString,
+  MinLength,
+  MaxLength,
+  IsEnum,
+  IsInt,
+  Min,
+  Max,
+} from 'class-validator';
 import { CreateSiteInput } from './create-site.input';
-import { SiteStatus } from '../entities/site.entity';
+import { SiteStatus, SiteType } from '../entities/site.entity';
 
 @InputType()
 export class UpdateSiteInput extends PartialType(CreateSiteInput) {
@@ -26,6 +37,20 @@ export class UpdateSiteInput extends PartialType(CreateSiteInput) {
   @MinLength(2)
   @MaxLength(50)
   code?: string;
+
+  // Create defaults must not be inherited by partial updates: omission means
+  // "leave unchanged", never "reset to LAND_BASED / 2000 m".
+  @Field(() => SiteType, { nullable: true })
+  @IsOptional()
+  @IsEnum(SiteType)
+  type?: SiteType;
+
+  @Field(() => Int, { nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(100)
+  @Max(20000)
+  monitoringRadiusM?: number;
 
   @Field(() => SiteStatus, { nullable: true })
   @IsOptional()

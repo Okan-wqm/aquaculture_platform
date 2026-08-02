@@ -11,6 +11,8 @@ Multi-tenant aquaculture farm management microservice built with NestJS, GraphQL
 - **Maintenance**: Work orders, spare parts, and preventive maintenance schedules
 - **Harvest Management**: Harvest records and statistics
 - **Water Quality**: Sensor integration and quality monitoring
+- **Tenant Environmental Monitoring**: Site-scoped MET Norway weather, CMEMS
+  marine models, and exact CDSE Sentinel-2 scenes
 - **Regulatory Compliance**: Reporting and regulatory settings
 
 ## Architecture
@@ -37,7 +39,8 @@ src/
 ├── events/           # Event listeners (EventEmitter2)
 ├── fish-health/      # Health events and treatments
 ├── regulatory/       # Regulatory settings and reporting
-├── sentinel-hub/     # Satellite imagery integration
+├── sentinel-hub/     # Internal CDSE credential cutover and imagery boundary
+├── weather/          # Canonical environmental ingestion, reads, and scheduling
 └── water-quality/    # Water quality monitoring
 ```
 
@@ -50,7 +53,7 @@ All GraphQL resolvers are protected with `@UseGuards(GqlAuthGuard)`:
 ```typescript
 @UseGuards(GqlAuthGuard)
 @Resolver(() => Entity)
-export class EntityResolver { }
+export class EntityResolver {}
 ```
 
 Role-based access control is enforced with `@Roles()` decorator:
@@ -80,26 +83,30 @@ const schemaName = getTenantSchemaName(tenantId);
 
 ### Encryption
 
-Sensitive data (API keys, credentials) is encrypted at rest:
+Sensitive data (API keys and credentials) is encrypted at rest with distinct
+key domains. Provision `ENCRYPTION_KEY`, `REGULATORY_ENCRYPTION_KEY`, and,
+during legacy satellite credential cutover,
+`SENTINEL_HUB_ENCRYPTION_KEY` through the deployment secret store. Never place
+their values in source, Compose files, documentation, or logs.
 
-```typescript
-// Required environment variables
-ENCRYPTION_KEY=your-32-char-minimum-key
-SENTINEL_HUB_ENCRYPTION_KEY=optional-override
-REGULATORY_ENCRYPTION_KEY=optional-override
-```
+CDSE client credentials are company-owned secrets stored by `config-service`.
+They are not accepted from tenant browsers or farm-service environment
+variables. The Sentinel encryption key only decrypts legacy tenant rows during
+the audited one-shot cutover into that configuration SSoT.
 
 ## Environment Variables
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `DATABASE_URL` | PostgreSQL connection string | Yes |
-| `ENCRYPTION_KEY` | AES-256 encryption key (min 32 chars) | Yes |
-| `CORS_ORIGINS` | Allowed CORS origins (comma-separated) | Production |
-| `JWT_PUBLIC_KEY` | RSA public key (RS256) — inline PEM. See also `JWT_PUBLIC_KEY_FILE` for path-based load. | Yes |
-| `SENTINEL_HUB_CLIENT_ID` | Sentinel Hub API client ID | No |
-| `SENTINEL_HUB_INSTANCE_ID` | Sentinel Hub instance ID | No |
-
+| Variable                              | Description                                                                               | Required                               |
+| ------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------- |
+| `DATABASE_URL`                        | PostgreSQL connection string                                                              | Yes                                    |
+| `ENCRYPTION_KEY`                      | AES-256 encryption key (min 32 chars)                                                     | Yes                                    |
+| `CORS_ORIGINS`                        | Allowed CORS origins (comma-separated)                                                    | Production                             |
+| `JWT_PUBLIC_KEY`                      | RSA public key (RS256) — inline PEM. See also `JWT_PUBLIC_KEY_FILE` for path-based load.  | Yes                                    |
+| `FARM_ENVIRONMENT_MONITORING_ENABLED` | Canonical reader/writer rollout gate; missing defaults to `false`                         | No                                     |
+| `MET_NORWAY_APPLICATION_NAME`         | Company application identifier sent to MET Norway                                         | When monitoring is enabled             |
+| `MET_NORWAY_CONTACT`                  | Company operational email or HTTPS contact sent to MET Norway                             | When monitoring is enabled             |
+| `MET_NORWAY_FROST_CLIENT_ID`          | Company Frost public-data client ID                                                       | For Frost observations                 |
+| `SENTINEL_HUB_ENCRYPTION_KEY`         | Dedicated key for decrypting legacy tenant credential rows during cutover                 | During credential cutover              |
 ## Event-Driven Architecture
 
 The service uses EventEmitter2 for domain events:
@@ -125,16 +132,24 @@ Located in `src/events/listeners/`:
 
 Cron jobs managed by `@nestjs/schedule`:
 
-| Job | Schedule | Description |
-|-----|----------|-------------|
-| Daily Feeding Generation | 0 4 * * * | Generate feeding schedules |
-| Maintenance Check | 0 6 * * * | Check upcoming maintenance |
-| Stock Level Check | 0 7 * * * | Check spare part stock levels |
-| FCR Calculation | 0 0 * * 0 | Weekly FCR calculations |
+| Job                       | Schedule        | Description                                                      |
+| ------------------------- | --------------- | ---------------------------------------------------------------- |
+| Daily Feeding Generation  | 0 4 \* \* \*    | Generate feeding schedules                                       |
+| Maintenance Check         | 0 6 \* \* \*    | Check upcoming maintenance                                       |
+| Stock Level Check         | 0 7 \* \* \*    | Check spare part stock levels                                    |
+| FCR Calculation           | 0 0 \* \* 0     | Weekly FCR calculations                                          |
+| Environment Provider Sync | `*/15 * * * *` | Claim due site/provider leases and ingest canonical observations |
+| Environment Retention     | 0 3 \* \* \*    | Apply the 45-day canonical observation retention policy          |
+
+Environmental jobs are fail-closed behind
+`FARM_ENVIRONMENT_MONITORING_ENABLED`. Deployment order, credential cutover,
+validation, alerts, and rollback are defined in
+[`docs/runbooks/monitoring/farm-environment-monitoring.md`](../../docs/runbooks/monitoring/farm-environment-monitoring.md).
 
 ### Memory Management
 
 Scheduler services implement automatic cleanup:
+
 - TTL-based expiration (24 hours for inactive tenant configs)
 - Periodic cleanup (every hour)
 - `OnModuleDestroy` for graceful shutdown
@@ -209,17 +224,20 @@ pnpm run test:cov farm-service
 GraphQL schema is auto-generated. Key queries and mutations:
 
 ### Batches
+
 - `batches(filter: BatchFilterInput)` - List batches
 - `batch(id: ID!)` - Get single batch
 - `createBatch(input: CreateBatchInput!)` - Create batch
 - `recordMortality(input: RecordMortalityInput!)` - Record mortality
 
 ### Feeding
+
 - `feedingRecords(filter: FeedingFilterInput)` - List feeding records
 - `createFeedingRecord(input: CreateFeedingRecordInput!)` - Create record
 - `feedInventory(tenantId: ID!)` - Get feed inventory
 
 ### Maintenance
+
 - `workOrders(filter: WorkOrderFilterInput)` - List work orders
 - `createWorkOrder(input: CreateWorkOrderInput!)` - Create work order
 - `completeWorkOrder(id: ID!)` - Complete work order
@@ -227,6 +245,7 @@ GraphQL schema is auto-generated. Key queries and mutations:
 - `spareParts` - List spare parts
 
 ### Growth
+
 - `growthMeasurements(batchId: ID!)` - Get measurements
 - `recordGrowthSample(input: RecordGrowthSampleInput!)` - Record sample
 - `calculateFCR(batchId: ID!)` - Calculate FCR
@@ -234,11 +253,13 @@ GraphQL schema is auto-generated. Key queries and mutations:
 ## Performance Optimizations
 
 ### N+1 Query Prevention
+
 - Batch fetching with TypeORM `In()` operator
 - `Map`-based lookups for O(1) access
 - Eager loading with `relations` option
 
 ### Transaction Management
+
 Critical operations use QueryRunner for ACID compliance:
 
 ```typescript
@@ -270,6 +291,7 @@ try {
 ### Recent Audit & Improvements (January 2026)
 
 #### ec9c2c5 - Comprehensive farm-service audit fixes
+
 - Added JwtAuthGuard to REST controllers
 - Fixed secret exposure in SentinelHub resolver
 - Added transaction management to create-batch, transfer-batch, create-harvest handlers
@@ -277,18 +299,21 @@ try {
 - Fixed N+1 queries with batch fetching in 7+ files
 
 #### e5badfe - Security hardening and code quality improvements
+
 - Added GqlAuthGuard to 10 unprotected resolver classes
 - Created schema-sanitizer utility for SQL injection prevention
 - Fixed 13 empty catch blocks with proper error logging
 - Added comprehensive README documentation
 
 #### e1690fc - Critical bug fixes and security improvements
+
 - Removed hardcoded encryption keys (now via ConfigService)
 - Fixed division by zero in growth-measurement and fcr-calculation
 - Replaced wildcard CORS with environment-based configuration
 - Added memory leak prevention in scheduler services
 
 #### 446bdb4 - Comprehensive farm-service improvements
+
 - Added 27 new DTO files with validation decorators
 - Implemented FeedingSchedulerService completely
 - Created EventListenersModule with 6 event listeners
@@ -296,23 +321,24 @@ try {
 - Fixed SQL injection with parameterized queries
 
 #### aa11c18 - TypeScript errors and README documentation
+
 - Fixed TypeScript compilation errors
 - Added comprehensive README documentation
 
 ### Audit Status
 
-| Category | Status | Notes |
-|----------|--------|-------|
-| TypeScript Compilation | ✅ Pass | All errors fixed |
-| Security (Guards) | ✅ Pass | All resolvers protected |
-| Security (RBAC) | ✅ Pass | @Roles on mutations |
-| SQL Injection | ✅ Pass | Schema sanitization |
-| N+1 Queries | ✅ Pass | Batch fetching implemented |
-| Transaction Management | ✅ Pass | Critical handlers covered |
-| Memory Management | ✅ Pass | TTL cleanup implemented |
-| Error Handling | ✅ Pass | Proper type guards |
-| Module Structure | ✅ Pass | No circular deps |
-| Test Coverage | ⚠️ 21% | Needs improvement |
+| Category               | Status  | Notes                      |
+| ---------------------- | ------- | -------------------------- |
+| TypeScript Compilation | ✅ Pass | All errors fixed           |
+| Security (Guards)      | ✅ Pass | All resolvers protected    |
+| Security (RBAC)        | ✅ Pass | @Roles on mutations        |
+| SQL Injection          | ✅ Pass | Schema sanitization        |
+| N+1 Queries            | ✅ Pass | Batch fetching implemented |
+| Transaction Management | ✅ Pass | Critical handlers covered  |
+| Memory Management      | ✅ Pass | TTL cleanup implemented    |
+| Error Handling         | ✅ Pass | Proper type guards         |
+| Module Structure       | ✅ Pass | No circular deps           |
+| Test Coverage          | ⚠️ 21%  | Needs improvement          |
 
 ### Known Limitations
 

@@ -1,0 +1,21 @@
+name: Setup workspace Rust toolchain
+description: Install and verify every Rust component and target required by the repository
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve generated Rust toolchain manifest
+      id: toolchain
+      shell: bash
+      run: node "${{ github.action_path }}/resolve-toolchain.mjs"
+
+    - name: Install repository Rust toolchain
+      uses: dtolnay/rust-toolchain@67ef31d5b988238dd797d409d6f9574278e20537 # stable
+      with:
+        toolchain: ${{ steps.toolchain.outputs.toolchain }}
+        components: ${{ steps.toolchain.outputs.components }}
+        targets: ${{ steps.toolchain.outputs.targets }}
+
+    - name: Verify repository Rust toolchain
+      shell: bash
+      run: node "$GITHUB_WORKSPACE/tools/quality/quality.mjs" rust-toolchain check

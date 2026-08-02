@@ -11,8 +11,8 @@ type: application
 #   passwords are not configurable (server would ignore them anyway).
 # - `aquaculture.natsServiceEnv` helper signature changed from PascalCase
 #   ("Farm") to lowercase snake_case ("farm_service") matching cert CN.
-# - Cert distribution via nats-client-certs Secret (BACKLOG-NATS-004
-#   for K8s deploy; docker-compose uses file mounts).
+# - Cert distribution is one cert-manager Secret per generated service
+#   identity; each pod mounts only its own certificate.
 #
 # Chart 2.0.0 — 2026-04-14 earlier security hardening (historical).
 # - secrets.jwtSecret REMOVED (superseded by jwtPrivateKey + jwtPublicKey).

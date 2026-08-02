@@ -20,6 +20,9 @@ on:
       - 'apps/**/*.args.ts'
       - 'apps/**/*.object.ts'
       - 'apps/**/*.enum.ts'
+      # Shared code-first types can alter emitted SDL without matching an app
+      # filename convention (for example the canonical pagination types).
+      - 'libs/backend-common/src/**/*.ts'
       - 'infrastructure/apollo-router/subgraphs.json'
       - 'tools/scripts/emit-subgraph-sdl.ts'
       - 'scripts/apollo-router/build-supergraph.mjs'
@@ -43,6 +46,7 @@ on:
       - 'apps/**/*.args.ts'
       - 'apps/**/*.object.ts'
       - 'apps/**/*.enum.ts'
+      - 'libs/backend-common/src/**/*.ts'
       - 'infrastructure/apollo-router/subgraphs.json'
       - 'tools/scripts/emit-subgraph-sdl.ts'
       - 'scripts/apollo-router/build-supergraph.mjs'

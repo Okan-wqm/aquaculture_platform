@@ -37,7 +37,6 @@ describe('PolicySnapshotResponder', () => {
     const [, handler] = (requestReply.respond as jest.Mock).mock.calls[0];
     const ctx: RequestReplyContext = {
       subject: 'policy.ingest_backend.snapshot',
-      authenticatedIdentity: 'sensor_ingestion',
     };
     const reply = await handler({} as IngestBackendSnapshotRequest, ctx);
     expect(reply).toEqual(snapshot);

@@ -15,8 +15,9 @@
 #   workflow, a chart change requires a parallel workflow change in
 #   a separate file, which silently drifts.
 #
-# Consumed by: .github/workflows/infra-helm-lint.yml
-#   helm template aquaculture . --values values-ci.yaml ...
+# Consumed by every Aquaculture chart validation command in:
+#   - .github/workflows/infra-helm-lint.yml
+#   - .github/workflows/ci-affected.yml
 #
 # DO NOT use this file with `helm install` against a real cluster.
 # DO NOT add real secret values here.
@@ -42,11 +43,12 @@
 # from the ExternalSecret CRD (its real production shape) to the inline
 # Secret block — making the production-overlay test misleading.
 secrets:
-  databaseUrl: "postgres://ci-dummy:ci-dummy@localhost:5432/ci-dummy"
-  redisUrl: "redis://localhost:6379"
-  natsUrl: "tls://nats:4222"
-  passwordPepper: "ci-dummy-pepper-not-for-real-use"
-  mfaEncryptionKey: "ci-dummy-mfa-encryption-key-not-for-runtime"
+  databaseUrl: 'postgres://ci-dummy:ci-dummy@localhost:5432/ci-dummy'
+  redisUrl: 'redis://localhost:6379'
+  natsUrl: 'tls://nats:4222'
+  passwordPepper: 'ci-dummy-pepper-not-for-real-use'
+  mfaEncryptionKey: 'ci-dummy-mfa-encryption-key-not-for-runtime'
+  sentinelHubEncryptionKey: 'ci-dummy-sentinel-hub-key-not-for-runtime'
 
   # PEM-shape values are only validated for non-empty by the chart's
   # `required` guard; their content is not consumed at template time.
@@ -59,13 +61,13 @@ secrets:
     ci-dummy-public-key-content-not-for-real-use
     -----END PUBLIC KEY-----
 
-  stripeWebhookSecret: "whsec_ci_dummy_not_for_real_use"
-  stripeApiKey: "sk_test_ci_dummy_not_for_real_use"
+  stripeWebhookSecret: 'whsec_ci_dummy_not_for_real_use'
+  stripeApiKey: 'sk_test_ci_dummy_not_for_real_use'
 
 postgresql:
   auth:
-    password: "ci-dummy-postgresql-password-not-for-runtime"
+    password: 'ci-dummy-postgresql-password-not-for-runtime'
 
 redis:
   auth:
-    password: "ci-dummy-redis-password-not-for-runtime"
+    password: 'ci-dummy-redis-password-not-for-runtime'

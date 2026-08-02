@@ -73,6 +73,7 @@ export interface TenantContext {
  */
 export interface AuthenticatedRequest extends Request {
   user?: AuthenticatedUser;
+  jwtAuthenticationFailure?: 'TOKEN_REVOKED' | 'INVALID_TOKEN';
   authMethod?: 'jwt' | 'api_key' | 'basic';
   apiKey?: string;
   tenantId?: string;
@@ -167,24 +168,31 @@ export interface HealthCheckResult {
   timestamp: string;
   version?: string;
   uptime?: number;
-  checks: Record<string, {
-    status: 'up' | 'down';
-    latency?: number;
-    message?: string;
-  }>;
+  checks: Record<
+    string,
+    {
+      status: 'up' | 'down';
+      latency?: number;
+      message?: string;
+    }
+  >;
 }
 
 /**
  * Type guard to check if request has user
  */
-export function isAuthenticated(req: Request): req is AuthenticatedRequest & { user: AuthenticatedUser } {
+export function isAuthenticated(
+  req: Request,
+): req is AuthenticatedRequest & { user: AuthenticatedUser } {
   return (req as AuthenticatedRequest).user !== undefined;
 }
 
 /**
  * Type guard to check if request has tenant context
  */
-export function hasTenantContext(req: Request): req is AuthenticatedRequest & { tenantContext: TenantContext } {
+export function hasTenantContext(
+  req: Request,
+): req is AuthenticatedRequest & { tenantContext: TenantContext } {
   return (req as AuthenticatedRequest).tenantContext !== undefined;
 }
 

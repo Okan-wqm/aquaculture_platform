@@ -103,7 +103,13 @@ farmService:
     limits:
       cpu: 500m
       memory: 512Mi
-  env: {}
+  env:
+    # Fail closed until an operator explicitly enables ingestion and supplies
+    # the company-owned MET identity below.
+    FARM_ENVIRONMENT_MONITORING_ENABLED: "false"
+    MET_NORWAY_APPLICATION_NAME: ""
+    MET_NORWAY_CONTACT: ""
+    MET_NORWAY_FROST_CLIENT_ID: ""
 
 sensorService:
   enabled: true
@@ -435,6 +441,10 @@ secrets:
   # REQUIRED: AES-256-GCM root key for MFA TOTP secrets (auth-service only).
   # Generate with: openssl rand -hex 32
   mfaEncryptionKey: ""
+  # REQUIRED: dedicated AES key for legacy Sentinel credential cutover.
+  # Keep separate from CONFIG_ENCRYPTION_KEY so the credential domains can be
+  # rotated independently.
+  sentinelHubEncryptionKey: ""
   # REQUIRED: NATS connection URL. Must start with tls:// in production
   # (mTLS is enforced by nats-tls-enabled.conf `verify: true`).
   # e.g. tls://nats:4222
@@ -442,12 +452,9 @@ secrets:
   # ADR-015 (cert-is-identity): per-service NATS identity comes from the
   # mTLS client cert CN via `verify_and_map: true`. No user/password auth
   # is configured — the CONNECT-frame user/pass fields are IGNORED by the
-  # server. Per-service cert material is distributed via the
-  # `nats-client-certs` secret (see templates/secrets.yaml) and mounted
-  # at /etc/ssl/nats-clients/<service_name>-{cert,key}.pem in each
-  # backend deployment. Rotation = `generate-internal-certs.sh` rerun;
-  # the single source of truth for service names is
-  # infrastructure/nats/services.yaml.
+  # server. cert-manager issues one Secret per identity generated from
+  # infrastructure/nats/services.yaml; each backend mounts only its own
+  # Secret at /etc/ssl/nats-client/{ca.crt,tls.crt,tls.key}.
   #
   # The previous natsAuth.*User / .*Pass block was removed in the NATS
   # SSoT refactor — keeping empty string passwords and redundant usernames

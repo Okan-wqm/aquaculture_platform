@@ -13,14 +13,16 @@
 # the preflight list and the bootstrap generator to drift (Tier-1
 # architectural fix per CLAUDE.md "make the wrong state impossible").
 #
-# Generator format: each entry is "VAR_NAME:openssl_command". The
-# bootstrap script eval-invokes the command and appends its output to
-# `.env` only if the var is absent. Rotating a pepper or HMAC key
-# outside incident response is explicitly forbidden — this generator
+# Generator format: each secret occupies two adjacent array elements:
+# `VAR_NAME`, then a declared generator function. The bootstrap invokes
+# that function directly and appends its output to `.env` only if the var
+# is absent. Keeping names and callables structurally separate avoids both
+# assignment-like secret false positives and shell `eval`. Rotating a pepper
+# or HMAC key outside incident response is explicitly forbidden — this generator
 # runs exactly once per droplet's lifetime.
 # =============================================================================
 
-# Format: "ENV_VAR_NAME:generator-command"
+# Format: alternating "ENV_VAR_NAME" and "generator_function" elements.
 # WHY each secret is required:
 #   POSTGRES_PASSWORD       — postgres superuser; database containers refuse to start without it
 #   REDIS_PASSWORD          — redis requirepass; all clients use `redis://:<pw>@redis:6379`
@@ -60,13 +62,25 @@
 # command string) because the value is structured JSON; quoting a printf
 # template inside the array literal would force escaped-quote soup AND
 # expand the $(...) substitutions at source time instead of generation
-# time. The function body runs only when the bootstrap loop eval-invokes
-# it for an absent var.
+# time. The function body runs only when the bootstrap loop invokes it for an
+# absent var.
 generate_service_identity_keyring() {
   local kid secret
   kid="k-$(date -u +%Y%m%d)"
   secret="$(openssl rand -hex 32)"
   printf '[{"kid":"%s","secret":"%s","status":"active"}]' "${kid}" "${secret}"
+}
+
+generate_base64_32_secret() {
+  openssl rand -base64 32
+}
+
+generate_base64_48_secret() {
+  openssl rand -base64 48
+}
+
+generate_hex_32_secret() {
+  openssl rand -hex 32
 }
 
 # Generator for SERVICE_IDENTITY_SIGNING_KID — NOT an independent secret:
@@ -91,6 +105,15 @@ generate_service_identity_signing_kid() {
   printf '%s' "${kid}"
 }
 
+# This key may already protect legacy tenant Sentinel credential rows. Creating
+# a different value during a normal deploy would make those rows
+# undecryptable. Fresh environments and existing installations must provision
+# it deliberately before the environmental-monitoring release is deployed.
+require_preprovisioned_sentinel_hub_key() {
+  echo "SENTINEL_HUB_ENCRYPTION_KEY must be provisioned explicitly; it may protect existing legacy Sentinel rows" >&2
+  return 1
+}
+
 # WHY the two 2026-06-11 additions:
 #   SERVICE_IDENTITY_SIGNING_KID — active signing key selector for
 #                             signed-http-client (must match a keyring kid;
@@ -105,23 +128,53 @@ generate_service_identity_signing_kid() {
 #                             ai-service; the transformer accepts a 64-hex key as
 #                             32 bytes. MUST stay stable — rotating it makes every
 #                             stored tenant AI key undecryptable.
-REQUIRED_ENV_SECRETS=(
-  "POSTGRES_PASSWORD:openssl rand -base64 32"
-  "REDIS_PASSWORD:openssl rand -base64 32"
-  "INTERNAL_SERVICE_SECRET:openssl rand -base64 32"
-  "PASSWORD_PEPPER:openssl rand -base64 48"
-  "MFA_ENCRYPTION_KEY:openssl rand -hex 32"
-  "SERVICE_IDENTITY_KEYRING:generate_service_identity_keyring"
-  "SERVICE_IDENTITY_SIGNING_KID:generate_service_identity_signing_kid"
-  "CONFIG_ENCRYPTION_KEY:openssl rand -hex 32"
-  "AI_TENANT_SECRET_ENCRYPTION_KEY:openssl rand -hex 32"
+REQUIRED_ENV_SECRET_SPECS=(
+  "POSTGRES_PASSWORD" "generate_base64_32_secret"
+  "REDIS_PASSWORD" "generate_base64_32_secret"
+  "INTERNAL_SERVICE_SECRET" "generate_base64_32_secret"
+  "PASSWORD_PEPPER" "generate_base64_48_secret"
+  "MFA_ENCRYPTION_KEY" "generate_hex_32_secret"
+  "SERVICE_IDENTITY_KEYRING" "generate_service_identity_keyring"
+  "SERVICE_IDENTITY_SIGNING_KID" "generate_service_identity_signing_kid"
+  "CONFIG_ENCRYPTION_KEY" "generate_hex_32_secret"
+  "AI_TENANT_SECRET_ENCRYPTION_KEY" "generate_hex_32_secret"
+  "SENTINEL_HUB_ENCRYPTION_KEY" "require_preprovisioned_sentinel_hub_key"
 )
+
+validate_required_env_secret_specs() {
+  local index name generator
+  if [ "${#REQUIRED_ENV_SECRET_SPECS[@]}" -eq 0 ] ||
+    [ $(( ${#REQUIRED_ENV_SECRET_SPECS[@]} % 2 )) -ne 0 ]; then
+    echo "required-env-secrets: specs must contain name/generator pairs" >&2
+    return 1
+  fi
+
+  for ((index = 0; index < ${#REQUIRED_ENV_SECRET_SPECS[@]}; index += 2)); do
+    name="${REQUIRED_ENV_SECRET_SPECS[index]}"
+    generator="${REQUIRED_ENV_SECRET_SPECS[index + 1]}"
+    if [[ ! "${name}" =~ ^[A-Z][A-Z0-9_]*$ ]]; then
+      echo "required-env-secrets: invalid environment variable name: ${name}" >&2
+      return 1
+    fi
+    if [[ ! "${generator}" =~ ^[a-z_][a-z0-9_]*$ ]] ||
+      ! declare -F -- "${generator}" >/dev/null; then
+      echo "required-env-secrets: invalid generator for ${name}: ${generator}" >&2
+      return 1
+    fi
+  done
+}
+
+required_env_secret_count() {
+  validate_required_env_secret_specs || return 1
+  printf '%s\n' "$(( ${#REQUIRED_ENV_SECRET_SPECS[@]} / 2 ))"
+}
 
 # Convenience helper: extract just the names, for preflight checks.
 # Usage: names=( $(required_env_secret_names) )
 required_env_secret_names() {
-  local entry
-  for entry in "${REQUIRED_ENV_SECRETS[@]}"; do
-    printf '%s\n' "${entry%%:*}"
+  local index
+  validate_required_env_secret_specs || return 1
+  for ((index = 0; index < ${#REQUIRED_ENV_SECRET_SPECS[@]}; index += 2)); do
+    printf '%s\n' "${REQUIRED_ENV_SECRET_SPECS[index]}"
   done
 }

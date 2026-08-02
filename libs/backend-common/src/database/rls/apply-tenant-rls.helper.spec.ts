@@ -55,25 +55,39 @@ function makeMockRunner(
   const calls: Array<{ sql: string; params?: unknown[] }> = [];
   let callIndex = 0;
 
-  const runner = {
-    query: (sql: string, params?: unknown[]): Promise<unknown> => {
-      calls.push({ sql, params });
-      if (callIndex >= replies.length) {
-        throw new Error(
-          `mock runner exhausted at call ${callIndex}: no reply for ` +
-            `SQL "${sql.slice(0, 80)}..."`,
-        );
-      }
-      const reply = replies[callIndex];
-      callIndex += 1;
-      return Promise.resolve(reply);
-    },
-  } as unknown as QueryRunner;
+  const query = (sql: string, params?: unknown[]): Promise<unknown> => {
+    calls.push({ sql, params });
+    if (callIndex >= replies.length) {
+      throw new Error(
+        `mock runner exhausted at call ${callIndex}: no reply for ` +
+          `SQL "${sql.slice(0, 80)}..."`,
+      );
+    }
+    const reply = replies[callIndex];
+    callIndex += 1;
+    return Promise.resolve(reply);
+  };
+  const runner = Object.assign(Object.create(null) as QueryRunner, { query });
 
   return { runner, calls };
 }
 
 describe('apply-tenant-rls.helper', () => {
+  const ddlAuthorityEnvironmentKey = 'DB_MIGRATE_DDL_AUTHORITY';
+  const originalDdlAuthority = process.env[ddlAuthorityEnvironmentKey];
+
+  beforeEach(() => {
+    process.env[ddlAuthorityEnvironmentKey] = '1';
+  });
+
+  afterEach(() => {
+    if (originalDdlAuthority === undefined) {
+      Reflect.deleteProperty(process.env, ddlAuthorityEnvironmentKey);
+    } else {
+      process.env[ddlAuthorityEnvironmentKey] = originalDdlAuthority;
+    }
+  });
+
   describe('buildTenantPolicyUsingClause', () => {
     it('emits the bug-fixed NULLIF predicate', () => {
       const clause = buildTenantPolicyUsingClause('tenantId');
@@ -126,6 +140,19 @@ describe('apply-tenant-rls.helper', () => {
   });
 
   describe('applyTenantRlsToSchema', () => {
+    it('refuses apply and remove DDL without db-migrate authority', async () => {
+      Reflect.deleteProperty(process.env, ddlAuthorityEnvironmentKey);
+      const { runner, calls } = makeMockRunner([]);
+
+      await expect(applyTenantRlsToSchema(runner)).rejects.toThrow(
+        /db-migrate authority/,
+      );
+      await expect(removeTenantRlsFromSchema(runner)).rejects.toThrow(
+        /db-migrate authority/,
+      );
+      expect(calls).toHaveLength(0);
+    });
+
     /**
      * The helper issues one SELECT current_schema() call, one information_
      * schema discovery SELECT, and then 3 DDL statements per discovered

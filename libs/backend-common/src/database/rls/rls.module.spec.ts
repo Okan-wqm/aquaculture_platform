@@ -1,8 +1,9 @@
-import { Module, OnModuleInit } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
-import { RlsModule } from './rls.module';
+
 import { BypassRlsService } from './bypass-rls.service';
+import { RlsModule } from './rls.module';
 
 /**
  * rls.module.spec.ts
@@ -51,18 +52,23 @@ import { BypassRlsService } from './bypass-rls.service';
  * satisfy the runtime guard inside `RlsConnectionBootstrap.patchConnectionPool`.
  */
 function buildStubDataSource(): DataSource {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const stubPool: any = {
+  const stubPool = {
     connect: () => Promise.resolve({
       query: () => Promise.resolve({ rows: [] }),
       release: () => undefined,
     }),
   };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ds: any = {
-    driver: { master: stubPool },
-  };
-  return ds as DataSource;
+  return buildDataSourceWithDriver({ master: stubPool });
+}
+
+function buildDataSourceWithDriver(driver: object): DataSource {
+  const dataSource = Object.create(DataSource.prototype) as DataSource;
+  Object.defineProperty(dataSource, 'driver', {
+    configurable: true,
+    enumerable: true,
+    value: driver,
+  });
+  return dataSource;
 }
 
 describe('RlsModule (typed API)', () => {
@@ -96,6 +102,7 @@ describe('RlsModule (typed API)', () => {
     it("boots cleanly when a DataSource provider is present and exposes BypassRlsService", async () => {
       const stubDs = buildStubDataSource();
 
+      @Global()
       @Module({
         providers: [
           { provide: DataSource, useValue: stubDs },
@@ -134,9 +141,9 @@ describe('RlsModule (typed API)', () => {
       // guard inside patchConnectionPool catches this and throws with
       // the REMEDIATION: substring so the error is greppable in CI logs.
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const nonPoolDs: any = { driver: {} };
+      const nonPoolDs = buildDataSourceWithDriver({});
 
+      @Global()
       @Module({
         providers: [
           { provide: DataSource, useValue: nonPoolDs },
@@ -264,11 +271,3 @@ describe('RlsModule (typed API)', () => {
     });
   });
 });
-
-/**
- * Silence lint — the unused `OnModuleInit` import is imported in the
- * rls-connection-bootstrap.service.ts file, not here. Kept available for
- * future test expansion covering the OnModuleInit hook order explicitly.
- */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-type _UnusedHookType = OnModuleInit;

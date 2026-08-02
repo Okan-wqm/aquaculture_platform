@@ -6,10 +6,9 @@ import {
 } from '../schema-manager.service';
 
 describe('Tenant Isolation Static Analysis', () => {
-
   describe('MODULE_SCHEMAS completeness', () => {
     it('should have entries for all default tenant modules', () => {
-      const moduleNames = MODULE_SCHEMAS.map(m => m.moduleName);
+      const moduleNames = MODULE_SCHEMAS.map((m) => m.moduleName);
       expect(moduleNames).toEqual(expect.arrayContaining(DEFAULT_TENANT_MODULES));
     });
 
@@ -30,16 +29,16 @@ describe('Tenant Isolation Static Analysis', () => {
       // messaging tables, admin.retention_policies vs messaging's) is
       // schema-qualified and legitimate — the old all-modules check
       // false-positived on exactly those.
-      const tenantTables = MODULE_SCHEMAS
-        .filter(m => TENANT_SCOPED_MODULES.has(m.moduleName))
-        .flatMap(m => m.tables);
+      const tenantTables = MODULE_SCHEMAS.filter((m) =>
+        TENANT_SCOPED_MODULES.has(m.moduleName),
+      ).flatMap((m) => m.tables);
       const duplicates = tenantTables.filter((t, i) => tenantTables.indexOf(t) !== i);
       expect(duplicates).toEqual([]);
     });
 
     it('referenceDataTables should be subset of tables', () => {
       for (const mod of MODULE_SCHEMAS) {
-        for (const ref of (mod.referenceDataTables ?? [])) {
+        for (const ref of mod.referenceDataTables ?? []) {
           expect(mod.tables).toContain(ref);
         }
       }
@@ -51,14 +50,16 @@ describe('Tenant Isolation Static Analysis', () => {
       // Platform-level `tables` lists churn with registry completeness and are
       // not fan-out relevant — the old whole-registry total (170) had drifted
       // far from reality without anyone noticing (quarantined test).
-      const tenantTotal = MODULE_SCHEMAS
-        .filter(m => TENANT_SCOPED_MODULES.has(m.moduleName))
-        .reduce((sum, m) => sum + m.tables.length, 0);
-      // 183 → 182: farm_documents dropped (ORPHAN-HIGH-369, owner decision;
-      // DropFarmDocuments1805300000000 removed the unwired orphan DMS table).
-      // 182 → 183: ai conversation_turns added (ORPHAN-MEDIUM-380 durable
-      // per-turn AI cost ledger; CreateConversationTurns1802100000000).
-      expect(tenantTotal).toBe(183);
+      const tenantTotal = MODULE_SCHEMAS.filter((m) =>
+        TENANT_SCOPED_MODULES.has(m.moduleName),
+      ).reduce((sum, m) => sum + m.tables.length, 0);
+      // 183 → 190: six durable farm feeding/incident tables plus
+      // ai_proposed_actions were registered after the previous pin.
+      // 190 → 194: the farm environmental SSoT adds satellite scene and
+      // versioned coverage-assessment provenance, per-site/provider sync state,
+      // and metric-level sync outcomes; weather/marine observations reuse
+      // existing tables.
+      expect(tenantTotal).toBe(194);
     });
 
     it('every module should have a sourceSchema', () => {
@@ -93,7 +94,7 @@ describe('Tenant Isolation Static Analysis', () => {
     });
 
     it('module names should be unique', () => {
-      const names = MODULE_SCHEMAS.map(m => m.moduleName);
+      const names = MODULE_SCHEMAS.map((m) => m.moduleName);
       const unique = [...new Set(names)];
       expect(names).toEqual(unique);
     });
@@ -108,14 +109,16 @@ describe('Tenant Isolation Static Analysis', () => {
       // (Platform-level modules are intentionally not pinned here; their
       // `tables` lists churn with registry completeness, not fan-out.)
       expect(counts['sensor']).toBe(46);
-      // 86 → 85: farm_documents dropped (ORPHAN-HIGH-369, owner decision).
-      expect(counts['farm']).toBe(85);
+      // 85 → 91: feeding_protocols_v2, feeding_protocol_assignments,
+      // feeding_day_plans, feeding_meals, feeding_forecast_snapshots and
+      // farm_incident_media. 91 → 95: environmental scene, versioned coverage
+      // assessment, sync-state, and metric-outcome SSoT.
+      expect(counts['farm']).toBe(95);
       expect(counts['hr']).toBe(29);
       expect(counts['hydroponics']).toBe(1);
       expect(counts['alert']).toBe(4);
-      // 2 → 3: conversation_turns added (ORPHAN-MEDIUM-380 durable per-turn
-      // AI cost ledger).
-      expect(counts['ai']).toBe(3);
+      // 3 → 4: ai_proposed_actions is now a tenant-scoped durable workflow table.
+      expect(counts['ai']).toBe(4);
       expect(counts['messaging']).toBe(15);
     });
   });
@@ -133,9 +136,9 @@ describe('Tenant Isolation Static Analysis', () => {
     });
 
     it('should be derived from tenant-scoped MODULE_SCHEMAS only (no drift)', () => {
-      const derived = MODULE_SCHEMAS
-        .filter((m) => TENANT_SCOPED_MODULES.has(m.moduleName))
-        .map(m => m.moduleName);
+      const derived = MODULE_SCHEMAS.filter((m) => TENANT_SCOPED_MODULES.has(m.moduleName)).map(
+        (m) => m.moduleName,
+      );
       expect(DEFAULT_TENANT_MODULES).toEqual(derived);
     });
 

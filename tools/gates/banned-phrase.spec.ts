@@ -20,7 +20,9 @@
 
 import { strict as assert } from 'node:assert';
 import { execFileSync, ExecFileSyncOptions } from 'node:child_process';
-import { resolve } from 'node:path';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 
 const REPO_ROOT = (() => {
@@ -33,8 +35,7 @@ const REPO_ROOT = (() => {
   }
 })();
 
-const FIXTURE_PATH =
-  'tests/invariants/fixtures/plan-020/banned-phrase-positive.md';
+const FIXTURE_PATH = 'tests/invariants/fixtures/plan-020/banned-phrase-positive.md';
 const SCANNER = resolve(REPO_ROOT, 'tools/gates/banned-phrase.ts');
 
 interface RunResult {
@@ -69,10 +70,13 @@ function runScanner(args: readonly string[]): RunResult {
 // (a) Default behaviour — exempt path returns no violations
 // ---------------------------------------------------------
 
-test('default --mode=file on exempt fixture returns exit 0 (no violations)', () => {
+void test('default --mode=file on exempt fixture returns exit 0 (no violations)', () => {
   const result = runScanner(['--mode=file', FIXTURE_PATH]);
-  assert.strictEqual(result.exitCode, 0,
-    `expected exit 0 for exempt path under default mode; got ${result.exitCode}`);
+  assert.strictEqual(
+    result.exitCode,
+    0,
+    `expected exit 0 for exempt path under default mode; got ${result.exitCode}`,
+  );
   assert.match(result.stdout, /No banned phrases detected/);
 });
 
@@ -80,10 +84,13 @@ test('default --mode=file on exempt fixture returns exit 0 (no violations)', () 
 // (b) --ignore-exemptions flag — exempt path scanned, violation fires
 // ---------------------------------------------------------
 
-test('--ignore-exemptions on exempt fixture returns exit 1 + violation', () => {
+void test('--ignore-exemptions on exempt fixture returns exit 1 + violation', () => {
   const result = runScanner(['--mode=file', '--ignore-exemptions', FIXTURE_PATH]);
-  assert.strictEqual(result.exitCode, 1,
-    `expected exit 1 with --ignore-exemptions; got ${result.exitCode}`);
+  assert.strictEqual(
+    result.exitCode,
+    1,
+    `expected exit 1 with --ignore-exemptions; got ${result.exitCode}`,
+  );
   assert.match(result.stderr, /Banned-phrase violations detected/);
 });
 
@@ -91,10 +98,13 @@ test('--ignore-exemptions on exempt fixture returns exit 1 + violation', () => {
 // (c) Argv parser: flag BEFORE mode
 // ---------------------------------------------------------
 
-test('--ignore-exemptions BEFORE --mode=file parses correctly', () => {
+void test('--ignore-exemptions BEFORE --mode=file parses correctly', () => {
   const result = runScanner(['--ignore-exemptions', '--mode=file', FIXTURE_PATH]);
-  assert.strictEqual(result.exitCode, 1,
-    `flag-before-mode argv must still surface violation; got exit ${result.exitCode}`);
+  assert.strictEqual(
+    result.exitCode,
+    1,
+    `flag-before-mode argv must still surface violation; got exit ${result.exitCode}`,
+  );
   assert.match(result.stderr, /Banned-phrase violations detected/);
 });
 
@@ -102,9 +112,38 @@ test('--ignore-exemptions BEFORE --mode=file parses correctly', () => {
 // (d) Argv parser: positional path in MIDDLE
 // ---------------------------------------------------------
 
-test('positional path between mode and flag still parses correctly', () => {
+void test('positional path between mode and flag still parses correctly', () => {
   const result = runScanner([FIXTURE_PATH, '--mode=file', '--ignore-exemptions']);
-  assert.strictEqual(result.exitCode, 1,
-    `positional-in-middle argv must still surface violation; got exit ${result.exitCode}`);
+  assert.strictEqual(
+    result.exitCode,
+    1,
+    `positional-in-middle argv must still surface violation; got exit ${result.exitCode}`,
+  );
   assert.match(result.stderr, /Banned-phrase violations detected/);
+});
+
+void test('PostgreSQL constraint timing syntax is accepted while ordinary prose remains guarded', () => {
+  const fixtureDir = mkdtempSync(join(tmpdir(), 'aqua-banned-phrase-'));
+  const fixturePath = join(fixtureDir, 'constraint.sql');
+
+  try {
+    writeFileSync(fixturePath, 'DEFERRABLE INITIALLY DEFERRED\n', 'utf8');
+    const sqlResult = runScanner(['--mode=file', fixturePath]);
+    assert.strictEqual(
+      sqlResult.exitCode,
+      0,
+      `SQL constraint timing syntax must be accepted; got exit ${sqlResult.exitCode}`,
+    );
+
+    writeFileSync(fixturePath, ['delivery is ', 'de', 'ferred\n'].join(''), 'utf8');
+    const proseResult = runScanner(['--mode=file', fixturePath]);
+    assert.strictEqual(
+      proseResult.exitCode,
+      1,
+      `ordinary prose must remain guarded; got exit ${proseResult.exitCode}`,
+    );
+    assert.match(proseResult.stderr, /Banned-phrase violations detected/);
+  } finally {
+    rmSync(fixtureDir, { recursive: true, force: true });
+  }
 });

@@ -8,6 +8,8 @@ import {
   DeleteConfirmationDialog,
   DeletePreviewData,
   AffectedItemGroup,
+  useCanMutate,
+  useToast,
 } from '@aquaculture/shared-ui';
 import { SiteFormModal, type SiteFormData } from '../components/SiteFormModal';
 import {
@@ -28,8 +30,126 @@ const statusColors: Record<string, string> = {
   CLOSED: 'bg-blue-100 text-blue-800',
 };
 
+const emptyToUndefined = (value: string): string | undefined => {
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+};
+
+const emptyToNull = (value: string): string | null => {
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+};
+
+type SiteUpdateFields = Omit<UpdateSiteInput, 'id'>;
+
+export function buildSiteMutationInput(
+  formData: SiteFormData,
+  includeClearedFields: false,
+): CreateSiteInput;
+export function buildSiteMutationInput(
+  formData: SiteFormData,
+  includeClearedFields: true,
+): SiteUpdateFields;
+export function buildSiteMutationInput(
+  formData: SiteFormData,
+  includeClearedFields: boolean,
+): CreateSiteInput | SiteUpdateFields {
+  if (typeof formData.monitoringRadiusM !== 'number') {
+    throw new RangeError('A validated monitoring radius is required');
+  }
+
+  const common = {
+    name: formData.name,
+    code: formData.code,
+    type: formData.type,
+    status: formData.status,
+    timezone: formData.timezone,
+    monitoringRadiusM: formData.monitoringRadiusM,
+  };
+
+  const { latitude, longitude, altitude } = formData.location;
+  const location =
+    typeof latitude === 'number' && typeof longitude === 'number'
+      ? {
+          latitude,
+          longitude,
+          ...(typeof altitude === 'number' ? { altitude } : {}),
+        }
+      : null;
+  const address = formData.address;
+  const hasAddress =
+    address.street.trim().length > 0 ||
+    address.city.trim().length > 0 ||
+    address.state.trim().length > 0 ||
+    address.postalCode.trim().length > 0 ||
+    formData.country.trim().length > 0;
+
+  if (includeClearedFields) {
+    const input: SiteUpdateFields = {
+      ...common,
+      lokalitetsnummer:
+        typeof formData.lokalitetsnummer === 'number' ? formData.lokalitetsnummer : null,
+      organisationNumberOverride: emptyToNull(formData.organisationNumberOverride),
+      description: emptyToNull(formData.description),
+      country: emptyToNull(formData.country),
+      region: emptyToNull(formData.region),
+      totalArea: typeof formData.totalArea === 'number' ? formData.totalArea : null,
+      siteManager: emptyToNull(formData.siteManager),
+      contactEmail: emptyToNull(formData.contactEmail),
+      contactPhone: emptyToNull(formData.contactPhone),
+      location,
+      address: hasAddress
+        ? {
+            street: emptyToUndefined(address.street),
+            city: emptyToUndefined(address.city),
+            state: emptyToUndefined(address.state),
+            postalCode: emptyToUndefined(address.postalCode),
+            country: emptyToUndefined(formData.country),
+          }
+        : null,
+      monitoringArea: formData.monitoringArea,
+    };
+    return input;
+  }
+
+  const input: CreateSiteInput = {
+    ...common,
+    lokalitetsnummer:
+      typeof formData.lokalitetsnummer === 'number' ? formData.lokalitetsnummer : undefined,
+    organisationNumberOverride: emptyToUndefined(formData.organisationNumberOverride),
+    country: emptyToUndefined(formData.country),
+    region: emptyToUndefined(formData.region),
+    totalArea: typeof formData.totalArea === 'number' ? formData.totalArea : undefined,
+    contactEmail: emptyToUndefined(formData.contactEmail),
+    contactPhone: emptyToUndefined(formData.contactPhone),
+    siteManager: emptyToUndefined(formData.siteManager),
+    description: emptyToUndefined(formData.description),
+  };
+  if (location) {
+    input.location = location;
+  }
+  if (hasAddress) {
+    input.address = {
+      street: emptyToUndefined(address.street),
+      city: emptyToUndefined(address.city),
+      state: emptyToUndefined(address.state),
+      postalCode: emptyToUndefined(address.postalCode),
+      country: emptyToUndefined(formData.country),
+    };
+  }
+  if (formData.monitoringArea !== null) {
+    input.monitoringArea = formData.monitoringArea;
+  }
+
+  return input;
+}
+
 export const SitesTab: React.FC = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const canCreateSite = useCanMutate('createSite');
+  const canUpdateSite = useCanMutate('updateSite');
+  const canDeleteSite = useCanMutate('deleteSite');
 
   // API hooks
   const { data: sitesData, isLoading, error, refetch } = useSiteList();
@@ -127,29 +247,35 @@ export const SitesTab: React.FC = () => {
   );
 
   const handleCreate = () => {
+    if (!canCreateSite) return;
     setEditingSite(null);
     setIsModalOpen(true);
   };
 
   const handleEdit = (site: Site) => {
+    if (!canUpdateSite) return;
     setEditingSite(site);
     setIsModalOpen(true);
   };
 
   const handleDelete = (site: Site) => {
+    if (!canDeleteSite) return;
     setSiteToDelete(site);
     setDeleteDialogOpen(true);
   };
 
   const handleConfirmDelete = async () => {
-    if (!siteToDelete) return;
+    if (!siteToDelete || !canDeleteSite) return;
     try {
       await deleteSiteMutation.mutateAsync({ id: siteToDelete.id, cascade: true });
       setDeleteDialogOpen(false);
       setSiteToDelete(null);
-    } catch (err) {
-      console.error('Failed to delete site:', err);
-      alert('Failed to delete site. Please try again.');
+    } catch {
+      toast({
+        title: 'Site could not be deleted',
+        description: 'The server rejected the delete request. Please try again.',
+        variant: 'error',
+      });
     }
   };
 
@@ -158,62 +284,26 @@ export const SitesTab: React.FC = () => {
     setSiteToDelete(null);
   };
 
-  const handleSave = async (formData: Partial<SiteFormData>) => {
+  const handleSave = async (formData: SiteFormData) => {
     try {
-      // name + code are required by CreateSiteInput and validated inside the
-      // modal before onSave fires; guard here so the types stay honest.
-      if (!formData.name || !formData.code) return;
-
-      // Transform form data to the API input (nested structure for backend).
-      // Empty strings collapse to `undefined` so the GraphQL layer omits them —
-      // the same effect the old generic key-stripping had, but fully typed.
-      const emptyToUndefined = (v: string | undefined): string | undefined =>
-        v && v !== '' ? v : undefined;
-
-      const siteData: CreateSiteInput = {
-        name: formData.name,
-        code: formData.code,
-        lokalitetsnummer:
-          typeof formData.lokalitetsnummer === 'number' ? formData.lokalitetsnummer : undefined,
-        status: emptyToUndefined(formData.status),
-        country: emptyToUndefined(formData.country),
-        region: emptyToUndefined(formData.region),
-        timezone: emptyToUndefined(formData.timezone),
-        totalArea: typeof formData.totalArea === 'number' ? formData.totalArea : undefined,
-        contactEmail: emptyToUndefined(formData.contactEmail),
-        contactPhone: emptyToUndefined(formData.contactPhone),
-        siteManager: emptyToUndefined(formData.siteManager),
-        description: emptyToUndefined(formData.description),
-      };
-
-      // Add location as a nested object only when both coordinates are real numbers.
-      const location = formData.location;
-      if (typeof location?.latitude === 'number' && typeof location?.longitude === 'number') {
-        siteData.location = { latitude: location.latitude, longitude: location.longitude };
-      }
-
-      // Add address as a nested object if any field is present.
-      const address = formData.address;
-      if (address && (address.street || address.city || address.state || address.postalCode)) {
-        siteData.address = {
-          street: emptyToUndefined(address.street),
-          city: emptyToUndefined(address.city),
-          state: emptyToUndefined(address.state),
-          postalCode: emptyToUndefined(address.postalCode),
-          country: emptyToUndefined(formData.country),
-        };
-      }
-
       if (editingSite) {
-        const updateInput: UpdateSiteInput = { id: editingSite.id, ...siteData };
+        if (!canUpdateSite) return;
+        const updateInput: UpdateSiteInput = {
+          id: editingSite.id,
+          ...buildSiteMutationInput(formData, true),
+        };
         await updateSite.mutateAsync(updateInput);
       } else {
-        await createSite.mutateAsync(siteData);
+        if (!canCreateSite) return;
+        await createSite.mutateAsync(buildSiteMutationInput(formData, false));
       }
       setIsModalOpen(false);
-    } catch (err) {
-      console.error('Failed to save site:', err);
-      alert('Failed to save site. Please try again.');
+    } catch {
+      toast({
+        title: 'Site could not be saved',
+        description: 'Review the site details and try again.',
+        variant: 'error',
+      });
     }
   };
 
@@ -243,20 +333,22 @@ export const SitesTab: React.FC = () => {
             />
           </svg>
         </div>
-        <button
-          onClick={handleCreate}
-          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
-        >
-          <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-            />
-          </svg>
-          Add Site
-        </button>
+        {canCreateSite && (
+          <button
+            onClick={handleCreate}
+            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
+          >
+            <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+              />
+            </svg>
+            Add Site
+          </button>
+        )}
       </div>
 
       {/* Loading State */}
@@ -297,46 +389,52 @@ export const SitesTab: React.FC = () => {
                     </div>
                     <p className="text-sm text-gray-500 mt-1">{site.code}</p>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => handleEdit(site)}
-                      className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
-                      title="Edit"
-                    >
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-                        />
-                      </svg>
-                    </button>
-                    <button
-                      onClick={() => handleDelete(site)}
-                      className="p-1 text-gray-400 hover:text-red-600 transition-colors"
-                      title="Delete"
-                    >
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                        />
-                      </svg>
-                    </button>
-                  </div>
+                  {(canUpdateSite || canDeleteSite) && (
+                    <div className="flex items-center space-x-2">
+                      {canUpdateSite && (
+                        <button
+                          onClick={() => handleEdit(site)}
+                          className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
+                          title="Edit"
+                        >
+                          <svg
+                            className="w-5 h-5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                      {canDeleteSite && (
+                        <button
+                          onClick={() => handleDelete(site)}
+                          className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+                          title="Delete"
+                        >
+                          <svg
+                            className="w-5 h-5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-4 space-y-2">
@@ -437,7 +535,7 @@ export const SitesTab: React.FC = () => {
               ? 'Try adjusting your search terms.'
               : 'Get started by creating a new site.'}
           </p>
-          {!searchTerm && (
+          {!searchTerm && canCreateSite && (
             <button
               onClick={handleCreate}
               className="mt-4 inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"

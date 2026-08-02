@@ -88,6 +88,17 @@ and certificate checkouts remain intact. `git worktree list --porcelain` is the
 cutover inventory; CI and sequential registry PRs remain mandatory throughout
 that window.
 
+### Rechain boundary
+
+`rechain-from <N>` is restricted to a branch-only suffix. Before writing, it
+loads the locally fetched `origin/main` registry, requires every canonical entry
+to remain identical (including hashes), and requires `N` to be at or beyond that
+canonical prefix. It then validates the complete suffix against the JSON schema
+and the post-cutover evidence contract before recalculating hashes. This permits
+merge concatenation and correction of an unmerged malformed tail without
+turning rechain into a way to bless edits to canonical history. `close` remains
+the only command that can transition an already-merged row.
+
 ## Hash chain integrity
 
 - First entry has `prev_hash: "0000...0000"` (64 zeros).

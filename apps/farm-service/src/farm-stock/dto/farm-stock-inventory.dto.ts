@@ -1,7 +1,11 @@
 import { Field, ID, InputType, Int, ObjectType } from '@nestjs/graphql';
+import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 import { IsArray, IsBoolean, IsOptional, IsString, IsUUID } from 'class-validator';
 import { FarmStockBatchSnapshot } from '../entities/farm-stock-batch-snapshot.entity';
-import { FarmStockContainerSnapshot, FarmStockContainerSource } from '../entities/farm-stock-container-snapshot.entity';
+import {
+  FarmStockContainerSnapshot,
+  FarmStockContainerSource,
+} from '../entities/farm-stock-container-snapshot.entity';
 
 @InputType()
 export class FarmStockInventoryFilterInput {
@@ -59,19 +63,6 @@ export class FarmStockInventoryItem {
 }
 
 @ObjectType()
-export class FarmStockInventoryConnection {
-  @Field(() => [FarmStockInventoryItem])
-  items!: FarmStockInventoryItem[];
-
-  @Field(() => Int)
-  total!: number;
-
-  @Field(() => Int)
-  page!: number;
-
-  @Field(() => Int)
-  limit!: number;
-
-  @Field(() => Int)
-  totalPages!: number;
-}
+export class FarmStockInventoryConnection extends StandardPaginatedResponse(
+  FarmStockInventoryItem,
+) {}

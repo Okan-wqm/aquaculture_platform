@@ -104,7 +104,12 @@ export class ThrottlerGuard implements CanActivate {
 
     if (!result.allowed) {
       this.logger.warn(
-        `Rate limit exceeded for ${key}: ${config.limit} requests in ${config.ttl}s`,
+        JSON.stringify({
+          event: 'rate_limit_exceeded',
+          keyScope: config.byIp ? 'ip' : request.user?.sub ? 'user' : 'tenant_or_ip',
+          limit: config.limit,
+          ttlSeconds: config.ttl,
+        }),
       );
 
       // SEC-HIGH-010 cure: publish RateLimitExceeded SecurityEvent so
@@ -127,9 +132,10 @@ export class ThrottlerGuard implements CanActivate {
         });
       } catch (err) {
         this.logger.warn(
-          `RateLimitExceeded SecurityEvent publish failed (non-fatal): ${
-            err instanceof Error ? err.message : 'Unknown'
-          }`,
+          JSON.stringify({
+            event: 'rate_limit_security_event_publish_failed',
+            errorType: err instanceof Error ? err.name : 'UnknownError',
+          }),
         );
       }
 

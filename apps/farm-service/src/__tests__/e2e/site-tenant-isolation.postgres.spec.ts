@@ -14,6 +14,8 @@ import {
   withTenantContext,
 } from '@aquaculture/backend-common';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { CommandBus } from '@platform/cqrs';
 import {
   bootPostgresContainer,
@@ -85,8 +87,6 @@ import { UpdateFeedHandler } from '../../feed/handlers/update-feed.handler';
 import { GetFeedQuery } from '../../feed/queries/get-feed.query';
 import { ListFeedsQuery } from '../../feed/queries/list-feeds.query';
 import { FarmOutbox } from '../../outbox/farm-outbox.entity';
-import { SentinelHubSettings } from '../../sentinel-hub/entities/sentinel-hub-settings.entity';
-import { SentinelHubService } from '../../sentinel-hub/sentinel-hub.service';
 import { CreateSiteCommand } from '../../site/commands/create-site.command';
 import { DeleteSiteCommand } from '../../site/commands/delete-site.command';
 import { UpdateSiteCommand } from '../../site/commands/update-site.command';
@@ -163,6 +163,10 @@ import {
 const TENANT_A = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
 const TENANT_B = '7c2f4e10-3d2a-4b4e-9f18-f8b16f0d5a10';
 const USER_ID = 'f1b7b266-5e20-4c37-8ab2-b7ef18db3a21';
+const MANAGER_CALLER = {
+  sub: USER_ID,
+  roles: [Role.MODULE_MANAGER],
+};
 const PUMP_EQUIPMENT_TYPE_ID = '18d6e179-af77-45f3-b33b-9a2a5e61b751';
 const TANK_EQUIPMENT_TYPE_ID = 'eae12d34-514b-4d1a-87c9-6d8626547cae';
 const SETUP_TENANT_TABLES = [
@@ -187,7 +191,6 @@ const SETUP_TENANT_TABLES = [
   'feed_sites',
   'feed_type_species',
   'water_quality_parameter_configs',
-  'sentinel_hub_settings',
 ] as const;
 
 interface SiteHarness {
@@ -231,7 +234,6 @@ interface SiteHarness {
   listParameterConfigs: ListParameterConfigsHandler;
   updateParameterConfig: UpdateParameterConfigHandler;
   deleteParameterConfig: DeleteParameterConfigHandler;
-  sentinelHub: SentinelHubService;
   setSupplierApprovedSites: SetSupplierApprovedSitesHandler;
 }
 
@@ -243,7 +245,6 @@ describe('Site tenant isolation on real Postgres', () => {
   let siteRepository: Repository<Site>;
   let equipmentRepository: Repository<Equipment>;
   let equipmentTypeRepository: Repository<EquipmentType>;
-  let sentinelSettingsRepository: Repository<SentinelHubSettings>;
   let tankRepository: Repository<Tank>;
   let feedRepository: Repository<Feed>;
   let parameterConfigRepository: Repository<WaterQualityParameterConfig>;
@@ -258,11 +259,6 @@ describe('Site tenant isolation on real Postgres', () => {
   }
 
   beforeAll(async () => {
-    // The SentinelHubSettings entity's AES-256-GCM column transformer resolves
-    // its key from process.env at encrypt/decrypt time. Provide a deterministic
-    // 32-char test key so the sentinel round-trip works in this harness.
-    process.env['SENTINEL_HUB_ENCRYPTION_KEY'] = '0123456789abcdef0123456789abcdef';
-
     pg = await bootPostgresContainer({ startTimeoutMs: 90_000 });
     await pg.dataSource.query('CREATE SCHEMA farm');
     await createFarmOutboxTable(pg.dataSource);
@@ -296,7 +292,6 @@ describe('Site tenant isolation on real Postgres', () => {
         Supplier,
         SupplierSite,
         WaterQualityParameterConfig,
-        SentinelHubSettings,
         AuditLog,
         CodeSequence,
         FarmOutbox,
@@ -328,7 +323,6 @@ describe('Site tenant isolation on real Postgres', () => {
 
     siteRepository = dataSource.getRepository(Site);
     equipmentRepository = dataSource.getRepository(Equipment);
-    sentinelSettingsRepository = dataSource.getRepository(SentinelHubSettings);
     tankRepository = dataSource.getRepository(Tank);
     feedRepository = dataSource.getRepository(Feed);
     parameterConfigRepository = dataSource.getRepository(WaterQualityParameterConfig);
@@ -374,8 +368,8 @@ describe('Site tenant isolation on real Postgres', () => {
         auditLogService,
         new OutboxPublisher(FarmOutbox),
       ),
-      getSite: new GetSiteHandler(dataSource),
-      listSites: new ListSitesHandler(dataSource),
+      getSite: new GetSiteHandler(dataSource, new SiteAuthorizationService()),
+      listSites: new ListSitesHandler(dataSource, new SiteAuthorizationService()),
       updateSite: new UpdateSiteHandler(
         dataSource,
         auditLogService,
@@ -479,10 +473,6 @@ describe('Site tenant isolation on real Postgres', () => {
         parameterConfigRepository,
         parameterConfigCache,
       ),
-      // SentinelHubService no longer holds an encryption key: the entity's
-      // AES-256-GCM column transformer reads SENTINEL_HUB_ENCRYPTION_KEY from
-      // process.env (set in beforeAll) and encrypts/decrypts transparently.
-      sentinelHub: new SentinelHubService(sentinelSettingsRepository, dataSource),
       setSupplierApprovedSites: new SetSupplierApprovedSitesHandler(
         dataSource,
         new OutboxPublisher(FarmOutbox),
@@ -507,12 +497,12 @@ describe('Site tenant isolation on real Postgres', () => {
 
     const tenantAList = await withTenantContext(TENANT_A, () =>
       harness.listSites.execute(
-        new ListSitesQuery(TENANT_A, { search: 'North' }, { page: 1, limit: 10 }),
+        new ListSitesQuery(TENANT_A, MANAGER_CALLER, { search: 'North' }, { page: 1, limit: 10 }),
       ),
     );
     const tenantBList = await withTenantContext(TENANT_B, () =>
       harness.listSites.execute(
-        new ListSitesQuery(TENANT_B, { search: 'North' }, { page: 1, limit: 10 }),
+        new ListSitesQuery(TENANT_B, MANAGER_CALLER, { search: 'North' }, { page: 1, limit: 10 }),
       ),
     );
 
@@ -528,12 +518,22 @@ describe('Site tenant isolation on real Postgres', () => {
 
     const tenantAList = await withTenantContext(TENANT_A, () =>
       harness.listSites.execute(
-        new ListSitesQuery(TENANT_A, { search: 'Shared Name' }, { page: 1, limit: 10 }),
+        new ListSitesQuery(
+          TENANT_A,
+          MANAGER_CALLER,
+          { search: 'Shared Name' },
+          { page: 1, limit: 10 },
+        ),
       ),
     );
     const tenantBList = await withTenantContext(TENANT_B, () =>
       harness.listSites.execute(
-        new ListSitesQuery(TENANT_B, { search: 'Shared Name' }, { page: 1, limit: 10 }),
+        new ListSitesQuery(
+          TENANT_B,
+          MANAGER_CALLER,
+          { search: 'Shared Name' },
+          { page: 1, limit: 10 },
+        ),
       ),
     );
 
@@ -561,16 +561,16 @@ describe('Site tenant isolation on real Postgres', () => {
     );
 
     const getAfterUpdate = await withTenantContext(TENANT_A, () =>
-      harness.getSite.execute(new GetSiteQuery(tenantASite.id, TENANT_A)),
+      harness.getSite.execute(new GetSiteQuery(tenantASite.id, TENANT_A, MANAGER_CALLER)),
     );
     const listAfterUpdate = await withTenantContext(TENANT_A, () =>
       harness.listSites.execute(
-        new ListSitesQuery(TENANT_A, { search: 'Updated' }, { page: 1, limit: 10 }),
+        new ListSitesQuery(TENANT_A, MANAGER_CALLER, { search: 'Updated' }, { page: 1, limit: 10 }),
       ),
     );
     const tenantBList = await withTenantContext(TENANT_B, () =>
       harness.listSites.execute(
-        new ListSitesQuery(TENANT_B, { search: 'Updated' }, { page: 1, limit: 10 }),
+        new ListSitesQuery(TENANT_B, MANAGER_CALLER, { search: 'Updated' }, { page: 1, limit: 10 }),
       ),
     );
 
@@ -592,12 +592,22 @@ describe('Site tenant isolation on real Postgres', () => {
 
     const tenantAList = await withTenantContext(TENANT_A, () =>
       harness.listSites.execute(
-        new ListSitesQuery(TENANT_A, { search: 'Delete Candidate' }, { page: 1, limit: 10 }),
+        new ListSitesQuery(
+          TENANT_A,
+          MANAGER_CALLER,
+          { search: 'Delete Candidate' },
+          { page: 1, limit: 10 },
+        ),
       ),
     );
     const tenantBList = await withTenantContext(TENANT_B, () =>
       harness.listSites.execute(
-        new ListSitesQuery(TENANT_B, { search: 'Delete Candidate' }, { page: 1, limit: 10 }),
+        new ListSitesQuery(
+          TENANT_B,
+          MANAGER_CALLER,
+          { search: 'Delete Candidate' },
+          { page: 1, limit: 10 },
+        ),
       ),
     );
 
@@ -1586,71 +1596,6 @@ describe('Site tenant isolation on real Postgres', () => {
     expect(tenantBCacheAfterDelete.map((config) => config.id)).toEqual([configB.id]);
   });
 
-  it('keeps Sentinel Hub settings tenant-local with immediate status and credential reads', async () => {
-    await withTenantContext(TENANT_A, () =>
-      harness.sentinelHub.saveSettings(
-        TENANT_A,
-        'tenant-a-client-id',
-        'tenant-a-client-secret',
-        'tenant-a-instance-id',
-      ),
-    );
-    await withTenantContext(TENANT_B, () =>
-      harness.sentinelHub.saveSettings(
-        TENANT_B,
-        'tenant-b-client-id',
-        'tenant-b-client-secret',
-        'tenant-b-instance-id',
-      ),
-    );
-
-    expect(await tableTenantRowCount('farm', 'sentinel_hub_settings', TENANT_A)).toBe(0);
-    expect(
-      await tableTenantRowCount(getTenantSchemaName(TENANT_A), 'sentinel_hub_settings', TENANT_A),
-    ).toBe(1);
-    expect(
-      await tableTenantRowCount(getTenantSchemaName(TENANT_B), 'sentinel_hub_settings', TENANT_A),
-    ).toBe(0);
-
-    const tenantAStatus = await withTenantContext(TENANT_A, () =>
-      harness.sentinelHub.getStatus(TENANT_A),
-    );
-    const tenantBCredentials = await withTenantContext(TENANT_B, () =>
-      harness.sentinelHub.getCredentials(TENANT_B),
-    );
-
-    expect(tenantAStatus.isConfigured).toBe(true);
-    expect(tenantAStatus.clientIdMasked).toBe('tena****t-id');
-    expect(tenantBCredentials?.isConfigured).toBe(true);
-    expect(tenantBCredentials?.clientId).toBe('tena****t-id');
-
-    await withTenantContext(TENANT_A, () =>
-      harness.sentinelHub.updateInstanceId(TENANT_A, 'tenant-a-instance-id-updated'),
-    );
-
-    const tenantAUpdated = await withTenantContext(TENANT_A, () =>
-      harness.sentinelHub.getStatus(TENANT_A),
-    );
-    const tenantBUnchanged = await withTenantContext(TENANT_B, () =>
-      harness.sentinelHub.getStatus(TENANT_B),
-    );
-
-    expect(tenantAUpdated.instanceIdMasked).toBe('tena****ated');
-    expect(tenantBUnchanged.instanceIdMasked).toBe('tena****e-id');
-
-    await withTenantContext(TENANT_A, () => harness.sentinelHub.deleteSettings(TENANT_A));
-
-    const tenantAAfterDelete = await withTenantContext(TENANT_A, () =>
-      harness.sentinelHub.getStatus(TENANT_A),
-    );
-    const tenantBAfterDelete = await withTenantContext(TENANT_B, () =>
-      harness.sentinelHub.getStatus(TENANT_B),
-    );
-
-    expect(tenantAAfterDelete.isConfigured).toBe(false);
-    expect(tenantBAfterDelete.isConfigured).toBe(true);
-  });
-
   async function createSiteForTenant(tenantId: string, name: string, code: string): Promise<Site> {
     return withTenantContext(tenantId, () =>
       harness.createSite.execute(
@@ -1868,19 +1813,17 @@ describe('Site tenant isolation on real Postgres', () => {
   ): Promise<Supplier> {
     const repository = tenantManagerRepo(requireDataSource().manager, Supplier, tenantId);
     return withTenantContext(tenantId, () =>
-      repository.save(
-        {
-          tenantId,
-          name,
-          code,
-          type: SupplierType.FEED,
-          supplyTypes: [SupplierType.FEED],
-          status: SupplierStatus.ACTIVE,
-          isActive: true,
-          createdBy: USER_ID,
-          updatedBy: USER_ID,
-        },
-      ),
+      repository.save({
+        tenantId,
+        name,
+        code,
+        type: SupplierType.FEED,
+        supplyTypes: [SupplierType.FEED],
+        status: SupplierStatus.ACTIVE,
+        isActive: true,
+        createdBy: USER_ID,
+        updatedBy: USER_ID,
+      }),
     );
   }
 
@@ -2055,12 +1998,8 @@ function createTankCommandBus(handlers: {
         return handlers.deleteTank.execute(command);
       }
       const commandName =
-        typeof command === 'object' && command !== null
-          ? command.constructor?.name
-          : 'unknown';
-      throw new Error(
-        `Unsupported tank equipment adapter command: ${commandName ?? 'unknown'}`,
-      );
+        typeof command === 'object' && command !== null ? command.constructor?.name : 'unknown';
+      throw new Error(`Unsupported tank equipment adapter command: ${commandName ?? 'unknown'}`);
     },
   } as unknown as CommandBus;
 }

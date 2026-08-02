@@ -8,6 +8,10 @@ describe('tenant schema provisioner contract', () => {
     resolve(ROOT, 'sql/platform-bootstrap/009-tenant-schema-provisioner.sql'),
     'utf8',
   );
+  const leastPrivilegeSql = readFileSync(
+    resolve(ROOT, 'sql/platform-bootstrap/008-least-privilege-hardening.sql'),
+    'utf8',
+  );
   const worker = readFileSync(resolve(ROOT, 'tenant-schema-provisioner.ts'), 'utf8');
   const adminWorkflow = readFileSync(
     resolve(
@@ -42,6 +46,34 @@ describe('tenant schema provisioner contract', () => {
     expect(pinCount).toBe(definerCount);
   });
 
+  it('exposes only the committed active schema identity needed by FORCE-RLS workers', () => {
+    expect(sql).toContain(
+      'CREATE OR REPLACE FUNCTION platform.list_active_tenant_schema_mappings()',
+    );
+    expect(sql).toContain('FROM admin.tenant_schemas AS ts');
+    expect(sql).toContain('FROM pg_catalog.pg_namespace AS namespace');
+    expect(sql).toContain('FROM platform.tenant_schema_jobs AS committed_job');
+    expect(sql).toContain('AS schema_exists');
+    expect(sql).toContain('AS committed_proof');
+    expect(sql).toContain("committed_job.status = 'COMMITTED'");
+    expect(sql).toContain("committed_job.operation_id::text = ts.metadata->>'operationId'");
+    expect(sql).toContain(
+      'REVOKE ALL ON FUNCTION platform.list_active_tenant_schema_mappings() FROM PUBLIC',
+    );
+    expect(sql).toContain(
+      'ALTER FUNCTION platform.list_active_tenant_schema_mappings() OWNER TO db_migrate',
+    );
+    expect(sql).toContain(
+      'GRANT EXECUTE ON FUNCTION platform.list_active_tenant_schema_mappings() TO farm_service',
+    );
+    expect(sql).toContain('GRANT USAGE, CREATE ON SCHEMA platform TO db_migrate');
+    expect(sql).toContain('GRANT USAGE ON SCHEMA platform TO farm_service');
+    expect(leastPrivilegeSql).toContain(
+      "EXECUTE format('GRANT USAGE ON SCHEMA platform TO %I', service_role)",
+    );
+    expect(sql).not.toContain('GRANT SELECT ON admin.tenant_schemas TO farm_service');
+  });
+
   it('grants messaging partition authority on every provisioned tenant schema (DATA-HIGH-006)', () => {
     // pg16 requires parent-table OWNERSHIP for PARTITION OF; the fan-out
     // creates clones under the bootstrap connection role, so APPLYING_GRANTS
@@ -53,8 +85,14 @@ describe('tenant schema provisioner contract', () => {
 
   it('prevents duplicate active schema jobs for the same tenant', () => {
     expect(sql).toContain('idx_tenant_schema_jobs_active_tenant');
+    expect(sql).toContain('idx_tenant_schema_jobs_active_schema');
     expect(sql).toContain("WHERE status IN (\n    'REQUESTED'");
     expect(sql).toContain("'SEEDING_LEDGER'");
+    expect(sql).toContain(
+      'CREATE OR REPLACE FUNCTION platform.assert_tenant_schema_identity_available',
+    );
+    expect(worker).toContain('assertTenantSchemaIdentityAvailable');
+    expect(worker).toContain('Tenant schema identity collision');
   });
 
   it('requires deletion proof only on DELETE requests, not PROVISION requests', () => {
@@ -82,6 +120,9 @@ describe('tenant schema provisioner contract', () => {
     expect(worker).toContain('applyTenantRlsToSchema');
     expect(worker).toContain('INSERT INTO admin.tenant_schemas');
     expect(worker).toContain("status = 'active'");
+    expect(worker).toContain('commitTenantSchemaEvidence');
+    expect(worker).toContain('await queryRunner.startTransaction()');
+    expect(worker).toContain('await queryRunner.commitTransaction()');
   });
 
   it('exposes db-migrate tenant rollback as the rollback authority', () => {

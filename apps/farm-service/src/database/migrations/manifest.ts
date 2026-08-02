@@ -82,6 +82,12 @@ import { BackfillExecutionsToFeedingRecords1806600000000 } from './1806600000000
 import { FeedingForecastFoundation1806700000000 } from './1806700000000-FeedingForecastFoundation';
 import { CreateIncidentMedia1806000000000 } from './1806000000000-CreateIncidentMedia';
 import { WidenRelatedSensorReadingIdToFederationId1806800000000 } from './1806800000000-WidenRelatedSensorReadingIdToFederationId';
+import { AddSiteMonitoringContract1806900000000 } from './1806900000000-AddSiteMonitoringContract';
+import { AddSentinelCredentialCutoverMetadata1807000000000 } from './1807000000000-AddSentinelCredentialCutoverMetadata';
+import { CreateEnvironmentalObservationFoundation1807100000000 } from './1807100000000-CreateEnvironmentalObservationFoundation';
+import { AddEnvironmentMetricSyncOutcomes1807200000000 } from './1807200000000-AddEnvironmentMetricSyncOutcomes';
+import { AddSuperAdminCrossTenantAuditAction1807900000000 } from './1807900000000-AddSuperAdminCrossTenantAuditAction';
+import { AddSatelliteCoverageProvenance1808000000000 } from './1808000000000-AddSatelliteCoverageProvenance';
 
 /**
  * Canonical farm-service migration class list.
@@ -161,4 +167,10 @@ export const FARM_MIGRATIONS = [
   BackfillExecutionsToFeedingRecords1806600000000,
   FeedingForecastFoundation1806700000000,
   WidenRelatedSensorReadingIdToFederationId1806800000000,
+  AddSiteMonitoringContract1806900000000,
+  AddSentinelCredentialCutoverMetadata1807000000000,
+  CreateEnvironmentalObservationFoundation1807100000000,
+  AddEnvironmentMetricSyncOutcomes1807200000000,
+  AddSuperAdminCrossTenantAuditAction1807900000000,
+  AddSatelliteCoverageProvenance1808000000000,
 ] as const;

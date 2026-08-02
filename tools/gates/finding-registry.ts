@@ -72,6 +72,10 @@ import addFormats from 'ajv-formats';
 // SHAs (see cmdClose). The shared SSOT helper is import-safe for
 // node:test specs, which use the same extensionless CJS specifier.
 import {
+  findNonCanonicalFindingEvidence,
+  requiresCanonicalFindingEvidence,
+} from './finding-evidence-shape';
+import {
   atomicWriteFileWithRegistryLease,
   atomicWriteRegistryFile,
   claimedSequences,
@@ -105,6 +109,7 @@ const SCHEMA_PATH = resolve(
 );
 const ORPHAN_FINDINGS_MD_PATH = resolve(REPO_ROOT, 'docs', 'reviews', 'orphan-findings.md');
 const ZERO_HASH = '0'.repeat(64);
+const GIT_OUTPUT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
 export interface RegistryPaths {
   readonly registryPath: string;
@@ -142,6 +147,7 @@ function gitOutput(repoRoot: string, args: readonly string[]): string {
   return execFileSync('git', ['-C', repoRoot, ...args], {
     encoding: 'utf8',
     env: HERMETIC_GIT_ENV,
+    maxBuffer: GIT_OUTPUT_MAX_BUFFER_BYTES,
   }).trim();
 }
 
@@ -204,7 +210,7 @@ function loadStubValidator(schemaPath = SCHEMA_PATH): ValidateFunction {
  * keep these interfaces structural (no runtime validation here — the
  * integrity invariant test enforces schema conformance separately).
  */
-interface Finding {
+export interface Finding {
   id: string;
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
   state: 'OPEN' | 'IN-PROGRESS' | 'RESOLVED' | 'STALE' | 'BLOCKED';
@@ -242,6 +248,50 @@ function canonicalJson(value: unknown): string {
   const obj = value as Record<string, unknown>;
   const keys = Object.keys(obj).sort();
   return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(obj[k])).join(',') + '}';
+}
+
+export interface CanonicalRegistryPrefixCheck {
+  violation: string | null;
+  branchSuffixStartIndex: number;
+}
+
+export function checkCanonicalRegistryPrefix(
+  currentEntries: readonly unknown[],
+  canonicalEntries: readonly unknown[],
+  startIndex: number,
+): CanonicalRegistryPrefixCheck {
+  const branchSuffixStartIndex = canonicalEntries.length;
+  if (startIndex < canonicalEntries.length) {
+    return {
+      branchSuffixStartIndex,
+      violation:
+        `start index ${startIndex} enters the canonical origin/main prefix ` +
+        `(${canonicalEntries.length} entries)`,
+    };
+  }
+  if (currentEntries.length < canonicalEntries.length) {
+    return {
+      branchSuffixStartIndex,
+      violation:
+        `branch registry has ${currentEntries.length} entries but canonical origin/main has ` +
+        `${canonicalEntries.length}`,
+    };
+  }
+  for (let index = 0; index < canonicalEntries.length; index += 1) {
+    if (canonicalJson(currentEntries[index]) !== canonicalJson(canonicalEntries[index])) {
+      return {
+        branchSuffixStartIndex,
+        violation: `canonical origin/main entry ${index} differs from the branch registry`,
+      };
+    }
+  }
+  return { branchSuffixStartIndex, violation: null };
+}
+
+export function parseRechainStartIndex(raw: string | undefined): number | null {
+  if (raw === undefined || !/^(?:0|[1-9]\d*)$/.test(raw)) return null;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
 function sha256hex(input: string): string {
@@ -409,12 +459,12 @@ function cmdVerify(): number {
   const entries = loadRegistry();
   const result = verify(entries);
   if (!result.ok) {
-    console.error(`FAIL: ${result.reason}`);
+    process.stderr.write(`FAIL: ${result.reason}\n`);
     return 1;
   }
-  console.log(`OK: registry chain valid (${result.entries} entries).`);
+  process.stdout.write(`OK: registry chain valid (${result.entries} entries).\n`);
   const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
-  if (tip) console.log(`Chain tip: ${tip}`);
+  if (tip) process.stdout.write(`Chain tip: ${tip}\n`);
   return 0;
 }
 
@@ -494,6 +544,19 @@ function validateAndAppendFinding(
     return 1;
   }
 
+  const invalidEvidence = findNonCanonicalFindingEvidence(newEntry.evidence);
+  if (invalidEvidence.length > 0) {
+    process.stderr.write(
+      'Stub evidence must use canonical file/path citation shapes; move diagnostic prose to narrative:\n',
+    );
+    for (const violation of invalidEvidence) {
+      process.stderr.write(
+        `  evidence[${violation.index}]: ${JSON.stringify(violation.evidence)}\n`,
+      );
+    }
+    return 1;
+  }
+
   entries.push(newEntry);
   rechain(entries, entries.length - 1);
 
@@ -508,6 +571,78 @@ function validateAndAppendFinding(
   process.stdout.write(`Added: ${newEntry.id} at position ${entries.length - 1}\n`);
   process.stdout.write(`Chain tip: ${newEntry.content_hash}\n`);
   return 0;
+}
+
+/**
+ * Rechain is a writer boundary too: it must never bless malformed suffix rows.
+ * Historical pre-cutover evidence keeps its original relaxed contract, while
+ * every later row is checked by the same citation authority as fresh appends.
+ */
+export function validateRegistrySuffixForRechain(
+  entries: readonly unknown[],
+  startIndex: number,
+  schemaPath = SCHEMA_PATH,
+): string[] {
+  const validate = loadStubValidator(schemaPath);
+  const violations: string[] = [];
+
+  for (let index = startIndex; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (!validate(entry)) {
+      for (const error of validate.errors ?? []) {
+        violations.push(
+          `entry ${index} schema ${error.instancePath || '<root>'}: ${error.message} (${error.keyword})`,
+        );
+      }
+      continue;
+    }
+
+    const finding = entry as { id?: string; created_at?: unknown; evidence?: unknown[] };
+    if (!requiresCanonicalFindingEvidence(finding.created_at)) continue;
+    for (const violation of findNonCanonicalFindingEvidence(finding.evidence)) {
+      violations.push(
+        `entry ${index} (${String(finding.id ?? '<unknown>')}) evidence[${violation.index}]: ${JSON.stringify(violation.evidence)}`,
+      );
+    }
+  }
+
+  return violations;
+}
+
+export type PreparedRegistryRechain =
+  | { ok: true; entries: Finding[] }
+  | { ok: false; stage: 'suffix' | 'integrity'; failures: string[] };
+
+/**
+ * Builds and verifies a rechain candidate without mutating the caller's array.
+ * Persistent storage is eligible only when this function returns `ok: true`.
+ */
+export function prepareRegistryRechain(
+  entries: readonly Finding[],
+  validationStartIndex: number,
+  rechainStartIndex: number,
+  schemaPath = SCHEMA_PATH,
+): PreparedRegistryRechain {
+  const validationFailures = validateRegistrySuffixForRechain(
+    entries,
+    validationStartIndex,
+    schemaPath,
+  );
+  if (validationFailures.length > 0) {
+    return { ok: false, stage: 'suffix', failures: validationFailures };
+  }
+
+  const candidate = structuredClone(entries) as Finding[];
+  rechain(candidate, rechainStartIndex);
+  const result = verify(candidate);
+  if (!result.ok) {
+    return {
+      ok: false,
+      stage: 'integrity',
+      failures: [result.reason ?? 'registry verification failed without a reason'],
+    };
+  }
+  return { ok: true, entries: candidate };
 }
 
 /**
@@ -1009,12 +1144,12 @@ function cmdList(args: readonly string[]): number {
 }
 
 function cmdRechainFrom(startIdxRaw: string | undefined, lease: RegistryLockLease): number {
-  // Merge-commit helper: after a 3-way merge of `findings.jsonl`
-  // concatenates two branches' additions, the first entry of the
-  // latter branch carries a `prev_hash` pointing at an entry that
-  // is no longer its predecessor in the merged file. This
-  // subcommand re-hashes from the named index to EOF, restoring
-  // the integrity chain.
+  // Branch-suffix helper: after a 3-way merge concatenates branch additions,
+  // or before an unmerged malformed tail is corrected, the first branch-only
+  // row can carry a stale hash. The canonical origin/main prefix is compared
+  // entry-for-entry, including its hashes, and is never eligible for this
+  // operation; `close` remains
+  // the sole governed command that can transition an already-merged row.
   //
   // Discovery path for the index: run `verify` first — on failure
   // it prints `chain break at entry N (<id>)`. Pass N here.
@@ -1022,9 +1157,11 @@ function cmdRechainFrom(startIdxRaw: string | undefined, lease: RegistryLockLeas
     console.error('rechain-from requires a start index: finding-registry rechain-from <N>');
     return 2;
   }
-  const startIndex = Number.parseInt(startIdxRaw, 10);
-  if (!Number.isInteger(startIndex) || startIndex < 0) {
-    console.error(`rechain-from: <N> must be a non-negative integer; got "${startIdxRaw}".`);
+  const startIndex = parseRechainStartIndex(startIdxRaw);
+  if (startIndex === null) {
+    console.error(
+      `rechain-from: <N> must be a canonical non-negative base-10 integer; got "${startIdxRaw}".`,
+    );
     return 2;
   }
   const entries = loadRegistry();
@@ -1032,13 +1169,28 @@ function cmdRechainFrom(startIdxRaw: string | undefined, lease: RegistryLockLeas
     console.error(`rechain-from: index ${startIndex} is out of range (entries=${entries.length}).`);
     return 2;
   }
-  rechain(entries, startIndex);
-  writeRegistry(entries, lease);
-  const result = verify(entries);
-  if (!result.ok) {
-    console.error(`rechain-from: registry is STILL invalid post-rechain: ${result.reason}`);
+  const canonicalRaw = gitOutput(REPO_ROOT, ['show', `origin/main:${REGISTRY_RELATIVE_PATH}`]);
+  const canonicalEntries = canonicalRaw
+    .split(/\r?\n/)
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line) as Finding);
+  const prefixCheck = checkCanonicalRegistryPrefix(entries, canonicalEntries, startIndex);
+  if (prefixCheck.violation) {
+    console.error(`rechain-from: refusing canonical-history mutation: ${prefixCheck.violation}.`);
     return 1;
   }
+  // Semantic validation always begins at the canonical-main boundary. The
+  // requested index controls only where hashes are recalculated; otherwise a
+  // caller could skip invalid branch-only rows by choosing a later hash break.
+  const prepared = prepareRegistryRechain(entries, prefixCheck.branchSuffixStartIndex, startIndex);
+  if (!prepared.ok) {
+    const reason =
+      prepared.stage === 'suffix' ? 'an invalid registry suffix' : 'an invalid hash candidate';
+    console.error(`rechain-from: refusing to persist ${reason}:`);
+    for (const failure of prepared.failures) console.error(`  ${failure}`);
+    return 1;
+  }
+  writeRegistry(prepared.entries, lease);
   console.log(
     `rechain-from: registry integrity restored from entry ${startIndex} (total entries=${entries.length}).`,
   );

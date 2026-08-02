@@ -225,6 +225,196 @@ def derive_bridge_state(
     }
 
 
+def _results_path(root: Path) -> Path:
+    return root / "agent-invocations" / "results.jsonl"
+
+
+def _replayable_state(state: dict[str, Any], max_retries: int) -> bool:
+    """A bridge state the replay loop may act on: crash-recovery
+    ``pending`` (attempt 0) or ``pending_retry`` with retry budget left."""
+    if state["state"] == "pending":
+        return True
+    return state["state"] == "pending_retry" and int(state["attempt_number"]) < max_retries
+
+
+def _default_bridge_invoker(result_row: dict[str, Any], root: Path) -> list[str]:
+    """Re-invoke the three §C.1 bridges for an accepted result row.
+
+    Reuses ``agent_invocations._invoke_bridges_for_result`` — the SAME
+    code the accepted submit path runs — so a replayed bridge cannot
+    drift from the original invocation. Returns the list of bridge
+    errors (empty = success).
+
+    Divergence from the submit path, on purpose: ``BridgeContractViolation``
+    is CAUGHT here and returned as an error instead of propagating. On
+    the submit path the caller is the live consumer and must see the
+    breach in real time; on the replay path propagation would wedge the
+    whole drain on one poisoned row. The breach stays operator-visible
+    through the ``bridge_replay_contract_violation`` governance event and
+    the ``permanent_fail`` transition the caller records once the retry
+    budget is spent.
+    """
+    import json
+
+    # Function-level import: agent_invocations imports this module inside
+    # its own functions; a module-level import here would be a cycle.
+    from .agent_invocations import _find_request_by_id, _invoke_bridges_for_result
+    from .bridge_exceptions import BridgeContractViolation
+    from .tool_registry import append_tools_governance
+
+    request_id = str(result_row.get("request_id") or "")
+    claim_id = str(result_row.get("claim_id") or "")
+    request = _find_request_by_id(root, request_id)
+    if request is None:
+        return [f"replay_request_missing: {request_id}"]
+    output_path = Path(str(result_row.get("output_path") or ""))
+    try:
+        envelope = json.loads(output_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"replay_output_envelope_unreadable: {output_path} ({exc})"]
+    if not isinstance(envelope, dict):
+        return [f"replay_output_envelope_not_object: {output_path}"]
+    try:
+        bridged = _invoke_bridges_for_result(
+            request=request,
+            envelope=envelope,
+            base_dir=root,
+            root=root,
+            claim_id=claim_id,
+            request_id=request_id,
+        )
+    except BridgeContractViolation as exc:
+        append_tools_governance(
+            root,
+            "bridge_replay_contract_violation",
+            {"claim_id": claim_id, "request_id": request_id, "error": str(exc)},
+        )
+        return [f"bridge_contract_violation: {exc}"]
+    return list(bridged.get("bridge_errors") or [])
+
+
+def replay_pending_bridges(
+    *,
+    base_dir: str | Path,
+    max_iterations: int = 10,
+    bridge_invoker: Any = None,
+) -> dict[str, Any]:
+    """Drain pending bridge work — the §C.5 retry primitive the F.1
+    orchestrator's ``_default_bridge_drainer`` resolves by name.
+
+    Walks accepted result rows whose role requires a bridge, derives each
+    row's bridge state, and re-invokes the bridges for every replayable
+    row (crash-recovery ``pending`` at attempt 0, or ``pending_retry``
+    with budget left under ``ARIA_BRIDGE_MAX_RETRIES``). Each outcome
+    lands as an immutable transition row: ``ok`` on success,
+    ``pending_retry`` while budget remains, ``permanent_fail`` when the
+    budget is spent.
+
+    Return shape is the orchestrator's consumer contract
+    (autonomy_orchestrator.py bridge_drained / bridge_replay_required):
+
+        ``{"status": "ok"|"failed", "iterations": int,
+           "replayed_ok": int, "retry_scheduled": int,
+           "permanent_fail": int, "pending_after": int}``
+
+    ``status`` reports whether the DRAIN ran, not whether every bridge
+    succeeded — unresolved rows surface through ``pending_after``, which
+    the orchestrator turns into ``bridge_replay_required`` under the
+    strict/autonomous profiles. A structural failure (unreadable results
+    ledger) returns ``status="failed"`` instead of raising so the
+    orchestrator loop stays in control.
+    """
+    root = Path(base_dir)
+    invoker = bridge_invoker or _default_bridge_invoker
+    max_retries = _default_max_retries()
+    try:
+        results = load_declared_jsonl(
+            _results_path(root),
+            expected_surface="agent_invocation_results",
+        )
+    except GovernanceError as exc:
+        return {
+            "status": "failed",
+            "reason": f"results_ledger_unreadable: {exc}",
+            "iterations": 0,
+            "replayed_ok": 0,
+            "retry_scheduled": 0,
+            "permanent_fail": 0,
+            "pending_after": 0,
+        }
+
+    def _bridge_rows() -> list[dict[str, Any]]:
+        return [
+            row
+            for row in results
+            if row.get("status") == "accepted" and row.get("role") in BRIDGE_REQUIRED_ROLES
+        ]
+
+    iterations = 0
+    replayed_ok = 0
+    retry_scheduled = 0
+    permanent_fail = 0
+    for row in _bridge_rows():
+        if iterations >= max_iterations:
+            break
+        state = derive_bridge_state(base_dir=root, result_row=row)
+        if not _replayable_state(state, max_retries):
+            continue
+        iterations += 1
+        attempt = int(state["attempt_number"]) + 1
+        errors = invoker(row, root)
+        result_hash = str(row.get("ledger_hash") or "")
+        envelope_hash = str(row.get("envelope_evidence_hash") or "")
+        role = row.get("role")
+        if not errors:
+            append_bridge_status(
+                base_dir=root,
+                result_row_ledger_hash=result_hash,
+                envelope_evidence_hash=envelope_hash,
+                role=role,
+                transition="ok",
+                attempt_number=attempt,
+            )
+            replayed_ok += 1
+        elif attempt >= max_retries:
+            append_bridge_status(
+                base_dir=root,
+                result_row_ledger_hash=result_hash,
+                envelope_evidence_hash=envelope_hash,
+                role=role,
+                transition="permanent_fail",
+                attempt_number=attempt,
+                error_detail="; ".join(errors)[:500],
+            )
+            permanent_fail += 1
+        else:
+            append_bridge_status(
+                base_dir=root,
+                result_row_ledger_hash=result_hash,
+                envelope_evidence_hash=envelope_hash,
+                role=role,
+                transition="pending_retry",
+                attempt_number=attempt,
+                error_detail="; ".join(errors)[:500],
+            )
+            retry_scheduled += 1
+
+    pending_after = 0
+    for row in _bridge_rows():
+        state = derive_bridge_state(base_dir=root, result_row=row)
+        if _replayable_state(state, max_retries):
+            pending_after += 1
+
+    return {
+        "status": "ok",
+        "iterations": iterations,
+        "replayed_ok": replayed_ok,
+        "retry_scheduled": retry_scheduled,
+        "permanent_fail": permanent_fail,
+        "pending_after": pending_after,
+    }
+
+
 __all__ = [
     "BRIDGE_LEDGER_FILENAME",
     "BRIDGE_REQUIRED_ROLES",
@@ -233,4 +423,5 @@ __all__ = [
     "bridge_status_for_role",
     "derive_bridge_state",
     "latest_bridge_status_for",
+    "replay_pending_bridges",
 ]

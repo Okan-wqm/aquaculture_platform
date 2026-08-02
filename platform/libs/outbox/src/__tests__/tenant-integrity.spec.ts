@@ -9,8 +9,8 @@
  * — a tenant-isolation breach. These tests pin the dispatch-boundary assertion
  * that makes that mis-route impossible (it dead-letters instead of publishing).
  */
-import { assertOutboxTenantIntegrity, OutboxTenantIntegrityError } from '../tenant-integrity';
 import { OUTBOX_ROUTING_SCOPE_FIELD, OUTBOX_SYSTEM_TENANT_ID } from '../outbox-routing';
+import { assertOutboxTenantIntegrity, OutboxTenantIntegrityError } from '../tenant-integrity';
 
 const TENANT_A = '550e8400-e29b-41d4-a716-446655440000';
 const TENANT_B = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';

@@ -1,3 +1,4 @@
+import { CursorEdge, CursorPageInfo } from '@aquaculture/backend-common/pagination';
 import { Field, Float, ID, Int, ObjectType } from '@nestjs/graphql';
 
 import {
@@ -239,22 +240,22 @@ export class EnvironmentSceneResponse {
 
   @Field()
   fetchedAt!: Date;
-
-  @Field()
-  cursor!: string;
 }
 
 @ObjectType()
-export class EnvironmentSceneConnection {
+export class EnvironmentSceneEdge extends CursorEdge(EnvironmentSceneResponse) {}
+
+@ObjectType('EnvironmentSceneCursorPageInfo')
+export class EnvironmentSceneCursorPageInfo extends CursorPageInfo {}
+
+@ObjectType()
+export class EnvironmentSceneCursorConnection {
   @Field(() => ID)
   siteId!: string;
 
-  @Field(() => [EnvironmentSceneResponse])
-  nodes!: EnvironmentSceneResponse[];
+  @Field(() => [EnvironmentSceneEdge])
+  edges!: EnvironmentSceneEdge[];
 
-  @Field()
-  hasNextPage!: boolean;
-
-  @Field(() => String, { nullable: true })
-  endCursor?: string | null;
+  @Field(() => EnvironmentSceneCursorPageInfo)
+  pageInfo!: EnvironmentSceneCursorPageInfo;
 }

@@ -1075,11 +1075,26 @@ type FarmStockInventoryItem {
 }
 
 type FarmStockInventoryConnection {
+  """Array of items"""
   items: [FarmStockInventoryItem!]!
+
+  """Total count of items matching the query"""
   total: Int!
+
+  """Current page number"""
   page: Int!
+
+  """Items per page"""
   limit: Int!
+
+  """Total number of pages"""
   totalPages: Int!
+
+  """Whether there is a next page"""
+  hasNextPage: Boolean!
+
+  """Whether there is a previous page"""
+  hasPreviousPage: Boolean!
 }
 
 type FeedTypeResponse {
@@ -2135,7 +2150,7 @@ type StorageInventoryEdge {
 
 type StorageInventoryCursorPageInfo {
   """
-  Cursor to pass as `after` for the next page. null when hasNextPage=false.
+  Cursor of the final edge in this page. null only when the page has no edges.
   """
   endCursor: String
   hasNextPage: Boolean!
@@ -3242,7 +3257,6 @@ type EnvironmentSceneResponse {
   qualityStatus: EnvironmentQualityStatus!
   locationRevision: Int!
   fetchedAt: DateTime!
-  cursor: String!
 }
 
 enum SatelliteCoverageStatus {
@@ -3252,11 +3266,23 @@ enum SatelliteCoverageStatus {
   OUT_OF_COVERAGE
 }
 
-type EnvironmentSceneConnection {
-  siteId: ID!
-  nodes: [EnvironmentSceneResponse!]!
-  hasNextPage: Boolean!
+type EnvironmentSceneEdge {
+  cursor: String!
+  node: EnvironmentSceneResponse!
+}
+
+type EnvironmentSceneCursorPageInfo {
+  """
+  Cursor of the final edge in this page. null only when the page has no edges.
+  """
   endCursor: String
+  hasNextPage: Boolean!
+}
+
+type EnvironmentSceneCursorConnection {
+  siteId: ID!
+  edges: [EnvironmentSceneEdge!]!
+  pageInfo: EnvironmentSceneCursorPageInfo!
 }
 
 type WorkerResponse {
@@ -5759,7 +5785,7 @@ type Query {
   siteEnvironmentHistory(input: SiteEnvironmentHistoryInput!): SiteEnvironmentValuesResponse!
   siteEnvironmentForecast(input: SiteEnvironmentForecastInput!): SiteEnvironmentValuesResponse!
   environmentLayerCatalog(siteId: ID!): [EnvironmentLayerResponse!]!
-  environmentScenes(input: EnvironmentScenesInput!): EnvironmentSceneConnection!
+  environmentScenes(input: EnvironmentScenesInput!): EnvironmentSceneCursorConnection!
   workers: [WorkerResponse!]!
   batchFeedAssignment(batchId: ID!): BatchFeedAssignmentResponse
   batch(id: ID!): Batch!

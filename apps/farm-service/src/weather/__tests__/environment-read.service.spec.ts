@@ -117,6 +117,26 @@ function coverageAssessment(
   });
 }
 
+function satelliteScene(id: string, sceneId: string, acquiredAt: Date): SatelliteSceneObservation {
+  return Object.assign(new SatelliteSceneObservation(), {
+    id,
+    tenantId: TENANT_ID,
+    siteId: SITE_ID,
+    sceneId,
+    collection: 'sentinel-2-l2a',
+    provider: EnvironmentProvider.CDSE_SENTINEL_2,
+    productId: sceneId,
+    datasetId: 'sentinel-2-l2a',
+    acquiredAt,
+    cloudCoverPercent: 30,
+    coveragePercent: 50,
+    coverageAssessments: [coverageAssessment()],
+    qualityStatus: EnvironmentQualityStatus.VALID,
+    monitoringLocationRevision: 3,
+    fetchedAt: new Date('2026-07-31T04:00:00.000Z'),
+  });
+}
+
 describe('EnvironmentReadService', () => {
   let manager: jest.Mocked<EntityManager>;
   let queryRunner: jest.Mocked<QueryRunner>;
@@ -161,23 +181,11 @@ describe('EnvironmentReadService', () => {
   it('returns the complete persisted satellite coverage provenance bundle', async () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-07-31T12:00:00.000Z'));
-    const scene = Object.assign(new SatelliteSceneObservation(), {
-      id: OBSERVATION_ID,
-      tenantId: TENANT_ID,
-      siteId: SITE_ID,
-      sceneId: 'S2B_TEST_SCENE',
-      collection: 'sentinel-2-l2a',
-      provider: EnvironmentProvider.CDSE_SENTINEL_2,
-      productId: 'S2B_TEST_SCENE',
-      datasetId: 'sentinel-2-l2a',
-      acquiredAt: new Date('2026-07-30T10:25:59.000Z'),
-      cloudCoverPercent: 30,
-      coveragePercent: 50,
-      coverageAssessments: [coverageAssessment()],
-      qualityStatus: EnvironmentQualityStatus.VALID,
-      monitoringLocationRevision: 3,
-      fetchedAt: new Date('2026-07-31T04:00:00.000Z'),
-    });
+    const scene = satelliteScene(
+      OBSERVATION_ID,
+      'S2B_TEST_SCENE',
+      new Date('2026-07-30T10:25:59.000Z'),
+    );
     const queryBuilder = {
       leftJoinAndSelect: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
@@ -198,16 +206,83 @@ describe('EnvironmentReadService', () => {
       first: 10,
     });
 
-    expect(result.nodes).toEqual([
-      expect.objectContaining({
-        sceneId: 'S2B_TEST_SCENE',
-        coveragePercent: 50,
-        coverageStatus: SatelliteCoverageStatus.PARTIAL,
-        coverageMethod: CDSE_COVERAGE_METHOD,
-        coverageSampleCount: 256,
-        qualityStatus: EnvironmentQualityStatus.PROVISIONAL,
-      }),
+    expect(result.edges).toEqual([
+      {
+        cursor: expect.any(String),
+        node: expect.objectContaining({
+          sceneId: 'S2B_TEST_SCENE',
+          coveragePercent: 50,
+          coverageStatus: SatelliteCoverageStatus.PARTIAL,
+          coverageMethod: CDSE_COVERAGE_METHOD,
+          coverageSampleCount: 256,
+          qualityStatus: EnvironmentQualityStatus.PROVISIONAL,
+        }),
+      },
     ]);
+    expect(result.pageInfo).toEqual({
+      endCursor: result.edges[0]?.cursor,
+      hasNextPage: false,
+    });
+  });
+
+  it('trims the signal row and applies the opaque cursor on the next scene page', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-07-31T12:00:00.000Z'));
+    const newer = satelliteScene(
+      '11111111-1111-4111-8111-111111111111',
+      'S2B_NEWER_SCENE',
+      new Date('2026-07-30T10:25:59.000Z'),
+    );
+    const older = satelliteScene(
+      '22222222-2222-4222-8222-222222222222',
+      'S2B_OLDER_SCENE',
+      new Date('2026-07-29T10:25:59.000Z'),
+    );
+    const queryBuilder = {
+      leftJoinAndSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValueOnce([newer, older]).mockResolvedValueOnce([older]),
+    };
+    manager.createQueryBuilder = jest
+      .fn()
+      .mockReturnValue(queryBuilder) as typeof manager.createQueryBuilder;
+    const input = {
+      siteId: SITE_ID,
+      from: new Date('2026-07-01T12:00:00.000Z'),
+      to: new Date('2026-07-31T12:00:00.000Z'),
+      first: 1,
+    };
+
+    const firstPage = await service.scenes(TENANT_ID, CALLER, input);
+
+    expect(queryBuilder.take).toHaveBeenLastCalledWith(2);
+    expect(firstPage.edges).toHaveLength(1);
+    expect(firstPage.edges[0]?.node.sceneId).toBe('S2B_NEWER_SCENE');
+    expect(firstPage.pageInfo.hasNextPage).toBe(true);
+    const firstCursor = firstPage.pageInfo.endCursor;
+    if (!firstCursor) {
+      throw new Error('expected the first scene page to expose an end cursor');
+    }
+
+    const secondPage = await service.scenes(TENANT_ID, CALLER, {
+      ...input,
+      after: firstCursor,
+    });
+
+    expect(queryBuilder.andWhere).toHaveBeenCalledWith(
+      '(scene.acquired_at < :cursorAt OR (scene.acquired_at = :cursorAt AND scene.id < :cursorId))',
+      { cursorAt: newer.acquiredAt, cursorId: newer.id },
+    );
+    expect(secondPage.edges).toHaveLength(1);
+    expect(secondPage.edges[0]?.node.sceneId).toBe('S2B_OLDER_SCENE');
+    expect(secondPage.pageInfo).toEqual({
+      endCursor: secondPage.edges[0]?.cursor,
+      hasNextPage: false,
+    });
   });
 
   it('preserves valid zero-valued weather and marine facts with independent timestamps', async () => {

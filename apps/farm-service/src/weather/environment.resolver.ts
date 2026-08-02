@@ -11,7 +11,7 @@ import {
 } from './dto/environment.input';
 import {
   EnvironmentLayerResponse,
-  EnvironmentSceneConnection,
+  EnvironmentSceneCursorConnection,
   SiteEnvironmentValuesResponse,
 } from './dto/environment.response';
 import { EnvironmentMonitoringGate } from './services/environment-monitoring-gate.service';
@@ -77,12 +77,12 @@ export class EnvironmentResolver {
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
-  @Query(() => EnvironmentSceneConnection, { complexity: 250 })
+  @Query(() => EnvironmentSceneCursorConnection, { complexity: 250 })
   async environmentScenes(
     @Args('input') input: EnvironmentScenesInput,
     @CurrentTenant() tenantId: string,
     @CurrentUser() caller: SiteScopeCaller,
-  ): Promise<EnvironmentSceneConnection> {
+  ): Promise<EnvironmentSceneCursorConnection> {
     this.monitoringGate.assertEnabled();
     return this.environmentReadService.scenes(tenantId, caller, input);
   }

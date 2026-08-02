@@ -42,10 +42,7 @@ class NatsRequestReply implements IRequestReply {
   ): Promise<RequestReplyResponderHandle>;
 }
 
-type RequestReplyHandler<Req, Res> = (
-  request: Req,
-  context: RequestReplyContext,
-) => Promise<Res>;
+type RequestReplyHandler<Req, Res> = (request: Req, context: RequestReplyContext) => Promise<Res>;
 
 interface RequestReplyContext {
   subject: string;
@@ -58,6 +55,7 @@ interface RequestReplyResponderHandle {
 ```
 
 Error taxonomy — one class per operator-alarm shelf:
+
 - `RequestReplyTimeoutError` — responder did not answer within budget
 - `RequestReplyTransportError` — NoResponders, broker disconnect, connection-null
 - `RequestReplyEncodeError` — request body could not be JSON-encoded
@@ -65,6 +63,7 @@ Error taxonomy — one class per operator-alarm shelf:
 - `RequestReplyRemoteError` — responder surfaced a structured error envelope `{__error:true, code, message}`
 
 Variance from original proposal:
+
 - Method renamed from `request` → `requestTyped` for callsite clarity (there is already a `NatsConnection.request`; the typed variant communicates intent).
 - `correlationId` dropped from the per-call options because the request-reply primitive has no implemented trace-header contract or concrete consumer yet. A future tracing extension must define propagation and trust semantics explicitly.
 - `RequestMeta` → `RequestReplyContext` rename — matches the `Handler(request, context)` callback shape that feels natural to TS developers.
@@ -99,7 +98,7 @@ The Rust sidecar uses `request_typed` at cold-start in `apps/sensor-ingestion/sr
 ### Correlation + tracing
 
 - The current request-reply primitive does not propagate a trusted caller identity or W3C `traceparent` header. Request and response timing remains observable through the typed timeout/transport shelves.
-- Adding distributed tracing is a follow-up wire-contract change: both language implementations must inject/extract `traceparent` consistently and tests must prove propagation. Trace headers remain telemetry, never authorization evidence.
+- Distributed tracing is explicitly not a capability of this primitive: neither language implementation injects or extracts `traceparent`. Trace headers remain telemetry, never authorization evidence.
 
 ### First adoption (as landed)
 
@@ -125,15 +124,18 @@ This prevents the race where a NATS outage at sidecar boot causes wrong routing,
 ## Consequences
 
 **Positive:**
+
 - Policy snapshot, capability discovery, health probes — any request-reply pattern — has a single sanctioned primitive with typed errors, lifecycle control, broker-ACL admission, and caller-owned timeout built in.
 - Rust ↔ TS symmetry; the Rust sidecar is not a second-class citizen.
 - No new transport (HTTP/gRPC) added — NATS stays the single-plane identity SSoT.
 
 **Negative:**
+
 - Platform-wide API extension needs CODEOWNERS review from every service team that currently uses `@platform/event-bus` (14 services). Coordination cost.
 - Responders are long-lived subscriptions; careful lifecycle management needed (stop on module shutdown, unsubscribe on DI teardown). The TS wrapper must wire into NestJS lifecycle hooks.
 
 **Neutral:**
+
 - `request()` with timeout + retry can re-trigger a responder (at-most-once is not guaranteed). Responders should be idempotent for the same `correlationId`. Documented in the ADR, not enforced at the API layer.
 
 ---

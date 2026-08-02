@@ -1,4 +1,5 @@
 import { runInTenantRead } from '@aquaculture/backend-common/database';
+import { buildCursorResponse, normaliseCursorInput } from '@aquaculture/backend-common/pagination';
 import { SiteAuthorizationService, SiteScopeCaller } from '@aquaculture/backend-common/security';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
@@ -14,7 +15,7 @@ import { EnvironmentScenesInput, SiteEnvironmentHistoryInput } from '../dto/envi
 import {
   EnvironmentLayerResponse,
   EnvironmentCoverageSummaryResponse,
-  EnvironmentSceneConnection,
+  EnvironmentSceneCursorConnection,
   EnvironmentSceneResponse,
   EnvironmentValueResponse,
   SiteEnvironmentValuesResponse,
@@ -611,14 +612,14 @@ export class EnvironmentReadService {
     tenantId: string,
     caller: SiteScopeCaller,
     input: EnvironmentScenesInput,
-  ): Promise<EnvironmentSceneConnection> {
+  ): Promise<EnvironmentSceneCursorConnection> {
     this.monitoringGate.assertEnabled();
     this.assertSiteAccess(caller, input.siteId);
     const range = this.normalizeHistoryRange(input.from, input.to, new Date());
-    if (!Number.isInteger(input.first) || input.first < 1 || input.first > 100) {
-      throw new BadRequestException('first must be an integer between 1 and 100');
+    const { first, after } = normaliseCursorInput(input);
+    if (after && !isUUID(after.id)) {
+      throw new BadRequestException('Invalid scene cursor');
     }
-    const cursor = input.after ? this.decodeCursor(input.after) : undefined;
 
     return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const site = await this.requireSite(queryRunner.manager, tenantId, input.siteId);
@@ -635,27 +636,34 @@ export class EnvironmentReadService {
           to: range.to,
         });
 
-      if (cursor) {
+      if (after) {
         query.andWhere(
           '(scene.acquired_at < :cursorAt OR (scene.acquired_at = :cursorAt AND scene.id < :cursorId))',
-          { cursorAt: cursor.acquiredAt, cursorId: cursor.id },
+          { cursorAt: after.createdAt, cursorId: after.id },
         );
       }
 
       const rows = await query
         .orderBy('scene.acquired_at', 'DESC')
         .addOrderBy('scene.id', 'DESC')
-        .take(input.first + 1)
+        .take(first + 1)
         .getMany();
-      const hasNextPage = rows.length > input.first;
-      const page = hasNextPage ? rows.slice(0, input.first) : rows;
-      const nodes = page.map((scene) => this.sceneResponse(scene));
+      const pagination = buildCursorResponse(
+        rows.map((scene) => ({
+          id: scene.id,
+          createdAt: scene.acquiredAt,
+          response: this.sceneResponse(scene),
+        })),
+        first,
+      );
 
       return {
         siteId: input.siteId,
-        nodes,
-        hasNextPage,
-        endCursor: nodes.at(-1)?.cursor ?? null,
+        edges: pagination.edges.map(({ cursor, node }) => ({
+          cursor,
+          node: node.response,
+        })),
+        pageInfo: pagination.pageInfo,
       };
     });
   }
@@ -1371,7 +1379,6 @@ export class EnvironmentReadService {
       qualityStatus: coverage.qualityStatus,
       locationRevision: scene.monitoringLocationRevision,
       fetchedAt: scene.fetchedAt,
-      cursor: this.encodeCursor(scene.acquiredAt, scene.id),
     };
   }
 
@@ -1446,32 +1453,6 @@ export class EnvironmentReadService {
     if (metrics.some((metric) => !METRIC_SET.has(metric))) {
       throw new BadRequestException('Unsupported environmental metric');
     }
-  }
-
-  private encodeCursor(acquiredAt: Date, id: string): string {
-    return Buffer.from(`${acquiredAt.toISOString()}|${id}`, 'utf8').toString('base64url');
-  }
-
-  private decodeCursor(cursor: string): { acquiredAt: Date; id: string } {
-    let decoded: string;
-    try {
-      decoded = Buffer.from(cursor, 'base64url').toString('utf8');
-    } catch {
-      throw new BadRequestException('Invalid scene cursor');
-    }
-    const separator = decoded.indexOf('|');
-    if (separator <= 0) {
-      throw new BadRequestException('Invalid scene cursor');
-    }
-    const acquiredAt = new Date(decoded.slice(0, separator));
-    const id = decoded.slice(separator + 1);
-    if (
-      Number.isNaN(acquiredAt.getTime()) ||
-      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
-    ) {
-      throw new BadRequestException('Invalid scene cursor');
-    }
-    return { acquiredAt, id };
   }
 }
 

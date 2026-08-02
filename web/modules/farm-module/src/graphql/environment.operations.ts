@@ -108,25 +108,29 @@ export const ENVIRONMENT_SCENES_QUERY = `
   query EnvironmentScenes($input: EnvironmentScenesInput!) {
     environmentScenes(input: $input) {
       siteId
-      nodes {
-        id
-        sceneId
-        collection
-        productId
-        datasetId
-        acquiredAt
-        cloudCoverPercent
-        coveragePercent
-        coverageStatus
-        coverageMethod
-        coverageSampleCount
-        qualityStatus
-        locationRevision
-        fetchedAt
+      edges {
         cursor
+        node {
+          id
+          sceneId
+          collection
+          productId
+          datasetId
+          acquiredAt
+          cloudCoverPercent
+          coveragePercent
+          coverageStatus
+          coverageMethod
+          coverageSampleCount
+          qualityStatus
+          locationRevision
+          fetchedAt
+        }
       }
-      hasNextPage
-      endCursor
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
     }
   }
 `;

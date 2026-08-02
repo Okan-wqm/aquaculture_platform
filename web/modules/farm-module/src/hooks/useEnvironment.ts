@@ -11,7 +11,7 @@ import type {
   EnvironmentLayerResponse,
   EnvironmentProvider as GeneratedEnvironmentProvider,
   EnvironmentQualityStatus as GeneratedEnvironmentQualityStatus,
-  EnvironmentSceneConnection as GeneratedEnvironmentSceneConnection,
+  EnvironmentSceneCursorConnection,
   EnvironmentSceneResponse,
   EnvironmentSemanticClass as GeneratedEnvironmentSemanticClass,
   EnvironmentValueResponse,
@@ -45,7 +45,6 @@ export type EnvironmentValue = EnvironmentValueResponse;
 export type SiteEnvironmentValues = SiteEnvironmentValuesResponse;
 export type EnvironmentLayer = Omit<EnvironmentLayerResponse, 'sources'>;
 export type EnvironmentScene = EnvironmentSceneResponse;
-export type EnvironmentSceneConnection = GeneratedEnvironmentSceneConnection;
 
 async function requestEnvironmentGraphql<TData, TVariables>(
   operation: string,
@@ -213,10 +212,10 @@ export function useEnvironmentScenes(
   from: Date,
   to: Date,
   enabled: boolean,
-): UseQueryResult<EnvironmentSceneConnection, Error> {
+): UseQueryResult<EnvironmentScene[], Error> {
   const fromIso = from.toISOString();
   const toIso = to.toISOString();
-  return useTenantQuery<EnvironmentSceneConnection>(
+  return useTenantQuery<EnvironmentScene[]>(
     ['environment', 'scenes', siteId, fromIso, toIso],
     async ({ signal }) => {
       const nodes: EnvironmentScene[] = [];
@@ -225,7 +224,7 @@ export function useEnvironmentScenes(
 
       for (let pageNumber = 1; pageNumber <= MAX_ENVIRONMENT_SCENE_PAGES; pageNumber += 1) {
         const data = await requestEnvironmentGraphql<
-          { environmentScenes: EnvironmentSceneConnection },
+          { environmentScenes: EnvironmentSceneCursorConnection },
           {
             input: {
               siteId: string;
@@ -252,25 +251,21 @@ export function useEnvironmentScenes(
         if (page.siteId !== siteId) {
           throw new Error('Environment scene response returned the wrong site');
         }
-        for (const scene of page.nodes) {
+        for (const edge of page.edges) {
+          const scene = edge.node;
           if (sceneIds.has(scene.id)) {
             throw new Error('Environment scene pagination returned a duplicate row');
           }
           sceneIds.add(scene.id);
           nodes.push(scene);
         }
-        if (!page.hasNextPage) {
-          return {
-            siteId,
-            nodes,
-            hasNextPage: false,
-            endCursor: page.endCursor,
-          };
+        if (!page.pageInfo.hasNextPage) {
+          return nodes;
         }
-        if (!page.endCursor || page.endCursor === after) {
+        if (!page.pageInfo.endCursor || page.pageInfo.endCursor === after) {
           throw new Error('Environment scene pagination did not advance its cursor');
         }
-        after = page.endCursor;
+        after = page.pageInfo.endCursor;
       }
 
       throw new Error('Environment scene list exceeds the bounded page limit');

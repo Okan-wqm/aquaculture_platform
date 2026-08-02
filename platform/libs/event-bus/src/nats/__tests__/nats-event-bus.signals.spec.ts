@@ -52,22 +52,31 @@ function config(overrides: Record<string, unknown> = {}): ConfigService {
   return configService;
 }
 
+function completedAsyncIterable<T>(): AsyncIterable<T> {
+  return {
+    [Symbol.asyncIterator](): AsyncIterator<T> {
+      return {
+        next: () => Promise.resolve({ done: true, value: undefined }),
+      };
+    },
+  };
+}
+
 function successfulConnection(): NatsConnection {
-  async function* status() {
-    return;
-  }
   let closed = false;
   // v3: jetstream()/jetstreamManager() are top-level functions, not methods on
   // the connection (mocked separately on the @nats-io/jetstream module). The
   // connection only needs status() for setupConnectionHandlers().
   return Object.assign({} as NatsConnection, {
-    status,
+    status: () => completedAsyncIterable(),
     closed: () => new Promise<void>(() => undefined),
-    drain: jest.fn(async () => {
+    drain: jest.fn(() => {
       closed = true;
+      return Promise.resolve();
     }),
-    close: jest.fn(async () => {
+    close: jest.fn(() => {
       closed = true;
+      return Promise.resolve();
     }),
     isClosed: () => closed,
   });
@@ -295,13 +304,12 @@ describe('NatsEventBus boot invariant signals', () => {
   it('detaches transport state and still closes when drain fails', async () => {
     let closed = false;
     const drain = jest.fn().mockRejectedValue(new Error('drain failed'));
-    const close = jest.fn(async () => {
+    const close = jest.fn(() => {
       closed = true;
+      return Promise.resolve();
     });
     const connection = Object.assign({} as NatsConnection, {
-      status: async function* (): AsyncGenerator<never> {
-        return;
-      },
+      status: () => completedAsyncIterable(),
       closed: () => new Promise<void>(() => undefined),
       drain,
       close,
@@ -327,9 +335,7 @@ describe('NatsEventBus boot invariant signals', () => {
   it('blocks a replacement connection until failed cleanup is confirmed closed', async () => {
     let closed = false;
     const firstConnection = Object.assign({} as NatsConnection, {
-      status: async function* (): AsyncGenerator<never> {
-        return;
-      },
+      status: () => completedAsyncIterable(),
       closed: () => new Promise<void>(() => undefined),
       drain: jest.fn().mockRejectedValue(new Error('drain failed')),
       close: jest.fn().mockRejectedValue(new Error('close failed')),
@@ -400,11 +406,13 @@ describe('NatsEventBus boot invariant signals', () => {
         yield { type: 'reconnecting' } as const;
       },
       closed: () => closed,
-      drain: jest.fn(async () => {
+      drain: jest.fn(() => {
         firstClosed = true;
+        return Promise.resolve();
       }),
-      close: jest.fn(async () => {
+      close: jest.fn(() => {
         firstClosed = true;
+        return Promise.resolve();
       }),
       isClosed: () => firstClosed,
     });
@@ -454,18 +462,18 @@ describe('NatsEventBus boot invariant signals', () => {
     let resolveFirstClosed!: (error: Error) => void;
     let firstClosed = false;
     const firstConnection = Object.assign({} as NatsConnection, {
-      status: async function* (): AsyncGenerator<never> {
-        return;
-      },
+      status: () => completedAsyncIterable(),
       closed: () =>
         new Promise<Error>((resolve) => {
           resolveFirstClosed = resolve;
         }),
-      drain: jest.fn(async () => {
+      drain: jest.fn(() => {
         firstClosed = true;
+        return Promise.resolve();
       }),
-      close: jest.fn(async () => {
+      close: jest.fn(() => {
         firstClosed = true;
+        return Promise.resolve();
       }),
       isClosed: () => firstClosed,
     });

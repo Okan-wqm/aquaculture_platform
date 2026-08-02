@@ -49,8 +49,8 @@
  *   - OutboxMetricsService — Prometheus counters, low-risk pure logic.
  */
 
-import { EntityManager, type QueryRunner } from 'typeorm';
 import type { BaseEvent } from '@platform/event-contracts';
+import { EntityManager, type QueryRunner } from 'typeorm';
 
 import { OutboxPublisher } from '../outbox-publisher.service';
 import { OutboxEntityBase } from '../outbox-entity.base';
@@ -215,7 +215,10 @@ describe('OutboxPublisher', () => {
       });
 
       expect(saveCalls).toHaveLength(0);
-      const row = insertCalls[0]!;
+      const [row] = insertCalls;
+      if (!row) {
+        throw new Error('expected one idempotent outbox insert');
+      }
       expect(row.payload['idempotencyKey']).toBe('idem-abc-123');
       expect(row.payload['aggregateId']).toBe('aggregate-xyz-789');
     });
@@ -255,7 +258,11 @@ describe('OutboxPublisher', () => {
         idempotencyKey: 'system-event',
       });
 
-      const row = insertCalls[0]!.payload;
+      const [insertCall] = insertCalls;
+      if (!insertCall) {
+        throw new Error('expected one system-routing outbox insert');
+      }
+      const row = insertCall.payload;
       expect(row['tenantId']).toBeNull();
       expect(row['payload']).toMatchObject({
         tenantId: OUTBOX_SYSTEM_TENANT_ID,

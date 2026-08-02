@@ -16,10 +16,10 @@ function expectR4Failure(sql: string, expectedCount = 1): void {
   const violations = scanMigrationSql(sql).filter(
     ({ ruleId }) => ruleId === 'R4-session-scoped-set-search-path',
   );
-  assert.strictEqual(violations.length, expectedCount, JSON.stringify(violations, null, 2));
+  assert.strictEqual(violations.length, expectedCount, JSON.stringify(violations));
 }
 
-test('allows a multiline CREATE OR REPLACE FUNCTION search_path configuration clause', () => {
+void test('allows a multiline CREATE OR REPLACE FUNCTION search_path configuration clause', () => {
   expectR4Pass(`
     CREATE OR REPLACE
     FUNCTION "config"."reject_cross_tenant_write"()
@@ -35,7 +35,7 @@ test('allows a multiline CREATE OR REPLACE FUNCTION search_path configuration cl
   `);
 });
 
-test('allows a quoted search_path configuration clause on CREATE PROCEDURE', () => {
+void test('allows a quoted search_path configuration clause on CREATE PROCEDURE', () => {
   expectR4Pass(`
     CREATE PROCEDURE "config"."refresh_environment_observations"()
     LANGUAGE plpgsql
@@ -48,7 +48,7 @@ test('allows a quoted search_path configuration clause on CREATE PROCEDURE', () 
   `);
 });
 
-test('rejects standalone and explicitly session-scoped search_path changes', () => {
+void test('rejects standalone and explicitly session-scoped search_path changes', () => {
   expectR4Failure(
     `
     SET search_path = tenant_one, public;
@@ -58,7 +58,7 @@ test('rejects standalone and explicitly session-scoped search_path changes', () 
   );
 });
 
-test('rejects a standalone SET after an otherwise hardened function declaration', () => {
+void test('rejects a standalone SET after an otherwise hardened function declaration', () => {
   expectR4Failure(`
     CREATE OR REPLACE FUNCTION hardened() RETURNS integer
     LANGUAGE sql
@@ -69,7 +69,7 @@ test('rejects a standalone SET after an otherwise hardened function declaration'
   `);
 });
 
-test('does not exempt a session-scoped SET inside a dollar-quoted routine body', () => {
+void test('does not exempt a session-scoped SET inside a dollar-quoted routine body', () => {
   expectR4Failure(`
     CREATE FUNCTION unsafe_body() RETURNS void
     LANGUAGE plpgsql
@@ -81,7 +81,7 @@ test('does not exempt a session-scoped SET inside a dollar-quoted routine body',
   `);
 });
 
-test('does not treat SQL-standard routine body statements as declaration options', () => {
+void test('does not treat SQL-standard routine body statements as declaration options', () => {
   expectR4Failure(`
     CREATE FUNCTION unsafe_sql_body() RETURNS void
     LANGUAGE SQL

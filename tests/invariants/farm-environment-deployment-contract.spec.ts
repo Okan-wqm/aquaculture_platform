@@ -82,6 +82,39 @@ function farmEnvironment(fileName: string): Map<string, unknown> {
   return environmentMap(readCompose(fileName).services?.['farm-service']);
 }
 
+function helmValidationCommands(source: string): string[] {
+  const lines = source.split(/\r?\n/);
+  const commands: string[] = [];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const sourceLine = lines[index];
+    if (sourceLine === undefined) {
+      break;
+    }
+    const line = sourceLine.trim();
+    if (line.startsWith('#') || line.startsWith('echo ')) {
+      continue;
+    }
+    const helmStart = line.search(/\bhelm (?:lint|template)\b/);
+    if (helmStart === -1) {
+      continue;
+    }
+
+    let command = line.slice(helmStart);
+    while (command.trimEnd().endsWith('\\') && index + 1 < lines.length) {
+      index += 1;
+      const continuation = lines[index];
+      if (continuation === undefined) {
+        break;
+      }
+      command += ` ${continuation.trim()}`;
+    }
+    commands.push(command);
+  }
+
+  return commands;
+}
+
 describe('INVARIANT: farm environmental monitoring deployment contract', () => {
   it.each(COMPOSE_FILES)(
     '%s wires the company-owned provider identity, fail-closed gate, and legacy cutover key',
@@ -131,6 +164,87 @@ describe('INVARIANT: farm environmental monitoring deployment contract', () => {
     expect(secretTemplate).toContain('/sentinel-hub-encryption-key');
   });
 
+  it('keeps every required Helm secret on one CI-render overlay', () => {
+    const secretTemplate = fs.readFileSync(
+      path.join(REPO_ROOT, 'infrastructure/helm/aquaculture/templates/secrets.yaml'),
+      'utf8',
+    );
+    const ciValues = yaml.load(
+      fs.readFileSync(
+        path.join(REPO_ROOT, 'infrastructure/helm/aquaculture/values-ci.yaml'),
+        'utf8',
+      ),
+    ) as HelmValues;
+    const requiredSecretKeys = [
+      ...secretTemplate.matchAll(/required\s+"[^"]+"\s+\.Values\.secrets\.([A-Za-z0-9]+)/g),
+    ].flatMap((match) => (match[1] === undefined ? [] : [match[1]]));
+
+    expect(requiredSecretKeys.length).toBeGreaterThan(0);
+    for (const key of new Set(requiredSecretKeys)) {
+      expect(String(ciValues.secrets?.[key] ?? '').trim()).not.toBe('');
+    }
+
+    const workflowDirectory = path.join(REPO_ROOT, '.github/workflows');
+    const workflowSources = fs
+      .readdirSync(workflowDirectory)
+      .filter((fileName) => /\.ya?ml$/.test(fileName))
+      .map((fileName) => fs.readFileSync(path.join(workflowDirectory, fileName), 'utf8'));
+    const commands = workflowSources.flatMap(helmValidationCommands);
+
+    expect(commands.length).toBeGreaterThan(0);
+    for (const command of commands) {
+      expect(command).toContain('values-ci.yaml');
+    }
+
+    const allWorkflows = workflowSources.join('\n');
+    expect(allWorkflows).not.toMatch(
+      /--set(?:-string|-file|-json)?(?:=|\s+)(?:secrets\.|postgresql\.auth\.password|redis\.auth\.password)/,
+    );
+
+    const helmSetupAction = fs.readFileSync(
+      path.join(REPO_ROOT, '.github/actions/setup-helm/action.yml'),
+      'utf8',
+    );
+    expect(helmSetupAction).toContain(
+      'uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1',
+    );
+    expect(helmSetupAction).toContain('version: v3.16.2');
+    expect(allWorkflows).not.toContain('uses: azure/setup-helm@');
+    for (const source of workflowSources.filter(
+      (workflow) => helmValidationCommands(workflow).length,
+    )) {
+      expect(source).toContain('uses: ./.github/actions/setup-helm');
+    }
+  });
+
+  it('runs composition and codegen gates for shared code-first schema sources', () => {
+    const sharedSchemaTrigger = "- 'libs/backend-common/src/**/*.ts'";
+    for (const workflowPath of [
+      '.github/workflows/apollo-supergraph-validate.yml',
+      '.github/workflows/graphql-codegen-validate.yml',
+    ]) {
+      const workflow = fs.readFileSync(path.join(REPO_ROOT, workflowPath), 'utf8');
+      const pullRequestMarker = '\n  pull_request:';
+      const pullRequestStart = workflow.indexOf(pullRequestMarker);
+
+      expect(pullRequestStart).toBeGreaterThan(-1);
+      expect(workflow.slice(0, pullRequestStart)).toContain(sharedSchemaTrigger);
+      expect(workflow.slice(pullRequestStart)).toContain(sharedSchemaTrigger);
+      expect(workflow.match(/libs\/backend-common\/src\/\*\*\/\*\.ts/g)).toHaveLength(2);
+    }
+
+    const codegenWorkflow = fs.readFileSync(
+      path.join(REPO_ROOT, '.github/workflows/graphql-codegen-validate.yml'),
+      'utf8',
+    );
+    expect(codegenWorkflow).toContain(
+      'git diff --exit-code \\\n            web/shared-ui/src/generated',
+    );
+    expect(codegenWorkflow).toContain(
+      "echo '::error::shared-ui generated GraphQL types are stale.",
+    );
+  });
+
   it('keeps Kustomize base and every overlay on the same farm environment contract', () => {
     const configDocuments: KubernetesResource[] = [];
     yaml.loadAll(
@@ -138,7 +252,7 @@ describe('INVARIANT: farm environmental monitoring deployment contract', () => {
         path.join(REPO_ROOT, 'infrastructure/kubernetes/base/configmap.yaml'),
         'utf8',
       ),
-      (document) => configDocuments.push(document as KubernetesResource),
+      (document: unknown) => configDocuments.push(document as KubernetesResource),
     );
     const config = configDocuments.find(
       (document) =>
@@ -157,7 +271,7 @@ describe('INVARIANT: farm environmental monitoring deployment contract', () => {
         path.join(REPO_ROOT, 'infrastructure/kubernetes/base/farm-service.yaml'),
         'utf8',
       ),
-      (document) => farmDocuments.push(document as KubernetesResource),
+      (document: unknown) => farmDocuments.push(document as KubernetesResource),
     );
     const deployment = farmDocuments.find(
       (document) => document.kind === 'Deployment' && document.metadata?.name === 'farm-service',

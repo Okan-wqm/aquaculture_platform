@@ -70,7 +70,7 @@ function runScanner(args: readonly string[]): RunResult {
 // (a) Default behaviour — exempt path returns no violations
 // ---------------------------------------------------------
 
-test('default --mode=file on exempt fixture returns exit 0 (no violations)', () => {
+void test('default --mode=file on exempt fixture returns exit 0 (no violations)', () => {
   const result = runScanner(['--mode=file', FIXTURE_PATH]);
   assert.strictEqual(
     result.exitCode,
@@ -84,7 +84,7 @@ test('default --mode=file on exempt fixture returns exit 0 (no violations)', () 
 // (b) --ignore-exemptions flag — exempt path scanned, violation fires
 // ---------------------------------------------------------
 
-test('--ignore-exemptions on exempt fixture returns exit 1 + violation', () => {
+void test('--ignore-exemptions on exempt fixture returns exit 1 + violation', () => {
   const result = runScanner(['--mode=file', '--ignore-exemptions', FIXTURE_PATH]);
   assert.strictEqual(
     result.exitCode,
@@ -98,7 +98,7 @@ test('--ignore-exemptions on exempt fixture returns exit 1 + violation', () => {
 // (c) Argv parser: flag BEFORE mode
 // ---------------------------------------------------------
 
-test('--ignore-exemptions BEFORE --mode=file parses correctly', () => {
+void test('--ignore-exemptions BEFORE --mode=file parses correctly', () => {
   const result = runScanner(['--ignore-exemptions', '--mode=file', FIXTURE_PATH]);
   assert.strictEqual(
     result.exitCode,
@@ -112,7 +112,7 @@ test('--ignore-exemptions BEFORE --mode=file parses correctly', () => {
 // (d) Argv parser: positional path in MIDDLE
 // ---------------------------------------------------------
 
-test('positional path between mode and flag still parses correctly', () => {
+void test('positional path between mode and flag still parses correctly', () => {
   const result = runScanner([FIXTURE_PATH, '--mode=file', '--ignore-exemptions']);
   assert.strictEqual(
     result.exitCode,
@@ -122,7 +122,7 @@ test('positional path between mode and flag still parses correctly', () => {
   assert.match(result.stderr, /Banned-phrase violations detected/);
 });
 
-test('PostgreSQL constraint timing syntax is accepted while ordinary prose remains guarded', () => {
+void test('PostgreSQL constraint timing syntax is accepted while ordinary prose remains guarded', () => {
   const fixtureDir = mkdtempSync(join(tmpdir(), 'aqua-banned-phrase-'));
   const fixturePath = join(fixtureDir, 'constraint.sql');
 

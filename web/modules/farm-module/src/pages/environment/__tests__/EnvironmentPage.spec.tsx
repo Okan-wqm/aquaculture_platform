@@ -180,9 +180,11 @@ function installBaseRoutes(
       result: {
         environmentScenes: {
           siteId: AUTHORIZED_SITE_ID,
-          nodes: [],
-          hasNextPage: false,
-          endCursor: null,
+          edges: [],
+          pageInfo: {
+            hasNextPage: false,
+            endCursor: null,
+          },
         },
       },
     },
@@ -738,7 +740,6 @@ describe('EnvironmentPage', () => {
         qualityStatus: 'PROVISIONAL',
         locationRevision: 3,
         fetchedAt: '2026-07-30T11:00:00.000Z',
-        cursor: 'cursor-1',
       },
       {
         id: 'scene-row-2',
@@ -755,7 +756,6 @@ describe('EnvironmentPage', () => {
         qualityStatus: 'VALID',
         locationRevision: 3,
         fetchedAt: '2026-07-25T11:00:00.000Z',
-        cursor: 'cursor-2',
       },
     ];
 
@@ -788,15 +788,19 @@ describe('EnvironmentPage', () => {
             input?.after === 'cursor-1'
               ? {
                   siteId: AUTHORIZED_SITE_ID,
-                  nodes: [scenes[1]],
-                  hasNextPage: false,
-                  endCursor: 'cursor-2',
+                  edges: [{ cursor: 'cursor-2', node: scenes[1] }],
+                  pageInfo: {
+                    hasNextPage: false,
+                    endCursor: 'cursor-2',
+                  },
                 }
               : {
                   siteId: AUTHORIZED_SITE_ID,
-                  nodes: [scenes[0]],
-                  hasNextPage: true,
-                  endCursor: 'cursor-1',
+                  edges: [{ cursor: 'cursor-1', node: scenes[0] }],
+                  pageInfo: {
+                    hasNextPage: true,
+                    endCursor: 'cursor-1',
+                  },
                 },
         };
       }
@@ -865,7 +869,6 @@ describe('EnvironmentPage', () => {
         qualityStatus: 'VALID',
         locationRevision: 3,
         fetchedAt: '2026-07-30T11:00:00.000Z',
-        cursor: 'cursor-1',
       },
       {
         id: 'scene-row-2',
@@ -882,7 +885,6 @@ describe('EnvironmentPage', () => {
         qualityStatus: 'VALID',
         locationRevision: 3,
         fetchedAt: '2026-07-25T11:00:00.000Z',
-        cursor: 'cursor-2',
       },
     ];
 
@@ -908,9 +910,14 @@ describe('EnvironmentPage', () => {
         return {
           environmentScenes: {
             siteId: AUTHORIZED_SITE_ID,
-            nodes: scenes,
-            hasNextPage: false,
-            endCursor: null,
+            edges: scenes.map((scene, index) => ({
+              cursor: `cursor-${index + 1}`,
+              node: scene,
+            })),
+            pageInfo: {
+              hasNextPage: false,
+              endCursor: `cursor-${scenes.length}`,
+            },
           },
         };
       }

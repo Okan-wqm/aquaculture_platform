@@ -5,13 +5,13 @@ import { DataSource, EntityManager } from 'typeorm';
 import { OUTBOX_ENTITY_CLASS } from '../constants';
 import { OutboxEntityBase } from '../outbox-entity.base';
 import { OutboxMetricsService } from '../outbox-metrics.service';
-import { OutboxWorkerService } from '../outbox-worker.service';
 import {
   OUTBOX_DELIVERY_POLICY_FIELD,
   OUTBOX_ROUTING_SCOPE_FIELD,
   OUTBOX_SECURITY_RECOVERY_POLICY,
   OUTBOX_SYSTEM_TENANT_ID,
 } from '../outbox-routing';
+import { OutboxWorkerService } from '../outbox-worker.service';
 
 const TENANT_ID = '550e8400-e29b-41d4-a716-446655440000';
 
@@ -43,7 +43,7 @@ describe('OutboxWorkerService system context (ORPHAN-HIGH-321)', () => {
   let oldestAgeSeconds: number | null;
   let updateCalls: unknown[][];
 
-  const publish = jest.fn().mockResolvedValue(undefined);
+  const publish = jest.fn<Promise<void>, [Record<string, unknown>]>().mockResolvedValue(undefined);
   const metrics = {
     setPending: jest.fn(),
     setDeadLetterCount: jest.fn(),
@@ -255,15 +255,19 @@ describe('OutboxWorkerService system context (ORPHAN-HIGH-321)', () => {
 
     await worker.pollAndPublish();
 
-    expect(publish).toHaveBeenCalledWith(
-      expect.not.objectContaining({
-        [OUTBOX_ROUTING_SCOPE_FIELD]: expect.anything(),
-        [OUTBOX_DELIVERY_POLICY_FIELD]: expect.anything(),
-      }),
+    expect(publish).toHaveBeenCalledTimes(1);
+    const [publishCall] = publish.mock.calls;
+    if (!publishCall) {
+      throw new Error('expected the system outbox row to be published');
+    }
+    const [publishedEvent] = publishCall;
+    expect(Object.prototype.hasOwnProperty.call(publishedEvent, OUTBOX_ROUTING_SCOPE_FIELD)).toBe(
+      false,
     );
-    expect(publish).toHaveBeenCalledWith(
-      expect.objectContaining({ tenantId: OUTBOX_SYSTEM_TENANT_ID }),
+    expect(Object.prototype.hasOwnProperty.call(publishedEvent, OUTBOX_DELIVERY_POLICY_FIELD)).toBe(
+      false,
     );
+    expect(publishedEvent['tenantId']).toBe(OUTBOX_SYSTEM_TENANT_ID);
   });
 
   it('keeps a security recovery row retryable after the ordinary retry budget', async () => {

@@ -1248,3 +1248,270 @@ The closure must:
 Verification: the commit diff contains only the placeholder, repository secret
 scanning reports no finding for the document, and the Gitleaks workflow passes
 without configuration suppression.
+
+## FARM-HIGH-290
+
+### Helm CI renderers duplicated and drifted from the required-secret overlay authority
+
+The chart-owned `values-ci.yaml` declares itself the complete dummy-value
+overlay for every secret guarded by `required`, but the new Sentinel encryption
+key was not added to it. The affected-CI workflow also maintained two separate
+`--set-string` secret lists instead of consuming that overlay. Base and staging
+renders therefore failed while production passed only because its
+ExternalSecret branch bypassed inline-secret validation.
+
+The closure must:
+
+- add a non-runtime Sentinel dummy to the chart-owned CI overlay;
+- make every Helm CI renderer consume the same overlay instead of maintaining
+  workflow-local secret catalogs;
+- preserve the production ExternalSecret render path;
+- derive required secret keys from the Helm template in an invariant and prove
+  every key has a non-empty CI-overlay value;
+- reject any return of workflow-local secret or subchart-password flags;
+- install Helm through one repository-owned composite action so every renderer
+  uses the same pinned action and Helm release.
+
+Verification: the deployment invariant proves required-secret parity and two
+canonical overlay consumers plus the single Helm setup authority; base, staging
+and production Helm templates render successfully through the shared overlay;
+the Helm and affected-CI workflows pass.
+
+## FARM-HIGH-291
+
+### Finding registry writers accepted prose and empty high-severity evidence
+
+The registry schema was intentionally relaxed for historical hash-chain
+compatibility, but both current writer paths used that relaxed AJV validation as
+their only evidence boundary. The canonical path regex existed solely inside a
+post-hoc invariant, so prose evidence could be hashed and persisted before CI
+rejected it. The HIGH/CRITICAL conditional also required the `evidence` property
+without requiring any array item, while the writer always supplied an empty
+array by default.
+
+The closure must:
+
+- define the canonical evidence shape once in a production gate helper;
+- make allocated and explicit registry writers reject noncanonical evidence
+  before append, rechain or filesystem write;
+- reserve `evidence` for resolvable citations and keep free-form diagnostic
+  context in `narrative`;
+- require at least one evidence item for HIGH and CRITICAL entries;
+- keep the committed-ledger invariant on the same helper as defense in depth;
+- prove invalid allocated/explicit writes leave registry bytes unchanged and
+  all six documented path shapes remain accepted.
+
+Verification: registry-store tests cover both writer paths, empty high-severity
+evidence, canonical shapes and narrative persistence; evidence-shape and full
+registry integrity invariants pass against the corrected chain.
+
+## FARM-HIGH-292
+
+### Registry additions left enterprise debt-plan mirrors on the previous chain tip
+
+The registry is authoritative, but adding FARM-HIGH-288 and FARM-HIGH-289 was
+not followed by the canonical debt-plan repin command. The manifest, truth table
+and plan README therefore continued to quote the preceding entry count and hash
+tip. The full fast-invariant suite correctly rejected the stale mirror even
+though the registry's own chain was valid.
+
+The closure must:
+
+- complete all registry corrections and allocations before repinning;
+- run the idempotent debt-plan repin authority exactly once after the final
+  registry mutation;
+- update the manifest, truth-table tip and README counts from registry state,
+  without hand-editing their mirrored values;
+- derive each Markdown mirror from its own governed anchor so a current
+  manifest cannot hide a stale or missing README/truth-table value;
+- assert every governed README line and truth-table tip exactly once against
+  the registry in the invariant;
+- verify registry integrity and the enterprise debt-plan contract together.
+
+Verification: `findings:verify` reports the new chain tip and entry count;
+`gates:debt-plan:repin` updates all governed mirrors; the debt-plan invariant
+passes with exact registry parity.
+
+## FARM-HIGH-293
+
+### Farm monitoring list APIs diverged from the platform pagination authority
+
+Two public farm list surfaces had independently modelled pagination contracts.
+`FarmStockInventoryConnection` omitted the standard navigation flags, while the
+environment scene connection flattened nodes, cursor and page state instead of
+using canonical edges and pageInfo. The scene reader also repeated cursor
+encoding, decoding and signal-row trimming even though the platform pagination
+library owns those rules. The schema validator therefore rejected both shapes,
+and the frontend was coupled to the nonstandard environment response.
+
+The closure must:
+
+- derive farm-stock output and pagination math from the shared offset
+  pagination types and result builder;
+- expose environment scenes as site-scoped canonical cursor edges and pageInfo;
+- use the shared cursor normalizer, codec and response builder in the scene
+  reader while retaining the acquired-time plus UUID ordering predicate;
+- keep the tenant, site and monitoring-location revision predicates intact;
+- make an empty page expose a null end cursor and every nonempty page expose its
+  final edge cursor, independently of whether another page exists;
+- update the farm frontend operation and generated types in the same change;
+- regenerate the tracked shared-ui schema types from the composed supergraph
+  and promote their codegen drift check from warning-only to a hard gate;
+- trigger both composition and codegen gates when shared code-first schema
+  sources change, independently of app-local filename conventions;
+- cover empty/multi-page offset results, signal-row trimming, next-page cursor
+  predicates and final-page semantics with regression tests.
+
+Verification: the pagination schema validator accepts all farm types; the
+shared cursor primitive, farm-stock handler, environment reader and environment
+page tests pass; farm-service and farm-module strict TypeScript checks pass.
+
+## FARM-HIGH-294
+
+### The farm deployment invariant lacked a strict js-yaml loadAll contract
+
+The repository-owned `js-yaml` declaration covered only `load`, while the farm
+deployment invariant used `loadAll` to inspect multi-document Kubernetes
+resources. Strict TypeScript therefore had neither a callable declaration nor a
+typed document callback, causing the invariant compilation stage to fail even
+though the runtime parser behavior was valid.
+
+The closure must:
+
+- declare `loadAll` beside `load` in the existing ambient module authority;
+- type parsed documents as unknown at the parser boundary and narrow them to
+  the invariant's local Kubernetes resource model;
+- keep all YAML parsing on the same imported `js-yaml` module contract;
+- verify the invariant with both Jest and its strict TypeScript compilation.
+
+Verification: the deployment invariant compiles without implicit-any or missing
+member errors and all deployment contract assertions pass.
+
+## FARM-HIGH-295
+
+### Changed test fixtures violated the strict lint ratchet's type contracts
+
+Several changed tests represented production interfaces with structurally
+incomplete objects, loose mock-call extraction, non-iterator async iterables,
+or unowned top-level test registration promises. Those shortcuts produced new
+error-level findings under the changed-file strict lint ratchet and obscured the
+actual contracts the tests were intended to prove.
+
+The closure must:
+
+- model tenant requests and NATS async iteration with their real public types;
+- make mock lifecycle and handler callbacks return their declared promises;
+- replace unsafe outbox call extraction and assertions with typed guards;
+- make Node test-runner registration ownership explicit across each affected
+  file;
+- retain the existing lint policy and baseline without exemptions or config
+  relaxation;
+- prove the corrected fixtures still exercise the same tenant, NATS, outbox and
+  gate behavior.
+
+Verification: the changed-file lint comparison reports zero regressions;
+TenantGuard, NATS, outbox and gate-focused suites pass with the typed fixtures.
+
+## FARM-HIGH-296
+
+### Messaging E2E bootstrapping drifted from the concrete NATS lifecycle contract
+
+The messaging E2E harness overrode the event-bus tokens with a narrow object
+that covered publishing but not the concrete `NatsEventBus` raw-connection and
+lifecycle API consumed by `NatsRequestReply`. Application construction therefore
+failed in shared setup before any of the twelve E2E suites could execute.
+
+The closure must:
+
+- define one shared test-double factory typed against every public
+  `NatsEventBus` member;
+- implement Nest lifecycle, event-bus lifecycle, health, publisher, subscriber,
+  raw-connection snapshot and lifecycle-listener behavior;
+- supply the same double instance to both dependency-injection tokens;
+- make future concrete API additions a compile-time harness failure instead of
+  a runtime cascade across every suite;
+- run the complete messaging E2E project against its real PostgreSQL and Redis
+  test infrastructure with only NATS and object storage isolated.
+
+Verification: all twelve messaging E2E suites bootstrap and all 108 tests pass;
+the harness TypeScript, lint and formatting checks remain green.
+
+## FARM-MEDIUM-297
+
+### A tenant-admin JSX test retained an obsolete React runtime import
+
+The tenant-admin site-access test still imported the `React` namespace even
+though the workspace uses the automatic JSX runtime and the file never
+referenced that binding. Once the earlier CI stages were repaired, the
+changed-file TypeScript gate reached this project and correctly rejected the
+unused import under `noUnusedLocals`.
+
+The closure must:
+
+- remove only the obsolete runtime import, without weakening the tenant-admin
+  TypeScript configuration or suppressing TS6133;
+- preserve the test's JSX behavior and site-access assertions under the
+  automatic JSX runtime;
+- keep the changed-file typecheck as the authority for this project.
+
+Verification: tenant-admin's strict TypeScript configuration compiles cleanly,
+the focused site-access test remains green, and the repository changed-file
+typecheck advances without an unused-binding failure.
+
+## FARM-HIGH-298
+
+### Registry rechain could bless canonical-history edits or invalid suffix rows
+
+`rechain-from` recalculated every hash from a caller-selected index without
+first proving that the index was outside the canonical main ledger or that the
+rows it was about to persist still met the schema and post-cutover evidence
+contract. A valid hash chain could therefore be restored after an unintended
+semantic edit, turning a recovery tool into a path around the append-only and
+writer-validation guarantees.
+
+The closure must:
+
+- compare the complete locally fetched `origin/main` prefix, including hashes,
+  before any rechain write;
+- refuse a start index inside that canonical prefix and refuse any branch whose
+  prefix differs from main;
+- validate every branch-only row from the canonical-main boundary against the
+  registry schema and shared evidence contract, even when hash recalculation
+  begins at a later caller-selected index;
+- reject partial, signed, padded and unsafe rechain indices before reading or
+  writing the registry;
+- retain the historical evidence cutover in the shared evidence authority so
+  old rows are not rewritten;
+- document that rechain is limited to merge concatenation or correction of an
+  unmerged branch tail, while `close` remains the governed merged-row mutation;
+- cover allowed branch suffixes, prefix entry, prefix mutation, recent invalid
+  evidence and grandfathered evidence with regression tests.
+
+Verification: registry-store tests prove both the prefix and suffix boundaries;
+`rechain-from 1296` accepts the branch-only FARM tail, registry verification
+passes, and a second debt-plan repin is idempotent.
+
+## FARM-HIGH-299
+
+### Fresh-database CI depended on host checkout traversal permissions
+
+The bootstrap-from-scratch test bind-mounted the repository init-script
+directory into the PostgreSQL container. A restrictive checkout umask made the
+host path untraversable by the image's entrypoint user, so the container exited
+before PostgreSQL started and all 70 migration assertions failed without
+reaching the schema contract they were meant to prove.
+
+The closure must:
+
+- keep the repository init-script directory as the only source of bootstrap
+  input, without copying its content into a second tracked fixture;
+- archive that live directory into the container through Testcontainers rather
+  than relying on host bind-mount traversal permissions;
+- assign an explicit readable container mode independent of checkout umask;
+- continue using the production-pinned TimescaleDB image, first-boot entrypoint
+  path, empty volume and complete migration/schema/RLS assertion chain;
+- verify the full bootstrap suite in a restrictive worktree without changing
+  host filesystem permissions.
+
+Verification: `npm run test:bootstrap` starts the production-pinned database,
+runs every service migration and passes all 70 fresh-volume assertions.

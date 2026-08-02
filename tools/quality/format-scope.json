@@ -10833,6 +10833,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/farm-stock/handlers/__tests__/get-farm-stock-inventory.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/farm-stock/handlers/get-farm-stock-inventory.handler.ts",
       "prettier_managed": true
     },
@@ -43932,6 +43938,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/finding-evidence-shape.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/finding-registry-store.spec.ts",
       "prettier_managed": true
     },
@@ -55382,7 +55394,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "c42066208fe579cdbb94acc47d406a29b5f0f17a58a5836758502111d0733db7",
+      "content_sha256": "0612e928d0180e08aa2bb554de6cbfb769545a84ef96a50f03d36ef4410bb8fc",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",
@@ -56058,10 +56070,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9192,
+  "file_count": 9194,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9011,
-  "managed_file_list_sha256": "5a887a4e996df6cbe0ca40ce4a93e413350f1bae2135369e0f368275d9230767",
+  "managed_count": 9013,
+  "managed_file_list_sha256": "6690ce2a0dcae38fe8c44fa2507caffadf9885fe38ae90126d2935652936762f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -5320,11 +5320,21 @@ export type EnvironmentQualityStatus =
   | 'STALE'
   | 'VALID';
 
-export type EnvironmentSceneConnection = {
+export type EnvironmentSceneCursorConnection = {
+  edges: Array<EnvironmentSceneEdge>;
+  pageInfo: EnvironmentSceneCursorPageInfo;
+  siteId: Scalars['ID']['output'];
+};
+
+export type EnvironmentSceneCursorPageInfo = {
+  /** Cursor of the final edge in this page. null only when the page has no edges. */
   endCursor?: Maybe<Scalars['String']['output']>;
   hasNextPage: Scalars['Boolean']['output'];
-  nodes: Array<EnvironmentSceneResponse>;
-  siteId: Scalars['ID']['output'];
+};
+
+export type EnvironmentSceneEdge = {
+  cursor: Scalars['String']['output'];
+  node: EnvironmentSceneResponse;
 };
 
 export type EnvironmentSceneResponse = {
@@ -5335,7 +5345,6 @@ export type EnvironmentSceneResponse = {
   coveragePercent?: Maybe<Scalars['Float']['output']>;
   coverageSampleCount?: Maybe<Scalars['Int']['output']>;
   coverageStatus: SatelliteCoverageStatus;
-  cursor: Scalars['String']['output'];
   datasetId: Scalars['String']['output'];
   fetchedAt: Scalars['DateTime']['output'];
   id: Scalars['ID']['output'];
@@ -5929,10 +5938,19 @@ export type FarmStockContainerSource =
   | 'TANK';
 
 export type FarmStockInventoryConnection = {
+  /** Whether there is a next page */
+  hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
+  hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
   items: Array<FarmStockInventoryItem>;
+  /** Items per page */
   limit: Scalars['Int']['output'];
+  /** Current page number */
   page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
   total: Scalars['Int']['output'];
+  /** Total number of pages */
   totalPages: Scalars['Int']['output'];
 };
 
@@ -15342,7 +15360,7 @@ export type Query = {
   employeesByDepartment: Array<Employee>;
   enabledChannelsBySensor: Array<DataChannelType>;
   environmentLayerCatalog: Array<EnvironmentLayerResponse>;
-  environmentScenes: EnvironmentSceneConnection;
+  environmentScenes: EnvironmentSceneCursorConnection;
   equipment?: Maybe<EquipmentResponse>;
   equipmentByDepartment: Array<EquipmentResponse>;
   equipmentDeletePreview: EquipmentDeletePreviewResponse;
@@ -20489,7 +20507,7 @@ export type StorageInventoryCursorConnection = {
 };
 
 export type StorageInventoryCursorPageInfo = {
-  /** Cursor to pass as `after` for the next page. null when hasNextPage=false. */
+  /** Cursor of the final edge in this page. null only when the page has no edges. */
   endCursor?: Maybe<Scalars['String']['output']>;
   hasNextPage: Scalars['Boolean']['output'];
 };

@@ -612,7 +612,7 @@ const EnvironmentPage: React.FC = () => {
     sceneRange.to,
     canQuerySite && activeView === 'satellite' && imageryLayers.length > 0,
   );
-  const scenes = scenesQuery.data?.nodes ?? [];
+  const scenes = scenesQuery.data ?? [];
   const selectedScene = scenes.find((scene) => scene.sceneId === selectedSceneId) ?? null;
 
   useEffect(() => {

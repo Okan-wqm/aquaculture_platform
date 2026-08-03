@@ -275,23 +275,70 @@ class SnapshotSignatureRoundTripTests(unittest.TestCase):
         self.assertFalse(report["manifest_root_valid"])
 
     def test_a_signature_from_another_namespace_does_not_verify(self) -> None:
-        """Namespacing keeps a commit signature from passing as a snapshot."""
+        """Namespacing keeps a commit signature from passing as a snapshot.
+
+        The foreign signature is minted over a COPY of the manifest, because
+        signing in place would hit exactly the stale-signature hazard this
+        module guards against — and an earlier draft of this test did, which
+        is how that hazard was found: ``ssh-keygen -Y sign`` refuses to
+        clobber an existing ``.sig`` and asks, so the old signature survived
+        and the test "passed" a signature it had never replaced.
+        """
         signed = self._sign()
-        foreign = self.tmp / "foreign.sig"
+        foreign_manifest = self.tmp / "foreign.json"
+        foreign_manifest.write_bytes(signed.manifest_path.read_bytes())
         subprocess.run(
             [
                 "ssh-keygen", "-Y", "sign", "-f", str(self.key),
-                "-n", "git", str(signed.manifest_path),
+                "-n", "git", str(foreign_manifest),
             ],
-            check=True, capture_output=True,
+            check=True, capture_output=True, stdin=subprocess.DEVNULL,
         )
-        shutil.move(str(signed.manifest_path) + ".sig", foreign)
+        foreign_sig = Path(str(foreign_manifest) + ".sig")
+        self.assertTrue(foreign_sig.exists(), "fixture precondition: foreign sig minted")
         report = verify_snapshot_signature(
             manifest_path=signed.manifest_path,
-            signature_path=foreign,
+            signature_path=foreign_sig,
             public_key_path=signed.public_key_path,
         )
-        self.assertFalse(report["signature_valid"])
+        self.assertFalse(
+            report["signature_valid"],
+            "a `git`-namespace signature must not verify as a state attestation",
+        )
+
+    def test_re_signing_replaces_the_previous_attestation(self) -> None:
+        """Every publish re-signs the same store — the normal case.
+
+        Pre-fix, ``ssh-keygen`` refused to overwrite the existing ``.sig``
+        and asked interactively: with a tty the publish hangs, without one
+        the PREVIOUS signature stays beside the NEW manifest and verifies
+        against nothing that exists. Both are unreachable now.
+        """
+        first = self._sign()
+        first_sig = first.signature_path.read_bytes()
+
+        moved = build_snapshot(
+            snapshot_id="snap-sig-2", cycle_id="cyc-sig", lane="test",
+            roots={"tools": self.tools}, previous=self.manifest,
+        )
+        second = sign_snapshot(
+            moved,
+            out_dir=self.tmp / "store",
+            private_key_path=self.key,
+            public_key_path=self.key.with_suffix(".pub"),
+            signer_fingerprint="SHA256:test",
+        )
+        self.assertNotEqual(
+            second.signature_path.read_bytes(), first_sig,
+            "the store still carries the previous cycle's signature",
+        )
+        report = verify_snapshot_signature(
+            manifest_path=second.manifest_path,
+            signature_path=second.signature_path,
+            public_key_path=second.public_key_path,
+        )
+        self.assertTrue(report["valid"], report)
+        self.assertEqual(report["snapshot_id"], "snap-sig-2")
 
 
 class SnapshotAnchorTests(unittest.TestCase):

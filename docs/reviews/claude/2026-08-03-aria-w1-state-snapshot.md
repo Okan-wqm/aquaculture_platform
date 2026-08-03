@@ -92,16 +92,41 @@ recorded as `chain_valid: false` with NO counts rather than plausible
 ones — attesting a tip for a chain that does not verify would testify to
 a state that never existed.
 
-**Validation:** 17 tests (`aria-kernel/tests/test_state_snapshot.py`).
-14 run everywhere: policy completeness against the live manifest, lock
+### The signature tests earned their keep before merge
+
+CI ran the three `ssh-keygen` round-trip tests for the first time on this
+PR and one failed — and the failure was not the test being wrong about
+namespaces. `ssh-keygen -Y sign` REFUSES to overwrite an existing `.sig`
+and asks interactively. With no tty it left the PREVIOUS signature in
+place, which is why the foreign-namespace test "verified" a signature it
+had never replaced.
+
+That is a production defect, not a test artefact: re-signing the same
+store is the NORMAL case — every publish in PR 2.3 writes a new snapshot
+where the last one sat. Unfixed, a publish either blocks on a prompt
+forever or ships a manifest beside the previous cycle's signature, an
+attestation of a state that is no longer there. `sign_snapshot` now
+removes the stale signature first, denies the subprocess a stdin so an
+interactive prompt is unreachable, and bounds both sign and verify at 15
+seconds (the same discipline `mint_signing_key` already applies) with a
+timeout raised as a typed refusal — a verifier that hangs must never
+read as a verification that passed. A new test pins that a second signing
+replaces the first attestation and that the result verifies against the
+NEW manifest.
+
+The lesson for the program: the value of a test that only runs in CI is
+real, but it is capped by how soon you see it. `openssh-client` is now
+installed in the dev container so these run locally too.
+
+**Validation:** 18 tests (`aria-kernel/tests/test_state_snapshot.py`).
+14 run without ssh-keygen: policy completeness against the live manifest, lock
 exclusion, root-kind scope recording, root-reacts-to-content and to the
 predecessor link, forged-parent rejection, lost-surface reporting, the
 amnesic-tree case (a fresh root cannot reproduce its predecessor's root),
 genesis naming, broken-chain recording, both signing refusals, and
-the two anchor cases. 3 are
-the real `ssh-keygen` round trip — sign→verify, tamper→fail, and a
-foreign-namespace signature rejected — which skip only where the binary
-is genuinely absent (this dev container) and run in CI.
+the two anchor cases. 4 are the real `ssh-keygen` round trip — sign→verify, tamper→fail,
+foreign-namespace rejected, and re-signing replaces the prior
+attestation — which skip only where the binary is genuinely absent.
 
 Owner: aria-acceptance-gap-fixer. Deadline: 2026-08-10 (post-merge close
 ceremony).

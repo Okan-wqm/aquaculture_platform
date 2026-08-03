@@ -203,21 +203,40 @@ def sign_snapshot(
     manifest_path = out_dir / "snapshot.json"
     manifest_path.write_text(canonical_json(manifest) + "\n", encoding="utf-8")
 
-    proc = subprocess.run(
-        [
-            "ssh-keygen", "-Y", "sign",
-            "-f", str(private_key_path),
-            "-n", SIGNATURE_NAMESPACE,
-            str(manifest_path),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    # Re-signing the same store is the NORMAL case — every publish writes a
+    # new snapshot where the last one sat. ``ssh-keygen -Y sign`` refuses to
+    # clobber an existing ``.sig`` and asks interactively, so without this
+    # the publish either blocks on a prompt forever or (with no tty) leaves
+    # the PREVIOUS signature next to the new manifest: an attestation of a
+    # state that is no longer there. Removing the stale signature first and
+    # denying the process a stdin makes both outcomes unreachable. The key
+    # factory learned the same lesson (`gh_token_factory.mint_signing_key`).
+    signature_path = manifest_path.with_suffix(".json.sig")
+    signature_path.unlink(missing_ok=True)
+
+    try:
+        proc = subprocess.run(
+            [
+                "ssh-keygen", "-Y", "sign",
+                "-f", str(private_key_path),
+                "-n", SIGNATURE_NAMESPACE,
+                str(manifest_path),
+            ],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            check=False,
+            # Bounded like the key factory's mint call: a signer that never
+            # returns would wedge the publishing cycle indefinitely, and a
+            # cycle that cannot end also cannot be recovered by a watchdog
+            # that is waiting for that cycle to report.
+            timeout=15,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SnapshotError("snapshot_signing_timeout: ssh-keygen did not return") from exc
     if proc.returncode != 0:
         raise SnapshotError(f"snapshot_signing_failed: {proc.stderr.strip()[:200]}")
 
-    signature_path = manifest_path.with_suffix(".json.sig")
     if not signature_path.exists():
         raise SnapshotError("snapshot_signature_absent: ssh-keygen reported success without a .sig")
 
@@ -261,18 +280,23 @@ def verify_snapshot_signature(
     key_line = public_key_path.read_text(encoding="utf-8").strip()
     allowed_signers.write_text(f"{identity} {key_line}\n", encoding="utf-8")
 
-    proc = subprocess.run(
-        [
-            "ssh-keygen", "-Y", "verify",
-            "-f", str(allowed_signers),
-            "-I", identity,
-            "-n", SIGNATURE_NAMESPACE,
-            "-s", str(signature_path),
-        ],
-        input=manifest_path.read_bytes(),
-        capture_output=True,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            [
+                "ssh-keygen", "-Y", "verify",
+                "-f", str(allowed_signers),
+                "-I", identity,
+                "-n", SIGNATURE_NAMESPACE,
+                "-s", str(signature_path),
+            ],
+            input=manifest_path.read_bytes(),
+            capture_output=True,
+            check=False,
+            timeout=15,
+        )
+    except subprocess.TimeoutExpired as exc:
+        # A verifier that hangs must not read as a passing verification.
+        raise SnapshotError("snapshot_verification_timeout: ssh-keygen did not return") from exc
     signature_valid = proc.returncode == 0
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     root_valid = verify_manifest_root(manifest)

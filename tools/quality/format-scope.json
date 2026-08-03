@@ -33109,6 +33109,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-03-aria-git-dir-escape.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-08-03-aria-pressure-fixture-time-bomb.md",
       "prettier_managed": true
     },
@@ -56268,10 +56274,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9227,
+  "file_count": 9228,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9046,
-  "managed_file_list_sha256": "4a9b808ad2411df48c8016b0c92ca6e3d299996fbda3747da283725f3c1022b9",
+  "managed_count": 9047,
+  "managed_file_list_sha256": "f7c0973ac8a4f0c7969bd30e392c6bceb968127070b16e407bcf5e4733f9f039",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

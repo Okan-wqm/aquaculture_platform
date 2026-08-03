@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `6c53ea63e16eaf282501c4726bdda48f14ee7876749f4acc74bb62b27f9dfb19`
+Registry tip: `857b97804d513c8160f58165a4a7f11a320dbcb3f11f230c43857ac5eed4ec93`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -179,6 +179,7 @@ Allowed truth buckets:
 | `ORPHAN-CRITICAL-513`   | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ORPHAN-CRITICAL-516`   | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ORPHAN-CRITICAL-517`   | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
+| `ORPHAN-CRITICAL-543`   | OPEN           | 2026-08-10   | aria-acceptance-gap-fixer  | fixed-awaiting-ceremony   |
 
 ## Mutation Rules
 

@@ -251,8 +251,12 @@ def run_cycle(paths: WorkspacePaths | None = None, **kwargs: Any) -> dict[str, o
 
 # Where a phase sits relative to the two structural boundaries of a
 # cycle: discovery (which can end the cycle early) and the tool loop.
-PhaseStage = Literal["discovery", "pre_tool", "tools", "post_tool"]
-CYCLE_STAGES: tuple[PhaseStage, ...] = ("discovery", "pre_tool", "tools", "post_tool")
+# `preflight` runs before discovery because its question is whether there is a
+# cycle to run at all — not what changed, but whether the tree holding the
+# answer is the one the last published state left behind. Every later stage,
+# discovery included, reads or writes that tree.
+PhaseStage = Literal["preflight", "discovery", "pre_tool", "tools", "post_tool"]
+CYCLE_STAGES: tuple[PhaseStage, ...] = ("preflight", "discovery", "pre_tool", "tools", "post_tool")
 
 # Which pipeline a phase belongs to. ``standard`` is the nightly cycle;
 # ``burn_in`` is the observe burn-in lane, which pre-collapse was a THIRD
@@ -584,6 +588,41 @@ def run_enterprise_cycle(
         started_monotonic=started,
     )
 
+    # PLAN Wave 1 §2.5 — refuse to run on a tree that cannot be shown to
+    # descend from the last published state. The phase assessed; this decides.
+    # It lives here rather than in the phase for the same reason the ARIA_STOP
+    # refusal does: a cycle that stops must still append a terminal row, and
+    # only this function owns the cycles.jsonl lifecycle.
+    _run_phase_stage("preflight", context)
+    continuity = context.result("state_continuity")
+    if isinstance(continuity, dict) and continuity.get("blocks_action"):
+        from .memory_gap import ContinuityVerdict, freeze_autonomous_writes
+
+        freeze_autonomous_writes(
+            ContinuityVerdict(
+                status=str(continuity.get("status")),
+                reference_kind=continuity.get("reference_kind"),
+                reasons=tuple(continuity.get("reasons") or ()),
+                lost_surfaces=tuple(continuity.get("lost_surfaces") or ()),
+                current_manifest_root=continuity.get("current_manifest_root"),
+                reference_manifest_root=continuity.get("reference_manifest_root"),
+            ),
+            base_dir=root,
+            cycle_id=cycle_id,
+        )
+        emit_progress("cycle_aborted", cycle_id=cycle_id, reason="state_integrity_gap")
+        event = _aborted_event(cycle_id, git_head_sha_at_cycle=git_head_sha_at_cycle)
+        append_declared_jsonl(root / "cycles.jsonl", event, expected_surface="cycles")
+        return {
+            "schema_version": 2,
+            "cycle_id": cycle_id,
+            "git_head_sha_at_cycle": git_head_sha_at_cycle,
+            "status": "aborted",
+            "event": event,
+            "learning": learning,
+            "state_continuity": continuity,
+        }
+
     _run_phase_stage("discovery", context)
     discovery = context.result("discovery")
     diff = context.result("cycle_diff")
@@ -752,6 +791,54 @@ def run_enterprise_cycle(
 # any of the three would put the pipeline back into control flow where it
 # cannot be inspected.
 # ---------------------------------------------------------------------
+
+
+def _phase_state_continuity(context: PhaseContext) -> dict[str, Any]:
+    """Does the tree this cycle opened on descend from the last published state?
+
+    PLAN Wave 1 §2.5. The reference has to come from OUTSIDE the tree, because
+    a tree that lost its history also lost any record that it had one. Two
+    exist and are tried in that order: the ``aria/state`` branch tip, which
+    carries the full surface map, and the daily anchors committed into the
+    repository, which carry the manifest root alone.
+
+    The runner ASSESSES and returns; it does not decide. Stopping the cycle is
+    the caller's boundary (a phase cannot append the terminal row that keeps
+    cycle-lifecycle integrity), and the freeze is `freeze_autonomous_writes`.
+    Three responsibilities, three places, one rule each.
+    """
+    from .memory_gap import assess_memory_continuity, resolve_continuity_reference
+    from .state_snapshot import build_snapshot
+
+    current = build_snapshot(
+        snapshot_id=f"continuity-{context.cycle_id}",
+        cycle_id=context.cycle_id,
+        lane=context.mode,
+        roots={"tools": Path(context.base_dir)},
+    )
+
+    # Resolution lives in memory_gap, not here: which authority is strongest,
+    # and which failures are evidence rather than noise, are properties of the
+    # continuity rule — and a rule spelled at its callsite is a rule the next
+    # callsite spells differently. It deliberately does NOT swallow a damaged
+    # store; that raise reaches this phase's `record_and_continue`, which is
+    # the "failed to look" outcome rather than a quietly weaker answer.
+    reference, reference_kind = resolve_continuity_reference(Path(context.workspace_root))
+
+    verdict = assess_memory_continuity(
+        current=current, reference=reference, reference_kind=reference_kind
+    )
+    return {
+        "schema_version": 1,
+        "status": verdict.status,
+        "reference_kind": verdict.reference_kind,
+        "reasons": list(verdict.reasons),
+        "notes": list(verdict.notes),
+        "lost_surfaces": list(verdict.lost_surfaces),
+        "current_manifest_root": verdict.current_manifest_root,
+        "reference_manifest_root": verdict.reference_manifest_root,
+        "blocks_action": verdict.blocks_action,
+    }
 
 
 def _phase_discovery(context: PhaseContext) -> dict[str, Any]:
@@ -1260,6 +1347,22 @@ def _run_pr_lifecycle_phase(context: PhaseContext) -> dict[str, Any]:
 # possible to write and never notice were dead.
 # =====================================================================
 CYCLE_PHASES: tuple[CyclePhase, ...] = (
+    # --- preflight: is this tree the one the last published state left? ---
+    # In `burn_in` too, and that is the point rather than an oversight: the
+    # observe lane's output is the acceptance evidence the autonomy ladder
+    # counts, and evidence gathered on a tree that forgot its history is
+    # exactly the evidence that must not count.
+    #
+    # `record_and_continue`, not `propagate`. A gate that CRASHED did not
+    # observe a gap; it failed to look, which is the `unknown` class and must
+    # not brick the lane. The crash is still a `failed` outcome row, so "the
+    # gate is broken" and "the gate passed" remain different observations.
+    CyclePhase(
+        "state_continuity", "preflight", _phase_state_continuity,
+        on_error="record_and_continue", state_key="state_continuity",
+        modes=frozenset({"standard", "burn_in"}),
+    ),
+
     # --- discovery: what changed, and is that all we were asked for? ---
     CyclePhase(
         "discovery", "discovery", _phase_discovery,

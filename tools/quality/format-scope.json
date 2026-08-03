@@ -33151,6 +33151,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-03-aria-w1-state-continuity.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-08-03-aria-w1-state-snapshot.md",
       "prettier_managed": true
     },
@@ -56244,10 +56250,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9223,
+  "file_count": 9224,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9042,
-  "managed_file_list_sha256": "a31552743f4ccc6a40eb528526f0ecdb9abd9f835d3ce2b8f005fe6f8654bc26",
+  "managed_count": 9043,
+  "managed_file_list_sha256": "713a7424c27c73c1b5bd5ca6682aaf10d9f4c6994f9e29f86895693142afcec8",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

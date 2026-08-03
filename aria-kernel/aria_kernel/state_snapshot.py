@@ -310,6 +310,22 @@ def verify_snapshot_signature(
     }
 
 
+def snapshots_are_linked(current: dict[str, Any], previous: dict[str, Any]) -> bool:
+    """Does ``current`` name ``previous`` as its parent, by BOTH id and root?
+
+    Extracted so there is one definition of descent. `snapshot_continuity`
+    needs it, and so does the continuity gate when its reference is a
+    committed daily anchor — an anchor carries `manifest_root` and no surface
+    map, so it cannot go through `snapshot_continuity` at all. Two callers
+    computing the same comparison inline is how one of them ends up checking
+    only the id, which a re-pointed snapshot would satisfy.
+    """
+    return (
+        current.get("prev_snapshot_id") == previous.get("snapshot_id")
+        and current.get("prev_manifest_root") == previous.get("manifest_root")
+    )
+
+
 def snapshot_continuity(
     current: dict[str, Any],
     previous: dict[str, Any] | None,
@@ -331,10 +347,7 @@ def snapshot_continuity(
         }
     prev_surfaces = previous.get("surfaces") or {}
     cur_surfaces = current.get("surfaces") or {}
-    linked = (
-        current.get("prev_snapshot_id") == previous.get("snapshot_id")
-        and current.get("prev_manifest_root") == previous.get("manifest_root")
-    )
+    linked = snapshots_are_linked(current, previous)
     lost = sorted(set(prev_surfaces) - set(cur_surfaces))
     changed = sorted(
         name for name in set(prev_surfaces) & set(cur_surfaces)

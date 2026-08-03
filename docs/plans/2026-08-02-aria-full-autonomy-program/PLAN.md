@@ -287,9 +287,33 @@ suffixes on the winner's tip; `autonomous_host_lease` reused as advisory publish
 lease; push via `mint_installation_token` scoped contents:write with a GitHub
 ruleset on `aria/state` blocking force-push/deletion) and `memory_gap.py`
 (`assess_memory_continuity` → `state_integrity_gap` breaker kind freezing every
-authority profile → `restore_and_replay` → `equivalence_check` → resume). The
-silent-bootstrap path in both workflows is deleted; branch-absent requires
-`ARIA_STATE_BOOTSTRAP_ACK`.
+authority profile → `restore_and_replay` → `equivalence_check` → resume).
+Branch-absent requires `ARIA_STATE_BOOTSTRAP_ACK`.
+
+**Corrected in PR 2.5, from reading the code this paragraph describes:**
+
+- _"The silent-bootstrap path in both workflows is deleted"_ named the wrong
+  line. `integrity migrate-tools-bootstrap` is not a bootstrap-only step — it
+  is an idempotent CONTRACT MIGRATION that carries a restored tree from
+  v0/v1/v2 to v3. Deleting it, or gating it on `bootstrap == 'true'`, would
+  leave an older restored tree unmigrated. It stays.
+- The silence was never in that step. `.github/actions/restore-aria-tools-state`
+  already fails hard on a real error and writes `restored=true` only on the
+  success path, so the transport proof is sound; what was missing is that both
+  lanes evaluate that proof at the END of the job, having already acted. The
+  kernel-side `state_continuity` gate is the missing consumer, and it asks the
+  other question — not _did the download work_ but _is this the state we left_.
+  No workflow edit ships with it: a second early check duplicating what the
+  action enforces is the copy-drift this wave keeps treating.
+- A third verdict, `unknown`, is added to the two the paragraph implies.
+  Continuity is only decidable against a reference OUTSIDE the tree, and until
+  the state-branch lane cuts over (2.6) or the daily anchor lane resumes with
+  `state_manifest_root`, no such reference exists on `main`. `unknown` blocks
+  nothing and asserts nothing; `freeze_autonomous_writes` raises on any status
+  but `critical`, so an unproven gap structurally cannot trip a breaker.
+- `restore_and_replay` moves to 2.6 with the lane that gives it a transport.
+  `equivalence_check` ships in 2.5 because 2.6 needs it and it is testable
+  standalone.
 
 Verifier fix (ORPHAN-HIGH-433): `covered_tool_ledgers` becomes a derivation
 over `state_manifest` (every tools-root ledger surface), one release soak

@@ -106,3 +106,30 @@ that recovery is the real verification, and it will show up as issue
 #1005 shrinking rather than as anything this PR can assert.
 
 Owner: aria-acceptance-gap-fixer. Deadline: 2026-08-10.
+
+---
+
+## ORPHAN-HIGH-530 closed — the consumer, and why not the obvious one
+
+The finding above says detection worked and nothing consumed it. The
+consumer now exists. Full record:
+`docs/reviews/claude/2026-08-03-aria-w1-ladder-continuity.md`.
+
+The obvious reading — "gate cycle recording on lane liveness" — is
+**vacuous**: a dead lane runs no cycles, so `record_clean_cycle` is never
+called and such a gate can only ever pass. The hazard is one level up.
+`verdict_from_rows` had no time dimension at all, so thirty acceptance
+events spanning a seventeen-day hole satisfied a threshold of thirty
+exactly as well as thirty consecutive nightly ones. The ladder's premise
+is "N CONSECUTIVE clean cycles"; counting cannot see a hole, and when the
+lane returned the accumulated evidence would have gone on unlocking as if
+operation had been continuous.
+
+The check lives in `verdict_from_rows` because that is the ONE function
+the real and mock ledgers both pass through — the same argument as the
+state store's ancestry proof: a check at the callsite is a check the next
+callsite can omit.
+
+No second watchdog was built. `scheduled-workflow-watchdog.yml` did its
+job throughout; a second detector would have been the copy-drift disease
+ORPHAN-CRITICAL-513 already cost this repository once.

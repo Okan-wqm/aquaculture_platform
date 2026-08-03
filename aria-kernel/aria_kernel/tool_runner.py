@@ -73,15 +73,16 @@ def run_tool(
         raise GovernanceError(f"runner.cwd does not exist: {runner['cwd']}")
 
     input_bytes = _canonical_json_bytes(input_payload)
-    before = _workspace_snapshot(root, tool)
-    # Plan 022 §C-5 — capture an unfiltered raw snapshot alongside the
-    # scoped view. The pre-fix mutation comparison ran on the
-    # tool-scope-filtered status output, so a buggy/malicious adapter
+    # Plan 022 §C-5 — the raw view exists so a buggy/malicious adapter
     # mutating files OUTSIDE its declared scope (package.json, CI
-    # configs, registry.json) was invisible. Raw snapshots let us
-    # partition the diff into scoped vs scope_out mutations and surface
-    # the latter as a hard quarantine signal.
-    before_raw = _workspace_snapshot_raw(root)
+    # configs, registry.json) stays visible; the diff is partitioned
+    # into scoped vs scope_out mutations and the latter is a hard
+    # quarantine signal. ORPHAN-MEDIUM-526 — both views of one
+    # observation moment come from a SINGLE `git status` invocation:
+    # separate calls per view let git's racy-stat heuristic hand two
+    # witnesses of the same moment different answers, and the mutation
+    # verdict then compared internally inconsistent moments.
+    before, before_raw = _workspace_snapshots(root, tool)
     started = time.monotonic()
     stdout = ""
     stderr = ""
@@ -135,8 +136,7 @@ def run_tool(
         status = "tool_unhealthy" if getattr(exc, "filename", None) else "crash"
 
     duration_ms = int(round((time.monotonic() - started) * 1000))
-    after = _workspace_snapshot(root, tool)
-    after_raw = _workspace_snapshot_raw(root)
+    after, after_raw = _workspace_snapshots(root, tool)
     # Plan 022 §C-5 — partition every mutated path into scoped vs
     # scope-out using the raw before/after. `mutated` retains its
     # original semantic for backward-compat with downstream consumers
@@ -348,6 +348,39 @@ def _parse_tool_output(
     if "belief_candidates" in payload and not isinstance(payload["belief_candidates"], list):
         return None, "belief_candidates_not_list"
     return payload, None
+
+
+def _workspace_snapshots(root: Path, tool: dict[str, Any] | None = None) -> tuple[Any, Any]:
+    """One observation moment, two projections: (scoped, raw).
+
+    ORPHAN-MEDIUM-526 — the scoped and raw snapshots used to come from
+    SEPARATE ``git status`` invocations, taken several statements apart.
+    Git's racy-stat heuristic can change porcelain output between two
+    back-to-back calls with no real file change, so a single observation
+    moment had two witnesses that could disagree — and the mutation
+    verdict (``before != after``) then compared internally inconsistent
+    moments, flagging phantom mutations under load. One invocation per
+    moment removes the intra-moment divergence class structurally; both
+    projections here are pure functions of the same stdout. The raw
+    projection keeps the aria-tools content-hash overlay (Plan ARIA-V2
+    §3.4) exactly as before.
+    """
+    git_dir = root / ".git"
+    if git_dir.exists():
+        completed = subprocess.run(
+            ["git", "status", "--porcelain", "-z"],
+            cwd=root,
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode == 0:
+            scoped = ("git", _normalized_git_status(completed.stdout, tool))
+            combined: list[str] = list(_normalized_git_status_raw(completed.stdout))
+            for rel, size, content_hash in _aria_tools_dir_overlay(root):
+                combined.append(f"-- {rel} size={size} {content_hash}")
+            return scoped, ("git", tuple(sorted(combined)))
+    snapshot = ("dir", _directory_snapshot(root))
+    return snapshot, snapshot
 
 
 def _workspace_snapshot(root: Path, tool: dict[str, Any] | None = None) -> Any:

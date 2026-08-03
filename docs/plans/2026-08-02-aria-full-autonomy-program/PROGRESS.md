@@ -2,6 +2,28 @@
 
 Program plan: [`PLAN.md`](./PLAN.md). Newest entries first.
 
+## 2026-08-03 — Wave 0 COMPLETE
+
+- **#1049 merged (`980876e9`)** — the burn-in lane collapsed into the one
+  pipeline as a mode (`CYCLE_PHASES.modes` column; `run_observe_burn_in`
+  delegates each cycle to `run_enterprise_cycle(mode="burn_in")`;
+  lifecycle rows have a single owner). Closes ORPHAN-HIGH-521. Also
+  aboard: the ORPHAN-CRITICAL-498 close ceremony and the
+  pressure-fixture calendar-bomb fix (ORPHAN-HIGH-522 — fixtures dated
+  2026-05-05 crossed the 90-day faded threshold at 2026-08-03T00:00Z and
+  broke every branch's CI at once; now wall-clock anchored).
+- **#1050 merged (`2e3863e3`)** — executor-lane PR opening centralized on
+  the kernel CLI (ORPHAN-HIGH-523): `ALLOWED_BASH_COMMANDS` swaps raw
+  `gh pr create` for `python3 -m aria_kernel pr create` (routes through
+  `open_pr_for_action`'s guards); the scheduled executor lane sets
+  `ARIA_EXECUTOR_PR_VIA_KERNEL=1`, making the kernel path the single
+  reachable one there. 521/522 close ceremonies rode this PR.
+- **Remaining tracked follow-through (Wave 0's only open end):** after
+  one green scheduled `aria-agent-executor` run under the flag, delete
+  `LEGACY_GH_PR_CREATE_PATTERN` and the flag together (§0.7 two-step).
+- Wave 0's original items 0.2/0.3/0.4/0.6 had landed inside #1045's
+  squash (see the 2026-08-02 re-scope entry below); 0.1 was #1047.
+
 ## 2026-08-02 — Wave 0 re-scoped: the pipeline collapse was already aboard #1045
 
 Preparing PR 0.2 surfaced that `main` already contains the full pipeline

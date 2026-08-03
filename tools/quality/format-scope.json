@@ -33115,6 +33115,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-03-aria-w0-executor-pr-centralization.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -56166,10 +56172,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9210,
+  "file_count": 9211,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9029,
-  "managed_file_list_sha256": "5ef76817d5e4a5013ed375103bf134ee228fbf60baad800d93397e796ad10bf4",
+  "managed_count": 9030,
+  "managed_file_list_sha256": "97c344b582d320d894d6216ae3e946d176332d4f710656acd1ca5e8af0c266d8",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

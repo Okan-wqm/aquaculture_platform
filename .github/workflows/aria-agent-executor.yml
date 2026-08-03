@@ -400,6 +400,12 @@ jobs:
           CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
           CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
           ARIA_CLAUDE_REQUIRE_USAGE: '1'
+          # Wave 0 §0.7 — executor-lane PRs open through the kernel CLI
+          # (pr_manager gate + breaker producer) only; the raw
+          # `gh pr create` allowlist row is refused under this flag. The
+          # flag and the legacy row are deleted together after one green
+          # scheduled run (docs/plans/2026-08-02-aria-full-autonomy-program).
+          ARIA_EXECUTOR_PR_VIA_KERNEL: '1'
           MAX_TURNS_PER_RUN: '12'
           MAX_REQUESTS_PER_RUN: '30'
           MAX_TIMEOUT_SECONDS: '1800'

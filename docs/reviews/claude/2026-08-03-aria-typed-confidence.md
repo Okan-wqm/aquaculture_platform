@@ -30,14 +30,14 @@ It is silently promoted to **1.0, maximum certainty**, and flows into
 `memory._record_belief` as the belief's starting weight. A unit error becomes a
 certainty, on the exact surface where certainty is the thing being protected.
 
-Clamping is the wrong *direction* even when it fires legitimately: on a trust
+Clamping is the wrong _direction_ even when it fires legitimately: on a trust
 surface, coercion toward maximum trust converts malformed input into the most
 dangerous well-formed value. The rejection path three modules away already
 draws the correct line.
 
 The same audit found the sibling defect one consumer downstream, distinct
 enough to track separately (PLAN §4d.3): `judge_calibration`'s scoring branch
-is `else:  # truth false_positive` — it *assumes* `FEEDBACK_VERDICTS` is a
+is `else:  # truth false_positive` — it _assumes_ `FEEDBACK_VERDICTS` is a
 complementary pair. Sound today with exactly two members; it means a judge that
 genuinely cannot decide is forced to guess, and an `unverifiable` verdict added
 later would be silently counted as `false_positive` by arithmetic that never

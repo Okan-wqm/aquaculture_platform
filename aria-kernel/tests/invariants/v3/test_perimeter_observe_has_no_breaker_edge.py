@@ -46,6 +46,23 @@ SANCTIONED_PRODUCER_CALLERS: frozenset[str] = frozenset({
     "planner_dispatch_hook.py",
     "circuit_breaker.py",  # its own definition + internal helpers
     "cli.py",              # operator-driven `breaker record`
+    # PLAN Wave 1 §2.5 — `freeze_autonomous_writes` records
+    # `state_integrity_gap` when a cycle finds a tree it cannot show descends
+    # from the last published state. Added here as the review this gate exists
+    # to force, and the reasoning is the same one that made it a breaker edge
+    # rather than a new mechanism: `_cycle_preflight` already consults the
+    # breaker for every profile holding action authority, so feeding it is how
+    # a state-integrity gap stops the system by the route everything else
+    # already uses. A separate freeze flag would be a second answer to "how
+    # does ARIA stop".
+    #
+    # The narrow shape that keeps this safe: the producer is reachable only
+    # from a POSITIVE finding. `freeze_autonomous_writes` raises on any status
+    # other than GAP_CRITICAL, so `unknown` — the state this repository is
+    # actually in until a reference exists — cannot trip a breaker. That is
+    # the same distinction RC-2 drew when it stopped a dry-run observation
+    # from counting as a rejected implementation.
+    "memory_gap.py",
 })
 
 

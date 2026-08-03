@@ -81,6 +81,15 @@ FAILURE_KINDS: frozenset[str] = frozenset(
         "gh_api_failure",
         "subprocess_timeout",
         "operator_rollback",
+        # PLAN Wave 1 §2.5 — a cycle that found its own state tree cannot be
+        # shown to descend from the last state anyone can attest to. Recorded
+        # HERE rather than through a second freeze mechanism of its own: the
+        # breaker is already the one thing `_cycle_preflight` consults for
+        # every profile holding action authority, so a state-integrity gap
+        # stops the system acting by the same route every other failure kind
+        # does. A parallel "frozen" flag would be a second answer to "how does
+        # ARIA stop", and two answers is how they disagree.
+        "state_integrity_gap",
     }
 )
 

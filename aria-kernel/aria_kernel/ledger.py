@@ -19,6 +19,7 @@ __all__ = [
     "StateTransaction",
     "append_declared_jsonl",
     "append_jsonl",
+    "canonical_json",
     "file_hash",
     "load_index",
     "load_declared_jsonl",
@@ -402,7 +403,16 @@ def load_jsonl(
     return read_jsonl(resolved)
 
 
-def _canonical_json(record: dict[str, Any]) -> str:
+def canonical_json(record: dict[str, Any]) -> str:
+    """The kernel's ONE canonical JSON encoding for hashed payloads.
+
+    Every hash the kernel chains — ledger row hashes, and the state
+    snapshot's ``manifest_root`` — runs through this encoder, so two
+    hashes of the same logical content can never disagree over key
+    order or separator whitespace. Public because the snapshot builder
+    is a second legitimate consumer; a private copy there would be a
+    second canonicalizer, which is how hash contracts drift apart.
+    """
     return json.dumps(record, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
 
@@ -410,7 +420,7 @@ def _record_hash(record: dict[str, Any], previous_hash: str | None = None) -> st
     payload = dict(record)
     payload.pop("ledger_hash", None)
     payload.pop("previous_ledger_hash", None)
-    raw = _canonical_json({"previous_ledger_hash": previous_hash, "record": payload})
+    raw = canonical_json({"previous_ledger_hash": previous_hash, "record": payload})
     return "sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 

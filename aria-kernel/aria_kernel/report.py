@@ -195,11 +195,39 @@ def _roi_metrics(tools_root: Path, date: str) -> dict[str, Any]:
     }
 
 
+def _state_snapshot_anchor(path: Path | None) -> tuple[str | None, str | None]:
+    """Wave 1 §2.2 — the snapshot's identity + tree-level continuity root.
+
+    The anchor is the one audit record that lands in git on the daily
+    report PR, so pinning ``manifest_root`` here is what carries
+    tree-level continuity into a store nobody can rewrite in place:
+    a later reader can take any snapshot claiming to precede today's
+    state and check it against a root that was committed at the time.
+    Best-effort like every other field — no snapshot yet reads as None,
+    never as a zero that a consumer would sum.
+    """
+    if path is None or not path.is_file():
+        return None, None
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None, None
+    if not isinstance(manifest, dict):
+        return None, None
+    snapshot_id = manifest.get("snapshot_id")
+    manifest_root = manifest.get("manifest_root")
+    return (
+        snapshot_id if isinstance(snapshot_id, str) else None,
+        manifest_root if isinstance(manifest_root, str) else None,
+    )
+
+
 def build_daily_anchor(
     *,
     date: str,
     workspace_root: Path,
     tools_root: Path,
+    state_snapshot_path: Path | None = None,
 ) -> dict[str, Any]:
     """Plan ARIA-V2 §3.9 + I-26 — assemble the daily anchor payload.
 
@@ -215,6 +243,7 @@ def build_daily_anchor(
     governance_path = tools_root / "governance.jsonl"
     cycles_path = tools_root / "cycles.jsonl"
     integrity_index_path = tools_root / "integrity_index.json"
+    snapshot_id, manifest_root = _state_snapshot_anchor(state_snapshot_path)
 
     return {
         "date": date,
@@ -226,6 +255,11 @@ def build_daily_anchor(
         # Plan S6 (ORPHAN-MEDIUM-299) — additive key; the I-26 invariant
         # only constrains the pre-existing fields.
         "roi": _roi_metrics(tools_root, date),
+        # Wave 1 §2.2 — additive, same contract: the state snapshot's id
+        # and tree-level continuity root, committed with the anchor so
+        # continuity has a witness outside the state store itself.
+        "state_snapshot_id": snapshot_id,
+        "state_manifest_root": manifest_root,
     }
 
 

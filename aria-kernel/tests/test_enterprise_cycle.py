@@ -529,7 +529,14 @@ class EnterpriseCycleTests(unittest.TestCase):
         )
         run_cycle(workspace_root=self.root, cycle_id="cycle-feedback-note-2", base_dir=self.tools_dir, shadow_only=True)
         second = {row["belief_id"]: row for row in list_memory(kind="beliefs", base_dir=self.tools_dir)}
-        self.assertGreater(second["candidate:repo-shape"]["confidence"], first["candidate:repo-shape"]["confidence"])
+        # The point of this test is that a note SUBSTRING must not adjust a
+        # belief. It used to prove that by asserting confidence rose —
+        # which only worked because re-observation inflated it. Equality is
+        # the stronger statement of the same intent: nothing moved at all.
+        self.assertEqual(
+            second["candidate:repo-shape"]["confidence"],
+            first["candidate:repo-shape"]["confidence"],
+        )
 
     def test_missing_concrete_evidence_becomes_stale_after_three_cycles(self):
         run_cycle(workspace_root=self.root, cycle_id="cycle-stale-1", base_dir=self.tools_dir)
@@ -574,7 +581,13 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertEqual(len(beliefs), 1)
         self.assertEqual(beliefs[0]["first_seen_cycle"], "cycle-memory-1")
         self.assertEqual(beliefs[0]["last_seen_cycle"], "cycle-memory-2")
-        self.assertEqual(beliefs[0]["support_count"], 2)
+        # Two cycles over an UNCHANGED nx.json. This used to assert
+        # support_count == 2, which was the ratchet stated as a
+        # requirement: re-reading one file twice counted as two supports.
+        # Observation and support are now separate facts — the second look
+        # is recorded, and it does not vote.
+        self.assertEqual(beliefs[0]["observation_count"], 2)
+        self.assertEqual(beliefs[0]["support_count"], 1)
 
     def test_memory_normalizes_v0_belief_rows(self):
         append_declared_jsonl(
@@ -617,8 +630,16 @@ class EnterpriseCycleTests(unittest.TestCase):
         register_tool(candidate_tool(confidence=1.0), base_dir=self.tools_dir)
         run_cycle(workspace_root=self.root, cycle_id="cycle-candidate-score-2", base_dir=self.tools_dir, shadow_only=True)
         second = {row["belief_id"]: row for row in list_memory(kind="beliefs", base_dir=self.tools_dir)}
-        self.assertEqual(second["candidate:repo-shape"]["support_count"], 2)
-        self.assertGreater(second["candidate:repo-shape"]["confidence"], first["candidate:repo-shape"]["confidence"])
+        # The intent is the bound below: an adapter declaring confidence
+        # 1.0 must not override memory's own score. That now holds more
+        # strongly — the evidence did not change between the two cycles, so
+        # the score does not move at all, rather than creeping upward.
+        self.assertEqual(second["candidate:repo-shape"]["observation_count"], 2)
+        self.assertEqual(second["candidate:repo-shape"]["support_count"], 1)
+        self.assertEqual(
+            second["candidate:repo-shape"]["confidence"],
+            first["candidate:repo-shape"]["confidence"],
+        )
         self.assertLess(second["candidate:repo-shape"]["confidence"], 0.5)
 
     def test_withdrawn_belief_is_sticky_against_candidate_recreation(self):

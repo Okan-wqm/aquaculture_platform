@@ -33127,6 +33127,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-03-aria-w1-memory-hygiene.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-08-03-aria-w1-scheduled-lane-revival.md",
       "prettier_managed": true
     },
@@ -56214,10 +56220,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9218,
+  "file_count": 9219,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9037,
-  "managed_file_list_sha256": "c685920f4f3ba78cafcc631fba3dd0991375dbec5ed0f41f8fe6f08f8a2b6d37",
+  "managed_count": 9038,
+  "managed_file_list_sha256": "897e0db75870efa269262418487f301ef73576ded2418f19b84b1e93cacaebbf",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

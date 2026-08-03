@@ -30,7 +30,7 @@ from aria_kernel.state_store import (
 )
 from aria_kernel.migration import migrate_tools_bootstrap
 
-from _helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 REPO_HASH = "repohash0001"
 SURFACE = "cycles"

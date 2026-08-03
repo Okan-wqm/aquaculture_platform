@@ -33115,7 +33115,19 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-03-aria-typed-confidence.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-08-03-aria-w0-executor-pr-centralization.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-03-aria-w1-contention-replay.md",
       "prettier_managed": true
     },
     {
@@ -56250,10 +56262,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9224,
+  "file_count": 9226,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9043,
-  "managed_file_list_sha256": "713a7424c27c73c1b5bd5ca6682aaf10d9f4c6994f9e29f86895693142afcec8",
+  "managed_count": 9045,
+  "managed_file_list_sha256": "2d0e286b5e406606994cdf4e932f671bc5adc3ecfa95b63353acb9dc473d49db",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

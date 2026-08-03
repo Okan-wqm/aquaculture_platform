@@ -33,7 +33,7 @@ from aria_kernel.contention_replay import (
 from aria_kernel.ledger import read_jsonl, verify_jsonl
 from aria_kernel.tool_registry import ensure_tools_dir
 
-from _helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.declared_fixtures import append_declared_fixture
 
 SURFACE = "cycles"
 FILENAME = "cycles.jsonl"

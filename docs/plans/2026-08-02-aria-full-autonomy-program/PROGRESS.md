@@ -2,6 +2,75 @@
 
 Program plan: [`PLAN.md`](./PLAN.md). Newest entries first.
 
+## 2026-08-03 — Wave 1 COMPLETE (except the lane cutover)
+
+Durable state landed before missions, per Revision 2's reordering. Seven PRs,
+each independently landable, each with its finding closed by the next:
+
+- **#1052 (`db4d937f`)** — PR 2.1/2.2: integrity coverage derived from the
+  manifest rather than a hand list, and `manifest_root` as the tree-level
+  continuity root (ORPHAN-HIGH-433, 528).
+- **#1053 (`cdf7b585`)** — every workflow job that runs kernel code now
+  provisions the kernel first (ORPHAN-HIGH-529). The daily-report lane had died
+  on `ModuleNotFoundError: yaml` for seventeen days.
+- **#1054/#1055 (`ecd004af`, `c218d174`)** — PR 2.3/2.4: the `aria/state` store,
+  FF-only push as compare-and-swap with a content-addressed ancestry proof, and
+  the workspace + repo-state roots bound to it (ORPHAN-HIGH-531, 533, 534).
+  A near-miss caught before it shipped: `publish_state` staged the whole tree,
+  and `gh_token_factory` writes per-cycle ed25519 private keys beside the
+  declared ledgers — staging is now exactly the snapshot's own surfaces.
+- **#1056 (`5295feec`)** — repetition stopped reading as corroboration: one
+  unchanged file had carried a belief 0.605 → 0.925 in eleven cycles
+  (ORPHAN-HIGH-535).
+- **#1057 (`705c237e`)** — the autonomy ladder gained a time dimension:
+  thirty successes spanning a seventeen-day hole no longer satisfy a threshold
+  of thirty (ORPHAN-HIGH-530). The obvious fix — gating cycle recording on lane
+  liveness — was _vacuous_, since a dead lane runs no cycles.
+- **#1058 (`e16b4e22`)** — converged plans are recorded as hypotheses below the
+  serving floor instead of 0.9-confidence conventions, so ARIA stops compounding
+  its own predictions into its own priors (ORPHAN-HIGH-536).
+- **#1059 (`79f3e54e`) / #1060 (`31447612`) / #1061** — the helm-registry CI
+  flake fixed at its root, the `state_continuity` preflight gate, and
+  contention replay for a lost publish race (ORPHAN-HIGH-538, 539, 540).
+
+### Plan corrections made while building, not after
+
+- **§2.5's "delete the silent-bootstrap path" named the wrong line.**
+  `integrity migrate-tools-bootstrap` is a contract migration (v0/v1/v2 → v3),
+  and PR 2.6 found the second, stronger reason it must stay: a store-checked-out
+  tools root has no `repo_identity.json` (machine-local binding state, correctly
+  not a declared surface) and that command is the only governed way to bind it.
+  Deleting the step would have made the state-store lane unable to start.
+- **The silence was never in that step.** The restore action already fails hard;
+  the gap was that both lanes evaluate the transport proof at the END of the job,
+  having already acted. The kernel-side continuity gate is the missing consumer,
+  and it asks a different question: not _did the download work_ but _is this the
+  state we left_.
+- **A third verdict, `unknown`.** Continuity is only decidable against a
+  reference outside the tree, and none exists on `main` yet. The gate reports
+  `unknown` every night and blocks nothing until the daily anchor lane resumes
+  or the store lane cuts over — recorded here rather than left to be discovered.
+- **The advisory publish lease is deliberately not built.** With replay the race
+  is correct and cheap; an advisory lease adds a second answer to _who may
+  publish_, whose stale-lease failure mode is worse than the problem.
+
+### What Wave 1 did NOT deliver
+
+The **lane cutover** — pointing `aria-auto-cycle` and `aria-agent-executor` at
+the store instead of the 30-day artifact. It requires the self-hosted runner
+(`[self-hosted, linux, claude]`), which is offline: today's scheduled runs queue
+and auto-cancel. ORPHAN-CRITICAL-484/488/513 therefore stay OPEN against the
+artifact transport, which is the honest state — the store exists and is proven,
+and nothing is using it yet.
+
+### Method note
+
+Every fix in this wave was mutation-checked, and the mutations paid for
+themselves three times: a "winner is checked too" test that did not test it, a
+`::warning::` assertion satisfied by the wrong message, and an idempotency claim
+that was false by construction. Each was a passing test that proved less than its
+name claimed.
+
 ## 2026-08-03 — Wave 0 COMPLETE
 
 - **#1049 merged (`980876e9`)** — the burn-in lane collapsed into the one

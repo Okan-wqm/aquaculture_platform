@@ -29,6 +29,7 @@ __all__ = [
     "rewrite_declared_jsonl",
     "rewrite_jsonl",
     "state_transaction",
+    "tools_index_group_ledgers",
     "verify_index_hashes",
     "verify_jsonl",
     "write_index",
@@ -116,7 +117,28 @@ def _tools_group_root_for_path(path: Path) -> Path | None:
     return None
 
 
-def _tools_group_ledgers(root: Path) -> dict[str, Path]:
+def tools_index_group_ledgers(root: Path) -> dict[str, Path]:
+    """THE membership of the tools ``integrity_index.json`` — sole authority.
+
+    Three parties act on this index and every one of them MUST consume
+    this function, or the index eats itself: the grouped refresh
+    (``_refresh_adjacent_index_grouped``) REPLACES ``ledger_hashes``
+    with exactly this membership on every indexed append, so a full
+    rewrite (``update_tools_index``) or a verifier
+    (``integrity._index_issues``) working from any WIDER set writes or
+    expects entries the next append silently discards — the
+    replace-discard defect ORPHAN-HIGH-525 documents. Chain
+    verification is the wider net on purpose: ``covered_tool_ledgers``
+    derives every declared ledger surface from ``state_manifest`` and
+    verifies each file's hash chain; THIS set is only "whose file-hash
+    is maintained in the adjacent index on every append", kept small
+    because each indexed append re-hashes every member.
+
+    (``state_manifest``'s ``index_group`` column is NOT the authority —
+    it has no runtime consumer and its values disagree with the live
+    behaviour; its reconciliation is scheduled into the Wave-2 snapshot
+    redesign that replaces this index wholesale.)
+    """
     ledgers = {
         logical: root / relative
         for relative, logical in _TOOLS_GROUP_FILENAMES.items()
@@ -146,7 +168,7 @@ def _lock_requirements_for_path(path: Path) -> LockRequirement:
         return LockRequirement(
             file_lock_path=path,
             index_group_lock_path=tools_root / "integrity_index.json",
-            ledgers=_tools_group_ledgers(tools_root),
+            ledgers=tools_index_group_ledgers(tools_root),
         )
     if (
         path.parent.name == "aria-memory"

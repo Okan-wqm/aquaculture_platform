@@ -107,9 +107,12 @@ class Phase4AgentNetworkInvocationTests(unittest.TestCase):
         append_declared_fixture(self.tools_dir / "agent-invocations" / "requests.jsonl", {"schema_version": 1, "request_id": "AIR-1"}, expected_surface="agent_invocation_requests")
         append_declared_fixture(self.tools_dir / "agent-invocations" / "results.jsonl", {"schema_version": 1, "request_id": "AIR-1"}, expected_surface="agent_invocation_results")
         ledgers = covered_tool_ledgers(self.tools_dir)
-        self.assertIn("plans_events", ledgers)
-        self.assertIn("agent_invocations_requests", ledgers)
-        self.assertIn("agent_invocations_results", ledgers)
+        # Coverage keys are the manifest surface names now (glob surfaces
+        # key each match as name:relative/path) — the hand-list aliases
+        # these pins used to assert died with the hand list itself.
+        self.assertIn("plan_convergence_events:plans/events.jsonl", ledgers)
+        self.assertIn("agent_invocation_requests", ledgers)
+        self.assertIn("agent_invocation_results", ledgers)
 
     def test_capability_gap_pressure_source_records_index_hash(self):
         index = agent_network_index(workspace_root=self.repo, base_dir=self.tools_dir, cycle_id="cyc-index")

@@ -394,6 +394,14 @@ def _surface_entry(surface: StateSurface, path: Path, root: Path) -> dict[str, A
         "state_class": surface.state_class,
         "storage": _storage_policy(surface),
         "sha256": file_hash(path),
+        # Recorded because the walk is already here and the number is
+        # otherwise unmeasured. PLAN §2.2b's replacement for `.seg-NNN`
+        # rollover is a MEASURED archival trigger, and a trigger needs a
+        # series to fire on; without this, "is any surface approaching a
+        # size that matters" is a question nothing in ARIA can answer,
+        # and the answer would arrive as a slow workflow rather than as
+        # a number.
+        "size_bytes": path.stat().st_size,
         # ``segments`` carries every physical file backing this surface.
         # It is a list from the start — today always one entry — so the
         # rollover that splits a large ledger records itself here without

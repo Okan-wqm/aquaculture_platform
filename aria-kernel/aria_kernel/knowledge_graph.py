@@ -103,6 +103,8 @@ class Pattern:
       * supersedes_pattern_id — optional revision link
       * observed_at — UTC ISO-8601 timestamp
       * schema_version — pinned by KNOWLEDGE_GRAPH_SCHEMA_VERSION
+      * outcome_status — "hypothesis" until an outcome is observed,
+        then "verified"/"refuted"; "unknown" for rows predating the field
     """
 
     pattern_id: str
@@ -113,6 +115,13 @@ class Pattern:
     observed_at: str
     schema_version: int = KNOWLEDGE_GRAPH_SCHEMA_VERSION
     supersedes_pattern_id: str | None = None
+    # Whether an OUTCOME has been observed for this pattern, as opposed to
+    # the agreement that produced it. Defaults to "unknown" rather than
+    # "verified": every convention recorded before this field existed was
+    # also written pre-outcome, and defaulting them to verified would
+    # assert something the ledger never observed. Wave 10 promotes to
+    # "verified" on a VERIFIED mission and demotes on a rolled-back one.
+    outcome_status: str = "unknown"
     signer_key_fp: str | None = None
 
 

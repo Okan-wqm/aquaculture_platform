@@ -33127,6 +33127,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-03-aria-w1-state-snapshot.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -56178,10 +56184,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9212,
+  "file_count": 9213,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9031,
-  "managed_file_list_sha256": "61e65cea5be71a281337353a68e4b5bcb48a817b376b56026af719a8250e2a61",
+  "managed_count": 9032,
+  "managed_file_list_sha256": "a582486df4e992d07a6a31efc87f39032110b790e53332ffc2efdf27f8e2c6c5",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

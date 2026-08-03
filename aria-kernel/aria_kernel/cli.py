@@ -386,6 +386,81 @@ def _validate_reason(text: str) -> str:
     return stripped
 
 
+def _handle_state_command(args: argparse.Namespace) -> int:
+    """Wave 1 §2.2 — operator entry to the state-snapshot primitives.
+
+    Imported lazily so the CLI's import cost does not grow for every
+    other subcommand, matching how the heavier integrity surfaces are
+    already wired.
+    """
+    from .ledger import canonical_json
+    from .state_snapshot import (
+        build_snapshot,
+        sign_snapshot,
+        snapshot_continuity,
+        verify_snapshot_signature,
+    )
+    from .tool_registry import tools_dir
+
+    if args.state_command == "snapshot":
+        roots: dict[str, Path] = {"tools": tools_dir(args.tools_dir)}
+        if args.workspace_base:
+            roots["workspace"] = Path(args.workspace_base)
+        if args.repo_root:
+            roots["repo"] = Path(args.repo_root)
+        previous = None
+        if args.previous:
+            previous = json.loads(Path(args.previous).read_text(encoding="utf-8"))
+        manifest = build_snapshot(
+            snapshot_id=args.snapshot_id,
+            cycle_id=args.cycle_id,
+            # Derived from the entry point, never from an argument.
+            lane="operator",
+            roots=roots,
+            parent_commit=args.parent_commit,
+            previous=previous,
+        )
+        result: dict[str, Any] = {
+            "snapshot_id": manifest["snapshot_id"],
+            "manifest_root": manifest["manifest_root"],
+            "surface_count": len(manifest["surfaces"]),
+            "artifact_only_count": len(manifest["artifact_only_surfaces"]),
+            "continuity": snapshot_continuity(manifest, previous),
+        }
+        if args.sign_with and not args.out_dir:
+            raise GovernanceError("state_snapshot_sign_requires_out_dir")
+        if args.out_dir:
+            out_dir = Path(args.out_dir)
+            if args.sign_with:
+                private = Path(args.sign_with)
+                signed = sign_snapshot(
+                    manifest,
+                    out_dir=out_dir,
+                    private_key_path=private,
+                    public_key_path=private.with_suffix(".pub"),
+                    signer_fingerprint=args.cycle_id,
+                )
+                result["signed"] = True
+                result["signature_path"] = signed.signature_path.as_posix()
+                result["manifest_path"] = signed.manifest_path.as_posix()
+            else:
+                out_dir.mkdir(parents=True, exist_ok=True)
+                path = out_dir / "snapshot.json"
+                path.write_text(canonical_json(manifest) + "\n", encoding="utf-8")
+                result["signed"] = False
+                result["manifest_path"] = path.as_posix()
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["continuity"]["status"] in {"ok", "genesis"} else 1
+
+    report = verify_snapshot_signature(
+        manifest_path=Path(args.snapshot),
+        signature_path=Path(args.signature),
+        public_key_path=Path(args.public_key),
+    )
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return 0 if report["valid"] else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     try:
         return _main(argv)
@@ -470,6 +545,40 @@ def _main(argv: list[str] | None = None) -> int:
     add_workspace_args(discovery_run)
     discovery_run.add_argument("--cycle-id", required=True)
     discovery_run.add_argument("--snapshot-mode", default="committed", choices=["committed", "working_tree", "working-tree"])
+
+    # Wave 1 §2.2 — state snapshots: the tree-level continuity root.
+    # Under `integrity` rather than a new top-level command because a
+    # snapshot IS an integrity artefact; the operator verb set stays one
+    # tree instead of two that each know half the story.
+    state_parser = add_subparser(sub, "state")
+    state_sub = state_parser.add_subparsers(dest="state_command", required=True)
+    state_snapshot = add_subparser(
+        state_sub, "snapshot",
+        help="Build (and optionally sign) a state snapshot manifest.",
+    )
+    state_snapshot.add_argument("--snapshot-id", required=True)
+    state_snapshot.add_argument("--cycle-id", required=True)
+    # No --lane flag: Plan ARIA-V3 §2c locks the lane as kernel-derived,
+    # and this entry point IS the operator lane — a caller-supplied value
+    # would let an operator label their own run as a scheduled one.
+    state_snapshot.add_argument("--workspace-base", default=None,
+                                help="Workspace root holding aria-memory/ + aria-state/.")
+    state_snapshot.add_argument("--repo-root", default=None,
+                                help="Repo root holding aria-findings/ + aria-debts/.")
+    state_snapshot.add_argument("--out-dir", default=None,
+                                help="Write snapshot.json here; omit to print only.")
+    state_snapshot.add_argument("--previous", default=None,
+                                help="Path to the predecessor snapshot.json (chains the manifest).")
+    state_snapshot.add_argument("--sign-with", default=None,
+                                help="Private key path; requires --out-dir. Refuses if ssh-keygen is absent.")
+    state_snapshot.add_argument("--parent-commit", default=None)
+    state_verify = add_subparser(
+        state_sub, "verify-snapshot",
+        help="Verify a snapshot's signature AND that its manifest_root still matches.",
+    )
+    state_verify.add_argument("--snapshot", required=True)
+    state_verify.add_argument("--signature", required=True)
+    state_verify.add_argument("--public-key", required=True)
 
     integrity_parser = add_subparser(sub, "integrity")
     integrity_sub = integrity_parser.add_subparsers(dest="integrity_command", required=True)
@@ -2196,6 +2305,9 @@ def _main(argv: list[str] | None = None) -> int:
         if result.get("breaker_state_after") == "tripped":
             return 1
         return 0
+
+    if args.command == "state":
+        return _handle_state_command(args)
 
     if args.command == "integrity" and args.integrity_command == "verify":
         result = verify_integrity(

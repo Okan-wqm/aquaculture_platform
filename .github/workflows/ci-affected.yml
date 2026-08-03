@@ -779,16 +779,26 @@ jobs:
       #   You may need to run `helm dependency build` to fetch missing
       #   dependencies: found in Chart.yaml, but missing in charts/ directory:
       #   postgresql, redis, nats
-      # Mirrors the equivalent step in infra-helm-lint.yml. Why `update` and
-      # not `build`: `build` reads Chart.lock and fetches exactly those
-      # versions but requires the dependency repos to be pre-registered via
-      # `helm repo add`; `update` reads Chart.yaml directly and resolves the
-      # declared repository URLs without prior local registration. Chart.lock
-      # is not committed in this repo (the SSoT lives in Chart.yaml's pinned
-      # version strings), so on a fresh CI checkout `update` is the form
-      # that works without an extra `helm repo add` per declared subchart.
+      # Why `update` and not `build`: `build` reads Chart.lock and fetches
+      # exactly those versions but requires the dependency repos to be
+      # pre-registered via `helm repo add`; `update` reads Chart.yaml directly
+      # and resolves the declared repository URLs without prior local
+      # registration. Chart.lock is not committed in this repo (the SSoT lives
+      # in Chart.yaml's pinned version strings), so on a fresh CI checkout
+      # `update` is the form that works without an extra `helm repo add` per
+      # declared subchart.
+      #
+      # The resolver lives in a composite action rather than in this line
+      # because it also runs in infra-helm-lint.yml, and because a single-shot
+      # network fetch inside a REQUIRED check is a coin flip the gate has to win
+      # every time — one connection reset from charts.bitnami.com failed this
+      # step, and `build-status` with it, on a pull request that touched no
+      # infrastructure. The action's header records that incident and what it
+      # does and does not tolerate.
       - name: Phase A4 — helm dependency update (Chart.yaml SSoT to charts/)
-        run: helm dependency update infrastructure/helm/aquaculture
+        uses: ./.github/actions/helm-dependency-update
+        with:
+          chart-dir: infrastructure/helm/aquaculture
 
       - name: Phase A4 — helm chart template (values-production.yaml)
         run: |

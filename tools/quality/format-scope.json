@@ -33175,6 +33175,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-03-ci-helm-dependency-flake.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -42841,6 +42847,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/graphql-operation-limit-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/helm-dependency-single-path.spec.ts",
       "prettier_managed": true
     },
     {
@@ -56238,10 +56250,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9222,
+  "file_count": 9224,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9041,
-  "managed_file_list_sha256": "482034fe74259f61fac3b61ed0eb2aeb1dd51aaea7192bc4a7acc67d23b12c34",
+  "managed_count": 9043,
+  "managed_file_list_sha256": "713a7424c27c73c1b5bd5ca6682aaf10d9f4c6994f9e29f86895693142afcec8",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

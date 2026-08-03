@@ -33121,6 +33121,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-03-aria-w1-convention-outcome.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-08-03-aria-w1-ladder-continuity.md",
       "prettier_managed": true
     },
@@ -56238,10 +56244,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9222,
+  "file_count": 9223,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9041,
-  "managed_file_list_sha256": "1167bd5b38aed2ebdf618718ea33453ed28ab65048d04cf37010a23888a51539",
+  "managed_count": 9042,
+  "managed_file_list_sha256": "a31552743f4ccc6a40eb528526f0ecdb9abd9f835d3ce2b8f005fe6f8654bc26",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

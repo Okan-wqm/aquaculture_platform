@@ -53,6 +53,18 @@ from aria_kernel.tool_registry import GovernanceError
 # literal on purpose: if the table changes, this test must be edited in
 # the same diff, which is exactly the review moment the mode column buys.
 BURN_IN_PHASES = {
+    # PLAN Wave 1 §2.5 — `state_continuity` joins the observe lane, and this
+    # is the reviewed decision the mode column exists to demand.
+    #
+    # It reads and refuses; it touches no claim, tool, PR or merge surface, so
+    # the lane's no-action guarantee is intact. The reason it must be HERE and
+    # not only in the standard lane is what the burn-in lane is FOR: its
+    # output is the acceptance evidence the autonomy ladder counts toward an
+    # unlock. Evidence gathered on a tree that forgot its history is exactly
+    # the evidence that must not count — the same argument
+    # `verdict_from_rows`' continuity check makes about a gap between
+    # acceptance rows, one layer earlier.
+    "state_continuity",
     "discovery",
     "cycle_diff",
     "memory",

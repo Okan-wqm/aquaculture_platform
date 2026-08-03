@@ -52,6 +52,7 @@ from aria_kernel.migration import (
 from aria_kernel.memory import rebuild_fates, reset_memory, withdraw_belief
 from aria_kernel.plan_round_controller import advance_plan_rounds
 from aria_kernel.promotion_controller import promote_converged_plan_to_dispatch
+from aria_kernel.state_store import STATE_BRANCH
 from aria_kernel.plan_convergence import (
     evaluate_plan,
     force_plan_human_required,
@@ -452,6 +453,9 @@ def _handle_state_command(args: argparse.Namespace) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result["continuity"]["status"] in {"ok", "genesis"} else 1
 
+    if args.state_command in {"checkout", "publish", "verify-store"}:
+        return _handle_state_store_command(args)
+
     report = verify_snapshot_signature(
         manifest_path=Path(args.snapshot),
         signature_path=Path(args.signature),
@@ -459,6 +463,94 @@ def _handle_state_command(args: argparse.Namespace) -> int:
     )
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0 if report["valid"] else 1
+
+
+def _handle_state_store_command(args: argparse.Namespace) -> int:
+    """Wave 1 §2.3 — operator entry to the ``aria/state`` store.
+
+    Both the store's lanes and this command reach the branch through
+    ``state_store.publish_state``, so the ancestry proof that closes
+    ORPHAN-CRITICAL-484/513 is not something a caller can be written
+    without: there is no second way in for it to be missing from.
+    """
+    from .workspace import canonical_identity
+    from .state_store import (
+        StateStoreRefusal,
+        build_publishable_snapshot,
+        checkout_state_store,
+        findings_root,
+        open_state_store,
+        publish_state,
+        read_published_snapshot,
+        tools_root,
+        verify_state_store,
+        workspace_root,
+    )
+
+    # Every refusal in this command is a VERDICT, not a crash — an
+    # unacknowledged bootstrap and an unproven ancestry both mean "the
+    # state does not permit this write". Reported as structured output on
+    # exit code 3 so a lane can distinguish it from a transport failure
+    # (exit 1) and decline to retry a refusal into a success.
+    repo_hash = args.repo_hash or canonical_identity(Path(args.repo_root))
+
+    try:
+        if args.state_command == "checkout":
+            # Establishes the store at the remote tip. Refuses over
+            # uncommitted writes, which is why it is a SEPARATE command
+            # from publish rather than publish's first step.
+            store = checkout_state_store(
+                args.repo_root,
+                branch=args.branch,
+                remote=args.remote,
+                store_dir=args.store_dir,
+            )
+            published = read_published_snapshot(store)
+            print(json.dumps({
+                "store_root": store.root.as_posix(),
+                "branch": store.branch,
+                "bootstrapped": store.bootstrapped,
+                "published_snapshot_id": (published or {}).get("snapshot_id"),
+                "published_manifest_root": (published or {}).get("manifest_root"),
+                "tools_root": tools_root(store).as_posix(),
+                "workspace_root": workspace_root(store, repo_hash).as_posix(),
+                "repo_hash": repo_hash,
+                "findings_root": findings_root(store).as_posix(),
+            }, indent=2, sort_keys=True))
+            return 0
+
+        store = open_state_store(
+            args.repo_root,
+            branch=args.branch,
+            remote=args.remote,
+            store_dir=args.store_dir,
+        )
+
+        if args.state_command == "verify-store":
+            verdict = verify_state_store(store, repo_hash=repo_hash)
+            print(json.dumps(verdict, indent=2, sort_keys=True))
+            return 0 if verdict["valid"] else 1
+
+        snapshot = build_publishable_snapshot(
+            store,
+            snapshot_id=args.snapshot_id,
+            cycle_id=args.cycle_id,
+            # Derived from the entry point, never from an argument — the
+            # same rule the snapshot command follows (Plan ARIA-V3 §2c).
+            lane="operator",
+            repo_hash=repo_hash,
+            parent_commit=args.parent_commit,
+        )
+        result = publish_state(
+            store,
+            snapshot=snapshot,
+            cycle_id=args.cycle_id,
+        )
+    except StateStoreRefusal as exc:
+        print(json.dumps({"published": False, "refusal": str(exc)}, indent=2, sort_keys=True))
+        return 3
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -579,6 +671,36 @@ def _main(argv: list[str] | None = None) -> int:
     state_verify.add_argument("--snapshot", required=True)
     state_verify.add_argument("--signature", required=True)
     state_verify.add_argument("--public-key", required=True)
+
+    # Wave 1 §2.3 — the aria/state store. `publish` refuses unless the
+    # snapshot it builds names the published tip as its parent; there is
+    # no flag to skip that, because a skippable ancestry proof is what
+    # ORPHAN-CRITICAL-484/513 already cost once.
+    for name, helptext in (
+        ("checkout", "Materialise the state branch as a worktree at the remote tip."),
+        ("publish", "Build a snapshot from the state store and fast-forward-publish it."),
+        ("verify-store", "Re-derive the store's surfaces and compare against its snapshot."),
+    ):
+        store_parser = add_subparser(state_sub, name, help=helptext)
+        store_parser.add_argument("--repo-root", required=True)
+        # Derived from the repository by default. An operator computing
+        # this by hand can compute it WRONG, and a wrong value silently
+        # writes workspace state into a sibling subtree that no later
+        # snapshot mentions — loss that looks exactly like a clean run.
+        store_parser.add_argument("--repo-hash", default=None,
+                                  help="Workspace subtree key; defaults to the repo's canonical identity.")
+        store_parser.add_argument("--branch", default=STATE_BRANCH)
+        store_parser.add_argument("--remote", default="origin")
+        store_parser.add_argument("--store-dir", default=None,
+                                  help="Store worktree path; defaults to <repo-root>/.aria-state-store.")
+        if name == "publish":
+            store_parser.add_argument("--snapshot-id", required=True)
+            store_parser.add_argument("--cycle-id", required=True)
+            store_parser.add_argument("--parent-commit", default=None)
+            # No --no-push. A "rehearsal" that commits without pushing
+            # manufactures the exact state the re-checkout guard exists to
+            # refuse — a local commit the remote does not have — and it had
+            # no caller. Publishing is one indivisible act here.
 
     integrity_parser = add_subparser(sub, "integrity")
     integrity_sub = integrity_parser.add_subparsers(dest="integrity_command", required=True)
@@ -2952,11 +3074,19 @@ def _main(argv: list[str] | None = None) -> int:
             tools_root = Path(args.tools_dir).resolve()
         else:
             tools_root = workspace_root / "aria-tools"
+        # Derived, not flagged: when the state store is checked out its
+        # published manifest_root belongs in the anchor, and when it is
+        # not there is nothing to pin. An operator deciding this per run
+        # is an operator who can forget, and the anchor is the record
+        # that stands in for git history.
+        from aria_kernel.state_store import SNAPSHOT_FILENAME, STORE_DIRNAME
+        store_snapshot = workspace_root / STORE_DIRNAME / SNAPSHOT_FILENAME
         result = emit_anchor_to_path(
             date=args.date,
             workspace_root=workspace_root,
             tools_root=tools_root,
             output_path=Path(args.output_path).resolve(),
+            state_snapshot_path=store_snapshot if store_snapshot.is_file() else None,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0

@@ -312,17 +312,25 @@ def emit_anchor_to_path(
     workspace_root: Path,
     tools_root: Path,
     output_path: Path,
+    state_snapshot_path: Path | None = None,
 ) -> dict[str, Any]:
     """Plan ARIA-V2 §3.9 CLI handler — assemble + write the anchor.
 
     Idempotent: if ``output_path`` already exists AND already has a
     parseable Plan ARIA-V2 frontmatter, leave it unchanged. New anchors
     (and pre-existing legacy stubs without frontmatter) get rewritten.
+
+    ``state_snapshot_path`` reaches ``build_daily_anchor`` through here so
+    the committed anchor pins the state store's ``manifest_root``. The
+    parameter existed one level down with nothing forwarding to it — a
+    capability with no caller, which is the same shape as the defect the
+    anchor exists to catch.
     """
     anchor = build_daily_anchor(
         date=date,
         workspace_root=workspace_root,
         tools_root=tools_root,
+        state_snapshot_path=state_snapshot_path,
     )
     if output_path.exists() and _has_v2_frontmatter(output_path):
         return {

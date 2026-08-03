@@ -238,11 +238,48 @@ Orphan branch layout: `GENESIS` (bootstrap-once marker), signed
 `snapshot.json`/`snapshot.sig` (`aria/state-snapshot/v1`: per-surface sha256 +
 tail ledger hash + row count, `manifest_root`, prev-snapshot chain, per-cycle
 ed25519 signer already minted by `gh_token_factory`), `keys/<cycle>.pub`,
-`tools/` (144 surfaces verbatim + `.seg-NNN` rollover at 8 MB with
-`prev_segment_tail_hash` continuity rows), `workspace/<repo_hash>/` (the 10
+`tools/` (144 surfaces verbatim), `workspace/<repo_hash>/` (the 10
 workspace surfaces — per-run death ends), `findings/aria-findings/` (F-001
 resets end). Bulky artifact-class surfaces stay in the cache artifact,
 sha-pinned in the snapshot.
+
+**§2.2b REVISED — `.seg-NNN` segment rollover is superseded and will NOT be
+built.** The original text specified splitting a ledger into `.seg-NNN` files
+at 8 MB, chained by `prev_segment_tail_hash` rows. A blast-radius map over the
+readers found 42 blocking couplings across roughly 100 call sites, one of them
+a fail-OPEN governance hazard: `surface_for_path` returns `None` for a path
+that is not a declared surface, and `_assert_raw_jsonl_append_allowed` treats
+`None` as "not a governed surface" — so a segment file would have bypassed the
+append guard entirely rather than being refused by it. Path-keyed lock identity,
+`_verify_jsonl_from_text`'s `None` chain seed, and the one-name-one-path index
+membership rule each break in their own way, and about 25 workspace readers
+resolve a surface to exactly one file.
+
+The measurement that settles it: the largest ledger on disk today is **313 KB**
+against the 8 MB trigger — a factor of 26 away, with no growth curve that
+reaches it inside this program. Building a 42-blocker change for a threshold
+nothing approaches, and taking a fail-open governance hole to do it, is not a
+trade worth making.
+
+**Replacement design (same problem, one-live-file invariant preserved):** a
+MEASURED trigger plus surface-level ARCHIVAL. `state_store` records each
+surface's byte size in the snapshot it already builds; when a surface crosses a
+measured threshold, its old rows are sealed into an archive file classified
+`artifact` — a class the snapshot ALREADY pins by sha256 and already keeps out
+of the branch (`STORAGE_POLICY`). The live surface keeps its declared path, its
+lock identity, its index membership and its single-file readers; the archive is
+detectable-if-lost without inflating the store. No reader changes, no new
+governance surface, and the continuity root covers the archive on day one
+because artifact-class pinning is already how it treats run outputs.
+Implemented when a measured surface actually approaches the threshold — the
+trigger is the measurement, not the calendar.
+
+The measurement half lands with PR 2.3: every snapshot surface entry now
+carries `size_bytes`, because the snapshot walk already visits each file and
+the number was otherwise unrecorded anywhere in ARIA. Until that existed, "is
+any surface approaching a size that matters" had no answer short of someone
+going and looking — which is how a threshold gets crossed unnoticed. The
+consuming trigger is tracked separately and is NOT part of 2.3.
 
 New `state_store.py` (`checkout_state_store` as a worktree, `build_snapshot`,
 `publish_state` — plain `git push` is the FF-only CAS; loser replays append-only

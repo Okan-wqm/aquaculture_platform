@@ -63,9 +63,17 @@ jobs:
 
       # The NATS subchart dependency is declared in Chart.yaml. Pull it so
       # `helm lint` and `helm template` resolve the dependency graph.
+      #
+      # Shared with ci-affected.yml's Phase A4 through one composite action:
+      # the two callsites used to carry the same command as two hand-written
+      # lines, so the retry that a flaking chart registry made necessary would
+      # have had to be remembered twice. It is spelled once, and
+      # `tests/invariants/helm-dependency-single-path.spec.ts` keeps it that
+      # way.
       - name: Helm dependency update
-        working-directory: ${{ env.CHART_DIR }}
-        run: helm dependency update
+        uses: ./.github/actions/helm-dependency-update
+        with:
+          chart-dir: ${{ env.CHART_DIR }}
 
       - name: Helm lint (${{ matrix.values }})
         working-directory: ${{ env.CHART_DIR }}

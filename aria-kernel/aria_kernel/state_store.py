@@ -54,6 +54,7 @@ import hashlib
 import json
 import os
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -644,6 +645,129 @@ def build_publishable_snapshot(
         parent_commit=parent_commit,
         previous=previous,
     )
+
+
+def publish_with_contention_replay(
+    store: StateStore,
+    *,
+    snapshot_id: str,
+    cycle_id: str,
+    lane: str,
+    repo_hash: str,
+    max_attempts: int = 3,
+) -> dict[str, Any]:
+    """Publish, and on a lost race rebuild onto the winner and try again.
+
+    WHY THIS IS A LAYER ABOVE `publish_state` RATHER THAN INSIDE IT.
+    `publish_state` has exactly one job — prove this snapshot descends from the
+    published tip, then commit and push or refuse. Retrying requires a NEW
+    snapshot (the surfaces changed, and the predecessor is now the winner's),
+    so folding the loop inward would make the ancestry proof and the thing it
+    checks share a function. The proof stays non-omittable regardless: this
+    orchestrator has no path to the branch that does not go through
+    `publish_state`.
+
+    THE ORDER IS THE SAFETY PROPERTY. The loser's rows are copied out BEFORE
+    the worktree is reset to the winner's tree, so there is no moment where
+    they exist only in memory. `git reset --hard` then makes the tree exactly
+    the winner's — not "mostly the winner's" — and the replay adds this lane's
+    suffix back on top through the normal appender, which re-chains every row
+    and refreshes the adjacent index.
+
+    ONLY LEDGER SURFACES ARE REPLAYED. A rewrite-class surface has no suffix to
+    speak of: its content is a whole-file projection, so the winner's version
+    wins and the fact is recorded rather than silently applied. Index surfaces
+    are derived and are rebuilt by the appender anyway.
+    """
+    if max_attempts < 1:
+        raise ValueError(f"publish_max_attempts_must_be_positive: {max_attempts}")
+
+    last_refusal: StateStoreRefusal | None = None
+    for attempt in range(1, max_attempts + 1):
+        base = read_published_snapshot(store)
+        snapshot = build_publishable_snapshot(
+            store,
+            # Distinct per attempt: two attempts are two different trees, and
+            # reusing one id would make the ledger claim they were the same.
+            snapshot_id=snapshot_id if attempt == 1 else f"{snapshot_id}-r{attempt}",
+            cycle_id=cycle_id,
+            lane=lane,
+            repo_hash=repo_hash,
+        )
+        try:
+            result = publish_state(
+                store, snapshot=snapshot, cycle_id=cycle_id, repo_hash=repo_hash
+            )
+        except StateStoreRefusal as refusal:
+            if "state_publish_push_rejected" not in str(refusal):
+                # Any other refusal is a statement about THIS tree — an
+                # unproven ancestry, a lost surface — and retrying would just
+                # make the same true statement again.
+                raise
+            last_refusal = refusal
+            if attempt == max_attempts:
+                break
+            _rebase_store_onto_remote(store, base=base, local=snapshot, repo_hash=repo_hash)
+            continue
+        return {**result, "attempts": attempt}
+
+    raise StateStoreRefusal(
+        f"state_publish_contention_unresolved: {max_attempts} attempts all lost the "
+        f"race; the rows are intact in the store. ({last_refusal})"
+    )
+
+
+def _rebase_store_onto_remote(
+    store: StateStore,
+    *,
+    base: dict[str, Any] | None,
+    local: dict[str, Any],
+    repo_hash: str,
+) -> dict[str, int]:
+    """Make the worktree the winner's tree plus this lane's append-only suffix."""
+    from .contention_replay import replay_append_only_suffixes
+
+    roots = store_roots(store, repo_hash)
+    base_surfaces = (base or {}).get("surfaces") or {}
+    local_surfaces = local.get("surfaces") or {}
+
+    def _absolute(entry: dict[str, Any]) -> Path | None:
+        root = roots.get(entry.get("root_kind"))
+        return None if root is None else root / str(entry["path"])
+
+    # Copy the loser's ledgers out first. Doing this before the reset is what
+    # keeps the rows on disk continuously rather than in memory across a
+    # destructive git operation.
+    staging = Path(tempfile.mkdtemp(prefix="aria-replay-"))
+    carried: dict[str, dict[str, Any]] = {}
+    for name, entry in local_surfaces.items():
+        if entry.get("state_class") != "ledger":
+            continue
+        source = _absolute(entry)
+        if source is None or not source.exists():
+            continue
+        staged = staging / f"{name}.jsonl"
+        staged.write_bytes(source.read_bytes())
+        base_entry = base_surfaces.get(name) or {}
+        carried[name] = {
+            "loser_path": staged,
+            "winner_path": source,
+            # A surface the base did not carry has no prefix to prove, so all
+            # of it is suffix — the same rule `append_only_suffix` applies.
+            "base_row_count": int(base_entry.get("row_count") or 0),
+            "base_tail_hash": base_entry.get("tail_ledger_hash"),
+        }
+
+    _git(store.root, "fetch", store.remote, store.branch, check=True)
+    tip = _remote_tip(store)
+    if tip is None:
+        raise StateStoreError(
+            "state_publish_rebase_no_remote_tip: the push was rejected but the branch "
+            "has no readable tip; refusing to reset a tree onto nothing"
+        )
+    _git(store.root, "reset", "--hard", tip)
+
+    return replay_append_only_suffixes(surfaces=carried).per_surface
 
 
 def verify_state_store(store: StateStore, *, repo_hash: str) -> dict[str, Any]:

@@ -134,6 +134,109 @@ genesis/eval/quarantine skeleton; watchdog + circuit breaker; profile/ladder.
 - **C — platform-owned:** 29 (MQTT idempotency — sensor-service's suite),
   §35.x domain rules.
 
+## 4d. Adopted from the mathematical-kernel proposal (2026-08-03)
+
+A second agent produced a design document ("ARIA Matematiksel Karar, Zekâ ve
+Güvenilirlik Çekirdeği") proposing TLA+ model checking, a CP-SAT scheduler, a
+POMDP action model, conformal prediction, Dempster–Shafer fusion, doubly-robust
+ATE estimation and roughly forty-five new record schemas.
+
+**It is declined as a whole, and four parts of it are adopted.** The reason for
+declining is not difficulty — it is that the document assumes ARIA has a
+_decision-quality_ problem. The evidence says otherwise: of the seven PRs that
+closed Wave 1, six fixed machinery that had been written and never called (a
+dead perimeter, a bridge drainer resolving to a function that did not exist, a
+NoOp merge runner, a verifier covering 35 of 160 surfaces, state that died with
+the runner, a ladder that could not tell thirty successes from a seventeen-day
+hole). Adding forty-five schemas and a constraint solver to a system whose
+nightly lane is offline reproduces exactly that defect at larger scale. Nothing
+here is calibrated, because ARIA has not yet produced the outcomes calibration
+would be computed over.
+
+The four items below are adopted because each names a defect that is in the
+tree today. They fold into existing waves rather than getting a wave of their
+own.
+
+### 4d.1 Typed confidence — Wave 2, with the mission schema (ORPHAN-HIGH-541)
+
+`confidence` is a bare float in at least five places with five different
+meanings: a frequency-derived pattern score (`knowledge_graph.MIN_PATTERN_CONFIDENCE`
+= 0.7), a decaying belief weight (`memory._record_belief`, stale below 0.5), a
+self-reported judge probability (`feedback_store.CONSENSUS_MIN_CONFIDENCE` =
+0.80), an adapter-emitted detector score (`tool_runner._valid_memory_candidates`),
+and an explicitly-ranged instinct score (`instinct_candidate.confidence_0_to_1`).
+
+The defect is not that there are five — it is that two of them disagree about
+what an out-of-range value means, and the disagreement fails OPEN:
+`instinct_candidate` refuses (`raise GovernanceError` outside [0,1]);
+`tool_runner` clamps (`min(float(confidence), 1.0)` after accepting any
+non-negative number). An adapter that emits `confidence: 5` — a count, a
+severity, a milliseconds reading — is silently promoted to 1.0, maximum
+certainty, and flows into `_record_belief` as a belief weight. A unit error
+becomes a certainty. Tracked as ORPHAN-HIGH-541; the tier-1 fix (a validating
+`Confidence` construction path per kind; the clamp deleted, not widened) lands
+with Wave 2's first schema PR so the schema work stays in one place.
+
+### 4d.2 Evidence independence groups — Wave 4, with the evidence envelope
+
+PR 2.5 (`5295feec`) closed ONE instance: `_record_belief` gates `support_count`
+and the confidence term on `evidence_hashes` actually changing, so re-reading an
+unchanged file stops reading as corroboration (one file had walked a belief
+0.605 → 0.925 in eleven cycles). The general rule is the same shape one layer
+down, in `evidence_trust.EvidenceEnvelope`: two refs sharing a source, fixture,
+or model lineage are ONE vote. The envelope already carries `content_hash`,
+`trust_grade` and `self_output_class`; quorum counting (`expert_review_gate`,
+`feedback_store` consensus) counts distinct independence-group keys derived
+from those, not envelopes. Closes the class, not the instance.
+
+### 4d.3 INCONCLUSIVE as a first-class verdict — Wave 4, alongside 4d.2
+
+Shipped once already: `memory_gap.GAP_UNKNOWN` exists because continuity is
+undecidable without an outside reference, and `agent_question.RESPONSE_VERDICTS`
+admits `refused`. The calibration path does not, and its omission is baked into
+arithmetic rather than vocabulary: `feedback_store.FEEDBACK_VERDICTS` is the
+closed pair `("true_positive","false_positive")` and `judge_calibration`'s
+`else` branch ASSUMES the complement — so a judge that cannot decide must
+guess, and a third verdict added later would silently count as
+`false_positive`. Adding the third member requires the `else` to become
+explicit and undecidable rows to leave the denominator, not be scored into it.
+This must land before Wave 10's calibration measurement consumes the ledger.
+
+### 4d.4 "No score bypasses a hard gate" — invariant, Wave 8
+
+`implementation_safety.HARD_FAIL_CHECKS` contains no confidence arithmetic
+today; the property holds by habit, not construction. Wave 8 rewrites half that
+registry (the seven `_not_implemented` stubs) — exactly when a confidence
+threshold is most tempting as a shortcut. One invariant test, written BEFORE
+the stubs are filled.
+
+### 4d.5 The one genuine gap the document exposed — Wave 10 (+ Wave 9)
+
+`e16b4e22` added `outcome_status` so a converged plan records as a hypothesis
+rather than a 0.9-confidence convention — and nothing measures those hypotheses
+against what happened. `judge_calibration` measures judges against a
+human-labelled goldset; there is no equivalent for ARIA's own predictions. Wave
+10 gains Brier score + expected calibration error over recorded
+prediction/outcome pairs, possible only after Wave 9 supplies the outcome half.
+Sequential change detection (CUSUM/SPRT) defers to the same window for the same
+reason: `circuit_breaker.FAILURE_KINDS` names `ci_red` and nothing produces it
+yet, so there is no series to detect over. Preregistered observation plans
+(pick the metric before seeing the result) land with Wave 9's observation
+window, where they are nearly free.
+
+### 4d.6 Declined, with the reason
+
+TLA+ full model checking, CP-SAT scheduling, POMDP action selection, conformal
+prediction, information geometry, Dempster–Shafer fusion, doubly-robust ATE
+with a propensity model, category theory / TDA, and the ~45-schema recording
+surface. Each is declined for the same three reasons, and "hard" is not among
+them: no consumer exists, no data volume justifies it, and every one is itself
+a maintained surface that would need verifying. Causal ATE in particular needs
+the canary infrastructure Wave 9 already declared out of reach on a
+docker-compose droplet. The document's own §5 says P0 must land before P2/P3
+autonomy opens — that sequencing is right; the disagreement is about what
+belongs in P0.
+
 ## 5. Waves
 
 ### Wave R — PR reconciliation + ground truth (in progress)
@@ -314,6 +417,30 @@ Branch-absent requires `ARIA_STATE_BOOTSTRAP_ACK`.
 - `restore_and_replay` moves to 2.6 with the lane that gives it a transport.
   `equivalence_check` ships in 2.5 because 2.6 needs it and it is testable
   standalone.
+
+**Corrected in PR 2.6, the same way:**
+
+- _"`autonomous_host_lease` reused as advisory publish lease"_ is not built,
+  and that is a decision. The lease's purpose was to stop the two lanes racing
+  habitually — but with deterministic replay the race is CORRECT AND CHEAP: one
+  extra fetch, reset, replay and push, measured in seconds. An advisory lease
+  adds a second answer to _who may publish_, and its own failure mode — a
+  crashed lane's stale lease blocking a healthy lane — is strictly worse than
+  the problem it removes. The FF-only push is the answer;
+  `publish_with_contention_replay` is the retry.
+- A store-checked-out tools root cannot be used until it is bound.
+  `repo_identity.json` records an absolute `bound_repo_root`, so it is
+  machine-local binding state, deliberately not a declared surface, and the
+  published branch does not carry it. A fresh checkout is therefore exactly the
+  shape `ensure_tools_dir` refuses (`ambiguous_tools_root`), and the governed
+  binding step is `integrity migrate-tools-bootstrap` — the second and stronger
+  reason the step §2.5's correction already kept must stay.
+- Replay is not idempotent by construction, and a failing test found that:
+  after a successful replay the winner holds the loser's rows but the loser's
+  file is unchanged, so a retry between replay and re-publish would append
+  every row twice. The guard is a TAIL match on logical content (chain fields
+  excluded) — set membership would silently drop legitimately identical rows
+  from two lanes.
 
 Verifier fix (ORPHAN-HIGH-433): `covered_tool_ledgers` becomes a derivation
 over `state_manifest` (every tools-root ledger surface), one release soak

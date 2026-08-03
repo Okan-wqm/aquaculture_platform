@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 
@@ -445,7 +446,11 @@ class V13ContractTests(unittest.TestCase):
             "capability_gap_key": "backend:evidence_gap:ts",
             "evidence_fingerprint": f"sha256:{event_id}",
             "feedback_event_ids": [],
-            "detected_at": "2026-05-05T00:00:00Z",
+            # Wall-clock-relative, NOT a literal date: list_workspace_pressures
+            # reads with the real clock, and a fixed detected_at crosses the
+            # 90-day decay threshold and vanishes from the active listing
+            # (fired on 2026-08-03, exactly 90 days after the old literal).
+            "detected_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "schema_version": 2,
         }
 

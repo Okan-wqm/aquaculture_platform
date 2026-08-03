@@ -254,6 +254,17 @@ def run_cycle(paths: WorkspacePaths | None = None, **kwargs: Any) -> dict[str, o
 PhaseStage = Literal["discovery", "pre_tool", "tools", "post_tool"]
 CYCLE_STAGES: tuple[PhaseStage, ...] = ("discovery", "pre_tool", "tools", "post_tool")
 
+# Which pipeline a phase belongs to. ``standard`` is the nightly cycle;
+# ``burn_in`` is the observe burn-in lane, which pre-collapse was a THIRD
+# hand-rolled loop in burn_in.py importing this module's private event
+# factories and re-implementing the started/terminal ledger discipline.
+# A burn-in cycle proves that no claim / tool-run / PR / merge surface
+# was touched, so the action-bearing phases simply do not carry the
+# ``burn_in`` mode — the no-action property is a column of this table
+# rather than a promise in a docstring.
+CycleMode = Literal["standard", "burn_in"]
+CYCLE_MODES: tuple[CycleMode, ...] = ("standard", "burn_in")
+
 # What happens when a phase runner raises. These four are not a design
 # choice made here — they are the four behaviours the cycle body already
 # had, each previously encoded as the shape of an ad-hoc try/except.
@@ -303,6 +314,9 @@ class PhaseContext:
     started_monotonic: float
     results: dict[str, Any]
     outcomes: dict[str, dict[str, Any]]
+    # Defaulted (and therefore last): pre-mode tests and callers build the
+    # context without it, and "standard" is exactly what they meant.
+    mode: str = "standard"
 
     def result(self, phase_name: str) -> Any:
         """The payload a completed phase returned, or None if it did not run."""
@@ -415,6 +429,10 @@ class CyclePhase:
     state_key: str | None = None
     absent: Callable[[], Any] = dict
     error_payload: Callable[[PhaseContext, Exception], Any] | None = None
+    # The pipelines this phase belongs to. Default is standard-only, so a
+    # newly added phase can never leak into the burn-in lane by omission —
+    # joining burn_in is an explicit declaration reviewed on this table.
+    modes: frozenset[str] = frozenset({"standard"})
 
 
 def build_phase_context(
@@ -427,6 +445,7 @@ def build_phase_context(
     shadow_only: bool = False,
     defer_reflection: bool = False,
     snapshot_mode: str = "committed",
+    mode: str = "standard",
     cycle_started_at: datetime | None = None,
     started_monotonic: float | None = None,
 ) -> PhaseContext:
@@ -457,6 +476,7 @@ def build_phase_context(
         defer_reflection=defer_reflection,
         snapshot_mode=snapshot_mode,
         profile=get_profile(base_dir=base_dir),
+        mode=mode,
         cycle_started_at=cycle_started_at if cycle_started_at is not None else datetime.now(timezone.utc),
         started_monotonic=started_monotonic if started_monotonic is not None else time.monotonic(),
         results={},
@@ -475,6 +495,7 @@ def run_enterprise_cycle(
     snapshot_mode: str = "committed",
     plan_id: str | None = None,
     defer_reflection: bool = False,
+    mode: str = "standard",
 ) -> dict[str, Any]:
     """Run one cycle by walking ``CYCLE_PHASES``.
 
@@ -505,6 +526,10 @@ def run_enterprise_cycle(
     # same guarantee. `_assert_pipeline_is_well_formed` checks the table
     # itself at import time, which is earlier still.
     started = time.monotonic()
+    if mode not in CYCLE_MODES:
+        raise GovernanceError(
+            f"cycle_mode_unknown: {mode!r} (valid: {list(CYCLE_MODES)})"
+        )
     # Plan 025 §C — UTC wall-clock of cycle start. Bounds the
     # change_committed window for validation_matrix phase so the
     # gate runs only against changes landed inside this cycle (not
@@ -527,7 +552,14 @@ def run_enterprise_cycle(
     workspace = _ensure_enterprise_workspace(workspace_root, workspace_base, root)
     git_head_sha_at_cycle = _git_head_sha(Path(workspace_root))
     append_declared_jsonl(root / "cycles.jsonl", _started_cycle_row(cycle_id=cycle_id), expected_surface="cycles")
-    learning_pre = run_learning_pre_cycle(workspace, cycle_id=cycle_id, tools_root=root)
+    # Burn-in cycles stay out of the learning hooks by mode, mirroring the
+    # pre-collapse burn-in loop, which never ran them: an observe burn-in
+    # proves the repo-observation lane alone, and the learning pass's
+    # pressure-decay/prune writes are standard-lane bookkeeping.
+    if mode == "burn_in":
+        learning_pre = {"hooks": [], "skipped": "mode:burn_in"}
+    else:
+        learning_pre = run_learning_pre_cycle(workspace, cycle_id=cycle_id, tools_root=root)
     learning = {
         "schema_version": 2,
         "cycle_id": cycle_id,
@@ -547,6 +579,7 @@ def run_enterprise_cycle(
         shadow_only=shadow_only,
         defer_reflection=defer_reflection,
         snapshot_mode=snapshot_mode,
+        mode=mode,
         cycle_started_at=cycle_started_at,
         started_monotonic=started,
     )
@@ -792,6 +825,16 @@ def _phase_tools(context: PhaseContext) -> dict[str, Any]:
             },
         )
     return {"decisions": decisions, "run_summary": run_summary}
+
+
+def _phase_triage(context: PhaseContext) -> dict[str, Any]:
+    from .triage import triage_policy_apply
+
+    return triage_policy_apply(
+        context.workspace,
+        cycle_id=context.cycle_id,
+        tools_root=context.base_dir,
+    )
 
 
 def _phase_memory(context: PhaseContext) -> dict[str, Any]:
@@ -1221,10 +1264,12 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     CyclePhase(
         "discovery", "discovery", _phase_discovery,
         on_error="propagate", state_key="discovery",
+        modes=frozenset({"standard", "burn_in"}),
     ),
     CyclePhase(
         "cycle_diff", "discovery", _phase_cycle_diff,
         on_error="propagate",
+        modes=frozenset({"standard", "burn_in"}),
     ),
 
     # --- pre_tool: gates that must observe preconditions, not results ---
@@ -1240,12 +1285,25 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     ),
 
     # --- post_tool: everything that reads what the tools produced ---
-    CyclePhase("memory", "post_tool", _phase_memory, state_key="memory"),
+    CyclePhase(
+        "memory", "post_tool", _phase_memory, state_key="memory",
+        modes=frozenset({"standard", "burn_in"}),
+    ),
     CyclePhase(
         "belief_decay", "post_tool", _phase_belief_decay,
         precondition=WRITES_PERMITTED, state_key="belief_decay",
     ),
-    CyclePhase("pressure", "post_tool", _phase_pressure, state_key="pressure"),
+    CyclePhase(
+        "pressure", "post_tool", _phase_pressure, state_key="pressure",
+        modes=frozenset({"standard", "burn_in"}),
+    ),
+    # Burn-in only: the observe lane's triage step. Not part of the
+    # standard cycle (the nightly's triage happens through reflection's
+    # next-cycle planning), and the mode column is what keeps it out.
+    CyclePhase(
+        "triage", "post_tool", _phase_triage, state_key="triage",
+        modes=frozenset({"burn_in"}),
+    ),
     CyclePhase(
         "consensus_escalation", "post_tool", _phase_consensus_escalation,
         precondition=WRITES_PERMITTED, state_key="consensus_escalation",
@@ -1290,6 +1348,11 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     CyclePhase(
         "artifact_integrity", "post_tool", _phase_artifact_integrity,
         on_error="propagate", state_key="artifact_integrity",
+        # In burn_in too: `_runtime_status` reads this phase's verdict, and
+        # a per-cycle integrity read is a strengthening the observe lane
+        # was missing — verification is read-only, so the no-action
+        # property holds.
+        modes=frozenset({"standard", "burn_in"}),
     ),
     CyclePhase(
         "metrics", "post_tool", _phase_metrics,
@@ -1340,6 +1403,11 @@ def _assert_pipeline_is_well_formed() -> None:
                 f"phase {phase.name!r} declares a precondition that is not in "
                 f"CYCLE_PRECONDITIONS; the vocabulary is closed on purpose",
             )
+        if not phase.modes or not phase.modes.issubset(set(CYCLE_MODES)):
+            raise ValueError(
+                f"phase {phase.name!r} declares modes {sorted(phase.modes)!r} "
+                f"outside the closed vocabulary {list(CYCLE_MODES)}",
+            )
     # Stage order is the table's order. A row placed out of stage order
     # would run in the position the table implies but be grouped under a
     # stage that runs elsewhere — the ambiguity the two kwargs created.
@@ -1374,6 +1442,9 @@ def _run_phase_stage(stage: PhaseStage, context: PhaseContext) -> None:
     """
     for phase in CYCLE_PHASES:
         if phase.stage != stage:
+            continue
+        if context.mode not in phase.modes:
+            _record_skip(context, phase, f"mode_not_included:{context.mode}")
             continue
         upstream = _first_phase_failure(context)
         if phase.on_error == "halt_sequence" and upstream is not None:

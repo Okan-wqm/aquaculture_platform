@@ -8,16 +8,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .cycle import _completed_event, _failed_event, _started_cycle_row
-from .cycle_diff import run_cycle_diff
-from .discovery import run_discovery
+from .cycle import _failed_event, run_enterprise_cycle
 from .ledger import append_declared_jsonl, file_hash, load_declared_jsonl, load_jsonl
-from .memory import update_memory
-from .pressure import run_pressure
 from .runtime_profile import set_profile
 from .state_manifest import iter_surfaces, observe_disallowed_tool_surfaces
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding, utc_now
-from .triage import triage_policy_apply
 from .workspace import ensure_workspace, workspace_paths
 from .worktree import is_runtime_path
 
@@ -114,34 +109,33 @@ def run_observe_burn_in(
             "started_at": utc_now(),
         }
         try:
-            append_declared_jsonl(
-                tools_root / "cycles.jsonl",
-                _started_cycle_row(cycle_id=cycle_id),
-                expected_surface="cycles",
-            )
-            discovery = run_discovery(
+            # Pre-collapse this block was a THIRD hand-rolled cycle loop:
+            # it appended its own started/terminal ledger rows and called
+            # the five observe primitives directly, importing this
+            # module's private event factories. The burn-in lane is now a
+            # MODE of the one pipeline — `CYCLE_PHASES` rows carrying
+            # ``burn_in`` are exactly the observe set (discovery,
+            # cycle_diff, memory, pressure, triage, artifact_integrity),
+            # so the no-action property is the table's mode column, and
+            # the started/terminal ledger discipline has a single owner.
+            state = run_enterprise_cycle(
                 workspace_root=repo,
                 cycle_id=cycle_id,
+                workspace_base=workspace_base_path,
                 base_dir=tools_root,
                 snapshot_mode="committed",
+                mode="burn_in",
             )
-            diff = run_cycle_diff(cycle_id=cycle_id, base_dir=tools_root)
-            memory = update_memory(
-                cycle_id=cycle_id,
-                base_dir=tools_root,
-                workspace_root=repo,
-            )
-            pressure = run_pressure(cycle_id=cycle_id, base_dir=tools_root)
-            triage = triage_policy_apply(paths, cycle_id=cycle_id, tools_root=tools_root)
-            append_declared_jsonl(
-                tools_root / "cycles.jsonl",
-                _completed_event(
-                    cycle_id,
-                    0,
-                    git_head_sha_at_cycle=current_head,
-                ),
-                expected_surface="cycles",
-            )
+            if state.get("status") != "completed":
+                raise GovernanceError(
+                    f"observe_burn_in_cycle_not_completed: status={state.get('status')!r} "
+                    f"failed_phases={[f.get('phase') for f in state.get('failed_phases') or []]}"
+                )
+            discovery = state.get("discovery") or {}
+            diff = state.get("cycle_diff") or {}
+            memory = state.get("memory") or {}
+            pressure = state.get("pressure") or {}
+            triage = state.get("triage") or {}
             cycle_row.update(
                 {
                     "status": "completed",
@@ -170,11 +164,18 @@ def run_observe_burn_in(
                 }
             )
         except Exception as exc:  # pragma: no cover - exercised by caller-visible failure tests.
-            append_declared_jsonl(
-                tools_root / "cycles.jsonl",
-                _failed_event(cycle_id, git_head_sha_at_cycle=current_head, decision_count=0),
-                expected_surface="cycles",
-            )
+            # The pipeline owns the terminal ledger rows. Only close the
+            # cycle here when the exception escaped BEFORE a terminal row
+            # landed (a propagate-phase raise exits run_enterprise_cycle
+            # between the started row and any terminal row); appending a
+            # second terminal row after the pipeline's own would corrupt
+            # the one-terminal-per-cycle lifecycle discipline.
+            if not _cycle_has_terminal_row(tools_root, cycle_id):
+                append_declared_jsonl(
+                    tools_root / "cycles.jsonl",
+                    _failed_event(cycle_id, git_head_sha_at_cycle=current_head, decision_count=0),
+                    expected_surface="cycles",
+                )
             _write_failure_report(
                 output_root / "failures" / f"{cycle_id}.json",
                 phase="cycle",
@@ -444,6 +445,24 @@ def _git(repo: Path, *args: str) -> str:
             f"{result.stderr.strip() or result.stdout.strip()}"
         )
     return result.stdout.strip()
+
+
+def _cycle_has_terminal_row(tools_root: Path, cycle_id: str) -> bool:
+    """Whether cycles.jsonl already carries a terminal row for this cycle.
+
+    Mirrors the terminal set integrity's ``_verify_cycle_lifecycle`` uses;
+    the burn-in failure path may close a cycle only when the pipeline did
+    not get to.
+    """
+    try:
+        rows = load_declared_jsonl(tools_root / "cycles.jsonl", expected_surface="cycles")
+    except GovernanceError:
+        return False
+    terminal = {"completed", "failed", "stopped", "aborted"}
+    return any(
+        row.get("cycle_id") == cycle_id and row.get("event") in terminal
+        for row in rows
+    )
 
 
 def _cycle_id(index: int) -> str:

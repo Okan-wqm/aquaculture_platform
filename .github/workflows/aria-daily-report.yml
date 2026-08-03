@@ -133,7 +133,11 @@ jobs:
           # index chain root. The CLI is idempotent: a pre-existing
           # anchor for the same date is preserved unchanged.
           REPORT="aria-tools/reports/daily/${REPORT_DATE}.md"
-          aria-kernel report daily \
+          # Invoked as a module, not as an installed console script: the
+          # kernel package is deliberately never installed (one import
+          # source — the checkout on PYTHONPATH), so `-m` is the same entry
+          # point every other ARIA workflow already uses.
+          PYTHONPATH=aria-kernel python3 -m aria_kernel report daily \
             --emit-anchor \
             --date "${REPORT_DATE}" \
             --output-path "${REPORT}" \

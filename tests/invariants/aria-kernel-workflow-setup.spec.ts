@@ -132,13 +132,18 @@ describe('aria-kernel workflow provisioning', () => {
       .map((line) => line.trim())
       .filter((line) => !line.startsWith('#') && line.includes('pip install'));
 
-    expect(installLines).toContain('python3 -m pip install -e aria-kernel');
-    // A dependency named literally here would be a second source of truth for
-    // what the kernel needs; pyproject.toml is the only one.
-    const allowed = new Set([
-      'python3 -m pip install --upgrade pip',
-      'python3 -m pip install -e aria-kernel',
-    ]);
+    // Dependencies are READ from pyproject and installed by name; the
+    // package itself is never installed (that would give `import
+    // aria_kernel` a second source and make this parse dead code, which is
+    // why aria-doc-runtime-ssot.spec.ts bans `pip install -e aria-kernel`).
+    const script = scripts.join('\n');
+    expect(script).toContain('tomllib.load');
+    expect(script).toContain('aria-kernel/pyproject.toml');
+    expect(script).not.toMatch(/pip install[^\n]*\s-e\s+aria-kernel/);
+
+    // A dependency named literally here would be a second source of truth
+    // for what the kernel needs; pyproject.toml is the only one.
+    const allowed = new Set(['python3 -m pip install --upgrade pip']);
     expect(installLines.filter((line) => !allowed.has(line))).toEqual([]);
   });
 });

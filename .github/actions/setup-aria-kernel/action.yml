@@ -26,10 +26,16 @@ description: >-
 # scheduled lane going quiet.
 #
 # DEPENDENCIES COME FROM pyproject.toml, never from a list kept here: a second
-# list would be the same duplication one level down. `pip install -e` is
-# deliberate — the kernel is imported from the checkout via PYTHONPATH in most
-# jobs, and an editable install keeps the imported tree and the installed
-# metadata the same tree.
+# list would be the same duplication one level down.
+#
+# THE PACKAGE ITSELF IS NOT INSTALLED, and that is a rule this repo already
+# had — `tests/invariants/aria-doc-runtime-ssot.spec.ts` bans
+# `pip install -e aria-kernel` in the kernel workflows. Every job imports the
+# kernel from the checkout via `PYTHONPATH=aria-kernel`; installing the package
+# would add a second place `import aria_kernel` can resolve from, and would
+# make the explicit pyproject dependency read dead code (a package install
+# pulls the same dependencies implicitly, so nothing would notice if the parse
+# broke). One import source, one dependency source.
 
 inputs:
   python-version:
@@ -44,13 +50,31 @@ runs:
       with:
         python-version: ${{ inputs.python-version }}
 
-    - name: Install aria-kernel and its declared dependencies
+    - name: Install the aria-kernel declared dependencies
       shell: bash
       run: |
         set -euo pipefail
         python3 -m pip install --upgrade pip
-        python3 -m pip install -e aria-kernel
-        # Fail here rather than in the first step that imports the kernel:
-        # a missing dependency must name itself at provisioning time, not
-        # surface as a ModuleNotFoundError inside unrelated business logic.
+        python3 - <<'PY'
+        import subprocess
+        import sys
+        import tomllib
+        from pathlib import Path
+
+        with Path("aria-kernel/pyproject.toml").open("rb") as fh:
+            dependencies = tomllib.load(fh).get("project", {}).get("dependencies", [])
+        if dependencies:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", *dependencies])
+        PY
+
+    - name: Verify the kernel imports before any job step needs it
+      shell: bash
+      env:
+        PYTHONPATH: aria-kernel
+      run: |
+        set -euo pipefail
+        # Fail HERE rather than inside the first step that happens to import
+        # the kernel: a missing dependency must name itself at provisioning
+        # time, not surface as a ModuleNotFoundError in unrelated business
+        # logic seventeen days into a silent outage.
         python3 -c "import aria_kernel, yaml; print('aria-kernel importable')"

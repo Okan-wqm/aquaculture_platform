@@ -456,11 +456,29 @@ describe('ARIA live runtime/documentation SSoT', () => {
     const kernelFullWorkflow = read('.github/workflows/aria-kernel-full.yml');
     expect(kernelWorkflow).toContain('node-version: "22"');
     expect(kernelFullWorkflow).toContain('node-version: "22"');
+    // The dependency contract moved, and got stricter. It used to be pinned
+    // as literal text inside these two workflows; the same text existed in
+    // nine other jobs and was ABSENT from five that ran kernel code anyway
+    // (ORPHAN-HIGH-529 — aria-daily-report imported the kernel twenty-seven
+    // lines before installing it and died silently for seventeen days).
+    // Provisioning now has one definition, so the property is asserted at
+    // that definition and these workflows are checked for USING it —
+    // which covers every kernel-running job, not the two remembered here.
+    const setupAction = read('.github/actions/setup-aria-kernel/action.yml');
+    expect(setupAction).toContain('tomllib.load');
+    expect(setupAction).toContain('aria-kernel/pyproject.toml');
     for (const workflow of [kernelWorkflow, kernelFullWorkflow]) {
-      expect(workflow).toContain('tomllib.load');
-      expect(workflow).toContain('aria-kernel/pyproject.toml');
+      expect(workflow).toContain('uses: ./.github/actions/setup-aria-kernel');
+      // Still banned, everywhere: installing the package would add a second
+      // source for `import aria_kernel` and make the explicit pyproject
+      // dependency read dead code.
       expect(workflow).not.toMatch(/pip install[^\n]*\s-e\s+aria-kernel/);
     }
+    // The same ban on the action is checked in
+    // `aria-kernel-workflow-setup.spec.ts` against the PARSED script rather
+    // than the file text: the action's header explains why the package is
+    // never installed, and a text scan that cannot tell an explanation from
+    // an instruction would force that explanation out of the file.
     expect(kernelWorkflow).toContain('Run ARIA docs/runtime SSoT invariant');
     expect(kernelWorkflow).toContain('Run ARIA runtime artifact smoke');
     expect(kernelWorkflow).toContain('Verify post-run clean worktree');

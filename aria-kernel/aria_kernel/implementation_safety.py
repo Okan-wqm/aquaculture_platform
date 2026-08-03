@@ -112,7 +112,12 @@ ALLOWED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
     re.compile(r"^git\s+status(\s+\S+)*\s*$"),
     re.compile(r"^git\s+rev-parse(\s+\S+)*\s*$"),
     re.compile(rf"^git\s+push\s+origin\s+{ARIA_IMPL_BRANCH_FRAGMENT}(\s+\S+)*\s*$"),
-    re.compile(r"^gh\s+pr\s+create\s+--base\s+main(\s+\S+)*\s*$"),
+    # Wave 0 §0.7 — the ONE sanctioned PR-opening path: the kernel CLI's
+    # `pr create`, which routes through pr_manager.open_pr_for_action
+    # (ARIA_PR_BASE guard, GATE_PRE_PR_OPEN, breaker producer, change-id
+    # anchor). Scoped to the `pr` subcommand on purpose: the rest of the
+    # kernel CLI is operator surface, not implementer surface.
+    re.compile(r"^(?:/[\w./-]+/)?python3?(\.\d+)?\s+-m\s+aria_kernel\s+pr\s+create(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+checks(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+view(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+diff(\s+\S+)*\s*$"),
@@ -124,6 +129,23 @@ ALLOWED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
     re.compile(r"^prettier(\s+\S+)*\s*$"),
     re.compile(r"^eslint(\s+\S+)*\s*$"),
 })
+# Wave 0 §0.7 transition row — the raw `gh pr create` path the kernel CLI
+# replaces. Not in ALLOWED_BASH_COMMANDS any more: it is honoured only
+# while ARIA_EXECUTOR_PR_VIA_KERNEL is unset, so a lane that sets the
+# flag (the scheduled executor lane does) accepts kernel-CLI PR opening
+# ONLY. The flag and this pattern are deleted together after one green
+# scheduled run — the two-step is tracked in
+# docs/plans/2026-08-02-aria-full-autonomy-program/PLAN.md (Wave 0 §0.7).
+LEGACY_GH_PR_CREATE_PATTERN: re.Pattern[str] = re.compile(
+    r"^gh\s+pr\s+create\s+--base\s+main(\s+\S+)*\s*$"
+)
+
+
+def executor_pr_via_kernel() -> bool:
+    """Whether the lane has cut over to kernel-CLI-only PR opening."""
+    return os.environ.get("ARIA_EXECUTOR_PR_VIA_KERNEL") == "1"
+
+
 TRUSTED_PYTHON_SCRIPT_PREFIXES: tuple[str, ...] = (
     "tools/aria-adapters/",
     "tools/aria-poc/",
@@ -513,6 +535,12 @@ def verify_bash_command_allowed(argv: list[str], *, cwd: str | Path | None = Non
     for allowed in ALLOWED_BASH_COMMANDS:
         if allowed.match(line):
             return
+    # Wave 0 §0.7 — the legacy raw-PR path survives ONLY while the lane
+    # has not cut over; under ARIA_EXECUTOR_PR_VIA_KERNEL=1 it falls
+    # through to the allowlist miss, making kernel-CLI PR opening the
+    # single reachable path in that lane.
+    if not executor_pr_via_kernel() and LEGACY_GH_PR_CREATE_PATTERN.match(line):
+        return
     raise BashAllowlistMiss(
         f"argv0={argv[0]!r} matches no ALLOWED_BASH_COMMANDS pattern; "
         f"see implementation_safety.ALLOWED_BASH_COMMANDS"

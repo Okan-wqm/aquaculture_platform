@@ -33127,6 +33127,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-03-aria-w1-scheduled-lane-revival.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-08-03-aria-w1-state-snapshot.md",
       "prettier_managed": true
     },
@@ -42307,6 +42313,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/aria-doc-runtime-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/aria-kernel-workflow-setup.spec.ts",
       "prettier_managed": true
     },
     {
@@ -56184,10 +56196,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9213,
+  "file_count": 9215,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9032,
-  "managed_file_list_sha256": "a582486df4e992d07a6a31efc87f39032110b790e53332ffc2efdf27f8e2c6c5",
+  "managed_count": 9034,
+  "managed_file_list_sha256": "2b0e37ea21e29ec197c188888029a806bd66aee8b329226c2ffd0fa832e62676",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

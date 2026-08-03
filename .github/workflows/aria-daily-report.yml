@@ -53,9 +53,7 @@ jobs:
           # Plan ARIA-V2 §3.7 INFRA-HIGH-004 — generate-report is the
           # read-only job; PR credentials are only available in commit-report.
           persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
-        with:
-          python-version: '3.12'
+      - uses: ./.github/actions/setup-aria-kernel
 
       - name: Validate date input + compute target
         id: target
@@ -123,11 +121,6 @@ jobs:
               raise SystemExit(";".join(verdict.reasons))
           PY
 
-      - name: Install aria-kernel (for `aria-kernel report daily` CLI)
-        run: |
-          set -euo pipefail
-          python3 -m pip install --upgrade pip
-          python3 -m pip install -e aria-kernel
       - name: Generate daily chain-tip anchor (Plan ARIA-V2 §3.9)
         env:
           REPORT_DATE: ${{ steps.target.outputs.date }}
@@ -140,7 +133,11 @@ jobs:
           # index chain root. The CLI is idempotent: a pre-existing
           # anchor for the same date is preserved unchanged.
           REPORT="aria-tools/reports/daily/${REPORT_DATE}.md"
-          aria-kernel report daily \
+          # Invoked as a module, not as an installed console script: the
+          # kernel package is deliberately never installed (one import
+          # source — the checkout on PYTHONPATH), so `-m` is the same entry
+          # point every other ARIA workflow already uses.
+          PYTHONPATH=aria-kernel python3 -m aria_kernel report daily \
             --emit-anchor \
             --date "${REPORT_DATE}" \
             --output-path "${REPORT}" \
@@ -168,6 +165,8 @@ jobs:
           ref: main
           persist-credentials: false
           fetch-depth: 0
+
+      - uses: ./.github/actions/setup-aria-kernel
 
       - name: Persist enterprise workflow preflight
         env:

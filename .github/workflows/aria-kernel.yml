@@ -45,9 +45,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
-        with:
-          python-version: "3.12"
+      - uses: ./.github/actions/setup-aria-kernel
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22"
@@ -60,20 +58,6 @@ jobs:
       # source imports come from PYTHONPATH below. Installing the local
       # package directly writes aria_kernel.egg-info into the checkout,
       # which violates the post-run clean-worktree contract.
-      - name: Install aria-kernel dependencies
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 - <<'PY'
-          import subprocess
-          import sys
-          import tomllib
-          from pathlib import Path
-
-          with Path("aria-kernel/pyproject.toml").open("rb") as fh:
-              dependencies = tomllib.load(fh).get("project", {}).get("dependencies", [])
-          if dependencies:
-              subprocess.check_call([sys.executable, "-m", "pip", "install", *dependencies])
-          PY
       - name: Run aria-kernel unit + invariant tests
         run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=aria-kernel:. python3 -m unittest discover aria-kernel -p '*test*.py'
       # Plan ARIA-V2 §3.6 + CRITICAL-013 — tests under tools/aria-poc/invariants

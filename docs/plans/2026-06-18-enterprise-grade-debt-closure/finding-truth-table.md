@@ -179,7 +179,7 @@ Allowed truth buckets:
 | `ORPHAN-CRITICAL-513`   | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ORPHAN-CRITICAL-516`   | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ORPHAN-CRITICAL-517`   | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
-| `ORPHAN-CRITICAL-543`   | OPEN           | 2026-08-10   | aria-acceptance-gap-fixer  | fixed-awaiting-ceremony   |
+| `ORPHAN-CRITICAL-543`   | OPEN           | 2026-08-10   | aria-acceptance-gap-fixer  | already-fixed-needs-close |
 
 ## Mutation Rules
 

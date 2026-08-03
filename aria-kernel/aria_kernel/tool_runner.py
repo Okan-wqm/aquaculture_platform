@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .confidence import confidence_in_unit_interval
 from .evidence_validator import validate_tool_output_evidence
 from .implementation_safety import BashAllowlistMiss, BashDenylistHit, verify_bash_command_allowed
 from .runtime_profile import enforce_profile_for_write
@@ -591,7 +592,11 @@ def _valid_memory_candidates(candidates: list[Any], tool_id: str) -> list[dict[s
             continue
         belief_id = candidate.get("belief_id")
         claim = candidate.get("claim")
-        confidence = _non_negative_number(candidate.get("confidence"), default=None)
+        # ORPHAN-HIGH-541 — out-of-range confidence DROPS the candidate.
+        # The previous clamp (`min(float(confidence), 1.0)`) failed open: an
+        # adapter emitting a count or a severity as `confidence` was promoted
+        # to 1.0, maximum certainty, and recorded as a belief weight.
+        confidence = confidence_in_unit_interval(candidate.get("confidence"))
         evidence_refs = candidate.get("evidence_refs")
         if (
             not isinstance(belief_id, str)
@@ -606,7 +611,7 @@ def _valid_memory_candidates(candidates: list[Any], tool_id: str) -> list[dict[s
             {
                 "belief_id": belief_id,
                 "claim": claim,
-                "confidence": min(float(confidence), 1.0),
+                "confidence": confidence,
                 "evidence_refs": [str(ref) for ref in evidence_refs if isinstance(ref, str) and ref.strip()],
                 "source_tool_id": str(candidate.get("source_tool_id") or tool_id),
             },

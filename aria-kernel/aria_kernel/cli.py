@@ -50,6 +50,15 @@ from aria_kernel.migration import (
     rollback_workspace_v2_to_v1,
 )
 from aria_kernel.memory import rebuild_fates, reset_memory, withdraw_belief
+from aria_kernel.mission import (
+    assert_cycle_closure,
+    bind_mission,
+    fold_mission,
+    list_open_missions,
+    open_mission,
+    rebuild_mission_index,
+    transition_mission,
+)
 from aria_kernel.plan_round_controller import advance_plan_rounds
 from aria_kernel.promotion_controller import promote_converged_plan_to_dispatch
 from aria_kernel.state_store import STATE_BRANCH
@@ -1274,6 +1283,43 @@ def _main(argv: list[str] | None = None) -> int:
     plan_force.add_argument("--reason-code", action="append", required=True)
     plan_status_parser = add_subparser(plan_sub, "status")
     plan_status_parser.add_argument("--plan-id", required=True)
+
+    mission_parser = add_subparser(sub, "mission")
+    mission_sub = mission_parser.add_subparsers(dest="mission_command", required=True)
+    mission_open = add_subparser(mission_sub, "open")
+    mission_open.add_argument("--source-kind", required=True)
+    mission_open.add_argument("--source-id", required=True)
+    mission_open.add_argument("--repo-hash", required=True)
+    mission_open.add_argument("--title", required=True)
+    mission_open.add_argument("--capability", default=None)
+    mission_open.add_argument("--priority", type=int, default=None)
+    mission_transition = add_subparser(mission_sub, "transition")
+    mission_transition.add_argument("--mission-id", required=True)
+    mission_transition.add_argument("--to-state", required=True)
+    mission_transition.add_argument("--reason-code", required=True)
+    mission_transition.add_argument("--step-id", required=True)
+    mission_transition.add_argument("--target-sha", default="")
+    mission_transition.add_argument("--retry-rung", default=None)
+    mission_transition.add_argument("--next-action", default=None)
+    mission_transition.add_argument(
+        "--wake-file",
+        default=None,
+        help="Path to a JSON wake_condition object ({kind, key, not_before?}).",
+    )
+    mission_transition.add_argument("--evidence-ref", action="append", default=None)
+    mission_bind = add_subparser(mission_sub, "bind")
+    mission_bind.add_argument("--mission-id", required=True)
+    mission_bind.add_argument("--step-id", required=True)
+    mission_bind.add_argument(
+        "--bindings-file",
+        required=True,
+        help="Path to a JSON object keyed by the closed binding vocabulary.",
+    )
+    mission_show = add_subparser(mission_sub, "show")
+    mission_show.add_argument("--mission-id", required=True)
+    add_subparser(mission_sub, "list")
+    add_subparser(mission_sub, "rebuild-index")
+    add_subparser(mission_sub, "closure")
 
     inv_parser = add_subparser(sub, "agent-invocations")
     inv_sub = inv_parser.add_subparsers(dest="agent_invocation_command", required=True)
@@ -3213,6 +3259,58 @@ def _main(argv: list[str] | None = None) -> int:
             parser.error("unknown plan command")
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("status") != "rejected" else 1
+
+    if args.command == "mission":
+        if args.mission_command == "open":
+            result = open_mission(
+                source_kind=args.source_kind,
+                source_id=args.source_id,
+                repo_hash=args.repo_hash,
+                title=args.title,
+                capability=args.capability,
+                priority=args.priority,
+                base_dir=args.tools_dir,
+            )
+        elif args.mission_command == "transition":
+            wake = (
+                json.loads(Path(args.wake_file).read_text(encoding="utf-8"))
+                if args.wake_file
+                else None
+            )
+            result = transition_mission(
+                mission_id=args.mission_id,
+                to_state=args.to_state,
+                reason_code=args.reason_code,
+                step_id=args.step_id,
+                target_sha=args.target_sha,
+                retry_rung=args.retry_rung,
+                next_action=args.next_action,
+                wake_condition=wake,
+                evidence_refs=args.evidence_ref,
+                base_dir=args.tools_dir,
+            )
+        elif args.mission_command == "bind":
+            result = bind_mission(
+                mission_id=args.mission_id,
+                bindings=json.loads(Path(args.bindings_file).read_text(encoding="utf-8")),
+                step_id=args.step_id,
+                base_dir=args.tools_dir,
+            )
+        elif args.mission_command == "show":
+            result = fold_mission(mission_id=args.mission_id, base_dir=args.tools_dir)
+        elif args.mission_command == "list":
+            result = {
+                "schema_version": 1,
+                "missions": list_open_missions(base_dir=args.tools_dir),
+            }
+        elif args.mission_command == "rebuild-index":
+            result = rebuild_mission_index(base_dir=args.tools_dir)
+        elif args.mission_command == "closure":
+            result = assert_cycle_closure(base_dir=args.tools_dir)
+        else:
+            parser.error("unknown mission command")
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
 
     if args.command == "agent-invocations":
         if args.agent_invocation_command == "request":

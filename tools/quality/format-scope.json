@@ -33187,6 +33187,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-03-aria-w2-mission-core.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-08-03-ci-helm-dependency-flake.md",
       "prettier_managed": true
     },
@@ -56262,10 +56268,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9226,
+  "file_count": 9227,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9045,
-  "managed_file_list_sha256": "2d0e286b5e406606994cdf4e932f671bc5adc3ecfa95b63353acb9dc473d49db",
+  "managed_count": 9046,
+  "managed_file_list_sha256": "4a9b808ad2411df48c8016b0c92ca6e3d299996fbda3747da283725f3c1022b9",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

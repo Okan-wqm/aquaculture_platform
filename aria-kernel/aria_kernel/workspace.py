@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 from dataclasses import dataclass
 from importlib import resources
@@ -220,6 +221,39 @@ def canonical_repo_root(repo_root: Path) -> Path:
     except OSError:
         return resolved
     return canonical
+
+
+REPO_STATE_ROOT_ENV = "ARIA_REPO_STATE_ROOT"
+
+
+def repo_state_root(repo_root: Path) -> Path:
+    """Where the manifest's ``repo``-root surfaces actually live.
+
+    ``aria-findings/`` and ``aria-debts/`` are declared surfaces, but both
+    are gitignored in the checkout BY DESIGN — a runtime cycle must not
+    dirty the discovery tree. The consequence was that they died with the
+    runner: ``_allocate_finding_id`` restarted at ``F-001`` on every
+    bootstrap, so finding identity meant nothing across runs.
+
+    This is the one seam that redirects them into the durable state store,
+    mirroring ``ARIA_WORKSPACE_BASE`` for the ``workspace`` root. Both
+    ``finding.py`` and ``debt.py`` resolve through here so the two cannot
+    drift apart the way two hand-copied restore heredocs did
+    (ORPHAN-CRITICAL-513).
+
+    DELIBERATELY NOT USED BY ``gh_token_factory._keys_dir``. That writes
+    per-cycle ed25519 PRIVATE keys and scoped tokens under
+    ``aria-debts/keys/``; they are runtime credentials, not state, and
+    they have no declared surface. Keeping them on the ephemeral checkout
+    is the point — dying with the runner is the correct lifetime for a
+    per-cycle key. (The store also stages only attested surfaces, so a key
+    could not be committed even if it did land there; that is the second
+    lock, not the first.)
+    """
+    override = os.environ.get(REPO_STATE_ROOT_ENV)
+    if override:
+        return Path(override).expanduser().resolve()
+    return Path(repo_root)
 
 
 def workspace_paths(repo_root: Path, workspace_base: Path | None = None) -> WorkspacePaths:

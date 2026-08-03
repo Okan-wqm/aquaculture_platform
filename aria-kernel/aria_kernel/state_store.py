@@ -150,6 +150,37 @@ def store_roots(store: StateStore, repo_hash: str) -> dict[str, Path]:
     }
 
 
+def store_environment(store: StateStore, repo_hash: str) -> dict[str, str]:
+    """The exact environment a lane must run with to write into the store.
+
+    ONE definition of the binding, because three roots have to agree and
+    a lane that got two of them right would look like it was working
+    while a third of ARIA's memory kept dying with the runner. Each
+    variable is the existing seam for its root:
+
+      * ``ARIA_WORKSPACE_BASE`` — ``workspace_paths`` appends the repo
+        hash itself, so this is the PARENT of the per-repo directory.
+        (Point it at the per-repo directory and every surface silently
+        lands one level too deep, which reads as total loss on the next
+        continuity check.)
+      * ``ARIA_REPO_STATE_ROOT`` — ``aria-findings/`` and ``aria-debts/``
+        hang off this. Its absence is what reset finding IDs to F-001.
+      * ``ARIA_TOOLS_DIR`` — the 144 tools-root surfaces.
+
+    Returned rather than exported: a function that mutated ``os.environ``
+    would be invisible at the callsite and impossible to test without
+    leaking into the rest of the process.
+    """
+    return {
+        "ARIA_WORKSPACE_BASE": (store.root / WORKSPACE_SUBDIR).as_posix(),
+        "ARIA_REPO_STATE_ROOT": findings_root(store).as_posix(),
+        "ARIA_TOOLS_DIR": tools_root(store).as_posix(),
+        # Named so a reader of `env` output can tell which store produced
+        # it without having to reconstruct the path convention.
+        "ARIA_STATE_STORE_ROOT": store.root.as_posix(),
+    }
+
+
 def checkout_state_store(
     repo_root: str | Path,
     *,
@@ -357,6 +388,7 @@ def publish_state(
     *,
     snapshot: dict[str, Any],
     cycle_id: str,
+    repo_hash: str,
 ) -> dict[str, Any]:
     """Commit and push a snapshot — refusing unless it descends from the tip.
 
@@ -415,23 +447,41 @@ def publish_state(
     snapshot_file.parent.mkdir(parents=True, exist_ok=True)
     snapshot_file.write_text(canonical_json(snapshot) + "\n", encoding="utf-8")
 
-    # `--force`: the store commits exactly the surface set the snapshot
-    # attests, and no ignore rule gets a vote on that. The two ignore
-    # sources that can reach a worktree from outside its own tree —
-    # `$GIT_COMMON_DIR/info/exclude` and `core.excludesFile` — are shared
-    # with the main checkout, so a pattern added there for the main tree
-    # (`aria-findings/`, say, which matches at any depth) would silently
-    # subtract a subtree here. A surface the snapshot pins and the branch
-    # does not carry is loss that verifies clean.
+    # STAGE EXACTLY THE ATTESTED SURFACES — never the whole tree.
     #
-    # NOT because the main checkout's `.gitignore` applies: it does not.
-    # Git reads no `.gitignore` above a worktree's top level, and this
-    # store's top level is `store_dir`, whose tree is the orphan branch's
-    # content with no `.gitignore` in it at all. An earlier version of
-    # this comment claimed otherwise and was wrong.
-    _git(store.root, "add", "--all", "--force", ".")
+    # `git add --all .` would commit whatever happens to be sitting in the
+    # store, and the roots a lane binds here are shared with directories
+    # that hold SECRETS: `gh_token_factory` writes per-cycle ed25519
+    # private keys and scoped installation tokens to `aria-debts/keys/`,
+    # right beside the declared `aria-debts/` ledgers. The main checkout's
+    # `.gitignore` covers that path, but it does not reach inside a
+    # worktree whose top level is `store_dir` — and `--force` would
+    # override it even if it did. A whole-tree add is therefore one
+    # redirected root away from pushing private keys to a branch.
+    #
+    # Listing the snapshot's own paths removes the class rather than the
+    # instance: an undeclared file cannot be committed because nothing
+    # names it, so no new ignore rule is needed for each new secret. It
+    # also binds the commit to the attestation by construction — the tree
+    # IS the surface set the manifest walked, not merely consistent with
+    # it — and it makes ignore configuration irrelevant, which is why the
+    # `--force` is gone.
+    #
+    # `--all` on the pathspec so a surface that DISAPPEARED stages as a
+    # deletion; without it a removed ledger would silently stay in the
+    # branch while the snapshot stopped mentioning it.
+    #
+    # `--force` is safe HERE, and only here, precisely because the
+    # pathspec is bounded: it overrides ignore rules for the declared
+    # surfaces without giving anything undeclared a way in. A shared
+    # `info/exclude` pattern must not be able to subtract a surface the
+    # snapshot attests — that would be the branch carrying less than its
+    # own manifest claims. The danger was never `--force`; it was
+    # `--force` over the whole tree.
+    staged = _staged_pathspecs(store, snapshot, published, repo_hash)
+    _git(store.root, "add", "--all", "--force", "--", *staged)
 
-    if not _git(store.root, "status", "--porcelain", "--ignored").strip():
+    if not _git(store.root, "diff", "--cached", "--name-only").strip():
         return {
             "published": False,
             "reason": "no_changes",
@@ -504,6 +554,48 @@ def publish_state(
         "manifest_root": snapshot.get("manifest_root"),
         "continuity": continuity,
     }
+
+
+def _staged_pathspecs(
+    store: StateStore,
+    snapshot: dict[str, Any],
+    published: dict[str, Any] | None,
+    repo_hash: str,
+) -> list[str]:
+    """Store-relative paths for everything this publish may commit.
+
+    The snapshot's markers, plus one entry per surface attested NOW,
+    plus one per surface the PUBLISHED snapshot attested — translated
+    from root-relative (what ``build_snapshot`` records) to store-relative
+    (what ``git add`` needs) through the same ``store_roots`` mapping that
+    produced them.
+
+    The predecessor's paths are what let a surface that VANISHED stage as
+    a deletion: ``build_snapshot`` only records files that exist, so the
+    current snapshot cannot name what is gone. Without them a removed
+    ledger would linger in the branch while the manifest stopped
+    mentioning it — the tree and its attestation quietly disagreeing.
+
+    Deliberately NOT the subtree prefixes. ``git add --all -- tools``
+    would re-admit every undeclared file under it, which is the whole
+    thing this list exists to prevent.
+    """
+    roots = store_roots(store, repo_hash)
+    specs = {SNAPSHOT_FILENAME, GENESIS_FILENAME}
+    for source in (snapshot, published or {}):
+        for entry in (source.get("surfaces") or {}).values():
+            root = roots.get(entry.get("root_kind"))
+            if root is None:
+                continue
+            try:
+                prefix = root.relative_to(store.root).as_posix()
+            except ValueError:  # pragma: no cover - store_roots is store-relative
+                raise StateStoreError(
+                    f"state_store_root_outside_store: {root.as_posix()} is not inside "
+                    f"{store.root.as_posix()}"
+                ) from None
+            specs.add(f"{prefix}/{entry['path']}")
+    return sorted(specs)
 
 
 def _remote_tip(store: StateStore) -> str | None:
@@ -806,6 +898,7 @@ __all__ = [
     "publish_state",
     "read_published_snapshot",
     "snapshot_path",
+    "store_environment",
     "store_roots",
     "tools_root",
     "verify_state_store",

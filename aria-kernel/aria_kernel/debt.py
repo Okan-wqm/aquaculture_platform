@@ -61,7 +61,10 @@ DEBT_ID_RE = re.compile(r"^DEBT-\d{4}-\d{2}-\d{2}-\d{3}$")
 
 
 def _debts_dir(repo_root: Path) -> Path:
-    return Path(repo_root) / "aria-debts"
+    # Same seam as findings: one resolver, so the two roots cannot drift.
+    from .workspace import repo_state_root
+
+    return repo_state_root(Path(repo_root)) / "aria-debts"
 
 
 def _index_path(repo_root: Path) -> Path:

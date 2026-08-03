@@ -481,6 +481,7 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
         findings_root,
         open_state_store,
         publish_state,
+        store_environment,
         read_published_snapshot,
         tools_root,
         verify_state_store,
@@ -516,6 +517,10 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
                 "workspace_root": workspace_root(store, repo_hash).as_posix(),
                 "repo_hash": repo_hash,
                 "findings_root": findings_root(store).as_posix(),
+                # The binding a lane must adopt, emitted so the workflow
+                # reads it rather than restating the path convention —
+                # a second copy of that convention is how two roots drift.
+                "environment": store_environment(store, repo_hash),
             }, indent=2, sort_keys=True))
             return 0
 
@@ -545,6 +550,7 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
             store,
             snapshot=snapshot,
             cycle_id=args.cycle_id,
+            repo_hash=repo_hash,
         )
     except StateStoreRefusal as exc:
         print(json.dumps({"published": False, "refusal": str(exc)}, indent=2, sort_keys=True))

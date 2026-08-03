@@ -133,7 +133,7 @@ class BootstrapDiscipline(StateStoreTestCase):
         # permanently unpublishable.
         store = self._bootstrap()
         self._seed_surface(store, "")
-        result = publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1")
+        result = publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
         self.assertTrue(result["published"])
         self.assertTrue(result["pushed"])
         self.assertEqual(result["continuity"]["status"], "genesis")
@@ -141,7 +141,7 @@ class BootstrapDiscipline(StateStoreTestCase):
     def test_reopening_an_existing_branch_is_not_a_bootstrap(self) -> None:
         store = self._bootstrap()
         self._seed_surface(store, "")
-        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
 
         reopened = checkout_state_store(self.repo, store_dir=self.repo.parent / "store2")
         self.assertFalse(reopened.bootstrapped)
@@ -152,7 +152,7 @@ class BootstrapDiscipline(StateStoreTestCase):
     def test_a_head_carrying_neither_marker_is_damaged_not_newborn(self) -> None:
         store = self._bootstrap()
         self._seed_surface(store, "")
-        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
 
         # Commit away both markers and PUBLISH that: the anchor now proves
         # nothing about whether this branch ever published, which is a
@@ -176,7 +176,7 @@ class BootstrapDiscipline(StateStoreTestCase):
         """
         store = self._bootstrap()
         self._seed_surface(store, "")
-        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
 
         state_store.snapshot_path(store).write_text("", encoding="utf-8")
         self._commit_in_store(store, "truncate snapshot")
@@ -191,7 +191,7 @@ class BootstrapDiscipline(StateStoreTestCase):
         store = self._bootstrap()
         self._seed_surface(store, "")
         first = self._snapshot(store, "snap-1")
-        publish_state(store, snapshot=first, cycle_id="cycle-1")
+        publish_state(store, snapshot=first, cycle_id="cycle-1", repo_hash=REPO_HASH)
 
         # Overwrite the working-tree copy with a forged parent. If the
         # anchor were read from disk, the next snapshot could be chained
@@ -209,12 +209,12 @@ class AncestryProof(StateStoreTestCase):
         store = self._bootstrap()
         self._seed_surface(store, "")
         first = self._snapshot(store, "snap-1")
-        publish_state(store, snapshot=first, cycle_id="cycle-1")
+        publish_state(store, snapshot=first, cycle_id="cycle-1", repo_hash=REPO_HASH)
 
         self._seed_surface(store, '{"row": 1}\n')
         second = self._snapshot(store, "snap-2", cycle_id="cycle-2")
         self.assertEqual(second["prev_manifest_root"], first["manifest_root"])
-        result = publish_state(store, snapshot=second, cycle_id="cycle-2")
+        result = publish_state(store, snapshot=second, cycle_id="cycle-2", repo_hash=REPO_HASH)
         self.assertTrue(result["published"])
         self.assertEqual(result["continuity"]["status"], "ok")
 
@@ -229,7 +229,7 @@ class AncestryProof(StateStoreTestCase):
         """
         store = self._bootstrap()
         self._seed_surface(store, '{"row": 1}\n{"row": 2}\n')
-        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
 
         # A second lane that started from nothing: it holds a snapshot
         # chained to no predecessor, exactly as a failed restore leaves it.
@@ -241,14 +241,14 @@ class AncestryProof(StateStoreTestCase):
             previous=None,
         )
         with self.assertRaises(StateStoreRefusal) as ctx:
-            publish_state(store, snapshot=newborn, cycle_id="cycle-rogue")
+            publish_state(store, snapshot=newborn, cycle_id="cycle-rogue", repo_hash=REPO_HASH)
         self.assertIn("state_publish_ancestry_unproven", str(ctx.exception))
 
     def test_a_snapshot_chained_to_a_stale_tip_is_refused(self) -> None:
         store = self._bootstrap()
         self._seed_surface(store, "")
         first = self._snapshot(store, "snap-1")
-        publish_state(store, snapshot=first, cycle_id="cycle-1")
+        publish_state(store, snapshot=first, cycle_id="cycle-1", repo_hash=REPO_HASH)
 
         # Lane A reads the tip and starts building.
         self._seed_surface(store, '{"row": "a"}\n')
@@ -257,11 +257,11 @@ class AncestryProof(StateStoreTestCase):
         # Lane B publishes first.
         self._seed_surface(store, '{"row": "b"}\n')
         lane_b = self._snapshot(store, "snap-b", cycle_id="cycle-b")
-        publish_state(store, snapshot=lane_b, cycle_id="cycle-b")
+        publish_state(store, snapshot=lane_b, cycle_id="cycle-b", repo_hash=REPO_HASH)
 
         # Lane A's snapshot now names a tip that is no longer the tip.
         with self.assertRaises(StateStoreRefusal) as ctx:
-            publish_state(store, snapshot=lane_a, cycle_id="cycle-a")
+            publish_state(store, snapshot=lane_a, cycle_id="cycle-a", repo_hash=REPO_HASH)
         self.assertIn("state_publish_ancestry_unproven", str(ctx.exception))
 
     def test_a_snapshot_edited_after_hashing_is_refused(self) -> None:
@@ -270,7 +270,7 @@ class AncestryProof(StateStoreTestCase):
         snapshot = self._snapshot(store, "snap-1")
         snapshot["prev_manifest_root"] = "sha256:" + "0" * 64
         with self.assertRaises(StateStoreRefusal) as ctx:
-            publish_state(store, snapshot=snapshot, cycle_id="cycle-1")
+            publish_state(store, snapshot=snapshot, cycle_id="cycle-1", repo_hash=REPO_HASH)
         self.assertIn("state_publish_manifest_root_mismatch", str(ctx.exception))
 
     def test_a_genesis_snapshot_claiming_a_parent_is_refused(self) -> None:
@@ -284,18 +284,18 @@ class AncestryProof(StateStoreTestCase):
             previous={"snapshot_id": "invented", "manifest_root": "sha256:" + "1" * 64},
         )
         with self.assertRaises(StateStoreRefusal) as ctx:
-            publish_state(store, snapshot=snapshot, cycle_id="cycle-1")
+            publish_state(store, snapshot=snapshot, cycle_id="cycle-1", repo_hash=REPO_HASH)
         self.assertIn("state_publish_genesis_claims_parent", str(ctx.exception))
 
     def test_losing_a_surface_between_publishes_is_refused(self) -> None:
         store = self._bootstrap()
         surface = self._seed_surface(store, '{"row": 1}\n')
-        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
 
         surface.unlink()
         follow_up = self._snapshot(store, "snap-2", cycle_id="cycle-2")
         with self.assertRaises(StateStoreRefusal) as ctx:
-            publish_state(store, snapshot=follow_up, cycle_id="cycle-2")
+            publish_state(store, snapshot=follow_up, cycle_id="cycle-2", repo_hash=REPO_HASH)
         self.assertIn("state_publish_continuity_surfaces_lost", str(ctx.exception))
 
     def test_a_caller_cannot_choose_its_own_predecessor(self) -> None:
@@ -305,7 +305,7 @@ class AncestryProof(StateStoreTestCase):
         store = self._bootstrap()
         self._seed_surface(store, "")
         first = self._snapshot(store, "snap-1")
-        publish_state(store, snapshot=first, cycle_id="cycle-1")
+        publish_state(store, snapshot=first, cycle_id="cycle-1", repo_hash=REPO_HASH)
         second = self._snapshot(store, "snap-2", cycle_id="cycle-2")
         self.assertEqual(second["prev_snapshot_id"], "snap-1")
         self.assertEqual(second["prev_manifest_root"], first["manifest_root"])
@@ -334,7 +334,7 @@ class ConcurrentPublishers(StateStoreTestCase):
     def test_a_loser_sharing_refs_is_refused_before_it_commits(self) -> None:
         store_a = self._bootstrap()
         self._seed_surface(store_a, "")
-        publish_state(store_a, snapshot=self._snapshot(store_a, "snap-1"), cycle_id="cycle-1")
+        publish_state(store_a, snapshot=self._snapshot(store_a, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
 
         store_b = checkout_state_store(self.repo, store_dir=self.repo.parent / "store-b")
         self._seed_surface(store_b, '{"lane": "b"}\n')
@@ -345,12 +345,12 @@ class ConcurrentPublishers(StateStoreTestCase):
         publish_state(
             store_a,
             snapshot=self._snapshot(store_a, "snap-a", cycle_id="cycle-a"),
-            cycle_id="cycle-a",
+            cycle_id="cycle-a", repo_hash=REPO_HASH,
         )
 
         before = _git(store_b.root, "rev-parse", "HEAD").strip()
         with self.assertRaises(StateStoreRefusal) as ctx:
-            publish_state(store_b, snapshot=snap_b, cycle_id="cycle-b")
+            publish_state(store_b, snapshot=snap_b, cycle_id="cycle-b", repo_hash=REPO_HASH)
         self.assertIn("state_publish_ancestry_unproven", str(ctx.exception))
         # Refused BEFORE committing: no orphan commit is manufactured at all.
         self.assertEqual(_git(store_b.root, "rev-parse", "HEAD").strip(), before)
@@ -367,7 +367,7 @@ class ConcurrentPublishers(StateStoreTestCase):
         """
         store_a = self._bootstrap()
         self._seed_surface(store_a, '{"row": "published"}\n')
-        publish_state(store_a, snapshot=self._snapshot(store_a, "snap-1"), cycle_id="cycle-1")
+        publish_state(store_a, snapshot=self._snapshot(store_a, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
 
         clone = self._second_clone()
         store_b = checkout_state_store(clone, store_dir=clone.parent / "store-b")
@@ -382,12 +382,12 @@ class ConcurrentPublishers(StateStoreTestCase):
         publish_state(
             store_a,
             snapshot=self._snapshot(store_a, "snap-a", cycle_id="cycle-a"),
-            cycle_id="cycle-a",
+            cycle_id="cycle-a", repo_hash=REPO_HASH,
         )
 
         head_before = _git(store_b.root, "rev-parse", "HEAD").strip()
         with self.assertRaises(StateStoreRefusal) as ctx:
-            publish_state(store_b, snapshot=snap_b, cycle_id="cycle-b")
+            publish_state(store_b, snapshot=snap_b, cycle_id="cycle-b", repo_hash=REPO_HASH)
         self.assertIn("state_publish_push_rejected", str(ctx.exception))
 
         # The commit was ROLLED BACK, so no unpublished commit is stranded.
@@ -411,7 +411,7 @@ class ReCheckoutSafety(StateStoreTestCase):
     def test_a_clean_store_is_replaced_without_complaint(self) -> None:
         store = self._bootstrap()
         self._seed_surface(store, '{"row": 1}\n')
-        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
         # Same path, second call: everything is committed, so nothing is lost.
         again = checkout_state_store(self.repo, store_dir=store.root)
         self.assertFalse(again.bootstrapped)
@@ -423,7 +423,7 @@ class ReCheckoutSafety(StateStoreTestCase):
         # ORPHAN-CRITICAL-484's loss coming back in through setup.
         store = self._bootstrap()
         self._seed_surface(store, "")
-        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
         self._seed_surface(store, '{"unpublished": true}\n')
 
         with self.assertRaises(StateStoreRefusal) as ctx:
@@ -445,7 +445,7 @@ class ReCheckoutSafety(StateStoreTestCase):
         """
         store = self._bootstrap()
         self._seed_surface(store, "")
-        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
 
         surface = self._seed_surface(store, '{"row": "committed-never-pushed"}\n')
         self._commit_in_store(store, "local commit the remote does not have")
@@ -475,14 +475,14 @@ class OpenVersusCheckout(StateStoreTestCase):
         # only job.
         store = self._bootstrap()
         self._seed_surface(store, "")
-        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
 
         self._seed_surface(store, '{"written_by_the_cycle": true}\n')
         opened = state_store.open_state_store(self.repo, store_dir=store.root)
         snapshot = build_publishable_snapshot(
             opened, snapshot_id="snap-2", cycle_id="cycle-2", lane="test", repo_hash=REPO_HASH
         )
-        result = publish_state(opened, snapshot=snapshot, cycle_id="cycle-2")
+        result = publish_state(opened, snapshot=snapshot, cycle_id="cycle-2", repo_hash=REPO_HASH)
         self.assertTrue(result["published"])
 
         fresh = checkout_state_store(self.repo, store_dir=self.repo.parent / "fresh")
@@ -511,7 +511,7 @@ class DailyAnchorPinsTheStore(StateStoreTestCase):
         store = self._bootstrap()
         self._seed_surface(store, '{"row": 1}\n')
         snapshot = self._snapshot(store, "snap-1")
-        publish_state(store, snapshot=snapshot, cycle_id="cycle-1")
+        publish_state(store, snapshot=snapshot, cycle_id="cycle-1", repo_hash=REPO_HASH)
 
         result = emit_anchor_to_path(
             date="2026-08-03",
@@ -551,7 +551,7 @@ class IgnoreRulesDoNotSwallowSurfaces(StateStoreTestCase):
         findings.mkdir(parents=True, exist_ok=True)
         (findings / "F-001.json").write_text('{"id": "F-001"}\n', encoding="utf-8")
         self._seed_surface(store, "")
-        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
 
         tracked = _git(store.root, "ls-tree", "-r", "--name-only", "HEAD")
         self.assertIn("findings/aria-findings/F-001.json", tracked.split("\n"))
@@ -564,7 +564,7 @@ class TransportFailureIsNotARefusal(StateStoreTestCase):
         self._seed_surface(store, "")
         _git(self.repo, "remote", "set-url", "origin", str(self.repo.parent / "gone.git"))
         with self.assertRaises(StateStoreError) as ctx:
-            publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1")
+            publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
         self.assertIn("state_publish_transport_failed", str(ctx.exception))
         self.assertNotIsInstance(ctx.exception, StateStoreRefusal)
 
@@ -582,7 +582,7 @@ class PushDenialIsNotALostRace(StateStoreTestCase):
         """
         store = self._bootstrap()
         self._seed_surface(store, "")
-        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
 
         hook = self.remote / "hooks" / "pre-receive"
         hook.parent.mkdir(parents=True, exist_ok=True)
@@ -593,7 +593,7 @@ class PushDenialIsNotALostRace(StateStoreTestCase):
         self._seed_surface(store, '{"row": 1}\n')
         snapshot = self._snapshot(store, "snap-2", cycle_id="cycle-2")
         with self.assertRaises(StateStoreError) as ctx:
-            publish_state(store, snapshot=snapshot, cycle_id="cycle-2")
+            publish_state(store, snapshot=snapshot, cycle_id="cycle-2", repo_hash=REPO_HASH)
         self.assertIn("state_publish_write_denied", str(ctx.exception))
         # A denial is NOT a refusal: retrying cannot fix it, but neither is
         # it a statement that the local state is wrong.
@@ -616,7 +616,7 @@ class IgnoreShadowedWritesAreVisibleToTheGuard(StateStoreTestCase):
 
         store = self._bootstrap()
         self._seed_surface(store, "")
-        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
 
         shadowed = store.root / "shadowed"
         shadowed.mkdir(parents=True, exist_ok=True)
@@ -627,6 +627,175 @@ class IgnoreShadowedWritesAreVisibleToTheGuard(StateStoreTestCase):
             checkout_state_store(self.repo, store_dir=store.root)
         self.assertIn("state_store_uncommitted_writes", str(ctx.exception))
         self.assertTrue((shadowed / "rows.jsonl").exists())
+
+
+class OnlyDeclaredSurfacesAreCommitted(StateStoreTestCase):
+    """The store stages its attested surfaces — nothing else, ever."""
+
+    def test_a_private_key_beside_a_declared_surface_is_not_committed(self) -> None:
+        """`aria-debts/keys/` holds per-cycle ed25519 PRIVATE keys.
+
+        `gh_token_factory` writes them, and scoped installation tokens,
+        right beside the declared `aria-debts/` ledgers. The main
+        checkout's .gitignore covers that path but does not reach inside
+        a worktree whose top level is `store_dir` — and a `--force`
+        whole-tree add would override it even if it did. So a whole-tree
+        add is one redirected root away from pushing credentials to a
+        branch. Listing the snapshot's own paths removes the class:
+        nothing names the key, so nothing can stage it.
+        """
+        store = self._bootstrap()
+        self._seed_surface(store, '{"row": 1}\n')
+
+        debts = state_store.findings_root(store) / "aria-debts"
+        (debts / "keys").mkdir(parents=True, exist_ok=True)
+        (debts / "keys" / "cycle-1").write_text("PRIVATE-KEY-MATERIAL\n", encoding="utf-8")
+        (debts / "keys" / "cycle-1.token").write_text("ghs_secret\n", encoding="utf-8")
+        # A declared debt surface in the SAME directory, so this proves
+        # selection rather than the whole subtree being skipped.
+        (debts / "debt-events.jsonl").write_text('{"event": "opened"}\n', encoding="utf-8")
+
+        publish_state(
+            store,
+            snapshot=self._snapshot(store, "snap-1"),
+            cycle_id="cycle-1",
+            repo_hash=REPO_HASH,
+        )
+
+        tracked = _git(store.root, "ls-tree", "-r", "--name-only", "HEAD").split("\n")
+        self.assertNotIn("findings/aria-debts/keys/cycle-1", tracked)
+        self.assertNotIn("findings/aria-debts/keys/cycle-1.token", tracked)
+        self.assertIn("findings/aria-debts/debt-events.jsonl", tracked)
+        # And nothing anywhere in the committed tree carries the material —
+        # asserted by searching the COMMIT, not the paths, so a key that
+        # arrived under some other name would still be caught.
+        found = subprocess.run(
+            ["git", "-C", str(store.root), "grep", "-I", "-l", "PRIVATE-KEY-MATERIAL", "HEAD"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(found.stdout.strip(), "", "key material reached the state branch")
+
+    def test_an_undeclared_stray_file_is_not_committed(self) -> None:
+        store = self._bootstrap()
+        self._seed_surface(store, "")
+        (state_store.tools_root(store) / "scratch.tmp").write_text("junk\n", encoding="utf-8")
+        publish_state(
+            store,
+            snapshot=self._snapshot(store, "snap-1"),
+            cycle_id="cycle-1",
+            repo_hash=REPO_HASH,
+        )
+        tracked = _git(store.root, "ls-tree", "-r", "--name-only", "HEAD").split("\n")
+        self.assertNotIn("tools/scratch.tmp", tracked)
+        self.assertIn("tools/runs.jsonl", tracked)
+
+    def test_a_surface_that_disappears_stages_as_a_deletion(self) -> None:
+        """The predecessor's paths are what make removal expressible.
+
+        `build_snapshot` only records files that EXIST, so the current
+        snapshot cannot name what is gone. Without the published
+        snapshot's paths in the pathspec, a removed ledger would linger in
+        the branch while the manifest stopped mentioning it.
+        """
+        store = self._bootstrap()
+        surface = self._seed_surface(store, '{"row": 1}\n')
+        extra = state_store.tools_root(store) / "health.jsonl"
+        extra.write_text('{"ok": true}\n', encoding="utf-8")
+        publish_state(
+            store, snapshot=self._snapshot(store, "snap-1"),
+            cycle_id="cycle-1", repo_hash=REPO_HASH,
+        )
+        self.assertIn("tools/health.jsonl",
+                      _git(store.root, "ls-tree", "-r", "--name-only", "HEAD").split("\n"))
+
+        extra.unlink()
+        follow = self._snapshot(store, "snap-2", cycle_id="cycle-2")
+        # Losing a surface is refused by continuity — that guard fires
+        # first and is tested elsewhere. Here the point is that the
+        # deletion is STAGEABLE at all, so assert the pathspec covers it.
+        specs = state_store._staged_pathspecs(
+            store, follow, read_published_snapshot(store), REPO_HASH
+        )
+        self.assertIn("tools/health.jsonl", specs)
+        self.assertIn("tools/runs.jsonl", specs)
+        self.assertTrue(surface.exists())
+
+
+class RootsBindToTheStore(StateStoreTestCase):
+    """The redirection that ends per-run amnesia for two of three roots."""
+
+    def test_the_binding_is_one_definition_and_the_seams_honour_it(self) -> None:
+        from aria_kernel.finding import _findings_dir
+        from aria_kernel.debt import _debts_dir
+        from aria_kernel.workspace import workspace_paths
+
+        store = self._bootstrap()
+        env = state_store.store_environment(store, REPO_HASH)
+
+        with _EnvPatch(env):
+            # findings + debts follow ARIA_REPO_STATE_ROOT...
+            self.assertEqual(
+                _findings_dir(self.repo),
+                state_store.findings_root(store) / "aria-findings",
+            )
+            self.assertEqual(
+                _debts_dir(self.repo),
+                state_store.findings_root(store) / "aria-debts",
+            )
+            # ...and the workspace lands exactly where store_roots says the
+            # snapshot will look for it. These two computing the same path
+            # is the whole point: workspace_paths appends the repo hash
+            # itself, so ARIA_WORKSPACE_BASE is the PARENT.
+            paths = workspace_paths(self.repo)
+            self.assertEqual(
+                paths.workspace_root,
+                state_store.store_roots(store, paths.workspace_root.name)["workspace"],
+            )
+
+    def test_finding_ids_survive_a_fresh_runner(self) -> None:
+        """ORPHAN: `_allocate_finding_id` restarted at F-001 every bootstrap.
+
+        `aria-findings/` is gitignored by design and rode nothing between
+        runs, so finding identity was meaningless across cycles. Bound to
+        the store, the allocator sees the previous run's ids.
+        """
+        from aria_kernel.finding import _findings_dir
+
+        store = self._bootstrap()
+        env = state_store.store_environment(store, REPO_HASH)
+
+        with _EnvPatch(env):
+            findings = _findings_dir(self.repo)
+            findings.mkdir(parents=True, exist_ok=True)
+            (findings / "F-001.json").write_text('{"id": "F-001"}\n', encoding="utf-8")
+            (findings / "F-002.json").write_text('{"id": "F-002"}\n', encoding="utf-8")
+
+        self._seed_surface(store, "")
+        publish_state(
+            store, snapshot=self._snapshot(store, "snap-1"),
+            cycle_id="cycle-1", repo_hash=REPO_HASH,
+        )
+
+        # A FRESH runner: new checkout, nothing carried on disk.
+        fresh = checkout_state_store(self.repo, store_dir=self.repo.parent / "store-fresh")
+        with _EnvPatch(state_store.store_environment(fresh, REPO_HASH)):
+            carried = sorted(q.name for q in _findings_dir(self.repo).glob("F-*.json"))
+        self.assertEqual(carried, ["F-001.json", "F-002.json"])
+
+    def test_the_keys_directory_is_not_redirected_into_the_store(self) -> None:
+        """Per-cycle private keys are credentials, not state.
+
+        `gh_token_factory._keys_dir` computes its own path and must NOT
+        pass through the repo-state seam: dying with the runner is the
+        correct lifetime for a per-cycle key, and the store is pushed.
+        """
+        from aria_kernel.gh_token_factory import _keys_dir
+
+        store = self._bootstrap()
+        with _EnvPatch(state_store.store_environment(store, REPO_HASH)):
+            keys = _keys_dir(self.repo)
+        self.assertEqual(keys, self.repo / "aria-debts" / "keys")
+        self.assertNotIn(str(store.root), str(keys))
 
 
 class SurfaceGrowthIsMeasured(StateStoreTestCase):
@@ -659,7 +828,7 @@ class StoreVerification(StateStoreTestCase):
     def test_a_store_matching_its_snapshot_verifies(self) -> None:
         store = self._bootstrap()
         self._seed_surface(store, '{"row": 1}\n')
-        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
         verdict = verify_state_store(store, repo_hash=REPO_HASH)
         self.assertTrue(verdict["valid"], verdict)
         self.assertEqual(verdict["drifted_surfaces"], [])
@@ -667,7 +836,7 @@ class StoreVerification(StateStoreTestCase):
     def test_a_surface_changed_after_attestation_is_reported_as_drift(self) -> None:
         store = self._bootstrap()
         surface = self._seed_surface(store, '{"row": 1}\n')
-        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
         surface.write_text('{"row": 1}\n{"row": 2}\n', encoding="utf-8")
         verdict = verify_state_store(store, repo_hash=REPO_HASH)
         self.assertFalse(verdict["valid"])
@@ -677,7 +846,7 @@ class StoreVerification(StateStoreTestCase):
     def test_a_published_snapshot_whose_root_was_edited_is_unusable_as_an_anchor(self) -> None:
         store = self._bootstrap()
         self._seed_surface(store, "")
-        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
 
         path = state_store.snapshot_path(store)
         tampered = json.loads(path.read_text(encoding="utf-8"))

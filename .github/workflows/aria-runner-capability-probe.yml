@@ -49,6 +49,8 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: ./.github/actions/setup-aria-kernel
+
       - name: Report host capabilities
         shell: bash
         env:

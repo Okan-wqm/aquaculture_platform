@@ -205,6 +205,18 @@ extended phases registered (`record_and_continue` +
 burn-in mode → kwarg deletion + no-second-entrance invariants → executor PR
 centralization (flag-guarded).
 
+**0.7's follow-through gate, corrected 2026-08-03.** The plan said the legacy
+`gh pr create` pattern and `ARIA_EXECUTOR_PR_VIA_KERNEL` get deleted together
+"after one green scheduled run". That gate cannot be reached by waiting:
+`aria-agent-executor` declares `runs-on: [self-hosted, linux, claude]`, that
+runner has been offline since 2026-07-17, and every scheduled run since has
+queued for 24h and been auto-cancelled (watchdog issue #1005; ORPHAN-HIGH-529,
+ORPHAN-HIGH-530). The real precondition is an operator action — the runner
+returns — after which one green scheduled run closes the gate. A
+`workflow_dispatch` run under the flag on a restored runner counts as the same
+evidence. Until then the legacy pattern stays, and it stays because the gate
+is genuinely unmet, not because anyone forgot it.
+
 Invariant pins: I-W0-01 no-second-entrance (AST); I-W0-02 registry is the only
 ordered phase literal; I-W0-03 gate identity (`pr_open`, never the authority
 set); I-W0-04 ≥2 `record_failure` production callsites; I-W0-05 kwargs gone +

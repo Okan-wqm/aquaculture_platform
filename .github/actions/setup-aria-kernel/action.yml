@@ -1,0 +1,56 @@
+name: Set up aria-kernel
+description: >-
+  Provide a Python that can import aria_kernel — interpreter plus the kernel's
+  declared dependencies — before any step runs kernel code.
+
+# WHY THIS EXISTS: the kernel's dependencies were installed by hand, per job,
+# in every workflow that runs kernel code. Hand-ordered coupling between "a
+# step imports aria_kernel" and "a step installed its dependencies" is a
+# correctness requirement that nothing enforced, and it silently broke:
+#
+#   * `aria-daily-report.yml` ran its preflight step — which imports
+#     `aria_kernel.preflight` -> `workflow_contracts` -> `yaml` — twenty-seven
+#     lines BEFORE the `pip install -e aria-kernel` step. Every scheduled run
+#     since 2026-07-17 died on `ModuleNotFoundError: No module named 'yaml'`,
+#     so the daily anchor (the committed audit record that replaces git
+#     history) stopped being produced for seventeen days.
+#   * `finding-state-sweep.yml`, `rule-health-report.yml`, `aria-agent-eval.yml`
+#     and `aria-runner-capability-probe.yml` import the kernel with no install
+#     step at all.
+#
+# Copying an install block into each workflow is how they drift; nothing makes
+# the copies equal except the intention that they be. One definition removes
+# the class, and `tests/invariants/aria-kernel-workflow-setup.spec.ts` fails
+# any job that runs kernel code without having used this action first — so the
+# ordering requirement is checked at PR time instead of discovered by a
+# scheduled lane going quiet.
+#
+# DEPENDENCIES COME FROM pyproject.toml, never from a list kept here: a second
+# list would be the same duplication one level down. `pip install -e` is
+# deliberate — the kernel is imported from the checkout via PYTHONPATH in most
+# jobs, and an editable install keeps the imported tree and the installed
+# metadata the same tree.
+
+inputs:
+  python-version:
+    description: Python interpreter version to provision.
+    required: false
+    default: '3.12'
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install aria-kernel and its declared dependencies
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 -m pip install --upgrade pip
+        python3 -m pip install -e aria-kernel
+        # Fail here rather than in the first step that imports the kernel:
+        # a missing dependency must name itself at provisioning time, not
+        # surface as a ModuleNotFoundError inside unrelated business logic.
+        python3 -c "import aria_kernel, yaml; print('aria-kernel importable')"

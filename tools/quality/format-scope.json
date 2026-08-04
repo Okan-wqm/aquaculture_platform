@@ -33265,6 +33265,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-04-aria-forged-perimeter-verdict.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-04-aria-lane-cutover.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-08-04-aria-w2-mission-ingest.md",
       "prettier_managed": true
     },
@@ -33272,6 +33284,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/claude/2026-08-04-aria-w2-mission-reconcile.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-04-aria-w2-mission-weave.md",
       "prettier_managed": true
     },
     {
@@ -56364,10 +56382,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9243,
+  "file_count": 9246,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9062,
-  "managed_file_list_sha256": "3404497834d75ba237eb0bf8abe8160c5c6eeed0e19ee1c60480df2a7ea0c6ea",
+  "managed_count": 9065,
+  "managed_file_list_sha256": "501e39b3fb53f039bca09cbb58762a2f890dfc39df068d1c5238ea33c40fa17c",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

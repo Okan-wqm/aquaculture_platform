@@ -101,8 +101,12 @@ If the branch is genuinely gone (deleted by mistake), **do not
 re-bootstrap to make the error go away.** A fresh bootstrap publishes an
 empty tree that every later snapshot will chain to, and the accumulated
 state is then unreferenced. Recover the branch from the most recent
-`aria-tools-state` artifact or from a runner's local worktree first, and
-only bootstrap if you have confirmed there is nothing to recover.
+`aria-state-cache-<run_id>` artifact — the run-scoped forensic copy each
+lane uploads — or from a runner's local worktree first, and only bootstrap
+if you have confirmed there is nothing to recover. (Before the lane cutover
+this named the `aria-tools-state` artifact, which no longer exists; the
+retention window is the same 30 days, but you now pick the run rather than
+trusting "the latest".)
 
 ## Exit codes
 

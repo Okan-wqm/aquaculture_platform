@@ -1276,6 +1276,10 @@ def _main(argv: list[str] | None = None) -> int:
     plan_promote.add_argument("--impact-ref", required=True)
     plan_promote.add_argument("--validation-ref", required=True)
     plan_promote.add_argument("--target-agent", default=None)
+    # PLAN Wave 2 PR 1.5 — bind this dispatch to the mission that owns the
+    # work. Optional so promotions predating the mission layer keep working;
+    # an id naming no open mission is refused rather than written through.
+    plan_promote.add_argument("--mission-id", default=None)
     plan_promote.add_argument("--acknowledge", action="store_true")
     plan_force = add_subparser(plan_sub, "force-human-required")
     plan_force.add_argument("--plan-id", required=True)
@@ -3250,6 +3254,7 @@ def _main(argv: list[str] | None = None) -> int:
                 impact_ref=args.impact_ref,
                 validation_ref=args.validation_ref,
                 acknowledge=args.acknowledge,
+                mission_id=args.mission_id,
             )
         elif args.plan_command == "force-human-required":
             result = force_plan_human_required(plan_id=args.plan_id, round_number=args.round_number, reason_codes=args.reason_code, base_dir=args.tools_dir)

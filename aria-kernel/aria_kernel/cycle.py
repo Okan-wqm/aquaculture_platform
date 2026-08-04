@@ -13,7 +13,9 @@ from typing import Any, Literal
 from .feedback import derive_pressure
 from .ledger import verify_index_hashes, write_index
 from .learning import run_learning_pass, run_learning_post_evidence_closure, run_learning_pre_cycle
+from .github_adapters import select_github_adapter
 from .mission import adopt_task_candidates, assert_cycle_closure
+from .mission_reconcile import reconcile_missions
 from .worker_dispatch import reap_expired_assignment_claims
 from .workspace import WorkspacePaths, ensure_workspace, repo_hash, workspace_paths
 from .discovery import run_discovery
@@ -874,6 +876,33 @@ def _phase_state_continuity(context: PhaseContext) -> dict[str, Any]:
     }
 
 
+def _phase_mission_reconcile(context: PhaseContext) -> dict[str, Any]:
+    """What did the world do to this mission's PRs while nobody was looking?
+
+    PLAN Wave 2 PR 1.3. In PREFLIGHT, before discovery, because every later
+    phase reasons about mission state and reading it before reconciliation is
+    reading what ARIA last wrote rather than what is true. A merge that landed
+    between two nightlies must be known before the scheduler counts WIP slots
+    or `mission_ingest` folds new candidates in beside it.
+
+    The adapter comes from the SAME profile-derived factory the merge lane
+    uses, and that is what makes the observe-first discipline structural:
+    `observe`/`standard`/`frozen` get a `RecordingGitHubAdapter` that returns
+    `None` to every lifecycle question, so on those lanes the phase can only
+    observe. No soak flag exists because none is needed — and none can be
+    forgotten in the "on" position.
+    """
+    return reconcile_missions(
+        cycle_id=context.cycle_id,
+        observer=select_github_adapter(
+            profile=context.profile,
+            base_dir=context.base_dir,
+            cwd=context.workspace_root,
+        ),
+        base_dir=context.base_dir,
+    )
+
+
 def _phase_discovery(context: PhaseContext) -> dict[str, Any]:
     emit_progress("discovery", cycle_id=context.cycle_id, phase="started")
     discovery = run_discovery(
@@ -1429,6 +1458,16 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         "state_continuity", "preflight", _phase_state_continuity,
         on_error="record_and_continue", state_key="state_continuity",
         modes=frozenset({"standard", "burn_in"}),
+    ),
+
+    # Reconciliation runs on the standard lane only. A burn-in cycle's whole
+    # claim is that no action surface was touched, and moving a mission is an
+    # action — the mode column is what keeps that claim structural rather
+    # than remembered.
+    CyclePhase(
+        "mission_reconcile", "preflight", _phase_mission_reconcile,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="mission_reconcile",
     ),
 
     # --- discovery: what changed, and is that all we were asked for? ---

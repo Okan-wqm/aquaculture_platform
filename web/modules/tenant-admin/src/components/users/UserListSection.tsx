@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Edit, Trash2, MoreVertical } from 'lucide-react';
+import { Users, Edit, Trash2, MapPin } from 'lucide-react';
 import { UserAvatar } from '../ui/UserAvatar';
 import { RoleBadge } from '../ui/RoleBadge';
 import { StatusBadge } from '../ui/StatusBadge';
@@ -30,10 +30,12 @@ export interface UserListSectionProps {
   onToggleAll: () => void;
   onEditUser: (user: DisplayUser) => void;
   onDeleteUser: (user: DisplayUser) => void;
+  onManageSiteAccess: (user: DisplayUser) => void;
   // RBAC-HIGH-004: per-action capability gating matching the backend
   // (users:edit_permissions for edit, users:deactivate for delete).
   canEditUsers: boolean;
   canDeactivateUsers: boolean;
+  canManageSiteAccess: boolean;
   totalUsersInPage: number;
 }
 
@@ -51,8 +53,10 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
   onToggleAll,
   onEditUser,
   onDeleteUser,
+  onManageSiteAccess,
   canEditUsers,
   canDeactivateUsers,
+  canManageSiteAccess,
   totalUsersInPage,
 }) => {
   return (
@@ -69,11 +73,21 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
                   className="rounded border-gray-300 text-tenant-600 focus:ring-tenant-500"
                 />
               </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Login</th>
-              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                User
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Role
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Status
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Last Login
+              </th>
+              <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -109,32 +123,42 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
                   <div className="flex items-center justify-end gap-2">
                     {canEditUsers && (
                       <button
+                        type="button"
                         onClick={() => onEditUser(user)}
+                        aria-label={`Edit ${user.name}`}
                         className="p-1.5 rounded-lg text-gray-500 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
                         title="Edit user"
                       >
-                        <Edit className="w-4 h-4" />
+                        <Edit className="w-4 h-4" aria-hidden="true" />
+                      </button>
+                    )}
+                    {canManageSiteAccess && user.role === 'MODULE_USER' && (
+                      <button
+                        type="button"
+                        onClick={() => onManageSiteAccess(user)}
+                        aria-label={`Manage site access for ${user.name}`}
+                        className="p-1.5 rounded-lg text-gray-500 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+                        title="Manage site access"
+                      >
+                        <MapPin className="w-4 h-4" aria-hidden="true" />
                       </button>
                     )}
                     {canDeactivateUsers && (
                       <button
+                        type="button"
                         onClick={() => onDeleteUser(user)}
+                        aria-label={`Delete ${user.name}`}
                         className="p-1.5 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
                         title="Delete user"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-4 h-4" aria-hidden="true" />
                       </button>
                     )}
-                    {(canEditUsers || canDeactivateUsers) ? (
-                      <button
-                        className="p-1.5 rounded-lg text-gray-500 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-                        title="More options"
-                      >
-                        <MoreVertical className="w-4 h-4" />
-                      </button>
-                    ) : (
+                    {!canEditUsers &&
+                    !canDeactivateUsers &&
+                    !(canManageSiteAccess && user.role === 'MODULE_USER') ? (
                       <span className="text-xs text-gray-500">View only</span>
-                    )}
+                    ) : null}
                   </div>
                 </td>
               </tr>

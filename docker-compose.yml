@@ -32,12 +32,12 @@ services:
       NOTIFICATION_SERVICE_DB_PASS: ${NOTIFICATION_SERVICE_DB_PASS:-}
       HYDROPONICS_SERVICE_DB_PASS: ${HYDROPONICS_SERVICE_DB_PASS:-}
     ports:
-      - "5432:5432"
+      - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/docker/init-scripts:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aquaculture"]
+      test: ['CMD-SHELL', 'pg_isready -U aquaculture']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -49,12 +49,12 @@ services:
     container_name: aqua-redis
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-devpassword}
     ports:
-      - "6379:6379"
+      - '6379:6379'
     volumes:
       - redis_data:/data
     healthcheck:
       # SEC-014: Use REDISCLI_AUTH env var to avoid password in process list
-      test: ["CMD-SHELL", "REDISCLI_AUTH=${REDIS_PASSWORD:-devpassword} redis-cli ping"]
+      test: ['CMD-SHELL', 'REDISCLI_AUTH=${REDIS_PASSWORD:-devpassword} redis-cli ping']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -64,17 +64,19 @@ services:
   nats:
     image: nats:2.10-alpine
     container_name: aqua-nats
-    # ARCH-010/ARCH-018: Use config file for JetStream limits + store_dir
-    command: ["--config", "/etc/nats/nats.conf"]
+    # Local development deliberately runs without broker identity. Production
+    # uses docker-compose.droplet.yml, mTLS, and the generated cert-CN ACL
+    # config. Mounting that production ACL here is invalid: anonymous local
+    # clients cannot map to a cert identity.
+    command: ['-js', '--store_dir', '/data', '--http_port', '8222']
     ports:
-      - "4222:4222"
+      - '4222:4222'
       # Monitoring port bound to localhost only — not accessible from LAN (SEC-009)
-      - "127.0.0.1:8222:8222"
+      - '127.0.0.1:8222:8222'
     volumes:
       - nats_data:/data
-      - ./infrastructure/docker/nats/nats.conf:/etc/nats/nats.conf:ro
     healthcheck:
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 4222 || exit 1"]
+      test: ['CMD-SHELL', 'nc -z 127.0.0.1 4222 || exit 1']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -89,12 +91,12 @@ services:
       MINIO_ROOT_USER: ${MINIO_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-minioadmin}
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - '9000:9000'
+      - '9001:9001'
     volumes:
       - minio_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
       interval: 30s
       timeout: 20s
       retries: 3
@@ -137,7 +139,7 @@ services:
       # MinIO Storage Configuration
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
-      MINIO_USE_SSL: "false"
+      MINIO_USE_SSL: 'false'
       MINIO_ACCESS_KEY: ${MINIO_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-aquaculture}
@@ -146,7 +148,7 @@ services:
       ENABLE_TRACING: ${ENABLE_TRACING:-true}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
-      - "3000:3000"
+      - '3000:3000'
     depends_on:
       postgres:
         condition: service_healthy
@@ -172,6 +174,8 @@ services:
       hydroponics-service:
         condition: service_started
       billing-service:
+        condition: service_started
+      config-service:
         condition: service_started
     networks:
       - aqua-network
@@ -209,17 +213,17 @@ services:
       # when RS256 keys are not mounted; production paths require RS256.
       JWT_PRIVATE_KEY_PATH: /var/run/jwt/private.pem
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
-      ALLOW_DEV_JWT_SECRET: "true"
-      DEV_JWT_SECRET: "${DEV_JWT_SECRET:-dev-secret-change-me-at-least-32-chars-long}"
+      ALLOW_DEV_JWT_SECRET: 'true'
+      DEV_JWT_SECRET: '${DEV_JWT_SECRET:-dev-secret-change-me-at-least-32-chars-long}'
       JWT_EXPIRES_IN: 1h
       REFRESH_TOKEN_EXPIRES_IN: 7d
       # OpenTelemetry Tracing
       ENABLE_TRACING: ${ENABLE_TRACING:-true}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
-      - "3001:3000"
+      - '3001:3000'
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -239,6 +243,51 @@ services:
         limits:
           memory: 512M
           cpus: '1.0'
+
+  config-service:
+    image: aqua-config:latest
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.backend.simple
+      args:
+        SERVICE_NAME: config-service
+    container_name: aqua-config
+    environment:
+      SERVICE_NAME: config-service
+      NODE_ENV: development
+      PORT: 3000
+      CONFIG_SERVICE_PORT: 3000
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: aquaculture
+      DATABASE_PASSWORD: ${DB_PASSWORD:-devpassword}
+      DATABASE_NAME: aquaculture
+      DATABASE_SCHEMA: config
+      REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
+      NATS_URL: nats://nats:4222
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
+      CONFIG_ENCRYPTION_KEY: '${CONFIG_ENCRYPTION_KEY:?CONFIG_ENCRYPTION_KEY is required}'
+      SERVICE_IDENTITY_SIGNING_SECRET: '${SERVICE_IDENTITY_SIGNING_SECRET:-local-dev-only-change-me}'
+    ports:
+      - '3007:3000'
+    volumes:
+      - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health/live']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - aqua-network
+    restart: unless-stopped
 
   farm-service:
     image: aqua-farm:latest
@@ -260,14 +309,21 @@ services:
       DATABASE_PASSWORD: ${FARM_SERVICE_DB_PASS:-devpassword}
       DATABASE_NAME: aquaculture
       DATABASE_SCHEMA: farm
-      DATABASE_LOGGING: "true"
+      DATABASE_LOGGING: 'true'
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
       # SEC-NEW08: Encryption key must be unique per environment — generate with: openssl rand -base64 32
-      ENCRYPTION_KEY: "${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}"
-      FARM_SEED_ENABLED: "false"
+      ENCRYPTION_KEY: '${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}'
+      # Legacy tenant credential cutover decrypts existing rows before config-service becomes the only SSoT.
+      SENTINEL_HUB_ENCRYPTION_KEY: '${SENTINEL_HUB_ENCRYPTION_KEY:?SENTINEL_HUB_ENCRYPTION_KEY is required during credential cutover}'
+      FARM_ENVIRONMENT_MONITORING_ENABLED: '${FARM_ENVIRONMENT_MONITORING_ENABLED:-false}'
+      MET_NORWAY_APPLICATION_NAME: '${MET_NORWAY_APPLICATION_NAME:-}'
+      MET_NORWAY_CONTACT: '${MET_NORWAY_CONTACT:-}'
+      MET_NORWAY_FROST_CLIENT_ID: '${MET_NORWAY_FROST_CLIENT_ID:-}'
+      SERVICE_IDENTITY_SIGNING_SECRET: '${SERVICE_IDENTITY_SIGNING_SECRET:-local-dev-only-change-me}'
+      FARM_SEED_ENABLED: 'false'
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -275,7 +331,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       nats:
+        condition: service_healthy
+      config-service:
         condition: service_healthy
     networks:
       - aqua-network
@@ -307,7 +367,7 @@ services:
       DATABASE_NAME: aquaculture
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
-      MQTT_ENABLED: "true"
+      MQTT_ENABLED: 'true'
       # ARCH-019: Use container name (aqua-mosquitto) not host.docker.internal
       # Requires simulator stack to be on the same Docker network (aqua-network)
       # Start simulators: docker compose -f infrastructure/simulators/docker-compose.simulators.yml up -d
@@ -316,7 +376,7 @@ services:
       ENABLE_TRACING: ${ENABLE_TRACING:-true}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -359,7 +419,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -402,7 +462,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -443,7 +503,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD:-devpassword}@redis:6379
       NATS_URL: nats://nats:4222
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -486,7 +546,7 @@ services:
       # SECURITY (CRITICAL-001): RS256 public-key verification.
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -563,19 +623,19 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:-devpassword}
-      REDIS_DB: "3"
+      REDIS_DB: '3'
       NATS_URL: nats://nats:4222
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
-      MINIO_USE_SSL: "false"
+      MINIO_USE_SSL: 'false'
       MINIO_ACCESS_KEY: ${MINIO_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
-      NODE_OPTIONS: "--max-old-space-size=384"
+      JWT_SECRET: '${JWT_SECRET:?JWT_SECRET is required}'
+      NODE_OPTIONS: '--max-old-space-size=384'
     healthcheck:
       # ARCH-HC-001: Use /health/live for Docker liveness (consistent with all other services)
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/health/live"]
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:3000/health/live']
       interval: 30s
       timeout: 5s
       retries: 3
@@ -621,17 +681,17 @@ services:
       # explicit so containerized deploys never fall back to localhost.
       MINIO_ENDPOINT: minio
       MINIO_PORT: 9000
-      MINIO_USE_SSL: "false"
+      MINIO_USE_SSL: 'false'
       MINIO_ACCESS_KEY: ${MINIO_USER:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_PASSWORD:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-aquaculture}
       MINIO_REGION: us-east-1
       # SEC-NEW07: JWT secret must be unique per environment — generate with: openssl rand -base64 48
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required}"
+      JWT_SECRET: '${JWT_SECRET:?JWT_SECRET is required}'
     ports:
-      - "3008:3000"
+      - '3008:3000'
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:3000/health/live"]
+      test: ['CMD', 'curl', '--fail', '--silent', 'http://127.0.0.1:3000/health/live']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -673,7 +733,7 @@ services:
       ADMIN_PANEL_URL: http://admin-panel:80
       TENANT_ADMIN_URL: http://tenant-admin:80
     ports:
-      - "8080:80"
+      - '8080:80'
     # ARCH-016: Use service_healthy so shell waits for MFE nginx to be ready
     depends_on:
       dashboard:
@@ -786,12 +846,12 @@ services:
     image: jaegertracing/all-in-one:1.54
     container_name: aqua-jaeger
     environment:
-      COLLECTOR_OTLP_ENABLED: "true"
+      COLLECTOR_OTLP_ENABLED: 'true'
     ports:
       # Jaeger UI
-      - "16686:16686"
+      - '16686:16686'
       # OTLP HTTP receiver (used by OpenTelemetry SDK in services)
-      - "4318:4318"
+      - '4318:4318'
     networks:
       - aqua-network
     restart: unless-stopped
@@ -809,8 +869,8 @@ services:
     image: mailhog/mailhog:v1.0.1
     container_name: aqua-mailhog
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - '1025:1025'
+      - '8025:8025'
     networks:
       - aqua-network
 
@@ -819,7 +879,7 @@ services:
     container_name: aqua-adminer
     # SEC-024: Bind to localhost only — not accessible from LAN
     ports:
-      - "127.0.0.1:8081:8080"
+      - '127.0.0.1:8081:8080'
     depends_on:
       - postgres
     networks:
@@ -835,7 +895,7 @@ services:
       dockerfile: infrastructure/docker/Dockerfile.aquamobil
     container_name: aqua-mobile
     ports:
-      - "8090:80"
+      - '8090:80'
     depends_on:
       gateway-api:
         condition: service_healthy

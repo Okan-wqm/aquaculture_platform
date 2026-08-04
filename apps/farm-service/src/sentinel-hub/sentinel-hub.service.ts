@@ -1,413 +1,397 @@
-/**
- * Sentinel Hub Service
- *
- * Tenant bazlı Sentinel Hub kimlik bilgilerini yönetir.
- *
- * SECURITY: Secret columns are encrypted at rest with the canonical
- * authenticated AES-256-GCM column transformer attached to the entity
- * (createEncryptedColumnTransformer('SENTINEL_HUB_ENCRYPTION_KEY')). The ORM
- * encrypts on write and decrypts on read, so this service operates purely on
- * plaintext — there is no bespoke crypto here. GCM replaces the previous
- * unauthenticated AES-256-CBC scheme (malleability / padding-oracle class).
- * @see HIGH sentinel-cbc
- */
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
-import {
-  TenantContextError,
-  runInTenantRead,
-  runInTenantTransaction,
-} from '@aquaculture/backend-common/database';
-import {
-  SentinelHubSettings,
-  SentinelHubStatus,
-  SentinelHubCredentials,
-  SentinelHubWmtsConfig,
-} from './entities/sentinel-hub-settings.entity';
+import type { CdseProviderCredentialBundle } from '@aquaculture/backend-common/config-client';
+import { createAbortSignalTimeout } from '@aquaculture/backend-common/utils';
+import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 
+import {
+  MarineProviderCredentialsService,
+  type ResolvedProviderCredential,
+} from './marine-provider-credentials.service';
+import { cancelResponseBody, readBoundedJsonResponse } from './bounded-json-response';
+import { parseProviderRetryAfterMs } from '../weather/services/provider-http-headers';
+
+const CDSE_TOKEN_URL =
+  'https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token';
+export const CDSE_TOKEN_REQUEST_TIMEOUT_MS = 10_000;
+export const CDSE_TOKEN_MAX_ATTEMPTS = 2;
+export const CDSE_TOKEN_MAX_RETRY_AFTER_MS = 2_000;
+export const CDSE_TOKEN_CACHE_MAX_GENERATIONS = 2_048;
+const MAX_TOKEN_LIFETIME_SECONDS = 24 * 60 * 60;
+
+export const CDSE_TOKEN_DELAY = Symbol('CDSE_TOKEN_DELAY');
+
+export interface CdseTokenDelay {
+  wait(milliseconds: number): Promise<void>;
+}
+
+export enum CdseTokenErrorCode {
+  CREDENTIAL_SERVICE = 'CREDENTIAL_SERVICE',
+  AUTHENTICATION = 'AUTHENTICATION',
+  RATE_LIMITED = 'RATE_LIMITED',
+  UPSTREAM = 'UPSTREAM',
+  TIMEOUT = 'TIMEOUT',
+  TRANSPORT = 'TRANSPORT',
+  SCHEMA = 'SCHEMA',
+  REDIRECT_BLOCKED = 'REDIRECT_BLOCKED',
+}
+
+interface CdseTokenErrorOptions {
+  readonly code: CdseTokenErrorCode;
+  readonly message: string;
+  readonly retryable: boolean;
+  readonly httpStatus?: number;
+  readonly retryAfterMs?: number;
+  readonly cause?: unknown;
+}
+
+export class CdseTokenError extends Error {
+  readonly code: CdseTokenErrorCode;
+  readonly retryable: boolean;
+  readonly httpStatus?: number;
+  readonly retryAfterMs?: number;
+  readonly providerCause?: unknown;
+
+  constructor(options: CdseTokenErrorOptions) {
+    super(options.message);
+    this.name = 'CdseTokenError';
+    this.code = options.code;
+    this.retryable = options.retryable;
+    this.httpStatus = options.httpStatus;
+    this.retryAfterMs = options.retryAfterMs;
+    this.providerCause = options.cause;
+  }
+}
+
+const SYSTEM_TOKEN_DELAY: CdseTokenDelay = {
+  wait: async (milliseconds: number): Promise<void> => {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, milliseconds);
+    });
+  },
+};
+
+interface CachedToken {
+  accessToken: string;
+  expiresAt: number;
+  credentialGeneration: string;
+}
+
+interface CdseTokenResponse {
+  access_token: string;
+  expires_in?: number;
+}
+
+export interface CdseCredentialResolver {
+  resolveCdse(
+    tenantId: string,
+  ): Promise<ResolvedProviderCredential<CdseProviderCredentialBundle> | null>;
+}
+
+/**
+ * CDSE access facade.
+ *
+ * config-service is the only credential SSoT. The retained
+ * sentinel_hub_settings entity is used exclusively by the one-shot cutover
+ * service; this active read/write path never consults the legacy table.
+ */
 @Injectable()
 export class SentinelHubService implements OnModuleInit {
   private readonly logger = new Logger(SentinelHubService.name);
-
-  // Per-tenant CDSE access-token cache + in-flight refresh dedup. A fresh OAuth
-  // POST (plus the tenant credential read it requires) is expensive and
-  // rate-limited; without this, every WMS tile in a single map pan triggered
-  // one. A token is served from cache until TOKEN_REFRESH_MARGIN_MS before its
-  // expiry; concurrent refreshes for the same tenant share ONE in-flight
-  // promise. The cache is invalidated when a tenant's credentials change.
   private static readonly TOKEN_REFRESH_MARGIN_MS = 60_000;
-  private readonly tokenCache = new Map<string, { accessToken: string; expiresAt: number }>();
+  private readonly tokenCache = new Map<string, CachedToken>();
   private readonly tokenRefreshInFlight = new Map<
     string,
     Promise<{ accessToken: string; expiresIn: number } | null>
   >();
+  private readonly delay: CdseTokenDelay;
 
   constructor(
-    @InjectRepository(SentinelHubSettings)
-    private readonly settingsRepo: Repository<SentinelHubSettings>,
-    @InjectDataSource()
-    private readonly dataSource: DataSource,
-  ) {}
+    @Inject(MarineProviderCredentialsService)
+    private readonly providerCredentials: CdseCredentialResolver,
+    @Optional() @Inject(CDSE_TOKEN_DELAY) delay?: CdseTokenDelay,
+  ) {
+    this.delay = delay ?? SYSTEM_TOKEN_DELAY;
+  }
 
   onModuleInit(): void {
-    this.logger.log('SentinelHubService initialized (AES-256-GCM column encryption via ORM transformer)');
+    this.logger.log('SentinelHubService initialized with config-service credential SSoT');
   }
 
-  /**
-   * Mask client ID for display (show first 4 and last 4 characters)
-   */
-  private maskClientId(clientId: string): string {
-    if (clientId.length <= 8) {
-      return '****';
-    }
-    return clientId.slice(0, 4) + '****' + clientId.slice(-4);
-  }
-
-  /**
-   * Save Sentinel Hub settings for a tenant
-   */
-  async saveSettings(
+  async getAccessToken(
     tenantId: string,
-    clientId: string,
-    clientSecret: string,
-    instanceId?: string,
-  ): Promise<boolean> {
-    try {
-      let settings = await this.settingsRepo.findOne({ where: { tenantId } });
-
-      if (!settings) {
-        settings = this.settingsRepo.create({ tenantId });
-      }
-
-      // Store plaintext — the entity's AES-256-GCM column transformer
-      // encrypts these fields transparently on save.
-      settings.clientId = clientId;
-      settings.clientSecret = clientSecret;
-      settings.isConfigured = true;
-
-      // Store instanceId if provided (for WMTS support)
-      if (instanceId) {
-        settings.instanceId = instanceId;
-      }
-
-      await this.settingsRepo.save(settings);
-      // Credentials changed — drop any cached token minted with the old ones.
-      this.invalidateTokenCache(tenantId);
-
-      this.logger.log(`Sentinel Hub settings saved for tenant: ${tenantId}`);
-      return true;
-    } catch (error) {
-      this.logger.error(
-        `Failed to save Sentinel Hub settings for tenant ${tenantId}:`,
-        error,
-      );
-      throw new Error('Ayarlar kaydedilemedi');
-    }
-  }
-
-  /**
-   * Get credentials info for a tenant (SAFE - no secrets exposed)
-   * Returns masked clientId and metadata only
-   */
-  async getCredentials(tenantId: string): Promise<SentinelHubCredentials | null> {
-    try {
-      const settings = await runInTenantRead(this.dataSource, 'farm', tenantId, (qr) =>
-        qr.manager.findOne(SentinelHubSettings, { where: { tenantId } }),
-      );
-
-      if (!settings || !settings.isConfigured) {
-        return null;
-      }
-
-      // Values are already plaintext (ORM transformer decrypted on read).
-      // Mask clientId for display (never the secret).
-      const clientIdMasked = this.maskClientId(settings.clientId);
-
-      const instanceIdMasked = settings.instanceId
-        ? this.maskClientId(settings.instanceId)
-        : undefined;
-
-      // Return SAFE response - no secrets!
-      return {
-        clientId: clientIdMasked,
-        instanceId: instanceIdMasked,
-        hasClientSecret: !!settings.clientSecret,
-        isConfigured: settings.isConfigured,
-      };
-    } catch (error) {
-      if (error instanceof TenantContextError) {
-        throw error;
-      }
-      this.logger.error(
-        `Failed to get credentials for tenant ${tenantId}:`,
-        error,
-      );
+  ): Promise<{ accessToken: string; expiresIn: number } | null> {
+    const resolved = await this.resolveCredential(tenantId);
+    if (!resolved) {
       return null;
     }
-  }
-
-  /**
-   * Get decrypted credentials for internal use only (token generation)
-   * PRIVATE - Never expose via GraphQL or API
-   */
-  private async getDecryptedCredentialsInternal(
-    tenantId: string,
-  ): Promise<{ clientId: string; clientSecret: string } | null> {
-    try {
-      // Credential read + usage-write on the fail-closed READ-WRITE boundary
-      // (runInTenantTransaction, since usage stats are persisted here).
-      return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (qr) => {
-        const settings = await qr.manager.findOne(SentinelHubSettings, { where: { tenantId } });
-
-        if (!settings || !settings.isConfigured) {
-          return null;
-        }
-
-        // Update usage stats
-        settings.usageCount += 1;
-        settings.lastUsed = new Date();
-        await qr.manager.save(settings);
-
-        // Values are already plaintext (ORM transformer decrypted on read).
-        return {
-          clientId: settings.clientId,
-          clientSecret: settings.clientSecret,
-        };
-      });
-    } catch (error) {
-      if (error instanceof TenantContextError) {
-        throw error;
-      }
-      this.logger.error(
-        `Failed to get internal credentials for tenant ${tenantId}:`,
-        error,
-      );
-      return null;
-    }
-  }
-
-  /**
-   * Get status (without sensitive data) for a tenant
-   */
-  async getStatus(tenantId: string): Promise<SentinelHubStatus> {
-    try {
-      const settings = await runInTenantRead(this.dataSource, 'farm', tenantId, (qr) =>
-        qr.manager.findOne(SentinelHubSettings, { where: { tenantId } }),
-      );
-
-      if (!settings) {
-        return {
-          isConfigured: false,
-          clientIdMasked: undefined,
-          instanceIdMasked: undefined,
-          lastUsed: undefined,
-          usageCount: 0,
-        };
-      }
-
-      // Values are already plaintext (ORM transformer decrypted on read).
-      const clientIdMasked = settings.clientId
-        ? this.maskClientId(settings.clientId)
-        : undefined;
-
-      const instanceIdMasked = settings.instanceId
-        ? this.maskClientId(settings.instanceId)
-        : undefined;
-
-      return {
-        isConfigured: settings.isConfigured,
-        clientIdMasked,
-        instanceIdMasked,
-        lastUsed: settings.lastUsed ?? undefined,
-        usageCount: settings.usageCount,
-      };
-    } catch (error) {
-      if (error instanceof TenantContextError) {
-        throw error;
-      }
-      this.logger.error(
-        `Failed to get status for tenant ${tenantId}:`,
-        error,
-      );
-      return {
-        isConfigured: false,
-        clientIdMasked: undefined,
-        instanceIdMasked: undefined,
-        lastUsed: undefined,
-        usageCount: 0,
-      };
-    }
-  }
-
-  /**
-   * Delete settings for a tenant
-   */
-  async deleteSettings(tenantId: string): Promise<boolean> {
-    try {
-      const result = await this.settingsRepo.delete({ tenantId });
-      this.logger.log(`Sentinel Hub settings deleted for tenant: ${tenantId}`);
-      return (result.affected ?? 0) > 0;
-    } catch (error) {
-      this.logger.error(
-        `Failed to delete settings for tenant ${tenantId}:`,
-        error,
-      );
-      throw new Error('Ayarlar silinemedi');
-    }
-  }
-
-  /**
-   * Check if a tenant has configured Sentinel Hub
-   */
-  async isConfigured(tenantId: string): Promise<boolean> {
-    const settings = await runInTenantRead(this.dataSource, 'farm', tenantId, (qr) =>
-      qr.manager.findOne(SentinelHubSettings, {
-        where: { tenantId },
-        select: ['isConfigured'],
-      }),
-    );
-    return settings?.isConfigured ?? false;
-  }
-
-  /**
-   * Get access token from CDSE (Copernicus Data Space Ecosystem)
-   * This proxies the token request to avoid CORS issues in the browser
-   * Uses internal method to get decrypted credentials (never exposed via API)
-   */
-  async getAccessToken(tenantId: string): Promise<{ accessToken: string; expiresIn: number } | null> {
+    const credentialGeneration = this.generation(resolved);
     const now = Date.now();
-    const cached = this.tokenCache.get(tenantId);
-    if (cached && cached.expiresAt > now) {
-      return { accessToken: cached.accessToken, expiresIn: Math.floor((cached.expiresAt - now) / 1000) };
+    this.pruneTokenCache(now);
+    const cached = this.tokenCache.get(credentialGeneration);
+    const cachedRemainingMs = cached ? cached.expiresAt - now : 0;
+    if (cached && cachedRemainingMs >= 1_000) {
+      // Refresh insertion order so the fixed-size cache evicts the least
+      // recently used generation when a deployment serves many tenants.
+      this.tokenCache.delete(credentialGeneration);
+      this.tokenCache.set(credentialGeneration, cached);
+      return {
+        accessToken: cached.accessToken,
+        expiresIn: Math.floor(cachedRemainingMs / 1000),
+      };
     }
-    // Coalesce concurrent refreshes for the same tenant into ONE OAuth call.
-    const inFlight = this.tokenRefreshInFlight.get(tenantId);
+    if (cached) {
+      // Never return `expiresIn: 0`: downstream correctly treats that as an
+      // invalid provider contract. Refresh during this sub-second boundary.
+      this.tokenCache.delete(credentialGeneration);
+    }
+
+    const inFlight = this.tokenRefreshInFlight.get(credentialGeneration);
     if (inFlight) {
       return inFlight;
     }
-    const refresh = this.fetchAndCacheToken(tenantId).finally(() => {
-      this.tokenRefreshInFlight.delete(tenantId);
+    const refresh = this.fetchAndCacheToken(credentialGeneration, resolved.bundle).finally(() => {
+      this.tokenRefreshInFlight.delete(credentialGeneration);
     });
-    this.tokenRefreshInFlight.set(tenantId, refresh);
+    this.tokenRefreshInFlight.set(credentialGeneration, refresh);
     return refresh;
   }
 
-  /** Drop a tenant's cached token so the next request re-authenticates. */
-  invalidateTokenCache(tenantId: string): void {
-    this.tokenCache.delete(tenantId);
+  private generation(resolved: ResolvedProviderCredential<CdseProviderCredentialBundle>): string {
+    return `${resolved.sourceTenantId}:${resolved.configVersion}`;
   }
 
   private async fetchAndCacheToken(
-    tenantId: string,
-  ): Promise<{ accessToken: string; expiresIn: number } | null> {
-    const fresh = await this.fetchFreshToken(tenantId);
-    if (fresh) {
-      const expiresAt = Date.now() + fresh.expiresIn * 1000 - SentinelHubService.TOKEN_REFRESH_MARGIN_MS;
-      this.tokenCache.set(tenantId, { accessToken: fresh.accessToken, expiresAt });
-    }
+    credentialGeneration: string,
+    bundle: CdseProviderCredentialBundle,
+  ): Promise<{ accessToken: string; expiresIn: number }> {
+    const fresh = await this.fetchFreshToken(bundle);
+    const expiresAt =
+      Date.now() + fresh.expiresIn * 1000 - SentinelHubService.TOKEN_REFRESH_MARGIN_MS;
+    this.tokenCache.set(credentialGeneration, {
+      accessToken: fresh.accessToken,
+      expiresAt,
+      credentialGeneration,
+    });
+    this.trimTokenCache();
     return fresh;
   }
 
-  private async fetchFreshToken(tenantId: string): Promise<{ accessToken: string; expiresIn: number } | null> {
-    const CDSE_TOKEN_URL = 'https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token';
-
-    try {
-      // Use internal method to get decrypted credentials (not the public API)
-      const credentials = await this.getDecryptedCredentialsInternal(tenantId);
-      if (!credentials) {
-        this.logger.warn(`No credentials found for tenant ${tenantId}`);
-        return null;
+  private pruneTokenCache(now: number): void {
+    for (const [generation, token] of this.tokenCache) {
+      if (token.expiresAt <= now) {
+        this.tokenCache.delete(generation);
       }
+    }
+  }
 
+  private trimTokenCache(): void {
+    while (this.tokenCache.size > CDSE_TOKEN_CACHE_MAX_GENERATIONS) {
+      const oldestGeneration = this.tokenCache.keys().next().value as string | undefined;
+      if (oldestGeneration === undefined) {
+        return;
+      }
+      this.tokenCache.delete(oldestGeneration);
+    }
+  }
+
+  private async fetchFreshToken(
+    bundle: CdseProviderCredentialBundle,
+  ): Promise<{ accessToken: string; expiresIn: number }> {
+    return this.executeTransientAttempts(() => this.fetchFreshTokenOnce(bundle));
+  }
+
+  private async resolveCredential(
+    tenantId: string,
+  ): Promise<ResolvedProviderCredential<CdseProviderCredentialBundle> | null> {
+    return this.executeTransientAttempts(async () => {
+      try {
+        return await this.providerCredentials.resolveCdse(tenantId);
+      } catch (cause) {
+        throw tokenError(
+          CdseTokenErrorCode.CREDENTIAL_SERVICE,
+          'CDSE credential service is unavailable',
+          true,
+          { cause },
+        );
+      }
+    });
+  }
+
+  private async fetchFreshTokenOnce(
+    bundle: CdseProviderCredentialBundle,
+  ): Promise<{ accessToken: string; expiresIn: number }> {
+    const timeout = createAbortSignalTimeout(CDSE_TOKEN_REQUEST_TIMEOUT_MS);
+    try {
       const response = await fetch(CDSE_TOKEN_URL, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           grant_type: 'client_credentials',
-          client_id: credentials.clientId,
-          client_secret: credentials.clientSecret,
+          client_id: bundle.clientId,
+          client_secret: bundle.clientSecret,
         }),
+        signal: timeout.signal,
+        redirect: 'manual',
       });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        this.logger.error(`CDSE token request failed: ${response.status} - ${errorText}`);
-        throw new Error('Token alınamadı');
+      await this.assertAcceptedTokenResponse(response);
+      if (!this.isJsonResponse(response)) {
+        await cancelResponseBody(response);
+        throw tokenError(
+          CdseTokenErrorCode.SCHEMA,
+          'CDSE token response media type was invalid',
+          false,
+        );
       }
-
-      const data = await response.json();
-      this.logger.log(`CDSE token obtained successfully for tenant ${tenantId}`);
-
+      const payload = await readBoundedJsonResponse(response);
+      if (payload === null) {
+        throw tokenError(
+          CdseTokenErrorCode.SCHEMA,
+          'CDSE token response exceeded its contract',
+          false,
+        );
+      }
+      if (!this.isTokenResponse(payload)) {
+        throw tokenError(CdseTokenErrorCode.SCHEMA, 'CDSE token response shape was invalid', false);
+      }
       return {
-        accessToken: data.access_token,
-        expiresIn: data.expires_in || 1800,
+        accessToken: payload.access_token,
+        expiresIn: payload.expires_in ?? 1800,
       };
     } catch (error) {
-      this.logger.error(`Failed to get CDSE token for tenant ${tenantId}:`, error);
-      throw new Error('Sentinel Hub kimlik doğrulama başarısız');
-    }
-  }
-
-  /**
-   * Update only the instanceId for a tenant (for WMTS support)
-   * Allows updating instanceId without re-entering client credentials
-   */
-  async updateInstanceId(tenantId: string, instanceId: string): Promise<boolean> {
-    try {
-      const settings = await this.settingsRepo.findOne({ where: { tenantId } });
-
-      if (!settings || !settings.isConfigured) {
-        throw new Error('Önce Sentinel Hub kimlik bilgilerini yapılandırın');
-      }
-
-      // Store plaintext — the entity transformer encrypts on save.
-      settings.instanceId = instanceId;
-      await this.settingsRepo.save(settings);
-
-      this.logger.log(`Instance ID updated for tenant: ${tenantId}`);
-      return true;
-    } catch (error) {
-      this.logger.error(`Failed to update instanceId for tenant ${tenantId}:`, error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get WMTS configuration (instanceId + token) for a tenant
-   * Used by frontend to construct WMTS tile URLs
-   */
-  async getWmtsConfig(tenantId: string): Promise<SentinelHubWmtsConfig | null> {
-    try {
-      const settings = await runInTenantRead(this.dataSource, 'farm', tenantId, (qr) =>
-        qr.manager.findOne(SentinelHubSettings, { where: { tenantId } }),
-      );
-
-      if (!settings || !settings.instanceId) {
-        this.logger.debug(`No WMTS instanceId configured for tenant ${tenantId}`);
-        return null;
-      }
-
-      // Get access token
-      const tokenResult = await this.getAccessToken(tenantId);
-      if (!tokenResult) {
-        return null;
-      }
-
-      // instanceId is already plaintext (ORM transformer decrypted on read).
-      return {
-        instanceId: settings.instanceId,
-        accessToken: tokenResult.accessToken,
-        expiresIn: tokenResult.expiresIn,
-      };
-    } catch (error) {
-      if (error instanceof TenantContextError) {
+      if (error instanceof CdseTokenError) {
         throw error;
       }
-      this.logger.error(`Failed to get WMTS config for tenant ${tenantId}:`, error);
-      return null;
+      const timedOut = timeout.signal.aborted || isAbortError(error);
+      throw tokenError(
+        timedOut ? CdseTokenErrorCode.TIMEOUT : CdseTokenErrorCode.TRANSPORT,
+        timedOut ? 'CDSE token request timed out' : 'CDSE token transport failed',
+        true,
+        { cause: error },
+      );
+    } finally {
+      timeout.clear();
     }
   }
+
+  private async assertAcceptedTokenResponse(response: Response): Promise<void> {
+    if (response.status >= 300 && response.status < 400) {
+      await cancelResponseBody(response);
+      throw tokenError(
+        CdseTokenErrorCode.REDIRECT_BLOCKED,
+        'CDSE token endpoint returned an unexpected redirect',
+        false,
+        { httpStatus: response.status },
+      );
+    }
+    if (response.status === 400 || response.status === 401 || response.status === 403) {
+      await cancelResponseBody(response);
+      throw tokenError(
+        CdseTokenErrorCode.AUTHENTICATION,
+        'CDSE rejected the configured client credential',
+        false,
+        { httpStatus: response.status },
+      );
+    }
+    if (
+      response.status === 408 ||
+      response.status === 425 ||
+      response.status === 429 ||
+      response.status >= 500
+    ) {
+      const retryAfterMs = parseProviderRetryAfterMs(
+        response.headers.get('retry-after'),
+        new Date(),
+        CDSE_TOKEN_MAX_RETRY_AFTER_MS,
+      );
+      await cancelResponseBody(response);
+      const code =
+        response.status === 408
+          ? CdseTokenErrorCode.TIMEOUT
+          : response.status === 429
+            ? CdseTokenErrorCode.RATE_LIMITED
+            : CdseTokenErrorCode.UPSTREAM;
+      throw tokenError(code, 'CDSE token endpoint is temporarily unavailable', true, {
+        httpStatus: response.status,
+        ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+      });
+    }
+    if (!response.ok) {
+      await cancelResponseBody(response);
+      throw tokenError(
+        CdseTokenErrorCode.SCHEMA,
+        'CDSE token endpoint rejected the fixed backend request',
+        false,
+        { httpStatus: response.status },
+      );
+    }
+  }
+
+  private async executeTransientAttempts<T>(operation: () => Promise<T>): Promise<T> {
+    let lastError: CdseTokenError | null = null;
+    for (let attempt = 0; attempt < CDSE_TOKEN_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        return await operation();
+      } catch (error) {
+        if (!(error instanceof CdseTokenError) || !error.retryable) {
+          throw error;
+        }
+        lastError = error;
+        if (attempt + 1 < CDSE_TOKEN_MAX_ATTEMPTS && error.retryAfterMs !== undefined) {
+          await this.delay.wait(error.retryAfterMs);
+        }
+      }
+    }
+    if (lastError === null) {
+      throw tokenError(
+        CdseTokenErrorCode.TRANSPORT,
+        'CDSE token acquisition failed without a classified result',
+        true,
+      );
+    }
+    throw lastError;
+  }
+
+  private isTokenResponse(value: unknown): value is CdseTokenResponse {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return false;
+    }
+    const record = value as Record<string, unknown>;
+    return (
+      typeof record['access_token'] === 'string' &&
+      record['access_token'].length > 0 &&
+      (record['expires_in'] === undefined ||
+        (typeof record['expires_in'] === 'number' &&
+          Number.isSafeInteger(record['expires_in']) &&
+          record['expires_in'] > 0 &&
+          record['expires_in'] <= MAX_TOKEN_LIFETIME_SECONDS))
+    );
+  }
+
+  private isJsonResponse(response: Response): boolean {
+    const contentType = response.headers.get('content-type');
+    return contentType?.split(';', 1)[0]?.trim().toLowerCase() === 'application/json';
+  }
+}
+
+function tokenError(
+  code: CdseTokenErrorCode,
+  message: string,
+  retryable: boolean,
+  details: {
+    readonly httpStatus?: number;
+    readonly retryAfterMs?: number;
+    readonly cause?: unknown;
+  } = {},
+): CdseTokenError {
+  return new CdseTokenError({
+    code,
+    message,
+    retryable,
+    ...(details.httpStatus === undefined ? {} : { httpStatus: details.httpStatus }),
+    ...(details.retryAfterMs === undefined ? {} : { retryAfterMs: details.retryAfterMs }),
+    ...(details.cause === undefined ? {} : { cause: details.cause }),
+  });
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError');
 }

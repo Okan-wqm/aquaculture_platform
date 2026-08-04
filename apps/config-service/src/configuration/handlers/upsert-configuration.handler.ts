@@ -1,17 +1,33 @@
-import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DataSource, QueryRunner } from 'typeorm';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
+import { TenantErasureTombstoneError } from '@aquaculture/backend-common/compliance';
 import { OutboxPublisher } from '@platform/outbox';
+import {
+  CONFIG_RUNTIME_SYSTEM_TENANT_ID,
+  MARINE_PROVIDER_CREDENTIAL_CUTOVER_ACTOR_ID,
+  MARINE_PROVIDER_CREDENTIAL_KEYS,
+  MARINE_PROVIDER_CREDENTIAL_SERVICE,
+  parseMarineProviderCdseCredentialBundle,
+} from '@platform/event-contracts';
 import { pinRlsTenantScope } from '../../database/rls-scoped-session';
 import { UpsertConfigurationCommand } from '../commands/upsert-configuration.command';
 import {
   Configuration,
   ConfigurationHistory,
+  ConfigEnvironment,
   ConfigValueType,
 } from '../entities/configuration.entity';
 import { emitConfigurationChanged } from '../events/emit-configuration-changed';
 import { ConfigurationService } from '../services/configuration.service';
+import { assertTenantConfigurationNotErased } from '../services/configuration-erasure-fence';
 import { EncryptionService } from '../services/encryption.service';
 
 /**
@@ -43,6 +59,81 @@ export function resolveUpsertOverwriteColumns(isSecret: boolean): string[] {
   ];
 }
 
+/**
+ * PostgreSQL conflict clause used by the natural-key upsert.
+ *
+ * TypeORM's `orUpdate(overwriteColumns, ...)` copies every overwritten value
+ * from `EXCLUDED`. That is unsafe for a `@VersionColumn`: including `version`
+ * resets an existing row to the insert default, while omitting it leaves the
+ * version unchanged. The version is part of the provider-credential cache
+ * generation, so either behaviour can keep an already-issued access token
+ * alive after credential rotation.
+ *
+ * Increment the persisted value in the database instead. This remains
+ * monotonic even if a writer that does not use this handler races the upsert.
+ */
+export function resolvePostgresUpsertConflictClause(isSecret: boolean): string {
+  const assignments = resolveUpsertOverwriteColumns(isSecret).map(
+    (column) => `"${column}" = EXCLUDED."${column}"`,
+  );
+  assignments.push('"version" = "configurations"."version" + 1');
+
+  return [
+    '("tenant_id", "service", "key", "environment")',
+    `DO UPDATE SET ${assignments.join(', ')}`,
+  ].join(' ');
+}
+
+/**
+ * Serialises same-key upserts so the before/after history record describes the
+ * exact value replaced by this transaction. The value itself never enters the
+ * lock material.
+ */
+export function resolveConfigurationUpsertLockKey(
+  tenantId: string,
+  service: string,
+  key: string,
+  environment: string,
+): string {
+  return JSON.stringify(['config-upsert-v1', tenantId, service, key, environment]);
+}
+
+export function isMarineProviderCredentialConfiguration(service: string, key: string): boolean {
+  return (
+    service === MARINE_PROVIDER_CREDENTIAL_SERVICE && key === MARINE_PROVIDER_CREDENTIAL_KEYS.CDSE
+  );
+}
+
+/**
+ * The company CDSE bundle is writable by the platform-admin SYSTEM path.
+ * Tenant overrides are create-once migration artifacts and can only be
+ * authored by the signed farm cutover boundary.
+ */
+export function assertMarineProviderCredentialWritePolicy(
+  command: UpsertConfigurationCommand,
+): void {
+  if (!isMarineProviderCredentialConfiguration(command.service, command.key)) {
+    return;
+  }
+  if (
+    command.environment !== ConfigEnvironment.ALL ||
+    command.isSecret !== true ||
+    parseMarineProviderCdseCredentialBundle(command.value) === null
+  ) {
+    throw new BadRequestException(
+      'Marine provider credentials require one complete secret bundle in the all environment',
+    );
+  }
+  if (
+    command.tenantId !== CONFIG_RUNTIME_SYSTEM_TENANT_ID &&
+    command.userId !== MARINE_PROVIDER_CREDENTIAL_CUTOVER_ACTOR_ID
+  ) {
+    throw new ForbiddenException(
+      'Tenant marine provider credentials are managed only by the one-shot cutover',
+    );
+  }
+}
+
 @Injectable()
 @CommandHandler(UpsertConfigurationCommand)
 export class UpsertConfigurationHandler
@@ -58,8 +149,14 @@ export class UpsertConfigurationHandler
   ) {}
 
   async execute(command: UpsertConfigurationCommand): Promise<Configuration> {
+    assertMarineProviderCredentialWritePolicy(command);
     const { tenantId, service, key, value, environment, userId, isSecret } = command;
     const canonicalIsSecret = isSecret === true;
+    if (canonicalIsSecret && !this.encryptionService.isAvailable()) {
+      throw new InternalServerErrorException(
+        'Secret configuration writes require CONFIG_ENCRYPTION_KEY',
+      );
+    }
     const queryRunner: QueryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction('READ COMMITTED');
@@ -71,6 +168,11 @@ export class UpsertConfigurationHandler
       // resolver resolved to SYSTEM_TENANT_ID — own the GUC transaction-locally
       // so RLS visibility always matches the command's resolved tenant scope.
       await pinRlsTenantScope(queryRunner, tenantId);
+      await assertTenantConfigurationNotErased(queryRunner, tenantId);
+
+      await queryRunner.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
+        resolveConfigurationUpsertLockKey(tenantId, service, key, environment),
+      ]);
 
       const repo = tenantManagerRepo(queryRunner.manager, Configuration, tenantId);
 
@@ -79,10 +181,18 @@ export class UpsertConfigurationHandler
         where: { tenantId, service, key, environment },
       });
 
+      if (existingConfig && this.isIdempotentMarineCredentialCutover(existingConfig, command)) {
+        await queryRunner.commitTransaction();
+        this.logger.log(
+          `Marine provider credential cutover already applied for tenant ${tenantId}`,
+        );
+        return existingConfig;
+      }
+
       // Encrypt secret values before storing
       // PLAT-HIGH-003: Pass tenantId + key as AAD to bind ciphertext to context
       let valueToStore = value;
-      if (canonicalIsSecret && this.encryptionService.isAvailable()) {
+      if (canonicalIsSecret) {
         valueToStore = this.encryptionService.encrypt(value, tenantId, key);
       }
 
@@ -108,12 +218,7 @@ export class UpsertConfigurationHandler
           createdBy: userId,
           updatedBy: userId,
         })
-        .orUpdate(resolveUpsertOverwriteColumns(canonicalIsSecret), [
-          'tenant_id',
-          'service',
-          'key',
-          'environment',
-        ])
+        .onConflict(resolvePostgresUpsertConflictClause(canonicalIsSecret))
         .returning('*')
         .execute();
 
@@ -166,14 +271,45 @@ export class UpsertConfigurationHandler
       return saved;
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      this.logger.error(
-        `Failed to upsert configuration: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        error instanceof Error ? error.stack : undefined,
-      );
+      this.logger.error(`Failed to upsert configuration metadata for ${service}/${key}`);
+
+      if (error instanceof TenantErasureTombstoneError) {
+        throw error;
+      }
 
       throw new InternalServerErrorException('Failed to upsert configuration');
     } finally {
       await queryRunner.release();
     }
+  }
+
+  private isIdempotentMarineCredentialCutover(
+    existing: Configuration,
+    command: UpsertConfigurationCommand,
+  ): boolean {
+    if (
+      command.tenantId === CONFIG_RUNTIME_SYSTEM_TENANT_ID ||
+      command.userId !== MARINE_PROVIDER_CREDENTIAL_CUTOVER_ACTOR_ID ||
+      !isMarineProviderCredentialConfiguration(command.service, command.key)
+    ) {
+      return false;
+    }
+    if (
+      !existing.isActive ||
+      existing.deletedAt != null ||
+      existing.isSecret !== true ||
+      existing.valueType !== ConfigValueType.SECRET
+    ) {
+      throw new Error('Existing tenant marine credential is not an active secret bundle');
+    }
+    const existingBundle = this.encryptionService.decrypt(
+      existing.value,
+      command.tenantId,
+      command.key,
+    );
+    if (existingBundle !== command.value) {
+      throw new Error('One-shot tenant marine credential cannot be overwritten');
+    }
+    return true;
   }
 }

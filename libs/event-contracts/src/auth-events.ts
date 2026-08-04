@@ -95,6 +95,37 @@ export interface PasswordResetCompletedEvent extends BaseEvent {
   userId: string;
 }
 
+export const USER_ACCESS_TOKEN_INVALIDATION_REASONS = [
+  'refresh_token_reuse',
+  'logout_all_devices',
+  'password_changed',
+  'password_reset',
+  'role_permissions_changed',
+  'site_assignment_changed',
+] as const;
+export type UserAccessTokenInvalidationReason =
+  (typeof USER_ACCESS_TOKEN_INVALIDATION_REASONS)[number];
+
+/** Durable request to advance one user's canonical invalidation epoch. */
+export interface UserAccessTokenInvalidationRequestedEvent extends BaseEvent {
+  eventType: 'UserAccessTokenInvalidationRequested';
+  /** Target principal; BaseEvent.userId remains the actor when known. */
+  targetUserId: string;
+  invalidatedAtEpochSeconds: number;
+  reason: UserAccessTokenInvalidationReason;
+}
+
+export const ACCESS_TOKEN_INVALIDATION_REASONS = ['user_logout'] as const;
+export type AccessTokenInvalidationReason = (typeof ACCESS_TOKEN_INVALIDATION_REASONS)[number];
+
+/** Durable request to invalidate one access token by its opaque JWT ID. */
+export interface AccessTokenInvalidationRequestedEvent extends BaseEvent {
+  eventType: 'AccessTokenInvalidationRequested';
+  targetJti: string;
+  expiresAtEpochSeconds: number;
+  reason: AccessTokenInvalidationReason;
+}
+
 /**
  * User Deleted Event
  *
@@ -210,12 +241,52 @@ export interface ConsentWithdrawnEvent extends BaseEvent {
 /**
  * Union type for all auth events
  */
+/**
+ * User Profile Updated Event
+ *
+ * Published when a user changes their own profile fields (name, locale,
+ * contact preferences) through `AccountService.updateMyProfile`. Consumers
+ * refresh denormalised user copies; nothing security-relevant changes here,
+ * which is why the payload carries no field-level diff — a profile diff would
+ * put PII on the bus for consumers that only need the invalidation signal.
+ *
+ * DATA-HIGH-004: the emitter existed with no declared interface, so the event
+ * crossed the bus with a shape no consumer could type against and no upcaster
+ * could version. Declaring it is what makes the contract enforceable.
+ */
+export interface UserProfileUpdatedEvent extends BaseEvent {
+  eventType: 'UserProfileUpdated';
+}
+
+/**
+ * User Password Changed Event
+ *
+ * Published when a user changes their own password through
+ * `AccountService.changeMyPassword`, AFTER the credential revocation sweep has
+ * run. Consumers holding cached sessions or derived credentials for the user
+ * must treat them as void.
+ *
+ * Deliberately carries no credential material and no indication of the old or
+ * new secret — the event's whole purpose is the invalidation signal, and any
+ * additional field would be a secret on the bus.
+ *
+ * DATA-HIGH-004: same as its sibling above — emitted since the account service
+ * was written, declared nowhere.
+ */
+export interface UserPasswordChangedEvent extends BaseEvent {
+  eventType: 'UserPasswordChanged';
+}
+
 export type AuthEvent =
   | UserLoggedInEvent
+  | UserProfileUpdatedEvent
+  | UserPasswordChangedEvent
   | UserAccountLockedEvent
   | InvitationAcceptedEvent
   | PasswordResetRequestedEvent
   | PasswordResetCompletedEvent
+  | UserAccessTokenInvalidationRequestedEvent
+  | AccessTokenInvalidationRequestedEvent
   | UserDeletedEvent
   | UserDataAnonymizedEvent
   | GdprAnonymizeRequestedEvent

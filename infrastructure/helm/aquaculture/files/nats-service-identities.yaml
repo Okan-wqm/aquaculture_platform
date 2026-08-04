@@ -1,0 +1,20 @@
+# GENERATED — DO NOT EDIT BY HAND (scripts/nats/generate-nats-conf.py)
+# Source: infrastructure/nats/services.yaml
+version: 1
+identities:
+  - auth_service
+  - farm_service
+  - sensor_service
+  - sensor-ingestion
+  - admin_api_service
+  - gateway_service
+  - notification_service
+  - ai_service
+  - billing_service
+  - alert_engine
+  - hr_service
+  - messaging_service
+  - hydroponics_service
+  - observability_service
+  - config_service
+  - event_store_service

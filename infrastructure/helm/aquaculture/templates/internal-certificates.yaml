@@ -2,8 +2,8 @@
 =============================================================================
 Aquaculture Platform - Internal Leaf Certificates (SECURITY MEDIUM-002)
 =============================================================================
-NATS, Redis, PostgreSQL server certs + the shared mTLS client cert are all
-issued (and auto-renewed) by the internal CA defined in cert-manager-issuer.yaml.
+NATS, Redis and PostgreSQL server certs plus one NATS client cert per runtime
+identity are issued (and auto-renewed) by the internal CA.
 Each Certificate produces a Kubernetes Secret with keys tls.crt / tls.key /
 ca.crt — the shape our services' connection factories already consume.
 
@@ -108,22 +108,27 @@ spec:
 
 ---
 {{/*
-  Shared mTLS client certificate for backend services. Identity at the
-  application layer comes from per-service NATS user/pass; this cert only
-  gates the transport handshake (see nats-tls-enabled.conf verify: true).
+  Per-runtime NATS client certificates. The generated roster and broker ACL
+  are both derived from infrastructure/nats/services.yaml; cert CN is the
+  authorization identity under verify_and_map.
 */}}
+{{- $identityRegistry := .Files.Get "files/nats-service-identities.yaml" | fromYaml }}
+{{ range $index, $identity := $identityRegistry.identities }}
+{{ if gt $index 0 }}
+---
+{{ end }}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: {{ include "aquaculture.fullname" . }}-internal-client
-  namespace: {{ .Values.namespace }}
+  name: {{ include "aquaculture.natsClientSecretName" (list $ $identity) }}
+  namespace: {{ $.Values.namespace }}
   labels:
-    {{- include "aquaculture.labels" . | nindent 4 }}
+    {{- include "aquaculture.labels" $ | nindent 4 }}
 spec:
-  secretName: {{ include "aquaculture.fullname" . }}-internal-client-tls
+  secretName: {{ include "aquaculture.natsClientSecretName" (list $ $identity) }}
   duration: {{ $leafDuration | quote }}
   renewBefore: {{ $leafRenewBefore | quote }}
-  commonName: aqua-services
+  commonName: {{ $identity | quote }}
   usages:
     - client auth
     - digital signature
@@ -135,5 +140,6 @@ spec:
     name: {{ $issuerRef }}
     kind: Issuer
     group: cert-manager.io
+{{ end }}
 
 {{- end }}

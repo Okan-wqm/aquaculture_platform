@@ -18,26 +18,17 @@
  * constraint exactly as W0.F-followup landed it.
  */
 
-import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-
-const REPO_ROOT = resolve(__dirname, '..', '..');
+import { migrationCorpus } from './lib/migration-corpus';
 
 describe('INVARIANT (DBR-HIGH-002): auth.users.tenantId has a FOREIGN KEY to auth.tenants(id)', () => {
   it('a migration declares the FK with ON DELETE RESTRICT', () => {
-    const migrationFiles = execFileSync(
-      'git',
-      ['-C', REPO_ROOT, 'ls-files', 'apps/auth-service/src/migrations/*.ts'],
-      { encoding: 'utf8' },
-    )
-      .split('\n')
-      .filter(Boolean);
-    expect(migrationFiles.length).toBeGreaterThan(0);
-
-    const aggregate = migrationFiles
-      .map((rel) => readFileSync(resolve(REPO_ROOT, rel), 'utf8'))
-      .join('\n---\n');
+    // THE EVIDENCE SET IS THE POINT. This used to be
+    // `git ls-files 'apps/auth-service/src/migrations/*.ts'`, and a git
+    // pathspec `*` crosses `/` — so it returned all 32 files including the 13
+    // under `.archive/`. The 2026-05-18 squash left the constraint ONLY there,
+    // and this assertion passed for months against a migration the runtime
+    // never applies. The corpus is the set the runtime's own glob selects.
+    const aggregate = migrationCorpus('auth-service').source;
 
     // The migration MUST declare the FK with the canonical constraint
     // name + REFERENCES + ON DELETE RESTRICT. The regex is shape-
@@ -51,11 +42,10 @@ describe('INVARIANT (DBR-HIGH-002): auth.users.tenantId has a FOREIGN KEY to aut
   });
 
   it('the migration runs an orphan pre-flight check before adding the FK', () => {
-    const file = resolve(
-      REPO_ROOT,
-      'apps/auth-service/src/migrations/1787200000000-AddAuthUsersTenantFk.ts',
-    );
-    const src = readFileSync(file, 'utf8');
+    // Asserted over the effective set rather than one filename. Pinning a
+    // filename is what turned the squash into an ENOENT that named a file
+    // instead of a report that the pre-flight was gone.
+    const src = migrationCorpus('auth-service').source;
     // Pre-flight detects orphan rows before applying the constraint
     // (cannot add an FK over rows that already violate it). The shape
     // is specific enough that a future maintainer who deletes the

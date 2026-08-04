@@ -169,6 +169,73 @@ describe('deploy SSOT contract', () => {
     }
   });
 
+  it('binds admin-api and gateway to distinct NATS certificate identities across deploy targets', () => {
+    const droplet = read('docker-compose.droplet.yml');
+    const prod = extractComposeServiceBlock(read('docker-compose.prod.yml'), 'admin-api-service');
+    const identities = read('infrastructure/helm/aquaculture/files/nats-service-identities.yaml');
+    const certificates = read(
+      'infrastructure/helm/aquaculture/templates/internal-certificates.yaml',
+    );
+    const helpers = read('infrastructure/helm/aquaculture/templates/_helpers.tpl');
+    const certGenerator = read('infrastructure/docker/scripts/generate-internal-certs.sh');
+
+    expect(droplet).toContain('x-nats-admin-api-env: &nats-admin-api-env');
+    expect(droplet).toContain('/admin_api_service-cert.pem');
+    expect(extractComposeServiceBlock(droplet, 'admin-api-service')).toContain(
+      '<<: *nats-admin-api-env',
+    );
+    expect(prod).toContain('/admin_api_service-cert.pem');
+    expect(prod).toContain('/admin_api_service-key.pem');
+    expect(prod).not.toContain('/gateway_service-cert.pem');
+    expect(prod).toMatch(/\n {6}nats:\n {8}condition: service_healthy/);
+
+    expect(identities).toContain('  - admin_api_service');
+    expect(identities).toContain('  - gateway_service');
+    expect(certificates).toContain('files/nats-service-identities.yaml');
+    expect(certificates).toContain('commonName: {{ $identity | quote }}');
+    expect(certificates).not.toContain('commonName: aqua-services');
+    expect(helpers).toContain('aquaculture.natsClientSecretName');
+    expect(helpers).toContain('secretName: {{ include "aquaculture.natsClientSecretName"');
+
+    expect(certGenerator).toContain('validate_per_service_client_cert');
+    expect(certGenerator).toContain('subject=CN=${svc_user}');
+    expect(certGenerator).toContain('openssl verify -CAfile');
+    expect(certGenerator).toContain('certificate and private key do not match');
+  });
+
+  it('reloads and proves the NATS ACL before rolling application identities', () => {
+    const deploy = read('scripts/deploy/droplet-up.sh');
+    const staging = read('.github/workflows/deploy-staging.yml');
+    const fullBranch = deploy.slice(deploy.indexOf('if [ "$FULL_DEPLOY" = "true" ]'));
+    const selectiveBranch = fullBranch.slice(fullBranch.indexOf('else\n  # ── Selective'));
+
+    expect(deploy).toContain('ensure_nats_acl_loaded()');
+    expect(deploy).toContain('sha256sum "${mounted_source}"');
+    expect(deploy).toContain('stat -c \'%Y\' "${mounted_source}"');
+    expect(deploy).toContain("docker inspect --format '{{.State.StartedAt}}'");
+    expect(deploy).toContain('[ "${source_mtime}" -lt "${started_epoch}" ]');
+    expect(deploy).toContain('--force-recreate nats');
+    expect(deploy).toContain('run --rm --no-deps -T nats');
+    expect(deploy).toContain('live broker was not replaced');
+    expect(deploy).toContain('NATS did not become healthy after ACL reload');
+    expect(deploy).toContain('NATS_ACL_RELOADED=true');
+
+    expect(fullBranch.indexOf('ensure_nats_acl_loaded')).toBeLessThan(
+      fullBranch.indexOf('run_db_migrate_or_exit "full deploy"'),
+    );
+    expect(selectiveBranch).toContain('up -d --no-build postgres redis minio');
+    expect(selectiveBranch).not.toContain('up -d --no-build postgres redis nats minio');
+    expect(selectiveBranch.indexOf('ensure_nats_acl_loaded')).toBeLessThan(
+      selectiveBranch.indexOf('RESTART_SERVICES=$(restartable_deploy_services'),
+    );
+    expect(selectiveBranch).toContain('admin-api-service');
+
+    expect(staging.indexOf('Reloading staging NATS ACL first')).toBeLessThan(
+      staging.indexOf('Starting staging stack'),
+    );
+    expect(staging).toContain('run --rm --no-deps -T nats -t -c /etc/nats/nats.conf');
+  });
+
   it('uses the shared Redis option builder for URL-aware backend Redis modules', () => {
     const gateway = read('apps/gateway-api/src/app.module.ts');
     const farm = read('apps/farm-service/src/app.module.ts');

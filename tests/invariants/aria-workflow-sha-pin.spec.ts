@@ -88,12 +88,18 @@ function scanWorkflow(path: string): Violation[] {
   content.split('\n').forEach((line, idx) => {
     const m = line.match(USES_RE);
     if (!m) return;
+    // ORPHAN-HIGH-507 — a capture group is `string | undefined` under
+    // noUncheckedIndexedAccess, and so is a split element. Guarded rather than
+    // asserted: `!` would silence the compiler while leaving a `uses:` line the
+    // regex matched but did not capture to crash the whole invariant at runtime.
     const target = m[1];
+    if (target === undefined) return;
     // Path-based and docker references are exempt.
     if (target.startsWith('./') || target.startsWith('docker://')) return;
     // Local repo composite-action references are exempt (no @ref).
     if (!target.includes('@')) return;
     const [name, ref] = target.split('@', 2);
+    if (name === undefined || ref === undefined) return;
     if (SHA_RE.test(ref)) return; // Properly SHA-pinned.
     if (SHA_PIN_ALLOWLIST.includes(`${name}@${ref}`)) return;
     violations.push({

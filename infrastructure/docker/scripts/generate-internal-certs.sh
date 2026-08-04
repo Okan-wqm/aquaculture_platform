@@ -81,10 +81,67 @@ generate_server_cert() {
 # A per-service cert + per-service NATS user means a compromised service's
 # cert grants ONLY that service's pub/sub permissions — cert rotation is
 # also identity rotation, atomically.
+validate_per_service_client_cert() {
+  local svc_user="$1"
+  local out_dir="${CERTS_DIR}/nats/clients"
+  local cert_path="${out_dir}/${svc_user}-cert.pem"
+  local key_path="${out_dir}/${svc_user}-key.pem"
+  local ca_path="${CERTS_DIR}/ca/ca-cert.pem"
+  local subject cert_modulus key_modulus
+
+  for required_file in "${cert_path}" "${key_path}" "${ca_path}"; do
+    if [ ! -f "${required_file}" ] || [ -L "${required_file}" ]; then
+      echo "error: incomplete or unsafe ${svc_user} NATS client certificate set: ${required_file}" >&2
+      return 1
+    fi
+  done
+
+  subject=$(openssl x509 -in "${cert_path}" -noout -subject -nameopt RFC2253)
+  if [ "${subject}" != "subject=CN=${svc_user}" ]; then
+    echo "error: ${svc_user} NATS certificate subject mismatch: expected subject=CN=${svc_user}, got ${subject}" >&2
+    return 1
+  fi
+  if ! openssl verify -CAfile "${ca_path}" "${cert_path}" >/dev/null; then
+    echo "error: ${svc_user} NATS certificate does not verify against the active internal CA" >&2
+    return 1
+  fi
+  if ! openssl x509 -checkend 0 -noout -in "${cert_path}" >/dev/null; then
+    echo "error: ${svc_user} NATS certificate is expired" >&2
+    return 1
+  fi
+
+  cert_modulus=$(openssl x509 -in "${cert_path}" -noout -modulus)
+  key_modulus=$(openssl rsa -in "${key_path}" -noout -modulus 2>/dev/null)
+  if [ "${cert_modulus}" != "${key_modulus}" ]; then
+    echo "error: ${svc_user} NATS certificate and private key do not match" >&2
+    return 1
+  fi
+
+  ensure_file_mode "${cert_path}" 0644
+  ensure_file_mode "${key_path}" 0644
+}
+
 generate_per_service_client_cert() {
   local svc_user="$1"  # must match nats.conf users[*].user value exactly
   local out_dir="${CERTS_DIR}/nats/clients"
-  if [ -f "${out_dir}/${svc_user}-cert.pem" ] && [ "$FORCE" = false ]; then
+  local destination
+  if [ -L "${out_dir}" ] || { [ -e "${out_dir}" ] && [ ! -d "${out_dir}" ]; }; then
+    echo "error: unsafe NATS clients directory: ${out_dir}" >&2
+    exit 1
+  fi
+  for destination in \
+    "${out_dir}/${svc_user}-cert.pem" \
+    "${out_dir}/${svc_user}-key.pem" \
+    "${out_dir}/${svc_user}.csr"; do
+    if [ -L "${destination}" ]; then
+      echo "error: refusing unsafe symlink destination for ${svc_user}: ${destination}" >&2
+      exit 1
+    fi
+  done
+  if { [ -e "${out_dir}/${svc_user}-cert.pem" ] || [ -L "${out_dir}/${svc_user}-cert.pem" ] ||
+       [ -e "${out_dir}/${svc_user}-key.pem" ] || [ -L "${out_dir}/${svc_user}-key.pem" ]; } &&
+     [ "$FORCE" = false ]; then
+    validate_per_service_client_cert "${svc_user}"
     echo "  [skip] ${svc_user} client"; return; fi
   mkdir -p "$out_dir"
   openssl genrsa -out "${out_dir}/${svc_user}-key.pem" 2048 2>/dev/null
@@ -100,26 +157,8 @@ generate_per_service_client_cert() {
     -CAcreateserial -out "${out_dir}/${svc_user}-cert.pem" 2>/dev/null
   rm -f "${out_dir}/${svc_user}.csr"
   chmod 644 "${out_dir}/${svc_user}-key.pem" "${out_dir}/${svc_user}-cert.pem"
+  validate_per_service_client_cert "${svc_user}"
   echo "  [done] ${svc_user} client (CN=${svc_user})"
-}
-
-# Legacy shared client cert — kept for backward-compat with deployments that
-# have not yet rolled per-service certs. Production posture is per-service;
-# this is removed in a future cleanup once ALL deployments have rotated.
-generate_client_cert() {
-  local name="$1" cn="$2" dir="${CERTS_DIR}/${1}"
-  if [ -f "${dir}/client-cert.pem" ] && [ "$FORCE" = false ]; then
-    echo "  [skip] ${name} client (legacy shared)"; return; fi
-  mkdir -p "$dir"
-  openssl genrsa -out "${dir}/client-key.pem" 2048 2>/dev/null
-  openssl req -new -key "${dir}/client-key.pem" -out "${dir}/client.csr" \
-    -subj "/CN=${cn}/O=Aquaculture Platform" 2>/dev/null
-  openssl x509 -req -days 365 -in "${dir}/client.csr" \
-    -CA "${CERTS_DIR}/ca/ca-cert.pem" -CAkey "${CERTS_DIR}/ca/ca-key.pem" \
-    -CAcreateserial -out "${dir}/client-cert.pem" 2>/dev/null
-  rm -f "${dir}/client.csr"
-  chmod 644 "${dir}/client-key.pem" "${dir}/client-cert.pem"
-  echo "  [done] ${name} client (CN=${cn})  [legacy shared]"
 }
 
 echo "=== Generating Internal TLS Certificates ==="
@@ -171,27 +210,26 @@ if [ ! -f "$SERVICES_YAML" ]; then
 fi
 # WHY (single-line form) — keeps `python3` and `yaml.safe_load` on one
 # physical line for the CI structural assertion above. Validation
-# preserved: dict at top level, non-empty `services` list, every entry
-# is a dict with a `name`. The compound `assert` raises AssertionError on
+# preserved: dict at top level, non-empty `services` list, unique entries,
+# and every `name` is a path-safe certificate CN. The compound assertions raise on
 # any structural violation, which exits non-zero and (with `set -e`)
 # aborts the shell script — NO silent fallback to a hardcoded list.
 # WHAT — reads $SERVICES_YAML, validates structure, prints one CN per line
 # on stdout, captured into $SERVICE_NAMES for the iteration loop. Uses
 # `;` to chain simple statements and a generator-expression `print` so
 # the whole pipeline fits in a single -c argument with no heredoc.
-SERVICE_NAMES=$(python3 -c "import sys, yaml; d = yaml.safe_load(open(sys.argv[1])); assert isinstance(d, dict) and isinstance(d.get('services'), list) and d['services'] and all(isinstance(s, dict) and 'name' in s for s in d['services']), f'malformed services.yaml: {sys.argv[1]} — expected dict with non-empty services list, every entry having a name'; print('\n'.join(s['name'] for s in d['services']))" "$SERVICES_YAML")
+SERVICE_NAMES=$(python3 -c "import re, sys, yaml; d = yaml.safe_load(open(sys.argv[1])); assert isinstance(d, dict) and isinstance(d.get('services'), list) and d['services'] and all(isinstance(s, dict) and isinstance(s.get('name'), str) and re.fullmatch(r'[A-Za-z0-9_-]+', s['name']) for s in d['services']), f'malformed services.yaml: {sys.argv[1]} — expected a non-empty service list with path-safe certificate CNs'; names = [s['name'] for s in d['services']]; assert len(names) == len(set(names)), 'duplicate NATS certificate CN'; print('\n'.join(names))" "$SERVICES_YAML")
 if [ -z "$SERVICE_NAMES" ]; then
   echo "error: no service names extracted from ${SERVICES_YAML}" >&2
   exit 1
 fi
-for svc in $SERVICE_NAMES; do
-  generate_per_service_client_cert "$svc"
-done
-
-# Legacy shared client cert — kept on-disk for compatibility with deployments
-# that still mount certs/nats/client-cert.pem. New deployments mount the
-# per-service certs from certs/nats/clients/<svc>-cert.pem instead.
-generate_client_cert "nats" "aqua-services"
+while IFS= read -r svc; do
+  if [ -z "${svc}" ]; then
+    echo "error: empty service name extracted from ${SERVICES_YAML}" >&2
+    exit 1
+  fi
+  generate_per_service_client_cert "${svc}"
+done <<< "${SERVICE_NAMES}"
 
 # PostgreSQL expects server.crt and server.key (not postgres-cert.pem)
 # Create symlinks so both naming conventions work

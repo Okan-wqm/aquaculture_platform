@@ -68,11 +68,11 @@ export class EventBusModule {
         provide: 'EVENT_UPCASTER_REGISTRY',
         useFactory: () => createDefaultRegistry(),
       },
+      NatsEventBus,
       {
         provide: 'EVENT_BUS',
-        useClass: NatsEventBus,
+        useExisting: NatsEventBus,
       },
-      NatsEventBus,
       // ADR-031: NatsRequestReply depends on NatsEventBus for the
       // raw connection so ONE mTLS handshake covers every caller.
       NatsRequestReply,
@@ -111,11 +111,11 @@ export class EventBusModule {
         provide: 'EVENT_UPCASTER_REGISTRY',
         useFactory: () => createDefaultRegistry(),
       },
+      NatsEventBus,
       {
         provide: 'EVENT_BUS',
-        useClass: NatsEventBus,
+        useExisting: NatsEventBus,
       },
-      NatsEventBus,
       // ADR-031 — see forRoot for the shared-connection rationale.
       NatsRequestReply,
     ];

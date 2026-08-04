@@ -150,6 +150,11 @@ services:
     environment:
       NODE_OPTIONS: '--max-old-space-size=192'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
+      SENTINEL_HUB_ENCRYPTION_KEY: ${SENTINEL_HUB_ENCRYPTION_KEY:?SENTINEL_HUB_ENCRYPTION_KEY is required during credential cutover}
+      FARM_ENVIRONMENT_MONITORING_ENABLED: ${FARM_ENVIRONMENT_MONITORING_ENABLED:-false}
+      MET_NORWAY_APPLICATION_NAME: ${MET_NORWAY_APPLICATION_NAME:-}
+      MET_NORWAY_CONTACT: ${MET_NORWAY_CONTACT:-}
+      MET_NORWAY_FROST_CLIENT_ID: ${MET_NORWAY_FROST_CLIENT_ID:-}
     deploy:
       resources:
         limits:

@@ -44,11 +44,15 @@ spec:
             {{- include "aquaculture.natsServiceEnv" (list . "gateway_service") | nindent 12 }}
             - name: PORT
               value: {{ .Values.gatewayApi.service.targetPort | quote }}
+          volumeMounts:
+            {{- include "aquaculture.natsServiceVolumeMount" . | nindent 12 }}
           resources:
             {{- toYaml .Values.gatewayApi.resources | nindent 12 }}
           {{- include "aquaculture.livenessProbe" (dict "Values" .Values "port" .Values.gatewayApi.service.targetPort) | nindent 10 }}
           {{- include "aquaculture.readinessProbe" (dict "Values" .Values "port" .Values.gatewayApi.service.targetPort) | nindent 10 }}
           {{- include "aquaculture.securityContext" . | nindent 10 }}
+      volumes:
+        {{- include "aquaculture.natsServiceVolume" (list . "gateway_service") | nindent 8 }}
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:

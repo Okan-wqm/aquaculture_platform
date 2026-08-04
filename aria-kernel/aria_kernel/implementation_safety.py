@@ -112,7 +112,12 @@ ALLOWED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
     re.compile(r"^git\s+status(\s+\S+)*\s*$"),
     re.compile(r"^git\s+rev-parse(\s+\S+)*\s*$"),
     re.compile(rf"^git\s+push\s+origin\s+{ARIA_IMPL_BRANCH_FRAGMENT}(\s+\S+)*\s*$"),
-    re.compile(r"^gh\s+pr\s+create\s+--base\s+main(\s+\S+)*\s*$"),
+    # Wave 0 §0.7 — the ONE sanctioned PR-opening path: the kernel CLI's
+    # `pr create`, which routes through pr_manager.open_pr_for_action
+    # (ARIA_PR_BASE guard, GATE_PRE_PR_OPEN, breaker producer, change-id
+    # anchor). Scoped to the `pr` subcommand on purpose: the rest of the
+    # kernel CLI is operator surface, not implementer surface.
+    re.compile(r"^(?:/[\w./-]+/)?python3?(\.\d+)?\s+-m\s+aria_kernel\s+pr\s+create(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+checks(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+view(\s+\S+)*\s*$"),
     re.compile(r"^gh\s+pr\s+diff(\s+\S+)*\s*$"),
@@ -124,6 +129,23 @@ ALLOWED_BASH_COMMANDS: frozenset[re.Pattern[str]] = frozenset({
     re.compile(r"^prettier(\s+\S+)*\s*$"),
     re.compile(r"^eslint(\s+\S+)*\s*$"),
 })
+# Wave 0 §0.7 transition row — the raw `gh pr create` path the kernel CLI
+# replaces. Not in ALLOWED_BASH_COMMANDS any more: it is honoured only
+# while ARIA_EXECUTOR_PR_VIA_KERNEL is unset, so a lane that sets the
+# flag (the scheduled executor lane does) accepts kernel-CLI PR opening
+# ONLY. The flag and this pattern are deleted together after one green
+# scheduled run — the two-step is tracked in
+# docs/plans/2026-08-02-aria-full-autonomy-program/PLAN.md (Wave 0 §0.7).
+LEGACY_GH_PR_CREATE_PATTERN: re.Pattern[str] = re.compile(
+    r"^gh\s+pr\s+create\s+--base\s+main(\s+\S+)*\s*$"
+)
+
+
+def executor_pr_via_kernel() -> bool:
+    """Whether the lane has cut over to kernel-CLI-only PR opening."""
+    return os.environ.get("ARIA_EXECUTOR_PR_VIA_KERNEL") == "1"
+
+
 TRUSTED_PYTHON_SCRIPT_PREFIXES: tuple[str, ...] = (
     "tools/aria-adapters/",
     "tools/aria-poc/",
@@ -513,6 +535,12 @@ def verify_bash_command_allowed(argv: list[str], *, cwd: str | Path | None = Non
     for allowed in ALLOWED_BASH_COMMANDS:
         if allowed.match(line):
             return
+    # Wave 0 §0.7 — the legacy raw-PR path survives ONLY while the lane
+    # has not cut over; under ARIA_EXECUTOR_PR_VIA_KERNEL=1 it falls
+    # through to the allowlist miss, making kernel-CLI PR opening the
+    # single reachable path in that lane.
+    if not executor_pr_via_kernel() and LEGACY_GH_PR_CREATE_PATTERN.match(line):
+        return
     raise BashAllowlistMiss(
         f"argv0={argv[0]!r} matches no ALLOWED_BASH_COMMANDS pattern; "
         f"see implementation_safety.ALLOWED_BASH_COMMANDS"
@@ -1401,6 +1429,134 @@ def run_hard_fail_checks(
     return HardFailReport(results=tuple(results), _token=_REPORT_TOKEN)
 
 
+# RC-2 — the observe/authorise split, expressed as two RESULT TYPES rather than
+# a mode flag read at the callsite.
+#
+# THE DEFECT. `open_pr_for_action` runs the 10-check GATE_PRE_PR_OPEN perimeter
+# BEFORE its `dry_run` branch, deliberately, so the gate cannot be skipped by
+# previewing. But a dry run opens nothing: it has no `changed_files`, no
+# `base_sha` and no diff, so checks needing those fail closed on data that
+# CANNOT exist at that stage. Each such refusal then looked exactly like a
+# genuine implementation refusal, and `cycle.py`'s pr_lifecycle phase fed
+# refusals to the failure breaker. That edge sits on the dead
+# `_run_extended_phases` path today, which is the only reason it has never
+# fired — the moment RC-1 puts the phase on the live lane, three
+# `approved_for_apply` proposals in one cycle would trip a breaker that now
+# gates `standard`, i.e. the nightly would halt itself on observations.
+#
+# WHY A TYPE AND NOT A FLAG. A boolean `observe=True` leaves both outcomes the
+# same shape, so nothing prevents an observation being handed to the breaker
+# producer; the safety property would rest on every caller remembering. The
+# rule wanted here is "an observation cannot trip a safety breaker", and the
+# way to make that true rather than intended is to give observations no
+# attribute a producer can read as a refusal: `PerimeterObservation` has no
+# `passed`, no `failures`, and no `raise_if_blocked`.
+NOT_EVALUABLE_AT_THIS_STAGE: str = "not_evaluable_at_this_stage"
+
+
+@dataclass(frozen=True)
+class PerimeterVerdict:
+    """One check's outcome under observation, with a third state.
+
+    ``evaluable=False`` means the stage could not supply the check's inputs —
+    distinct from ``passed=False``, which means the inputs were present and the
+    check refused. Collapsing the two is what made a dry run look like a
+    rejected implementation.
+    """
+
+    name: str
+    passed: bool
+    reason: str
+    evaluable: bool = True
+
+
+@dataclass(frozen=True)
+class PerimeterObservation:
+    """observe-mode result. Reports; authorises nothing; feeds no breaker.
+
+    Deliberately NOT a HardFailReport and deliberately missing ``passed`` /
+    ``failures`` / ``raise_if_blocked``. Any code that tries to treat an
+    observation as an authorisation fails at the attribute, at the first call,
+    instead of silently recording a failure that never happened.
+    """
+
+    verdicts: tuple[PerimeterVerdict, ...]
+    gate: str | None = None
+    _token: object = field(default=None, repr=False, compare=False)
+
+    @property
+    def refused(self) -> tuple[PerimeterVerdict, ...]:
+        """Checks that ran and refused. Telemetry only — see the class docstring."""
+        return tuple(v for v in self.verdicts if v.evaluable and not v.passed)
+
+    @property
+    def not_evaluable(self) -> tuple[PerimeterVerdict, ...]:
+        return tuple(v for v in self.verdicts if not v.evaluable)
+
+    @property
+    def summary(self) -> dict[str, int]:
+        return {
+            "checks": len(self.verdicts),
+            "passed": sum(1 for v in self.verdicts if v.evaluable and v.passed),
+            "refused": len(self.refused),
+            NOT_EVALUABLE_AT_THIS_STAGE: len(self.not_evaluable),
+        }
+
+
+# Inputs a check needs that only a REAL pr-open can supply. A check refusing
+# because one of these is absent is reporting the stage, not the action, so
+# observation records it as not-evaluable rather than as a refusal. Derived from
+# the context fields rather than from check names, so adding a check that reads
+# `diff_text` does not require editing a second list.
+_STAGE_ONLY_CONTEXT_FIELDS: tuple[str, ...] = (
+    "changed_files",
+    "base_sha",
+    "diff_text",
+    "envelope",
+    "validation_commands",
+    "pr_body",
+)
+
+
+def observe_perimeter(
+    context: HardFailContext,
+    *,
+    gate: str | None = None,
+) -> PerimeterObservation:
+    """Evaluate the perimeter for TELEMETRY. Cannot authorise, cannot refuse.
+
+    Same registry and same checks as :func:`run_hard_fail_checks` — one
+    implementation, so an observation and an authorisation can never disagree
+    about what a check does. The difference is only in how a refusal caused by a
+    missing stage input is classified, and in the type returned.
+    """
+    absent = frozenset(
+        name for name in _STAGE_ONLY_CONTEXT_FIELDS if not getattr(context, name, None)
+    )
+    report = run_hard_fail_checks(context, gate=gate)
+    verdicts = tuple(
+        PerimeterVerdict(
+            name=result.name,
+            passed=result.passed,
+            reason=result.reason,
+            evaluable=result.passed or not _reason_blames_absent_stage_input(result.reason, absent),
+        )
+        for result in report.results
+    )
+    return PerimeterObservation(verdicts=verdicts, gate=gate, _token=_REPORT_TOKEN)
+
+
+def _reason_blames_absent_stage_input(reason: str, absent: frozenset[str]) -> bool:
+    """True when a refusal names a context field this stage could not supply.
+
+    Matched against the ABSENT set rather than against a list of reason strings:
+    a check that refuses for its own reasons stays a refusal even when other
+    inputs are missing, and a new check naming `diff_text` is covered without
+    touching this function.
+    """
+    return any(field_name in reason for field_name in absent)
+
+
 # Plan ARIA-V9.0-D — hard-fail checks (15 at V9.5; Plan 031 §031e added the
 # 16th, expert_consensus_evidence_verified). The check IMPLEMENTATIONS live as
 # separate functions above (or are wired by V9.6 auto_merge runner / V9.4
@@ -1595,6 +1751,10 @@ __all__ = (
     "truncate_validation_result",
     # registry
     "HardFailCheck",
+    "PerimeterObservation",
+    "PerimeterVerdict",
+    "observe_perimeter",
+    "NOT_EVALUABLE_AT_THIS_STAGE",
     "HARD_FAIL_CHECKS",
     # ORPHAN-CRITICAL-428 — the perimeter is two gates; the stage names and
     # the set of valid gates are public contract because callers select a

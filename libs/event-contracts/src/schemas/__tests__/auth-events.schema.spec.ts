@@ -19,7 +19,10 @@ const EVENT_ID = '55555555-5555-4555-8555-555555555555';
 const ACTION_TOKEN_HASH = 'a'.repeat(64);
 const CRYPTO_SHRED_KEY = '66666666-6666-4666-8666-666666666666';
 
-function withBase(eventType: AuthEventType, payload: Record<string, unknown>): Record<string, unknown> {
+function withBase(
+  eventType: AuthEventType,
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
   return {
     eventId: EVENT_ID,
     eventType,
@@ -47,6 +50,16 @@ const VALID_FIXTURES: Record<AuthEventType, Record<string, unknown>> = {
     cryptoShredKeyId: CRYPTO_SHRED_KEY,
   }),
   PasswordResetCompleted: withBase('PasswordResetCompleted', { userId: USER_ID }),
+  UserAccessTokenInvalidationRequested: withBase('UserAccessTokenInvalidationRequested', {
+    targetUserId: USER_ID,
+    invalidatedAtEpochSeconds: 1_780_000_000,
+    reason: 'refresh_token_reuse',
+  }),
+  AccessTokenInvalidationRequested: withBase('AccessTokenInvalidationRequested', {
+    targetJti: REQUEST_ID,
+    expiresAtEpochSeconds: 1_780_000_900,
+    reason: 'user_logout',
+  }),
   UserDeleted: withBase('UserDeleted', {
     deletedUserId: USER_ID,
     hardDelete: false,
@@ -98,7 +111,7 @@ describe('validateAuthEvent (DATA-MEDIUM-001)', () => {
   const schemaKeys = Object.keys(AUTH_EVENT_SCHEMAS) as AuthEventType[];
 
   it('has a validator + fixture for every registered auth event schema', () => {
-    expect(schemaKeys.length).toBe(10);
+    expect(schemaKeys.length).toBe(12);
     for (const key of schemaKeys) {
       expect(VALID_FIXTURES[key]).toBeDefined();
     }
@@ -141,5 +154,45 @@ describe('validateAuthEvent (DATA-MEDIUM-001)', () => {
   it('rejects a non-object payload', () => {
     expect(validateAuthEvent('UserLoggedIn', null).valid).toBe(false);
     expect(validateAuthEvent('UserLoggedIn', 42).valid).toBe(false);
+  });
+
+  it('admits the exact system routing identity for auth recovery events', () => {
+    expectValid(
+      validateAuthEvent('UserAccessTokenInvalidationRequested', {
+        ...VALID_FIXTURES.UserAccessTokenInvalidationRequested,
+        tenantId: 'system',
+      }),
+    );
+    expectValid(
+      validateAuthEvent('AccessTokenInvalidationRequested', {
+        ...VALID_FIXTURES.AccessTokenInvalidationRequested,
+        tenantId: 'system',
+      }),
+    );
+  });
+
+  it('accepts the site-assignment-specific user invalidation reason', () => {
+    expectValid(
+      validateAuthEvent('UserAccessTokenInvalidationRequested', {
+        ...VALID_FIXTURES.UserAccessTokenInvalidationRequested,
+        reason: 'site_assignment_changed',
+      }),
+    );
+  });
+
+  it('rejects actor/target ambiguity and invalid recovery epochs', () => {
+    expect(
+      validateAuthEvent('UserAccessTokenInvalidationRequested', {
+        ...VALID_FIXTURES.UserAccessTokenInvalidationRequested,
+        targetUserId: undefined,
+        userId: USER_ID,
+      }).valid,
+    ).toBe(false);
+    expect(
+      validateAuthEvent('AccessTokenInvalidationRequested', {
+        ...VALID_FIXTURES.AccessTokenInvalidationRequested,
+        expiresAtEpochSeconds: Number.MAX_SAFE_INTEGER,
+      }).valid,
+    ).toBe(false);
   });
 });

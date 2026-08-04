@@ -62,11 +62,20 @@ import { fetchGrowthMeasurements } from '../../graphql/queries/growth.js';
 import { fetchHealthEvents } from '../../graphql/queries/health.js';
 import { fetchWaterQuality } from '../../graphql/queries/water-quality.js';
 import { fetchOverdueWorkOrders } from '../../graphql/queries/maintenance.js';
-import { fetchCurrentWeather } from '../../graphql/queries/weather.js';
+import {
+  fetchCurrentWeather,
+  type CurrentWeather,
+  type EnvironmentValue,
+} from '../../graphql/queries/weather.js';
 
 // ── Analytics Modül İmportları ──────────────────────────────────────────────
 import { calculateRiskScore } from '../../analytics/risk-scorer.js';
-import type { RiskInput, RiskAssessment, RiskFactor, RiskAlert } from '../../analytics/risk-scorer.js';
+import type {
+  RiskInput,
+  RiskAssessment,
+  RiskFactor,
+  RiskAlert,
+} from '../../analytics/risk-scorer.js';
 import { detectOpportunities } from '../../analytics/optimizer.js';
 import type { OptimizerInput, Opportunity } from '../../analytics/optimizer.js';
 import { buildReliabilityReport } from '../../analytics/reliability.js';
@@ -114,21 +123,65 @@ interface RiskAssessmentOutput {
   reliability: ReliabilityReport;
 }
 
+export interface WeatherRiskContext {
+  weather: NonNullable<RiskInput['weather']>;
+  values: EnvironmentValue[];
+  lastDataTimestamp: string;
+}
+
+export function buildWeatherRiskContext(weather: CurrentWeather): WeatherRiskContext | null {
+  const values = weather.metrics
+    .filter(
+      (value) =>
+        value.freshness === 'CURRENT' &&
+        (value.metric === 'AIR_TEMPERATURE' || value.metric === 'WIND_SPEED'),
+    )
+    .sort((left, right) => new Date(right.validAt).getTime() - new Date(left.validAt).getTime());
+  const latestValue = values[0];
+  if (latestValue === undefined) {
+    return null;
+  }
+
+  const riskWeather: NonNullable<RiskInput['weather']> = {};
+  const wind = values.find((value) => value.metric === 'WIND_SPEED');
+  if (wind !== undefined) {
+    riskWeather.windSpeedKph = round(wind.value * 3.6, 1);
+    riskWeather.stormWarning = wind.value > 20;
+  }
+
+  const temperature = values.find((value) => value.metric === 'AIR_TEMPERATURE');
+  if (temperature !== undefined) {
+    riskWeather.temperatureC = temperature.value;
+    riskWeather.extremeHeat = temperature.value > 35;
+    riskWeather.extremeCold = temperature.value < 5;
+  }
+
+  return {
+    weather: riskWeather,
+    values,
+    lastDataTimestamp: latestValue.validAt,
+  };
+}
+
 // ============================================================================
 // GİRDİ ŞEMASI (Zod Doğrulama)
 // ============================================================================
 
 export const inputSchema = z.object({
-  scope: z.enum(['tank', 'batch', 'site', 'farm'])
+  scope: z
+    .enum(['tank', 'batch', 'site', 'farm'])
     .describe('Değerlendirme kapsamı: tank, batch, site veya farm'),
 
-  entityId: z.string().optional()
-    .describe('Varlık UUID — scope=farm hariç zorunlu'),
+  entityId: z.string().optional().describe('Varlık UUID — scope=farm hariç zorunlu'),
 
-  includeProjection: z.boolean().default(false)
+  includeProjection: z
+    .boolean()
+    .default(false)
     .describe('24h/7d risk projeksiyonu dahil edilsin mi? — varsayılan: false'),
 
-  includeOpportunities: z.boolean().default(true)
+  includeOpportunities: z
+    .boolean()
+    .default(true)
     .describe('Optimizasyon fırsatları dahil edilsin mi? — varsayılan: true'),
 });
 
@@ -177,21 +230,20 @@ export const definition = {
 // ARAÇ İŞLEYİCİSİ (Handler)
 // ============================================================================
 
-export async function handler(
-  params: unknown,
-  client: GraphQLClient,
-): Promise<ToolResult> {
+export async function handler(params: unknown, client: GraphQLClient): Promise<ToolResult> {
   const input = inputSchema.parse(params);
 
   // ── Parametre Doğrulama ────────────────────────────────────────────
   if (input.scope !== 'farm' && !input.entityId) {
     return {
-      content: [{
-        type: 'text',
-        text: JSON.stringify({
-          error: 'entityId parametresi scope=farm dışında zorunludur.',
-        }),
-      }],
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            error: 'entityId parametresi scope=farm dışında zorunludur.',
+          }),
+        },
+      ],
     };
   }
 
@@ -222,7 +274,9 @@ export async function handler(
       try {
         const sites = await fetchActiveSites(client);
         if (sites.length > 0) primarySiteId = sites[0]!.id;
-      } catch { /* site yoksa devam */ }
+      } catch {
+        /* site yoksa devam */
+      }
     }
   } catch {
     // ID kullanılır
@@ -244,10 +298,11 @@ export async function handler(
   };
   if (input.scope === 'tank' && input.entityId) wqFilter.tankId = input.entityId;
 
-  const feedingFilter: { batchId?: string; tankId?: string; startDate?: string; endDate?: string } = {
-    startDate: fromISO,
-    endDate: toISO,
-  };
+  const feedingFilter: { batchId?: string; tankId?: string; startDate?: string; endDate?: string } =
+    {
+      startDate: fromISO,
+      endDate: toISO,
+    };
   if (input.scope === 'batch' && input.entityId) feedingFilter.batchId = input.entityId;
   if (input.scope === 'tank' && input.entityId) feedingFilter.tankId = input.entityId;
 
@@ -271,7 +326,7 @@ export async function handler(
     growthResult,
   ] = await Promise.allSettled([
     input.scope === 'tank' && input.entityId
-      ? fetchTank(client, input.entityId).then(t => ({ items: [t] }))
+      ? fetchTank(client, input.entityId).then((t) => ({ items: [t] }))
       : fetchTanks(client, { isActive: true }),
     fetchWaterQuality(client, wqFilter),
     fetchFeedingRecords(client, feedingFilter),
@@ -288,7 +343,7 @@ export async function handler(
   // ── Tanklar ────────────────────────────────────────────────────────
   if (tanksResult.status === 'fulfilled') {
     const tanks = tanksResult.value.items ?? [];
-    riskInput.tanks = tanks.map(t => ({
+    riskInput.tanks = tanks.map((t) => ({
       id: t.id,
       name: t.name,
       currentBiomass: t.currentBiomass,
@@ -310,7 +365,7 @@ export async function handler(
   // ── WQ ─────────────────────────────────────────────────────────────
   if (wqResult.status === 'fulfilled') {
     const items = wqResult.value.items ?? [];
-    riskInput.waterQualityMeasurements = items.map(m => ({
+    riskInput.waterQualityMeasurements = items.map((m) => ({
       tankId: m.tankId ?? '',
       temperature: m.parameters?.temperature,
       ph: m.parameters?.pH,
@@ -319,7 +374,7 @@ export async function handler(
       nitrite: m.parameters?.nitrite,
       nitrate: m.parameters?.nitrate,
     }));
-    optimizerInput.waterQuality = riskInput.waterQualityMeasurements?.map(wq => ({
+    optimizerInput.waterQuality = riskInput.waterQualityMeasurements?.map((wq) => ({
       tankId: wq.tankId,
       temperature: wq.temperature,
       ph: wq.ph,
@@ -342,8 +397,8 @@ export async function handler(
   // ── Yemleme ────────────────────────────────────────────────────────
   if (feedingResult.status === 'fulfilled') {
     const items = feedingResult.value.items ?? [];
-    riskInput.feedingRecords = items.map(f => ({ actual: f.actualAmount }));
-    optimizerInput.feedingRecords = items.map(f => ({
+    riskInput.feedingRecords = items.map((f) => ({ actual: f.actualAmount }));
+    optimizerInput.feedingRecords = items.map((f) => ({
       date: f.feedingDate,
       batchId: f.batchId,
       tankId: f.tankId,
@@ -364,7 +419,7 @@ export async function handler(
   // ── Sağlık ─────────────────────────────────────────────────────────
   if (healthResult.status === 'fulfilled') {
     const items = healthResult.value.items ?? [];
-    riskInput.healthEvents = items.map(h => ({
+    riskInput.healthEvents = items.map((h) => ({
       id: h.id,
       severity: h.severity as 'low' | 'medium' | 'high' | 'critical',
       status: h.status,
@@ -383,7 +438,7 @@ export async function handler(
   // ── Bakım ──────────────────────────────────────────────────────────
   if (overdueResult.status === 'fulfilled') {
     const items = overdueResult.value ?? [];
-    riskInput.maintenanceSchedules = items.map(wo => ({
+    riskInput.maintenanceSchedules = items.map((wo) => ({
       dueDate: wo.dueDate ?? wo.createdAt,
       status: wo.status,
     }));
@@ -401,12 +456,12 @@ export async function handler(
   // ── Büyüme ─────────────────────────────────────────────────────────
   if (growthResult.status === 'fulfilled') {
     const items = growthResult.value.items ?? [];
-    riskInput.growthData = items.map(g => ({
+    riskInput.growthData = items.map((g) => ({
       batchId: g.batchId,
       date: g.measurementDate,
       avgWeight: g.averageWeight,
     }));
-    optimizerInput.growthData = items.map(g => ({
+    optimizerInput.growthData = items.map((g) => ({
       batchId: g.batchId,
       date: g.measurementDate,
       avgWeight: g.averageWeight,
@@ -425,23 +480,19 @@ export async function handler(
 
   // ── Hava Durumu ────────────────────────────────────────────────────
   if (weatherResult.status === 'fulfilled' && weatherResult.value) {
-    const w = weatherResult.value;
-    riskInput.weather = {
-      windSpeedKph: w.windSpeed !== undefined ? w.windSpeed * 3.6 : undefined, // m/s → kph
-      temperatureC: w.temperature ?? undefined,
-      stormWarning: (w.windSpeed ?? 0) > 20,
-      extremeHeat: (w.temperature ?? 0) > 35,
-      extremeCold: (w.temperature ?? 0) < 5,
-    };
-    usedDomains.push('weather');
-    dataSources.push({
-      domain: 'weather',
-      dataPointCount: 1,
-      expectedPointCount: 1,
-      lastDataTimestamp: w.observedAt ?? new Date().toISOString(),
-      maxStaleHours: 6,
-      minReliableN: 1,
-    });
+    const context = buildWeatherRiskContext(weatherResult.value);
+    if (context !== null) {
+      riskInput.weather = context.weather;
+      usedDomains.push('weather');
+      dataSources.push({
+        domain: 'weather',
+        dataPointCount: context.values.length,
+        expectedPointCount: 2,
+        lastDataTimestamp: context.lastDataTimestamp,
+        maxStaleHours: 6,
+        minReliableN: 1,
+      });
+    }
   }
 
   // ── Risk Skoru Hesapla ─────────────────────────────────────────────
@@ -489,8 +540,13 @@ export async function handler(
 
   // ── Güvenilirlik Raporu ────────────────────────────────────────────
   const allDomains = [
-    'water_quality', 'feeding', 'growth', 'health',
-    'maintenance', 'density', 'weather',
+    'water_quality',
+    'feeding',
+    'growth',
+    'health',
+    'maintenance',
+    'density',
+    'weather',
   ];
   const reliability = buildReliabilityReport(dataSources, usedDomains, allDomains);
 
@@ -576,10 +632,7 @@ function calculateProjection(assessment: RiskAssessment): RiskProjection {
   // Her iyileşen faktör günde ~2 puan risk azaltması sağlar (asimetrik).
   // Asimetri nedeni: kötüleşme iyileşmeden hızlı ilerler.
   //
-  const dailyChangeRate = round(
-    worseningCount * 3 - improvingCount * 2,
-    2,
-  );
+  const dailyChangeRate = round(worseningCount * 3 - improvingCount * 2, 2);
 
   // ── Projeksiyon Hesabı ─────────────────────────────────────────────
   const current = assessment.overallRisk;
@@ -593,7 +646,7 @@ function calculateProjection(assessment: RiskAssessment): RiskProjection {
   //   - Bazı faktörler karışık trendde → medium
   //   - Az veri veya çelişkili trendler → low
   //
-  const factorsWithData = assessment.factors.filter(f => f.dataPoints > 0).length;
+  const factorsWithData = assessment.factors.filter((f) => f.dataPoints > 0).length;
   let projectionConfidence: RiskProjection['projectionConfidence'];
 
   if (factorsWithData >= 5 && (worseningCount === 0 || improvingCount === 0)) {
@@ -642,18 +695,16 @@ function generateRiskInsight(
   factors: RiskFactor[],
   alerts: RiskAlert[],
 ): string {
-  const worstFactor = factors.length > 0
-    ? factors.reduce((a, b) => a.score > b.score ? a : b)
-    : null;
-  const criticalAlerts = alerts.filter(a => a.priority === 'critical' || a.priority === 'high');
+  const worstFactor =
+    factors.length > 0 ? factors.reduce((a, b) => (a.score > b.score ? a : b)) : null;
+  const criticalAlerts = alerts.filter((a) => a.priority === 'critical' || a.priority === 'high');
 
   const levelLabel = level.toUpperCase();
   const factorPart = worstFactor
     ? `Ana faktör: ${worstFactor.name} (${worstFactor.score}/100, ${worstFactor.trend}).`
     : '';
-  const alertPart = criticalAlerts.length > 0
-    ? `${criticalAlerts.length} kritik uyarı var.`
-    : 'Kritik uyarı yok.';
+  const alertPart =
+    criticalAlerts.length > 0 ? `${criticalAlerts.length} kritik uyarı var.` : 'Kritik uyarı yok.';
 
   return `Risk skoru: ${risk}/100 (${levelLabel}). ${factorPart} ${alertPart}`.trim();
 }

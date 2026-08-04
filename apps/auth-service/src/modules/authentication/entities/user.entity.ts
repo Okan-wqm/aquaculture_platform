@@ -1,4 +1,8 @@
-import { hashPassword as hashPasswordWithPepper, verifyPassword as verifyPasswordWithPepper, PEPPERED_PREFIX_V1 } from '@aquaculture/backend-common/auth';
+import {
+  hashPassword as hashPasswordWithPepper,
+  verifyPassword as verifyPasswordWithPepper,
+  PEPPERED_PREFIX_V1,
+} from '@aquaculture/backend-common/auth';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { ObjectType, Field, ID, HideField, registerEnumType } from '@nestjs/graphql';
 import {
@@ -12,6 +16,7 @@ import {
   JoinColumn,
   BeforeInsert,
   BeforeUpdate,
+  Unique,
 } from 'typeorm';
 
 import { Tenant } from '../../tenant/entities/tenant.entity';
@@ -57,6 +62,7 @@ registerEnumType(AccessType, {
 // PublicUserProfile (PublicUserProfileFederationResolver). SSoT: auth owns both
 // shapes of user identity; the public one carries no PII.
 @Entity('users', { schema: 'auth' })
+@Unique('UQ_users_id_tenant', ['id', 'tenantId'])
 // NOTE: email uniqueness is enforced via a `LOWER(email)` expression index
 // created by migration RestoreCaseInsensitiveEmailUniqueness1800300000000
 // (successor of the archived EnforceCaseInsensitiveEmailUniqueness — the
@@ -66,8 +72,13 @@ registerEnumType(AccessType, {
 // not create a conflicting case-sensitive index at synchronize time.
 @Index('IDX_users_tenant', ['tenantId'])
 @Index('IDX_users_role', ['role'])
-@Index('IDX_users_invitation_token', ['invitationToken'], { unique: true, where: '"invitationToken" IS NOT NULL' })
-@Index('IDX_users_password_reset_token', ['passwordResetToken'], { where: '"passwordResetToken" IS NOT NULL' })
+@Index('IDX_users_invitation_token', ['invitationToken'], {
+  unique: true,
+  where: '"invitationToken" IS NOT NULL',
+})
+@Index('IDX_users_password_reset_token', ['passwordResetToken'], {
+  where: '"passwordResetToken" IS NOT NULL',
+})
 export class User {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -196,9 +207,9 @@ export class User {
     emailEnabled: boolean;
     smsEnabled: boolean;
     pushEnabled: boolean;
-    quietHoursStart: string | null;  // HH:mm format, e.g. "22:00"
-    quietHoursEnd: string | null;    // HH:mm format, e.g. "07:00"
-    quietHoursTimezone: string;      // IANA timezone, e.g. "Europe/Istanbul"
+    quietHoursStart: string | null; // HH:mm format, e.g. "22:00"
+    quietHoursEnd: string | null; // HH:mm format, e.g. "07:00"
+    quietHoursTimezone: string; // IANA timezone, e.g. "Europe/Istanbul"
     alertNotifications: boolean;
     taskNotifications: boolean;
     systemNotifications: boolean;

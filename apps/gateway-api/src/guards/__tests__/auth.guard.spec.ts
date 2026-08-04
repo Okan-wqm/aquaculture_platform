@@ -6,7 +6,6 @@
 
 import * as crypto from 'crypto';
 
-
 import { ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
@@ -21,6 +20,7 @@ import {
   BASIC_AUTH_KEY,
   JwtPayload,
 } from '../auth.guard';
+import { TOKEN_BLACKLIST_STORE, TokenBlacklistStore } from '../redis-token-blacklist.store';
 import { ApiKeyAuthStrategy } from '../strategies/api-key-auth.strategy';
 import { BasicAuthStrategy } from '../strategies/basic-auth.strategy';
 
@@ -58,6 +58,7 @@ interface AuthenticatedRequest {
   path: string;
   method: string;
   user?: JwtPayload;
+  jwtAuthenticationFailure?: 'TOKEN_REVOKED' | 'INVALID_TOKEN';
   authMethod?: string;
 }
 
@@ -87,6 +88,7 @@ interface ExceptionWithResponse extends Error {
 describe('AuthGuard', () => {
   let guard: AuthGuard;
   let reflector: Reflector;
+  let tokenBlacklist: jest.Mocked<TokenBlacklistStore>;
 
   const JWT_ISSUER = 'test-issuer';
   const JWT_AUDIENCE = 'test-audience';
@@ -110,7 +112,10 @@ describe('AuthGuard', () => {
   /**
    * Create a valid RS256 JWT token for testing
    */
-  const createJwtToken = (payload: Partial<JwtPayload>, privateKey = TEST_KEYPAIR.privateKey): string => {
+  const createJwtToken = (
+    payload: Partial<JwtPayload>,
+    privateKey = TEST_KEYPAIR.privateKey,
+  ): string => {
     const header = { alg: 'RS256', typ: 'JWT' };
     const now = Math.floor(Date.now() / 1000);
 
@@ -119,6 +124,7 @@ describe('AuthGuard', () => {
       tenantId: 'tenant-123',
       roles: ['user'],
       type: 'access',
+      jti: 'test-jti',
       iat: now,
       exp: now + 3600, // 1 hour
       iss: JWT_ISSUER,
@@ -194,6 +200,11 @@ describe('AuthGuard', () => {
   };
 
   beforeEach(async () => {
+    tokenBlacklist = {
+      isBlacklisted: jest.fn().mockResolvedValue(false),
+      isValidToken: jest.fn().mockResolvedValue(true),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthGuard,
@@ -203,6 +214,7 @@ describe('AuthGuard', () => {
         { provide: JwtService, useValue: new JwtService({}) },
         ApiKeyAuthStrategy,
         BasicAuthStrategy,
+        { provide: TOKEN_BLACKLIST_STORE, useValue: tokenBlacklist },
         {
           provide: Reflector,
           useValue: {
@@ -457,7 +469,10 @@ describe('AuthGuard', () => {
         const headerB64 = base64UrlEncode(JSON.stringify(header));
         const payloadB64 = base64UrlEncode(JSON.stringify(payload));
         const data = `${headerB64}.${payloadB64}`;
-        const signature = crypto.createSign('RSA-SHA256').update(data).sign(TEST_KEYPAIR.privateKey);
+        const signature = crypto
+          .createSign('RSA-SHA256')
+          .update(data)
+          .sign(TEST_KEYPAIR.privateKey);
         const signatureB64 = base64UrlEncode(signature);
         const token = `${headerB64}.${payloadB64}.${signatureB64}`;
 
@@ -527,10 +542,7 @@ describe('AuthGuard', () => {
     describe('Token Blacklisting', () => {
       it('should reject blacklisted token', async () => {
         const jti = 'token-to-blacklist';
-        const now = Math.floor(Date.now() / 1000);
-
-        // Blacklist the token
-        guard.blacklistToken(jti, now + 3600);
+        tokenBlacklist.isValidToken.mockResolvedValue(false);
 
         const token = createJwtToken({ jti });
         const context = createMockExecutionContext({
@@ -539,6 +551,11 @@ describe('AuthGuard', () => {
 
         await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
         await expectExceptionCode(() => guard.canActivate(context), 'TOKEN_REVOKED');
+        expect(tokenBlacklist.isValidToken).toHaveBeenCalledWith(
+          jti,
+          'user-123',
+          expect.any(Number),
+        );
       });
 
       it('should accept non-blacklisted token with jti', async () => {

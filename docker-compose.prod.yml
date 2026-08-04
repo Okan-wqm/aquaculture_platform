@@ -194,8 +194,10 @@ services:
       ADMIN_SERVICE_URL: http://admin-api-service:3000/graphql
     volumes:
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
-      # SECURITY (HIGH-002): NATS mTLS — CA cert, shared client cert, and client key.
-      - ./certs/nats:/etc/ssl/nats:ro
+      # SECURITY (HIGH-002): NATS mTLS — CA plus this service's dedicated cert/key only.
+      - ./certs/nats/ca-cert.pem:/etc/ssl/nats/ca-cert.pem:ro
+      - ./certs/nats/clients/gateway_service-cert.pem:/etc/ssl/nats/clients/gateway_service-cert.pem:ro
+      - ./certs/nats/clients/gateway_service-key.pem:/etc/ssl/nats/clients/gateway_service-key.pem:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -248,8 +250,10 @@ services:
       MFA_ENCRYPTION_KEY: '${MFA_ENCRYPTION_KEY:?MFA_ENCRYPTION_KEY is required}'
     volumes:
       - ./certs/jwt:/var/run/jwt:ro
-      # SECURITY (HIGH-002): NATS mTLS certs for auth-service.
-      - ./certs/nats:/etc/ssl/nats:ro
+      # SECURITY (HIGH-002): NATS mTLS — CA plus auth-service's dedicated cert/key only.
+      - ./certs/nats/ca-cert.pem:/etc/ssl/nats/ca-cert.pem:ro
+      - ./certs/nats/clients/auth_service-cert.pem:/etc/ssl/nats/clients/auth_service-cert.pem:ro
+      - ./certs/nats/clients/auth_service-key.pem:/etc/ssl/nats/clients/auth_service-key.pem:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -289,16 +293,82 @@ services:
       # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      # The legacy encrypted tenant rows are decrypted once during the
+      # blocking credential cutover before config-service becomes the only
+      # provider-credential authority.
+      SENTINEL_HUB_ENCRYPTION_KEY: ${SENTINEL_HUB_ENCRYPTION_KEY:?SENTINEL_HUB_ENCRYPTION_KEY is required during credential cutover}
+      FARM_ENVIRONMENT_MONITORING_ENABLED: ${FARM_ENVIRONMENT_MONITORING_ENABLED:-false}
+      MET_NORWAY_APPLICATION_NAME: ${MET_NORWAY_APPLICATION_NAME:-}
+      MET_NORWAY_CONTACT: ${MET_NORWAY_CONTACT:-}
+      MET_NORWAY_FROST_CLIENT_ID: ${MET_NORWAY_FROST_CLIENT_ID:-}
+      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
+      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
     volumes:
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
-      # SECURITY (HIGH-002): NATS mTLS — CA cert, shared client cert, and client key.
-      - ./certs/nats:/etc/ssl/nats:ro
+      # SECURITY (HIGH-002): NATS mTLS — CA plus this service's dedicated cert/key only.
+      - ./certs/nats/ca-cert.pem:/etc/ssl/nats/ca-cert.pem:ro
+      - ./certs/nats/clients/farm_service-cert.pem:/etc/ssl/nats/clients/farm_service-cert.pem:ro
+      - ./certs/nats/clients/farm_service-key.pem:/etc/ssl/nats/clients/farm_service-key.pem:ro
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      nats:
+        condition: service_healthy
+      config-service:
+        condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
+      db-migrate:
+        condition: service_completed_successfully
+    networks:
+      - aqua-internal
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:3000/health/live']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Company-owned runtime configuration and encrypted provider-credential
+  # SSoT. farm-service deliberately waits for this health boundary before its
+  # blocking legacy credential cutover and environmental scheduler bootstrap.
+  config-service:
+    image: ghcr.io/okan-wqm/aquaculture_platform/config-service:${TAG:-latest}
+    container_name: aqua-config
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: config-service
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_HOST: postgres
+      DATABASE_PORT: 5432
+      DATABASE_USER: ${CONFIG_SERVICE_DB_USER:-config_service}
+      DATABASE_PASSWORD: ${CONFIG_SERVICE_DB_PASS:?CONFIG_SERVICE_DB_PASS is required}
+      DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
+      DB_MIGRATE_AUTHORITATIVE: 'true'
+      DATABASE_MIGRATIONS_RUN: 'false'
+      REDIS_URL: rediss://:${REDIS_PASSWORD}@redis:6379
+      NATS_URL: tls://nats:4222
+      NATS_TLS_ENABLED: 'true'
+      NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
+      NATS_TLS_CERT: /etc/ssl/nats/clients/config_service-cert.pem
+      NATS_TLS_KEY: /etc/ssl/nats/clients/config_service-key.pem
+      JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
+      CONFIG_ENCRYPTION_KEY: ${CONFIG_ENCRYPTION_KEY:?CONFIG_ENCRYPTION_KEY is required}
+      SERVICE_IDENTITY_KEYRING: ${SERVICE_IDENTITY_KEYRING:?SERVICE_IDENTITY_KEYRING required}
+      SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
+    volumes:
+      - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
+      - ./certs/nats/ca-cert.pem:/etc/ssl/nats/ca-cert.pem:ro
+      - ./certs/nats/clients/config_service-cert.pem:/etc/ssl/nats/clients/config_service-cert.pem:ro
+      - ./certs/nats/clients/config_service-key.pem:/etc/ssl/nats/clients/config_service-key.pem:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
       db-migrate:
         condition: service_completed_successfully
     networks:
@@ -338,8 +408,10 @@ services:
       SENSOR_SERVICE_PROFILE: ${SENSOR_SERVICE_PROFILE:-legacy}
     volumes:
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
-      # SECURITY (HIGH-002): NATS mTLS — CA cert, shared client cert, and client key.
-      - ./certs/nats:/etc/ssl/nats:ro
+      # SECURITY (HIGH-002): NATS mTLS — CA plus this service's dedicated cert/key only.
+      - ./certs/nats/ca-cert.pem:/etc/ssl/nats/ca-cert.pem:ro
+      - ./certs/nats/clients/sensor_service-cert.pem:/etc/ssl/nats/clients/sensor_service-cert.pem:ro
+      - ./certs/nats/clients/sensor_service-key.pem:/etc/ssl/nats/clients/sensor_service-key.pem:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -421,8 +493,10 @@ services:
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
     volumes:
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
-      # SECURITY (HIGH-002): NATS mTLS — CA cert, shared client cert, and client key.
-      - ./certs/nats:/etc/ssl/nats:ro
+      # SECURITY (HIGH-002): NATS mTLS — CA plus this service's dedicated cert/key only.
+      - ./certs/nats/ca-cert.pem:/etc/ssl/nats/ca-cert.pem:ro
+      - ./certs/nats/clients/hr_service-cert.pem:/etc/ssl/nats/clients/hr_service-cert.pem:ro
+      - ./certs/nats/clients/hr_service-key.pem:/etc/ssl/nats/clients/hr_service-key.pem:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -466,8 +540,10 @@ services:
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
     volumes:
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
-      # SECURITY (HIGH-002): NATS mTLS — CA cert, shared client cert, and client key.
-      - ./certs/nats:/etc/ssl/nats:ro
+      # SECURITY (HIGH-002): NATS mTLS — CA plus this service's dedicated cert/key only.
+      - ./certs/nats/ca-cert.pem:/etc/ssl/nats/ca-cert.pem:ro
+      - ./certs/nats/clients/billing_service-cert.pem:/etc/ssl/nats/clients/billing_service-cert.pem:ro
+      - ./certs/nats/clients/billing_service-key.pem:/etc/ssl/nats/clients/billing_service-key.pem:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -510,8 +586,10 @@ services:
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
     volumes:
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
-      # SECURITY (HIGH-002): NATS mTLS — CA cert, shared client cert, and client key.
-      - ./certs/nats:/etc/ssl/nats:ro
+      # SECURITY (HIGH-002): NATS mTLS — CA plus this service's dedicated cert/key only.
+      - ./certs/nats/ca-cert.pem:/etc/ssl/nats/ca-cert.pem:ro
+      - ./certs/nats/clients/alert_engine-cert.pem:/etc/ssl/nats/clients/alert_engine-cert.pem:ro
+      - ./certs/nats/clients/alert_engine-key.pem:/etc/ssl/nats/clients/alert_engine-key.pem:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -561,8 +639,10 @@ services:
       SMTP_PASS: ${SMTP_PASS:-}
     volumes:
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
-      # SECURITY (HIGH-002): NATS mTLS — CA cert, shared client cert, and client key.
-      - ./certs/nats:/etc/ssl/nats:ro
+      # SECURITY (HIGH-002): NATS mTLS — CA plus this service's dedicated cert/key only.
+      - ./certs/nats/ca-cert.pem:/etc/ssl/nats/ca-cert.pem:ro
+      - ./certs/nats/clients/notification_service-cert.pem:/etc/ssl/nats/clients/notification_service-cert.pem:ro
+      - ./certs/nats/clients/notification_service-key.pem:/etc/ssl/nats/clients/notification_service-key.pem:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -602,24 +682,25 @@ services:
       # SECURITY (HIGH-002): mTLS required — NATS server runs with verify: true.
       NATS_TLS_ENABLED: 'true'
       NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
-      # SECURITY (HIGH-002 / V4): admin-api shares the gateway_service identity (cert + NATS user).
-      NATS_TLS_CERT: /etc/ssl/nats/clients/gateway_service-cert.pem
-      NATS_TLS_KEY: /etc/ssl/nats/clients/gateway_service-key.pem
-      # SECURITY (HIGH-001): admin-api shares the gateway NATS account per
-      # nats.conf comment — both publish tenant/admin lifecycle events on
-      # AQUACULTURE_EVENTS.Tenant*/Admin*. Separate account would double the
-      # ACL surface without adding isolation value.
+      # SECURITY (HIGH-002 / V4): dedicated CN=admin_api_service. The public
+      # gateway cannot publish admin lifecycle or erasure-proof events.
+      NATS_TLS_CERT: /etc/ssl/nats/clients/admin_api_service-cert.pem
+      NATS_TLS_KEY: /etc/ssl/nats/clients/admin_api_service-key.pem
       # SECURITY (CRITICAL-001): RS256 public-key verification (consumer only).
       JWT_PUBLIC_KEY_PATH: /var/run/jwt/public.pem
     volumes:
       - backup_data:/backups
       - ./certs/jwt/public.pem:/var/run/jwt/public.pem:ro
-      # SECURITY (HIGH-002): NATS mTLS — CA cert, shared client cert, and client key.
-      - ./certs/nats:/etc/ssl/nats:ro
+      # SECURITY (HIGH-002): NATS mTLS — CA plus admin-api's dedicated cert/key only.
+      - ./certs/nats/ca-cert.pem:/etc/ssl/nats/ca-cert.pem:ro
+      - ./certs/nats/clients/admin_api_service-cert.pem:/etc/ssl/nats/clients/admin_api_service-cert.pem:ro
+      - ./certs/nats/clients/admin_api_service-key.pem:/etc/ssl/nats/clients/admin_api_service-key.pem:ro
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      nats:
         condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:
@@ -650,8 +731,19 @@ services:
       DB_NAME: aquaculture
       DB_MIGRATE_AUTHORITATIVE: 'true'
       DATABASE_MIGRATIONS_RUN: 'false'
+      NATS_URL: tls://nats:4222
+      NATS_TLS_ENABLED: 'true'
+      NATS_TLS_CA: /etc/ssl/nats/ca-cert.pem
+      NATS_TLS_CERT: /etc/ssl/nats/clients/observability_service-cert.pem
+      NATS_TLS_KEY: /etc/ssl/nats/clients/observability_service-key.pem
+    volumes:
+      - ./certs/nats/ca-cert.pem:/etc/ssl/nats/ca-cert.pem:ro
+      - ./certs/nats/clients/observability_service-cert.pem:/etc/ssl/nats/clients/observability_service-cert.pem:ro
+      - ./certs/nats/clients/observability_service-key.pem:/etc/ssl/nats/clients/observability_service-key.pem:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      nats:
         condition: service_healthy
       # WS10: ADR-016 Phase E Phase 1 — schema pre-applied by aqua-db-migrate.
       db-migrate:

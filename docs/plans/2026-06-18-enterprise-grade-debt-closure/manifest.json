@@ -4,11 +4,11 @@
   "base_commit": "2de67e4a5a6ffdcf675be0fcd4322854fcecd62f",
   "truth_table_path": "docs/plans/2026-06-18-enterprise-grade-debt-closure/finding-truth-table.md",
   "required_status_checks_manifest": ".github/manifests/main-required-status-checks.json",
-  "registry_tip_hash": "173930c0f64e30085e7b09f1d1a109f9cc45b7e2e116325007720e4a80424955",
-  "registry_entries": 1251,
-  "open_findings_count": 486,
-  "in_progress_findings_count": 42,
-  "active_critical_count": 41,
+  "registry_tip_hash": "53347ab29c06106458ed3d5b145e64a94f1c464e5a1886166f67e2ef316e2be7",
+  "registry_entries": 1348,
+  "open_findings_count": 509,
+  "in_progress_findings_count": 99,
+  "active_critical_count": 46,
   "worktree_dirty_at_creation": true,
   "active_critical_ids": [
     "INFRA-CRITICAL-029",
@@ -51,7 +51,12 @@
     "ORPHAN-CRITICAL-494",
     "ORPHAN-CRITICAL-495",
     "ORPHAN-CRITICAL-497",
-    "ORPHAN-CRITICAL-498"
+    "ORPHAN-CRITICAL-503",
+    "ORPHAN-CRITICAL-506",
+    "ORPHAN-CRITICAL-513",
+    "ORPHAN-CRITICAL-516",
+    "ORPHAN-CRITICAL-517",
+    "ORPHAN-CRITICAL-543"
   ],
   "agent_roster": [
     "architectural-arbiter",

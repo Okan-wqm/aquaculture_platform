@@ -120,9 +120,7 @@ async function executeLeaseBoundUpdate(
   const result: unknown = await queryRunner.query(sql, params);
   const rowCount = queryRowCountNormalized(result);
   if (rowCount !== 1) {
-    throw new Error(
-      `[tenant-schema-provisioner] Lease lost while ${action} for job ${job.id}`,
-    );
+    throw new Error(`[tenant-schema-provisioner] Lease lost while ${action} for job ${job.id}`);
   }
 }
 
@@ -163,9 +161,14 @@ async function setJobStatus(
               ELSE NOW() + ($7 || ' seconds')::interval
             END,
             updated_at = NOW(),
-            ${status === 'COMMITTED' || status === 'FAILED' || status === 'ABORTED' || status === 'DELETED'
-              ? 'completed_at = NOW(),'
-              : ''}
+            ${
+              status === 'COMMITTED' ||
+              status === 'FAILED' ||
+              status === 'ABORTED' ||
+              status === 'DELETED'
+                ? 'completed_at = NOW(),'
+                : ''
+            }
             failure_residue = COALESCE($3::jsonb, failure_residue),
             error_message = COALESCE($4, error_message)
       WHERE id = $1
@@ -256,6 +259,26 @@ async function countTenantTables(queryRunner: QueryRunner, schemaName: string): 
   return Number.parseInt(rows[0]?.count ?? '0', 10);
 }
 
+async function assertTenantSchemaIdentityAvailable(
+  queryRunner: QueryRunner,
+  job: TenantSchemaJob,
+): Promise<void> {
+  const collision = await queryRows<{ tenant_id: string }>(
+    queryRunner,
+    `SELECT "tenantId"::text AS tenant_id
+       FROM admin.tenant_schemas
+      WHERE "schemaName" = $1
+        AND "tenantId" <> $2::uuid
+      LIMIT 1`,
+    [job.schemaName, job.tenantId],
+  );
+  if (collision.length > 0) {
+    throw new Error(
+      `[tenant-schema-provisioner] Tenant schema identity collision for ${job.schemaName}`,
+    );
+  }
+}
+
 async function readTenantHead(
   queryRunner: QueryRunner,
   schemaName: string,
@@ -282,7 +305,9 @@ async function applyProvisionerHardening(
     await applyTenantRlsToSchema(queryRunner, {
       schemaOverride: schemaName,
       logger: helperLogger,
-      ...(rlsOptions.excludeTables !== undefined ? { excludeTables: rlsOptions.excludeTables } : {}),
+      ...(rlsOptions.excludeTables !== undefined
+        ? { excludeTables: rlsOptions.excludeTables }
+        : {}),
       ...(rlsOptions.tenantIdColumns !== undefined
         ? { tenantIdColumns: rlsOptions.tenantIdColumns }
         : {}),
@@ -467,11 +492,56 @@ async function writeJobEvidence(
       args.failureResidue === undefined ? null : JSON.stringify(args.failureResidue),
       args.errorMessage ?? null,
       job.leaseToken,
-      args.status === 'COMMITTED' || args.status === 'FAILED' || args.status === 'ABORTED' || args.status === 'DELETED',
+      args.status === 'COMMITTED' ||
+        args.status === 'FAILED' ||
+        args.status === 'ABORTED' ||
+        args.status === 'DELETED',
       lease.leaseSeconds,
     ],
     `writing ${args.status} evidence`,
   );
+}
+
+/**
+ * Publish the admin schema record and the lease-fenced COMMITTED job evidence
+ * as one database fact. The active mapping is consumed by FORCE-RLS background
+ * workers, so an active admin row without its matching committed operation
+ * must never become visible.
+ */
+async function commitTenantSchemaEvidence(
+  queryRunner: QueryRunner,
+  job: TenantSchemaJob,
+  lease: TenantSchemaLease,
+  args: {
+    tableCount: number;
+    sourceHeads: Record<string, unknown>;
+    tenantHeads: Record<string, unknown>;
+    failureResidue?: Record<string, unknown>;
+  },
+): Promise<void> {
+  await queryRunner.startTransaction();
+  try {
+    await commitTenantSchemaRecord(
+      queryRunner,
+      job,
+      args.tableCount,
+      args.sourceHeads,
+      args.tenantHeads,
+    );
+    await writeJobEvidence(queryRunner, job, lease, {
+      status: 'COMMITTED',
+      sourceHeads: args.sourceHeads,
+      tenantHeads: args.tenantHeads,
+      tableCount: args.tableCount,
+      ...(args.failureResidue !== undefined ? { failureResidue: args.failureResidue } : {}),
+    });
+    await queryRunner.commitTransaction();
+  } catch (error) {
+    if (queryRunner.isTransactionActive) {
+      await queryRunner.rollbackTransaction();
+    }
+    throw error;
+  }
 }
 
 async function collectFailureResidue(
@@ -485,7 +555,9 @@ async function collectFailureResidue(
      ) AS exists`,
     [job.schemaName],
   );
-  const tableCount = schemaExists[0]?.exists ? await countTenantTables(queryRunner, job.schemaName) : 0;
+  const tableCount = schemaExists[0]?.exists
+    ? await countTenantTables(queryRunner, job.schemaName)
+    : 0;
   return {
     schemaName: job.schemaName,
     schemaExists: schemaExists[0]?.exists ?? false,
@@ -506,6 +578,7 @@ async function processDeleteJob(
 
   try {
     await queryRunner.connect();
+    await assertTenantSchemaIdentityAvailable(queryRunner, job);
     assertDeleteProof(job);
     await setJobStatus(queryRunner, job, 'DELETING_SCHEMA', lease);
     await queryRunner.startTransaction();
@@ -563,9 +636,12 @@ async function processDeleteJob(
     if (queryRunner.isTransactionActive) {
       await queryRunner.rollbackTransaction();
     }
-    const failureResidue = await collectFailureResidue(queryRunner, job).catch((residueError: unknown) => ({
-      residueCaptureFailed: residueError instanceof Error ? residueError.message : String(residueError),
-    }));
+    const failureResidue = await collectFailureResidue(queryRunner, job).catch(
+      (residueError: unknown) => ({
+        residueCaptureFailed:
+          residueError instanceof Error ? residueError.message : String(residueError),
+      }),
+    );
     await writeJobEvidence(queryRunner, job, lease, {
       status: 'FAILED',
       sourceHeads: {},
@@ -591,7 +667,7 @@ async function processDeleteJob(
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : undefined;
 }
 
@@ -607,7 +683,9 @@ function assertDeleteProof(job: TenantSchemaJob): void {
     throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} is missing cleanupProof`);
   }
   if (proof['operationId'] !== job.operationId || proof['tenantId'] !== job.tenantId) {
-    throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} cleanupProof does not match job`);
+    throw new Error(
+      `[tenant-schema-provisioner] DELETE job ${job.id} cleanupProof does not match job`,
+    );
   }
   if (proof['purpose'] !== 'tenant_deprovision' && proof['purpose'] !== 'tenant_erasure') {
     throw new Error(
@@ -615,22 +693,26 @@ function assertDeleteProof(job: TenantSchemaJob): void {
     );
   }
   if (typeof proof['legalHoldCheckedAt'] !== 'string' || proof['legalHoldCheckedAt'].length === 0) {
-    throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} requires legal-hold evidence`);
+    throw new Error(
+      `[tenant-schema-provisioner] DELETE job ${job.id} requires legal-hold evidence`,
+    );
   }
   if (
-    proof['purpose'] === 'tenant_deprovision'
-    && (
-    !backup
-    || backup['isEncrypted'] !== true
-    || typeof backup['checksum'] !== 'string'
-    || backup['checksum'].length === 0
-    || Number(backup['sizeBytes']) <= 0
-    )
+    proof['purpose'] === 'tenant_deprovision' &&
+    (!backup ||
+      backup['isEncrypted'] !== true ||
+      typeof backup['checksum'] !== 'string' ||
+      backup['checksum'].length === 0 ||
+      Number(backup['sizeBytes']) <= 0)
   ) {
-    throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} requires encrypted backup evidence`);
+    throw new Error(
+      `[tenant-schema-provisioner] DELETE job ${job.id} requires encrypted backup evidence`,
+    );
   }
   if (!preCounts || !Array.isArray(existingSchemas)) {
-    throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} requires pre-delete count evidence`);
+    throw new Error(
+      `[tenant-schema-provisioner] DELETE job ${job.id} requires pre-delete count evidence`,
+    );
   }
   if (!existingSchemas.includes(job.schemaName)) {
     throw new Error(
@@ -638,7 +720,9 @@ function assertDeleteProof(job: TenantSchemaJob): void {
     );
   }
   if (!tombstone || tombstone['cleanupRunId'] !== proof['operationId']) {
-    throw new Error(`[tenant-schema-provisioner] DELETE job ${job.id} requires matching tombstone evidence`);
+    throw new Error(
+      `[tenant-schema-provisioner] DELETE job ${job.id} requires matching tombstone evidence`,
+    );
   }
 }
 
@@ -656,6 +740,7 @@ async function processReconcileJob(
 
   try {
     await queryRunner.connect();
+    await assertTenantSchemaIdentityAvailable(queryRunner, job);
     await setJobStatus(queryRunner, job, 'RECONCILING_SCHEMA', lease);
 
     const schemaExistsRows = await queryRows<{ exists: boolean }>(
@@ -678,7 +763,9 @@ async function processReconcileJob(
       );
     }
 
-    const tenantAwareEntries = SCHEMA_REGISTRY.filter((entry) => TENANT_AWARE_SCHEMAS.has(entry.schema));
+    const tenantAwareEntries = SCHEMA_REGISTRY.filter((entry) =>
+      TENANT_AWARE_SCHEMAS.has(entry.schema),
+    );
     for (const entry of tenantAwareEntries) {
       await renewJobLease(queryRunner, job, lease);
       sourceHeads[entry.schema] = headToJson(
@@ -708,9 +795,7 @@ async function processReconcileJob(
     await assertTenantPrivilegesVerified(queryRunner, job.schemaName, options.log);
     await assertSourceSchemaWriteGuardsVerified(queryRunner, options.log);
 
-    await commitTenantSchemaRecord(queryRunner, job, tableCount, sourceHeads, tenantHeads);
-    await writeJobEvidence(queryRunner, job, lease, {
-      status: 'COMMITTED',
+    await commitTenantSchemaEvidence(queryRunner, job, lease, {
       sourceHeads,
       tenantHeads,
       tableCount,
@@ -732,9 +817,12 @@ async function processReconcileJob(
       tableCount,
     });
   } catch (error: unknown) {
-    const failureResidue = await collectFailureResidue(queryRunner, job).catch((residueError: unknown) => ({
-      residueCaptureFailed: residueError instanceof Error ? residueError.message : String(residueError),
-    }));
+    const failureResidue = await collectFailureResidue(queryRunner, job).catch(
+      (residueError: unknown) => ({
+        residueCaptureFailed:
+          residueError instanceof Error ? residueError.message : String(residueError),
+      }),
+    );
     await writeJobEvidence(queryRunner, job, lease, {
       status: 'FAILED',
       sourceHeads,
@@ -762,7 +850,10 @@ async function processJob(
   job: TenantSchemaJob,
   options: TenantSchemaProvisionerOptions,
 ): Promise<void> {
-  if (getTenantSchemaName(job.tenantId) !== job.schemaName || !TENANT_SCHEMA_NAME_RE.test(job.schemaName)) {
+  if (
+    getTenantSchemaName(job.tenantId) !== job.schemaName ||
+    !TENANT_SCHEMA_NAME_RE.test(job.schemaName)
+  ) {
     throw new Error(
       `[tenant-schema-provisioner] Job ${job.id} has invalid tenant/schema pair: ${job.tenantId} -> ${job.schemaName}`,
     );
@@ -787,10 +878,13 @@ async function processJob(
 
   try {
     await queryRunner.connect();
+    await assertTenantSchemaIdentityAvailable(queryRunner, job);
     await setJobStatus(queryRunner, job, 'CREATING_SCHEMA', lease);
     await queryRunner.query(`CREATE SCHEMA IF NOT EXISTS ${quoteIdent(job.schemaName)}`);
 
-    const tenantAwareEntries = SCHEMA_REGISTRY.filter((entry) => TENANT_AWARE_SCHEMAS.has(entry.schema));
+    const tenantAwareEntries = SCHEMA_REGISTRY.filter((entry) =>
+      TENANT_AWARE_SCHEMAS.has(entry.schema),
+    );
     for (const entry of tenantAwareEntries) {
       await setJobStatus(queryRunner, job, 'COPYING_TABLES', lease);
       const migrations = entry.migrationsGlob.map((glob) => resolve(options.root, glob));
@@ -808,7 +902,9 @@ async function processJob(
       sourceHeads[entry.schema] = headToJson(
         await readLedgerHead(queryRunner, entry.schema, MIGRATION_LEDGER_TABLE),
       );
-      tenantHeads[entry.schema] = headToJson(result.head ?? (await readTenantHead(queryRunner, job.schemaName, entry.schema)));
+      tenantHeads[entry.schema] = headToJson(
+        result.head ?? (await readTenantHead(queryRunner, job.schemaName, entry.schema)),
+      );
 
       await setJobStatus(queryRunner, job, 'APPLYING_GRANTS', lease);
       await grantTenantMigrationLedgerReadAccess(queryRunner, {
@@ -825,7 +921,12 @@ async function processJob(
 
       if (entry.postMigrationHardening !== undefined) {
         await setJobStatus(queryRunner, job, 'HARDENING_RLS', lease);
-        await applyProvisionerHardening(queryRunner, job.schemaName, entry.postMigrationHardening, options.log);
+        await applyProvisionerHardening(
+          queryRunner,
+          job.schemaName,
+          entry.postMigrationHardening,
+          options.log,
+        );
         await renewJobLease(queryRunner, job, lease);
       }
     }
@@ -854,9 +955,7 @@ async function processJob(
     await assertTenantPrivilegesVerified(queryRunner, job.schemaName, options.log);
     await assertSourceSchemaWriteGuardsVerified(queryRunner, options.log);
 
-    await commitTenantSchemaRecord(queryRunner, job, tableCount, sourceHeads, tenantHeads);
-    await writeJobEvidence(queryRunner, job, lease, {
-      status: 'COMMITTED',
+    await commitTenantSchemaEvidence(queryRunner, job, lease, {
       sourceHeads,
       tenantHeads,
       tableCount,
@@ -872,9 +971,12 @@ async function processJob(
       tableCount,
     });
   } catch (error: unknown) {
-    const failureResidue = await collectFailureResidue(queryRunner, job).catch((residueError: unknown) => ({
-      residueCaptureFailed: residueError instanceof Error ? residueError.message : String(residueError),
-    }));
+    const failureResidue = await collectFailureResidue(queryRunner, job).catch(
+      (residueError: unknown) => ({
+        residueCaptureFailed:
+          residueError instanceof Error ? residueError.message : String(residueError),
+      }),
+    );
     await writeJobEvidence(queryRunner, job, lease, {
       status: 'FAILED',
       sourceHeads,

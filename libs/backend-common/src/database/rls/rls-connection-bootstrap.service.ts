@@ -1,8 +1,10 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Type } from '@nestjs/common';
 import { DataSource } from 'typeorm';
+
 import { getRequestContext } from '../../logging/request-context';
+import { getPgPoolFromDataSource, PgPoolClientLike } from '../pg-pool-from-data-source.util';
+
 import { RLS_BYPASS_GUC, RLS_TENANT_GUC } from './apply-tenant-rls.helper';
-import { getPgPoolFromDataSource } from '../pg-pool-from-data-source.util';
 
 /**
  * RlsConnectionBootstrap
@@ -96,6 +98,12 @@ const SET_RLS_GUCS_SQL =
   `set_config('${RLS_TENANT_GUC}', $1, false), ` +
   `set_config('${RLS_BYPASS_GUC}', $2, false)`;
 
+type PoolConnectCallback = (
+  error: Error | null,
+  client?: PgPoolClientLike,
+  release?: (error?: unknown) => void,
+) => void;
+
 /**
  * Factory: creates a service-specific `RlsConnectionBootstrap` class.
  *
@@ -106,7 +114,7 @@ const SET_RLS_GUCS_SQL =
  *
  * @param serviceName - human-readable service tag for logs (e.g. 'billing')
  */
-export function createRlsConnectionBootstrap(serviceName: string) {
+export function createRlsConnectionBootstrap(serviceName: string): Type<OnModuleInit> {
   if (!/^[a-z][a-z0-9_-]*$/.test(serviceName)) {
     throw new Error(
       `Invalid serviceName "${serviceName}" — must be lowercase, ` +
@@ -136,76 +144,79 @@ export function createRlsConnectionBootstrap(serviceName: string) {
       // same util — both stay in lockstep automatically.
       const pool = getPgPoolFromDataSource(this.dataSource);
       if (!pool) {
-        this.logger.error(
+        const message =
           'Cannot patch connection pool — pg Pool not found on DataSource driver. ' +
-            'RLS GUC propagation is INACTIVE — tenant isolation policies will deny all queries!',
-        );
-        return;
+          'RLS GUC propagation is INACTIVE, so this service cannot start safely. ' +
+          'REMEDIATION: configure TypeOrmModule with an initialized PostgreSQL ' +
+          'DataSource or register RlsModule.forBypassOnly for a pool-less service.';
+        this.logger.error(message);
+        throw new Error(message);
       }
 
       const originalConnect = pool.connect.bind(pool);
       const logger = this.logger;
 
-      // The patched function must support BOTH the callback signature and
-      // the promise signature, because TypeORM internals call both styles
-      // depending on the code path. The schema bootstrap does the same dance.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      pool.connect = function patchedConnect(callback?: any) {
+      function patchedConnect(): Promise<PgPoolClientLike>;
+      function patchedConnect(callback: PoolConnectCallback): void;
+      function patchedConnect(callback?: PoolConnectCallback): Promise<PgPoolClientLike> | void {
         // ── Callback style ─────────────────────────────────────────────
-        if (typeof callback === 'function') {
-          return originalConnect(
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (err: any, client: any, done: any) => {
-              if (err) return callback(err, client, done);
+        if (callback !== undefined) {
+          originalConnect((error, client, release): void => {
+            if (error) {
+              callback(error, client, release);
+              return;
+            }
+            if (!client || !release) {
+              const poolError = new Error('PostgreSQL pool returned no client or release callback');
+              logger.error(poolError.message);
+              callback(poolError);
+              return;
+            }
 
-              const { tenantId, bypass } = readRlsContext();
+            const { tenantId, bypass } = readRlsContext();
 
-              client.query(
-                SET_RLS_GUCS_SQL,
-                [tenantId, bypass],
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (qErr: any) => {
-                  if (qErr) {
-                    logger.error(
-                      `Failed to set RLS GUCs (tenant=${tenantId || '∅'}, ` +
-                        `bypass=${bypass}): ${qErr.message}`,
-                    );
-                    // Release the connection back to the pool with the
-                    // error flag so pg discards it instead of reusing a
-                    // potentially-half-configured connection.
-                    done(qErr);
-                    callback(qErr);
-                    return;
-                  }
-                  callback(null, client, done);
-                },
-              );
-            },
-          );
+            void client
+              .query(SET_RLS_GUCS_SQL, [tenantId, bypass])
+              .then((): void => callback(null, client, release))
+              .catch((queryFailure: unknown): void => {
+                const queryError = toError(queryFailure);
+                logger.error(
+                  `Failed to set RLS GUCs (tenant=${tenantId || '∅'}, ` +
+                    `bypass=${bypass}): ${queryError.message}`,
+                );
+                // Release the connection back to the pool with the
+                // error flag so pg discards it instead of reusing a
+                // potentially-half-configured connection.
+                release(queryError);
+                callback(queryError);
+              });
+          });
+          return;
         }
 
         // ── Promise style ──────────────────────────────────────────────
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return originalConnect().then(async (client: any) => {
+        return originalConnect().then(async (client): Promise<PgPoolClientLike> => {
           const { tenantId, bypass } = readRlsContext();
 
           try {
             await client.query(SET_RLS_GUCS_SQL, [tenantId, bypass]);
-          } catch (qErr) {
+          } catch (queryFailure) {
+            const queryError = toError(queryFailure);
             logger.error(
               `Failed to set RLS GUCs (promise) ` +
                 `(tenant=${tenantId || '∅'}, bypass=${bypass}): ` +
-                `${(qErr as Error).message}`,
+                queryError.message,
             );
             // Mark the connection as broken so pg destroys it rather than
             // returning it to the pool in an unknown state.
-            client.release(true);
-            throw qErr;
+            client.release(queryError);
+            throw queryError;
           }
 
           return client;
         });
-      } as unknown as typeof pool.connect;
+      }
+      pool.connect = patchedConnect;
 
       this.logger.log(
         'PostgreSQL connection pool patched for RLS GUC propagation ' +
@@ -215,6 +226,10 @@ export function createRlsConnectionBootstrap(serviceName: string) {
   }
 
   return RlsConnectionBootstrapImpl;
+}
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 /**

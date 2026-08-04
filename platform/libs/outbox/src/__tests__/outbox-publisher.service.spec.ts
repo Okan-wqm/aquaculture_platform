@@ -49,11 +49,17 @@
  *   - OutboxMetricsService — Prometheus counters, low-risk pure logic.
  */
 
-import type { EntityManager, QueryRunner } from 'typeorm';
 import type { BaseEvent } from '@platform/event-contracts';
+import { EntityManager, type QueryRunner } from 'typeorm';
 
 import { OutboxPublisher } from '../outbox-publisher.service';
 import { OutboxEntityBase } from '../outbox-entity.base';
+import {
+  OUTBOX_DELIVERY_POLICY_FIELD,
+  OUTBOX_ROUTING_SCOPE_FIELD,
+  OUTBOX_SECURITY_RECOVERY_POLICY,
+  OUTBOX_SYSTEM_TENANT_ID,
+} from '../outbox-routing';
 
 // Concrete test entity. Subclassing OutboxEntityBase lets the publisher
 // tag its INSERT with the right TypeORM metadata target — the same
@@ -69,6 +75,11 @@ interface SaveCall {
   payload: Record<string, unknown>;
 }
 
+interface InsertCall {
+  entityClass: typeof TestOutbox;
+  payload: Record<string, unknown>;
+}
+
 /**
  * Minimal EntityManager test double. Satisfies what the publisher
  * actually touches: `save(entityClass, row)` + the `queryRunner`
@@ -76,24 +87,49 @@ interface SaveCall {
  * `manager.queryRunner.isTransactionActive`; the double exposes a
  * mutable boolean so each test sets the precondition explicitly.
  */
-function makeManager(opts: {
-  isTransactionActive: boolean;
-  hasQueryRunner?: boolean;
-}): { manager: EntityManager; saveCalls: SaveCall[] } {
+function makeManager(opts: { isTransactionActive: boolean; hasQueryRunner?: boolean }): {
+  manager: EntityManager;
+  saveCalls: SaveCall[];
+  insertCalls: InsertCall[];
+} {
   const saveCalls: SaveCall[] = [];
-  const queryRunner = opts.hasQueryRunner === false
-    ? undefined
-    : ({ isTransactionActive: opts.isTransactionActive } as Partial<QueryRunner>);
-  const manager = {
+  const insertCalls: InsertCall[] = [];
+  const queryRunner =
+    opts.hasQueryRunner === false
+      ? undefined
+      : ({ isTransactionActive: opts.isTransactionActive } as Partial<QueryRunner>);
+  const queryBuilder = {
+    insert: jest.fn(),
+    into: jest.fn(),
+    values: jest.fn(),
+    orIgnore: jest.fn(),
+    execute: jest.fn(),
+  };
+  queryBuilder.insert.mockReturnValue(queryBuilder);
+  queryBuilder.into.mockImplementation((entityClass: typeof TestOutbox) => {
+    insertCalls.push({ entityClass, payload: {} });
+    return queryBuilder;
+  });
+  queryBuilder.values.mockImplementation((row: Record<string, unknown>) => {
+    const call = insertCalls.at(-1);
+    if (!call) throw new Error('values called before into');
+    call.payload = row;
+    return queryBuilder;
+  });
+  queryBuilder.orIgnore.mockReturnValue(queryBuilder);
+  queryBuilder.execute.mockResolvedValue({ identifiers: [], generatedMaps: [], raw: [] });
+
+  const manager = Object.assign(Object.create(EntityManager.prototype) as EntityManager, {
     queryRunner: queryRunner as QueryRunner | undefined,
+    createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
     save: jest
       .fn()
       .mockImplementation(async (entityClass: typeof TestOutbox, row: Record<string, unknown>) => {
         saveCalls.push({ entityClass, payload: row });
         return row;
       }),
-  } as unknown as EntityManager;
-  return { manager, saveCalls };
+  });
+  return { manager, saveCalls, insertCalls };
 }
 
 const VALID_TENANT = '11111111-1111-4111-8111-111111111111';
@@ -171,25 +207,98 @@ describe('OutboxPublisher', () => {
     });
 
     it('passes idempotencyKey + aggregateId from options through to the row', async () => {
-      const { manager, saveCalls } = makeManager({ isTransactionActive: true });
+      const { manager, saveCalls, insertCalls } = makeManager({ isTransactionActive: true });
 
       await publisher.enqueue(makeEvent(), manager, {
         idempotencyKey: 'idem-abc-123',
         aggregateId: 'aggregate-xyz-789',
       });
 
-      const row = saveCalls[0]!;
+      expect(saveCalls).toHaveLength(0);
+      const [row] = insertCalls;
+      if (!row) {
+        throw new Error('expected one idempotent outbox insert');
+      }
       expect(row.payload['idempotencyKey']).toBe('idem-abc-123');
       expect(row.payload['aggregateId']).toBe('aggregate-xyz-789');
+    });
+
+    it('uses an idempotent INSERT for a repeated logical event', async () => {
+      const { manager, insertCalls } = makeManager({ isTransactionActive: true });
+
+      await publisher.enqueue(makeEvent(), manager, { idempotencyKey: 'same-operation' });
+
+      expect(insertCalls).toHaveLength(1);
+      expect(manager.createQueryBuilder).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('enqueue() — privileged routing capabilities', () => {
+    it('denies system routing unless the consuming module explicitly owns it', async () => {
+      const { manager } = makeManager({ isTransactionActive: true });
+
+      await expect(
+        publisher.enqueue(makeEvent({ tenantId: OUTBOX_SYSTEM_TENANT_ID }), manager, {
+          routingScope: 'system',
+          idempotencyKey: 'system-event',
+        }),
+      ).rejects.toThrow(/explicit service capability/);
+    });
+
+    it('stores an attested NULL-tenant system row and strips no tenant identity from its payload', async () => {
+      publisher = new OutboxPublisher(TestOutbox, {
+        allowSystemRouting: true,
+        allowSecurityRecovery: true,
+      });
+      const { manager, insertCalls } = makeManager({ isTransactionActive: true });
+
+      await publisher.enqueue(makeEvent({ tenantId: OUTBOX_SYSTEM_TENANT_ID }), manager, {
+        routingScope: 'system',
+        deliveryPolicy: OUTBOX_SECURITY_RECOVERY_POLICY,
+        idempotencyKey: 'system-event',
+      });
+
+      const [insertCall] = insertCalls;
+      if (!insertCall) {
+        throw new Error('expected one system-routing outbox insert');
+      }
+      const row = insertCall.payload;
+      expect(row['tenantId']).toBeNull();
+      expect(row['payload']).toMatchObject({
+        tenantId: OUTBOX_SYSTEM_TENANT_ID,
+        [OUTBOX_ROUTING_SCOPE_FIELD]: OUTBOX_SYSTEM_TENANT_ID,
+        [OUTBOX_DELIVERY_POLICY_FIELD]: OUTBOX_SECURITY_RECOVERY_POLICY,
+      });
+    });
+
+    it('denies the infinite security recovery policy by default', async () => {
+      const { manager } = makeManager({ isTransactionActive: true });
+
+      await expect(
+        publisher.enqueue(makeEvent(), manager, {
+          deliveryPolicy: OUTBOX_SECURITY_RECOVERY_POLICY,
+        }),
+      ).rejects.toThrow(/explicit service capability/);
+    });
+
+    it('rejects caller-forged storage metadata', async () => {
+      const { manager } = makeManager({ isTransactionActive: true });
+      const forgedEvent = Object.assign(makeEvent(), {
+        [OUTBOX_ROUTING_SCOPE_FIELD]: OUTBOX_SYSTEM_TENANT_ID,
+      });
+
+      await expect(publisher.enqueue(forgedEvent, manager)).rejects.toThrow(
+        /reserved outbox storage metadata/,
+      );
     });
   });
 
   describe('enqueue() — eventType validation', () => {
     it('rejects empty eventType', async () => {
       const { manager } = makeManager({ isTransactionActive: true });
-      await expect(
-        publisher.enqueue(makeEvent({ eventType: '' }), manager),
-      ).rejects.toThrow(/eventType is required/);
+      await expect(publisher.enqueue(makeEvent({ eventType: '' }), manager)).rejects.toThrow(
+        /eventType is required/,
+      );
     });
 
     it('rejects camelCase eventType (would break NATS PascalCase discriminator)', async () => {
@@ -208,12 +317,12 @@ describe('OutboxPublisher', () => {
 
     it('rejects eventType with NATS wildcards (* and >)', async () => {
       const { manager } = makeManager({ isTransactionActive: true });
-      await expect(
-        publisher.enqueue(makeEvent({ eventType: 'Order*' }), manager),
-      ).rejects.toThrow(/PascalCase/);
-      await expect(
-        publisher.enqueue(makeEvent({ eventType: 'Order>' }), manager),
-      ).rejects.toThrow(/PascalCase/);
+      await expect(publisher.enqueue(makeEvent({ eventType: 'Order*' }), manager)).rejects.toThrow(
+        /PascalCase/,
+      );
+      await expect(publisher.enqueue(makeEvent({ eventType: 'Order>' }), manager)).rejects.toThrow(
+        /PascalCase/,
+      );
     });
 
     it('accepts valid PascalCase eventType', async () => {
@@ -228,16 +337,16 @@ describe('OutboxPublisher', () => {
   describe('enqueue() — tenantId validation (cross-tenant safety)', () => {
     it('rejects empty tenantId', async () => {
       const { manager } = makeManager({ isTransactionActive: true });
-      await expect(
-        publisher.enqueue(makeEvent({ tenantId: '' }), manager),
-      ).rejects.toThrow(/tenantId is required/);
+      await expect(publisher.enqueue(makeEvent({ tenantId: '' }), manager)).rejects.toThrow(
+        /tenantId is required/,
+      );
     });
 
     it('rejects non-UUID tenantId (would inject NATS subject wildcards / Socket.IO room collision)', async () => {
       const { manager } = makeManager({ isTransactionActive: true });
-      await expect(
-        publisher.enqueue(makeEvent({ tenantId: 'tenant-1' }), manager),
-      ).rejects.toThrow(/UUID/);
+      await expect(publisher.enqueue(makeEvent({ tenantId: 'tenant-1' }), manager)).rejects.toThrow(
+        /UUID/,
+      );
     });
 
     it('rejects tenantId with embedded newline (log-injection vector)', async () => {
@@ -250,9 +359,9 @@ describe('OutboxPublisher', () => {
 
     it('rejects tenantId with embedded NATS wildcard', async () => {
       const { manager } = makeManager({ isTransactionActive: true });
-      await expect(
-        publisher.enqueue(makeEvent({ tenantId: '*.evil' }), manager),
-      ).rejects.toThrow(/UUID/);
+      await expect(publisher.enqueue(makeEvent({ tenantId: '*.evil' }), manager)).rejects.toThrow(
+        /UUID/,
+      );
     });
 
     it('accepts UUID v4 tenantId in any case', async () => {

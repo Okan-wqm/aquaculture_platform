@@ -11,6 +11,7 @@ from .auto_merge import record_pr_lifecycle
 from .implementation_safety import (
     GATE_PRE_PR_OPEN,
     HardFailContext,
+    observe_perimeter,
     run_hard_fail_checks,
 )
 from .ledger import append_declared_jsonl, load_jsonl
@@ -217,13 +218,21 @@ def open_pr_for_action(
     #     going to be refused (missing change_id, wrong base, unresolvable
     #     branch) still fails with its own specific error rather than a
     #     generic perimeter refusal;
-    #   * before the `dry_run` branch, so the gate runs on BOTH paths. The
-    #     only production route into this function today is the cycle's
-    #     pr_lifecycle phase with dry_run=True (cycle.py:_run_pr_lifecycle_phase
-    #     ← _run_extended_phases ← run_enterprise_cycle ← autonomy
-    #     orchestrator ← aria-auto-cycle.yml). Gating only the live-open
-    #     path would have re-created the original defect in a new shape:
-    #     an unreachable gate that looks wired.
+    #   * before the `dry_run` branch, so the gate runs on BOTH paths. Gating
+    #     only the live-open path would have re-created the original defect in
+    #     a new shape: an unreachable gate that looks wired.
+    #
+    #     CORRECTED (ORPHAN-CRITICAL-498). This comment used to state that the
+    #     only production route here was "the cycle's pr_lifecycle phase with
+    #     dry_run=True (cycle.py:_run_pr_lifecycle_phase ← _run_extended_phases
+    #     ← run_enterprise_cycle ← autonomy orchestrator ← aria-auto-cycle.yml)".
+    #     That chain does not execute: `_run_extended_phases` is entered only
+    #     when a caller passes `run_phases` / `pre_tool_phases`, and no
+    #     production caller passes either. The live route is `cli.py` `pr open`
+    #     — an operator typing a command. The equivalent claim was corrected in
+    #     test_pr_open_perimeter_callsite.py and missed here, which is the same
+    #     defect one file over: a comment asserting a dead route as production
+    #     fact is what let 498 survive review in the first place.
     #
     # A dry run is refused too. Its purpose is to answer "would this PR be
     # openable", so a preview reporting `ok` while the perimeter would
@@ -244,31 +253,62 @@ def open_pr_for_action(
     #     validation_scope by apply_engine.
     #   diff_text — computed base_sha..head_sha below; None when base_sha is
     #     absent, which the secret scan treats as unverified and refuses.
-    hard_fail_report = run_hard_fail_checks(
-        HardFailContext(
-            workspace_root=workspace_path,
-            diff_text=_diff_text_for_action(
-                workspace_path=workspace_path,
-                base_sha=action.get("base_sha"),
-                head_sha=resolved_head_sha,
-            ),
-            envelope={"affected_surfaces": list(action.get("changed_files", []))},
-            affected_paths=tuple(action.get("changed_files", [])),
-            validation_commands=tuple(action.get("validation_commands", [])),
-            base_branch=base,
-            pr_body=body,
+    perimeter_context = HardFailContext(
+        workspace_root=workspace_path,
+        diff_text=_diff_text_for_action(
+            workspace_path=workspace_path,
+            base_sha=action.get("base_sha"),
+            head_sha=resolved_head_sha,
         ),
-        gate=GATE_PRE_PR_OPEN,
+        envelope={"affected_surfaces": list(action.get("changed_files", []))},
+        affected_paths=tuple(action.get("changed_files", [])),
+        validation_commands=tuple(action.get("validation_commands", [])),
+        base_branch=base,
+        pr_body=body,
     )
-    if not hard_fail_report.passed:
-        raise GovernanceError(
-            PERIMETER_REFUSED_PREFIX
-            + ": "
-            + "; ".join(
-                f"{failure.name}:{failure.reason}"
-                for failure in hard_fail_report.failures
+
+    # RC-2 — the two modes, chosen by whether this call MUTATES anything, and
+    # returning two different types so the choice cannot be undone downstream.
+    #
+    # Both branches still refuse a genuine refusal. Two correct arguments were in
+    # tension here and neither is discarded:
+    #
+    #   * the pre-RC-2 design ran the authorising gate before the `dry_run`
+    #     branch so a preview could not report `ok` while the perimeter would
+    #     block — a false green is the failure mode this wave keeps finding;
+    #   * RC-2 requires that a dry run not be counted as a rejected
+    #     implementation, because it has no changed_files, no base_sha and no
+    #     diff, so checks needing those refuse on data that cannot exist yet.
+    #
+    # `PerimeterVerdict.evaluable` separates them: a preview is still REFUSED
+    # when a check that could run refused (self-modification, secret in diff,
+    # unsigned commit), and is NOT refused when the only refusals name inputs
+    # this stage cannot supply. Those are reported as
+    # `not_evaluable_at_this_stage` instead — visible, and not a refusal.
+    if dry_run:
+        observation = observe_perimeter(perimeter_context, gate=GATE_PRE_PR_OPEN)
+        if observation.refused:
+            raise GovernanceError(
+                PERIMETER_REFUSED_PREFIX
+                + ": "
+                + "; ".join(
+                    f"{verdict.name}:{verdict.reason}"
+                    for verdict in observation.refused
+                )
             )
-        )
+        perimeter_summary: dict[str, Any] | None = observation.summary
+    else:
+        hard_fail_report = run_hard_fail_checks(perimeter_context, gate=GATE_PRE_PR_OPEN)
+        if not hard_fail_report.passed:
+            raise GovernanceError(
+                PERIMETER_REFUSED_PREFIX
+                + ": "
+                + "; ".join(
+                    f"{failure.name}:{failure.reason}"
+                    for failure in hard_fail_report.failures
+                )
+            )
+        perimeter_summary = None
 
     payload = {
         "number": None,
@@ -293,6 +333,7 @@ def open_pr_for_action(
         "title": proposal.get("title"),
         "body": body,
         "dry_run": dry_run,
+        "perimeter_observation": perimeter_summary,
     }
     if dry_run:
         row = record_pr_lifecycle(

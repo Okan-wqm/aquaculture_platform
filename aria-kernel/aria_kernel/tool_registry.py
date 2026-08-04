@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_declared_jsonl, append_jsonl, file_hash, rewrite_declared_json, write_index
+from .ledger import append_declared_jsonl, append_jsonl, file_hash, rewrite_declared_json, tools_index_group_ledgers, write_index
 from .workspace import canonical_identity, canonical_identity_source, canonical_repo_root, governance_event, repo_hash
 from .implementation_safety import verify_bash_command_allowed
 
@@ -347,45 +347,49 @@ def require_tools_v2(base_dir: str | os.PathLike[str] | None = None) -> None:
         raise GovernanceError("tools_migration_required")
 
 
+# The four surfaces every tools root has from its first cycle. They stay
+# in coverage even when the file is missing, so an empty or gutted root
+# fails verification instead of passing vacuously (fail-closed).
+CORE_TOOL_LEDGER_SURFACES: frozenset[str] = frozenset(
+    {"runs", "health", "cycles", "tools_governance"}
+)
+
+
 def covered_tool_ledgers(root: Path) -> dict[str, Path]:
-    ledgers = {
-        "runs": root / "runs.jsonl",
-        "health": root / "health.jsonl",
-        "cycles": root / "cycles.jsonl",
-        "governance": root / "governance.jsonl",
-    }
-    optional = {
-        "problem_clusters": root / "problem_clusters.jsonl",
-        "triage_decisions": root / "triage" / "decisions.jsonl",
-        "dispatch_requests": root / "dispatch" / "requests.jsonl",
-        "worker_results": root / "dispatch" / "worker-results.jsonl",
-        "verification_results": root / "dispatch" / "verification-results.jsonl",
-        "agent_fitness": root / "fitness" / "agent-fitness.jsonl",
-        "goldset_proposals": root / "goldsets" / "proposals.jsonl",
-        "proposals": root / "proposals" / "proposals.jsonl",
-        "impact_graphs": root / "impact" / "impact-graphs.jsonl",
-        "impact_plans": root / "impact" / "impact-plans.jsonl",
-        "executor_registry": root / "executor" / "registry.jsonl",
-        "executor_packets": root / "executor" / "packets.jsonl",
-        "executor_diff_reviews": root / "executor" / "diff-reviews.jsonl",
-        "executor_prompts": root / "executor" / "prompts.jsonl",
-        "executor_applications": root / "executor" / "applications.jsonl",
-        "executor_locks": root / "executor" / "locks.jsonl",
-        "executor_retries": root / "executor" / "retries.jsonl",
-        "executor_operator_takeovers": root / "executor" / "operator-takeovers.jsonl",
-        "executor_flaky_fingerprints": root / "executor" / "flaky-fingerprints.jsonl",
-        "plans_events": root / "plans" / "events.jsonl",
-        "agent_invocations_requests": root / "agent-invocations" / "requests.jsonl",
-        "agent_invocations_results": root / "agent-invocations" / "results.jsonl",
-        "runtime_artifact_index": root / "run-artifacts" / "artifact-index.jsonl",
-        "runtime_artifact_manifest": root / "run-artifacts" / "manifest.jsonl",
-        "runtime_retention_events": root / "retention" / "events.jsonl",
-        "runtime_observability_alerts": root / "observability" / "alerts.jsonl",
-        "runtime_artifact_inventory": root / "observability" / "artifact-inventory.jsonl",
-    }
-    for name, path in optional.items():
-        if path.exists():
-            ledgers[name] = path
+    """Every declared tools-root ledger surface, DERIVED from the manifest.
+
+    ORPHAN-HIGH-433: this used to be a hand list — 4 required + 28
+    optional entries — while ``state_manifest`` declared ~129 tools-root
+    ledger surfaces. memory/*, enterprise/*, change-ledger/*,
+    validation/*, queues/* were written with full hash-chain discipline
+    and never verified: a surface had to be REMEMBERED here to be
+    covered, and the list was the blind-spot generator. Deriving from the
+    manifest makes coverage automatic — declaring a surface IS enrolling
+    it — and the projection test pins that a hand list cannot come back.
+
+    Keys are the manifest surface names (glob surfaces contribute one
+    entry per existing match, keyed ``name:relative/path``). Ledgers that
+    have not been created yet are skipped — most appear lazily on first
+    write — except the core set above, which is unconditional.
+    ``integrity_index.json`` written before this derivation carries the
+    old key names; the first grouped index refresh rewrites it, and until
+    then ``verify`` reports the drift instead of hiding it.
+    """
+    from .state_manifest import iter_surfaces
+
+    ledgers: dict[str, Path] = {}
+    for surface in iter_surfaces():
+        if surface.root_kind != "tools" or surface.state_class != "ledger":
+            continue
+        if "*" in surface.path_pattern:
+            for match in sorted(root.glob(surface.path_pattern)):
+                if match.is_file():
+                    key = f"{surface.name}:{match.relative_to(root).as_posix()}"
+                    ledgers[key] = match
+            continue
+        path = root / surface.path_pattern
+        if surface.name in CORE_TOOL_LEDGER_SURFACES or path.exists():
+            ledgers[surface.name] = path
     return ledgers
 
 
@@ -400,7 +404,12 @@ def update_tools_index(root: Path) -> None:
         file_hashes["since_migration_events.jsonl"] = file_hash(since_path)
     if file_hashes:
         index["file_hashes"] = file_hashes
-    write_index(root / "integrity_index.json", index, covered_tool_ledgers(root))
+    # The index tracks its GROUP membership, not the whole covered set:
+    # the grouped refresh replaces ledger_hashes with the group on every
+    # indexed append, so writing a wider set here would plant entries the
+    # next append silently discards (ORPHAN-HIGH-525). Chain verification
+    # of the full covered set is integrity's job, not this index's.
+    write_index(root / "integrity_index.json", index, tools_index_group_ledgers(root))
 
 
 def append_tools_governance(

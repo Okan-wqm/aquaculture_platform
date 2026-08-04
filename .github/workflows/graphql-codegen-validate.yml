@@ -29,6 +29,9 @@ on:
       - 'apps/**/*.args.ts'
       - 'apps/**/*.object.ts'
       - 'apps/**/*.enum.ts'
+      # Shared code-first types can alter emitted SDL without matching an app
+      # filename convention (for example the canonical pagination types).
+      - 'libs/backend-common/src/**/*.ts'
       # Operation documents — the gql-tagged client documents codegen plucks.
       - 'web/**/src/graphql/**/*.ts'
       # The codegen config + the generated outputs themselves.
@@ -53,6 +56,7 @@ on:
       - 'apps/**/*.args.ts'
       - 'apps/**/*.object.ts'
       - 'apps/**/*.enum.ts'
+      - 'libs/backend-common/src/**/*.ts'
       - 'web/**/src/graphql/**/*.ts'
       - 'codegen.ts'
       - 'web/shared-ui/src/generated/**'
@@ -120,18 +124,15 @@ jobs:
             exit 1;
           }
 
-      - name: Report shared-ui generated drift (non-blocking)
-        # The shared-ui (shell / microfrontend) `graphql-types.ts` is ALSO emitted
-        # by this codegen run, but the committed checkout is known-stale against
-        # the current supergraph (a large pre-existing drift in the same family as
-        # docs/reviews/orphan-findings.md ORPHAN-MEDIUM-106 — the shell/module
-        # GraphQL contract predates and is out of scope for the AquaMobil S1 work).
-        # We surface it as a warning so it stays visible without blocking the
-        # AquaMobil contract gate. Promote to a hard `git diff --exit-code` once
-        # shared-ui is regenerated, the shell/module operations are realigned, and
-        # they are brought under their own codegen output (per ORPHAN-MEDIUM-106).
-        if: always()
+      - name: Assert the shared-ui generated schema contract is up to date
+        # The schema-only shared-ui output is consumed by the shell and its
+        # microfrontends. It is generated from the same composed supergraph as
+        # AquaMobil and is a hard contract: warning-only drift would let clients
+        # compile against stale field shapes.
         run: |
-          if ! git diff --quiet web/shared-ui/src/generated; then
-            echo '::warning::shared-ui generated GraphQL types are stale vs the current supergraph (orphan-findings ORPHAN-MEDIUM-106 family). Regenerate with `npm run codegen` and commit web/shared-ui/src/generated, then promote this step to a hard gate.';
-          fi
+          git diff --exit-code \
+            web/shared-ui/src/generated \
+          || {
+            echo '::error::shared-ui generated GraphQL types are stale. Run `npm run codegen` and commit web/shared-ui/src/generated.';
+            exit 1;
+          }

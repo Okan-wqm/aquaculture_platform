@@ -69,21 +69,16 @@ const ERROR_CODE_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
   SCHEDULE_NOT_METER_BASED: 'Bu planlama sayaç tabanlı değil.',
   SCHEDULE_HAS_OPEN_WORK_ORDER:
     'Bu planlama için zaten açık bir iş emri var — önce o iş emrini tamamlayın.',
-  CHECKLIST_INCOMPLETE:
-    'Zorunlu checklist maddeleri tamamlanmadan bakım kapatılamaz.',
+  CHECKLIST_INCOMPLETE: 'Zorunlu checklist maddeleri tamamlanmadan bakım kapatılamaz.',
   AUTO_GENERATE_THROTTLED:
     'Otomatik iş emri üretimi az önce çalıştırıldı. ' +
     'Lütfen birkaç dakika bekleyip tekrar deneyin.',
-  SENTINEL_HUB_NOT_CONFIGURED:
-    'Sentinel Hub bağlantısı yapılandırılmamış — önce tam kayıt yapın.',
-  INVALID_INSTANCE_ID: 'Geçersiz Instance ID formatı.',
   SUB_EQUIPMENT_IN_USE:
     'Bu alt ekipman aktif bir operasyonda kullanılıyor — önce ilgili kayıtları düzenleyin.',
   // Generic fall-throughs
   TANK_CAPACITY_EXCEEDED:
     'Tank kapasitesi aşıldı — başka bir tank seçin veya mevcut partiyi hareket ettirin.',
-  BACKDATE_BLOCKED:
-    'Geriye dönük tarih politikası bu işleme izin vermiyor.',
+  BACKDATE_BLOCKED: 'Geriye dönük tarih politikası bu işleme izin vermiyor.',
   VALIDATION_ERROR: 'Giriş doğrulaması başarısız — alanları kontrol edin.',
 });
 
@@ -116,8 +111,7 @@ export function parseGraphQLError(err: unknown): ParsedGraphQLError {
   const firstServerError = errAny.response?.errors?.[0];
   if (firstServerError) {
     const extensions = firstServerError.extensions ?? {};
-    const code =
-      typeof extensions.code === 'string' ? extensions.code : undefined;
+    const code = typeof extensions.code === 'string' ? extensions.code : undefined;
     const mappedMessage = code ? ERROR_CODE_MESSAGES[code] : undefined;
     return {
       code,
@@ -125,7 +119,7 @@ export function parseGraphQLError(err: unknown): ParsedGraphQLError {
         mappedMessage ??
         (typeof extensions.userMessage === 'string'
           ? extensions.userMessage
-          : firstServerError.message ?? 'Sunucu hatası.'),
+          : (firstServerError.message ?? 'Sunucu hatası.')),
       extensions,
     };
   }

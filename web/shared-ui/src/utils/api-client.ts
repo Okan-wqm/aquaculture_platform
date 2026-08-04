@@ -119,6 +119,15 @@ function isUserSessionAuthError(message: string): boolean {
   );
 }
 
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    (error as { name?: unknown }).name === 'AbortError'
+  );
+}
+
 // ============================================================================
 // Default Configuration
 // ============================================================================
@@ -131,6 +140,52 @@ const defaultConfig: ApiConfig = {
   maxRetries: 3,
   retryDelay: 1000,
 };
+
+/** A refresh lock must never remain pending indefinitely on a stalled body. */
+const TOKEN_REFRESH_TIMEOUT_MS = 15_000;
+
+interface RequestAbortScope {
+  readonly signal: AbortSignal;
+  dispose(): void;
+}
+
+/**
+ * Merge the caller's cancellation with an independent transport deadline.
+ * The returned scope must remain alive until the response body is consumed:
+ * fetch() resolving only means the headers arrived, not that JSON/blob parsing
+ * can no longer stall.
+ */
+function createRequestAbortScope(
+  timeoutMs: number,
+  callerSignal?: AbortSignal,
+): RequestAbortScope {
+  const controller = new AbortController();
+  const abortFromCaller = (): void => controller.abort();
+
+  if (callerSignal?.aborted) {
+    controller.abort();
+  } else {
+    callerSignal?.addEventListener('abort', abortFromCaller, { once: true });
+  }
+
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  let disposed = false;
+
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      if (disposed) return;
+      disposed = true;
+      clearTimeout(timeoutId);
+      callerSignal?.removeEventListener('abort', abortFromCaller);
+    },
+  };
+}
+
+/** Release an unread retry/error body without delaying the replacement request. */
+function discardResponseBody(response: Response): void {
+  void response.body?.cancel().catch(() => undefined);
+}
 
 // ============================================================================
 // Token Management
@@ -288,6 +343,7 @@ export function clearSession(): void {
  * preventing concurrent refresh calls that would revoke each other's tokens.
  */
 async function performTokenRefresh(): Promise<boolean> {
+  const abortScope = createRequestAbortScope(TOKEN_REFRESH_TIMEOUT_MS);
   try {
     const graphqlUrl = import.meta.env.VITE_GRAPHQL_URL || '/graphql';
     const response = await fetch(graphqlUrl, {
@@ -297,9 +353,13 @@ async function performTokenRefresh(): Promise<boolean> {
       body: JSON.stringify({
         query: `mutation { refreshToken(input: { refreshToken: "" }) { accessToken user { id email role tenantId } } }`,
       }),
+      signal: abortScope.signal,
     });
 
-    if (!response.ok) return false;
+    if (!response.ok) {
+      discardResponseBody(response);
+      return false;
+    }
 
     const result = await response.json();
     if (result.errors || !result.data?.refreshToken?.accessToken) {
@@ -321,6 +381,8 @@ async function performTokenRefresh(): Promise<boolean> {
     return true;
   } catch {
     return false;
+  } finally {
+    abortScope.dispose();
   }
 }
 
@@ -362,7 +424,9 @@ export async function silentRefresh(): Promise<boolean> {
   // Concurrent callers (handleUnauthorized) catch the rejection via their own await.
   // Without this, a rejection here surfaces as "Uncaught (in promise)" in the console
   // even though silentRefresh() itself returns a boolean (not this promise).
-  tokenRefreshPromise.catch(() => { /* handled by concurrent waiters */ });
+  tokenRefreshPromise.catch(() => {
+    /* handled by concurrent waiters */
+  });
 
   try {
     const success = await performTokenRefresh();
@@ -431,7 +495,9 @@ const tenantChangeCallbacks: Set<(oldTenantId: string) => void> = new Set();
  */
 export function onTenantChange(fn: (oldTenantId: string) => void): () => void {
   tenantChangeCallbacks.add(fn);
-  return () => { tenantChangeCallbacks.delete(fn); };
+  return () => {
+    tenantChangeCallbacks.delete(fn);
+  };
 }
 
 /**
@@ -528,7 +594,7 @@ class GraphQLClient {
     query: string | DocumentNode,
     variables?: TVariables,
     options?: GraphQLRequestOptions,
-    retryCount = 0
+    retryCount = 0,
   ): Promise<TData> {
     const { headers: customHeaders, timeout, signal } = options || {};
 
@@ -576,11 +642,7 @@ class GraphQLClient {
     attachCsrfHeader(headers, 'POST');
 
     // Timeout controller
-    const controller = new AbortController();
-    const timeoutId = setTimeout(
-      () => controller.abort(),
-      timeout || this.config.timeout
-    );
+    const abortScope = createRequestAbortScope(timeout || this.config.timeout, signal);
 
     try {
       const response = await fetch(this.config.graphqlUrl, {
@@ -591,14 +653,14 @@ class GraphQLClient {
           query: queryString,
           variables,
         }),
-        signal: signal || controller.signal,
+        signal: abortScope.signal,
       });
-
-      clearTimeout(timeoutId);
 
       // 401 — attempt a single token refresh, then retry.
       // retryCount === 0 caps the retry to exactly one attempt (CRIT-01: no infinite loop).
       if (response.status === 401 && retryCount === 0) {
+        discardResponseBody(response);
+        abortScope.dispose();
         try {
           await this.handleUnauthorized();
         } catch {
@@ -616,6 +678,7 @@ class GraphQLClient {
       // so callers can show "backend unavailable" and keep showing cached data.
       // 4xx (incl. 401/403) is left to the auth + GraphQL-error handling below.
       if (response.status >= 500) {
+        discardResponseBody(response);
         // Feed the outage breaker so refetchOnWindowFocus/Reconnect stop storming
         // a dead gateway (see backend-health-circuit).
         backendHealthCircuit.recordFailure();
@@ -623,10 +686,7 @@ class GraphQLClient {
           response.status >= 502 && response.status <= 504
             ? 'BACKEND_UNAVAILABLE'
             : 'NETWORK_ERROR';
-        throw new GraphQLClientError(
-          `Backend unavailable (HTTP ${response.status})`,
-          code,
-        );
+        throw new GraphQLClientError(`Backend unavailable (HTTP ${response.status})`, code);
       }
 
       // Response parse
@@ -649,6 +709,7 @@ class GraphQLClient {
           isUserSessionAuthError(error.message);
 
         if (isAuthError && retryCount === 0) {
+          abortScope.dispose();
           try {
             await this.handleUnauthorized();
             return this.request(query, variables, options, retryCount + 1);
@@ -663,16 +724,14 @@ class GraphQLClient {
         throw new GraphQLClientError(
           error.message,
           error.extensions?.code || 'GRAPHQL_ERROR',
-          result.errors
+          result.errors,
         );
       }
 
       return result.data as TData;
     } catch (error) {
-      clearTimeout(timeoutId);
-
       // Abort error
-      if (error instanceof Error && error.name === 'AbortError') {
+      if (isAbortError(error)) {
         throw new GraphQLClientError('Request timed out', 'TIMEOUT');
       }
 
@@ -682,6 +741,8 @@ class GraphQLClient {
       }
 
       throw error;
+    } finally {
+      abortScope.dispose();
     }
   }
 
@@ -767,23 +828,25 @@ class RestClient {
    */
   /**
    * Shared transport: auth + tenant + CSRF header injection, lifecycle barrier,
-   * timeout, and single-shot 401 refresh-and-retry. Returns the raw (ok) Response
-   * so the caller decides how to consume the body (JSON via request(), binary via
-   * getBlob()) — FARM-MEDIUM-091 routes farm uploads/tiles through this instead of
-   * re-implementing headers per call.
+   * timeout, response-body consumption, and single-shot 401 refresh-and-retry.
+   * FARM-MEDIUM-091 routes farm uploads/tiles through this instead of
+   * re-implementing headers per call. Keeping consumption inside this method is
+   * security-critical: the abort scope must cover a stalled JSON/blob body too.
    */
-  private async send(
+  private async send<T>(
     method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
     path: string,
-    options?: {
+    options: {
       body?: unknown;
       params?: Record<string, string | number | boolean>;
       headers?: Record<string, string>;
       timeout?: number;
-    },
-    retryCount = 0
-  ): Promise<Response> {
-    const { body, params, headers: customHeaders, timeout } = options || {};
+      signal?: AbortSignal;
+    } | undefined,
+    consumeResponse: (response: Response) => Promise<T>,
+    retryCount = 0,
+  ): Promise<T> {
+    const { body, params, headers: customHeaders, timeout, signal: callerSignal } = options || {};
 
     // LIFECYCLE BARRIER: Wait for token to be ready before sending request.
     // REST calls never contain refreshToken mutations, so always await.
@@ -842,11 +905,7 @@ class RestClient {
     }
 
     // Timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(
-      () => controller.abort(),
-      timeout || this.config.timeout
-    );
+    const abortScope = createRequestAbortScope(timeout || this.config.timeout, callerSignal);
 
     try {
       const response = await fetch(url, {
@@ -854,14 +913,14 @@ class RestClient {
         headers,
         credentials: 'include',
         body: requestBody,
-        signal: controller.signal,
+        signal: abortScope.signal,
       });
-
-      clearTimeout(timeoutId);
 
       // 401 — attempt a single token refresh, then retry.
       // retryCount === 0 caps the retry to exactly one attempt (no infinite loop).
       if (response.status === 401 && retryCount === 0) {
+        discardResponseBody(response);
+        abortScope.dispose();
         try {
           await this.handleUnauthorized();
         } catch {
@@ -869,7 +928,7 @@ class RestClient {
           clearSession();
           throw new RestClientError('Session expired', 401);
         }
-        return this.send(method, path, options, retryCount + 1);
+        return this.send(method, path, options, consumeResponse, retryCount + 1);
       }
 
       if (!response.ok) {
@@ -877,14 +936,13 @@ class RestClient {
         throw new RestClientError(
           errorData.message || `HTTP ${response.status}`,
           response.status,
-          errorData
+          errorData,
         );
       }
 
-      return response;
-    } catch (error) {
-      clearTimeout(timeoutId);
-      throw error;
+      return await consumeResponse(response);
+    } finally {
+      abortScope.dispose();
     }
   }
 
@@ -899,17 +957,22 @@ class RestClient {
       params?: Record<string, string | number | boolean>;
       headers?: Record<string, string>;
       timeout?: number;
+      signal?: AbortSignal;
     },
-    retryCount = 0
+    retryCount = 0,
   ): Promise<T> {
-    const response = await this.send(method, path, options, retryCount);
-
-    // 204 No Content
-    if (response.status === 204) {
-      return undefined as T;
-    }
-
-    return await response.json();
+    return this.send(
+      method,
+      path,
+      options,
+      async (response) => {
+        if (response.status === 204) {
+          return undefined as T;
+        }
+        return (await response.json()) as T;
+      },
+      retryCount,
+    );
   }
 
   /**
@@ -926,10 +989,10 @@ class RestClient {
       params?: Record<string, string | number | boolean>;
       headers?: Record<string, string>;
       timeout?: number;
-    }
+      signal?: AbortSignal;
+    },
   ): Promise<Blob> {
-    const response = await this.send(method, path, options);
-    return response.blob();
+    return this.send(method, path, options, (response) => response.blob());
   }
 
   /**
@@ -1050,22 +1113,21 @@ class PublicGraphQLClient {
       ...customHeaders,
     };
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout || this.timeoutMs);
+    const abortScope = createRequestAbortScope(timeout || this.timeoutMs, signal);
 
     try {
       const response = await fetch(this.graphqlUrl, {
         method: 'POST',
         headers,
         body: JSON.stringify({ query: queryString, variables }),
-        signal: signal || controller.signal,
+        signal: abortScope.signal,
       });
-      clearTimeout(timeoutId);
 
       // 5xx (nginx 502/503/504 / server error) returns HTML, not GraphQL JSON.
       // Surface a TYPED transport error before response.json() throws an
       // unclassifiable SyntaxError. (Mirror of the authed GraphQLClient.)
       if (response.status >= 500) {
+        discardResponseBody(response);
         backendHealthCircuit.recordFailure();
         const code =
           response.status >= 502 && response.status <= 504
@@ -1085,9 +1147,8 @@ class PublicGraphQLClient {
         );
       }
       return result.data as TData;
-    } catch (err) {
-      clearTimeout(timeoutId);
-      throw err;
+    } finally {
+      abortScope.dispose();
     }
   }
 }

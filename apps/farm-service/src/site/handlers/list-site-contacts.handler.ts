@@ -1,4 +1,5 @@
 import { runInTenantRead } from '@aquaculture/backend-common/database';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -12,10 +13,13 @@ export class ListSiteContactsHandler
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    private readonly siteAuthorization: SiteAuthorizationService,
   ) {}
 
   async execute(query: ListSiteContactsQuery): Promise<SiteContact[]> {
-    const { siteId, tenantId } = query;
+    const { siteId, tenantId, caller } = query;
+
+    this.siteAuthorization.assertSiteAssignment({ caller, siteId });
 
     // Read through the fail-closed tenant boundary.
     return runInTenantRead(this.dataSource, 'farm', tenantId, async (queryRunner) => {

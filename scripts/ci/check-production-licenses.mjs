@@ -44,8 +44,6 @@ const REVIEWED_EXCEPTIONS = new Map([
   ['@apollo/query-planner@2.13.3', 'Elastic-2.0'],
   ['@react-leaflet/core@3.0.0', 'Hippocratic-2.1'],
   ['react-leaflet@5.0.0', 'Hippocratic-2.1'],
-  // The published metadata contains a typo; the package LICENSE is BSD-3-Clause.
-  ['splaytree-ts@1.0.2', 'BDS-3-Clause'],
 ]);
 
 /**
@@ -54,7 +52,6 @@ const REVIEWED_EXCEPTIONS = new Map([
  * Exact versions make metadata changes fail closed.
  */
 const MISSING_METADATA_EXCEPTIONS = new Map([
-  ['arc@0.2.0', 'BSD-2-Clause'],
   ['busboy@1.6.0', 'MIT'],
   ['dequeue@1.0.5', 'BSD-2-Clause'],
   ['humanize@0.0.9', 'MIT'],

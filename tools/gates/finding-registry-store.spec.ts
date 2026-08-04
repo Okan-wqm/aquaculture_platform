@@ -20,7 +20,12 @@ import { after, test } from 'node:test';
 import {
   appendAllocatedFinding,
   appendExplicitFinding,
+  checkCanonicalRegistryPrefix,
+  type Finding,
+  parseRechainStartIndex,
+  prepareRegistryRechain,
   resolveGitFindingAllocationAuthority,
+  validateRegistrySuffixForRechain,
 } from './finding-registry';
 import {
   atomicWriteRegistryFile,
@@ -87,6 +92,45 @@ if (childMode === '--worktree-allocator-child') {
       'SENSOR-HIGH-099',
     ]);
     assert.equal(id, 'FARM-HIGH-020');
+  });
+
+  void test('rechain authority preserves the canonical main prefix', () => {
+    const canonical = [{ id: 'FARM-HIGH-001' }, { id: 'FARM-HIGH-002' }];
+    const branch = [...canonical, { id: 'FARM-HIGH-003' }];
+
+    assert.deepEqual(checkCanonicalRegistryPrefix(branch, canonical, 2), {
+      branchSuffixStartIndex: 2,
+      violation: null,
+    });
+    assert.match(
+      checkCanonicalRegistryPrefix(branch, canonical, 1).violation ?? '',
+      /enters the canonical origin\/main prefix/,
+    );
+    assert.match(
+      checkCanonicalRegistryPrefix(
+        [{ id: 'FARM-HIGH-001' }, { id: 'FARM-HIGH-TAMPERED' }, branch[2]],
+        canonical,
+        2,
+      ).violation ?? '',
+      /entry 1 differs/,
+    );
+  });
+
+  void test('rechain index parser rejects partial, signed, padded, and unsafe numbers', () => {
+    assert.equal(parseRechainStartIndex('1296'), 1296);
+    assert.equal(parseRechainStartIndex('0'), 0);
+    for (const invalid of [
+      undefined,
+      '',
+      '01',
+      '+1',
+      '-1',
+      '1.0',
+      '1296junk',
+      '9007199254740992',
+    ]) {
+      assert.equal(parseRechainStartIndex(invalid), null);
+    }
   });
 
   void test('nextFindingId rejects malformed domains and exhausted sequences', () => {
@@ -602,6 +646,166 @@ if (childMode === '--worktree-allocator-child') {
     );
     assert.equal(invalidExitCode, 1);
     assert.equal(readFileSync(resourcePath, 'utf8'), afterExplicitWithoutLayer);
+
+    const invalidEvidenceStubPath = join(fixtureRoot, 'invalid-evidence-stub.json');
+    writeFileSync(
+      invalidEvidenceStubPath,
+      JSON.stringify({
+        severity: 'HIGH',
+        state: 'OPEN',
+        title: 'Canonical evidence writer validation test finding',
+        evidence: ['GitHub Actions run 123456'],
+        narrative: ['GitHub Actions run 123456 exposed the defect.'],
+        owner_agent: 'context-manager',
+        raised_in_cycle: '2026-07-17-finding-id-allocator',
+        created_at: '2026-07-17T00:00:02.000Z',
+      }),
+      'utf8',
+    );
+    const invalidEvidenceExit = withRegistryFileLock(resourcePath, (lease) =>
+      appendAllocatedFinding('PROC', invalidEvidenceStubPath, lease, {
+        registryPath: resourcePath,
+        schemaPath,
+      }),
+    );
+    assert.equal(invalidEvidenceExit, 1);
+    assert.equal(readFileSync(resourcePath, 'utf8'), afterExplicitWithoutLayer);
+
+    const invalidExplicitEvidencePath = join(fixtureRoot, 'invalid-explicit-evidence.json');
+    writeFileSync(
+      invalidExplicitEvidencePath,
+      JSON.stringify({
+        id: 'CLAUDE-HIGH-003',
+        severity: 'HIGH',
+        state: 'OPEN',
+        title: 'Explicit imports share canonical evidence validation',
+        evidence: ['GitHub Actions run 123456'],
+        owner_agent: 'context-manager',
+        raised_in_cycle: '2026-07-17-finding-id-allocator',
+        created_at: '2026-07-17T00:00:02.250Z',
+      }),
+      'utf8',
+    );
+    const invalidExplicitEvidenceExit = withRegistryFileLock(resourcePath, (lease) =>
+      appendExplicitFinding(invalidExplicitEvidencePath, lease, {
+        registryPath: resourcePath,
+        schemaPath,
+      }),
+    );
+    assert.equal(invalidExplicitEvidenceExit, 1);
+    assert.equal(readFileSync(resourcePath, 'utf8'), afterExplicitWithoutLayer);
+
+    const emptyHighEvidenceStubPath = join(fixtureRoot, 'empty-high-evidence-stub.json');
+    writeFileSync(
+      emptyHighEvidenceStubPath,
+      JSON.stringify({
+        severity: 'HIGH',
+        state: 'OPEN',
+        title: 'High-severity findings require resolvable evidence',
+        evidence: [],
+        owner_agent: 'context-manager',
+        raised_in_cycle: '2026-07-17-finding-id-allocator',
+        created_at: '2026-07-17T00:00:02.500Z',
+      }),
+      'utf8',
+    );
+    const emptyHighEvidenceExit = withRegistryFileLock(resourcePath, (lease) =>
+      appendAllocatedFinding('PROC', emptyHighEvidenceStubPath, lease, {
+        registryPath: resourcePath,
+        schemaPath,
+      }),
+    );
+    assert.equal(emptyHighEvidenceExit, 1);
+    assert.equal(readFileSync(resourcePath, 'utf8'), afterExplicitWithoutLayer);
+  });
+
+  void test('canonical evidence SSOT accepts every supported path shape', () => {
+    const resourcePath = join(fixtureRoot, 'canonical-evidence.jsonl');
+    const schemaPath = resolve(
+      __dirname,
+      '..',
+      '..',
+      'docs',
+      'reviews',
+      '_registry',
+      'findings.jsonl.schema.json',
+    );
+    const stubPath = join(fixtureRoot, 'canonical-evidence-stub.json');
+    writeFileSync(resourcePath, '', 'utf8');
+    writeFileSync(
+      stubPath,
+      JSON.stringify({
+        severity: 'HIGH',
+        state: 'OPEN',
+        title: 'Every canonical evidence path shape remains accepted',
+        evidence: [
+          'file.ts',
+          'file.ts:12',
+          'file.ts:12-20',
+          'file.ts (test)',
+          'file.ts#anchor',
+          'file.ts:12 (test)',
+        ],
+        narrative: ['Free-form diagnostic prose remains valid here.'],
+        owner_agent: 'context-manager',
+        raised_in_cycle: '2026-07-17-finding-id-allocator',
+        created_at: '2026-07-17T00:00:03.000Z',
+      }),
+      'utf8',
+    );
+
+    const exitCode = withRegistryFileLock(resourcePath, (lease) =>
+      appendAllocatedFinding('PROC', stubPath, lease, { registryPath: resourcePath, schemaPath }),
+    );
+    assert.equal(exitCode, 0);
+    assert.match(
+      readFileSync(resourcePath, 'utf8'),
+      /"narrative":\["Free-form diagnostic prose remains valid here\."\]/,
+    );
+
+    const validEntry = JSON.parse(readFileSync(resourcePath, 'utf8').trim()) as Finding;
+    const invalidRecentEntry = { ...validEntry, evidence: ['GitHub Actions run 123456'] };
+    assert.match(
+      validateRegistrySuffixForRechain([invalidRecentEntry], 0, schemaPath).join('\n'),
+      /refusing|evidence\[0\]|GitHub Actions run 123456/,
+    );
+    const validBranchTail = { ...validEntry, id: 'PROC-HIGH-999' };
+    assert.match(
+      validateRegistrySuffixForRechain(
+        [validEntry, invalidRecentEntry, validBranchTail],
+        1,
+        schemaPath,
+      ).join('\n'),
+      /entry 1.*evidence\[0\]/,
+      'semantic validation must start at the canonical boundary even when rehashing starts later',
+    );
+    const historicalEntry = {
+      ...invalidRecentEntry,
+      created_at: '2026-05-09T23:59:59.999Z',
+    };
+    assert.deepEqual(validateRegistrySuffixForRechain([historicalEntry], 0, schemaPath), []);
+
+    const unchained: Finding[] = [
+      { ...validEntry, id: 'PROC-HIGH-101' },
+      { ...validEntry, id: 'PROC-HIGH-102' },
+      { ...validEntry, id: 'PROC-HIGH-103' },
+    ];
+    const initialized = prepareRegistryRechain(unchained, 0, 0, schemaPath);
+    if (!initialized.ok) assert.fail(initialized.failures.join('\n'));
+    assert.equal(initialized.ok, true);
+
+    const brokenBeforeRequestedStart = structuredClone(initialized.entries);
+    const brokenEntry = brokenBeforeRequestedStart[1];
+    assert.ok(brokenEntry);
+    brokenEntry.title = 'Semantically valid but hash-stale branch finding';
+    const bytesBeforeWrongStart = JSON.stringify(brokenBeforeRequestedStart);
+    const wrongStart = prepareRegistryRechain(brokenBeforeRequestedStart, 0, 2, schemaPath);
+
+    assert.equal(wrongStart.ok, false);
+    if (wrongStart.ok) assert.fail('a later rechain start must not bless an earlier hash break');
+    assert.equal(wrongStart.stage, 'integrity');
+    assert.match(wrongStart.failures.join('\n'), /hash mismatch at entry 1/);
+    assert.equal(JSON.stringify(brokenBeforeRequestedStart), bytesBeforeWrongStart);
   });
 
   void test('dead same-host stale lock is quarantined before takeover', () => {

@@ -175,7 +175,81 @@ def circuit_breaker_policy(repo_root: str | Path | None = None) -> dict[str, Any
         for key, _default in CIRCUIT_BREAKER_DEFAULTS.items():
             if key in raw_block:
                 block[key] = raw_block[key]
+        operator_set_window = "failure_window_hours" in raw_block
+    else:
+        operator_set_window = False
+
+    # RC-4, and this is the defect the plan did not name. The window in
+    # CIRCUIT_BREAKER_DEFAULTS is `minimum_window_hours(3)` — a constant
+    # computed at import time for the DEFAULT threshold. The policy merge is
+    # shallow, so an operator who raised `failure_threshold` to 10 and wrote no
+    # window inherited 96, which is the floor for threshold 3 and far below the
+    # 264 their own threshold requires. The breaker then ran on a window too
+    # narrow to hold their failures, silently. Deriving from the EFFECTIVE
+    # threshold makes raising the threshold raise the window with it, which is
+    # the only relationship that was ever intended.
+    if not operator_set_window:
+        try:
+            effective_threshold = int(block.get("failure_threshold", _DEFAULT_FAILURE_THRESHOLD))
+        except (TypeError, ValueError):
+            effective_threshold = _DEFAULT_FAILURE_THRESHOLD
+        block["failure_window_hours"] = minimum_window_hours(effective_threshold)
+
+    _assert_window_above_floor(block)
     return block
+
+
+def _assert_window_above_floor(block: dict[str, Any]) -> None:
+    """RC-4 — refuse a window below the derived floor instead of widening it.
+
+    ``circuit_breaker._breaker_policy`` used to silently raise any below-floor
+    value to ``minimum_window_hours(threshold)``. Two costs, and the second is
+    the one that matters:
+
+    * the shipped default carried the literal 72 while the code ran on 96, so
+      ``genesis_policy_default.json`` documented a number the loader refused to
+      honour — the file is now the only place the value is NOT written, because
+      it is derived;
+    * an operator who wrote 72 was told nothing. Silently correcting someone's
+      number teaches them something false about their own system, which is the
+      same class as a green test over a dead control: the machine is right and
+      the human's model of it is wrong, with nothing to reconcile them.
+
+    Validation lives here rather than in ``circuit_breaker`` so the block has
+    exactly one gate, next to the renamed-key refusal that already guards it.
+    """
+    from .tool_registry import GovernanceError
+
+    try:
+        threshold = int(block.get("failure_threshold", _DEFAULT_FAILURE_THRESHOLD))
+    except (TypeError, ValueError) as exc:
+        raise GovernanceError(
+            "genesis_policy_circuit_breaker_failure_threshold_not_an_integer: "
+            f"{block.get('failure_threshold')!r}"
+        ) from exc
+
+    floor = minimum_window_hours(threshold)
+    raw_window = block.get("failure_window_hours", floor)
+    try:
+        window = int(raw_window)
+    except (TypeError, ValueError) as exc:
+        raise GovernanceError(
+            "genesis_policy_circuit_breaker_failure_window_hours_not_an_integer: "
+            f"{raw_window!r}"
+        ) from exc
+
+    if window < floor:
+        raise GovernanceError(
+            "genesis_policy_circuit_breaker_window_below_floor: "
+            f"failure_window_hours={window} is narrower than the derived minimum "
+            f"{floor} for failure_threshold={threshold} "
+            f"(threshold x {NIGHTLY_CADENCE_HOURS}h cadence + {NIGHTLY_CADENCE_HOURS}h). "
+            "A narrower window puts the oldest failure on the window edge at the "
+            "next gate, so cron jitter decides whether the breaker trips. Remove "
+            "the key to take the derived value, or widen it to at least the "
+            "minimum above."
+        )
+    block["failure_window_hours"] = window
 
 
 SKILL_GENESIS_DRAINER_DEFAULTS: dict[str, Any] = {

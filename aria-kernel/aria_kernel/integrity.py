@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .ledger import LedgerIntegrityError, file_hash, load_jsonl, load_index, verify_jsonl
+from .ledger import LedgerIntegrityError, file_hash, load_jsonl, load_index, tools_index_group_ledgers, verify_jsonl
 from .runtime_artifacts import verify_runtime_artifacts
 from .tool_registry import covered_tool_ledgers, ensure_tools_dir, tools_contract_version, tools_dir
 from .workspace import ensure_workspace, workspace_contract_version, workspace_paths, repo_hash
@@ -163,7 +163,12 @@ def _verify_tools(root: Path, repo_root: Path | None) -> dict[str, Any]:
         if result.get("valid") is not True:
             issues.append({"code": "tools_ledger_invalid", "ledger": name, "details": result})
     if not legacy_read_only:
-        issues.extend(_index_issues(root / "integrity_index.json", covered_tool_ledgers(root), "tools"))
+        # Index staleness is checked against the index's OWN membership
+        # (the set the grouped refresh maintains), while the chain loop
+        # above verifies EVERY declared ledger surface. Comparing the
+        # wider covered set here would demand entries the refresh
+        # replaces away on each append (ORPHAN-HIGH-525).
+        issues.extend(_index_issues(root / "integrity_index.json", tools_index_group_ledgers(root), "tools"))
     return {"index_path": (root / "integrity_index.json").as_posix(), "ledgers": ledgers, "issues": issues}
 
 

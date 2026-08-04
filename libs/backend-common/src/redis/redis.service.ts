@@ -10,6 +10,17 @@ export interface RedisModuleOptions {
   keyPrefix?: string;
 }
 
+/** Fixed namespace owned by auth-service for distributed revocation markers. */
+export const AUTHORIZATION_REDIS_KEY_PREFIX = 'auth:';
+
+export type RevokedTokenRedisKey = `token:blacklist:${string}`;
+export type UserInvalidationRedisKey = `user_blacklist:${string}`;
+export type AuthorizationRedisKey = RevokedTokenRedisKey | UserInvalidationRedisKey;
+
+export type RedisScopedKey =
+  | { scope: 'service'; key: string }
+  | { scope: 'authorization'; key: AuthorizationRedisKey };
+
 /**
  * Redis Service
  * Provides Redis connection and operations for the platform
@@ -27,9 +38,14 @@ export class RedisService implements OnModuleDestroy {
       // IP-1: ioredis handles rediss:// URLs for TLS. For internal Docker
       // networks with self-signed certs, disable strict cert verification.
       const isTls = options.url.startsWith('rediss://');
-      this.client = new Redis(options.url, isTls ? {
-        tls: { rejectUnauthorized: false },
-      } : {});
+      this.client = new Redis(
+        options.url,
+        isTls
+          ? {
+              tls: { rejectUnauthorized: false },
+            }
+          : {},
+      );
     } else {
       this.client = new Redis({
         host: options.host || 'localhost',
@@ -48,7 +64,7 @@ export class RedisService implements OnModuleDestroy {
     });
   }
 
-  async onModuleDestroy() {
+  async onModuleDestroy(): Promise<void> {
     await this.client.quit();
   }
 
@@ -59,16 +75,95 @@ export class RedisService implements OnModuleDestroy {
     return `${this.keyPrefix}${key}`;
   }
 
+  private scopedKey(key: RedisScopedKey): string {
+    return key.scope === 'authorization'
+      ? `${AUTHORIZATION_REDIS_KEY_PREFIX}${key.key}`
+      : this.prefixKey(key.key);
+  }
+
   /**
    * Set a value with optional TTL (in seconds)
    */
   async set(key: string, value: string, ttlSeconds?: number): Promise<void> {
-    const prefixedKey = this.prefixKey(key);
+    await this.setAtKey(this.prefixKey(key), value, ttlSeconds);
+  }
+
+  /** Write a marker into the fixed authorization-owned namespace. */
+  async setAuthorization(
+    key: AuthorizationRedisKey,
+    value: string,
+    ttlSeconds?: number,
+  ): Promise<void> {
+    await this.setAtKey(`${AUTHORIZATION_REDIS_KEY_PREFIX}${key}`, value, ttlSeconds);
+  }
+
+  private async setAtKey(physicalKey: string, value: string, ttlSeconds?: number): Promise<void> {
     if (ttlSeconds) {
-      await this.client.setex(prefixedKey, ttlSeconds, value);
+      await this.client.setex(physicalKey, ttlSeconds, value);
     } else {
-      await this.client.set(prefixedKey, value);
+      await this.client.set(physicalKey, value);
     }
+  }
+
+  /** Atomically retain the greatest positive safe integer at a service-local key. */
+  async setMaxSafeInteger(key: string, value: number, ttlSeconds: number): Promise<number> {
+    return this.setMaxSafeIntegerAtKey(this.prefixKey(key), value, ttlSeconds);
+  }
+
+  /** Authorization-scoped max-only writer for user invalidation epochs. */
+  async setAuthorizationMaxSafeInteger(
+    key: UserInvalidationRedisKey,
+    value: number,
+    ttlSeconds: number,
+  ): Promise<number> {
+    return this.setMaxSafeIntegerAtKey(
+      `${AUTHORIZATION_REDIS_KEY_PREFIX}${key}`,
+      value,
+      ttlSeconds,
+    );
+  }
+
+  private async setMaxSafeIntegerAtKey(
+    physicalKey: string,
+    value: number,
+    ttlSeconds: number,
+  ): Promise<number> {
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new RangeError('value must be a positive safe integer');
+    }
+    if (!Number.isSafeInteger(ttlSeconds) || ttlSeconds <= 0) {
+      throw new RangeError('ttlSeconds must be a positive safe integer');
+    }
+
+    const script = `
+local current = redis.call('GET', KEYS[1])
+if current then
+  if not string.match(current, '^[1-9][0-9]*$') then
+    return redis.error_reply('EXISTING_VALUE_NOT_POSITIVE_INTEGER')
+  end
+  if string.len(current) > 16 or
+     (string.len(current) == 16 and current > '9007199254740991') then
+    return redis.error_reply('EXISTING_VALUE_NOT_SAFE_INTEGER')
+  end
+  local current_number = tonumber(current)
+  if current_number >= tonumber(ARGV[1]) then
+    return current_number
+  end
+end
+redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+return tonumber(ARGV[1])
+`;
+    const result: unknown = await this.client.eval(
+      script,
+      1,
+      physicalKey,
+      String(value),
+      String(ttlSeconds),
+    );
+    if (typeof result !== 'number' || !Number.isSafeInteger(result) || result <= 0) {
+      throw new Error('Redis returned an invalid max-integer result');
+    }
+    return result;
   }
 
   /**
@@ -76,6 +171,11 @@ export class RedisService implements OnModuleDestroy {
    */
   async get(key: string): Promise<string | null> {
     return this.client.get(this.prefixKey(key));
+  }
+
+  /** Read a key from the fixed authorization-owned namespace. */
+  async getAuthorization(key: AuthorizationRedisKey): Promise<string | null> {
+    return this.client.get(`${AUTHORIZATION_REDIS_KEY_PREFIX}${key}`);
   }
 
   /**
@@ -90,6 +190,14 @@ export class RedisService implements OnModuleDestroy {
       return [];
     }
     return this.client.mget(...keys.map((key) => this.prefixKey(key)));
+  }
+
+  /** Read explicitly-scoped keys in one ordered Redis round trip. */
+  async mgetScoped(...keys: RedisScopedKey[]): Promise<(string | null)[]> {
+    if (keys.length === 0) {
+      return [];
+    }
+    return this.client.mget(...keys.map((key) => this.scopedKey(key)));
   }
 
   /**
@@ -312,9 +420,15 @@ export class RedisService implements OnModuleDestroy {
 
   async scan(pattern: string, count?: number): Promise<string[]> {
     // ioredis SCAN overloads require const literal tokens; cast to satisfy TypeScript
-    const result = await (this.client.scan as (cursor: string, match: string, pattern: string, count: string, limit: number) => Promise<[string, string[]]>)(
-      '0', 'MATCH', pattern, 'COUNT', count ?? 100,
-    );
+    const result = await (
+      this.client.scan as (
+        cursor: string,
+        match: string,
+        pattern: string,
+        count: string,
+        limit: number,
+      ) => Promise<[string, string[]]>
+    )('0', 'MATCH', pattern, 'COUNT', count ?? 100);
     return result[1];
   }
 }

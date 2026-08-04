@@ -7,9 +7,10 @@ import 'reflect-metadata';
 // byte-identical wire to the v2 producer). ErrorCode/NatsError were
 // REMOVED in favour of discrete error classes — a request timeout is
 // `TimeoutError`, a no-responders failure is `NoRespondersError`.
-import { NoRespondersError, TimeoutError } from '@nats-io/nats-core';
-import type { Msg, NatsConnection } from '@nats-io/nats-core';
-import { NatsEventBus } from '../nats-event-bus';
+import { headers, NoRespondersError, TimeoutError } from '@nats-io/nats-core';
+import type { Msg, NatsConnection, Subscription } from '@nats-io/nats-core';
+
+import { CoreNatsConnectionSnapshot, NatsEventBus } from '../nats-event-bus';
 import {
   NatsRequestReply,
   RequestReplyDecodeError,
@@ -44,7 +45,7 @@ function stubConnection(
     request: jest.fn(),
     subscribe: jest.fn(),
   };
-  return { ...base, ...overrides } as unknown as NatsConnection;
+  return { ...base, ...overrides } as NatsConnection;
 }
 
 /**
@@ -53,9 +54,100 @@ function stubConnection(
  * keeps the tests fast + isolated from the JetStream boot path.
  */
 function fakeEventBus(connection: NatsConnection | null): NatsEventBus {
-  return {
+  const snapshot = {
+    connection,
+    generation: connection === null ? 0 : 1,
+    state: connection === null ? ('disconnected' as const) : ('connected' as const),
+  };
+  return Object.assign({} as NatsEventBus, {
     getRawConnection: () => connection,
-  } as unknown as NatsEventBus;
+    getCoreConnectionSnapshot: () => snapshot,
+    onCoreConnectionLifecycle: (listener: (value: typeof snapshot) => void) => {
+      listener(snapshot);
+      return () => undefined;
+    },
+    setCoreResponderAvailability: jest.fn(),
+    disconnect: jest.fn().mockResolvedValue(undefined),
+  });
+}
+
+function controlledEventBus(initialConnection: NatsConnection): {
+  eventBus: NatsEventBus;
+  emit(snapshot: CoreNatsConnectionSnapshot): void;
+} {
+  let snapshot: CoreNatsConnectionSnapshot = {
+    connection: initialConnection,
+    generation: 1,
+    state: 'connected',
+  };
+  const listeners = new Set<(value: CoreNatsConnectionSnapshot) => void>();
+  const eventBus = Object.assign({} as NatsEventBus, {
+    getRawConnection: () => snapshot.connection,
+    getCoreConnectionSnapshot: () => snapshot,
+    onCoreConnectionLifecycle: (listener: (value: CoreNatsConnectionSnapshot) => void) => {
+      listeners.add(listener);
+      listener(snapshot);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    setCoreResponderAvailability: jest.fn(),
+    disconnect: jest.fn().mockResolvedValue(undefined),
+  });
+  return {
+    eventBus,
+    emit: (nextSnapshot) => {
+      snapshot = nextSnapshot;
+      for (const listener of listeners) {
+        listener(snapshot);
+      }
+    },
+  };
+}
+
+function stubSubscription(overrides: Partial<Subscription>): Subscription {
+  return {
+    closed: new Promise<void>(() => undefined),
+    unsubscribe: jest.fn(),
+    drain: jest.fn().mockResolvedValue(undefined),
+    ...overrides,
+  } as Subscription;
+}
+
+function pendingMessageIterator(): AsyncIterator<Msg> {
+  return {
+    next: () => new Promise<IteratorResult<Msg>>(() => undefined),
+  };
+}
+
+function completedMessageIterator(): AsyncIterator<Msg> {
+  return {
+    next: () => Promise.resolve({ done: true, value: undefined }),
+  };
+}
+
+function failingMessageIterator(error: Error): AsyncIterator<Msg> {
+  return {
+    next: () => Promise.reject(error),
+  };
+}
+
+function messageThenPendingIterator(messages: readonly Msg[]): AsyncIterator<Msg> {
+  let index = 0;
+  return {
+    next: () => {
+      const message = messages[index];
+      if (message === undefined) {
+        return new Promise<IteratorResult<Msg>>(() => undefined);
+      }
+      index += 1;
+      return Promise.resolve({ done: false, value: message });
+    },
+  };
+}
+
+function resolveEmptyResponse(): Promise<object> {
+  return Promise.resolve({});
 }
 
 /**
@@ -83,12 +175,16 @@ function replyMsg(bodyJson: string): Msg {
 
 describe('NatsRequestReply — requestTyped', () => {
   it('round-trips happy-path JSON', async () => {
-    interface Req { a: number }
-    interface Res { b: string }
+    interface Req {
+      a: number;
+    }
+    interface Res {
+      b: string;
+    }
 
     const responseJson = JSON.stringify({ b: 'ok' });
     const connection = stubConnection({
-      request: jest.fn().mockResolvedValue(replyMsg(responseJson)) as unknown as NatsConnection['request'],
+      request: jest.fn().mockResolvedValue(replyMsg(responseJson)) as NatsConnection['request'],
     });
     const rr = new NatsRequestReply(fakeEventBus(connection));
 
@@ -116,7 +212,7 @@ describe('NatsRequestReply — requestTyped', () => {
     // (replacing v2's `new NatsError(msg, ErrorCode.Timeout)` sentinel).
     const timeoutErr = new TimeoutError();
     const connection = stubConnection({
-      request: jest.fn().mockRejectedValue(timeoutErr) as unknown as NatsConnection['request'],
+      request: jest.fn().mockRejectedValue(timeoutErr) as NatsConnection['request'],
     });
     const rr = new NatsRequestReply(fakeEventBus(connection));
 
@@ -138,7 +234,7 @@ describe('NatsRequestReply — requestTyped', () => {
     // It is not a TimeoutError, so the client maps it to the transport shelf.
     const transportErr = new NoRespondersError('ns.subj');
     const connection = stubConnection({
-      request: jest.fn().mockRejectedValue(transportErr) as unknown as NatsConnection['request'],
+      request: jest.fn().mockRejectedValue(transportErr) as NatsConnection['request'],
     });
     const rr = new NatsRequestReply(fakeEventBus(connection));
 
@@ -157,7 +253,7 @@ describe('NatsRequestReply — requestTyped', () => {
 
   it('raises RequestReplyEncodeError on non-encodable request bodies', async () => {
     const connection = stubConnection({
-      request: jest.fn() as unknown as NatsConnection['request'],
+      request: jest.fn() as NatsConnection['request'],
     });
     const rr = new NatsRequestReply(fakeEventBus(connection));
 
@@ -165,11 +261,7 @@ describe('NatsRequestReply — requestTyped', () => {
     // TypeError. The client wraps as RequestReplyEncodeError so
     // callers see the canonical shelf.
     await expect(
-      rr.requestTyped<{ n: bigint }, object>(
-        'ns.subj',
-        { n: 1n },
-        { timeoutMs: 50 },
-      ),
+      rr.requestTyped<{ n: bigint }, object>('ns.subj', { n: 1n }, { timeoutMs: 50 }),
     ).rejects.toBeInstanceOf(RequestReplyEncodeError);
 
     // AND the request was never actually sent.
@@ -178,7 +270,7 @@ describe('NatsRequestReply — requestTyped', () => {
 
   it('raises RequestReplyDecodeError when the reply is not valid JSON', async () => {
     const connection = stubConnection({
-      request: jest.fn().mockResolvedValue(replyMsg('not json')) as unknown as NatsConnection['request'],
+      request: jest.fn().mockResolvedValue(replyMsg('not json')) as NatsConnection['request'],
     });
     const rr = new NatsRequestReply(fakeEventBus(connection));
 
@@ -198,7 +290,7 @@ describe('NatsRequestReply — requestTyped', () => {
       message: 'no snapshot',
     });
     const connection = stubConnection({
-      request: jest.fn().mockResolvedValue(replyMsg(envelope)) as unknown as NatsConnection['request'],
+      request: jest.fn().mockResolvedValue(replyMsg(envelope)) as NatsConnection['request'],
     });
     const rr = new NatsRequestReply(fakeEventBus(connection));
 
@@ -246,5 +338,389 @@ describe('NatsRequestReply — error hierarchy', () => {
     expect(err.code).toBe('DENIED');
     expect(err.message).toBe('not authorised');
     expect(err.name).toBe('RequestReplyRemoteError');
+  });
+});
+
+describe('NatsRequestReply — responder', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('clears failed initial registration health and permits the same key to retry', async () => {
+    const activeSubscription = stubSubscription({
+      [Symbol.asyncIterator]: pendingMessageIterator,
+    });
+    const connection = stubConnection({
+      subscribe: jest
+        .fn()
+        .mockImplementationOnce(() => {
+          throw new Error('initial subscribe failed');
+        })
+        .mockReturnValue(activeSubscription),
+    });
+    const eventBus = fakeEventBus(connection);
+    const rr = new NatsRequestReply(eventBus);
+
+    await expect(
+      rr.respond<object, object>('request.farm.validateSiteAssignment', resolveEmptyResponse, {
+        queue: 'farm-service',
+      }),
+    ).rejects.toBeInstanceOf(RequestReplyTransportError);
+    expect(eventBus.setCoreResponderAvailability).toHaveBeenLastCalledWith(
+      expect.any(String),
+      true,
+    );
+
+    const retried = await rr.respond<object, object>(
+      'request.farm.validateSiteAssignment',
+      resolveEmptyResponse,
+      { queue: 'farm-service' },
+    );
+    expect(connection.subscribe).toHaveBeenCalledTimes(2);
+    await retried.drain();
+  });
+
+  it('re-subscribes exactly once when the responder iterator terminates with an error', async () => {
+    jest.useFakeTimers();
+    const failedSubscription = stubSubscription({
+      [Symbol.asyncIterator]: () =>
+        failingMessageIterator(new Error('subscription transport failed')),
+    });
+    const activeSubscription = stubSubscription({
+      [Symbol.asyncIterator]: pendingMessageIterator,
+    });
+    const connection = stubConnection({
+      subscribe: jest
+        .fn()
+        .mockReturnValueOnce(failedSubscription)
+        .mockReturnValue(activeSubscription),
+    });
+    const eventBus = fakeEventBus(connection);
+    const rr = new NatsRequestReply(eventBus);
+
+    const handle = await rr.respond<object, object>(
+      'request.farm.validateSiteAssignment',
+      resolveEmptyResponse,
+    );
+    await Promise.resolve();
+    await jest.advanceTimersByTimeAsync(100);
+
+    expect(connection.subscribe).toHaveBeenCalledTimes(2);
+    expect(eventBus.disconnect).not.toHaveBeenCalled();
+    expect(eventBus.setCoreResponderAvailability).toHaveBeenLastCalledWith(
+      expect.any(String),
+      true,
+    );
+    await handle.drain();
+  });
+
+  it('recovers when an iterator completes without throwing', async () => {
+    jest.useFakeTimers();
+    const completedSubscription = stubSubscription({
+      [Symbol.asyncIterator]: completedMessageIterator,
+    });
+    const activeSubscription = stubSubscription({
+      [Symbol.asyncIterator]: pendingMessageIterator,
+    });
+    const connection = stubConnection({
+      subscribe: jest
+        .fn()
+        .mockReturnValueOnce(completedSubscription)
+        .mockReturnValue(activeSubscription),
+    });
+    const rr = new NatsRequestReply(fakeEventBus(connection));
+
+    const handle = await rr.respond<object, object>(
+      'request.farm.validateSiteAssignment',
+      resolveEmptyResponse,
+    );
+    await Promise.resolve();
+    await jest.advanceTimersByTimeAsync(100);
+
+    expect(connection.subscribe).toHaveBeenCalledTimes(2);
+    await handle.drain();
+    expect(activeSubscription.drain).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates the queue group to the Core NATS subscription', async () => {
+    const drain = jest.fn().mockResolvedValue(undefined);
+    const subscription = stubSubscription({
+      drain,
+      [Symbol.asyncIterator]: pendingMessageIterator,
+    });
+    const connection = stubConnection();
+    const subscribe = jest.spyOn(connection, 'subscribe').mockReturnValue(subscription);
+    const rr = new NatsRequestReply(fakeEventBus(connection));
+
+    const handle = await rr.respond<object, object>(
+      'request.farm.validateSiteAssignment',
+      resolveEmptyResponse,
+      { queue: 'farm-service' },
+    );
+
+    expect(subscribe).toHaveBeenCalledWith('request.farm.validateSiteAssignment', {
+      queue: 'farm-service',
+    });
+    await handle.drain();
+    expect(drain).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects duplicate subject-and-queue registrations in one process', async () => {
+    const subscription = stubSubscription({
+      [Symbol.asyncIterator]: pendingMessageIterator,
+    });
+    const connection = stubConnection({
+      subscribe: jest.fn().mockReturnValue(subscription),
+    });
+    const rr = new NatsRequestReply(fakeEventBus(connection));
+    const first = await rr.respond<object, object>(
+      'request.farm.validateSiteAssignment',
+      resolveEmptyResponse,
+      { queue: 'farm-service' },
+    );
+
+    await expect(
+      rr.respond<object, object>('request.farm.validateSiteAssignment', resolveEmptyResponse, {
+        queue: 'farm-service',
+      }),
+    ).rejects.toBeInstanceOf(RequestReplyTransportError);
+    expect(connection.subscribe).toHaveBeenCalledTimes(1);
+    await first.drain();
+  });
+
+  it('forces unsubscribe after a drain failure before allowing re-registration', async () => {
+    const firstSubscription = stubSubscription({
+      drain: jest.fn().mockRejectedValue(new Error('drain failed')),
+      [Symbol.asyncIterator]: pendingMessageIterator,
+    });
+    const secondSubscription = stubSubscription({
+      [Symbol.asyncIterator]: pendingMessageIterator,
+    });
+    const connection = stubConnection({
+      subscribe: jest
+        .fn()
+        .mockReturnValueOnce(firstSubscription)
+        .mockReturnValue(secondSubscription),
+    });
+    const rr = new NatsRequestReply(fakeEventBus(connection));
+    const first = await rr.respond<object, object>(
+      'request.farm.validateSiteAssignment',
+      resolveEmptyResponse,
+      { queue: 'farm-service' },
+    );
+
+    await expect(first.drain()).rejects.toBeInstanceOf(AggregateError);
+    expect(firstSubscription.unsubscribe).toHaveBeenCalledTimes(1);
+
+    const second = await rr.respond<object, object>(
+      'request.farm.validateSiteAssignment',
+      resolveEmptyResponse,
+      { queue: 'farm-service' },
+    );
+    expect(connection.subscribe).toHaveBeenCalledTimes(2);
+    await second.drain();
+  });
+
+  it('cancels pending recovery when the responder is drained', async () => {
+    jest.useFakeTimers();
+    const failedSubscription = stubSubscription({
+      [Symbol.asyncIterator]: () =>
+        failingMessageIterator(new Error('subscription transport failed')),
+    });
+    const connection = stubConnection({
+      subscribe: jest.fn().mockReturnValue(failedSubscription),
+    });
+    const rr = new NatsRequestReply(fakeEventBus(connection));
+    const handle = await rr.respond<object, object>(
+      'request.farm.validateSiteAssignment',
+      resolveEmptyResponse,
+    );
+    await Promise.resolve();
+
+    await handle.drain();
+    await jest.runAllTimersAsync();
+
+    expect(connection.subscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('reconciles onto a replacement connection generation without duplicate responders', async () => {
+    const firstSubscription = stubSubscription({
+      [Symbol.asyncIterator]: pendingMessageIterator,
+    });
+    const secondSubscription = stubSubscription({
+      [Symbol.asyncIterator]: pendingMessageIterator,
+    });
+    const firstConnection = stubConnection({
+      subscribe: jest.fn().mockReturnValue(firstSubscription),
+    });
+    const secondConnection = stubConnection({
+      subscribe: jest.fn().mockReturnValue(secondSubscription),
+    });
+    const controlled = controlledEventBus(firstConnection);
+    const rr = new NatsRequestReply(controlled.eventBus);
+    const handle = await rr.respond<object, object>(
+      'request.farm.validateSiteAssignment',
+      resolveEmptyResponse,
+      { queue: 'farm-service' },
+    );
+
+    controlled.emit({
+      connection: firstConnection,
+      generation: 1,
+      state: 'disconnected',
+    });
+    controlled.emit({
+      connection: secondConnection,
+      generation: 2,
+      state: 'connected',
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    controlled.emit({
+      connection: secondConnection,
+      generation: 2,
+      state: 'connected',
+    });
+    await Promise.resolve();
+
+    expect(firstConnection.subscribe).toHaveBeenCalledTimes(1);
+    expect(firstSubscription.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(secondConnection.subscribe).toHaveBeenCalledTimes(1);
+    await handle.drain();
+    expect(secondSubscription.drain).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not create a replacement responder until the old subscription is stopped', async () => {
+    jest.useFakeTimers();
+    const unsubscribe = jest
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error('unsubscribe failed');
+      })
+      .mockImplementation(() => undefined);
+    const firstSubscription = stubSubscription({
+      unsubscribe,
+      [Symbol.asyncIterator]: pendingMessageIterator,
+    });
+    const secondSubscription = stubSubscription({
+      [Symbol.asyncIterator]: pendingMessageIterator,
+    });
+    const firstConnection = stubConnection({
+      subscribe: jest.fn().mockReturnValue(firstSubscription),
+    });
+    const secondConnection = stubConnection({
+      subscribe: jest.fn().mockReturnValue(secondSubscription),
+    });
+    const controlled = controlledEventBus(firstConnection);
+    const rr = new NatsRequestReply(controlled.eventBus);
+    const handle = await rr.respond<object, object>(
+      'request.farm.validateSiteAssignment',
+      resolveEmptyResponse,
+      { queue: 'farm-service' },
+    );
+
+    controlled.emit({
+      connection: firstConnection,
+      generation: 1,
+      state: 'disconnected',
+    });
+    controlled.emit({
+      connection: secondConnection,
+      generation: 2,
+      state: 'connected',
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(secondConnection.subscribe).not.toHaveBeenCalled();
+    await jest.advanceTimersByTimeAsync(100);
+    expect(unsubscribe).toHaveBeenCalledTimes(2);
+    expect(secondConnection.subscribe).toHaveBeenCalledTimes(1);
+    await handle.drain();
+  });
+
+  it('keeps one bounded-delay recovery timer without giving up permanently', async () => {
+    jest.useFakeTimers();
+    const connection = stubConnection({
+      subscribe: jest.fn().mockImplementation(() =>
+        stubSubscription({
+          [Symbol.asyncIterator]: () =>
+            failingMessageIterator(new Error('persistent subscription failure')),
+        }),
+      ),
+    });
+    const eventBus = fakeEventBus(connection);
+    const rr = new NatsRequestReply(eventBus);
+    const handle = await rr.respond<object, object>(
+      'request.farm.validateSiteAssignment',
+      resolveEmptyResponse,
+    );
+
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      await jest.runOnlyPendingTimersAsync();
+    }
+
+    expect(connection.subscribe).toHaveBeenCalledTimes(13);
+    expect(jest.getTimerCount()).toBe(1);
+    expect(eventBus.setCoreResponderAvailability).toHaveBeenLastCalledWith(
+      expect.any(String),
+      false,
+    );
+    await handle.drain();
+  });
+
+  it('never copies a forgeable authenticated-identity header into handler context', async () => {
+    const subject = 'request.farm.validateSiteAssignment';
+    const forgedHeaders = headers();
+    forgedHeaders.set('authenticated-identity', 'CN=auth_service');
+
+    let resolveResponse!: () => void;
+    const responseWritten = new Promise<void>((resolve) => {
+      resolveResponse = resolve;
+    });
+    const requestMessage: Msg = {
+      ...replyMsg(
+        JSON.stringify({
+          tenantId: '7ad63561-8e14-4a61-942b-bf296be39fb7',
+          siteId: '4dc41dfa-2645-45dc-a951-af7516e9cb9e',
+        }),
+      ),
+      subject,
+      reply: '_INBOX.site-assignment',
+      headers: forgedHeaders,
+      respond: jest.fn(() => {
+        resolveResponse();
+        return true;
+      }),
+    };
+    const drain = jest.fn().mockResolvedValue(undefined);
+    const subscription = stubSubscription({
+      drain,
+      [Symbol.asyncIterator]: () => messageThenPendingIterator([requestMessage]),
+    });
+    const connection = stubConnection({
+      subscribe: jest.fn().mockReturnValue(subscription),
+    });
+    const handler = jest.fn(
+      (_request: object, _context: { subject: string }): Promise<{ assignable: boolean }> =>
+        Promise.resolve({ assignable: true }),
+    );
+    const rr = new NatsRequestReply(fakeEventBus(connection));
+
+    const handle = await rr.respond<object, { assignable: boolean }>(subject, handler, {
+      queue: 'farm-service',
+    });
+    await responseWritten;
+
+    expect(handler).toHaveBeenCalledWith(
+      {
+        tenantId: '7ad63561-8e14-4a61-942b-bf296be39fb7',
+        siteId: '4dc41dfa-2645-45dc-a951-af7516e9cb9e',
+      },
+      { subject },
+    );
+
+    await handle.drain();
+    expect(drain).toHaveBeenCalledTimes(1);
   });
 });

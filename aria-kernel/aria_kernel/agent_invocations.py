@@ -1782,6 +1782,92 @@ def release_claim(
     return row
 
 
+def _invoke_bridges_for_result(
+    *,
+    request: dict[str, Any],
+    envelope: dict[str, Any],
+    base_dir: str | Path | None,
+    root: Path,
+    claim_id: str,
+    request_id: str,
+) -> dict[str, Any]:
+    """Run the three §C.1 bridges (judge / supporting / plan_convergence)
+    for an accepted result envelope and return the ``bridged`` summary.
+
+    Extracted from the ``submit_claim_result`` accepted path so the
+    §C.5 replay primitive (``bridge_status_ledger.replay_pending_bridges``)
+    re-invokes EXACTLY the code the accepted path runs — a replay that
+    drifts from the original invocation is a second bridge implementation.
+
+    Error contract (unchanged from the inline original):
+
+    * ``GovernanceError`` from any single bridge is recorded in
+      ``bridged["bridge_errors"]`` + an ``agent_bridge_warning``
+      governance event; the other bridges still run.
+    * ``BridgeContractViolation`` PROPAGATES (Plan ARIA-V8 v2 §4 Phase
+      8.2 B-V2-03) — a structural contract breach is operator-visible
+      at the call site, never swallowed into a warning.
+    * ``ImportError`` on the bridge modules is recorded, not raised.
+    """
+    bridged: dict[str, Any] = {"judge_feedback": None, "supporting_payload": None, "bridge_errors": []}
+    try:
+        from .judgment_bridge import persist_supporting_payload, record_judge_verdict_from_response
+
+        try:
+            bridged["judge_feedback"] = record_judge_verdict_from_response(
+                request=request, response=envelope, base_dir=base_dir
+            )
+        except GovernanceError as exc:
+            bridged["bridge_errors"].append(f"judge_bridge: {exc}")
+            append_tools_governance(
+                root,
+                "agent_bridge_warning",
+                {"claim_id": claim_id, "request_id": request_id, "kind": "judge_bridge", "error": str(exc)},
+            )
+        try:
+            bridged["supporting_payload"] = persist_supporting_payload(
+                request=request, response=envelope, base_dir=base_dir
+            )
+        except GovernanceError as exc:
+            bridged["bridge_errors"].append(f"supporting_bridge: {exc}")
+            append_tools_governance(
+                root,
+                "agent_bridge_warning",
+                {"claim_id": claim_id, "request_id": request_id, "kind": "supporting_bridge", "error": str(exc)},
+            )
+        # Plan 026R §C.1 — planner-role auto-bridge. Pre-§C.1 planner
+        # roles (primary_plan / challenger_plan / cross_review) fell
+        # through every bridge silently; convergent-planning state
+        # never saw the accepted submission. record_plan_result
+        # dispatches by role to the correct plan_convergence mutation
+        # (record_revision / submit_challenger_plan / record_cross_review).
+        # Returns None for non-planner roles so judge / supporting
+        # paths above stay unaffected.
+        try:
+            from .plan_convergence_bridge import record_plan_result
+            bridged["plan_convergence"] = record_plan_result(
+                role=envelope.get("role"),
+                request=request,
+                response=envelope,
+                base_dir=base_dir,
+            )
+        except BridgeContractViolation:
+            # Plan ARIA-V8 v2 §4 Phase 8.2 (B-V2-03) — typed contract
+            # violation surfaces operator-visibly. Do NOT swallow into
+            # agent_bridge_warning.
+            raise
+        except GovernanceError as exc:
+            bridged["bridge_errors"].append(f"plan_convergence_bridge: {exc}")
+            append_tools_governance(
+                root,
+                "agent_bridge_warning",
+                {"claim_id": claim_id, "request_id": request_id, "kind": "plan_convergence_bridge", "error": str(exc)},
+            )
+    except ImportError as exc:  # pragma: no cover — judgment_bridge is in tree
+        bridged["bridge_errors"].append(f"bridge_import: {exc}")
+    return bridged
+
+
 def submit_claim_result(
     *,
     claim_id: str,
@@ -2213,67 +2299,14 @@ def submit_claim_result(
     # passed every gate; downstream wiring shortfalls become operator
     # tracked actions, not silent re-rejections. Bridges run OUTSIDE the
     # results.jsonl lock — they don't mutate that ledger.
-    bridged = {"judge_feedback": None, "supporting_payload": None, "bridge_errors": []}
-    try:
-        from .judgment_bridge import persist_supporting_payload, record_judge_verdict_from_response
-
-        try:
-            bridged["judge_feedback"] = record_judge_verdict_from_response(
-                request=request, response=envelope, base_dir=base_dir
-            )
-        except GovernanceError as exc:
-            bridged["bridge_errors"].append(f"judge_bridge: {exc}")
-            append_tools_governance(
-                root,
-                "agent_bridge_warning",
-                {"claim_id": claim_id, "request_id": request_id, "kind": "judge_bridge", "error": str(exc)},
-            )
-        try:
-            bridged["supporting_payload"] = persist_supporting_payload(
-                request=request, response=envelope, base_dir=base_dir
-            )
-        except GovernanceError as exc:
-            bridged["bridge_errors"].append(f"supporting_bridge: {exc}")
-            append_tools_governance(
-                root,
-                "agent_bridge_warning",
-                {"claim_id": claim_id, "request_id": request_id, "kind": "supporting_bridge", "error": str(exc)},
-            )
-        # Plan 026R §C.1 — planner-role auto-bridge. Pre-§C.1 planner
-        # roles (primary_plan / challenger_plan / cross_review) fell
-        # through every bridge silently; convergent-planning state
-        # never saw the accepted submission. record_plan_result
-        # dispatches by role to the correct plan_convergence mutation
-        # (record_revision / submit_challenger_plan / record_cross_review).
-        # Returns None for non-planner roles so judge / supporting
-        # paths above stay unaffected.
-        try:
-            from .plan_convergence_bridge import record_plan_result
-            bridged["plan_convergence"] = record_plan_result(
-                role=envelope.get("role"),
-                request=request,
-                response=envelope,
-                base_dir=base_dir,
-            )
-        except BridgeContractViolation:
-            # Plan ARIA-V8 v2 §4 Phase 8.2 (B-V2-03) — typed contract
-            # violation surfaces operator-visibly. Do NOT swallow into
-            # agent_bridge_warning. Pre-V8 the wrapper swallowed every
-            # GovernanceError subclass into a warning + accepted the
-            # envelope; V8 makes the structural-contract violation a
-            # hard fail that propagates to the caller (convergence
-            # drainer / consumer) so the operator sees the contract
-            # breach in real time.
-            raise
-        except GovernanceError as exc:
-            bridged["bridge_errors"].append(f"plan_convergence_bridge: {exc}")
-            append_tools_governance(
-                root,
-                "agent_bridge_warning",
-                {"claim_id": claim_id, "request_id": request_id, "kind": "plan_convergence_bridge", "error": str(exc)},
-            )
-    except ImportError as exc:  # pragma: no cover — judgment_bridge is in tree
-        bridged["bridge_errors"].append(f"bridge_import: {exc}")
+    bridged = _invoke_bridges_for_result(
+        request=request,
+        envelope=envelope,
+        base_dir=base_dir,
+        root=root,
+        claim_id=claim_id,
+        request_id=request_id,
+    )
 
     # Plan 026R §C.5 — record the bridge outcome on the append-only
     # ``agent-result-bridge-status.jsonl`` ledger. Result row in

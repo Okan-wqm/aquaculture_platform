@@ -53,9 +53,21 @@ import {
   assertSubjectMatchesEvent,
 } from '../subjects/tenant-event-subject';
 
-
 import { DEFAULT_NATS_URL, DEFAULT_NATS_STREAM_NAME } from './event-bus-config.factory';
 import type { EventBusModuleOptions } from './nats.module';
+
+export interface CoreNatsConnectionSnapshot {
+  readonly connection: NatsConnection | null;
+  readonly generation: number;
+  readonly state: 'connected' | 'disconnected' | 'reconnecting';
+}
+
+export type CoreNatsConnectionLifecycleListener = (snapshot: CoreNatsConnectionSnapshot) => void;
+
+interface NatsReconnectPolicy {
+  readonly perConnectionAttemptBudget: number;
+  readonly initialDelayMs: number;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -66,8 +78,7 @@ function errorMessage(error: unknown): string {
 }
 
 function parseStreamReplicas(rawValue: string | number | undefined, defaultValue: number): number {
-  const parsed =
-    rawValue === undefined ? defaultValue : Number.parseInt(String(rawValue), 10);
+  const parsed = rawValue === undefined ? defaultValue : Number.parseInt(String(rawValue), 10);
 
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > 5) {
     throw new Error(
@@ -77,6 +88,30 @@ function parseStreamReplicas(rawValue: string | number | undefined, defaultValue
 
   return parsed;
 }
+
+function parseReconnectAttempts(rawValue: string | number): number {
+  const parsed = Number(rawValue);
+  if (!Number.isInteger(parsed) || parsed === 0 || parsed < -1) {
+    throw new Error(
+      `NATS_MAX_RECONNECT_ATTEMPTS must be -1 or a positive integer, got: ${String(rawValue)}`,
+    );
+  }
+  return parsed;
+}
+
+function parseReconnectWaitMs(rawValue: string | number): number {
+  const parsed = Number(rawValue);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(
+      `NATS_RECONNECT_TIME_WAIT_MS must be a positive integer, got: ${String(rawValue)}`,
+    );
+  }
+  return parsed;
+}
+
+const CONSUMER_VERSION_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+const MAX_CONSUMER_VERSION_LENGTH = 64;
+const MAX_OUTER_RECONNECT_DELAY_MS = 30_000;
 
 function isIEvent(value: unknown): value is IEvent {
   if (!isRecord(value)) {
@@ -95,24 +130,32 @@ function isIEvent(value: unknown): value is IEvent {
  * Designed for 10K+ tenant scale with proper isolation
  */
 @Injectable()
-export class NatsEventBus
-  implements IEventBus, OnModuleInit, OnModuleDestroy
-{
+export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(NatsEventBus.name);
   private connection: NatsConnection | null = null;
   private jetStream: JetStreamClient | null = null;
   private jetStreamManager: JetStreamManager | null = null;
+  private streamReady = false;
   private readonly consumers = new Map<string, Consumer>();
   private readonly abortControllers = new Map<string, AbortController>();
   private readonly handlers = new Map<string, IEventHandler[]>();
+  private readonly subscriptionOptions = new Map<string, SubscriptionOptions | undefined>();
   /** Subscriptions requested before JetStream was connected, to be activated on connect. */
   private readonly pendingSubscriptions: Array<{
     subject: string;
     options?: SubscriptionOptions;
   }> = [];
   private lastConnectedAt: Date | null = null;
-  private connectionState: 'connected' | 'disconnected' | 'reconnecting' =
-    'disconnected';
+  private connectionState: 'connected' | 'disconnected' | 'reconnecting' = 'disconnected';
+  private connectionGeneration = 0;
+  private readonly coreConnectionListeners = new Set<CoreNatsConnectionLifecycleListener>();
+  private readonly unavailableCoreResponders = new Set<string>();
+  private connectPromise: Promise<void> | null = null;
+  private disconnectPromise: Promise<void> | null = null;
+  private unclosedConnection: NatsConnection | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private moduleDestroying = false;
+  private readonly intentionallyClosingConnections = new WeakSet<NatsConnection>();
 
   // Configuration
   // ADR-015: TLS + auth fields are NOT stored on the instance — the shared
@@ -123,8 +166,7 @@ export class NatsEventBus
   private readonly streamName: string;
   private readonly streamReplicas: number;
   private readonly clientId: string;
-  private readonly maxReconnectAttempts: number;
-  private readonly reconnectTimeWaitMs: number;
+  private reconnectPolicy: NatsReconnectPolicy | null = null;
 
   /** Optional event upcaster registry for v1→v2+ event schema migration */
   private readonly upcasterRegistry?: EventUpcasterRegistry;
@@ -143,10 +185,7 @@ export class NatsEventBus
     this.upcasterRegistry = upcasterRegistry;
     this.requireBroker = moduleOptions?.required ?? false;
     this.natsUrl = this.configService.get<string>('NATS_URL', DEFAULT_NATS_URL);
-    this.streamName = this.configService.get<string>(
-      'NATS_STREAM_NAME',
-      DEFAULT_NATS_STREAM_NAME,
-    );
+    this.streamName = this.configService.get<string>('NATS_STREAM_NAME', DEFAULT_NATS_STREAM_NAME);
     // JetStream replica count is a property of the NATS DEPLOYMENT TOPOLOGY
     // (how many nodes the cluster has), NOT of the application environment.
     // Coupling it to NODE_ENV/AQUA_ENV (production ⇒ 3) was an architectural
@@ -175,22 +214,8 @@ export class NatsEventBus
     // PID-based names caused orphan consumers and duplicate message processing.
     // Same SERVICE_NAME across scaled instances enables JetStream queue-group
     // semantics: messages are load-balanced, not duplicated.
-    const serviceName = this.configService.get<string>(
-      'SERVICE_NAME',
-      os.hostname(),
-    );
-    this.clientId = this.configService.get<string>(
-      'NATS_CLIENT_ID',
-      `aquaculture-${serviceName}`,
-    );
-    this.maxReconnectAttempts = this.configService.get<number>(
-      'NATS_MAX_RECONNECT_ATTEMPTS',
-      10,
-    );
-    this.reconnectTimeWaitMs = this.configService.get<number>(
-      'NATS_RECONNECT_TIME_WAIT_MS',
-      2000,
-    );
+    const serviceName = this.configService.get<string>('SERVICE_NAME', os.hostname());
+    this.clientId = this.configService.get<string>('NATS_CLIENT_ID', `aquaculture-${serviceName}`);
     // ADR-015: TLS / auth config is read inside `connect()` via the shared
     // `buildNatsConnectionOptions()` factory. Production security enforcement
     // (no-auth throw) lives in the factory so every NATS consumer on the
@@ -216,95 +241,222 @@ export class NatsEventBus
 
     try {
       await this.connect();
-      await this.setupStream();
-      // Activate any subscriptions that were registered before connect completed
-      await this.activatePendingSubscriptions();
     } catch (error) {
+      if (this.connection !== null) {
+        try {
+          await this.disconnect();
+        } catch (disconnectError) {
+          this.logger.error(
+            JSON.stringify({
+              event: 'nats_startup_failure_disconnect_error',
+              errorType: disconnectError instanceof Error ? disconnectError.name : 'UnknownError',
+            }),
+          );
+        }
+      }
+      if (this.reconnectPolicy === null) {
+        this.logger.error(
+          JSON.stringify({
+            event: 'nats_connection_policy_invalid',
+            errorType: error instanceof Error ? error.name : 'UnknownError',
+          }),
+        );
+        throw error;
+      }
       if (mustHaveBroker) {
         this.logger.error(
           `CRITICAL: Failed to connect to NATS (required=${this.requireBroker}, ` +
-          `production=${isProduction}). Service startup aborted. ` +
-          `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            `production=${isProduction}). Service startup aborted. ` +
+            `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
         );
         throw error;
       }
       this.logger.warn(
         `Failed to connect to NATS on startup (non-production, optional). ` +
-        `Service will continue without event bus. ` +
-        `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          `Service will continue without event bus. ` +
+          `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
       this.scheduleReconnect();
     }
   }
 
   /**
-   * Track current reconnect-attempt depth so scheduleReconnect respects
-   * `maxReconnectAttempts` (NATS_MAX_RECONNECT_ATTEMPTS, default 10).
-   *
-   * # Why this counter exists (PLAT-MEDIUM-001 closure)
-   *
-   * Pre-fix scheduleReconnect recursed infinitely on every failure
-   * without consulting maxReconnectAttempts — the field was read into
-   * the constructor but never used. A pod stuck on a permanently-broken
-   * NATS endpoint (DNS misconfiguration, certificate revoked, broker
-   * decommissioned) would log warnings forever, masking the underlying
-   * issue. The cap forces the pod into a clear non-healthy state after
-   * the configured attempts so liveness/readiness probes can intervene.
-   *
-   * Counter resets to 0 on every successful connect so legitimate
-   * cycle-out periods (e.g. broker rolling restart) do not exhaust
-   * the budget for the next outage.
+   * Outer connection generations keep retrying for the process lifetime.
+   * `maxReconnectAttempts` belongs to one @nats-io connection generation;
+   * treating it as a process-lifetime cap leaves responders permanently dead
+   * after a broker outage outlasts that short client budget. The outer loop has
+   * exactly one timer and a capped delay, so recovery remains bounded without
+   * relying on an application health controller to restart the process.
    */
   private reconnectAttemptCount = 0;
 
+  private getReconnectPolicy(): NatsReconnectPolicy {
+    if (this.reconnectPolicy === null) {
+      throw new Error('NATS reconnect policy is not initialized');
+    }
+    return this.reconnectPolicy;
+  }
+
   private scheduleReconnect(): void {
-    if (this.reconnectAttemptCount >= this.maxReconnectAttempts) {
-      // Cap reached. Log loud and stop scheduling. The pod's liveness
-      // probe will eventually mark the container unhealthy and the
-      // orchestrator will restart it — at which point the counter
-      // resets via fresh module init.
-      this.logger.error(
-        `NATS reconnect attempts exhausted (${this.reconnectAttemptCount}/${this.maxReconnectAttempts}). ` +
-          'Stopping reconnect loop. The pod is in a degraded state — ' +
-          'liveness probe will trigger orchestrator restart.',
-      );
+    if (this.moduleDestroying || this.reconnectTimer !== null) {
       return;
     }
 
     this.reconnectAttemptCount += 1;
     const attempt = this.reconnectAttemptCount;
-    setTimeout(() => {
+    const reconnectPolicy = this.getReconnectPolicy();
+    const degradedLogInterval =
+      reconnectPolicy.perConnectionAttemptBudget === -1
+        ? 10
+        : reconnectPolicy.perConnectionAttemptBudget;
+    if (attempt >= degradedLogInterval && attempt % degradedLogInterval === 0) {
+      this.logger.error(
+        JSON.stringify({
+          event: 'nats_outer_reconnect_degraded',
+          attempts: attempt,
+        }),
+      );
+    }
+
+    const delayMs = Math.min(
+      reconnectPolicy.initialDelayMs * 2 ** Math.min(10, Math.max(0, attempt - 1)),
+      MAX_OUTER_RECONNECT_DELAY_MS,
+    );
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
       void this.reconnect(attempt);
-    }, this.reconnectTimeWaitMs);
+    }, delayMs);
+    this.reconnectTimer.unref();
   }
 
   private async reconnect(attempt: number): Promise<void> {
-    if (this.connectionState === 'disconnected') {
-      this.logger.log(
-        `Attempting to reconnect to NATS (attempt ${attempt}/${this.maxReconnectAttempts})...`,
-      );
-      try {
-        await this.connect();
-        await this.setupStream();
-        await this.activatePendingSubscriptions();
-        this.reconnectAttemptCount = 0; // reset budget on success
-        this.logger.log('Successfully reconnected to NATS');
-      } catch (error) {
-        this.logger.warn(
-          `Reconnection attempt ${attempt}/${this.maxReconnectAttempts} failed: ${errorMessage(error)}`,
-        );
-        this.scheduleReconnect();
+    if (this.connectionState === 'connected') {
+      this.reconnectAttemptCount = 0;
+      return;
+    }
+
+    // A live @nats-io connection owns its own internal reconnect loop. Do not
+    // open a second mTLS connection while it is reconnecting; retain exactly
+    // one outer timer so a terminal close still converges on recovery.
+    if (
+      this.connectPromise === null &&
+      this.connection !== null &&
+      !this.connection.isClosed()
+    ) {
+      this.scheduleReconnect();
+      return;
+    }
+
+    const reconnectPolicy = this.getReconnectPolicy();
+    this.logger.log(
+      JSON.stringify({
+        event: 'nats_outer_reconnect_attempt',
+        attempt,
+        perConnectionAttemptBudget: reconnectPolicy.perConnectionAttemptBudget,
+      }),
+    );
+    try {
+      // If another component is already establishing the singleton connection,
+      // connect() awaits that same promise. Its failure is therefore observed
+      // here and cannot consume the only outer retry timer.
+      await this.connect();
+      this.reconnectAttemptCount = 0;
+      this.logger.log('Successfully reconnected to NATS');
+    } catch (error) {
+      if (this.connection !== null) {
+        try {
+          await this.disconnect();
+        } catch (disconnectError) {
+          this.logger.error(
+            JSON.stringify({
+              event: 'nats_reconnect_cleanup_error',
+              errorType: disconnectError instanceof Error ? disconnectError.name : 'UnknownError',
+            }),
+          );
+        }
       }
+      this.logger.warn(
+        JSON.stringify({
+          event: 'nats_outer_reconnect_failed',
+          attempt,
+          errorType: error instanceof Error ? error.name : 'UnknownError',
+        }),
+      );
+      this.scheduleReconnect();
     }
   }
 
   async onModuleDestroy(): Promise<void> {
+    this.moduleDestroying = true;
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     await this.disconnect();
   }
 
   async connect(): Promise<void> {
+    const disconnecting = this.disconnectPromise;
+    if (disconnecting !== null) {
+      try {
+        await disconnecting;
+      } catch (error) {
+        this.logger.warn(
+          JSON.stringify({
+            event: 'nats_connect_waited_for_disconnect_cleanup_error',
+            errorType: error instanceof Error ? error.name : 'UnknownError',
+          }),
+        );
+      }
+    }
+    if (this.unclosedConnection !== null) {
+      if (this.unclosedConnection.isClosed()) {
+        this.unclosedConnection = null;
+      } else {
+        throw new Error(
+          'Cannot establish a replacement NATS connection before the previous connection closes',
+        );
+      }
+    }
+    if (this.isConnected()) {
+      return;
+    }
+    if (this.connectPromise !== null) {
+      await this.connectPromise;
+      return;
+    }
+    const existingConnection = this.connection;
+    if (existingConnection !== null) {
+      if (!existingConnection.isClosed()) {
+        // The existing @nats-io generation owns its internal reconnect loop.
+        // Opening another socket here would violate the singleton mTLS
+        // connection invariant and duplicate every Core responder.
+        throw new Error('Existing NATS connection generation is recovering');
+      }
+      // A terminally closed generation may be observed just before its async
+      // closed() monitor runs. Detach it synchronously before replacement so
+      // stale JetStream consumers and subscriptions cannot survive.
+      this.detachConnectionRuntime(existingConnection);
+    }
+
+    const operation = this.establishConnection();
+    this.connectPromise = operation;
     try {
-      this.connectionState = 'reconnecting';
+      await operation;
+    } finally {
+      if (this.connectPromise === operation) {
+        this.connectPromise = null;
+      }
+    }
+  }
+
+  private async establishConnection(): Promise<void> {
+    if (this.moduleDestroying) {
+      throw new Error('NATS event bus is shutting down');
+    }
+    let candidateConnection: NatsConnection | null = null;
+    try {
+      this.transitionConnectionState('reconnecting');
       this.logger.log(`Connecting to NATS at ${this.natsUrl}...`);
 
       // ADR-015: build ConnectionOptions via the shared factory so this
@@ -321,6 +473,11 @@ export class NatsEventBus
       // `name` becomes the durable JetStream consumer identity
       // (see ARCH-020 comment in constructor).
       const factoryOptions = buildNatsConnectionOptions(this.clientId);
+      const reconnectPolicy: NatsReconnectPolicy = {
+        perConnectionAttemptBudget: parseReconnectAttempts(factoryOptions.maxReconnectAttempts),
+        initialDelayMs: parseReconnectWaitMs(factoryOptions.reconnectTimeWait),
+      };
+      this.reconnectPolicy = reconnectPolicy;
       // Spread the WHOLE factory result (authMode is an excess spread field that
       // connect() ignores) instead of rest-destructuring it out — the
       // `{ authMode, ...rest }` rest-spread made the connect() call resolve to an
@@ -329,25 +486,22 @@ export class NatsEventBus
       const connectionOptions: ConnectionOptions = {
         ...factoryOptions,
         name: this.clientId,
-        maxReconnectAttempts: this.maxReconnectAttempts,
-        reconnectTimeWait: this.reconnectTimeWaitMs,
+        maxReconnectAttempts: reconnectPolicy.perConnectionAttemptBudget,
+        reconnectTimeWait: reconnectPolicy.initialDelayMs,
       };
 
       // Each auth mode has a distinct operational meaning; log accurately
       // so packet-capture / log-grep investigations aren't misled.
       const authModeDescription: Record<typeof factoryOptions.authMode, string> = {
         'mtls-cert': 'cert CN is identity; verify_and_map on server',
-        'token': 'service-account token (CONNECT frame)',
+        token: 'service-account token (CONNECT frame)',
         'user-pass': 'dev/legacy fallback (CONNECT frame user/password)',
-        'none': 'unauthenticated (dev/local only; production throws)',
+        none: 'unauthenticated (dev/local only; production throws)',
       };
-      this.logger.log(
-        `NATS auth mode selected: ${factoryOptions.authMode}`,
-        {
-          authMode: factoryOptions.authMode,
-          description: authModeDescription[factoryOptions.authMode],
-        },
-      );
+      this.logger.log(`NATS auth mode selected: ${factoryOptions.authMode}`, {
+        authMode: factoryOptions.authMode,
+        description: authModeDescription[factoryOptions.authMode],
+      });
 
       // ORPHAN-MEDIUM-093 — verified FALSE POSITIVE, not a real unsafe
       // assignment. @typescript-eslint type-checks this lib's source standalone
@@ -366,15 +520,24 @@ export class NatsEventBus
       // positive suppressions to the .eslintrc lint-policy SSoT. Tracked as
       // ORPHAN-MEDIUM-093; both the override and this note are removable once the
       // parserOptions.project-order fix lands.
-      this.connection = await connect(connectionOptions);
+      const connected: NatsConnection = await connect(connectionOptions);
+      candidateConnection = connected;
 
       // v3: jetstream()/jetstreamManager() are top-level functions taking the
       // connection, not methods on it (v2 was `this.connection.jetstream()`).
-      this.jetStream = jetstream(this.connection);
-      this.jetStreamManager = await jetstreamManager(this.connection);
+      const candidateJetStream = jetstream(connected);
+      const candidateJetStreamManager = await jetstreamManager(connected);
 
-      this.connectionState = 'connected';
+      this.connection = connected;
+      this.jetStream = candidateJetStream;
+      this.jetStreamManager = candidateJetStreamManager;
+      await this.setupStream();
+      this.streamReady = true;
+      await this.activatePendingSubscriptions();
+      this.connectionGeneration += 1;
+      const generation = this.connectionGeneration;
       this.lastConnectedAt = new Date();
+      this.transitionConnectionState('connected');
       this.logger.log('Successfully connected to NATS JetStream');
       if (factoryOptions.authMode === 'mtls-cert') {
         emitBootInvariantSignal(this.logger, 'nats_auth_mode_mtls', {
@@ -386,42 +549,107 @@ export class NatsEventBus
       }
 
       // Handle connection events
-      this.setupConnectionHandlers();
+      this.setupConnectionHandlers(connected, generation);
+      this.monitorConnectionClosed(connected, generation);
     } catch (error) {
-      this.connectionState = 'disconnected';
+      if (candidateConnection !== null) {
+        this.intentionallyClosingConnections.add(candidateConnection);
+        try {
+          await candidateConnection.close();
+        } catch (closeError) {
+          this.logger.error(
+            JSON.stringify({
+              event: 'nats_failed_connection_cleanup_error',
+              errorType: closeError instanceof Error ? closeError.name : 'UnknownError',
+            }),
+          );
+        }
+        if (!candidateConnection.isClosed()) {
+          this.unclosedConnection = candidateConnection;
+        }
+      }
+      if (this.connection === candidateConnection) {
+        this.detachConnectionRuntime(candidateConnection);
+      } else {
+        this.transitionConnectionState('disconnected');
+      }
       this.logger.error('Failed to connect to NATS', error);
       throw error;
     }
   }
 
   async disconnect(): Promise<void> {
+    if (this.disconnectPromise !== null) {
+      await this.disconnectPromise;
+      return;
+    }
+
+    const operation = this.performDisconnect();
+    this.disconnectPromise = operation;
     try {
-      // Abort all message processing loops
-      for (const [topic, controller] of this.abortControllers) {
-        try {
-          controller.abort();
-          this.logger.log(`Aborted processing for ${topic}`);
-        } catch (err) {
-          this.logger.warn(`Error aborting ${topic}`, err);
-        }
+      await operation;
+    } finally {
+      if (this.disconnectPromise === operation) {
+        this.disconnectPromise = null;
       }
-      this.abortControllers.clear();
-      this.consumers.clear();
+    }
+  }
 
-      // Close connection
-      if (this.connection) {
-        await this.connection.drain();
-        await this.connection.close();
-        this.connection = null;
-        this.jetStream = null;
-        this.jetStreamManager = null;
+  private async performDisconnect(): Promise<void> {
+    const connecting = this.connectPromise;
+    if (connecting !== null) {
+      try {
+        await connecting;
+      } catch (error) {
+        this.logger.warn(
+          JSON.stringify({
+            event: 'nats_disconnect_waited_for_failed_connect',
+            errorType: error instanceof Error ? error.name : 'UnknownError',
+          }),
+        );
       }
+    }
 
-      this.connectionState = 'disconnected';
-      this.logger.log('Disconnected from NATS');
+    const connection = this.connection ?? this.unclosedConnection;
+    if (connection === null) {
+      this.detachConnectionRuntime(null);
+      return;
+    }
+
+    this.intentionallyClosingConnections.add(connection);
+    this.detachConnectionRuntime(connection);
+
+    const failures: Error[] = [];
+    try {
+      await connection.drain();
     } catch (error) {
-      this.logger.error('Error during NATS disconnect', error);
-      throw error;
+      failures.push(error instanceof Error ? error : new Error(String(error)));
+    }
+
+    if (!connection.isClosed()) {
+      try {
+        await connection.close();
+      } catch (error) {
+        failures.push(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+
+    if (connection.isClosed()) {
+      if (this.unclosedConnection === connection) {
+        this.unclosedConnection = null;
+      }
+    } else {
+      this.unclosedConnection = connection;
+    }
+
+    this.logger.log('Disconnected from NATS');
+    if (failures.length > 0) {
+      const disconnectError = new AggregateError(
+        failures,
+        'NATS disconnect completed with transport cleanup errors',
+      );
+      this.logger.error('Error during NATS disconnect', disconnectError);
+      throw disconnectError;
     }
   }
 
@@ -446,6 +674,100 @@ export class NatsEventBus
    */
   getRawConnection(): NatsConnection | null {
     return this.connection;
+  }
+
+  /** @internal Shared connection-generation snapshot for Core NATS peers. */
+  getCoreConnectionSnapshot(): CoreNatsConnectionSnapshot {
+    return {
+      connection: this.connection,
+      generation: this.connectionGeneration,
+      state: this.connectionState,
+    };
+  }
+
+  /**
+   * Register a synchronous listener for Core NATS connection lifecycle changes.
+   * The current snapshot is delivered immediately, so a peer cannot miss a
+   * connection that became available before its Nest lifecycle hook ran.
+   *
+   * @internal
+   */
+  onCoreConnectionLifecycle(listener: CoreNatsConnectionLifecycleListener): () => void {
+    this.coreConnectionListeners.add(listener);
+    listener(this.getCoreConnectionSnapshot());
+    return () => {
+      this.coreConnectionListeners.delete(listener);
+    };
+  }
+
+  /** @internal Fold managed Core NATS responder availability into bus health. */
+  setCoreResponderAvailability(registrationKey: string, available: boolean): void {
+    if (available) {
+      this.unavailableCoreResponders.delete(registrationKey);
+      return;
+    }
+    this.unavailableCoreResponders.add(registrationKey);
+  }
+
+  private transitionConnectionState(
+    state: 'connected' | 'disconnected' | 'reconnecting',
+    forceNotification = false,
+  ): void {
+    const changed = this.connectionState !== state;
+    this.connectionState = state;
+    if (changed || forceNotification) {
+      this.notifyCoreConnectionLifecycle();
+    }
+  }
+
+  private notifyCoreConnectionLifecycle(): void {
+    const snapshot = this.getCoreConnectionSnapshot();
+    for (const listener of this.coreConnectionListeners) {
+      try {
+        listener(snapshot);
+      } catch (error) {
+        this.logger.error(
+          JSON.stringify({
+            event: 'nats_core_lifecycle_listener_error',
+            errorType: error instanceof Error ? error.name : 'UnknownError',
+          }),
+        );
+      }
+    }
+  }
+
+  private detachConnectionRuntime(expectedConnection: NatsConnection | null): void {
+    if (
+      expectedConnection !== null &&
+      this.connection !== null &&
+      this.connection !== expectedConnection
+    ) {
+      return;
+    }
+
+    for (const controller of this.abortControllers.values()) {
+      controller.abort();
+    }
+    this.abortControllers.clear();
+    this.consumers.clear();
+    this.queueRegisteredSubscriptionsForActivation();
+
+    this.connection = null;
+    this.jetStream = null;
+    this.jetStreamManager = null;
+    this.streamReady = false;
+    this.transitionConnectionState('disconnected', true);
+  }
+
+  private queueRegisteredSubscriptionsForActivation(): void {
+    for (const subject of this.handlers.keys()) {
+      if (!this.pendingSubscriptions.some((entry) => entry.subject === subject)) {
+        this.pendingSubscriptions.push({
+          subject,
+          options: this.subscriptionOptions.get(subject),
+        });
+      }
+    }
   }
 
   /**
@@ -482,9 +804,7 @@ export class NatsEventBus
    */
   async publishCore(subject: string, payload: Uint8Array): Promise<void> {
     if (this.connection === null) {
-      throw new Error(
-        `NATS core publish to "${subject}" failed: connection not established`,
-      );
+      throw new Error(`NATS core publish to "${subject}" failed: connection not established`);
     }
     this.connection.publish(subject, payload);
     // `publish` on a core NATS connection returns void synchronously
@@ -496,11 +816,16 @@ export class NatsEventBus
   }
 
   getHealth(): Promise<EventBusHealth> {
+    const transportHealthy = this.isConnected();
+    const respondersHealthy = this.unavailableCoreResponders.size === 0;
     return Promise.resolve({
-      isHealthy: this.isConnected(),
+      isHealthy: transportHealthy && respondersHealthy,
       connectionState: this.connectionState,
       lastConnectedAt: this.lastConnectedAt ?? undefined,
       pendingMessages: this.consumers.size,
+      errorMessage: respondersHealthy
+        ? undefined
+        : 'One or more Core NATS responders are unavailable',
     });
   }
 
@@ -527,10 +852,7 @@ export class NatsEventBus
     return buildTenantEventSubject(event.tenantId, event.eventType);
   }
 
-  async publish<TEvent extends IEvent>(
-    event: TEvent,
-    options?: PublishOptions,
-  ): Promise<void> {
+  async publish<TEvent extends IEvent>(event: TEvent, options?: PublishOptions): Promise<void> {
     await this.publishTo(this.deriveSubject(event), event, options);
   }
 
@@ -571,10 +893,7 @@ export class NatsEventBus
 
       this.logger.debug(`Published event ${event.eventType} to ${subject}`);
     } catch (error) {
-      this.logger.error(
-        `Failed to publish event ${event.eventType}`,
-        error,
-      );
+      this.logger.error(`Failed to publish event ${event.eventType}`, error);
       throw error;
     }
   }
@@ -618,9 +937,10 @@ export class NatsEventBus
   async subscribeWildcard<TEvent extends IEvent>(
     eventType: string,
     handler: IEventHandler<TEvent>,
+    options?: SubscriptionOptions,
   ): Promise<void> {
     const subject = buildWildcardEventSubject(eventType);
-    await this.subscribeTo(subject, handler);
+    await this.subscribeTo(subject, handler, options);
   }
 
   /**
@@ -661,19 +981,19 @@ export class NatsEventBus
     options?: SubscriptionOptions,
   ): Promise<void> {
     const subject = this.normalizeSubject(topic);
+    this.assertConsumerVersion(options?.consumerVersion);
 
     // Store handler regardless of connection state so it is ready when
     // the connection comes up.
     const handlers = this.handlers.get(subject) ?? [];
     handlers.push(handler);
     this.handlers.set(subject, handlers);
+    this.subscriptionOptions.set(subject, options);
 
-    if (!this.jetStream) {
-      // JetStream is not yet connected.  Queue the subscription so it will
-      // be activated once the connection is established.
-      this.logger.warn(
-        `NATS JetStream not connected yet. Queuing subscription for ${subject}`,
-      );
+    if (!this.jetStream || !this.streamReady) {
+      // The connection generation is not fully initialized yet. Queue the
+      // registration so stream setup always happens before consumer creation.
+      this.logger.warn(`NATS JetStream not connected yet. Queuing subscription for ${subject}`);
       if (!this.pendingSubscriptions.some((p) => p.subject === subject)) {
         this.pendingSubscriptions.push({ subject, options });
       }
@@ -698,10 +1018,15 @@ export class NatsEventBus
 
     if (controller) {
       controller.abort();
-      this.abortControllers.delete(subject);
-      this.consumers.delete(subject);
-      this.handlers.delete(subject);
       this.logger.log(`Unsubscribed from ${subject}`);
+    }
+    this.abortControllers.delete(subject);
+    this.consumers.delete(subject);
+    this.handlers.delete(subject);
+    this.subscriptionOptions.delete(subject);
+    const pendingIndex = this.pendingSubscriptions.findIndex((entry) => entry.subject === subject);
+    if (pendingIndex >= 0) {
+      this.pendingSubscriptions.splice(pendingIndex, 1);
     }
     return Promise.resolve();
   }
@@ -721,9 +1046,7 @@ export class NatsEventBus
       return;
     }
 
-    this.logger.log(
-      `Activating ${this.pendingSubscriptions.length} pending subscription(s)...`,
-    );
+    this.logger.log(`Activating ${this.pendingSubscriptions.length} pending subscription(s)...`);
 
     // Drain the queue (splice so new entries during iteration are not lost)
     const pending = this.pendingSubscriptions.splice(0);
@@ -737,9 +1060,7 @@ export class NatsEventBus
         this.logger.log(`Activated pending subscription for ${subject}`);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
-        this.logger.error(
-          `Failed to activate pending subscription for ${subject}: ${message}`,
-        );
+        this.logger.error(`Failed to activate pending subscription for ${subject}: ${message}`);
         failures.push({ subject, message });
       }
     }
@@ -747,12 +1068,8 @@ export class NatsEventBus
     // IMPORTANT: fail-closed — surface ALL activation failures as a single
     // error so the boot-time decision (throw vs continue) is made by the caller.
     if (failures.length > 0) {
-      const summary = failures
-        .map((f) => `  - ${f.subject}: ${f.message}`)
-        .join('\n');
-      throw new Error(
-        `Failed to activate ${failures.length} pending subscription(s):\n${summary}`,
-      );
+      const summary = failures.map((f) => `  - ${f.subject}: ${f.message}`).join('\n');
+      throw new Error(`Failed to activate ${failures.length} pending subscription(s):\n${summary}`);
     }
   }
 
@@ -771,8 +1088,7 @@ export class NatsEventBus
    */
   private resolveEffectiveReplicas(desired: number): number {
     const info = this.connection?.info;
-    const clustered =
-      !!info && typeof info.cluster === 'string' && info.cluster.length > 0;
+    const clustered = !!info && typeof info.cluster === 'string' && info.cluster.length > 0;
     if (!clustered && desired > 1) {
       this.logger.warn(
         `NATS server is standalone (no cluster); clamping JetStream stream ` +
@@ -798,9 +1114,7 @@ export class NatsEventBus
       return;
     }
 
-    const streamConfig = this.getStreamConfig(
-      this.resolveEffectiveReplicas(this.streamReplicas),
-    );
+    const streamConfig = this.getStreamConfig(this.resolveEffectiveReplicas(this.streamReplicas));
 
     try {
       // ARCH-031: Always update existing stream config to enforce current limits.
@@ -842,24 +1156,18 @@ export class NatsEventBus
   /**
    * Create a subscription for a subject
    */
-  private async createSubscription(
-    subject: string,
-    options?: SubscriptionOptions,
-  ): Promise<void> {
+  private async createSubscription(subject: string, options?: SubscriptionOptions): Promise<void> {
     if (!this.jetStream || !this.jetStreamManager) {
       return;
     }
 
-    const consumerName = this.generateConsumerName(subject);
+    const consumerName = this.generateConsumerName(subject, options?.consumerVersion);
 
     try {
       // Create or get a pull-based consumer
       const consumerConfig: Partial<ConsumerConfig> = {
         durable_name: consumerName,
-        deliver_policy:
-          options?.startFrom === 'beginning'
-            ? DeliverPolicy.All
-            : DeliverPolicy.New,
+        deliver_policy: options?.startFrom === 'beginning' ? DeliverPolicy.All : DeliverPolicy.New,
         ack_policy: AckPolicy.Explicit,
         ack_wait: (options?.ackWait ?? 30) * 1000000000, // Convert to nanoseconds
         max_deliver: options?.maxRetries ?? 3,
@@ -891,10 +1199,7 @@ export class NatsEventBus
   /**
    * Process messages from a pull-based consumer
    */
-  private processMessagesFromConsumer(
-    subject: string,
-    consumer: Consumer,
-  ): void {
+  private processMessagesFromConsumer(subject: string, consumer: Consumer): void {
     const abortController = new AbortController();
     this.abortControllers.set(subject, abortController);
 
@@ -918,19 +1223,13 @@ export class NatsEventBus
     };
 
     processLoop().catch((err: unknown) => {
-      if (
-        !abortController.signal.aborted &&
-        !errorMessage(err).includes('consumer closed')
-      ) {
+      if (!abortController.signal.aborted && !errorMessage(err).includes('consumer closed')) {
         this.logger.error(`Consumer loop error for ${subject}`, err);
       }
     });
   }
 
-  private async processConsumerMessage(
-    subject: string,
-    msg: JsMsg,
-  ): Promise<void> {
+  private async processConsumerMessage(subject: string, msg: JsMsg): Promise<void> {
     try {
       // v3: msg.string() replaces StringCodec.decode(msg.data) — same UTF-8 bytes.
       const event = this.deserializeEvent(msg.string());
@@ -975,17 +1274,12 @@ export class NatsEventBus
   /**
    * Serialize event to JSON string.
    *
-   * timestamp is always a string (ISO 8601) per BaseEvent contract.
-   * Legacy callers that somehow pass a Date are handled via duck-typing.
+   * timestamp is always an ISO 8601 string per the IEvent/BaseEvent contract;
+   * callers cannot smuggle a Date through this boundary without first breaking
+   * the compile-time contract.
    */
   private serializeEvent<TEvent extends IEvent>(event: TEvent): string {
-    return JSON.stringify({
-      ...event,
-      timestamp:
-        typeof event.timestamp === 'object' && event.timestamp !== null
-          ? (event.timestamp as unknown as Date).toISOString()
-          : event.timestamp,
-    });
+    return JSON.stringify(event);
   }
 
   /**
@@ -1048,37 +1342,55 @@ export class NatsEventBus
   /**
    * Generate a consumer name from subject
    */
-  private generateConsumerName(subject: string): string {
-    return `${this.clientId}-${subject.replace(/[.>*]/g, '-')}`;
+  private generateConsumerName(subject: string, consumerVersion?: string): string {
+    this.assertConsumerVersion(consumerVersion);
+    const baseName = `${this.clientId}-${subject.replace(/[.>*]/g, '-')}`;
+    return consumerVersion === undefined ? baseName : `${baseName}-${consumerVersion}`;
+  }
+
+  private assertConsumerVersion(
+    consumerVersion: unknown,
+  ): asserts consumerVersion is string | undefined {
+    if (consumerVersion === undefined) {
+      return;
+    }
+    if (
+      typeof consumerVersion !== 'string' ||
+      consumerVersion.length === 0 ||
+      consumerVersion.length > MAX_CONSUMER_VERSION_LENGTH ||
+      !CONSUMER_VERSION_PATTERN.test(consumerVersion)
+    ) {
+      throw new TypeError(
+        'consumerVersion must match lowercase kebab-case and contain at most 64 characters',
+      );
+    }
   }
 
   /**
    * Setup connection event handlers
    */
-  private setupConnectionHandlers(): void {
-    const connection = this.connection;
-    if (!connection) {
-      return;
-    }
-
+  private setupConnectionHandlers(connection: NatsConnection, generation: number): void {
     // Handle connection status changes
     void (async (): Promise<void> => {
       for await (const status of connection.status()) {
+        if (this.connection !== connection || this.connectionGeneration !== generation) {
+          return;
+        }
         // v3: Status is a discriminated union on `type`; switching on it
         // narrows each case. The error variant carries `error: Error` (v2's
         // untyped `status.data` field was removed).
         switch (status.type) {
           case 'disconnect':
-            this.connectionState = 'disconnected';
+            this.transitionConnectionState('disconnected');
             this.logger.warn('Disconnected from NATS');
             break;
           case 'reconnecting':
-            this.connectionState = 'reconnecting';
+            this.transitionConnectionState('reconnecting');
             this.logger.log('Reconnecting to NATS...');
             break;
           case 'reconnect':
-            this.connectionState = 'connected';
             this.lastConnectedAt = new Date();
+            this.transitionConnectionState('connected', true);
             this.logger.log('Reconnected to NATS');
             break;
           case 'error':
@@ -1087,19 +1399,66 @@ export class NatsEventBus
         }
       }
     })().catch((err: unknown) => {
-      this.logger.error('Status monitor error', err);
+      this.logger.error(
+        JSON.stringify({
+          event: 'nats_status_monitor_error',
+          errorType: err instanceof Error ? err.name : 'UnknownError',
+        }),
+      );
     });
+  }
+
+  private monitorConnectionClosed(connection: NatsConnection, generation: number): void {
+    void this.handleConnectionClosed(connection, generation).catch((error: unknown) => {
+      this.logger.error(
+        JSON.stringify({
+          event: 'nats_connection_close_monitor_failed',
+          errorType: error instanceof Error ? error.name : 'UnknownError',
+        }),
+      );
+      if (this.connection === connection && this.connectionGeneration === generation) {
+        this.detachConnectionRuntime(connection);
+        this.scheduleReconnect();
+      }
+    });
+  }
+
+  private async handleConnectionClosed(
+    connection: NatsConnection,
+    generation: number,
+  ): Promise<void> {
+    let closeError: Error | undefined;
+    try {
+      const closedResult = await connection.closed();
+      closeError = closedResult instanceof Error ? closedResult : undefined;
+    } catch (error) {
+      closeError = error instanceof Error ? error : new Error(String(error));
+    }
+
+    if (
+      this.intentionallyClosingConnections.has(connection) ||
+      this.connection !== connection ||
+      this.connectionGeneration !== generation ||
+      this.moduleDestroying
+    ) {
+      return;
+    }
+
+    this.logger.error(
+      JSON.stringify({
+        event: 'nats_connection_closed_unexpectedly',
+        errorType: closeError instanceof Error ? closeError.name : 'UnknownError',
+      }),
+    );
+    this.detachConnectionRuntime(connection);
+    this.scheduleReconnect();
   }
 }
 
 /**
  * Helper function to create an event with metadata
  */
-export function createEvent(
-  eventType: string,
-  tenantId: string,
-  metadata?: EventMetadata,
-): IEvent {
+export function createEvent(eventType: string, tenantId: string, metadata?: EventMetadata): IEvent {
   return {
     eventId: crypto.randomUUID(),
     eventType,

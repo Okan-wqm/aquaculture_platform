@@ -20,7 +20,7 @@
  *
  *   1. Spin up `timescale/timescaledb-ha:pg16` (the production image, by
  *      digest pinned to docker-compose.infra.yml).
- *   2. Bind-mount `infrastructure/docker/init-scripts/` into
+ *   2. Copy `infrastructure/docker/init-scripts/` into
  *      `/docker-entrypoint-initdb.d/` — Postgres runs every script in
  *      lexical order on first boot of an empty PGDATA volume.
  *   3. Connect, then for every service that owns a TypeORM migration
@@ -42,9 +42,9 @@
  *     creates the same tables idempotently.
  *   - A new entity was added without a corresponding CREATE TABLE
  *     migration AND without an init-script entry → add the migration.
- *   - The init scripts assume a privilege the bind-mount POSTGRES_USER
+ *   - The init scripts assume a privilege the bootstrap POSTGRES_USER
  *     does not have on a fresh container → fix the script to use
- *     a less-privileged path or mount additional bootstrap material.
+ *     a less-privileged path or supply additional bootstrap material.
  *
  * # Why testcontainers (not the shared TestDatabase pool)
  *
@@ -76,7 +76,7 @@ import { DataSource, type MigrationInterface } from 'typeorm';
 
 // ADR-031 Platform Bootstrap Atom — runs the schema/role/extension/function/
 // shared-table DDL contract that init-scripts USED to own pre-cutover. The
-// init-scripts bind-mount below now contains only `01-init-databases.sql`
+// init-scripts directory copied below now contains only `01-init-databases.sql`
 // (initdb-only DB GRANTs). Schemas, roles, functions, and shared.* tables
 // are created by the call to runPlatformBootstrap() below before any
 // per-service migration loop runs.
@@ -788,13 +788,15 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
     }
 
     // -----------------------------------------------------------------
-    // 1. Boot Postgres with init-scripts mounted.
+    // 1. Boot Postgres with init-scripts copied in.
     // -----------------------------------------------------------------
     // The `docker-entrypoint-initdb.d` directory is consumed by the
     // postgres image's entrypoint exactly once, when PGDATA is empty.
-    // Bind-mounting the live repo directory (read-only) means this test
-    // exercises the SAME scripts the production deploy runs, with no
-    // copy/paste drift.
+    // Testcontainers archives the live repo directory into the container, so
+    // the test exercises the SAME scripts the production deploy runs without
+    // depending on host-workspace traversal permissions. An explicit mode is
+    // required because a restrictive checkout umask must not make the copied
+    // init directory unreadable by the postgres image's entrypoint user.
     postgresContainer = await new GenericContainer(POSTGRES_IMAGE)
       .withEnvironment({
         POSTGRES_DB: DATABASE_NAME,
@@ -810,11 +812,11 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
           ]),
         ),
       })
-      .withBindMounts([
+      .withCopyDirectoriesToContainer([
         {
           source: INIT_SCRIPTS_DIR,
           target: '/docker-entrypoint-initdb.d',
-          mode: 'ro',
+          mode: 0o755,
         },
       ])
       .withExposedPorts(5432)

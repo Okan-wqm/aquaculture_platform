@@ -33211,6 +33211,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-04-npm-high-advisories-fix.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -40632,7 +40638,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "7ee2930ad13b041bb3eaf8a7d226897ade0abff9f5ac4db6354827f46598c22a",
+      "content_sha256": "af18ff621a572319b326f89be6f72dcab2e761d6c48ce9fd6cd00a6249e63229",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -56280,10 +56286,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9229,
+  "file_count": 9230,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9048,
-  "managed_file_list_sha256": "466ddd012eadd1ded7d5d33c677b228a15d34f33fe07d7c6952629588b0d5500",
+  "managed_count": 9049,
+  "managed_file_list_sha256": "1ae1b15d245419161f10ce03e55b4df880b89c30f9b739a2c64433b658c77f62",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

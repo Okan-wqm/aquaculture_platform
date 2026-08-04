@@ -346,10 +346,10 @@
     "dompurify": "3.4.12",
     "diff": "4.0.4",
     "express-rate-limit": "^8.5.1",
-    "fast-uri": "^3.1.4",
+    "fast-uri": "^3.1.5",
     "fast-xml-builder": "^1.2.0",
     "hono": "^4.12.18",
-    "ip-address": "^10.2.0",
+    "ip-address": "^10.4.0",
     "lodash": "4.18.1",
     "@apollo/federation-internals": {
       "uuid": "^11.1.1"
@@ -364,10 +364,10 @@
       "glob": "^13.0.6",
       "uuid": "^11.1.1"
     },
-    "minimatch@^10": {
-      "brace-expansion": "^5.0.8"
-    },
+    "brace-expansion@^5.0.5": "^5.0.9",
+    "brace-expansion@^5.0.1": "^5.0.9",
     "@grpc/grpc-js": "^1.14.4",
+    "socket.io-parser": "^4.2.7",
     "esbuild": "^0.28.1",
     "form-data": "^4.0.6",
     "gaxios": "^7.3.0",

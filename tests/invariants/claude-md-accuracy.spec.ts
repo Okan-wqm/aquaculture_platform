@@ -26,14 +26,12 @@
  * byte-identical checkouts of other branches and are excluded.
  */
 
-import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-const REPO_ROOT = resolve(__dirname, '..', '..');
+import { discoverSteeringFiles } from './_constants';
 
-const EXCLUDED_DIR_RX =
-  /(^|\/)(\.worktrees|\.codex-worktrees|\.claude\/worktrees|node_modules)\//;
+const REPO_ROOT = resolve(__dirname, '..', '..');
 
 /** Top-level repo directories a real cited path can start with. */
 const KNOWN_TOP_LEVEL = [
@@ -74,29 +72,6 @@ const DEAD_TOKENS = [
   'tools/scripts/orchestrator-runner',
 ] as const;
 
-function gitList(cmd: string): string[] {
-  try {
-    return execSync(cmd, { cwd: REPO_ROOT, encoding: 'utf8' })
-      .split('\n')
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-/** All steering files in THIS worktree (tracked + new-but-not-ignored). */
-function discoverSteeringFiles(): string[] {
-  const all = [
-    ...gitList('git ls-files'),
-    ...gitList('git ls-files --others --exclude-standard'),
-  ];
-  return [...new Set(all)].filter(
-    (f) =>
-      (/(^|\/)CLAUDE\.md$/.test(f) || f === 'AGENTS.md') &&
-      !EXCLUDED_DIR_RX.test(f),
-  );
-}
-
 function lineCount(content: string): number {
   return content.replace(/\n+$/, '').split('\n').length;
 }
@@ -115,7 +90,7 @@ function extractCheckablePaths(content: string): string[] {
   return [...out];
 }
 
-const steeringFiles = discoverSteeringFiles();
+const steeringFiles = discoverSteeringFiles(REPO_ROOT);
 const nestedFiles = steeringFiles.filter(
   (f) => f !== 'CLAUDE.md' && f !== 'AGENTS.md',
 );

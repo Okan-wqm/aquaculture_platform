@@ -823,12 +823,70 @@ class GhCliGitHubAdapter:
             raise GovernanceError(completed.stderr.strip() or completed.stdout.strip() or "gh pr merge failed")
         return {"merged": True, "method": "squash", "expected_head_sha": expected_head_sha}
 
+    # ----- MissionObserver Protocol (Wave 2 PR 1.3) ----------------------
+    #
+    # `get_pr` above cannot answer reconciliation's question: it requests
+    # `number,baseRefName,headRefName,headRefOid,files,reviews,reviewDecision`
+    # and never asks for `state` or `merged`, so `get_pr(n)["state"]` is
+    # absent here and a *stub string* on the recording adapter. A reconciler
+    # built on it would read every real PR as unobserved and never transition
+    # anything — machinery written and never able to fire, which is the defect
+    # class this programme exists to close. Hence a purpose-built call.
+
+    def get_pr_lifecycle(self, number: int) -> dict[str, Any] | None:
+        payload = self._gh_json(
+            [
+                "pr",
+                "view",
+                str(number),
+                "--json",
+                "number,state,merged,mergeCommit,headRefName,body",
+            ],
+        )
+        merge_commit = payload.get("mergeCommit")
+        return {
+            "number": payload.get("number"),
+            "state": payload.get("state"),
+            "merged": payload.get("merged"),
+            "merge_commit_sha": (
+                merge_commit.get("oid") if isinstance(merge_commit, dict) else None
+            ),
+            "head_ref": payload.get("headRefName"),
+            "body": payload.get("body"),
+        }
+
+    def observe_branch(self, name: str) -> bool | None:
+        """``True``/``False`` when the remote answered, ``None`` when it did not.
+
+        `git ls-remote` and not `gh api` because the two outcomes that must
+        not be confused — "the branch is gone" and "I could not ask" — are an
+        exit code apart here, where over HTTP they are both a non-zero `gh`
+        exit whose difference lives in stderr text. A branch-absence rule that
+        depends on parsing an error message is a rule that sends missions back
+        to PLANNING the day GitHub rewords a 404.
+        """
+        completed = subprocess.run(
+            ["git", "ls-remote", "--heads", "origin", f"refs/heads/{name}"],
+            cwd=self.cwd,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if completed.returncode != 0:
+            return None
+        return bool(completed.stdout.strip())
+
+    def list_open_pull_requests(self) -> list[dict[str, Any]] | None:
+        return self._gh_json_list(
+            ["pr", "list", "--state", "open", "--limit", "100", "--json", "number,headRefName,body"],
+        )
+
     def _gh_api_json(self, args: list[str]) -> dict[str, Any]:
         if args and is_gh_api_path_forbidden(str(args[0])):
             raise GovernanceError(f"forbidden gh api path: {args[0]}")
         return self._gh_json(["api", *args])
 
-    def _gh_json(self, args: list[str]) -> dict[str, Any]:
+    def _gh_stdout(self, args: list[str]) -> str:
         completed = subprocess.run(
             ["gh", *args],
             cwd=self.cwd,
@@ -838,9 +896,22 @@ class GhCliGitHubAdapter:
         )
         if completed.returncode != 0:
             raise GovernanceError(completed.stderr.strip() or completed.stdout.strip() or "gh command failed")
-        if not completed.stdout.strip():
+        return completed.stdout
+
+    def _gh_json(self, args: list[str]) -> dict[str, Any]:
+        stdout = self._gh_stdout(args)
+        if not stdout.strip():
             return {}
-        return json.loads(completed.stdout)
+        return json.loads(stdout)
+
+    def _gh_json_list(self, args: list[str]) -> list[dict[str, Any]]:
+        """`gh ... --json` on a list subcommand returns a JSON ARRAY, which
+        `_gh_json`'s `dict` annotation would be lying about."""
+        stdout = self._gh_stdout(args)
+        if not stdout.strip():
+            return []
+        payload = json.loads(stdout)
+        return payload if isinstance(payload, list) else []
 
 
 def _required_checks(github: dict[str, Any]) -> dict[str, Any]:

@@ -118,8 +118,26 @@ BINDING_KEYS: tuple[str, ...] = (
 
 EVENT_KINDS: tuple[str, ...] = ("opened", "transition", "binding", "wake", "note")
 
-# The reason every skip-forward must carry. Named once, here.
+# The reasons a skip-forward may carry. A closed set, and small on purpose:
+# each member is a claim that we observed an END STATE and not the path to it,
+# which is the only honest justification for jumping mainline states.
+#
+#   coarse_observation        — today's pipeline cannot distinguish every
+#                               intermediate state, and a skip that says so is
+#                               honest where a precise reason would be the
+#                               schema lying about its own resolution.
+#   reconciled_external_merge — `mission_reconcile` found the PR already
+#                               merged. The merge happened; VALIDATING, READY
+#                               and MERGING were passed through without this
+#                               system watching, so writing them as observed
+#                               events would be inventing history.
+#
+# Widening this set is a deliberate edit here, reviewed against that rule.
 COARSE_OBSERVATION = "coarse_observation"
+RECONCILED_EXTERNAL_MERGE = "reconciled_external_merge"
+FORWARD_SKIP_REASONS: frozenset[str] = frozenset(
+    {COARSE_OBSERVATION, RECONCILED_EXTERNAL_MERGE}
+)
 
 
 def _adjacent(state: str) -> frozenset[str]:
@@ -225,7 +243,13 @@ def _idempotency_key(
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
-def _mainline_index(state: str) -> int | None:
+def mainline_index(state: str) -> int | None:
+    """Position on the mainline, or ``None`` for a waiting/terminal state.
+
+    Public because reconciliation has to ask the same question the transition
+    guard asks — "is this state before that one?" — and a second copy of the
+    ordering rule is how two callers come to disagree about it.
+    """
     try:
         return MAINLINE_STATES.index(state)
     except ValueError:
@@ -505,16 +529,16 @@ def transition_mission(
             )
         allowed = ALLOWED_TRANSITIONS[current]
         if to_state not in allowed:
-            from_index = _mainline_index(current)
-            to_index = _mainline_index(to_state)
+            from_index = mainline_index(current)
+            to_index = mainline_index(to_state)
             is_forward_skip = (
                 from_index is not None and to_index is not None and to_index > from_index
             )
-            if not (is_forward_skip and reason_code == COARSE_OBSERVATION):
+            if not (is_forward_skip and reason_code in FORWARD_SKIP_REASONS):
                 raise GovernanceError(
                     f"transition {current} -> {to_state} is not in the closed table "
                     f"(reason_code={reason_code!r}); forward mainline skips require "
-                    f"reason_code={COARSE_OBSERVATION!r}"
+                    f"one of {sorted(FORWARD_SKIP_REASONS)}"
                 )
         if retry_rung is not None and state.get("retry_rung") is not None:
             if RETRY_LADDER.index(retry_rung) < RETRY_LADDER.index(state["retry_rung"]):
@@ -743,10 +767,12 @@ __all__ = [
     "BINDING_KEYS",
     "COARSE_OBSERVATION",
     "EVENT_KINDS",
+    "FORWARD_SKIP_REASONS",
     "WAITING_STATES",
     "MAINLINE_STATES",
     "MISSION_SCHEMA",
     "MISSION_STATES",
+    "RECONCILED_EXTERNAL_MERGE",
     "RETRY_LADDER",
     "TERMINAL_STATES",
     "WAKE_KINDS",
@@ -758,6 +784,7 @@ __all__ = [
     "fold_mission",
     "index_path",
     "list_open_missions",
+    "mainline_index",
     "mission_id_for",
     "open_mission",
     "rebuild_mission_index",

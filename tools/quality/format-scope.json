@@ -33229,6 +33229,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-04-aria-w2-mission-weave.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-08-04-aria-w2-wip-gate.md",
       "prettier_managed": true
     },
@@ -56316,10 +56322,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9235,
+  "file_count": 9236,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9054,
-  "managed_file_list_sha256": "88a69d86424469db983d57ea17756ae652bfda0410c99541b7c47680fda9db5a",
+  "managed_count": 9055,
+  "managed_file_list_sha256": "f1abf40aa03dd80b8078d8500c85666c28d312d29ef32a25222272c1f12ab84f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

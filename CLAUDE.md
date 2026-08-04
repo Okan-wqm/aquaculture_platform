@@ -65,7 +65,7 @@ Nx monorepo: NestJS microservices (`apps/`), React microfrontends (`web/`), plat
 - `libs/backend-common` — dual-aliased `@aquaculture/backend-common` (primary) and `@platform/backend-common`. Bootstrap, guards, tenant context, RLS, health, audit, telemetry, Redis, NATS factory, signed HTTP client, schema-drift validator, migration-runner factory.
 
 ### Web (`web/`)
-Module Federation via `@module-federation/vite`. `web/shell` is the host; `web/shared-ui` is the design system + federation shared-deps SSoT; `web/modules/*` are the 7 federated remotes (dashboard, farm-module, sensor-module, hr-module, admin-panel, tenant-admin, hydroponics-module); `web/apps/aquamobil` is a standalone offline-first Vite PWA (not a remote).
+Module Federation via `@module-federation/vite`. `web/shell` is the host; `web/shared-ui` is the design system + federation shared-deps SSoT; `web/modules/*` are the 8 federated remotes (dashboard, farm-module, sensor-module, hr-module, admin-panel, tenant-admin, hydroponics-module, messaging-module); `web/apps/aquamobil` is a standalone offline-first Vite PWA (not a remote).
 
 ### Edge Gateway (`sens-api-gateway/`)
 Rust sensor protocol gateway: Modbus-TCP, MQTT, I2C, Atlas EZO. Alarm engine, calibration, GPIO, backup, SCADA deploy orchestrator.
@@ -176,7 +176,7 @@ Every fix commit must reference the finding it closes, else `docs/reviews/` beco
 
 ## ADR References — canonical location `docs/adr/`
 
-ADRs run 001–036 (filenames are authoritative; the directory has historical number collisions, so do not assume a clean sequence). Key: schema ownership/drift (011, 012), NATS (014, 015), events flat (006), CQRS (007), guards (008), frontend data-fetch/styling (009, 010 — admin-panel-scoped), messaging isolation (013), Rust sidecar (025), ARIA (031, 033, 035, 036).
+ADRs run 001–045, plus a few date-named files (`2026-04-30-*`). Filenames are authoritative and the directory has historical number collisions, so never assume a clean sequence. Key: schema ownership/drift (011, 012), NATS (014, 015), events flat (006), CQRS (007), guards (008), frontend data-fetch/styling (009, 010 — admin-panel-scoped), messaging isolation (013), Rust sidecar (025), ARIA (031, 033, 035, 036), SCADA multi-tenant runtime (045).
 
 > **Known drift:** `docs/architecture/ADR-010-AI-REVIEW.md`, `ADR-010-AI-SELF-LEARNING.md`, `ADR-011-operations-hub-restructuring.md`, `ADR-012-messaging-service.md`, `ADR-013-nestjs-v11-upgrade.md` are misfiled — they use ADR numbering but live outside `docs/adr/` and collide with canonical IDs. Treat `docs/adr/` as authoritative; moving them is tracked work.
 
@@ -190,11 +190,9 @@ ARIA is a repository-shaped intelligence experiment that runs between PR cycles,
 
 ---
 
-# CRITICAL — Final check (primacy/recency reinforcement)
+# Working Style
 
-- `nx affected --target=test && nx affected --target=lint` green before every commit.
-- Architectural root-cause fix only. The banned phrases above are truly banned.
-- `@Entity()` schema discipline is per-table (per-tenant tables omit `schema:`; cross-tenant + platform-level declare it). `public` is off-limits for new tables.
-- `createBaseEvent()` for events (flat object pattern, no nested wrappers); NATS identity = cert CN only, no user/pass in CONNECT.
-- Every fix commit carries `Closes: docs/reviews/…#finding-id`.
-- Keep domain entities separate from persistence; ORM decorators do not belong in the domain layer.
+- Answer in the user's language. Lead with the result; keep it short and specific. No preamble, no restating the request, no self-congratulation.
+- Report faithfully. If a step failed, was skipped, or is unverified, say so with the evidence. Never present a partial fix as complete.
+- Verification is judgment, not ritual: check what is risky or irreversible, and prefer a tool that proves the answer over a claim that asserts it.
+- **This file is Tier 4.** Before adding a rule here, try to make it a type, a lint rule, or an invariant test instead — Tier 4 is the last resort. Budget: 200 lines, enforced by `tests/invariants/claude-md-accuracy.spec.ts`. Every rule that a gate already enforces should shrink to a pointer at that gate.

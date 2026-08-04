@@ -33205,6 +33205,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-03-npm-high-advisories.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -56274,10 +56280,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9228,
+  "file_count": 9229,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9047,
-  "managed_file_list_sha256": "f7c0973ac8a4f0c7969bd30e392c6bceb968127070b16e407bcf5e4733f9f039",
+  "managed_count": 9048,
+  "managed_file_list_sha256": "466ddd012eadd1ded7d5d33c677b228a15d34f33fe07d7c6952629588b0d5500",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

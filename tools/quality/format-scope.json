@@ -3760,6 +3760,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/alert-engine/CLAUDE.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/alert-engine/jest.config.ts",
       "prettier_managed": true
     },
@@ -5838,6 +5844,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/tsconfig.spec.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/CLAUDE.md",
       "prettier_managed": true
     },
     {
@@ -17475,6 +17487,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/gateway-api/CLAUDE.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/gateway-api/jest.config.ts",
       "prettier_managed": true
     },
@@ -23372,6 +23390,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/notification-service/tsconfig.spec.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/observability-service/CLAUDE.md",
       "prettier_managed": true
     },
     {
@@ -56340,10 +56364,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9239,
+  "file_count": 9243,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9058,
-  "managed_file_list_sha256": "f252b3b34dd8c6c6a2d82cbd033a2aea5901a014bbede292891707d17bb6be23",
+  "managed_count": 9062,
+  "managed_file_list_sha256": "3404497834d75ba237eb0bf8abe8160c5c6eeed0e19ee1c60480df2a7ea0c6ea",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

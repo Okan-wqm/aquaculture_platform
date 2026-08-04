@@ -696,8 +696,10 @@ def assert_cycle_closure(*, base_dir: str | Path | None = None) -> dict[str, Any
     is a violation, and the violation is RECORDED as a governance event
     because a violation nobody recorded is a violation nobody will fix.
 
-    This function observes and records; the cycle_seal phase (PR 1.2) owns
-    the decision of what a violation does to the cycle under each profile.
+    This function observes and records. The DECISION of what a violation does
+    to a cycle lives where the cycle seals — `run_enterprise_cycle`, not a
+    phase: PLAN called for a `cycle_seal` phase and there is none, and a table
+    row would run before the terminal decision it is meant to describe.
     """
     root = ensure_tools_dir(base_dir)
     violations = []

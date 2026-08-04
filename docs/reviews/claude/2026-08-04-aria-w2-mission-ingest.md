@@ -2,7 +2,7 @@
 
 Date: 2026-08-04
 Branch: `claude/aria-w2-mission-ingest`
-Scope: `aria_kernel/mission.py`, `aria_kernel/cycle.py`
+Scope: `aria_kernel/mission.py`, `aria_kernel/cycle.py`, `aria_kernel/task.py`
 Plan: `docs/plans/2026-08-02-aria-full-autonomy-program/PLAN.md` — Wave 2 PR 1.2
 
 ## The gap
@@ -19,9 +19,29 @@ is that the **same** candidate, re-observed on a later night, folds into the
 **same** mission. That is what `mission_id = sha256(source_kind|source_id|repo_hash)`
 buys, and it only holds if every candidate's `source_id` is cycle-independent.
 
-All four sources are: pressure uses `event_id`/`pressure_id`, finding uses
-`finding_id`, shadow uses `tool_id`, capability_gap uses `gap_id`. Verified in
-`task.py` rather than assumed, because the whole design rests on it.
+Three were already: pressure uses `event_id`/`pressure_id`, finding uses
+`finding_id`, shadow uses `tool_id`.
+
+**The fourth was not, and I shipped the wrong claim before checking it.** An
+earlier draft of this document asserted all four were stable "verified in
+`task.py`" — I had verified the field _names_ and not what the fields are
+_derived from_. `capability_gap._gap` computes
+`gap_id = sha256(f"{cycle_id}:{gap_type}:{source_id}")[:12]`, so the same gap
+re-detected tomorrow carries a different id, a different mission id, and a
+fresh mission every night. That is precisely the per-cycle churn persistent
+missions exist to end — present inside the PR that exists to end it.
+
+Checking a field name is not checking an identity. The stable key already
+existed one layer up: `capability_gap_key` is content-derived
+(`registry:ghost:<tool_id>`, `coverage:<service>`, …) and is exactly what
+`detect_capability_gaps` dedups on (`capability_gap.py:64`). It simply never
+reached the candidate. It does now, with `gap_id` as the fallback — a gap
+without a key is a `capability_gap.py` defect, and dropping the work would hide
+it.
+
+An AST test now guards all four builders, because a behavioural test cannot see
+this: within a single cycle a cycle-derived id is perfectly stable and passes
+any same-run assertion.
 
 **With one trap.** `_candidate_from_pressure` falls back to the literal string
 `"pressure"` when a row carries neither identifier. Adopting that verbatim
@@ -61,16 +81,17 @@ the lane either.
 
 ## Verification
 
-`aria-kernel/tests/test_mission_ingest.py` — 11 tests, written before the code.
+`aria-kernel/tests/test_mission_ingest.py` — 15 tests, written before the code.
 
-**Mutation-checked four ways**, and the fourth is the one worth recording:
+**Mutation-checked five ways**, and two are worth recording:
 
-| Mutation                         | Result                                  |
-| -------------------------------- | --------------------------------------- |
-| unusable source ids accepted     | 2 fail + 1 error                        |
-| refusal recorded but not written | 1 fails                                 |
-| `mission_ingest` joins burn-in   | 1 fails                                 |
-| the seal-point closure deleted   | **SURVIVED**, then 2 fail after the fix |
+| Mutation                          | Result                                  |
+| --------------------------------- | --------------------------------------- |
+| unusable source ids accepted      | 2 fail + 1 error                        |
+| refusal recorded but not written  | 1 fails                                 |
+| `mission_ingest` joins burn-in    | 1 fails                                 |
+| the seal-point closure deleted    | **SURVIVED**, then 2 fail after the fix |
+| `capability_gap` back to `gap_id` | 1 fails                                 |
 
 The survivor: my first version searched the seal region for the string
 `assert_cycle_closure`, which **also appears in `cycle.py`'s import line**, so
@@ -82,7 +103,7 @@ tests: `append_tools_governance` was used at the seal point and never imported.
 No test took that branch, so the suite stayed green over a latent `NameError`.
 There is now a test that asserts every name the seal point uses resolves.
 
-Kernel suite 3163 OK; `invariants:fast` green; run **sequentially**.
+Kernel suite 3166 OK; `invariants:fast` green; run **sequentially**.
 
 ## Finding
 

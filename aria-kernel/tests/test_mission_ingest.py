@@ -143,6 +143,85 @@ class AdoptionTests(unittest.TestCase):
         self.assertEqual(result["cycle_id"], "cycle-1")
 
 
+class CandidateIdentityStabilityTests(unittest.TestCase):
+    """Every source_id fed to mission identity must survive a cycle boundary.
+
+    This is the claim the whole adoption rests on, and checking the FIELD NAME
+    is not checking it. `gap_id` looks stable and is not: `capability_gap._gap`
+    computes it as `sha256(f"{cycle_id}:{gap_type}:{source_id}")`, so the same
+    gap re-detected tomorrow yields a different id and therefore a different
+    mission — a fresh mission every night, which is precisely the churn PR 1.1
+    exists to make impossible.
+
+    The stable key already exists: `capability_gap_key` is content-derived
+    (`registry:ghost:<tool_id>`, `coverage:<service>`, …) and is exactly what
+    `detect_capability_gaps` dedups on. It simply never reached the candidate.
+    """
+
+    def test_no_candidate_source_id_is_derived_from_the_cycle(self) -> None:
+        """AST guard over task.py's four candidate builders.
+
+        Behavioural tests cannot see this: within one cycle every id is
+        perfectly stable, so a cycle-derived id passes any same-run assertion.
+        """
+        import ast
+        import inspect
+
+        from aria_kernel import task as task_mod
+
+        tree = ast.parse(inspect.getsource(task_mod))
+        builders = {
+            node.name: node for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name.startswith("_candidate_from_")
+        }
+        self.assertEqual(len(builders), 4, sorted(builders))
+        for name, node in builders.items():
+            assigns = [
+                n for n in ast.walk(node)
+                if isinstance(n, ast.Assign)
+                and any(getattr(t, "id", None) == "source_id" for t in n.targets)
+            ]
+            for assign in assigns:
+                read = {
+                    n.id for n in ast.walk(assign.value) if isinstance(n, ast.Name)
+                }
+                self.assertNotIn(
+                    "cycle_id", read,
+                    msg=f"{name} derives source_id from cycle_id; mission identity "
+                        "would churn every cycle",
+                )
+
+    def test_a_capability_gap_folds_across_cycles(self) -> None:
+        """Two cycles, two gap_ids, one stable key — one mission."""
+        from aria_kernel.task import _candidate_from_capability_gap
+
+        gap_night_one = {
+            "gap_id": "gap-aaaaaaaaaaaa",
+            "capability_gap_key": "registry:ghost:tool-x",
+            "title": "tool-x is a ghost",
+            "score": 40,
+        }
+        gap_night_two = dict(gap_night_one, gap_id="gap-bbbbbbbbbbbb")
+        first = _candidate_from_capability_gap("cycle-1", gap_night_one)
+        second = _candidate_from_capability_gap("cycle-2", gap_night_two)
+        self.assertEqual(first["source_id"], second["source_id"])
+        self.assertEqual(first["source_id"], "registry:ghost:tool-x")
+        self.assertEqual(
+            mission_id_for("capability_gap", first["source_id"], REPO_HASH),
+            mission_id_for("capability_gap", second["source_id"], REPO_HASH),
+        )
+
+    def test_a_gap_without_the_stable_key_still_yields_something(self) -> None:
+        """Fall back to gap_id rather than refusing: a gap with no key is a
+        capability_gap.py bug, and dropping the work would hide it."""
+        from aria_kernel.task import _candidate_from_capability_gap
+
+        candidate = _candidate_from_capability_gap(
+            "cycle-1", {"gap_id": "gap-cccccccccccc", "title": "t", "score": 1}
+        )
+        self.assertEqual(candidate["source_id"], "gap-cccccccccccc")
+
+
 class PhaseRegistrationTests(unittest.TestCase):
     """The phase table is the SSoT; membership is a reviewed edit."""
 

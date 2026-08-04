@@ -23,6 +23,7 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.agent_invocations import (
+    _anchor_repo_root,
     create_agent_invocation_request,
     derive_request_state,
     next_pending_request,
@@ -103,6 +104,76 @@ def _claim_events(tools: Path, request_id: str) -> list[dict]:
 
 
 class AnchorGateTests(unittest.TestCase):
+    def test_normal_worktree_marker_resolves_repository_root(self) -> None:
+        with _repo_with_tools() as (root, tools, _head):
+            self.assertEqual(_anchor_repo_root(tools), root.resolve())
+
+    def test_linked_worktree_marker_resolves_repository_root(self) -> None:
+        """A linked worktree stores a gitdir pointer in its .git file."""
+        with tempfile.TemporaryDirectory() as tmp:
+            common = Path(tmp) / "common"
+            common.mkdir()
+            _git(common, "init", "-q")
+            _git(common, "config", "user.email", "test@example.com")
+            _git(common, "config", "user.name", "Test User")
+            (common / "seed.txt").write_text("seed\n", encoding="utf-8")
+            _git(common, "add", "seed.txt")
+            _git(common, "commit", "-q", "-m", "seed")
+
+            linked = Path(tmp) / "linked"
+            _git(
+                common,
+                "worktree",
+                "add",
+                "-q",
+                "--detach",
+                str(linked),
+                "HEAD",
+            )
+            self.assertTrue((linked / ".git").is_file())
+            tools = linked / "aria-tools"
+            ensure_tools_dir(tools)
+
+            self.assertEqual(_anchor_repo_root(tools), linked.resolve())
+
+    def test_empty_git_directory_does_not_activate_anchor_enforcement(self) -> None:
+        """A host-owned empty .git ancestor is not a repository authority."""
+        with tempfile.TemporaryDirectory() as tmp:
+            false_root = Path(tmp) / "not-a-repository"
+            false_root.mkdir()
+            (false_root / ".git").mkdir()
+            tools = false_root / "aria-tools"
+            ensure_tools_dir(tools)
+            _set_anchor_window(false_root, max_age_seconds=0)
+            req = _seed(tools, target_sha=None)
+
+            self.assertIsNone(_anchor_repo_root(tools))
+            nxt = next_pending_request(role="primary_plan", base_dir=tools)
+            self.assertIsNotNone(nxt)
+            self.assertEqual(nxt["request_id"], req["request_id"])
+            self.assertEqual(
+                derive_request_state(request_id=req["request_id"], base_dir=tools),
+                "PENDING",
+            )
+            self.assertEqual(_claim_events(tools, req["request_id"]), [])
+
+    def test_malformed_or_broken_gitdir_pointer_is_not_a_repository(self) -> None:
+        marker_contents = (
+            "",
+            "not-a-gitdir-pointer\n",
+            "gitdir:\n",
+            "gitdir: missing-git-directory\n",
+        )
+        for content in marker_contents:
+            with self.subTest(content=content), tempfile.TemporaryDirectory() as tmp:
+                false_root = Path(tmp) / "not-a-repository"
+                false_root.mkdir()
+                (false_root / ".git").write_text(content, encoding="utf-8")
+                tools = false_root / "aria-tools"
+                ensure_tools_dir(tools)
+
+                self.assertIsNone(_anchor_repo_root(tools))
+
     def test_current_anchor_is_still_returned(self) -> None:
         # The acceptance direction. A gate that refused everything would
         # "fix" the stale queue by making ARIA unable to run at all.

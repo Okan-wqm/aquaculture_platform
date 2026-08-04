@@ -23,17 +23,44 @@ evidence trust and executor lanes — nothing to do with signing.
                 that build repos without the fixture factory
   * I-HERM-06 — repo-LOCAL config still wins, so production code that
                 enables signing on repos it owns stays observable
+
+A second leak, of the same class but a different variable family, cost a
+real repository: ``git`` exports an ABSOLUTE ``GIT_DIR`` into its own
+environment whenever the git dir is not the default ``.git`` in cwd —
+which is always true inside a linked worktree. A ``git push`` from such a
+worktree therefore hands ``GIT_DIR=<repo>/.git/worktrees/<name>`` to
+``.husky/pre-push``, which hands it to the kernel suite.
+
+``cwd=`` selects the WORK TREE; ``GIT_DIR`` selects the REPOSITORY. So
+every fixture that carefully passed ``cwd=<tempdir>`` — and they all do —
+was still operating on the HOST repository: ``git init`` re-initialised
+it (guessing ``core.bare=true``, because the exported path ends in the
+worktree name rather than ``/.git``), ``git config`` wrote the host's
+config, and ``git add``/``git commit`` staged temp files onto the host's
+real index and HEAD.
+
+  * I-HERM-07 — the repo-LOCATION variables are scrubbed from a supplied
+                environment, not merely the two config-layer variables
+  * I-HERM-08 — a leaked repo-location variable makes the hermetic
+                environment report itself INACTIVE
+  * I-HERM-09 — end-to-end: a child process that inherits ``GIT_DIR``
+                pointing at a sentinel repo cannot touch that repo by
+                building a fixture in a temp directory
 """
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from tests._helpers.hermetic_git import (
+    GIT_LOCATION_VARS,
     HERMETIC_GITCONFIG,
+    apply_hermetic_git_env,
     hermetic_git_env_is_active,
 )
 
@@ -139,6 +166,104 @@ class SuiteGitHermeticityTests(unittest.TestCase):
             _git(["config", "--local", "commit.gpgsign", "true"], root)
             resolved = _git(["config", "--get", "commit.gpgsign"], root)
             self.assertEqual(resolved.stdout.strip(), "true")
+
+
+class SuiteGitRepositoryLocationHermeticityTests(unittest.TestCase):
+    """The variables that decide WHICH repository a fixture writes to."""
+
+    def test_i_herm_07_location_vars_are_scrubbed(self) -> None:
+        leaked = {var: "/somewhere/else/.git" for var in GIT_LOCATION_VARS}
+        leaked["PATH"] = os.environ.get("PATH", "")
+        apply_hermetic_git_env(leaked)
+        still_set = sorted(var for var in GIT_LOCATION_VARS if var in leaked)
+        self.assertEqual(
+            still_set, [],
+            msg=(
+                f"{still_set} survived the hermetic environment. cwd= selects the "
+                "work tree, not the repository, so any of these left in place "
+                "redirects every fixture's writes to whatever repo it names."
+            ),
+        )
+        self.assertEqual(leaked["PATH"], os.environ.get("PATH", ""))
+
+    def test_i_herm_08_a_leaked_location_var_reports_inactive(self) -> None:
+        """Absence must be part of the definition, not an unstated assumption.
+
+        The predicate is what other tests and future callers ask. If it can
+        answer "active" while GIT_DIR points at the host repository, it is
+        answering a narrower question than its name promises.
+        """
+        for var in GIT_LOCATION_VARS:
+            env = {
+                "GIT_CONFIG_GLOBAL": str(HERMETIC_GITCONFIG),
+                "GIT_CONFIG_SYSTEM": os.devnull,
+                var: "/somewhere/else/.git",
+            }
+            self.assertFalse(
+                hermetic_git_env_is_active(env),
+                msg=f"{var} is set, yet the environment reports itself hermetic.",
+            )
+
+    def test_i_herm_09_inherited_git_dir_cannot_reach_the_host_repo(self) -> None:
+        """The real incident, reproduced end to end and then prevented.
+
+        A child process is given ``GIT_DIR`` pointing at a sentinel repo —
+        exactly what ``git push`` hands its hooks from a linked worktree —
+        and then builds a fixture repo in a temp directory the way ~30 test
+        files do. The sentinel must be untouched: same HEAD, no new commits,
+        no config written into it.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            sentinel = Path(tmp) / "sentinel"
+            sentinel.mkdir()
+            _seed_repo(sentinel)
+            before_head = _git(["rev-parse", "HEAD"], sentinel).stdout.strip()
+            before_count = _git(["rev-list", "--count", "HEAD"], sentinel).stdout.strip()
+
+            fixture_dir = Path(tmp) / "fixture"
+            fixture_dir.mkdir()
+            child = subprocess.run(
+                [
+                    sys.executable, "-c",
+                    # Importing `tests` installs the hermetic environment; the
+                    # git calls below then run exactly as a fixture's would.
+                    "import subprocess,sys;"
+                    "import tests;"
+                    "d=sys.argv[1];"
+                    "r=lambda *a: subprocess.run(['git',*a],cwd=d,check=True,"
+                    "capture_output=True);"
+                    "r('init','-q');"
+                    "open(d+'/leak.txt','w').write('x');"
+                    "r('add','leak.txt');"
+                    "r('-c','user.email=t@t.invalid','-c','user.name=t',"
+                    "'commit','-q','-m','fixture leak probe')",
+                    str(fixture_dir),
+                ],
+                cwd=Path(__file__).resolve().parents[1],
+                env={
+                    **os.environ,
+                    "GIT_DIR": str(sentinel / ".git"),
+                    "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
+                },
+                text=True, capture_output=True,
+            )
+            self.assertEqual(child.returncode, 0, msg=child.stderr)
+
+            after_head = _git(["rev-parse", "HEAD"], sentinel).stdout.strip()
+            after_count = _git(["rev-list", "--count", "HEAD"], sentinel).stdout.strip()
+            self.assertEqual(
+                (after_head, after_count), (before_head, before_count),
+                msg=(
+                    "a fixture built in a temp directory moved the SENTINEL "
+                    "repository's HEAD. An inherited GIT_DIR outranks cwd=, so the "
+                    "fixture wrote into whatever repository that variable named — "
+                    "in the real incident, the developer's own checkout."
+                ),
+            )
+            self.assertTrue(
+                (fixture_dir / ".git").exists(),
+                msg="the fixture never got its own repository",
+            )
 
 
 if __name__ == "__main__":

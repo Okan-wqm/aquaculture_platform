@@ -121,10 +121,21 @@ The independent immutable tier is a security-owned AWS account with S3 Object Lo
 buckets split by retention class. It is administered separately from production and DigitalOcean.
 S3 Object Lock prevents deletion of a retained object version, including by the root user, and
 prevents shortening an existing compliance retention period:
-<https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock.html>. Fixed sequence keys use
-`If-None-Match: *` conditional writes as the split-brain compare-and-swap primitive:
-<https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html>. Both behaviors are
-frozen by executable AWS contract tests rather than documentation assumptions.
+<https://docs.aws.amazon.com/AmazonS3/latest/userguide/object-lock.html>. Object Lock protects an
+object version; it does not prevent a simple `DELETE` from adding a current delete marker. Likewise,
+`If-None-Match: *` evaluates only the current version and permits a write when that version is a
+delete marker:
+<https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html>. Fixed sequence keys
+therefore use the conditional write only inside a stronger journal-prefix contract. AWS documents
+bucket-policy enforcement of the conditional header:
+<https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes-enforce.html>. Journal
+policy admits only a bounded single-part `PutObject` carrying `If-None-Match: *`; it denies a missing
+or different header, copy, and multipart paths. Delete-marker creation is denied, and an independent
+notary must prove exactly one non-delete version and zero delete markers before a claim has effect.
+AWS Organizations SCP attachment and update remain a separate management-account control plane:
+<https://docs.aws.amazon.com/organizations/latest/userguide/orgs_manage_policies_scps.html>. These
+behaviors and authority boundaries are frozen by executable AWS contract tests rather than
+documentation assumptions.
 
 ## Target architecture
 
@@ -245,15 +256,17 @@ required to authorize or execute one.
 
 Required authority split:
 
-| Identity                   | Allowed                                           | Forbidden                                                    |
-| -------------------------- | ------------------------------------------------- | ------------------------------------------------------------ |
-| Production backup writer   | append new backup objects and evidence candidates | delete versions, shorten retention, restore, administer WORM |
-| Immutable-vault replicator | one-way append into named prefixes                | read application plaintext, delete, restore                  |
-| Evidence notary            | attest object inventory and restore result        | author host claims, mutate backups                           |
-| Restore reader             | read an exact approved recovery cut               | write backup stores, read unrelated epochs                   |
-| Recovery controller        | advance the operation state machine               | access application user APIs, bypass verifier failures       |
-| Retention administrator    | manage policy under dual control                  | possess production write or restore credentials              |
-| Break-glass operators      | authorize a signed recovery request with quorum   | directly run database/object deletion commands               |
+| Identity                      | Allowed                                                   | Forbidden                                                       |
+| ----------------------------- | --------------------------------------------------------- | --------------------------------------------------------------- |
+| Production backup writer      | append backup/evidence candidates to non-journal prefixes | write journal keys; read/delete/restore/administer WORM         |
+| Immutable-vault replicator    | one-way append into named data prefixes                   | write journal keys; read application plaintext, delete, restore |
+| Evidence notary               | attest object inventory, policy state, and restore result | author host claims, write journal or backup objects             |
+| Restore reader                | read an exact approved recovery cut                       | write backup stores or journal; read unrelated epochs           |
+| Recovery controller           | claim journal keys and advance the typed state machine    | write backup data; access user APIs; bypass verifier failures   |
+| Retention administrator       | sign future catalog retention policy under dual control   | possess data credentials; mutate an activated vault generation  |
+| Vault bootstrap quorum        | create and activate a new signed bucket/policy generation | mutate an activated bucket or its policy                        |
+| Organization policy authority | attach a signed SCP digest after offline quorum           | hold member-account data credentials or write journal/data      |
+| Break-glass operators         | authorize a signed recovery request with quorum           | directly run database/object/policy mutation commands           |
 
 The controller stores no long-lived cloud secret. It exchanges workload identity for
 operation-scoped credentials, binds them to `recovery_cut_id`, asset IDs, epoch, object prefix, and
@@ -262,17 +275,53 @@ expiry, then destroys the credentials after the operation.
 Controller state is rebuilt from the signed Recovery Operation Journal, never from a unique
 controller database. Each canonical RFC 8785/JCS record includes domain separation, schema version,
 workflow profile, signer and key epoch, nonce, verifier digest, trusted timestamp, and `prev_hash`.
-The appliance claims the next fixed sequence key with `If-None-Match: *`; an existing key is a CAS
-failure and fences the competing controller. Every transition also carries the global monotonic
+Only an operation-scoped recovery-controller credential can claim the next fixed journal sequence
+key. The journal schema bounds every record below the single-part `PutObject` limit, and the request
+must carry `If-None-Match: *`. The bucket policy rejects a missing or different conditional header
+and denies copy and multipart APIs on the journal prefix, so a principal cannot create a new version
+through an unconditional or alternate write path. An existing current non-delete object version is
+a CAS failure and fences the competing controller. The claim is not effective until the independent
+notary lists all versions for that exact key and attests exactly one non-delete version, zero delete
+markers, the expected digest, and the compliance retention metadata. Any marker, duplicate version,
+or indeterminate listing permanently quarantines that journal generation before the transition can
+authorize a data-plane effect. Every transition also carries the global monotonic
 `recovery_generation`.
 
-Journal ciphertext is appended to retention-class buckets in the security-owned AWS account. The
-production writer can write client-side-encrypted ciphertext only to a fixed prefix and has no
-list, read, delete, retention-change, KMS-decrypt, or KMS-policy permission. A restore reader
-receives short-lived read/decrypt permission for exact object versions in one approved cut. An
-independent notary uses separate credentials to verify those versions, retention mode/date, legal
-hold, digest, and restore results. The journal is evidence of a transition; it cannot substitute for
-directly observed data-plane proof.
+Each retention class uses a dedicated journal bucket with no lifecycle configuration. It has two
+independent preventive controls: an AWS Organizations SCP on the security member account and an
+explicit bucket-policy `Deny`. Together they reject `s3:DeleteObject` (delete-marker creation),
+`s3:DeleteObjectVersion`, `s3:PutLifecycleConfiguration`, `s3:PutBucketPolicy`, and
+`s3:DeleteBucketPolicy` for every workload, administrator, retention, restore, notary, break-glass,
+and member-account-root principal after activation. The policy also restricts journal
+`s3:PutObject` to the operation-scoped controller role and requires the exact conditional header.
+Production backup/evidence writers and the immutable-vault replicator use separately named
+data/evidence buckets and prefixes; no wildcard IAM resource overlaps a journal key.
+
+The Organizations policy authority lives in a separate management/guard account, holds no member
+data credential, and can attach, update, or detach the journal SCP only after a 2-of-3 offline
+security/compliance authorization bound to an exact policy digest and target account. Workload and
+member-account administrators, including member root, cannot invoke that control plane. The vault
+bootstrap quorum applies bucket policy and then attaches the guard SCP as the activation boundary.
+An activated bucket/policy generation is never edited for normal evolution; a signed change creates
+a new bucket and policy generation, qualifies it, and explicitly retires the old writer path without
+shortening retained versions.
+
+Before activation and before and after every sequence claim, the notary obtains fresh, independent
+views from both the vault account and Organizations authority. A nonce-bound attestation covers the
+SCP ID, digest and target attachment, bucket-policy digest, versioning/Object Lock state,
+`NoSuchLifecycleConfiguration`, exact journal version inventory, and a catalog-defined maximum age
+with no default. The controller binds that attestation to the transition. A missing, stale, changed,
+or indeterminate view quarantines the generation before any data-plane effect and makes readiness
+`RED`; a post-write mismatch prevents the claim from becoming effective.
+
+Journal ciphertext is appended to the dedicated retention-class journal buckets in the
+security-owned AWS account only by operation-scoped controller credentials. A production writer can
+write client-side-encrypted backup objects and evidence candidates only to separate fixed prefixes
+and has no journal write, list, read, delete, retention-change, KMS-decrypt, or KMS-policy permission.
+A restore reader receives short-lived read/decrypt permission for exact object versions in one
+approved cut. An independent notary uses separate credentials to verify those versions, retention
+mode/date, legal hold, digest, policy state, and restore results. The journal is evidence of a
+transition; it cannot substitute for directly observed data-plane proof.
 
 ### 4. Typed recovery workflows
 
@@ -380,16 +429,32 @@ Additional rules:
   versions;
 - replication lag is measured per asset and included in RPO;
 - lifecycle expiry cannot precede the longest catalog retention or legal hold;
-- delete markers and non-current versions are included in inventory checks;
+- dedicated journal buckets have no lifecycle configuration and deny lifecycle mutation,
+  delete-marker creation, version deletion, and bucket-policy mutation through both the organization
+  SCP and bucket policy;
+- journal writes are controller-only single-part conditional puts; unconditional, wrong-header,
+  copy, multipart, and non-controller write paths are denied before S3 creates a version;
+- every journal claim has freshness-bound pre-write and post-write attestations of the exact SCP
+  attachment/digest, bucket-policy digest, Object Lock/versioning state, and lifecycle absence;
+- delete markers and non-current versions are included in inventory checks; any marker or duplicate
+  journal sequence version permanently quarantines that journal generation;
 - monthly sampling downloads from both replica classes and verifies plaintext after controlled
   decryption;
 - annual restore assumes loss of the primary provider account, GitHub, GHCR, and the production
   host simultaneously.
 
-Real-account policy tests attempt production-writer list/read/delete, retention shortening,
-KMS-decrypt, and KMS-policy mutation and require explicit denial. Restore-reader tests prove it
-cannot read versions or prefixes outside the authorized cut. The independent notary observes with
-its own credentials; it never accepts producer-supplied inventory as proof of AWS state.
+Real-account policy tests attempt list/read, simple delete, version delete, lifecycle mutation,
+bucket-policy mutation, retention shortening, KMS-decrypt, and KMS-policy mutation from every
+production, restore, notary, retention, administrator, and break-glass role and require explicit
+denial where the role has no authority. Journal-write tests attempt an unconditional put, a wrong
+header, copy, multipart completion, production-writer put, and a second valid conditional put; each
+must fail without creating a version. Only the controller's first exact conditional single-part put
+may succeed. The organization-policy test proves that member-account root can neither mutate the
+bucket policy, create a journal delete marker, nor install a lifecycle configuration; separate guard
+tests reject an SCP update/detach without the offline quorum. Restore-reader tests prove it cannot
+read versions or prefixes outside the authorized cut. The independent notary observes all versions,
+policy authorities, and lifecycle absence with its own credentials; stale or changed claim-time
+attestation fails closed and producer-supplied inventory is never accepted as proof of AWS state.
 
 Spaces remains the fast operational replica. Its lack of built-in backup and cross-region or
 cross-cluster copy means it can never qualify as immutable authority.
@@ -789,6 +854,10 @@ Every release of the recovery system tests rejection of:
 - expired MQTT command;
 - cleanup identity race;
 - operation-journal hash-chain break, duplicate sequence claim, or stale controller lease;
+- journal delete marker, duplicate non-delete sequence version, version-listing failure, or
+  journal-bucket delete/lifecycle/bucket-policy drift;
+- unconditional, wrong-header, copy, multipart, or non-controller journal write;
+- stale, missing, or changed claim-time SCP/bucket-policy attestation;
 - catalog downgrade, expired owner signature, clock skew, or invalid trusted timestamp;
 - stale `recovery_generation` writer, DNS, network, or database credential;
 - unavailable primary provider, GitHub, GHCR, production host, or primary KMS;
@@ -916,14 +985,30 @@ orphan catalog entry, and zero duplicate mutation authority.
 
 **Exit target:** 2026-08-14
 
-- provision the separate security-owned AWS account and retention-class Object Lock `COMPLIANCE`
-  buckets;
+- provision the separate security-owned AWS account, separate Organizations management/guard
+  authority, retention-class Object Lock `COMPLIANCE` data buckets, and dedicated retention-class
+  journal buckets with no lifecycle configuration;
+- install organization SCP and bucket-policy denies that make journal delete-marker creation,
+  version deletion, lifecycle/bucket-policy mutation, and non-conditional or alternate journal
+  writes unavailable to every member-account principal, including root and break-glass;
+- allow journal writes only to operation-scoped controller credentials; place production backup and
+  evidence candidates in non-overlapping data/evidence resources;
 - implement one-way ciphertext writer, cut-scoped restore reader, independent notary, and quorum
   administration policies;
 - create the 2-of-3 offline TUF root/bootstrap and independently held key/CA escrow;
 - mirror signed appliance/release/IaC/OCI/SBOM/provenance material;
-- execute real AWS denial tests for list/read/delete, retention shortening, KMS decrypt, and KMS
-  policy mutation.
+- execute real AWS denial tests for list/read/simple-delete/version-delete/lifecycle/bucket-policy
+  mutation, unconditional/wrong-header/copy/multipart/non-controller journal writes, retention
+  shortening, KMS decrypt, and KMS policy mutation;
+- require independent pre-activation and per-claim pre/post evidence of
+  `NoSuchLifecycleConfiguration` plus exact SCP attachment/digest, bucket-policy digest, Object Lock,
+  versioning, and journal-version state;
+- prove SCP update/detach requires the separate 2-of-3 offline guard quorum and that a policy change
+  creates a new bucket/policy generation rather than editing an activated generation;
+- in a sacrificial versioned fixture, prove that a current delete marker permits
+  `If-None-Match: *`, then prove the notary/controller quarantines the marker and duplicate version
+  before any transition effect; in the production-policy fixture, prove marker creation and
+  lifecycle configuration are denied.
 
 **Exit gate:** AWS Compliance retention, offline trust bootstrap, escrow recovery, and destructive
 IAM deny tests are green.
@@ -937,12 +1022,13 @@ IAM deny tests are green.
 - implement signed `DataProtectionCatalogV1`, compiler, dependency graph, discovery equality, and
   canonical projections;
 - build the reproducible Rust appliance and its typed workflow profiles;
-- implement signed hash-chain journal rebuild, fixed sequence CAS, operation credentials, trusted
+- implement signed hash-chain journal rebuild, policy-enforced conditional single-part CAS,
+  notary-backed exact-version and policy-state attestations, operation credentials, trusted
   timestamps, and global generation fencing;
 - expose only the four versioned controller endpoints and remove legacy admin/UI backup authority
   in the same breaking API change;
 - crash before and after every transition and property-test illegal transitions, duplicate
-  requests, stale leases, split-brain, and state skips.
+  requests, stale leases, split-brain, delete-marker/duplicate-version quarantine, and state skips.
 
 **Exit gate:** two compilations at one SHA are byte-identical; model, CAS, crash, and journal rebuild
 tests find no path around an authorization, verifier, safety, or cutover guard.
@@ -1004,6 +1090,10 @@ isolation, cleanup, and generation-fencing tests.
 - complete clean-room recovery with GitHub, GHCR, DigitalOcean source host, and primary KMS absent;
 - inject split-brain controllers, stale generations, journal corruption, mixed cuts/epochs, clock
   skew, provider corruption, and key loss;
+- inject a journal delete marker and duplicate retained sequence version in an isolated fixture and
+  require permanent generation quarantine before any data-plane effect;
+- inject an unconditional/alternate journal write, SCP detach, bucket-policy change, and stale
+  policy attestation and require denial or quarantine before any data-plane effect;
 - exercise offline bootstrap, escrow quorum, production-writer compromise, and notary separation;
 - verify cleanup and credential/plaintext destruction after every drill.
 

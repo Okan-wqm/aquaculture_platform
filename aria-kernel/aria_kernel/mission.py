@@ -37,6 +37,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .task import generate_task_candidates
 from .ledger import (
     load_declared_jsonl,
     rewrite_declared_json,
@@ -171,6 +172,22 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     "SUPERSEDED": frozenset(),
     "FAILED_AND_ROLLED_BACK": frozenset(),
 }
+
+
+# Identifiers a candidate can carry that do not actually identify anything.
+# `task._candidate_from_pressure` falls back to the literal string "pressure"
+# when a pressure row has neither `event_id` nor `pressure_id`; hashing that
+# would give every identifier-less pressure the SAME mission_id, so unrelated
+# work would share one mission and accumulate contradictory bindings. Identity
+# that cannot identify is worse than no identity, so these are refused.
+UNUSABLE_SOURCE_IDS: frozenset[str] = frozenset({
+    "pressure",
+    "finding",
+    "shadow_run_summary",
+    "capability_gap",
+    "None",
+    "",
+})
 
 
 def events_path(root: Path) -> Path:
@@ -597,6 +614,79 @@ def rebuild_mission_index(*, base_dir: str | Path | None = None) -> dict[str, An
     return {"schema_version": 1, "path": str(path), "mission_count": len(missions)}
 
 
+def adopt_task_candidates(
+    *,
+    cycle_id: str,
+    repo_hash: str,
+    base_dir: str | Path | None = None,
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Turn this cycle's task candidates into persistent missions.
+
+    The FIRST production caller of `task.generate_task_candidates`, which has
+    existed with none. Adoption is idempotent by construction: `open_mission`
+    keys on ``sha256(source_kind|source_id|repo_hash)``, so the same candidate
+    re-discovered on a later night folds into the mission it already opened
+    rather than starting a new one — which is the entire reason mission
+    identity refuses to read the cycle.
+
+    One candidate at a time, and a bad row costs only itself: a malformed or
+    unusably-identified candidate is refused and RECORDED, never dropped in
+    silence, because a candidate that vanishes without a trace is
+    indistinguishable from one that was never generated.
+    """
+    root = ensure_tools_dir(base_dir)
+    payload = generate_task_candidates(
+        cycle_id=cycle_id, base_dir=root, limit=limit
+    )
+    candidates = payload.get("tasks") if isinstance(payload, dict) else None
+    adopted = already = refused = 0
+    for candidate in candidates if isinstance(candidates, list) else []:
+        if not isinstance(candidate, dict):
+            refused += 1
+            continue
+        source = candidate.get("source")
+        source_id = str(candidate.get("source_id") or "")
+        reason = None
+        if not isinstance(source, str) or not source.strip():
+            reason = "missing_source"
+        elif source_id in UNUSABLE_SOURCE_IDS:
+            # Refused rather than adopted: see UNUSABLE_SOURCE_IDS.
+            reason = "unusable_source_id"
+        if reason is not None:
+            refused += 1
+            append_tools_governance(
+                root,
+                "mission_candidate_refused",
+                {
+                    "schema_version": 1,
+                    "cycle_id": cycle_id,
+                    "reason": reason,
+                    "source": source if isinstance(source, str) else None,
+                    "source_id": source_id or None,
+                },
+            )
+            continue
+        result = open_mission(
+            source_kind=source,
+            source_id=source_id,
+            repo_hash=repo_hash,
+            title=str(candidate.get("title") or source_id),
+            base_dir=root,
+        )
+        if result["idempotent"]:
+            already += 1
+        else:
+            adopted += 1
+    return {
+        "schema_version": 1,
+        "cycle_id": cycle_id,
+        "adopted": adopted,
+        "already_tracked": already,
+        "refused": refused,
+    }
+
+
 def assert_cycle_closure(*, base_dir: str | Path | None = None) -> dict[str, Any]:
     """"No plan silently half-done", executable.
 
@@ -658,6 +748,8 @@ __all__ = [
     "RETRY_LADDER",
     "TERMINAL_STATES",
     "WAKE_KINDS",
+    "UNUSABLE_SOURCE_IDS",
+    "adopt_task_candidates",
     "assert_cycle_closure",
     "bind_mission",
     "events_path",

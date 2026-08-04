@@ -13,7 +13,8 @@ from typing import Any, Literal
 from .feedback import derive_pressure
 from .ledger import verify_index_hashes, write_index
 from .learning import run_learning_pass, run_learning_post_evidence_closure, run_learning_pre_cycle
-from .workspace import WorkspacePaths, ensure_workspace, workspace_paths
+from .mission import adopt_task_candidates, assert_cycle_closure
+from .workspace import WorkspacePaths, ensure_workspace, repo_hash, workspace_paths
 from .discovery import run_discovery
 from .cycle_diff import run_cycle_diff
 from .cycle_progress import emit_progress
@@ -32,7 +33,7 @@ from .human_required_adjudication import sweep_human_required_adjudications
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
 from .runtime_profile import ACTION_PERMISSIONS, get_profile
-from .tool_registry import GovernanceError, ensure_tools_binding, list_tools, utc_now, update_tools_index
+from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding, list_tools, utc_now, update_tools_index
 from .tool_runner import run_tool
 from .ledger import append_declared_jsonl
 
@@ -714,6 +715,37 @@ def run_enterprise_cycle(
     ]
     if post_tool_failure is not None:
         failed_phases.append(post_tool_failure)
+    # PLAN Wave 2 PR 1.2 — "no plan silently half-done", checked where the
+    # cycle actually seals. The plan called for a `cycle_seal` PHASE; there is
+    # none, and inventing one would put the check in a table row that runs
+    # before the terminal decision it is supposed to describe. Here it observes
+    # exactly the cycle the row about to be appended describes.
+    #
+    # OBSERVE-ONLY in this PR: a violation is recorded and does NOT downgrade
+    # the cycle. Every mission opened by mission_ingest starts in DISCOVERED
+    # with no next_action, so making this fail_cycle on day one would redden
+    # the nightly for the expected state of brand-new missions rather than for
+    # anything wrong. The promotion to a cycle-downgrading gate belongs with
+    # the scheduler that gives missions their next_action.
+    #
+    # Fail-soft on its own error for the same reason the continuity gate is:
+    # a closure check that CRASHED did not observe a clean cycle, but it must
+    # not be able to brick the lane either.
+    try:
+        closure = assert_cycle_closure(base_dir=root)
+    except Exception as exc:  # noqa: BLE001 - recorded, never fatal
+        append_tools_governance(
+            root,
+            "mission_closure_check_failed",
+            {"schema_version": 1, "cycle_id": cycle_id, "error": str(exc)},
+        )
+    else:
+        if closure.get("violations"):
+            emit_progress(
+                "mission_closure", cycle_id=cycle_id,
+                violations=len(closure["violations"]),
+            )
+
     if phase_failures or runtime_status != "ok":
         event = _failed_event(
             cycle_id,
@@ -954,6 +986,25 @@ def _phase_pressure(context: PhaseContext) -> dict[str, Any]:
         cycle_id=context.cycle_id,
         base_dir=context.base_dir,
         drift_class_weights=drift_weights,
+    )
+
+
+def _phase_mission_ingest(context: PhaseContext) -> dict[str, Any]:
+    """Turn this cycle's task candidates into persistent missions.
+
+    PLAN Wave 2 PR 1.2 — the FIRST production caller of
+    `task.generate_task_candidates`, which had existed with none. Runs after
+    `pressure` because pressure rows are one of the four candidate sources and
+    the generator reads this cycle's pressure artifact.
+
+    Adoption is idempotent by mission identity, so a candidate re-discovered
+    on a later night folds into the mission it already opened. That is the
+    whole point of PR 1.1's identity rule, and this is what consumes it.
+    """
+    return adopt_task_candidates(
+        cycle_id=context.cycle_id,
+        repo_hash=repo_hash(context.workspace_root),
+        base_dir=context.base_dir,
     )
 
 
@@ -1406,6 +1457,10 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     CyclePhase(
         "triage", "post_tool", _phase_triage, state_key="triage",
         modes=frozenset({"burn_in"}),
+    ),
+    CyclePhase(
+        "mission_ingest", "post_tool", _phase_mission_ingest,
+        precondition=WRITES_PERMITTED, state_key="mission_ingest",
     ),
     CyclePhase(
         "consensus_escalation", "post_tool", _phase_consensus_escalation,

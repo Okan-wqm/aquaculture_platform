@@ -1020,6 +1020,27 @@ def active_dispatch_assignments(
     return active
 
 
+def mission_for_assignment(
+    *,
+    assignment_id: str | None,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> str | None:
+    """The mission this assignment belongs to, or ``None``.
+
+    PLAN Wave 2 PR 1.5 — the single lookup every downstream consumer uses,
+    so the mission a PR announces and the mission the dispatch row records
+    are the same value read twice rather than two values passed separately.
+    """
+    if not assignment_id:
+        return None
+    root = ensure_tools_dir(base_dir)
+    assignment = _find_assignment(root, str(assignment_id))
+    if assignment is None:
+        return None
+    mission_id = assignment.get("mission_id")
+    return str(mission_id) if isinstance(mission_id, str) and mission_id.strip() else None
+
+
 def _lease_expiry_count(root: Path, assignment_id: str) -> int:
     """How many of this assignment's leases have already been reaped.
 

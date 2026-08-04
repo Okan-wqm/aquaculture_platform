@@ -43134,6 +43134,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/nested-steering-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/no-boot-time-tenant-schema-ddl.spec.ts",
       "prettier_managed": true
     },
@@ -56322,10 +56328,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9236,
+  "file_count": 9237,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9055,
-  "managed_file_list_sha256": "2b5edda258a7df3175168d8ddd076d6fa982ea396961d781cf9a0a2ca77a286f",
+  "managed_count": 9056,
+  "managed_file_list_sha256": "7373865620f41cd1e85d797c6ca2d71aa11775fd2bc421e534b301f1bd837187",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -14,4 +14,3 @@ JWT (RS256), RBAC, tenant provisioning, refresh-token rotation, MFA. Schema: `au
 
 ## Enforcement
 Boot: `SchemaDriftValidator`. CI: `tests/invariants/jwt-rs256-only.spec.ts`, `tenant-provisioning-ssot.spec.ts`, `e2e/tests/integration/schema-invariants.spec.ts`.
-<!-- back-test: CLAUDE-DRIFT-001, verified 2026-06-16 -->

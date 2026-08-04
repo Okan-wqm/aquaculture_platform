@@ -2,7 +2,7 @@
 
 > Root rules in `/CLAUDE.md` already apply (always loaded). This file adds ONLY web-frontend facts. It covers `web/shell`, `web/shared-ui`, and `web/modules/*`. (`web/apps/aquamobil` is a standalone PWA with its own `CLAUDE.md`.)
 
-Module Federation via `@module-federation/vite`. `web/shell` is the host; the 7 federated remotes live under `web/modules/*` (dashboard, farm-module, sensor-module, hr-module, admin-panel, tenant-admin, hydroponics-module). Remote base: dev `http://localhost:8080/mf`, prod `/remotes` (`web/shell/vite.config.ts`).
+Module Federation via `@module-federation/vite`. `web/shell` is the host; the <!-- cardinality:federated-remotes -->8<!-- /cardinality --> federated remotes live under `web/modules/*` (dashboard, farm-module, sensor-module, hr-module, admin-panel, tenant-admin, hydroponics-module, messaging-module). Remote base: dev `http://localhost:8080/mf`, prod `/remotes` (`web/shell/vite.config.ts`).
 
 ## Invariants
 - **Shared-deps SSoT:** `web/shared-ui/src/federation/federationSharedConfig.ts` — every shared dep is `singleton: true` + `strictVersion: true` (FE-HIGH-004: two React instances break hooks/context/QueryClient/auth). NEVER inline a `shared:` block in a `vite.config.ts`; import the config. Guarded by `tests/invariants/federation-shared-singleton.spec.ts` + `tests/invariants/web-shared-ui-singleton-imports.spec.ts`.
@@ -11,4 +11,3 @@ Module Federation via `@module-federation/vite`. `web/shell` is the host; the 7 
 
 ## Enforcement
 `tests/invariants/federation-shared-singleton.spec.ts`, `tests/invariants/web-shared-ui-singleton-imports.spec.ts`.
-<!-- back-test: CLAUDE-DRIFT-007, verified 2026-06-16 -->

@@ -17,6 +17,8 @@
  * See /root/.claude/plans/declarative-riding-shamir.md BLOCKER-8 for context.
  */
 
+import { execSync } from 'node:child_process';
+
 export const SCHEMA_OWNING_SERVICES = [
   'farm-service',
   'sensor-service',
@@ -166,3 +168,40 @@ export const DYNAMIC_AGENT_PLACEHOLDERS = [
   'maintenance-only',
   'no-dispatch',
 ] as const;
+
+/**
+ * Steering-file discovery, shared by every spec that validates CLAUDE.md /
+ * AGENTS.md content.
+ *
+ * Lists TRACKED plus UNTRACKED-not-ignored files, so a brand-new nested
+ * CLAUDE.md is covered by the invariants before it is ever committed.
+ * Worktree copies are byte-identical checkouts of other branches and would
+ * double-report every finding, so they are excluded.
+ *
+ * Promoted here from claude-md-accuracy.spec.ts when nested-steering-parity
+ * became a second consumer: two hand-maintained copies of a discovery rule
+ * is the same copied-SSoT defect these specs exist to catch.
+ */
+export const STEERING_EXCLUDED_DIR_RX =
+  /(^|\/)(\.worktrees|\.codex-worktrees|\.claude\/worktrees|node_modules)\//;
+
+export function discoverSteeringFiles(repoRoot: string): string[] {
+  const gitList = (cmd: string): string[] => {
+    try {
+      return execSync(cmd, { cwd: repoRoot, encoding: 'utf8' })
+        .split('\n')
+        .filter(Boolean);
+    } catch {
+      return [];
+    }
+  };
+  const all = [
+    ...gitList('git ls-files'),
+    ...gitList('git ls-files --others --exclude-standard'),
+  ];
+  return [...new Set(all)].filter(
+    (f) =>
+      (/(^|\/)CLAUDE\.md$/.test(f) || f === 'AGENTS.md') &&
+      !STEERING_EXCLUDED_DIR_RX.test(f),
+  );
+}

@@ -33217,6 +33217,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-04-aria-w2-wip-gate.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-08-04-npm-high-advisories-fix.md",
       "prettier_managed": true
     },
@@ -56292,10 +56298,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9231,
+  "file_count": 9232,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9050,
-  "managed_file_list_sha256": "aa7f6ce906dd2a6bf3518fdc0a06f9ac5e10a4e553345893099c3d9a0f9e674c",
+  "managed_count": 9051,
+  "managed_file_list_sha256": "b0c98324ee0f44245e225ec3743e42e42d271e7382b9cc9ea1d52161226b489c",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

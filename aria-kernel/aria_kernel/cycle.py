@@ -14,6 +14,7 @@ from .feedback import derive_pressure
 from .ledger import verify_index_hashes, write_index
 from .learning import run_learning_pass, run_learning_post_evidence_closure, run_learning_pre_cycle
 from .mission import adopt_task_candidates, assert_cycle_closure
+from .worker_dispatch import reap_expired_assignment_claims
 from .workspace import WorkspacePaths, ensure_workspace, repo_hash, workspace_paths
 from .discovery import run_discovery
 from .cycle_diff import run_cycle_diff
@@ -1008,6 +1009,22 @@ def _phase_mission_ingest(context: PhaseContext) -> dict[str, Any]:
     )
 
 
+def _phase_dispatch_lease_reap(context: PhaseContext) -> dict[str, Any]:
+    """Give back the WIP slot a dead worker is still holding.
+
+    PLAN Wave 2 PR 1.4 (ORPHAN-HIGH-487). The admission gate in
+    `promote_converged_plan_to_dispatch` refuses a second promotion while any
+    assignment is in flight, and `_derive_assignment_state` has always
+    documented a reaper for expired leases that did not exist. Without one,
+    the gate turns a single abandoned worker into a permanent freeze: the
+    assignment stays `picked_up` forever and no plan is ever promoted again.
+
+    A lease that expired is a POSITIVE observation — a deadline the claim
+    itself recorded, now past. A claim carrying no deadline is not judged.
+    """
+    return reap_expired_assignment_claims(base_dir=context.base_dir)
+
+
 def _phase_consensus_escalation(context: PhaseContext) -> dict[str, Any]:
     # Plan 023 §B — drain consensus disagreements / low-confidence verdicts
     # into HUMAN_REQUIRED so a split judge vote reaches an operator instead
@@ -1461,6 +1478,15 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     CyclePhase(
         "mission_ingest", "post_tool", _phase_mission_ingest,
         precondition=WRITES_PERMITTED, state_key="mission_ingest",
+    ),
+    # Bookkeeping over a ledger, so it sits with the other post-tool
+    # bookkeeping — and `record_and_continue`, because a reaper that CRASHED
+    # released nothing but must not be able to fail a cycle whose real work
+    # succeeded. Standard lane only: releasing an assignment is an action.
+    CyclePhase(
+        "dispatch_lease_reap", "post_tool", _phase_dispatch_lease_reap,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="dispatch_lease_reap",
     ),
     CyclePhase(
         "consensus_escalation", "post_tool", _phase_consensus_escalation,

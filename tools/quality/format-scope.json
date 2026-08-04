@@ -33211,6 +33211,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-04-aria-forged-perimeter-verdict.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-08-04-aria-w2-mission-ingest.md",
       "prettier_managed": true
     },
@@ -56310,10 +56316,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9234,
+  "file_count": 9235,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9053,
-  "managed_file_list_sha256": "2eded7421397e9073223d1fdd7c67c2e9fa5e91df07eba7926d456d7f220bff8",
+  "managed_count": 9054,
+  "managed_file_list_sha256": "88a69d86424469db983d57ea17756ae652bfda0410c99541b7c47680fda9db5a",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

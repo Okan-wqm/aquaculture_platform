@@ -45,7 +45,7 @@ from .mission import (
     mainline_index,
     transition_mission,
 )
-from .tool_registry import append_tools_governance, ensure_tools_dir
+from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
 # The closed vocabulary of what a PR lookup can tell us. `unobserved` is a
 # first-class member rather than an error: "I did not look" is an answer, and
@@ -95,6 +95,32 @@ MERGE_TAIL_STATES: frozenset[str] = frozenset({"MAIN_VERIFYING", "OUTCOME_OBSERV
 MISSION_TRAILER_PATTERN = re.compile(
     r"^ARIA-Mission:[ \t]*(m-[0-9a-f]{16})[ \t]*$", re.MULTILINE
 )
+
+MISSION_TRAILER_KEY = "ARIA-Mission"
+
+
+def format_mission_trailer(mission_id: str) -> str:
+    """The one thing that writes the trailer the pattern above reads.
+
+    PLAN Wave 2 PR 1.5. PR 1.3 shipped the adoption path with NO producer —
+    the defect class this programme keeps closing, introduced by one of its
+    own changes. The formatter lives HERE, beside the pattern, and validates
+    its own output against it: a producer that could emit a shape the
+    consumer misses would move the failure from write-time to some future
+    night when a PR silently went unadopted.
+
+    The returned line is bare — no indentation, no bullet — because the
+    pattern is anchored with MULTILINE and the obvious place to put this (a
+    bullet under `## Provenance`) would never match.
+    """
+    candidate = f"{MISSION_TRAILER_KEY}: {mission_id}"
+    if MISSION_TRAILER_PATTERN.search(candidate) is None:
+        raise GovernanceError(
+            f"unformattable_mission_trailer:{mission_id!r} does not satisfy "
+            f"{MISSION_TRAILER_PATTERN.pattern!r}; a trailer the reconciler "
+            f"cannot parse is a binding that never happens"
+        )
+    return candidate
 
 # One step_id for everything this module writes, so a repeated observation is
 # the SAME idempotency key rather than a new one per cycle. What varies is the
@@ -549,6 +575,7 @@ __all__ = [
     "EXTERNAL_MERGE_TARGET",
     "LOST_BRANCH_REPLAN_STATES",
     "MERGE_TAIL_STATES",
+    "MISSION_TRAILER_KEY",
     "MISSION_TRAILER_PATTERN",
     "MissionObserver",
     "RECONCILED_CLOSED_UNMERGED",
@@ -557,6 +584,7 @@ __all__ = [
     "RECONCILE_OBSERVATIONS",
     "RETRY_LADDER_EXHAUSTED",
     "classify_pr_lifecycle",
+    "format_mission_trailer",
     "next_retry_rung",
     "reconcile_missions",
 ]

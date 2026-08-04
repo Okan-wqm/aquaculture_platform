@@ -83,10 +83,27 @@ its framing:
   distinguishes "the stage could not supply the inputs" from "the inputs were
   there and the check refused".
 
-The residue that IS open is narrower: belief `support_count` in `memory.py`
-counts two refs from the same file or the same tool run as two supports. #1056
-closed exact-hash repetition only. That needs a consumer argument before it is
-worth building, and it is recorded rather than guessed at.
+**Correction — there is no residue, and the first version of this section said
+there was.** An earlier draft (and ORPHAN-CRITICAL-546's registry note, which
+is hash-chained and therefore carries the mistaken formulation permanently)
+claimed belief `support_count` counts two refs from the same file or the same
+tool run as two supports. Reading `memory.py` rather than asserting from the
+math doc's framing:
+
+- `_evidence_hashes` returns a **set** of file content hashes, so N refs into
+  one file — and two different tools reporting the same file — collapse to one
+  hash. That IS the independence rule, applied at content identity rather than
+  at ref count, which is the level where it means something.
+- `support_count` increments **at most once per cycle**, and only when that set
+  changes. The number of refs never enters the arithmetic.
+- `support_term` is `min(0.05, support_count * 0.005)` — repetition's entire
+  possible contribution is **+0.05**, reached at ten observations and bounded
+  there forever.
+
+So the math document's evidence-independence item is fully covered, not
+partially. Recording this correction rather than leaving the earlier claim
+standing matters because the wrong version sends the next reader to build a
+deduplication layer the set already provides.
 
 ## Verification
 
@@ -112,6 +129,9 @@ Kernel suite 3242 OK; `invariants:fast` green; run **sequentially**.
 
 - **ORPHAN-CRITICAL-546** (new) — the perimeter's verdict type could be
   constructed by hand, so a passing report was forgeable and
-  ORPHAN-CRITICAL-428's stated closure was not enforced. CLOSED here.
+  ORPHAN-CRITICAL-428's stated closure was not enforced. CLOSED here. Its
+  registry note ends with a claim about belief `support_count` that the
+  correction above retracts; the note is hash-chained and cannot be edited, so
+  this document is the authority on that point.
 
 Owner: okan

@@ -12,8 +12,17 @@ promoted frontend dropdown drift — the seed pool is whatever is REAL at
 HEAD, never a fixed batch size.
 
 Output contract (consumed by aria_kernel.cycle_guard._open_finding_count):
-  aria-findings/F-<NNN>.json  — one finding per drift, status OPEN
-  aria-findings/_index.json   — {"findings": [...]} with per-row status
+  <repo-state-root>/aria-findings/F-<NNN>.json  — one per drift, status OPEN
+  <repo-state-root>/aria-findings/_index.json   — {"findings": [...]}
+
+The repo-state root is resolved by ``aria_kernel.workspace.repo_state_root``,
+IMPORTED rather than reimplemented (PLAN Wave 1 PR 2.6b). It used to be the
+repository root, unconditionally. After the lane cutover the kernel reads
+findings from the durable ``aria/state`` store, so a seeder with its own idea
+of where findings live would have written a full pool every night into a
+directory nothing reads — the producer still green, the consumer still empty.
+One resolver, two callers.
+
 
 Determinism: ids are assigned from a stable sort (cross_service desc,
 gate-free first, similarity desc, concept asc); content carries the scan
@@ -147,14 +156,40 @@ def write_findings(out_dir: Path, findings: list[dict[str, Any]]) -> None:
     index.write_text(json.dumps(render_index(findings), indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def findings_out_dir(repo_root: Path, out_dir: str | None) -> Path:
+    """Where the seeds go, resolved through the kernel's own seam.
+
+    ``repo_state_root`` is the ONE definition of where the ``repo``-root
+    surfaces live; it answers the repository root until a lane binds
+    ``ARIA_REPO_STATE_ROOT`` at the durable store, and the store after.
+    Imported here rather than re-deriving it from the environment, because
+    two readers of one convention is how the seeder and the consumer end up
+    pointing at different directories while both report success.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
+    from aria_kernel.workspace import repo_state_root
+
+    base = repo_state_root(repo_root)
+    return base / (out_dir or "aria-findings")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo-root", default=".", help="Repository root (default: cwd)")
-    parser.add_argument("--out-dir", default="aria-findings", help="Findings dir relative to repo root")
+    parser.add_argument(
+        "--out-dir",
+        default=None,
+        help=(
+            "Findings dir. Relative paths resolve against the repo-state root "
+            "(the aria/state store when bound, else the repository root). "
+            "Defaults to aria-findings under that root."
+        ),
+    )
     parser.add_argument("--limit", type=int, default=20, help="Max findings to seed")
     args = parser.parse_args(argv)
 
     repo_root = Path(args.repo_root).resolve()
+    out_dir = findings_out_dir(repo_root, args.out_dir)
     head_sha = subprocess.run(
         ["git", "rev-parse", "HEAD"], check=True, cwd=repo_root,
         capture_output=True, text=True,
@@ -169,10 +204,10 @@ def main(argv: list[str] | None = None) -> int:
         render_finding(drift, finding_id=f"F-{FINDING_ID_BASE + idx}", head_sha=head_sha)
         for idx, drift in enumerate(candidates)
     ]
-    write_findings(repo_root / args.out_dir, findings)
+    write_findings(out_dir, findings)
 
     print(f"[seed] scan: {total_sql} sql-drifts + {total_ui} ui-drifts above threshold")
-    print(f"[seed] seeded {len(findings)} OPEN findings into {args.out_dir}/ (limit {args.limit})")
+    print(f"[seed] seeded {len(findings)} OPEN findings into {out_dir} (limit {args.limit})")
     for finding in findings:
         print(f"[seed]   {finding['id']}: {finding['title']}")
     if not findings:

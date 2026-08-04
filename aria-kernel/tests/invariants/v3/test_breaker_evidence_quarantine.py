@@ -6,9 +6,11 @@ read as permissive (ORPHAN-CRITICAL-418). But `dropped_rows` counts lines that
 failed to DECODE, while the sliding window only ages the lines that decoded. A
 corrupt line therefore never ages out. One truncated row trips the breaker for
 every subsequent nightly `standard` cycle, permanently — and the ledger travels
-between runs inside the `aria-tools-state` artifact, so the only lever was
-deleting that artifact, which also destroys the agent queue
-ORPHAN-CRITICAL-469 exists to carry.
+between runs with the rest of ARIA's state, so at the time the only lever was
+deleting that state, which also destroyed the agent queue
+ORPHAN-CRITICAL-469 exists to carry. (Since the lane cutover that state is the
+append-only `aria/state` branch, so the lever is gone and this quarantine is
+the only route.)
 
 An unexitable safety state is an outage, not a safety property. But exiting it
 must not mean discarding evidence, which is why the operation under test is a

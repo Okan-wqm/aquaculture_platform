@@ -39,7 +39,7 @@ description: >-
 # hand-written lines, so a fix applied to one would not reach the other — the
 # exact shape of the drift that let ORPHAN-CRITICAL-484's fix land on the
 # consumer lane and never reach the producer (see
-# .github/actions/restore-aria-tools-state, and the invariant that now pins it).
+# .github/actions/restore-aria-state, and the invariant that now pins it).
 # `tests/invariants/helm-dependency-single-path.spec.ts` stops the pair
 # re-forming.
 #

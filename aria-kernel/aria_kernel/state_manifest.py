@@ -368,6 +368,21 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("cycles", "cycles.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),
     StateSurface("tools_governance", "governance.jsonl", "ledger", "governance", "tools", True, "append_fsync", True),
     StateSurface("tool_registry", "registry.json", "index", "registry", "tools", True, "rewrite_fsync", True),
+    # `repo_identity.json` is deliberately ABSENT from this list, and the
+    # reason is worth stating where someone would next think to add it (PLAN
+    # Wave 1 PR 2.6b nearly did). It is the file that makes a tools root
+    # resolvable — `_has_valid_tools_identity` refuses the root without it, and
+    # `state_store` commits exactly the paths this manifest names — so a
+    # restored store genuinely cannot be read until it exists. But it records
+    # `bound_repo_root`, an ABSOLUTE PATH on the host that wrote it, and the
+    # state branch is shared by every runner. Declaring it would publish
+    # machine-local state that means nothing on the next host and rewrites on
+    # every one.
+    #
+    # It is DERIVED state, re-established per runner. The restore action runs
+    # `integrity migrate-tools-bootstrap` immediately after the checkout, so
+    # every lane gets a bound root from one definition rather than each
+    # remembering to bootstrap. See .github/actions/restore-aria-state.
     StateSurface("runtime_profile_state", "runtime-profile.json", "runtime_state", "runtime_profile", "tools", True, "rewrite_fsync", True),
     StateSurface("runtime_profile_history", "runtime-profile-history.jsonl", "ledger", "runtime_profile", "tools", True, "append_fsync", True),
     StateSurface("raw_findings", "raw-findings.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),

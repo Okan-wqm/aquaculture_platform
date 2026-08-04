@@ -33217,6 +33217,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-04-aria-lane-cutover.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-08-04-aria-w2-mission-ingest.md",
       "prettier_managed": true
     },
@@ -56322,10 +56328,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9236,
+  "file_count": 9237,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9055,
-  "managed_file_list_sha256": "f1abf40aa03dd80b8078d8500c85666c28d312d29ef32a25222272c1f12ab84f",
+  "managed_count": 9056,
+  "managed_file_list_sha256": "7373865620f41cd1e85d797c6ca2d71aa11775fd2bc421e534b301f1bd837187",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

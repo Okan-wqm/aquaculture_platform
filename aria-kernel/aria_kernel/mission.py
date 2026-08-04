@@ -93,6 +93,13 @@ ACTIVE_WIP_STATES: tuple[str, ...] = (
     "MAIN_VERIFYING",
 )
 
+# How many missions may hold a WIP slot at once. ONE, because that is the
+# operator rule this enforces verbatim (2026-07-28): ARIA must not start a new
+# plan before the current one is completely finished. It is a default rather
+# than a constant so raising it is a reviewed argument at a callsite, not an
+# edit that silently widens the rule everywhere.
+DEFAULT_WIP_CAP = 1
+
 RETRY_LADDER: tuple[str, ...] = (
     "transient",
     "in_plan_repair",
@@ -711,6 +718,63 @@ def adopt_task_candidates(
     }
 
 
+def active_wip_missions(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    """The missions currently holding a WIP slot.
+
+    Derived from `ACTIVE_WIP_STATES`, not from a second list: a mission holds
+    a slot exactly when it holds real resources (a branch, a worker, a PR
+    slot). DISCOVERED is not one of them, which is what lets `mission_ingest`
+    open a night's whole candidate set without the first adoption blocking
+    every promotion after it.
+    """
+    return [
+        state
+        for state in list_open_missions(base_dir=base_dir)
+        if state["state"] in ACTIVE_WIP_STATES
+    ]
+
+
+def assert_wip_available(
+    *,
+    cap: int = DEFAULT_WIP_CAP,
+    admitting: str | None = None,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Refuse to admit new work while the WIP cap is already spent.
+
+    RAISES rather than returning a verdict, deliberately. The defect this
+    closes is a computed in-flight set that no gate ever read; a function
+    returning `{"available": False}` reproduces it the first time a caller
+    forgets to check the field. A caller that wants to REPORT rather than
+    stop — `promote_converged_plan_to_dispatch`, whose contract is a blocker
+    list — translates the refusal at its own boundary.
+
+    ``admitting`` excludes one mission from the count: re-admitting the
+    mission that already holds the slot is a resumption, not a second thing
+    in flight.
+    """
+    if not isinstance(cap, int) or cap < 1:
+        raise GovernanceError("wip cap must be a positive integer")
+    in_flight = [
+        state
+        for state in active_wip_missions(base_dir=base_dir)
+        if state["mission_id"] != admitting
+    ]
+    if len(in_flight) >= cap:
+        blocking = ", ".join(
+            f"{state['mission_id']}({state['state']})" for state in in_flight
+        )
+        raise GovernanceError(
+            f"wip cap {cap} is spent; in flight: {blocking}"
+        )
+    return {
+        "schema_version": 1,
+        "cap": cap,
+        "in_flight": [state["mission_id"] for state in in_flight],
+        "available": cap - len(in_flight),
+    }
+
+
 def assert_cycle_closure(*, base_dir: str | Path | None = None) -> dict[str, Any]:
     """"No plan silently half-done", executable.
 
@@ -766,6 +830,7 @@ __all__ = [
     "ALLOWED_TRANSITIONS",
     "BINDING_KEYS",
     "COARSE_OBSERVATION",
+    "DEFAULT_WIP_CAP",
     "EVENT_KINDS",
     "FORWARD_SKIP_REASONS",
     "WAITING_STATES",
@@ -777,8 +842,10 @@ __all__ = [
     "TERMINAL_STATES",
     "WAKE_KINDS",
     "UNUSABLE_SOURCE_IDS",
+    "active_wip_missions",
     "adopt_task_candidates",
     "assert_cycle_closure",
+    "assert_wip_available",
     "bind_mission",
     "events_path",
     "fold_mission",

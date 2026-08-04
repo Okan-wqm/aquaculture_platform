@@ -1035,6 +1035,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/CLAUDE.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/DISCOVERY_LOG.md",
       "prettier_managed": true
     },
@@ -2994,6 +3000,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/tsconfig.spec.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/CLAUDE.md",
       "prettier_managed": true
     },
     {
@@ -7130,6 +7142,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/db-migrate/tsconfig.spec.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/event-store-service/CLAUDE.md",
       "prettier_managed": true
     },
     {
@@ -18200,6 +18218,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/hr-service/CLAUDE.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/hr-service/jest.config.ts",
       "prettier_managed": true
     },
@@ -23703,6 +23727,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-ingestion/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/CLAUDE.md",
       "prettier_managed": true
     },
     {
@@ -56310,10 +56340,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9234,
+  "file_count": 9239,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9053,
-  "managed_file_list_sha256": "2eded7421397e9073223d1fdd7c67c2e9fa5e91df07eba7926d456d7f220bff8",
+  "managed_count": 9058,
+  "managed_file_list_sha256": "f252b3b34dd8c6c6a2d82cbd033a2aea5901a014bbede292891707d17bb6be23",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

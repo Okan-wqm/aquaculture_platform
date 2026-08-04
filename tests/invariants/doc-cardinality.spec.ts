@@ -59,6 +59,15 @@ function countMdFiles(relDir: string): number {
     ).length;
 }
 
+function countDirs(relDir: string): number {
+  const abs = path.join(REPO_ROOT, relDir);
+  if (!fs.existsSync(abs)) return 0;
+  if (!fs.statSync(abs).isDirectory()) return 0;
+  return fs
+    .readdirSync(abs, { withFileTypes: true })
+    .filter((e) => e.isDirectory()).length;
+}
+
 interface MarkerHit {
   readonly file: string;
   readonly line: number;
@@ -107,6 +116,11 @@ const COUNT_SOURCES: Record<string, () => number> = {
     countMdFiles('.claude/agents/product-audit') - 3,
   'total-active': () =>
     countMdFiles('.claude/agents') + countMdFiles('.claude/agents/product-audit'),
+  // Module Federation remotes under web/modules/. This count drifted twice
+  // unguarded: messaging-module landed in #904 (2026-07-06) and both the root
+  // CLAUDE.md and web/CLAUDE.md kept claiming 7 for a month. Directory count
+  // is the SSoT — web/shell/vite.config.ts registers one remote per directory.
+  'federated-remotes': () => countDirs('web/modules'),
 };
 
 const DOC_FILES: readonly string[] = [
@@ -116,6 +130,7 @@ const DOC_FILES: readonly string[] = [
   '.claude/shared/orchestrator-phases.md',
   '.claude/agents/product-audit/README.md',
   'CLAUDE.md',
+  'web/CLAUDE.md',
 ];
 
 describe('doc-cardinality invariant', () => {

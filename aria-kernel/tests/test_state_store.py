@@ -798,6 +798,92 @@ class RootsBindToTheStore(StateStoreTestCase):
         self.assertNotIn(str(store.root), str(keys))
 
 
+class ARestoredStoreIsNotYetAUsableToolsRoot(StateStoreTestCase):
+    """PLAN Wave 1 PR 2.6b — what a lane must do after `state checkout`.
+
+    `repo_identity.json` is what makes a tools root resolvable, and the branch
+    deliberately does not carry it: it records an absolute `bound_repo_root`,
+    which is machine-local and meaningless on the next runner. So a restored
+    store arrives as a tools root FULL of covered state with no identity —
+    precisely the shape `ensure_tools_dir` refuses as `ambiguous_tools_root`.
+
+    That refusal is correct and the binding is the answer, but only one lane
+    had it: `aria-auto-cycle` ran `integrity migrate-tools-bootstrap` and
+    `aria-agent-executor` never did, so the first executor run against a
+    restored store would have died at the lease check. These tests pin both
+    halves — the hazard is real, and the migration resolves it — because the
+    tempting wrong fix (declare the identity as a surface, publish the runner's
+    path to a shared branch) makes the first test pass too.
+    """
+
+    def _published_then_fresh(self):
+        from aria_kernel.tool_registry import ensure_tools_binding
+
+        store = self._bootstrap()
+        with _EnvPatch(state_store.store_environment(store, REPO_HASH)):
+            ensure_tools_binding(workspace_root=self.repo)
+        self._seed_surface(store, "")
+        publish_state(
+            store, snapshot=self._snapshot(store, "snap-1"),
+            cycle_id="cycle-1", repo_hash=REPO_HASH,
+        )
+        return checkout_state_store(self.repo, store_dir=self.repo.parent / "store-fresh")
+
+    def test_the_identity_is_not_published_to_the_shared_branch(self) -> None:
+        fresh = self._published_then_fresh()
+        self.assertFalse(
+            (tools_root(fresh) / "repo_identity.json").exists(),
+            "a runner-absolute bound_repo_root must not travel between hosts",
+        )
+        # ...while the ledger beside it DID travel, so this is selection and
+        # not the whole subtree having been skipped.
+        self.assertTrue((tools_root(fresh) / "runs.jsonl").exists())
+
+    def test_an_unbound_restored_root_is_refused_rather_than_guessed(self) -> None:
+        from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
+
+        fresh = self._published_then_fresh()
+        with _EnvPatch(state_store.store_environment(fresh, REPO_HASH)):
+            with self.assertRaises(GovernanceError) as caught:
+                ensure_tools_dir()
+        self.assertIn("ambiguous_tools_root", str(caught.exception))
+
+    def test_the_restore_time_migration_makes_it_usable(self) -> None:
+        """The step the restore action runs, asserted end to end."""
+        from aria_kernel.migration import migrate_tools_bootstrap
+        from aria_kernel.tool_registry import ensure_tools_dir
+
+        fresh = self._published_then_fresh()
+        with _EnvPatch(state_store.store_environment(fresh, REPO_HASH)):
+            result = migrate_tools_bootstrap(
+                tools_dir=str(tools_root(fresh)),
+                workspace_root=str(self.repo),
+                acknowledge=True,
+                reason="bind the restored aria/state store to this checkout",
+            )
+            self.assertEqual(result["final_version"], 3)
+            self.assertEqual(ensure_tools_dir(), tools_root(fresh))
+
+    def test_the_migration_also_covers_a_genesis_store(self) -> None:
+        """A newborn store has an EMPTY tools root, which takes the other
+        branch of the migration chain. Both lanes hit this on the first run,
+        so a fix that only worked on a populated root would fail exactly once
+        — on the day it first mattered."""
+        from aria_kernel.migration import migrate_tools_bootstrap
+        from aria_kernel.tool_registry import ensure_tools_dir
+
+        store = self._bootstrap()
+        with _EnvPatch(state_store.store_environment(store, REPO_HASH)):
+            result = migrate_tools_bootstrap(
+                tools_dir=str(tools_root(store)),
+                workspace_root=str(self.repo),
+                acknowledge=True,
+                reason="bind the restored aria/state store to this checkout",
+            )
+            self.assertEqual(result["final_version"], 3)
+            self.assertEqual(ensure_tools_dir(), tools_root(store))
+
+
 class SurfaceGrowthIsMeasured(StateStoreTestCase):
     def test_the_snapshot_records_each_surface_size(self) -> None:
         """PLAN §2.2b's archival trigger needs a series to fire on.

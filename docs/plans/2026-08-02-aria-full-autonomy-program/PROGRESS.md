@@ -2,6 +2,51 @@
 
 Program plan: [`PLAN.md`](./PLAN.md). Newest entries first.
 
+## 2026-08-04 — Wave 1 PR 2.6b: the lane cutover (written, not yet exercised)
+
+Both scheduled lanes now restore from and publish to the `aria/state` branch.
+The 30-day `aria-tools-state` artifact is retired; what remains under that name
+is nothing — the forensic copy is run-scoped (`aria-state-cache-<run_id>`) and
+no code path restores from it, which is the point. Closes
+ORPHAN-CRITICAL-484/488/513 by retiring the transport all three describe.
+
+**The blocker I had been carrying was not the one I thought.** "The cutover is
+blocked on the self-hosted runner" went unchecked for a session. The runner
+blocks EXECUTION; it never blocked WRITING the cutover, and the cutover was
+neither written nor tracked — it lived in the parenthetical above this entry's
+predecessor.
+
+**Two defects the YAML-only cutover would have shipped**, both found by reading
+the round trip rather than the diff:
+
+- A restored store is not yet a usable tools root. `repo_identity.json` is what
+  makes one resolvable and the branch deliberately does not carry it, so a
+  checkout arrives as covered state with no identity — `ambiguous_tools_root`.
+  `aria-auto-cycle` had the binding migration; `aria-agent-executor` never did,
+  so its first restored run would have died at the lease check. The migration
+  moved INTO the restore action: one definition, both lanes.
+
+  My first fix here was wrong and PLAN §2.6 had already recorded why. I declared
+  `repo_identity.json` as a state surface so it would ride the publish; it
+  records `bound_repo_root`, an absolute path on the host that wrote it, and the
+  branch is shared by every runner. The test I wrote passed. It would have
+  passed for the wrong design — which is why the replacement asserts the
+  identity is NOT published, alongside the refusal and the migration that
+  resolves it.
+
+- `seed_drift_findings.py` wrote to `<checkout>/aria-findings` while the kernel
+  reads through `repo_state_root`, which the restore binds at the store. Every
+  night would have seeded a full pool where nothing looks. It imports the
+  kernel's resolver now.
+
+**Honest limit:** this lands reviewed, contract-verified and locally tested, and
+UNEXERCISED. The lanes run on `[self-hosted, linux, claude]`; until a real
+nightly runs, no line of it has executed. **Wave 1 is not complete until that run
+exists.** The operator has one-time setup first: the `aria/state` branch ruleset
+(block force-push + deletions) BEFORE any bootstrap, then
+`vars.ARIA_STATE_BOOTSTRAP_ACK` — see
+[`docs/runbooks/aria-state-branch-bootstrap.md`](../../runbooks/aria-state-branch-bootstrap.md).
+
 ## 2026-08-03 — Wave 1 COMPLETE (except the lane cutover)
 
 Durable state landed before missions, per Revision 2's reordering. Seven PRs,
@@ -57,11 +102,15 @@ each independently landable, each with its finding closed by the next:
 ### What Wave 1 did NOT deliver
 
 The **lane cutover** — pointing `aria-auto-cycle` and `aria-agent-executor` at
-the store instead of the 30-day artifact. It requires the self-hosted runner
-(`[self-hosted, linux, claude]`), which is offline: today's scheduled runs queue
-and auto-cancel. ORPHAN-CRITICAL-484/488/513 therefore stay OPEN against the
-artifact transport, which is the honest state — the store exists and is proven,
-and nothing is using it yet.
+the store instead of the 30-day artifact. ORPHAN-CRITICAL-484/488/513 therefore
+stay OPEN against the artifact transport, which is the honest state — the store
+exists and is proven, and nothing is using it yet.
+
+> **Corrected 2026-08-04.** This entry originally said the cutover "requires the
+> self-hosted runner, which is offline". That conflated two things and cost a
+> session: the runner blocks the cutover's first REAL RUN, not its writing. The
+> cutover landed on 2026-08-04 (see the entry above) with the runner still
+> offline, and found two defects that a live run would have hit on night two.
 
 ### Method note
 
@@ -158,8 +207,11 @@ Consequences, recorded rather than papered over:
 
 Verifiable from CI config at `main@fd963861`: both ARIA lanes install
 bubblewrap via `apt-get` and hard-verify `implementation_safety.sandbox_backend()`
-before any write-capable step (`aria-auto-cycle.yml` — ubuntu-latest;
-`aria-agent-executor.yml` — `[self-hosted, linux, claude]`). What CI config
+before any write-capable step. **Corrected 2026-08-04:** this line said
+`aria-auto-cycle.yml` runs on `ubuntu-latest`. It does not, and never did —
+both lanes target `[self-hosted, linux, claude]` (`aria-auto-cycle.yml:95`).
+The error mattered: it implied one lane could run without the operator's
+runner. What CI config
 cannot prove: whether `apt-get` succeeds and bwrap actually confines on the
 self-hosted executor host (user namespaces, kernel config). **Operator action
 item (PLAN.md §7.4):** run the capability probe once on the self-hosted

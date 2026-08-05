@@ -482,7 +482,15 @@ jobs:
       # is allowed to become the next run's starting state.
       - name: Verify ARIA state integrity
         id: integrity
-        if: always() && steps.lease_check.outputs.blocked != 'true'
+        # ALSO guarded on the restore having produced a store. `ARIA_TOOLS_DIR`
+        # is exported by the restore action on its SUCCESS path only, so when
+        # the checkout is refused this step ran anyway and died on
+        # `ARIA_TOOLS_DIR: unbound variable` — a second, louder failure five
+        # steps below the real one, which then became the job's headline while
+        # the refusal scrolled past. Verifying integrity without a restored tree
+        # was never meaningful; skipping leaves `state_valid` empty, which the
+        # fail step already reads as "not proven".
+        if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
         run: |
           set -uo pipefail
           # RUNNER_TEMP, not /tmp — the only external write root this job's
@@ -598,7 +606,20 @@ jobs:
         if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || (steps.restore_state.outputs.restored != 'true' && steps.restore_state.outputs.bootstrap != 'true'))
         run: |
           set -euo pipefail
-          echo "::error::ARIA state was NOT published to the aria/state branch."
+          # NAME THE GATE THAT REFUSED, not just the consequence. "State was
+          # not published" is true of every failure here and identifies none of
+          # them; a run whose CHECKOUT was refused reported it, and the reason
+          # sat five steps above under a different error. The outputs below
+          # already distinguish the cases — this reads them instead of leaving
+          # the operator to.
+          if [ "${{ steps.restore_state.outputs.restored }}" != "true" ] \
+             && [ "${{ steps.restore_state.outputs.bootstrap }}" != "true" ]; then
+            echo "::error::ARIA state was NOT published: the aria/state CHECKOUT did not produce a store, so this run never had one. The refusal is reported by the restore step above."
+          elif [ "${{ steps.integrity.outputs.state_valid }}" != "true" ]; then
+            echo "::error::ARIA state was NOT published: the store was restored but failed integrity verification, so publishing it would persist a tree ARIA cannot read back."
+          else
+            echo "::error::ARIA state was NOT published to the aria/state branch."
+          fi
           echo "state_valid=${{ steps.integrity.outputs.state_valid }}"
           echo "restored=${{ steps.restore_state.outputs.restored }}"
           echo "bootstrap=${{ steps.restore_state.outputs.bootstrap }}"

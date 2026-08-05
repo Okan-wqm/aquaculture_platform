@@ -557,15 +557,17 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     sourceSchema: 'hr', // Tables are in hr schema, will be copied to tenant schema
     // Infrastructure tables live in the source schema but are NOT per-tenant
     // copied — identical rationale to farm_outbox (see farm module entry).
-    //   - `migrations` — TypeORM migration ledger. hr-service does not yet
-    //                    wire a migration runner (see app.module.ts:300);
-    //                    present here so that when P2 lands the runner, the
-    //                    created table is not flagged as orphan.
+    //   - `migrations` — TypeORM migration ledger. hr-service wires its
+    //                    runner via createSchemaVersionGate('hr') in
+    //                    app.module.ts and owns
+    //                    apps/hr-service/src/database/migrations/ plus
+    //                    data-source.ts; listed here so the ledger table is
+    //                    never flagged as an orphan during fan-out.
     //   - `hr_outbox`  — Transactional outbox (HR-HIGH-015). One shared
     //                    queue with internal tenantId column for routing;
-    //                    never replicated per-tenant. Table is created
-    //                    by infrastructure/docker/init-scripts/09-hr-outbox.sql
-    //                    until the migration runner path replaces it.
+    //                    never replicated per-tenant. Created by the hr
+    //                    baseline migration; the former
+    //                    init-scripts/09-hr-outbox.sql bootstrap is gone.
     infrastructureTables: [
       'migrations',
       'hr_outbox',

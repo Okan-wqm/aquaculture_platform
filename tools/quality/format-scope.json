@@ -1035,6 +1035,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/CLAUDE.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/DISCOVERY_LOG.md",
       "prettier_managed": true
     },
@@ -2999,6 +3005,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/CLAUDE.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/jest.config.ts",
       "prettier_managed": true
     },
@@ -3743,6 +3755,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/tsconfig.spec.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/alert-engine/CLAUDE.md",
       "prettier_managed": true
     },
     {
@@ -5831,6 +5849,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/CLAUDE.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/jest.config.ts",
       "prettier_managed": true
     },
@@ -7130,6 +7154,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/db-migrate/tsconfig.spec.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/event-store-service/CLAUDE.md",
       "prettier_managed": true
     },
     {
@@ -17457,6 +17487,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/gateway-api/CLAUDE.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/gateway-api/jest.config.ts",
       "prettier_managed": true
     },
@@ -18195,6 +18231,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/gateway-api/tsconfig.spec.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/CLAUDE.md",
       "prettier_managed": true
     },
     {
@@ -23353,6 +23395,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/observability-service/CLAUDE.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/observability-service/jest.config.ts",
       "prettier_managed": true
     },
@@ -23703,6 +23751,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-ingestion/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/CLAUDE.md",
       "prettier_managed": true
     },
     {
@@ -33206,12 +33260,6 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/claude/2026-08-03-npm-high-advisories.md",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_docs",
-      "owner": "docs",
-      "path": "docs/reviews/claude/2026-08-04-aria-continuity-probe.md",
       "prettier_managed": true
     },
     {
@@ -56334,10 +56382,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9238,
+  "file_count": 9246,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9057,
-  "managed_file_list_sha256": "53adc9d1d6d1d0eee306fbb5b6490842fdb46bae69afc99a40a01be2d587d54d",
+  "managed_count": 9065,
+  "managed_file_list_sha256": "501e39b3fb53f039bca09cbb58762a2f890dfc39df068d1c5238ea33c40fa17c",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

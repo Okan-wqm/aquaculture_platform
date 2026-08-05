@@ -78,6 +78,11 @@ const MARKER_RE =
 const REQUIRED_MARKERS: ReadonlyArray<readonly [file: string, module: string]> = [
   ['apps/farm-service/CLAUDE.md', 'farm'],
   ['apps/messaging-service/CLAUDE.md', 'messaging'],
+  ['apps/sensor-service/CLAUDE.md', 'sensor'],
+  ['apps/hr-service/CLAUDE.md', 'hr'],
+  ['apps/ai-service/CLAUDE.md', 'ai'],
+  ['apps/alert-engine/CLAUDE.md', 'alert'],
+  ['apps/observability-service/CLAUDE.md', 'observability'],
 ];
 
 interface MarkerHit {

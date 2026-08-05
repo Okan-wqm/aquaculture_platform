@@ -104,11 +104,12 @@ const ObservabilitySchemaVersionGate = createSchemaVersionGate('observability', 
     /**
      * INFRA-CRITICAL-016: SchemaDriftValidator registration.
      *
-     * Observability-service has no @Entity() declarations (it consumes
-     * aggregated metrics via raw SQL across tenant schemas, not via
-     * TypeORM entities), so the validator runs against an empty
-     * entityMetadatas list. Even at zero entities the validator emits the
-     * structured `schema_drift_clean` boot signal. Without this registration,
+     * Observability-service owns four @Entity() classes under
+     * src/database/entities/ (emergency-override, migration-backfill-progress,
+     * migration-event, schema-object-history); the aggregated tenant metrics
+     * it serves are read via raw SQL rather than through TypeORM. The
+     * validator therefore runs against those four and emits the structured
+     * `schema_drift_clean` boot signal. Without this registration,
      * observability cannot satisfy the manifest contract declared in
      * infrastructure/deploy/required-signals.yaml.
      */

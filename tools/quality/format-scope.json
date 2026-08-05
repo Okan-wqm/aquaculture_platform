@@ -33265,6 +33265,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-04-aria-continuity-probe.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-08-04-aria-forged-perimeter-verdict.md",
       "prettier_managed": true
     },
@@ -56388,10 +56394,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9247,
+  "file_count": 9248,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9066,
-  "managed_file_list_sha256": "ea0cd1ec5e390499f5316cdccbd3f52a9e9adae5d6f9a718944234b9f316f327",
+  "managed_count": 9067,
+  "managed_file_list_sha256": "ead60a210e81554e92f1fd268bc813e6adaf57f036688b1b84e352489d536bc7",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -155,10 +155,15 @@ one run. See `docs/runbooks/aria-state-branch-bootstrap.md`.
 ## Findings
 
 - **ORPHAN-CRITICAL-548** — Wave 1's deliverable had no production caller.
-  Fixed here; the close ceremony rides the next PR (PROC-HIGH-001: `close`
-  refuses branch-local SHAs).
-- **ORPHAN-CRITICAL-484 / 488 / 513** — closed by retiring the artifact
-  transport all three describe. Same ceremony timing.
-- **ORPHAN-HIGH-547** — closed here against `fdecb3a0a`.
+  Fixed by the cutover; RESOLVED against `249a5e940`.
+- **ORPHAN-CRITICAL-484 / 488 / 513** — the artifact transport all three
+  describe is retired. Their ceremony rides the follow-up PR, and not for the
+  usual reason: **the squash message for `249a5e940` named only 548 in its
+  `Closes:` trailer, so the registry refused the other three.** That refusal is
+  correct and worth recording rather than working around — a commit may close
+  only the findings it actually names, or the trailer stops being evidence and
+  becomes decoration. The recovery is the follow-up commit that finishes their
+  closure bookkeeping and names all three.
+- **ORPHAN-HIGH-547** — closed against `fdecb3a0a`.
 
 Owner: okan

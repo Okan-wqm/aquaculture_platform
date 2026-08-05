@@ -4,11 +4,11 @@ Program plan: [`PLAN.md`](./PLAN.md). Newest entries first.
 
 ## 2026-08-04 — Wave 1 PR 2.6b: the lane cutover (written, not yet exercised)
 
-Both scheduled lanes now restore from and publish to the `aria/state` branch.
-The 30-day `aria-tools-state` artifact is retired; what remains under that name
-is nothing — the forensic copy is run-scoped (`aria-state-cache-<run_id>`) and
-no code path restores from it, which is the point. Closes
-ORPHAN-CRITICAL-484/488/513 by retiring the transport all three describe.
+Merged as `249a5e940` (#1073). Both scheduled lanes now restore from and publish
+to the `aria/state` branch. The 30-day `aria-tools-state` artifact is retired;
+what remains under that name is nothing — the forensic copy is run-scoped
+(`aria-state-cache-<run_id>`) and no code path restores from it, which is the
+point. Retires the transport ORPHAN-CRITICAL-484/488/513 describe.
 
 **The blocker I had been carrying was not the one I thought.** "The cutover is
 blocked on the self-hosted runner" went unchecked for a session. The runner

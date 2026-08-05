@@ -33319,6 +33319,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-05-aria-first-restored-night.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-05-aria-ledger-rechain.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -56418,10 +56430,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9252,
+  "file_count": 9254,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9071,
-  "managed_file_list_sha256": "a3405618880f1f85d1ce5cf11790f568ecd88e54653eb74327f3eed71ffb0eb9",
+  "managed_count": 9073,
+  "managed_file_list_sha256": "c555a2d6f4d4eb6c00bd8d13737ac0eb6191865ea2d32728de23b283e5385ad3",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

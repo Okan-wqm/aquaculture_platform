@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_declared_jsonl, read_jsonl
+from .state_manifest import surface_key_name
 
 # The two fields the chain owns. A replayed row is re-chained onto its new
 # predecessor, so these are recomputed rather than carried: a copied
@@ -158,7 +159,9 @@ def replay_append_only_suffixes(
     total = 0
     for name, winner_path, suffix in planned:
         for row in suffix:
-            append_declared_jsonl(winner_path, _payload(row), expected_surface=name)
+            # `name` may be a glob fan-out key (`surface:relative/path`); the
+            # declared-surface gate speaks manifest names (ORPHAN-HIGH-555).
+            append_declared_jsonl(winner_path, _payload(row), expected_surface=surface_key_name(name))
         per_surface[name] = len(suffix)
         total += len(suffix)
     return ReplayResult(replayed_rows=total, per_surface=per_surface)

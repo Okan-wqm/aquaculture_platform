@@ -1057,6 +1057,15 @@ def build_parser() -> argparse.ArgumentParser:
     pressure_list.add_argument("--include-archived", action="store_true")
     pressure_list.add_argument("--include-closed", action="store_true")
     pressure_list.add_argument("--include-satisfied", action="store_true")
+    pressure_weights_cmd = add_subparser(pressure_sub, "weights")
+    add_workspace_args(pressure_weights_cmd)
+    pressure_override = add_subparser(pressure_sub, "weight-override")
+    add_workspace_args(pressure_override)
+    pressure_override.add_argument("--source", required=True)
+    pressure_override.add_argument("--weight", required=True, type=int)
+    pressure_override.add_argument("--acknowledge", action="store_true", required=True)
+    pressure_override.add_argument("--reason", required=True)
+    pressure_override.add_argument("--operator-approval-ref", required=True)
     pressure_explain = add_subparser(pressure_sub, "explain")
     add_workspace_args(pressure_explain)
     pressure_explain.add_argument("pressure_event_id", nargs="?")
@@ -2936,6 +2945,29 @@ def _main(argv: list[str] | None = None) -> int:
             acknowledge=args.acknowledge,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "pressure" and args.pressure_command == "weights":
+        from .pressure import SOURCE_WEIGHTS, effective_source_weights, load_weight_overrides
+        eff = effective_source_weights(args.tools_dir)
+        ov = load_weight_overrides(args.tools_dir)
+        print(json.dumps({
+            "effective": eff,
+            "overridden_sources": sorted(ov),
+            "base": SOURCE_WEIGHTS,
+        }, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "pressure" and args.pressure_command == "weight-override":
+        from .pressure import record_weight_override
+        row = record_weight_override(
+            source=args.source,
+            weight=args.weight,
+            reason=args.reason,
+            operator_approval_ref=args.operator_approval_ref,
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(row, indent=2, sort_keys=True))
         return 0
 
     if args.command == "pressure" and args.pressure_command == "explain":

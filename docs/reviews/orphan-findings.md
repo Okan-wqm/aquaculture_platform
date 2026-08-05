@@ -1,5 +1,16 @@
 # Orphan Findings — Plan-Independent Real Problems
 
+<!-- markdownlint-disable -->
+<!-- WHY: append-only machine-written evidence ledger; entries carry verbatim
+     evidence (file:line quotes, SHAs, JSON, bare fences, repeated headings)
+     recorded long before any style rule existed and never rewritten after
+     the fact. The docs-check whole-file lint would otherwise go red on
+     historical evidence every time a future finding ceremony appends here
+     (MD013 x ~2,864 lines, plus MD024/MD031/MD037/MD040 across the ledger),
+     so markdownlint is disabled for this one file. Structure is enforced by
+     the real parsers instead: ORPHAN_HEADING_REGEX in
+     tools/gates/commit-msg-validator.ts and the registry invariants. -->
+
 **Purpose:** Problems spotted while reading code for planned work (ADRs / Faz implementation) that are **NOT** part of the current plan. Discovery → test → document here.
 
 **Policy:** Append-only. Findings RESOLVED via commits carry closure note + commit SHA. Never silently dropped.
@@ -7826,4 +7837,13 @@ The lane cutover (#1073) shipped `python3 -m aria_kernel state publish --repo-ro
 
 **A near-miss worth recording:** the first version of that test probed with `argv + ["--help"]`. argparse prints help and exits 0 _before_ validating required arguments, so the test passed with the defect deliberately re-introduced — a green gate measuring nothing, the same class as ORPHAN-HIGH-550 check (4) and the continuity probe. Caught only by running the negative case; the shipped version calls `parse_args(argv)` and fails naming `--snapshot-id`.
 
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-557 — ARIA computed its own per-source precision and threw the number away: weight recommendations had no consumer, and their "current" values came from a table that had silently drifted from the one scoring uses — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, flywheel mapping for the training-loop plan; verified firsthand (zero consumers of `recommended_weight` across kernel+tools; `DEFAULT_PRESSURE_WEIGHTS` said `evidence_gone=65` while the live `pressure.SOURCE_WEIGHTS` says 80).
+
+`calibration.recommend_calibration` computes TP-precision per pressure source and proposes ±weight changes (`calibration.py:72-99`); the only reader was a status display. Separately, calibration kept a private copy of the defaults that had drifted from `SOURCE_WEIGHTS` — so even a future consumer would have adjusted numbers nothing reads. The cheapest genuine learning loop in the repo was severed at both ends.
+
+**Fix (this PR):** pressure.py owns the SSoT and gains an operator-approved override layer — append-only `aria-tools/calibration/weight-overrides.jsonl` with breaker-verb ceremony (reason ≥10 chars, operator-approval-ref, unknown source/out-of-range refused); `effective_source_weights()` overlays the live table; `run_pressure` resolves it once per compute so approved overrides change the very next cycle's scoring. Calibration's drifted table is deleted; its recommendations now reference the effective table. CLI: `pressure weights` / `pressure weight-override` (auto-covered by the workflow-CLI contract test). Proven by tests: override lowers the next `_pressure` score, ledger append-only last-write-wins, four ceremony refusals, and a regression pinning the drifted symbol's removal.
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).

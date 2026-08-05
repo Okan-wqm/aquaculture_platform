@@ -2,7 +2,7 @@
 
 Date: 2026-06-21
 Target ref: `origin/main`
-Last verified ARIA authority hash: `c5e87a4728d38fc403051aeeedeb6526e640cc784b3685699c8ec5d1f98ac590`
+Last verified ARIA authority hash: `49223b4531448111ccb0203488169d161c502157e1f9ea975eb987e485232b58`
 Status: post-snowball mainline hardening in progress
 
 ## Authority Chain
@@ -40,8 +40,7 @@ explicitly marked historical. Runtime behavior must not be inferred from stale p
 - Runner attestation owner: `aria-kernel/aria_kernel/runner_attestation.py`
 - Capability resolution owner: `aria-kernel/aria_kernel/capability_resolver.py`
 - Required PR merge check: `.github/workflows/aria-merge-authority.yml`
-- Executor implementation: `tools/aria-poc/ci_executor.py`, `tools/aria-poc/worker_executor.py`,
-  `tools/aria-poc/claude_runtime.py`
+- Executor implementation: `tools/aria-poc/ci_executor.py`, `tools/aria-poc/worker_executor.py`, `tools/aria-poc/claude_runtime.py`
 - Runtime artifact safety boundary: `aria-kernel/aria_kernel/artifact_safety.py`
 - Enterprise autonomy burn-in: `aria-kernel/aria_kernel/burn_in.py`
 - Observe burn-in report schema: `docs/aria/schemas/autonomy-burn-in-report.schema.json`
@@ -99,8 +98,7 @@ For the bilingual architecture explainer with diagrams, see `docs/aria/ARCHITECT
 document is explanatory only: it must defer to this file, executable contracts, and machine-checked
 invariants whenever there is a conflict.
 
-For the enterprise autonomy SSoT and burn-in acceptance matrix, see
-`docs/aria/ENTERPRISE_AUTONOMY_SSOT.md`.
+For the enterprise autonomy SSoT and burn-in acceptance matrix, see `docs/aria/ENTERPRISE_AUTONOMY_SSOT.md`.
 
 On 2026-06-20, `docs/aria/ENTERPRISE_AUTONOMY_SSOT.md` records the accepted
 production-autonomy target decisions: full production autonomy, whole-repo

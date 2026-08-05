@@ -28,6 +28,84 @@ SOURCE_WEIGHTS = {
     "runtime_signal": 85,
 }
 
+# ─── operator-approved weight overrides (Plan tranquil-sniffing-pancake F4.1) ──
+# calibration.recommend_calibration computes per-source precision and proposes
+# weight changes; until now nothing consumed them — ARIA measured its own
+# precision and threw the number away. Overrides close that loop, with the
+# same ceremony as the breaker verbs: append-only ledger, operator approval
+# ref, and the LIVE table as the base. (calibration's old private copy of the
+# defaults had already drifted from SOURCE_WEIGHTS — evidence_gone 65 vs 80 —
+# which is exactly why the SSoT for "current" must be this module.)
+WEIGHT_OVERRIDES_PATH = ("calibration", "weight-overrides.jsonl")
+
+
+def load_weight_overrides(base_dir=None) -> dict[str, int]:
+    """Latest operator-approved weight per source. Missing ledger -> {}."""
+    from .tool_registry import ensure_tools_dir_readonly
+    root = ensure_tools_dir_readonly(base_dir)
+    if root is None:
+        return {}
+    path = root.joinpath(*WEIGHT_OVERRIDES_PATH)
+    if not path.exists():
+        return {}
+    import json as _json
+    out: dict[str, int] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = _json.loads(line)
+        except ValueError:
+            continue
+        src, w = row.get("source"), row.get("weight")
+        if isinstance(src, str) and src in SOURCE_WEIGHTS and isinstance(w, int):
+            out[src] = w  # last-write-wins: ledger is append-only history
+    return out
+
+
+def effective_source_weights(base_dir=None) -> dict[str, int]:
+    """SOURCE_WEIGHTS overlaid by operator-approved overrides."""
+    merged = dict(SOURCE_WEIGHTS)
+    merged.update(load_weight_overrides(base_dir))
+    return merged
+
+
+def record_weight_override(
+    *, source: str, weight: int, reason: str, operator_approval_ref: str,
+    base_dir=None,
+) -> dict:
+    """Append one approved override. Refuses unknown sources and non-positive
+    weights — an override must adjust a real dial, not invent one."""
+    from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+    if source not in SOURCE_WEIGHTS:
+        raise GovernanceError(
+            f"unknown pressure source {source!r}; valid: {sorted(SOURCE_WEIGHTS)}"
+        )
+    if not isinstance(weight, int) or not (1 <= weight <= 100):
+        raise GovernanceError("weight must be an int in [1, 100]")
+    if len(reason.strip()) < 10:
+        raise GovernanceError("reason must carry at least 10 non-whitespace characters")
+    if not operator_approval_ref.strip():
+        raise GovernanceError("operator_approval_ref is required")
+    root = ensure_tools_dir(base_dir)
+    path = root.joinpath(*WEIGHT_OVERRIDES_PATH)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    import json as _json
+    row = {
+        "schema_version": 1,
+        "recorded_at": utc_now(),
+        "source": source,
+        "weight": weight,
+        "previous_effective": effective_source_weights(base_dir)[source],
+        "reason": reason.strip(),
+        "operator_approval_ref": operator_approval_ref.strip(),
+    }
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(_json.dumps(row, sort_keys=True) + "\n")
+    return row
+
+
 # Plan S4 (ORPHAN-MEDIUM-298) — every pressure source maps to exactly one
 # drift class so the operator's genesis-policy `drift_class_weights` block
 # can bias cycle targeting without touching the hardcoded SOURCE_WEIGHTS
@@ -94,6 +172,11 @@ def run_pressure(
     drift_class_weights: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     root = ensure_tools_dir(base_dir)
+    # Resolve once per compute: every _pressure() in this run scores against
+    # the operator-effective table, so an approved override changes the next
+    # cycle's targeting — the first loop where ARIA's own precision
+    # measurement changes ARIA's behaviour.
+    _weights = effective_source_weights(root)
     discovery_dir = root / "discovery" / cycle_id
     fingerprint = _read_json(discovery_dir / "REPO_FINGERPRINT.json")
     completion = _read_json(discovery_dir / "COMPLETION_PROOF.json")
@@ -102,6 +185,7 @@ def run_pressure(
     if completion.get("complete") is not True:
         pressures.append(
             _pressure(
+                weights=_weights,
                 cycle_id=cycle_id,
                 source="discovery_incomplete",
                 pressure_type="UNKNOWN",
@@ -120,6 +204,7 @@ def run_pressure(
     if migration_count >= 5 and isinstance(migration_evidence_paths, list) and migration_evidence_paths:
         pressures.append(
             _pressure(
+                weights=_weights,
                 cycle_id=cycle_id,
                 source="migration_surface_repeat",
                 pressure_type="REPETITION",
@@ -138,6 +223,7 @@ def run_pressure(
         if status == "stale":
             pressures.append(
                 _pressure(
+                    weights=_weights,
                     cycle_id=cycle_id,
                     source="belief_stale",
                     pressure_type="CONTRADICTION",
@@ -155,6 +241,7 @@ def run_pressure(
             source = "evidence_gone" if state.get("missing_concrete_refs") or state.get("empty_glob_refs") else "belief_revalidation"
             pressures.append(
                 _pressure(
+                    weights=_weights,
                     cycle_id=cycle_id,
                     source=source,
                     pressure_type="UNKNOWN",
@@ -175,6 +262,7 @@ def run_pressure(
     if contradictions:
         pressures.append(
             _pressure(
+                weights=_weights,
                 cycle_id=cycle_id,
                 source="contradiction",
                 pressure_type="CONTRADICTION",
@@ -196,6 +284,7 @@ def run_pressure(
         severity = signal.get("severity") if signal.get("severity") in ("low", "medium", "high", "critical") else "high"
         pressures.append(
             _pressure(
+                weights=_weights,
                 cycle_id=cycle_id,
                 source="runtime_signal",
                 pressure_type="UNKNOWN",
@@ -221,6 +310,7 @@ def run_pressure(
         if status in ("evidence_error", "scope_violation") or run.get("evidence_validation", {}).get("repository_mutation_attempt"):
             pressures.append(
                 _pressure(
+                    weights=_weights,
                     cycle_id=cycle_id,
                     source="tool_quarantine",
                     pressure_type="CONTRADICTION",
@@ -237,6 +327,7 @@ def run_pressure(
         if run.get("status") == "ok" and delta > 0:
             pressures.append(
                 _pressure(
+                    weights=_weights,
                     cycle_id=cycle_id,
                     source="shadow_raw_delta",
                     pressure_type="REPETITION",
@@ -582,9 +673,10 @@ def _pressure(
     recommended_action: str,
     belief_id: str | None = None,
     tool_id: str | None = None,
+    weights: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     recency_decay = 1.0
-    base_weight = SOURCE_WEIGHTS[source]
+    base_weight = (weights or SOURCE_WEIGHTS)[source]
     count = max(1, occurrence_count)
     raw_score = base_weight * recency_decay * (1 + math.log10(count))
     score = round(min(100.0, raw_score), 3)

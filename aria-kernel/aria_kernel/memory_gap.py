@@ -94,6 +94,15 @@ class DescentProof:
     proven: bool
     head: str = ""
     tip: str = ""
+    # THE THIRD ANSWER, and this type needs it for the same reason the verdict
+    # does. `_remote_tip` returns None for any non-zero `git ls-remote`, so a
+    # network blip is indistinguishable from divergence — and a bare
+    # `proven=False` sent a healthy tree to GAP_CRITICAL, froze the cycle and
+    # recorded amnesia, on evidence that was never read. A gate that cannot see
+    # must say so; this module's own doctrine says `unknown` is the honest
+    # answer when evidence is unavailable, and the first version of this proof
+    # broke that doctrine while quoting it.
+    readable: bool = True
 
 
 @dataclass(frozen=True)
@@ -223,7 +232,10 @@ def store_is_at_published_tip(repo_root: Path) -> DescentProof:
     store = open_state_store(repo_root)
     head = _git(store.root, "rev-parse", "HEAD").strip()
     tip = (_remote_tip(store) or "").strip()
-    return DescentProof(proven=bool(tip) and head == tip, head=head, tip=tip)
+    # An unreadable tip is NOT a divergent tip. `_remote_tip` collapses "the
+    # remote said something else" and "the remote said nothing" into None, and
+    # only the first is evidence about this tree.
+    return DescentProof(proven=bool(tip) and head == tip, head=head, tip=tip, readable=bool(tip))
 
 
 def assess_memory_continuity(
@@ -264,6 +276,7 @@ def assess_memory_continuity(
 
     reference_root = reference.get("manifest_root")
 
+    descent_unreadable = False
     if reference.get("surfaces") is not None:
         # A full snapshot: `snapshot_continuity` already owns this comparison,
         # including the lost-surface half. Reimplementing it here would be the
@@ -271,7 +284,7 @@ def assess_memory_continuity(
         detail = snapshot_continuity(current, reference)
         lost = tuple(detail.get("lost_surfaces") or ())
         notes: tuple[str, ...] = ()
-        if descent is not None:
+        if descent is not None and descent.readable:
             # The transport answers descent, so its verdict REPLACES the
             # chain-linkage half — see `store_is_at_published_tip` for why the
             # linkage test cannot answer it for a probe. The lost-surface half
@@ -279,6 +292,17 @@ def assess_memory_continuity(
             # answer, and it is the one the gate is really for.
             detail = {**detail, "linked": descent.proven}
             notes += ("descent_proven_by_transport",)
+        elif descent is not None:
+            # The remote could not be read, so descent is UNANSWERED. Calling
+            # that "broken" turns a network blip into a positive finding of
+            # amnesia, and this gate FREEZES on such a finding. The
+            # lost-surface half still runs — the tree is right here and the
+            # reference came from a local commit — so the answer is narrowed
+            # rather than abandoned: real loss is still critical, and an
+            # unprovable descent over an intact tree is `unknown`.
+            detail = {**detail, "linked": True}
+            notes += ("descent_unverifiable_remote_unreadable",)
+            descent_unreadable = True
     else:
         # An anchor stub. It can answer descent and nothing else; the surface
         # half is UNAVAILABLE, which is recorded as a limitation rather than
@@ -303,8 +327,17 @@ def assess_memory_continuity(
 
     if status_from_detail == "ok":
         return ContinuityVerdict(
-            status=GAP_OK,
+            # Nothing was lost, but if the remote could not be read then
+            # descent was never established — and `ok` would claim it was.
+            # `unknown` blocks nothing, which is the point: absence of evidence
+            # must not stop the cycle, and must not be recorded as proof either.
+            status=GAP_UNKNOWN if descent_unreadable else GAP_OK,
             reference_kind=reference_kind,
+            reasons=(
+                ("state_continuity_remote_unreadable:descent_unverified",)
+                if descent_unreadable
+                else ()
+            ),
             notes=notes,
             current_manifest_root=current_root,
             reference_manifest_root=reference_root,
@@ -366,6 +399,166 @@ def equivalence_check(expected: dict[str, Any], actual: dict[str, Any]) -> Equiv
                     f"{name}:{attribute}:expected={want.get(attribute)}:got={got.get(attribute)}"
                 )
     return EquivalenceResult(equivalent=not differences, differences=tuple(differences))
+
+
+@dataclass(frozen=True)
+class RecoveryResult:
+    """What the recovery attempt did, and whether the gap is gone."""
+
+    resolved: bool
+    reason: str
+    replayed: dict[str, int] = field(default_factory=dict)
+    verdict_after: ContinuityVerdict | None = None
+
+    def as_event(self) -> dict[str, Any]:
+        return {
+            "resolved": self.resolved,
+            "reason": self.reason,
+            "replayed": dict(self.replayed),
+            "status_after": None if self.verdict_after is None else self.verdict_after.status,
+            "reasons_after": [] if self.verdict_after is None else list(self.verdict_after.reasons),
+        }
+
+
+def restore_and_replay(
+    repo_root: Path,
+    verdict: ContinuityVerdict,
+    *,
+    base_dir: Path,
+    cycle_id: str,
+) -> RecoveryResult:
+    """Adopt the published tree, re-apply this run's rows, and re-judge.
+
+    PLAN Wave 1 §2.5 promised this and PR 2.6 deferred it, correctly: a restore
+    primitive with no transport would have been a capability with no caller.
+    The transport exists now.
+
+    WHAT IT REPAIRS. Both shapes of a critical verdict resolve to the same
+    operation. `store_not_at_tip` means this worktree is on a commit the branch
+    has moved past; `surfaces_lost` with descent proven means the tree IS the
+    tip's commit but files are missing from it. Resetting the worktree to the
+    remote tip fixes both, and `rebase_store_onto_remote` carries this run's
+    append-only rows across the reset rather than discarding them — the same
+    primitive, the same three guarantees, as the publish race.
+
+    IT RUNS BEFORE THE FREEZE, WHICH IS A DEVIATION FROM THE PLAN, and the
+    reason is worth stating because the plan's ordering cannot be built. PLAN
+    §2.5 says freeze, then restore, then `reset_breaker`. But `reset_breaker`
+    requires an `operator_approval_ref` and TRUNCATES the failure ledger — it
+    is the operator's "investigated, resolved, clean slate" signal. Calling it
+    from automatic recovery would forge that signature and destroy unrelated
+    failure evidence. So a freeze followed by a successful recovery would leave
+    a failure row that only a human could clear, which is precisely the manual
+    intervention the recovery exists to remove. Recovering first leaves no
+    residue to clear; recovering last would guarantee residue.
+
+    A RECOVERED GAP IS NOT A BREAKER EVENT. The breaker means "ARIA must stop".
+    A tree that has been restored and re-judged continuous is not a tree that
+    must stop, so the evidence goes to `governance.jsonl` — declared,
+    hash-chained, and readable — instead. An UNRECOVERED gap still freezes.
+
+    REFUSALS ARE VERDICTS, NOT FAILURES. Recovery declines rather than guesses
+    when there is nothing to restore FROM (an anchor reference carries a
+    manifest root and no tree) or nothing diagnosed to restore (any status but
+    critical). Both return `resolved=False` with a reason, and the caller
+    freezes exactly as it would have.
+    """
+    from .state_store import STORE_DIRNAME
+
+    if verdict.status != GAP_CRITICAL:
+        return RecoveryResult(False, f"recovery_requires_critical:{verdict.status}")
+    if verdict.reference_kind != REFERENCE_STATE_BRANCH:
+        # An anchor stub proves descent and carries no tree. There is nothing
+        # to reset onto, and resetting onto a guess is how a recovery destroys
+        # the state it was called to save.
+        return RecoveryResult(
+            False, f"recovery_requires_state_branch_reference:{verdict.reference_kind}"
+        )
+    repo_root = Path(repo_root)
+    if not (repo_root / STORE_DIRNAME).is_dir():
+        return RecoveryResult(False, "recovery_requires_a_checked_out_store")
+
+    from .state_snapshot import build_snapshot
+    from .state_store import (
+        StateStoreError,
+        open_state_store,
+        read_published_snapshot,
+        read_snapshot_at_worktree_head,
+        rebase_store_onto_remote,
+    )
+    from .tool_registry import GovernanceError, append_tools_governance
+    from .workspace import canonical_identity
+
+    repo_hash = canonical_identity(repo_root)
+    roots = continuity_probe_roots(repo_root, base_dir)
+
+    try:
+        store = open_state_store(repo_root)
+        if read_published_snapshot(store) is None:
+            return RecoveryResult(False, "recovery_has_no_published_tip_to_adopt")
+        # The BASE is the snapshot this worktree's rows were appended to, which
+        # is the worktree's own HEAD — not the remote tip. They differ exactly
+        # when the store is behind, which is the case recovery exists for, and
+        # passing the tip makes `append_only_suffix` refuse with
+        # `replay_prefix_diverged`. That refusal is the guard working; getting
+        # the base right is what stops it being asked the wrong question.
+        base = read_snapshot_at_worktree_head(store)
+        local = build_snapshot(
+            snapshot_id=f"recovery-local-{cycle_id}",
+            cycle_id=cycle_id,
+            lane="recovery",
+            roots=roots,
+        )
+        replayed = rebase_store_onto_remote(
+            store, base=base, local=local, repo_hash=repo_hash
+        )
+    except (StateStoreError, GovernanceError) as exc:
+        # A recovery that cannot complete must not report that it did. The
+        # caller freezes, which is the correct outcome for a tree nobody could
+        # repair.
+        return RecoveryResult(False, f"recovery_failed:{type(exc).__name__}:{exc}")
+
+    # RE-JUDGED, not assumed. The whole defect class this module exists for is
+    # a control that reports on a state it did not re-read.
+    after_reference, after_kind = resolve_continuity_reference(repo_root)
+    after = assess_memory_continuity(
+        current=build_snapshot(
+            snapshot_id=f"recovery-after-{cycle_id}",
+            cycle_id=cycle_id,
+            lane="recovery",
+            roots=continuity_probe_roots(repo_root, base_dir),
+        ),
+        reference=after_reference,
+        reference_kind=after_kind,
+        descent=(
+            store_is_at_published_tip(repo_root)
+            if after_kind == REFERENCE_STATE_BRANCH
+            else None
+        ),
+    )
+    result = RecoveryResult(
+        resolved=after.status in {GAP_OK, GAP_GENESIS},
+        reason="recovered" if after.status in {GAP_OK, GAP_GENESIS} else "recovery_incomplete",
+        replayed=replayed,
+        verdict_after=after,
+    )
+    try:
+        append_tools_governance(
+            base_dir,
+            "memory_gap_recovery_attempted",
+            {
+                "cycle_id": cycle_id,
+                "gap_reasons": list(verdict.reasons),
+                "lost_surfaces": list(verdict.lost_surfaces),
+                **result.as_event(),
+            },
+        )
+    except GovernanceError:
+        # A profile that forbids the write does not make the repair untrue, but
+        # an unrecorded repair is one nobody can audit — so it is reported as
+        # unresolved and the caller freezes.
+        return RecoveryResult(False, "recovery_unrecordable_under_profile", replayed, after)
+    return result
 
 
 def freeze_autonomous_writes(

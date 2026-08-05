@@ -306,7 +306,28 @@ def read_published_snapshot(store: StateStore) -> dict[str, Any] | None:
     store. ORPHAN-CRITICAL-488 is what happens when those two are
     inferred from one absent file.
     """
-    anchor = _publication_anchor(store)
+    return _read_snapshot_at(store, _publication_anchor(store))
+
+
+def read_snapshot_at_worktree_head(store: StateStore) -> dict[str, Any] | None:
+    """The snapshot THIS WORKTREE was built on, which is a different question.
+
+    `read_published_snapshot` answers "what does the remote say is published",
+    and anchors on the remote-tracking ref for the reason `_publication_anchor`
+    gives: nothing local may vote on what is published.
+
+    A REPLAY BASE is the other question entirely — "what did these rows get
+    appended to" — and only the worktree's own HEAD answers it. Passing the
+    remote tip instead looks right and is not: when the store is BEHIND the
+    tip, the local rows were never appended to that tree, so
+    `append_only_suffix` correctly refuses with `replay_prefix_diverged`. That
+    refusal is the guard working; this function is what stops it being asked
+    the wrong question. Found by running the recovery, not by reading it.
+    """
+    return _read_snapshot_at(store, "HEAD")
+
+
+def _read_snapshot_at(store: StateStore, anchor: str) -> dict[str, Any] | None:
     # Presence comes from git's EXIT STATUS, never from output emptiness.
     # `git show` returns the empty string for three different facts — the
     # path is absent from the commit, the command failed, and the path is
@@ -707,7 +728,7 @@ def publish_with_contention_replay(
             last_refusal = refusal
             if attempt == max_attempts:
                 break
-            _rebase_store_onto_remote(store, base=base, local=snapshot, repo_hash=repo_hash)
+            rebase_store_onto_remote(store, base=base, local=snapshot, repo_hash=repo_hash)
             continue
         return {**result, "attempts": attempt}
 
@@ -717,14 +738,24 @@ def publish_with_contention_replay(
     )
 
 
-def _rebase_store_onto_remote(
+def rebase_store_onto_remote(
     store: StateStore,
     *,
     base: dict[str, Any] | None,
     local: dict[str, Any],
     repo_hash: str,
 ) -> dict[str, int]:
-    """Make the worktree the winner's tree plus this lane's append-only suffix."""
+    """Make the worktree the remote's tree plus this lane's append-only suffix.
+
+    PUBLIC because it has two callers with two different reasons to need the
+    same operation, and one copy is the point. `publish_with_contention_replay`
+    calls it after LOSING a race — the remote moved, adopt it and re-apply my
+    rows. `memory_gap.restore_and_replay` calls it after DIAGNOSING a
+    continuity gap — this tree is not the published one, adopt the published
+    one and re-apply my rows. Same three guarantees either way: the rows leave
+    disk before the reset, the reset is exact rather than approximate, and the
+    replay goes back through the normal appender so every row re-chains.
+    """
     from .contention_replay import replay_append_only_suffixes
 
     roots = store_roots(store, repo_hash)
@@ -740,13 +771,16 @@ def _rebase_store_onto_remote(
     # destructive git operation.
     staging = Path(tempfile.mkdtemp(prefix="aria-replay-"))
     carried: dict[str, dict[str, Any]] = {}
-    for name, entry in local_surfaces.items():
+    for index, (name, entry) in enumerate(sorted(local_surfaces.items())):
         if entry.get("state_class") != "ledger":
             continue
         source = _absolute(entry)
         if source is None or not source.exists():
             continue
-        staged = staging / f"{name}.jsonl"
+        # The staged NAME is an ordinal, never the surface key: glob keys are
+        # `name:relative/path` (ORPHAN-HIGH-555), and a key used as a filename
+        # is a path traversal into a directory that does not exist.
+        staged = staging / f"suffix-{index:04d}.jsonl"
         staged.write_bytes(source.read_bytes())
         base_entry = base_surfaces.get(name) or {}
         carried[name] = {
@@ -1021,6 +1055,8 @@ __all__ = [
     "findings_root",
     "publish_state",
     "read_published_snapshot",
+    "read_snapshot_at_worktree_head",
+    "rebase_store_onto_remote",
     "snapshot_path",
     "store_environment",
     "store_roots",

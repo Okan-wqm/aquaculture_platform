@@ -309,8 +309,41 @@ def ensure_workspace(paths: WorkspacePaths) -> None:
         if workspace_contract_version(paths) < 2:
             return
     else:
+        # AN ABSENT IDENTITY IS NOT A MIGRATION SIGNAL ANY MORE.
+        #
+        # This used to raise `workspace_migration_required` whenever the
+        # workspace held content without an identity, and that was right while
+        # the two were always born together on one machine: content without
+        # identity could only be a half-migrated v1 tree, and bootstrapping
+        # over it would have hidden that.
+        #
+        # The lane cutover made it the ORDINARY shape. Workspace ledgers now
+        # travel on the `aria/state` branch; the identity does not, and must
+        # not — it records this HOST's `repo_root`, and the branch is shared by
+        # every runner. So every restored store arrived here with rows and no
+        # identity, and this refusal aborted the cycle before its first row.
+        # There was no command to repair it either: the tools root got a
+        # governed migration (`migrate_tools_bootstrap`) for the identical
+        # `ambiguous_tools_root` shape, and its sibling got nothing.
+        #
+        # Re-deriving is safe because the workspace PATH already carries the
+        # binding — `workspace_paths` keys the directory by the repository
+        # hash, so a workspace at `<base>/<hash>` cannot belong to another
+        # repository, and the branch above still refuses an identity that
+        # disagrees. What the refusal actually protected against — content this
+        # kernel cannot read — is caught downstream and more precisely, by
+        # `_verify_workspace`'s per-ledger `verify_jsonl`, which names the
+        # offending ledger instead of refusing the whole workspace.
         if _workspace_has_covered_state(paths):
-            raise RuntimeError("workspace_migration_required")
+            record_workspace_governance(
+                paths,
+                "workspace_identity_rederived",
+                {
+                    "workspace_root": paths.workspace_root.as_posix(),
+                    "repo_hash": paths.workspace_root.name,
+                    "reason": "restored_store_identity_is_host_local",
+                },
+            )
         _prepare_workspace_dirs(paths)
         _atomic_write_json(paths.identity_file, identity)
         record_workspace_governance(

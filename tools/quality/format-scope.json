@@ -44922,6 +44922,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/watchdog/README.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/worktree-audit/tsconfig.json",
       "prettier_managed": true
     },
@@ -56406,10 +56412,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9250,
+  "file_count": 9251,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9069,
-  "managed_file_list_sha256": "9e610c903ead70d53a2919e46a31b7cf9e27eec7032aa79c0db375e23fe64758",
+  "managed_count": 9070,
+  "managed_file_list_sha256": "ab41b0dfccec41c9b4f1b5aaf3f66e512d5fab5b0d9f45425226146cdf4f3475",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

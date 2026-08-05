@@ -7827,3 +7827,12 @@ The lane cutover (#1073) shipped `python3 -m aria_kernel state publish --repo-ro
 **A near-miss worth recording:** the first version of that test probed with `argv + ["--help"]`. argparse prints help and exits 0 _before_ validating required arguments, so the test passed with the defect deliberately re-introduced — a green gate measuring nothing, the same class as ORPHAN-HIGH-550 check (4) and the continuity probe. Caught only by running the negative case; the shipped version calls `parse_args(argv)` and fails naming `--snapshot-id`.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-553 — the runtime-signal bridge had no CLI mouth and the delivery-integrity metrics had no rules: ARIA's highest-weight input (85) was structurally unfeedable and outbox stalls were invisible — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, Watchdog W-A design (plan tranquil-sniffing-pancake §F5); verified firsthand.
+
+Two halves of one severed sensor path. (1) `runtime_signal_bridge.ingest_runtime_signal` — the input `pressure.py` weights at 85, second only to tool_quarantine — was a Python-function-only API: no CLI subcommand existed, so no probe, workflow, or operator could feed it without importing the kernel. Designed since Plan 029 §D5; zero producers ever. (2) The platform already exported `outbox_oldest_pending_age_seconds`, `outbox_publish_failures_total`, `messaging_dlq_growth_total` — and no Prometheus rule read any of them, so a stalled relay was invisible while its metric sat green on the wire (the same "exists but not wired where it matters" class as the six back-test stamps and the dead pressure-weight recommendations).
+
+**Fix (this PR):** `aria-kernel runtime signal ingest|resolve|list` verbs (auto-covered by the workflow-CLI contract test), and `rules/60-dataflow-integrity.yml` thresholding the existing metrics — the stall rule quotes the documented SLO (`OUTBOX_PENDING_AGE_ALARM_MS`, `platform/libs/outbox/src/constants.ts:60`) rather than inventing a number; every rule carries a `target_auditor` label routing to the owning Lane-B auditor. Probe exporter skeleton at `tools/watchdog/` (T1 set lands in W-B).
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).

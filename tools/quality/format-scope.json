@@ -31531,6 +31531,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-07-30-enterprise-backup-restore-architecture/PLAN.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/2026-08-02-aria-full-autonomy-program/PLAN.md",
       "prettier_managed": true
     },
@@ -33260,6 +33266,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/claude/2026-08-03-npm-high-advisories.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-04-aria-continuity-probe.md",
       "prettier_managed": true
     },
     {
@@ -43087,6 +43099,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/maintenance-isolation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/markdownlint-event-range.spec.ts",
       "prettier_managed": true
     },
     {
@@ -56388,10 +56406,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9247,
+  "file_count": 9250,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9066,
-  "managed_file_list_sha256": "ea0cd1ec5e390499f5316cdccbd3f52a9e9adae5d6f9a718944234b9f316f327",
+  "managed_count": 9069,
+  "managed_file_list_sha256": "9e610c903ead70d53a2919e46a31b7cf9e27eec7032aa79c0db375e23fe64758",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -27,6 +27,7 @@ jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
+      docs_changed: ${{ steps.changes.outputs.docs }}
       has_changes: ${{ steps.check.outputs.has_changes }}
       infra_image_changed: ${{ steps.changes.outputs.infra_image }}
       is_pr: ${{ github.event_name == 'pull_request' }}
@@ -47,6 +48,8 @@ jobs:
               - 'platform/libs/**'
             web:
               - 'web/**'
+            docs:
+              - 'docs/**/*.md'
             infra_image:
               - 'infrastructure/mosquitto/**'
             # Deploy-pipeline infrastructure. Changes here affect how the
@@ -997,14 +1000,13 @@ jobs:
 
   docs-check:
     needs: detect-changes
-    if: |
-      always() &&
-      contains(github.event.head_commit.modified, 'docs/') ||
-      contains(github.event.head_commit.added, 'docs/')
+    if: needs.detect-changes.outputs.docs_changed == 'true'
     runs-on: ubuntu-latest
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
@@ -1016,7 +1018,13 @@ jobs:
         run: npm install -g markdownlint-cli@0.45.0 --ignore-scripts --no-audit --no-fund
 
       - name: Check markdown files
-        run: markdownlint 'docs/**/*.md' --ignore node_modules
+        run: node scripts/ci/markdownlint-changed.mjs
+        env:
+          MARKDOWNLINT_BASE_REF: ${{ github.event.pull_request.base.sha || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || 'HEAD^' }}
+          # A pull_request checkout is GitHub's synthetic merge commit. Lint the
+          # immutable event head instead, otherwise unrelated base-branch
+          # advances become false "changed docs" while a queued job is waiting.
+          MARKDOWNLINT_HEAD_REF: ${{ github.event.pull_request.head.sha || github.sha }}
 
   sensor-service-gates:
     needs: [install, detect-changes]

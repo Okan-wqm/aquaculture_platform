@@ -94,6 +94,15 @@ class DescentProof:
     proven: bool
     head: str = ""
     tip: str = ""
+    # THE THIRD ANSWER, and this type needs it for the same reason the verdict
+    # does. `_remote_tip` returns None for any non-zero `git ls-remote`, so a
+    # network blip is indistinguishable from divergence — and a bare
+    # `proven=False` sent a healthy tree to GAP_CRITICAL, froze the cycle and
+    # recorded amnesia, on evidence that was never read. A gate that cannot see
+    # must say so; this module's own doctrine says `unknown` is the honest
+    # answer when evidence is unavailable, and the first version of this proof
+    # broke that doctrine while quoting it.
+    readable: bool = True
 
 
 @dataclass(frozen=True)
@@ -223,7 +232,10 @@ def store_is_at_published_tip(repo_root: Path) -> DescentProof:
     store = open_state_store(repo_root)
     head = _git(store.root, "rev-parse", "HEAD").strip()
     tip = (_remote_tip(store) or "").strip()
-    return DescentProof(proven=bool(tip) and head == tip, head=head, tip=tip)
+    # An unreadable tip is NOT a divergent tip. `_remote_tip` collapses "the
+    # remote said something else" and "the remote said nothing" into None, and
+    # only the first is evidence about this tree.
+    return DescentProof(proven=bool(tip) and head == tip, head=head, tip=tip, readable=bool(tip))
 
 
 def assess_memory_continuity(
@@ -264,6 +276,7 @@ def assess_memory_continuity(
 
     reference_root = reference.get("manifest_root")
 
+    descent_unreadable = False
     if reference.get("surfaces") is not None:
         # A full snapshot: `snapshot_continuity` already owns this comparison,
         # including the lost-surface half. Reimplementing it here would be the
@@ -271,7 +284,7 @@ def assess_memory_continuity(
         detail = snapshot_continuity(current, reference)
         lost = tuple(detail.get("lost_surfaces") or ())
         notes: tuple[str, ...] = ()
-        if descent is not None:
+        if descent is not None and descent.readable:
             # The transport answers descent, so its verdict REPLACES the
             # chain-linkage half — see `store_is_at_published_tip` for why the
             # linkage test cannot answer it for a probe. The lost-surface half
@@ -279,6 +292,17 @@ def assess_memory_continuity(
             # answer, and it is the one the gate is really for.
             detail = {**detail, "linked": descent.proven}
             notes += ("descent_proven_by_transport",)
+        elif descent is not None:
+            # The remote could not be read, so descent is UNANSWERED. Calling
+            # that "broken" turns a network blip into a positive finding of
+            # amnesia, and this gate FREEZES on such a finding. The
+            # lost-surface half still runs — the tree is right here and the
+            # reference came from a local commit — so the answer is narrowed
+            # rather than abandoned: real loss is still critical, and an
+            # unprovable descent over an intact tree is `unknown`.
+            detail = {**detail, "linked": True}
+            notes += ("descent_unverifiable_remote_unreadable",)
+            descent_unreadable = True
     else:
         # An anchor stub. It can answer descent and nothing else; the surface
         # half is UNAVAILABLE, which is recorded as a limitation rather than
@@ -303,8 +327,17 @@ def assess_memory_continuity(
 
     if status_from_detail == "ok":
         return ContinuityVerdict(
-            status=GAP_OK,
+            # Nothing was lost, but if the remote could not be read then
+            # descent was never established — and `ok` would claim it was.
+            # `unknown` blocks nothing, which is the point: absence of evidence
+            # must not stop the cycle, and must not be recorded as proof either.
+            status=GAP_UNKNOWN if descent_unreadable else GAP_OK,
             reference_kind=reference_kind,
+            reasons=(
+                ("state_continuity_remote_unreadable:descent_unverified",)
+                if descent_unreadable
+                else ()
+            ),
             notes=notes,
             current_manifest_root=current_root,
             reference_manifest_root=reference_root,

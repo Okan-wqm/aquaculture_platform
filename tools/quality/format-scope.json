@@ -939,6 +939,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/manifests/aria-state-watchdog.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/manifests/backup-secrets.json",
       "prettier_managed": true
     },
@@ -42528,6 +42534,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/aria-external-watchdog-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/aria-kernel-workflow-setup.spec.ts",
       "prettier_managed": true
     },
@@ -56430,10 +56442,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9254,
+  "file_count": 9256,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9073,
-  "managed_file_list_sha256": "c555a2d6f4d4eb6c00bd8d13737ac0eb6191865ea2d32728de23b283e5385ad3",
+  "managed_count": 9075,
+  "managed_file_list_sha256": "e79fb34d8bdbccffae3854c999decc8807f277298938b4a42f83fd3345ea3425",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

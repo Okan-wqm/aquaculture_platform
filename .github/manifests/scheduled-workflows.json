@@ -6,6 +6,7 @@
     { "workflow": "aria-agent-executor.yml", "maxAgeHours": 30 },
     { "workflow": "aria-auto-cycle.yml", "maxAgeHours": 30 },
     { "workflow": "aria-daily-report.yml", "maxAgeHours": 30 },
+    { "workflow": "aria-external-watchdog.yml", "maxAgeHours": 50 },
     { "workflow": "backup-production.yml", "maxAgeHours": 30 },
     { "workflow": "ci-full.yml", "maxAgeHours": 192 },
     { "workflow": "database-wal-archive-freshness.yml", "maxAgeHours": 1 },

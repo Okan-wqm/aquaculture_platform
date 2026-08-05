@@ -537,6 +537,19 @@ AUDITED_WORKFLOW_EXCLUSIONS: dict[str, AuditedWorkflowExclusion] = {
         owner="aria-kernel",
         expires_at=_NEVER_EXPIRES,
     ),
+    "aria-external-watchdog": AuditedWorkflowExclusion(
+        workflow_id="aria-external-watchdog",
+        reason="external liveness watchdog; reads the aria/state branch tip and the watched "
+        "lanes' run history through the GitHub API only, writes no repository or governed "
+        "ARIA state, and uploads no artifact. EXCLUDED RATHER THAN CONTRACTED BY DESIGN: a "
+        "contract is asserted by a preflight step that imports this kernel, and every failure "
+        "this watchdog exists to catch is a failure of that kernel - a watchman that dies of "
+        "the illness it watches for is not a watchman. Its shape is pinned instead by "
+        "tests/invariants/aria-external-watchdog-contract.spec.ts, which scans the YAML from "
+        "outside and fails if a kernel import ever appears in it",
+        owner="aria-kernel",
+        expires_at=_NEVER_EXPIRES,
+    ),
     "aria-merge-authority": AuditedWorkflowExclusion(
         workflow_id="aria-merge-authority",
         reason="required merge-gate check workflow; asserts ARIA merge authority via "

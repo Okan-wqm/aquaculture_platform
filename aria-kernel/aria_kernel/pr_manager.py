@@ -19,6 +19,7 @@ from .proposal import get_proposal
 from .runtime_profile import enforce_profile_for_action
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .validation import list_validation_plans
+from .worker_dispatch import mission_for_assignment
 
 
 # ORPHAN-CRITICAL-420 — the marker cycle.py matches to tell a perimeter refusal
@@ -68,10 +69,26 @@ def _diff_text_for_action(
     return completed.stdout
 
 
-def build_pr_body(*, proposal: dict[str, Any], action: dict[str, Any]) -> str:
+def build_pr_body(
+    *,
+    proposal: dict[str, Any],
+    action: dict[str, Any],
+    mission_id: str | None = None,
+) -> str:
+    """Render the PR body, and — when the work belongs to a mission — the
+    trailer `mission_reconcile` adopts on.
+
+    PLAN Wave 2 PR 1.5. The trailer is appended as a BARE LINE after the
+    provenance section rather than as a bullet inside it: the pattern is
+    anchored with MULTILINE, so an indented trailer would never match, and
+    `format_mission_trailer` refuses to produce a line the pattern misses.
+    """
+    from .mission_reconcile import format_mission_trailer
+
     evidence = "\n".join(f"- `{item}`" for item in proposal.get("evidence", []))
     validation = "\n".join(f"- `{item}`" for item in action.get("validation_commands", []))
     validation_refs = "\n".join(f"- `{item}`" for item in action.get("validation_run_refs", []))
+    trailer = [format_mission_trailer(mission_id), ""] if mission_id else []
     return "\n".join(
         [
             "## Problem",
@@ -100,6 +117,7 @@ def build_pr_body(*, proposal: dict[str, Any], action: dict[str, Any]) -> str:
             f"- Proposal: `{proposal.get('proposal_id')}`",
             f"- Worktree: `{action.get('worktree_path')}`",
             "",
+            *trailer,
         ],
     )
 
@@ -168,7 +186,15 @@ def open_pr_for_action(
         action["validation_plan_ref"] = latest_validation.get("ledger_hash")
         action["validation_plan_status"] = latest_validation.get("status")
         action["validation_run_refs"] = latest_validation.get("run_refs", [])
-    body = build_pr_body(proposal=proposal, action=action)
+    # PLAN Wave 2 PR 1.5 — the mission is DERIVED from the assignment, never
+    # supplied by the caller. `open_pr_for_action` takes no mission_id
+    # parameter, so the PR's mission and the dispatch row's mission cannot
+    # disagree: there is only one of them, and it is the one promotion wrote.
+    body = build_pr_body(
+        proposal=proposal,
+        action=action,
+        mission_id=mission_for_assignment(assignment_id=assignment_id, base_dir=base_dir),
+    )
     _validate_pr_body(body)
 
     # Plan 022 §C-4 — head_sha is the proposal commit (action.branch HEAD),

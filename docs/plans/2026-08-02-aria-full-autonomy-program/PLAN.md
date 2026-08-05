@@ -400,7 +400,8 @@ Branch-absent requires `ARIA_STATE_BOOTSTRAP_ACK`.
   is an idempotent CONTRACT MIGRATION that carries a restored tree from
   v0/v1/v2 to v3. Deleting it, or gating it on `bootstrap == 'true'`, would
   leave an older restored tree unmigrated. It stays.
-- The silence was never in that step. `.github/actions/restore-aria-tools-state`
+- The silence was never in that step. The shared restore action (then
+  `restore-aria-tools-state`, since PR 2.6b `restore-aria-state`)
   already fails hard on a real error and writes `restored=true` only on the
   success path, so the transport proof is sound; what was missing is that both
   lanes evaluate that proof at the END of the job, having already acted. The

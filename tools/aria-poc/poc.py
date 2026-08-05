@@ -133,9 +133,16 @@ class FileFate:
 # tüm app dosyalarının Path listesi. agent-workspace, node_modules,
 # build artefakt'ları, .git burada filtreden geçer.
 def walk_repo(repo_root: Path) -> list[Path]:
+    # WHY augmented, not BASE: nested git worktrees (e.g. .claude/worktrees/
+    # agent-*) are full repo checkouts that BASE_EXCLUDED_DIRS cannot name in
+    # advance. Measured 2026-08-05: 20,873 of 33,021 walked paths (63%) were
+    # worktree copies, pushing the acceptance harness past every timeout.
+    # augmented_excluded_paths unions the live `git worktree list` basenames
+    # and degrades closed to BASE when git is unavailable.
+    excluded = augmented_excluded_paths(repo_root)
     out: list[Path] = []
     for root, dirs, files in os.walk(repo_root):
-        dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS]
+        dirs[:] = [d for d in dirs if d not in excluded]
         rp = Path(root)
         for f in files:
             if f == ".git":

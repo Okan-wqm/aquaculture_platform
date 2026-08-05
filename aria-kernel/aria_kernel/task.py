@@ -158,12 +158,25 @@ def _candidate_from_shadow_summary(cycle_id: str, run: dict[str, Any], raw_count
 
 
 def _candidate_from_capability_gap(cycle_id: str, gap: dict[str, Any]) -> dict[str, Any]:
+    # Wave 2 PR 1.2 — `gap_id` is CYCLE-SCOPED: `capability_gap._gap` derives it
+    # as sha256(f"{cycle_id}:{gap_type}:{source_id}"), so the same gap
+    # re-detected tomorrow carries a different one. Using it as the candidate's
+    # identity gave every capability gap a fresh mission every night, which is
+    # exactly the per-cycle churn persistent missions exist to end.
+    #
+    # `capability_gap_key` is the content-derived key
+    # (`registry:ghost:<tool_id>`, `coverage:<service>`, …) that
+    # `detect_capability_gaps` already dedups on — the same identity, one layer
+    # up, that simply never reached the candidate. `gap_id` stays as the
+    # fallback: a gap without a key is a capability_gap.py defect, and dropping
+    # the work would hide it.
+    source_id = str(gap.get("capability_gap_key") or gap.get("gap_id"))
     return {
         "schema_version": 1,
-        "task_id": _task_id(cycle_id, "capability_gap", str(gap.get("gap_id"))),
+        "task_id": _task_id(cycle_id, "capability_gap", source_id),
         "cycle_id": cycle_id,
         "source": "capability_gap",
-        "source_id": str(gap.get("gap_id")),
+        "source_id": source_id,
         "source_authority": "capability_gap",
         "title": str(gap.get("title") or gap.get("gap_id")),
         "problem": str(gap.get("title") or gap.get("gap_id")),

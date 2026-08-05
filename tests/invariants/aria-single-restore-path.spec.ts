@@ -1,13 +1,20 @@
 /**
- * RC-6 — there must be exactly ONE implementation that restores the
- * `aria-tools-state` artifact, and both ARIA lanes must use it.
+ * RC-6 — there must be exactly ONE implementation that restores ARIA's
+ * persistent state, and both ARIA lanes must use it.
  *
  * WHY. `aria-tools/` is gitignored, so ARIA's whole accumulated state — the
  * agent-invocation queue, the hash-chained ledgers, the breaker evidence — lives
- * between runs only inside that artifact. Two lanes restore it and republish it.
- * The plan's requirement for the breaker-recovery dispatch was blunt: no second
- * restore path, because a duplicate transaction around a hash-chained ledger is
- * how the ledger diverges.
+ * between runs only in whatever transport carries it. Two lanes restore it and
+ * republish it. The plan's requirement for the breaker-recovery dispatch was
+ * blunt: no second restore path, because a duplicate transaction around a
+ * hash-chained ledger is how the ledger diverges.
+ *
+ * THE TRANSPORT CHANGED IN PLAN Wave 1 PR 2.6b — from the 30-day
+ * `aria-tools-state` artifact to the `aria/state` branch — and this file's
+ * detector moved with it. The hazard is the same either way, so the rule did
+ * not change; what changed is that it now also asserts the artifact is no
+ * longer authoritative, because two sources of truth for one ledger is the
+ * same divergence by another route.
  *
  * THE REQUIREMENT WAS ALREADY VIOLATED WHEN IT WAS WRITTEN, and not harmlessly.
  * `aria-agent-executor.yml` and `aria-auto-cycle.yml` each carried its own copy
@@ -39,19 +46,26 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
 const WORKFLOW_DIR = join(REPO_ROOT, '.github', 'workflows');
 const ACTIONS_DIR = join(REPO_ROOT, '.github', 'actions');
 
-const RESTORE_ACTION = '.github/actions/restore-aria-tools-state';
+const RESTORE_ACTION = '.github/actions/restore-aria-state';
 
 /** The lanes that carry ARIA state across runs. */
 const STATE_CARRYING_WORKFLOWS = ['aria-agent-executor.yml', 'aria-auto-cycle.yml'] as const;
 
 /**
  * What an implementation of the restore looks like, independent of how it is
- * spelled. Matched on the artifact-download behaviour rather than on a step
- * name: renaming the step is not what this guards against — a second copy of the
- * download is.
+ * spelled. Matched on the behaviour rather than on a step name: renaming the
+ * step is not what this guards against — a second copy of the restore is.
+ *
+ * RE-AIMED BY THE LANE CUTOVER (PLAN Wave 1 PR 2.6b), and re-aiming it was not
+ * optional. The previous pattern matched the artifact download
+ * (`archive_download_url`, `actions/artifacts?name=aria-tools-state`). After
+ * the cutover NOTHING in the repository matches that, so this suite would have
+ * found zero implementations and stopped guarding — a gate that silently
+ * measures nothing, which is worse than one that fails. The duplicate-restore
+ * hazard did not go away with the transport: two transactions around one
+ * hash-chained ledger is still how a ledger diverges.
  */
-const DOWNLOADS_THE_STATE_ARTIFACT =
-  /archive_download_url|actions\/artifacts\?name=aria-tools-state/;
+const RESTORES_THE_STATE_STORE = /aria_kernel state checkout|checkout_state_store/;
 
 /**
  * The file with comment-only lines removed.
@@ -100,13 +114,50 @@ function ciFiles(): { rel: string; body: string }[] {
   return files;
 }
 
-describe('aria-tools-state has a single restore path (RC-6)', () => {
-  it('has exactly one implementation that downloads the state artifact', () => {
+describe('ARIA state has a single restore path (RC-6)', () => {
+  it('has exactly one implementation that restores the state store', () => {
     const implementations = ciFiles()
-      .filter(({ body }) => DOWNLOADS_THE_STATE_ARTIFACT.test(executableYaml(body)))
+      .filter(({ body }) => RESTORES_THE_STATE_STORE.test(executableYaml(body)))
       .map(({ rel }) => rel);
 
     expect(implementations).toEqual([`${RESTORE_ACTION}/action.yml`]);
+  });
+
+  it('has no lane still treating the artifact as the authoritative state', () => {
+    // The cutover's actual claim. `aria-tools-state` was the canonical name the
+    // restore selected, so re-publishing under it would make the artifact
+    // authoritative again alongside the branch — two sources of truth for one
+    // ledger, and the one that cannot enforce ancestry would win whenever it
+    // was newer. Run-scoped forensic names (`quarantine-evidence-<run_id>`) are
+    // fine and deliberately not matched: nothing ever restores from them.
+    const offenders = ciFiles()
+      .filter(({ body }) => /name:\s*aria-tools-state\b/.test(executableYaml(body)))
+      .map(({ rel }) => rel);
+
+    expect(offenders).toEqual([]);
+  });
+
+  it('has the restore bind the root it just checked out', () => {
+    // A checked-out store is NOT yet a usable tools root: the branch does not
+    // carry `repo_identity.json` (it records a runner-absolute path), so
+    // `ensure_tools_dir` refuses it as `ambiguous_tools_root`. The binding
+    // migration used to live in the producer lane only — the executor never
+    // had it, and would have died at its lease check on the first restored
+    // store. Asserted HERE because this file's whole subject is that the two
+    // lanes share one restore: a binding that lives in one caller is the same
+    // drift by another name.
+    const action = executableYaml(
+      readFileSync(join(REPO_ROOT, RESTORE_ACTION, 'action.yml'), 'utf8'),
+    );
+    expect(action).toContain('integrity migrate-tools-bootstrap');
+    // And no lane may keep its own copy: two bootstraps is two answers to
+    // "which root is bound", which is what this suite exists to prevent.
+    const laneCopies = STATE_CARRYING_WORKFLOWS.filter((name) =>
+      executableYaml(readFileSync(join(WORKFLOW_DIR, name), 'utf8')).includes(
+        'migrate-tools-bootstrap',
+      ),
+    );
+    expect(laneCopies).toEqual([]);
   });
 
   it('has both state-carrying lanes using that one implementation', () => {

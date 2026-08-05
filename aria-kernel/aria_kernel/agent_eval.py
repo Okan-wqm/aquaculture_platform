@@ -670,9 +670,14 @@ def aggregate_eval_metrics(
     fn_rate = fn / len(in_window)
     # Consistency: 1 - sample stdev of pass-flag (0..0.5 binary stdev).
     mean_pass = pass_rate
-    variance = sum((1.0 if r.get("passed") else 0.0 - mean_pass) ** 2
+    # WHY the parentheses: the original `(1.0 if passed else 0.0 - mean) ** 2`
+    # bound the conditional over the whole expression, so every PASSING run
+    # contributed a constant 1.0 to the variance — a perfectly consistent
+    # agent scored consistency ~0. Latent while runs.jsonl was empty; fixed
+    # before the first real eval. stdev (not variance) per the docstring.
+    variance = sum(((1.0 if r.get("passed") else 0.0) - mean_pass) ** 2
                    for r in in_window) / len(in_window)
-    consistency = max(0.0, 1.0 - variance)
+    consistency = max(0.0, 1.0 - variance ** 0.5)
     return {
         "target_agent": target_agent,
         "window_days": window_days,

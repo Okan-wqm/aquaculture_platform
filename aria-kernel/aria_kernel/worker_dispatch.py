@@ -40,6 +40,32 @@ DEFAULT_AUTO_BATCH_LIMIT = 10
 DEFAULT_LEASE_SECONDS = 1800
 LEASE_TOKEN_BYTES = 24
 
+# PLAN Wave 2 PR 1.4 (ORPHAN-HIGH-487) — the assignment states in which work
+# is still expected to move, and therefore still holds ARIA's one WIP slot.
+#
+# Everything OUTSIDE this set is either finished or dead, and a dead
+# assignment must not hold a slot: admission without release turns one
+# abandoned worker into a permanent freeze.
+#
+# `verified` is deliberately absent. Nothing in this state machine moves an
+# assignment past verification — whether the PR then merges is the MISSION
+# layer's question, answered by `mission_reconcile` against GitHub. Counting
+# `verified` here would hold the slot forever on a machine that has no event
+# to release it.
+ACTIVE_ASSIGNMENT_STATES: frozenset[str] = frozenset({
+    "pending",
+    "prepared",
+    "picked_up",
+    "submitted",
+})
+
+# How many times an expired lease returns its assignment to the queue before
+# the assignment is escalated instead. Mirrors
+# `agent_invocations.DEFAULT_MAX_REQUEUES`: the same ladder over the same
+# failure (a claim whose holder stopped answering) should not have two
+# different budgets.
+DEFAULT_MAX_LEASE_REQUEUES = 2
+
 
 _DECLARED_SURFACE_BY_JSONL_SUFFIX: dict[str, str] = {
     "triage/decisions.jsonl": "triage_decisions",
@@ -491,9 +517,16 @@ def _derive_assignment_state(root: Path, assignment_id: str) -> str:
       2. The assignment row's own ``state`` field.
 
     States: pending / prepared / picked_up / completed / cancelled /
-    expired. The reaper writes ``expired`` when a lease times out;
-    the worker daemon writes ``picked_up`` (via the new claim
+    expired. The worker daemon writes ``picked_up`` (via the claim
     primitive below); ``completed`` is set after verification.
+
+    PLAN Wave 2 PR 1.4 — this docstring previously said "the reaper writes
+    ``expired`` when a lease times out". There was no reaper, and nothing
+    has ever produced ``expired``. `reap_expired_assignment_claims` is that
+    reaper now, and it writes into the claims vocabulary this fold already
+    understands (``released`` back to pending, or terminal
+    ``human_required``) rather than a state with no producer. ``expired``
+    survives only as a state `prune_worktrees` still recognises.
     """
     assignment = _find_assignment(root, assignment_id)
     if assignment is None:
@@ -948,3 +981,197 @@ def _parse_iso(value: Any) -> datetime | None:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
+
+
+# =============================================================================
+# PLAN Wave 2 PR 1.4 — the in-flight set, and the lease that ends it.
+# =============================================================================
+
+
+def active_dispatch_assignments(
+    *, base_dir: str | os.PathLike[str] | None = None
+) -> list[dict[str, Any]]:
+    """Every assignment still expected to move, with its derived state.
+
+    THIS IS THE LIVE IN-FLIGHT RECORD, and it is not the one ORPHAN-HIGH-487
+    proposed. The finding named `plan_convergence.list_active_plans()`, which
+    filters out `TERMINAL_STATES` — and `CONVERGED` is in that set, while
+    `promote_converged_plan_to_dispatch` refuses any plan that is not
+    CONVERGED. Promotion writes a dispatch row and no plan event at all, so a
+    promoted plan stays CONVERGED, which is terminal. A gate on that source
+    could never have fired.
+    """
+    root = ensure_tools_dir(base_dir)
+    states = _latest_assignment_states(root)
+    active: list[dict[str, Any]] = []
+    for row in load_jsonl(root / "dispatch" / "requests.jsonl"):
+        assignment_id = str(row.get("assignment_id") or "")
+        if not assignment_id:
+            continue
+        state = _current_assignment_state(row, states)
+        if state in ACTIVE_ASSIGNMENT_STATES:
+            active.append({
+                "assignment_id": assignment_id,
+                "state": state,
+                "plan_id": row.get("plan_id"),
+                "pressure_event_id": row.get("pressure_event_id"),
+                "created_at": row.get("created_at"),
+            })
+    return active
+
+
+def mission_for_assignment(
+    *,
+    assignment_id: str | None,
+    base_dir: str | os.PathLike[str] | None = None,
+) -> str | None:
+    """The mission this assignment belongs to, or ``None``.
+
+    PLAN Wave 2 PR 1.5 — the single lookup every downstream consumer uses,
+    so the mission a PR announces and the mission the dispatch row records
+    are the same value read twice rather than two values passed separately.
+    """
+    if not assignment_id:
+        return None
+    root = ensure_tools_dir(base_dir)
+    assignment = _find_assignment(root, str(assignment_id))
+    if assignment is None:
+        return None
+    mission_id = assignment.get("mission_id")
+    return str(mission_id) if isinstance(mission_id, str) and mission_id.strip() else None
+
+
+def _lease_expiry_count(root: Path, assignment_id: str) -> int:
+    """How many of this assignment's leases have already been reaped.
+
+    Counted from the governance ledger for the same reason
+    `assignment_retry_count` is: the dispatch row is append-only, and
+    rewriting it for a counter would re-open the write-side defect
+    Plan 024 §H-1 closed.
+    """
+    count = 0
+    for row in load_jsonl(root / "governance.jsonl"):
+        if row.get("kind") != "dispatch_claim_lease_expired":
+            continue
+        details = row.get("details") or {}
+        if details.get("assignment_id") == assignment_id:
+            count += 1
+    return count
+
+
+def reap_expired_assignment_claims(
+    *,
+    base_dir: str | os.PathLike[str] | None = None,
+    now: datetime | None = None,
+    max_requeues: int = DEFAULT_MAX_LEASE_REQUEUES,
+) -> dict[str, list[dict[str, Any]]]:
+    """Release assignments whose worker stopped answering.
+
+    `_derive_assignment_state` has always documented a reaper that "writes
+    ``expired`` when a lease times out". There was none: `cancel_dispatch_
+    request` is the only writer of a dead state, and it is operator-invoked.
+    So a worker that died left its assignment `picked_up` forever — harmless
+    while nothing read the in-flight set, and a permanent freeze the moment
+    ORPHAN-HIGH-487's admission gate started reading it.
+
+    The reaper writes into the SAME claims vocabulary the fold already
+    understands (`released` returns the assignment to `pending`;
+    `human_required` is terminal) rather than introducing `expired`, which
+    the fold has no claims-row producer for. Two dead states for one death
+    would be a vocabulary that has to be kept in agreement with itself.
+
+    It does not go through `release_claim_assignment`, which authenticates the
+    caller against the raw lease token: only the token's hash is persisted, so
+    the system genuinely cannot present one. That check exists to stop one
+    worker releasing another's live claim. Here the claim is EXPIRED, and the
+    expiry is the authority — which is why the reaper reads the recorded
+    deadline and refuses to act without one.
+    """
+    root = ensure_tools_dir(base_dir)
+    moment = now or _utc_now_dt()
+    claims_path = _claims_path(root)
+    by_claim: dict[str, list[dict[str, Any]]] = {}
+    for row in load_jsonl(claims_path):
+        claim_id = str(row.get("claim_id") or "")
+        if claim_id:
+            by_claim.setdefault(claim_id, []).append(row)
+
+    # Only assignments still expected to move are reapable. A claim left over
+    # on an assignment that has already died has nothing to release, and
+    # writing it another terminal row would put noise in the audit trail where
+    # the first row is the fact.
+    live = {row["assignment_id"] for row in active_dispatch_assignments(base_dir=root)}
+
+    reaped: dict[str, list[dict[str, Any]]] = {
+        "expired": [],
+        "requeued": [],
+        "human_required": [],
+    }
+    for claim_id, events in by_claim.items():
+        if any(
+            event.get("event") in {"released", "stale", "human_required"}
+            for event in events
+        ):
+            continue
+        claimed = next(
+            (event for event in events if event.get("event") == "claimed"), None
+        )
+        if claimed is None:
+            continue
+        expires = _parse_iso(claimed.get("lease_expires_at"))
+        # No recorded deadline is not an expired deadline. A claim whose row
+        # never carried one is a claim this reaper cannot judge, and guessing
+        # would kill live work.
+        if expires is None or expires > moment:
+            continue
+        assignment_id = str(claimed.get("assignment_id") or "")
+        if not assignment_id or assignment_id not in live:
+            continue
+        expiry_count = _lease_expiry_count(root, assignment_id) + 1
+        requeue = expiry_count <= max_requeues
+        disposition = "requeued" if requeue else "human_required"
+        recorded_at = _iso(moment)
+        row: dict[str, Any] = {
+            "schema_version": 1,
+            "event": "released" if requeue else "human_required",
+            "claim_id": claim_id,
+            "assignment_id": assignment_id,
+            "pressure_event_id": claimed.get("pressure_event_id"),
+            "agent_id": claimed.get("agent_id"),
+            "reason": "lease_expired",
+            "lease_expires_at": claimed.get("lease_expires_at"),
+            "expiry_count": expiry_count,
+            "recorded_at": recorded_at,
+        }
+        if requeue:
+            row["released_at"] = recorded_at
+        append_declared_jsonl(claims_path, row, expected_surface="dispatch_claims")
+        append_tools_governance(
+            root,
+            "dispatch_claim_lease_expired",
+            {
+                "claim_id": claim_id,
+                "assignment_id": assignment_id,
+                "agent_id": claimed.get("agent_id"),
+                "lease_expires_at": claimed.get("lease_expires_at"),
+                "expiry_count": expiry_count,
+                "disposition": disposition,
+            },
+        )
+        pressure_event_id = claimed.get("pressure_event_id")
+        if pressure_event_id and requeue:
+            append_tools_governance(
+                root,
+                "dispatch_request_state_changed",
+                {
+                    "assignment_id": assignment_id,
+                    "pressure_event_id": pressure_event_id,
+                    "from_state": "picked_up",
+                    "to_state": "pending",
+                    "claim_id": claim_id,
+                    "reason": "lease_expired",
+                },
+            )
+        reaped["expired"].append(row)
+        reaped[disposition].append(row)
+    return reaped

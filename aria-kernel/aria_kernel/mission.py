@@ -37,6 +37,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .task import generate_task_candidates
 from .ledger import (
     load_declared_jsonl,
     rewrite_declared_json,
@@ -92,6 +93,13 @@ ACTIVE_WIP_STATES: tuple[str, ...] = (
     "MAIN_VERIFYING",
 )
 
+# How many missions may hold a WIP slot at once. ONE, because that is the
+# operator rule this enforces verbatim (2026-07-28): ARIA must not start a new
+# plan before the current one is completely finished. It is a default rather
+# than a constant so raising it is a reviewed argument at a callsite, not an
+# edit that silently widens the rule everywhere.
+DEFAULT_WIP_CAP = 1
+
 RETRY_LADDER: tuple[str, ...] = (
     "transient",
     "in_plan_repair",
@@ -117,8 +125,26 @@ BINDING_KEYS: tuple[str, ...] = (
 
 EVENT_KINDS: tuple[str, ...] = ("opened", "transition", "binding", "wake", "note")
 
-# The reason every skip-forward must carry. Named once, here.
+# The reasons a skip-forward may carry. A closed set, and small on purpose:
+# each member is a claim that we observed an END STATE and not the path to it,
+# which is the only honest justification for jumping mainline states.
+#
+#   coarse_observation        — today's pipeline cannot distinguish every
+#                               intermediate state, and a skip that says so is
+#                               honest where a precise reason would be the
+#                               schema lying about its own resolution.
+#   reconciled_external_merge — `mission_reconcile` found the PR already
+#                               merged. The merge happened; VALIDATING, READY
+#                               and MERGING were passed through without this
+#                               system watching, so writing them as observed
+#                               events would be inventing history.
+#
+# Widening this set is a deliberate edit here, reviewed against that rule.
 COARSE_OBSERVATION = "coarse_observation"
+RECONCILED_EXTERNAL_MERGE = "reconciled_external_merge"
+FORWARD_SKIP_REASONS: frozenset[str] = frozenset(
+    {COARSE_OBSERVATION, RECONCILED_EXTERNAL_MERGE}
+)
 
 
 def _adjacent(state: str) -> frozenset[str]:
@@ -173,6 +199,22 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
 }
 
 
+# Identifiers a candidate can carry that do not actually identify anything.
+# `task._candidate_from_pressure` falls back to the literal string "pressure"
+# when a pressure row has neither `event_id` nor `pressure_id`; hashing that
+# would give every identifier-less pressure the SAME mission_id, so unrelated
+# work would share one mission and accumulate contradictory bindings. Identity
+# that cannot identify is worse than no identity, so these are refused.
+UNUSABLE_SOURCE_IDS: frozenset[str] = frozenset({
+    "pressure",
+    "finding",
+    "shadow_run_summary",
+    "capability_gap",
+    "None",
+    "",
+})
+
+
 def events_path(root: Path) -> Path:
     return root / "missions" / "mission-events.jsonl"
 
@@ -208,7 +250,13 @@ def _idempotency_key(
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
-def _mainline_index(state: str) -> int | None:
+def mainline_index(state: str) -> int | None:
+    """Position on the mainline, or ``None`` for a waiting/terminal state.
+
+    Public because reconciliation has to ask the same question the transition
+    guard asks — "is this state before that one?" — and a second copy of the
+    ordering rule is how two callers come to disagree about it.
+    """
     try:
         return MAINLINE_STATES.index(state)
     except ValueError:
@@ -488,16 +536,16 @@ def transition_mission(
             )
         allowed = ALLOWED_TRANSITIONS[current]
         if to_state not in allowed:
-            from_index = _mainline_index(current)
-            to_index = _mainline_index(to_state)
+            from_index = mainline_index(current)
+            to_index = mainline_index(to_state)
             is_forward_skip = (
                 from_index is not None and to_index is not None and to_index > from_index
             )
-            if not (is_forward_skip and reason_code == COARSE_OBSERVATION):
+            if not (is_forward_skip and reason_code in FORWARD_SKIP_REASONS):
                 raise GovernanceError(
                     f"transition {current} -> {to_state} is not in the closed table "
                     f"(reason_code={reason_code!r}); forward mainline skips require "
-                    f"reason_code={COARSE_OBSERVATION!r}"
+                    f"one of {sorted(FORWARD_SKIP_REASONS)}"
                 )
         if retry_rung is not None and state.get("retry_rung") is not None:
             if RETRY_LADDER.index(retry_rung) < RETRY_LADDER.index(state["retry_rung"]):
@@ -597,6 +645,136 @@ def rebuild_mission_index(*, base_dir: str | Path | None = None) -> dict[str, An
     return {"schema_version": 1, "path": str(path), "mission_count": len(missions)}
 
 
+def adopt_task_candidates(
+    *,
+    cycle_id: str,
+    repo_hash: str,
+    base_dir: str | Path | None = None,
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Turn this cycle's task candidates into persistent missions.
+
+    The FIRST production caller of `task.generate_task_candidates`, which has
+    existed with none. Adoption is idempotent by construction: `open_mission`
+    keys on ``sha256(source_kind|source_id|repo_hash)``, so the same candidate
+    re-discovered on a later night folds into the mission it already opened
+    rather than starting a new one — which is the entire reason mission
+    identity refuses to read the cycle.
+
+    One candidate at a time, and a bad row costs only itself: a malformed or
+    unusably-identified candidate is refused and RECORDED, never dropped in
+    silence, because a candidate that vanishes without a trace is
+    indistinguishable from one that was never generated.
+    """
+    root = ensure_tools_dir(base_dir)
+    payload = generate_task_candidates(
+        cycle_id=cycle_id, base_dir=root, limit=limit
+    )
+    candidates = payload.get("tasks") if isinstance(payload, dict) else None
+    adopted = already = refused = 0
+    for candidate in candidates if isinstance(candidates, list) else []:
+        if not isinstance(candidate, dict):
+            refused += 1
+            continue
+        source = candidate.get("source")
+        source_id = str(candidate.get("source_id") or "")
+        reason = None
+        if not isinstance(source, str) or not source.strip():
+            reason = "missing_source"
+        elif source_id in UNUSABLE_SOURCE_IDS:
+            # Refused rather than adopted: see UNUSABLE_SOURCE_IDS.
+            reason = "unusable_source_id"
+        if reason is not None:
+            refused += 1
+            append_tools_governance(
+                root,
+                "mission_candidate_refused",
+                {
+                    "schema_version": 1,
+                    "cycle_id": cycle_id,
+                    "reason": reason,
+                    "source": source if isinstance(source, str) else None,
+                    "source_id": source_id or None,
+                },
+            )
+            continue
+        result = open_mission(
+            source_kind=source,
+            source_id=source_id,
+            repo_hash=repo_hash,
+            title=str(candidate.get("title") or source_id),
+            base_dir=root,
+        )
+        if result["idempotent"]:
+            already += 1
+        else:
+            adopted += 1
+    return {
+        "schema_version": 1,
+        "cycle_id": cycle_id,
+        "adopted": adopted,
+        "already_tracked": already,
+        "refused": refused,
+    }
+
+
+def active_wip_missions(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
+    """The missions currently holding a WIP slot.
+
+    Derived from `ACTIVE_WIP_STATES`, not from a second list: a mission holds
+    a slot exactly when it holds real resources (a branch, a worker, a PR
+    slot). DISCOVERED is not one of them, which is what lets `mission_ingest`
+    open a night's whole candidate set without the first adoption blocking
+    every promotion after it.
+    """
+    return [
+        state
+        for state in list_open_missions(base_dir=base_dir)
+        if state["state"] in ACTIVE_WIP_STATES
+    ]
+
+
+def assert_wip_available(
+    *,
+    cap: int = DEFAULT_WIP_CAP,
+    admitting: str | None = None,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Refuse to admit new work while the WIP cap is already spent.
+
+    RAISES rather than returning a verdict, deliberately. The defect this
+    closes is a computed in-flight set that no gate ever read; a function
+    returning `{"available": False}` reproduces it the first time a caller
+    forgets to check the field. A caller that wants to REPORT rather than
+    stop — `promote_converged_plan_to_dispatch`, whose contract is a blocker
+    list — translates the refusal at its own boundary.
+
+    ``admitting`` excludes one mission from the count: re-admitting the
+    mission that already holds the slot is a resumption, not a second thing
+    in flight.
+    """
+    if not isinstance(cap, int) or cap < 1:
+        raise GovernanceError("wip cap must be a positive integer")
+    in_flight = [
+        state
+        for state in active_wip_missions(base_dir=base_dir)
+        if state["mission_id"] != admitting
+    ]
+    if len(in_flight) >= cap:
+        blocking = ", ".join(
+            f"{state['mission_id']}({state['state']})" for state in in_flight
+        )
+        raise GovernanceError(
+            f"wip cap {cap} is spent; in flight: {blocking}"
+        )
+    return {
+        "schema_version": 1,
+        "cap": cap,
+        "in_flight": [state["mission_id"] for state in in_flight],
+        "available": cap - len(in_flight),
+    }
+
+
 def assert_cycle_closure(*, base_dir: str | Path | None = None) -> dict[str, Any]:
     """"No plan silently half-done", executable.
 
@@ -606,8 +784,10 @@ def assert_cycle_closure(*, base_dir: str | Path | None = None) -> dict[str, Any
     is a violation, and the violation is RECORDED as a governance event
     because a violation nobody recorded is a violation nobody will fix.
 
-    This function observes and records; the cycle_seal phase (PR 1.2) owns
-    the decision of what a violation does to the cycle under each profile.
+    This function observes and records. The DECISION of what a violation does
+    to a cycle lives where the cycle seals — `run_enterprise_cycle`, not a
+    phase: PLAN called for a `cycle_seal` phase and there is none, and a table
+    row would run before the terminal decision it is meant to describe.
     """
     root = ensure_tools_dir(base_dir)
     violations = []
@@ -650,20 +830,28 @@ __all__ = [
     "ALLOWED_TRANSITIONS",
     "BINDING_KEYS",
     "COARSE_OBSERVATION",
+    "DEFAULT_WIP_CAP",
     "EVENT_KINDS",
+    "FORWARD_SKIP_REASONS",
     "WAITING_STATES",
     "MAINLINE_STATES",
     "MISSION_SCHEMA",
     "MISSION_STATES",
+    "RECONCILED_EXTERNAL_MERGE",
     "RETRY_LADDER",
     "TERMINAL_STATES",
     "WAKE_KINDS",
+    "UNUSABLE_SOURCE_IDS",
+    "active_wip_missions",
+    "adopt_task_candidates",
     "assert_cycle_closure",
+    "assert_wip_available",
     "bind_mission",
     "events_path",
     "fold_mission",
     "index_path",
     "list_open_missions",
+    "mainline_index",
     "mission_id_for",
     "open_mission",
     "rebuild_mission_index",

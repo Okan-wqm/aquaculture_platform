@@ -168,6 +168,32 @@ class RecordingGitHubAdapter:
             "reason": f"profile_{self.profile}_uses_recording_adapter",
         }
 
+    # ----- MissionObserver Protocol (Wave 2 PR 1.3) ----------------------
+    #
+    # These return ``None`` rather than a structural stub, and the difference
+    # from `get_pr` above is the whole point. `get_pr`'s consumer,
+    # `evaluate_auto_merge`, needs a shaped dict so it can fail CLOSED on it;
+    # reconciliation's consumer needs to know whether anything was observed at
+    # all, and ``None`` says exactly that. A stub here would be an answer, and
+    # `mission_reconcile` would have to decide what a fabricated answer means —
+    # which is how "not merged" becomes "closed unmerged" and every mission's
+    # retry rung burns on a lane that never called GitHub.
+    #
+    # This is also why the dry-run lane needs no soak flag: the profiles that
+    # must not act get an adapter that cannot answer.
+
+    def get_pr_lifecycle(self, number: int) -> dict[str, Any] | None:
+        self._record("get_pr_lifecycle", number=number)
+        return None
+
+    def observe_branch(self, name: str) -> bool | None:
+        self._record("observe_branch", name=name)
+        return None
+
+    def list_open_pull_requests(self) -> list[dict[str, Any]] | None:
+        self._record("list_open_pull_requests")
+        return None
+
 
 def _aria_dry_run_active() -> bool:
     """Plan ARIA-V3.1-F2 fix — canonical ARIA_DRY_RUN env-var read.

@@ -14,4 +14,3 @@ Crate `suderra-agent` (`sens-api-gateway/Cargo.toml`). Sensor protocol gateway r
 
 ## Build & test
 `cargo build --release` (add `--features scada-display` for the display tier); `cargo test`; fuzz targets under `sens-api-gateway/fuzz/`.
-<!-- back-test: CLAUDE-DRIFT-004, verified 2026-06-16 -->

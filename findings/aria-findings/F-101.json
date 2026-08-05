@@ -1,0 +1,41 @@
+{
+  "candidate_tools": [
+    "event-contracts-adapter"
+  ],
+  "concept": "financescope",
+  "cross_service": true,
+  "drift_class": "ui_option_drift",
+  "evidence_chain": [
+    {
+      "declared_name": "new-category-scope",
+      "declared_values": [
+        "FARM_OPEX",
+        "FARM_REVENUE"
+      ],
+      "reference": "web/modules/farm-module/src/pages/finance/components/CategoriesTab.tsx:106",
+      "source_type": "code",
+      "trust_level": "mechanical_scan"
+    },
+    {
+      "declared_name": "FinanceScope",
+      "declared_values": [
+        "FARM_OPEX",
+        "FARM_REVENUE",
+        "HR_EXPENSE"
+      ],
+      "reference": "libs/event-contracts/src/finance-events.ts:38",
+      "source_type": "code",
+      "trust_level": "mechanical_scan"
+    }
+  ],
+  "existing_gate_refs": [],
+  "id": "F-101",
+  "missing_in_sql": [],
+  "missing_in_ts": [
+    "hr_expense"
+  ],
+  "seeded_from_commit": "d95d15de86310dd46cbb8773ddb03ad9f64d0913",
+  "source": "seed_drift_findings",
+  "status": "OPEN",
+  "title": "ui_option_drift: 'financescope' value sets diverge (jaccard 0.67, cross_service=True)"
+}

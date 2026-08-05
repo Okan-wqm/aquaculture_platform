@@ -1,0 +1,1 @@
+{"kind":"pressure_candidate_tools_unreachable","ledger_hash":"sha256:8e61198e13811cef365386d2d18c60608472851650ce8c647ae7d32830862246","missing_candidate_tools":["typeorm-entity-schema-adapter"],"pressure_id":"pressure:migration-surface-repeat:repetition","previous_ledger_hash":null,"recorded_at":"2026-08-05T10:26:42+00:00","schema_version":1}

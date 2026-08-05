@@ -1,0 +1,20 @@
+{
+  "findings": [
+    {
+      "drift_class": "ui_option_drift",
+      "file": "F-101.json",
+      "id": "F-101",
+      "status": "OPEN",
+      "title": "ui_option_drift: 'financescope' value sets diverge (jaccard 0.67, cross_service=True)"
+    },
+    {
+      "drift_class": "ui_option_drift",
+      "file": "F-102.json",
+      "id": "F-102",
+      "status": "OPEN",
+      "title": "ui_option_drift: 'leaverequest' value sets diverge (jaccard 0.80, cross_service=True)"
+    }
+  ],
+  "schema_version": 1,
+  "source": "seed_drift_findings"
+}

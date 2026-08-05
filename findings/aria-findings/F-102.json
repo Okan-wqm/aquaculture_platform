@@ -1,0 +1,50 @@
+{
+  "candidate_tools": [
+    "event-contracts-adapter"
+  ],
+  "concept": "leaverequest",
+  "cross_service": true,
+  "drift_class": "ui_option_drift",
+  "evidence_chain": [
+    {
+      "declared_name": "leave-filter-status",
+      "declared_values": [
+        "approved",
+        "cancelled",
+        "pending",
+        "rejected"
+      ],
+      "reference": "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx:346",
+      "source_type": "code",
+      "trust_level": "mechanical_scan"
+    },
+    {
+      "declared_name": "LeaveRequestStatus",
+      "declared_values": [
+        "APPROVED",
+        "CANCELLED",
+        "DRAFT",
+        "PENDING",
+        "REJECTED"
+      ],
+      "reference": "web/apps/aquamobil/src/types/index.ts:290",
+      "source_type": "code",
+      "trust_level": "mechanical_scan"
+    }
+  ],
+  "existing_gate_refs": [
+    "e2e/tests/modules/hr/leave-calendar.spec.ts:375 (LeaveRequestStatus)",
+    "e2e/tests/modules/hr/leave-workflow.spec.ts:60 (leaverequest)",
+    "e2e/tests/modules/hr/employee-crud.spec.ts:382 (leaverequest)"
+  ],
+  "id": "F-102",
+  "missing_in_sql": [],
+  "missing_in_ts": [
+    "draft",
+    "withdrawn"
+  ],
+  "seeded_from_commit": "d95d15de86310dd46cbb8773ddb03ad9f64d0913",
+  "source": "seed_drift_findings",
+  "status": "OPEN",
+  "title": "ui_option_drift: 'leaverequest' value sets diverge (jaccard 0.80, cross_service=True)"
+}

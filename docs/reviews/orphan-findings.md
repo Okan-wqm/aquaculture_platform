@@ -1,12 +1,15 @@
 # Orphan Findings — Plan-Independent Real Problems
 
-<!-- markdownlint-disable MD013 -->
-<!-- WHY: append-only machine-written evidence ledger; entries carry long
-     verbatim evidence strings (file:line quotes, SHAs, JSON) that must not
-     be rewrapped after the fact. Wrapping ~2,864 historical lines would
-     rewrite recorded evidence; MD013 is therefore disabled for this file
-     so the docs-check whole-file lint cannot block every future finding
-     ceremony that appends here. -->
+<!-- markdownlint-disable -->
+<!-- WHY: append-only machine-written evidence ledger; entries carry verbatim
+     evidence (file:line quotes, SHAs, JSON, bare fences, repeated headings)
+     recorded long before any style rule existed and never rewritten after
+     the fact. The docs-check whole-file lint would otherwise go red on
+     historical evidence every time a future finding ceremony appends here
+     (MD013 x ~2,864 lines, plus MD024/MD031/MD037/MD040 across the ledger),
+     so markdownlint is disabled for this one file. Structure is enforced by
+     the real parsers instead: ORPHAN_HEADING_REGEX in
+     tools/gates/commit-msg-validator.ts and the registry invariants. -->
 
 **Purpose:** Problems spotted while reading code for planned work (ADRs / Faz implementation) that are **NOT** part of the current plan. Discovery → test → document here.
 

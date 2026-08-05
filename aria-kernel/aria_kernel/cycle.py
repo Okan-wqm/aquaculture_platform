@@ -842,14 +842,24 @@ def _phase_state_continuity(context: PhaseContext) -> dict[str, Any]:
     cycle-lifecycle integrity), and the freeze is `freeze_autonomous_writes`.
     Three responsibilities, three places, one rule each.
     """
-    from .memory_gap import assess_memory_continuity, resolve_continuity_reference
+    from .memory_gap import (
+        REFERENCE_STATE_BRANCH,
+        assess_memory_continuity,
+        continuity_probe_roots,
+        resolve_continuity_reference,
+        store_is_at_published_tip,
+    )
     from .state_snapshot import build_snapshot
 
+    # The probe must walk the roots the reference COVERS. Tools-only was right
+    # while every reference was an anchor stub with no surface map; against a
+    # published snapshot it reports sixteen healthy workspace and repo surfaces
+    # as lost, which is `critical`, which blocks the cycle (PR 2.6c).
     current = build_snapshot(
         snapshot_id=f"continuity-{context.cycle_id}",
         cycle_id=context.cycle_id,
         lane=context.mode,
-        roots={"tools": Path(context.base_dir)},
+        roots=continuity_probe_roots(Path(context.workspace_root), Path(context.base_dir)),
     )
 
     # Resolution lives in memory_gap, not here: which authority is strongest,
@@ -860,8 +870,22 @@ def _phase_state_continuity(context: PhaseContext) -> dict[str, Any]:
     # the "failed to look" outcome rather than a quietly weaker answer.
     reference, reference_kind = resolve_continuity_reference(Path(context.workspace_root))
 
+    # Descent is decided by the transport, not by chain linkage: a probe is
+    # built fresh and so has no `prev_manifest_root`, which makes the linkage
+    # test answer "broken" for a healthy tree every time. Only asked when the
+    # reference IS the branch — an anchor reference has no tip to compare to,
+    # and keeps the linkage test it was designed for.
+    descent = (
+        store_is_at_published_tip(Path(context.workspace_root))
+        if reference_kind == REFERENCE_STATE_BRANCH
+        else None
+    )
+
     verdict = assess_memory_continuity(
-        current=current, reference=reference, reference_kind=reference_kind
+        current=current,
+        reference=reference,
+        reference_kind=reference_kind,
+        descent=descent,
     )
     return {
         "schema_version": 1,

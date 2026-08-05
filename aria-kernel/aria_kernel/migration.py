@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .feedback import normalize_feedback_event, pressure_evidence_fingerprint, slug
-from .ledger import append_jsonl, read_jsonl, rewrite_jsonl, verify_jsonl, write_index
+from .ledger import append_jsonl, read_jsonl, rewrite_jsonl, stamp_row_format, verify_jsonl, write_index
 from .tool_registry import GovernanceError, SCHEMA_VERSION as TOOLS_SCHEMA_VERSION, append_tools_governance, covered_tool_ledgers, tools_contract_version, update_tools_index
 from .workspace import WorkspacePaths, canonical_identity, canonical_identity_source, default_actor, governance_event, record_workspace_governance, repo_hash, workspace_paths
 
@@ -207,7 +207,12 @@ def migrate_tools_v1_to_v2(
         _append_migration_phase(root, "copied")
 
         for path in covered_tool_ledgers(root).values():
-            rows = [_restamp(row) for row in read_jsonl(path)]
+            # ORPHAN-HIGH-552 — `stamp_row_format` is the appender's own
+            # definition, so restamping rows the governed appender wrote is
+            # the identity and this rewrite is byte-idempotent across a
+            # restore. A private `_restamp` here is how two formats came to
+            # share one file.
+            rows = [stamp_row_format(row) for row in read_jsonl(path)]
             _rewrite_migration_jsonl(path, rows)
             result = verify_jsonl(path)
             if result.get("valid") is not True:
@@ -545,7 +550,7 @@ def _migrate_workspace_ledgers(paths: WorkspacePaths) -> None:
     pressure_rows = []
     id_map = _legacy_feedback_id_map(paths)
     for row in read_jsonl(paths.ledgers["pressure"]):
-        migrated = _restamp(row)
+        migrated = dict(stamp_row_format(row))
         migrated["$schema"] = "aria/pressure-event/v2"
         migrated["schema_version"] = 2
         legacy_ids = [str(item) for item in row.get("feedback_event_ids", []) if isinstance(item, str)]
@@ -577,13 +582,6 @@ def _pressure_fingerprints(paths: WorkspacePaths) -> list[str]:
         for row in read_jsonl(paths.ledgers["pressure"])
         if isinstance(row.get("evidence_fingerprint"), str)
     )
-
-
-def _restamp(row: dict[str, Any]) -> dict[str, Any]:
-    migrated = dict(row)
-    if int(migrated.get("schema_version") or 0) < 2:
-        migrated["schema_version"] = 2
-    return migrated
 
 
 def _backup_dir(root: Path, label: str) -> Path:

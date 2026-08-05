@@ -33325,6 +33325,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-05-aria-ledger-rechain.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -56412,10 +56418,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9251,
+  "file_count": 9252,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9070,
-  "managed_file_list_sha256": "29ff0cc6d52a2f44134c2951e2da4e92ad0ff883b2915041e33ea7906c9c9355",
+  "managed_count": 9071,
+  "managed_file_list_sha256": "67b9153348b1605b2c847da15fb15580b8f87ece0d5d8db4829f9ae35a0f1068",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

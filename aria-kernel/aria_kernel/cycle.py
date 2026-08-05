@@ -600,32 +600,49 @@ def run_enterprise_cycle(
     _run_phase_stage("preflight", context)
     continuity = context.result("state_continuity")
     if isinstance(continuity, dict) and continuity.get("blocks_action"):
-        from .memory_gap import ContinuityVerdict, freeze_autonomous_writes
+        from .memory_gap import ContinuityVerdict, freeze_autonomous_writes, restore_and_replay
 
-        freeze_autonomous_writes(
-            ContinuityVerdict(
-                status=str(continuity.get("status")),
-                reference_kind=continuity.get("reference_kind"),
-                reasons=tuple(continuity.get("reasons") or ()),
-                lost_surfaces=tuple(continuity.get("lost_surfaces") or ()),
-                current_manifest_root=continuity.get("current_manifest_root"),
-                reference_manifest_root=continuity.get("reference_manifest_root"),
-            ),
-            base_dir=root,
-            cycle_id=cycle_id,
+        diagnosed = ContinuityVerdict(
+            status=str(continuity.get("status")),
+            reference_kind=continuity.get("reference_kind"),
+            reasons=tuple(continuity.get("reasons") or ()),
+            lost_surfaces=tuple(continuity.get("lost_surfaces") or ()),
+            current_manifest_root=continuity.get("current_manifest_root"),
+            reference_manifest_root=continuity.get("reference_manifest_root"),
         )
-        emit_progress("cycle_aborted", cycle_id=cycle_id, reason="state_integrity_gap")
-        event = _aborted_event(cycle_id, git_head_sha_at_cycle=git_head_sha_at_cycle)
-        append_declared_jsonl(root / "cycles.jsonl", event, expected_surface="cycles")
-        return {
-            "schema_version": 2,
-            "cycle_id": cycle_id,
-            "git_head_sha_at_cycle": git_head_sha_at_cycle,
-            "status": "aborted",
-            "event": event,
-            "learning": learning,
-            "state_continuity": continuity,
-        }
+
+        # ATTEMPT THE REPAIR BEFORE THE FREEZE. `reset_breaker` requires an
+        # operator approval ref and truncates the failure ledger, so a freeze
+        # followed by a successful recovery would leave a row only a human
+        # could clear — the exact manual step recovery exists to remove. See
+        # `restore_and_replay` for the full argument; it deviates from PLAN
+        # §2.5's stated ordering deliberately and says so.
+        recovery = restore_and_replay(
+            Path(workspace_root), diagnosed, base_dir=root, cycle_id=cycle_id
+        )
+        # The verdict stays as the phase recorded it. A recovered gap is a gap
+        # that HAPPENED, and rewriting `blocks_action` to False would make the
+        # cycle row claim the tree was continuous all along — the run's own
+        # history edited to match its outcome. What the recovery changes is
+        # what this cycle DOES, not what it says it saw.
+        continuity = {**continuity, "recovery": recovery.as_event()}
+        context.results["state_continuity"] = continuity
+        if recovery.resolved:
+            emit_progress("state_gap_recovered", cycle_id=cycle_id, reason=recovery.reason)
+        else:
+            freeze_autonomous_writes(diagnosed, base_dir=root, cycle_id=cycle_id)
+            emit_progress("cycle_aborted", cycle_id=cycle_id, reason="state_integrity_gap")
+            event = _aborted_event(cycle_id, git_head_sha_at_cycle=git_head_sha_at_cycle)
+            append_declared_jsonl(root / "cycles.jsonl", event, expected_surface="cycles")
+            return {
+                "schema_version": 2,
+                "cycle_id": cycle_id,
+                "git_head_sha_at_cycle": git_head_sha_at_cycle,
+                "status": "aborted",
+                "event": event,
+                "learning": learning,
+                "state_continuity": continuity,
+            }
 
     _run_phase_stage("discovery", context)
     discovery = context.result("discovery")

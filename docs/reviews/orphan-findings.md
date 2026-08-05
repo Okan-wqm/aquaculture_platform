@@ -7856,7 +7856,7 @@ Two halves of one severed sensor path. (1) `runtime_signal_bridge.ingest_runtime
 
 **Fix (this PR):** `aria-kernel runtime signal ingest|resolve|list` verbs (auto-covered by the workflow-CLI contract test), and `rules/60-dataflow-integrity.yml` thresholding the existing metrics — the stall rule quotes the documented SLO (`OUTBOX_PENDING_AGE_ALARM_MS`, `platform/libs/outbox/src/constants.ts:60`) rather than inventing a number; every rule carries a `target_auditor` label routing to the owning Lane-B auditor. Probe exporter skeleton at `tools/watchdog/` (T1 set lands in W-B).
 
-## ORPHAN-MEDIUM-559 — the platform's only live end-to-end probes ran once per deploy and never again: a container that died an hour later stayed "Up" in `docker ps` for two days, and no scheduled surface ever asked the questions `post-deploy-verify.sh` asks — RESOLVED (this PR)
+## ORPHAN-MEDIUM-564 — the platform's only live end-to-end probes ran once per deploy and never again: a container that died an hour later stayed "Up" in `docker ps` for two days, and no scheduled surface ever asked the questions `post-deploy-verify.sh` asks — RESOLVED (this PR)
 
 **Discovered:** 2026-08-05, Watchdog W-B implementation (plan tranquil-sniffing-pancake §F5); verified firsthand against production.
 

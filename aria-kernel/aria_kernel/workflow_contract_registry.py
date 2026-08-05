@@ -266,9 +266,18 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 ),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-agent-executor-preflight\.json$",
                 upload_artifact_name_pattern=rf"^aria-response-{_REQUEST_ID}$",
+                # These pins used to spell the envelope path themselves —
+                # `outputs/<request_id>.json` — while `agent_invocations.py`
+                # names it `outputs/<group>/<round>-<role>-<request_id>.md`.
+                # Two spellings of one path, and the contract test pinned the
+                # WRONG one, so the gate certified the mismatch instead of
+                # catching it and every executor run that claimed a request
+                # died on upload after its work had succeeded. The producer
+                # now publishes the real paths as step outputs, and what this
+                # pins is that derivation: the workflow may not re-guess.
                 upload_artifact_path_patterns=(
-                    rf"^{_STORE_ROOT}/tools/agent-invocations/outputs/{_REQUEST_ID}\.json$",
-                    rf"^{_STORE_ROOT}/tools/agent-invocations/outputs/{_REQUEST_ID}\.transcript\.jsonl$",
+                    r"^\$\{\{ steps\.executor\.outputs\.envelope_path \}\}$",
+                    r"^\$\{\{ steps\.executor\.outputs\.transcript_path \}\}$",
                 ),
                 retention_days=7,
                 # contents:write is what the cutover costs: the lane publishes

@@ -417,6 +417,7 @@ jobs:
         uses: ./.github/actions/ensure-sandbox-backend
 
       - name: Run CI executor
+        id: executor
         if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
         env:
           CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
@@ -444,13 +445,14 @@ jobs:
           # protection per spike doc artefact policy).
           name: aria-response-${{ steps.pending.outputs.request_id }}
           path: |
-            .aria-state-store/tools/agent-invocations/outputs/${{ steps.pending.outputs.request_id }}.json
-            .aria-state-store/tools/agent-invocations/outputs/${{ steps.pending.outputs.request_id }}.transcript.jsonl
-          # The envelope now lives under the store, so the paths move with it.
-          # `if-no-files-found: error` is why this had to change in the same
-          # commit rather than later: left pointing at the checkout it would
-          # have failed every run, loudly — which is the good failure mode, but
-          # only because the paths are named exactly and not globbed.
+            ${{ steps.executor.outputs.envelope_path }}
+            ${{ steps.executor.outputs.transcript_path }}
+          # The paths come from the executor step, which is the only thing
+          # that knows where it wrote. The previous spelling rebuilt them from
+          # the request id (`outputs/<id>.json`) while the request envelope
+          # names `outputs/<group>/<round>-<role>-<id>.md`, so every run that
+          # claimed a request died here with `if-no-files-found: error` AFTER
+          # the agent work had already succeeded and been submitted.
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7

@@ -704,3 +704,43 @@ tests under `tools/aria-acceptance/` or `aria-kernel/tests/invariants/v12+/`
 and run in CI. Program metrics tracked in `PROGRESS.md` (mission loss 0,
 wrong-SHA validation 0, unauthorized merge 0, incremental==rebuild, change
 failure rate, cost per verified mission).
+
+## 9. Reading-pass inconsistency ledger (2026-08-05, operator request)
+
+Inconsistencies noticed while reading files during the 552/553/554/555 work.
+Recorded here so they do not depend on one session's memory; items with a
+finding ID are tracked in the registry, items marked _note_ are observations
+that do not yet warrant one.
+
+1. **The restore bind is a migration** — `ORPHAN-HIGH-556` (OPEN,
+   deadline 2026-09-30). Three symptoms of one cause, all measured on the live
+   tree: every nightly restore copies the whole tools tree into `.backups/`,
+   rewrites every covered ledger under `_rewrite_migration_jsonl`'s legacy
+   allowance, and appends ~9 migration-ceremony rows to `governance.jsonl`.
+   The allowance (`MIGRATION_REWRITE_EXPIRES_AT`, `migration.py:23`) expires
+   **2026-12-31**; `_raw_jsonl_legacy_allowed` (`ledger.py`) requires
+   `expires_at > now`, so on 2027-01-01 every nightly restore starts refusing.
+   Root fix is a bind-only operation for restored trees.
+2. **Glob surface keys as filenames/surface names** — `ORPHAN-HIGH-555`,
+   fixed on `claude/aria-state-recovery`. The `name:relative/path` vocabulary
+   is now parsed in exactly one place (`state_manifest.surface_key_name`).
+3. _Note_ — `tools_contract_version` (`tool_registry.py:334`) returns 0 for a
+   missing identity file but falls back to `or 1` for an identity whose
+   version fields are unparseable; `_tools_source_state` (`migration.py`)
+   repeats the `or 1` fallback. Two adjacent readers, two defaults for
+   "cannot tell".
+4. _Note_ — a latent wedge in the bootstrap chain: if `migration_state.json`
+   ever survives a restore while `repo_identity.json` does not (both are
+   host-local today), `migrate_tools_v1_to_v2` returns `already_finalized`
+   WITHOUT minting the identity, and the chained `migrate_tools_v2_to_v3`
+   then raises `tools_v2_to_v3_no_identity`. Unreachable now, one config
+   change away from reachable; the 556 bind-only redesign removes it.
+5. _Note_ — ten private `_read_json` copies across `aria_kernel/` (integrity,
+   migration, memory, pressure, task, …) with differing failure envelopes
+   (some swallow `ValueError`, some `json.JSONDecodeError`, some return `{}`
+   on non-dict). One reader with one failure contract would remove the class.
+6. _Note_ — `workspace.governance_event` stamps rows `schema_version: 2`
+   while live-branch tools ledgers also carry rows at `schema_version: 3`;
+   the row-format contract (`ledger.ROW_FORMAT_VERSION = 2`) treats ≥2 as
+   current, so both survive restamp unchanged — but two "current" versions in
+   one file is vocabulary drift waiting for a consumer that compares them.

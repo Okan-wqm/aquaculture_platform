@@ -771,13 +771,16 @@ def rebase_store_onto_remote(
     # destructive git operation.
     staging = Path(tempfile.mkdtemp(prefix="aria-replay-"))
     carried: dict[str, dict[str, Any]] = {}
-    for name, entry in local_surfaces.items():
+    for index, (name, entry) in enumerate(sorted(local_surfaces.items())):
         if entry.get("state_class") != "ledger":
             continue
         source = _absolute(entry)
         if source is None or not source.exists():
             continue
-        staged = staging / f"{name}.jsonl"
+        # The staged NAME is an ordinal, never the surface key: glob keys are
+        # `name:relative/path` (ORPHAN-HIGH-555), and a key used as a filename
+        # is a path traversal into a directory that does not exist.
+        staged = staging / f"suffix-{index:04d}.jsonl"
         staged.write_bytes(source.read_bytes())
         base_entry = base_surfaces.get(name) or {}
         carried[name] = {

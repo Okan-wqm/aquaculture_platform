@@ -16,10 +16,12 @@ from .state_manifest import surface_for_path
 
 __all__ = [
     "LedgerIntegrityError",
+    "ROW_FORMAT_VERSION",
     "StateTransaction",
     "append_declared_jsonl",
     "append_jsonl",
     "canonical_json",
+    "stamp_row_format",
     "file_hash",
     "load_index",
     "load_declared_jsonl",
@@ -39,6 +41,58 @@ __all__ = [
 
 class LedgerIntegrityError(RuntimeError):
     pass
+
+
+# ORPHAN-HIGH-552 — the row-format contract, defined ONCE.
+#
+# Two writers shared every governed ledger and disagreed about its format:
+# the appender wrote rows without `schema_version`, and the tools migration
+# restamped them to this version and re-chained from the first unstamped row
+# onward. The migration runs on every restore (`tools_contract_version` reads
+# `repo_identity.json`, which deliberately does not travel on `aria/state`),
+# so each night's bind rewrote the rows the previous night appended and moved
+# the surface's `tail_ledger_hash` — the one row `append_only_suffix` checks —
+# making every cross-restore replay refuse with `replay_prefix_diverged`.
+#
+# The appender therefore stamps the contract's version itself, from the same
+# definition the migration uses. An unstamped row on a declared surface stops
+# being possible, and the migration's restamp becomes the identity.
+ROW_FORMAT_VERSION = 2
+
+
+def stamp_row_format(row: dict[str, Any]) -> dict[str, Any]:
+    """Fill a SILENT row with the format version — never overwrite a spoken one.
+
+    ``schema_version`` belongs to the surface's own payload contract whenever
+    the writer states it: ``aria/cost-attribution/v1`` rows carry ``1``,
+    mission events carry their contract's number, governance events carry
+    ``2``. The ledger format only speaks when the writer said nothing — an
+    absent field becomes ``ROW_FORMAT_VERSION``.
+
+    The migration's old rule (``< 2 → 2``) could not tell "legacy row from
+    before versioning existed" from "current row whose contract IS v1", and
+    the live branch holds fifteen ledgers of the latter (measured 2026-08-05:
+    zero rows with the field absent, explicit ``1`` across mission-events,
+    plans/events, autonomy_state, agent-invocations, …). Bumping those on
+    every restore bind was ORPHAN-HIGH-552 itself for those surfaces — a
+    "normalisation" that rewrote correct rows nightly. Both the appender and
+    ``migrate_tools_v1_to_v2`` call this one function; a second copy is how
+    two formats came to share one file.
+    """
+    if "schema_version" in row:
+        return row
+    return {**row, "schema_version": ROW_FORMAT_VERSION}
+
+
+def _stamped_for_surface(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    """Stamp only rows bound for a manifest-declared surface.
+
+    The manifest is the boundary of the contract: an arbitrary JSONL path
+    (test fixtures, scratch ledgers) is not ARIA's format to rewrite.
+    """
+    if surface_for_path(path) is None:
+        return record
+    return stamp_row_format(record)
 
 
 # Plan 026R §A.1 — Module-level SSoT for indexed-ledger groups.
@@ -425,6 +479,7 @@ def _record_hash(record: dict[str, Any], previous_hash: str | None = None) -> st
 
 
 def _append_jsonl_locked_body(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    record = _stamped_for_surface(path, record)
     path.parent.mkdir(parents=True, exist_ok=True)
     _verify_existing_declared_chain_before_append(path)
     rows = read_jsonl(path)

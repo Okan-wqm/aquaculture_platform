@@ -99,18 +99,72 @@ continuous is not a tree that must stop. An unrecovered gap still freezes, and
 the phase's verdict is left exactly as recorded — rewriting `blocks_action` to
 False would edit the run's own history to match its outcome.
 
-## Status
+## The fix, and what running it found (2026-08-05, same branch)
 
-**Not merged, and deliberately.** Until ORPHAN-HIGH-552 is fixed, recovery
-attempts and cannot succeed across a restore boundary; landing it would be a
-capability that reports failure every time, which is the defect class this
-programme exists to close. The root-cause fix is to make the appender write the
-contract's `schema_version` itself, so the migration becomes content-idempotent
-and the chain is stable — the unstamped row stops being possible.
+The diagnosis above was itself one layer short, and the measurement that
+proved it is worth recording. The first fix mirrored the migration's rule —
+`schema_version < 2 → 2` — into the appender, on the theory that the two
+writers merely needed one definition. The unit suite refused: a
+cost-attribution row's `schema_version` is **1 by contract**
+(`aria/cost-attribution/v1`), and the stamp had just rewritten it. Scanning
+the live branch settled the real shape: **zero** rows have the field absent,
+and fifteen ledgers (mission-events, plans/events, autonomy_state,
+agent-invocations, …) carry explicit `1` — their own payload-contract
+version. One field name, two meanings. The migration's restamp could not tell
+"legacy row from before versioning" from "current row whose contract IS v1",
+and its nightly "normalisation" of the latter — not the appender's missing
+stamp — was the mechanism moving those fifteen tails on every bind.
+
+So the ONE definition, `ledger.stamp_row_format`, says: **fill silence, never
+overwrite speech.** An absent field becomes `ROW_FORMAT_VERSION`; an explicit
+one is the surface's contract and passes through untouched. The governed
+appender applies it (a silent row stops being possible), the migration imports
+the same function (its rewrite is byte-idempotent by construction), and the
+private `_restamp` is deleted.
+
+Re-measured over the same production loop, seeded with the live branch rows:
+
+```
+night 1: bind rewrites NOTHING (fifteen explicit-v1 ledgers preserved;
+         governance grows by its own ceremony appends only)
+         appended row schema_version=2
+night 2: bind rewrites NOTHING; published tail survives   SURVIVES=True
+night 3: contention replay across the restore boundary    REPLAY_OK=True
+```
+
+Night 3 is the capability 552 blocked, and running it found the next defect —
+**ORPHAN-HIGH-555**: snapshot keys for glob surfaces are `name:relative/path`,
+and the replay used that key both as a staging FILENAME (a path into a
+directory that does not exist) and as `expected_surface` (which the
+declared-surface gate refuses, because it speaks manifest names). Every
+plain-surface unit test passed; the live tree carries glob-fanned ledgers, so
+every real contention and every recovery would have refused. Fixed here:
+`surface_key_name` lives in `state_manifest` — the module that owns the
+vocabulary — the replay stages by ordinal and appends by manifest name, and
+`test_a_glob_surface_survives_the_replay` pins it. The fourth instance this
+week of a control correct only while its real input did not exist.
+
+Running the loop also measured what the bind actually is: a full migration.
+Each restore snapshots the tools tree into `.backups/`, rewrites every ledger
+under a legacy allowance that **expires 2026-12-31**
+(`MIGRATION_REWRITE_EXPIRES_AT`; `_raw_jsonl_legacy_allowed` requires
+`expires_at > now` — measured, not read), and appends ~9 migration-ceremony
+governance rows per night. Three symptoms, one cause — binding and migrating
+share a code path — recorded as **ORPHAN-HIGH-556** with a 2026-09-30
+deadline, deliberately not attempted in the 552 commit: with the rewrite now
+byte-idempotent the bind is _correct_ today, and a bind-only restore changes
+the restore action's contract, which is a separate change needing its own
+proof.
 
 ## Findings
 
 - **ORPHAN-HIGH-552** — registered here, with the measured production loop as
-  evidence. Blocks this branch.
+  evidence. Fixed on this branch; close ceremony rides the next PR
+  (PROC-HIGH-001).
+- **ORPHAN-HIGH-555** — glob surface keys break replay staging and the
+  declared-surface assertion. Found by running the recovery; fixed here.
+- **ORPHAN-HIGH-556** — the restore bind is a migration: backup churn,
+  per-night ceremony rows, and a 2026-12-31 rewrite-permit expiry that kills
+  every nightly restore on 2027-01-01. OPEN, owner + deadline registered.
 
 Owner: okan

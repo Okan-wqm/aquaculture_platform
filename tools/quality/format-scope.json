@@ -969,6 +969,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/provisioned-secrets.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/pull_request_template.md",
       "prettier_managed": true
     },
@@ -43740,6 +43746,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/workflow-secret-provisioning.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/performance/api-smoke.js",
       "prettier_managed": true
     },
@@ -56436,10 +56448,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9255,
+  "file_count": 9257,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9074,
-  "managed_file_list_sha256": "aaf93c342400777caa5f0419fdd404bfbf1a00e41f28b2b586dd9eaea96c62d2",
+  "managed_count": 9076,
+  "managed_file_list_sha256": "cab7780ed3fe831d9175301631e11cc5eb6458f95695ae434786f7debca986cc",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -34633,6 +34633,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/runbooks/monitoring/dataflow-integrity.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/monitoring/farm-environment-monitoring.md",
       "prettier_managed": true
     },
@@ -56412,10 +56418,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9251,
+  "file_count": 9252,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9070,
-  "managed_file_list_sha256": "ab41b0dfccec41c9b4f1b5aaf3f66e512d5fab5b0d9f45425226146cdf4f3475",
+  "managed_count": 9071,
+  "managed_file_list_sha256": "a3405618880f1f85d1ce5cf11790f568ecd88e54653eb74327f3eed71ffb0eb9",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

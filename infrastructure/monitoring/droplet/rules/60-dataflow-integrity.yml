@@ -23,7 +23,7 @@ groups:
         annotations:
           summary: "{{ $labels.app }} outbox oldest pending event exceeds the 10-minute stall SLO"
           description: "outbox_oldest_pending_age_seconds={{ $value }}s on {{ $labels.app }}; the relay is stalled or dead. SLO source: platform/libs/outbox/src/constants.ts:60."
-          runbook: "SELECT count(*), max(now()-\"createdAt\") FROM <svc>.<svc>_outbox WHERE \"publishedAt\" IS NULL AND \"isDeadLettered\"=false"
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
 
       - alert: OutboxDeadLetterGrowing
         expr: |
@@ -35,6 +35,7 @@ groups:
         annotations:
           summary: "{{ $labels.app }} outbox publish failures accumulating"
           description: "More than 5 publish failures in 30m on {{ $labels.app }}; check lastError on unpublished rows before they dead-letter."
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
 
       - alert: MessagingDlqGrowing
         expr: |
@@ -46,6 +47,7 @@ groups:
         annotations:
           summary: "messaging-service DLQ grew in the last 30 minutes"
           description: "messaging_dlq_growth_total increased; inspect messaging.messaging_outbox rows with isDeadLettered=true."
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
 
       - alert: NotificationChannelFailing
         expr: |
@@ -57,3 +59,4 @@ groups:
         annotations:
           summary: "notification-service 5xx burst"
           description: "Delivery path erroring; join notification.notification_logs by (channel,status) for the failing channel."
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'

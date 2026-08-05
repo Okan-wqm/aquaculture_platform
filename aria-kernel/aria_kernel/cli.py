@@ -579,13 +579,15 @@ def main(argv: list[str] | None = None) -> int:
         raise
 
 
-def _main(argv: list[str] | None = None) -> int:
-    # Plan 024 §F — root parser inherits --tools-dir via parents=[_TOOLS_DIR_PARENT].
-    # The previous explicit add_argument("--tools-dir", default=None) was a
-    # second registration site that drifted the help text and required
-    # operators to type the flag BEFORE the subcommand. The parents-based
-    # approach delivers a single SSoT and accepts the flag at every nesting
-    # level. Required-validation moves to _TOOLS_DIR_REQUIRED_COMMANDS.
+def build_parser() -> argparse.ArgumentParser:
+    """Construct the full CLI parser without executing anything.
+
+    Extracted from _main so callers can verify an argv against the real
+    contract. tests/test_workflow_kernel_cli_contract.py uses it to prove
+    every `python3 -m aria_kernel ...` line in .github/workflows/ parses;
+    the lane cutover shipped `state publish` without --snapshot-id and
+    nothing could catch it while the parser was unreachable.
+    """
     parser = argparse.ArgumentParser(prog="aria-kernel", parents=[_TOOLS_DIR_PARENT])
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -2237,6 +2239,17 @@ def _main(argv: list[str] | None = None) -> int:
     curate_parser.add_argument("--reason", default=None)
     curate_parser.add_argument("--cycle-id", default=None)
 
+    return parser
+
+
+def _main(argv: list[str] | None = None) -> int:
+    # Plan 024 §F — root parser inherits --tools-dir via parents=[_TOOLS_DIR_PARENT].
+    # The previous explicit add_argument("--tools-dir", default=None) was a
+    # second registration site that drifted the help text and required
+    # operators to type the flag BEFORE the subcommand. The parents-based
+    # approach delivers a single SSoT and accepts the flag at every nesting
+    # level. Required-validation moves to _TOOLS_DIR_REQUIRED_COMMANDS.
+    parser = build_parser()
     args = parser.parse_args(argv)
 
     # Plan 024 §F + Plan ARIA-V3.3 §2a — post-parse path resolution +

@@ -34,7 +34,11 @@ from aria_kernel.memory_gap import (
     GAP_GENESIS,
     GAP_OK,
     GAP_UNKNOWN,
+    REFERENCE_DAILY_ANCHOR,
+    REFERENCE_STATE_BRANCH,
+    DescentProof,
     assess_memory_continuity,
+    continuity_probe_roots,
     equivalence_check,
     reference_from_committed_anchors,
     resolve_continuity_reference,
@@ -334,6 +338,141 @@ class EquivalenceCheckTests(unittest.TestCase):
         result = equivalence_check(a, b)
         self.assertFalse(result.equivalent)
         self.assertTrue(any("memory" in d for d in result.differences), result.differences)
+
+
+class DescentComesFromTheTransport(unittest.TestCase):
+    """PLAN Wave 1 PR 2.6c — the gate's first live day would have been a freeze.
+
+    Two faults, each sufficient on its own, both latent until the lane cutover
+    made a PUBLISHED SNAPSHOT the reference:
+
+    * the phase built its probe over the tools root alone, so every
+      workspace- and repo-root surface the store publishes read as LOST — a
+      healthy tree, sixteen declared surfaces, `critical`;
+    * a probe is built fresh and therefore has no `prev_manifest_root`, so
+      `snapshots_are_linked` answers "broken" for every tree that ever existed.
+
+    Before the cutover neither could show: the only reference was an anchor
+    stub with no surface map, and where no anchor carried a manifest root at
+    all the verdict was `unknown`, which blocks nothing. That is precisely the
+    recorded behaviour — "the gate reports `unknown` every night" — and it is
+    why a gate with no reference proves nothing about a gate with one.
+
+    The replacement measures descent where it is actually decided. These tests
+    pin BOTH directions, because a fix that only made the healthy case pass
+    would be indistinguishable from deleting the check.
+    """
+
+    def test_a_tree_at_the_published_tip_is_continuous(self) -> None:
+        current = _snapshot("probe", surfaces={"cycles": "x", "beliefs": "y"})
+        reference = _snapshot("s1", surfaces={"cycles": "x", "beliefs": "y"})
+        verdict = assess_memory_continuity(
+            current=current,
+            reference=reference,
+            reference_kind=REFERENCE_STATE_BRANCH,
+            descent=DescentProof(proven=True, head="abc", tip="abc"),
+        )
+        self.assertEqual(verdict.status, GAP_OK)
+        self.assertFalse(verdict.blocks_action)
+        self.assertIn("descent_proven_by_transport", verdict.notes)
+
+    def test_the_probes_missing_prev_root_no_longer_reads_as_a_broken_chain(self) -> None:
+        """The regression itself: `prev_manifest_root` is None on every probe."""
+        current = _snapshot("probe", surfaces={"cycles": "x"})
+        self.assertIsNone(current["prev_manifest_root"])
+        reference = _snapshot("s1", surfaces={"cycles": "x"})
+        # Without the transport proof this is the old behaviour, and it fires.
+        without = assess_memory_continuity(
+            current=current, reference=reference, reference_kind=REFERENCE_STATE_BRANCH
+        )
+        self.assertEqual(without.status, GAP_CRITICAL)
+        # With it, the same tree is correctly continuous.
+        with_proof = assess_memory_continuity(
+            current=current,
+            reference=reference,
+            reference_kind=REFERENCE_STATE_BRANCH,
+            descent=DescentProof(proven=True, head="abc", tip="abc"),
+        )
+        self.assertEqual(with_proof.status, GAP_OK)
+
+    def test_a_store_behind_the_tip_is_still_caught(self) -> None:
+        """The negative control. A proof that could only say yes would be the
+        check deleted, and deleting it is the one outcome worse than the
+        false alarm it replaced."""
+        current = _snapshot("probe", surfaces={"cycles": "x"})
+        reference = _snapshot("s1", surfaces={"cycles": "x"})
+        verdict = assess_memory_continuity(
+            current=current,
+            reference=reference,
+            reference_kind=REFERENCE_STATE_BRANCH,
+            descent=DescentProof(proven=False, head="aaa", tip="bbb"),
+        )
+        self.assertEqual(verdict.status, GAP_CRITICAL)
+        self.assertTrue(verdict.blocks_action)
+        # Both SHAs named: "the chain is broken" is not actionable, "your store
+        # is at aaa and the branch is at bbb" is a fetch away from fixed.
+        self.assertTrue(
+            any("head=aaa" in r and "tip=bbb" in r for r in verdict.reasons), verdict.reasons
+        )
+
+    def test_surface_loss_still_fires_under_a_proven_descent(self) -> None:
+        """The transport answers descent and ONLY descent. Loss is the half no
+        transport can see, and overriding it too would leave a gate that
+        cannot report the thing it exists for."""
+        current = _snapshot("probe", surfaces={"cycles": "x"})
+        reference = _snapshot("s1", surfaces={"cycles": "x", "beliefs": "y"})
+        verdict = assess_memory_continuity(
+            current=current,
+            reference=reference,
+            reference_kind=REFERENCE_STATE_BRANCH,
+            descent=DescentProof(proven=True, head="abc", tip="abc"),
+        )
+        self.assertEqual(verdict.status, GAP_CRITICAL)
+        self.assertEqual(verdict.lost_surfaces, ("beliefs",))
+
+    def test_an_anchor_reference_keeps_the_chain_linkage_test(self) -> None:
+        """An anchor has no tip to compare against, so the rule it was designed
+        for stays. Applying the transport proof to it would be asserting a
+        property of a store that is not there."""
+        current = _snapshot("probe", surfaces={"cycles": "x"}, prev_id="s1", prev_root="root-s1")
+        anchor = {"snapshot_id": "s1", "manifest_root": "root-s1"}
+        verdict = assess_memory_continuity(
+            current=current, reference=anchor, reference_kind=REFERENCE_DAILY_ANCHOR
+        )
+        self.assertEqual(verdict.status, GAP_OK)
+        self.assertIn("surface_comparison_unavailable_from_anchor", verdict.notes)
+
+
+class ProbeRootsFollowTheStore(unittest.TestCase):
+    def test_an_unbound_run_probes_the_tools_root_alone(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self.assertEqual(
+                continuity_probe_roots(repo, repo / "aria-tools"),
+                {"tools": repo / "aria-tools"},
+            )
+
+    def test_a_bound_run_probes_every_root_the_store_publishes(self) -> None:
+        """The fix's own claim, asserted against `store_roots` rather than a
+        restated path convention — a second copy of that mapping is how two
+        roots come out right and the third silently wrong."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / ".aria-state-store").mkdir()
+            fake = unittest.mock.Mock()
+            expected = {
+                "tools": repo / ".aria-state-store" / "tools",
+                "workspace": repo / ".aria-state-store" / "workspace" / "h",
+                "repo": repo / ".aria-state-store" / "findings",
+            }
+            with unittest.mock.patch(
+                "aria_kernel.state_store.open_state_store", return_value=fake
+            ), unittest.mock.patch(
+                "aria_kernel.state_store.store_roots", return_value=expected
+            ), unittest.mock.patch(
+                "aria_kernel.workspace.canonical_identity", return_value="h"
+            ):
+                self.assertEqual(continuity_probe_roots(repo, repo / "aria-tools"), expected)
 
 
 if __name__ == "__main__":

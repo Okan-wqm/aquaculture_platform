@@ -290,19 +290,25 @@ describe('Alert Engine Performance', () => {
       expect(endTime - startTime).toBeLessThan(500);
     });
 
-    it('should calculate trend efficiently with large datasets', () => {
-      const largeDataset = Array.from({ length: 1000 }, () => Math.random() * 100);
+    it('reads each sample once per trend calculation, however large the dataset', () => {
+      // Replaces a wall-clock assertion (avg < 5ms over 100 iterations). On a
+      // shared CI runner that measured the runner's load, not the algorithm:
+      // it went red on a busy runner and green on a rerun, which teaches
+      // everyone to rerun rather than to read. What it MEANT to pin is that
+      // the trend calculation stays linear; the count says exactly that, and
+      // it says it identically on a laptop and on a loaded runner.
+      const source = Array.from({ length: 1000 }, () => Math.random() * 100);
+      let indexedReads = 0;
+      const instrumented = new Proxy(source, {
+        get(target, property, receiver) {
+          if (typeof property === 'string' && /^\d+$/.test(property)) indexedReads++;
+          return Reflect.get(target, property, receiver);
+        },
+      });
 
-      const startTime = performance.now();
+      riskCalculator.calculateTrend(instrumented);
 
-      for (let i = 0; i < 100; i++) {
-        riskCalculator.calculateTrend(largeDataset);
-      }
-
-      const endTime = performance.now();
-      const avgTime = (endTime - startTime) / 100;
-
-      expect(avgTime).toBeLessThan(5);
+      expect(indexedReads).toBe(source.length);
     });
 
     it('should calculate trend with one allocation-free pass over the samples', () => {
@@ -321,19 +327,24 @@ describe('Alert Engine Performance', () => {
       expect(indexedReads).toBe(source.length);
     });
 
-    it('should calculate standard deviation efficiently', () => {
-      const largeDataset = Array.from({ length: 1000 }, () => Math.random() * 100);
+    it('reads each sample a fixed number of times per standard deviation', () => {
+      // This is the assertion that actually went red on CI (avg < 5ms), and
+      // the algorithm had not changed — the runner was busy. calculateStdDev
+      // makes two passes over the source: the mean, then the squared
+      // deviations. Pinning 2N reads catches the regression a timing budget
+      // was reaching for (an accidental O(N^2), or a third pass) and cannot
+      // be moved by a neighbouring job.
+      const source = Array.from({ length: 1000 }, () => Math.random() * 100);
+      let indexedReads = 0;
+      const instrumented = new Proxy(source, {
+        get(target, property, receiver) {
+          if (typeof property === 'string' && /^\d+$/.test(property)) indexedReads++;
+          return Reflect.get(target, property, receiver);
+        },
+      });
 
-      const startTime = performance.now();
-
-      for (let i = 0; i < 100; i++) {
-        riskCalculator.calculateStdDev(largeDataset);
-      }
-
-      const endTime = performance.now();
-      const avgTime = (endTime - startTime) / 100;
-
-      expect(avgTime).toBeLessThan(5);
+      expect(riskCalculator.calculateStdDev(instrumented)).toBeGreaterThan(0);
+      expect(indexedReads).toBe(source.length * 2);
     });
   });
 

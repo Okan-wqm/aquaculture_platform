@@ -7875,6 +7875,16 @@ The upload step named `.aria-state-store/tools/agent-invocations/outputs/<reques
 
 **Fix (this PR):** the executor publishes where it actually wrote (`_publish_artifact_paths` → `envelope_path` / `transcript_path` on `$GITHUB_OUTPUT`, workspace-relative because that is what `upload-artifact` resolves against), the workflow uploads those step outputs, and the registry pins THE DERIVATION rather than a literal path, so a future author cannot re-guess it in YAML. `aria-kernel/tests/test_executor_artifact_path_contract.py` proves both directions; restoring the old spelling turns two of its tests red.
 
+## ORPHAN-MEDIUM-563 — two alert-engine "performance" tests asserted wall-clock milliseconds on a shared CI runner, so they measured the runner's load and went red on unrelated PRs — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, `nx run alert-engine:test` went red on an ARIA-only PR (#1088, which touches nothing outside `aria-kernel/` and docs). Verified firsthand: the same spec passes 20/20 locally on the same commit, and the assertion that failed was `avgTime < 5` for `calculateStdDev`.
+
+`should calculate standard deviation efficiently` and `should calculate trend efficiently with large datasets` timed 100 iterations and asserted an average under 5 ms. On a shared runner that is a measurement of the neighbouring jobs, not of the algorithm — the failure mode is a red check on a PR that changed nothing related, whose remedy is "re-run", which is exactly the habit that lets a real regression through unread. The file already contained the better idiom two tests above: `should calculate trend with one allocation-free pass over the samples` counts indexed reads through a `Proxy`.
+
+**Fix (this PR):** both tests now count work instead of time. Trend must read each sample exactly once; standard deviation exactly twice (the mean pass, then the squared-deviation pass). That pins what the timing budget was reaching for — an accidental extra pass or an O(N²) rewrite — and gives the same answer on a laptop and on a loaded runner. Proven by the deliberate break: inserting a third pass into `calculateStdDev` turns the new assertion red.
+
+**Not changed, and why:** the two async assertions in the same describe (`risk score < 50ms`, `batch < 500ms`) exercise mocked repository paths where the count that matters is already asserted elsewhere (`toHaveBeenCalledTimes` in the caching tests). They keep their wall-clock budgets, which have 10-100x headroom rather than the 5 ms this defect lived in. If either ever flakes, it gets the same treatment rather than a bigger number.
+
 ## ORPHAN-MEDIUM-565 — the gold corpus had a reader, a promoter and a curator agent, and no producer: `propose_goldset` had zero callers, so `judge_replay` and `proactive_priority` gated on an active corpus that could never come into existence — RESOLVED (this PR)
 
 **Discovered:** 2026-08-05, F4.2 of the ARIA intelligence program; verified firsthand (zero call sites for `propose_goldset` across kernel + tools; `promote_goldset_proposal` raises `no ready goldset proposal` on an empty ledger; `judge_replay:45` and `proactive_priority:70` both short-circuit on `load_active_goldset(...) is None`).

@@ -43098,6 +43098,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/markdownlint-event-range.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/messaging-e2e-tenant-context.spec.ts",
       "prettier_managed": true
     },
@@ -56394,10 +56400,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9248,
+  "file_count": 9249,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9067,
-  "managed_file_list_sha256": "a0c070b2d145646acc02bec3892f946d1192219b6dd77ffdec09837a8ab39e27",
+  "managed_count": 9068,
+  "managed_file_list_sha256": "418273c6190053e7ba60ecaee24bef9456f1aa5658d5ebd33b74ed868ea55840",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

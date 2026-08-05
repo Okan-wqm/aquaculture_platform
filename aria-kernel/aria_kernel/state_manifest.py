@@ -537,6 +537,22 @@ def iter_surfaces() -> tuple[StateSurface, ...]:
     return STATE_SURFACES
 
 
+def surface_key_name(key: str) -> str:
+    """Manifest surface NAME behind a coverage/snapshot key.
+
+    Glob surfaces fan out to one key per file, spelled ``name:relative/path``
+    (the ``covered_tool_ledgers`` vocabulary, mirrored by the snapshot
+    builder). Everything that receives such a key and needs the SURFACE — a
+    declared-surface assertion, a manifest lookup — must strip the fan-out
+    part here, in the module that owns the vocabulary. ORPHAN-HIGH-555 is
+    what a private ``split(":")`` at one callsite and none at another looks
+    like: the replay staged suffix files at ``f"{key}.jsonl"`` (a PATH once
+    the key carries ``/``) and asserted ``expected_surface=<key>``, so every
+    contention or recovery involving a glob ledger refused.
+    """
+    return key.split(":", 1)[0]
+
+
 def surface_by_name(name: str) -> StateSurface:
     for surface in STATE_SURFACES:
         if surface.name == name:
@@ -689,6 +705,7 @@ __all__ = [
     "resolve_surface_path",
     "surface_by_name",
     "surface_for_path",
+    "surface_key_name",
     "surface_for_relative_path",
     "surfaces_for_lock_group",
 ]

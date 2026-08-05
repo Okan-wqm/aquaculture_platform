@@ -7828,7 +7828,7 @@ The lane cutover (#1073) shipped `python3 -m aria_kernel state publish --repo-ro
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
 
-## ORPHAN-MEDIUM-552 — ARIA computed its own per-source precision and threw the number away: weight recommendations had no consumer, and their "current" values came from a table that had silently drifted from the one scoring uses — RESOLVED (this PR)
+## ORPHAN-MEDIUM-557 — ARIA computed its own per-source precision and threw the number away: weight recommendations had no consumer, and their "current" values came from a table that had silently drifted from the one scoring uses — RESOLVED (this PR)
 
 **Discovered:** 2026-08-05, flywheel mapping for the training-loop plan; verified firsthand (zero consumers of `recommended_weight` across kernel+tools; `DEFAULT_PRESSURE_WEIGHTS` said `evidence_gone=65` while the live `pressure.SOURCE_WEIGHTS` says 80).
 

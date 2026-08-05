@@ -33337,6 +33337,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-05-torn-ledger-tail.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -56436,10 +56442,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9255,
+  "file_count": 9256,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9074,
-  "managed_file_list_sha256": "aaf93c342400777caa5f0419fdd404bfbf1a00e41f28b2b586dd9eaea96c62d2",
+  "managed_count": 9075,
+  "managed_file_list_sha256": "b81d5eb6c759bfb045f379b2ff0e30fb209adf598e907ada97acf7db833475f2",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

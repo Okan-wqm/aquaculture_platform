@@ -137,7 +137,21 @@ try {
       stdio: 'inherit',
     },
   );
-  process.exitCode = result.status ?? 1;
+  // "The linter is missing" is not "the docs are bad". spawnSync reports a
+  // failure to LAUNCH as status null with `error` set, and collapsing that to
+  // a bare exit 1 produced a gate that says a document failed lint without
+  // naming a single rule — indistinguishable, to a reader, from real
+  // findings. Say which one happened.
+  if (result.error) {
+    console.error(
+      `markdownlint could not be launched (${result.error.code ?? result.error.message}): ` +
+        `${markdownlintBin}. Install it (npm i -g markdownlint-cli@0.45.0, as CI does) ` +
+        'and re-run — no documents were checked.',
+    );
+    process.exitCode = 127;
+  } else {
+    process.exitCode = result.status ?? 1;
+  }
 } finally {
   unlinkSync(markdownlintConfigPath);
   rmdirSync(markdownlintConfigDirectory);

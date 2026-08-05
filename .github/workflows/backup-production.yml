@@ -28,9 +28,90 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A backup lane whose credentials were never minted is not a broken backup —
+  # it is a backup that was never activated, and rendering the two identically
+  # burns the one alarm that is supposed to mean "production is unprotected".
+  # This gate resolves the declared activation state against what the
+  # environment actually resolves, and refuses to run the body on either drift.
+  activation:
+    name: Resolve declared DR activation
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: production-backup
+      deployment: false
+    permissions:
+      contents: read
+    outputs:
+      verdict: ${{ steps.activation.outputs.dr_verdict }}
+    steps:
+      - name: Checkout exact workflow authority
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Require protected main authority
+        run: |
+          set +x
+          set -euo pipefail
+          test "${GITHUB_REF}" = 'refs/heads/main'
+          test "${GITHUB_SHA}" = "$(git rev-parse HEAD)"
+
+      - name: Observe whether the backup credentials resolve
+        id: observe
+        env:
+          BACKUP_SECRET_PROFILE: backup-runtime
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
+          DROPLET_SSH_FINGERPRINT: ${{ secrets.DROPLET_SSH_FINGERPRINT }}
+          SPACES_ENDPOINT: ${{ secrets.SPACES_ENDPOINT }}
+          SPACES_REGION: ${{ secrets.SPACES_REGION }}
+          WALG_SPACES_ACCESS_KEY_ID: ${{ secrets.WALG_SPACES_ACCESS_KEY_ID }}
+          WALG_SPACES_SECRET_ACCESS_KEY: ${{ secrets.WALG_SPACES_SECRET_ACCESS_KEY }}
+          LOGICAL_BACKUP_SPACES_BUCKET: ${{ secrets.LOGICAL_BACKUP_SPACES_BUCKET }}
+          LOGICAL_BACKUP_SPACES_ACCESS_KEY_ID: ${{ secrets.LOGICAL_BACKUP_SPACES_ACCESS_KEY_ID }}
+          LOGICAL_BACKUP_SPACES_SECRET_ACCESS_KEY: ${{ secrets.LOGICAL_BACKUP_SPACES_SECRET_ACCESS_KEY }}
+          LOGICAL_BACKUP_GPG_RECIPIENT: ${{ secrets.LOGICAL_BACKUP_GPG_RECIPIENT }}
+          BACKUP_POSTGRES_USER: ${{ secrets.BACKUP_POSTGRES_USER }}
+          BACKUP_POSTGRES_DB: ${{ secrets.BACKUP_POSTGRES_DB }}
+          BACKUP_POSTGRES_PASSWORD: ${{ secrets.BACKUP_POSTGRES_PASSWORD }}
+          WALG_LIBSODIUM_KEY_B64: ${{ secrets.WALG_LIBSODIUM_KEY_B64 }}
+          WALG_SPACES_BUCKET: ${{ vars.WALG_SPACES_BUCKET }}
+          WALG_BACKUP_EPOCH: ${{ vars.WALG_BACKUP_EPOCH }}
+        run: |
+          set +x
+          set -euo pipefail
+          # The preflight names the secrets that did not resolve; it never
+          # echoes a value. Keep that list — it is exactly what an operator
+          # needs when they come to provision the environment — but do not let
+          # its non-zero exit decide the outcome. Declared-versus-observed is
+          # resolved in the next step, not by whether a preflight was unhappy.
+          PREFLIGHT_LOG=$(mktemp)
+          if bash tools/scripts/database/assert-backup-secrets.sh > "${PREFLIGHT_LOG}" 2>&1; then
+            printf 'observed=present\n' >> "${GITHUB_OUTPUT}"
+          else
+            printf 'observed=absent\n' >> "${GITHUB_OUTPUT}"
+          fi
+          sed 's/^::error:://' "${PREFLIGHT_LOG}"
+          rm -f "${PREFLIGHT_LOG}"
+
+      - name: Resolve declared activation against the environment
+        id: activation
+        env:
+          DR_CAPABILITY: production-logical-backup
+          DR_OBSERVED: ${{ steps.observe.outputs.observed }}
+        run: |
+          set +x
+          bash tools/scripts/database/resolve-dr-activation.sh
+
   backup:
     name: WAL-G full + pg_dump to DO Spaces
-    if: github.ref == 'refs/heads/main'
+    needs: [activation]
+    if: github.ref == 'refs/heads/main' && needs.activation.outputs.verdict == 'active'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     environment:
@@ -391,8 +472,11 @@ jobs:
 
   publish-evidence:
     name: Sign completed backup run evidence
-    needs: [backup]
-    if: ${{ always() && github.ref == 'refs/heads/main' }}
+    needs: [activation, backup]
+    # `always()` so a FAILED backup still gets its run record signed — that
+    # record is the evidence a failure happened. A SKIPPED backup has no run to
+    # attest, so evidence publication skips with it rather than signing a void.
+    if: ${{ always() && github.ref == 'refs/heads/main' && needs.backup.result != 'skipped' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment:

@@ -7856,6 +7856,25 @@ Two halves of one severed sensor path. (1) `runtime_signal_bridge.ingest_runtime
 
 # **Fix (this PR):** `aria-kernel runtime signal ingest|resolve|list` verbs (auto-covered by the workflow-CLI contract test), and `rules/60-dataflow-integrity.yml` thresholding the existing metrics — the stall rule quotes the documented SLO (`OUTBOX_PENDING_AGE_ALARM_MS`, `platform/libs/outbox/src/constants.ts:60`) rather than inventing a number; every rule carries a `target_auditor` label routing to the owning Lane-B auditor. Probe exporter skeleton at `tools/watchdog/` (T1 set lands in W-B).
 
+## ORPHAN-HIGH-561 — three scheduled workflows referenced a secret that has never existed on this repository, so each one did a full day's work and died on its last step, every day — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, operator-reported scheduled-workflow sweep; verified firsthand against the GitHub API (`gh secret list` for the repository and for all five environments: `ARIA_GITHUB_APP_TOKEN` appears nowhere; 32 of the 37 secrets the workflows reference are unprovisioned).
+
+`finding-state-sweep`, `aria-daily-report` and `rule-health-report` all end by calling `tools/scripts/automation/open-report-pr.sh` with `GH_TOKEN: ${{ secrets.ARIA_GITHUB_APP_TOKEN }}`. GitHub does not error on an unknown secret — it substitutes the empty string. So each workflow computed its report or registry sweep, then failed with "GH_TOKEN or GITHUB_TOKEN is required", discarding the work. Three of the ten reds in the scheduled-workflow watchdog issue were this single missing secret, and a daily red that always fails the same way stops carrying information.
+
+**Fix (this PR):** the three call sites resolve `${{ secrets.ARIA_GITHUB_APP_TOKEN || github.token }}` and pass `PR_TOKEN_SOURCE`, so the automation PR opens under the Actions default identity when the App token is absent. Because GitHub deliberately does not trigger workflow runs for PRs authored by that token, `open-report-pr.sh` appends the reason to the PR body — a reviewer must not read absent checks as "nothing to run". Tier-3 closure: `.github/provisioned-secrets.json` declares every secret the workflows depend on with its scope and provisioning state, and `tests/invariants/workflow-secret-provisioning.spec.ts` pins the two directions (no undeclared reference, no orphaned declaration). Proven by the deliberate break: adding a reference to `secrets.NEVER_PROVISIONED_TOKEN` turns the invariant red naming the file.
+
+**Left to the operator, deliberately:** provisioning the App token itself (identity creation is not mine to do). The `automation-publication` environment already exists and is empty; that is where it belongs. Until then these three lanes run green under the default token with the limitation stated in every PR they open.
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-HIGH-562 — the ARIA executor uploaded an envelope path it invented, the request envelope named a different one, and the contract gate pinned the invented spelling — every claimed request ended red after its work succeeded — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, dispatched `aria-agent-executor` in mock mode after #1084 to test whether the state-restore failure was fixed; it was — and the run surfaced the next defect underneath.
+
+The upload step named `.aria-state-store/tools/agent-invocations/outputs/<request_id>.json`. `agent_invocations.py:925` builds the real path as `outputs/<group>/<round>-<role>-<request_id>.md`. Two spellings of one path that never agreed: with `if-no-files-found: error`, an executor run that claimed a request would run the agent, pass pre-submit validation, submit the result (`rc=0`) — and then fail, losing the artefact evidence and painting the whole lane red. Worse, `workflow_contract_registry.py:270-271` pinned the INVENTED spelling, so the contract test certified the mismatch: the same green-gate-measuring-nothing class as the `--help` probe in ORPHAN-CRITICAL-551.
+
+**Fix (this PR):** the executor publishes where it actually wrote (`_publish_artifact_paths` → `envelope_path` / `transcript_path` on `$GITHUB_OUTPUT`, workspace-relative because that is what `upload-artifact` resolves against), the workflow uploads those step outputs, and the registry pins THE DERIVATION rather than a literal path, so a future author cannot re-guess it in YAML. `aria-kernel/tests/test_executor_artifact_path_contract.py` proves both directions; restoring the old spelling turns two of its tests red.
+
 ## ORPHAN-MEDIUM-565 — the gold corpus had a reader, a promoter and a curator agent, and no producer: `propose_goldset` had zero callers, so `judge_replay` and `proactive_priority` gated on an active corpus that could never come into existence — RESOLVED (this PR)
 
 **Discovered:** 2026-08-05, F4.2 of the ARIA intelligence program; verified firsthand (zero call sites for `propose_goldset` across kernel + tools; `promote_goldset_proposal` raises `no ready goldset proposal` on an empty ledger; `judge_replay:45` and `proactive_priority:70` both short-circuit on `load_active_goldset(...) is None`).

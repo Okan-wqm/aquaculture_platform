@@ -2,7 +2,7 @@
 
 Date: 2026-06-21
 Target ref: `origin/main`
-Last verified ARIA authority hash: `9a5752e0fcd28c2a6cedd7a1687593e741c382b30fb1adbd32109010dcc1e1ab`
+Last verified ARIA authority hash: `1e7a1f489c9d499a1890cdbc4824d30f8d55c978abaa4157e3de81d2a2a9a688`
 Status: post-snowball mainline hardening in progress
 
 ## Authority Chain
@@ -12,10 +12,12 @@ ARIA authority is ordered and fail-closed:
 1. Executable code and machine-checked contracts are normative.
 2. This file is the live human-readable state index.
 3. Accepted ADRs are normative only when they do not contradict executable contracts or this file.
-4. `SPEC.md`, `CONTRACTS.md`, `IDENTITY.md`, `ROADMAP.md`, and `docs/aria/plans/**` are live only in sections that are not marked historical, superseded, or compatibility reference.
+4. `SPEC.md`, `CONTRACTS.md`, `IDENTITY.md`, `ROADMAP.md`, and `docs/aria/plans/**` are live only in
+   sections that are not marked historical, superseded, or compatibility reference.
 5. Historical snowball/Claude-era docs are evidence of design history, not runtime authority.
 
-When two sources disagree, the lower-priority source must be updated, generated from code, or explicitly marked historical. Runtime behavior must not be inferred from stale prose.
+When two sources disagree, the lower-priority source must be updated, generated from code, or
+explicitly marked historical. Runtime behavior must not be inferred from stale prose.
 
 ## Current Normative Anchors
 
@@ -38,42 +40,67 @@ When two sources disagree, the lower-priority source must be updated, generated 
 - Runner attestation owner: `aria-kernel/aria_kernel/runner_attestation.py`
 - Capability resolution owner: `aria-kernel/aria_kernel/capability_resolver.py`
 - Required PR merge check: `.github/workflows/aria-merge-authority.yml`
-- Executor implementation: `tools/aria-poc/ci_executor.py`, `tools/aria-poc/worker_executor.py`, `tools/aria-poc/claude_runtime.py`
+- Executor implementation: `tools/aria-poc/ci_executor.py`, `tools/aria-poc/worker_executor.py`,
+  `tools/aria-poc/claude_runtime.py`
 - Runtime artifact safety boundary: `aria-kernel/aria_kernel/artifact_safety.py`
 - Enterprise autonomy burn-in: `aria-kernel/aria_kernel/burn_in.py`
 - Observe burn-in report schema: `docs/aria/schemas/autonomy-burn-in-report.schema.json`
 
 ## Runtime
 
-ARIA live autonomous execution is Claude Code CLI based and must use a managed Claude Code login session on a trusted/private runner. Direct API-key / proxy-billing runtime mode is not the default authority for this repository.
+ARIA live autonomous execution is Claude Code CLI based and must use a managed Claude Code login
+session on a trusted/private runner. Direct API-key / proxy-billing runtime mode is not the default
+authority for this repository.
 
-Legacy Codex executor language in older docs is historical or compatibility reference unless an executable contract explicitly calls it. Any live doc section that treats `codex exec`, ChatGPT-managed Codex auth, or `codex_runtime.py` as the current ARIA runtime authority is a documentation defect.
+Legacy Codex executor language in older docs is historical or compatibility reference unless an
+executable contract explicitly calls it. Any live doc section that treats `codex exec`,
+ChatGPT-managed Codex auth, or `codex_runtime.py` as the current ARIA runtime authority is a
+documentation defect.
 
 ## State And Lifecycle
 
-`state_manifest.py` is the inventory for write-driving ledgers, runtime state, indexes, locks, and artifacts. Runtime writes that can drive future behavior must be declared there before they are trusted by autonomy.
+`state_manifest.py` is the inventory for write-driving ledgers, runtime state, indexes, locks, and
+artifacts. Runtime writes that can drive future behavior must be declared there before they are
+trusted by autonomy.
 
-`runtime_profile.py` is the single write-authorization boundary for profile-aware surfaces. The live profile taxonomy is `observe`, `standard`, `strict`, `frozen`, and `autonomous`.
+`runtime_profile.py` is the single write-authorization boundary for profile-aware surfaces. The live
+profile taxonomy is `observe`, `standard`, `strict`, `frozen`, and `autonomous`.
 
-`runtime_artifacts.py` owns artifact graph verification. Promotion evidence must be artifact-bearing, hash-bound, path-contained, indexed, and connected to the relevant cycle/run ledgers. Lifecycle-only cycles do not authorize promotion.
+`runtime_artifacts.py` owns artifact graph verification. Promotion evidence must be
+artifact-bearing, hash-bound, path-contained, indexed, and connected to the relevant cycle/run
+ledgers. Lifecycle-only cycles do not authorize promotion.
 
-`ARIA Operational Proof` is the GitHub Actions proof lane for isolated temp-tools runtime verification and strict/mock autonomy smoke. It must not write repo-local ARIA runtime state.
+`ARIA Operational Proof` is the GitHub Actions proof lane for isolated temp-tools runtime
+verification and strict/mock autonomy smoke. It must not write repo-local ARIA runtime state.
 
-`agent_surface.py` owns request roles, invocation roles, dispatchable roles, bridge-required roles, target-agent whitelist, role-target pairing, and derived request lifecycle labels. Callers must consume that SSoT rather than maintaining local role sets.
+`agent_surface.py` owns request roles, invocation roles, dispatchable roles, bridge-required roles,
+target-agent whitelist, role-target pairing, and derived request lifecycle labels. Callers must
+consume that SSoT rather than maintaining local role sets.
 
-`autonomy burn-in observe` is the first enterprise autonomy acceptance slice. It runs discovery, memory, pressure, and triage for exactly 30 observe attempts with at least 20 valid cycles, and fails if agent claims, tool runs, PR lifecycle, runtime promotions, or agent/skill materializations are observed. It is not a full autonomous merge proof.
+`autonomy burn-in observe` is the first enterprise autonomy acceptance slice. It runs discovery,
+memory, pressure, and triage for exactly 30 observe attempts with at least 20 valid cycles, and
+fails if agent claims, tool runs, PR lifecycle, runtime promotions, or agent/skill materializations
+are observed. It is not a full autonomous merge proof.
 
 ## Clean Trial Rule
 
-A clean ARIA trial must run from an isolated worktree at the declared target commit. Existing detached or dirty operator worktrees are not validation surfaces. Every runtime command in a trial must receive an explicit bound `--tools-dir` and `--workspace-root`; repo-local shadow roots such as `aria-kernel/aria-tools/` are invalid.
+A clean ARIA trial must run from an isolated worktree at the declared target commit. Existing
+detached or dirty operator worktrees are not validation surfaces. Every runtime command in a trial
+must receive an explicit bound `--tools-dir` and `--workspace-root`; repo-local shadow roots such as
+`aria-kernel/aria-tools/` are invalid.
 
 ## Documentation State
 
-The ARIA docs set contains historical material. Sections still saying only the PoC exists, the kernel does not exist, live runtime is Claude/Anthropic, or auto-merge is categorically impossible are superseded unless explicitly restated by this file and the executable contracts above.
+The ARIA docs set contains historical material. Sections still saying only the PoC exists, the
+kernel does not exist, live runtime is Claude/Anthropic, or auto-merge is categorically impossible
+are superseded unless explicitly restated by this file and the executable contracts above.
 
-For the bilingual architecture explainer with diagrams, see `docs/aria/ARCHITECTURE.md`. That document is explanatory only: it must defer to this file, executable contracts, and machine-checked invariants whenever there is a conflict.
+For the bilingual architecture explainer with diagrams, see `docs/aria/ARCHITECTURE.md`. That
+document is explanatory only: it must defer to this file, executable contracts, and machine-checked
+invariants whenever there is a conflict.
 
-For the enterprise autonomy SSoT and burn-in acceptance matrix, see `docs/aria/ENTERPRISE_AUTONOMY_SSOT.md`.
+For the enterprise autonomy SSoT and burn-in acceptance matrix, see
+`docs/aria/ENTERPRISE_AUTONOMY_SSOT.md`.
 
 On 2026-06-20, `docs/aria/ENTERPRISE_AUTONOMY_SSOT.md` records the accepted
 production-autonomy target decisions: full production autonomy, whole-repo

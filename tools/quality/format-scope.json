@@ -34651,6 +34651,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/runbooks/monitoring/dataflow-integrity.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/monitoring/farm-environment-monitoring.md",
       "prettier_managed": true
     },
@@ -44935,6 +44941,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/vendor/apollo-playground-disabled/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/watchdog/README.md",
       "prettier_managed": true
     },
     {
@@ -56424,10 +56436,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9253,
+  "file_count": 9255,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9072,
-  "managed_file_list_sha256": "2ae78a0f833d8b51af4899f6b69111b3824ad9007855dfee06cef62fb7460237",
+  "managed_count": 9074,
+  "managed_file_list_sha256": "aaf93c342400777caa5f0419fdd404bfbf1a00e41f28b2b586dd9eaea96c62d2",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

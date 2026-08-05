@@ -994,6 +994,19 @@ def build_parser() -> argparse.ArgumentParser:
     runtime_retention_apply.add_argument("--reason", required=True, type=_validate_reason)
     runtime_retention_apply.add_argument("--operator-approval-ref", required=True)
     runtime_retention_apply.add_argument("--acknowledge", action="store_true")
+    runtime_signal = add_subparser(runtime_sub, "signal")
+    runtime_signal_sub = runtime_signal.add_subparsers(dest="runtime_signal_command", required=True)
+    rs_ingest = add_subparser(runtime_signal_sub, "ingest")
+    rs_ingest.add_argument("--source", required=True)
+    rs_ingest.add_argument("--service", required=True)
+    rs_ingest.add_argument("--summary", required=True)
+    rs_ingest.add_argument("--code-ref", action="append", required=True, dest="code_refs")
+    rs_ingest.add_argument("--severity", default="high")
+    rs_resolve = add_subparser(runtime_signal_sub, "resolve")
+    rs_resolve.add_argument("--signal-id", required=True)
+    rs_resolve.add_argument("--resolution-note", required=True)
+    rs_list = add_subparser(runtime_signal_sub, "list")
+
     runtime_restore = add_subparser(runtime_sub, "restore-artifact")
     runtime_restore.add_argument("--artifact-ref", required=True)
     runtime_restore.add_argument("--workspace-root", required=True)
@@ -1044,6 +1057,15 @@ def build_parser() -> argparse.ArgumentParser:
     pressure_list.add_argument("--include-archived", action="store_true")
     pressure_list.add_argument("--include-closed", action="store_true")
     pressure_list.add_argument("--include-satisfied", action="store_true")
+    pressure_weights_cmd = add_subparser(pressure_sub, "weights")
+    add_workspace_args(pressure_weights_cmd)
+    pressure_override = add_subparser(pressure_sub, "weight-override")
+    add_workspace_args(pressure_override)
+    pressure_override.add_argument("--source", required=True)
+    pressure_override.add_argument("--weight", required=True, type=int)
+    pressure_override.add_argument("--acknowledge", action="store_true", required=True)
+    pressure_override.add_argument("--reason", required=True)
+    pressure_override.add_argument("--operator-approval-ref", required=True)
     pressure_explain = add_subparser(pressure_sub, "explain")
     add_workspace_args(pressure_explain)
     pressure_explain.add_argument("pressure_event_id", nargs="?")
@@ -2793,6 +2815,32 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(list_profile_history(base_dir=args.tools_dir), indent=2, sort_keys=True))
         return 0
 
+    if args.command == "runtime" and args.runtime_command == "signal":
+        # W-A of the dataflow-integrity watchdog: the bridge existed since
+        # Plan 029 but had NO CLI, so no probe or workflow could feed it
+        # without importing the kernel. These verbs are the missing mouth.
+        from .runtime_signal_bridge import (
+            ingest_runtime_signal,
+            load_open_runtime_signals,
+            resolve_runtime_signal,
+        )
+        if args.runtime_signal_command == "ingest":
+            row = ingest_runtime_signal(
+                source=args.source, service=args.service,
+                summary=args.summary, code_refs=args.code_refs,
+                severity=args.severity, base_dir=args.tools_dir,
+            )
+        elif args.runtime_signal_command == "resolve":
+            row = resolve_runtime_signal(
+                signal_id=args.signal_id,
+                resolution_note=args.resolution_note,
+                base_dir=args.tools_dir,
+            )
+        else:
+            row = load_open_runtime_signals(base_dir=args.tools_dir)
+        print(json.dumps(row, indent=2, sort_keys=True, default=str))
+        return 0
+
     if args.command == "runtime" and args.runtime_command == "verify-artifacts":
         result = verify_runtime_artifacts(
             base_dir=args.tools_dir,
@@ -2897,6 +2945,29 @@ def _main(argv: list[str] | None = None) -> int:
             acknowledge=args.acknowledge,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "pressure" and args.pressure_command == "weights":
+        from .pressure import SOURCE_WEIGHTS, effective_source_weights, load_weight_overrides
+        eff = effective_source_weights(args.tools_dir)
+        ov = load_weight_overrides(args.tools_dir)
+        print(json.dumps({
+            "effective": eff,
+            "overridden_sources": sorted(ov),
+            "base": SOURCE_WEIGHTS,
+        }, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "pressure" and args.pressure_command == "weight-override":
+        from .pressure import record_weight_override
+        row = record_weight_override(
+            source=args.source,
+            weight=args.weight,
+            reason=args.reason,
+            operator_approval_ref=args.operator_approval_ref,
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(row, indent=2, sort_keys=True))
         return 0
 
     if args.command == "pressure" and args.pressure_command == "explain":

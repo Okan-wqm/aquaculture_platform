@@ -28,6 +28,11 @@ jobs:
           fetch-depth: 0
       - name: Fetch aria/state for the freshness probe
         run: git fetch origin '+refs/heads/aria/state:refs/remotes/origin/aria-state' || true
+      # The CRITICAL branch below runs kernel code, and the kernel is not on
+      # the runner by default — provisioning must precede any step that could
+      # invoke it, which the aria-kernel-workflow-setup invariant enforces.
+      - uses: ./.github/actions/setup-aria-kernel
+
       - name: Run T1 probes
         id: probes
         run: |

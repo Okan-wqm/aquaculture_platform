@@ -7671,3 +7671,131 @@ Severity: HIGH (recurrence enabler for the 2026-07-07 messaging outage class). #
 ## INFRA-HIGH-079 — Production node is heavily swapped while production/dev/test workloads co-locate — IN-PROGRESS
 
 **Discovered and reproduced:** 2026-07-18 read-only host inventory measured 8,326,946,816 bytes RAM with 3,567,439,872 available, and 7,275,569,152 of 8,589,926,400 swap bytes in use. The second swap file alone carries 5,137,809,408 used bytes. Production containers share the node with long-lived WAL-G integration containers and active engineering agents; this does not authorize killing those owners or deleting their state. **Fix in progress:** establish workload ownership and bounded cleanup, prove post-cleanup RAM/swap headroom, then either retain both swap files under an explicit capacity budget or obtain an operator-approved paid resize before any swap lifecycle change. **Owner:** performance-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-079`.
+
+## ORPHAN-HIGH-417 — the deploy capacity guard cannot see the two disk consumers that actually filled the droplet, and the fill took production down for two days — OPEN
+
+**Discovered:** 2026-08-04, whole-disk audit on the production droplet after `/` hit 100% (1.1 GB free of 154 GB).
+
+`scripts/deploy/droplet-capacity.sh` reclaims docker images (`safe_image_gc`, scheduled 6-hourly by `deploy-capacity-maintenance.yml` since #702). On this fill it had nothing to give: images were 34.5 GB but **38 of 40 were bound to running containers**, so only ~65 MB was reclaimable. The disk was consumed by two classes the guard does not model:
+
+1. **`/tmp` session leftovers — 15.9k top-level directories.** ~6.2k `plan-coverage-spec-*` (ARIA test temp, 6.05 GB), ~1.4k `suderra-*-test-*` / `license-cache-*`, and ~258 full repo clones created via `mktemp -d -t aqua-<topic>-XXXXXX` at roughly 13/day, never removed.
+2. **Rust `target/` caches — 33.7 GB across 10 directories**, 4.6–5.3 GB each.
+
+**Impact — this is not hypothetical.** On 2026-08-03 at 02:07 UTC six containers exited(1) simultaneously (`aqua-auth`, `aqua-ai`, `aqua-sensor`, `aqua-admin-api`, `aqua-event-store`, `aqua-observability`); the daemon log at 02:22 shows `OCI runtime exec failed: write /tmp/runc-process…: no space left on device`. With auth-service gone the gateway could not resolve it and **login was broken until 2026-08-04 ~14:50**. 34.3 GB was reclaimed manually and the six restarted healthy.
+
+**Fix:** extend the capacity guard to sweep both classes, reusing the deletion protocol proven in that cleanup — protect a `/tmp` entry if it is a registered `git worktree`, is touched by a live process via **cwd OR exe OR any open fd**, is a docker bind-mount source (`docker ps -aq`, including stopped), is `/tmp/claude-0`, has any file modified inside the age window, or its git repo has uncommitted changes or unpushed commits. The live-process scan alone is insufficient: an idle agent leaves NO process between tool calls, and only the age guard saved an actively-running codex session during the manual sweep. Report reclaim as `total - keepset` in ONE `du` pass; summing per-directory sizes double-counts hardlinks (overstated 30.0 vs the real 16.3 GB here).
+**Owner:** infra-expert. **Deadline:** 2026-08-19.
+
+## ORPHAN-HIGH-418 — `docker ps` reported six dead containers as "Up 2 weeks" for the entire two-day outage — OPEN
+
+**Discovered:** 2026-08-04, while diagnosing the login failure in ORPHAN-HIGH-417.
+
+Throughout the outage `docker ps` listed all six exited containers as `Up 2 weeks (unhealthy)`. Only `docker inspect --format '{{.State.Running}}'` told the truth — `false`, `Status=exited`, `ExitCode=1`, `Pid=0` — and their `NetworkSettings` IP read `invalid IP`. `docker exec aqua-auth …` returned "container is not running" while `docker ps` still showed it up.
+
+**Impact:** every human and agent check of the form "how many containers are running?" reported 38 when the real number was 32, for two days. This session repeated that error before catching it. Any runbook, health probe, or capacity script reading `docker ps` text inherits the same blind spot.
+
+**Fix:** make container-health verification read `State.Running` rather than `docker ps` output, in runbooks and in any script that counts containers. Consider a probe that flags the inconsistency itself (ps says up, inspect says exited) — that divergence is a reliable signal the daemon's state is corrupted, which on this box means disk exhaustion.
+**Owner:** infra-expert. **Deadline:** 2026-08-19.
+
+## ORPHAN-HIGH-419 — the ARIA self-hosted runner has been OOM-dead since 2026-07-18, so the nightly autonomy cycle has not run for two and a half weeks — OPEN
+
+**Discovered:** 2026-08-04, investigating why "the nightly" would not produce results.
+
+```
+actions.runner.Okan-wqm-aquaculture_platform.suderra-droplet-claude.service
+Active: failed (Result: oom-kill) since Sat 2026-07-18 04:26:02 UTC
+Main PID: 3894501 (code=killed, signal=KILL)
+```
+
+`aria-auto-cycle.yml` (cron `0 1 * * *`) declares `runs-on: [self-hosted, linux, claude]`. The runner is registered but `offline`. The cycle has therefore produced nothing since 2026-07-18, which is the real reason the autonomy program's Wave 1 cannot close — not a missing code path.
+
+**This is the missed consequence of `INFRA-HIGH-079`, and that finding's own numbers have gone backwards.** INFRA-HIGH-079 ("Production node is heavily swapped") was opened on **2026-07-18** — the same day, hours after the 04:26 kill — with **3.57 GB available RAM** and 7.28 GB of 8.59 GB swap in use, owner performance-expert, deadline **2026-07-22**, status IN-PROGRESS. That deadline is two weeks past. Measured 2026-08-04: **2.5 GB available** (down ~1 GB), 249 MB free, swap 6.4 GB of 8 GB, and **485 OOM events since 2026-07-25** — ongoing, not a one-off. No single fat process; the load is the sum of concurrent agent sessions (13 `claude` ≈ 1.2 GB, 4 `codex` ≈ 0.45 GB, 36 `node` ≈ 1.7 GB). Containers sit well inside their 512 MB limits.
+
+Nobody had connected the swap finding to a concrete casualty. This is it: the autonomy program's nightly has produced nothing for two and a half weeks, and Wave 1 cannot close, because the box could not hold the runner.
+
+**Restarting the runner as-is would repeat the kill.** **Fix:** treat this as the forcing function on INFRA-HIGH-079 rather than a separate capacity effort — establish agent-session ownership and reclaim the abandoned ones (the `/tmp` audit in ORPHAN-HIGH-417 found 258 dead clones from exactly this population, so the same census is likely to pay in RAM), prove post-cleanup headroom, then give the runner service a memory ceiling through its existing `limits.conf` drop-in before re-enabling, then trigger one cycle via `workflow_dispatch` and watch it.
+**Owner:** Okan / performance-expert (with INFRA-HIGH-079). **Deadline:** 2026-08-19. **Related:** `INFRA-HIGH-079`.
+
+## ORPHAN-HIGH-420 — `_anchor_repo_root` treats any directory containing a `.git` entry as a repo root, so stray filesystem state changes kernel selection behaviour — OPEN
+
+**Discovered:** 2026-08-04, root-causing 7 aria-kernel test failures that CI could not see.
+
+`/tmp/.git` existed as an **empty** directory (created 2026-05-05). `git -C /tmp rev-parse --show-toplevel` correctly says "not a git repository", but `aria_kernel.agent_invocations._anchor_repo_root` concluded `repo_root=/tmp` from the path's existence alone. That activated the ORPHAN-MEDIUM-492 anchor-staleness branch in `next_pending_request` for every fixture whose temp dir lives under `/tmp`.
+
+**Impact:** a zero-byte directory anyone can create makes the kernel refuse pending requests as `anchor_expired`, silently, with `dispatch_one_pending_planner_request` reporting `no_pending`.
+
+**Fix:** validate that the candidate is a real repository (e.g. `git rev-parse --show-toplevel` succeeding, or a `.git` that is a directory with `HEAD`/`objects`), not merely that a `.git` path exists.
+**Owner:** aria-kernel. **Deadline:** 2026-08-19.
+
+## ORPHAN-MEDIUM-421 — the aria-kernel suite leaks `/tmp/.git`, so it is green on a clean machine and red on its own second run — OPEN
+
+**Discovered:** 2026-08-04. Reproduced three times: remove `/tmp/.git`, run the full suite (3269 tests, `OK`), observe the directory recreated.
+
+Combined with ORPHAN-HIGH-420 this makes the suite self-poisoning: run one → pass and leak; run two → 6 failures + 1 error in `tests.test_planner_dispatch_hook` and `tests.test_breaker_producer_scheduled_lane`. **CI never sees it** because every runner starts with a clean `/tmp`, which is why the same 3269 tests report `OK (skipped=29)` in the `aria-kernel` job and `FAILED (failures=6, errors=1)` locally on the same commit.
+
+`aria-kernel/tests/test_suite_git_hermeticity.py` exists to catch exactly this class — its docstring cites a real incident where a fixture wrote into "the developer's own checkout" — and it does not catch this one.
+
+**Impact:** the pre-push hook (`scripts/ci/aria-suite-changed.mjs`) runs this suite, so every local developer is blocked by a false red after their first run. Immediate unblock: `rmdir /tmp/.git`.
+
+**Fix:** find the fixture that runs a git command with `cwd=/tmp` or an inherited `GIT_DIR` pointing there, and extend the hermeticity test to assert `/tmp/.git` does not exist after the suite.
+**Owner:** aria-kernel. **Deadline:** 2026-08-19.
+
+## ORPHAN-MEDIUM-422 — a planner-dispatch fixture hardcodes an absolute `created_at`, so the test expires three days after it was written — OPEN
+
+**Discovered:** 2026-08-04, same investigation as ORPHAN-MEDIUM-421.
+
+`aria-kernel/tests/test_planner_dispatch_hook.py::_seed_request` writes `created_at: "2026-05-10T00:00:00Z"`. The anchor window (`_anchor_max_age_seconds`) is 3 days. Once the anchor check is active the seeded request is always refused `anchor_expired`, so the test has been logically broken since roughly 2026-05-13 and was only invisible because ORPHAN-HIGH-420 had not yet been triggered on CI.
+
+**Fix:** derive `created_at` from now (e.g. `_utc_now_dt()` minus a small delta) rather than pinning a calendar date, in this fixture and any sibling that seeds anchored requests.
+**Owner:** aria-kernel. **Deadline:** 2026-08-19.
+
+## ORPHAN-MEDIUM-423 — the committed generated manifest `tools/quality/format-scope.json` makes every parallel branch conflict, and resolving it costs an 11-minute push — OPEN
+
+**Discovered:** 2026-08-04, landing a four-PR chain; the conflict recurred **four times** on one branch.
+
+`format-scope.json` is generated but committed, and the pre-commit hook rejects a stale copy. Every merged PR regenerates it, so every open branch conflicts. Resolving requires a push; a push that touches ARIA surface runs the full kernel suite (~11 min); in that window another PR lands and the branch is behind again.
+
+Two mitigations found and worth documenting rather than rediscovering: `mergeable_state=behind` (no conflict) can be fixed SERVER-SIDE with `gh api -X PUT repos/…/pulls/<N>/update-branch`, skipping the local cycle entirely — only `dirty` needs a local merge. And when resolving, `git add` the conflicted manifest FIRST, then regenerate, then `git add` again; generating mid-conflict computes it against a half-merged file set and the hook rejects it as stale.
+
+**Fix:** decide whether the manifest must be committed at all. If it must, make it merge-clean (a union/regenerate merge driver via `.gitattributes`) so the conflict stops being manual.
+**Owner:** infra-expert. **Deadline:** 2026-08-26.
+
+## ORPHAN-MEDIUM-424 — the AquaMobil tenant-query-key mirror never received the session-epoch fix, so it still serves stale cache after tenant re-entry — OPEN
+
+**Discovered:** 2026-08-04, drift audit of the nested steering files.
+
+```
+web/shared-ui/src/utils/tenant-query-keys.ts:106
+  ['tenant', tenantId, ...segments, sessionEpochSegment()]
+web/apps/aquamobil/src/utils/tenant-query-keys.ts:44
+  [TENANT_QUERY_KEY_ROOT, tenantId, ...segments]        ← no epoch
+```
+
+`sessionEpochSegment()` landed in shared-ui on 2026-06-28 (#687, ORPHAN-MEDIUM-200 — "fresh cache on tenant re-entry"). The aquamobil mirror has no epoch import and no `assertTenantQueryKey` epoch validation. **There is no cross-tenant leak** — the `['tenant', tenantId, …]` prefix contract holds in both, so FE-CRITICAL-014/015/016 is not reopened. What is missing is the stale-cache-on-re-entry fix.
+
+The steering file's "verbatim copy" claim and the source file's own "Mirrors … verbatim" header comment were both wrong and are corrected in the steering pass; the code gap is untouched.
+
+**Fix:** port the epoch segment, and add a parity invariant asserting the mirror carries an equivalent epoch mechanism. Importing shared-ui is NOT the fix — aquamobil's independence (standalone lockfile, offline-first PWA) is deliberate. The prose instruction "any change MUST be mirrored here" was Tier 4 and did not hold; this moves it to Tier 3.
+**Owner:** frontend-expert. **Deadline:** 2026-08-26.
+
+## ORPHAN-LOW-425 — `backup-production-secrets.spec.ts` cannot distinguish a signal-killed preflight from a real failure — OPEN
+
+**Discovered:** 2026-08-04, a CI red on PR #1071 that did not reproduce locally.
+
+The spec asserts `expect(result.status).toBe(1)` on a preflight script it spawns. The CI run returned **141** = 128 + 13 = SIGPIPE — a broken pipe inside the shell script, not the fail-closed exit it was checking for. Re-running the job passed, so the condition is load-dependent.
+
+**Impact:** a genuine preflight regression (exit 1) and a transient SIGPIPE are indistinguishable in the failure message, and the latter produces an unexplained red on unrelated PRs.
+
+**Fix:** assert on the specific expected exit code and treat `>128` as a distinct, named condition so the message says "killed by signal N" instead of comparing it to 1; and fix the pipe handling in the preflight script itself.
+**Owner:** infra-expert. **Deadline:** 2026-09-02.
+
+## ORPHAN-LOW-426 — duplicate identifiers: `ORPHAN-MEDIUM-112` names two unrelated findings and two ADR files both claim 022 — OPEN
+
+**Discovered:** 2026-08-04, verifying citations in the nested steering files.
+
+`ORPHAN-MEDIUM-112` appears twice in this file — at the farm final-harvest/CloseBatch finding and at the AquaMobil eslint-baseline finding. A citation by ID alone is therefore ambiguous, and `web/apps/aquamobil/CLAUDE.md` cites it for the eslint baseline.
+
+Separately, `docs/adr/022-edge-schema-placement.md` and `docs/adr/022-pseudonymisation-key-management.md` both claim ADR-022 (already flagged as a class in the root `CLAUDE.md` known-drift note). ADR-034 supersedes 022's placement decision without either file saying so.
+
+**Fix:** renumber one member of each collision and update citers. Cheap now; each duplicate silently breaks ID-based traceability, which is the mechanism `docs/reviews/` depends on.
+**Owner:** context-manager. **Deadline:** 2026-09-02.

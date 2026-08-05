@@ -70,6 +70,15 @@ export class SiteResponse {
   @Field(() => SiteLocationResponse, { nullable: true })
   location?: SiteLocationResponse;
 
+  @Field(() => Int)
+  monitoringRadiusM!: number;
+
+  @Field(() => GraphQLJSON, { nullable: true })
+  monitoringArea?: Record<string, unknown> | null;
+
+  @Field(() => Int)
+  monitoringLocationRevision!: number;
+
   @Field(() => SiteAddressResponse, { nullable: true })
   address?: SiteAddressResponse;
 

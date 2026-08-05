@@ -1,5 +1,4 @@
 import { Role } from '@aquaculture/backend-common/decorators';
-import { USER_TOKEN_REVOCATION } from '@aquaculture/backend-common/security';
 import {
   BadRequestException,
   ForbiddenException,
@@ -18,6 +17,7 @@ import { Invitation } from '../../authentication/entities/invitation.entity';
 import { RefreshToken } from '../../authentication/entities/refresh-token.entity';
 import { UserModuleAssignment } from '../../authentication/entities/user-module-assignment.entity';
 import { User } from '../../authentication/entities/user.entity';
+import { DurableUserTokenInvalidationService } from '../../authentication/services/durable-user-token-invalidation.service';
 import { MobileUserSettings } from '../entities/mobile-user-settings.entity';
 import { Tenant, TenantStatus, TenantPlan } from '../entities/tenant.entity';
 
@@ -114,6 +114,7 @@ const createMockRepository = (): {
   update: jest.Mock;
   delete: jest.Mock;
   count: jest.Mock;
+  createQueryBuilder: jest.Mock;
 } => ({
   find: jest.fn(),
   findOne: jest.fn(),
@@ -123,6 +124,14 @@ const createMockRepository = (): {
   update: jest.fn(),
   delete: jest.fn(),
   count: jest.fn(),
+  createQueryBuilder: jest.fn(() => ({
+    select: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
+    setLock: jest.fn().mockReturnThis(),
+    getMany: jest.fn().mockResolvedValue([]),
+  })),
 });
 
 const createMockTenantCounterBuilder = () => ({
@@ -145,16 +154,24 @@ describe('UserLifecycleService', () => {
   let mockTenantRoleService: jest.Mocked<Pick<TenantRoleService, 'getRoleById'>>;
   let mockEventBus: { publish: jest.Mock<Promise<void>, [UserInvitedEvent]> };
   let mockAuditLogService: { log: jest.Mock };
-  let mockUserTokenRevocation: { revokeUserTokens: jest.Mock; isTokenValid: jest.Mock };
+  let mockDurableUserTokenInvalidation: {
+    enqueue: jest.Mock;
+    applyImmediately: jest.Mock;
+  };
 
   beforeEach(async () => {
-    mockUserTokenRevocation = {
-      revokeUserTokens: jest.fn().mockResolvedValue(undefined),
-      isTokenValid: jest.fn().mockResolvedValue(true),
+    mockDurableUserTokenInvalidation = {
+      enqueue: jest.fn().mockResolvedValue(undefined),
+      applyImmediately: jest.fn().mockResolvedValue(undefined),
     };
     const mockUserRepo = createMockRepository();
     const mockTenantRepo = createMockRepository();
     const mockRefreshTokenRepo = createMockRepository();
+    mockRefreshTokenRepo.update.mockResolvedValue({
+      affected: 1,
+      raw: [],
+      generatedMaps: [],
+    });
     // WHY: UserLifecycleService grew four repositories — MobileUserSettings
     // (accessType-driven mobile provisioning), Invitation and
     // UserModuleAssignment (atomic invite + module assignment), and
@@ -171,6 +188,7 @@ describe('UserLifecycleService', () => {
         // Simulate transaction by passing a mock manager
         const mockManager = {
           getRepository: jest.fn().mockReturnValue(mockUserRepo),
+          withRepository: jest.fn((repository: unknown) => repository),
           create: jest.fn(<T>(_entity: unknown, data: T) => ({ ...data })),
           // Two save shapes: save(Entity, data) (createUser action-token path)
           // and save(entity) (deleteUser soft-delete). The 1-arg form delegates
@@ -218,7 +236,10 @@ describe('UserLifecycleService', () => {
         { provide: getRepositoryToken(MobileUserSettings), useValue: mockMobileSettingsRepo },
         { provide: getRepositoryToken(Invitation), useValue: mockInvitationRepo },
         { provide: getRepositoryToken(ActionToken), useValue: mockActionTokenRepo },
-        { provide: getRepositoryToken(UserModuleAssignment), useValue: mockUserModuleAssignmentRepo },
+        {
+          provide: getRepositoryToken(UserModuleAssignment),
+          useValue: mockUserModuleAssignmentRepo,
+        },
         { provide: DataSource, useValue: mockDataSource },
         { provide: TenantRoleService, useValue: mockTenantRoleService },
         { provide: 'EVENT_BUS', useValue: mockEventBus },
@@ -240,19 +261,19 @@ describe('UserLifecycleService', () => {
               effective: new Set<string>(),
               entitled: new Set<string>(),
             }),
-            assertGrantableOverrides: jest.fn((o: { grants?: string[]; revokes?: string[] } | null) => ({
-              grants: o?.grants ?? [],
-              revokes: o?.revokes ?? [],
-            })),
+            assertGrantableOverrides: jest.fn(
+              (o: { grants?: string[]; revokes?: string[] } | null) => ({
+                grants: o?.grants ?? [],
+                revokes: o?.revokes ?? [],
+              }),
+            ),
             assertGrantableResourcePermissions: jest.fn((requested: string[]) => requested),
             emptyOverrides: jest.fn(() => ({ grants: [], revokes: [] })),
           },
         },
         {
-          // RBAC-HIGH-001/002: user-token-revocation mock (deleteUser revokes the
-          // deleted user's live access token too).
-          provide: USER_TOKEN_REVOCATION,
-          useValue: mockUserTokenRevocation,
+          provide: DurableUserTokenInvalidationService,
+          useValue: mockDurableUserTokenInvalidation,
         },
       ],
     }).compile();
@@ -304,17 +325,17 @@ describe('UserLifecycleService', () => {
       tenantRepository.findOne.mockResolvedValue(createMockTenant());
       userRepository.findOne.mockResolvedValue(createMockUser());
 
-      await expect(
-        service.createUser(TENANT_ID, createInput, ADMIN_USER_ID),
-      ).rejects.toThrow(ConflictException);
+      await expect(service.createUser(TENANT_ID, createInput, ADMIN_USER_ID)).rejects.toThrow(
+        ConflictException,
+      );
     });
 
     it('should throw NotFoundException when tenant does not exist', async () => {
       tenantRepository.findOne.mockResolvedValue(null);
 
-      await expect(
-        service.createUser(TENANT_ID, createInput, ADMIN_USER_ID),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.createUser(TENANT_ID, createInput, ADMIN_USER_ID)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should throw NotFoundException when role does not exist', async () => {
@@ -322,9 +343,9 @@ describe('UserLifecycleService', () => {
       userRepository.findOne.mockResolvedValue(null);
       mockTenantRoleService.getRoleById.mockResolvedValue(null);
 
-      await expect(
-        service.createUser(TENANT_ID, createInput, ADMIN_USER_ID),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.createUser(TENANT_ID, createInput, ADMIN_USER_ID)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     // ORPHAN-CRITICAL-100: the role-assignment write (private createRoleAssignment)
@@ -385,9 +406,9 @@ describe('UserLifecycleService', () => {
       // INSERT...SELECT source empty → RETURNING yields no row.
       mockDataSource.query.mockResolvedValueOnce([]);
 
-      await expect(
-        service.createUser(TENANT_ID, createInput, ADMIN_USER_ID),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.createUser(TENANT_ID, createInput, ADMIN_USER_ID)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -400,11 +421,13 @@ describe('UserLifecycleService', () => {
       tenantRepository.findOne.mockResolvedValue(createMockTenant());
       userRepository.count.mockResolvedValue(5);
       userRepository.findOne
-        .mockResolvedValueOnce(createMockUser({
-          id: ADMIN_USER_ID,
-          role: Role.TENANT_ADMIN,
-          tenantId: TENANT_ID,
-        }))
+        .mockResolvedValueOnce(
+          createMockUser({
+            id: ADMIN_USER_ID,
+            role: Role.TENANT_ADMIN,
+            tenantId: TENANT_ID,
+          }),
+        )
         .mockResolvedValueOnce(null);
 
       const txUserModuleAssignmentRepo = createMockRepository();
@@ -436,15 +459,13 @@ describe('UserLifecycleService', () => {
         }),
         createQueryBuilder: jest.fn(() => createMockTenantCounterBuilder()),
       };
-      mockDataSource.transaction.mockImplementationOnce(
-        async (...args: unknown[]) => {
-          const cb = args.find(
-            (arg): arg is (manager: unknown) => Promise<unknown> => typeof arg === 'function',
-          );
-          if (!cb) throw new Error('Missing transaction callback');
-          return cb(txManager);
-        },
-      );
+      mockDataSource.transaction.mockImplementationOnce(async (...args: unknown[]) => {
+        const cb = args.find(
+          (arg): arg is (manager: unknown) => Promise<unknown> => typeof arg === 'function',
+        );
+        if (!cb) throw new Error('Missing transaction callback');
+        return cb(txManager);
+      });
 
       const result = await service.adminInviteUser({
         tenantId: TENANT_ID,
@@ -480,11 +501,13 @@ describe('UserLifecycleService', () => {
       tenantRepository.findOne.mockResolvedValue(createMockTenant());
       userRepository.count.mockResolvedValue(5);
       userRepository.findOne
-        .mockResolvedValueOnce(createMockUser({
-          id: ADMIN_USER_ID,
-          role: Role.TENANT_ADMIN,
-          tenantId: TENANT_ID,
-        }))
+        .mockResolvedValueOnce(
+          createMockUser({
+            id: ADMIN_USER_ID,
+            role: Role.TENANT_ADMIN,
+            tenantId: TENANT_ID,
+          }),
+        )
         .mockResolvedValueOnce(null);
 
       const txTenantRepo = {
@@ -512,15 +535,13 @@ describe('UserLifecycleService', () => {
         }),
         createQueryBuilder: jest.fn(() => createMockTenantCounterBuilder()),
       };
-      mockDataSource.transaction.mockImplementationOnce(
-        async (...args: unknown[]) => {
-          const cb = args.find(
-            (arg): arg is (manager: unknown) => Promise<unknown> => typeof arg === 'function',
-          );
-          if (!cb) throw new Error('Missing transaction callback');
-          return cb(txManager);
-        },
-      );
+      mockDataSource.transaction.mockImplementationOnce(async (...args: unknown[]) => {
+        const cb = args.find(
+          (arg): arg is (manager: unknown) => Promise<unknown> => typeof arg === 'function',
+        );
+        if (!cb) throw new Error('Missing transaction callback');
+        return cb(txManager);
+      });
 
       const result = await service.adminInviteUser({
         tenantId: TENANT_ID,
@@ -541,6 +562,195 @@ describe('UserLifecycleService', () => {
   });
 
   // ==========================================================================
+  // Credential-wide admin mutations
+  // ==========================================================================
+
+  describe('credential-wide admin mutations', () => {
+    it('routes generic admin-api deactivation through the canonical credential fence', async () => {
+      const user = createMockUser();
+      userRepository.findOne.mockResolvedValue(user);
+      userRepository.save.mockResolvedValue(user);
+
+      await expect(service.adminUpdateUser(USER_ID, { isActive: false })).resolves.toBe(user);
+
+      expect(user.isActive).toBe(false);
+      expect(userRepository.findOne).toHaveBeenCalledWith({
+        where: { id: USER_ID },
+        lock: { mode: 'pessimistic_write' },
+      });
+      expect(userRepository.findOne.mock.invocationCallOrder[0]).toBeLessThan(
+        refreshTokenRepository.createQueryBuilder.mock.invocationCallOrder[0]!,
+      );
+      expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+        { userId: USER_ID, isRevoked: false },
+        expect.objectContaining({
+          isRevoked: true,
+          revokedReason: 'User authorization updated by administrator',
+        }),
+      );
+      expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          userId: USER_ID,
+          tenantId: TENANT_ID,
+          reason: 'logout_all_devices',
+        }),
+      );
+      expect(mockDurableUserTokenInvalidation.applyImmediately).toHaveBeenCalledTimes(1);
+    });
+
+    it('invalidates credentials when a generic admin update changes authorization claims', async () => {
+      const user = createMockUser();
+      userRepository.findOne.mockResolvedValue(user);
+      userRepository.save.mockResolvedValue(user);
+
+      const updated = await service.adminUpdateUser(USER_ID, {
+        role: Role.MODULE_MANAGER,
+      });
+
+      expect(updated.role).toBe(Role.MODULE_MANAGER);
+      expect(refreshTokenRepository.update).toHaveBeenCalledTimes(1);
+      expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenCalledTimes(1);
+      expect(mockDurableUserTokenInvalidation.applyImmediately).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps profile-only admin updates out of the credential revocation transaction', async () => {
+      const user = createMockUser();
+      userRepository.findOne.mockResolvedValue(user);
+      userRepository.save.mockResolvedValue(user);
+
+      const updated = await service.adminUpdateUser(USER_ID, { firstName: 'Renamed' });
+
+      expect(updated.firstName).toBe('Renamed');
+      expect(mockDataSource.transaction).not.toHaveBeenCalled();
+      expect(refreshTokenRepository.update).not.toHaveBeenCalled();
+      expect(mockDurableUserTokenInvalidation.enqueue).not.toHaveBeenCalled();
+    });
+
+    it('serializes admin password reset as User lock -> RefreshToken lock/update -> durable intent', async () => {
+      const user = createMockUser();
+      userRepository.findOne.mockResolvedValue(user);
+
+      const result = await service.adminResetPassword(USER_ID, 'NewPassword1!');
+
+      expect(result).toEqual({ userId: USER_ID, refreshTokensRevoked: 1 });
+      expect(userRepository.findOne).toHaveBeenCalledWith({
+        where: { id: USER_ID },
+        lock: { mode: 'pessimistic_write' },
+      });
+      expect(userRepository.findOne.mock.invocationCallOrder[0]).toBeLessThan(
+        refreshTokenRepository.createQueryBuilder.mock.invocationCallOrder[0]!,
+      );
+      expect(refreshTokenRepository.createQueryBuilder.mock.invocationCallOrder[0]).toBeLessThan(
+        refreshTokenRepository.update.mock.invocationCallOrder[0]!,
+      );
+      expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          userId: USER_ID,
+          tenantId: TENANT_ID,
+          reason: 'password_reset',
+        }),
+      );
+      expect(mockDurableUserTokenInvalidation.applyImmediately).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses the same credential fence for platform deactivation and force logout', async () => {
+      const deactivatedUser = createMockUser();
+      userRepository.findOne.mockResolvedValueOnce(deactivatedUser);
+
+      await expect(service.adminDeactivateUser(USER_ID)).resolves.toEqual({
+        userId: USER_ID,
+        refreshTokensRemoved: 1,
+      });
+
+      expect(deactivatedUser.isActive).toBe(false);
+      expect(refreshTokenRepository.update).toHaveBeenLastCalledWith(
+        { userId: USER_ID, isRevoked: false },
+        expect.objectContaining({ isRevoked: true }),
+      );
+      expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenLastCalledWith(
+        expect.anything(),
+        expect.objectContaining({ reason: 'logout_all_devices' }),
+      );
+
+      jest.clearAllMocks();
+      refreshTokenRepository.update.mockResolvedValue({
+        affected: 1,
+        raw: [],
+        generatedMaps: [],
+      });
+      const activeUser = createMockUser();
+      userRepository.findOne.mockResolvedValueOnce(activeUser);
+      mockDurableUserTokenInvalidation.enqueue.mockResolvedValue(undefined);
+      mockDurableUserTokenInvalidation.applyImmediately.mockResolvedValue(undefined);
+
+      await expect(service.adminForceLogout(USER_ID)).resolves.toEqual({
+        userId: USER_ID,
+        sessionsInvalidated: 1,
+      });
+      expect(activeUser.isActive).toBe(true);
+      expect(refreshTokenRepository.delete).not.toHaveBeenCalled();
+      expect(refreshTokenRepository.update).toHaveBeenCalledTimes(1);
+      expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not touch RefreshToken until the canonical User lock resolves', async () => {
+      let releaseUserLock: ((user: User) => void) | undefined;
+      userRepository.findOne.mockReturnValueOnce(
+        new Promise<User>((resolve) => {
+          releaseUserLock = resolve;
+        }),
+      );
+
+      const operation = service.adminForceLogout(USER_ID);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(refreshTokenRepository.createQueryBuilder).not.toHaveBeenCalled();
+      expect(refreshTokenRepository.update).not.toHaveBeenCalled();
+
+      if (!releaseUserLock) {
+        throw new Error('User-lock test gate was not initialized');
+      }
+      releaseUserLock(createMockUser());
+      await operation;
+
+      expect(refreshTokenRepository.createQueryBuilder).toHaveBeenCalledTimes(1);
+      expect(refreshTokenRepository.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails closed before commit when durable invalidation cannot be enqueued', async () => {
+      userRepository.findOne.mockResolvedValue(createMockUser());
+      mockDurableUserTokenInvalidation.enqueue.mockRejectedValueOnce(
+        new Error('outbox unavailable'),
+      );
+
+      await expect(service.adminResetPassword(USER_ID, 'NewPassword1!')).rejects.toThrow(
+        'outbox unavailable',
+      );
+
+      expect(mockDataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(mockDurableUserTokenInvalidation.applyImmediately).not.toHaveBeenCalled();
+    });
+
+    it('keeps committed revocation successful when immediate Redis application fails', async () => {
+      userRepository.findOne.mockResolvedValue(createMockUser());
+      mockDurableUserTokenInvalidation.applyImmediately.mockRejectedValueOnce(
+        new Error('redis unavailable'),
+      );
+
+      await expect(service.adminForceLogout(USER_ID)).resolves.toEqual({
+        userId: USER_ID,
+        sessionsInvalidated: 1,
+      });
+
+      expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenCalledTimes(1);
+      expect(mockDurableUserTokenInvalidation.applyImmediately).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ==========================================================================
   // deleteUser
   // ==========================================================================
 
@@ -555,6 +765,13 @@ describe('UserLifecycleService', () => {
       expect(userRepository.save).toHaveBeenCalledWith(
         expect.objectContaining({ isActive: false }),
       );
+      expect(userRepository.findOne).toHaveBeenNthCalledWith(1, {
+        where: { id: USER_ID, tenantId: TENANT_ID },
+        lock: { mode: 'pessimistic_write' },
+      });
+      expect(userRepository.findOne.mock.invocationCallOrder[0]).toBeLessThan(
+        refreshTokenRepository.createQueryBuilder.mock.invocationCallOrder[0]!,
+      );
 
       // 2. CRITICAL: Refresh tokens must be revoked
       expect(refreshTokenRepository.update).toHaveBeenCalledWith(
@@ -565,24 +782,34 @@ describe('UserLifecycleService', () => {
         }),
       );
 
-      // 3. RBAC-HIGH-002: the deleted user's LIVE access token is revoked too, so
-      // they are locked out on their next request (not just at token expiry).
-      expect(mockUserTokenRevocation.revokeUserTokens).toHaveBeenCalledWith(USER_ID);
+      // 3. The access-token invalidation intent commits durably with the
+      // credential mutation, then the low-latency Redis epoch is applied.
+      expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenCalledWith(
+        expect.objectContaining({ withRepository: expect.any(Function) }),
+        expect.objectContaining({
+          userId: USER_ID,
+          tenantId: TENANT_ID,
+          reason: 'logout_all_devices',
+        }),
+      );
+      expect(mockDurableUserTokenInvalidation.applyImmediately).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: USER_ID }),
+      );
     });
 
     it('should prevent self-deletion', async () => {
-      await expect(
-        service.deleteUser(TENANT_ID, ADMIN_USER_ID, ADMIN_USER_ID),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.deleteUser(TENANT_ID, ADMIN_USER_ID, ADMIN_USER_ID)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
     it('should prevent deleting another TENANT_ADMIN', async () => {
       const adminUser = createMockUser({ role: Role.TENANT_ADMIN });
       userRepository.findOne.mockResolvedValue(adminUser);
 
-      await expect(
-        service.deleteUser(TENANT_ID, USER_ID, ADMIN_USER_ID),
-      ).rejects.toThrow(ForbiddenException);
+      await expect(service.deleteUser(TENANT_ID, USER_ID, ADMIN_USER_ID)).rejects.toThrow(
+        ForbiddenException,
+      );
     });
 
     it('should throw NotFoundException when user does not exist in tenant', async () => {
@@ -692,9 +919,23 @@ describe('UserLifecycleService', () => {
         .mockResolvedValueOnce(createMockUser({ id: ADMIN_USER_ID })); // admin lookup
       mockAuditLogService.log.mockRejectedValueOnce(new Error('audit DB down'));
 
-      await expect(
-        service.deleteUser(TENANT_ID, USER_ID, ADMIN_USER_ID),
-      ).rejects.toThrow('audit DB down');
+      await expect(service.deleteUser(TENANT_ID, USER_ID, ADMIN_USER_ID)).rejects.toThrow(
+        'audit DB down',
+      );
+    });
+
+    it('fails closed before commit when durable deletion invalidation cannot be enqueued', async () => {
+      userRepository.findOne.mockResolvedValue(createMockUser());
+      mockDurableUserTokenInvalidation.enqueue.mockRejectedValueOnce(
+        new Error('outbox unavailable'),
+      );
+
+      await expect(service.deleteUser(TENANT_ID, USER_ID, ADMIN_USER_ID)).rejects.toThrow(
+        'outbox unavailable',
+      );
+
+      expect(mockAuditLogService.log).not.toHaveBeenCalled();
+      expect(mockDurableUserTokenInvalidation.applyImmediately).not.toHaveBeenCalled();
     });
   });
 });

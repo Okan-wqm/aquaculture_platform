@@ -10,6 +10,12 @@ data:
   NODE_ENV: "production"
   LOG_LEVEL: "info"
   NATS_URL: "nats://nats:4222"
+  # Farm monitoring remains disabled until the operator supplies the company
+  # MET identity and explicitly enables it.
+  FARM_ENVIRONMENT_MONITORING_ENABLED: "false"
+  MET_NORWAY_APPLICATION_NAME: ""
+  MET_NORWAY_CONTACT: ""
+  MET_NORWAY_FROST_CLIENT_ID: ""
 
 ---
 # ARCH-008: frontend-config uses externally reachable HTTPS URLs for module federation.

@@ -5,6 +5,7 @@
  */
 
 import {
+  Check,
   Entity,
   PrimaryGeneratedColumn,
   PrimaryColumn,
@@ -36,7 +37,12 @@ export type RestoreStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 
 @Entity('tenant_schemas', { schema: 'admin' })
 @Index(['tenantId'], { unique: true })
+@Index('UQ_admin_tenant_schemas_schema_name', ['schemaName'], { unique: true })
 @Index(['status'])
+@Check(
+  'CHK_admin_tenant_schema_identity',
+  `"schemaName" = 'tenant_' || LEFT(REPLACE("tenantId"::text, '-', ''), 16)`,
+)
 export class TenantSchema {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -278,10 +284,10 @@ export class RetiredSchemaBackup {
   @Column({ type: 'varchar', length: 100 })
   retiredByMigration!: string;
 
-  @Column({ type: 'uuid', array: true, default: () => "ARRAY[]::uuid[]" })
+  @Column({ type: 'uuid', array: true, default: () => 'ARRAY[]::uuid[]' })
   cleanupRunIds!: string[];
 
-  @Column({ type: 'uuid', array: true, default: () => "ARRAY[]::uuid[]" })
+  @Column({ type: 'uuid', array: true, default: () => 'ARRAY[]::uuid[]' })
   restoreIds!: string[];
 
   @Column({ type: 'jsonb' })
@@ -575,7 +581,11 @@ export interface HealthCheck {
  * - 'pg_stat_activity': Currently running queries (always available)
  * - 'none': All sources failed; data will be empty with an error in metadata
  */
-export type SlowQuerySource = 'slow_query_logs' | 'pg_stat_statements' | 'pg_stat_activity' | 'none';
+export type SlowQuerySource =
+  | 'slow_query_logs'
+  | 'pg_stat_statements'
+  | 'pg_stat_activity'
+  | 'none';
 
 export interface SlowQueryResultMetadata {
   total: number;

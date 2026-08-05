@@ -107,9 +107,61 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_schema_jobs_active_tenant
     'RECONCILING_SCHEMA',
     'DELETING_SCHEMA'
   );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tenant_schema_jobs_active_schema
+  ON platform.tenant_schema_jobs (schema_name)
+  WHERE status IN (
+    'REQUESTED',
+    'CLAIMED',
+    'CREATING_SCHEMA',
+    'COPYING_TABLES',
+    'APPLYING_GRANTS',
+    'HARDENING_RLS',
+    'SEEDING_LEDGER',
+    'RECONCILING_SCHEMA',
+    'DELETING_SCHEMA'
+  );
 CREATE INDEX IF NOT EXISTS idx_tenant_schema_jobs_claim
   ON platform.tenant_schema_jobs (status, created_at)
   WHERE status IN ('REQUESTED', 'CLAIMED');
+
+GRANT USAGE, CREATE ON SCHEMA platform TO db_migrate;
+
+CREATE OR REPLACE FUNCTION platform.assert_tenant_schema_identity_available(
+  p_tenant_id UUID,
+  p_schema_name TEXT
+) RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_collision BOOLEAN;
+BEGIN
+  IF to_regclass('"admin"."tenant_schemas"') IS NULL THEN
+    RAISE EXCEPTION 'admin.tenant_schemas is required before tenant schema jobs can be requested';
+  END IF;
+
+  EXECUTE $collision$
+    SELECT EXISTS (
+      SELECT 1
+        FROM admin.tenant_schemas
+       WHERE "schemaName" = $1
+         AND "tenantId" <> $2
+    )
+  $collision$
+  INTO v_collision
+  USING p_schema_name, p_tenant_id;
+
+  IF v_collision THEN
+    RAISE EXCEPTION 'Tenant schema identity collision for %', p_schema_name
+      USING ERRCODE = '23505';
+  END IF;
+END;
+$$;
+ALTER FUNCTION platform.assert_tenant_schema_identity_available(UUID, TEXT)
+  OWNER TO db_migrate;
+REVOKE ALL ON FUNCTION platform.assert_tenant_schema_identity_available(UUID, TEXT)
+  FROM PUBLIC;
 
 CREATE OR REPLACE FUNCTION platform.request_tenant_schema_provisioning(
   p_operation_id UUID,
@@ -137,6 +189,8 @@ BEGIN
   IF p_schema_name IS DISTINCT FROM ('tenant_' || LEFT(REPLACE(p_tenant_id::text, '-', ''), 16)) THEN
     RAISE EXCEPTION 'Tenant schema name % does not match tenant_id %', p_schema_name, p_tenant_id;
   END IF;
+
+  PERFORM platform.assert_tenant_schema_identity_available(p_tenant_id, p_schema_name);
 
   p_payload := COALESCE(p_payload, '{}'::jsonb);
 
@@ -237,6 +291,8 @@ BEGIN
   IF p_schema_name IS DISTINCT FROM ('tenant_' || LEFT(REPLACE(p_tenant_id::text, '-', ''), 16)) THEN
     RAISE EXCEPTION 'Tenant schema name % does not match tenant_id %', p_schema_name, p_tenant_id;
   END IF;
+
+  PERFORM platform.assert_tenant_schema_identity_available(p_tenant_id, p_schema_name);
 
   p_payload := COALESCE(p_payload, '{}'::jsonb);
 
@@ -373,6 +429,8 @@ BEGIN
     RAISE EXCEPTION 'Tenant schema name % does not match tenant_id %', p_schema_name, p_tenant_id;
   END IF;
 
+  PERFORM platform.assert_tenant_schema_identity_available(p_tenant_id, p_schema_name);
+
   IF NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = p_schema_name) THEN
     RAISE EXCEPTION 'Tenant schema reconciliation requires an existing schema: %', p_schema_name;
   END IF;
@@ -451,11 +509,111 @@ BEGIN
 END;
 $$;
 
+-- Cross-tenant workers need the full UUID to enter the same FORCE-RLS boundary
+-- as request handlers. tenant_<uuid16> is intentionally truncated and cannot
+-- be reversed, so expose db-migrate commit evidence through narrow read-only
+-- wrappers instead of granting runtime roles direct access to
+-- admin.tenant_schemas or permitting an RLS bypass. The ungranted base
+-- function owns the validation query once; callers receive only the lifecycle
+-- subset required by their job.
+CREATE OR REPLACE FUNCTION platform.list_tenant_schema_mappings(p_statuses TEXT[])
+RETURNS TABLE(
+  schema_name TEXT,
+  tenant_id UUID,
+  schema_exists BOOLEAN,
+  committed_proof BOOLEAN
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+STABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+BEGIN
+  IF p_statuses IS NULL
+     OR cardinality(p_statuses) = 0
+     OR EXISTS (
+       SELECT 1
+         FROM unnest(p_statuses) AS requested_status(status)
+        WHERE requested_status.status NOT IN (
+          'active', 'suspended', 'migrating', 'pending_deletion'
+        )
+     ) THEN
+    RAISE EXCEPTION 'tenant schema mapping status set is not allowed';
+  END IF;
+
+  IF to_regclass('"admin"."tenant_schemas"') IS NULL THEN
+    RAISE EXCEPTION 'admin.tenant_schemas is required before tenant workers can run';
+  END IF;
+
+  RETURN QUERY EXECUTE $mapping$
+    SELECT ts."schemaName"::text AS schema_name,
+           ts."tenantId"::uuid AS tenant_id,
+           EXISTS (
+             SELECT 1
+               FROM pg_catalog.pg_namespace AS namespace
+              WHERE namespace.nspname = ts."schemaName"
+           ) AS schema_exists,
+           EXISTS (
+             SELECT 1
+               FROM platform.tenant_schema_jobs AS committed_job
+              WHERE committed_job.tenant_id = ts."tenantId"
+                AND committed_job.schema_name = ts."schemaName"
+                AND committed_job.operation_id::text = ts.metadata->>'operationId'
+                AND committed_job.status = 'COMMITTED'
+           ) AS committed_proof
+      FROM admin.tenant_schemas AS ts
+     WHERE lower(COALESCE(ts.status, 'active')) = ANY ($1)
+     ORDER BY ts."schemaName"
+  $mapping$ USING p_statuses;
+END;
+$$;
+ALTER FUNCTION platform.list_tenant_schema_mappings(TEXT[]) OWNER TO db_migrate;
+
+CREATE OR REPLACE FUNCTION platform.list_active_tenant_schema_mappings()
+RETURNS TABLE(
+  schema_name TEXT,
+  tenant_id UUID,
+  schema_exists BOOLEAN,
+  committed_proof BOOLEAN
+)
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+  SELECT *
+    FROM platform.list_tenant_schema_mappings(ARRAY['active']::TEXT[])
+$$;
+ALTER FUNCTION platform.list_active_tenant_schema_mappings() OWNER TO db_migrate;
+
+CREATE OR REPLACE FUNCTION platform.list_retained_tenant_schema_mappings()
+RETURNS TABLE(
+  schema_name TEXT,
+  tenant_id UUID,
+  schema_exists BOOLEAN,
+  committed_proof BOOLEAN
+)
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+SET search_path = pg_catalog, pg_temp
+AS $$
+  SELECT *
+    FROM platform.list_tenant_schema_mappings(
+      ARRAY['active', 'suspended', 'migrating', 'pending_deletion']::TEXT[]
+    )
+$$;
+ALTER FUNCTION platform.list_retained_tenant_schema_mappings() OWNER TO db_migrate;
+
 REVOKE ALL ON platform.tenant_schema_jobs FROM PUBLIC;
 REVOKE ALL ON FUNCTION platform.request_tenant_schema_provisioning(UUID, UUID, TEXT, JSONB) FROM PUBLIC;
 REVOKE ALL ON FUNCTION platform.request_tenant_schema_deletion(UUID, UUID, TEXT, JSONB) FROM PUBLIC;
 REVOKE ALL ON FUNCTION platform.request_tenant_schema_reconciliation(UUID, UUID, TEXT, JSONB) FROM PUBLIC;
+REVOKE ALL ON FUNCTION platform.list_tenant_schema_mappings(TEXT[]) FROM PUBLIC;
+REVOKE ALL ON FUNCTION platform.list_active_tenant_schema_mappings() FROM PUBLIC;
+REVOKE ALL ON FUNCTION platform.list_retained_tenant_schema_mappings() FROM PUBLIC;
 
+GRANT USAGE ON SCHEMA platform TO farm_service;
 GRANT SELECT, INSERT, UPDATE ON platform.tenant_schema_jobs TO db_migrate;
 GRANT USAGE ON SCHEMA platform TO admin_service;
 GRANT USAGE ON SCHEMA platform TO auth_service;
@@ -465,6 +623,12 @@ GRANT EXECUTE ON FUNCTION platform.request_tenant_schema_provisioning(UUID, UUID
 GRANT EXECUTE ON FUNCTION platform.request_tenant_schema_provisioning(UUID, UUID, TEXT, JSONB) TO auth_service;
 GRANT EXECUTE ON FUNCTION platform.request_tenant_schema_deletion(UUID, UUID, TEXT, JSONB) TO admin_service;
 GRANT EXECUTE ON FUNCTION platform.request_tenant_schema_reconciliation(UUID, UUID, TEXT, JSONB) TO admin_service;
+GRANT EXECUTE ON FUNCTION platform.list_active_tenant_schema_mappings() TO farm_service;
+GRANT EXECUTE ON FUNCTION platform.list_retained_tenant_schema_mappings() TO farm_service;
 
 COMMENT ON TABLE platform.tenant_schema_jobs IS
   'Durable tenant schema provision/delete FSM. Runtime services write intent; aqua-db-migrate owns DDL and admin.tenant_schemas commit evidence.';
+COMMENT ON FUNCTION platform.list_active_tenant_schema_mappings() IS
+  'Read-only active tenant schema to full tenant UUID mapping for FORCE-RLS background workers.';
+COMMENT ON FUNCTION platform.list_retained_tenant_schema_mappings() IS
+  'Read-only committed physical tenant schema mapping for lifecycle work across active, suspended, migrating and pending-deletion tenants.';

@@ -7,11 +7,8 @@
  * GraphQL operations live in ../graphql/sites.operations (FARM-HIGH-003 Phase 5:
  * no raw operation strings or hand-rolled invalidation in the hooks).
  */
-import {
-  graphqlClient,
-  useTenantMutation,
-  useTenantQuery,
-} from '@aquaculture/shared-ui';
+import { graphqlClient, useTenantMutation, useTenantQuery } from '@aquaculture/shared-ui';
+import type { UseQueryResult } from '@tanstack/react-query';
 
 import {
   CREATE_SITE_MUTATION,
@@ -25,18 +22,40 @@ import {
 } from '../graphql/sites.operations';
 
 // Types
+export type SiteType =
+  | 'LAND_BASED'
+  | 'SEA_CAGE'
+  | 'POND'
+  | 'RACEWAY'
+  | 'RECIRCULATING'
+  | 'HATCHERY';
+
+export type GeoJsonPosition = [longitude: number, latitude: number];
+
+export interface MonitoringPolygon {
+  type: 'Polygon';
+  coordinates: GeoJsonPosition[][];
+}
+
+export interface MonitoringMultiPolygon {
+  type: 'MultiPolygon';
+  coordinates: GeoJsonPosition[][][];
+}
+
+export type MonitoringArea = MonitoringPolygon | MonitoringMultiPolygon;
+
 export interface SiteLocation {
   latitude: number;
   longitude: number;
-  altitude?: number;
+  altitude?: number | null;
 }
 
 export interface SiteAddress {
-  street?: string;
-  city?: string;
-  state?: string;
-  postalCode?: string;
-  country?: string;
+  street?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+  country?: string | null;
 }
 
 export interface Site {
@@ -44,20 +63,23 @@ export interface Site {
   name: string;
   code: string;
   /** Norwegian locality number (Akvakulturregisteret) — regulatory reports fail closed without it. */
-  lokalitetsnummer?: number;
-  organisationNumberOverride?: string;
-  type: string;
+  lokalitetsnummer?: number | null;
+  organisationNumberOverride?: string | null;
+  type: SiteType;
   status: string;
-  description?: string;
-  location?: SiteLocation;
-  address?: SiteAddress;
-  country?: string;
-  region?: string;
-  timezone?: string;
-  totalArea?: number;
-  siteManager?: string;
-  contactEmail?: string;
-  contactPhone?: string;
+  description?: string | null;
+  location?: SiteLocation | null;
+  address?: SiteAddress | null;
+  country?: string | null;
+  region?: string | null;
+  timezone?: string | null;
+  totalArea?: number | null;
+  monitoringRadiusM: number;
+  monitoringArea?: MonitoringArea | null;
+  monitoringLocationRevision: number;
+  siteManager?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -68,7 +90,7 @@ export interface CreateSiteInput {
   code: string;
   lokalitetsnummer?: number;
   organisationNumberOverride?: string;
-  type?: string;
+  type: SiteType;
   status?: string;
   description?: string;
   location?: { latitude: number; longitude: number; altitude?: number };
@@ -83,21 +105,152 @@ export interface CreateSiteInput {
   region?: string;
   timezone?: string;
   totalArea?: number;
+  monitoringRadiusM: number;
+  monitoringArea?: MonitoringArea | null;
   siteManager?: string;
   contactEmail?: string;
   contactPhone?: string;
 }
 
-export interface UpdateSiteInput extends Partial<CreateSiteInput> {
+export interface UpdateSiteInput {
   id: string;
+  name?: string;
+  code?: string;
+  lokalitetsnummer?: number | null;
+  organisationNumberOverride?: string | null;
+  type?: SiteType;
+  status?: string;
+  description?: string | null;
+  location?: { latitude: number; longitude: number; altitude?: number } | null;
+  address?: {
+    street?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    country?: string;
+  } | null;
+  country?: string | null;
+  region?: string | null;
+  timezone?: string;
+  totalArea?: number | null;
+  monitoringRadiusM?: number;
+  monitoringArea?: MonitoringArea | null;
+  siteManager?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
   isActive?: boolean;
 }
 
-interface PaginatedResponse {
+export interface PaginatedSitesResponse {
   items: Site[];
   total: number;
   page: number;
   limit: number;
+}
+
+export interface SiteListFilter {
+  status?: string;
+  isActive?: boolean;
+  country?: string;
+  region?: string;
+  search?: string;
+}
+
+const SITE_PAGE_SIZE = 100;
+const MAX_SITE_LIST_PAGES = 1_000;
+const SITE_LIST_TIMEOUT_MS = 30_000;
+
+function assertSitePageContract(
+  page: PaginatedSitesResponse,
+  expectedPage: number,
+  expectedTotal?: number,
+): void {
+  if (
+    !Number.isInteger(page.total) ||
+    page.total < 0 ||
+    page.page !== expectedPage ||
+    page.limit !== SITE_PAGE_SIZE ||
+    page.items.length > SITE_PAGE_SIZE
+  ) {
+    throw new Error('Site pagination response violated the API contract');
+  }
+  if (expectedTotal !== undefined && page.total !== expectedTotal) {
+    throw new Error('Site list changed while the authorized pages were loading');
+  }
+}
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw new DOMException('Site list request was aborted', 'AbortError');
+  }
+}
+
+async function loadAuthorizedSitePages(
+  filter: SiteListFilter | undefined,
+  querySignal: AbortSignal,
+): Promise<PaginatedSitesResponse> {
+  const controller = new AbortController();
+  const abortFromQuery = (): void => controller.abort(querySignal.reason);
+  if (querySignal.aborted) {
+    abortFromQuery();
+  } else {
+    querySignal.addEventListener('abort', abortFromQuery, { once: true });
+  }
+  const timeoutId = setTimeout(() => controller.abort(), SITE_LIST_TIMEOUT_MS);
+
+  const requestPage = async (page: number): Promise<PaginatedSitesResponse> => {
+    throwIfAborted(controller.signal);
+    const data = await graphqlClient.request<{ sites: PaginatedSitesResponse }>(
+      SITES_LIST_QUERY,
+      {
+        filter,
+        pagination: { page, limit: SITE_PAGE_SIZE },
+      },
+      { signal: controller.signal },
+    );
+    return data.sites;
+  };
+
+  try {
+    const firstPage = await requestPage(1);
+    assertSitePageContract(firstPage, 1);
+    const pageCount = Math.ceil(firstPage.total / SITE_PAGE_SIZE);
+    if (pageCount > MAX_SITE_LIST_PAGES) {
+      throw new Error('Authorized site list exceeds the supported pagination contract');
+    }
+
+    const sitesById = new Map<string, Site>();
+    for (const site of firstPage.items) {
+      if (sitesById.has(site.id)) {
+        throw new Error('Site pagination returned a duplicate authorized site');
+      }
+      sitesById.set(site.id, site);
+    }
+
+    for (let pageNumber = 2; pageNumber <= pageCount; pageNumber += 1) {
+      const page = await requestPage(pageNumber);
+      assertSitePageContract(page, pageNumber, firstPage.total);
+      for (const site of page.items) {
+        if (sitesById.has(site.id)) {
+          throw new Error('Site pagination returned a duplicate authorized site');
+        }
+        sitesById.set(site.id, site);
+      }
+    }
+
+    if (sitesById.size !== firstPage.total) {
+      throw new Error('Site pagination did not return every authorized site');
+    }
+    return {
+      items: [...sitesById.values()],
+      total: firstPage.total,
+      page: 1,
+      limit: SITE_PAGE_SIZE,
+    };
+  } finally {
+    clearTimeout(timeoutId);
+    querySignal.removeEventListener('abort', abortFromQuery);
+  }
 }
 
 // ============================================================================
@@ -107,22 +260,12 @@ interface PaginatedResponse {
 /**
  * Hook to fetch sites list
  */
-export function useSiteList(filter?: {
-  status?: string;
-  isActive?: boolean;
-  country?: string;
-  region?: string;
-  search?: string;
-}) {
-  return useTenantQuery<PaginatedResponse>(
+export function useSiteList(
+  filter?: SiteListFilter,
+): UseQueryResult<PaginatedSitesResponse, Error> {
+  return useTenantQuery<PaginatedSitesResponse>(
     ['sites', 'list', filter],
-    async () => {
-      const data = await graphqlClient.request<{ sites: PaginatedResponse }>(SITES_LIST_QUERY, {
-        filter,
-        pagination: { page: 1, limit: 100 },
-      });
-      return data.sites;
-    },
+    async ({ signal }) => loadAuthorizedSitePages(filter, signal),
     { staleTime: 30000 },
   );
 }
@@ -172,7 +315,12 @@ export function useUpdateSite() {
       });
       return data.updateSite;
     },
-    { invalidate: [['sites', 'list'], ['sites', 'detail']] },
+    {
+      invalidate: [
+        ['sites', 'list'],
+        ['sites', 'detail'],
+      ],
+    },
   );
 }
 
@@ -335,6 +483,11 @@ export function useUpsertSiteContacts() {
       );
       return data.upsertSiteContacts;
     },
-    { invalidate: [['sites', 'contacts'], ['sites', 'list']] },
+    {
+      invalidate: [
+        ['sites', 'contacts'],
+        ['sites', 'list'],
+      ],
+    },
   );
 }

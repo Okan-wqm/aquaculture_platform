@@ -32,7 +32,7 @@ export interface WatchdogScanSummary {
   bySeverity: Record<ViolationSeverity, number>;
   /** Breakdown by violation type */
   byType: Record<string, number>;
-  /** Whether any CRITICAL violations were found */
+  /** Whether CRITICAL violations exist or a scanner failure prevents a clean attestation */
   hasCritical: boolean;
   /** Schemas that were scanned */
   schemasScanned: number;
@@ -124,8 +124,14 @@ export class WatchdogRunner {
       }, timeoutMs);
 
       promise.then(
-        (result) => { clearTimeout(timer); resolve(result); },
-        (err) => { clearTimeout(timer); reject(toWatchdogError(err)); },
+        (result) => {
+          clearTimeout(timer);
+          resolve(result);
+        },
+        (err) => {
+          clearTimeout(timer);
+          reject(toWatchdogError(err));
+        },
       );
     });
   }
@@ -157,7 +163,11 @@ export class WatchdogRunner {
       scannersRun.push('SourceSchemaScanner');
       try {
         const scanner = new SourceSchemaScanner(this.dataSource);
-        const results = await this.withTimeout('SourceSchemaScanner', scanner.scan(), scannerTimeoutMs);
+        const results = await this.withTimeout(
+          'SourceSchemaScanner',
+          scanner.scan(),
+          scannerTimeoutMs,
+        );
         violations.push(...results);
         this.logger.log(`SourceSchemaScanner: ${results.length} violations found`);
       } catch (err) {
@@ -187,7 +197,11 @@ export class WatchdogRunner {
       scannersRun.push('SchemaDriftDetector');
       try {
         const detector = new SchemaDriftDetector(this.dataSource);
-        const results = await this.withTimeout('SchemaDriftDetector', detector.detect(), scannerTimeoutMs);
+        const results = await this.withTimeout(
+          'SchemaDriftDetector',
+          detector.detect(),
+          scannerTimeoutMs,
+        );
         violations.push(...results);
         this.logger.log(`SchemaDriftDetector: ${results.length} violations found`);
       } catch (err) {
@@ -231,20 +245,25 @@ export class WatchdogRunner {
       }
     } catch {
       // Fallback: count unique schemas from violations
-      schemasScanned = new Set(violations.map(v => v.schema)).size;
+      schemasScanned = new Set(violations.map((v) => v.schema)).size;
     }
 
     const summary: WatchdogScanSummary = {
       totalViolations: violations.length,
       bySeverity,
       byType,
-      hasCritical: bySeverity.CRITICAL > 0,
+      hasCritical: bySeverity.CRITICAL > 0 || scannerErrors.length > 0,
       schemasScanned,
       durationMs,
     };
 
     // Log summary
-    if (summary.hasCritical) {
+    if (scannerErrors.length > 0) {
+      this.logger.error(
+        `WATCHDOG INCOMPLETE: ${scannerErrors.length} scanner failures prevent a clean attestation. ` +
+          `Detected ${violations.length} violations across ${schemasScanned} schemas in ${durationMs}ms`,
+      );
+    } else if (summary.hasCritical) {
       this.logger.error(
         `WATCHDOG CRITICAL: ${bySeverity.CRITICAL} critical violations detected! ` +
           `Total: ${violations.length} violations across ${schemasScanned} schemas in ${durationMs}ms`,

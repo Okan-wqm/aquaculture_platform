@@ -151,7 +151,12 @@ class PressureLifecycleTests(unittest.TestCase):
         self.assertEqual(effective_workspace_pressures(self.paths, now=now)[0]["effective_state"], "archived")
 
     def test_cli_pressure_list_defaults_to_active_and_explain_shows_history(self):
-        now = datetime(2026, 5, 5, tzinfo=timezone.utc)
+        # Anchored to the wall clock, NOT a literal date: the CLI reads with
+        # the real clock (there is no --now), so a fixed detected_at is a
+        # calendar bomb — it decays past the 90-day "faded" threshold and
+        # the default active filter silently drops the fixture (this fired
+        # on 2026-08-03, exactly 90 days after the old literal).
+        now = datetime.now(timezone.utc)
         active = self._pressure("PE-cli-active", now)
         closed = self._pressure("PE-cli-closed", now)
         append_jsonl(self.paths.ledgers["pressure"], active)

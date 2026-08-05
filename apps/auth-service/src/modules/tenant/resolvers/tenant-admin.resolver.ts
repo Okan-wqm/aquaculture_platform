@@ -1,4 +1,10 @@
-import { TenantAdminOrHigher, ModuleUserOrHigher, CurrentUser } from '@aquaculture/backend-common/decorators';
+import {
+  Tenant as CurrentTenant,
+  TenantAdminOrHigher,
+  ModuleUserOrHigher,
+  CurrentUser,
+} from '@aquaculture/backend-common/decorators';
+import { ParseUUIDPipe } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID } from '@nestjs/graphql';
 
 import { User } from '../../authentication/entities/user.entity';
@@ -78,6 +84,21 @@ export class TenantAdminResolver {
     return this.tenantAdminService.getTableData(userId, input);
   }
 
+  @Query(() => [ID])
+  @TenantAdminOrHigher()
+  async userAssignedSiteIds(
+    @CurrentUser('sub') actorId: string,
+    @CurrentTenant() effectiveTenantId: string,
+    @Args('userId', { type: () => ID }, new ParseUUIDPipe({ version: '4' }))
+    targetUserId: string,
+  ): Promise<string[]> {
+    return this.tenantAdminService.getUserAssignedSiteIds(
+      actorId,
+      effectiveTenantId,
+      targetUserId,
+    );
+  }
+
   // =========================================================
   // Mutations
   // =========================================================
@@ -122,10 +143,11 @@ export class TenantAdminResolver {
   @Mutation(() => SiteAssignmentResult)
   @TenantAdminOrHigher()
   async assignUserToSite(
-    @CurrentUser('sub') userId: string,
+    @CurrentUser('sub') actorId: string,
+    @CurrentTenant() effectiveTenantId: string,
     @Args('input') input: AssignUserToSiteInput,
   ): Promise<SiteAssignmentResult> {
-    return this.tenantAdminService.assignUserToSite(userId, input);
+    return this.tenantAdminService.assignUserToSite(actorId, effectiveTenantId, input);
   }
 
   /**
@@ -134,12 +156,16 @@ export class TenantAdminResolver {
   @Mutation(() => SiteAssignmentResult)
   @TenantAdminOrHigher()
   async unassignUserFromSite(
-    @CurrentUser('sub') userId: string,
-    @Args('userId', { type: () => ID }) targetUserId: string,
-    @Args('siteId', { type: () => ID }) siteId: string,
+    @CurrentUser('sub') actorId: string,
+    @CurrentTenant() effectiveTenantId: string,
+    @Args('userId', { type: () => ID }, new ParseUUIDPipe({ version: '4' }))
+    targetUserId: string,
+    @Args('siteId', { type: () => ID }, new ParseUUIDPipe({ version: '4' }))
+    siteId: string,
   ): Promise<SiteAssignmentResult> {
     return this.tenantAdminService.unassignUserFromSite(
-      userId,
+      actorId,
+      effectiveTenantId,
       targetUserId,
       siteId,
     );

@@ -28,6 +28,10 @@ import { Entity, PrimaryGeneratedColumn, Index } from 'typeorm';
   unique: true,
   where: '"idempotencyKey" IS NOT NULL',
 })
+@Index('idx_auth_outbox_system_idempotency', ['idempotencyKey'], {
+  unique: true,
+  where: '"tenantId" IS NULL AND "idempotencyKey" IS NOT NULL',
+})
 export class AuthOutbox extends OutboxEntityBase {
   /** Override PK to UUID — base uses BIGINT increment. */
   @PrimaryGeneratedColumn('uuid')

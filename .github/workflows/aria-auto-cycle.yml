@@ -94,9 +94,7 @@ jobs:
           ref: main
           persist-credentials: false
 
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
-        with:
-          python-version: '3.12'
+      - uses: ./.github/actions/setup-aria-kernel
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -106,21 +104,6 @@ jobs:
       # tool-cache Python on the self-hosted runner ships without the
       # kernel's deps (first live run failed importing yaml inside
       # verify_workflow_preflight, ORPHAN-LOW-302).
-      - name: Install aria-kernel dependencies
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 - <<'PY'
-          import subprocess
-          import sys
-          import tomllib
-          from pathlib import Path
-
-          with Path("aria-kernel/pyproject.toml").open("rb") as fh:
-              dependencies = tomllib.load(fh).get("project", {}).get("dependencies", [])
-          if dependencies:
-              subprocess.check_call([sys.executable, "-m", "pip", "install", *dependencies])
-          PY
-
       - name: Pre-flight - Claude Code CLI present
         run: |
           set -euo pipefail
@@ -213,70 +196,15 @@ jobs:
           PY
 
       - name: Restore aria-tools state from previous run
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # Latest non-expired aria-tools-state artifact (endpoint sorts
-          # newest-first). Missing/expired → fresh bootstrap (fail-open
-          # on state; every safety gate below stays fail-closed).
-          # curl + python zipfile only — no gh/unzip runner dependency.
-          python3 - <<'PY'
-          import io
-          import json
-          import os
-          import urllib.error
-          import urllib.request
-          import zipfile
-
-          repo = os.environ["GITHUB_REPOSITORY"]
-          token = os.environ["GH_TOKEN"]
-
-          def api(url):
-              req = urllib.request.Request(url)
-              req.add_header("Authorization", f"Bearer {token}")
-              req.add_header("Accept", "application/vnd.github+json")
-              return urllib.request.urlopen(req, timeout=60)
-
-          listing_url = (
-              f"https://api.github.com/repos/{repo}/actions/artifacts"
-              "?name=aria-tools-state&per_page=5"
-          )
-          with api(listing_url) as resp:
-              artifacts = json.load(resp).get("artifacts", [])
-          live = [a for a in artifacts if not a.get("expired")]
-          if not live:
-              print("No prior aria-tools-state artifact; starting from bootstrap.")
-              raise SystemExit(0)
-          artifact = live[0]
-          print(f"Restoring aria-tools-state artifact {artifact['id']} ({artifact['created_at']})")
-          # The download endpoint answers 302 to blob storage, and the
-          # storage host REJECTS requests that still carry the GitHub
-          # Authorization header (ORPHAN-LOW-303) — resolve the redirect
-          # manually: authorized first hop, bare second hop.
-          class _NoRedirect(urllib.request.HTTPRedirectHandler):
-              def redirect_request(self, req, fp, code, msg, headers, newurl):
-                  return None
-
-          opener = urllib.request.build_opener(_NoRedirect)
-          first = urllib.request.Request(artifact["archive_download_url"])
-          first.add_header("Authorization", f"Bearer {token}")
-          first.add_header("Accept", "application/vnd.github+json")
-          try:
-              with opener.open(first, timeout=60) as resp:
-                  payload = resp.read()
-          except urllib.error.HTTPError as err:
-              if err.code not in (301, 302, 307, 308):
-                  raise
-              location = err.headers["Location"]
-              with urllib.request.urlopen(location, timeout=120) as resp:
-                  payload = resp.read()
-          os.makedirs("aria-tools", exist_ok=True)
-          with zipfile.ZipFile(io.BytesIO(payload)) as zf:
-              zf.extractall("aria-tools")
-          print("aria-tools state restored.")
-          PY
-
+        id: restore_state
+        # RC-6 — one definition, both lanes. The two hand-copied heredocs that
+        # used to sit here had already drifted: only the executor's carried the
+        # ORPHAN-CRITICAL-484/488 restore-proof outputs, so the producer lane
+        # could publish a bootstrap-empty tree over the accumulated state. The
+        # action's header records what that cost.
+        uses: ./.github/actions/restore-aria-tools-state
+        with:
+          github-token: ${{ github.token }}
       - name: Pre-flight - cross-host autonomous-loop lease check
         id: lease_check
         run: |
@@ -367,34 +295,14 @@ jobs:
       # cycle spawns no agent and needs no backend, and a hard verify on a
       # host without unprivileged user namespaces would turn a working mock
       # nightly red for a capability it never uses.
-      - name: Install sandbox backend (bubblewrap)
+      # RC-9 — one definition, called by both lanes. The pair of steps that
+      # used to sit here was duplicated between aria-agent-executor and
+      # aria-auto-cycle, with a comment saying they were copied so the lanes
+      # could not drift; copying is how they drift. The action also probes
+      # BEFORE installing, so an already-provisioned runner needs no apt call.
+      - name: Ensure a verified sandbox backend
         if: steps.lease_check.outputs.blocked != 'true' && steps.preflight.outputs.effective_mock == 'false'
-        run: |
-          set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends bubblewrap
-
-      # Assert capability, not presence. bubblewrap installs cleanly on a host
-      # with unprivileged user namespaces disabled and then fails on every
-      # invocation, so sandbox_backend() probes the namespaces it will actually
-      # use. Failing here is the point: a missing or non-functional backend must
-      # stop the job rather than silently disable containment.
-      - name: Verify the sandbox actually confines
-        if: steps.lease_check.outputs.blocked != 'true' && steps.preflight.outputs.effective_mock == 'false'
-        run: |
-          set -euo pipefail
-          PYTHONPATH=aria-kernel python3 - <<'PY'
-          import sys
-          from aria_kernel.implementation_safety import sandbox_backend
-          backend = sandbox_backend()
-          if backend is None:
-              sys.exit(
-                  "sandbox_backend_unavailable: bubblewrap is installed but could not "
-                  "build the namespaces wrap_bash_in_sandbox relies on, so "
-                  "READONLY_PATHS cannot be enforced at the syscall level"
-              )
-          print(f"sandbox backend verified: {backend}")
-          PY
+        uses: ./.github/actions/ensure-sandbox-backend
 
       - name: Run nightly standard-profile cycle
         if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
@@ -548,8 +456,15 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # RC-6 — the ORPHAN-CRITICAL-484/488 restore-proof gate the consumer
+      # lane has always carried and this producer never did. Without it a
+      # restore that failed or was skipped leaves a bootstrap-empty tree,
+      # which passes `integrity verify` (an empty tree is trivially
+      # consistent) and then overwrites the accumulated state under the
+      # canonical name. The drift was invisible while the restore was two
+      # hand-copied heredocs; it is one action now, so the outputs exist here.
       - name: Persist aria-tools state (verified)
-        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true'
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true' && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: aria-tools-state
@@ -563,7 +478,7 @@ jobs:
       # queries `name=aria-tools-state`, so quarantined trees cannot be
       # picked up as the next run's starting state.
       - name: Quarantine unverified aria-tools state
-        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid != 'true'
+        if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || (steps.restore_state.outputs.restored != 'true' && steps.restore_state.outputs.bootstrap != 'true'))
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: quarantine-evidence-${{ github.run_id }}
@@ -576,7 +491,7 @@ jobs:
           overwrite: true
 
       - name: Fail on unverified aria-tools state
-        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid != 'true'
+        if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || (steps.restore_state.outputs.restored != 'true' && steps.restore_state.outputs.bootstrap != 'true'))
         run: |
           echo "::error::aria-tools state failed integrity verification; published as quarantine-evidence-${GITHUB_RUN_ID} instead of aria-tools-state." >&2
           exit 1

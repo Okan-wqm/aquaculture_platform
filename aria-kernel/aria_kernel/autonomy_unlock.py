@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,13 @@ ACCEPTANCE_EVENT_TYPES: frozenset[str] = frozenset({
     "rollback_success",
     "critical_violation",
 })
+
+
+# The nightly lane runs once a day. Three days of slack absorbs a delayed
+# GitHub schedule (this repository's cron routinely slips ~2.5h) or a
+# single skipped night, without accepting a hole big enough to mean the
+# lane stopped. ORPHAN-HIGH-530's outage was seventeen days.
+MAX_ACCEPTANCE_GAP_HOURS = 72
 
 
 @dataclass(frozen=True)
@@ -76,11 +84,89 @@ def record_acceptance_event(
     )
 
 
+def _continuity_reasons(
+    rows: list[dict[str, Any]],
+    *,
+    now: datetime | None,
+    max_gap_hours: int,
+) -> list[str]:
+    """Refusals for evidence that is COUNTED but not CONSECUTIVE.
+
+    ORPHAN-HIGH-530. The ladder's premise is "N consecutive clean cycles
+    demonstrate stability", and counting cannot see a hole: thirty
+    successes spanning a seventeen-day outage satisfy a threshold of
+    thirty exactly as well as thirty consecutive nightly ones do. ARIA's
+    own nightly lane was dead for seventeen days while the watchdog said
+    so hourly into issue #1005, and nothing in the kernel read that — the
+    accumulated evidence stayed valid the whole time and would have gone
+    on unlocking as if operation had been continuous.
+
+    This is deliberately NOT a second watchdog. Detection already exists
+    and works; the missing half was a consumer, and the rows carry their
+    own timestamps, so the question is answerable from ARIA's own ledger
+    with no GitHub call and nothing to keep in sync.
+
+    An empty ledger produces no reason here: there is nothing to be
+    discontinuous about, and the threshold refusal is the honest one.
+    """
+    stamps: list[datetime] = []
+    for index, row in enumerate(rows):
+        raw = row.get("recorded_at")
+        parsed = _parse_stamp(raw) if isinstance(raw, str) else None
+        if parsed is None:
+            # REFUSED, not skipped. Dropping an undateable row would let a
+            # malformed or hand-written entry bridge a gap the timestamps
+            # would otherwise expose — the chain would be checked against
+            # a version of itself with the inconvenient parts removed.
+            return [
+                f"autonomy_unlock_continuity_row_undateable:index={index}:"
+                f"recorded_at={raw!r}"
+            ]
+        stamps.append(parsed)
+    if not stamps:
+        return []
+
+    stamps.sort()
+    reasons: list[str] = []
+    limit = timedelta(hours=max_gap_hours)
+    for earlier, later in zip(stamps, stamps[1:]):
+        gap = later - earlier
+        if gap > limit:
+            reasons.append(
+                "autonomy_unlock_continuity_gap:"
+                f"{int(gap.total_seconds() // 3600)}h>{max_gap_hours}h "
+                f"between {earlier.strftime('%Y-%m-%dT%H:%M:%SZ')} and "
+                f"{later.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+            )
+    if now is not None:
+        # The same rule applied to the open end. Thirty perfect cycles
+        # that all ended a month ago describe a system that WAS stable,
+        # which is not the claim an unlock rests on.
+        since = now - stamps[-1]
+        if since > limit:
+            reasons.append(
+                "autonomy_unlock_continuity_stale:"
+                f"{int(since.total_seconds() // 3600)}h>{max_gap_hours}h "
+                f"since {stamps[-1].strftime('%Y-%m-%dT%H:%M:%SZ')}"
+            )
+    return reasons
+
+
+def _parse_stamp(raw: str) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
 def verdict_from_rows(
     rows: list[dict[str, Any]],
     *,
     lane: str,
     policy: dict[str, Any] | None = None,
+    now: datetime | None = None,
+    max_gap_hours: int = MAX_ACCEPTANCE_GAP_HOURS,
 ) -> AutonomyUnlockVerdict:
     """Compute an unlock verdict from already-loaded acceptance-event rows.
 
@@ -114,6 +200,16 @@ def verdict_from_rows(
     reasons: list[str] = []
     if counts["critical_violations"] != 0:
         reasons.append("autonomy_unlock_critical_violation_present")
+    # Continuity over the SUCCESS rows the thresholds count. A violation
+    # row is not part of the "consecutive clean cycles" claim, so its
+    # timestamp must not be able to bridge a gap between them.
+    reasons.extend(
+        _continuity_reasons(
+            [row for row in rows if str(row.get("status")) == "success"],
+            now=now,
+            max_gap_hours=max_gap_hours,
+        )
+    )
     for key, required in requirements.items():
         if counts.get(key, 0) < required:
             reasons.append(f"autonomy_unlock_threshold_missing:{key}:{counts.get(key, 0)}/{required}")

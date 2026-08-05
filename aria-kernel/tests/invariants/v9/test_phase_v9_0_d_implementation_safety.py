@@ -885,6 +885,19 @@ class TestV9PublicApi(unittest.TestCase):
             # the two cannot disagree, and the canonical validation suite
             # is what the test gate requires an implementation to declare.
             "ARIA_IMPL_BRANCH_FRAGMENT", "CANONICAL_VALIDATION_COMMANDS",
+            # RC-2 — the observe/authorise split is public contract, because
+            # the whole guarantee is that an observation is a DIFFERENT TYPE
+            # from an authorisation. A caller has to be able to name the
+            # observing entry point and to reason about the type it returns;
+            # keeping them private would leave `run_hard_fail_checks` as the
+            # only reachable perimeter and put previews back on the
+            # authorising path, which is the defect RC-2 closes.
+            #
+            # Registered here deliberately rather than by relaxing the pin:
+            # this invariant exists to make an API addition a review event,
+            # and these four are that addition.
+            "observe_perimeter", "PerimeterObservation", "PerimeterVerdict",
+            "NOT_EVALUABLE_AT_THIS_STAGE",
         }
         self.assertEqual(
             set(_is.__all__), canonical,

@@ -64,9 +64,6 @@ export default defineConfig(({ mode }) => {
           __dirname,
           '../../../libs/aquaculture-engines/src/index.ts',
         ),
-        // sentinelhub-js peer deps: hoisted to root node_modules but Vite can't
-        // resolve them from nested farm-module/node_modules/@sentinel-hub/sentinelhub-js/
-        'polygon-clipping': resolve(__dirname, '../../../node_modules/polygon-clipping'),
       },
     },
     server: {

@@ -184,6 +184,54 @@ function listWorkflowFiles(): string[] {
     .sort();
 }
 
+/**
+ * Local composite actions — `.github/actions/<name>/action.yml`.
+ *
+ * A composite action's steps run inside the calling job. The runner does not
+ * distinguish them from steps written in the workflow file, and neither should
+ * a gate that scans for what those steps may not do.
+ */
+function listCompositeActionFiles(): string[] {
+  const root = path.join(REPO_ROOT, '.github', 'actions');
+  if (!fs.existsSync(root)) return [];
+  const out: string[] = [];
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    for (const candidate of ['action.yml', 'action.yaml']) {
+      const rel = path.join('.github/actions', entry.name, candidate).replaceAll(path.sep, '/');
+      if (fs.existsSync(path.join(REPO_ROOT, rel))) {
+        out.push(rel);
+        break;
+      }
+    }
+  }
+  return out.sort();
+}
+
+/**
+ * Every file whose STEPS the runner executes as part of a governed job.
+ *
+ * WHY THIS EXISTS. The three `workflows_do_not_*` checks below scanned
+ * `.github/workflows/` only. That was complete while every step lived in a
+ * workflow file — and it stopped being complete the moment a step moved into a
+ * composite action, which RC-9 did: extracting the sandbox install/verify pair
+ * into `.github/actions/ensure-sandbox-backend` carried a `continue-on-error:
+ * true` across the boundary and out of enforcement, with the gate still
+ * reporting compliance. Refactoring is not supposed to be a way through a gate.
+ *
+ * Scoped to LOCAL composite actions. A third-party `uses:` is pinned by SHA and
+ * reviewed as a dependency; scanning it would be asserting a rule over code this
+ * repository does not own.
+ *
+ * Only the three content-scan checks use this. The workflow-shaped checks
+ * (`on:` triggers, top-level `permissions:`, curated job matrices) stay on
+ * `listWorkflowFiles()` — an action.yml legitimately has none of those, and
+ * demanding them would make the gate noise, which is how gates get deleted.
+ */
+function listGovernedStepFiles(): string[] {
+  return [...listWorkflowFiles(), ...listCompositeActionFiles()];
+}
+
 function sha256File(relPath: string): string {
   return createHash('sha256').update(readFile(relPath)).digest('hex');
 }
@@ -745,35 +793,35 @@ const CHECKS: Record<string, () => CheckResult> = {
   workflows_do_not_suppress_docs_check: () => {
     const suppressionPattern =
       /(markdownlint|npm\s+run\s+(docs-check|test|lint|type-check|gates:[^\s]+)|npx\s+(jest|nx\s+affected|playwright\s+test)|cargo\s+(audit|deny))[^\n]*\|\|\s*(true|echo)/;
-    const offenders = listWorkflowFiles().filter((rel) => suppressionPattern.test(readFile(rel)));
+    const offenders = listGovernedStepFiles().filter((rel) => suppressionPattern.test(readFile(rel)));
     return check(
       'workflows_do_not_suppress_docs_check',
       'validation workflow commands do not use || true suppression',
       offenders.length === 0,
       offenders.length ? `validation suppression found in ${offenders.join(', ')}` : 'no validation || true workflow suppression found',
-      offenders.length ? offenders : listWorkflowFiles(),
+      offenders.length ? offenders : listGovernedStepFiles(),
       offenders.length
         ? offenders.map((rel) => lineRef(rel, '|| true'))
-        : listWorkflowFiles().map((rel) => lineRef(rel, 'name:')),
+        : listGovernedStepFiles().map((rel) => lineRef(rel, 'name:')),
     );
   },
 
   workflows_do_not_continue_on_error: () => {
-    const offenders = listWorkflowFiles().filter((rel) => /continue-on-error:\s*true/.test(readFile(rel)));
+    const offenders = listGovernedStepFiles().filter((rel) => /continue-on-error:\s*true/.test(readFile(rel)));
     return check(
       'workflows_do_not_continue_on_error',
       'workflow jobs do not set continue-on-error true',
       offenders.length === 0,
       offenders.length ? `continue-on-error true found in ${offenders.join(', ')}` : 'no continue-on-error true found',
-      offenders.length ? offenders : listWorkflowFiles(),
+      offenders.length ? offenders : listGovernedStepFiles(),
       offenders.length
         ? offenders.map((rel) => lineRef(rel, 'continue-on-error: true'))
-        : listWorkflowFiles().map((rel) => lineRef(rel, 'name:')),
+        : listGovernedStepFiles().map((rel) => lineRef(rel, 'name:')),
     );
   },
 
   workflows_do_not_update_baselines: () => {
-    const offenders = listWorkflowFiles().filter((rel) =>
+    const offenders = listGovernedStepFiles().filter((rel) =>
       readFile(rel).includes(DISALLOWED_WORKFLOW_UPDATE_FLAG),
     );
     return check(
@@ -783,10 +831,10 @@ const CHECKS: Record<string, () => CheckResult> = {
       offenders.length
         ? `disallowed workflow update flag found in ${offenders.join(', ')}`
         : 'no disallowed workflow update flag use found',
-      offenders.length ? offenders : listWorkflowFiles(),
+      offenders.length ? offenders : listGovernedStepFiles(),
       offenders.length
         ? offenders.map((rel) => lineRef(rel, DISALLOWED_WORKFLOW_UPDATE_FLAG))
-        : listWorkflowFiles().map((rel) => lineRef(rel, 'name:')),
+        : listGovernedStepFiles().map((rel) => lineRef(rel, 'name:')),
     );
   },
 

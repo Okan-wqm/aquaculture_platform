@@ -47,16 +47,13 @@ import {
   type RepositoryMutationAuthority,
 } from './github-actions-oidc-authority';
 import {
-  AUTOMATION_BASE_REF,
-  AUTOMATION_PUBLICATION_BRANCH_LIFECYCLE,
-  AUTOMATION_PUBLICATION_BRANCH_STRATEGY,
-  AUTOMATION_PUBLICATION_COMMIT_TRAILER_ORDER,
-  AUTOMATION_PUBLICATION_COMPARE_AND_SWAP,
-  AUTOMATION_PUBLICATION_IDEMPOTENCY,
-  AUTOMATION_PUBLICATION_PHYSICAL_BRANCH_TEMPLATE,
-  AUTOMATION_REGISTRY_LOGICAL_BRANCH,
-  AUTOMATION_REGISTRY_WRITER_WORKFLOW_REFS,
-} from './lib/automation-publication-policy';
+  FINDING_WRITER_AUTHORITY_PATH,
+  FINDING_WRITER_GOVERNED_PATHS,
+  buildFindingWriterProtocolManifest,
+  checkFindingWriterProtocolManifest,
+  renderFindingWriterProtocolManifest,
+  writeFindingWriterProtocolManifest,
+} from './lib/finding-registry-writer-authority';
 
 const childMode = process.argv[2];
 let fixtureRoot: string;
@@ -581,80 +578,21 @@ if (childMode === '--worktree-allocator-child') {
 
   void test('writer compatibility is a committed content-digest protocol, not source-text heuristics', () => {
     const repoRoot = join(fixtureRoot, 'writer-protocol');
-    const governedPaths = [
-      '.github/CODEOWNERS',
-      '.github/actions/mint-automation-app-token/action.yml',
-      '.github/manifests/automation-publication-authority.json',
-      '.github/workflows/aria-daily-report.yml',
-      '.github/workflows/automation-publication-admission.yml',
-      '.github/workflows/ci-full.yml',
-      '.github/workflows/finding-registry-authority.yml',
-      '.github/workflows/finding-state-sweep.yml',
-      '.github/workflows/rule-health-report.yml',
-      'docs/reviews/_registry/findings.jsonl.schema.json',
-      'package.json',
-      'tools/gates/finding-registry-store.ts',
-      'tools/gates/finding-registry.ts',
-      'tools/gates/finding-registry-publication.ts',
-      'tools/gates/github-actions-oidc-authority.ts',
-      'tools/gates/lib/automation-publication-policy.ts',
-      'tools/gates/lib/finding-registry-schema-contract.ts',
-      'tools/gates/lib/github-artifact-archive.ts',
-      'tools/scripts/automation/publish-automation-pr.ts',
-      'tools/scripts/automation/resolve-github-run-clock.mjs',
-      'tools/scripts/automation/tsconfig.json',
-    ];
+    const governedPaths = [...FINDING_WRITER_GOVERNED_PATHS];
     for (const relativePath of governedPaths) {
       const absolutePath = join(repoRoot, relativePath);
       mkdirSync(resolve(absolutePath, '..'), { recursive: true });
       writeFileSync(absolutePath, `${relativePath}\n`, 'utf8');
     }
-    const protocolPath = join(
-      repoRoot,
-      '.github',
-      'manifests',
-      'finding-registry-writer-authority.json',
-    );
+    const protocolPath = join(repoRoot, FINDING_WRITER_AUTHORITY_PATH);
     mkdirSync(resolve(protocolPath, '..'), { recursive: true });
-    const protocol = {
-      $schema: 'aqua/finding-registry-writer-authority/v4',
-      schema_version: 4,
-      protocol_id: 'aqua.finding-registry-writer/v5',
-      files: Object.fromEntries(
-        governedPaths.map((relativePath) => [
-          relativePath,
-          createHash('sha256')
-            .update(readFileSync(join(repoRoot, relativePath), 'utf8'))
-            .digest('hex'),
-        ]),
-      ),
-      repository_global_authority: {
-        kind: 'GITHUB_ACTIONS_OIDC_V1',
-        workflow_refs: AUTOMATION_REGISTRY_WRITER_WORKFLOW_REFS,
-        protected_ref: AUTOMATION_BASE_REF,
-        logical_branch: AUTOMATION_REGISTRY_LOGICAL_BRANCH,
-        branch_strategy: AUTOMATION_PUBLICATION_BRANCH_STRATEGY,
-        physical_branch_template: AUTOMATION_PUBLICATION_PHYSICAL_BRANCH_TEMPLATE,
-        branch_lifecycle: AUTOMATION_PUBLICATION_BRANCH_LIFECYCLE,
-        branch_ref_permissions: {
-          create: true,
-          update: false,
-          delete: false,
-        },
-        compare_and_swap: AUTOMATION_PUBLICATION_COMPARE_AND_SWAP,
-        publisher: 'GITHUB_GRAPHQL_SIGNED_COMMIT_V1',
-        publisher_credential: 'CURRENT_REPOSITORY_GITHUB_APP_INSTALLATION_V1',
-        idempotency: {
-          kind: AUTOMATION_PUBLICATION_IDEMPOTENCY,
-          required_trailers: AUTOMATION_PUBLICATION_COMMIT_TRAILER_ORDER,
-        },
-      },
-      local_fence: {
-        kind: 'GIT_COMMON_DIR_FILE_LEASE_V2',
-        lock_record_version: 2,
-      },
-    };
-    writeFileSync(protocolPath, `${JSON.stringify(protocol)}\n`, 'utf8');
+    const protocol = buildFindingWriterProtocolManifest(repoRoot);
+    assert.equal(writeFindingWriterProtocolManifest(repoRoot), true);
+    const firstGeneratedBytes = readFileSync(protocolPath, 'utf8');
+    assert.equal(firstGeneratedBytes, renderFindingWriterProtocolManifest(repoRoot));
+    assert.equal(writeFindingWriterProtocolManifest(repoRoot), false);
+    assert.equal(readFileSync(protocolPath, 'utf8'), firstGeneratedBytes);
+    assert.doesNotThrow(() => checkFindingWriterProtocolManifest(repoRoot));
     git(repoRoot, ['init', '--quiet', '--initial-branch=main']);
     git(repoRoot, ['config', 'user.email', 'finding-registry-spec@invalid.local']);
     git(repoRoot, ['config', 'user.name', 'finding-registry-spec']);
@@ -686,13 +624,9 @@ if (childMode === '--worktree-allocator-child') {
         schema_version: 2,
         protocol_id: 'aqua.finding-registry-writer/v3',
         repository_global_authority: {
-          kind: 'GITHUB_ACTIONS_OIDC_V1',
-          workflow_refs: AUTOMATION_REGISTRY_WRITER_WORKFLOW_REFS,
-          protected_ref: AUTOMATION_BASE_REF,
+          ...protocol.repository_global_authority,
           durable_branch_ref: 'refs/heads/automation/finding-registry-active',
           compare_and_swap: 'GITHUB_SHA_EXPECTED_HEAD_V1',
-          publisher: 'GITHUB_GRAPHQL_SIGNED_COMMIT_V1',
-          publisher_credential: 'CURRENT_REPOSITORY_GITHUB_APP_INSTALLATION_V1',
           idempotency: {
             kind: 'PROTECTED_MAIN_COMMIT_TRAILERS_V1',
             required_trailers: [
@@ -1169,6 +1103,96 @@ if (childMode === '--worktree-allocator-child') {
       /authority-owned or unsupported fields: state/,
     );
     assert.equal(readFileSync(resourcePath, 'utf8'), afterValid);
+
+    const invalidEvidenceStubPath = join(fixtureRoot, 'invalid-evidence-stub.json');
+    writeFileSync(
+      invalidEvidenceStubPath,
+      JSON.stringify({
+        severity: 'HIGH',
+        title: 'Canonical evidence writer validation test finding',
+        evidence: ['GitHub Actions run 123456'],
+        narrative: ['GitHub Actions run 123456 exposed the defect.'],
+        owner_agent: 'context-manager',
+        raised_in_cycle: '2026-07-17-finding-id-allocator',
+      }),
+      'utf8',
+    );
+    const invalidEvidenceExit = withRegistryFileLock(resourcePath, (lease) =>
+      appendAllocatedFinding('PROC', invalidEvidenceStubPath, lease, repositoryAuthority, {
+        registryPath: resourcePath,
+        schemaPath,
+      }),
+    );
+    assert.equal(invalidEvidenceExit, 1);
+    assert.equal(readFileSync(resourcePath, 'utf8'), afterValid);
+
+    const emptyHighEvidenceStubPath = join(fixtureRoot, 'empty-high-evidence-stub.json');
+    writeFileSync(
+      emptyHighEvidenceStubPath,
+      JSON.stringify({
+        severity: 'HIGH',
+        title: 'High-severity findings require resolvable evidence',
+        evidence: [],
+        owner_agent: 'context-manager',
+        raised_in_cycle: '2026-07-17-finding-id-allocator',
+      }),
+      'utf8',
+    );
+    const emptyHighEvidenceExit = withRegistryFileLock(resourcePath, (lease) =>
+      appendAllocatedFinding('PROC', emptyHighEvidenceStubPath, lease, repositoryAuthority, {
+        registryPath: resourcePath,
+        schemaPath,
+      }),
+    );
+    assert.equal(emptyHighEvidenceExit, 1);
+    assert.equal(readFileSync(resourcePath, 'utf8'), afterValid);
+  });
+
+  void test('canonical evidence SSOT accepts every supported path shape', async () => {
+    const resourcePath = join(fixtureRoot, 'canonical-evidence.jsonl');
+    const schemaPath = resolve(
+      __dirname,
+      '..',
+      '..',
+      'docs',
+      'reviews',
+      '_registry',
+      'findings.jsonl.schema.json',
+    );
+    const stubPath = join(fixtureRoot, 'canonical-evidence-stub.json');
+    const repositoryAuthority = await issueRepositoryMutationAuthority('add');
+    writeFileSync(resourcePath, '', 'utf8');
+    writeFileSync(
+      stubPath,
+      JSON.stringify({
+        severity: 'HIGH',
+        title: 'Every canonical evidence path shape remains accepted',
+        evidence: [
+          'file.ts',
+          'file.ts:12',
+          'file.ts:12-20',
+          'file.ts (test)',
+          'file.ts#anchor',
+          'file.ts:12 (test)',
+        ],
+        narrative: ['Free-form diagnostic prose remains valid here.'],
+        owner_agent: 'context-manager',
+        raised_in_cycle: '2026-07-17-finding-id-allocator',
+      }),
+      'utf8',
+    );
+
+    const exitCode = withRegistryFileLock(resourcePath, (lease) =>
+      appendAllocatedFinding('PROC', stubPath, lease, repositoryAuthority, {
+        registryPath: resourcePath,
+        schemaPath,
+      }),
+    );
+    assert.equal(exitCode, 0);
+    assert.match(
+      readFileSync(resourcePath, 'utf8'),
+      /"narrative":\["Free-form diagnostic prose remains valid here\."\]/,
+    );
   });
 
   void test('dead same-host stale lock is quarantined before takeover', () => {

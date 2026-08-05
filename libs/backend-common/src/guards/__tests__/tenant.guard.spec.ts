@@ -1,7 +1,4 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-} from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { ExecutionContext } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
@@ -9,7 +6,12 @@ import { TenantGuard } from '../tenant.guard';
 import { AuditLogService } from '../../audit/audit-log.service';
 import { AuditSeverity } from '../../audit/audit-log.entity';
 import { IS_PUBLIC_KEY, SKIP_TENANT_GUARD_KEY, Role } from '../../decorators/roles.decorator';
-import { JwtUser } from '../../types/tenant-request.interface';
+import {
+  JwtUser,
+  TenantRequest,
+  VerifiedServiceIdentity,
+  VerifiedUserAssertion,
+} from '../../types/tenant-request.interface';
 
 /**
  * Unit tests for TenantGuard — H-13 + BULGU-4 + ONEMLI-05 security fixes.
@@ -25,7 +27,9 @@ import { JwtUser } from '../../types/tenant-request.interface';
  */
 describe('TenantGuard', () => {
   let reflector: Reflector;
-  let auditLogService: jest.Mocked<Pick<AuditLogService, 'record' | 'recordAwait' | 'getFailureCount'>>;
+  let auditLogService: jest.Mocked<
+    Pick<AuditLogService, 'record' | 'recordAwait' | 'getFailureCount'>
+  >;
   let configService: jest.Mocked<Pick<ConfigService, 'get'>>;
 
   const TENANT_A = '11111111-1111-1111-1111-111111111111';
@@ -37,10 +41,14 @@ describe('TenantGuard', () => {
   const createMockContext = (
     user?: JwtUser,
     headers: Record<string, string | undefined> = {},
+    verifiedUserAssertion?: VerifiedUserAssertion,
+    verifiedIdentity?: VerifiedServiceIdentity,
   ): ExecutionContext => {
     const mockRequest = {
       user,
       headers,
+      verifiedUserAssertion,
+      verifiedIdentity,
       method: 'GET',
       url: '/api/test',
       ip: '127.0.0.1',
@@ -151,7 +159,11 @@ describe('TenantGuard', () => {
 
     it('should throw BadRequestException for invalid UUID tenantId', async () => {
       const guard = createGuard();
-      const context = createMockContext({ sub: 'user-1', tenantId: 'not-a-uuid', roles: [Role.MODULE_USER] });
+      const context = createMockContext({
+        sub: 'user-1',
+        tenantId: 'not-a-uuid',
+        roles: [Role.MODULE_USER],
+      });
       await expect(guard.canActivate(context)).rejects.toThrow(BadRequestException);
     });
 
@@ -165,7 +177,7 @@ describe('TenantGuard', () => {
 
       await expect(guard.canActivate(context)).resolves.toBe(true);
 
-      const request = context.switchToHttp().getRequest();
+      const request = context.switchToHttp().getRequest<TenantRequest>();
       expect(request.tenantId).toBe(TENANT_A);
     });
 
@@ -177,10 +189,7 @@ describe('TenantGuard', () => {
 
     it('should throw BadRequestException for invalid X-Act-As-Tenant UUID', async () => {
       const guard = createGuard();
-      const context = createMockContext(
-        superAdminUser(),
-        { 'x-act-as-tenant': 'bad-uuid' },
-      );
+      const context = createMockContext(superAdminUser(), { 'x-act-as-tenant': 'bad-uuid' });
       await expect(guard.canActivate(context)).rejects.toThrow(BadRequestException);
     });
   });
@@ -346,7 +355,7 @@ describe('TenantGuard', () => {
 
       await guard.canActivate(context);
 
-      const request = context.switchToHttp().getRequest();
+      const request = context.switchToHttp().getRequest<TenantRequest>();
       expect(request.tenantId).toBe(TENANT_B);
     });
   });
@@ -357,9 +366,7 @@ describe('TenantGuard', () => {
 
   describe('BULGU-4: audit write failure resilience', () => {
     it('should not block the request when audit write fails', async () => {
-      auditLogService.recordAwait.mockRejectedValueOnce(
-        new Error('DB connection lost'),
-      );
+      auditLogService.recordAwait.mockRejectedValueOnce(new Error('DB connection lost'));
       const guard = createGuard();
       const user = superAdminUser();
       const context = createMockContext(user, { 'x-act-as-tenant': TENANT_B });
@@ -369,16 +376,14 @@ describe('TenantGuard', () => {
     });
 
     it('should still set request.tenantId when audit write fails', async () => {
-      auditLogService.recordAwait.mockRejectedValueOnce(
-        new Error('DB connection lost'),
-      );
+      auditLogService.recordAwait.mockRejectedValueOnce(new Error('DB connection lost'));
       const guard = createGuard();
       const user = superAdminUser();
       const context = createMockContext(user, { 'x-act-as-tenant': TENANT_B });
 
       await guard.canActivate(context);
 
-      const request = context.switchToHttp().getRequest();
+      const request = context.switchToHttp().getRequest<TenantRequest>();
       expect(request.tenantId).toBe(TENANT_B);
     });
   });
@@ -409,9 +414,7 @@ describe('TenantGuard', () => {
       const user = superAdminUser({ mfaVerified: false });
       const context = createMockContext(user, { 'x-act-as-tenant': TENANT_B });
 
-      await expect(guard.canActivate(context)).rejects.toThrow(
-        /MFA verification is required/,
-      );
+      await expect(guard.canActivate(context)).rejects.toThrow(/MFA verification is required/);
     });
 
     it('should throw ForbiddenException when MFA is required and mfaVerified is undefined', async () => {
@@ -458,6 +461,237 @@ describe('TenantGuard', () => {
 
       // No X-Act-As-Tenant header => no cross-tenant => no MFA check
       await expect(guard.canActivate(context)).resolves.toBe(true);
+    });
+
+    it('requires MFA by default when the configuration value is absent', async () => {
+      configService.get.mockReturnValue(undefined);
+      const guard = createGuard();
+      const context = createMockContext(
+        superAdminUser({ tenantId: undefined, mfaVerified: false }),
+        {},
+        {
+          issuer: 'gateway-api',
+          subject: 'admin-001',
+          tenantId: null,
+          effectiveTenantId: TENANT_B,
+          roles: [Role.SUPER_ADMIN],
+          email: null,
+          mfaVerified: false,
+          issuedAt: new Date().toISOString(),
+        },
+      );
+
+      await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('signed effective-tenant assertion', () => {
+    it('uses the verified gateway effective tenant on auth direct-JWT paths', async () => {
+      const guard = createGuard({ mfaRequired: true });
+      const context = createMockContext(
+        superAdminUser({ tenantId: undefined, mfaVerified: true }),
+        { 'x-tenant-id': TENANT_B },
+        undefined,
+        {
+          serviceName: 'gateway-api',
+          tenantId: TENANT_B,
+          effectiveTenantId: TENANT_B,
+          keyId: 'gateway-current',
+          nonce: 'signed-auth-request',
+          version: 'v2',
+        },
+      );
+
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+      expect(context.switchToHttp().getRequest<TenantRequest>().tenantId).toBe(TENANT_B);
+      expect(auditLogService.recordAwait).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resourceId: TENANT_B,
+          actedOnTenantId: TENANT_B,
+          actorHomeTenantId: null,
+        }),
+      );
+    });
+
+    it('uses the HMAC-verified effective tenant without requiring a raw act-as header', async () => {
+      const guard = createGuard({ mfaRequired: true });
+      const context = createMockContext(
+        superAdminUser({ tenantId: undefined, mfaVerified: true }),
+        {},
+        {
+          issuer: 'gateway-api',
+          subject: 'admin-001',
+          tenantId: null,
+          effectiveTenantId: TENANT_B,
+          roles: [Role.SUPER_ADMIN],
+          email: 'admin@example.com',
+          mfaVerified: true,
+          issuedAt: new Date().toISOString(),
+          clientIp: '198.51.100.44',
+          clientUserAgent: 'signed-client-agent',
+        },
+      );
+
+      await expect(guard.canActivate(context)).resolves.toBe(true);
+
+      const request = context.switchToHttp().getRequest<TenantRequest>();
+      expect(request.tenantId).toBe(TENANT_B);
+      expect(auditLogService.recordAwait).toHaveBeenCalledWith(
+        expect.objectContaining({
+          resourceId: TENANT_B,
+          ip: '198.51.100.44',
+          userAgent: 'signed-client-agent',
+        }),
+      );
+    });
+
+    it('rejects a conflicting raw act-as header when a verified assertion is present', async () => {
+      const guard = createGuard({ mfaRequired: true });
+      const context = createMockContext(
+        superAdminUser({ tenantId: undefined, mfaVerified: true }),
+        { 'x-act-as-tenant': TENANT_A },
+        {
+          issuer: 'gateway-api',
+          subject: 'admin-001',
+          tenantId: null,
+          effectiveTenantId: TENANT_B,
+          roles: [Role.SUPER_ADMIN],
+          email: null,
+          mfaVerified: true,
+          issuedAt: new Date().toISOString(),
+        },
+      );
+
+      await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
+      expect(context.switchToHttp().getRequest<TenantRequest>().tenantId).toBeUndefined();
+      expect(auditLogService.recordAwait).not.toHaveBeenCalled();
+    });
+
+    it('rejects an assertion whose subject does not match the authenticated user', async () => {
+      const guard = createGuard({ mfaRequired: true });
+      const context = createMockContext(
+        superAdminUser({ tenantId: undefined, mfaVerified: true }),
+        {},
+        {
+          issuer: 'gateway-api',
+          subject: 'different-admin',
+          tenantId: null,
+          effectiveTenantId: TENANT_B,
+          roles: [Role.SUPER_ADMIN],
+          email: null,
+          mfaVerified: true,
+          issuedAt: new Date().toISOString(),
+        },
+      );
+
+      await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
+      expect(auditLogService.recordAwait).not.toHaveBeenCalled();
+    });
+
+    it('requires the signed gateway tenant to match the assertion in production', async () => {
+      const originalNodeEnv = process.env['NODE_ENV'];
+      process.env['NODE_ENV'] = 'production';
+      try {
+        const guard = createGuard({ mfaRequired: true });
+        const context = createMockContext(
+          superAdminUser({ tenantId: undefined, mfaVerified: true }),
+          {},
+          {
+            issuer: 'gateway-api',
+            subject: 'admin-001',
+            tenantId: null,
+            effectiveTenantId: TENANT_B,
+            roles: [Role.SUPER_ADMIN],
+            email: null,
+            mfaVerified: true,
+            issuedAt: new Date().toISOString(),
+          },
+          {
+            serviceName: 'gateway-api',
+            tenantId: TENANT_A,
+            effectiveTenantId: TENANT_A,
+            keyId: 'gateway-current',
+            nonce: 'nonce-1',
+            version: 'v2',
+          },
+        );
+
+        await expect(guard.canActivate(context)).rejects.toThrow(ForbiddenException);
+        expect(auditLogService.recordAwait).not.toHaveBeenCalled();
+      } finally {
+        if (originalNodeEnv === undefined) {
+          delete process.env['NODE_ENV'];
+        } else {
+          process.env['NODE_ENV'] = originalNodeEnv;
+        }
+      }
+    });
+  });
+
+  describe('production audit fail-closed', () => {
+    it('rejects cross-tenant access when the persistent audit port is unavailable', async () => {
+      const originalNodeEnv = process.env['NODE_ENV'];
+      process.env['NODE_ENV'] = 'production';
+      try {
+        const guard = createGuard({ withAudit: false, mfaRequired: true });
+        const context = createMockContext(
+          superAdminUser({ tenantId: undefined, mfaVerified: true }),
+          { 'x-act-as-tenant': TENANT_B },
+          undefined,
+          {
+            serviceName: 'gateway-api',
+            tenantId: TENANT_B,
+            effectiveTenantId: TENANT_B,
+            keyId: 'gateway-current',
+            nonce: 'nonce-2',
+            version: 'v2',
+          },
+        );
+
+        await expect(guard.canActivate(context)).rejects.toThrow(
+          'Cross-tenant audit trail is unavailable',
+        );
+        expect(context.switchToHttp().getRequest<TenantRequest>().tenantId).toBeUndefined();
+      } finally {
+        if (originalNodeEnv === undefined) {
+          delete process.env['NODE_ENV'];
+        } else {
+          process.env['NODE_ENV'] = originalNodeEnv;
+        }
+      }
+    });
+
+    it('rejects cross-tenant access when the persistent audit append fails', async () => {
+      const originalNodeEnv = process.env['NODE_ENV'];
+      process.env['NODE_ENV'] = 'production';
+      auditLogService.recordAwait.mockRejectedValueOnce(new Error('DB connection lost'));
+      try {
+        const guard = createGuard({ mfaRequired: true });
+        const context = createMockContext(
+          superAdminUser({ tenantId: undefined, mfaVerified: true }),
+          { 'x-act-as-tenant': TENANT_B },
+          undefined,
+          {
+            serviceName: 'gateway-api',
+            tenantId: TENANT_B,
+            effectiveTenantId: TENANT_B,
+            keyId: 'gateway-current',
+            nonce: 'nonce-3',
+            version: 'v2',
+          },
+        );
+
+        await expect(guard.canActivate(context)).rejects.toThrow(
+          'Cross-tenant audit trail is unavailable',
+        );
+        expect(context.switchToHttp().getRequest<TenantRequest>().tenantId).toBeUndefined();
+      } finally {
+        if (originalNodeEnv === undefined) {
+          delete process.env['NODE_ENV'];
+        } else {
+          process.env['NODE_ENV'] = originalNodeEnv;
+        }
+      }
     });
   });
 

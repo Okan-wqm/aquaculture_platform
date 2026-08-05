@@ -72,7 +72,8 @@ export type DriftClass =
   | 'enum_labels'
   | 'check_constraint'
   | 'encrypted_column_protection'
-  | 'per_tenant_shape_divergence';
+  | 'per_tenant_shape_divergence'
+  | 'foreign_key_presence';
 
 /**
  * Scan DB against entity metadata declarations; return a DriftReport
@@ -143,6 +144,7 @@ async function scanDrift(
     check_constraint: 0,
     encrypted_column_protection: 0,
     per_tenant_shape_divergence: 0,
+    foreign_key_presence: 0,
   };
 
   for (const entity of entities) {

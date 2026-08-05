@@ -12,13 +12,15 @@ on:
       - 'infrastructure/helm/**'
       - 'infrastructure/kubernetes/**'
       - 'infra/argocd/**'
+      - '.github/actions/setup-helm/**'
       - '.github/workflows/infra-helm-lint.yml'
   push:
-    branches: [ main ]
+    branches: [main]
     paths:
       - 'infrastructure/helm/**'
       - 'infrastructure/kubernetes/**'
       - 'infra/argocd/**'
+      - '.github/actions/setup-helm/**'
 
 # Cancel in-flight runs on the same branch when a new commit lands.
 concurrency:
@@ -26,7 +28,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  HELM_VERSION: v3.16.2
   KUBECONFORM_VERSION: v0.6.7
   CHART_DIR: infrastructure/helm/aquaculture
 
@@ -47,11 +48,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      # SEC-CI-002: pinned to SHA
       - name: Setup Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
-        with:
-          version: ${{ env.HELM_VERSION }}
+        uses: ./.github/actions/setup-helm
 
       - name: Install kubeconform
         run: |
@@ -65,13 +63,21 @@ jobs:
 
       # The NATS subchart dependency is declared in Chart.yaml. Pull it so
       # `helm lint` and `helm template` resolve the dependency graph.
+      #
+      # Shared with ci-affected.yml's Phase A4 through one composite action:
+      # the two callsites used to carry the same command as two hand-written
+      # lines, so the retry that a flaking chart registry made necessary would
+      # have had to be remembered twice. It is spelled once, and
+      # `tests/invariants/helm-dependency-single-path.spec.ts` keeps it that
+      # way.
       - name: Helm dependency update
-        working-directory: ${{ env.CHART_DIR }}
-        run: helm dependency update
+        uses: ./.github/actions/helm-dependency-update
+        with:
+          chart-dir: ${{ env.CHART_DIR }}
 
       - name: Helm lint (${{ matrix.values }})
         working-directory: ${{ env.CHART_DIR }}
-        run: helm lint . --strict --values ${{ matrix.values }}
+        run: helm lint . --strict --values ${{ matrix.values }} --values values-ci.yaml
 
       # Render the chart and schema-validate every resource. -ignore-missing-schemas
       # lets us pass for CRDs we don't vendor locally (ExternalSecret, ClusterSecretStore,

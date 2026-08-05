@@ -47,12 +47,7 @@
  * Phase 6.3 of the "Farm modülü kalan kör noktalar" plan.
  * Closes the farm-service scope of Girdi 15-C11.
  */
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import {
   DataSource,
@@ -64,6 +59,7 @@ import {
 import { OutboxPublisher } from '@platform/outbox';
 import {
   createBaseEvent,
+  tenantErasureOutcomeEventType,
   TenantDataErasedEvent,
   TenantDataErasureFailedEvent,
   TenantErasureBlockedEvent,
@@ -72,8 +68,11 @@ import {
 import {
   LegalHoldActiveError,
   LegalHoldService,
+  tenantErasureCompletionState,
+  TenantErasureExecutionState,
 } from '@aquaculture/backend-common/compliance';
 import {
+  MODULE_SCHEMAS,
   queryRowsNormalized,
   runInTenantTransaction,
 } from '@aquaculture/backend-common/database';
@@ -121,7 +120,7 @@ export interface ErasureResult {
    * HTTP filter / resolver returns 200 in both cases — the client
    * gets the same shape for both first-call and replay-call paths.
    */
-  state: 'PURGED' | 'ALREADY_PURGED' | 'BLOCKED' | 'FAILED';
+  state: TenantErasureExecutionState | 'BLOCKED' | 'FAILED';
 }
 
 /** 5-minute window between initiate() and confirm(). */
@@ -131,6 +130,7 @@ const FARM_ERASURE_PROOF_LEDGER_SCHEMA = 'farm';
 const FARM_ERASURE_PROOF_LEDGER_TABLE = 'tenant_erasure_target_proofs';
 const FARM_ERASURE_AUDIT_TABLE = 'tenant_erasure_audit';
 const FARM_OUTBOX_TABLE = 'outbox_events';
+const ERASED_USER_HASH_DOMAIN = 'aqua:farm:user-erasure:v1:';
 
 /**
  * The cross-tenant `farm.farm_audit_logs` ledger is RETAINED (never
@@ -154,7 +154,7 @@ const CROSS_TENANT_ANONYMISED_TABLE = 'farm_audit_logs';
  * "never drop — this is the legal audit trail" in their `down()`.
  *
  * The row survives the cascade; only its operator-identifying UUID
- * columns are anonymised in place (stable SHA-256 16-char prefix,
+ * columns are anonymised in place (stable domain-separated SHA-256 UUID,
  * byte-identical to the `farm_audit_logs` treatment) so no direct
  * personal identifier remains — honouring Art 17 for the personal data
  * while preserving the legally-required record. This map is the SSoT
@@ -162,11 +162,13 @@ const CROSS_TENANT_ANONYMISED_TABLE = 'farm_audit_logs';
  * hash. A table listed here is skipped by the DELETE pass and routed
  * through `anonymiseRetainedRecords` instead.
  */
-const STATUTORY_RETENTION_POLICY: ReadonlyMap<string, readonly string[]> =
-  new Map<string, readonly string[]>([
-    ['regulatory_reports', ['submittedBy']],
-    ['biomass_reports', ['generatedBy', 'submittedBy', 'confirmedBy']],
-  ]);
+const STATUTORY_RETENTION_POLICY: ReadonlyMap<string, readonly string[]> = new Map<
+  string,
+  readonly string[]
+>([
+  ['regulatory_reports', ['submittedBy']],
+  ['biomass_reports', ['generatedBy', 'submittedBy', 'confirmedBy']],
+]);
 
 interface TenantErasureStoredProofRow {
   readonly operationId: string;
@@ -181,6 +183,22 @@ interface TenantErasureStoredProofRow {
 
 interface CountRow {
   readonly count: string;
+}
+
+interface TenantTableColumnRow {
+  readonly table_name: string;
+  readonly tenant_column: string;
+}
+
+interface TenantTableForeignKeyRow {
+  readonly child_table: string;
+  readonly parent_table: string;
+}
+
+interface TenantErasureTarget {
+  readonly metadata: EntityMetadata;
+  readonly tableName: string;
+  readonly tenantColumn: string;
 }
 
 interface TenantErasureAuditRow {
@@ -229,8 +247,11 @@ export class TenantErasureService {
     };
     this.pending.set(tenantId, ticket);
     this.logger.warn(
-      `Erasure ticket issued for tenant ${tenantId.slice(0, 8)}... by user ` +
-        `${requestedBy.slice(0, 8)}... (expires ${ticket.expiresAt.toISOString()}).`,
+      JSON.stringify({
+        event: 'tenant_erasure_ticket',
+        action: 'issue',
+        outcome: 'issued',
+      }),
     );
     return ticket;
   }
@@ -275,8 +296,11 @@ export class TenantErasureService {
     const replay = await this.lookupExistingErasure(tenantId);
     if (replay) {
       this.logger.warn(
-        `Erasure REPLAY detected for tenant ${tenantId.slice(0, 8)}... — ` +
-          `original erasure at ${replay.confirmedAt}; returning cached result.`,
+        JSON.stringify({
+          event: 'tenant_erasure',
+          action: 'confirm',
+          outcome: 'already_purged',
+        }),
       );
       // Drop any stale pending ticket for this tenant so a future
       // initiate() doesn't surprise an operator with a "ticket
@@ -288,8 +312,7 @@ export class TenantErasureService {
     const ticket = this.pending.get(tenantId);
     if (!ticket) {
       throw new NotFoundException(
-        `No pending erasure ticket for tenant ${tenantId}. ` +
-          'Call initiate() first and supply the returned token within 5 minutes.',
+        'No pending erasure ticket. Start a new erasure request and submit its confirmation token within five minutes.',
       );
     }
     if (ticket.tenantId !== tenantId) {
@@ -304,10 +327,7 @@ export class TenantErasureService {
     }
     if (Date.now() > ticket.expiresAt.getTime()) {
       this.pending.delete(tenantId);
-      throw new BadRequestException(
-        `Erasure ticket for tenant ${tenantId} has expired at ` +
-          `${ticket.expiresAt.toISOString()}. Re-issue via initiate().`,
-      );
+      throw new BadRequestException('Erasure ticket has expired. Start a new erasure request.');
     }
 
     // Consume the ticket BEFORE the DELETE cascade so a retry
@@ -315,19 +335,19 @@ export class TenantErasureService {
     // same token.
     this.pending.delete(tenantId);
 
-    const result = await this.executeErasure(
-      tenantId,
-      ticket.requestedBy,
-      ticket.operationId,
-    );
+    const result = await this.executeErasure(tenantId, ticket.requestedBy, ticket.operationId);
     this.logger.warn(
-      `Erasure COMPLETED for tenant ${tenantId.slice(0, 8)}... — ` +
-        `${result.totalDeleted} rows deleted across ` +
-        `${Object.keys(result.deletedRowsByTable).length} tables; ` +
-        `${result.auditRowsAnonymised} audit rows anonymised; ` +
-        `${this.sumValues(result.retainedRowsByTable)} rows retained under ` +
-        `Art 17(3)(b) across ${Object.keys(result.retainedRowsByTable).length} ` +
-        `regulatory tables (${result.retainedRowsAnonymised} anonymised).`,
+      JSON.stringify({
+        event: 'tenant_erasure',
+        action: 'confirm',
+        outcome: 'purged',
+        deletedRowCount: result.totalDeleted,
+        deletedTableCount: Object.keys(result.deletedRowsByTable).length,
+        anonymisedAuditRowCount: result.auditRowsAnonymised,
+        retainedRowCount: this.sumValues(result.retainedRowsByTable),
+        retainedTableCount: Object.keys(result.retainedRowsByTable).length,
+        anonymisedRetainedRowCount: result.retainedRowsAnonymised,
+      }),
     );
     return result;
   }
@@ -343,9 +363,7 @@ export class TenantErasureService {
    * farm-only operations, but cross-service GDPR erasure is owned by
    * admin-api's TenantErasureRequested operation ledger.
    */
-  async eraseFromTenantErasureRequest(
-    event: TenantErasureRequestedEvent,
-  ): Promise<ErasureResult> {
+  async eraseFromTenantErasureRequest(event: TenantErasureRequestedEvent): Promise<ErasureResult> {
     const storedProof = await this.readStoredProof(event);
     if (storedProof) {
       return this.emitStoredProof(event, storedProof);
@@ -375,10 +393,25 @@ export class TenantErasureService {
         event.operationId,
         event.dryRun,
       );
-      this.logger.warn(
-        `Orchestrated erasure COMPLETED for tenant ${event.tenantId.slice(0, 8)}... — ` +
-          `${result.totalDeleted} rows deleted.`,
-      );
+      if (event.dryRun) {
+        this.logger.log(
+          JSON.stringify({
+            event: 'tenant_erasure',
+            action: 'orchestrated_dry_run',
+            outcome: 'completed',
+            matchedRowCount: result.matchedRecordCount,
+          }),
+        );
+      } else {
+        this.logger.warn(
+          JSON.stringify({
+            event: 'tenant_erasure',
+            action: 'orchestrated_purge',
+            outcome: 'completed',
+            deletedRowCount: result.totalDeleted,
+          }),
+        );
+      }
       return result;
     } catch (error) {
       await this.emitFailure(event, error, true);
@@ -389,9 +422,12 @@ export class TenantErasureService {
   /**
    * Run the actual DELETE cascade. Invoked once the token has
    * been validated. Order: leaf tables first, parent tables
-   * last — TypeORM metadata gives us the foreign-key graph so
-   * we sort topologically by inbound-FK count descending (most
-   * FK targets delete first).
+   * last. The target inventory and foreign-key graph are read from
+   * PostgreSQL after the tenant transaction has pinned and verified
+   * `current_schema()`. MODULE_SCHEMAS proves farm ownership and
+   * TypeORM metadata proves the runtime entity/tenant-column mapping;
+   * any unknown live tenant table, mapping drift, unmanaged inbound
+   * dependency, or FK cycle aborts before the first DELETE.
    *
    * The entire sequence (all DELETEs + audit anonymise + outbox
    * enqueue) runs inside a single `runInTenantTransaction()` for the
@@ -418,9 +454,6 @@ export class TenantErasureService {
     operationId: string,
     dryRun = false,
   ): Promise<ErasureResult> {
-    const entities = this.resolveTenantScopedEntities();
-    const sorted = this.topologicallySort(entities);
-
     return runInTenantTransaction(
       this.dataSource,
       FARM_SOURCE_SCHEMA,
@@ -428,20 +461,14 @@ export class TenantErasureService {
       async (queryRunner) => {
         const mgr = queryRunner.manager;
         await this.lockOperation(mgr, operationId);
-        const existingProof = await this.readStoredProofByIds(
-          mgr,
-          operationId,
-          tenantId,
-        );
+        const existingProof = await this.readStoredProofByIds(mgr, operationId, tenantId);
         if (existingProof) {
+          this.assertStoredProofMode(dryRun, existingProof);
           return {
             tenantId,
             confirmedAt: this.isoFromRow(existingProof.erasedAt),
             deletedRowsByTable: {},
-            totalDeleted: this.numberFromRow(
-              existingProof.erasedRecordCount,
-              'erasedRecordCount',
-            ),
+            totalDeleted: this.numberFromRow(existingProof.erasedRecordCount, 'erasedRecordCount'),
             matchedRecordCount: this.numberFromRow(
               existingProof.matchedRecordCount,
               'matchedRecordCount',
@@ -449,9 +476,15 @@ export class TenantErasureService {
             auditRowsAnonymised: 0,
             retainedRowsByTable: {},
             retainedRowsAnonymised: 0,
-            state: 'ALREADY_PURGED' as const,
+            state: tenantErasureCompletionState(existingProof.dryRun, true),
           };
         }
+
+        // Inventory is deliberately resolved only after runInTenantTransaction
+        // has pinned and verified current_schema(). Reading pg_catalog before
+        // that boundary could plan a destructive cascade for a stale pooled
+        // connection or the farm source schema.
+        const sorted = await this.resolveTenantErasureTargets(mgr);
 
         const deleted: Record<string, number> = {};
         const retained: Record<string, number> = {};
@@ -459,39 +492,36 @@ export class TenantErasureService {
         let totalDeleted = 0;
         let retainedRowsAnonymised = 0;
 
-        for (const meta of sorted) {
-          if (meta.tableName === CROSS_TENANT_ANONYMISED_TABLE) {
+        for (const target of sorted) {
+          if (target.tableName === CROSS_TENANT_ANONYMISED_TABLE) {
             // Audit logs are NOT deleted — they are anonymised below
             // so the compliance trail survives an erasure without
             // identifying the data subject.
             continue;
           }
 
-          const retentionColumns = STATUTORY_RETENTION_POLICY.get(
-            meta.tableName,
-          );
+          const retentionColumns = STATUTORY_RETENTION_POLICY.get(target.tableName);
           if (retentionColumns) {
             // GDPR Art 17(3)(b): government-filed regulatory record —
             // retained, not deleted. Count it (it was matched), then
             // anonymise its operator-identifying columns in place.
             try {
-              const matched = await this.countTenantRows(mgr, meta, tenantId);
+              const matched = await this.countTenantRows(mgr, target, tenantId);
               if (matched > 0) {
                 matchedRecordCount += matched;
-                retained[meta.tableName] = matched;
+                retained[target.tableName] = matched;
                 retainedRowsAnonymised += dryRun
                   ? 0
-                  : await this.anonymiseRetainedRecords(
-                      mgr,
-                      meta,
-                      tenantId,
-                      retentionColumns,
-                    );
+                  : await this.anonymiseRetainedRecords(mgr, target, tenantId, retentionColumns);
               }
             } catch (err) {
               this.logger.error(
-                `Erasure retention-anonymise failed for ${meta.tableName}: ` +
-                  `${(err as Error).message}`,
+                JSON.stringify({
+                  event: 'tenant_erasure_retention_anonymise_failed',
+                  action: 'retention_anonymise',
+                  outcome: 'failed',
+                  errorType: err instanceof Error ? err.constructor.name : 'UnknownError',
+                }),
               );
               throw err;
             }
@@ -499,18 +529,24 @@ export class TenantErasureService {
           }
 
           try {
-            const matched = await this.countTenantRows(mgr, meta, tenantId);
+            const matched = await this.countTenantRows(mgr, target, tenantId);
             matchedRecordCount += matched;
-            const erased = dryRun
-              ? 0
-              : await this.deleteTenantRows(mgr, meta, tenantId);
+            const erased = dryRun ? 0 : await this.deleteTenantRows(mgr, target, tenantId);
+            if (!dryRun && erased !== matched) {
+              throw new Error('Farm tenant erasure delete proof count mismatch');
+            }
             if (matched > 0 || erased > 0) {
-              deleted[meta.tableName] = erased;
+              deleted[target.tableName] = erased;
               totalDeleted += erased;
             }
           } catch (err) {
             this.logger.error(
-              `Erasure DELETE failed for ${meta.tableName}: ${(err as Error).message}`,
+              JSON.stringify({
+                event: 'tenant_erasure_delete_failed',
+                action: 'delete',
+                outcome: 'failed',
+                errorType: err instanceof Error ? err.constructor.name : 'UnknownError',
+              }),
             );
             throw err;
           }
@@ -518,9 +554,7 @@ export class TenantErasureService {
 
         const matchedAuditRows = await this.countAuditLogs(tenantId, mgr);
         matchedRecordCount += matchedAuditRows;
-        const auditRowsAnonymised = dryRun
-          ? 0
-          : await this.anonymiseAuditLogs(tenantId, mgr);
+        const auditRowsAnonymised = dryRun ? 0 : await this.anonymiseAuditLogs(tenantId, mgr);
         const confirmedAt = new Date().toISOString();
         const tableCount = Object.keys(deleted).length;
 
@@ -551,10 +585,14 @@ export class TenantErasureService {
         // erasure roster; only the orchestrator may emit the final
         // TenantErased proof after every target succeeds.
         const erasedEvent: TenantDataErasedEvent = {
-          ...createBaseEvent<TenantDataErasedEvent>('TenantDataErased', tenantId, {
-            aggregateId: tenantId,
-            aggregateType: 'Tenant',
-          }),
+          ...createBaseEvent<TenantDataErasedEvent>(
+            tenantErasureOutcomeEventType('farm-service', 'erased'),
+            tenantId,
+            {
+              aggregateId: tenantId,
+              aggregateType: 'Tenant',
+            },
+          ),
           timestamp: confirmedAt,
           userId: requestedBy,
           operationId,
@@ -589,7 +627,7 @@ export class TenantErasureService {
           auditRowsAnonymised,
           retainedRowsByTable: retained,
           retainedRowsAnonymised,
-          state: 'PURGED' as const,
+          state: tenantErasureCompletionState(dryRun, false),
         };
       },
     );
@@ -601,10 +639,14 @@ export class TenantErasureService {
   ): Promise<void> {
     await this.dataSource.transaction(async (mgr) => {
       const erasedEvent: TenantDataErasedEvent = {
-        ...createBaseEvent<TenantDataErasedEvent>('TenantDataErased', event.tenantId, {
-          aggregateId: event.tenantId,
-          aggregateType: 'Tenant',
-        }),
+        ...createBaseEvent<TenantDataErasedEvent>(
+          tenantErasureOutcomeEventType('farm-service', 'erased'),
+          event.tenantId,
+          {
+            aggregateId: event.tenantId,
+            aggregateType: 'Tenant',
+          },
+        ),
         timestamp: replay.confirmedAt,
         userId: event.requestedBy,
         operationId: event.operationId,
@@ -635,11 +677,7 @@ export class TenantErasureService {
   private async readStoredProof(
     event: TenantErasureRequestedEvent,
   ): Promise<TenantErasureStoredProofRow | null> {
-    return this.readStoredProofByIds(
-      this.dataSource,
-      event.operationId,
-      event.tenantId,
-    );
+    return this.readStoredProofByIds(this.dataSource, event.operationId, event.tenantId);
   }
 
   private async readStoredProofByIds(
@@ -675,22 +713,15 @@ export class TenantErasureService {
     event: TenantErasureRequestedEvent,
     storedProof: TenantErasureStoredProofRow,
   ): Promise<ErasureResult> {
+    this.assertStoredProofMode(event.dryRun, storedProof);
     return this.dataSource.transaction(async (mgr) => {
       const idempotencyKey = `tenant-erasure:${event.operationId}:farm-service`;
-      const alreadyQueued = await this.hasOutboxRow(
-        mgr,
-        event.tenantId,
-        idempotencyKey,
-      );
+      const alreadyQueued = await this.hasOutboxRow(mgr, event.tenantId, idempotencyKey);
       if (!alreadyQueued) {
-        await this.outboxPublisher.enqueue(
-          this.storedProofToEvent(event, storedProof),
-          mgr,
-          {
-            aggregateId: event.tenantId,
-            idempotencyKey,
-          },
-        );
+        await this.outboxPublisher.enqueue(this.storedProofToEvent(event, storedProof), mgr, {
+          aggregateId: event.tenantId,
+          idempotencyKey,
+        });
       }
       const matchedRecordCount = this.numberFromRow(
         storedProof.matchedRecordCount,
@@ -709,9 +740,25 @@ export class TenantErasureService {
         auditRowsAnonymised: 0,
         retainedRowsByTable: {},
         retainedRowsAnonymised: 0,
-        state: 'ALREADY_PURGED' as const,
+        state: tenantErasureCompletionState(storedProof.dryRun, true),
       };
     });
+  }
+
+  private assertStoredProofMode(
+    requestedDryRun: boolean,
+    storedProof: TenantErasureStoredProofRow,
+  ): void {
+    if (storedProof.dryRun !== requestedDryRun) {
+      throw new Error('Tenant erasure stored proof mode mismatch');
+    }
+    const erasedRecordCount = this.numberFromRow(
+      storedProof.erasedRecordCount,
+      'erasedRecordCount',
+    );
+    if (storedProof.dryRun && erasedRecordCount !== 0) {
+      throw new Error('Tenant erasure stored dry-run proof is inconsistent');
+    }
   }
 
   private storedProofToEvent(
@@ -721,7 +768,7 @@ export class TenantErasureService {
     const erasedAt = this.isoFromRow(storedProof.erasedAt);
     return {
       eventId: storedProof.eventId as TenantDataErasedEvent['eventId'],
-      eventType: 'TenantDataErased',
+      eventType: tenantErasureOutcomeEventType('farm-service', 'erased'),
       timestamp: erasedAt,
       tenantId: event.tenantId,
       version: 1,
@@ -732,22 +779,13 @@ export class TenantErasureService {
       targetService: 'farm-service',
       erasedAt,
       dryRun: storedProof.dryRun,
-      matchedRecordCount: this.numberFromRow(
-        storedProof.matchedRecordCount,
-        'matchedRecordCount',
-      ),
-      erasedRecordCount: this.numberFromRow(
-        storedProof.erasedRecordCount,
-        'erasedRecordCount',
-      ),
+      matchedRecordCount: this.numberFromRow(storedProof.matchedRecordCount, 'matchedRecordCount'),
+      erasedRecordCount: this.numberFromRow(storedProof.erasedRecordCount, 'erasedRecordCount'),
       proofHash: storedProof.proofHash,
     };
   }
 
-  private async recordProofLedger(
-    mgr: EntityManager,
-    event: TenantDataErasedEvent,
-  ): Promise<void> {
+  private async recordProofLedger(mgr: EntityManager, event: TenantDataErasedEvent): Promise<void> {
     await mgr.query(
       `
         INSERT INTO "${FARM_ERASURE_PROOF_LEDGER_SCHEMA}"."${FARM_ERASURE_PROOF_LEDGER_TABLE}" (
@@ -795,10 +833,7 @@ export class TenantErasureService {
     return Number.parseInt(rows[0]?.count ?? '0', 10) > 0;
   }
 
-  private async lockOperation(
-    mgr: EntityManager,
-    operationId: string,
-  ): Promise<void> {
+  private async lockOperation(mgr: EntityManager, operationId: string): Promise<void> {
     await mgr.query('SELECT pg_advisory_xact_lock(hashtext($1))', [
       `tenant-erasure:${operationId}:farm-service`,
     ]);
@@ -812,7 +847,7 @@ export class TenantErasureService {
       const blockedAt = new Date().toISOString();
       const blockedEvent: TenantErasureBlockedEvent = {
         ...createBaseEvent<TenantErasureBlockedEvent>(
-          'TenantErasureBlocked',
+          tenantErasureOutcomeEventType('farm-service', 'blocked'),
           event.tenantId,
           {
             aggregateId: event.tenantId,
@@ -844,7 +879,7 @@ export class TenantErasureService {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const failureEvent: TenantDataErasureFailedEvent = {
         ...createBaseEvent<TenantDataErasureFailedEvent>(
-          'TenantDataErasureFailed',
+          tenantErasureOutcomeEventType('farm-service', 'failed'),
           event.tenantId,
           {
             aggregateId: event.tenantId,
@@ -910,9 +945,7 @@ export class TenantErasureService {
    * trigger forbids UPDATE/DELETE), so we can never see a
    * mid-mutation snapshot.
    */
-  private async lookupExistingErasure(
-    tenantId: string,
-  ): Promise<ErasureResult | null> {
+  private async lookupExistingErasure(tenantId: string): Promise<ErasureResult | null> {
     const rows = queryRowsNormalized<TenantErasureAuditRow>(
       await this.dataSource.query(
         `
@@ -936,10 +969,7 @@ export class TenantErasureService {
       return null;
     }
     const totalDeleted = this.numberFromRow(row.totalDeleted, 'totalDeleted');
-    const auditRowsAnonymised = this.numberFromRow(
-      row.auditRowsAnonymised,
-      'auditRowsAnonymised',
-    );
+    const auditRowsAnonymised = this.numberFromRow(row.auditRowsAnonymised, 'auditRowsAnonymised');
     const retainedRowsByTable = row.retainedRowsByTable ?? {};
     const retainedRowsAnonymised = this.numberFromRow(
       row.retainedRowsAnonymised,
@@ -952,8 +982,7 @@ export class TenantErasureService {
       totalDeleted,
       // Reconstruct the original matched count byte-identically: deleted
       // rows + anonymised audit rows + retained (matched-but-kept) rows.
-      matchedRecordCount:
-        totalDeleted + auditRowsAnonymised + this.sumValues(retainedRowsByTable),
+      matchedRecordCount: totalDeleted + auditRowsAnonymised + this.sumValues(retainedRowsByTable),
       auditRowsAnonymised,
       retainedRowsByTable,
       retainedRowsAnonymised,
@@ -967,16 +996,14 @@ export class TenantErasureService {
    * audit history still works (linking what a now-anonymous
    * user did), but the raw userId is destroyed.
    */
-  private async anonymiseAuditLogs(
-    tenantId: string,
-    mgr: EntityManager,
-  ): Promise<number> {
+  private async anonymiseAuditLogs(tenantId: string, mgr: EntityManager): Promise<number> {
     const result = await mgr
       .createQueryBuilder()
       .update('farm.farm_audit_logs')
       .set({
         userId: () =>
-          `'hashed:' || left(encode(digest("userId"::text, 'sha256'), 'hex'), 16)`,
+          `(left(encode(digest('${ERASED_USER_HASH_DOMAIN}' || ` +
+          `"userId"::text, 'sha256'), 'hex'), 32))::uuid`,
         userName: () => "'[ERASED]'",
       })
       .where('"tenantId" = :tenantId AND "userId" IS NOT NULL', { tenantId })
@@ -989,8 +1016,8 @@ export class TenantErasureService {
    * table in place (COMPLIANCE-HIGH-003). The row is RETAINED under the
    * GDPR Art 17(3)(b) legal-obligation carve-out; only the direct
    * personal identifiers (the user-reference UUID columns) are destroyed
-   * by overwriting them with a stable SHA-256 16-char prefix — the exact
-   * expression `anonymiseAuditLogs` uses, so a hashed id is byte-identical
+   * by overwriting them with a stable domain-separated SHA-256 UUID — the exact
+   * expression `anonymiseAuditLogs` uses, so a pseudonym is byte-identical
    * whichever table carried it.
    *
    * Runs UNqualified through `meta.target` so the transaction-pinned
@@ -1001,23 +1028,22 @@ export class TenantErasureService {
    */
   private async anonymiseRetainedRecords(
     mgr: EntityManager,
-    meta: EntityMetadata,
+    target: TenantErasureTarget,
     tenantId: string,
     columns: readonly string[],
   ): Promise<number> {
     const assignments: Record<string, () => string> = {};
     for (const column of columns) {
       assignments[column] = () =>
-        `'hashed:' || left(encode(digest("${column}"::text, 'sha256'), 'hex'), 16)`;
+        `(left(encode(digest('${ERASED_USER_HASH_DOMAIN}' || ` +
+        `"${column}"::text, 'sha256'), 'hex'), 32))::uuid`;
     }
-    const anyIdentifierPresent = columns
-      .map((column) => `"${column}" IS NOT NULL`)
-      .join(' OR ');
+    const anyIdentifierPresent = columns.map((column) => `"${column}" IS NOT NULL`).join(' OR ');
     const result = await mgr
       .createQueryBuilder()
-      .update(meta.target)
+      .update(target.metadata.target)
       .set(assignments as QueryDeepPartialEntity<ObjectLiteral>)
-      .where(`"tenantId" = :tenantId AND (${anyIdentifierPresent})`, {
+      .where(`"${target.tenantColumn}" = :tenantId AND (${anyIdentifierPresent})`, {
         tenantId,
       })
       .execute();
@@ -1030,36 +1056,33 @@ export class TenantErasureService {
 
   private async countTenantRows(
     mgr: EntityManager,
-    meta: EntityMetadata,
+    target: TenantErasureTarget,
     tenantId: string,
   ): Promise<number> {
     const row = await mgr
       .createQueryBuilder()
       .select('COUNT(*)', 'count')
-      .from(meta.target, 'row')
-      .where('"tenantId" = :tenantId', { tenantId })
+      .from(target.metadata.target, 'row')
+      .where(`"${target.tenantColumn}" = :tenantId`, { tenantId })
       .getRawOne<CountRow>();
     return Number.parseInt(row?.count ?? '0', 10);
   }
 
   private async deleteTenantRows(
     mgr: EntityManager,
-    meta: EntityMetadata,
+    target: TenantErasureTarget,
     tenantId: string,
   ): Promise<number> {
     const result = await mgr
       .createQueryBuilder()
       .delete()
-      .from(meta.target)
-      .where('"tenantId" = :tenantId', { tenantId })
+      .from(target.metadata.target)
+      .where(`"${target.tenantColumn}" = :tenantId`, { tenantId })
       .execute();
     return result.affected ?? 0;
   }
 
-  private async countAuditLogs(
-    tenantId: string,
-    mgr: EntityManager,
-  ): Promise<number> {
+  private async countAuditLogs(tenantId: string, mgr: EntityManager): Promise<number> {
     const rows = queryRowsNormalized<CountRow>(
       await mgr.query(
         `SELECT COUNT(*)::text AS count
@@ -1073,48 +1096,176 @@ export class TenantErasureService {
   }
 
   /**
-   * Topological sort by inbound-FK count: tables that ARE the
-   * target of foreign keys go LAST (so child tables delete
-   * first and don't trip RESTRICT/CASCADE chains). The sort is
-   * stable and deterministic so two runs produce the same
-   * DELETE order.
+   * Build the destructive target plan from the verified tenant schema itself.
+   * Code-owned MODULE_SCHEMAS is the ownership allowlist; pg_catalog is the
+   * live table/FK truth; TypeORM metadata supplies the entity and exact physical
+   * tenant-column mapping used by the query builder. All three must agree.
    */
-  private topologicallySort(entities: EntityMetadata[]): EntityMetadata[] {
-    const inboundFkCount = new Map<string, number>();
-    for (const meta of entities) {
-      inboundFkCount.set(meta.tableName, 0);
+  private async resolveTenantErasureTargets(
+    mgr: EntityManager,
+  ): Promise<readonly TenantErasureTarget[]> {
+    const moduleSchema = MODULE_SCHEMAS.find(
+      (entry) => entry.moduleName === 'farm' && entry.sourceSchema === FARM_SOURCE_SCHEMA,
+    );
+    if (!moduleSchema) {
+      throw new Error('Farm tenant erasure ownership contract is unavailable');
     }
-    for (const meta of entities) {
-      for (const rel of meta.foreignKeys) {
-        const targetTable = rel.referencedTablePath;
-        if (inboundFkCount.has(targetTable)) {
-          inboundFkCount.set(
-            targetTable,
-            (inboundFkCount.get(targetTable) ?? 0) + 1,
-          );
+
+    const declaredTables = new Set(moduleSchema.tables);
+    const metadataByTable = new Map<string, EntityMetadata>();
+    for (const metadata of this.dataSource.entityMetadatas) {
+      if (!declaredTables.has(metadata.tableName)) {
+        continue;
+      }
+      if (metadataByTable.has(metadata.tableName)) {
+        throw new Error('Farm tenant erasure entity metadata is ambiguous');
+      }
+      metadataByTable.set(metadata.tableName, metadata);
+    }
+
+    const tableRows = queryRowsNormalized<TenantTableColumnRow>(
+      await mgr.query(`
+        SELECT
+          table_relation.relname AS table_name,
+          tenant_attribute.attname AS tenant_column
+        FROM pg_catalog.pg_class AS table_relation
+        JOIN pg_catalog.pg_namespace AS table_namespace
+          ON table_namespace.oid = table_relation.relnamespace
+        JOIN pg_catalog.pg_attribute AS tenant_attribute
+          ON tenant_attribute.attrelid = table_relation.oid
+        WHERE table_namespace.nspname = pg_catalog.current_schema()
+          AND table_relation.relkind IN ('r', 'p')
+          AND tenant_attribute.attnum > 0
+          AND NOT tenant_attribute.attisdropped
+          AND pg_catalog.regexp_replace(
+                pg_catalog.lower(tenant_attribute.attname),
+                '_',
+                '',
+                'g'
+              ) = 'tenantid'
+        ORDER BY table_relation.relname, tenant_attribute.attname
+      `),
+    );
+
+    const targetsByTable = new Map<string, TenantErasureTarget>();
+    for (const row of tableRows) {
+      if (targetsByTable.has(row.table_name)) {
+        throw new Error('Farm tenant erasure found an ambiguous live tenant-column mapping');
+      }
+      if (!declaredTables.has(row.table_name)) {
+        throw new Error('Farm tenant erasure found an undeclared tenant-bearing table');
+      }
+      const metadata = metadataByTable.get(row.table_name);
+      const tenantColumn = metadata?.columns.find((column) => column.propertyName === 'tenantId');
+      if (!metadata || !tenantColumn || tenantColumn.databaseName !== row.tenant_column) {
+        throw new Error('Farm tenant erasure entity and live tenant-column metadata disagree');
+      }
+      targetsByTable.set(row.table_name, {
+        metadata,
+        tableName: row.table_name,
+        tenantColumn: row.tenant_column,
+      });
+    }
+
+    const foreignKeys = queryRowsNormalized<TenantTableForeignKeyRow>(
+      await mgr.query(`
+        SELECT
+          child_relation.relname AS child_table,
+          parent_relation.relname AS parent_table
+        FROM pg_catalog.pg_constraint AS foreign_key
+        JOIN pg_catalog.pg_class AS child_relation
+          ON child_relation.oid = foreign_key.conrelid
+        JOIN pg_catalog.pg_namespace AS child_namespace
+          ON child_namespace.oid = child_relation.relnamespace
+        JOIN pg_catalog.pg_class AS parent_relation
+          ON parent_relation.oid = foreign_key.confrelid
+        JOIN pg_catalog.pg_namespace AS parent_namespace
+          ON parent_namespace.oid = parent_relation.relnamespace
+        WHERE foreign_key.contype = 'f'
+          AND child_namespace.nspname = pg_catalog.current_schema()
+          AND parent_namespace.nspname = pg_catalog.current_schema()
+        ORDER BY child_relation.relname, parent_relation.relname
+      `),
+    );
+
+    return this.topologicallySortLiveTargets(targetsByTable, foreignKeys);
+  }
+
+  /**
+   * Kahn sort over child -> parent edges. A child is deleted before its
+   * referenced parent. Self-references are safe because one DELETE targets the
+   * complete tenant row set for that table; cross-table cycles are rejected.
+   */
+  private topologicallySortLiveTargets(
+    targetsByTable: ReadonlyMap<string, TenantErasureTarget>,
+    foreignKeys: readonly TenantTableForeignKeyRow[],
+  ): readonly TenantErasureTarget[] {
+    const tableNames = [...targetsByTable.keys()].sort();
+    const outgoing = new Map<string, Set<string>>();
+    const indegree = new Map<string, number>();
+    for (const tableName of tableNames) {
+      outgoing.set(tableName, new Set());
+      indegree.set(tableName, 0);
+    }
+
+    for (const foreignKey of foreignKeys) {
+      const childOwned = targetsByTable.has(foreignKey.child_table);
+      const parentOwned = targetsByTable.has(foreignKey.parent_table);
+      if (!childOwned && parentOwned) {
+        throw new Error('Farm tenant erasure found an unmanaged inbound FK dependency');
+      }
+      if (!childOwned || !parentOwned || foreignKey.child_table === foreignKey.parent_table) {
+        continue;
+      }
+      const parents = outgoing.get(foreignKey.child_table);
+      if (!parents || parents.has(foreignKey.parent_table)) {
+        continue;
+      }
+      parents.add(foreignKey.parent_table);
+      indegree.set(foreignKey.parent_table, (indegree.get(foreignKey.parent_table) ?? 0) + 1);
+    }
+
+    const ready = tableNames.filter((tableName) => (indegree.get(tableName) ?? 0) === 0);
+    const ordered: TenantErasureTarget[] = [];
+    while (ready.length > 0) {
+      ready.sort();
+      const tableName = ready.shift();
+      if (!tableName) {
+        break;
+      }
+      const target = targetsByTable.get(tableName);
+      if (!target) {
+        throw new Error('Farm tenant erasure topology lost a live target');
+      }
+      ordered.push(target);
+      for (const parent of outgoing.get(tableName) ?? []) {
+        const next = (indegree.get(parent) ?? 0) - 1;
+        indegree.set(parent, next);
+        if (next === 0) {
+          ready.push(parent);
         }
       }
     }
-    return [...entities].sort((a, b) => {
-      const ca = inboundFkCount.get(a.tableName) ?? 0;
-      const cb = inboundFkCount.get(b.tableName) ?? 0;
-      if (ca !== cb) return ca - cb;
-      return a.tableName.localeCompare(b.tableName);
-    });
+
+    if (ordered.length !== tableNames.length) {
+      throw new Error('Farm tenant erasure live FK topology contains a cycle');
+    }
+    return ordered;
   }
 
-  private resolveTenantScopedEntities(): EntityMetadata[] {
-    return this.dataSource.entityMetadatas.filter((meta) =>
-      meta.columns.some((col) => col.propertyName === 'tenantId'),
-    );
-  }
-
-  /** Visible for tests — stable hash of a userId identical to the SQL expression. */
+  /** Visible for tests — stable UUID pseudonym identical to the SQL expression. */
   static hashUserId(userId: string): string {
-    return `hashed:${createHash('sha256')
-      .update(userId)
+    const hex = createHash('sha256')
+      .update(`${ERASED_USER_HASH_DOMAIN}${userId}`)
       .digest('hex')
-      .slice(0, 16)}`;
+      .slice(0, 32);
+    return [
+      hex.slice(0, 8),
+      hex.slice(8, 12),
+      hex.slice(12, 16),
+      hex.slice(16, 20),
+      hex.slice(20),
+    ].join('-');
   }
 
   private createServiceProofHash(args: {

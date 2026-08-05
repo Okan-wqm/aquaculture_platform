@@ -9,10 +9,8 @@
  * — a tenant-isolation breach. These tests pin the dispatch-boundary assertion
  * that makes that mis-route impossible (it dead-letters instead of publishing).
  */
-import {
-  assertOutboxTenantIntegrity,
-  OutboxTenantIntegrityError,
-} from '../tenant-integrity';
+import { OUTBOX_ROUTING_SCOPE_FIELD, OUTBOX_SYSTEM_TENANT_ID } from '../outbox-routing';
+import { assertOutboxTenantIntegrity, OutboxTenantIntegrityError } from '../tenant-integrity';
 
 const TENANT_A = '550e8400-e29b-41d4-a716-446655440000';
 const TENANT_B = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
@@ -20,7 +18,11 @@ const TENANT_B = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
 function row(
   tenantId: string | null,
   payloadTenantId: string | null | undefined,
-): { id: string; tenantId: string | null; payload: { eventType: string; tenantId: string | null | undefined } } {
+): {
+  id: string;
+  tenantId: string | null;
+  payload: { eventType: string; tenantId: string | null | undefined };
+} {
   return {
     id: 'row-1',
     tenantId,
@@ -36,6 +38,14 @@ describe('assertOutboxTenantIntegrity (FARM-HIGH-083)', () => {
 
     it('legacy row: null column, valid UUID payload (worker trusts the payload)', () => {
       expect(() => assertOutboxTenantIntegrity(row(null, TENANT_A))).not.toThrow();
+    });
+
+    it('explicit system row: null column, reserved tenant, and publisher attestation', () => {
+      const systemRow = row(null, OUTBOX_SYSTEM_TENANT_ID);
+      Object.assign(systemRow.payload, {
+        [OUTBOX_ROUTING_SCOPE_FIELD]: OUTBOX_SYSTEM_TENANT_ID,
+      });
+      expect(() => assertOutboxTenantIntegrity(systemRow)).not.toThrow();
     });
   });
 
@@ -66,6 +76,12 @@ describe('assertOutboxTenantIntegrity (FARM-HIGH-083)', () => {
 
     it('null column with a non-UUID payload tenantId (subject-injection shape)', () => {
       expect(() => assertOutboxTenantIntegrity(row(null, 'system'))).toThrow(
+        OutboxTenantIntegrityError,
+      );
+    });
+
+    it('rejects an unattested reserved system tenant', () => {
+      expect(() => assertOutboxTenantIntegrity(row(null, OUTBOX_SYSTEM_TENANT_ID))).toThrow(
         OutboxTenantIntegrityError,
       );
     });

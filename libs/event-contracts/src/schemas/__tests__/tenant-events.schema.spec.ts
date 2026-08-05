@@ -11,6 +11,11 @@
  */
 import { TENANT_EVENT_SCHEMAS, type TenantEventType } from '../tenant-events.schema';
 import { validateTenantEvent, type TenantEventValidationResult } from '../validator';
+import {
+  TENANT_ERASURE_OUTCOME_EVENT_TYPES_BY_TARGET,
+  TENANT_ERASURE_TARGET_SERVICES,
+  type TenantErasureOutcomeEventType,
+} from '../../tenant-erasure-targets';
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
@@ -18,7 +23,10 @@ const OP_ID = '33333333-3333-4333-8333-333333333333';
 const MODULE_ID = '44444444-4444-4444-8444-444444444444';
 const EVENT_ID = '55555555-5555-4555-8555-555555555555';
 
-function withBase(eventType: TenantEventType, payload: Record<string, unknown>): Record<string, unknown> {
+function withBase(
+  eventType: TenantEventType,
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
   return {
     eventId: EVENT_ID,
     eventType,
@@ -28,6 +36,47 @@ function withBase(eventType: TenantEventType, payload: Record<string, unknown>):
     ...payload,
   };
 }
+
+const OUTCOME_FIXTURES = Object.fromEntries(
+  TENANT_ERASURE_TARGET_SERVICES.flatMap((targetService) => {
+    const eventTypes = TENANT_ERASURE_OUTCOME_EVENT_TYPES_BY_TARGET[targetService];
+    return [
+      [
+        eventTypes.erased,
+        withBase(eventTypes.erased, {
+          operationId: OP_ID,
+          targetService,
+          erasedAt: '2026-06-12T12:00:00.000Z',
+          dryRun: false,
+          matchedRecordCount: 42,
+          erasedRecordCount: 42,
+          proofHash: 'sha256:tenant-data-erased-proof',
+        }),
+      ],
+      [
+        eventTypes.failed,
+        withBase(eventTypes.failed, {
+          operationId: OP_ID,
+          targetService,
+          failedAt: '2026-06-12T12:00:00.000Z',
+          errorCode: 'ERASURE_FAILED',
+          errorMessage: 'target erasure failed',
+          retryable: true,
+        }),
+      ],
+      [
+        eventTypes.blocked,
+        withBase(eventTypes.blocked, {
+          operationId: OP_ID,
+          blockedAt: '2026-06-12T12:00:00.000Z',
+          blockedByService: targetService,
+          reason: 'active legal hold',
+          legalMatterId: 'matter-2026-001',
+        }),
+      ],
+    ] as const;
+  }),
+) as Record<TenantErasureOutcomeEventType, Record<string, unknown>>;
 
 // Maximal fixtures — every declared field present, so a schema missing a real
 // contract field fails here via additionalProperties:false.
@@ -74,30 +123,7 @@ const VALID_FIXTURES: Record<TenantEventType, Record<string, unknown>> = {
     dryRun: false,
     targetServiceCount: 10,
   }),
-  TenantDataErased: withBase('TenantDataErased', {
-    operationId: OP_ID,
-    targetService: 'farm-service',
-    erasedAt: '2026-06-12T12:00:00.000Z',
-    dryRun: false,
-    matchedRecordCount: 42,
-    erasedRecordCount: 42,
-    proofHash: 'sha256:tenant-data-erased-proof',
-  }),
-  TenantDataErasureFailed: withBase('TenantDataErasureFailed', {
-    operationId: OP_ID,
-    targetService: 'billing-service',
-    failedAt: '2026-06-12T12:00:00.000Z',
-    errorCode: 'BILLING_LEDGER_LOCKED',
-    errorMessage: 'billing ledger locked',
-    retryable: true,
-  }),
-  TenantErasureBlocked: withBase('TenantErasureBlocked', {
-    operationId: OP_ID,
-    blockedAt: '2026-06-12T12:00:00.000Z',
-    blockedByService: 'platform-orchestrator',
-    reason: 'active legal hold',
-    legalMatterId: 'matter-2026-001',
-  }),
+  ...OUTCOME_FIXTURES,
   TenantErased: withBase('TenantErased', {
     operationId: OP_ID,
     requestedAt: '2026-06-12T11:55:00.000Z',
@@ -150,7 +176,7 @@ describe('validateTenantEvent (MEDIUM-007)', () => {
   const schemaKeys = Object.keys(TENANT_EVENT_SCHEMAS) as TenantEventType[];
 
   it('has a validator + fixture for every registered tenant event schema', () => {
-    expect(schemaKeys.length).toBe(16);
+    expect(schemaKeys.length).toBe(13 + TENANT_ERASURE_TARGET_SERVICES.length * 3);
     for (const key of schemaKeys) {
       expect(VALID_FIXTURES[key]).toBeDefined();
     }

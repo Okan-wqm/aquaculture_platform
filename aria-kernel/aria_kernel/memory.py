@@ -586,16 +586,36 @@ def _record_belief(
         raise GovernanceError("memory candidate requires belief_id and claim")
     evidence_state = _evidence_state(root, evidence_refs, cycle_id)
     repo_state = _repo_state(root, cycle_id)
-    support_count = int((existing or {}).get("support_count", 0)) + 1
+    # REPETITION IS NOT CORROBORATION.
+    #
+    # ARIA re-records the same discovery beliefs on EVERY cycle, from the
+    # same files. Both the counter and the confidence term used to move on
+    # every one of those passes, and because the term is added to
+    # `previous_confidence` rather than to the original, each pass
+    # compounded on the already-raised value: one unchanged file carried a
+    # belief from 0.605 to 0.925 in eleven observations. The system was
+    # reading its own repetition as evidence.
+    #
+    # Both halves are gated on the same fact, because fixing either alone
+    # leaves a ratchet — a frozen counter still adds its term to a rising
+    # base, and a zeroed term still lets the counter inflate a later one.
+    evidence_hashes = _evidence_hashes(root, cycle_id, evidence_refs)
+    previous_hashes = list((existing or {}).get("evidence_hashes") or [])
+    # Both sides come from `_evidence_hashes`, which returns sorted(), so
+    # this compares content and not iteration order.
+    evidence_is_new = existing is None or evidence_hashes != previous_hashes
+
+    support_count = int((existing or {}).get("support_count", 0)) + (1 if evidence_is_new else 0)
     contradiction_count = len(contradictions)
     previous_confidence = float((existing or {}).get("confidence", confidence))
     base_confidence = previous_confidence if existing else confidence
     needs_revalidation_cycles = 0
     if evidence_state["missing_concrete_refs"] or evidence_state["empty_glob_refs"]:
         needs_revalidation_cycles = int((existing or {}).get("needs_revalidation_cycles", 0)) + 1
+    support_term = min(0.05, support_count * 0.005) if evidence_is_new else 0.0
     next_confidence = _bounded_confidence(
         base_confidence
-        + min(0.05, support_count * 0.005)
+        + support_term
         + feedback_adjustment
         - needs_revalidation_cycles * 0.1
         - contradiction_count * 0.15,
@@ -619,11 +639,19 @@ def _record_belief(
         "evidence_refs": evidence_refs,
         "evidence_envelopes": _evidence_envelopes(evidence_refs, workspace_root=workspace_root),
         "first_seen_cycle": (existing or {}).get("first_seen_cycle", cycle_id),
+        # Occurrence is worth KEEPING — it just is not evidence. Dropping
+        # the count would lose a real signal (how often ARIA has looked at
+        # this), so it is recorded where nothing reads it into confidence:
+        # the observation survives without getting a vote.
+        # `last_seen_cycle` is NOT set here — the freshness helper every
+        # belief writer must call already stamps it, and a field with two
+        # writers is a field that drifts.
+        "observation_count": int((existing or {}).get("observation_count", 0)) + 1,
         "support_count": support_count,
         "contradiction_count": contradiction_count,
         "needs_revalidation_cycles": needs_revalidation_cycles,
         "evidence_state": evidence_state,
-        "evidence_hashes": _evidence_hashes(root, cycle_id, evidence_refs),
+        "evidence_hashes": evidence_hashes,
         "verification_status": verification_status,
         "source_tool_ids": sorted(set(source_tool_ids or (existing or {}).get("source_tool_ids", []))),
         "glob_match_history": _next_glob_history(existing, cycle_id, evidence_state),

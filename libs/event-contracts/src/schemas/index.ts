@@ -9,6 +9,8 @@ export {
   type TenantEventValidationResult,
   validateAuthEvent,
   type AuthEventValidationResult,
+  isUserAccessTokenInvalidationRequestedEvent,
+  isAccessTokenInvalidationRequestedEvent,
   validateIngestBackendPolicyEvent,
   type IngestBackendPolicyEventValidationResult,
   validateFinanceEvent,

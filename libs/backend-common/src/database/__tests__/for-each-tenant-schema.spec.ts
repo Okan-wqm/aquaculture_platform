@@ -14,8 +14,9 @@ import { forEachTenantSchema } from '../for-each-tenant-schema';
 function makeDataSource(schemas: string[]): {
   dataSource: DataSource;
   readonly releases: number;
+  readonly tenantQueries: readonly string[];
 } {
-  const counters = { releases: 0 };
+  const counters = { releases: 0, tenantQueries: [] as string[] };
   const ds = new DataSource({
     type: 'postgres',
     host: '127.0.0.1',
@@ -52,8 +53,10 @@ function makeDataSource(schemas: string[]): {
       },
       // QueryRunner.query is overloaded; a variadic unknown-returning stub
       // overlaps every overload so the targeted assertion is legal.
-      query: ((..._args: unknown[]): Promise<unknown> =>
-        Promise.resolve([])) as QueryRunner['query'],
+      query: ((...args: unknown[]): Promise<unknown> => {
+        counters.tenantQueries.push(String(args[0]));
+        return Promise.resolve([]);
+      }) as QueryRunner['query'],
       release: () => {
         counters.releases += 1;
         return Promise.resolve();
@@ -67,11 +70,13 @@ function makeDataSource(schemas: string[]): {
     get releases() {
       return counters.releases;
     },
+    get tenantQueries() {
+      return counters.tenantQueries;
+    },
   };
 }
 
-const delay = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 afterEach(() => jest.restoreAllMocks());
 
@@ -94,9 +99,7 @@ describe('forEachTenantSchema', () => {
   });
 
   it('bounds concurrency to the configured cap', async () => {
-    const { dataSource } = makeDataSource(
-      Array.from({ length: 8 }, (_, i) => `tenant_${i}`),
-    );
+    const { dataSource } = makeDataSource(Array.from({ length: 8 }, (_, i) => `tenant_${i}`));
     let inFlight = 0;
     let maxInFlight = 0;
 
@@ -139,15 +142,41 @@ describe('forEachTenantSchema', () => {
     expect(results.filter((r) => r.outcome === 'ok')).toHaveLength(2);
   });
 
-  it('times out a hung tenant and continues to the rest', async () => {
+  it('logs only a stable outcome without tenant or provider error identifiers', async () => {
+    const { dataSource } = makeDataSource(['tenant_sensitive']);
+    const logger = { warn: jest.fn(), error: jest.fn() };
+
+    await forEachTenantSchema(
+      dataSource,
+      () => Promise.reject(new Error('provider-secret-detail')),
+      { concurrency: 1, perTenantTimeoutMs: 0, logger },
+    );
+
+    expect(logger.error).toHaveBeenCalledWith('action=tenant_schema_fanout outcome=error');
+    const logged = JSON.stringify(logger.error.mock.calls);
+    expect(logged).not.toContain('tenant_sensitive');
+    expect(logged).not.toContain('provider-secret-detail');
+  });
+
+  it('aborts and drains a timed-out tenant before continuing to the rest', async () => {
     const { dataSource } = makeDataSource(['tenant_a', 'tenant_b']);
     const completed: string[] = [];
 
     const results = await forEachTenantSchema(
       dataSource,
-      async ({ schema }) => {
+      async ({ schema, signal }) => {
         if (schema === 'tenant_a') {
-          await delay(10_000); // hang well past the deadline
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(resolve, 10_000);
+            signal.addEventListener(
+              'abort',
+              () => {
+                clearTimeout(timer);
+                reject(new Error('aborted'));
+              },
+              { once: true },
+            );
+          });
         }
         completed.push(schema);
       },
@@ -159,6 +188,62 @@ describe('forEachTenantSchema', () => {
     expect(a?.outcome).toBe('timeout');
     expect(b?.outcome).toBe('ok');
     expect(completed).toContain('tenant_b'); // the hung tenant did not block it
+  });
+
+  it('classifies a directly abort-rejecting handler deterministically as timeout', async () => {
+    const { dataSource } = makeDataSource(['tenant_a']);
+
+    const results = await forEachTenantSchema(
+      dataSource,
+      ({ signal }) =>
+        new Promise<void>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('direct abort')), {
+            once: true,
+          });
+        }),
+      { concurrency: 1, perTenantTimeoutMs: 20 },
+    );
+
+    expect(results[0]?.outcome).toBe('timeout');
+    expect(results[0]?.error).toBeInstanceOf(Error);
+    expect(results[0]?.error?.name).toBe('TenantSchemaTimeoutError');
+  });
+
+  it('drains cooperative abort cleanup before releasing the tenant connection', async () => {
+    const harness = makeDataSource(['tenant_a']);
+    let cleanupComplete = false;
+
+    const results = await forEachTenantSchema(
+      harness.dataSource,
+      ({ signal }) =>
+        new Promise<void>((_resolve, reject) => {
+          signal.addEventListener(
+            'abort',
+            () => {
+              setTimeout(() => {
+                cleanupComplete = true;
+                reject(new Error('cleanup complete'));
+              }, 5);
+            },
+            { once: true },
+          );
+        }),
+      { concurrency: 1, perTenantTimeoutMs: 20 },
+    );
+
+    expect(results[0]?.outcome).toBe('timeout');
+    expect(cleanupComplete).toBe(true);
+    expect(harness.releases).toBe(1);
+  });
+
+  it('bounds DB statements by a shorter per-tenant deadline by default', async () => {
+    const harness = makeDataSource(['tenant_a']);
+
+    await forEachTenantSchema(harness.dataSource, () => Promise.resolve(), {
+      perTenantTimeoutMs: 30_000,
+    });
+
+    expect(harness.tenantQueries).toContain('SET LOCAL statement_timeout = 30000');
   });
 
   it('rotates the start order by rotateBy', async () => {
@@ -180,11 +265,10 @@ describe('forEachTenantSchema', () => {
   it('releases the QueryRunner even when the handler throws', async () => {
     const harness = makeDataSource(['tenant_a', 'tenant_b']);
 
-    await forEachTenantSchema(
-      harness.dataSource,
-      () => Promise.reject(new Error('always fails')),
-      { concurrency: 1, perTenantTimeoutMs: 0 },
-    );
+    await forEachTenantSchema(harness.dataSource, () => Promise.reject(new Error('always fails')), {
+      concurrency: 1,
+      perTenantTimeoutMs: 0,
+    });
 
     expect(harness.releases).toBe(2); // released once per schema despite throwing
   });

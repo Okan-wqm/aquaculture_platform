@@ -46,7 +46,7 @@ export const DEFAULT_NATS_URL = 'nats://localhost:4222';
  *                                    REQUIRED in production (server enforces mTLS
  *                                    with verify: true). Paired with NATS_TLS_KEY.
  *                                    Generate with infrastructure/docker/scripts/
- *                                    generate-internal-certs.sh (client-cert.pem).
+ *                                    generate-internal-certs.sh (clients/<identity>-cert.pem).
  *   NATS_TLS_KEY                   — filesystem path to the client private key PEM.
  *   NATS_TLS_INSECURE_ALLOW        — set to `true` to disable TLS hard-failure when
  *                                    no CA is supplied. Only intended for local-dev
@@ -326,8 +326,8 @@ export function buildNatsConnectionOptions(serviceName?: string): {
           const msg = err instanceof Error ? err.message : String(err);
           throw new Error(
             `[nats-connection.factory] mTLS client cert/key could not be read: ${msg}. ` +
-              'Check that certs/nats/client-cert.pem and client-key.pem are ' +
-              'mounted into the container and the paths match NATS_TLS_CERT / NATS_TLS_KEY.',
+              "Check that only this runtime identity's certs/nats/clients/<identity>-cert.pem " +
+              'and <identity>-key.pem are mounted and match NATS_TLS_CERT / NATS_TLS_KEY.',
           );
         }
         if (!certPem.includes('BEGIN CERTIFICATE')) {

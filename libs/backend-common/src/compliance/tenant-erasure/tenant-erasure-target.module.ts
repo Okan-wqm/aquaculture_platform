@@ -18,6 +18,7 @@ import { DataSource } from 'typeorm';
 
 import { LegalHoldModule, LegalHoldService } from '../legal-hold';
 
+import { TENANT_ERASURE_REQUEST_SUBSCRIPTION_OPTIONS } from './tenant-erasure-subscription.options';
 import {
   TenantErasureTargetExecutor,
   type TenantErasurePostErasureHook,
@@ -25,18 +26,14 @@ import {
 } from './tenant-erasure-target-executor';
 import { getTenantErasureTargetOptions } from './tenant-erasure-target-registry';
 
-export const TENANT_ERASURE_TARGET_OPTIONS = Symbol(
-  'TENANT_ERASURE_TARGET_OPTIONS',
-);
+export const TENANT_ERASURE_TARGET_OPTIONS = Symbol('TENANT_ERASURE_TARGET_OPTIONS');
 
 /**
  * Array of TenantErasurePostErasureHook instances the executor invokes inside
  * the erasure transaction. Always bound by forService() — an empty array for
  * services without hooks — so the handler needs no optional injection.
  */
-export const TENANT_ERASURE_POST_ERASURE_HOOKS = Symbol(
-  'TENANT_ERASURE_POST_ERASURE_HOOKS',
-);
+export const TENANT_ERASURE_POST_ERASURE_HOOKS = Symbol('TENANT_ERASURE_POST_ERASURE_HOOKS');
 
 /**
  * Per-service extension surface for TenantErasureTargetModule.forService().
@@ -70,9 +67,7 @@ export class TenantErasureRequestedTargetHandler
     @Inject(TENANT_ERASURE_POST_ERASURE_HOOKS)
     postErasureHooks: readonly TenantErasurePostErasureHook[],
   ) {
-    this.logger = new Logger(
-      `TenantErasureRequestedTargetHandler:${options.targetService}`,
-    );
+    this.logger = new Logger(`TenantErasureRequestedTargetHandler:${options.targetService}`);
     this.executor = new TenantErasureTargetExecutor(
       {
         dataSource,
@@ -86,7 +81,11 @@ export class TenantErasureRequestedTargetHandler
   }
 
   async onModuleInit(): Promise<void> {
-    await this.eventBus.subscribeWildcard('TenantErasureRequested', this);
+    await this.eventBus.subscribeWildcard(
+      'TenantErasureRequested',
+      this,
+      TENANT_ERASURE_REQUEST_SUBSCRIPTION_OPTIONS,
+    );
     this.logger.log('Subscribed to TenantErasureRequested');
   }
 

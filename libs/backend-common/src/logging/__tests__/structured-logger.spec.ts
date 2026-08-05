@@ -1,10 +1,12 @@
-import { StructuredLoggerService } from '../structured-logger.service';
 import { requestContextStorage, RequestContext } from '../request-context';
+import { StructuredLoggerService } from '../structured-logger.service';
 
 describe('StructuredLoggerService', () => {
   let logger: StructuredLoggerService;
   let stdoutSpy: jest.SpyInstance;
   let stderrSpy: jest.SpyInstance;
+  let stdoutChunks: string[];
+  let stderrChunks: string[];
 
   beforeEach(() => {
     logger = new StructuredLoggerService('test-service', [
@@ -14,8 +16,20 @@ describe('StructuredLoggerService', () => {
       'debug',
       'verbose',
     ]);
-    stdoutSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    stdoutChunks = [];
+    stderrChunks = [];
+    stdoutSpy = jest
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((chunk: string | Uint8Array): boolean => {
+        stdoutChunks.push(chunk.toString());
+        return true;
+      });
+    stderrSpy = jest
+      .spyOn(process.stderr, 'write')
+      .mockImplementation((chunk: string | Uint8Array): boolean => {
+        stderrChunks.push(chunk.toString());
+        return true;
+      });
   });
 
   afterEach(() => {
@@ -23,14 +37,26 @@ describe('StructuredLoggerService', () => {
     stderrSpy.mockRestore();
   });
 
+  function parseLastChunk(chunks: string[]): Record<string, unknown> {
+    const lastChunk = chunks.at(-1);
+    if (lastChunk === undefined) {
+      throw new Error('Expected the logger to emit a JSON line');
+    }
+
+    const parsed: unknown = JSON.parse(lastChunk.trim());
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('Expected the logger to emit a JSON object');
+    }
+
+    return parsed as Record<string, unknown>;
+  }
+
   function getLastStdout(): Record<string, unknown> {
-    const lastCall = stdoutSpy.mock.calls[stdoutSpy.mock.calls.length - 1];
-    return JSON.parse((lastCall[0] as string).trim());
+    return parseLastChunk(stdoutChunks);
   }
 
   function getLastStderr(): Record<string, unknown> {
-    const lastCall = stderrSpy.mock.calls[stderrSpy.mock.calls.length - 1];
-    return JSON.parse((lastCall[0] as string).trim());
+    return parseLastChunk(stderrChunks);
   }
 
   it('should output valid JSON to stdout for log()', () => {
@@ -68,12 +94,17 @@ describe('StructuredLoggerService', () => {
     expect(entry['message']).toBe('Starting up');
   });
 
-  it('should include stack trace for error() with Error param', () => {
-    const err = new Error('test error');
+  it('should preserve the primary Error stack without serialising custom properties', () => {
+    const err = Object.assign(new Error('test error'), {
+      password: 'must-not-be-logged',
+    });
     logger.error(err);
     const entry = getLastStderr();
 
-    expect(entry['stack']).toContain('test error');
+    expect(entry['message']).toBe('test error');
+    expect(entry['stack']).toBe(err.stack);
+    expect(entry['extra']).toBeUndefined();
+    expect(JSON.stringify(entry)).not.toContain('must-not-be-logged');
   });
 
   it('should include stack trace for error() with string stack', () => {
@@ -122,7 +153,7 @@ describe('StructuredLoggerService', () => {
   });
 
   it('should mask sensitive keys in extra metadata', () => {
-    logger.log('login attempt', { password: 'secret123', username: 'alice' } as unknown as string);
+    logger.log('login attempt', { password: 'secret123', username: 'alice' });
     const entry = getLastStdout();
     const extra = entry['extra'] as Record<string, unknown>;
 
@@ -137,7 +168,7 @@ describe('StructuredLoggerService', () => {
         credentials: { token: 'abc', apiKey: 'xyz' },
       },
     };
-    logger.log('nested sensitive', data as unknown as string);
+    logger.log('nested sensitive', data);
     const entry = getLastStdout();
     const extra = entry['extra'] as Record<string, unknown>;
     const user = extra['user'] as Record<string, unknown>;
@@ -159,12 +190,12 @@ describe('StructuredLoggerService', () => {
   });
 
   it('should handle debug and verbose levels', () => {
-    logger.debug!('debug msg');
+    logger.debug('debug msg');
     expect(stdoutSpy).toHaveBeenCalledTimes(1);
     const debugEntry = getLastStdout();
     expect(debugEntry['level']).toBe('debug');
 
-    logger.verbose!('verbose msg');
+    logger.verbose('verbose msg');
     expect(stdoutSpy).toHaveBeenCalledTimes(2);
   });
 
@@ -176,7 +207,10 @@ describe('StructuredLoggerService', () => {
 
   it('should produce single-line JSON output', () => {
     logger.log('single line test');
-    const rawOutput = stdoutSpy.mock.calls[0][0] as string;
+    const rawOutput = stdoutChunks[0];
+    if (rawOutput === undefined) {
+      throw new Error('Expected the logger to emit a JSON line');
+    }
     const lines = rawOutput.split('\n').filter((l: string) => l.trim().length > 0);
     expect(lines).toHaveLength(1);
   });

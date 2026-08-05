@@ -66,7 +66,7 @@
         "minLength": 1,
         "pattern": "^\\S(.*\\S)?$"
       },
-      "description": "Evidence citation — non-empty string with no leading/trailing whitespace. Canonical shapes documented for CATCHER agents: 'file:line' (code reference), 'file:start-end' (line range), 'file:test_name' (test function ref), 'file (test_name)' (parenthesized test ref, used by sens-api-gateway Rust suite), 'file#anchor' (markdown plan / ADR anchor), or just 'file' (whole-file evidence). The schema previously enforced the path-shape regex `^[^\\s:]+(:[^\\s:]+(-[^\\s:]+)?)?(\\s*\\(.*\\))?(#[A-Za-z0-9._-]+)?$`; that constraint was relaxed (architectural-arbiter rationale, plan §2 Option A in /tmp/ci-cleanup-plans/invariants-deferred.md) because (a) it rejected legitimate evidence shapes that emerged in real CATCHER output — Rust `path::method` item-paths, droplet diagnostic prose with embedded colons, CI run/log references, and tail-after-paren context — and (b) the registry is hash-chained append-only so historical entries cannot be rewritten to fit a tighter schema. Discipline at the path-shape level is enforced upstream by tests/invariants/finding-evidence-shape.spec.ts (advisory Tier-3, future-only gate on created_at >= 2026-05-10). At least one entry required for CRITICAL/HIGH per the allOf rule below."
+      "description": "Evidence citation — non-empty string with no leading/trailing whitespace. Canonical shapes documented for CATCHER agents: 'file:line' (code reference), 'file:start-end' (line range), 'file:test_name' (test function ref), 'file (test_name)' (parenthesized test ref, used by sens-api-gateway Rust suite), 'file#anchor' (markdown plan / ADR anchor), or just 'file' (whole-file evidence). The schema remains relaxed for historical hash-chain compatibility; every new authority-owned add is fail-closed by tools/gates/finding-evidence-shape.ts, while tests/invariants/finding-evidence-shape.spec.ts checks post-cutover ledger content. At least one entry is required for CRITICAL/HIGH per the allOf rule below."
     },
     "rule_violated": {
       "type": "string",
@@ -153,7 +153,10 @@
         "properties": { "severity": { "enum": ["CRITICAL", "HIGH"] } },
         "required": ["severity"]
       },
-      "then": { "required": ["evidence"] }
+      "then": {
+        "required": ["evidence"],
+        "properties": { "evidence": { "minItems": 1 } }
+      }
     }
   ]
 }

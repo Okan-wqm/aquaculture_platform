@@ -27,6 +27,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .confidence import validated_confidence
 from .ledger import append_declared_jsonl
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import (
@@ -81,10 +82,9 @@ def record_candidate(
 ) -> dict[str, Any]:
     """Record a PROPOSED candidate. NO promotion side-effect."""
     enforce_profile_for_write("instinct_candidates", base_dir=base_dir)
-    if not (0.0 <= confidence_0_to_1 <= 1.0):
-        raise GovernanceError(
-            f"confidence_0_to_1 out of range: {confidence_0_to_1!r}"
-        )
+    # ORPHAN-HIGH-541 — the range definition lives in confidence.py so this
+    # surface and the adapter-candidate surface cannot drift apart again.
+    confidence_0_to_1 = validated_confidence(confidence_0_to_1, kind="instinct_score")
     if not isinstance(evidence_refs, list):
         raise GovernanceError("evidence_refs must be a list")
     root = ensure_tools_dir(base_dir)

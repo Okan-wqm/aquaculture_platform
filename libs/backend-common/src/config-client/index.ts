@@ -13,3 +13,12 @@ export {
   type BillingStripeSettings,
 } from './config-runtime.client';
 export { ConfigClientModule } from './config-client.module';
+export { MarineProviderCredentialClientModule } from './marine-provider-credential-client.module';
+export {
+  MarineProviderCredentialClient,
+  MarineProviderCredentialTransportError,
+  MARINE_PROVIDER_CREDENTIAL_CONSUMER_SERVICE,
+  MARINE_PROVIDER_CREDENTIAL_CONSUMER_SERVICE_TOKEN,
+  MARINE_PROVIDER_CREDENTIAL_NATS_CLIENT,
+  type CdseProviderCredentialBundle,
+} from './marine-provider-credential.client';

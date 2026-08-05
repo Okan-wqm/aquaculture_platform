@@ -22,6 +22,11 @@ const UUID_ANY_VERSION_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}
  */
 export const SCHEMA_NAME_REGEX = /^[a-z0-9_]+$/;
 
+export interface TenantSchemaIdentity {
+  schemaName: string;
+  tenantId: string;
+}
+
 /**
  * Validate whether a string is a valid UUID v4 format.
  */
@@ -49,7 +54,7 @@ export function assertSafeSchemaName(name: string): void {
   if (!SCHEMA_NAME_REGEX.test(name) || name.length > 63) {
     throw new Error(
       `SECURITY: Unsafe schema name '${name}' rejected before SQL interpolation. ` +
-      'Schema names must match ^[a-z0-9_]+$ and be ≤63 chars.',
+        'Schema names must match ^[a-z0-9_]+$ and be ≤63 chars.',
     );
   }
 }
@@ -89,4 +94,99 @@ export async function listTenantSchemas(dataSource: DataSource): Promise<string[
      ORDER BY schema_name`,
   );
   return rows.map((r) => r.schema_name);
+}
+
+/**
+ * Resolve provisioned tenant schemas to their full tenant UUIDs through the
+ * db-migrate-owned commit ledger.
+ *
+ * A schema name contains only the first 16 UUID hex characters, so it cannot
+ * be reversed into the RLS identity required by `runInTenantTransaction`.
+ * Cross-tenant workers must use this mapping instead of guessing an ID or
+ * enabling an unrestricted RLS bypass. The SECURITY DEFINER function exposes
+ * only active `{schema_name, tenant_id}` pairs and keeps direct access to
+ * `admin.tenant_schemas` outside runtime service roles.
+ */
+export async function listActiveTenantSchemaIdentities(
+  dataSource: DataSource,
+): Promise<TenantSchemaIdentity[]> {
+  return listVerifiedTenantSchemaIdentities(
+    dataSource,
+    'platform.list_active_tenant_schema_mappings()',
+    'active',
+  );
+}
+
+/**
+ * Resolve every committed physical schema that still retains tenant data.
+ *
+ * Lifecycle work (secret scrubbing, retention and erasure) must continue for
+ * suspended, migrating and pending-deletion tenants even though provider
+ * ingestion is intentionally active-only. The platform wrapper is
+ * least-privileged and excludes creating/deleted ledger rows.
+ */
+export async function listRetainedTenantSchemaIdentities(
+  dataSource: DataSource,
+): Promise<TenantSchemaIdentity[]> {
+  return listVerifiedTenantSchemaIdentities(
+    dataSource,
+    'platform.list_retained_tenant_schema_mappings()',
+    'retained',
+  );
+}
+
+type TenantSchemaMappingFunction =
+  | 'platform.list_active_tenant_schema_mappings()'
+  | 'platform.list_retained_tenant_schema_mappings()';
+
+async function listVerifiedTenantSchemaIdentities(
+  dataSource: DataSource,
+  mappingFunction: TenantSchemaMappingFunction,
+  mappingKind: 'active' | 'retained',
+): Promise<TenantSchemaIdentity[]> {
+  const rows: Array<{
+    schema_name: string;
+    tenant_id: string;
+    schema_exists: boolean;
+    committed_proof: boolean;
+  }> = await dataSource.query(
+    `SELECT schema_name, tenant_id::text AS tenant_id
+            , schema_exists, committed_proof
+       FROM ${mappingFunction}
+      ORDER BY schema_name`,
+  );
+
+  const schemas = new Set<string>();
+  const tenants = new Set<string>();
+  return rows.map((row) => {
+    assertSafeSchemaName(row.schema_name);
+    if (row.schema_exists !== true) {
+      throw new Error(
+        `${mappingKind} tenant schema ledger entry "${row.schema_name}" has no physical schema`,
+      );
+    }
+    if (row.committed_proof !== true) {
+      throw new Error(
+        `${mappingKind} tenant schema ledger entry "${row.schema_name}" has no matching committed operation`,
+      );
+    }
+    if (!isValidUUID(row.tenant_id)) {
+      throw new Error(
+        `Tenant schema ledger returned an invalid tenant UUID for "${row.schema_name}"`,
+      );
+    }
+    if (getTenantSchemaName(row.tenant_id) !== row.schema_name) {
+      throw new Error(`Tenant schema ledger mapping mismatch for "${row.schema_name}"`);
+    }
+    const normalizedTenantId = row.tenant_id.toLowerCase();
+    if (schemas.has(row.schema_name) || tenants.has(normalizedTenantId)) {
+      throw new Error(`Tenant schema ledger returned a duplicate ${mappingKind} mapping`);
+    }
+    schemas.add(row.schema_name);
+    tenants.add(normalizedTenantId);
+    return {
+      schemaName: row.schema_name,
+      tenantId: normalizedTenantId,
+    };
+  });
 }

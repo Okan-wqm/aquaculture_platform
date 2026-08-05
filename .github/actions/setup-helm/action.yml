@@ -1,0 +1,10 @@
+name: Setup pinned Helm
+description: Install the repository-authoritative Helm release for every CI renderer
+
+runs:
+  using: composite
+  steps:
+    - name: Install Helm v3.16.2
+      uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      with:
+        version: v3.16.2

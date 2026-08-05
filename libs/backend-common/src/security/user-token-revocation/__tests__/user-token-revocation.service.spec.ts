@@ -1,63 +1,89 @@
-import { UserTokenRevocationService, userBlacklistKey } from '../user-token-revocation.service';
+import {
+  UserTokenRevocationService,
+  type UserTokenRevocationRedisStore,
+  userBlacklistKey,
+  userInvalidationEpochFromDate,
+} from '../user-token-revocation.service';
 
-describe('UserTokenRevocationService (RBAC-HIGH-001)', () => {
-  const USER = 'user-1';
+describe('UserTokenRevocationService', () => {
+  const userId = 'user-1';
+  let redis: jest.Mocked<UserTokenRevocationRedisStore>;
+  let service: UserTokenRevocationService;
 
-  describe('userBlacklistKey', () => {
-    it('is the exact contract the gateway read path enforces', () => {
-      // The gateway RedisTokenBlacklistStore reads this key; drift here silently
-      // breaks fleet-wide revocation, so pin it.
-      expect(userBlacklistKey(USER)).toBe('user_blacklist:user-1');
-    });
+  beforeEach(() => {
+    redis = {
+      setAuthorizationMaxSafeInteger: jest
+        .fn()
+        .mockImplementation((_key, value) => Promise.resolve(value)),
+      getAuthorization: jest.fn().mockResolvedValue(null),
+    };
+    service = new UserTokenRevocationService(redis);
   });
 
-  describe('with Redis', () => {
-    const makeRedis = (): { set: jest.Mock; get: jest.Mock } => ({
-      set: jest.fn().mockResolvedValue(undefined),
-      get: jest.fn(),
-    });
+  it('pins the exact authorization-owned logical key', () => {
+    expect(userBlacklistKey(userId)).toBe('user_blacklist:user-1');
+  });
 
-    it('writes the invalidation epoch (seconds) to the canonical key with a 24h TTL', async () => {
-      const redis = makeRedis();
-      const svc = new UserTokenRevocationService(redis);
-      const at = new Date('2026-07-11T00:00:00Z');
+  it('writes a max-only epoch through the authorization namespace', async () => {
+    const invalidatedAt = new Date('2026-07-11T00:00:00Z');
 
-      await svc.revokeUserTokens(USER, at);
+    await service.revokeUserTokens(userId, invalidatedAt);
 
-      expect(redis.set).toHaveBeenCalledWith(
-        'user_blacklist:user-1',
-        String(Math.floor(at.getTime() / 1000)),
-        24 * 60 * 60,
+    expect(redis.setAuthorizationMaxSafeInteger).toHaveBeenCalledWith(
+      'user_blacklist:user-1',
+      userInvalidationEpochFromDate(invalidatedAt),
+      24 * 60 * 60,
+    );
+  });
+
+  it('rejects tokens issued before or at the marker and accepts only newer tokens', async () => {
+    redis.getAuthorization.mockResolvedValue('1783771200');
+
+    await expect(service.isTokenValid(userId, new Date('2026-07-11T11:59:59Z'))).resolves.toBe(
+      false,
+    );
+    await expect(service.isTokenValid(userId, new Date('2026-07-11T12:00:00Z'))).resolves.toBe(
+      false,
+    );
+    await expect(service.isTokenValid(userId, new Date('2026-07-11T12:00:01Z'))).resolves.toBe(
+      true,
+    );
+  });
+
+  it('accepts when no user invalidation marker exists', async () => {
+    await expect(service.isTokenValid(userId, new Date('2026-07-11T12:00:00Z'))).resolves.toBe(
+      true,
+    );
+  });
+
+  it.each(['0', '-1', 'not-an-epoch', '9007199254740992'])(
+    'fails closed for malformed marker %s',
+    async (marker) => {
+      redis.getAuthorization.mockResolvedValue(marker);
+      await expect(service.isTokenValid(userId, new Date('2026-07-11T12:00:00Z'))).resolves.toBe(
+        false,
       );
-    });
+    },
+  );
 
-    it('invalidates a token issued BEFORE the epoch and keeps one issued after', async () => {
-      const redis = makeRedis();
-      const invalidatedAt = Math.floor(new Date('2026-07-11T12:00:00Z').getTime() / 1000);
-      redis.get.mockResolvedValue(String(invalidatedAt));
-      const svc = new UserTokenRevocationService(redis);
-
-      const before = new Date('2026-07-11T11:59:00Z');
-      const after = new Date('2026-07-11T12:00:30Z');
-      expect(await svc.isTokenValid(USER, before)).toBe(false);
-      expect(await svc.isTokenValid(USER, after)).toBe(true);
-    });
-
-    it('treats an absent marker as valid', async () => {
-      const redis = makeRedis();
-      redis.get.mockResolvedValue(null);
-      const svc = new UserTokenRevocationService(redis);
-      expect(await svc.isTokenValid(USER, new Date())).toBe(true);
-    });
+  it('rejects invalid dates before reaching Redis', async () => {
+    await expect(service.revokeUserTokens(userId, new Date(Number.NaN))).rejects.toThrow(
+      'Invalidation time must be a valid positive date',
+    );
+    await expect(service.isTokenValid(userId, new Date(Number.NaN))).rejects.toThrow(
+      'Invalidation time must be a valid positive date',
+    );
+    expect(redis.setAuthorizationMaxSafeInteger).not.toHaveBeenCalled();
+    expect(redis.getAuthorization).not.toHaveBeenCalled();
   });
 
-  describe('in-memory fallback (no Redis)', () => {
-    it('revokes then rejects an earlier-issued token', async () => {
-      const svc = new UserTokenRevocationService(undefined);
-      const issuedBefore = new Date('2026-07-11T09:00:00Z');
-      await svc.revokeUserTokens(USER, new Date('2026-07-11T10:00:00Z'));
-      expect(await svc.isTokenValid(USER, issuedBefore)).toBe(false);
-      expect(await svc.isTokenValid(USER, new Date('2026-07-11T10:30:00Z'))).toBe(true);
-    });
+  it('surfaces Redis failures instead of falling back to process-local state', async () => {
+    redis.setAuthorizationMaxSafeInteger.mockRejectedValueOnce(new Error('redis unavailable'));
+    await expect(service.revokeUserTokens(userId)).rejects.toThrow('redis unavailable');
+
+    redis.getAuthorization.mockRejectedValueOnce(new Error('redis unavailable'));
+    await expect(service.isTokenValid(userId, new Date('2026-07-11T12:00:00Z'))).rejects.toThrow(
+      'redis unavailable',
+    );
   });
 });

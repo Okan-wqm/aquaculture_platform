@@ -1,9 +1,17 @@
-import { SESSION_MANAGER, TOKEN_BLACKLIST, ISessionManager, ITokenBlacklist } from '@aquaculture/backend-common/security';
-import { BadRequestException, Injectable, Logger, Optional, Inject, UnauthorizedException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { SESSION_MANAGER, ISessionManager } from '@aquaculture/backend-common/security';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  Optional,
+  Inject,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createBaseEvent } from '@platform/event-contracts';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { AuditLogService } from '../../../audit/audit-log.service';
@@ -18,7 +26,14 @@ import { RefreshToken } from '../entities/refresh-token.entity';
 import { User } from '../entities/user.entity';
 
 import { MfaService } from './mfa.service';
-import { parseExpiresIn } from './token.service';
+import {
+  DurableUserTokenInvalidationService,
+  type UserTokenInvalidationIntent,
+} from './durable-user-token-invalidation.service';
+import {
+  type PostCommitSecurityEffect,
+  settlePostCommitSecurityEffects,
+} from './post-commit-security-effects';
 
 @Injectable()
 export class AccountService {
@@ -29,7 +44,7 @@ export class AccountService {
     private readonly userRepository: Repository<User>,
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepository: Repository<RefreshToken>,
-    private readonly configService: ConfigService,
+    private readonly dataSource: DataSource,
     private readonly auditLogService: AuditLogService,
     private readonly mfaService: MfaService,
     // DATA-HIGH-001: account events are audit-log-backed notifications (the
@@ -38,8 +53,8 @@ export class AccountService {
     // cannot key). They route through the allowlisted best-effort path
     // instead of the raw event bus.
     private readonly bestEffort: BestEffortEventPublisher,
+    private readonly durableUserTokenInvalidation: DurableUserTokenInvalidationService,
     @Optional() @Inject(SESSION_MANAGER) private readonly sessionManager?: ISessionManager,
-    @Optional() @Inject(TOKEN_BLACKLIST) private readonly tokenBlacklist?: ITokenBlacklist,
   ) {}
 
   async updateMyProfile(
@@ -85,21 +100,74 @@ export class AccountService {
     return savedUser;
   }
 
-  async changeMyPassword(userId: string, input: ChangeMyPasswordInput): Promise<ChangeMyPasswordResponse> {
-    const user = await this.findUserOrFail(userId);
+  async changeMyPassword(
+    userId: string,
+    input: ChangeMyPasswordInput,
+  ): Promise<ChangeMyPasswordResponse> {
+    const transactionResult = await this.dataSource.transaction(async (manager) => {
+      const userRepository = manager.withRepository(this.userRepository);
+      const refreshTokenRepository = manager.withRepository(this.refreshTokenRepository);
+      const user = await userRepository.findOne({
+        where: { id: userId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!user) {
+        throw new UnauthorizedException('User not found');
+      }
+      if (!(await user.validatePassword(input.currentPassword))) {
+        await this.auditAccountEvent(
+          'PASSWORD_CHANGE_FAILED',
+          user,
+          false,
+          'invalid_current_password',
+        );
+        throw new UnauthorizedException('Current password is incorrect');
+      }
 
-    const currentPasswordMatches = await user.validatePassword(input.currentPassword);
-    if (!currentPasswordMatches) {
-      await this.auditAccountEvent('PASSWORD_CHANGE_FAILED', user, false, 'invalid_current_password');
-      throw new UnauthorizedException('Current password is incorrect');
+      user.password = input.newPassword;
+      user.failedLoginAttempts = 0;
+      user.lockedUntil = null;
+      await userRepository.save(user);
+
+      const invalidatedAt = new Date();
+      await refreshTokenRepository.update(
+        { userId, isRevoked: false },
+        {
+          isRevoked: true,
+          revokedAt: invalidatedAt,
+          revokedReason: 'Password changed',
+        },
+      );
+      const intent: UserTokenInvalidationIntent = {
+        userId,
+        tenantId: this.invalidationTenantForUser(user),
+        invalidatedAt,
+        reason: 'password_changed',
+        idempotencyKey: `password-change:${userId}:${Math.floor(invalidatedAt.getTime() / 1000)}`,
+      };
+      await this.durableUserTokenInvalidation.enqueue(manager, intent);
+      return { user, intent };
+    });
+
+    const postCommitEffects: PostCommitSecurityEffect[] = [
+      {
+        type: 'user_token_invalidation',
+        apply: () => this.durableUserTokenInvalidation.applyImmediately(transactionResult.intent),
+      },
+    ];
+    const sessionManager = this.sessionManager;
+    if (sessionManager) {
+      postCommitEffects.push({
+        type: 'session_revocation',
+        apply: () => sessionManager.revokeAllSessions(userId),
+      });
     }
-
-    user.password = input.newPassword;
-    user.failedLoginAttempts = 0;
-    user.lockedUntil = null;
-    await this.userRepository.save(user);
-
-    await this.revokeCredentialsAfterPasswordChange(user.id);
+    await settlePostCommitSecurityEffects({
+      logger: this.logger,
+      operation: 'password_change',
+      effects: postCommitEffects,
+    });
+    const { user } = transactionResult;
 
     await Promise.allSettled([
       this.auditAccountEvent('PASSWORD_CHANGED', user),
@@ -112,7 +180,7 @@ export class AccountService {
       ),
     ]);
 
-    this.logger.log(`Password changed: userId=${user.id}`);
+    this.logger.log(JSON.stringify({ event: 'password_changed' }));
 
     return {
       success: true,
@@ -139,22 +207,14 @@ export class AccountService {
     return user;
   }
 
-  private async revokeCredentialsAfterPasswordChange(userId: string): Promise<void> {
-    await this.refreshTokenRepository.update(
-      { userId, isRevoked: false },
-      { isRevoked: true, revokedAt: new Date(), revokedReason: 'Password changed' },
-    );
-
-    if (this.tokenBlacklist) {
-      const expiresIn = this.configService.get<string>('JWT_EXPIRES_IN', '15m');
-      const expiresInSeconds = parseExpiresIn(expiresIn);
-      const expiryDate = new Date(Date.now() + expiresInSeconds * 1000);
-      await this.tokenBlacklist.blacklistUserTokens(userId, expiryDate, 'password_change');
+  private invalidationTenantForUser(user: User): string | null {
+    if (user.tenantId) {
+      return user.tenantId;
     }
-
-    if (this.sessionManager) {
-      await this.sessionManager.revokeAllSessions(userId);
+    if (user.role === Role.SUPER_ADMIN) {
+      return null;
     }
+    throw new ForbiddenException('Tenant-scoped user has no tenant identity');
   }
 
   private async auditAccountEvent(

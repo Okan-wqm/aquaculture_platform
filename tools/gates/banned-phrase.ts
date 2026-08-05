@@ -63,11 +63,7 @@ import { relative, resolve } from 'node:path';
 // farm-service-enterprise-guardrails.ts consume the same parser, so a
 // hunk-header edge case can no longer be fixed in one gate and stay
 // broken in another).
-import {
-  addedLinesByFile,
-  collectRangeAddedLines,
-  stagedChangedFiles,
-} from './git-diff-ranges';
+import { addedLinesByFile, collectRangeAddedLines, stagedChangedFiles } from './git-diff-ranges';
 
 const REPO_ROOT = (() => {
   try {
@@ -90,7 +86,25 @@ function writeStderr(message = ''): void {
 interface BannedPhraseRule {
   phrase: RegExp;
   allowIf: RegExp | null;
+  allowMatch?: (line: string, matchIndex: number) => boolean;
   label: string;
+}
+
+/**
+ * PostgreSQL uses this exact clause to select deferred constraint checking.
+ * The final token is SQL grammar, not architectural prose, so the phrase gate
+ * must recognise the clause without exempting the surrounding file or any
+ * other occurrence on the same line.
+ */
+function isSqlConstraintTimingClause(line: string, matchIndex: number): boolean {
+  for (const clause of line.matchAll(/\bDEFERRABLE\s+INITIALLY\s+DEFERRED\b/gi)) {
+    const clauseIndex = clause.index ?? -1;
+    const keywordOffset = clause[0].toLowerCase().lastIndexOf('deferred');
+    if (clauseIndex + keywordOffset === matchIndex) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -188,6 +202,7 @@ const BANNED_PHRASES: readonly BannedPhraseRule[] = [
   {
     phrase: /\bdeferred\b/i,
     allowIf: TRACKED_DEFERRAL_ALLOW_IF,
+    allowMatch: isSqlConstraintTimingClause,
     label: 'deferred (without plan phase / W-N / Faz-N / § / finding ID reference)',
   },
   {
@@ -409,6 +424,7 @@ function scanContent(content: string, sourceLabel: string, allowIfWindow: number
       const match = rule.phrase.exec(line);
       if (!match) continue;
       if (isInsideLiteralRegion(line, match.index)) continue;
+      if (rule.allowMatch?.(line, match.index)) continue;
       if (rule.allowIf) {
         let windowText: string;
         if (allowIfWindow === Infinity) {

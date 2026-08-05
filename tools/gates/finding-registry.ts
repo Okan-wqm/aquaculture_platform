@@ -13,14 +13,12 @@
  *                           .spec.ts algorithm exactly — a CI gate and
  *                           a local smoke check in one CLI.
  *   add <domain> <json-path>
- *                         — allocate a domain-wide monotonic id and append
- *                           one finding from a JSON stub file. The stub
- *                           supplies severity / state /
- *                           title / layer / owner_agent / notes; the
- *                           CLI fills id / prev_hash / content_hash and
- *                           appends a newline-terminated entry.
+ *                         — protected-workflow entry point that allocates a
+ *                           domain-wide monotonic id and appends one finding.
+ *                           The caller supplies only caller-owned fields; the
+ *                           authority fills id / state / timestamps / hashes.
  *   close <id> <sha>     — mutate a finding to state=RESOLVED, set
- *                           closed_at, and APPEND the short SHA to
+ *                           closed_at, and APPEND the full protected-main SHA to
  *                           closing_commits[]. The SHA must be
  *                           reachable from origin/main and its commit
  *                           message must carry a matching Closes:
@@ -33,6 +31,9 @@
  *                           csv) for dashboards / reporting.
  *
  * Design notes:
+ *   * `add`, `close`, and non-dry-run `sweep` fail closed without an
+ *     operation-scoped, protected-main GitHub Actions OIDC authority. The CLI
+ *     surface is an internal workflow adapter, not an independent local writer.
  *   * Registry mutation preserves append-only SEMANTICS for OPEN/
  *     IN-PROGRESS additions (new entry at tail). `close` is the one
  *     mutation that legitimately modifies a past entry — the state
@@ -64,28 +65,13 @@ import { basename, dirname, join, resolve } from 'node:path';
 import Ajv2020Mod, { type ValidateFunction } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 
-import {
-  deriveRawFindingIdFloors,
-  parseFindingRegistrySchemaContract,
-} from './lib/finding-registry-schema-contract';
-import {
-  AUTOMATION_BASE_REF,
-  AUTOMATION_PUBLICATION_BRANCH_LIFECYCLE,
-  AUTOMATION_PUBLICATION_BRANCH_STRATEGY,
-  AUTOMATION_PUBLICATION_COMMIT_TRAILER_ORDER,
-  AUTOMATION_PUBLICATION_COMPARE_AND_SWAP,
-  AUTOMATION_PUBLICATION_IDEMPOTENCY,
-  AUTOMATION_PUBLICATION_PHYSICAL_BRANCH_TEMPLATE,
-  AUTOMATION_REGISTRY_LOGICAL_BRANCH,
-  AUTOMATION_REGISTRY_WRITER_WORKFLOW_REFS,
-} from './lib/automation-publication-policy';
 // PROC-HIGH-001 structural guard — close ceremony refuses branch-local
 // SHAs (see cmdClose). The shared SSOT helper is import-safe for
 // node:test specs, which use the same extensionless CJS specifier.
+import { findNonCanonicalFindingEvidence } from './finding-evidence-shape';
 import {
   atomicWriteFileWithRegistryLease,
   atomicWriteRegistryFile,
-  claimedSequences,
   listAtomicWriteStagingFiles,
   nextFindingId,
   orphanMarkdownReservedIds,
@@ -94,13 +80,22 @@ import {
   type RegistryLockLease,
   withRegistryFileLock,
 } from './finding-registry-store';
+import { commitHasFindingCloseTrailer } from './finding-traceability';
+import { commitReachableFrom } from './git-reachability';
 import {
   acquireRepositoryMutationAuthority,
   type RegistryMutationOperation,
   type RepositoryMutationAuthority,
 } from './github-actions-oidc-authority';
-import { commitHasFindingCloseTrailer } from './finding-traceability';
-import { commitReachableFrom } from './git-reachability';
+import {
+  deriveRawFindingIdFloors,
+  parseFindingRegistrySchemaContract,
+} from './lib/finding-registry-schema-contract';
+import {
+  FINDING_WRITER_AUTHORITY_PATH,
+  FINDING_WRITER_PROTOCOL_ID,
+  parseFindingWriterProtocolManifest,
+} from './lib/finding-registry-writer-authority';
 
 const Ajv2020 = (Ajv2020Mod as unknown as { default?: typeof Ajv2020Mod }).default ?? Ajv2020Mod;
 
@@ -120,38 +115,7 @@ const CAPABILITY_MANIFEST_RELATIVE_PATH = join(
   'manifest.json',
 );
 const ALLOCATOR_RELATIVE_PATH = join('tools', 'gates', 'finding-registry.ts');
-const WRITER_PROTOCOL_MANIFEST_RELATIVE_PATH = join(
-  '.github',
-  'manifests',
-  'finding-registry-writer-authority.json',
-);
-const FINDING_WRITER_PROTOCOL_ID = 'aqua.finding-registry-writer/v5';
-const FINDING_WRITER_PUBLISHER = 'GITHUB_GRAPHQL_SIGNED_COMMIT_V1' as const;
-const FINDING_WRITER_PUBLISHER_CREDENTIAL =
-  'CURRENT_REPOSITORY_GITHUB_APP_INSTALLATION_V1' as const;
-const FINDING_WRITER_GOVERNED_PATHS = [
-  '.github/CODEOWNERS',
-  '.github/actions/mint-automation-app-token/action.yml',
-  '.github/manifests/automation-publication-authority.json',
-  '.github/workflows/aria-daily-report.yml',
-  '.github/workflows/automation-publication-admission.yml',
-  '.github/workflows/ci-full.yml',
-  '.github/workflows/finding-registry-authority.yml',
-  '.github/workflows/finding-state-sweep.yml',
-  '.github/workflows/rule-health-report.yml',
-  'docs/reviews/_registry/findings.jsonl.schema.json',
-  'package.json',
-  ALLOCATOR_RELATIVE_PATH,
-  'tools/gates/finding-registry-store.ts',
-  'tools/gates/finding-registry-publication.ts',
-  'tools/gates/github-actions-oidc-authority.ts',
-  'tools/gates/lib/automation-publication-policy.ts',
-  'tools/gates/lib/finding-registry-schema-contract.ts',
-  'tools/gates/lib/github-artifact-archive.ts',
-  'tools/scripts/automation/publish-automation-pr.ts',
-  'tools/scripts/automation/resolve-github-run-clock.mjs',
-  'tools/scripts/automation/tsconfig.json',
-] as const;
+const WRITER_PROTOCOL_MANIFEST_RELATIVE_PATH = FINDING_WRITER_AUTHORITY_PATH;
 const REGISTRY_PATH = resolve(REPO_ROOT, REGISTRY_RELATIVE_PATH);
 const SCHEMA_PATH = resolve(
   REPO_ROOT,
@@ -163,6 +127,7 @@ const SCHEMA_PATH = resolve(
 const ORPHAN_FINDINGS_MD_PATH = resolve(REPO_ROOT, 'docs', 'reviews', 'orphan-findings.md');
 const ZERO_HASH = '0'.repeat(64);
 const REGISTRY_STAGING_STALE_MS = 5 * 60_000;
+const GIT_OUTPUT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
 export interface RegistryPaths {
   readonly registryPath: string;
@@ -192,169 +157,6 @@ export interface FindingAllocationAuthority {
   readonly assertCompatibleWriters: () => void;
   readonly activeRegistryPaths: () => readonly string[];
   readonly reservedDomainFloors: () => Readonly<Record<string, number>>;
-}
-
-interface FindingWriterProtocolManifest {
-  readonly schema_version: 4;
-  readonly protocol_id: typeof FINDING_WRITER_PROTOCOL_ID;
-  readonly files: Readonly<Record<string, string>>;
-  readonly repository_global_authority: {
-    readonly kind: 'GITHUB_ACTIONS_OIDC_V1';
-    readonly workflow_refs: typeof AUTOMATION_REGISTRY_WRITER_WORKFLOW_REFS;
-    readonly protected_ref: typeof AUTOMATION_BASE_REF;
-    readonly logical_branch: typeof AUTOMATION_REGISTRY_LOGICAL_BRANCH;
-    readonly branch_strategy: typeof AUTOMATION_PUBLICATION_BRANCH_STRATEGY;
-    readonly physical_branch_template: typeof AUTOMATION_PUBLICATION_PHYSICAL_BRANCH_TEMPLATE;
-    readonly branch_lifecycle: typeof AUTOMATION_PUBLICATION_BRANCH_LIFECYCLE;
-    readonly branch_ref_permissions: {
-      readonly create: true;
-      readonly update: false;
-      readonly delete: false;
-    };
-    readonly compare_and_swap: typeof AUTOMATION_PUBLICATION_COMPARE_AND_SWAP;
-    readonly publisher: typeof FINDING_WRITER_PUBLISHER;
-    readonly publisher_credential: typeof FINDING_WRITER_PUBLISHER_CREDENTIAL;
-    readonly idempotency: {
-      readonly kind: typeof AUTOMATION_PUBLICATION_IDEMPOTENCY;
-      readonly required_trailers: typeof AUTOMATION_PUBLICATION_COMMIT_TRAILER_ORDER;
-    };
-  };
-  readonly local_fence: {
-    readonly kind: 'GIT_COMMON_DIR_FILE_LEASE_V2';
-    readonly lock_record_version: 2;
-  };
-}
-
-function parseFindingWriterProtocolManifest(
-  raw: string,
-  path: string,
-): FindingWriterProtocolManifest {
-  const value: unknown = JSON.parse(raw);
-  if (!isJsonRecord(value)) {
-    throw new Error(`Finding writer protocol manifest is not an object: ${path}`);
-  }
-  const files = value['files'];
-  const repositoryGlobalAuthority = value['repository_global_authority'];
-  const localFence = value['local_fence'];
-  const idempotency = isJsonRecord(repositoryGlobalAuthority)
-    ? repositoryGlobalAuthority['idempotency']
-    : undefined;
-  const branchRefPermissions = isJsonRecord(repositoryGlobalAuthority)
-    ? repositoryGlobalAuthority['branch_ref_permissions']
-    : undefined;
-  const expectedKeys = [
-    '$schema',
-    'files',
-    'local_fence',
-    'protocol_id',
-    'repository_global_authority',
-    'schema_version',
-  ];
-  if (
-    canonicalJson(Object.keys(value).sort()) !== canonicalJson(expectedKeys) ||
-    value['$schema'] !== 'aqua/finding-registry-writer-authority/v4' ||
-    value['schema_version'] !== 4 ||
-    value['protocol_id'] !== FINDING_WRITER_PROTOCOL_ID ||
-    !isJsonRecord(files) ||
-    !isJsonRecord(repositoryGlobalAuthority) ||
-    !isJsonRecord(localFence) ||
-    !isJsonRecord(idempotency) ||
-    !isJsonRecord(branchRefPermissions) ||
-    canonicalJson(Object.keys(repositoryGlobalAuthority).sort()) !==
-      canonicalJson(
-        [
-          'branch_lifecycle',
-          'branch_ref_permissions',
-          'branch_strategy',
-          'compare_and_swap',
-          'idempotency',
-          'kind',
-          'logical_branch',
-          'physical_branch_template',
-          'protected_ref',
-          'publisher',
-          'publisher_credential',
-          'workflow_refs',
-        ].sort(),
-      ) ||
-    canonicalJson(Object.keys(idempotency).sort()) !==
-      canonicalJson(['kind', 'required_trailers']) ||
-    canonicalJson(Object.keys(branchRefPermissions).sort()) !==
-      canonicalJson(['create', 'delete', 'update']) ||
-    canonicalJson(Object.keys(localFence).sort()) !==
-      canonicalJson(['kind', 'lock_record_version']) ||
-    repositoryGlobalAuthority['kind'] !== 'GITHUB_ACTIONS_OIDC_V1' ||
-    canonicalJson(repositoryGlobalAuthority['workflow_refs']) !==
-      canonicalJson(AUTOMATION_REGISTRY_WRITER_WORKFLOW_REFS) ||
-    repositoryGlobalAuthority['protected_ref'] !== AUTOMATION_BASE_REF ||
-    repositoryGlobalAuthority['logical_branch'] !== AUTOMATION_REGISTRY_LOGICAL_BRANCH ||
-    repositoryGlobalAuthority['branch_strategy'] !== AUTOMATION_PUBLICATION_BRANCH_STRATEGY ||
-    repositoryGlobalAuthority['physical_branch_template'] !==
-      AUTOMATION_PUBLICATION_PHYSICAL_BRANCH_TEMPLATE ||
-    repositoryGlobalAuthority['branch_lifecycle'] !== AUTOMATION_PUBLICATION_BRANCH_LIFECYCLE ||
-    branchRefPermissions['create'] !== true ||
-    branchRefPermissions['update'] !== false ||
-    branchRefPermissions['delete'] !== false ||
-    repositoryGlobalAuthority['compare_and_swap'] !== AUTOMATION_PUBLICATION_COMPARE_AND_SWAP ||
-    repositoryGlobalAuthority['publisher'] !== FINDING_WRITER_PUBLISHER ||
-    repositoryGlobalAuthority['publisher_credential'] !== FINDING_WRITER_PUBLISHER_CREDENTIAL ||
-    idempotency['kind'] !== AUTOMATION_PUBLICATION_IDEMPOTENCY ||
-    canonicalJson(idempotency['required_trailers']) !==
-      canonicalJson(AUTOMATION_PUBLICATION_COMMIT_TRAILER_ORDER) ||
-    localFence['kind'] !== 'GIT_COMMON_DIR_FILE_LEASE_V2' ||
-    localFence['lock_record_version'] !== 2
-  ) {
-    throw new Error(`Finding writer protocol manifest has an incompatible contract: ${path}`);
-  }
-  if (
-    canonicalJson(Object.keys(files).sort()) !==
-      canonicalJson([...FINDING_WRITER_GOVERNED_PATHS].sort()) ||
-    FINDING_WRITER_GOVERNED_PATHS.some(
-      (governedPath) =>
-        typeof files[governedPath] !== 'string' ||
-        !/^[0-9a-f]{64}$/.test(files[governedPath] as string),
-    )
-  ) {
-    throw new Error(`Finding writer protocol file digest set is invalid: ${path}`);
-  }
-  const normalizedFiles: Record<string, string> = {};
-  for (const governedPath of FINDING_WRITER_GOVERNED_PATHS) {
-    const digest = files[governedPath];
-    if (typeof digest !== 'string') {
-      throw new Error(`Finding writer protocol digest is invalid for ${governedPath}: ${path}`);
-    }
-    normalizedFiles[governedPath] = digest;
-  }
-  return {
-    schema_version: 4,
-    protocol_id: FINDING_WRITER_PROTOCOL_ID,
-    files: normalizedFiles,
-    repository_global_authority: {
-      kind: 'GITHUB_ACTIONS_OIDC_V1',
-      workflow_refs: AUTOMATION_REGISTRY_WRITER_WORKFLOW_REFS,
-      protected_ref: AUTOMATION_BASE_REF,
-      logical_branch: AUTOMATION_REGISTRY_LOGICAL_BRANCH,
-      branch_strategy: AUTOMATION_PUBLICATION_BRANCH_STRATEGY,
-      physical_branch_template: AUTOMATION_PUBLICATION_PHYSICAL_BRANCH_TEMPLATE,
-      branch_lifecycle: AUTOMATION_PUBLICATION_BRANCH_LIFECYCLE,
-      branch_ref_permissions: {
-        create: true,
-        update: false,
-        delete: false,
-      },
-      compare_and_swap: AUTOMATION_PUBLICATION_COMPARE_AND_SWAP,
-      publisher: FINDING_WRITER_PUBLISHER,
-      publisher_credential: FINDING_WRITER_PUBLISHER_CREDENTIAL,
-      idempotency: {
-        kind: AUTOMATION_PUBLICATION_IDEMPOTENCY,
-        required_trailers: AUTOMATION_PUBLICATION_COMMIT_TRAILER_ORDER,
-      },
-    },
-    local_fence: {
-      kind: 'GIT_COMMON_DIR_FILE_LEASE_V2',
-      lock_record_version: 2,
-    },
-  };
 }
 
 function assertCommittedRegularFile(worktreePath: string, relativePath: string): string {
@@ -423,6 +225,7 @@ function gitOutput(repoRoot: string, args: readonly string[]): string {
   return execFileSync('git', ['-C', repoRoot, ...args], {
     encoding: 'utf8',
     env: HERMETIC_GIT_ENV,
+    maxBuffer: GIT_OUTPUT_MAX_BUFFER_BYTES,
   }).trim();
 }
 
@@ -503,7 +306,7 @@ function loadStubValidator(schemaPath = SCHEMA_PATH): ValidateFunction {
  * keep these interfaces structural (no runtime validation here — the
  * integrity invariant test enforces schema conformance separately).
  */
-interface Finding {
+export interface Finding {
   id: string;
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
   state: 'OPEN' | 'IN-PROGRESS' | 'RESOLVED' | 'STALE' | 'BLOCKED';
@@ -588,7 +391,7 @@ function normalizedAddStub(stubPath: string): Partial<Finding> {
         .join(', ')}`,
     );
   }
-  return value as Partial<Finding>;
+  return value;
 }
 
 function sweepStaleAfterDays(args: readonly string[]): number {
@@ -1071,12 +874,12 @@ function cmdVerify(): number {
   const entries = loadRegistry();
   const result = verify(entries);
   if (!result.ok) {
-    console.error(`FAIL: ${result.reason}`);
+    process.stderr.write(`FAIL: ${result.reason}\n`);
     return 1;
   }
-  console.log(`OK: registry chain valid (${result.entries} entries).`);
+  process.stdout.write(`OK: registry chain valid (${result.entries} entries).\n`);
   const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
-  if (tip) console.log(`Chain tip: ${tip}`);
+  if (tip) process.stdout.write(`Chain tip: ${tip}\n`);
   return 0;
 }
 
@@ -1173,6 +976,19 @@ function validateAndAppendFinding(
     return 1;
   }
 
+  const invalidEvidence = findNonCanonicalFindingEvidence(newEntry.evidence);
+  if (invalidEvidence.length > 0) {
+    process.stderr.write(
+      'Stub evidence must use canonical file/path citation shapes; move diagnostic prose to narrative:\n',
+    );
+    for (const violation of invalidEvidence) {
+      process.stderr.write(
+        `  evidence[${violation.index}]: ${JSON.stringify(violation.evidence)}\n`,
+      );
+    }
+    return 1;
+  }
+
   entries.push(newEntry);
   rechain(entries, entries.length - 1);
 
@@ -1192,19 +1008,9 @@ function validateAndAppendFinding(
 /**
  * Every id already claimed in `domain`, across EVERY store that claims ids.
  *
- * ORPHAN-HIGH-457 — the single reader both append paths must use.
- * `ORPHAN-HIGH-417` fixed the allocator by teaching it to read the markdown
- * orphan store as well as the registry, and left `appendExplicitFinding`
- * reading only the registry. So the exact defect that forced this branch to
- * be retraced — an id handed out that already names a live finding — was
- * still reachable through the other door, and an adversarial audit walked
- * through it: `appendExplicitFinding` accepted `ORPHAN-MEDIUM-416`, which is
- * a live heading in `orphan-findings.md`, and returned 0.
- *
- * Two readers that must agree is the shape that produced the bug. One reader
- * that both callers are forced through is the shape that cannot: a third
- * append path added later inherits every store by construction rather than by
- * the author remembering all of them.
+ * ORPHAN-HIGH-457 — the single allocation reader used by the only append
+ * path. Explicit caller-owned identifiers were retired; repository authority
+ * always allocates through this union of every live sequence store.
  *
  * The stores, and why each counts:
  *   * the JSONL registry — the obvious one;
@@ -1288,92 +1094,6 @@ export function appendAllocatedFinding(
         reservationLedger,
         domain,
         id,
-        paths.registryPath,
-        lease,
-        repositoryAuthority.effectiveAt,
-      );
-    }
-  });
-}
-
-export function appendExplicitFinding(
-  stubPath: string,
-  lease: RegistryLockLease,
-  repositoryAuthority: RepositoryMutationAuthority,
-  paths: RegistryPaths = DEFAULT_REGISTRY_PATHS,
-  authority?: FindingAllocationAuthority,
-): number {
-  if (
-    lease.resourcePath !== paths.registryPath ||
-    (authority !== undefined && lease.lockPath !== authority.lockPath)
-  ) {
-    throw new RegistryLockError(
-      'LOCK_OWNERSHIP_LOST',
-      'Explicit append requires a lease for both the target registry and its allocation authority.',
-    );
-  }
-  authority?.assertCompatibleWriters();
-  const stub = readFindingStub(stubPath);
-  if (!stub) return 2;
-  if (typeof stub.id !== 'string' || stub.id.length === 0) {
-    process.stderr.write('Explicit-id stub missing required field: id\n');
-    return 2;
-  }
-  const entries = loadRegistry(paths.registryPath);
-
-  const idParts = /^([A-Z][A-Z0-9]*)-([A-Z0-9]+)-([0-9]{3})$/.exec(stub.id);
-  if (!idParts?.[1] || !idParts[2] || !idParts[3]) {
-    process.stderr.write(`Explicit finding id has an invalid allocation shape: ${stub.id}\n`);
-    return 2;
-  }
-  const explicitDomain = idParts[1];
-  const explicitId = stub.id;
-  // ORPHAN-HIGH-457 — the same stores AND the same sequence extraction the
-  // allocator uses. Shape is parsed first because the domain decides which
-  // stores apply. Two things were wrong here before: this path consulted the
-  // registry alone, and it compared full id strings. Both matter — the
-  // markdown store normalizes to `ORPHAN-RESERVED-NNN` (a heading carries no
-  // severity) and the classifier segment varies with severity anyway, so
-  // `ORPHAN-MEDIUM-416` never string-matched the live `416` heading. The
-  // sequence is the identity.
-  const reservationLedger = authority ? loadReservationLedger(authority.reservationPath) : null;
-  const existingIds = claimedIdsForDomain(explicitDomain, entries, authority);
-  const reserved = reservationLedger?.domains[explicitDomain];
-  if (reserved) {
-    existingIds.push(`${explicitDomain}-RESERVED-${String(reserved.sequence).padStart(3, '0')}`);
-  }
-  const claimed = claimedSequences(explicitDomain, existingIds);
-  if (claimed.has(Number.parseInt(idParts[3], 10))) {
-    process.stderr.write(
-      `Duplicate id: ${stub.id} — sequence ${idParts[3]} is already claimed in ` +
-        `domain ${explicitDomain} by the registry, a sibling worktree registry, or ` +
-        `docs/reviews/orphan-findings.md.\n`,
-    );
-    return 1;
-  }
-  if (Number.parseInt(idParts[3], 10) < 1) {
-    process.stderr.write(`Explicit finding id suffix must be between 001 and 999: ${stub.id}\n`);
-    return 2;
-  }
-  if (
-    ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].includes(idParts[2]) &&
-    stub.severity !== undefined &&
-    idParts[2] !== stub.severity
-  ) {
-    process.stderr.write(
-      `Explicit finding id classifier ${idParts[2]} does not match severity ${stub.severity}: ${stub.id}\n`,
-    );
-    return 2;
-  }
-  const newEntry = buildFinding(stub, explicitId, repositoryAuthority.effectiveAt);
-  if (!newEntry) return 2;
-  return validateAndAppendFinding(newEntry, entries, lease, repositoryAuthority, paths, () => {
-    if (authority && reservationLedger) {
-      reserveFindingId(
-        authority,
-        reservationLedger,
-        explicitDomain,
-        explicitId,
         paths.registryPath,
         lease,
         repositoryAuthority.effectiveAt,

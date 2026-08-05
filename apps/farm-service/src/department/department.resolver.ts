@@ -10,6 +10,7 @@ import { CurrentTenant, CurrentUser, Roles, Role } from '@aquaculture/backend-co
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 import { fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
 import { TenantContextError } from '@aquaculture/backend-common/database';
+import type { SiteScopeCaller } from '@aquaculture/backend-common/security';
 import { DepartmentResponse, PaginatedDepartmentsResponse } from './dto/department.response';
 import { DepartmentDeletePreviewResponse } from './dto/department-delete-preview.response';
 import { CreateDepartmentInput } from './dto/create-department.input';
@@ -50,7 +51,7 @@ export class DepartmentResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
   ): Promise<DepartmentResponse> {
-    this.logger.log(`Creating department for tenant ${tenantId} by user ${user.sub}`);
+    this.logger.log('action=department.create');
     const command = new CreateDepartmentCommand(input, tenantId, user.sub);
     return this.commandBus.execute(command);
   }
@@ -65,7 +66,7 @@ export class DepartmentResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
   ): Promise<DepartmentResponse> {
-    this.logger.log(`Updating department ${input.id} for tenant ${tenantId} by user ${user.sub}`);
+    this.logger.log('action=department.update');
     const command = new UpdateDepartmentCommand(input.id, input, tenantId, user.sub);
     return this.commandBus.execute(command);
   }
@@ -80,7 +81,7 @@ export class DepartmentResolver {
     @Args('id', { type: () => ID }) id: string,
     @CurrentTenant() tenantId: string,
   ): Promise<DepartmentDeletePreviewResponse> {
-    this.logger.log(`Getting delete preview for department ${id} for tenant ${tenantId}`);
+    this.logger.log('action=department.delete_preview');
     const query = new GetDepartmentDeletePreviewQuery(id, tenantId);
     return this.queryBus.execute(query);
   }
@@ -97,7 +98,7 @@ export class DepartmentResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string },
   ): Promise<boolean> {
-    this.logger.log(`Deleting department ${id} for tenant ${tenantId} by user ${user.sub} (cascade: ${cascade})`);
+    this.logger.log(`action=department.delete cascade=${cascade}`);
     const command = new DeleteDepartmentCommand(id, tenantId, user.sub, cascade);
     return this.commandBus.execute(command);
   }
@@ -118,7 +119,7 @@ export class DepartmentResolver {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: { sub: string; name?: string },
   ): Promise<Department> {
-    this.logger.log(`Restoring department ${id} for tenant ${tenantId} by user ${user.sub}`);
+    this.logger.log('action=department.restore');
     return this.restoreService.restore(
       this.departmentRepository,
       Department,
@@ -137,7 +138,8 @@ export class DepartmentResolver {
   @Query(() => DepartmentResponse, { nullable: true })
   async department(
     @Args('id', { type: () => ID }) id: string,
-    @Args('includeRelations', { type: () => Boolean, nullable: true, defaultValue: false }) includeRelations: boolean,
+    @Args('includeRelations', { type: () => Boolean, nullable: true, defaultValue: false })
+    includeRelations: boolean,
     @CurrentTenant() tenantId: string,
   ): Promise<DepartmentResponse | null> {
     const query = new GetDepartmentQuery(id, tenantId, includeRelations);
@@ -150,15 +152,17 @@ export class DepartmentResolver {
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => PaginatedDepartmentsResponse)
   async departments(
-    @Args('filter', { type: () => DepartmentFilterInput, nullable: true }) filter?: DepartmentFilterInput,
-    @Args('pagination', { type: () => PaginationInput, nullable: true }) pagination?: PaginationInput,
+    @Args('filter', { type: () => DepartmentFilterInput, nullable: true })
+    filter?: DepartmentFilterInput,
+    @Args('pagination', { type: () => PaginationInput, nullable: true })
+    pagination?: PaginationInput,
     @CurrentTenant() tenantId?: string,
   ): Promise<PaginatedDepartmentsResponse> {
     if (!tenantId) {
       throw new Error('Tenant ID is required');
     }
     const query = new ListDepartmentsQuery(tenantId, filter, pagination);
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<DepartmentResponse>;
+    const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<DepartmentResponse>;
     return fromCqrsPaginated(result);
   }
 
@@ -171,11 +175,11 @@ export class DepartmentResolver {
     @Args('siteId', { type: () => ID }) siteId: string,
     @CurrentTenant() tenantId: string,
   ): Promise<DepartmentResponse[]> {
-    this.logger.debug(`departmentsBySite: tenant=${tenantId}, siteId=${siteId}`);
+    this.logger.debug('action=department.list_by_site');
     const query = new ListDepartmentsQuery(tenantId, { siteId }, { limit: 1000 });
-    const result = await this.queryBus.execute(query) as PaginatedQueryResult<DepartmentResponse>;
+    const result = (await this.queryBus.execute(query)) as PaginatedQueryResult<DepartmentResponse>;
     const paginated = fromCqrsPaginated(result);
-    this.logger.debug(`departmentsBySite: found ${paginated.items.length} departments for site ${siteId}`);
+    this.logger.debug(`action=department.list_by_site_complete count=${paginated.items.length}`);
     return paginated.items;
   }
 
@@ -183,18 +187,23 @@ export class DepartmentResolver {
    * Resolve site field
    */
   @ResolveField(() => SiteResponse, { nullable: true })
-  async site(@Parent() department: DepartmentResponse): Promise<SiteResponse | null> {
+  async site(
+    @Parent() department: DepartmentResponse,
+    @CurrentUser() user: SiteScopeCaller,
+  ): Promise<SiteResponse | null> {
     if (!department.siteId || !department.tenantId) return null;
 
     try {
-      const query = new GetSiteQuery(department.siteId, department.tenantId);
+      const query = new GetSiteQuery(department.siteId, department.tenantId, user);
       return await this.queryBus.execute(query);
     } catch (error: unknown) {
       // A lost/wrong tenant context must surface, not be masked as "no site".
       if (error instanceof TenantContextError) {
         throw error;
       }
-      this.logger.debug(`Error resolving site: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.debug(
+        `Error resolving site: ${error instanceof Error ? error.message : String(error)}`,
+      );
       return null;
     }
   }

@@ -182,6 +182,11 @@ _EXECUTOR_RESTORE_STEP = "Restore aria-tools state from previous run"
 _EXECUTOR_LEASE_STEP = "Pre-flight — cross-host autonomous-loop lease check"
 _EXECUTOR_PENDING_STEP = "Find next pending request"
 _EXECUTOR_WORK_STEP = "Run CI executor"
+# RC-6 — the operator's only route to the breaker ledger that actually lives in
+# the aria-tools-state artifact. Declared here so deleting it is a contract
+# failure rather than a quiet loss of the recovery lever, which is how
+# ORPHAN-HIGH-465 (a recovery function with no command surface) happened once.
+_EXECUTOR_BREAKER_QUARANTINE_STEP = "Quarantine damaged breaker evidence (recovery dispatch)"
 _CYCLE_RESTORE_STEP = "Restore aria-tools state from previous run"
 _CYCLE_LEASE_STEP = "Pre-flight - cross-host autonomous-loop lease check"
 _CYCLE_WORK_STEP = "Run nightly standard-profile cycle"
@@ -258,6 +263,7 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 required_steps=(
                     _EXECUTOR_RESTORE_STEP,
                     _EXECUTOR_LEASE_STEP,
+                    _EXECUTOR_BREAKER_QUARANTINE_STEP,
                     _EXECUTOR_PENDING_STEP,
                     _EXECUTOR_WORK_STEP,
                     "Persist aria-tools state (verified)",
@@ -272,6 +278,14 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     # tree always answers None — the stranded-queue bug).
                     (_EXECUTOR_RESTORE_STEP, _EXECUTOR_LEASE_STEP),
                     (_EXECUTOR_RESTORE_STEP, _EXECUTOR_PENDING_STEP),
+                    # RC-6 — the repair mutates the RESTORED tree and must be
+                    # inside the same transaction that republishes it. Both
+                    # bounds are load-bearing: before the restore it would
+                    # quarantine a bootstrap-empty ledger and report a clean
+                    # no-op, and after the publish it would repair a tree
+                    # nothing goes on to persist.
+                    (_EXECUTOR_RESTORE_STEP, _EXECUTOR_BREAKER_QUARANTINE_STEP),
+                    (_EXECUTOR_BREAKER_QUARANTINE_STEP, "Persist aria-tools state (verified)"),
                     # The return half of the bridge: publish, quarantine and
                     # the not-published failure are the run's terminal
                     # accounting and must follow the work, never precede it.
@@ -543,6 +557,16 @@ AUDITED_WORKFLOW_EXCLUSIONS: dict[str, AuditedWorkflowExclusion] = {
         workflow_id="aria-merge-authority",
         reason="required merge-gate check workflow; asserts ARIA merge authority via "
         "`npm run gates:required-status-checks` and uploads no governed ARIA artifact",
+        owner="aria-kernel",
+        expires_at=_NEVER_EXPIRES,
+    ),
+    "aria-runner-capability-probe": AuditedWorkflowExclusion(
+        workflow_id="aria-runner-capability-probe",
+        reason="RC-9 operator diagnostic; workflow_dispatch only, declares "
+        "`permissions: contents: read`, mutates nothing on the runner or in the "
+        "repository, and uploads no governed ARIA artifact — it prints host "
+        "capabilities so the sandbox provisioning design is chosen from evidence "
+        "instead of guesswork",
         owner="aria-kernel",
         expires_at=_NEVER_EXPIRES,
     ),

@@ -7,9 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_declared_jsonl
+from .mission import assert_wip_available
 from .plan_convergence import plan_status
 from .runtime_artifacts import ARTIFACT_BEARING, classify_cycle_evidence, verify_runtime_artifacts
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding, utc_now
+from .worker_dispatch import active_dispatch_assignments
 from .workspace import WorkspacePaths
 
 
@@ -32,8 +34,33 @@ def promote_converged_plan_to_dispatch(
     from .runtime_profile import enforce_profile_for_write
     enforce_profile_for_write("plan_promotion_dispatch", base_dir=tools_root)
     root = ensure_tools_binding(tools_root, workspace_root=paths.repo_root)
-    state = plan_status(plan_id=plan_id, base_dir=root)
     blockers: list[str] = []
+
+    # PLAN Wave 2 PR 1.4 / ORPHAN-HIGH-487 — the WIP gate, FIRST, before any
+    # per-plan check. The operator rule it enforces (2026-07-28) is that ARIA
+    # must not start a new plan before the current one is completely finished.
+    #
+    # Order matters for the refusal a human reads: a second promotion attempted
+    # while work is in flight would otherwise report whatever the candidate
+    # plan's own state happens to be and hide the real reason.
+    #
+    # TWO POPULATIONS, both real. Dispatch assignments are today's in-flight
+    # record — the finding proposed `list_active_plans()`, but promotion writes
+    # no plan event, so a promoted plan stays CONVERGED, which
+    # `list_active_plans` treats as terminal; that gate could never have fired.
+    # Mission WIP is the record the mission layer is taking over, live from the
+    # moment plans carry mission ids.
+    in_flight = active_dispatch_assignments(base_dir=root)
+    if in_flight:
+        blockers.append("dispatch_wip_unavailable")
+    mission_wip_error: str | None = None
+    try:
+        assert_wip_available(base_dir=root)
+    except GovernanceError as exc:
+        mission_wip_error = str(exc)
+        blockers.append("mission_wip_unavailable")
+
+    state = plan_status(plan_id=plan_id, base_dir=root)
     if state.get("state") != "CONVERGED":
         blockers.append("plan_not_converged")
     converged_plan_hash = _converged_plan_hash(state)
@@ -63,6 +90,12 @@ def promote_converged_plan_to_dispatch(
                 "blockers": blockers,
                 "artifact_issues": artifact_check.get("issues", []),
                 "cycle_evidence_class": evidence_class.get("cycle_evidence_class"),
+                # A refusal that does not name what is holding the slot is a
+                # refusal an operator cannot act on.
+                "in_flight_assignment_ids": [
+                    row["assignment_id"] for row in in_flight
+                ],
+                "mission_wip_error": mission_wip_error,
             },
         )
         return {

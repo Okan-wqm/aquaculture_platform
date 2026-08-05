@@ -16,8 +16,6 @@ export * from './useSpecies';
 export * from './useBatches';
 export * from './useCleanerFish';
 export * from './useFileUpload';
-export * from './useSentinelHub';
-export * from './useMapPointQuery';
 export * from './useMaintenance';
 export * from './useHealthEvents';
 export * from './useTasks';
@@ -26,7 +24,6 @@ export * from './useAutoRules';
 export * from './useGrowth';
 export * from './useHarvestPlans';
 export * from './useFeedingRecords';
-
 
 // useFeeding: GrowthProjection already exported by useGrowth
 export {
@@ -68,7 +65,6 @@ export * from './useTankFeeders';
 export * from './useConsumables';
 export * from './usePurchaseOrders';
 export * from './useRegulatory';
-export * from './useSentinelTiles';
 
 // useStorageInventory: useRecordStockMovement already exported by useMaintenance
 export {
@@ -131,9 +127,8 @@ export {
   formatParameterValue,
 } from './useWaterQuality';
 
-export * from './useWeather';
 export * from './useWorkers';
-export * from './useAOIDrawing';
 export * from './useParameterConfigs';
 export * from './useParamEquipmentMapping';
 export * from './useEquipmentParameters';
+export * from './useEnvironment';

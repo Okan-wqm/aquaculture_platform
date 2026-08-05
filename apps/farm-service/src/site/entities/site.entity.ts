@@ -69,15 +69,29 @@ export interface SiteLocation {
   altitude?: number;
 }
 
+export type MonitoringPosition = [longitude: number, latitude: number];
+
+export interface MonitoringPolygon {
+  type: 'Polygon';
+  coordinates: MonitoringPosition[][];
+}
+
+export interface MonitoringMultiPolygon {
+  type: 'MultiPolygon';
+  coordinates: MonitoringPosition[][][];
+}
+
+export type MonitoringAreaGeometry = MonitoringPolygon | MonitoringMultiPolygon;
+
 /**
  * Site adres bilgileri
  */
 export interface SiteAddress {
   street?: string;
-  city: string;
+  city?: string;
   state?: string;
   postalCode?: string;
-  country: string;
+  country?: string;
 }
 
 /**
@@ -128,6 +142,7 @@ export interface SiteSettings {
 @Index(['tenantId', 'status'])
 @Index(['tenantId', 'type'])
 @Index(['tenantId', 'isActive'])
+@Index('uq_sites_tenant_identity', ['tenantId', 'id'], { unique: true })
 export class Site {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
@@ -185,7 +200,19 @@ export class Site {
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
-  location?: SiteLocation;
+  location?: SiteLocation | null;
+
+  @Field(() => Int)
+  @Column({ type: 'int', default: 2000 })
+  monitoringRadiusM!: number;
+
+  @Field(() => GraphQLJSON, { nullable: true })
+  @Column({ type: 'jsonb', nullable: true })
+  monitoringArea?: MonitoringAreaGeometry | null;
+
+  @Field(() => Int)
+  @Column({ type: 'int', default: 1 })
+  monitoringLocationRevision!: number;
 
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
@@ -198,6 +225,10 @@ export class Site {
   @Field({ nullable: true })
   @Column({ length: 100, nullable: true })
   country?: string;
+
+  @Field({ nullable: true })
+  @Column({ length: 100, nullable: true })
+  region?: string;
 
   @Field({ nullable: true })
   @Column({ length: 50, default: 'UTC' })
@@ -216,6 +247,10 @@ export class Site {
     transformer: new DecimalTransformer(),
   })
   areaM2?: number; // Tesis alanı (m²)
+
+  get totalArea(): number | undefined {
+    return this.areaM2;
+  }
 
   @Field(() => Float, { nullable: true })
   @Column({
@@ -256,6 +291,10 @@ export class Site {
   @Field({ nullable: true })
   @Column({ length: 150, nullable: true })
   contactEmail?: string;
+
+  @Field({ nullable: true })
+  @Column({ length: 255, nullable: true })
+  siteManager?: string;
 
   // -------------------------------------------------------------------------
   // TESİS ÖZELLİKLERİ

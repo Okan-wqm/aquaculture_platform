@@ -5,6 +5,7 @@
  * inventory connection.
  */
 import { runInTenantRead } from '@aquaculture/backend-common/database';
+import { createStandardPaginatedResult } from '@aquaculture/backend-common/pagination';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { QueryHandler, IQueryHandler } from '@platform/cqrs';
 import { DataSource, In } from 'typeorm';
@@ -18,9 +19,7 @@ import { FarmStockContainerSnapshot } from '../entities/farm-stock-container-sna
 import { GetFarmStockInventoryQuery } from '../queries/get-farm-stock-inventory.query';
 
 @QueryHandler(GetFarmStockInventoryQuery)
-export class GetFarmStockInventoryHandler
-  implements IQueryHandler<GetFarmStockInventoryQuery>
-{
+export class GetFarmStockInventoryHandler implements IQueryHandler<GetFarmStockInventoryQuery> {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
@@ -42,7 +41,9 @@ export class GetFarmStockInventoryHandler
         });
       }
       if (filter.departmentId) {
-        qb.andWhere('container.departmentId = :departmentId', { departmentId: filter.departmentId });
+        qb.andWhere('container.departmentId = :departmentId', {
+          departmentId: filter.departmentId,
+        });
       }
       if (filter.siteId) {
         qb.andWhere('container.siteId = :siteId', { siteId: filter.siteId });
@@ -96,13 +97,7 @@ export class GetFarmStockInventoryHandler
         batches: batchesByContainer.get(container.containerId) ?? [],
       }));
 
-      return {
-        items,
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      };
+      return createStandardPaginatedResult(items, total, page, limit);
     });
   }
 }

@@ -81,7 +81,11 @@ FINDING_ID_RE = re.compile(r"^F-\d{3,}$")
 
 
 def _findings_dir(repo_root: Path) -> Path:
-    return Path(repo_root) / "aria-findings"
+    # Resolved through the one seam so findings survive the runner —
+    # see workspace.repo_state_root for why they did not.
+    from .workspace import repo_state_root
+
+    return repo_state_root(Path(repo_root)) / "aria-findings"
 
 
 def _index_path(repo_root: Path) -> Path:

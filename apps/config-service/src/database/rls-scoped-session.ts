@@ -84,3 +84,44 @@ export async function runInRlsScopedRead<T>(
     await queryRunner.release();
   }
 }
+
+/**
+ * Run a multi-scope effective-configuration read in one repeatable-read
+ * snapshot.
+ *
+ * A tenant override and the SYSTEM fallback are hidden behind different FORCE
+ * RLS scopes. Reading them in two independent transactions creates a race:
+ * an override can be inserted between the reads and the stale fallback can
+ * then be cached for that tenant. This boundary keeps both statements in one
+ * database snapshot while still changing the transaction-local RLS GUC before
+ * each partition is inspected.
+ */
+export async function runInRlsScopedSnapshotRead<T>(
+  dataSource: DataSource,
+  initialTenantId: string,
+  fn: (manager: EntityManager, pinScope: (tenantId: string) => Promise<void>) => Promise<T>,
+): Promise<T> {
+  if (!isValidUUID(initialTenantId)) {
+    throw new Error(`runInRlsScopedSnapshotRead: invalid tenantId "${initialTenantId}"`);
+  }
+
+  const queryRunner = dataSource.createQueryRunner();
+  await queryRunner.connect();
+  await queryRunner.startTransaction('REPEATABLE READ');
+
+  try {
+    await queryRunner.query('SET TRANSACTION READ ONLY');
+    const pinScope = async (tenantId: string): Promise<void> => {
+      await pinRlsTenantScope(queryRunner, tenantId);
+    };
+    await pinScope(initialTenantId);
+    const result = await fn(queryRunner.manager, pinScope);
+    await queryRunner.commitTransaction();
+    return result;
+  } catch (error) {
+    await queryRunner.rollbackTransaction();
+    throw error;
+  } finally {
+    await queryRunner.release();
+  }
+}

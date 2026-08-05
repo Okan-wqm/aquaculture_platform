@@ -52,6 +52,7 @@ ROLLBACK_MANIFEST="${ROLLBACK_MANIFEST:-${DEPLOY_STATE_DIR}/rollback-images.tsv}
 export ROLLBACK_MANIFEST
 DEPLOY_IMAGE_DIGESTS_FILE="${DEPLOY_IMAGE_DIGESTS_FILE:-${DEPLOY_STATE_DIR}/image-digests.tsv}"
 export DEPLOY_IMAGE_DIGESTS_FILE
+NATS_ACL_RELOADED=false
 
 CATALOG_DEPLOY_ENV="${CATALOG_DEPLOY_ENV:-infrastructure/deploy/service-catalog.deploy.vars}"
 if [ ! -r "${CATALOG_DEPLOY_ENV}" ]; then
@@ -446,6 +447,97 @@ restartable_deploy_services() {
     [ "$svc" = "db-migrate" ] && continue
     echo "$svc"
   done
+}
+
+# NATS authorization is loaded only when the broker starts. A selective deploy
+# that updates services.yaml/nats.conf but leaves the existing broker running
+# creates a split-brain window: new clients present a CN the live broker does
+# not know, or an old shared identity retains permissions removed in source.
+# Recreate only NATS when the bind-mounted ACL hash differs, prove it healthy,
+# and fail closed before any affected application container is restarted.
+ensure_nats_acl_loaded() {
+  local desired_path="${PWD}/infrastructure/docker/nats/nats.conf"
+  local desired_hash container_id mounted_source loaded_hash state health
+  local started_at started_epoch source_mtime
+  local attempt
+
+  if [ ! -r "${desired_path}" ]; then
+    echo "::error::NATS ACL is unreadable: ${desired_path}"
+    return 1
+  fi
+  desired_hash=$(sha256sum "${desired_path}" | awk '{print $1}')
+  container_id=$(docker compose -f docker-compose.droplet.yml ps -q nats 2>/dev/null || true)
+
+  if [ -n "${container_id}" ]; then
+    mounted_source=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/etc/nats/nats.conf"}}{{.Source}}{{end}}{{end}}' "${container_id}" 2>/dev/null || true)
+    if [ -n "${mounted_source}" ] && [ -r "${mounted_source}" ]; then
+      loaded_hash=$(sha256sum "${mounted_source}" | awk '{print $1}')
+      state=$(docker inspect --format '{{.State.Status}}' "${container_id}" 2>/dev/null || true)
+      health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container_id}" 2>/dev/null || true)
+      started_at=$(docker inspect --format '{{.State.StartedAt}}' "${container_id}" 2>/dev/null || true)
+      started_epoch=$(date -d "${started_at}" +%s 2>/dev/null || true)
+      source_mtime=$(stat -c '%Y' "${mounted_source}" 2>/dev/null || true)
+      # Hash equality alone is insufficient for a bind mount: the host file can
+      # change in place while the running broker keeps its previously parsed
+      # authorization. Only skip when the source strictly predates this
+      # container start; equal whole-second timestamps are ambiguous because
+      # Docker reports StartedAt with finer precision than stat's epoch value.
+      if [ "${state}" = "running" ] && [ "${health}" = "healthy" ] &&
+         [ "${loaded_hash}" = "${desired_hash}" ] &&
+         [ -n "${started_epoch}" ] && [ -n "${source_mtime}" ] &&
+         [ "${source_mtime}" -lt "${started_epoch}" ]; then
+        echo "  NATS already runs the desired ACL (${desired_hash})."
+        return 0
+      fi
+    fi
+  fi
+
+  echo "=== Reloading NATS certificate identities and ACL before client restart ==="
+  if ! docker compose -f docker-compose.droplet.yml run --rm --no-deps -T nats \
+       -t -c /etc/nats/nats.conf 2>&1 | redact_sensitive; then
+    echo "::error::Desired NATS configuration failed broker-native validation; live broker was not replaced."
+    return 1
+  fi
+  docker compose -f docker-compose.droplet.yml up -d --no-deps --no-build --force-recreate nats 2>&1 | redact_sensitive
+
+  for attempt in $(seq 1 30); do
+    container_id=$(docker compose -f docker-compose.droplet.yml ps -q nats 2>/dev/null || true)
+    if [ -n "${container_id}" ]; then
+      state=$(docker inspect --format '{{.State.Status}}' "${container_id}" 2>/dev/null || true)
+      health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container_id}" 2>/dev/null || true)
+      if [ "${state}" = "running" ] && [ "${health}" = "healthy" ]; then
+        break
+      fi
+      case "${state}" in
+        exited|dead)
+          echo "::error::NATS exited while loading the new ACL."
+          docker logs --tail 200 "${container_id}" 2>&1 | redact_sensitive || true
+          return 1
+          ;;
+      esac
+    fi
+    sleep 2
+  done
+
+  if [ "${state:-}" != "running" ] || [ "${health:-}" != "healthy" ]; then
+    echo "::error::NATS did not become healthy after ACL reload."
+    [ -n "${container_id:-}" ] && docker logs --tail 200 "${container_id}" 2>&1 | redact_sensitive || true
+    return 1
+  fi
+
+  mounted_source=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/etc/nats/nats.conf"}}{{.Source}}{{end}}{{end}}' "${container_id}" 2>/dev/null || true)
+  if [ -z "${mounted_source}" ] || [ ! -r "${mounted_source}" ]; then
+    echo "::error::Healthy NATS container does not expose the expected /etc/nats/nats.conf bind mount."
+    return 1
+  fi
+  loaded_hash=$(sha256sum "${mounted_source}" | awk '{print $1}')
+  if [ "${loaded_hash}" != "${desired_hash}" ]; then
+    echo "::error::NATS bind-mounted ACL hash differs after reload."
+    return 1
+  fi
+
+  NATS_ACL_RELOADED=true
+  echo "  NATS loaded the desired ACL (${desired_hash})."
 }
 
 migration_manifest_hash() {
@@ -933,6 +1025,7 @@ echo "=== Pre-flight: required secrets presence ==="
 ENV_FILE="${DEPLOY_ENV_FILE}" bash scripts/deploy/droplet-bootstrap-env.sh
 # shellcheck disable=SC1091
 source scripts/deploy/lib/required-env-secrets.sh
+REQUIRED_SECRET_COUNT="$(required_env_secret_count)"
 MISSING=()
 while IFS= read -r SECRET; do
   if ! grep -q "^${SECRET}=" "${DEPLOY_ENV_FILE}" 2>/dev/null; then
@@ -945,7 +1038,7 @@ if [ ${#MISSING[@]} -gt 0 ]; then
   echo "  ${DEPLOY_ENV_FILE} permissions and scripts/deploy/droplet-bootstrap-env.sh output."
   exit 1
 fi
-echo "  OK: ${#REQUIRED_ENV_SECRETS[@]} required secrets present"
+echo "  OK: ${REQUIRED_SECRET_COUNT} required secrets present"
 
 echo "=== Pre-flight: compose interpolation ==="
 if ! docker compose -f docker-compose.droplet.yml config --quiet; then
@@ -960,13 +1053,17 @@ echo "  OK: compose interpolates cleanly"
 echo "=== Pre-flight: NATS SSoT drift check ==="
 if [ -f scripts/nats/generate-nats-conf.py ]; then
   python3 scripts/nats/generate-nats-conf.py
-  if ! git diff --quiet infrastructure/docker/nats/nats.conf; then
-    echo "::error::nats.conf drifted from infrastructure/nats/services.yaml"
+  NATS_GENERATED_ARTIFACTS=(
+    infrastructure/docker/nats/nats.conf
+    infrastructure/helm/aquaculture/files/nats-service-identities.yaml
+  )
+  if [ -n "$(git status --porcelain -- "${NATS_GENERATED_ARTIFACTS[@]}")" ]; then
+    echo "::error::NATS generated artifacts drifted from infrastructure/nats/services.yaml"
     echo "  Run 'python3 scripts/nats/generate-nats-conf.py' locally and commit the diff."
-    git diff infrastructure/docker/nats/nats.conf | head -50
+    git diff -- "${NATS_GENERATED_ARTIFACTS[@]}" | head -50
     exit 1
   fi
-  echo "  OK: nats.conf matches services.yaml"
+  echo "  OK: broker ACL and Helm certificate roster match services.yaml"
 else
   echo "  SKIP: generator script not present (commit predates ADR-015)"
 fi
@@ -1209,6 +1306,7 @@ if [ "$FULL_DEPLOY" = "true" ]; then
   # Production services use schema-version gates; they do not act as a
   # fallback schema writer.
   # ─────────────────────────────────────────────────────────────
+  ensure_nats_acl_loaded
   run_db_migrate_or_exit "full deploy"
   record_release_ledger "db_complete" ""
 
@@ -1288,7 +1386,7 @@ else
   # Ensure infrastructure services required for migrations are running.
   # nginx starts/reloads only after db-migrate and app restarts succeed.
   echo "=== Ensuring migration infrastructure is running ==="
-  docker compose -f docker-compose.droplet.yml up -d --no-build postgres redis nats minio 2>&1
+  docker compose -f docker-compose.droplet.yml up -d --no-build postgres redis minio 2>&1
   sleep 5
 
   echo "=== Pulling affected images sequentially: ${DEPLOY_SERVICES} ==="
@@ -1306,7 +1404,14 @@ else
   run_db_migrate_or_exit "selective deploy"
   record_release_ledger "db_complete" ""
 
+  ensure_nats_acl_loaded
   RESTART_SERVICES=$(restartable_deploy_services | xargs)
+  if [ "${NATS_ACL_RELOADED}" = "true" ]; then
+    case " ${RESTART_SERVICES} " in
+      *" admin-api-service "*) ;;
+      *) RESTART_SERVICES="${RESTART_SERVICES:+${RESTART_SERVICES} }admin-api-service" ;;
+    esac
+  fi
   if [ -n "${RESTART_SERVICES}" ]; then
     echo "=== Restarting affected services (no-deps): ${RESTART_SERVICES} ==="
     record_release_ledger "apps_restarting" ""

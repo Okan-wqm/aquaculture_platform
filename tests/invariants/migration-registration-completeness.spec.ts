@@ -122,7 +122,9 @@ function listServicesWithMigrations(): string[] {
   const services = new Set<string>();
   for (const line of ls.split('\n')) {
     const m = line.match(/^apps\/([^/]+)\//);
-    if (m) services.add(m[1]);
+    const service = m?.[1];
+    // ORPHAN-HIGH-507 — guarded, not asserted.
+    if (service !== undefined) services.add(service);
   }
   return Array.from(services).sort();
 }
@@ -159,7 +161,8 @@ function migrationFileToClassNames(rel: string): string[] {
   const out: string[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(src)) !== null) {
-    out.push(m[1]);
+    const captured = m[1];
+    if (captured !== undefined) out.push(captured);
   }
   return out;
 }

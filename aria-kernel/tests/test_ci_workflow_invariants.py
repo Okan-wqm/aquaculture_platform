@@ -87,6 +87,13 @@ _LEGACY_AUTOMATION_PUBLISHER = (
 _CREATE_APP_TOKEN_ACTION = (
     "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1"
 )
+_USES_TARGET = re.compile(r"uses:\s*(\S+)")
+
+
+def _uses_target(line: str) -> str:
+    """The reference a `uses:` line points at, or '' if the line is malformed."""
+    match = _USES_TARGET.search(line)
+    return match.group(1) if match else ""
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -152,7 +159,17 @@ class CIWorkflowInvariants(unittest.TestCase):
                 stripped = line.strip()
                 if not stripped.startswith("- uses:") and not stripped.startswith("uses:"):
                     continue
-                if re.search(r"uses:\s*actions/", stripped) is None:
+                target = _uses_target(stripped)
+                # A local composite action (`uses: ./.github/actions/x`) is
+                # this repository's own code, reviewed in the same pull
+                # request and moving with the same commit. There is no
+                # third-party ref to pin — the clause this invariant
+                # enforces is supply-chain provenance for actions fetched
+                # from elsewhere, and demanding a SHA for a path that has
+                # none would make extracting a shared step impossible.
+                if target.startswith("./"):
+                    continue
+                if not target.startswith("actions/"):
                     continue
                 if not _SHA_PATTERN.search(stripped):
                     violations.append(f"{name}: not SHA-pinned: {stripped}")

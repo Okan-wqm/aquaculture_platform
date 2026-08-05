@@ -104,12 +104,17 @@ Your steps:
    `implementation_safety.verify_no_secret_in_diff(git show --format= --patch HEAD)`.
    This catches formatter hooks, generated changes, or commit-time
    transformations that were not visible in the staged diff.
-9. **Open PR** after `git push origin <branch>`. Open PR through
-   `aria-kernel/aria_kernel/pr_manager.py::open_pr_for_action`, whose
-   `ARIA_PR_BASE` guard rejects any non-mainline target, or through the
-   equivalent guarded `gh pr create --base <ARIA_PR_BASE> --head <branch>`
-   path with `--title "[ARIA-AUTO] <subject>"` and `--body
-   $(implementation_safety.render_pr_body(plan_id, verdict, changed_files))`.
+9. **Open PR** after `git push origin <branch>` — through the kernel CLI
+   ONLY: `python3 -m aria_kernel pr create --proposal-id <id>
+   --change-id <change_id> --no-dry-run`, which routes through
+   `aria-kernel/aria_kernel/pr_manager.py::open_pr_for_action` (the
+   `ARIA_PR_BASE` guard rejects any non-mainline target, GATE_PRE_PR_OPEN
+   and the breaker producer observe the attempt, and `--change-id`
+   anchors the §D.4 auto-merge triple-gate). The PR title comes from the
+   proposal record and carries the `[ARIA-AUTO] <subject>` convention,
+   forwarded verbatim by pr_manager. Raw `gh pr create` is NOT an
+   alternative: the executor lane sets `ARIA_EXECUTOR_PR_VIA_KERNEL=1`,
+   under which the Bash allowlist refuses it (Wave 0 §0.7).
 10. **Submit response envelope**. `aria/agent-response/v1` where:
    - `details.implementation` carries
      `{branch, pr_number, diff_hash, branch_tip_sha, validation_results,

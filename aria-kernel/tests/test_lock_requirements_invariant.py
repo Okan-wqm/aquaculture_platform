@@ -114,15 +114,51 @@ class HotPathVerifiedReadInvariantTests(unittest.TestCase):
     auto-merge-decisions.jsonl, memory/beliefs.jsonl)."""
 
     def test_cycle_runs_path_loader_uses_strict_primitive(self) -> None:
-        src = _module_source("cycle.py")
-        # v2 runtime contract: cycle summaries use the per-cycle run index
-        # via read_runs_for_cycle, which falls back to the strict runs reader.
-        self.assertIn("read_runs_for_cycle", src)
-        self.assertIn("for run in read_runs_for_cycle(base_dir=root, cycle_uid=cycle_id)", src)
-        self.assertNotIn(
-            "for run in load_jsonl(runs_path(root))",
-            src,
-            "cycle.py runs-summary loop must not reintroduce direct runs.jsonl scans",
+        """v2 runtime contract: the runs summary iterates the per-cycle index.
+
+        ASSERTED STRUCTURALLY, and the reason is that the previous spelling
+        was `assertIn("for run in read_runs_for_cycle(base_dir=root, "
+        "cycle_uid=cycle_id)", src)` — a verbatim source line, including the
+        local variable names at the callsite. RC-1 moved the loop into a
+        phase runner and renamed `root` to `context.base_dir`; the property
+        was untouched and the assertion still failed. Worse in the other
+        direction: the same literal would keep passing if someone added a
+        SECOND loop that scanned runs.jsonl directly, because the pinned line
+        would still be present. Matching the AST asserts the property; matching
+        the text asserted a formatting choice.
+        """
+        module = _module_ast("cycle.py")
+        iterators = [
+            node.iter for node in ast.walk(module)
+            if isinstance(node, (ast.For, ast.AsyncFor))
+        ]
+        indexed = [
+            it for it in iterators
+            if isinstance(it, ast.Call)
+            and isinstance(it.func, ast.Name)
+            and it.func.id == "read_runs_for_cycle"
+        ]
+        self.assertTrue(
+            indexed,
+            "cycle.py no longer iterates read_runs_for_cycle; the runs summary "
+            "must consume the per-cycle index, not scan the ledger",
+        )
+        for call in indexed:
+            kwargs = {kw.arg for kw in call.keywords}
+            self.assertIn("base_dir", kwargs)
+            self.assertIn("cycle_uid", kwargs)
+        direct_scans = [
+            call for call in _call_sites(module, "load_jsonl")
+            if any(
+                isinstance(arg, ast.Call)
+                and isinstance(arg.func, ast.Name)
+                and arg.func.id == "runs_path"
+                for arg in call.args
+            )
+        ]
+        self.assertEqual(
+            direct_scans, [],
+            "cycle.py must not reintroduce a direct load_jsonl(runs_path(...)) scan",
         )
 
     def test_reflection_hot_path_loaders_use_strict_primitive(self) -> None:

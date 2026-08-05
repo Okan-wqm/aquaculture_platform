@@ -370,13 +370,21 @@ def dispatch_one_pending_planner_request(
         # actually walks.
         #
         # WHY NOT the cycle's pr_lifecycle phase, where the producer was first
-        # placed: that callsite is gated on `pr_create`, which `standard` does
-        # NOT permit, inside an extended phase the orchestrator never requests
-        # (run_phases is always None), over a proposal set with no autonomous
-        # producer. Three independent reasons it cannot fire on a schedule —
-        # it was written, tested, and unreachable, which is the exact defect
-        # class this branch exists to close. It stays wired for the
-        # operator-driven strict/autonomous lane.
+        # placed. When this was written there were three independent reasons it
+        # could not fire on a schedule: the callsite is gated on `pr_create`,
+        # which `standard` does NOT permit; the phase sat behind a `run_phases`
+        # kwarg the orchestrator never passed; and the proposal set it iterates
+        # has no autonomous producer. Written, tested, and unreachable — the
+        # exact defect class this branch exists to close.
+        #
+        # RC-1 removed the second reason: `pr_lifecycle` is now a row in
+        # `cycle.CYCLE_PHASES` rather than an opt-in phase. The other two stand,
+        # and the phase's precondition reads `ACTION_PERMISSIONS["pr_open"]`, so
+        # under the nightly's `standard` profile it records a skip. The
+        # conclusion is unchanged for a different reason, which is worth stating
+        # rather than leaving a comment that would read as still-true by
+        # accident: this arm remains the breaker's live producer on the
+        # scheduled lane.
         #
         # WHY subprocess_timeout. It is already a declared FAILURE_KIND and it
         # is literally what happened: the agent subprocess blew its wall-clock

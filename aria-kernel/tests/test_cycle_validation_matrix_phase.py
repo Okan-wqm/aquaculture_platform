@@ -20,7 +20,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
-from aria_kernel.cycle import _run_extended_phases
+from aria_kernel.cycle import (
+    _run_pr_lifecycle_phase,
+    _run_validation_matrix_phase,
+    build_phase_context,
+)
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
 
@@ -88,14 +92,13 @@ class ValidationMatrixPhaseTests(unittest.TestCase):
     def test_no_committed_changes_in_window_returns_no_op(self) -> None:
         # No seed; validation_matrix phase returns no_op.
         cycle_started_at = datetime.now(timezone.utc)
-        result = _run_extended_phases(
-            phases=("validation_matrix",),
-            workspace_root=self.tmp,
+        context = build_phase_context(
             cycle_id="cyc-vm-1",
+            workspace_root=self.tmp,
             base_dir=self.tools_root,
-            plan_id=None,
             cycle_started_at=cycle_started_at,
         )
+        result = {'validation_matrix': _run_validation_matrix_phase(context)}
         self.assertEqual(result["validation_matrix"]["status"], "no_op")
         self.assertEqual(result["validation_matrix"]["total"], 0)
         self.assertEqual(result["validation_matrix"]["change_ids"], [])
@@ -112,14 +115,13 @@ class ValidationMatrixPhaseTests(unittest.TestCase):
             mock_gate.return_value = {
                 "passed": True, "blocked": False, "risk_types": [],
             }
-            result = _run_extended_phases(
-                phases=("validation_matrix",),
-                workspace_root=self.tmp,
+            context = build_phase_context(
                 cycle_id="cyc-vm-2",
+                workspace_root=self.tmp,
                 base_dir=self.tools_root,
-                plan_id=None,
                 cycle_started_at=cycle_started_at,
             )
+            result = {'validation_matrix': _run_validation_matrix_phase(context)}
         self.assertEqual(mock_gate.call_count, 1)
         kwargs = mock_gate.call_args.kwargs
         self.assertEqual(kwargs["change_id"], "ch-A")
@@ -136,14 +138,13 @@ class ValidationMatrixPhaseTests(unittest.TestCase):
         with patch(
             "aria_kernel.validation_matrix_gate.enforce_validation_matrix"
         ) as mock_gate:
-            result = _run_extended_phases(
-                phases=("validation_matrix",),
-                workspace_root=self.tmp,
+            context = build_phase_context(
                 cycle_id="cyc-vm-3",
+                workspace_root=self.tmp,
                 base_dir=self.tools_root,
-                plan_id=None,
                 cycle_started_at=cycle_started_at,
             )
+            result = {'validation_matrix': _run_validation_matrix_phase(context)}
         # Window discovery filtered the row out; no gate invocation.
         self.assertEqual(mock_gate.call_count, 0)
         self.assertEqual(result["validation_matrix"]["status"], "no_op")
@@ -162,14 +163,13 @@ class ValidationMatrixPhaseTests(unittest.TestCase):
             mock_gate.side_effect = GovernanceError(
                 "blocked: missing required tests for risk_types=['db']"
             )
-            result = _run_extended_phases(
-                phases=("validation_matrix",),
-                workspace_root=self.tmp,
+            context = build_phase_context(
                 cycle_id="cyc-vm-4",
+                workspace_root=self.tmp,
                 base_dir=self.tools_root,
-                plan_id=None,
                 cycle_started_at=cycle_started_at,
             )
+            result = {'validation_matrix': _run_validation_matrix_phase(context)}
         self.assertEqual(result["validation_matrix"]["status"], "fail")
         self.assertEqual(result["validation_matrix"]["fail"], 1)
         per_change = result["validation_matrix"]["change_ids"][0]

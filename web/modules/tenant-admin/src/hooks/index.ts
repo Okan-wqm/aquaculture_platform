@@ -10,13 +10,7 @@ export {
   tenantKeys,
 } from './useTenantData';
 
-export type {
-  Tenant,
-  TenantStats,
-  TenantModule,
-  User,
-  TenantDatabaseInfo,
-} from './useTenantData';
+export type { Tenant, TenantStats, TenantModule, User, TenantDatabaseInfo } from './useTenantData';
 
 export { useFocusTrap } from './useFocusTrap';
 
@@ -35,3 +29,14 @@ export {
 export { useTenantAuditLog, auditLogKeys } from './useTenantAuditLog';
 export { useTenantBilling, billingKeys } from './useTenantBilling';
 export { useTenantActivity, activityKeys } from './useTenantActivity';
+
+export {
+  canManageUserSiteAccess,
+  SiteAccessSessionChangedError,
+  useActiveTenantSites,
+  useAssignUserToSite,
+  useUnassignUserFromSite,
+  useUserAssignedSiteIds,
+  userSiteAccessKeys,
+} from './useUserSiteAccess';
+export type { UserSiteMutationVariables } from './useUserSiteAccess';

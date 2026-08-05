@@ -1,0 +1,118 @@
+name: Ensure sandbox backend
+description: >-
+  Guarantee a VERIFIED sandbox backend before any write-capable agent spawn, and
+  fail closed with a named cause when one cannot be produced.
+
+# RC-9. Two things were wrong with the pair of steps this replaces, and they are
+# different problems.
+#
+# 1. THE PAIR WAS DUPLICATED. aria-agent-executor.yml and aria-auto-cycle.yml
+#    each carried its own copy, with a comment in one of them explaining that
+#    they were "copied so the lanes cannot drift". Copying is how they drift:
+#    nothing made the two texts equal, only the intention that they be. One
+#    definition removes the class.
+#
+# 2. THE INSTALL RAN UNCONDITIONALLY. `sudo apt-get update && install bubblewrap`
+#    fired on every run, before anything asked whether a working backend was
+#    already present. On a runner that is already provisioned that is a pointless
+#    network + sudo dependency on the hot path, and under `set -euo pipefail` its
+#    failure kills the job — turning "this host has no apt egress" into "the
+#    nightly is broken". The order is now: PROBE, install only if the probe came
+#    back empty, then VERIFY.
+#
+# WHAT IS NOT CHANGED, deliberately: the fail-closed contract. A write-capable
+# spawn without a verified backend is still refused —
+# `claude_runtime._apply_write_containment` refuses when `sandbox_backend()` is
+# None, and this action still exits non-zero when the backend cannot be verified.
+# Making provisioning tolerant must not make containment optional; those are
+# separate properties and only the first one moves here.
+#
+# WHY CAPABILITY AND NOT PRESENCE: bubblewrap installs cleanly on a host with
+# unprivileged user namespaces disabled and then fails on every invocation, so
+# both the probe and the verify call `sandbox_backend()`, which builds the
+# namespaces it will actually use.
+
+inputs:
+  install-if-missing:
+    description: >-
+      Attempt `apt-get install bubblewrap` when the probe finds no backend. Set
+      false on a runner provisioned by its image, where a failed apt call should
+      be reported rather than attempted.
+    required: false
+    default: 'true'
+
+outputs:
+  backend:
+    description: The verified backend name, or empty when none was verified.
+    value: ${{ steps.verify.outputs.backend }}
+
+runs:
+  using: composite
+  steps:
+    - name: Probe for an existing sandbox backend
+      id: probe
+      shell: bash
+      run: |
+        set -euo pipefail
+        backend="$(PYTHONPATH=aria-kernel python3 -c '
+        from aria_kernel.implementation_safety import sandbox_backend
+        print(sandbox_backend() or "")
+        ')"
+        echo "backend=${backend}" >> "$GITHUB_OUTPUT"
+        if [ -n "${backend}" ]; then
+          echo "sandbox backend already present and functional: ${backend}"
+        else
+          echo "no functional sandbox backend on this host yet"
+        fi
+
+    # Only reached when the probe came back empty. A failed install must not end
+    # the job HERE, because the verify step below is the authority and produces a
+    # message naming the actual cause; dying inside apt reports "exit 100" and
+    # sends the reader to the wrong problem.
+    #
+    # Expressed as a shell `if` rather than the per-step error-tolerance key,
+    # and the difference is not cosmetic. The repo forbids that key in any file
+    # whose steps a governed job runs (`workflows_do_not_continue_on_error`),
+    # and until this change the gate could not see composite actions at all — so
+    # the first draft of this action satisfied the rule only by being invisible
+    # to it. A command inside an `if` condition is exempt from `set -e`, so this
+    # tolerates the failure without the banned key AND prints why, which the key
+    # never did. The sentence above cannot spell the key either: the gate is a
+    # raw text scan over the whole file, so even prose naming the pattern fails
+    # it — the sibling comment in aria-auto-cycle.yml documents the same trap.
+    - name: Install sandbox backend (bubblewrap)
+      if: steps.probe.outputs.backend == '' && inputs.install-if-missing == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        if sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends bubblewrap; then
+          echo "bubblewrap installed"
+        else
+          echo "apt install did not succeed here; the verify step below decides and names the cause" >&2
+        fi
+
+    - name: Verify the sandbox actually confines
+      id: verify
+      shell: bash
+      run: |
+        set -euo pipefail
+        PYTHONPATH=aria-kernel python3 - <<'PY'
+        import os
+        import sys
+
+        from aria_kernel.implementation_safety import sandbox_backend
+
+        backend = sandbox_backend()
+        if backend is None:
+            sys.exit(
+                "sandbox_backend_unavailable: no backend could build the namespaces "
+                "wrap_bash_in_sandbox relies on, so READONLY_PATHS cannot be enforced "
+                "at the syscall level. Either bubblewrap is absent (this host has no "
+                "apt egress or no passwordless sudo) or it is installed on a host with "
+                "unprivileged user namespaces disabled. Run the "
+                "aria-runner-capability-probe workflow to tell those two apart."
+            )
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+            handle.write(f"backend={backend}\n")
+        print(f"sandbox backend verified: {backend}")
+        PY

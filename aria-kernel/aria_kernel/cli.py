@@ -50,8 +50,18 @@ from aria_kernel.migration import (
     rollback_workspace_v2_to_v1,
 )
 from aria_kernel.memory import rebuild_fates, reset_memory, withdraw_belief
+from aria_kernel.mission import (
+    assert_cycle_closure,
+    bind_mission,
+    fold_mission,
+    list_open_missions,
+    open_mission,
+    rebuild_mission_index,
+    transition_mission,
+)
 from aria_kernel.plan_round_controller import advance_plan_rounds
 from aria_kernel.promotion_controller import promote_converged_plan_to_dispatch
+from aria_kernel.state_store import STATE_BRANCH
 from aria_kernel.plan_convergence import (
     evaluate_plan,
     force_plan_human_required,
@@ -386,6 +396,178 @@ def _validate_reason(text: str) -> str:
     return stripped
 
 
+def _handle_state_command(args: argparse.Namespace) -> int:
+    """Wave 1 §2.2 — operator entry to the state-snapshot primitives.
+
+    Imported lazily so the CLI's import cost does not grow for every
+    other subcommand, matching how the heavier integrity surfaces are
+    already wired.
+    """
+    from .ledger import canonical_json
+    from .state_snapshot import (
+        build_snapshot,
+        sign_snapshot,
+        snapshot_continuity,
+        verify_snapshot_signature,
+    )
+    from .tool_registry import tools_dir
+
+    if args.state_command == "snapshot":
+        roots: dict[str, Path] = {"tools": tools_dir(args.tools_dir)}
+        if args.workspace_base:
+            roots["workspace"] = Path(args.workspace_base)
+        if args.repo_root:
+            roots["repo"] = Path(args.repo_root)
+        previous = None
+        if args.previous:
+            previous = json.loads(Path(args.previous).read_text(encoding="utf-8"))
+        manifest = build_snapshot(
+            snapshot_id=args.snapshot_id,
+            cycle_id=args.cycle_id,
+            # Derived from the entry point, never from an argument.
+            lane="operator",
+            roots=roots,
+            parent_commit=args.parent_commit,
+            previous=previous,
+        )
+        result: dict[str, Any] = {
+            "snapshot_id": manifest["snapshot_id"],
+            "manifest_root": manifest["manifest_root"],
+            "surface_count": len(manifest["surfaces"]),
+            "artifact_only_count": len(manifest["artifact_only_surfaces"]),
+            "continuity": snapshot_continuity(manifest, previous),
+        }
+        if args.sign_with and not args.out_dir:
+            raise GovernanceError("state_snapshot_sign_requires_out_dir")
+        if args.out_dir:
+            out_dir = Path(args.out_dir)
+            if args.sign_with:
+                private = Path(args.sign_with)
+                signed = sign_snapshot(
+                    manifest,
+                    out_dir=out_dir,
+                    private_key_path=private,
+                    public_key_path=private.with_suffix(".pub"),
+                    signer_fingerprint=args.cycle_id,
+                )
+                result["signed"] = True
+                result["signature_path"] = signed.signature_path.as_posix()
+                result["manifest_path"] = signed.manifest_path.as_posix()
+            else:
+                out_dir.mkdir(parents=True, exist_ok=True)
+                path = out_dir / "snapshot.json"
+                path.write_text(canonical_json(manifest) + "\n", encoding="utf-8")
+                result["signed"] = False
+                result["manifest_path"] = path.as_posix()
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result["continuity"]["status"] in {"ok", "genesis"} else 1
+
+    if args.state_command in {"checkout", "publish", "verify-store"}:
+        return _handle_state_store_command(args)
+
+    report = verify_snapshot_signature(
+        manifest_path=Path(args.snapshot),
+        signature_path=Path(args.signature),
+        public_key_path=Path(args.public_key),
+    )
+    print(json.dumps(report, indent=2, sort_keys=True))
+    return 0 if report["valid"] else 1
+
+
+def _handle_state_store_command(args: argparse.Namespace) -> int:
+    """Wave 1 §2.3 — operator entry to the ``aria/state`` store.
+
+    Both the store's lanes and this command reach the branch through
+    ``state_store.publish_state``, so the ancestry proof that closes
+    ORPHAN-CRITICAL-484/513 is not something a caller can be written
+    without: there is no second way in for it to be missing from.
+    """
+    from .workspace import canonical_identity
+    from .state_store import (
+        StateStoreRefusal,
+        build_publishable_snapshot,
+        checkout_state_store,
+        findings_root,
+        open_state_store,
+        publish_state,
+        store_environment,
+        read_published_snapshot,
+        tools_root,
+        verify_state_store,
+        workspace_root,
+    )
+
+    # Every refusal in this command is a VERDICT, not a crash — an
+    # unacknowledged bootstrap and an unproven ancestry both mean "the
+    # state does not permit this write". Reported as structured output on
+    # exit code 3 so a lane can distinguish it from a transport failure
+    # (exit 1) and decline to retry a refusal into a success.
+    repo_hash = args.repo_hash or canonical_identity(Path(args.repo_root))
+
+    try:
+        if args.state_command == "checkout":
+            # Establishes the store at the remote tip. Refuses over
+            # uncommitted writes, which is why it is a SEPARATE command
+            # from publish rather than publish's first step.
+            store = checkout_state_store(
+                args.repo_root,
+                branch=args.branch,
+                remote=args.remote,
+                store_dir=args.store_dir,
+            )
+            published = read_published_snapshot(store)
+            print(json.dumps({
+                "store_root": store.root.as_posix(),
+                "branch": store.branch,
+                "bootstrapped": store.bootstrapped,
+                "published_snapshot_id": (published or {}).get("snapshot_id"),
+                "published_manifest_root": (published or {}).get("manifest_root"),
+                "tools_root": tools_root(store).as_posix(),
+                "workspace_root": workspace_root(store, repo_hash).as_posix(),
+                "repo_hash": repo_hash,
+                "findings_root": findings_root(store).as_posix(),
+                # The binding a lane must adopt, emitted so the workflow
+                # reads it rather than restating the path convention —
+                # a second copy of that convention is how two roots drift.
+                "environment": store_environment(store, repo_hash),
+            }, indent=2, sort_keys=True))
+            return 0
+
+        store = open_state_store(
+            args.repo_root,
+            branch=args.branch,
+            remote=args.remote,
+            store_dir=args.store_dir,
+        )
+
+        if args.state_command == "verify-store":
+            verdict = verify_state_store(store, repo_hash=repo_hash)
+            print(json.dumps(verdict, indent=2, sort_keys=True))
+            return 0 if verdict["valid"] else 1
+
+        snapshot = build_publishable_snapshot(
+            store,
+            snapshot_id=args.snapshot_id,
+            cycle_id=args.cycle_id,
+            # Derived from the entry point, never from an argument — the
+            # same rule the snapshot command follows (Plan ARIA-V3 §2c).
+            lane="operator",
+            repo_hash=repo_hash,
+            parent_commit=args.parent_commit,
+        )
+        result = publish_state(
+            store,
+            snapshot=snapshot,
+            cycle_id=args.cycle_id,
+            repo_hash=repo_hash,
+        )
+    except StateStoreRefusal as exc:
+        print(json.dumps({"published": False, "refusal": str(exc)}, indent=2, sort_keys=True))
+        return 3
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     try:
         return _main(argv)
@@ -471,6 +653,70 @@ def _main(argv: list[str] | None = None) -> int:
     discovery_run.add_argument("--cycle-id", required=True)
     discovery_run.add_argument("--snapshot-mode", default="committed", choices=["committed", "working_tree", "working-tree"])
 
+    # Wave 1 §2.2 — state snapshots: the tree-level continuity root.
+    # Under `integrity` rather than a new top-level command because a
+    # snapshot IS an integrity artefact; the operator verb set stays one
+    # tree instead of two that each know half the story.
+    state_parser = add_subparser(sub, "state")
+    state_sub = state_parser.add_subparsers(dest="state_command", required=True)
+    state_snapshot = add_subparser(
+        state_sub, "snapshot",
+        help="Build (and optionally sign) a state snapshot manifest.",
+    )
+    state_snapshot.add_argument("--snapshot-id", required=True)
+    state_snapshot.add_argument("--cycle-id", required=True)
+    # No --lane flag: Plan ARIA-V3 §2c locks the lane as kernel-derived,
+    # and this entry point IS the operator lane — a caller-supplied value
+    # would let an operator label their own run as a scheduled one.
+    state_snapshot.add_argument("--workspace-base", default=None,
+                                help="Workspace root holding aria-memory/ + aria-state/.")
+    state_snapshot.add_argument("--repo-root", default=None,
+                                help="Repo root holding aria-findings/ + aria-debts/.")
+    state_snapshot.add_argument("--out-dir", default=None,
+                                help="Write snapshot.json here; omit to print only.")
+    state_snapshot.add_argument("--previous", default=None,
+                                help="Path to the predecessor snapshot.json (chains the manifest).")
+    state_snapshot.add_argument("--sign-with", default=None,
+                                help="Private key path; requires --out-dir. Refuses if ssh-keygen is absent.")
+    state_snapshot.add_argument("--parent-commit", default=None)
+    state_verify = add_subparser(
+        state_sub, "verify-snapshot",
+        help="Verify a snapshot's signature AND that its manifest_root still matches.",
+    )
+    state_verify.add_argument("--snapshot", required=True)
+    state_verify.add_argument("--signature", required=True)
+    state_verify.add_argument("--public-key", required=True)
+
+    # Wave 1 §2.3 — the aria/state store. `publish` refuses unless the
+    # snapshot it builds names the published tip as its parent; there is
+    # no flag to skip that, because a skippable ancestry proof is what
+    # ORPHAN-CRITICAL-484/513 already cost once.
+    for name, helptext in (
+        ("checkout", "Materialise the state branch as a worktree at the remote tip."),
+        ("publish", "Build a snapshot from the state store and fast-forward-publish it."),
+        ("verify-store", "Re-derive the store's surfaces and compare against its snapshot."),
+    ):
+        store_parser = add_subparser(state_sub, name, help=helptext)
+        store_parser.add_argument("--repo-root", required=True)
+        # Derived from the repository by default. An operator computing
+        # this by hand can compute it WRONG, and a wrong value silently
+        # writes workspace state into a sibling subtree that no later
+        # snapshot mentions — loss that looks exactly like a clean run.
+        store_parser.add_argument("--repo-hash", default=None,
+                                  help="Workspace subtree key; defaults to the repo's canonical identity.")
+        store_parser.add_argument("--branch", default=STATE_BRANCH)
+        store_parser.add_argument("--remote", default="origin")
+        store_parser.add_argument("--store-dir", default=None,
+                                  help="Store worktree path; defaults to <repo-root>/.aria-state-store.")
+        if name == "publish":
+            store_parser.add_argument("--snapshot-id", required=True)
+            store_parser.add_argument("--cycle-id", required=True)
+            store_parser.add_argument("--parent-commit", default=None)
+            # No --no-push. A "rehearsal" that commits without pushing
+            # manufactures the exact state the re-checkout guard exists to
+            # refuse — a local commit the remote does not have — and it had
+            # no caller. Publishing is one indivisible act here.
+
     integrity_parser = add_subparser(sub, "integrity")
     integrity_sub = integrity_parser.add_subparsers(dest="integrity_command", required=True)
     verify_parser = add_subparser(integrity_sub, "verify")
@@ -545,6 +791,17 @@ def _main(argv: list[str] | None = None) -> int:
     breaker_reset.add_argument("--acknowledge", action="store_true")
     breaker_reset.add_argument("--reason", required=True, type=_validate_reason)
     breaker_reset.add_argument("--operator-approval-ref", required=True)
+    # RC-6 — `quarantine` is a DIFFERENT verb from `reset`, not a flag on it,
+    # because the guarantees differ: reset discards the whole window and clears
+    # the state, quarantine preserves every decodable row and clears nothing.
+    # Collapsing them into one command with a flag is how an operator reaching
+    # for "make the breaker evaluable" would end up discarding the evidence.
+    # It gets a CLI at all because ORPHAN-HIGH-465 was exactly this: an
+    # operator-recovery function that existed with no command surface.
+    breaker_quarantine = add_subparser(breaker_sub, "quarantine")
+    breaker_quarantine.add_argument("--acknowledge", action="store_true")
+    breaker_quarantine.add_argument("--reason", required=True, type=_validate_reason)
+    breaker_quarantine.add_argument("--operator-approval-ref", required=True)
 
     tool_parser = add_subparser(sub, "tool")
     tool_sub = tool_parser.add_subparsers(dest="tool_command", required=True)
@@ -1026,6 +1283,43 @@ def _main(argv: list[str] | None = None) -> int:
     plan_force.add_argument("--reason-code", action="append", required=True)
     plan_status_parser = add_subparser(plan_sub, "status")
     plan_status_parser.add_argument("--plan-id", required=True)
+
+    mission_parser = add_subparser(sub, "mission")
+    mission_sub = mission_parser.add_subparsers(dest="mission_command", required=True)
+    mission_open = add_subparser(mission_sub, "open")
+    mission_open.add_argument("--source-kind", required=True)
+    mission_open.add_argument("--source-id", required=True)
+    mission_open.add_argument("--repo-hash", required=True)
+    mission_open.add_argument("--title", required=True)
+    mission_open.add_argument("--capability", default=None)
+    mission_open.add_argument("--priority", type=int, default=None)
+    mission_transition = add_subparser(mission_sub, "transition")
+    mission_transition.add_argument("--mission-id", required=True)
+    mission_transition.add_argument("--to-state", required=True)
+    mission_transition.add_argument("--reason-code", required=True)
+    mission_transition.add_argument("--step-id", required=True)
+    mission_transition.add_argument("--target-sha", default="")
+    mission_transition.add_argument("--retry-rung", default=None)
+    mission_transition.add_argument("--next-action", default=None)
+    mission_transition.add_argument(
+        "--wake-file",
+        default=None,
+        help="Path to a JSON wake_condition object ({kind, key, not_before?}).",
+    )
+    mission_transition.add_argument("--evidence-ref", action="append", default=None)
+    mission_bind = add_subparser(mission_sub, "bind")
+    mission_bind.add_argument("--mission-id", required=True)
+    mission_bind.add_argument("--step-id", required=True)
+    mission_bind.add_argument(
+        "--bindings-file",
+        required=True,
+        help="Path to a JSON object keyed by the closed binding vocabulary.",
+    )
+    mission_show = add_subparser(mission_sub, "show")
+    mission_show.add_argument("--mission-id", required=True)
+    add_subparser(mission_sub, "list")
+    add_subparser(mission_sub, "rebuild-index")
+    add_subparser(mission_sub, "closure")
 
     inv_parser = add_subparser(sub, "agent-invocations")
     inv_sub = inv_parser.add_subparsers(dest="agent_invocation_command", required=True)
@@ -2163,6 +2457,32 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
+    if args.command == "breaker" and args.breaker_command == "quarantine":
+        from aria_kernel.circuit_breaker import quarantine_breaker_evidence
+
+        if not args.acknowledge:
+            print(
+                "breaker quarantine requires --acknowledge: it moves undecodable "
+                "ledger rows to a sidecar. Every decodable row is KEPT and the "
+                "breaker is NOT cleared — it re-derives from the survivors and "
+                "stays tripped if they still exceed the threshold.",
+            )
+            return 2
+        result = quarantine_breaker_evidence(
+            base_dir=args.tools_dir,
+            operator_approval_ref=args.operator_approval_ref,
+            reason=args.reason,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        # A no-op is not a failure, but a still-tripped breaker must not exit 0
+        # as though recovery finished: the operator has more to do.
+        if result.get("breaker_state_after") == "tripped":
+            return 1
+        return 0
+
+    if args.command == "state":
+        return _handle_state_command(args)
+
     if args.command == "integrity" and args.integrity_command == "verify":
         result = verify_integrity(
             workspace_root=args.workspace_root,
@@ -2806,11 +3126,19 @@ def _main(argv: list[str] | None = None) -> int:
             tools_root = Path(args.tools_dir).resolve()
         else:
             tools_root = workspace_root / "aria-tools"
+        # Derived, not flagged: when the state store is checked out its
+        # published manifest_root belongs in the anchor, and when it is
+        # not there is nothing to pin. An operator deciding this per run
+        # is an operator who can forget, and the anchor is the record
+        # that stands in for git history.
+        from aria_kernel.state_store import SNAPSHOT_FILENAME, STORE_DIRNAME
+        store_snapshot = workspace_root / STORE_DIRNAME / SNAPSHOT_FILENAME
         result = emit_anchor_to_path(
             date=args.date,
             workspace_root=workspace_root,
             tools_root=tools_root,
             output_path=Path(args.output_path).resolve(),
+            state_snapshot_path=store_snapshot if store_snapshot.is_file() else None,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
@@ -2931,6 +3259,58 @@ def _main(argv: list[str] | None = None) -> int:
             parser.error("unknown plan command")
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("status") != "rejected" else 1
+
+    if args.command == "mission":
+        if args.mission_command == "open":
+            result = open_mission(
+                source_kind=args.source_kind,
+                source_id=args.source_id,
+                repo_hash=args.repo_hash,
+                title=args.title,
+                capability=args.capability,
+                priority=args.priority,
+                base_dir=args.tools_dir,
+            )
+        elif args.mission_command == "transition":
+            wake = (
+                json.loads(Path(args.wake_file).read_text(encoding="utf-8"))
+                if args.wake_file
+                else None
+            )
+            result = transition_mission(
+                mission_id=args.mission_id,
+                to_state=args.to_state,
+                reason_code=args.reason_code,
+                step_id=args.step_id,
+                target_sha=args.target_sha,
+                retry_rung=args.retry_rung,
+                next_action=args.next_action,
+                wake_condition=wake,
+                evidence_refs=args.evidence_ref,
+                base_dir=args.tools_dir,
+            )
+        elif args.mission_command == "bind":
+            result = bind_mission(
+                mission_id=args.mission_id,
+                bindings=json.loads(Path(args.bindings_file).read_text(encoding="utf-8")),
+                step_id=args.step_id,
+                base_dir=args.tools_dir,
+            )
+        elif args.mission_command == "show":
+            result = fold_mission(mission_id=args.mission_id, base_dir=args.tools_dir)
+        elif args.mission_command == "list":
+            result = {
+                "schema_version": 1,
+                "missions": list_open_missions(base_dir=args.tools_dir),
+            }
+        elif args.mission_command == "rebuild-index":
+            result = rebuild_mission_index(base_dir=args.tools_dir)
+        elif args.mission_command == "closure":
+            result = assert_cycle_closure(base_dir=args.tools_dir)
+        else:
+            parser.error("unknown mission command")
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
 
     if args.command == "agent-invocations":
         if args.agent_invocation_command == "request":

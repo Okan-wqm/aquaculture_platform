@@ -27088,7 +27088,7 @@
     },
     {
       "class": "runtime_evidence",
-      "content_sha256": "1e8a4711fbac7b6443b127d52bab9aa27b62a2c7ef3d1ffc3d325926c2dfabd7",
+      "content_sha256": "2c535e6f71c643de0fdd6c1e3c6a07d05eb9d092b1bafd49be52e8e64bb0a338",
       "hash_policy": "sha256",
       "owner": "aria-runtime",
       "path": "aria-tools/agent-evals/fixtures/F001_EVIDENCE_JUDGE_TYPEORM.json",
@@ -27099,7 +27099,7 @@
     },
     {
       "class": "runtime_evidence",
-      "content_sha256": "8ae3b398e19bc8fe0813d297893e532054fff2e510efda12069120f9c4010776",
+      "content_sha256": "2b47f537f47381be81103e8105e10af349f84968e07c8be8518a7b1d813c1740",
       "hash_policy": "sha256",
       "owner": "aria-runtime",
       "path": "aria-tools/agent-evals/fixtures/F002_ADVERSARIAL_JUDGE_STALENESS.json",
@@ -27110,7 +27110,7 @@
     },
     {
       "class": "runtime_evidence",
-      "content_sha256": "417ea0426d2eb5e1434439982c1cfc23eb81bb689d4c79717c7dab1bb38dd5d8",
+      "content_sha256": "e7908ef2650b068966dd88229fdfd3483695b010948ea6e8719a67f6e96fb19e",
       "hash_policy": "sha256",
       "owner": "aria-runtime",
       "path": "aria-tools/agent-evals/fixtures/F003_CONSENSUS_DISAGREEMENT.json",
@@ -27121,7 +27121,7 @@
     },
     {
       "class": "runtime_evidence",
-      "content_sha256": "1a8eaf73e72de7aa44f79fc57707c8f54a6601ab88c19dd722d63b6affbc2987",
+      "content_sha256": "007b6a348ce168b515f251fa2a6f247f974d68d6528fd3b182a4bb4e7e4a28dd",
       "hash_policy": "sha256",
       "owner": "aria-runtime",
       "path": "aria-tools/agent-evals/fixtures/F004_ARBITER_TIGHTEN.json",
@@ -27132,7 +27132,7 @@
     },
     {
       "class": "runtime_evidence",
-      "content_sha256": "749391ab0da8222448b1feab8e7d3ed5c128cdab5b1778f5b1acc077c7ff6a0e",
+      "content_sha256": "edd2bcae8826e47c78a6f4768ec20bfddd31768fe57faaf5a14c75bf721ea686",
       "hash_policy": "sha256",
       "owner": "aria-runtime",
       "path": "aria-tools/agent-evals/fixtures/F005_AUTH_CROSS_TENANT_JOIN.json",

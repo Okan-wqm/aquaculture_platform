@@ -7799,3 +7799,17 @@ Separately, `docs/adr/022-edge-schema-placement.md` and `docs/adr/022-pseudonymi
 
 **Fix:** renumber one member of each collision and update citers. Cheap now; each duplicate silently breaks ID-based traceability, which is the mechanism `docs/reviews/` depends on.
 **Owner:** context-manager. **Deadline:** 2026-09-02.
+
+## ORPHAN-HIGH-550 — the ARIA acceptance harness cannot survive its own repository: worktree-bloated walk, no argparse, an isolation check that inverts on first real use, and a consistency metric that rewards flakiness — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, planning the ARIA training loop; every claim verified firsthand.
+
+Four compounding defects made the training loop's deterministic validator unusable:
+
+1. `tools/aria-poc/poc.py` imported `augmented_excluded_paths` (written exactly for nested-worktree exclusion) and never called it; `walk_repo` filtered with the static list, so 20,873 of 33,021 walked paths (63%) were two full checkouts under `.claude/worktrees/`. The harness outran every short timeout (~5 min healthy, killed at 60-90s → exit 143).
+2. `harness.py` `main()` never read `sys.argv` — `--help` ran the full multi-minute suite; the rich per-drift TP/FP `details[]` (the training loop's label source) was printed to stdout and persisted nowhere.
+3. Check (4) of `cycle_acceptance` asserted the PRODUCTION `aria-tools/cycles.jsonl` was EMPTY — conflating temp-cycle isolation with "ARIA has never run". The first legitimate cycle (2026-08-05, after 24 days) flipped it to a permanent REJECT. Third instance of the named pattern: a gate that has never had a real input proves nothing once it has one.
+4. `agent_eval.py` variance bound its conditional over the whole expression (`(1.0 if passed else 0.0 - mean) ** 2`), so an always-passing agent scored consistency 0.000 instead of 1.000 — latent only because `runs.jsonl` has never existed.
+
+**Fix (this PR):** walk uses the augmented set (12,154 paths, 0 under worktrees; full suite ACCEPT in 54s); argparse with `--json-out` (labels persist) and `--skip-poc`; isolation check snapshots before/after and asserts non-growth; eval formula parenthesised + stdev per its docstring, with regression tests red against the buggy expression.
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).

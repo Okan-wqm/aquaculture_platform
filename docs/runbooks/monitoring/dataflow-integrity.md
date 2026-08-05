@@ -11,9 +11,12 @@ The oldest unpublished outbox event on `{{app}}` exceeds the 10-minute stall
 SLO (`OUTBOX_PENDING_AGE_ALARM_MS`, `platform/libs/outbox/src/constants.ts:60`).
 The relay is stalled or dead.
 
-1. `SELECT count(*), max(now()-"createdAt") FROM <schema>.<svc>_outbox WHERE "publishedAt" IS NULL AND "isDeadLettered"=false;`
-2. Inspect `lastError` on the oldest rows; check the service's NATS connection (`docker logs`, boot signal `nats_auth_mode_mtls`).
-3. If the relay restarted and drained, resolve; otherwise file with `owner_agent: job-queue-auditor`.
+1. `SELECT count(*), max(now()-"createdAt") FROM <schema>.<svc>_outbox`
+   `WHERE "publishedAt" IS NULL AND "isDeadLettered"=false;`
+2. Inspect `lastError` on the oldest rows; check the service's NATS
+   connection (`docker logs`, boot signal `nats_auth_mode_mtls`).
+3. If the relay restarted and drained, resolve; otherwise file with
+   `owner_agent: job-queue-auditor`.
 
 ## OutboxDeadLetterGrowing (high)
 

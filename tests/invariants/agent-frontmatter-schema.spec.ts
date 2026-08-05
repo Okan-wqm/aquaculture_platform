@@ -149,6 +149,18 @@ describe('agent frontmatter schema invariant (CLAUDE-CRITICAL-006)', () => {
   // fallback (MODEL_FALLBACK_TIER = {fable: opus, opus: sonnet}). Planning
   // agents stay on fable, the most capable pool. Mirrors python
   // WRITE_TIER_AGENTS — the two sets must never diverge (ORPHAN-HIGH-285).
+  // Plan tranquil-sniffing-pancake Faz 2.1 — the acceptance lane's four
+  // agents are pinned explicitly so a silent tier downgrade fails here
+  // rather than only changing behaviour. Lead is the decision node (fable);
+  // the three reviewers are judge-tier (opus). Fixer is also in
+  // ARIA_WRITE_TIER below, which additionally pins its effort.
+  const ARIA_ACCEPTANCE_TIER: ReadonlyMap<string, [string, string]> = new Map([
+    ['aria-acceptance-lead', ['fable', 'max']],
+    ['aria-acceptance-output-validator', ['opus', 'max']],
+    ['aria-acceptance-gap-hunter', ['opus', 'max']],
+    ['aria-acceptance-gap-fixer', ['opus', 'max']],
+  ]);
+
   const ARIA_WRITE_TIER = new Set<string>([
     'aria-implementer',
     'aria-drafter',
@@ -186,6 +198,10 @@ describe('agent frontmatter schema invariant (CLAUDE-CRITICAL-006)', () => {
         effort,
         valid: true,
       });
+      const acceptancePin = ARIA_ACCEPTANCE_TIER.get(file.filenameStem);
+      if (acceptancePin) {
+        expect([model, effort]).toEqual(acceptancePin);
+      }
       if (ARIA_WRITE_TIER.has(file.filenameStem)) {
         // K5 tier flip — the write tier runs on the most capable model.
         expect(model).toBe('opus');

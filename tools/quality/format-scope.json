@@ -42486,6 +42486,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/aria-acceptance-lane-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/aria-doc-runtime-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -56382,10 +56388,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9246,
+  "file_count": 9247,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9065,
-  "managed_file_list_sha256": "501e39b3fb53f039bca09cbb58762a2f890dfc39df068d1c5238ea33c40fa17c",
+  "managed_count": 9066,
+  "managed_file_list_sha256": "ea0cd1ec5e390499f5316cdccbd3f52a9e9adae5d6f9a718944234b9f316f327",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

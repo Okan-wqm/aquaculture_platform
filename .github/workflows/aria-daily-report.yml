@@ -214,7 +214,8 @@ jobs:
           # does not cross job boundaries; this is the canonical
           # GHA inter-job data transfer mechanism).
           REPORT_DATE: ${{ needs.generate-report.outputs.date }}
-          GH_TOKEN: ${{ secrets.ARIA_GITHUB_APP_TOKEN }}
+          GH_TOKEN: ${{ secrets.ARIA_GITHUB_APP_TOKEN || github.token }}
+          PR_TOKEN_SOURCE: ${{ secrets.ARIA_GITHUB_APP_TOKEN && 'aria-github-app' || 'actions-default' }}
         run: |
           set -euo pipefail
           REPORT="aria-tools/reports/daily/${REPORT_DATE}.md"

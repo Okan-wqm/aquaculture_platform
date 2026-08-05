@@ -225,7 +225,8 @@ jobs:
 
       - name: Open or update report PR
         env:
-          GH_TOKEN: ${{ secrets.ARIA_GITHUB_APP_TOKEN }}
+          GH_TOKEN: ${{ secrets.ARIA_GITHUB_APP_TOKEN || github.token }}
+          PR_TOKEN_SOURCE: ${{ secrets.ARIA_GITHUB_APP_TOKEN && 'aria-github-app' || 'actions-default' }}
           REPORT_PATH: ${{ steps.generate.outputs.path }}
         run: |
           set -euo pipefail

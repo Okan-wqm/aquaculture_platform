@@ -969,6 +969,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/provisioned-secrets.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/pull_request_template.md",
       "prettier_managed": true
     },
@@ -33331,6 +33337,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-05-protected-ssh-candidate-scan.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -43729,6 +43741,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/workflow-npm-script-references.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/workflow-secret-provisioning.spec.ts",
       "prettier_managed": true
     },
     {
@@ -56430,10 +56448,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9254,
+  "file_count": 9257,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9073,
-  "managed_file_list_sha256": "c555a2d6f4d4eb6c00bd8d13737ac0eb6191865ea2d32728de23b283e5385ad3",
+  "managed_count": 9076,
+  "managed_file_list_sha256": "cab7780ed3fe831d9175301631e11cc5eb6458f95695ae434786f7debca986cc",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

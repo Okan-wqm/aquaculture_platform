@@ -146,6 +146,37 @@ def _stage(msg: str) -> None:
     sys.stderr.flush()
 
 
+def _publish_artifact_paths(envelope_path: Path, transcript_path: Path) -> None:
+    """Tell the workflow WHERE the envelope actually landed.
+
+    The upload step used to rebuild the path from the request id
+    (`outputs/<request_id>.json`), while the request envelope names it
+    `outputs/<group>/<round>-<role>-<request_id>.md` — two spellings of one
+    path that never agreed, so `if-no-files-found: error` failed every run
+    that claimed a request, AFTER the agent work had already succeeded. The
+    producer knows the path; it says so here instead of letting YAML guess.
+
+    Paths are emitted relative to the workspace because that is what
+    actions/upload-artifact resolves against; an absolute path outside the
+    workspace would silently upload nothing.
+    """
+    output_file = os.environ.get("GITHUB_OUTPUT")
+    if not output_file:
+        return
+    workspace = Path(os.environ.get("GITHUB_WORKSPACE", ".")).resolve()
+
+    def _relative(path: Path) -> str:
+        resolved = path.resolve()
+        try:
+            return resolved.relative_to(workspace).as_posix()
+        except ValueError:
+            return resolved.as_posix()
+
+    with open(output_file, "a", encoding="utf-8") as handle:
+        handle.write(f"envelope_path={_relative(envelope_path)}\n")
+        handle.write(f"transcript_path={_relative(transcript_path)}\n")
+
+
 def _write_sanitized_envelope(path: Path, envelope: dict[str, Any]) -> None:
     """Write executor output through the central artifact-safety boundary."""
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
@@ -1951,6 +1982,7 @@ def main(argv: list[str] | None = None) -> int:
 
     timeout = _max_timeout_seconds()
     transcript_output_path = expected_output_path.with_suffix(".transcript.jsonl")
+    _publish_artifact_paths(expected_output_path, transcript_output_path)
     _run_started_at = time.monotonic()
     try:
         # Plan 024 v3 §B-8 — pass real lease identity + role from

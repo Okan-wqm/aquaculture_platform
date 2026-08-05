@@ -553,6 +553,7 @@ jobs:
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
             --repo-root . \
+            --snapshot-id "auto-cycle-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             --cycle-id "auto-cycle-${GITHUB_RUN_ID}"
 
       # FORENSIC CACHE ONLY — and the run-scoped name is the whole point.

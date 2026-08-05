@@ -545,6 +545,7 @@ jobs:
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
             --repo-root . \
+            --snapshot-id "executor-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             --cycle-id "executor-${GITHUB_RUN_ID}"
 
       # FORENSIC CACHE ONLY, under a run-scoped name nothing restores from, so

@@ -33265,6 +33265,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-04-aria-continuity-probe.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-08-04-aria-forged-perimeter-verdict.md",
       "prettier_managed": true
     },
@@ -42481,6 +42487,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/all-services-env-aware-migrations.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/aria-acceptance-lane-contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -56382,10 +56394,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9246,
+  "file_count": 9248,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9065,
-  "managed_file_list_sha256": "501e39b3fb53f039bca09cbb58762a2f890dfc39df068d1c5238ea33c40fa17c",
+  "managed_count": 9067,
+  "managed_file_list_sha256": "ead60a210e81554e92f1fd268bc813e6adaf57f036688b1b84e352489d536bc7",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

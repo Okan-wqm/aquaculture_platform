@@ -39,7 +39,7 @@ fi
 if [ -e "${SSH_STDOUT_PATH}" ] || [ -L "${SSH_STDOUT_PATH}" ]; then
   die 'SSH_STDOUT_PATH must not already exist.'
 fi
-for required_command in awk chmod mktemp ssh ssh-keygen ssh-keyscan timeout; do
+for required_command in chmod mktemp ssh ssh-keygen ssh-keyscan timeout; do
   command -v "${required_command}" >/dev/null 2>&1 || die "${required_command} is required."
 done
 
@@ -73,9 +73,26 @@ fi
 : > "${KNOWN_HOSTS_PATH}"
 while IFS= read -r candidate_key; do
   [ -n "${candidate_key}" ] || continue
-  candidate_fingerprint=$(
-    printf '%s\n' "${candidate_key}" | ssh-keygen -lf - -E sha256 | awk 'NR == 1 { print $2 }'
-  )
+  # A candidate this ssh-keygen cannot parse is NOT A MATCH — it is not a
+  # reason to abandon the scan. The previous form
+  #   candidate_fingerprint=$(printf ... | ssh-keygen -lf - | awk ...)
+  # aborted the whole script on it, under `set -e`, with none of the `die`
+  # diagnostics every other failure path here carries. Measured: a host
+  # advertising an algorithm this build cannot read, followed by the pinned
+  # ed25519 key, exits 255 before the loop ever reaches the key that matches.
+  # The pipeline was also status-fragile in its own right: `ssh-keygen -lf -`
+  # need not drain stdin, so under `pipefail` the writer can be signalled
+  # SIGPIPE — deterministically 141 once the advertised line exceeds the pipe
+  # buffer, and a scheduling race below it, which is how this reached CI as a
+  # flaky red on a production-secret invariant. A here-string has no writer
+  # process to signal and the status is read by name instead of by `set -e`.
+  if ! candidate_key_info=$(ssh-keygen -lf - -E sha256 <<< "${candidate_key}" 2>/dev/null); then
+    printf 'NOTE: skipping an advertised host key this ssh-keygen cannot parse.\n' >&2
+    continue
+  fi
+  candidate_key_info=${candidate_key_info%%$'\n'*}
+  candidate_fingerprint=${candidate_key_info#* }
+  candidate_fingerprint=${candidate_fingerprint%% *}
   if [ "${candidate_fingerprint}" = "${DROPLET_SSH_FINGERPRINT}" ]; then
     printf '%s\n' "${candidate_key}" >> "${KNOWN_HOSTS_PATH}"
   fi

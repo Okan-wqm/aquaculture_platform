@@ -563,6 +563,67 @@ describe('production backup secret contract', () => {
     }
   });
 
+  it('skips an advertised host key it cannot parse instead of abandoning the scan', () => {
+    // A host advertises several key types. One is unreadable to this
+    // ssh-keygen build; the PINNED key is the next line. The scan must reach
+    // it. The previous `printf | ssh-keygen | awk` form aborted the whole
+    // script on the unreadable line under `set -e` — exit 255, no `die`
+    // reason — so the backup failed with the matching key sitting one line
+    // below. The same pipeline was status-fragile: `ssh-keygen -lf -` need
+    // not drain stdin, so an advertised line larger than the pipe buffer
+    // signals the writer SIGPIPE and the script exits 141. This fixture
+    // reproduces BOTH: the first line is unparseable AND oversized.
+    const directory = mkdtempSync(join(tmpdir(), 'aqua-protected-ssh-unparseable-'));
+    const fakeBin = join(directory, 'bin');
+    const payloadPath = join(directory, 'payload.sh');
+    const stdoutPath = join(directory, 'stdout');
+    const fingerprint = `SHA256:${'C'.repeat(43)}`;
+    const oversizedAdvertisedKey = `host.example ssh-unreadable-alg ${'A'.repeat(200_000)}`;
+    try {
+      mkdirSync(fakeBin, { mode: 0o700 });
+      writeExecutable(
+        join(fakeBin, 'ssh-keyscan'),
+        `printf '%s\\n' '${oversizedAdvertisedKey}' 'host.example ssh-ed25519 pinned-public-key'`,
+      );
+      // Faithful to the real tool on both inputs: it refuses the unreadable
+      // line WITHOUT draining stdin, and it reads the pinned one.
+      writeExecutable(
+        join(fakeBin, 'ssh-keygen'),
+        [
+          'read -r _algo_line || true',
+          'case "${_algo_line}" in',
+          '  *ssh-unreadable-alg*) printf "(stdin) is not a public key file.\\n" >&2; exit 255 ;;',
+          `esac`,
+          `printf '%s\\n' '256 ${fingerprint} host.example (ED25519)'`,
+        ].join('\n'),
+      );
+      writeExecutable(join(fakeBin, 'timeout'), "printf '%s\\n' 'remote-ok'");
+      writeFileSync(payloadPath, 'exit 0\n', { mode: 0o600 });
+
+      const result = spawnSync('bash', [PROTECTED_SSH_PATH], {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        env: {
+          PATH: `${fakeBin}:${process.env.PATH ?? '/usr/bin:/bin'}`,
+          TMPDIR: directory,
+          DROPLET_HOST: 'host.example',
+          DROPLET_USER: 'backup',
+          DROPLET_SSH_KEY: 'unused-private-key',
+          DROPLET_SSH_FINGERPRINT: fingerprint,
+          SSH_PAYLOAD_PATH: payloadPath,
+          SSH_STDOUT_PATH: stdoutPath,
+        },
+      });
+
+      // 141 would be SIGPIPE on the writer; 255 would be the aborted scan.
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain('skipping an advertised host key');
+      expect(read(stdoutPath)).toContain('remote-ok');
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('fails a successful SSH execution when its private runtime cleanup leaves residue', () => {
     const directory = mkdtempSync(join(tmpdir(), 'aqua-protected-ssh-cleanup-'));
     const fakeBin = join(directory, 'bin');

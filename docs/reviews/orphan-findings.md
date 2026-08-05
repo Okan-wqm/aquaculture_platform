@@ -1,5 +1,13 @@
 # Orphan Findings — Plan-Independent Real Problems
 
+<!-- markdownlint-disable MD013 -->
+<!-- WHY: append-only machine-written evidence ledger; entries carry long
+     verbatim evidence strings (file:line quotes, SHAs, JSON) that must not
+     be rewrapped after the fact. Wrapping ~2,864 historical lines would
+     rewrite recorded evidence; MD013 is therefore disabled for this file
+     so the docs-check whole-file lint cannot block every future finding
+     ceremony that appends here. -->
+
 **Purpose:** Problems spotted while reading code for planned work (ADRs / Faz implementation) that are **NOT** part of the current plan. Discovery → test → document here.
 
 **Policy:** Append-only. Findings RESOLVED via commits carry closure note + commit SHA. Never silently dropped.

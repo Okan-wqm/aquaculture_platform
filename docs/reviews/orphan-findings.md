@@ -7856,7 +7856,7 @@ Two halves of one severed sensor path. (1) `runtime_signal_bridge.ingest_runtime
 
 # **Fix (this PR):** `aria-kernel runtime signal ingest|resolve|list` verbs (auto-covered by the workflow-CLI contract test), and `rules/60-dataflow-integrity.yml` thresholding the existing metrics — the stall rule quotes the documented SLO (`OUTBOX_PENDING_AGE_ALARM_MS`, `platform/libs/outbox/src/constants.ts:60`) rather than inventing a number; every rule carries a `target_auditor` label routing to the owning Lane-B auditor. Probe exporter skeleton at `tools/watchdog/` (T1 set lands in W-B).
 
-## ORPHAN-MEDIUM-560 — the gold corpus had a reader, a promoter and a curator agent, and no producer: `propose_goldset` had zero callers, so `judge_replay` and `proactive_priority` gated on an active corpus that could never come into existence — RESOLVED (this PR)
+## ORPHAN-MEDIUM-565 — the gold corpus had a reader, a promoter and a curator agent, and no producer: `propose_goldset` had zero callers, so `judge_replay` and `proactive_priority` gated on an active corpus that could never come into existence — RESOLVED (this PR)
 
 **Discovered:** 2026-08-05, F4.2 of the ARIA intelligence program; verified firsthand (zero call sites for `propose_goldset` across kernel + tools; `promote_goldset_proposal` raises `no ready goldset proposal` on an empty ledger; `judge_replay:45` and `proactive_priority:70` both short-circuit on `load_active_goldset(...) is None`).
 

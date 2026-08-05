@@ -33,6 +33,7 @@ from .human_required import (
     sweep_lease_lifecycle_for_human_required,
 )
 from .human_required_adjudication import sweep_human_required_adjudications
+from .goldset import propose_goldsets_for_labelled_tools
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
 from .runtime_profile import ACTION_PERMISSIONS, get_profile
@@ -1129,6 +1130,16 @@ def _phase_judge_calibration(context: PhaseContext) -> dict[str, Any]:
     return compute_judge_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir)
 
 
+def _phase_goldset_proposal(context: PhaseContext) -> dict[str, Any]:
+    # F4.2 of the intelligence program — the producer `propose_goldset` never
+    # had. Counting labelled feedback is machine work, so the cycle mints the
+    # proposal (and the distance-to-ready that comes with it); promotion stays
+    # an operator act behind `goldset promote --curator`.
+    return propose_goldsets_for_labelled_tools(
+        cycle_id=context.cycle_id, base_dir=context.base_dir,
+    )
+
+
 def _phase_proactive_priority(context: PhaseContext) -> dict[str, Any]:
     # Plan 027 §D3 — proactive Impact x Opportunity ranking, computed every
     # cycle regardless of reactive pressure, so ARIA always has a "where to
@@ -1583,6 +1594,15 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     CyclePhase(
         "judge_calibration", "post_tool", _phase_judge_calibration,
         precondition=WRITES_PERMITTED, state_key="judge_calibration",
+    ),
+    # Directly after judge_calibration: both read the same feedback ledger,
+    # and the gold corpus this mints is what judge_replay scores judges
+    # against. `record_and_continue` — a proposal that CRASHED recorded no
+    # ground truth, but it must not fail a cycle whose real work succeeded.
+    CyclePhase(
+        "goldset_proposal", "post_tool", _phase_goldset_proposal,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="goldset_proposal",
     ),
     CyclePhase(
         "proactive_priority", "post_tool", _phase_proactive_priority,

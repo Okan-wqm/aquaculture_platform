@@ -29,7 +29,7 @@ Measured over the exact production loop — restore → bind → append → publ
 restore → bind — seeded with the **real rows from the live `aria/state`
 branch**:
 
-```
+```text
 night 1: published tail 9ec3d7f5… -> after bind 9ec3d7f5…   SURVIVES=True
          appended row schema_version=<ABSENT>
 night 2: published tail 0127a841… -> after bind a7f8ed2b…   SURVIVES=False
@@ -124,7 +124,7 @@ private `_restamp` is deleted.
 
 Re-measured over the same production loop, seeded with the live branch rows:
 
-```
+```text
 night 1: bind rewrites NOTHING (fifteen explicit-v1 ledgers preserved;
          governance grows by its own ceremony appends only)
          appended row schema_version=2

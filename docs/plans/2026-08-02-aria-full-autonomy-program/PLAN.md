@@ -2,9 +2,12 @@
 
 - **Plan date:** 2026-08-02
 - **Owner:** okan
-- **Audit baseline:** `main@7e1563e6` (ARIA kernel surfaces byte-identical to `f723a488`, the external review's reference)
-- **Design source:** operator design document "ARIA Tam Otonom Yazılım Ekibi Tasarımı" (47 sections, 2026-08-02) — target state is its §47 _Final Definition of Done_
-- **Supersedes:** `docs/plans/2026-07-26-aria-software-team-program/PLAN.md` (stage map below); that plan's registered findings remain authoritative in the registry
+- **Audit baseline:** `main@7e1563e6` (ARIA kernel surfaces byte-identical to `f723a488`, the
+  external review's reference)
+- **Design source:** operator design document "ARIA Tam Otonom Yazılım Ekibi Tasarımı"
+  (47 sections, 2026-08-02) — target state is its §47 _Final Definition of Done_
+- **Supersedes:** `docs/plans/2026-07-26-aria-software-team-program/PLAN.md` (stage map below);
+  that plan's registered findings remain authoritative in the registry
 - **Status:** Wave R in progress
 - **Revision 2 (2026-08-02):** operator asked for a second pass over the design
   document with the repo evidence and this program's own judgment. Deltas:
@@ -328,7 +331,7 @@ bridge drainer resolves a real function; permanent golden-parity fixture.
 **Completion evidence:** single live pipeline, explicit preconditions, nightly
 green throughout, perimeter-less PR production structurally impossible.
 
-### Wave 1 — Durable event store: `aria/state` branch + memory continuity (Revision 2: promoted ahead of missions; + early external watchdog)
+### Wave 1 — Durable event store: `aria/state` + memory continuity (R2: first; + ext. watchdog)
 
 **Early external watchdog (moved here from Wave 11):** a small,
 kernel-independent `aria-external-watchdog.yml` — state-branch freshness
@@ -489,7 +492,7 @@ request-minting authority to the scheduler; PR 1.7 retires the queue producer
 **Completion evidence:** crash-injection suite — kill at every transition,
 mission resumes; design-§43 scenarios 1, 2, 4, 21, 22 executable.
 
-### Wave 3 — Repository Digital Twin (Revision 2: **Twin-lite** scope; deep symbol graph deferred to Wave 10)
+### Wave 3 — Repository Digital Twin (R2: **Twin-lite** scope; deep symbol graph to Wave 10)
 
 New `aria_kernel/twin/` subpackage (new capability, consumers ported onto it).
 **Twin-lite is four deterministic layers — no symbol-level CALLS edges:**

@@ -119,7 +119,35 @@ def _integrity_tools_root(base_dir: str | Path | None) -> Path:
 
 def _verify_workspace(repo_root: Path, workspace_base: Path | None, tools_root: Path) -> dict[str, Any]:
     paths = workspace_paths(repo_root, workspace_base)
-    if not paths.identity_file.exists() and not any(path.exists() and path.stat().st_size for path in paths.ledgers.values()):
+    if not paths.identity_file.exists():
+        # BOOTSTRAP ON A MISSING IDENTITY, whatever the ledgers hold.
+        #
+        # The `and not any(ledger)` half was correct while the identity and the
+        # ledgers were always born together on one machine: a workspace with
+        # rows but no identity could only be a half-migrated v1 tree, and
+        # bootstrapping over it would have hidden that.
+        #
+        # The lane cutover made that conjunction false. The workspace ledgers
+        # now travel on the `aria/state` branch; the identity does not, and
+        # must not — it records this HOST's repo_root, and the branch is shared
+        # by every runner. So the ordinary shape of a restored workspace is
+        # exactly "rows present, identity absent", and the old condition
+        # skipped the bootstrap, left `workspace_contract_version` reading a
+        # file that was not there, and reported `workspace_migration_required`
+        # on a healthy tree. Both lanes gate publication on
+        # `state_valid == 'true'`, so a restored store did its night's work and
+        # was then refused permission to persist it.
+        #
+        # Bootstrapping unconditionally is safe because the workspace PATH
+        # already carries the binding: `workspace_paths` keys the directory by
+        # the repository hash, so a workspace at `<base>/<hash>` cannot belong
+        # to another repository. `ensure_workspace` still refuses an identity
+        # that disagrees; what changes is that an ABSENT one is re-derived
+        # rather than read as damage.
+        #
+        # This is the same defect the tools root had (`ambiguous_tools_root`,
+        # fixed by binding in the restore action) — one root got its fix and
+        # its sibling did not.
         ensure_workspace(paths)
     issues: list[dict[str, Any]] = []
     ledgers = []

@@ -33319,6 +33319,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-05-aria-first-restored-night.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -56406,10 +56412,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9250,
+  "file_count": 9251,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9069,
-  "managed_file_list_sha256": "9e610c903ead70d53a2919e46a31b7cf9e27eec7032aa79c0db375e23fe64758",
+  "managed_count": 9070,
+  "managed_file_list_sha256": "29ff0cc6d52a2f44134c2951e2da4e92ad0ff883b2915041e33ea7906c9c9355",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

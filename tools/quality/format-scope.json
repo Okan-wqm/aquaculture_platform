@@ -31531,6 +31531,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-07-30-enterprise-backup-restore-architecture/PLAN.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/2026-08-02-aria-full-autonomy-program/PLAN.md",
       "prettier_managed": true
     },
@@ -43093,6 +43099,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/maintenance-isolation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/markdownlint-event-range.spec.ts",
       "prettier_managed": true
     },
     {
@@ -56394,10 +56406,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9248,
+  "file_count": 9250,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9067,
-  "managed_file_list_sha256": "ead60a210e81554e92f1fd268bc813e6adaf57f036688b1b84e352489d536bc7",
+  "managed_count": 9069,
+  "managed_file_list_sha256": "9e610c903ead70d53a2919e46a31b7cf9e27eec7032aa79c0db375e23fe64758",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

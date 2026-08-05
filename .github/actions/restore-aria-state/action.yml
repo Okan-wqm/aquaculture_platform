@@ -168,6 +168,33 @@ runs:
           else
             echo "::error::aria/state checkout failed to reach the remote (exit ${STATUS})." >&2
           fi
+          # THE REASON THE KERNEL GAVE, read from the stream it actually uses.
+          #
+          # `cli.py` prints a refusal as JSON on STDOUT and returns 3, and this
+          # step redirects stdout into $VERDICT. So the line below used to print
+          # `${VERDICT}.err` — stderr — and on every refusal that file is EMPTY.
+          # The structured reason this step exists to preserve was captured and
+          # then discarded: the comment above promises not to lose it, and the
+          # code lost it by naming the wrong stream. Measured on run
+          # 30977606839, where the operator was told the checkout was refused,
+          # was pointed at a runbook, and was never told which refusal it was.
+          python3 - "$VERDICT" >&2 <<'PY' || true
+        import json
+        import sys
+
+        try:
+            with open(sys.argv[1], encoding="utf-8") as fh:
+                verdict = json.load(fh)
+        except (OSError, ValueError):
+            verdict = {}
+        reason = verdict.get("refusal") if isinstance(verdict, dict) else None
+        if reason:
+            print(f"aria/state refusal: {reason}")
+        elif verdict:
+            print(f"aria/state verdict: {json.dumps(verdict, sort_keys=True)[:2000]}")
+        else:
+            print("aria/state wrote no verdict — the command failed before judging.")
+        PY
           head -c 4000 "${VERDICT}.err" >&2 || true
           exit "$STATUS"
         fi

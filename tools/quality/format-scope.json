@@ -33331,6 +33331,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-05-protected-ssh-candidate-scan.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -56430,10 +56436,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9254,
+  "file_count": 9255,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9073,
-  "managed_file_list_sha256": "c555a2d6f4d4eb6c00bd8d13737ac0eb6191865ea2d32728de23b283e5385ad3",
+  "managed_count": 9074,
+  "managed_file_list_sha256": "aaf93c342400777caa5f0419fdd404bfbf1a00e41f28b2b586dd9eaea96c62d2",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

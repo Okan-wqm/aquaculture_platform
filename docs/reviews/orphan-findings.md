@@ -7813,3 +7813,17 @@ Four compounding defects made the training loop's deterministic validator unusab
 
 **Fix (this PR):** walk uses the augmented set (12,154 paths, 0 under worktrees; full suite ACCEPT in 54s); argparse with `--json-out` (labels persist) and `--skip-poc`; isolation check snapshots before/after and asserts non-growth; eval formula parenthesised + stdev per its docstring, with regression tests red against the buggy expression.
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-CRITICAL-551 — both ARIA lanes call `state publish` without its required `--snapshot-id`, so every nightly runs a full cycle and then cannot publish the state it produced — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, by the first real nightly after the runner was restored (run 30989194597). Reproduced twice.
+
+The lane cutover (#1073) shipped `python3 -m aria_kernel state publish --repo-root . --cycle-id ...` in BOTH `aria-auto-cycle.yml` and `aria-agent-executor.yml`. The CLI requires `--snapshot-id`, so the step dies with `error: the following arguments are required: --snapshot-id` (exit 2) — **after** the cycle itself has completed normally (`exit_reason: max_cycles`). The run therefore produces state and then fails to persist it, which is precisely the amnesia Wave 1 exists to end. `docs/runbooks/aria-state-branch-bootstrap.md:64-67` shows the correct three-argument form, so the runbook and the lanes disagreed.
+
+**Why nothing caught it:** workflow YAML is not type-checked; `workflow_contract_registry.py` pins step NAMES and guard wiring rather than argv; and both lanes had never executed (no self-hosted runner since the 2026-07-18 OOM). The cutover's own review stated the limit plainly — _"Wave 1 is not complete until a real nightly runs, and the first one is the proof"_ — and this is what that proof returned.
+
+**Fix (this PR):** both lanes pass `--snapshot-id "<lane>-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"`, matching the repo's existing per-attempt uniqueness convention so a re-run cannot collide with the snapshot of the attempt it replaces. Tier-3 closure: `build_parser()` is extracted from `cli._main` (it was unreachable, which is why no test could verify argv), and `aria-kernel/tests/test_workflow_kernel_cli_contract.py` parses every `python3 -m aria_kernel …` invocation in `.github/workflows/` against the real parser. Missing-required, unknown-argument and invalid-choice are contract violations; type complaints on substituted shell variables are not.
+
+**A near-miss worth recording:** the first version of that test probed with `argv + ["--help"]`. argparse prints help and exits 0 _before_ validating required arguments, so the test passed with the defect deliberately re-introduced — a green gate measuring nothing, the same class as ORPHAN-HIGH-550 check (4) and the continuity probe. Caught only by running the negative case; the shipped version calls `parse_args(argv)` and fails naming `--snapshot-id`.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).

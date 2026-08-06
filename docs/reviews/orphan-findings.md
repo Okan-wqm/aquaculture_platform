@@ -8416,3 +8416,31 @@ This is the same shape as ORPHAN-HIGH-584 (failed fetch presented as an all-clea
 **Fix:** convert it to the tokens, or retire it in favour of `StatTile` and update its three remaining consumers.
 
 **Owner:** claude (this session). **Status:** OPEN.
+
+## ORPHAN-HIGH-595 — a failed fetch rendering as an authoritative claim was fixed five times in five files; the class was never closed — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, on being told to stop patching instances. Fixing `ReportReviewPage` would have been the sixth application of the same fix.
+
+The five prior instances, each filed and fixed separately:
+
+| Screen           | What a failed fetch rendered                                                             |
+| ---------------- | ---------------------------------------------------------------------------------------- |
+| `HomePage`       | "0 Fish · 0kg Biomass · Capacity **OK**"                                                 |
+| `ReportsPage`    | "Nothing stocked"                                                                        |
+| `TankDetailPage` | "This unit is not in your current inventory"                                             |
+| `ScanPage`       | "does not match a unit you have access to" — an authorisation claim from a network error |
+| `StorageHubPage` | "0 Items / 0 Low Stock / 0 Today"                                                        |
+
+Four were screens discarding `isError`. The fifth was worse and is why the fix belongs below the screens: `useWarehouseSummary` never _exposed_ `isError`, so the screen could not distinguish an outage from an idle warehouse **no matter how carefully it was written**. The information was destroyed a layer beneath the bug.
+
+The common root is not carelessness in five files. It is that `data` is **readable without the error arm having been considered** — `?? []`, `?? DEFAULT_SUMMARY` — so the correct code and the lying code look identical at the callsite.
+
+**Fix (this PR), in two layers:**
+
+- **Tier 1 — `src/utils/loadable.ts`.** `Loadable<T>` is a discriminated union with `data` on exactly one arm, so reaching it without handling `error` is a compile error rather than a screen that lies. `toLoadable()` checks error _before_ data deliberately: a query that failed but still holds a stale success is reported as an error, because a stale biomass figure presented as current is precisely what this is preventing.
+- **Tier 2 — `src/components/ui/DataState.tsx`.** Renders the three states so the correct path is also the shortest one. Its children render-prop can only ever receive real data, and `empty` is a separate branch from `error` — "nothing here" and "could not load" cannot be collapsed back together.
+- **Tier 3 — `src/__tests__/query-error-surface.invariant.spec.ts`.** Ratchets hooks that wrap `useQuery` and hand-shape a return without carrying the error arm out. Baseline 5, shrink-only.
+
+**The gate was wrong twice before it was right, and that is worth recording.** Its first baseline was a guess of 24 against a real count of 5 — nineteen slots of slack. The deliberate-break check (remove `isError` from `useWarehouseSummary`, expect red) stayed **green** through two baseline revisions before the count was measured with the spec's own logic rather than a lookalike script. A ratchet with slack is not a ratchet; it is a comment that runs. Every ratchet in this repo should be set from a measurement taken by the gate itself, and proven by breaking the thing it guards.
+
+**Owner:** claude (this session). **Status:** RESOLVED — mechanism landed and proven. Migrating the 5 remaining hooks and the existing screens onto `Loadable`/`DataState` is incremental work the ratchet now drives.

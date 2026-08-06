@@ -11,6 +11,7 @@
  */
 export { Button, type ButtonProps } from './Button';
 export { Card, CardDivider, type CardProps } from './Card';
+export { DataState, type DataStateProps } from './DataState';
 export { CapacityMeter, type CapacityMeterProps } from './CapacityMeter';
 export { Chip, StatusDot, type ChipProps } from './Chip';
 export { EmptyState, type EmptyStateProps } from './EmptyState';

@@ -45185,6 +45185,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/__tests__/query-error-surface.invariant.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/__tests__/route-reachability.invariant.spec.ts",
       "prettier_managed": true
     },
@@ -45588,6 +45594,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/components/ui/Chip.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/DataState.tsx",
       "prettier_managed": true
     },
     {
@@ -46715,6 +46727,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/utils/last-sync.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/utils/loadable.ts",
       "prettier_managed": true
     },
     {
@@ -56748,10 +56766,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9307,
+  "file_count": 9310,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9126,
-  "managed_file_list_sha256": "9db2926a694d3137954e4d24d5da27087f6c1863b10774f39b120f4074a399e8",
+  "managed_count": 9129,
+  "managed_file_list_sha256": "fdcdf90c11846c0522ee01b547cabfb233fcfdcf400248d744f28d28dfd1945c",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

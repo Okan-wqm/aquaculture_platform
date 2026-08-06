@@ -1,49 +1,55 @@
-import { clsx } from 'clsx';
-import { ArrowLeft, Droplets, Fish, Activity, BarChart3, AlertTriangle } from 'lucide-react';
+/**
+ * TankDetailPage — the v4 unit detail.
+ *
+ * The screen a worker opens standing in front of a pen. It answers, in order:
+ * is this unit in trouble, how much is in it, how close is it to the consent
+ * limit, and what has been logged here recently.
+ *
+ * WHAT CHANGED: the old page led with a gradient banner carrying volume and max
+ * capacity — two configuration values that never change — then a six-tile grid
+ * where every metric had equal weight. Density against consent, the number that
+ * actually constrains what a farm may do, was one tile among six with no
+ * threshold context at all: "93%" of what, and is that bad?
+ *
+ * v4 promotes the four metrics a shift check reads (biomass, average weight,
+ * density, capacity) to hero numerals, and gives density its own meter with the
+ * watch and limit thresholds labelled — so 93% is legible as "past the watch
+ * line, approaching consent" without the worker knowing the numbers by heart.
+ */
+import { AlertTriangle, Fish } from 'lucide-react';
 import type { JSX } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 
-import { TankRiskBadge, GrowthPredictionCard, FeedingAdviceCard } from '@/components/ai';
+import { FeedingAdviceCard, GrowthPredictionCard, TankRiskBadge } from '@/components/ai';
+import { AppHeader } from '@/components/AppHeader';
 import { LiveReadingsCard } from '@/components/LiveReadingsCard';
+import {
+  Button,
+  CapacityMeter,
+  Card,
+  Chip,
+  EmptyState,
+  Skeleton,
+  StatTile,
+  StatusDot,
+} from '@/components/ui';
 import { useTanks } from '@/hooks/useTanks';
+import type { Tank } from '@/types';
 
-
-const STATUS_CONFIG: Record<string, { bg: string; text: string; label: string }> = {
-  ACTIVE: { bg: 'bg-sea-100 dark:bg-sea-900/30', text: 'text-sea-700 dark:text-sea-300', label: 'Active' },
-  MAINTENANCE: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-300', label: 'Maintenance' },
-  QUARANTINE: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-300', label: 'Quarantine' },
-  PREPARING: { bg: 'bg-ocean-100 dark:bg-ocean-900/30', text: 'text-ocean-700 dark:text-ocean-300', label: 'Preparing' },
-  HARVESTING: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-300', label: 'Harvesting' },
-  INACTIVE: { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-600 dark:text-gray-400', label: 'Inactive' },
+/** Status → label plus the tone its dot takes. */
+const STATUS_META: Record<Tank['status'], { label: string; tone: 'ok' | 'warn' | 'crit' }> = {
+  ACTIVE: { label: 'Active', tone: 'ok' },
+  MAINTENANCE: { label: 'Maintenance', tone: 'crit' },
+  QUARANTINE: { label: 'Quarantine', tone: 'crit' },
+  PREPARING: { label: 'Preparing', tone: 'warn' },
+  HARVESTING: { label: 'Harvesting', tone: 'warn' },
+  INACTIVE: { label: 'Inactive', tone: 'warn' },
 };
 
-function StatCard({ icon: Icon, label, value, unit, warning }: {
-  icon: typeof Fish;
-  label: string;
-  value: string | number;
-  unit?: string;
-  warning?: boolean;
-}): JSX.Element {
-  return (
-    <div className={clsx(
-      'bg-white dark:bg-gray-900 rounded-xl p-4 border',
-      warning ? 'border-red-200 dark:border-red-800' : 'border-gray-100 dark:border-gray-800',
-    )}>
-      <div className="flex items-center gap-2 mb-2">
-        <Icon size={16} className={warning ? 'text-red-500' : 'text-gray-400'} />
-        <span className="text-xs font-medium text-gray-500">{label}</span>
-      </div>
-      <div className="flex items-baseline gap-1">
-        <span className={clsx(
-          'text-xl font-bold',
-          warning ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white',
-        )}>
-          {value}
-        </span>
-        {unit && <span className="text-sm text-gray-400">{unit}</span>}
-      </div>
-    </div>
-  );
+function compact(num: number): string {
+  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
+  if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
+  return num.toLocaleString();
 }
 
 export function TankDetailPage(): JSX.Element {
@@ -53,23 +59,14 @@ export function TankDetailPage(): JSX.Element {
 
   const tank = tanks?.find((t) => t.id === tankId);
   const metrics = tank?.batchMetrics;
-  const hasBatch = !!metrics?.batchId;
+  const hasBatch = Boolean(metrics?.batchId);
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className="bg-gradient-to-r from-ocean-700 to-ocean-500 text-white px-4 py-4 pt-safe-top">
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-              <ArrowLeft size={22} />
-            </button>
-            <h1 className="text-lg font-bold">Tank Detail</h1>
-          </div>
-        </div>
-        <div className="px-4 pt-6 space-y-3">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-20 rounded-2xl skeleton" />
-          ))}
+      <div className="pb-32">
+        <AppHeader title="Unit" onBack={() => navigate(-1)} showAvatar={false} />
+        <div className="px-4">
+          <Skeleton variant="tile" count={3} />
         </div>
       </div>
     );
@@ -77,200 +74,144 @@ export function TankDetailPage(): JSX.Element {
 
   if (!tank) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className="bg-gradient-to-r from-ocean-700 to-ocean-500 text-white px-4 py-4 pt-safe-top">
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-              <ArrowLeft size={22} />
-            </button>
-            <h1 className="text-lg font-bold">Tank Detail</h1>
-          </div>
-        </div>
-        <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-          <AlertTriangle size={48} className="mb-3 opacity-30" />
-          <p className="font-medium">Tank not found</p>
-          <button
-            onClick={() => navigate('/')}
-            className="mt-4 text-ocean-500 font-semibold text-sm"
-          >
-            Back to Home
-          </button>
-        </div>
+      <div className="pb-32">
+        <AppHeader title="Unit" onBack={() => navigate(-1)} showAvatar={false} />
+        <EmptyState
+          tone="error"
+          icon={<AlertTriangle size={22} />}
+          title="Unit not found"
+          description="This unit is not in your current inventory. It may belong to another site, or the list may be stale."
+          action={
+            <Button variant="primary" onClick={() => navigate('/units')}>
+              Back to units
+            </Button>
+          }
+        />
       </div>
     );
   }
 
-  const status = STATUS_CONFIG[tank.status] || STATUS_CONFIG.INACTIVE;
-
-  const formatNumber = (num: number): string => {
-    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
-    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
-    return num.toLocaleString();
-  };
+  const status = STATUS_META[tank.status];
+  const capacityPct = metrics?.capacityUsedPercent ?? 0;
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-ocean-700 to-ocean-500 text-white">
-        <div className="px-4 py-4 pt-safe-top">
-          <div className="flex items-center gap-3 mb-4">
-            <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-              <ArrowLeft size={22} />
-            </button>
-            <div className="flex-1">
-              <h1 className="text-lg font-bold">{tank.name}</h1>
-              <p className="text-ocean-200 text-xs font-medium">{tank.code}</p>
-            </div>
-            <span className={clsx('px-3 py-1 rounded-lg text-xs font-semibold', status.bg, status.text)}>
-              {status.label}
-            </span>
-          </div>
+    <div className="pb-32">
+      <AppHeader
+        title={tank.code || tank.name}
+        subtitle={tank.code ? tank.name : undefined}
+        onBack={() => navigate(-1)}
+        showAvatar={false}
+        actions={
+          <Chip tone={status.tone}>
+            <StatusDot tone={status.tone} live={tank.status === 'ACTIVE'} />
+            {status.label}
+          </Chip>
+        }
+      />
 
-          {/* Volume info */}
-          <div className="grid grid-cols-2 gap-3 pb-2">
-            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 text-center">
-              <div className="text-xl font-bold">
-                {tank.volume > 0 ? `${tank.volume}` : '--'}
-              </div>
-              <div className="text-ocean-200 text-[11px] font-medium">
-                {tank.volume > 0 ? 'm\u00B3 Volume' : 'Not configured'}
-              </div>
-            </div>
-            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 text-center">
-              <div className="text-xl font-bold">
-                {tank.maxBiomass > 0 ? `${formatNumber(tank.maxBiomass)}` : '--'}
-              </div>
-              <div className="text-ocean-200 text-[11px] font-medium">
-                {tank.maxBiomass > 0 ? 'kg Max Capacity' : 'Not configured'}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Curved bottom */}
-        <div className="relative -mb-px">
-          <svg viewBox="0 0 400 20" fill="none" className="w-full block" preserveAspectRatio="none">
-            <path d="M0 20V0c100 15 200 15 400 0v20z" className="fill-gray-50 dark:fill-gray-950" />
-          </svg>
-        </div>
-      </div>
-
-      {/* Active Batch Section */}
-      <div className="px-4 pt-2">
-        {hasBatch ? (
+      <div className="px-4 flex flex-col gap-5">
+        {hasBatch && metrics ? (
           <>
-            <div className="flex items-center gap-2 mb-3">
-              <Fish size={16} className="text-ocean-500" />
-              <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                Active Batch
-              </h2>
-              <span className="text-xs font-semibold text-ocean-600 dark:text-ocean-400 bg-ocean-50 dark:bg-ocean-900/30 px-2 py-0.5 rounded-md">
-                {metrics.batchNumber}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <StatCard
-                icon={Fish}
-                label="Fish Count"
-                value={formatNumber(metrics.pieces ?? 0)}
-                unit="pcs"
+            <div className="grid grid-cols-2 gap-2">
+              <StatTile
+                label="Standing biomass"
+                value={((metrics.biomass ?? 0) / 1000).toFixed(1)}
+                unit="t"
+                caption={`${compact(metrics.pieces ?? 0)} fish`}
               />
-              <StatCard
-                icon={Activity}
-                label="Avg Weight"
+              <StatTile
+                label="Average weight"
                 value={(metrics.avgWeight ?? 0).toFixed(0)}
                 unit="g"
+                caption={
+                  metrics.daysSinceStocking != null
+                    ? `${metrics.daysSinceStocking} d since stocking`
+                    : undefined
+                }
               />
-              <StatCard
-                icon={BarChart3}
-                label="Biomass"
-                value={(metrics.biomass ?? 0).toFixed(0)}
-                unit="kg"
-              />
-              <StatCard
-                icon={Droplets}
-                label="Density"
-                value={(metrics.density ?? 0).toFixed(1)}
-                unit="kg/m\u00B3"
-              />
-              <StatCard
-                icon={BarChart3}
-                label="Capacity Used"
-                value={`${(metrics.capacityUsedPercent ?? 0).toFixed(0)}`}
-                unit="%"
-                warning={metrics.isOverCapacity === true}
-              />
-              <StatCard
-                icon={Activity}
-                label="Days Since Stocking"
-                value={metrics.daysSinceStocking ?? '--'}
-                unit="days"
-              />
+              <StatTile label="Density" value={(metrics.density ?? 0).toFixed(1)} unit="kg/m³" />
+              {/* The capacity tile is the one that may turn colour, and it can
+                  only do so with the caption that names the threshold — the
+                  StatTile type enforces that pairing. */}
+              {metrics.isOverCapacity === true ? (
+                <StatTile
+                  label="Capacity used"
+                  value={capacityPct.toFixed(0)}
+                  unit="%"
+                  state="crit"
+                  caption="Over consent limit"
+                />
+              ) : (
+                <StatTile label="Capacity used" value={capacityPct.toFixed(0)} unit="%" />
+              )}
             </div>
 
-            {metrics.isOverCapacity && (
-              <div className="mt-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-3 flex items-center gap-2">
-                <AlertTriangle size={16} className="text-red-500 flex-shrink-0" />
-                <p className="text-xs font-medium text-red-700 dark:text-red-300">
-                  This tank is over capacity. Consider harvesting or transferring fish.
-                </p>
-              </div>
+            {/* Density against consent gets its own meter because it is the
+                regulated number: the thresholds are what make it readable. */}
+            <Card className="p-4">
+              <CapacityMeter
+                percent={capacityPct}
+                readout={`${capacityPct.toFixed(0)}% · ${(metrics.density ?? 0).toFixed(1)} kg/m³`}
+              />
+            </Card>
+
+            {metrics.isOverCapacity === true && (
+              <Card className="p-3.5 flex items-center gap-3 border-crit">
+                <span className="w-9 h-9 shrink-0 rounded-xl bg-crit-dim text-crit inline-flex items-center justify-center">
+                  <AlertTriangle size={18} />
+                </span>
+                <span className="text-body text-ink-1">
+                  This unit is over capacity. Consider harvesting or transferring.
+                </span>
+              </Card>
             )}
           </>
         ) : (
-          <div className="text-center py-12 text-gray-400">
-            <Fish size={48} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">No active batch</p>
-            <p className="text-sm mt-1">Assign a batch to this tank to see metrics</p>
-          </div>
+          <EmptyState
+            icon={<Fish size={22} />}
+            title="No active batch"
+            description="Assign a batch to this unit to see biomass, density and growth."
+          />
         )}
-      </div>
 
-      {/* MOB-MEDIUM-008: live water values (temp/DO/pH…) with per-value
-          freshness stamps — the operational data a worker standing at this
-          tank actually needs, joined by sensor.tank_id at the resolver. */}
-      <div className="px-4 pt-4">
+        {/* MOB-MEDIUM-008: live water values with per-value freshness stamps —
+            the operational data a worker standing at this unit actually needs,
+            joined by sensor.tank_id at the resolver. */}
         <LiveReadingsCard tankId={tank.id} />
-      </div>
 
-      {/* WHY: AI risk assessment shown on tank detail provides actionable intelligence
-          where the user needs it most — when inspecting a specific tank's status.
-          Components gracefully degrade to null when MCP is disabled or unavailable. */}
-      <div className="px-4">
-        <TankRiskBadge tankId={tank.id} />
-        {hasBatch && <GrowthPredictionCard batchId={metrics?.batchId} />}
-        <FeedingAdviceCard tankId={tank.id} />
-      </div>
-
-      {/* Current Biomass (when no batch but has biomass data) */}
-      {!hasBatch && (tank.currentBiomass > 0 || tank.maxBiomass > 0) && (
-        <div className="px-4 pt-4">
-          <div className="flex items-center gap-2 mb-3">
-            <BarChart3 size={16} className="text-ocean-500" />
-            <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-              Tank Metrics
-            </h2>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <StatCard
-              icon={BarChart3}
-              label="Current Biomass"
-              value={tank.currentBiomass > 0 ? tank.currentBiomass.toFixed(0) : '--'}
-              unit={tank.currentBiomass > 0 ? 'kg' : undefined}
-            />
-            <StatCard
-              icon={Droplets}
-              label="Max Biomass"
-              value={tank.maxBiomass > 0 ? formatNumber(tank.maxBiomass) : '--'}
-              unit={tank.maxBiomass > 0 ? 'kg' : undefined}
-            />
-          </div>
+        {/* Advisory intelligence, which degrades to null when the AI surface is
+            disabled or unavailable. */}
+        <div className="flex flex-col gap-3">
+          <TankRiskBadge tankId={tank.id} />
+          {hasBatch && <GrowthPredictionCard batchId={metrics?.batchId} />}
+          <FeedingAdviceCard tankId={tank.id} />
         </div>
-      )}
 
-      {/* Bottom spacer */}
-      <div className="h-24" />
+        {/* The unit's configuration, demoted from the old header banner: volume
+            and max capacity are set once and read rarely, so they belong at the
+            bottom rather than above the numbers that change every day. */}
+        <Card className="p-4">
+          <div className="text-meta text-ink-3 mb-3">Unit configuration</div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="text-title font-mono font-semibold text-ink-1 tabular-nums">
+                {tank.volume > 0 ? `${tank.volume}` : '—'}
+              </div>
+              <div className="text-meta text-ink-3">
+                {tank.volume > 0 ? 'm³ volume' : 'Volume not configured'}
+              </div>
+            </div>
+            <div>
+              <div className="text-title font-mono font-semibold text-ink-1 tabular-nums">
+                {tank.maxBiomass > 0 ? compact(tank.maxBiomass) : '—'}
+              </div>
+              <div className="text-meta text-ink-3">
+                {tank.maxBiomass > 0 ? 'kg max capacity' : 'Capacity not configured'}
+              </div>
+            </div>
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }

@@ -8020,3 +8020,15 @@ A third, smaller issue rode along: the nine quick-action tiles each carried a di
 **Deliberately not built:** the design's editable home (drag-to-reorder and hide sections). There is no persistence counterpart for a per-user section order, and inventing device-local-only ordering would silently diverge across a worker's devices.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-577 — the unit detail led with two configuration constants and gave the regulated density number no threshold context — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while adapting `TankDetailPage.tsx` to the v4 design.
+
+The page opened with a gradient banner carrying **volume** and **max capacity** — two values set once when the pen is configured and read approximately never — occupying the position a worker's eye lands on first. Below it, a six-tile grid gave every metric identical visual weight: fish count, average weight, biomass, density, capacity used, days since stocking.
+
+The consequence is that **density against consent**, the number that legally constrains what the farm may do next, was one tile of six reading `93` `%` with no thresholds anywhere on the screen. Ninety-three percent of what, and is that fine or nearly illegal? The page assumed the worker carries the watch (70) and consent (90) lines in their head. `isOverCapacity` did drive a red border, but only at the point the limit is already breached — there was no signal for "approaching it", which is the state a shift check exists to catch.
+
+**Fix (this PR):** the four numbers a shift check actually reads (standing biomass, average weight, density, capacity used) are promoted to hero numerals, and density gets its own `CapacityMeter` with the watch and limit lines **labelled under the track**. Being past the watch line is now legible without prior knowledge. The capacity tile can only take an alarm colour together with a caption naming the threshold it crossed — enforced by `StatTile`'s discriminated union, not by convention. Volume and max capacity are demoted to a "Unit configuration" card at the bottom, where read-rarely values belong.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).

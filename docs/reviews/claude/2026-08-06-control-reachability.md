@@ -182,3 +182,83 @@ command away: a field absent from today's manifest but still emitted by
 
 The spec also re-runs the existing freshness check, so it can never become a
 way to pass while the manifest drifts.
+
+---
+
+## ORPHAN-HIGH-575 — the most ordinary commit shape crashed the impact graph
+
+### Found by a machine, believed only after checking by hand
+
+An adversarial multi-agent investigation of the docs-only risk-class question
+reported a production-reachable `TypeError`. Earlier the same day a
+confidently-wrong HIGH was drafted and deleted on this same kind of evidence,
+so the claim was reproduced by hand before being believed. It reproduced.
+
+### The mechanism
+
+```python
+changed = sorted({_project_for_path(path, graph["projects"]) for path in ...})
+changed_projects = [project for project in changed if project]   # filters AFTER sorting
+```
+
+`_project_for_path` returns `str | None`. Sorting a set holding **both** a
+project name and `None` raises:
+
+```text
+TypeError: '<' not supported between instances of 'str' and 'NoneType'
+```
+
+### Why every obvious test passed
+
+The trigger is the **mixture**, and the two natural test cases each avoid it:
+
+| changed_files   | resolved set             | result                                 |
+| --------------- | ------------------------ | -------------------------------------- |
+| all code        | `{'farm-service'}`       | fine — no `None`                       |
+| all docs        | `{None}`                 | fine — one element needs no comparison |
+| **code + docs** | `{'farm-service', None}` | **TypeError**                          |
+
+Code plus its own review document is this repository's most common commit —
+it is what I have been making all day.
+
+### Production reachability, verified link by link
+
+- `learning.py:222` calls `plan_downstream_impact` with a pressure event's
+  `evidence_refs` — arbitrary mixes of docs and code paths.
+- `learning.py:228` catches `GovernanceError` only, so a `TypeError` escapes
+  the loop over **every** pending dispatch.
+- `learning.py:105` swallows it into a generic `learning_hook_failed`
+  governance event and the cycle continues.
+
+Net: one mixed-evidence pressure event silently disabled impact-graph
+computation for a whole cycle, and the only record did not name the cause.
+
+### The fix, and what it deliberately does not buy
+
+Resolve each path once into `(path, project)`, then derive both outputs from
+it — filtering before sorting. The unplaceable paths are still reported in
+`unknown_files`; surviving by discarding the honesty about what the graph
+could not place would be the wrong repair, and the second mutation below pins
+that.
+
+| mutation                       | result |
+| ------------------------------ | ------ |
+| restore sort-before-filter     | red    |
+| stop reporting `unknown_files` | 2 red  |
+
+### Blind-spot sweep for the same class
+
+13 sites in `aria_kernel` match `sorted(<comprehension of an unfiltered
+call>)`. Twelve are provably safe — `as_posix`, `str`, regex `group`, and a
+`dict.get` with a non-`None` default. `impact_graph.py:51` was the only real
+instance.
+
+### Two things left open, named rather than implied
+
+1. `learning.py`'s narrow `except GovernanceError` means **any** other
+   unexpected exception can still abort the whole dispatch loop and be
+   recorded only as a generic hook failure. Changing that alters another
+   module's failure semantics and deserves its own decision.
+2. Whether a docs-only change _should_ be blocked as `impact_graph_unknown`
+   is still unanswered. This fix makes the measurement possible without
+   deciding the policy.

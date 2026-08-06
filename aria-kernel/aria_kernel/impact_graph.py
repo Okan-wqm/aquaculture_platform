@@ -48,9 +48,22 @@ def plan_downstream_impact(
     if not root.exists():
         raise GovernanceError(f"workspace root does not exist: {workspace_root}")
     graph = _project_graph(root=root, nx_graph_file=Path(nx_graph_file) if nx_graph_file else None)
-    changed = sorted({_project_for_path(path, graph["projects"]) for path in _normalize_paths(changed_files)})
-    changed_projects = [project for project in changed if project]
-    unknown_files = [path for path in _normalize_paths(changed_files) if _project_for_path(path, graph["projects"]) is None]
+    # FILTER BEFORE SORTING, and the order is the whole bug (ORPHAN-HIGH-575).
+    #
+    # This read `sorted({...})` and filtered the Nones afterwards. But
+    # `_project_for_path` returns `str | None`, so a change touching one path
+    # the graph can place and one it cannot handed `sorted` a set of mixed
+    # types and it raised `TypeError: '<' not supported between instances of
+    # 'str' and 'NoneType'`.
+    #
+    # The trigger is the MIXTURE, which is why both halves of the obvious test
+    # matrix passed: all-code produces no None, and all-docs produces a
+    # one-element set that never needs a comparison. Code plus its own review
+    # document — this repository's most common commit — is what crashed.
+    normalized = _normalize_paths(changed_files)
+    resolved = [(path, _project_for_path(path, graph["projects"])) for path in normalized]
+    changed_projects = sorted({project for _, project in resolved if project})
+    unknown_files = [path for path, project in resolved if project is None]
     downstream = _reverse_closure(changed_projects, graph["dependencies"])
     row = {
         "schema_version": 1,

@@ -1,0 +1,36 @@
+# T0 runtime supervisor — see tools/supervisor/runtime-supervisor.ts.
+#
+# Type=oneshot: each pass is a complete observation. A long-lived daemon
+# would need its own supervision, which is the problem this solves.
+[Unit]
+Description=Aquaculture runtime supervisor (container truth + host pressure)
+Documentation=https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/runtime-supervisor.md
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# The repository checkout on the droplet. Overridden per host in
+# /etc/default/aqua-supervisor if the deploy path differs.
+Environment=AQUA_REPO=/var/aqua-saas
+# PATH puts /usr/local/bin first on purpose: this host also ships Node 18 at
+# /usr/bin/node, which has no type stripping, and the first install failed
+# with "bad option: --experimental-strip-types". Node 22+ is required.
+#
+# The executable is /usr/bin/env rather than the interpreter itself because
+# systemd does not expand variables in the first token of ExecStart - the
+# attempt to parameterise it failed with 203/EXEC. Override PATH per host in
+# /etc/default/aqua-supervisor if the runtime lives somewhere else.
+Environment=PATH=/usr/local/bin:/usr/local/sbin:/usr/bin:/bin
+EnvironmentFile=-/etc/default/aqua-supervisor
+ExecStart=/usr/bin/env node --experimental-strip-types ${AQUA_REPO}/tools/supervisor/runtime-supervisor.ts
+# Exit 3 means "found something CRITICAL it could not fix" — a real result,
+# not a crash. systemd must record it without turning the timer into a
+# restart storm.
+SuccessExitStatus=0 3
+StandardOutput=journal
+StandardError=journal
+# It talks to the docker socket and writes two files; nothing else.
+NoNewPrivileges=yes
+ProtectHome=yes
+PrivateTmp=yes

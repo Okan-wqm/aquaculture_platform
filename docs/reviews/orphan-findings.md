@@ -7927,6 +7927,72 @@ No tenant label on any series: the scrape surface is unauthenticated, and a tena
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
 
+## ORPHAN-HIGH-568 — 90 scheduled jobs and five last-run surfaces: a cron that stopped firing was indistinguishable from a cron with nothing to do — RESOLVED (this PR, partially by design)
+
+**Discovered:** 2026-08-06, W-C of the data-flow integrity design; counted firsthand (`grep -rn "@Cron(" apps libs --include=*.ts` excluding specs: 90 methods across 44 files and 9 services; the only last-run surfaces are `admin.background_jobs`, `report_definitions.lastRunAt`, the platform bootstrap record and five farm cron gauges).
+
+A `@Cron` method that stops firing produces no error and no log line. A scheduler module that never registered, a provider that threw during bootstrap, a container that came back without its timers — all three leave a job silently not running, and the platform had no way to tell that apart from a job that ran and found nothing to do. This is the same shape as the tenant isolation watchdog talking only to the log file (ORPHAN-HIGH-567) and as `docker ps` reporting "Up" for an exited container during the 2026-08-03 outage: absence of bad news read as good news.
+
+**Fix (this PR):** `CronHeartbeatService` in backend-common, exported from the metrics module every service already imports for `/metrics`, so adoption is a constructor parameter rather than new wiring. `track(job, body)` records attempt, success, failure, and duration, and **re-throws** — wrapping a job cannot change what the job does, only what is known about it. `declare(job)` seeds zeros in the constructor, because a job that has never run exports no series at all and `time() - last_success > X` matches nothing, making the alert for "this never ran" silent exactly when it is true. Two rules read it: never-ran and failing-every-run.
+
+**Coverage is deliberately partial and the alerts are honest about it.** Only `farm-tenant-isolation-watchdog` adopts the helper here. A rule that claimed to watch all 90 jobs while watching one would be a worse lie than the gap it replaced, so a job enters the series only when it adopts. Remaining adoption is per-service work: the outbox relays and the admin-api schedulers are the next highest value, since a stalled relay already has a metric but no proof the relay is alive to stall.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the mechanism and the first adopter; the remaining 89 adoptions are tracked here and belong to each owning service.
+
+## ORPHAN-HIGH-571 — a write probe needs a real account, and the platform had no way to keep that account's traffic out of billing — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, W-D preparation after the operator authorised a canary account for write probes (the standing "never invent an identity" rule had blocked write probes entirely until that decision).
+
+Proving a write reaches the database and comes back requires actually writing, which requires a real, authenticated account. Verified firsthand that `UsageMeteringService.recordUsage` (`apps/billing-service/src/modules/metering/usage-metering.service.ts:501`) buffers every event it is handed with no notion of a non-billable tenant — so a canary's synthetic traffic would land in the usage stream indistinguishable from a customer's. That is worse than a wrong number: it is a right-looking one, and it would surface as unexplained revenue drift rather than as an error.
+
+**Fix (this PR):** `isCanaryTenant` in backend-common reads `CANARY_TENANT_IDS`, and `recordUsage` refuses to buffer for a canary. The refusal sits at the single point where usage becomes billable rather than as a rule each caller must remember. Two deliberate properties: a malformed id throws at parse time instead of silently dropping out of the set (a typo'd canary looks exempt in config and gets billed in reality — the hardest billing bug to trace), and the skip is counted (`canaryEventsSkipped`) rather than silent, so a mis-set variable shows up as a number instead of a hole.
+
+Membership is read per call, not cached: the exemption must be as revocable as it is grantable, and a cached copy would keep exempting a tenant the operator just removed until the next restart.
+
+**Not in this slice:** the canary tenant itself is not created here, and no write probe uses it yet. Provisioning the account and running writes against production are separate acts that deserve their own review — this is the guard rail that has to exist first.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the exemption mechanism.
+
+## ORPHAN-CRITICAL-569 — Docker gives up restarting and tells nobody: the tenant-schema provisioner was dead for six days, and the platform had no layer that notices — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while building the T0 supervisor; found live on the production droplet, not in code review. `aqua-tenant-schema-provisioner` had `restart: unless-stopped`, exited on a DNS failure (`getaddrinfo EAI_AGAIN`, the same class as the 2026-08-05 auth outage) at 2026-07-31T11:51Z, and was still stopped six days later. `docker inspect -f '{{.State.Running}}'` said false; nothing asked.
+
+This is the second incident from one blind spot. On 2026-08-03 six containers exited on a full disk at 02:07 and the `docker ps` text listing kept printing "Up 2 weeks" for two days — the listing reports the container record, not `State.Running`. Docker's restart policy is a retry, not a supervisor: it gives up, and its giving up is silent.
+
+**Immediate action:** the provisioner was restarted and confirmed running in `--loop` mode.
+
+**Fix (this PR):** `tools/supervisor/runtime-supervisor.ts` plus a systemd timer that runs it every two minutes on the droplet. It compares each container's `State.Running` against the restart policy Docker itself was given, revives what should be running, and reports what it could not. Deliberate limits: a container with `restart: no` is never touched (`aqua-db-migrate` exits 0 when finished and is not a casualty); restarts are capped at three per container per hour, after which it stops trying and says a human is needed, because an uncapped restarter turns a crash-loop into a resource fire while hiding the crash; and it reclaims NOTHING on disk pressure — choosing what is safe to delete is a judgement this process is deliberately too dumb to make. No network, no repo state, no LLM: it has to work when the platform is down, which is the only time it matters.
+
+Two alert rules watch the supervisor itself, since a supervisor that stopped looks exactly like a healthy host.
+
+**Three install-time defects the first deploy exposed, all fixed here:** `/usr/bin/node` on this host is Node 18 and has no type stripping (`bad option`); systemd does not expand variables in the first token of `ExecStart` (`203/EXEC`); and `PrivateTmp=yes` — the unit's own hardening — makes a `/tmp` worktree path invisible, which is why the staging copy lives at `/opt/aqua-supervisor` instead.
+
+**Open follow-up (owner: claude, deadline: at merge of this PR):** the running unit points at `/opt/aqua-supervisor` because the deployed checkout does not carry `tools/supervisor/` yet. On merge, `AQUA_REPO` moves to `/var/aqua-saas` and the staging copy is deleted — code running from a hand-placed copy drifts from its reviewed source silently, which is the exact class this supervisor exists to catch.
+
+**Owner:** claude (this session). **Status:** RESOLVED (mechanism live on the droplet; pointer follow-up above).
+
+## ORPHAN-HIGH-570 — three tenants, one tenant schema: two provisioned tenants have no schema at all and the provisioning queue is empty — NEEDS INVESTIGATION
+
+**Discovered:** 2026-08-06, while verifying what the dead provisioner had missed. Read firsthand from the production database: `auth.tenants` holds three rows (Codex Test 2026-05-24, Oceanfarm 2026-05-27, Suderra AS 2026-06-02); `information_schema.schemata` holds exactly one `tenant_*` schema (`tenant_7f6b08ab90e246d3`, the Codex test tenant); `platform.tenant_schema_jobs` is empty, so nothing is queued to fix it.
+
+Per-tenant tables live only in tenant schemas, so a tenant without one cannot hold farm, sensor, HR or messaging data. Both affected tenants predate the provisioner's 2026-07-31 death by months, so this is NOT six-day fallout — it is a longer-standing gap in whatever was supposed to create those schemas at tenant creation.
+
+**Deliberately not fixed here.** Creating two tenant schemas on production is a data-shaping act with migration-ledger and RLS consequences, and the right first question is why they were never created rather than how fast they can be. That question needs the tenant-provisioning path read end to end (auth-service tenant creation → `tenant_schema_jobs` → provisioner claim) against these three rows.
+
+**Owner:** operator to route (candidate: multi-tenant-saas-expert). **Status:** OPEN.
+
+## ORPHAN-MEDIUM-568 — the wall-clock fix stopped at the two tests that were red, leaving thirteen more in the same file, and one of them went red on an unrelated PR three hours later — RESOLVED (this PR)
+
+**Discovered and reproduced:** 2026-08-06. `ORPHAN-MEDIUM-563` was closed by #1090 with the right diagnosis — "a check whose remedy is re-run is worse than no check" — but the fix converted only `calculateTrend` and `calculateStdDev`, the two assertions that happened to be failing. Thirteen wall-clock assertions remained in the same file. Three hours later `should render email template in under 2ms` went red on PR #1095, which touches two workflow files, a manifest and a shell script, and nothing in alert-engine. `build-status` is a required check, so an unrelated PR was blocked by a test measuring the runner's load.
+
+The tell is the budget size. #1090 explicitly reasoned that the async assertions it left alone "exercise mocked repository paths with 10-100x headroom" — that judgment was right, and it draws the line exactly where this defect lives: the **sub-10ms per-operation budgets on pure CPU paths** (1ms severity classification, 2ms email render, 5ms routing, 10ms six-channel render). Those four have no headroom on a loaded shared runner. The nine coarse budgets (50-500ms totals over mocked paths) keep theirs for the reason #1090 gave.
+
+**Fix (this PR):** the four tight budgets now count work instead of time, in the Proxy idiom this file already established. Severity classification reads each criterion exactly three times (the `!== undefined` guard, the weighted contribution, the justification string) — a fourth read is the rescan the budget was reaching for. Routing performs exactly one preference lookup regardless of how many users are registered, which is the property that actually degrades as a tenant grows and which a timing budget cannot distinguish from a busy neighbour. Email rendering reads its context the same number of times on the second call as the first, so nothing accumulates across renders. Rendering all six channels costs exactly the sum of rendering each, pinning per-channel additivity. Three tests whose titles still promised milliseconds they no longer measure were renamed to say what they now assert.
+
+Proven by deliberate breaks: an extra `criteria.impactScore` read reddens the classifier count (3→4), a linear scan over the preference map reddens the routing count (1→2), and memoizing `renderForEmail` reddens the render count (16→8). All 20 tests green before and after each break.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-MEDIUM-563`.
+
 ## ORPHAN-HIGH-563 — the five-minute RPO alarm could not tell "production is losing data" apart from "this was never deployed", and had been crying wolf 288 times a day for three weeks — RESOLVED (this PR)
 
 **Discovered and reproduced:** 2026-08-05, tracing the `Database WAL Archive Freshness` red reported by the scheduled-workflow watchdog (issue #1005). Verified firsthand on the production droplet: `docker exec aqua-postgres /usr/local/bin/postgres-walg-healthcheck.sh` → `stat: no such file or directory`, exit **127**; `SHOW archive_mode` → `off`; `pg_stat_archiver` → all zeroes; the container runs the bare `timescale/timescaledb-ha:pg16` base image, created 2026-07-14, not the WAL-G derivative `docker-compose.droplet.yml` has declared since `b89c623e9` (2026-07-16).

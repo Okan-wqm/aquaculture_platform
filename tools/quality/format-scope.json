@@ -939,6 +939,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/manifests/aria-state-watchdog.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/manifests/backup-secrets.json",
       "prettier_managed": true
     },
@@ -6562,6 +6568,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/modules/metering/__tests__/usage-aggregator.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/modules/metering/__tests__/usage-metering.canary.spec.ts",
       "prettier_managed": true
     },
     {
@@ -33355,6 +33367,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-05-torn-ledger-tail.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -34669,6 +34687,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/runbooks/monitoring/cron-heartbeat.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/monitoring/dataflow-integrity.md",
       "prettier_managed": true
     },
@@ -34706,6 +34730,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/runbooks/monitoring/monitoring-target-down.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/runbooks/monitoring/runtime-supervisor.md",
       "prettier_managed": true
     },
     {
@@ -36412,6 +36442,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/billing/__tests__/canary-tenant.registry.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/billing/__tests__/dynamic-stripe-client.provider.spec.ts",
       "prettier_managed": true
     },
@@ -36419,6 +36455,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/billing/__tests__/stripe-api.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/billing/canary-tenant.registry.ts",
       "prettier_managed": true
     },
     {
@@ -37882,6 +37924,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/metrics/__tests__/cron-heartbeat.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/metrics/__tests__/metrics.service.spec.ts",
       "prettier_managed": true
     },
@@ -37889,6 +37937,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/metrics/__tests__/route-normalizer.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/metrics/cron-heartbeat.service.ts",
       "prettier_managed": true
     },
     {
@@ -42558,6 +42612,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/aria-external-watchdog-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/aria-kernel-workflow-setup.spec.ts",
       "prettier_managed": true
     },
@@ -44899,6 +44959,30 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/scripts/utilities/seed-test-data.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/supervisor/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/supervisor/runtime-supervisor.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/supervisor/runtime-supervisor.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/supervisor/tsconfig.json",
       "prettier_managed": true
     },
     {
@@ -56478,10 +56562,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9262,
+  "file_count": 9276,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9081,
-  "managed_file_list_sha256": "43b57fe208d0c9d7d43d7df79e63464281954267c327d1ecd302b41d5398d872",
+  "managed_count": 9095,
+  "managed_file_list_sha256": "35328f5aa3d9ceb63bceb813b7611880f51fe1fd4c4c3cb30d5b369c44bae170",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

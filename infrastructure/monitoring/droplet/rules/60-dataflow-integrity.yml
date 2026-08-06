@@ -102,3 +102,63 @@ groups:
           summary: 'Tenant isolation scan is running half-blind ({{ $value }} scanner(s) failing)'
           description: 'Individual scanners failed inside an otherwise completed scan, so the all-clear covers less ground than it appears to.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-isolation-watchdog.md'
+
+  # W-C — scheduled jobs that stop running. Ninety @Cron methods exist and
+  # five had a last-run surface, so "the job is fine" and "the job has not
+  # fired since the last restart" were the same observation. These rules
+  # read the shared heartbeat; a job appears here only once it adopts the
+  # helper, which is what keeps the alert honest about coverage.
+  - name: aquaculture.cron.heartbeat
+    rules:
+      - alert: CronJobNeverRan
+        expr: |
+          max by (job) (cron_job_last_success_timestamp_seconds) == 0
+        for: 1h
+        labels:
+          severity: high
+          target_auditor: job-queue-auditor
+        annotations:
+          summary: '{{ $labels.job }} has never completed successfully since process start'
+          description: 'The job declared itself but no run has succeeded in an hour. A scheduler that failed to register produces exactly this shape - and, without the declared zero, would produce no series at all.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/cron-heartbeat.md'
+
+      - alert: CronJobFailingEveryRun
+        expr: |
+          (max by (job) (cron_job_last_failure_timestamp_seconds) > max by (job) (cron_job_last_success_timestamp_seconds))
+          and (time() - max by (job) (cron_job_last_success_timestamp_seconds) > 3600)
+        for: 30m
+        labels:
+          severity: high
+          target_auditor: job-queue-auditor
+        annotations:
+          summary: '{{ $labels.job }} has been failing for at least an hour'
+          description: 'Every recent attempt ended in failure. A job that swallows its own errors looks healthy in its domain metrics; this is the surface that does not.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/cron-heartbeat.md'
+  # 5a — the T0 supervisor. These read the textfile it writes every two
+  # minutes; the supervisor itself needs watching, because a supervisor that
+  # stopped is indistinguishable from a healthy host by definition.
+  - name: aquaculture.runtime.supervisor
+    rules:
+      - alert: RuntimeSupervisorStale
+        expr: |
+          time() - max(aqua_supervisor_last_run_timestamp_seconds) > 900
+        for: 5m
+        labels:
+          severity: high
+          target_auditor: infra-expert
+        annotations:
+          summary: 'Runtime supervisor has not run in 15 minutes'
+          description: 'The timer fires every two minutes. Seven missed passes means the supervisor is gone - and with it the only thing that notices a container Docker gave up on.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/runtime-supervisor.md'
+
+      - alert: RuntimeSupervisorCannotRevive
+        expr: |
+          max(aqua_supervisor_problems{severity="critical"}) > 0
+        for: 5m
+        labels:
+          severity: critical
+          target_auditor: infra-expert
+        annotations:
+          summary: 'Runtime supervisor found a CRITICAL condition it could not fix'
+          description: 'Either a supervised container will not start, its restart cap is exhausted, or the root filesystem is past the threshold that began the 2026-08-03 outage. The supervisor deliberately does not delete anything to free space.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/runtime-supervisor.md'

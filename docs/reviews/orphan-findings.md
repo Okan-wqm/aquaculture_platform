@@ -7927,6 +7927,18 @@ No tenant label on any series: the scrape surface is unauthenticated, and a tena
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
 
+## ORPHAN-HIGH-568 — 90 scheduled jobs and five last-run surfaces: a cron that stopped firing was indistinguishable from a cron with nothing to do — RESOLVED (this PR, partially by design)
+
+**Discovered:** 2026-08-06, W-C of the data-flow integrity design; counted firsthand (`grep -rn "@Cron(" apps libs --include=*.ts` excluding specs: 90 methods across 44 files and 9 services; the only last-run surfaces are `admin.background_jobs`, `report_definitions.lastRunAt`, the platform bootstrap record and five farm cron gauges).
+
+A `@Cron` method that stops firing produces no error and no log line. A scheduler module that never registered, a provider that threw during bootstrap, a container that came back without its timers — all three leave a job silently not running, and the platform had no way to tell that apart from a job that ran and found nothing to do. This is the same shape as the tenant isolation watchdog talking only to the log file (ORPHAN-HIGH-567) and as `docker ps` reporting "Up" for an exited container during the 2026-08-03 outage: absence of bad news read as good news.
+
+**Fix (this PR):** `CronHeartbeatService` in backend-common, exported from the metrics module every service already imports for `/metrics`, so adoption is a constructor parameter rather than new wiring. `track(job, body)` records attempt, success, failure, and duration, and **re-throws** — wrapping a job cannot change what the job does, only what is known about it. `declare(job)` seeds zeros in the constructor, because a job that has never run exports no series at all and `time() - last_success > X` matches nothing, making the alert for "this never ran" silent exactly when it is true. Two rules read it: never-ran and failing-every-run.
+
+**Coverage is deliberately partial and the alerts are honest about it.** Only `farm-tenant-isolation-watchdog` adopts the helper here. A rule that claimed to watch all 90 jobs while watching one would be a worse lie than the gap it replaced, so a job enters the series only when it adopts. Remaining adoption is per-service work: the outbox relays and the admin-api schedulers are the next highest value, since a stalled relay already has a metric but no proof the relay is alive to stall.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the mechanism and the first adopter; the remaining 89 adoptions are tracked here and belong to each owning service.
+
 ## ORPHAN-MEDIUM-568 — the wall-clock fix stopped at the two tests that were red, leaving thirteen more in the same file, and one of them went red on an unrelated PR three hours later — RESOLVED (this PR)
 
 **Discovered and reproduced:** 2026-08-06. `ORPHAN-MEDIUM-563` was closed by #1090 with the right diagnosis — "a check whose remedy is re-run is worse than no check" — but the fix converted only `calculateTrend` and `calculateStdDev`, the two assertions that happened to be failing. Thirteen wall-clock assertions remained in the same file. Three hours later `should render email template in under 2ms` went red on PR #1095, which touches two workflow files, a manifest and a shell script, and nothing in alert-engine. `build-status` is a required check, so an unrelated PR was blocked by a test measuring the runner's load.

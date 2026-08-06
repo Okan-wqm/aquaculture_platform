@@ -10,6 +10,7 @@
  * that threw is reported as a distinct outcome rather than as silence.
  */
 import { WatchdogRunner } from '@aquaculture/backend-common/database';
+import { CronHeartbeatService } from '@aquaculture/backend-common/metrics';
 import { Test } from '@nestjs/testing';
 
 import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
@@ -34,6 +35,14 @@ describe('WatchdogCronService metrics surface', () => {
       providers: [
         WatchdogCronService,
         { provide: WatchdogRunner, useValue: { runFullScan } },
+        {
+          // Real heartbeat: `track` must pass the body through untouched, and
+          // a substitute that just calls the body would hide it if it did not.
+          provide: CronHeartbeatService,
+          useValue: new CronHeartbeatService({
+            registerContributor: (): void => undefined,
+          }),
+        },
         {
           provide: FarmDomainMetricsService,
           useValue: {

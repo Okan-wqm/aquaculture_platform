@@ -44,14 +44,19 @@ interface MentionPickerProps {
 /** Maximum members to display in the picker dropdown. */
 const MAX_VISIBLE = 6;
 
-/** Avatar color palette for members without profile images. */
+/**
+ * Avatar color palette for members without profile images.
+ *
+ * The same five hues MessageBubble and ChannelAvatar use, in their dim/solid
+ * pairing — so a person keeps one hue whether they appear as a sender name, an
+ * avatar disc or a mention suggestion. None of them is an alarm colour.
+ */
 const AVATAR_COLORS = [
-  'bg-ocean-100 text-ocean-700 dark:bg-ocean-900/40 dark:text-ocean-300',
-  'bg-sea-100 text-sea-700 dark:bg-sea-900/40 dark:text-sea-300',
-  'bg-coral-100 text-coral-700 dark:bg-coral-900/40 dark:text-coral-300',
-  'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
-  'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-  'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+  'bg-acc-dim text-acc',
+  'bg-type-water-dim text-type-water',
+  'bg-type-transfer-dim text-type-transfer',
+  'bg-type-cull-dim text-type-cull',
+  'bg-type-harvest-dim text-type-harvest',
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -125,15 +130,11 @@ export function MentionPicker({
       switch (e.key) {
         case 'ArrowUp':
           e.preventDefault();
-          setSelectedIndex((prev) =>
-            prev <= 0 ? filteredMembers.length - 1 : prev - 1,
-          );
+          setSelectedIndex((prev) => (prev <= 0 ? filteredMembers.length - 1 : prev - 1));
           break;
         case 'ArrowDown':
           e.preventDefault();
-          setSelectedIndex((prev) =>
-            prev >= filteredMembers.length - 1 ? 0 : prev + 1,
-          );
+          setSelectedIndex((prev) => (prev >= filteredMembers.length - 1 ? 0 : prev + 1));
           break;
         case 'Enter':
         case 'Tab':
@@ -179,8 +180,8 @@ export function MentionPicker({
       ref={listRef}
       className={clsx(
         'absolute bottom-full left-0 right-0 mb-1 z-50',
-        'bg-white dark:bg-gray-800 rounded-xl shadow-elevated',
-        'border border-gray-100 dark:border-gray-700',
+        'bg-surface-1 rounded-xl shadow-token',
+        'border border-line',
         'max-h-[280px] overflow-y-auto',
       )}
       role="listbox"
@@ -201,9 +202,7 @@ export function MentionPicker({
             onClick={() => onSelect(member)}
             className={clsx(
               'flex items-center gap-3 w-full px-4 py-2.5 min-h-[48px] text-left touch-feedback transition-colors',
-              isSelected
-                ? 'bg-ocean-50 dark:bg-ocean-900/20'
-                : 'hover:bg-gray-50 dark:hover:bg-gray-700/50',
+              isSelected ? 'bg-acc-dim' : 'hover:bg-surface-2',
             )}
           >
             {/* Avatar */}
@@ -216,7 +215,7 @@ export function MentionPicker({
             ) : (
               <div
                 className={clsx(
-                  'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0',
+                  'w-8 h-8 rounded-full flex items-center justify-center text-meta font-bold shrink-0',
                   colorClass,
                 )}
               >
@@ -226,12 +225,8 @@ export function MentionPicker({
 
             {/* Name + role */}
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                {name}
-              </p>
-              <p className="text-[10px] text-gray-400 dark:text-gray-500">
-                {getMemberRole(member)}
-              </p>
+              <p className="text-body font-medium text-ink-1 truncate">{name}</p>
+              <p className="text-meta text-ink-3">{getMemberRole(member)}</p>
             </div>
           </button>
         );

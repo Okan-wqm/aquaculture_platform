@@ -2,6 +2,8 @@ import { clsx } from 'clsx';
 import { X, Send } from 'lucide-react';
 import { useState, useEffect, type ReactElement } from 'react';
 
+import { IconButton } from '@/components/ui';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -49,7 +51,12 @@ const COMPRESSION_THRESHOLD = 2 * 1024 * 1024; // 2 MB
  * knowing the image will be compressed reassures the user that the
  * upload won't be excessively slow.
  */
-export function ImagePreview({ file, previewUrl, onSend, onCancel }: ImagePreviewProps): ReactElement {
+export function ImagePreview({
+  file,
+  previewUrl,
+  onSend,
+  onCancel,
+}: ImagePreviewProps): ReactElement {
   const [caption, setCaption] = useState('');
 
   // Dismiss on Escape key
@@ -67,20 +74,28 @@ export function ImagePreview({ file, previewUrl, onSend, onCancel }: ImagePrevie
     onSend(file, caption.trim());
   };
 
+  // WHY the chrome here stays black-and-white instead of taking the surface and
+  // ink tokens: this is a photo viewer, and a photo is judged against a neutral
+  // black ground in every theme — the ground is deliberately NOT theme-varying.
+  // The ink tokens are calibrated against the theme's OWN surfaces, so the muted
+  // ink on this fixed black would be unreadable in the day theme. The brand
+  // accent still comes from the token, because a filled button carries its own
+  // contrast (see the send button below).
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col">
       {/* Top bar: cancel + file info */}
       <div className="flex items-center justify-between px-4 pt-safe-top py-3 bg-black/80">
-        <button
+        <IconButton
+          size="lg"
           onClick={onCancel}
-          className="min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full hover:bg-white/10 touch-feedback transition-colors"
+          className="hover:bg-white/10 transition-colors"
           aria-label="Cancel"
         >
           <X size={24} className="text-white" />
-        </button>
+        </IconButton>
         <div className="text-right">
-          <p className="text-sm font-medium text-white truncate max-w-[200px]">{file.name}</p>
-          <p className="text-xs text-white/75">{formatFileSize(file.size)}</p>
+          <p className="text-body font-medium text-white truncate max-w-[200px]">{file.name}</p>
+          <p className="text-meta text-white/75">{formatFileSize(file.size)}</p>
         </div>
       </div>
 
@@ -96,7 +111,10 @@ export function ImagePreview({ file, previewUrl, onSend, onCancel }: ImagePrevie
       {/* Compression indicator */}
       {willCompress && (
         <div className="flex justify-center py-2">
-          <span className="text-xs text-amber-400 font-medium bg-amber-500/10 px-3 py-1 rounded-full">
+          {/* Amber stays a fixed value rather than becoming the warn token: the
+              day theme's warn is a dark ochre chosen for LIGHT surfaces, and
+              this pill sits on the viewer's fixed black. */}
+          <span className="text-meta text-amber-400 font-medium bg-amber-500/10 px-3 py-1 rounded-full">
             Image will be compressed before sending
           </span>
         </div>
@@ -112,17 +130,18 @@ export function ImagePreview({ file, previewUrl, onSend, onCancel }: ImagePrevie
             placeholder="Add a caption..."
             maxLength={500}
             className={clsx(
-              'flex-1 bg-white/10 text-white placeholder-white/40 text-sm rounded-2xl px-4 py-3',
-              'border border-white/10 focus:outline-none focus:ring-2 focus:ring-ocean-500/40 focus:border-ocean-500 transition-all',
+              'flex-1 bg-white/10 text-white placeholder-white/40 text-body rounded-2xl px-4 py-3',
+              'border border-white/10 focus:outline-none focus:ring-2 focus:ring-acc focus:border-acc transition-all',
             )}
           />
-          <button
+          <IconButton
+            size="lg"
             onClick={handleSend}
-            className="min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full bg-ocean-600 hover:bg-ocean-700 shadow-glow-ocean touch-feedback transition-all"
+            className="bg-acc shadow-acc transition-all"
             aria-label="Send image"
           >
-            <Send size={20} className="text-white" />
-          </button>
+            <Send size={20} className="text-acc-on" />
+          </IconButton>
         </div>
       </div>
     </div>

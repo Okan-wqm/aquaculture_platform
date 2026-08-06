@@ -16,7 +16,7 @@ import { clsx } from 'clsx';
 import { Play, Pause } from 'lucide-react';
 import { useState, useRef, useCallback, useEffect, useMemo, type ReactElement } from 'react';
 
-import { IconButton } from '../ui/IconButton';
+import { IconButton } from '@/components/ui';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -211,41 +211,38 @@ export function VoicePlayer({
     [duration],
   );
 
+  // Secondary text: on-accent ink inside an own (accent-filled) bubble, the
+  // muted ink ramp otherwise. Dimmed with `opacity-*` rather than a colour
+  // alpha, because Tailwind emits no rule at all for an alpha on `var(--x)`.
+  const META_TEXT = isOwn ? 'text-acc-on opacity-75' : 'text-ink-3';
+
   return (
     <div className="flex items-center gap-2 py-1 min-w-[200px] max-w-[280px]">
-      {/* Play/Pause button */}
-      <button
+      {/* Play/Pause button.
+          WHY the own side inverts (on-accent fill, accent glyph) instead of a
+          translucent white: the own bubble is already filled with the accent, so
+          a wash of the same hue would not separate. The inverted pair reads as a
+          control in all three themes, from one class rather than two. */}
+      <IconButton
+        size="lg"
         onClick={() => {
           void handlePlayPause();
         }}
-        className={clsx(
-          'min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full shrink-0 touch-feedback transition-colors',
-          isOwn
-            ? 'bg-white/20 hover:bg-white/30'
-            : 'bg-ocean-50 dark:bg-ocean-900/30 hover:bg-ocean-100 dark:hover:bg-ocean-900/50',
-        )}
+        className={clsx('shrink-0 transition-colors', isOwn ? 'bg-acc-on' : 'bg-acc-dim')}
         aria-label={isPlaying ? 'Pause' : 'Play'}
       >
         {isPlaying ? (
-          <Pause
-            size={18}
-            className={isOwn ? 'text-white' : 'text-ocean-600 dark:text-ocean-400'}
-            fill="currentColor"
-          />
+          <Pause size={18} className="text-acc" fill="currentColor" />
         ) : (
-          <Play
-            size={18}
-            className={isOwn ? 'text-white' : 'text-ocean-600 dark:text-ocean-400'}
-            fill="currentColor"
-          />
+          <Play size={18} className="text-acc" fill="currentColor" />
         )}
-      </button>
+      </IconButton>
 
       {/* Waveform + progress */}
       <div className="flex-1 min-w-0">
         {/* Waveform bars with progress overlay */}
         <div
-          className="flex items-center gap-[1px] h-6 cursor-pointer relative focus:outline-none focus:ring-2 focus:ring-ocean-500/40 rounded"
+          className="flex items-center gap-[1px] h-6 cursor-pointer relative focus:outline-none focus:ring-2 focus:ring-acc rounded"
           onClick={handleSeek}
           onKeyDown={handleSeekKey}
           role="slider"
@@ -263,13 +260,11 @@ export function VoicePlayer({
                 key={i}
                 className={clsx(
                   'w-[2px] rounded-full transition-colors',
-                  isActive
-                    ? isOwn
-                      ? 'bg-white'
-                      : 'bg-ocean-600 dark:bg-ocean-400'
-                    : isOwn
-                      ? 'bg-white/30'
-                      : 'bg-gray-300 dark:bg-gray-600',
+                  // Played vs unplayed on the own side is ONE colour at two
+                  // strengths: the token layer has no alpha channel, so the
+                  // dimming is a plain opacity utility.
+                  isOwn ? 'bg-acc-on' : isActive ? 'bg-acc' : 'bg-line-strong',
+                  isOwn && !isActive && 'opacity-30',
                 )}
                 style={{ height: `${(height / 100) * 24}px` }}
               />
@@ -277,22 +272,13 @@ export function VoicePlayer({
           })}
         </div>
 
-        {/* Duration display */}
+        {/* Duration display. text-meta is 12px, the sunlight-readability floor;
+            it replaces a 10px arbitrary size, lowering the tiny-text ratchet. */}
         <div className="flex items-center justify-between mt-0.5">
-          <span
-            className={clsx(
-              'text-[10px] tabular-nums',
-              isOwn ? 'text-white/75' : 'text-gray-400 dark:text-gray-500',
-            )}
-          >
+          <span className={clsx('text-meta tabular-nums', META_TEXT)}>
             {formatDuration(currentTime)}
           </span>
-          <span
-            className={clsx(
-              'text-[10px] tabular-nums',
-              isOwn ? 'text-white/75' : 'text-gray-400 dark:text-gray-500',
-            )}
-          >
+          <span className={clsx('text-meta tabular-nums', META_TEXT)}>
             {formatDuration(duration)}
           </span>
         </div>
@@ -303,10 +289,8 @@ export function VoicePlayer({
       <IconButton
         onClick={handleSpeedToggle}
         className={clsx(
-          'text-[10px] font-bold transition-colors',
-          isOwn
-            ? 'bg-white/20 text-white hover:bg-white/30'
-            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600',
+          'text-meta font-bold transition-colors',
+          isOwn ? 'bg-acc-on text-acc' : 'bg-surface-3 text-ink-2',
         )}
         aria-label={`Playback speed ${speed}x`}
       >

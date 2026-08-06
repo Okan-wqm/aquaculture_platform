@@ -8181,3 +8181,19 @@ Compliance numbers that change depending on which screen you open are worse than
 **Fix (this PR):** `isOverCapacity` is the single definition of at/over consent, on every screen. The 70/90 lines survive only as an **advisory density band**, relabelled as such — the meter's ticks now read "70% watch / 90% density" rather than "limit", and its prop docs say the farm service owns the consent verdict. `?? 0` no longer classifies an unknown capacity as safe.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-587 — the messaging surface was the last large block still on the pre-v4 palette — RESOLVED (this PR, components only)
+
+**Discovered:** 2026-08-06, while measuring which parts of AquaMobil the v4 redesign had actually reached.
+
+Chat is the densest surface in the app — 6 pages plus 21 components, roughly a thousand pre-v4 class usages between them, the largest single remaining block. `MessageBubble` (533 lines) and `MessageInput` (432) carry most of it. Own-versus-other message bubbles distinguished themselves with the ocean palette, so the distinction was one fixed blue that could not follow a theme change.
+
+**Fix (this PR):** every component under `src/components/messaging` is converted to the semantic tokens. Own bubbles take the accent pair (`bg-acc` / `text-acc-on`), the other side `bg-surface-2` / `text-ink-1`. Strictly a restyle — Socket.IO wiring, read receipts, typing indicators, attachment retry, voice recording and playback are untouched.
+
+Four ratchets fall with it: `dark:` 1254→1049, legacy palettes 285→185, stock grays 1431→1202, sub-12px text 74→55. The last is the one that matters beyond tidiness: 19 fewer sub-12px labels is 19 places a worker can read the screen at arm's length in sunlight.
+
+**Not done:** the messaging PAGES. Chat currently renders v3 page chrome around v4 bubbles — a mid-migration state, not a defect.
+
+**Process note worth recording:** this work was produced by a parallel fan-out across six disjoint file groups. Five of the six were **lost** when another session moved this shared checkout to an unrelated detached commit mid-run; only the uncommitted messaging-component edits carried across and were recovered by patch. The branch ref and all pushed commits were never at risk. The lesson is mechanical: in a shared checkout, agent output must be committed per group as it lands, not batched at the end of the run.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the components; pages open.

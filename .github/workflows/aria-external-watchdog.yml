@@ -1,0 +1,230 @@
+name: ARIA External Watchdog
+
+# PLAN Wave 1 (moved forward from Wave 11, Revision 2 opinion #4). The most
+# dangerous period for a half-installed automation is the installation, so the
+# watchman arrives with the transport rather than after it.
+#
+# WHY THIS IS NOT scheduled-workflow-watchdog.yml, which already exists.
+#
+# That one asks "did the workflow run?". This one asks "does ARIA still
+# REMEMBER, and is it still adding to what it remembers?" — and those are
+# different questions with different failure modes between them. A lane can
+# run green every night and publish nothing: that is ORPHAN-CRITICAL-484's
+# exact shape, it happened here, and a run-status watchdog reads it as health.
+# The `aria/state` tip is the only signal that answers the second question,
+# because the tip only moves when a snapshot is actually accepted.
+#
+# IT MUST NOT IMPORT THE RUNTIME IT WATCHES. A watchman that dies of the
+# illness it watches for is not a watchman: every failure this workflow exists
+# to catch is a failure of that runtime, so depending on it would silence the
+# alarm exactly when it matters. No kernel import, no restore action, no store
+# checkout — GitHub's own API and nothing else.
+#
+# The contract spec pins this by scanning THIS FILE for those names, so the
+# paragraph cannot be edited around; it also means the paragraph itself must
+# not spell them, which is why it describes rather than names. A detector that
+# its own documentation trips is a detector someone will loosen.
+
+on:
+  schedule:
+    # 08:40 UTC — after both watched lanes (producer 01:00, executor 05:16)
+    # have had their night, early enough that an operator reads it with the day.
+    - cron: '40 8 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: aria-external-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the watchdog manifest
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # The manifest and nothing else. A full history would tempt a future
+          # author into reading repository state the kernel owns.
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Judge ARIA's memory and report
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const manifest = require(
+              `${process.env.GITHUB_WORKSPACE}/.github/manifests/aria-state-watchdog.json`,
+            );
+            const { owner, repo } = context.repo;
+            const now = Date.now();
+            const hoursSince = (iso) => (now - new Date(iso).getTime()) / 3_600_000;
+            const findings = [];
+            const observations = [];
+
+            // 1. DOES THE MEMORY STILL GROW? The tip is the whole question.
+            //    An unreachable ref and a stale one are different verdicts:
+            //    "the branch is gone" is a catastrophe, "the branch has not
+            //    moved" is a stall, and a watchdog that reported them as one
+            //    number would send an operator looking in the wrong place.
+            let tip = null;
+            try {
+              const branch = await github.rest.repos.getBranch({
+                owner,
+                repo,
+                branch: manifest.stateBranch.ref,
+              });
+              tip = branch.data.commit;
+            } catch (error) {
+              findings.push(
+                `\`${manifest.stateBranch.ref}\` could not be read (${error.status ?? 'error'}: ` +
+                  `${error.message}). ARIA's durable memory is unreachable — this is not a stall.`,
+              );
+            }
+
+            if (tip) {
+              const committedAt = tip.commit?.committer?.date ?? tip.commit?.author?.date;
+              if (!committedAt) {
+                findings.push(
+                  `\`${manifest.stateBranch.ref}\` tip ${tip.sha.slice(0, 9)} carries no commit ` +
+                    'date, so its freshness cannot be judged.',
+                );
+              } else {
+                const age = hoursSince(committedAt);
+                observations.push(
+                  `\`${manifest.stateBranch.ref}\` tip \`${tip.sha.slice(0, 9)}\` is ` +
+                    `${age.toFixed(1)}h old (limit ${manifest.stateBranch.maxTipAgeHours}h).`,
+                );
+                if (age > manifest.stateBranch.maxTipAgeHours) {
+                  findings.push(
+                    `ARIA has not published state for ${age.toFixed(1)}h ` +
+                      `(limit ${manifest.stateBranch.maxTipAgeHours}h). The lanes may be running ` +
+                      'green and persisting nothing — run status alone cannot see this.',
+                  );
+                }
+              }
+            }
+
+            // 2. Are the lanes still succeeding? Kept SEPARATE from the tip
+            //    check on purpose: a green lane with a frozen tip and a red
+            //    lane with a fresh tip are both real, and each points somewhere
+            //    else. Reporting one number for both would lose that.
+            for (const lane of manifest.lanes) {
+              let runs;
+              try {
+                runs = await github.rest.actions.listWorkflowRuns({
+                  owner,
+                  repo,
+                  workflow_id: lane.workflow,
+                  status: 'success',
+                  per_page: 1,
+                });
+              } catch (error) {
+                findings.push(
+                  `${lane.role} lane (\`${lane.workflow}\`) could not be queried ` +
+                    `(${error.status ?? 'error'}: ${error.message}).`,
+                );
+                continue;
+              }
+              const latest = runs.data.workflow_runs[0];
+              if (!latest) {
+                findings.push(
+                  `${lane.role} lane (\`${lane.workflow}\`) has NO successful run on record.`,
+                );
+                continue;
+              }
+              const age = hoursSince(latest.updated_at);
+              observations.push(
+                `${lane.role} lane last succeeded ${age.toFixed(1)}h ago ` +
+                  `(limit ${lane.maxSuccessAgeHours}h, run ${latest.id}).`,
+              );
+              if (age > lane.maxSuccessAgeHours) {
+                findings.push(
+                  `${lane.role} lane (\`${lane.workflow}\`) has not succeeded for ` +
+                    `${age.toFixed(1)}h (limit ${lane.maxSuccessAgeHours}h). Last success: ` +
+                    `${latest.html_url}`,
+                );
+              }
+            }
+
+            const healthy = findings.length === 0;
+            const title = `${manifest.incidentIssue.titlePrefix} ARIA memory is not advancing`;
+            const body = [
+              healthy
+                ? '## ARIA memory is advancing'
+                : '## ARIA memory is NOT advancing',
+              '',
+              `Judged at ${new Date(now).toISOString()} by ` +
+                `[run ${context.runId}](${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}).`,
+              '',
+              '### What was measured',
+              ...observations.map((line) => `- ${line}`),
+              '',
+              ...(healthy
+                ? ['Nothing to report.']
+                : ['### What is wrong', ...findings.map((line) => `- ${line}`)]),
+              '',
+              'This watchdog does not import the ARIA kernel, so its verdict survives a',
+              'kernel that cannot start. It reports; it does not repair.',
+              '',
+              '---',
+              '_Generated by [Claude Code](https://claude.ai/code)_',
+            ].join('\n');
+
+            // The issue is the operator surface, and it is UPSERTED so a
+            // week-long stall is one thread rather than seven notifications
+            // that each look like a new problem.
+            const existing = await github.rest.issues.listForRepo({
+              owner,
+              repo,
+              state: 'open',
+              labels: manifest.incidentIssue.labels.join(','),
+              per_page: 50,
+            });
+            const openIncident = existing.data.find((issue) => issue.title === title);
+
+            if (!healthy) {
+              if (openIncident) {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: openIncident.number,
+                  body,
+                });
+              } else {
+                await github.rest.issues.create({
+                  owner,
+                  repo,
+                  title,
+                  body,
+                  labels: manifest.incidentIssue.labels,
+                });
+              }
+              core.summary.addRaw(body).write();
+              // A watchdog that reports a stall and exits green is a watchdog
+              // nobody will believe twice.
+              core.setFailed(findings.join(' | '));
+              return;
+            }
+
+            if (openIncident) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: openIncident.number,
+                body: `${body}\n\nRecovered — closing.`,
+              });
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: openIncident.number,
+                state: 'closed',
+                state_reason: 'completed',
+              });
+            }
+            core.summary.addRaw(body).write();

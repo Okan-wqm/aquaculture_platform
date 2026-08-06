@@ -14,7 +14,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { gql } from 'graphql-tag';
 import {
-  ArrowLeft,
   ArrowLeftRight,
   CheckCircle,
   AlertCircle,
@@ -28,7 +27,9 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { AppHeader } from '@/components/AppHeader';
 import { BarcodeScanButton } from '@/components/BarcodeScanButton';
+import { Button, Card, EmptyState } from '@/components/ui';
 import { VirtualList } from '@/components/VirtualList';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -311,14 +312,16 @@ export function StockTransferPage(): JSX.Element {
 
   if (showSuccess) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-green-50 dark:bg-green-900/10">
-        <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
-          <CheckCircle size={48} className="text-green-600" />
+      // The page tint is gone — the ground belongs to <body>. Green stays where
+      // it means something: on the confirmation mark and its headline.
+      <div className="flex flex-col items-center justify-center min-h-screen">
+        <div className="w-20 h-20 bg-surface-2 rounded-full flex items-center justify-center mb-4">
+          <CheckCircle size={48} className="text-ok" />
         </div>
-        <h2 className="text-xl font-bold text-green-700 dark:text-green-300">
+        <h2 className="text-head font-bold text-ok">
           {isOnline ? 'Transfer Recorded!' : 'Queued for Sync'}
         </h2>
-        <p className="text-green-600 dark:text-green-400 text-sm mt-1">Returning to storage hub...</p>
+        <p className="text-ink-2 text-body mt-1">Returning to storage hub...</p>
       </div>
     );
   }
@@ -328,35 +331,31 @@ export function StockTransferPage(): JSX.Element {
   // ---- Render --------------------------------------------------------------
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex flex-col">
-      {/* Gradient Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={handleBack} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <ArrowLeftRight size={22} />
-            <div>
-              <h1 className="text-lg font-bold">Stock Transfer</h1>
-              <p className="text-xs text-white/80">Step {step} of {TOTAL_STEPS}</p>
-            </div>
-          </div>
-        </div>
-        <div className="h-1 bg-white/20">
-          <div
-            className="h-full bg-white/80 transition-all duration-300"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
+    <div className="min-h-screen flex flex-col">
+      {/* v4: the blue gradient bar becomes the shared header. The step counter
+          keeps its place as the subtitle and the progress rail sits directly
+          under it, now drawn in the accent instead of translucent white. The
+          step machine is untouched — handleBack is the same callback. */}
+      <AppHeader
+        title="Stock Transfer"
+        subtitle={`Step ${step} of ${TOTAL_STEPS}`}
+        onBack={handleBack}
+        showAvatar={false}
+        actions={<ArrowLeftRight size={20} className="text-type-transfer" aria-hidden />}
+      />
+      <div className="h-1 bg-surface-2">
+        <div
+          className="h-full bg-acc transition-all duration-300"
+          style={{ width: `${progress}%` }}
+        />
       </div>
 
       {/* Error Banner */}
       {submitError && (
-        <div className="mx-4 mt-3 bg-red-50 dark:bg-red-900/20 rounded-xl p-3 flex items-center gap-2 border border-red-200 dark:border-red-800">
-          <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
-          <span className="text-red-600 dark:text-red-300 text-sm">{submitError}</span>
-        </div>
+        <Card className="mx-4 mt-3 p-3 flex items-center gap-2 border-crit">
+          <AlertCircle size={18} className="text-crit flex-shrink-0" />
+          <span className="text-crit text-body">{submitError}</span>
+        </Card>
       )}
 
       {/* Step Content */}
@@ -364,8 +363,8 @@ export function StockTransferPage(): JSX.Element {
         {/* Step 1: Item Type + Item (combined for fewer taps) */}
         {step === 1 && (
           <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Select item to transfer</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            <h2 className="text-head font-bold text-ink-1 mb-2">Select item to transfer</h2>
+            <p className="text-body text-ink-2 mb-4">
               Choose the category and then the specific item.
             </p>
 
@@ -374,22 +373,26 @@ export function StockTransferPage(): JSX.Element {
               {ITEM_TYPES.map((it) => (
                 <button
                   key={it.type}
+                  type="button"
+                  aria-pressed={selectedItemType === it.type}
                   onClick={() => {
                     setSelectedItemType(it.type);
                     setSelectedItemId('');
                     setItemSearch('');
                   }}
                   className={clsx(
-                    'p-3 rounded-xl border-2 transition-all touch-feedback text-center',
+                    'p-3 min-h-touch rounded-xl border-2 transition-all touch-feedback text-center',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc',
                     selectedItemType === it.type
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                      : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900',
+                      ? 'border-acc bg-acc-dim'
+                      : 'border-line bg-surface-1',
                   )}
                 >
                   <span className="text-xl block">{it.emoji}</span>
+                  {/* Was a 10px label — below the sunlight floor, and on the ratchet. */}
                   <span className={clsx(
-                    'text-[10px] font-bold',
-                    selectedItemType === it.type ? 'text-blue-700 dark:text-blue-300' : 'text-gray-600 dark:text-gray-400',
+                    'text-meta font-bold',
+                    selectedItemType === it.type ? 'text-acc' : 'text-ink-2',
                   )}>
                     {it.label}
                   </span>
@@ -402,27 +405,28 @@ export function StockTransferPage(): JSX.Element {
               <>
                 <div className="flex items-stretch gap-2 mb-3">
                   <div className="relative flex-1">
-                  <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3" />
                   <input
                     type="text"
                     placeholder="Search items..."
                     value={itemSearch}
                     onChange={(e) => setItemSearch(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full min-h-touch pl-10 pr-4 py-3 rounded-xl border border-line bg-surface-1 text-ink-1 text-body focus:outline-none focus:ring-2 focus:ring-acc"
                   />
                 </div>
                   <BarcodeScanButton onScan={setItemSearch} />
                 </div>
                 {itemsLoading ? (
                   <div className="flex items-center justify-center py-8">
-                    <Loader2 size={24} className="animate-spin text-blue-600" />
-                    <span className="ml-2 text-gray-500 text-sm">Loading...</span>
+                    <Loader2 size={24} className="animate-spin text-acc" />
+                    <span className="ml-2 text-ink-2 text-body">Loading...</span>
                   </div>
                 ) : filteredItems.length === 0 ? (
-                  <div className="text-center py-8 text-gray-400">
-                    <Package size={32} className="mx-auto mb-2 opacity-30" />
-                    <p className="text-sm">No items found</p>
-                  </div>
+                  <EmptyState
+                    icon={<Package size={22} />}
+                    title="No items found"
+                    className="py-8"
+                  />
                 ) : (
                   /* MOB-MEDIUM-012: virtualized — inventories can be hundreds of SKUs. */
                   <VirtualList
@@ -433,21 +437,24 @@ export function StockTransferPage(): JSX.Element {
                     className="max-h-[40vh]"
                     renderItem={(item) => (
                       <button
+                        type="button"
+                        aria-pressed={selectedItemId === item.id}
                         onClick={() => setSelectedItemId(item.id)}
                         className={clsx(
-                          'w-full p-3.5 rounded-xl border-2 text-left transition-all touch-feedback',
+                          'w-full p-3.5 min-h-touch rounded-xl border-2 text-left transition-all touch-feedback',
+                          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc',
                           selectedItemId === item.id
-                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                            : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900',
+                            ? 'border-acc bg-acc-dim'
+                            : 'border-line bg-surface-1',
                         )}
                       >
                         <span className={clsx(
-                          'text-sm font-bold block',
-                          selectedItemId === item.id ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-white',
+                          'text-body font-bold block',
+                          selectedItemId === item.id ? 'text-acc' : 'text-ink-1',
                         )}>
                           {item.name}
                         </span>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                        <span className="text-meta text-ink-3">
                           {item.code} &middot; {item.unit}
                         </span>
                       </button>
@@ -462,39 +469,42 @@ export function StockTransferPage(): JSX.Element {
         {/* Step 2: From Location */}
         {step === 2 && (
           <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">From location</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            <h2 className="text-head font-bold text-ink-1 mb-2">From location</h2>
+            <p className="text-body text-ink-2 mb-4">
               Where is the stock currently stored?
             </p>
             {locationsLoading ? (
               <div className="flex items-center justify-center py-12">
-                <Loader2 size={28} className="animate-spin text-blue-600" />
-                <span className="ml-2 text-gray-500 text-sm">Loading locations...</span>
+                <Loader2 size={28} className="animate-spin text-acc" />
+                <span className="ml-2 text-ink-2 text-body">Loading locations...</span>
               </div>
             ) : (
               <div className="space-y-2 max-h-[50vh] overflow-y-auto">
                 {locations.map((loc) => (
                   <button
                     key={loc.id}
+                    type="button"
+                    aria-pressed={fromLocationId === loc.id}
                     onClick={() => {
                       setFromLocationId(loc.id);
                       // Reset "to" if it was the same as the newly selected "from"
                       if (toLocationId === loc.id) setToLocationId('');
                     }}
                     className={clsx(
-                      'w-full p-4 rounded-xl border-2 text-left transition-all touch-feedback',
+                      'w-full p-4 min-h-touch rounded-xl border-2 text-left transition-all touch-feedback',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc',
                       fromLocationId === loc.id
-                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900',
+                        ? 'border-acc bg-acc-dim'
+                        : 'border-line bg-surface-1',
                     )}
                   >
                     <span className={clsx(
-                      'text-sm font-bold block',
-                      fromLocationId === loc.id ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-white',
+                      'text-body font-bold block',
+                      fromLocationId === loc.id ? 'text-acc' : 'text-ink-1',
                     )}>
                       {loc.name}
                     </span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">{loc.code}</span>
+                    <span className="text-meta text-ink-3">{loc.code}</span>
                   </button>
                 ))}
               </div>
@@ -505,34 +515,39 @@ export function StockTransferPage(): JSX.Element {
         {/* Step 3: To Location */}
         {step === 3 && (
           <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">To location</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            <h2 className="text-head font-bold text-ink-1 mb-2">To location</h2>
+            <p className="text-body text-ink-2 mb-4">
               Where should the stock be moved to?
             </p>
             {toLocationOptions.length === 0 ? (
-              <div className="text-center py-12 text-gray-400">
-                <p className="text-sm">No other locations available</p>
-              </div>
+              <EmptyState
+                icon={<Package size={22} />}
+                title="No other locations available"
+                description="A transfer needs a second location to move stock into."
+              />
             ) : (
               <div className="space-y-2 max-h-[50vh] overflow-y-auto">
                 {toLocationOptions.map((loc) => (
                   <button
                     key={loc.id}
+                    type="button"
+                    aria-pressed={toLocationId === loc.id}
                     onClick={() => setToLocationId(loc.id)}
                     className={clsx(
-                      'w-full p-4 rounded-xl border-2 text-left transition-all touch-feedback',
+                      'w-full p-4 min-h-touch rounded-xl border-2 text-left transition-all touch-feedback',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc',
                       toLocationId === loc.id
-                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900',
+                        ? 'border-acc bg-acc-dim'
+                        : 'border-line bg-surface-1',
                     )}
                   >
                     <span className={clsx(
-                      'text-sm font-bold block',
-                      toLocationId === loc.id ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-white',
+                      'text-body font-bold block',
+                      toLocationId === loc.id ? 'text-acc' : 'text-ink-1',
                     )}>
                       {loc.name}
                     </span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">{loc.code}</span>
+                    <span className="text-meta text-ink-3">{loc.code}</span>
                   </button>
                 ))}
               </div>
@@ -543,11 +558,13 @@ export function StockTransferPage(): JSX.Element {
         {/* Step 4: Quantity */}
         {step === 4 && (
           <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Transfer quantity</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+            <h2 className="text-head font-bold text-ink-1 mb-2">Transfer quantity</h2>
+            <p className="text-body text-ink-2 mb-6">
               How much of {selectedItem?.name ?? 'this item'} are you transferring?
             </p>
             <div className="relative">
+              {/* The v4 hero numeral: mono at 700 so the digits are tabular and
+                  the figure is readable at arm's length. */}
               <input
                 ref={quantityInputRef}
                 type="number"
@@ -555,10 +572,10 @@ export function StockTransferPage(): JSX.Element {
                 placeholder="0"
                 value={quantity}
                 onChange={(e) => setQuantity(e.target.value)}
-                className="w-full text-center text-4xl font-bold py-6 rounded-2xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full text-center text-hero font-mono font-bold tabular-nums py-6 rounded-2xl border-2 border-line bg-surface-1 text-ink-1 focus:outline-none focus:ring-2 focus:ring-acc focus:border-transparent"
               />
               {selectedItem && (
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-lg text-gray-400 font-medium">
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-title text-ink-3 font-medium">
                   {selectedItem.unit}
                 </span>
               )}
@@ -569,55 +586,54 @@ export function StockTransferPage(): JSX.Element {
         {/* Step 5: Confirm */}
         {step === 5 && (
           <div>
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Confirm transfer</h2>
-            <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-800">
+            <h2 className="text-head font-bold text-ink-1 mb-4">Confirm transfer</h2>
+            <Card className="divide-y divide-line">
               <div className="p-4 flex justify-between">
-                <span className="text-sm text-gray-500">Item</span>
-                <span className="text-sm font-bold text-gray-900 dark:text-white">{selectedItem?.name ?? '-'}</span>
+                <span className="text-body text-ink-2">Item</span>
+                <span className="text-body font-bold text-ink-1">{selectedItem?.name ?? '-'}</span>
               </div>
               <div className="p-4 flex justify-between">
-                <span className="text-sm text-gray-500">From</span>
-                <span className="text-sm font-bold text-gray-900 dark:text-white">{fromLocation?.name ?? '-'}</span>
+                <span className="text-body text-ink-2">From</span>
+                <span className="text-body font-bold text-ink-1">{fromLocation?.name ?? '-'}</span>
               </div>
               <div className="p-4 flex justify-between">
-                <span className="text-sm text-gray-500">To</span>
-                <span className="text-sm font-bold text-gray-900 dark:text-white">{toLocation?.name ?? '-'}</span>
+                <span className="text-body text-ink-2">To</span>
+                <span className="text-body font-bold text-ink-1">{toLocation?.name ?? '-'}</span>
               </div>
               <div className="p-4 flex justify-between">
-                <span className="text-sm text-gray-500">Quantity</span>
-                <span className="text-sm font-bold text-gray-900 dark:text-white">
+                <span className="text-body text-ink-2">Quantity</span>
+                <span className="text-body font-bold text-ink-1">
                   {quantity} {selectedItem?.unit ?? ''}
                 </span>
               </div>
-            </div>
+            </Card>
 
             {!isOnline && (
-              <div className="mt-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 flex items-center gap-2 border border-amber-200 dark:border-amber-800">
-                <AlertCircle size={16} className="text-amber-500 flex-shrink-0" />
-                <span className="text-amber-600 dark:text-amber-300 text-xs">
+              <Card className="mt-4 p-3 flex items-center gap-2 border-warn">
+                <AlertCircle size={16} className="text-warn flex-shrink-0" />
+                <span className="text-warn text-meta">
                   You are offline. This will be queued and synced when connected.
                 </span>
-              </div>
+              </Card>
             )}
 
-            <button
+            <Button
+              variant="primary"
+              size="save"
+              block
+              className="mt-6 font-bold"
               onClick={() => { void handleSubmit(); }}
               disabled={isSubmitting}
-              className={clsx(
-                'w-full mt-6 py-4 rounded-2xl font-bold text-white text-base shadow-card transition-all active:scale-[0.98] touch-feedback',
-                isSubmitting ? 'opacity-50' : '',
-                'bg-gradient-to-r from-blue-600 to-blue-500',
-              )}
             >
               {isSubmitting ? (
-                <span className="flex items-center justify-center gap-2">
+                <>
                   <Loader2 size={20} className="animate-spin" />
                   Transferring...
-                </span>
+                </>
               ) : (
                 'Confirm Transfer'
               )}
-            </button>
+            </Button>
           </div>
         )}
       </div>
@@ -625,26 +641,23 @@ export function StockTransferPage(): JSX.Element {
       {/* Bottom navigation buttons (except on confirm step) */}
       {step < 5 && (
         <div className="px-4 pb-6 pb-safe-bottom flex gap-3">
-          <button
+          <Button
+            variant="ghost"
             onClick={handleBack}
-            className="flex-1 py-3.5 rounded-xl border-2 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 font-semibold text-sm touch-feedback transition-all active:scale-[0.98] flex items-center justify-center gap-1"
+            className="flex-1 border border-line"
           >
             <ChevronLeft size={18} />
             Back
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
             onClick={handleNext}
             disabled={!canAdvance()}
-            className={clsx(
-              'flex-1 py-3.5 rounded-xl font-semibold text-sm touch-feedback transition-all active:scale-[0.98] flex items-center justify-center gap-1',
-              canAdvance()
-                ? 'bg-blue-600 text-white shadow-card'
-                : 'bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-600',
-            )}
+            className="flex-1"
           >
             Next
             <ChevronRight size={18} />
-          </button>
+          </Button>
         </div>
       )}
     </div>

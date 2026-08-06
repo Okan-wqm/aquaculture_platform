@@ -1,24 +1,33 @@
 import { clsx } from 'clsx';
-import { ArrowLeft, MapPin, Clock, AlertCircle, LogIn, LogOut } from 'lucide-react';
+import { Clock, AlertCircle, LogIn, LogOut } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { AppHeader } from '@/components/AppHeader';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { Button, Card, Chip, EmptyState, ListRow, StatusDot } from '@/components/ui';
 import { useMyAttendanceRecords, useMyAttendanceSummary, useTodaysAttendance } from '@/hooks/useAttendance';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { GeoLocation, AttendanceRecord } from '@/types';
 
-
-const STATUS_COLORS: Record<string, string> = {
-  PRESENT: 'bg-green-100 text-green-700',
-  LATE: 'bg-amber-100 text-amber-700',
-  ABSENT: 'bg-red-100 text-red-700',
-  ON_LEAVE: 'bg-blue-100 text-blue-700',
-  OFFSHORE: 'bg-cyan-100 text-cyan-700',
-  EARLY_LEAVE: 'bg-orange-100 text-orange-700',
-  HALF_DAY: 'bg-purple-100 text-purple-700',
-  WORK_FROM_HOME: 'bg-indigo-100 text-indigo-700',
+/**
+ * Attendance status → the badge tone it wears.
+ *
+ * Eight statuses, four tones: v4 has one alarm colour, one watch colour, one
+ * confirm colour and the accent, so a status cannot have a hue of its own. The
+ * badge always renders the status TEXT, which is what tells OFFSHORE from
+ * WORK_FROM_HOME — the tone only says how much attention it wants.
+ */
+const STATUS_TONES: Record<string, string> = {
+  PRESENT: 'bg-surface-2 text-ok',
+  LATE: 'bg-warn-dim text-warn',
+  ABSENT: 'bg-crit-dim text-crit',
+  ON_LEAVE: 'bg-acc-dim text-acc',
+  OFFSHORE: 'bg-acc-dim text-acc',
+  EARLY_LEAVE: 'bg-warn-dim text-warn',
+  HALF_DAY: 'bg-surface-2 text-ink-2',
+  WORK_FROM_HOME: 'bg-surface-2 text-ink-2',
 };
 
 function formatTime(isoString?: string): string {
@@ -132,61 +141,64 @@ export function AttendancePage(): JSX.Element {
   };
 
   // C7: Two-phase success UX -- show honest sync status via QueuedStatusBadge
-  // instead of premature green checkmark with "Recorded!" message.
+  // instead of premature green checkmark with "Recorded!" message. The screen
+  // keeps the WATCH tone (amber before v4, `warn` now): the punch is queued on
+  // this device, not confirmed by the farm, and those are different facts.
   if (showSuccess) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
+      <div className="flex flex-col items-center justify-center min-h-screen bg-warn-dim">
         <QueuedStatusBadge operationId={queuedOperationId} />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 pb-24">
-      {/* Header */}
-      <div className={clsx(
-        'text-white',
-        isClockedIn
-          ? 'bg-gradient-to-r from-green-600 to-green-500'
-          : 'bg-gradient-to-r from-ocean-600 to-ocean-500',
-      )}>
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <MapPin size={22} />
-            <h1 className="text-lg font-bold">Attendance</h1>
-          </div>
-        </div>
-      </div>
+    <div className="pb-32">
+      <AppHeader
+        title="Attendance"
+        onBack={() => navigate(-1)}
+        showAvatar={false}
+        // The header used to turn green when the worker was clocked in — that
+        // was the ONLY on-duty signal besides the button label, so it moves onto
+        // a chip rather than being dropped with the gradient.
+        actions={
+          <Chip tone={isClockedIn ? 'ok' : 'neutral'}>
+            <StatusDot tone={isClockedIn ? 'ok' : 'warn'} live={Boolean(isClockedIn)} />
+            {isClockedIn ? 'On duty' : 'Off duty'}
+          </Chip>
+        }
+      />
 
-      {/* Clock In/Out Button */}
-      <div className="px-4 mt-5">
-        <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-6 border border-gray-100 dark:border-gray-800 text-center">
-          <div className="text-4xl font-bold text-gray-900 dark:text-white tabular-nums mb-2">
+      <div className="px-4 flex flex-col gap-4">
+        {/* Clock In/Out */}
+        <Card className="p-6 text-center">
+          <div className="text-hero font-mono font-bold text-ink-1 tabular-nums mb-2">
             {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </div>
-          <p className="text-sm text-gray-500 mb-5">
+          <p className="text-body text-ink-3 mb-5">
             {new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}
           </p>
 
           {error && (
-            <div className="mb-4 bg-red-50 dark:bg-red-900/20 rounded-xl p-3 flex items-center gap-2 border border-red-200 dark:border-red-800">
-              <AlertCircle size={16} className="text-red-500 flex-shrink-0" />
-              <span className="text-red-600 dark:text-red-300 text-sm">{error}</span>
+            <div className="mb-4 bg-crit-dim rounded-xl p-3 flex items-center gap-2 border border-crit">
+              <AlertCircle size={16} className="text-crit flex-shrink-0" />
+              <span className="text-crit text-body">{error}</span>
             </div>
           )}
 
           {!isClockedIn ? (
-            <button
-              onClick={() => { void handleClockIn(); }}
+            <Button
+              variant="primary"
+              size="save"
+              block
+              onClick={() => {
+                void handleClockIn();
+              }}
               disabled={isSubmitting || isGettingLocation}
-              className="w-full py-4 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-2xl shadow-lg shadow-green-500/25 disabled:opacity-50 touch-feedback transition-all flex items-center justify-center gap-3"
             >
               {isSubmitting || isGettingLocation ? (
                 <>
-                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent" />
                   {isGettingLocation ? 'Getting location...' : 'Recording...'}
                 </>
               ) : (
@@ -195,16 +207,20 @@ export function AttendancePage(): JSX.Element {
                   Clock In
                 </>
               )}
-            </button>
+            </Button>
           ) : (
-            <button
-              onClick={() => { void handleClockOut(); }}
+            <Button
+              variant="primary"
+              size="save"
+              block
+              onClick={() => {
+                void handleClockOut();
+              }}
               disabled={isSubmitting || isGettingLocation}
-              className="w-full py-4 bg-gradient-to-r from-red-600 to-red-500 text-white font-bold rounded-2xl shadow-lg shadow-red-500/25 disabled:opacity-50 touch-feedback transition-all flex items-center justify-center gap-3"
             >
               {isSubmitting || isGettingLocation ? (
                 <>
-                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent" />
                   {isGettingLocation ? 'Getting location...' : 'Recording...'}
                 </>
               ) : (
@@ -213,107 +229,116 @@ export function AttendancePage(): JSX.Element {
                   Clock Out
                 </>
               )}
-            </button>
+            </Button>
           )}
 
           {!isOnline && (
-            <p className="text-center text-amber-500 text-sm mt-3 font-medium">
+            <p className="text-center text-warn text-body mt-3 font-medium">
               Offline - will sync when connected
             </p>
           )}
 
           {location && (
-            <p className="text-xs text-gray-400 mt-2">
+            <p className="text-meta text-ink-3 mt-2 font-mono">
               GPS: {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}
               {location.accuracy && ` (±${Math.round(location.accuracy)}m)`}
             </p>
           )}
-        </div>
-      </div>
+        </Card>
 
-      {/* Today's Record */}
-      {todayRecord && (
-        <div className="px-4 mt-4">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-4 border border-gray-100 dark:border-gray-800">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Today</h3>
+        {/* Today's Record */}
+        {todayRecord && (
+          <Card className="p-4">
+            <h3 className="text-body font-semibold text-ink-3 mb-3">Today</h3>
             <div className="grid grid-cols-3 gap-3 text-center">
               <div>
-                <p className="text-xs text-gray-400">Clock In</p>
-                <p className="font-semibold text-gray-900 dark:text-white">{formatTime(todayRecord.clockIn)}</p>
+                <p className="text-meta text-ink-3">Clock In</p>
+                <p className="text-title font-mono font-semibold text-ink-1 tabular-nums">
+                  {formatTime(todayRecord.clockIn)}
+                </p>
               </div>
               <div>
-                <p className="text-xs text-gray-400">Clock Out</p>
-                <p className="font-semibold text-gray-900 dark:text-white">{formatTime(todayRecord.clockOut)}</p>
+                <p className="text-meta text-ink-3">Clock Out</p>
+                <p className="text-title font-mono font-semibold text-ink-1 tabular-nums">
+                  {formatTime(todayRecord.clockOut)}
+                </p>
               </div>
               <div>
-                <p className="text-xs text-gray-400">Worked</p>
-                <p className="font-semibold text-gray-900 dark:text-white">
+                <p className="text-meta text-ink-3">Worked</p>
+                <p className="text-title font-mono font-semibold text-ink-1 tabular-nums">
                   {todayRecord.workedMinutes > 0 ? formatMinutes(todayRecord.workedMinutes) : '--'}
                 </p>
               </div>
             </div>
             {todayRecord.remarks?.startsWith('[Unscheduled]') && (
-              <p className="text-xs text-amber-500 mt-2 text-center font-medium">Unscheduled shift</p>
+              <p className="text-meta text-warn mt-2 text-center font-medium">Unscheduled shift</p>
             )}
-          </div>
-        </div>
-      )}
+          </Card>
+        )}
 
-      {/* Monthly Summary */}
-      {summary && (
-        <div className="px-4 mt-4">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">This Month</h3>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-white dark:bg-gray-900 rounded-xl p-3 border border-gray-100 dark:border-gray-800">
-              <p className="text-xs text-gray-400">Total Worked</p>
-              <p className="text-lg font-bold text-gray-900 dark:text-white">{formatMinutes(summary.totalWorkedMinutes)}</p>
+        {/* Monthly Summary */}
+        {summary && (
+          <section className="flex flex-col gap-2">
+            <h3 className="text-body font-semibold text-ink-3 px-1">This Month</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <Card className="p-3">
+                <p className="text-meta text-ink-3">Total Worked</p>
+                <p className="text-head font-mono font-bold text-ink-1 tabular-nums">
+                  {formatMinutes(summary.totalWorkedMinutes)}
+                </p>
+              </Card>
+              <Card className="p-3">
+                <p className="text-meta text-ink-3">Overtime</p>
+                <p className="text-head font-mono font-bold text-warn tabular-nums">
+                  {formatMinutes(summary.totalOvertimeMinutes)}
+                </p>
+              </Card>
+              <Card className="p-3">
+                <p className="text-meta text-ink-3">Present Days</p>
+                <p className="text-head font-mono font-bold text-ok tabular-nums">
+                  {summary.presentDays}/{summary.totalWorkingDays}
+                </p>
+              </Card>
+              <Card className="p-3">
+                <p className="text-meta text-ink-3">Attendance</p>
+                <p className="text-head font-mono font-bold text-acc tabular-nums">
+                  {summary.attendanceRate}%
+                </p>
+              </Card>
             </div>
-            <div className="bg-white dark:bg-gray-900 rounded-xl p-3 border border-gray-100 dark:border-gray-800">
-              <p className="text-xs text-gray-400">Overtime</p>
-              <p className="text-lg font-bold text-orange-600">{formatMinutes(summary.totalOvertimeMinutes)}</p>
-            </div>
-            <div className="bg-white dark:bg-gray-900 rounded-xl p-3 border border-gray-100 dark:border-gray-800">
-              <p className="text-xs text-gray-400">Present Days</p>
-              <p className="text-lg font-bold text-green-600">{summary.presentDays}/{summary.totalWorkingDays}</p>
-            </div>
-            <div className="bg-white dark:bg-gray-900 rounded-xl p-3 border border-gray-100 dark:border-gray-800">
-              <p className="text-xs text-gray-400">Attendance</p>
-              <p className="text-lg font-bold text-ocean-600">{summary.attendanceRate}%</p>
-            </div>
-          </div>
-        </div>
-      )}
+          </section>
+        )}
 
-      {/* Recent Records */}
-      <div className="px-4 mt-5">
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Recent (7 Days)</h3>
-        <div className="space-y-2">
+        {/* Recent Records */}
+        <section className="flex flex-col gap-2">
+          <h3 className="text-body font-semibold text-ink-3 px-1">Recent (7 Days)</h3>
           {(recentRecords ?? []).map((record: AttendanceRecord) => (
-            <div
+            <ListRow
               key={record.id}
-              className="bg-white dark:bg-gray-900 rounded-xl p-3 border border-gray-100 dark:border-gray-800 flex items-center justify-between"
-            >
-              <div>
-                <p className="text-sm font-medium text-gray-900 dark:text-white">
-                  {new Date(record.date).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
-                </p>
-                <p className="text-xs text-gray-400">
-                  {formatTime(record.clockIn)} - {formatTime(record.clockOut)}
-                  {record.workedMinutes > 0 && ` · ${formatMinutes(record.workedMinutes)}`}
-                </p>
-              </div>
-              <span className={clsx('px-2 py-0.5 rounded-full text-xs font-semibold', STATUS_COLORS[record.status] || 'bg-gray-100 text-gray-600')}>
-                {record.status.replace('_', ' ')}
-              </span>
-            </div>
+              title={new Date(record.date).toLocaleDateString([], {
+                weekday: 'short',
+                month: 'short',
+                day: 'numeric',
+              })}
+              subtitle={`${formatTime(record.clockIn)} - ${formatTime(record.clockOut)}${
+                record.workedMinutes > 0 ? ` · ${formatMinutes(record.workedMinutes)}` : ''
+              }`}
+              trailing={
+                <span
+                  className={clsx(
+                    'px-2 py-0.5 rounded-full text-meta font-semibold',
+                    STATUS_TONES[record.status] || 'bg-surface-2 text-ink-2',
+                  )}
+                >
+                  {record.status.replace('_', ' ')}
+                </span>
+              }
+            />
           ))}
           {(!recentRecords || recentRecords.length === 0) && (
-            <div className="text-center py-6 text-gray-400">
-              <Clock size={32} className="mx-auto mb-2 opacity-50" />
-              <p className="text-sm">No recent records</p>
-            </div>
+            <EmptyState icon={<Clock size={22} />} title="No recent records" className="py-6" />
           )}
-        </div>
+        </section>
       </div>
     </div>
   );

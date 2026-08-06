@@ -8242,3 +8242,43 @@ This is worse than the "empty list looks like a failed fetch" class already fixe
 **Fix needed:** one branch rendering `<EmptyState tone="error">` with a retry. Deliberately not done during the conversion pass, which was scoped to markup — adding a render branch is logic, and this page is a regulated surface where the change deserves its own review rather than riding along in a restyle.
 
 **Owner:** claude (this session). **Status:** OPEN.
+
+## ORPHAN-MEDIUM-591 — the remaining AquaMobil pages carried ~1,300 pre-v4 class usages, and three of them made claims the app could not support — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, completing the v4 conversion across the pages the earlier phases had not reached.
+
+Storage (4 pages incl. the 813-line movement wizard), lice, welfare, escape, the shared `RecordEntityPage` scaffold, Account, Login, and the secondary set (alerts, notifications, sync, attendance, leave, schedule, the four operations hubs, task detail, 404) plus the shared `hub/` components.
+
+Three findings inside the conversion are worth recording separately from the restyle:
+
+- **`StockViewPage` rendered a failed fetch as "No stock at this location".** Now split via `EmptyState tone="error"`, read off the two existing `useQuery` calls — the same class of defect as ORPHAN-HIGH-584, in a corner that pass missed.
+- **`RecordEntityPage` hardcoded `text-white`** on its header and both CTAs, which had forced an earlier conversion to use `!text-acc-on` to win the cascade. Removed, so the override can go.
+- **Write-off was grey and stock-out was red** in the storage flows, making the one destructive, audited operation the quietest thing on screen. Write-off is now `crit`, stock-out `warn`.
+
+**Colour decisions that were meaning decisions, not find-replace:** the escape page's varsling banner is the single `crit` thing on its screen and was made _louder_ (full-weight border, headline up a step) rather than following the substitution table down; lice (violet) and welfare (emerald) lost gradients that were page identity rather than meaning — and welfare's green was actively the wrong signal on a screen scoring 0-Healthy to 3-Severe.
+
+**Sub-12px text reached ZERO**, from 86 at the start of this work. The gate is promoted from a shrink-only ratchet to an outright ban — Tier 3 becomes Tier 1. There is no longer any text below 12px in the app and no longer a way to add some.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-592 — `useWarehouseSummary` swallows a failed fetch, so an outage renders as a clean, empty warehouse — OPEN
+
+**Discovered:** 2026-08-06, during the v4 conversion of the storage pages.
+
+`web/apps/aquamobil/src/hooks/useWarehouseSummary.ts` returns `{ summary: data ?? DEFAULT_SUMMARY, isLoading }` — there is no `isError`. When the query fails and IndexedDB holds no cache, `StorageHubPage` renders "0 Items / 0 Low Stock / 0 Today" and "No recent movements" as though authoritative. A warehouse worker cannot tell an outage from an idle warehouse, and the zeros read as a clean bill of health.
+
+This is the same shape as ORPHAN-HIGH-584 (failed fetch presented as an all-clear), one layer lower: there the screens discarded `isError`, here the hook never exposes it, so the screen _cannot_ distinguish the two no matter how it is written. The conversion left a comment at the empty state saying exactly why it cannot use `tone="error"` yet.
+
+**Fix:** expose `isError` from the hook, then split the states on the hub.
+
+**Owner:** claude (this session). **Status:** OPEN.
+
+## ORPHAN-LOW-593 — `KpiStrip` is built for a header that no longer exists — OPEN
+
+**Discovered:** 2026-08-06, same conversion pass.
+
+`web/apps/aquamobil/src/components/hub/KpiStrip.tsx` is styled `bg-white/10 backdrop-blur-sm` with `text-white` and `text-white/85` — a glass treatment that only reads over the ocean-gradient header v4 removes. `StorageHubPage` stopped using it during this conversion (its KPIs are now `StatTile`s), but `DailyOpsHubPage`, `StaffHubPage` and `StockEventsHubPage` still do, and on a flat surface it renders white-on-white in the day theme.
+
+**Fix:** convert it to the tokens, or retire it in favour of `StatTile` and update its three remaining consumers.
+
+**Owner:** claude (this session). **Status:** OPEN.

@@ -27,18 +27,24 @@ import { PhotoCaptureField } from '@/components/PhotoCaptureField';
 import { useTanks } from '@/hooks/useTanks';
 import type { LiceCountInput } from '@/types';
 
+/**
+ * v4: the violet gradient is gone. It was page identity, not meaning — and a
+ * gradient header costs contrast in the sunlight this screen is filled in. The
+ * accent carries the action and the active state, which is the whole of what
+ * the violet was doing; the screen is identified by its title and its Bug icon.
+ */
 const LICE_THEME: RecordEntityTheme = {
-  headerGradient: 'bg-gradient-to-r from-violet-600 to-violet-500',
-  accentText: 'text-violet-600',
-  summaryHeaderBg: 'bg-violet-50 dark:bg-violet-900/20 border-violet-100 dark:border-violet-800/50',
-  summaryHeaderText: 'text-violet-700 dark:text-violet-300',
-  iconBubbleBg: 'bg-violet-50 dark:bg-violet-900/20',
-  surfaceSoftBg: 'bg-violet-50 dark:bg-violet-900/20',
-  surfaceBorder: 'border-violet-100 dark:border-violet-800',
-  ctaGradient: 'bg-gradient-to-r from-violet-600 to-violet-500',
-  ctaShadow: 'shadow-violet-500/25',
-  selectionBorder: 'border-violet-500',
-  selectionGlow: 'shadow-glow-purple',
+  headerGradient: 'bg-surface-1 text-ink-1 border-b border-line',
+  accentText: 'text-acc',
+  summaryHeaderBg: 'bg-acc-dim border-line',
+  summaryHeaderText: 'text-acc',
+  iconBubbleBg: 'bg-acc-dim',
+  surfaceSoftBg: 'bg-acc-dim',
+  surfaceBorder: 'border-line',
+  ctaGradient: 'bg-acc text-acc-on',
+  ctaShadow: 'shadow-acc',
+  selectionBorder: 'border-acc',
+  selectionGlow: 'shadow-acc',
 };
 
 interface LiceFormErrors extends BaseFormErrors {
@@ -143,7 +149,7 @@ export function LiceCountPage(): JSX.Element {
           <SummaryRow
             label="Adult female (voksne hunnlus)"
             value={adultFemaleLice ?? '--'}
-            valueClass="text-xl font-bold text-violet-600"
+            valueClass="text-head font-bold text-acc"
           />
           <SummaryRow label="Mobile (bevegelige)" value={mobileLice ?? '--'} />
           <SummaryRow label="Attached (fastsittende)" value={attachedLice ?? '--'} />
@@ -188,7 +194,7 @@ export function LiceCountPage(): JSX.Element {
           }}
           placeholder="0.00"
         />
-        {errors.stages && <p className="text-red-500 text-sm px-4 mt-1">{errors.stages}</p>}
+        {errors.stages && <p className="text-crit text-body px-4 mt-1">{errors.stages}</p>}
       </div>
       <QuantityStepper
         label="Fish Sampled"

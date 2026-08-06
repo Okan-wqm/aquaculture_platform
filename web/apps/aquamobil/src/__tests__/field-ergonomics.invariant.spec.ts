@@ -44,21 +44,7 @@ function countOccurrences(pattern: RegExp): number {
   return count;
 }
 
-/**
- * RATCHET BASELINE for 10–11px text (86 at introduction, 2026-07-12 — badge
- * counters, KPI sublabels, tab captions). Shrink freely; never grow. If you
- * legitimately reduced occurrences, lower this number in the same commit.
- * Adding a new sub-12px label is a failing build by design.
- *
- * COUNTS BOTH FORMS: the arbitrary `text-[10px]`/`text-[11px]` AND the v4 named
- * steps `text-micro` (10px) / `text-caption` (11px) from tailwind.config.js.
- * WHY: naming a size does not make it readable at arm's length in sunlight, so
- * the token layer must not become a way to reintroduce tiny text under a
- * friendlier class name. The gate measures rendered size, not spelling.
- */
-const TINY_TEXT_BASELINE = 15;
-
-/** Both spellings of the sub-12px sizes — see TINY_TEXT_BASELINE. */
+/** Both spellings of the sub-12px sizes the ban below covers. */
 const TINY_TEXT_PATTERN = /text-\[1[01]px\]|\btext-(?:micro|caption)\b/g;
 
 describe('field-ergonomics invariant (MOB-MEDIUM-009)', () => {
@@ -86,14 +72,23 @@ describe('field-ergonomics invariant (MOB-MEDIUM-009)', () => {
     expect(countOccurrences(/text-white\/(?:[1-6][0-9]|7[0-4])\b/g)).toBe(0);
   });
 
-  it('ratchets 10–11px text in both spellings — shrink only, never grow', () => {
+  it('BANS 10–11px text outright, in both spellings', () => {
+    // HISTORY: this began as a shrink-only ratchet frozen at 86 (badge counters,
+    // KPI sublabels, tab captions) while the v4 conversion ran. The count reached
+    // ZERO, so the gate is promoted from "never grow" to "never" — Tier 3 becomes
+    // Tier 1. There is no sub-12px text left in the app and no way to add any.
+    //
+    // It counts BOTH spellings: the arbitrary text-[10px]/text-[11px] AND the
+    // named text-micro/text-caption steps in tailwind.config.js. Naming a size
+    // does not make it readable at arm's length in sunlight, so the gate measures
+    // rendered size, not spelling.
     const current = countOccurrences(TINY_TEXT_PATTERN);
     expect(
       current,
-      `sub-12px text grew from the frozen baseline (${TINY_TEXT_BASELINE}). This counts ` +
-        'text-[10px]/text-[11px] AND the named text-micro/text-caption steps — renaming a ' +
-        'size does not make it readable outdoors. Use text-meta (12px) or larger.',
-    ).toBeLessThanOrEqual(TINY_TEXT_BASELINE);
+      'sub-12px text is banned. This counts text-[10px]/text-[11px] AND the named ' +
+        'text-micro/text-caption steps — renaming a size does not make it readable at ' +
+        "arm's length in sunlight. Use text-meta (12px) or larger.",
+    ).toBe(0);
   });
 
   it('ships the IconButton touch-floor primitive with the 44px floor baked in', () => {

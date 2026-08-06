@@ -18,6 +18,8 @@ import { ClipboardList, ChevronRight } from 'lucide-react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { AppHeader } from '@/components/AppHeader';
+import { Card, CardDivider, EmptyState } from '@/components/ui';
 import { useDailyOpsStats } from '@/hooks/useDailyOpsStats';
 import { useMobilePermissions } from '@/hooks/useMobilePermissions';
 import { useStaffSummary } from '@/hooks/useStaffSummary';
@@ -57,11 +59,11 @@ interface MetricCellProps {
 function MetricCell({ label, value, isLoading }: MetricCellProps): JSX.Element {
   return (
     <div>
-      <p className="text-xs text-gray-400 dark:text-gray-500">{label}</p>
+      <p className="text-meta text-ink-3">{label}</p>
       {isLoading ? (
         <MetricSkeleton />
       ) : (
-        <p className="font-bold text-gray-900 dark:text-white tabular-nums">{value}</p>
+        <p className="text-title font-mono font-semibold text-ink-1 tabular-nums">{value}</p>
       )}
     </div>
   );
@@ -70,41 +72,43 @@ function MetricCell({ label, value, isLoading }: MetricCellProps): JSX.Element {
 interface SummaryCardProps {
   title: string;
   ariaLabel: string;
-  gradient: string;
   onClick: () => void;
   children: React.ReactNode;
 }
 
 /**
- * Reusable summary card shell: gradient header pill + white body + chevron.
+ * Reusable summary card shell: title row, divider, metrics body, chevron.
  * WHY button (not div): keyboard accessibility — tab-focusable + enter activates.
+ *
+ * v4: the coloured header pill is gone. Four cards on one screen meant four
+ * competing gradients, and none of them said anything the title did not — the
+ * card's job is to preview its hub's numbers, and the numbers are what should
+ * carry the ink.
  */
-function SummaryCard({ title, ariaLabel, gradient, onClick, children }: SummaryCardProps): JSX.Element {
+function SummaryCard({ title, ariaLabel, onClick, children }: SummaryCardProps): JSX.Element {
   return (
     <button
+      type="button"
       onClick={onClick}
       aria-label={ariaLabel}
       className={clsx(
-        'w-full text-left rounded-2xl overflow-hidden',
-        'touch-feedback shadow-card motion-safe:active:scale-[0.98]',
-        'motion-safe:transition-transform',
+        'w-full text-left min-h-touch touch-feedback',
+        'motion-safe:active:scale-[0.98] motion-safe:transition-transform',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc rounded-2xl',
       )}
     >
-      <div className={clsx('bg-gradient-to-r px-4 py-2.5', gradient)}>
-        <h2 className="text-sm font-bold text-white uppercase tracking-wider">{title}</h2>
-      </div>
-      <div
-        className={clsx(
-          'bg-white dark:bg-gray-900 p-4',
-          'border border-t-0 border-gray-100 dark:border-gray-800',
-          'rounded-b-2xl',
-        )}
-      >
-        {children}
-        <div className="flex items-center justify-end mt-2 text-gray-300 dark:text-gray-600">
-          <ChevronRight size={16} />
+      <Card className="overflow-hidden">
+        <div className="px-4 py-2.5">
+          <h2 className="text-body font-semibold text-ink-2">{title}</h2>
         </div>
-      </div>
+        <CardDivider />
+        <div className="p-4">
+          {children}
+          <div className="flex items-center justify-end mt-2 text-ink-3">
+            <ChevronRight size={16} />
+          </div>
+        </div>
+      </Card>
     </button>
   );
 }
@@ -159,33 +163,16 @@ export function OperationsHubPage(): JSX.Element {
     : '\u2014';
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      {/* Page header -- gradient banner matching the existing app design system */}
-      <div className="bg-gradient-to-br from-ocean-700 via-ocean-600 to-ocean-500 text-white">
-        <div className="px-5 pt-safe-top">
-          <div className="flex items-center gap-3 py-4">
-            <div className="w-10 h-10 bg-white/15 backdrop-blur-sm rounded-xl flex items-center justify-center">
-              <ClipboardList size={22} className="text-white" />
-            </div>
-            <h1 className="text-lg font-bold tracking-tight">Operations</h1>
-          </div>
-        </div>
-        {/* Curved bottom edge -- consistent with HomePage */}
-        <div className="relative">
-          <svg viewBox="0 0 400 20" fill="none" className="w-full block" preserveAspectRatio="none">
-            <path d="M0 20V0c100 15 200 15 400 0v20z" className="fill-gray-50 dark:fill-gray-950" />
-          </svg>
-        </div>
-      </div>
+    <div>
+      <AppHeader title="Operations" showAvatar={false} />
 
       {/* Hub summary cards -- vertical stack */}
-      <main className="px-5 pt-4 space-y-4">
+      <main className="px-4 space-y-4">
         {/* Daily Operations Card */}
         {hasDailyOps && (
           <SummaryCard
             title="Daily Operations"
             ariaLabel="Daily Operations -- tap to view details"
-            gradient="from-orange-500 to-amber-500"
             onClick={() => navigate('/operations/daily')}
           >
             <div className="grid grid-cols-3 gap-3 text-center">
@@ -201,7 +188,6 @@ export function OperationsHubPage(): JSX.Element {
           <SummaryCard
             title="Stock Events"
             ariaLabel="Stock Events -- tap to view details"
-            gradient="from-purple-500 to-violet-500"
             onClick={() => navigate('/operations/stock')}
           >
             <div className="grid grid-cols-3 gap-3 text-center">
@@ -217,7 +203,6 @@ export function OperationsHubPage(): JSX.Element {
           <SummaryCard
             title="Warehouse"
             ariaLabel="Warehouse -- tap to view details"
-            gradient="from-teal-500 to-teal-600"
             onClick={() => navigate('/operations/warehouse')}
           >
             <div className="grid grid-cols-3 gap-3 text-center">
@@ -233,7 +218,6 @@ export function OperationsHubPage(): JSX.Element {
           <SummaryCard
             title="Staff"
             ariaLabel="Staff -- tap to view details"
-            gradient="from-indigo-500 to-indigo-600"
             onClick={() => navigate('/operations/staff')}
           >
             <div className="grid grid-cols-3 gap-3 text-center">
@@ -246,11 +230,11 @@ export function OperationsHubPage(): JSX.Element {
 
         {/* Empty state -- shown when user has no permissions for any hub */}
         {noCardsVisible && (
-          <div className="text-center py-12 text-gray-400">
-            <ClipboardList size={48} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">No operations available</p>
-            <p className="text-sm mt-1">Contact your administrator for access</p>
-          </div>
+          <EmptyState
+            icon={<ClipboardList size={22} />}
+            title="No operations available"
+            description="Contact your administrator for access"
+          />
         )}
       </main>
 

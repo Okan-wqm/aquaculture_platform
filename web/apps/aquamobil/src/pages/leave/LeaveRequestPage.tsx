@@ -1,10 +1,12 @@
 import { clsx } from 'clsx';
-import { List, ListInput, BlockTitle } from 'konsta/react';
-import { ArrowLeft, CalendarOff, AlertCircle } from 'lucide-react';
+import { List, ListInput } from 'konsta/react';
+import { CalendarOff, AlertCircle } from 'lucide-react';
 import { useState, useEffect, useCallback, ChangeEvent, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { AppHeader } from '@/components/AppHeader';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { Button, Card } from '@/components/ui';
 import { useLeaveTypes, useMyLeaveBalances } from '@/hooks/useLeave';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { LeaveType, CreateLeaveRequestInput } from '@/types';
@@ -115,82 +117,84 @@ export function LeaveRequestPage(): JSX.Element {
   };
 
   // C7: Two-phase success UX -- show honest sync status via QueuedStatusBadge
-  // instead of premature "Request Submitted!" green checkmark.
+  // instead of premature "Request Submitted!" green checkmark. The watch tone
+  // (amber before v4, `warn` now) says queued-not-confirmed.
   if (showSuccess) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
+      <div className="flex flex-col items-center justify-center min-h-screen bg-warn-dim">
         <QueuedStatusBadge operationId={queuedOperationId} />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 pb-24">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-violet-600 to-violet-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <CalendarOff size={22} />
-            <h1 className="text-lg font-bold">New Leave Request</h1>
-          </div>
-        </div>
-      </div>
+    <div className="pb-32">
+      <AppHeader title="New Leave Request" onBack={() => navigate(-1)} showAvatar={false} />
 
       {/* Error Banner */}
       {errors.general && (
-        <div className="mx-4 mt-3 bg-red-50 dark:bg-red-900/20 rounded-xl p-3 flex items-center gap-2 border border-red-200 dark:border-red-800">
-          <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
-          <span className="text-red-600 dark:text-red-300 text-sm">{errors.general}</span>
+        <div className="mx-4 mb-3">
+          <Card className="bg-crit-dim border-crit p-3 flex items-center gap-2">
+            <AlertCircle size={18} className="text-crit flex-shrink-0" />
+            <span className="text-crit text-body">{errors.general}</span>
+          </Card>
         </div>
       )}
 
       {/* Leave Type Selector */}
-      <div className="px-4 mt-5">
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Leave Type</h3>
+      <div className="px-4">
+        <h3 className="text-body font-semibold text-ink-3 mb-2 px-1">Leave Type</h3>
         <div className="grid grid-cols-2 gap-2">
           {leaveTypes.map((type: LeaveType) => (
             <button
               key={type.id}
+              type="button"
+              aria-pressed={selectedTypeId === type.id}
               onClick={() => {
                 setSelectedTypeId(type.id);
                 setErrors((prev) => ({ ...prev, leaveType: undefined }));
               }}
               className={clsx(
-                'flex flex-col p-3 rounded-2xl border-2 transition-all touch-feedback bg-white dark:bg-gray-900',
+                'flex flex-col p-3 rounded-2xl border min-h-touch touch-feedback',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc',
                 selectedTypeId === type.id
-                  ? 'border-violet-500 bg-violet-50 dark:bg-violet-900/20'
-                  : 'border-gray-100 dark:border-gray-800',
+                  ? 'border-acc bg-acc-dim'
+                  : 'border-line bg-surface-1',
               )}
             >
               <div className="flex items-center gap-2">
+                {/* The dot is the TENANT's own colour for this leave type, set in
+                    admin — it is data, not a design token, so it stays inline. */}
                 <div
-                  className="w-3 h-3 rounded-full"
+                  className="w-3 h-3 rounded-full shrink-0"
                   style={{ backgroundColor: type.color || '#6366f1' }}
                 />
-                <span className="text-sm font-semibold text-gray-900 dark:text-white">{type.name}</span>
+                <span className="text-body font-semibold text-ink-1">{type.name}</span>
               </div>
-              {type.isPaid && <span className="text-[10px] text-green-600 font-medium mt-1">Paid</span>}
+              {type.isPaid && <span className="text-meta text-ok font-medium mt-1">Paid</span>}
             </button>
           ))}
         </div>
-        {errors.leaveType && <p className="text-red-500 text-sm mt-2">{errors.leaveType}</p>}
+        {errors.leaveType && <p className="text-crit text-body mt-2">{errors.leaveType}</p>}
       </div>
 
       {/* Balance Info */}
       {selectedBalance && (
-        <div className="mx-4 mt-3 bg-violet-50 dark:bg-violet-900/20 rounded-xl p-3 border border-violet-200 dark:border-violet-800">
-          <p className="text-sm text-violet-700 dark:text-violet-300">
-            Available: <span className="font-bold">{selectedBalance.remainingDays}</span> days
-            (Used: {selectedBalance.usedDays} / Total: {selectedBalance.totalEntitlement})
-          </p>
+        <div className="mx-4 mt-3">
+          <Card className="bg-acc-dim border-acc p-3">
+            <p className="text-body text-acc">
+              Available: <span className="font-bold font-mono">{selectedBalance.remainingDays}</span> days
+              (Used: {selectedBalance.usedDays} / Total: {selectedBalance.totalEntitlement})
+            </p>
+          </Card>
         </div>
       )}
 
-      {/* Dates */}
-      <BlockTitle>Dates</BlockTitle>
+      {/* Dates.
+          The inputs stay Konsta `ListInput`: they own the date picker and the
+          per-field error rendering that `errors.startDate` feeds, and rebuilding
+          that here would be a behaviour change, not a restyle. */}
+      <h3 className="text-body font-semibold text-ink-3 mt-4 mb-2 px-5">Dates</h3>
       <List strongIos insetIos>
         <ListInput
           type="date"
@@ -216,27 +220,31 @@ export function LeaveRequestPage(): JSX.Element {
 
       {/* Half Day Toggle */}
       <div className="px-4">
-        <label className="flex items-center gap-3 bg-white dark:bg-gray-900 rounded-xl p-3 border border-gray-100 dark:border-gray-800">
+        <label className="flex items-center gap-3 min-h-touch bg-surface-1 rounded-2xl p-3 border border-line">
           <input
             type="checkbox"
             checked={isHalfDay}
             onChange={(e) => setIsHalfDay(e.target.checked)}
-            className="w-5 h-5 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+            className="w-5 h-5 rounded border-line accent-acc focus:ring-acc"
           />
-          <span className="text-sm font-medium text-gray-900 dark:text-white">Half Day</span>
+          <span className="text-body font-medium text-ink-1">Half Day</span>
         </label>
       </div>
 
       {/* Total Days */}
       {totalDays > 0 && (
-        <div className="mx-4 mt-3 bg-ocean-50 dark:bg-ocean-900/20 rounded-xl p-3 text-center">
-          <span className="text-2xl font-bold text-ocean-600">{totalDays}</span>
-          <span className="text-sm text-ocean-600 ml-1">day{totalDays !== 1 ? 's' : ''}</span>
+        <div className="mx-4 mt-3">
+          <Card className="bg-acc-dim border-acc p-3 text-center">
+            <span className="text-display font-mono font-bold text-acc tabular-nums">
+              {totalDays}
+            </span>
+            <span className="text-body text-acc ml-1">day{totalDays !== 1 ? 's' : ''}</span>
+          </Card>
         </div>
       )}
 
       {/* Reason */}
-      <BlockTitle>Reason (Optional)</BlockTitle>
+      <h3 className="text-body font-semibold text-ink-3 mt-4 mb-2 px-5">Reason (Optional)</h3>
       <List strongIos insetIos>
         <ListInput
           type="textarea"
@@ -248,15 +256,19 @@ export function LeaveRequestPage(): JSX.Element {
       </List>
 
       {/* Submit Button */}
-      <div className="px-4 pb-28">
-        <button
-          onClick={() => { void handleSubmit(); }}
+      <div className="px-4">
+        <Button
+          variant="primary"
+          size="save"
+          block
+          onClick={() => {
+            void handleSubmit();
+          }}
           disabled={!selectedTypeId || !startDate || !endDate || isSubmitting}
-          className="w-full py-4 bg-gradient-to-r from-violet-600 to-violet-500 text-white font-bold rounded-2xl shadow-lg shadow-violet-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
         >
           {isSubmitting ? (
             <>
-              <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+              <span className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent" />
               Submitting...
             </>
           ) : (
@@ -265,9 +277,9 @@ export function LeaveRequestPage(): JSX.Element {
               Submit Leave Request
             </>
           )}
-        </button>
+        </Button>
         {!isOnline && (
-          <p className="text-center text-amber-500 text-sm mt-3 font-medium">
+          <p className="text-center text-warn text-body mt-3 font-medium">
             Offline - will sync when connected
           </p>
         )}

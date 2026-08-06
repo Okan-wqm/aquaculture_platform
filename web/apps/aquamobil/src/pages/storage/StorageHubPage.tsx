@@ -18,15 +18,24 @@ import type { LucideIcon } from 'lucide-react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { AppHeader } from '@/components/AppHeader';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { KpiStrip } from '@/components/hub';
-import type { KpiItem } from '@/components/hub';
+import { EmptyState, ListRow, Skeleton, StatTile } from '@/components/ui';
 import { useMobilePermissions } from '@/hooks/useMobilePermissions';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useWarehouseSummary } from '@/hooks/useWarehouseSummary';
 import type { LowStockItem, RecentStockMovement, StockMovementType, WarehouseFeedCoverage } from '@/types';
 
-// WHY: Five core warehouse operations cover 95%+ of daily warehouse floor activity.
+/**
+ * WHY: Five core warehouse operations cover 95%+ of daily warehouse floor activity.
+ *
+ * v4: the five per-tile gradients become one semantic tone each, carried by the
+ * icon on a shared surface. The tones are not decoration — receiving stock
+ * confirms (ok), dispensing it is a watch (warn), a write-off is the one action
+ * with a loss behind it (crit), a transfer wears the token layer's own move hue,
+ * and reading the inventory is the plain accent action. The previous grey
+ * write-off tile made the destructive operation the quietest thing on screen.
+ */
 const storageActions = [
   {
     id: 'stock-in',
@@ -34,7 +43,7 @@ const storageActions = [
     icon: ArrowDownToLine,
     label: 'Stock In',
     description: 'Receive deliveries',
-    gradient: 'from-green-500 to-green-600',
+    iconColor: 'text-ok',
   },
   {
     id: 'stock-out',
@@ -42,7 +51,7 @@ const storageActions = [
     icon: ArrowUpFromLine,
     label: 'Stock Out',
     description: 'Dispense items',
-    gradient: 'from-red-500 to-red-600',
+    iconColor: 'text-warn',
   },
   {
     id: 'transfer',
@@ -50,7 +59,7 @@ const storageActions = [
     icon: ArrowLeftRight,
     label: 'Transfer',
     description: 'Move between locations',
-    gradient: 'from-blue-500 to-blue-600',
+    iconColor: 'text-type-transfer',
   },
   {
     id: 'write-off',
@@ -58,7 +67,7 @@ const storageActions = [
     icon: Trash2,
     label: 'Write Off',
     description: 'Record waste/loss',
-    gradient: 'from-gray-500 to-gray-600',
+    iconColor: 'text-crit',
   },
   {
     id: 'view-stock',
@@ -66,7 +75,7 @@ const storageActions = [
     icon: Package,
     label: 'View Stock',
     description: 'Check inventory',
-    gradient: 'from-cyan-500 to-cyan-600',
+    iconColor: 'text-acc',
   },
 ];
 
@@ -79,20 +88,20 @@ const MOVEMENT_TYPE_CONFIG: Record<StockMovementType, {
 }> = {
   IN: {
     icon: ArrowDownToLine,
-    iconColor: 'text-green-500',
-    iconBg: 'bg-green-50 dark:bg-green-900/20',
+    iconColor: 'text-ok',
+    iconBg: 'bg-surface-2',
     label: 'IN',
   },
   OUT: {
     icon: ArrowUpFromLine,
-    iconColor: 'text-red-500',
-    iconBg: 'bg-red-50 dark:bg-red-900/20',
+    iconColor: 'text-warn',
+    iconBg: 'bg-warn-dim',
     label: 'OUT',
   },
   WASTE: {
     icon: Trash2,
-    iconColor: 'text-gray-500',
-    iconBg: 'bg-gray-100 dark:bg-gray-800',
+    iconColor: 'text-crit',
+    iconBg: 'bg-crit-dim',
     label: 'WASTE',
   },
 };
@@ -128,24 +137,27 @@ function LowStockRow({ item }: { item: LowStockItem }): JSX.Element {
     : 0;
 
   return (
-    <li className="bg-white dark:bg-gray-900 rounded-xl shadow-card border border-gray-100 dark:border-gray-800 p-3">
+    // Not a <ListRow>: this row carries a progressbar with its own aria values,
+    // and it is an <li> inside a labelled list. ListRow renders a <div> and has
+    // no meter slot, so adopting it would cost both.
+    <li className="bg-surface-1 rounded-xl shadow-token border border-line p-3">
       <div className="flex items-center justify-between mb-1.5">
-        <span className="text-sm font-semibold text-gray-900 dark:text-white truncate">
+        <span className="text-body font-semibold text-ink-1 truncate">
           {item.name}
         </span>
-        <span className="text-xs text-red-600 dark:text-red-400 font-bold tabular-nums flex-shrink-0">
+        <span className="text-meta text-crit font-bold tabular-nums flex-shrink-0">
           {item.currentQty}/{item.minQty} {item.unit}
         </span>
       </div>
       <div
-        className="h-1.5 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden"
+        className="h-1.5 bg-surface-3 rounded-full overflow-hidden"
         role="progressbar"
         aria-valuenow={item.currentQty}
         aria-valuemax={item.minQty}
         aria-label={`${item.name}: ${item.currentQty} of ${item.minQty} ${item.unit} minimum`}
       >
         <div
-          className="h-full bg-red-500 rounded-full motion-safe:transition-all motion-safe:duration-500"
+          className="h-full bg-crit rounded-full motion-safe:transition-all motion-safe:duration-500"
           style={{ width: `${fillPercent}%` }}
         />
       </div>
@@ -159,7 +171,9 @@ function MovementRow({ movement }: { movement: RecentStockMovement }): JSX.Eleme
   const Icon = config.icon;
 
   return (
-    <li className="bg-white dark:bg-gray-900 rounded-xl shadow-card border border-gray-100 dark:border-gray-800 p-3 flex items-center gap-3">
+    // Not a <ListRow> either, for the <li> reason above and because the
+    // timestamp is a <time datetime> element, not a plain trailing string.
+    <li className="bg-surface-1 rounded-xl shadow-token border border-line p-3 flex items-center gap-3">
       <div
         className={clsx(
           'w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0',
@@ -169,16 +183,16 @@ function MovementRow({ movement }: { movement: RecentStockMovement }): JSX.Eleme
         <Icon size={18} className={config.iconColor} />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">
+        <p className="text-body font-semibold text-ink-1 truncate">
           {movement.itemName}
         </p>
-        <p className="text-xs text-gray-500 dark:text-gray-400">
+        <p className="text-meta text-ink-3">
           {movement.quantity} {movement.unit}
         </p>
       </div>
       <time
         dateTime={movement.createdAt}
-        className="text-xs text-gray-400 dark:text-gray-500 tabular-nums flex-shrink-0"
+        className="text-meta text-ink-3 tabular-nums flex-shrink-0"
       >
         {formatRelativeTime(movement.createdAt)}
       </time>
@@ -186,13 +200,12 @@ function MovementRow({ movement }: { movement: RecentStockMovement }): JSX.Eleme
   );
 }
 
-/** Skeleton loader for sections. */
+/** Skeleton loader for sections — the shared primitive, kept inside the
+ *  aria-busy wrapper so assistive tech still hears that a region is loading. */
 function SectionSkeleton({ count = 3 }: { count?: number }): JSX.Element {
   return (
-    <div className="space-y-2" aria-busy="true" aria-label="Loading">
-      {Array.from({ length: count }, (_, i) => (
-        <div key={i} className="h-14 rounded-xl skeleton" />
-      ))}
+    <div aria-busy="true" aria-label="Loading">
+      <Skeleton variant="row" count={count} />
     </div>
   );
 }
@@ -217,58 +230,52 @@ export function StorageHubPage(): JSX.Element {
   );
   const recentMovements = (summary?.recentMovements ?? []).slice(0, MAX_MOVEMENTS);
 
-  const kpiItems: KpiItem[] = [
-    {
-      label: 'Items',
-      value: totalItems,
-      ariaLabel: `${totalItems} total inventory items`,
-      isLoading,
-    },
-    {
-      label: 'Low Stock',
-      value: lowStockAlertCount,
-      ariaLabel: `${lowStockAlertCount} items below minimum stock`,
-      valueColor: lowStockAlertCount > 0 ? 'text-red-300' : undefined,
-      isLoading,
-    },
-    {
-      label: 'Today',
-      value: todaysMovementCount,
-      ariaLabel: `${todaysMovementCount} stock movements today`,
-      isLoading,
-    },
-  ];
-
   return (
     <ErrorBoundary fallbackTitle="Storage Error">
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className="bg-gradient-to-br from-teal-700 via-teal-600 to-teal-500 text-white">
-          <div className="px-5 pt-safe-top">
-            <div className="flex items-center gap-3 py-4">
-              <div className="w-10 h-10 bg-white/15 backdrop-blur-sm rounded-xl flex items-center justify-center">
-                <Warehouse size={22} className="text-white" />
-              </div>
-              <div>
-                <h1 className="text-lg font-bold tracking-tight">Storage Operations</h1>
-                <p className="text-xs text-white/80">Warehouse management</p>
-              </div>
-            </div>
+      <div className="min-h-screen">
+        {/* v4: the teal gradient banner and the wave that masked its edge are
+            gone — the ground is the <body>'s and the header is the flat one
+            every other screen wears. The KPI strip lived inside that gradient
+            and was white-on-glass, so it becomes three StatTiles on real
+            surfaces; each keeps the role + spoken label it carried. */}
+        <AppHeader title="Storage Operations" subtitle="Warehouse management" />
 
-            {/* Phase 2: KPI strip inside the gradient header area */}
-            <div className="pb-5">
-              <KpiStrip items={kpiItems} />
+        <div className="px-5">
+          {isLoading ? (
+            // Shaped like the three tiles it stands in for, so the hub does not
+            // jump when the summary lands.
+            <div className="grid grid-cols-3 gap-2" aria-busy="true" aria-label="Loading">
+              <Skeleton variant="tile" />
+              <Skeleton variant="tile" />
+              <Skeleton variant="tile" />
             </div>
-          </div>
-          <div className="relative">
-            <svg viewBox="0 0 400 20" fill="none" className="w-full block" preserveAspectRatio="none">
-              <path d="M0 20V0c100 15 200 15 400 0v20z" className="fill-gray-50 dark:fill-gray-950" />
-            </svg>
-          </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-2">
+              <div role="status" aria-label={`${totalItems} total inventory items`}>
+                <StatTile label="Items" value={totalItems} />
+              </div>
+              <div role="status" aria-label={`${lowStockAlertCount} items below minimum stock`}>
+                {lowStockAlertCount > 0 ? (
+                  <StatTile
+                    label="Low Stock"
+                    value={lowStockAlertCount}
+                    state="crit"
+                    caption="Below minimum"
+                  />
+                ) : (
+                  <StatTile label="Low Stock" value={lowStockAlertCount} />
+                )}
+              </div>
+              <div role="status" aria-label={`${todaysMovementCount} stock movements today`}>
+                <StatTile label="Today" value={todaysMovementCount} />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="px-5 pt-4">
           {!isOnline && (
-            <p className="text-center text-amber-500 dark:text-amber-400 text-xs font-medium mb-4">
+            <p className="text-center text-warn text-meta font-medium mb-4">
               Data may be outdated
             </p>
           )}
@@ -280,24 +287,23 @@ export function StorageHubPage(): JSX.Element {
                 return (
                   <button
                     key={action.id}
+                    type="button"
                     onClick={() => navigate(action.path)}
-                    className={clsx(
-                      'flex flex-col items-center justify-center p-6 rounded-2xl touch-feedback shadow-card transition-all motion-safe:active:scale-[0.97]',
-                      `bg-gradient-to-br ${action.gradient}`,
-                    )}
+                    className="flex flex-col items-center justify-center p-6 min-h-touch rounded-2xl border border-line bg-surface-1 shadow-token touch-feedback transition-all motion-safe:active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc"
                   >
-                    <Icon className="text-white mb-3" size={32} />
-                    <span className="text-sm font-bold text-white">{action.label}</span>
-                    <span className="text-xs text-white/85 mt-0.5">{action.description}</span>
+                    <Icon className={clsx('mb-3', action.iconColor)} size={32} />
+                    <span className="text-title font-bold text-ink-1">{action.label}</span>
+                    <span className="text-meta text-ink-3 mt-0.5">{action.description}</span>
                   </button>
                 );
               })}
             </div>
           ) : (
-            <div className="text-center py-12 text-gray-400">
-              <Warehouse size={48} className="mx-auto mb-3 opacity-30" />
-              <p className="font-medium">You do not have access</p>
-            </div>
+            <EmptyState
+              icon={<Warehouse size={22} />}
+              title="You do not have access"
+              description="Storage operations are not part of your role on this tenant."
+            />
           )}
         </div>
 
@@ -305,38 +311,37 @@ export function StorageHubPage(): JSX.Element {
         {hasAccess && feedCoverage.length > 0 && (
           <div className="px-5 mt-5">
             <section aria-label="Feed coverage alerts">
-              <h2 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <AlertTriangle size={14} className="text-amber-500" />
+              <h2 className="text-meta font-bold text-ink-3 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <AlertTriangle size={14} className="text-warn" />
                 Feed Coverage
               </h2>
               <ul className="space-y-2">
                 {feedCoverage.map((coverage: WarehouseFeedCoverage) => (
-                  <li
-                    key={coverage.feedId}
-                    className="bg-white dark:bg-gray-900 rounded-xl p-3 border border-gray-100 dark:border-gray-800 flex items-center justify-between"
-                  >
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                        {coverage.feedCode}
-                      </p>
-                      <p className="text-xs text-gray-500">{coverage.feedName}</p>
-                    </div>
-                    <div className="text-right">
-                      <p
-                        className={
-                          coverage.coverageStatus === 'critical'
-                            ? 'text-sm font-bold text-red-600'
-                            : 'text-sm font-bold text-amber-600'
-                        }
-                      >
-                        {coverage.daysOfCover !== null
-                          ? `${coverage.daysOfCover}d left`
-                          : 'OK'}
-                      </p>
-                      {coverage.stockoutDate && (
-                        <p className="text-xs text-gray-400">{coverage.stockoutDate}</p>
-                      )}
-                    </div>
+                  <li key={coverage.feedId}>
+                    <ListRow
+                      tone={coverage.coverageStatus === 'critical' ? 'crit' : 'warn'}
+                      leading={<AlertTriangle size={18} />}
+                      title={coverage.feedCode}
+                      subtitle={coverage.feedName}
+                      trailing={
+                        <span className="flex flex-col items-end">
+                          <span
+                            className={
+                              coverage.coverageStatus === 'critical' ? 'text-crit' : 'text-warn'
+                            }
+                          >
+                            {coverage.daysOfCover !== null
+                              ? `${coverage.daysOfCover}d left`
+                              : 'OK'}
+                          </span>
+                          {coverage.stockoutDate && (
+                            <span className="text-meta font-normal text-ink-3">
+                              {coverage.stockoutDate}
+                            </span>
+                          )}
+                        </span>
+                      }
+                    />
                   </li>
                 ))}
               </ul>
@@ -348,8 +353,8 @@ export function StorageHubPage(): JSX.Element {
         {hasAccess && lowStockAlertCount > 0 && (
           <div className="px-5 mt-5">
             <section aria-label="Low stock alerts">
-              <h2 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <AlertTriangle size={14} className="text-red-500" />
+              <h2 className="text-meta font-bold text-ink-3 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <AlertTriangle size={14} className="text-crit" />
                 Low Stock Alerts
               </h2>
 
@@ -370,17 +375,23 @@ export function StorageHubPage(): JSX.Element {
         {hasAccess && (
           <div className="px-5 mt-5">
             <section aria-label="Recent stock movements">
-              <h2 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">
+              <h2 className="text-meta font-bold text-ink-3 uppercase tracking-wider mb-3">
                 Recent Movements
               </h2>
 
               {isLoading ? (
                 <SectionSkeleton />
               ) : recentMovements.length === 0 ? (
-                <div className="text-center py-8 text-gray-400 dark:text-gray-500">
-                  <Inbox size={36} className="mx-auto mb-2 opacity-30" />
-                  <p className="text-sm font-medium">No recent movements</p>
-                </div>
+                // NOTE: this cannot say "could not load" instead, because
+                // useWarehouseSummary swallows a failed fetch and returns a
+                // zeroed summary — so an outage is indistinguishable from an
+                // idle warehouse here. Reported, not patched over.
+                <EmptyState
+                  icon={<Inbox size={22} />}
+                  title="No recent movements"
+                  description="Stock in, out and transfers show up here as they are recorded."
+                  className="py-8"
+                />
               ) : (
                 <ul className="space-y-2">
                   {recentMovements.map((movement: RecentStockMovement) => (

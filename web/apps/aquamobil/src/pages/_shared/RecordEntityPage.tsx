@@ -27,6 +27,7 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { Button, Card, CardDivider, IconButton } from '@/components/ui';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTanks } from '@/hooks/useTanks';
 import type { OperationPayload, OperationType } from '@/types';
@@ -38,11 +39,18 @@ import type { OperationPayload, OperationType } from '@/types';
 /**
  * Theme tokens shared between entry header, confirm header, summary card,
  * review/submit buttons, and the stepper/reason-grid helpers. Each page
- * supplies one literal object; no "dark mode flag" handling here because
- * Tailwind dark: classes are baked into the class strings themselves.
+ * supplies one literal object.
+ *
+ * v4: every field is a plain class bag carrying BOTH the fill and the ink for
+ * the surface it names. The shell deliberately adds no ink of its own — it used
+ * to hardcode `text-white` on the header and the CTA, which meant a page that
+ * had moved to the semantic tokens had to fight it with `!text-acc-on`. The
+ * consumer's theme now owns the pairing, so fill and ink cannot disagree.
+ * Pages still on the pre-v4 gradients keep working: their class strings simply
+ * carry a gradient where a converted page carries `bg-acc text-acc-on`.
  */
 export interface RecordEntityTheme {
-  /** Gradient class applied to entry + confirm page header bar. */
+  /** Header bar classes (fill + ink) for the entry + confirm pages. */
   headerGradient: string;
   /** Icon tint for the tank/batch info card + stepper arrows + reason-grid selection. */
   accentText: string;
@@ -56,7 +64,7 @@ export interface RecordEntityTheme {
   surfaceSoftBg: string;
   /** Border color for stepper buttons + reason grid. */
   surfaceBorder: string;
-  /** Review/submit CTA button gradient + shadow. */
+  /** Review/submit CTA button classes (fill + ink) + its shadow. */
   ctaGradient: string;
   ctaShadow: string;
   /** Class applied to the selected reason/grade border + glow. */
@@ -249,7 +257,9 @@ export function RecordEntityPage<
      entry was created. */
   if (showSuccess) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
+      // No page tint: the ground is the <body>'s, so the notice below is the
+      // only thing carrying colour and it can be read in every theme.
+      <div className="flex flex-col items-center justify-center min-h-screen">
         {wasDuplicate ? (
           <AlreadyRecordedNotice />
         ) : (
@@ -261,48 +271,51 @@ export function RecordEntityPage<
 
   if (step === 'confirm') {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className={clsx('text-white', theme.headerGradient)}>
+      <div className="min-h-screen">
+        <div className={theme.headerGradient}>
           <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-            <button
+            {/* The back arrow was a 38px icon-only <button> with no accessible
+                name. IconButton bakes in the 44px floor and forces the label. */}
+            <IconButton
+              aria-label="Back"
               onClick={() => setStep('entry')}
-              className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
+              className="-ml-2 rounded-xl hover:bg-surface-2"
             >
               <ArrowLeft size={22} />
-            </button>
+            </IconButton>
             <div className="flex items-center gap-2.5">
               <Icon size={22} />
-              <h1 className="text-lg font-bold">{confirmTitle}</h1>
+              <h1 className="text-head font-bold">{confirmTitle}</h1>
             </div>
           </div>
         </div>
 
         <div className="px-4 mt-5">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
+          <Card className="overflow-hidden">
             <div className={clsx('p-4 border-b', theme.summaryHeaderBg)}>
-              <h3 className={clsx('text-sm font-bold uppercase tracking-wider', theme.summaryHeaderText)}>
+              <h3 className={clsx('text-body font-bold uppercase tracking-wider', theme.summaryHeaderText)}>
                 {summaryHeading}
               </h3>
             </div>
             <div className="p-4 space-y-4">{confirmSummary}</div>
-          </div>
+          </Card>
         </div>
 
         {errors.general && <ErrorBanner message={errors.general} />}
 
         <div className="px-4 mt-6 space-y-3 pb-28">
-          <button
+          {/* Fill AND ink come from the theme — see RecordEntityTheme. The
+              button primitive supplies the density-aware height and the floor. */}
+          <Button
+            size="save"
+            block
             onClick={() => { void handleSubmit(); }}
             disabled={isSubmitting}
-            className={clsx(
-              'w-full py-4 text-white font-bold rounded-2xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2',
-              theme.ctaGradient,
-              theme.ctaShadow,
-            )}
+            className={clsx('font-bold', theme.ctaGradient, theme.ctaShadow)}
           >
             {isSubmitting ? (
               <>
-                <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                <span className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent" />
                 {submittingLabel}
               </>
             ) : (
@@ -311,14 +324,16 @@ export function RecordEntityPage<
                 {submitLabel}
               </>
             )}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            block
             onClick={() => setStep('entry')}
             disabled={isSubmitting}
-            className="w-full py-3 text-gray-500 font-semibold rounded-2xl border border-gray-200 dark:border-gray-700 touch-feedback transition-all"
+            className="border border-line"
           >
             Go Back & Edit
-          </button>
+          </Button>
           {!isOnline && <OfflineNotice />}
         </div>
       </div>
@@ -326,26 +341,31 @@ export function RecordEntityPage<
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="min-h-screen">
       {/* Header */}
-      <div className={clsx('text-white', theme.headerGradient)}>
+      <div className={theme.headerGradient}>
         <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button
+          {/* Same story as the confirm header: named, and above the floor. */}
+          <IconButton
+            aria-label="Back"
             onClick={() => navigate(-1)}
-            className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
+            className="-ml-2 rounded-xl hover:bg-surface-2"
           >
             <ArrowLeft size={22} />
-          </button>
+          </IconButton>
           <div className="flex items-center gap-2.5">
             <Icon size={22} />
-            <h1 className="text-lg font-bold">{entryTitle}</h1>
+            <h1 className="text-head font-bold">{entryTitle}</h1>
           </div>
         </div>
       </div>
 
-      {/* Tank/Batch info card */}
+      {/* Tank/Batch info card. NOT a <ListRow>: the row primitive picks its icon
+          tile from a fixed tone set, and this tile's hue is the consuming page's
+          identity (theme.iconBubbleBg + theme.accentText), which no RowTone
+          reproduces. Forcing it would flatten six pages to one colour. */}
       {selectedTank && metrics && (
-        <div className="mx-4 mt-4 bg-white dark:bg-gray-900 rounded-2xl shadow-card p-4 border border-gray-100 dark:border-gray-800">
+        <Card className="mx-4 mt-4 p-4">
           <div className="flex items-center gap-3">
             <div
               className={clsx(
@@ -356,13 +376,13 @@ export function RecordEntityPage<
               <Icon className={theme.accentText} size={22} />
             </div>
             <div className="flex-1">
-              <h3 className="font-semibold text-gray-900 dark:text-white">{selectedTank.name}</h3>
-              <p className="text-sm text-gray-500">
+              <h3 className="font-semibold text-ink-1">{selectedTank.name}</h3>
+              <p className="text-body text-ink-3">
                 {metrics.batchNumber ?? '--'} &middot; {(metrics.pieces ?? 0).toLocaleString()} fish
               </p>
             </div>
           </div>
-        </div>
+        </Card>
       )}
 
       {errors.general && <ErrorBanner message={errors.general} />}
@@ -395,16 +415,16 @@ export function RecordEntityPage<
               ))}
             </ListInput>
           </List>
-          {errors.tank && <p className="text-red-500 text-sm px-4 -mt-2">{errors.tank}</p>}
+          {errors.tank && <p className="text-crit text-body px-4 -mt-2">{errors.tank}</p>}
           {tanks && tanks.length > 0 && tanks.every((t) => !t.batchMetrics) && (
-            <div className="mx-4 mt-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 border border-amber-200 dark:border-amber-800">
-              <p className="text-amber-700 dark:text-amber-300 text-sm font-medium">
+            <Card className="mx-4 mt-2 p-3 border-warn">
+              <p className="text-warn text-body font-medium">
                 All tanks currently have no active batches.
               </p>
-              <p className="text-amber-600 dark:text-amber-400 text-xs mt-1">
+              <p className="text-ink-2 text-meta mt-1">
                 Stock fish into a tank before recording {tankEmptyActionWord}.
               </p>
-            </div>
+            </Card>
           )}
         </>
       )}
@@ -414,20 +434,18 @@ export function RecordEntityPage<
 
       {/* Review CTA */}
       <div className="px-4 pt-5 pb-28">
-        <button
+        <Button
+          size="save"
+          block
           onClick={handleReview}
           disabled={!canReview}
-          className={clsx(
-            'w-full py-4 text-white font-bold rounded-2xl shadow-lg disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2',
-            theme.ctaGradient,
-            theme.ctaShadow,
-          )}
+          className={clsx('font-bold', theme.ctaGradient, theme.ctaShadow)}
         >
           <Icon size={20} />
           {reviewLabel}
-        </button>
+        </Button>
         {!isOnline && (
-          <p className="text-center text-amber-500 text-sm mt-3 font-medium">
+          <p className="text-center text-warn text-body mt-3 font-medium">
             Offline -- will sync when connected
           </p>
         )}
@@ -442,16 +460,16 @@ export function RecordEntityPage<
 
 function ErrorBanner({ message }: { message: string }): JSX.Element {
   return (
-    <div className="mx-4 mt-3 bg-red-50 dark:bg-red-900/20 rounded-xl p-3 flex items-center gap-2 border border-red-200 dark:border-red-800">
-      <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
-      <span className="text-red-600 dark:text-red-300 text-sm">{message}</span>
-    </div>
+    <Card className="mx-4 mt-3 p-3 flex items-center gap-2 border-crit">
+      <AlertCircle size={18} className="text-crit flex-shrink-0" />
+      <span className="text-crit text-body">{message}</span>
+    </Card>
   );
 }
 
 function OfflineNotice(): JSX.Element {
   return (
-    <p className="text-center text-amber-500 text-sm font-medium">
+    <p className="text-center text-warn text-body font-medium">
       Offline -- will sync when connected
     </p>
   );
@@ -466,11 +484,11 @@ function OfflineNotice(): JSX.Element {
 function AlreadyRecordedNotice(): JSX.Element {
   return (
     <div className="flex flex-col items-center gap-2">
-      <div className="w-20 h-20 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center">
-        <AlertCircle size={48} className="text-amber-600" />
+      <div className="w-20 h-20 bg-warn-dim rounded-full flex items-center justify-center">
+        <AlertCircle size={48} className="text-warn" />
       </div>
-      <h2 className="text-xl font-bold text-amber-700 dark:text-amber-300">Already recorded</h2>
-      <p className="text-sm text-amber-600 dark:text-amber-400">
+      <h2 className="text-head font-bold text-warn">Already recorded</h2>
+      <p className="text-body text-ink-2">
         This entry was already submitted moments ago -- no duplicate was created.
       </p>
     </div>
@@ -493,8 +511,8 @@ export function QuantityStepper(props: {
   const clamp = (n: number): number => Math.floor(Math.max(1, Math.min(n, max)));
   return (
     <div className="px-4 mt-5">
-      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">{label}</h3>
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-5 border border-gray-100 dark:border-gray-800">
+      <h3 className="text-meta font-bold text-ink-3 uppercase tracking-wider mb-3">{label}</h3>
+      <Card className="p-5">
         <div className="flex items-center justify-center gap-5">
           <button
             type="button"
@@ -508,7 +526,7 @@ export function QuantityStepper(props: {
           >
             <Minus size={22} className={theme.accentText} />
           </button>
-          <div className="text-5xl font-bold text-gray-900 dark:text-white min-w-[90px] text-center tabular-nums">
+          <div className="text-hero font-mono font-bold text-ink-1 min-w-[90px] text-center tabular-nums">
             {value}
           </div>
           <button
@@ -524,11 +542,11 @@ export function QuantityStepper(props: {
             <Plus size={22} className={theme.accentText} />
           </button>
         </div>
-        <p className="text-center text-xs text-gray-400 mt-3 font-medium">
+        <p className="text-center text-meta text-ink-3 mt-3 font-medium">
           Max: {max.toLocaleString()} fish in tank
         </p>
-        {error && <p className="text-red-500 text-sm text-center mt-2">{error}</p>}
-      </div>
+        {error && <p className="text-crit text-body text-center mt-2">{error}</p>}
+      </Card>
     </div>
   );
 }
@@ -546,23 +564,29 @@ export function ReasonGrid<TValue extends string>(props: {
   const { label, value, onChange, options, theme } = props;
   return (
     <div className="px-4 mt-5">
-      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">{label}</h3>
+      <h3 className="text-meta font-bold text-ink-3 uppercase tracking-wider mb-3">{label}</h3>
       <div className="grid grid-cols-4 gap-2">
         {options.map((r) => {
           const selected = value === r.value;
           return (
             <button
               key={r.value}
+              type="button"
+              aria-pressed={selected}
               onClick={() => onChange(r.value)}
               className={clsx(
-                'flex flex-col items-center p-3 rounded-2xl border-2 transition-all duration-150 ease-out touch-feedback bg-white dark:bg-gray-900',
+                'flex flex-col items-center p-3 min-h-touch rounded-2xl border-2 transition-all duration-150 ease-out touch-feedback bg-surface-1',
                 selected
                   ? clsx(theme.selectionBorder, theme.surfaceSoftBg, theme.selectionGlow, 'scale-[1.02]')
-                  : 'border-gray-100 dark:border-gray-800',
+                  : 'border-line',
               )}
             >
               <span className="text-xl mb-1">{r.emoji}</span>
-              <span className="text-[10px] font-semibold text-center leading-tight">{r.label}</span>
+              {/* Was a 10px label — unreadable at arm's length in sunlight, and
+                  one of the last entries on the sub-12px ratchet. */}
+              <span className="text-meta font-semibold text-ink-2 text-center leading-tight">
+                {r.label}
+              </span>
             </button>
           );
         })}
@@ -645,24 +669,25 @@ export function SummaryRow(props: {
   value: ReactNode;
   valueClass?: string;
 }): JSX.Element {
-  const { label, value, valueClass = 'font-semibold text-gray-900 dark:text-white' } = props;
+  const { label, value, valueClass = 'font-semibold text-ink-1' } = props;
   return (
     <div className="flex justify-between items-center">
-      <span className="text-sm text-gray-500">{label}</span>
+      <span className="text-body text-ink-2">{label}</span>
       <span className={valueClass}>{value}</span>
     </div>
   );
 }
 
+/** The divider between summary rows — the card's own hairline, nothing else. */
 export function SummaryDivider(): JSX.Element {
-  return <div className="h-px bg-gray-100 dark:bg-gray-800" />;
+  return <CardDivider />;
 }
 
 export function SummaryNotesBlock({ notes }: { notes: string }): JSX.Element {
   return (
     <div>
-      <span className="text-sm text-gray-500">Notes</span>
-      <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{notes}</p>
+      <span className="text-body text-ink-2">Notes</span>
+      <p className="text-body text-ink-1 mt-1">{notes}</p>
     </div>
   );
 }

@@ -43,35 +43,53 @@ const ESCAPE_CAUSES: ReadonlyArray<{ value: EscapeIncidentCause; label: string; 
   { value: 'OTHER', label: 'Other', emoji: '📝' },
 ];
 
+/**
+ * v4: the orange→amber gradient becomes the `warn` token — this screen is a
+ * watch state and amber is what the token layer spends on one. The alarm colour
+ * (`crit`) is deliberately NOT used for page chrome: it belongs to the varsling
+ * banner below, and it only stays loud there if nothing else on the screen
+ * shouts in the same voice. The CTA takes the accent, because in v4 teal carries
+ * every action.
+ *
+ * `selectionGlow` was `shadow-glow-amber`, a class the Tailwind config never
+ * declared — the selected cause has had no glow at all. `shadow-token` is the
+ * theme-aware elevation, so the selected tile is now actually raised.
+ */
 const ESCAPE_THEME: RecordEntityTheme = {
-  headerGradient: 'bg-gradient-to-r from-orange-600 to-amber-500',
-  accentText: 'text-orange-600',
-  summaryHeaderBg:
-    'bg-orange-50 dark:bg-orange-900/20 border-orange-100 dark:border-orange-800/50',
-  summaryHeaderText: 'text-orange-700 dark:text-orange-300',
-  iconBubbleBg: 'bg-orange-50 dark:bg-orange-900/20',
-  surfaceSoftBg: 'bg-orange-50 dark:bg-orange-900/20',
-  surfaceBorder: 'border-orange-100 dark:border-orange-800',
-  ctaGradient: 'bg-gradient-to-r from-orange-600 to-amber-500',
-  ctaShadow: 'shadow-orange-500/25',
-  selectionBorder: 'border-orange-500',
-  selectionGlow: 'shadow-glow-amber',
+  headerGradient: 'bg-surface-1 text-ink-1 border-b border-line',
+  accentText: 'text-warn',
+  summaryHeaderBg: 'bg-warn-dim border-line',
+  summaryHeaderText: 'text-warn',
+  iconBubbleBg: 'bg-warn-dim',
+  surfaceSoftBg: 'bg-warn-dim',
+  surfaceBorder: 'border-warn',
+  ctaGradient: 'bg-acc text-acc-on',
+  ctaShadow: 'shadow-acc',
+  selectionBorder: 'border-warn',
+  selectionGlow: 'shadow-token',
 };
 
 /**
  * The legally-loaded banner: recording here does NOT submit the varsling.
  * Mattilsynet must be notified immediately — the manager owns that call.
+ *
+ * v4 conversion note: the wording is untouched and the treatment is LOUDER, not
+ * quieter. It wears `crit` — the token layer's one alarm colour, which nothing
+ * else on this screen is allowed to use — at the full border weight rather than
+ * the old red-300 hairline, and the headline moves up a step (14px → text-title
+ * 15px). This is the only place on the page where the alarm colour appears, and
+ * that exclusivity is what keeps it readable as an alarm.
  */
 function VarslingImmediateBanner(): JSX.Element {
   return (
-    <div className="mx-4 mt-4 bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 border-2 border-red-300 dark:border-red-800">
+    <div className="mx-4 mt-4 bg-crit-dim rounded-2xl p-4 border-2 border-crit">
       <div className="flex items-start gap-3">
-        <ShieldAlert size={24} className="text-red-600 flex-shrink-0 mt-0.5" />
+        <ShieldAlert size={24} className="text-crit flex-shrink-0 mt-0.5" />
         <div>
-          <p className="text-red-700 dark:text-red-300 font-bold text-sm">
+          <p className="text-crit font-bold text-title">
             Escape reporting to Mattilsynet is legally IMMEDIATE
           </p>
-          <p className="text-red-600 dark:text-red-400 text-xs mt-1 flex items-center gap-1">
+          <p className="text-crit text-meta mt-1 flex items-center gap-1">
             <PhoneCall size={12} className="inline flex-shrink-0" />
             Notify your site manager NOW — do not wait for this record to sync.
             The official varsling is submitted from the Reports desk.
@@ -170,7 +188,7 @@ export function EscapeIncidentPage(): JSX.Element {
           <SummaryRow
             label="Estimated escaped"
             value={`~${estimatedCount.toLocaleString()}`}
-            valueClass="text-2xl font-bold text-orange-600"
+            valueClass="text-display font-mono font-bold text-warn tabular-nums"
           />
           <SummaryRow
             label="Cause"

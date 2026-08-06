@@ -9,8 +9,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { DataSource } from 'typeorm';
 import { WatchdogRunner, WatchdogReport } from '@aquaculture/backend-common/database';
+import { CronHeartbeatService } from '@aquaculture/backend-common/metrics';
 
 import { FarmDomainMetricsService } from '../common/metrics/farm-domain-metrics.service';
+
+/** Heartbeat series name. A code constant, not user input — see the label discipline note. */
+const WATCHDOG_JOB = 'farm-tenant-isolation-watchdog';
 
 @Injectable()
 export class WatchdogCronService {
@@ -26,13 +30,22 @@ export class WatchdogCronService {
   constructor(
     private readonly runner: WatchdogRunner,
     private readonly metrics: FarmDomainMetricsService,
-  ) {}
+    private readonly heartbeat: CronHeartbeatService,
+  ) {
+    // Declared before the first run so "this job has never executed" is a
+    // value someone can alert on rather than an absent series.
+    this.heartbeat.declare(WATCHDOG_JOB);
+  }
 
   /**
    * Run full watchdog scan every 15 minutes.
    */
   @Cron(CronExpression.EVERY_10_MINUTES)
   async runScheduledScan(): Promise<void> {
+    await this.heartbeat.track(WATCHDOG_JOB, async () => this.scan());
+  }
+
+  private async scan(): Promise<void> {
     this.logger.log('Starting scheduled watchdog scan...');
 
     try {

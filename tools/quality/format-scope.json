@@ -957,6 +957,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/manifests/dr-activation.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/manifests/main-required-status-checks.json",
       "prettier_managed": true
     },
@@ -33367,6 +33373,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-06-project-graph-blind-spot.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-06-twin-cycle-wiring.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -42829,6 +42847,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/doc-cardinality.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/dr-activation.spec.ts",
       "prettier_managed": true
     },
     {
@@ -56556,10 +56580,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9275,
+  "file_count": 9279,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9094,
-  "managed_file_list_sha256": "4280fed1ddda95a2c01a3cc472490f1891986be2ed582f998ba2ec7f3699fc12",
+  "managed_count": 9098,
+  "managed_file_list_sha256": "413ff34f3fe8a929c691f7244d417142bcdca5b0e8fc2424b54f4b0edaeca8da",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

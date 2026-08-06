@@ -8002,3 +8002,21 @@ Meanwhile the bottom navigation spent a permanent slot on **Account** — theme,
 **Deliberately not built:** the design's Feeders tab. The mobile client has no feeder query — no dose, hopper level, drive percentage or run/stop state — so the tab is absent rather than populated with mock values. Reinstating it requires a backend query first; see the phase notes for the redesign.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-576 — AquaMobil's home screen buried the shift's work under four sections of chrome, and split alarms from the tasks they compete with — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while adapting `HomePage.tsx` to the v4 design.
+
+Two separable problems, both about arrangement rather than correctness:
+
+**1. The work was below the fold.** The screen opened with a brand banner (ocean gradient, three decorative blob divs, an SVG wave edge), then a four-column stats row, then up to three banner cards, then a nine-item quick-action grid, then a farm-summary card, and only then the tank list. Nothing in the first two screens of scroll told a worker arriving on shift what needed doing. The layout was ordered by what the app knows, not by what the shift needs.
+
+**2. Alarms and tasks were on different tabs.** Alarms surfaced via `/alerts` and the bell; tasks had their own dock slot at `/tasks`. Since both are "things demanding the worker's attention today", keeping them apart forced the worker to hold the cross-list priority — is the oxygen alarm on U-07 more urgent than the 10:30 net inspection? — in their own head, on a boat, with gloves on. Neither list could show the other's items, so neither was ever a complete answer.
+
+A third, smaller issue rode along: the nine quick-action tiles each carried a distinct two-stop gradient (`from-green-600`, `from-red-500`, `from-cull`, `from-harvest`, `from-cyan-500`, …). Nine saturated tiles on one screen leave the genuine alarm colours nothing to be louder than — colour had stopped carrying meaning.
+
+**Fix (this PR):** Today is ordered Alarms → Tasks → Shortcuts → Snapshot, with alarms and tasks in one column so the priority order is visible instead of remembered. The tank list moved to its own dock destination (`/units`, ORPHAN-MEDIUM-575). Shortcut tiles lost their gradients and now carry only the log type's hue on the icon, so the accent and alarm colours mean something again. The fail-closed permissions banner (SEC-MEDIUM-050), the `canReach` role floor on the harvest shortcut, the over-capacity warning and `AiInsightsCard` are all preserved.
+
+**Deliberately not built:** the design's editable home (drag-to-reorder and hide sections). There is no persistence counterpart for a per-user section order, and inventing device-local-only ordering would silently diverge across a worker's devices.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).

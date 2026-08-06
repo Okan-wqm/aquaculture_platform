@@ -7904,3 +7904,15 @@ Plan 025 §B shipped the full ceremony except its first step. `aria-goldset-cura
 
 **Fix (this PR):** the cycle mints proposals. `propose_goldsets_for_labelled_tools` walks the feedback ledger and proposes for every labelled tool, so the operator reads distance-to-ready ("2 more known false positives") instead of silence; a new `goldset_proposal` cycle phase runs it beside `judge_calibration`, which reads the same ledger. Counting labels is machine work and is now automatic; PROMOTION stays an operator act behind `goldset promote --tool-id X --curator NAME`. Append-only discipline: a proposal is written only when the picture changed against that tool's last one, because a nightly that appends an identical row every night buries the real transitions. CLI: `goldset propose|list|promote|show` (auto-covered by the workflow-CLI contract test). Proven by tests including the deliberate-break case: disabling the unchanged-skip turns the append-only test red.
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-566 — the eval harness could describe one window and never compare two, so "is round N+1 better than round N" — the intelligence program's own success test — had no answer a machine could give — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, F4.3 of the ARIA intelligence program, immediately after the first real eval baseline landed (#1080: 5 runs, pass_rate 1.0). Verified firsthand: `aggregate_eval_metrics` is the only reader of `runs.jsonl` metrics and takes a single `window_days`; nothing in kernel or tools compares two windows.
+
+The program's stated criterion is that each round must show measured improvement in at least one of three signals, and that a round which cannot show it stops the loop and becomes a finding. Two of those signals had readers; the eval one did not. "Did it improve" was answerable only by a human diffing two printouts, which is precisely the kind of judgement the plan says must be mechanical or it will quietly stop happening.
+
+**Fix (this PR):** `compare_eval_windows` reports the current window against the immediately preceding one — adjacent, non-overlapping, half-open at the seam so a run on the boundary counts once — with per-metric deltas and a verdict of improved / regressed / flat / insufficient_evidence. The refusal is the load-bearing part: below five runs in EITHER window the function declines to call a trend, because the first baseline is five runs and a delta computed from two is a coin toss wearing a trend's clothes. `agent-eval delta` exits non-zero on a regression so a workflow that only reads the exit code cannot mistake decline for success. The single-window and two-window paths now share one arithmetic body (`_metrics_for_rows`); a second copy of the consistency formula is exactly how the variance bug closed in ORPHAN-HIGH-550 would return on one path only.
+
+Proven by two deliberate breaks: removing the thin-data refusal reddens the refusal test, and making the windows overlap (`elif` → `if`) reddens four.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).

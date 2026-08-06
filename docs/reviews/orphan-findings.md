@@ -7926,3 +7926,31 @@ Proven by two deliberate breaks: removing the thin-data refusal reddens the refu
 No tenant label on any series: the scrape surface is unauthenticated, and a tenant id there would enumerate customers for anyone who asks.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-CRITICAL-569 — Docker gives up restarting and tells nobody: the tenant-schema provisioner was dead for six days, and the platform had no layer that notices — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while building the T0 supervisor; found live on the production droplet, not in code review. `aqua-tenant-schema-provisioner` had `restart: unless-stopped`, exited on a DNS failure (`getaddrinfo EAI_AGAIN`, the same class as the 2026-08-05 auth outage) at 2026-07-31T11:51Z, and was still stopped six days later. `docker inspect -f '{{.State.Running}}'` said false; nothing asked.
+
+This is the second incident from one blind spot. On 2026-08-03 six containers exited on a full disk at 02:07 and the `docker ps` text listing kept printing "Up 2 weeks" for two days — the listing reports the container record, not `State.Running`. Docker's restart policy is a retry, not a supervisor: it gives up, and its giving up is silent.
+
+**Immediate action:** the provisioner was restarted and confirmed running in `--loop` mode.
+
+**Fix (this PR):** `tools/supervisor/runtime-supervisor.ts` plus a systemd timer that runs it every two minutes on the droplet. It compares each container's `State.Running` against the restart policy Docker itself was given, revives what should be running, and reports what it could not. Deliberate limits: a container with `restart: no` is never touched (`aqua-db-migrate` exits 0 when finished and is not a casualty); restarts are capped at three per container per hour, after which it stops trying and says a human is needed, because an uncapped restarter turns a crash-loop into a resource fire while hiding the crash; and it reclaims NOTHING on disk pressure — choosing what is safe to delete is a judgement this process is deliberately too dumb to make. No network, no repo state, no LLM: it has to work when the platform is down, which is the only time it matters.
+
+Two alert rules watch the supervisor itself, since a supervisor that stopped looks exactly like a healthy host.
+
+**Three install-time defects the first deploy exposed, all fixed here:** `/usr/bin/node` on this host is Node 18 and has no type stripping (`bad option`); systemd does not expand variables in the first token of `ExecStart` (`203/EXEC`); and `PrivateTmp=yes` — the unit's own hardening — makes a `/tmp` worktree path invisible, which is why the staging copy lives at `/opt/aqua-supervisor` instead.
+
+**Open follow-up (owner: claude, deadline: at merge of this PR):** the running unit points at `/opt/aqua-supervisor` because the deployed checkout does not carry `tools/supervisor/` yet. On merge, `AQUA_REPO` moves to `/var/aqua-saas` and the staging copy is deleted — code running from a hand-placed copy drifts from its reviewed source silently, which is the exact class this supervisor exists to catch.
+
+**Owner:** claude (this session). **Status:** RESOLVED (mechanism live on the droplet; pointer follow-up above).
+
+## ORPHAN-HIGH-570 — three tenants, one tenant schema: two provisioned tenants have no schema at all and the provisioning queue is empty — NEEDS INVESTIGATION
+
+**Discovered:** 2026-08-06, while verifying what the dead provisioner had missed. Read firsthand from the production database: `auth.tenants` holds three rows (Codex Test 2026-05-24, Oceanfarm 2026-05-27, Suderra AS 2026-06-02); `information_schema.schemata` holds exactly one `tenant_*` schema (`tenant_7f6b08ab90e246d3`, the Codex test tenant); `platform.tenant_schema_jobs` is empty, so nothing is queued to fix it.
+
+Per-tenant tables live only in tenant schemas, so a tenant without one cannot hold farm, sensor, HR or messaging data. Both affected tenants predate the provisioner's 2026-07-31 death by months, so this is NOT six-day fallout — it is a longer-standing gap in whatever was supposed to create those schemas at tenant creation.
+
+**Deliberately not fixed here.** Creating two tenant schemas on production is a data-shaping act with migration-ledger and RLS consequences, and the right first question is why they were never created rather than how fast they can be. That question needs the tenant-provisioning path read end to end (auth-service tenant creation → `tenant_schema_jobs` → provisioner claim) against these three rows.
+
+**Owner:** operator to route (candidate: multi-tenant-saas-expert). **Status:** OPEN.

@@ -939,6 +939,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/manifests/aria-state-watchdog.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/manifests/backup-secrets.json",
       "prettier_managed": true
     },
@@ -33355,6 +33361,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-05-torn-ledger-tail.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -42583,6 +42595,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/aria-doc-runtime-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/aria-external-watchdog-contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -56502,10 +56520,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9266,
+  "file_count": 9269,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9085,
-  "managed_file_list_sha256": "740eabc7c351131e41e634726c938693c09f4c28049885ef63837bf46b6f3b74",
+  "managed_count": 9088,
+  "managed_file_list_sha256": "ea843b08ad300a1809a8384becfdbae213404ccf39927c42500a86046b5f4abc",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

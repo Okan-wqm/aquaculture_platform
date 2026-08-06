@@ -8263,9 +8263,13 @@ The backend `TankStatus` enum has **eight** members (`apps/farm-service/src/tank
 
 This was a regression introduced by the redesign: the page it replaced ended its lookup with `|| STATUS_CONFIG.INACTIVE`. Fallowing is routine between production cycles, and this page is now the only route to the primary "Log entry" action.
 
-**Fix (this PR):** the union gains `CLEANING` and `FALLOW` (all eight now mirror the backend), the lookup degrades with `?? STATUS_META.INACTIVE`, and both are documented as mirroring a free-form wire value. **The blind cast in `useTanks` remains** — narrowing it properly is follow-up work, tracked here rather than claimed as done.
+**Fix (this PR):** the union gains `CLEANING` and `FALLOW` (all eight now mirror the backend) and the lookup degrades with `?? STATUS_META.INACTIVE`.
 
-**Owner:** claude (this session). **Status:** RESOLVED for the crash; the unchecked cast that permitted it is open.
+**Follow-up, now also done:** the blind cast is gone. `narrowTankStatus()` checks the wire value against the eight known members; an unrecognised one falls back to `INACTIVE` **and logs a warning**, because a new backend enum member is a real event that should be visible rather than silently defaulted. The fallback is deliberately not `ACTIVE` — that would state something about the pen the app does not know. Five specs pin it, including that a missing status still resolves to `ACTIVE` so this is a narrowing rather than a behaviour change.
+
+A cast asserts; a narrow checks. The union fixed the crash, this removed the mechanism that let wire drift reach the render tree at all.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
 
 ## ORPHAN-HIGH-584 — a failed fetch rendered as an authoritative all-clear about the farm — RESOLVED (this PR)
 
@@ -8326,7 +8330,7 @@ Chat is the densest surface in the app — 6 pages plus 21 components, roughly a
 
 Four ratchets fall with it: `dark:` 1254→1049, legacy palettes 285→185, stock grays 1431→1202, sub-12px text 74→55. The last is the one that matters beyond tidiness: 19 fewer sub-12px labels is 19 places a worker can read the screen at arm's length in sunlight.
 
-**Not done:** the messaging PAGES. Chat currently renders v3 page chrome around v4 bubbles — a mid-migration state, not a defect.
+**Correction (2026-08-06):** this line said the messaging PAGES were still open. They were converted by ORPHAN-MEDIUM-591 in the very next wave, and `src/pages/messaging/` now holds zero pre-v4 classes. Corrected rather than left standing — a stale status is how a findings ledger becomes audit theatre.
 
 **Process note worth recording:** this work was produced by a parallel fan-out across six disjoint file groups. Five of the six were **lost** when another session moved this shared checkout to an unrelated detached commit mid-run; only the uncommitted messaging-component edits carried across and were recovered by patch. The branch ref and all pushed commits were never at risk. The lesson is mechanical: in a shared checkout, agent output must be committed per group as it lands, not batched at the end of the run.
 
@@ -8409,15 +8413,17 @@ This is the same shape as ORPHAN-HIGH-584 (failed fetch presented as an all-clea
 
 **Owner:** claude (this session). **Status:** RESOLVED — the hook now returns `isError` + `refetch`, and `StorageHubPage` splits the KPI row and the movement list into distinct outage states. Proven by `src/pages/storage/__tests__/StorageHubPage.outage.spec.tsx`, which renders the page under a FAILED query rather than inspecting the code — this defect class had survived five reviews precisely because reading the source shows a plausible empty state and only a mocked failure shows the lie.
 
-## ORPHAN-LOW-593 — `KpiStrip` is built for a header that no longer exists — OPEN
+## ORPHAN-LOW-593 — `KpiStrip` is built for a header that no longer exists — RESOLVED (already fixed; record was stale)
 
 **Discovered:** 2026-08-06, same conversion pass.
 
 `web/apps/aquamobil/src/components/hub/KpiStrip.tsx` is styled `bg-white/10 backdrop-blur-sm` with `text-white` and `text-white/85` — a glass treatment that only reads over the ocean-gradient header v4 removes. `StorageHubPage` stopped using it during this conversion (its KPIs are now `StatTile`s), but `DailyOpsHubPage`, `StaffHubPage` and `StockEventsHubPage` still do, and on a flat surface it renders white-on-white in the day theme.
 
-**Fix:** convert it to the tokens, or retire it in favour of `StatTile` and update its three remaining consumers.
+**Fix:** already landed in the same conversion wave that filed this — `KpiStrip` is now ordinary surface cards on the tokens, and its 10px translucent-white label moved to `text-meta text-ink-3`. The file carries a comment explaining why it is NOT `StatTile` (that primitive is a full-width hero metric). Verified: zero `dark:`, `text-white`, `bg-white/` or sub-12px usages remain in it.
 
-**Owner:** claude (this session). **Status:** OPEN.
+The finding was filed against a state that the same wave had already corrected. Recording that here rather than silently closing it: **a finding whose status is wrong is worse than no finding**, because it sends the next person to fix something that is done and erodes trust in every other entry.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
 
 ## ORPHAN-HIGH-595 — a failed fetch rendering as an authoritative claim was fixed five times in five files; the class was never closed — RESOLVED (this PR)
 

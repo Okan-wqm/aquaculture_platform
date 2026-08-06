@@ -45886,6 +45886,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/__tests__/useTanks-status-narrowing.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/__tests__/useTaskActions.spec.ts",
       "prettier_managed": true
     },
@@ -56772,10 +56778,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9311,
+  "file_count": 9312,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9130,
-  "managed_file_list_sha256": "03b2a07c7326274e3b3ea39697d36526a410ecae5eaaf98be6522a9f5174d89f",
+  "managed_count": 9131,
+  "managed_file_list_sha256": "3ca076d93eaee6843b5ec816205e690beb8dd4cdac72845758ab6d60684edba0",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

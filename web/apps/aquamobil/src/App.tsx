@@ -141,8 +141,8 @@ const WelfareScorePage = lazy(() =>
 const EscapeIncidentPage = lazy(() =>
   import('./pages/escape/EscapeIncidentPage').then((m) => ({ default: m.EscapeIncidentPage })),
 );
-const ReportsDuePage = lazy(() =>
-  import('./pages/reports/ReportsDuePage').then((m) => ({ default: m.ReportsDuePage })),
+const ReportsPage = lazy(() =>
+  import('./pages/reports/ReportsPage').then((m) => ({ default: m.ReportsPage })),
 );
 const ReportReviewPage = lazy(() =>
   import('./pages/reports/ReportReviewPage').then((m) => ({ default: m.ReportReviewPage })),
@@ -582,17 +582,15 @@ export function App(): ReactElement {
                             </FeatureRoute>
                           }
                         />
-                        {/* Report surface — ONLINE-ONLY review/approve; FeatureRoute
-                          enforces the MODULE_MANAGER role floor (feature-access SSoT)
-                          mirroring the draft resolver's @Roles matrix */}
-                        <Route
-                          path="/reports"
-                          element={
-                            <FeatureRoute feature="reports">
-                              <ReportsDuePage />
-                            </FeatureRoute>
-                          }
-                        />
+                        {/* Reports is UNGATED at the route: it leads with the farm
+                          summary, which every field role may read. The regulatory
+                          draft section inside self-gates on the same MODULE_MANAGER
+                          floor, so a MODULE_USER gets a useful screen rather than a
+                          redirect. Review/approve below stays guarded — that one IS
+                          manager-only, mirroring the draft resolver's @Roles matrix,
+                          and is ONLINE-ONLY because a regulator filing is never
+                          queued on the device. */}
+                        <Route path="/reports" element={<ReportsPage />} />
                         <Route
                           path="/reports/:draftId"
                           element={

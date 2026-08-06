@@ -8075,3 +8075,19 @@ A fifth issue was fixed in the same pass without ever shipping: the sheet's init
 **Prevention (Tier 3):** `src/__tests__/route-reachability.invariant.spec.ts` asserts that every destination without a dock slot is still pointed at from somewhere, and that the two components which are a route's sole entry point are actually rendered. Proven by deliberate break: removing the bells again turns it red, restoring them turns it green. Its blind spot is documented in the file rather than papered over — the textual path check cannot tell that a route named only inside an orphaned component is unreachable, which is exactly how defect 1 hid.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-580 — the Reports tab redirected most of the people who tapped it, and the design's charts have no data behind them — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while adapting the Reports destination to the v4 design.
+
+**The tab was a dead end for most roles.** `/reports` was guarded by `FeatureRoute feature="reports"`, which folds in a `MODULE_MANAGER` floor (`FEATURE_ROLE_FLOOR`). The v4 dock gave Reports a permanent slot, so a `MODULE_USER` saw a tab that bounced them straight back to Today. The underlying content — the Mattilsynet draft queue — genuinely is manager-only, but it was the _whole_ screen, so the role floor had to be the whole screen's floor.
+
+**The design's analytics have no source.** The v4 Reports shows average weight over 7/30/90 days and mortality per bucket, driven by a period selector. The mobile client has no time-series query at all: `farmStockInventory` is a point-in-time snapshot, `GET_STOCK_EVENTS_SUMMARY` returns a this-week count plus a recent-event list, and `BATCH_GROWTH_PREDICTION_QUERY` is a single forward estimate (`predictedSGR`, `predictedAvgWeight30d`). Every one of those is a _now_ value; none carries history.
+
+**Fix (this PR):** the screen leads with a farm summary every field role may read — biomass-weighted average weight, standing biomass, and units past the watch/consent lines — with the regulatory draft queue as a section that self-gates on the role floor and stays online-only. The route is ungated; `/reports/:draftId` keeps its guard.
+
+**Deliberately not built:** both trend charts and the period selector. Drawing a series from snapshot queries means inventing the history, and a fabricated trend on a regulated metric is worse than no trend. The screen states in one line that trends need a history query rather than showing fiction.
+
+**Needed to close the gap (backend):** a per-site or per-batch time-series endpoint returning bucketed average weight and mortality over a requested window. Until it exists, the charts stay out.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the tab dead-end; charts blocked on the query above.

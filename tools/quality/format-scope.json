@@ -46264,7 +46264,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/apps/aquamobil/src/pages/reports/__tests__/ReportsDuePage.spec.tsx",
+      "path": "web/apps/aquamobil/src/pages/reports/__tests__/ReportsPage.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -46276,7 +46276,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/apps/aquamobil/src/pages/reports/ReportsDuePage.tsx",
+      "path": "web/apps/aquamobil/src/pages/reports/ReportsPage.tsx",
       "prettier_managed": true
     },
     {
@@ -56613,7 +56613,7 @@
   "file_count": 9284,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
   "managed_count": 9103,
-  "managed_file_list_sha256": "bf7cf824c252f5eae144ed8d29621074913e608da28f21ebe9fe0604c172843b",
+  "managed_file_list_sha256": "e5fb00caf9071b514987a6d316c13eb74163043f3379250a305d533cfb660abc",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

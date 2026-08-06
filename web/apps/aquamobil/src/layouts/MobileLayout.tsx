@@ -96,7 +96,8 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
       icon: BarChart3,
       label: 'Reports',
       path: '/reports',
-      features: ['reports'],
+      // Intentionally ungated: the screen leads with the farm summary, which
+      // every field role may read. Its regulatory section self-gates.
     },
     {
       id: 'chat',

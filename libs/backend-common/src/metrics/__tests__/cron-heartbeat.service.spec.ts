@@ -43,7 +43,7 @@ describe('CronHeartbeatService', () => {
   });
 
   it('records a successful run with its completion time', async () => {
-    await heartbeat.track('outbox-relay', async () => undefined);
+    await heartbeat.track('outbox-relay', () => Promise.resolve(undefined));
 
     const dump = await heartbeat.getMetrics();
 
@@ -68,14 +68,14 @@ describe('CronHeartbeatService', () => {
   });
 
   it('returns the body result unchanged', async () => {
-    const result = await heartbeat.track('report-builder', async () => ({ rows: 42 }));
+    const result = await heartbeat.track('report-builder', () => Promise.resolve({ rows: 42 }));
 
     expect(result).toEqual({ rows: 42 });
   });
 
   it('keeps attempts and successes distinguishable for a failing job', async () => {
     await expect(
-      heartbeat.track('flaky-job', async () => Promise.reject(new Error('nope'))),
+      heartbeat.track('flaky-job', () => Promise.reject(new Error('nope'))),
     ).rejects.toThrow('nope');
 
     const dump = await heartbeat.getMetrics();

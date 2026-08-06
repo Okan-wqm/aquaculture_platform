@@ -2897,6 +2897,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/tenant/services/__tests__/tenant-provisioning-metrics.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/tenant/services/auth-tenant-provisioning-client.service.ts",
       "prettier_managed": true
     },
@@ -2922,6 +2928,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/tenant/services/tenant-detail.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/tenant/services/tenant-provisioning-metrics.service.ts",
       "prettier_managed": true
     },
     {
@@ -34765,6 +34777,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/runbooks/monitoring/tenant-provisioning.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/monitoring/watchdog.md",
       "prettier_managed": true
     },
@@ -56580,10 +56598,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9279,
+  "file_count": 9282,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9098,
-  "managed_file_list_sha256": "8dcc97c5220daf04c01d2e35081a6f1030dda3534b87d3d5bfa2864167dc6305",
+  "managed_count": 9101,
+  "managed_file_list_sha256": "40ed95d1fd52462f47d1e11018b98792d9303bd7abd20369d47acb101db13b5d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

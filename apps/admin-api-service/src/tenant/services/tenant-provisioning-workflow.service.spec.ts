@@ -8,6 +8,7 @@ import { ModuleAssignmentService } from '../../modules/tenant-management/service
 import { CreateTenantDto } from '../dto/tenant.dto';
 
 import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
+import { TenantProvisioningMetricsService } from './tenant-provisioning-metrics.service';
 import { TenantProvisioningService } from './tenant-provisioning.service';
 import { TenantProvisioningWorkflowService } from './tenant-provisioning-workflow.service';
 
@@ -73,6 +74,14 @@ describe('TenantProvisioningWorkflowService — duplicate pre-check is unlocked 
         { provide: ModuleAssignmentService, useValue: {} },
         { provide: AuthTenantProvisioningClientService, useValue: {} },
         { provide: BillingAdminCommandClientService, useValue: {} },
+        {
+          provide: TenantProvisioningMetricsService,
+          useValue: {
+            recordRunTerminal: jest.fn(),
+            recordStepOutcome: jest.fn(),
+            recordActiveRuns: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -189,6 +198,14 @@ describe('TenantProvisioningWorkflowService.reconcileTenantSubscription', () => 
         },
         { provide: AuthTenantProvisioningClientService, useValue: {} },
         { provide: BillingAdminCommandClientService, useValue: { provisionTenantSubscription } },
+        {
+          provide: TenantProvisioningMetricsService,
+          useValue: {
+            recordRunTerminal: jest.fn(),
+            recordStepOutcome: jest.fn(),
+            recordActiveRuns: jest.fn(),
+          },
+        },
       ],
     }).compile();
 

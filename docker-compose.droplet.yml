@@ -203,6 +203,25 @@ x-nats-config-key-mount: &nats-config-key-mount ./certs/nats/clients/config_serv
 x-jwt-public-key-mount: &jwt-public-key-mount ./certs/jwt/public.pem:/etc/ssl/jwt/public.pem:ro
 x-jwt-private-key-mount: &jwt-private-key-mount ./certs/jwt/private.pem:/etc/ssl/jwt/private.pem:ro
 
+# Container logs are the third unbounded disk consumer on this droplet, after
+# the two ORPHAN-HIGH-417 named. Docker's default json-file driver performs no
+# rotation whatsoever, and no daemon.json ever set one: measured 2026-08-06,
+# the running stack held 2.0 GB of *-json.log with aqua-auth alone at 658 MB
+# and still growing, on a host at 94% with 11 GB free and a capacity gate that
+# wants 37.6 GB. Nothing would ever have stopped that except the disk filling.
+#
+# One anchor bounds every service, so the ceiling is a property of the file
+# rather than of whoever remembered: 20 MB x 3 files = 60 MB per container, so
+# all 37 services together can hold at most ~2.2 GB no matter how long they
+# run. The value that matters here is not the number, it is that a number
+# exists at all; tests/invariants/container-log-rotation.spec.ts refuses a
+# service that declares none.
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: '20m'
+    max-file: '3'
+
 networks:
   aqua-network:
     driver: bridge
@@ -234,6 +253,7 @@ services:
   # ===========================================================================
 
   postgres:
+    logging: *default-logging
     # Pinned to the exact version running on this droplet's data volume.
     # NEVER change this to a lower version — PostgreSQL will refuse to start
     # if the data was created with a newer TimescaleDB version.
@@ -381,6 +401,7 @@ services:
   #     other backend service).
   # ---------------------------------------------------------------------------
   db-migrate:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/db-migrate:${TAG:?TAG required}
     container_name: aqua-db-migrate
     restart: 'no'
@@ -437,6 +458,7 @@ services:
           cpus: '1.0'
 
   tenant-schema-provisioner:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/db-migrate:${TAG:?TAG required}
     container_name: aqua-tenant-schema-provisioner
     restart: unless-stopped
@@ -468,6 +490,7 @@ services:
           cpus: '1.0'
 
   redis:
+    logging: *default-logging
     # Pinned 2026-04-05. To update: verify changelog at https://github.com/redis/redis/releases, test in staging first.
     image: redis:7-alpine
     container_name: aqua-redis
@@ -520,6 +543,7 @@ services:
       retries: 5
 
   nats:
+    logging: *default-logging
     # Pinned 2026-04-05. To update: verify changelog at https://github.com/nats-io/nats-server/releases, test in staging first.
     image: nats:2.10.24-alpine
     container_name: aqua-nats
@@ -558,6 +582,7 @@ services:
       retries: 6
 
   mosquitto:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/mosquitto:${TAG:?TAG required}
     container_name: aqua-mosquitto
     restart: unless-stopped
@@ -588,6 +613,7 @@ services:
       start_period: 10s
 
   minio:
+    logging: *default-logging
     # Pinned 2026-04-05. To update: verify changelog at https://github.com/minio/minio/releases, test in staging first.
     image: quay.io/minio/minio:RELEASE.2025-04-03T14-56-28Z
     container_name: aqua-minio
@@ -616,6 +642,7 @@ services:
   # ===========================================================================
 
   gateway-api:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/gateway-api:${TAG:?TAG required}
     container_name: aqua-gateway
     restart: unless-stopped
@@ -745,6 +772,7 @@ services:
       start_period: 60s
 
   auth-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/auth-service:${TAG:?TAG required}
     container_name: aqua-auth
     restart: unless-stopped
@@ -823,6 +851,7 @@ services:
       start_period: 60s
 
   farm-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/farm-service:${TAG:?TAG required}
     container_name: aqua-farm
     restart: unless-stopped
@@ -903,6 +932,7 @@ services:
       start_period: 120s
 
   sensor-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/sensor-service:${TAG:?TAG required}
     container_name: aqua-sensor
     restart: unless-stopped
@@ -986,6 +1016,7 @@ services:
       start_period: 90s
 
   admin-api-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/admin-api-service:${TAG:?TAG required}
     container_name: aqua-admin-api
     restart: unless-stopped
@@ -1065,6 +1096,7 @@ services:
       start_period: 60s
 
   alert-engine:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/alert-engine:${TAG:?TAG required}
     container_name: aqua-alert
     restart: unless-stopped
@@ -1120,6 +1152,7 @@ services:
       start_period: 60s
 
   billing-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/billing-service:${TAG:?TAG required}
     container_name: aqua-billing
     restart: unless-stopped
@@ -1211,6 +1244,7 @@ services:
       start_period: 60s
 
   hr-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/hr-service:${TAG:?TAG required}
     container_name: aqua-hr
     restart: unless-stopped
@@ -1266,6 +1300,7 @@ services:
       start_period: 60s
 
   hydroponics-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/hydroponics-service:${TAG:?TAG required}
     container_name: aqua-hydroponics
     restart: unless-stopped
@@ -1321,6 +1356,7 @@ services:
       start_period: 60s
 
   notification-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/notification-service:${TAG:?TAG required}
     container_name: aqua-notification
     restart: unless-stopped
@@ -1383,6 +1419,7 @@ services:
       start_period: 60s
 
   observability-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/observability-service:${TAG:?TAG required}
     container_name: aqua-observability
     restart: unless-stopped
@@ -1448,6 +1485,7 @@ services:
       start_period: 60s
 
   config-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/config-service:${TAG:?TAG required}
     container_name: aqua-config
     restart: unless-stopped
@@ -1515,6 +1553,7 @@ services:
       start_period: 60s
 
   event-store-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/event-store-service:${TAG:?TAG required}
     container_name: aqua-event-store
     restart: unless-stopped
@@ -1568,6 +1607,7 @@ services:
       start_period: 60s
 
   messaging-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/messaging-service:${TAG:?TAG required}
     container_name: aqua-messaging
     restart: unless-stopped
@@ -1655,6 +1695,7 @@ services:
   # backend shape; AI deltas: per-tenant BYOK key decryption + no MinIO.
   # ---------------------------------------------------------------------------
   ai-service:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/ai-service:${TAG:?TAG required}
     container_name: aqua-ai
     restart: unless-stopped
@@ -1719,6 +1760,7 @@ services:
   # ===========================================================================
 
   shell:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/shell:${TAG:?TAG required}
     container_name: aqua-shell
     restart: unless-stopped
@@ -1734,6 +1776,7 @@ services:
           memory: 64M
 
   dashboard:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/dashboard:${TAG:?TAG required}
     container_name: aqua-dashboard
     restart: unless-stopped
@@ -1750,6 +1793,7 @@ services:
           memory: 64M
 
   farm-module:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/farm-module:${TAG:?TAG required}
     container_name: aqua-farm-module
     restart: unless-stopped
@@ -1766,6 +1810,7 @@ services:
           memory: 64M
 
   sensor-module:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/sensor-module:${TAG:?TAG required}
     container_name: aqua-sensor-module
     restart: unless-stopped
@@ -1782,6 +1827,7 @@ services:
           memory: 64M
 
   admin-panel:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/admin-panel:${TAG:?TAG required}
     container_name: aqua-admin-panel
     restart: unless-stopped
@@ -1798,6 +1844,7 @@ services:
           memory: 64M
 
   tenant-admin:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/tenant-admin:${TAG:?TAG required}
     container_name: aqua-tenant-admin
     restart: unless-stopped
@@ -1814,6 +1861,7 @@ services:
           memory: 64M
 
   hr-module:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/hr-module:${TAG:?TAG required}
     container_name: aqua-hr-module
     restart: unless-stopped
@@ -1830,6 +1878,7 @@ services:
           memory: 64M
 
   hydroponics-module:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/hydroponics-module:${TAG:?TAG required}
     container_name: aqua-hydroponics-module
     restart: unless-stopped
@@ -1846,6 +1895,7 @@ services:
           memory: 64M
 
   messaging-module:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/messaging-module:${TAG:?TAG required}
     container_name: aqua-messaging-module
     restart: unless-stopped
@@ -1862,6 +1912,7 @@ services:
           memory: 64M
 
   aquamobil:
+    logging: *default-logging
     image: ghcr.io/okan-wqm/aquaculture_platform/aquamobil:${TAG:?TAG required}
     container_name: aqua-mobile
     restart: unless-stopped
@@ -1881,6 +1932,7 @@ services:
   # Reverse Proxy (Nginx)
   # ===========================================================================
   nginx:
+    logging: *default-logging
     # Pinned 2026-04-05. To update: verify changelog at https://nginx.org/en/CHANGES, test in staging first.
     image: nginx:1.27.5-alpine
     container_name: aqua-nginx
@@ -1926,6 +1978,7 @@ services:
   #   - observability-service /metrics is INTERNAL_API_KEY-gated; its scrape job is
   #     intentionally NOT enabled until that auth header is wired into prometheus.yml.
   prometheus:
+    logging: *default-logging
     image: prom/prometheus:v2.54.1
     container_name: aqua-prometheus
     restart: unless-stopped
@@ -1947,6 +2000,7 @@ services:
           memory: 512M
 
   cadvisor:
+    logging: *default-logging
     image: gcr.io/cadvisor/cadvisor:v0.49.1
     container_name: aqua-cadvisor
     restart: unless-stopped
@@ -1963,6 +2017,7 @@ services:
           memory: 256M
 
   node-exporter:
+    logging: *default-logging
     image: prom/node-exporter:v1.8.2
     container_name: aqua-node-exporter
     restart: unless-stopped
@@ -1984,6 +2039,7 @@ services:
           memory: 128M
 
   alertmanager:
+    logging: *default-logging
     image: prom/alertmanager:v0.27.0
     container_name: aqua-alertmanager
     restart: unless-stopped

@@ -44958,6 +44958,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/watchdog/probe-runner.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/watchdog/README.md",
       "prettier_managed": true
     },
@@ -56448,10 +56454,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9257,
+  "file_count": 9258,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9076,
-  "managed_file_list_sha256": "cab7780ed3fe831d9175301631e11cc5eb6458f95695ae434786f7debca986cc",
+  "managed_count": 9077,
+  "managed_file_list_sha256": "0cd1bb73117f2269cc18d9df99b01ee7f377d190f8b8872534960bd7fa500505",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

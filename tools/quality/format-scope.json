@@ -34729,6 +34729,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/runbooks/monitoring/runtime-supervisor.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/monitoring/service-down.md",
       "prettier_managed": true
     },
@@ -44929,6 +44935,30 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/scripts/utilities/seed-test-data.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/supervisor/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/supervisor/runtime-supervisor.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/supervisor/runtime-supervisor.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/supervisor/tsconfig.json",
       "prettier_managed": true
     },
     {
@@ -56508,10 +56538,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9267,
+  "file_count": 9272,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9086,
-  "managed_file_list_sha256": "94ce2ae2b897bcd2861b71c729c22ebb3c1341dfaf3c66e237dc1e710b7a8420",
+  "managed_count": 9091,
+  "managed_file_list_sha256": "0ef1df8274eeb190b085ea7674d9cdc0d0e290dbe12a3bd02dfb2482ca286cb5",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

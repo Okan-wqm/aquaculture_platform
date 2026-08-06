@@ -1,0 +1,14 @@
+# Every two minutes. The 2026-08-03 outage went unnoticed for two days and
+# the provisioner death for six; the cost of asking often is one docker
+# inspect, and the cost of asking rarely is measured in days.
+[Unit]
+Description=Run the aquaculture runtime supervisor every two minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=30s
+Unit=aqua-supervisor.service
+
+[Install]
+WantedBy=timers.target

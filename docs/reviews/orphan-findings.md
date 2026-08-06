@@ -7980,3 +7980,23 @@ Per-tenant tables live only in tenant schemas, so a tenant without one cannot ho
 **Deliberately not fixed here.** Creating two tenant schemas on production is a data-shaping act with migration-ledger and RLS consequences, and the right first question is why they were never created rather than how fast they can be. That question needs the tenant-provisioning path read end to end (auth-service tenant creation → `tenant_schema_jobs` → provisioner claim) against these three rows.
 
 **Owner:** operator to route (candidate: multi-tenant-saas-expert). **Status:** OPEN.
+
+## ORPHAN-HIGH-576 — tenant provisioning had no metric, no alarm and no check against physical reality: an ACTIVE tenant with no schema renders as a healthy customer — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, W-B slice while building the parity probe; confirmed firsthand against the production database, not from code.
+
+Provisioning verifies only its own bookkeeping. The saga compares `admin.tenant_schemas` against `platform.tenant_schema_jobs` and never asks `information_schema.schemata` whether the schema those two rows describe actually exists. Two ledgers agreeing with each other is not evidence about the database, so "ACTIVE, provisioned, nothing there" is a reachable and stable state — and it is the one state that looks perfect from the panel. Login works, the tenant list is green, and every per-tenant write has nowhere to land.
+
+Nothing measured this. Provisioning exported zero metrics and had zero alert rules, and the poll endpoint fetched per-step detail and discarded it before returning, so even a human watching the API could not see which of the eight steps had run. The gap was found by hand (ORPHAN-HIGH-570) after months.
+
+**Evidence, production, 2026-08-06.** `auth.tenants` holds three rows; `information_schema.schemata` holds one `tenant_*` schema. Oceanfarm is `ACTIVE` with no schema — the sinister class. Suderra AS is `PENDING` with no schema — the visible half. The Codex test tenant is consistent, with 211 tables in `tenant_7f6b08ab90e246d3`.
+
+**Fix (this PR):** the `tenant_reality_parity` probe in `tools/watchdog/probe-runner.mjs` joins `auth.tenants` against `information_schema.schemata` in one statement, deriving the schema name exactly as `getTenantSchemaName()` does (`libs/backend-common/src/database/tenant-schema.utils.ts:76` — `tenant_` plus the first 16 hex characters of the UUID, not the whole UUID). `ACTIVE` without a usable schema is CRITICAL and exits 3; a non-active status without one is a warning. A schema that exists but holds no table counts as missing: an empty shell stores no data either, and it is the shape a half-finished run leaves behind. Three alert rules in `60-dataflow-integrity.yml` read it, including one for the probe's own absence — the other two are count-based, so a dead probe would publish no counts, which reads exactly like every tenant being consistent.
+
+**The scrape surface stays identity-free.** Metrics carry counts per finding class and never a tenant id, name or healthy total. `probe_finding_count{class="active_without_usable_schema"}` tells an operator that something is broken and nothing about who; the runbook carries the SQL that names the tenant, against a database that already requires credentials. A `tenant` label would have turned the node_exporter textfile — readable by anything that can reach the port — into a customer list, and the healthy total alone would disclose the customer count.
+
+**Verified red before it could be trusted.** `node tools/watchdog/probe-runner.mjs --repo /var/aqua-saas` on production: `tenants=3 consistent=1 active-without-usable-schema=1 unprovisioned-pending=1`, `critical_count: 1`, exit 3. A parity probe that first reports green on a known-broken system has proved only that it runs.
+
+**Not in this slice.** The two missing schemas are not created here — that is a data-shaping act on production with migration-ledger and RLS consequences, and it remains ORPHAN-HIGH-570's question of why they were never created. The RLS defect that stopped the eight provisioning steps from starting is fixed on `fix/tenant-provisioning-receipt-rls` and is untouched here. The poll endpoint still discards per-step detail; this probe measures the outcome, not the progress, so that surface remains blind and is tracked as remaining work.
+
+**Owner:** claude (this session). **Status:** RESOLVED for detection; the two broken tenants remain OPEN under ORPHAN-HIGH-570.

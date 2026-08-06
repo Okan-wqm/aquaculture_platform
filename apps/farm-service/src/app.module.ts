@@ -61,8 +61,10 @@ import {
   createServiceTypeOrmConfig,
   isSchemaDdlOwnedByDbMigrate,
   TenantSchemaCacheModule,
+  WatchdogRunner,
 } from '@aquaculture/backend-common/database';
 import { createTenantSchemaMiddleware } from '@aquaculture/backend-common/middleware';
+import { DataSource } from 'typeorm';
 const TenantSchemaMiddleware = createTenantSchemaMiddleware('farm');
 const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
 /**
@@ -564,6 +566,13 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
     TenantConnectionBootstrap,
     // Auto-sync tenant schemas with source schema (creates missing tables/columns)
     TenantSchemaSyncService,
+    // The watchdog runner is a provider so the cron service can be
+    // exercised without a live database — see watchdog-cron.metrics.spec.
+    {
+      provide: WatchdogRunner,
+      useFactory: (dataSource: DataSource): WatchdogRunner => new WatchdogRunner(dataSource),
+      inject: [DataSource],
+    },
     WatchdogCronService,
   ],
 })

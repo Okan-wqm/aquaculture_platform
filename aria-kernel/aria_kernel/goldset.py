@@ -21,7 +21,16 @@ def propose_goldset(
     target_true_positives: int = DEFAULT_TARGET_TRUE_POSITIVES,
     target_known_false_positives: int = DEFAULT_TARGET_KNOWN_FALSE_POSITIVES,
     base_dir: str | Path | None = None,
-) -> dict[str, Any]:
+    _skip_if_unchanged: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Propose a gold corpus for one tool from its labelled feedback.
+
+    ``_skip_if_unchanged`` carries the tool's most recent proposal; when the
+    computed picture matches it the function returns None and appends nothing,
+    which is what keeps the per-cycle producer from writing an identical row
+    every night. Direct callers (the CLI ceremony) leave it None and always
+    get a row.
+    """
     if target_true_positives <= 0 or target_known_false_positives < 0:
         raise GovernanceError("goldset targets must be positive true positives and non-negative known false positives")
     rows = [
@@ -55,6 +64,17 @@ def propose_goldset(
         "known_false_positive_items": known_false_positives[:target_known_false_positives],
         "blocked_by": blockers,
     }
+    if _skip_if_unchanged is not None and all(
+        _skip_if_unchanged.get(field) == row[field]
+        for field in (
+            "status",
+            "true_positive_count",
+            "known_false_positive_count",
+            "target_true_positive_count",
+            "target_known_false_positive_count",
+        )
+    ):
+        return None
     root = ensure_tools_dir(base_dir)
     stored = append_declared_jsonl(
         root / "goldsets" / "proposals.jsonl",
@@ -82,6 +102,74 @@ def propose_goldset(
             expected_surface="memory_learning_events",
         )
     return stored
+
+
+def propose_goldsets_for_labelled_tools(
+    *,
+    cycle_id: str | None = None,
+    target_true_positives: int = DEFAULT_TARGET_TRUE_POSITIVES,
+    target_known_false_positives: int = DEFAULT_TARGET_KNOWN_FALSE_POSITIVES,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """The producer ``propose_goldset`` never had.
+
+    ``propose_goldset`` has existed since Plan 025 §B and NOTHING ever called
+    it: the curator agent wrote into a void, `promote_goldset_proposal` had no
+    `ready` proposal to promote, and `judge_replay` / `proactive_priority` read
+    an active corpus that could never come into being. The read side was live
+    and the write side was unreachable — the gap this closes.
+
+    Every labelled tool gets a proposal so the operator sees distance-to-ready
+    ("3 more true positives") instead of silence. A proposal is appended only
+    when the picture CHANGED against the last one for that tool: the nightly
+    runs forever, and a ledger row per cycle per tool would bury the real
+    transitions under identical repeats.
+    """
+    root = ensure_tools_dir(base_dir)
+    labelled_tools = sorted(
+        {
+            str(row.get("tool_id"))
+            for row in load_feedback(base_dir=root)
+            if row.get("tool_id")
+            and row.get("verdict") in ("true_positive", "false_positive")
+            and row.get("source_type") in ("human", "ai_consensus", None)
+        }
+    )
+    latest: dict[str, dict[str, Any]] = {}
+    for proposal in list_goldset_proposals(base_dir=root):
+        tool_id = proposal.get("tool_id")
+        if isinstance(tool_id, str):
+            latest[tool_id] = proposal
+
+    proposed: list[dict[str, Any]] = []
+    unchanged: list[str] = []
+    for tool_id in labelled_tools:
+        row = propose_goldset(
+            tool_id=tool_id,
+            cycle_id=cycle_id,
+            target_true_positives=target_true_positives,
+            target_known_false_positives=target_known_false_positives,
+            base_dir=root,
+            _skip_if_unchanged=latest.get(tool_id),
+        )
+        if row is None:
+            unchanged.append(tool_id)
+            continue
+        proposed.append(
+            {
+                "tool_id": tool_id,
+                "status": row.get("status"),
+                "true_positive_count": row.get("true_positive_count"),
+                "known_false_positive_count": row.get("known_false_positive_count"),
+                "blocked_by": row.get("blocked_by", []),
+            }
+        )
+    return {
+        "labelled_tool_count": len(labelled_tools),
+        "proposed": proposed,
+        "unchanged_tool_ids": unchanged,
+        "ready_tool_ids": [p["tool_id"] for p in proposed if p["status"] == "ready"],
+    }
 
 
 def list_goldset_proposals(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:

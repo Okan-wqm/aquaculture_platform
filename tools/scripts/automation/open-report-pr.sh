@@ -9,9 +9,14 @@
 #   CHANGED_PATHS   newline-separated repo-relative paths to stage
 #
 # Optional environment:
-#   BASE_BRANCH     default: main
-#   GH_TOKEN        GitHub token with contents:write + pull-requests:write
-#   GITHUB_TOKEN    fallback token
+#   BASE_BRANCH       default: main
+#   GH_TOKEN          GitHub token with contents:write + pull-requests:write
+#   GITHUB_TOKEN      fallback token
+#   PR_TOKEN_SOURCE   which identity the caller resolved ("aria-github-app"
+#                     or "actions-default"). A PR authored by the Actions
+#                     default token does not trigger workflow runs, so the
+#                     body must say so — an unchecked PR that looks checked
+#                     is worse than a red workflow.
 
 set -euo pipefail
 
@@ -86,6 +91,23 @@ if [ -n "${GITHUB_REPOSITORY:-}" ]; then
 fi
 
 git push --force-with-lease origin "HEAD:${PR_BRANCH}"
+
+if [ "${PR_TOKEN_SOURCE:-}" = "actions-default" ]; then
+  # ARIA_GITHUB_APP_TOKEN is not provisioned on this repository, so the
+  # caller fell back to the Actions default token. GitHub deliberately does
+  # not run workflows for PRs authored by that token; a reviewer who cannot
+  # see why checks are missing would read their absence as "nothing to run".
+  {
+    echo ""
+    echo "---"
+    echo ""
+    echo "**Opened with the Actions default token** because \`ARIA_GITHUB_APP_TOKEN\`"
+    echo "is not provisioned. GitHub does not trigger workflow runs for PRs authored"
+    echo "by that token, so the absence of checks here is the token's doing, not a"
+    echo "verdict on the change. Close-and-reopen this PR to make the checks run, or"
+    echo "provision the App token in the \`automation-publication\` environment."
+  } >> "${PR_BODY_FILE}"
+fi
 
 existing_pr="$(
   GH_TOKEN="${TOKEN}" gh pr list \

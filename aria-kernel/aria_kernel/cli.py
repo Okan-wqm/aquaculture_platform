@@ -896,6 +896,14 @@ def build_parser() -> argparse.ArgumentParser:
     eval_aggregate.add_argument("--target-agent", required=True)
     eval_aggregate.add_argument("--window-days", type=int, default=30)
     eval_aggregate.add_argument("--mock-mode", choices=["true", "false", "all"], default="all")
+    # F4.3 — the comparison the program's success test needs: window N+1
+    # against window N, with a verdict that refuses to speak on thin data.
+    eval_delta = add_subparser(eval_sub, "delta")
+    eval_delta.add_argument("--target-agent", required=True)
+    eval_delta.add_argument("--window-days", type=int, default=30)
+    eval_delta.add_argument("--mock-mode", choices=["true", "false", "all"], default="all")
+    eval_delta.add_argument("--min-runs", type=int, default=None,
+        help="Runs required in BOTH windows before a verdict is given.")
     eval_list = add_subparser(eval_sub, "list")
     eval_list.add_argument("--target-agent", default=None)
     eval_list.add_argument("--fixture-id", default=None)
@@ -1006,6 +1014,25 @@ def build_parser() -> argparse.ArgumentParser:
     rs_resolve.add_argument("--signal-id", required=True)
     rs_resolve.add_argument("--resolution-note", required=True)
     rs_list = add_subparser(runtime_signal_sub, "list")
+
+    # F4.2 of the ARIA intelligence program: the gold corpus ceremony. The
+    # proposal side is machine work (count labelled feedback), so the cycle
+    # mints proposals on its own; PROMOTION is an operator act and stays a
+    # named-curator verb here, never automatic.
+    goldset_parser = add_subparser(sub, "goldset")
+    goldset_sub = goldset_parser.add_subparsers(dest="goldset_command", required=True)
+    gs_propose = add_subparser(goldset_sub, "propose")
+    gs_propose.add_argument("--tool-id", required=True)
+    gs_propose.add_argument("--cycle-id")
+    gs_propose.add_argument("--target-true-positives", type=int, default=None)
+    gs_propose.add_argument("--target-known-false-positives", type=int, default=None)
+    gs_list = add_subparser(goldset_sub, "list")
+    gs_list.add_argument("--tool-id")
+    gs_promote = add_subparser(goldset_sub, "promote")
+    gs_promote.add_argument("--tool-id", required=True)
+    gs_promote.add_argument("--curator", required=True)
+    gs_show = add_subparser(goldset_sub, "show")
+    gs_show.add_argument("--tool-id", required=True)
 
     runtime_restore = add_subparser(runtime_sub, "restore-artifact")
     runtime_restore.add_argument("--artifact-ref", required=True)
@@ -2719,6 +2746,25 @@ def _main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+    if args.command == "agent-eval" and args.agent_eval_command == "delta":
+        from .agent_eval import MIN_RUNS_FOR_TREND, compare_eval_windows
+        delta_mock: Any = None
+        if args.mock_mode == "true":
+            delta_mock = True
+        elif args.mock_mode == "false":
+            delta_mock = False
+        result = compare_eval_windows(
+            target_agent=args.target_agent,
+            base_dir=args.tools_dir,
+            window_days=args.window_days,
+            mock_mode=delta_mock,
+            min_runs=args.min_runs if args.min_runs is not None else MIN_RUNS_FOR_TREND,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        # A regression is not a crash, but it must not read as success to a
+        # workflow that only checks the exit code.
+        return 1 if result["verdict"] == "regressed" else 0
+
     if args.command == "agent-eval" and args.agent_eval_command == "list":
         mock_filter = None
         if args.mock_mode == "true":
@@ -2839,6 +2885,43 @@ def _main(argv: list[str] | None = None) -> int:
         else:
             row = load_open_runtime_signals(base_dir=args.tools_dir)
         print(json.dumps(row, indent=2, sort_keys=True, default=str))
+        return 0
+
+    if args.command == "goldset":
+        from .goldset import (
+            DEFAULT_TARGET_KNOWN_FALSE_POSITIVES,
+            DEFAULT_TARGET_TRUE_POSITIVES,
+            list_goldset_proposals,
+            load_active_goldset,
+            promote_goldset_proposal,
+            propose_goldset,
+        )
+        if args.goldset_command == "propose":
+            result = propose_goldset(
+                tool_id=args.tool_id,
+                cycle_id=args.cycle_id,
+                target_true_positives=(
+                    args.target_true_positives
+                    if args.target_true_positives is not None
+                    else DEFAULT_TARGET_TRUE_POSITIVES
+                ),
+                target_known_false_positives=(
+                    args.target_known_false_positives
+                    if args.target_known_false_positives is not None
+                    else DEFAULT_TARGET_KNOWN_FALSE_POSITIVES
+                ),
+                base_dir=args.tools_dir,
+            )
+        elif args.goldset_command == "list":
+            rows = list_goldset_proposals(base_dir=args.tools_dir)
+            result = [r for r in rows if args.tool_id is None or r.get("tool_id") == args.tool_id]
+        elif args.goldset_command == "promote":
+            result = promote_goldset_proposal(
+                tool_id=args.tool_id, curator=args.curator, base_dir=args.tools_dir,
+            )
+        else:
+            result = load_active_goldset(tool_id=args.tool_id, base_dir=args.tools_dir)
+        print(json.dumps(result, indent=2, sort_keys=True, default=str))
         return 0
 
     if args.command == "runtime" and args.runtime_command == "verify-artifacts":

@@ -123,6 +123,9 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
   private environmentLeaseDiscards!: client.Counter;
   private environmentInternalFailures!: client.Counter;
   private environmentRetentionDeleted!: client.Counter;
+  private tenantIsolationViolations!: client.Gauge;
+  private tenantIsolationScanLastRun!: client.Gauge;
+  private tenantIsolationScanErrors!: client.Gauge;
   private environmentDueBacklog!: client.Gauge;
   private environmentOldestDueAge!: client.Gauge;
 
@@ -341,6 +344,33 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
       registers: [this.registry],
     });
 
+    // W-C — the tenant isolation watchdog has scanned every ten minutes
+    // since it was written, and its verdict reached exactly one place: an
+    // ERROR log line. Nothing could ask "is isolation holding right now"
+    // without a human grepping. These three gauges are that answer.
+    //
+    // No tenant label, per the discipline at the top of this file: a
+    // CRITICAL count by severity and type is enough to alarm on, while a
+    // tenant id on an unauthenticated scrape surface would enumerate
+    // customers for anyone who asks.
+    this.tenantIsolationViolations = new client.Gauge({
+      name: 'farm_tenant_isolation_violations',
+      help: 'Violations found by the most recent tenant isolation watchdog scan',
+      labelNames: ['severity', 'type'],
+      registers: [this.registry],
+    });
+    this.tenantIsolationScanLastRun = new client.Gauge({
+      name: 'farm_tenant_isolation_scan_last_run_timestamp_seconds',
+      help: 'Unix timestamp of the last completed tenant isolation scan (heartbeat)',
+      labelNames: ['outcome'],
+      registers: [this.registry],
+    });
+    this.tenantIsolationScanErrors = new client.Gauge({
+      name: 'farm_tenant_isolation_scan_errors',
+      help: 'Scanners that failed during the most recent tenant isolation scan',
+      registers: [this.registry],
+    });
+
     this.environmentMonitoringEnabled = new client.Gauge({
       name: 'farm_environment_monitoring_enabled',
       help: 'Whether the canonical farm environmental monitoring rollout gate is enabled',
@@ -495,6 +525,39 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
   recordRegulatoryCronRun(params: { job: string; outcome: RegulatoryCronOutcome }): void {
     this.regulatoryCronRuns.inc({ job: params.job, outcome: params.outcome });
     this.regulatoryCronLastRun.set({ job: params.job }, Date.now() / 1000);
+  }
+
+  /**
+   * Publish the outcome of one tenant isolation scan.
+   *
+   * Gauges are RESET before the new counts are set: a violation that was
+   * fixed must fall to zero, and a stale series that keeps reporting a
+   * repaired breach is worse than no series at all.
+   *
+   * A scan that threw is reported too (`outcome='failed'` with no counts),
+   * because "the scanner is broken" and "isolation is holding" must not
+   * look identical to whatever reads this.
+   */
+  recordTenantIsolationScan(params: {
+    outcome: 'completed' | 'failed';
+    violations?: Array<{ severity: string; type: string }>;
+    scannerErrorCount?: number;
+  }): void {
+    this.tenantIsolationScanLastRun.set({ outcome: params.outcome }, Date.now() / 1000);
+    if (params.outcome === 'failed') {
+      return;
+    }
+    this.tenantIsolationViolations.reset();
+    const counts = new Map<string, number>();
+    for (const violation of params.violations ?? []) {
+      const key = `${violation.severity}\u0000${violation.type}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    for (const [key, count] of counts) {
+      const [severity, type] = key.split('\u0000');
+      this.tenantIsolationViolations.set({ severity, type }, count);
+    }
+    this.tenantIsolationScanErrors.set(params.scannerErrorCount ?? 0);
   }
 
   setEnvironmentMonitoringEnabled(enabled: boolean): void {

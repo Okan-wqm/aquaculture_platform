@@ -44478,6 +44478,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/format-scope-derived-scalars.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/gha-sha-pin.ts",
       "prettier_managed": true
     },
@@ -56592,10 +56598,7 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9281,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9100,
-  "managed_file_list_sha256": "6b786b3283cc65b9e54af74b9a7d29d8423671f8789507b1c6dce732d59d0110",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

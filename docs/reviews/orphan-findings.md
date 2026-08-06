@@ -7992,3 +7992,21 @@ The tell is the budget size. #1090 explicitly reasoned that the async assertions
 Proven by deliberate breaks: an extra `criteria.impactScore` read reddens the classifier count (3→4), a linear scan over the preference map reddens the routing count (1→2), and memoizing `renderForEmail` reddens the render count (16→8). All 20 tests green before and after each break.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-MEDIUM-563`.
+
+## ORPHAN-CRITICAL-579 — 1,359 tests in the library every service depends on had never run in CI, and nobody could have noticed — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, auditing my own day's merges. An independent reviewer traced each new spec to the command that runs it and found three that no command reaches. Pulling that thread found the mechanism, and the mechanism is repo-wide.
+
+`libs/backend-common` ships a working `jest.config.ts` and **no `project.json`**. Nx therefore sees no project, so `nx affected --target=test` can never select it and `nx run-many --target=test --all` can never include it. Measured firsthand: 122 spec files, **1,359 tests**, none of which had ever executed in CI — in the library that every service imports. Running them by hand today: 1,340 pass, 19 fail (two `*.integration.spec.ts` files that need a live Postgres and report `Driver not Connected`).
+
+Worse than invisible. `nx.json`'s `sharedGlobals` includes `{workspaceRoot}/libs/*/src/**/*.ts`, so editing any file there marks **all 42** test projects affected. CI did maximum work and still ran none of that library's specs.
+
+The same shape holds for `platform/libs/outbox` (43 tests), `platform/libs/event-bus` (55), and `libs/storage` (26) — each a config with no runner. Three of my own merges landed in exactly this hole: the cron-heartbeat spec (#1098), the outbox relay-liveness spec (open PR), and the supervisor spec, which lives outside every Nx project so `affected` returns zero projects for it. All three were written, reviewed and merged green, and their greenness carried no information.
+
+**Fix (this PR):** `project.json` for backend-common, outbox, event-bus and storage — 1,473 previously-unreachable tests now run under `nx test`, and none is quarantined in `affected-target-policy.json`, so they gate. The two DB-dependent integration specs are excluded from the unit lane by an explicit `testPathIgnorePatterns` with the reason inline, rather than being left to redden a lane they do not belong to. `tools/` gets an npm script wired into `quality-gates`, because code with production intervention authority — the T0 supervisor restarts containers on the droplet — must not be the untested part.
+
+**The structural half:** `tests/invariants/spec-has-a-runner.spec.ts` walks every `*.spec.*` in the repo and fails if no declared runner claims it. A new spec in a new directory now fails at authoring time instead of passing silently forever. Today's remaining gaps start in a ratchet allowlist with reasons — `web/apps/aquamobil` (18 specs; it is an Nx project with lint/build/typecheck and no `test` target at all), `tools/lint-gates`, `tools/worktree-audit` — and a second assertion fails if an allowlist entry goes stale, so the list cannot be satisfied by fiction.
+
+**NOT done, stated rather than absorbed:** the 18 aquamobil specs still do not run; wiring them needs the PWA's test-runner story settled. `farm-service` is quarantined out of the affected lane's `test` target with a boilerplate reason and no expiry — that quarantine deserves its own review.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the mechanism and four libraries; the allowlist is the tracked remainder.

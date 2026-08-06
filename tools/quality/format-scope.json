@@ -36274,6 +36274,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/README.md",
       "prettier_managed": true
     },
@@ -40321,6 +40327,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/storage/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/storage/src/__tests__/file-upload-security.service.spec.ts",
       "prettier_managed": true
     },
@@ -40926,6 +40938,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "platform/libs/event-bus/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "platform/libs/event-bus/src/decorators/event-handler.decorator.ts",
       "prettier_managed": true
     },
@@ -41017,6 +41035,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "platform/libs/outbox/jest.config.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/outbox/project.json",
       "prettier_managed": true
     },
     {
@@ -43621,6 +43645,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/source-schema-write-guard-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/spec-has-a-runner.spec.ts",
       "prettier_managed": true
     },
     {
@@ -56562,10 +56592,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9276,
+  "file_count": 9281,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9095,
-  "managed_file_list_sha256": "c3de0507441f6d5681e66ad646c9cc2dc1e911747d04c39d1f74f44a26df675c",
+  "managed_count": 9100,
+  "managed_file_list_sha256": "6d64e5dc0d12900689b911db55a0615077a4a8ab6a4e09c4176ca54b7e6eb94b",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

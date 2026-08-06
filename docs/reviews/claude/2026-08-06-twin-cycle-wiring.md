@@ -118,29 +118,56 @@ tree.
 
 ---
 
-## ORPHAN-MEDIUM-572 — a contract vocabulary nothing reads, and that no longer matches
+## ORPHAN-MEDIUM-572 — a contract vocabulary nothing reads
 
 Adding `repository_map` to `REQUEST_OPTIONAL_FIELDS` would have been the
-appearance of a contract without one. Measured:
+appearance of a contract without one. Measured: a repo-wide search for
+`REQUEST_OPTIONAL_FIELDS` returns **exactly one hit** — its own definition at
+`agent_contract.py:57`. `validate_request` checks only
+`REQUEST_REQUIRED_FIELDS` for absence and never consults the optional tuple,
+so an `aria/agent-request/v1` envelope may carry any unknown or misspelled
+field and nothing refuses it.
 
-- A repo-wide search for `REQUEST_OPTIONAL_FIELDS` returns **exactly one hit**
-  — its own definition at `agent_contract.py:57`. `validate_request` checks
-  only `REQUEST_REQUIRED_FIELDS` for absence; unknown fields pass silently.
-- The tuple is also **inaccurate**, which is what makes it misleading rather
-  than merely inert. It declares 18 fields;
-  `create_agent_invocation_request` accepts and persists at least
-  `finding_id`, `convergence_id`, `tool_id`, `run_id`, `eval_harness_id`,
-  `fixture_run_id`, `judgment_group_id`, `transcript_hash`,
-  `operator_provenance_ref`, `plan_revision_hash`, `pressure_source_type`,
-  `shadow_eval`, `target_sha` — none of them declared.
-
-So the naive fix (reject anything outside required ∪ optional) would **refuse
-real envelopes the live minter produces**. The root-cause fix is two-part:
-enumerate the true field set from the minter, complete the tuple, and only
-then make `validate_request` enforce it. That can break the live path and
-needs its own blast-radius check, so it is tracked with an owner and a
-deadline rather than bolted onto this change.
+The root-cause fix is tier 3 — reject fields outside required ∪ optional — but
+it needs its own change rather than a one-line edit, because the union has to
+be confirmed complete against every real producer of that envelope first, and
+today the only producers in the repository are test fixtures.
 
 `repository_map` therefore got an explicit type check in `validate_request` —
 the same treatment `impact_graph_refs` actually receives, which is itself
 evidence the tuple has been decorative for some time.
+
+### A claim I withdrew before it reached main
+
+The first version of this finding also asserted that the tuple is _inaccurate_
+— that it omits eleven-plus fields `create_agent_invocation_request` really
+sets — and offered as proof that `validate_request` **refuses** a freshly
+minted row.
+
+That proof is worthless and the claim is withdrawn. The two are different
+envelope types, and the module docstring says so about twenty lines above the
+code I was reading:
+
+- `aria/agent-request/v1` — the strict Plan 016 contract envelope, which is
+  what `REQUEST_OPTIONAL_FIELDS` describes and `validate_request` validates;
+- `aria/agent-invocation-request/v1` — the queue-layer row the minter emits,
+  _"preserved unchanged for backward compatibility per operator instruction"_.
+
+A validator for one schema refusing a document in the other proves only that
+they differ, which is by design. I nearly registered a **HIGH** on it.
+
+The instructive part is _why it was convincing_: I ran the code, saw a real
+`GovernanceError` on a real 30-key row, and treated execution as verification.
+It was verification — of a question I had not checked was the right question.
+An empirical result is only as good as the identity of the thing measured, and
+a confidently wrong HIGH in the registry is worse than a missing one.
+
+The surviving claim — the tuple is unread — was established by a separate
+measurement that the error does not touch, so it stands.
+
+The correction was applied by removing the unpublished trailing entry and
+re-appending it through `add-explicit`. `rechain-from` refused the in-place
+rewrite (_"refusing canonical-history mutation"_) and was right to: it cannot
+distinguish a legitimate unmerged close ceremony from someone editing chained
+history. The 1,365-entry prefix was never touched and verified unchanged
+before and after.

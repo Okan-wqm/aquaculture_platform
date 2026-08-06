@@ -59,6 +59,7 @@ REQUEST_OPTIONAL_FIELDS = (
     "plan_id",
     "converged_plan_hash",
     "impact_graph_refs",
+    "repository_map",
     "separation_of_duties",
     "round_number",
     "created_at",
@@ -196,6 +197,14 @@ def validate_request(
     # Optional fields: light type checks only.
     if "impact_graph_refs" in envelope and not isinstance(envelope["impact_graph_refs"], list):
         raise GovernanceError("agent-request.impact_graph_refs must be a list")
+    # The repository map is ORIENTATION, not evidence: a projection derived
+    # from the repo at `indexed_sha`, recomputable and never citable. It is
+    # type-checked here rather than only listed in REQUEST_OPTIONAL_FIELDS
+    # because that tuple is read by nothing (ORPHAN-MEDIUM-572) — adding a
+    # name to an unenforced list would be the appearance of a contract
+    # without one.
+    if "repository_map" in envelope and not isinstance(envelope["repository_map"], dict):
+        raise GovernanceError("agent-request.repository_map must be an object")
     if "separation_of_duties" in envelope and not isinstance(
         envelope["separation_of_duties"], dict
     ):

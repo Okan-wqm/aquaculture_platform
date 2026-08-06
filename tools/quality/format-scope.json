@@ -33367,6 +33367,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-06-twin-cycle-wiring.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -56538,10 +56544,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9272,
+  "file_count": 9273,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9091,
-  "managed_file_list_sha256": "0ef1df8274eeb190b085ea7674d9cdc0d0e290dbe12a3bd02dfb2482ca286cb5",
+  "managed_count": 9092,
+  "managed_file_list_sha256": "64707c58099b72fb651f0860eae4639eea5c8dc6f73ed0a7d168d3e4ba40f918",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -45,12 +45,21 @@ function countOccurrences(pattern: RegExp): number {
 }
 
 /**
- * RATCHET BASELINE for 10–11px arbitrary text (86 at introduction, 2026-07-12
- * — badge counters, KPI sublabels, tab captions). Shrink freely; never grow.
- * If you legitimately reduced occurrences, lower this number in the same
- * commit. Adding a new sub-12px label is a failing build by design.
+ * RATCHET BASELINE for 10–11px text (86 at introduction, 2026-07-12 — badge
+ * counters, KPI sublabels, tab captions). Shrink freely; never grow. If you
+ * legitimately reduced occurrences, lower this number in the same commit.
+ * Adding a new sub-12px label is a failing build by design.
+ *
+ * COUNTS BOTH FORMS: the arbitrary `text-[10px]`/`text-[11px]` AND the v4 named
+ * steps `text-micro` (10px) / `text-caption` (11px) from tailwind.config.js.
+ * WHY: naming a size does not make it readable at arm's length in sunlight, so
+ * the token layer must not become a way to reintroduce tiny text under a
+ * friendlier class name. The gate measures rendered size, not spelling.
  */
 const TINY_TEXT_BASELINE = 86;
+
+/** Both spellings of the sub-12px sizes — see TINY_TEXT_BASELINE. */
+const TINY_TEXT_PATTERN = /text-\[1[01]px\]|\btext-(?:micro|caption)\b/g;
 
 describe('field-ergonomics invariant (MOB-MEDIUM-009)', () => {
   it('declares the 44px touch spacing token in the Tailwind config', () => {
@@ -80,12 +89,13 @@ describe('field-ergonomics invariant (MOB-MEDIUM-009)', () => {
     expect(countOccurrences(/text-white\/(?:[1-6][0-9]|7[0-4])\b/g)).toBe(0);
   });
 
-  it('ratchets 10–11px arbitrary text — shrink only, never grow', () => {
-    const current = countOccurrences(/text-\[1[01]px\]/g);
+  it('ratchets 10–11px text in both spellings — shrink only, never grow', () => {
+    const current = countOccurrences(TINY_TEXT_PATTERN);
     expect(
       current,
-      `text-[10px]/text-[11px] occurrences grew from the frozen baseline (${TINY_TEXT_BASELINE}). ` +
-        'Use text-xs (12px) or larger for new labels — sunlight readability floor.',
+      `sub-12px text grew from the frozen baseline (${TINY_TEXT_BASELINE}). This counts ` +
+        'text-[10px]/text-[11px] AND the named text-micro/text-caption steps — renaming a ' +
+        'size does not make it readable outdoors. Use text-meta (12px) or larger.',
     ).toBeLessThanOrEqual(TINY_TEXT_BASELINE);
   });
 

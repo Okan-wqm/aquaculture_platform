@@ -1,6 +1,8 @@
 import {
   Moon,
   Sun,
+  Palette,
+  Hand,
   Bell,
   Cloud,
   Database,
@@ -18,10 +20,12 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { useAuth } from '@/hooks/useAuth';
-import { useDarkMode } from '@/hooks/useDarkMode';
-import type { DarkModePreference } from '@/hooks/useDarkMode';
+import { useDensity } from '@/hooks/useDensity';
+import type { Density } from '@/hooks/useDensity';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { useTheme } from '@/hooks/useTheme';
+import type { ThemePreference } from '@/hooks/useTheme';
 import { useWebAuthn, storeBiometricEmail } from '@/hooks/useWebAuthn';
 import { clearCache, clearAllOperations } from '@/pwa/offline-queue';
 import type { Role } from '@/types';
@@ -407,7 +411,8 @@ export function AccountPage(): JSX.Element {
   const { pendingCount, isOnline, isSyncing, syncNow } = useOfflineQueue();
   const { unreadCount } = useNotifications();
   const { isSupported: biometricSupported, hasCredentials } = useWebAuthn();
-  const { preference: themePreference, setPreference: setThemePreference } = useDarkMode();
+  const { preference: themePreference, setPreference: setThemePreference } = useTheme();
+  const { density, setDensity } = useDensity();
 
   // UI state for confirmation dialogs and expandable panels
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
@@ -513,11 +518,19 @@ export function AccountPage(): JSX.Element {
   const initials = getInitials(userName);
   const roleBadge = ROLE_BADGE_CONFIG[userRole];
 
-  // Three-way theme options for the segmented control
-  const themeOptions: Array<{ value: DarkModePreference; icon: typeof Sun; label: string }> = [
-    { value: 'light', icon: Sun, label: 'Light' },
-    { value: 'dark', icon: Moon, label: 'Dark' },
+  // v4 ships three themes, so the control is four-way with System.
+  // Night = dark hall / night shift, Day = deck glare, Colour = colour-coded.
+  const themeOptions: Array<{ value: ThemePreference; icon: typeof Sun; label: string }> = [
+    { value: 'night', icon: Moon, label: 'Night' },
+    { value: 'day', icon: Sun, label: 'Day' },
+    { value: 'colour', icon: Palette, label: 'Colour' },
     { value: 'system', icon: Monitor, label: 'System' },
+  ];
+
+  // Gloved operation enlarges every control at once (src/hooks/useDensity.ts).
+  const densityOptions: Array<{ value: Density; icon: typeof Sun; label: string }> = [
+    { value: 'standard', icon: Hand, label: 'Standard' },
+    { value: 'glove', icon: Hand, label: 'Gloves' },
   ];
 
   return (
@@ -572,14 +585,20 @@ export function AccountPage(): JSX.Element {
         <SectionHeader title="Preferences" />
         <div className="px-5">
           <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card overflow-hidden border border-gray-100 dark:border-gray-800">
-            {/* Dark Mode — three-way segmented control */}
-            <div className="flex items-center gap-4 p-4 border-b border-gray-50 dark:border-gray-800">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-indigo-50 dark:bg-indigo-900/30">
-                <Moon size={20} className="text-indigo-600" />
+            {/* Theme — four-way control (Night / Day / Colour / System).
+                WHY the control sits on its own row rather than inline with the
+                label: four options with labels overflow a 360px phone. */}
+            <div className="p-4 border-b border-line">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-acc-dim">
+                  <Moon size={20} className="text-acc" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="font-medium text-ink-1 block">Theme</span>
+                  <span className="text-meta text-ink-3">Night hall, deck glare, colour-coded</span>
+                </div>
               </div>
-              <span className="font-medium text-gray-900 dark:text-white flex-1">Dark Mode</span>
-              {/* Segmented control — compact to fit mobile widths */}
-              <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
+              <div className="flex bg-surface-2 rounded-xl p-0.5 mt-3">
                 {themeOptions.map((opt) => {
                   const OptIcon = opt.icon;
                   const isActive = themePreference === opt.value;
@@ -587,10 +606,41 @@ export function AccountPage(): JSX.Element {
                     <button
                       key={opt.value}
                       onClick={() => setThemePreference(opt.value)}
-                      className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all ${
-                        isActive
-                          ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                          : 'text-gray-500 dark:text-gray-400'
+                      aria-pressed={isActive}
+                      className={`flex flex-1 items-center justify-center gap-1 px-1 py-2 rounded-lg text-meta font-semibold transition-all ${
+                        isActive ? 'bg-surface-1 text-ink-1 shadow-token' : 'text-ink-3'
+                      }`}
+                    >
+                      <OptIcon size={14} />
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Touch targets — gloved operation enlarges every control at once. */}
+            <div className="p-4 border-b border-line">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-acc-dim">
+                  <Hand size={20} className="text-acc" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="font-medium text-ink-1 block">Touch targets</span>
+                  <span className="text-meta text-ink-3">Gloves enlarges every control you press</span>
+                </div>
+              </div>
+              <div className="flex bg-surface-2 rounded-xl p-0.5 mt-3">
+                {densityOptions.map((opt) => {
+                  const OptIcon = opt.icon;
+                  const isActive = density === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      onClick={() => setDensity(opt.value)}
+                      aria-pressed={isActive}
+                      className={`flex flex-1 items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-meta font-semibold transition-all ${
+                        isActive ? 'bg-surface-1 text-ink-1 shadow-token' : 'text-ink-3'
                       }`}
                     >
                       <OptIcon size={14} />

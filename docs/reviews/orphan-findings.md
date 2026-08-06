@@ -7904,3 +7904,46 @@ Plan 025 §B shipped the full ceremony except its first step. `aria-goldset-cura
 
 **Fix (this PR):** the cycle mints proposals. `propose_goldsets_for_labelled_tools` walks the feedback ledger and proposes for every labelled tool, so the operator reads distance-to-ready ("2 more known false positives") instead of silence; a new `goldset_proposal` cycle phase runs it beside `judge_calibration`, which reads the same ledger. Counting labels is machine work and is now automatic; PROMOTION stays an operator act behind `goldset promote --tool-id X --curator NAME`. Append-only discipline: a proposal is written only when the picture changed against that tool's last one, because a nightly that appends an identical row every night buries the real transitions. CLI: `goldset propose|list|promote|show` (auto-covered by the workflow-CLI contract test). Proven by tests including the deliberate-break case: disabling the unchanged-skip turns the append-only test red.
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-571 — every route and auth spinner in AquaMobil renders colourless: `border-aqua-500` is used in four places and `aqua` is not a palette — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while building the v4 design-token layer for `web/apps/aquamobil`; found by grepping for palette usage before mapping the new tokens, not by anyone reporting it.
+
+`web/apps/aquamobil/tailwind.config.js` defines `ocean`, `sea`, `coral` and the three status triples. It has never defined `aqua`. Four files ask for it anyway:
+
+```
+src/App.tsx:152                     border-b-2 border-aqua-500   (ProtectedRoute auth spinner)
+src/App.tsx:163                     border-b-2 border-aqua-500   (FeatureRoute permission spinner)
+src/components/MultiFeatureRoute.tsx:23  border-b-2 border-aqua-500
+src/pages/sync/SyncStatusPage.tsx:110    !bg-aqua-500             (sync progress bar)
+```
+
+Tailwind emits no rule for an undefined palette, so `border-aqua-500` resolves to nothing and the spinner border falls back to `currentColor`/transparent. The three spinners are exactly what a worker stares at while the app decides whether they are allowed in — the least good place to render an invisible control. This is a silent class of bug: no build error, no runtime error, no test covers a spinner's colour.
+
+**Fix (this PR):** all four sites now use the semantic accent token (`border-acc` / `!bg-acc`), which resolves per theme. The class of bug is closed structurally rather than site-by-site: `src/__tests__/design-token.invariant.spec.ts` ratchets raw palette usage toward zero, so the remaining legacy palettes shrink and cannot be joined by a new invented one without the count growing.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-572 — AquaMobil's brand font has never loaded in production: the CSP forbids the CDN it is imported from — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while replacing DM Sans with the v4 typeface. Found by checking the CSP before adding a font origin, which surfaced that the existing origin was already blocked.
+
+`web/apps/aquamobil/src/styles/main.css:1` opened with
+
+```
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:...');
+```
+
+while `infrastructure/docker/nginx/snippets/security-headers.conf:22` sets
+
+```
+default-src 'self'; ... style-src 'self' 'unsafe-inline'; ... font-src 'self'; ...
+```
+
+`style-src` has no external host, so the stylesheet import is blocked; `font-src 'self'` would block the woff2 even if it were not. The app has therefore been rendering in the `-apple-system` / Roboto fallback for its entire production life, on every device, online and offline alike. Nothing failed loudly — a blocked font is a console warning and a different-looking screen, and the fallback stack is close enough that nobody filed it.
+
+Worth naming beyond the one font: an offline-first PWA that reaches for a CDN at all has a defect independent of the CSP. The asset is unavailable precisely when the worker is in the field with no signal, which is the operating condition the whole app exists for.
+
+**Fix (this PR):** Geist and Geist Mono are self-hosted under `web/apps/aquamobil/public/fonts/` (96 KB total; variable weight 400–700, latin + latin-ext so Turkish glyphs resolve, since the app's default locale is `tr`) and declared with `@font-face` in `src/styles/tokens.css`. They land in `dist/fonts/` and appear in the service worker's precache manifest, so the type survives offline. `design-token.invariant.spec.ts` now fails the build on any `@import url(https://…)` or `fonts.googleapis.com` / `fonts.gstatic.com` reference in the app's CSS or `index.html`, so the CDN cannot come back.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).

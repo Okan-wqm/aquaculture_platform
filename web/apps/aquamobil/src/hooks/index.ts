@@ -1,6 +1,8 @@
 export { useAuth, AuthProvider } from './useAuth';
-export { useDarkMode } from './useDarkMode';
-export type { DarkModePreference, UseDarkModeReturn } from './useDarkMode';
+export { useTheme } from './useTheme';
+export { useDensity } from './useDensity';
+export type { ThemePreference, ResolvedTheme, UseThemeReturn } from './useTheme';
+export type { Density, UseDensityReturn } from './useDensity';
 export { useOfflineQueue, OfflineProvider } from './useOfflineQueue';
 export { useNetworkStatus } from './useNetworkStatus';
 export { useTanks } from './useTanks';

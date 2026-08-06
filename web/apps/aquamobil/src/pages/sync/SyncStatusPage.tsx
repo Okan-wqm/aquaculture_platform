@@ -107,7 +107,7 @@ export function SyncStatusPage(): JSX.Element {
           <Button
             onClick={() => { void syncNow(); }}
             disabled={!isOnline || pendingCount === 0 || isSyncing}
-            className="!bg-aqua-500"
+            className="!bg-acc"
           >
             <RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} />
             <span className="ml-2">{isSyncing ? 'Syncing...' : 'Sync Now'}</span>

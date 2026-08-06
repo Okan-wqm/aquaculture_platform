@@ -45041,6 +45041,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/__tests__/design-token.invariant.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/__tests__/field-ergonomics.invariant.spec.ts",
       "prettier_managed": true
     },
@@ -45694,7 +45700,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/apps/aquamobil/src/hooks/useDarkMode.ts",
+      "path": "web/apps/aquamobil/src/hooks/useDensity.ts",
       "prettier_managed": true
     },
     {
@@ -45839,6 +45845,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/useTenantUsers.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/useTheme.ts",
       "prettier_managed": true
     },
     {
@@ -56454,10 +56466,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9258,
+  "file_count": 9260,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9077,
-  "managed_file_list_sha256": "0cd1bb73117f2269cc18d9df99b01ee7f377d190f8b8872534960bd7fa500505",
+  "managed_count": 9079,
+  "managed_file_list_sha256": "c95a138e7cd8a1c56051effe57aedc159be59f85d7c33a89825edee32af33c29",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

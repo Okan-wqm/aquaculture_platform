@@ -179,5 +179,43 @@ the baseline.
 `guard_item` makes containment the zero-effort default; it does not make a bare
 loop impossible. A hook written tomorrow can still commit unguarded — the gate
 is what catches that, and the gate covers the sixteen **cycle learning hooks**
-only. The same shape elsewhere in the kernel is unmeasured, and this document
-does not claim otherwise.
+only.
+
+### The scope limit, now measured — `ORPHAN-MEDIUM-579`
+
+That limit was written as "unmeasured". It has since been measured, and the
+result is not what the number first suggests.
+
+Reusing the gate's own machinery outside its sixteen hooks returns **91 functions
+across 56 modules**. That is **not a defect count** — it is the screen losing
+precision. "Committing" is defined here as _can transitively reach a filesystem
+write_, which holds up inside the hooks (zero findings after wiring, and
+`read_jsonl`, `_finding_key`, `classify_pressure` and `_age_days` all correctly
+excluded) because those hook bodies do not call the kernel's lazy
+root-initialisers inside their loops. Repo-wide it floods: `ensure_tools_dir`
+writes `repo_identity.json` on first call, nearly every kernel function reaches
+it, and so a pure reader like `change_ledger.get_change_chain` comes out
+committing.
+
+**A narrowing was tried and rejected on measurement rather than on taste.**
+Dropping `mkdir`/`makedirs` from the write seed moved 92 to 91 — the leak is a
+real file write, not directory creation. Widening the gate therefore needs a
+stronger notion than reachability, roughly _"writes a ledger row keyed by this
+item"_, which is a design change and not a threshold tweak. Widening it on the
+current signal would ship a gate that cries wolf, and a gate that cries wolf gets
+waived into uselessness.
+
+**A real population does exist**, confirmed by reading rather than by the screen:
+`memory.decay_stale_beliefs_by_age` is a cycle phase (`cycle.py:1064`),
+`pressure.close_pressures_from_signals` runs from `feedback.py:208`, and
+`memory._apply_diff_to_existing_beliefs` commits per belief. Their true count is
+unknown until the definition is sharpened, which is why `ORPHAN-MEDIUM-579`
+claims a limit rather than a number.
+
+**One incidental defect, recorded because sampling found it.**
+`feedback_store.record_operator_feedback_batch` has no production caller at all —
+only `tests/test_incremental_learning.py`. That is the `ORPHAN-CRITICAL-498`
+"called by nobody" class, and `control_reachability` cannot see it: that gate
+scans control verbs (`validate_`, `enforce_`, `verify_`, …) and this is a
+`record_` verb. The reachability gate's verb-based definition is its own blind
+spot, on this evidence.

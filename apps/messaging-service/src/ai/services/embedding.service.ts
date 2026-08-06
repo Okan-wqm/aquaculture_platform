@@ -13,7 +13,9 @@
 import { Injectable, Logger, Inject, OnModuleDestroy } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { ClientProxy } from '@nestjs/microservices';
-import { DataSource } from 'typeorm';
+import { DataSource, QueryRunner } from 'typeorm';
+
+import { pinTenantSchemaTransactionSearchPath } from '@aquaculture/backend-common/database';
 import { firstValueFrom, timeout, catchError, of } from 'rxjs';
 import { AiEgressGateService } from './ai-egress-gate.service';
 
@@ -86,16 +88,82 @@ export class EmbeddingService implements OnModuleDestroy {
    * Fetches unembedded messages, filters by privacy consent, generates
    * embeddings via ai-service, and writes them back.
    */
+  /**
+   * Enumerate the tenant schemas this sweep must visit.
+   *
+   * WHY THIS EXISTS (ORPHAN-HIGH-585): `messages` is a per-tenant table —
+   * messaging-service omits `schema:` so search_path routes it into
+   * `tenant_<uuid>` at runtime. A `@Cron` has no HTTP request behind it, so no
+   * middleware seeds the tenant frame and the pool-checkout patch sets nothing;
+   * an unqualified `FROM "messages"` therefore resolved against whatever
+   * search_path the pooled connection happened to carry. Which tenant's rows
+   * this cron embedded was decided by whoever used that connection last.
+   *
+   * Same shape as retention-policy.service.ts, which hit this first
+   * (MT-MEDIUM-054) — the regex guard is not decoration: the schema name is
+   * interpolated into `set_config`, so it must never be caller-shaped text.
+   */
+  private async listTenantSchemas(): Promise<string[]> {
+    const rows: { schema_name: string }[] = await this.dataSource.query(
+      `SELECT schema_name FROM information_schema.schemata
+       WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'
+       ORDER BY schema_name`,
+    );
+    return rows.map((row) => row.schema_name);
+  }
+
+  /**
+   * Execute one batch per tenant schema.
+   *
+   * Each schema gets its own transaction, and the transaction is held across
+   * the embedding call on purpose. `FOR UPDATE SKIP LOCKED` was already here
+   * (MSG-HIGH-039) but ran under `dataSource.query`, i.e. autocommit: the row
+   * locks were released the moment the SELECT returned, so two replicas could
+   * still claim the same rows and pay for the same embeddings twice. A lock
+   * that ends before the work it guards is not a lock.
+   */
   private async runBatch(): Promise<void> {
-    // SECURITY: Use SELECT FOR UPDATE SKIP LOCKED to prevent duplicate
-    // processing across worker replicas. Without this, multiple workers can
-    // claim the same rows, causing duplicate embeddings and wasted API calls.
+    const schemas = await this.listTenantSchemas();
+    if (schemas.length === 0) {
+      this.logger.debug('No tenant schemas found; nothing to embed');
+      return;
+    }
+
+    for (const schema of schemas) {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+      try {
+        await pinTenantSchemaTransactionSearchPath(queryRunner, 'messaging', schema);
+        await this.runBatchForSchema(queryRunner);
+        await queryRunner.commitTransaction();
+      } catch (err: unknown) {
+        try {
+          await queryRunner.rollbackTransaction();
+        } catch {
+          /* rollback on an already-closed transaction throws — nothing to undo */
+        }
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Embedding batch failed for schema ${schema}: ${message}`);
+      } finally {
+        await queryRunner.release();
+      }
+    }
+  }
+
+  /**
+   * One tenant schema's batch, inside a transaction whose search_path is
+   * already pinned to it.
+   */
+  private async runBatchForSchema(queryRunner: QueryRunner): Promise<void> {
+    // SECURITY: SELECT FOR UPDATE SKIP LOCKED prevents two replicas claiming
+    // the same rows. It only means anything because the caller holds the
+    // transaction open until the write-back below.
     // @see MSG-HIGH-039 (embedding worker SKIP LOCKED)
     //
-    // SECURITY: Explicit tenantId from message entity (not just channel join)
-    // ensures tenant isolation in the embedding pipeline.
-    // @see MSG-HIGH-040 (embedding writes to wrong schema)
-    const messages: UnembeddedMessage[] = await this.dataSource.query(
+    // SECURITY: the explicit `tenantId` column feeds the consent gate; the
+    // schema pin decides which tenant's table is read in the first place.
+    const messages: UnembeddedMessage[] = await queryRunner.query(
       `SELECT m."id", m."channelId", m."senderId", m."content", m."createdAt",
               m."tenantId"
        FROM "messages" m
@@ -115,7 +183,7 @@ export class EmbeddingService implements OnModuleDestroy {
 
     this.logger.debug(`Processing ${messages.length} messages for embedding`);
 
-    // Filter by privacy gates — use explicit tenantId from channel join
+    // Filter by privacy gates — use explicit tenantId from the message row
     const senderIds = [...new Set(messages.map((m) => m.senderId))];
     const consentMap = new Map<string, boolean>();
     const senderTenantMap = new Map<string, string>();
@@ -130,9 +198,7 @@ export class EmbeddingService implements OnModuleDestroy {
       consentMap.set(senderId, canAnalyze);
     }
 
-    const consentedMessages = messages.filter(
-      (m) => consentMap.get(m.senderId) ?? false,
-    );
+    const consentedMessages = messages.filter((m) => consentMap.get(m.senderId) ?? false);
 
     if (consentedMessages.length === 0) {
       this.logger.debug('No consented messages to embed in this batch');
@@ -174,20 +240,30 @@ export class EmbeddingService implements OnModuleDestroy {
       const embedding = response.embeddings[i];
       if (!embedding) continue;
 
+      // A SAVEPOINT per item, because the batch now shares one transaction.
+      // Without it a single failed write would poison the transaction and take
+      // every successful embedding in the batch down with it — the outcome
+      // MSG-MEDIUM-041 was written to prevent when each write was its own
+      // autocommit statement. The independence is kept; what changed is that
+      // it no longer costs the row lock.
+      const savepoint = `embed_${i}`;
       try {
+        await queryRunner.query(`SAVEPOINT ${savepoint}`);
         const vectorStr = `[${embedding.join(',')}]`;
-        await this.dataSource.query(
+        await queryRunner.query(
           `UPDATE "messages" SET "embedding" = $1::vector
            WHERE "id" = $2 AND "createdAt" = $3`,
           [vectorStr, consentedMessages[i]!.id, consentedMessages[i]!.createdAt],
         );
+        await queryRunner.query(`RELEASE SAVEPOINT ${savepoint}`);
         successCount++;
       } catch (err: unknown) {
         failCount++;
+        await queryRunner.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
         const errMsg = err instanceof Error ? err.message : String(err);
         this.logger.warn(
           `Embedding write failed for message ${consentedMessages[i]!.id}: ${errMsg}. ` +
-          'Will retry on next batch cycle.',
+            'Will retry on next batch cycle.',
         );
       }
     }

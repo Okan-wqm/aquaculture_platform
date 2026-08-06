@@ -8076,7 +8076,15 @@ This is the same class as ORPHAN-CRITICAL-573 — a non-HTTP entry point writing
 
 **Detectable in the meantime:** `tests/invariants/non-http-entrypoint-tenant-context.spec.ts` carries it as the one allowlist entry marked DEFECT rather than exemption, and the list can only shrink.
 
-**Owner:** claude. **Deadline:** next messaging Faz 3b slice. **Status:** OPEN.
+**FIXED in this PR, not deferred.** The sweep now enumerates `tenant_<16hex>` schemas and runs one transaction per schema with `pinTenantSchemaTransactionSearchPath` — the same shape `retention-policy.service.ts` already uses after it hit this first (MT-MEDIUM-054).
+
+A second defect surfaced while fixing the first: `FOR UPDATE OF m SKIP LOCKED` ran under `dataSource.query`, i.e. autocommit, so the row locks were released the instant the SELECT returned and two replicas could still claim the same rows and pay for the same embeddings twice. MSG-HIGH-039's protection had been void since it was written. The transaction is now held across the ai-service call, which is the only arrangement under which SKIP LOCKED means anything.
+
+That change would have broken MSG-MEDIUM-041 — one failed write must not take a whole batch of paid-for embeddings down with it — because a single error poisons a shared transaction. So each write-back sits between `SAVEPOINT` and `RELEASE SAVEPOINT`, with `ROLLBACK TO SAVEPOINT` on failure. Per-item independence kept; what changed is that it no longer costs the row lock.
+
+Seven tests pin all of it: pin-before-read ordering, every schema visited, the embedding call happening inside the transaction, savepoint isolation with the good row still landing, a tenant failure not stopping the sweep, and the consent gate still keyed by the row's own `tenantId`. Removing the pin turns five of them red.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
 
 ## ORPHAN-MEDIUM-586 — the tenant-context rule was auth-shaped; the platform half was missing — RESOLVED (this PR)
 

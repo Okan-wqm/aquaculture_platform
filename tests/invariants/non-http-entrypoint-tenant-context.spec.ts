@@ -105,10 +105,6 @@ const UNBOUND_ENTRYPOINT_ALLOWLIST = new Map<string, string>([
     'apps/messaging-service/src/event-handlers/messaging-admin-nats.handler.ts',
     'admin-plane commands operating on messaging.* cross-tenant tables; the per-tenant path is messaging-nats.handler.ts, which does route by schema',
   ],
-  [
-    'apps/messaging-service/src/ai/services/embedding.service.ts',
-    'DEFECT, NOT AN EXEMPTION — ORPHAN-HIGH-585. The five-minute cron selects `FROM "messages"` unqualified, so the per-tenant table is resolved by whatever search_path the pooled connection happens to carry. Its own comment cites MSG-HIGH-040 ("embedding writes to wrong schema"). Fixing it means giving the embedding pipeline the tenant-schema iteration the rest of messaging uses, which is the checkpointed Faz 3b work',
-  ],
 ]);
 
 function walkTs(dir: string, acc: string[] = []): string[] {

@@ -181,7 +181,8 @@
     "quality:format-scope:generate": "node tools/quality/quality.mjs format-scope generate",
     "quality:format-scope:check": "node tools/quality/quality.mjs format-scope check",
     "supervisor:test": "node --experimental-strip-types --test tools/supervisor/runtime-supervisor.spec.ts",
-    "supervisor:run": "node --experimental-strip-types tools/supervisor/runtime-supervisor.ts"
+    "supervisor:run": "node --experimental-strip-types tools/supervisor/runtime-supervisor.ts",
+    "watchdog:test": "node --test tools/watchdog/tenant-reality.spec.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.93.0",

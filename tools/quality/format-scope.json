@@ -45072,6 +45072,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/watchdog/tenant-reality.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/watchdog/tenant-reality.spec.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/worktree-audit/tsconfig.json",
       "prettier_managed": true
     },
@@ -56556,10 +56568,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9275,
+  "file_count": 9277,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9094,
-  "managed_file_list_sha256": "3e15777fb84d50f7f3cec44e6a43fbaf7bf2c0fb37f866f39040ef65ac6e10d6",
+  "managed_count": 9096,
+  "managed_file_list_sha256": "4ef6ab3589712c001b4102438bd72902d4a6552dfbb1d7e1bc402c11e999b7fa",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

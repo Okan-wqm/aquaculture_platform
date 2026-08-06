@@ -166,10 +166,16 @@ groups:
           description: 'Provisioning started and never finished. Half an hour is far past a healthy run, and a tenant left here becomes the CRITICAL above the moment anything flips its status to ACTIVE.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-reality-parity.md'
 
+      # Fires only once the series has been seen at least once in the last
+      # 24h and has then gone quiet. `absent()` alone would fire from the
+      # moment this file is first loaded and never clear, and a
+      # permanently-firing alert is a muted one - the safety net would be the
+      # first thing switched off.
       - alert: TenantRealityProbeStale
         expr: |
-          absent(probe_ok{probe_id="tenant_reality_parity"}) == 1
-        for: 1h
+          max_over_time(probe_ok{probe_id="tenant_reality_parity"}[24h])
+          and on() (time() - max(timestamp(probe_ok{probe_id="tenant_reality_parity"})) > 10800)
+        for: 30m
         labels:
           severity: high
           target_auditor: multi-tenant-saas-expert

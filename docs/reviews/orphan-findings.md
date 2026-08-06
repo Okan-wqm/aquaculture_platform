@@ -8000,3 +8000,24 @@ Nothing measured this. Provisioning exported zero metrics and had zero alert rul
 **Not in this slice.** The two missing schemas are not created here — that is a data-shaping act on production with migration-ledger and RLS consequences, and it remains ORPHAN-HIGH-570's question of why they were never created. The RLS defect that stopped the eight provisioning steps from starting is fixed on `fix/tenant-provisioning-receipt-rls` and is untouched here. The poll endpoint still discards per-step detail; this probe measures the outcome, not the progress, so that surface remains blind and is tracked as remaining work.
 
 **Owner:** claude (this session). **Status:** RESOLVED for detection; the two broken tenants remain OPEN under ORPHAN-HIGH-570.
+
+## ORPHAN-CRITICAL-578 — every alert rule shipped today was decorative: the metrics were never scraped, the probe's exit code was swallowed by a pipe, and the rules file is not in the deployed checkout — RESOLVED (code side; deploy side is operator's)
+
+**Discovered:** 2026-08-06 by an adversarial verifier reviewing my own W-B/W-C work, then confirmed firsthand against the running system. This is the same defect class those slices were built to close — a guarantee that does not run — reproduced by the person closing it.
+
+Four independent breaks, each sufficient on its own:
+
+1. **Exit code swallowed.** `.github/workflows/dataflow-integrity-watchdog.yml` ran `node probe-runner.mjs … | tee probe-evidence.json` and then read `$?` — which is `tee`'s status, not the probe's. Proven at the shell: `(exit 3) | tee /dev/null; echo $?` prints `0`. So `if: exit_code == '3'` never matched and the CRITICAL→ARIA bridge could not fire even once.
+2. **No metrics written.** The same step never passed `--textfile`, so the probe's `probe_ok` / `probe_finding_count` series were computed and discarded.
+3. **No collector to read them.** `aqua-node-exporter` runs with `--path.rootfs=/host` only — no `--collector.textfile.directory`, no mount. The T0 supervisor writes to `/var/lib/node_exporter/textfile/` too, so its metrics were equally unread.
+4. **Rules not deployed.** Prometheus mounts its rules from `/var/lib/aqua/deploy/checkout`, which is pinned at `7f1508dad` (2026-07-15) — **388 commits behind main**. `/etc/prometheus/rules/` holds four files dated 2026-06-28; `60-dataflow-integrity.yml` is absent and `/api/v1/rules` shows no group from it. Every rule added today — outbox stall, tenant isolation, cron heartbeat, supervisor, tenant reality — is dead on arrival in production.
+
+**Fix (this PR):** the pipe is gone and the status is captured directly; `--textfile` is passed and the resulting metrics are uploaded as an artefact so evidence survives even where the collector is not writable; node-exporter gains the textfile collector and the matching read-only mount in `docker-compose.droplet.yml`. `TenantRealityProbeStale` was rewritten — `absent()` alone would have fired from the first load and never cleared, and a permanently-firing alert is a muted one, so the safety net would have been the first thing switched off.
+
+**Also fixed here (found in the same review):** the probe counted a `PURGED`/`ARCHIVED`/`CANCELLED` tenant with no schema as unfinished provisioning. For those states the ABSENCE of a schema is correct and its PRESENCE is the defect — a completed GDPR erasure would have paged forever, and a schema outliving its purged tenant (data that should be gone, still on disk) went unnoticed. Both directions are now classified and tested.
+
+**Structural change, not a patch:** the classification lived inside a script that opens a database connection on import, so no test could reach it — an edit inverting the ACTIVE and retired branches would have stayed green. It now lives in `tools/watchdog/tenant-reality.mjs` beside the wire-format parser, with 10 tests (`npm run watchdog:test`). Live behaviour after the refactor is byte-identical: exit 3, `tenants=3 consistent=1 active-without-usable-schema=1 unprovisioned-pending=1`.
+
+**NOT fixed here, and it is the biggest one:** production runs a checkout 388 commits behind main under a deploy freeze. Until that lifts, none of today's work — including the tenant-provisioning fix — is real in production. That is an operator decision, not a code change, and it is stated rather than worked around.
+
+**Owner:** claude (this session). **Status:** RESOLVED (code); deploy gap open and owned by the operator.

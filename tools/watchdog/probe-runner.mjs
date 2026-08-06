@@ -12,6 +12,8 @@
  * CRITICAL finding (callers may ingest a runtime signal / dispatch a cycle).
  */
 import { execFileSync } from 'node:child_process';
+
+import { classifyTenantReality, parseTenantRealityRows } from './tenant-reality.mjs';
 import { writeFileSync } from 'node:fs';
 
 const args = Object.fromEntries(
@@ -147,35 +149,7 @@ await probe('tenant_reality_parity', 'multi-tenant-saas-expert', async () => {
     ['exec', 'aqua-postgres', 'psql', '-U', 'aquaculture', '-d', 'aquaculture', '-tAc', sql],
     { encoding: 'utf8', timeout: 20000 },
   );
-  const rows = raw
-    .trim()
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => line.split('|'));
-  let consistent = 0;
-  let activeWithoutUsableSchema = 0;
-  let unprovisionedPending = 0;
-  for (const [status, schemaExists, tableCount] of rows) {
-    if (schemaExists === 't' && Number(tableCount) > 0) {
-      consistent += 1;
-    } else if (status === 'ACTIVE') {
-      // The sinister half: the tenant is served as fully provisioned.
-      activeWithoutUsableSchema += 1;
-    } else {
-      // Declared not-yet-live and physically absent — provisioning stopped
-      // partway rather than lying about having finished.
-      unprovisionedPending += 1;
-    }
-  }
-  return {
-    ok: activeWithoutUsableSchema === 0 && unprovisionedPending === 0,
-    critical: activeWithoutUsableSchema > 0,
-    detail: `tenants=${rows.length} consistent=${consistent} active-without-usable-schema=${activeWithoutUsableSchema} unprovisioned-pending=${unprovisionedPending}`,
-    counts: {
-      active_without_usable_schema: activeWithoutUsableSchema,
-      unprovisioned_pending: unprovisionedPending,
-    },
-  };
+  return classifyTenantReality(parseTenantRealityRows(raw));
 });
 
 const criticals = results.filter((r) => r.critical);

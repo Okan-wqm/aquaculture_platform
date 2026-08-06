@@ -35,8 +35,10 @@ describe('UsageMeteringService canary exemption', () => {
   });
 
   afterEach(() => {
-    if (previous === undefined) delete process.env[CANARY_TENANT_IDS_ENV];
-    else process.env[CANARY_TENANT_IDS_ENV] = previous;
+    // Restore by assignment rather than `delete`: the lint rule is right
+    // that dynamic delete on an index signature is a footgun, and an empty
+    // value means the same thing to the registry as an absent one.
+    process.env[CANARY_TENANT_IDS_ENV] = previous ?? '';
   });
 
   function metrics(): UsageMeteringMetrics {

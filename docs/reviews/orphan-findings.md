@@ -8054,3 +8054,38 @@ Proven by deliberate breaks: a new service with no `logging` reddens all three a
 **Not fixed here:** the ~2.0 GB already on disk is not reclaimed by this change — rotation applies to new writes after the containers are recreated, and production deploys are locked (`PRODUCTION_DEPLOY_ENABLED=false`). Truncating the existing logs is an operator action against live diagnostic state and is deliberately left out of a code change.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-417`, `ORPHAN-HIGH-563`, `INFRA-MEDIUM-057`.
+
+## ORPHAN-HIGH-585 — the messaging embedding cron reads a per-tenant table with no schema bound — OPEN
+
+**Discovered:** 2026-08-06, generalising the tenant-context rule platform-wide (Faz 8).
+
+`apps/messaging-service/src/ai/services/embedding.service.ts` runs every five minutes and starts with:
+
+    SELECT m."id", ..., m."tenantId"
+      FROM "messages" m
+     WHERE m."embedding" IS NULL ...
+     FOR UPDATE OF m SKIP LOCKED
+
+`messages` is a per-tenant table — messaging-service omits `schema:` so search*path routes it into `tenant*<uuid>`at runtime. A`@Cron`has no HTTP request behind it, so no middleware seeds the AsyncLocalStorage frame, so the pool-checkout patch sets nothing, and the unqualified table name resolves against whatever`search_path` the pooled connection happens to be carrying. Which tenant's messages this batch embeds is decided by whoever used that connection last.
+
+The file knows: its own comment cites `MSG-HIGH-040 (embedding writes to wrong schema)` and it carefully carries `m."tenantId"` through the consent gate afterwards. The row-level care is real; the binding underneath it is missing.
+
+This is the same class as ORPHAN-CRITICAL-573 — a non-HTTP entry point writing tenant data with no tenant established — reached from the opposite direction. There it was RLS refusing the write; here nothing refuses anything, which is worse.
+
+**Not fixed here, and the reason is not scheduling:** the fix is to give the embedding pipeline the tenant-schema iteration the rest of messaging-service already uses (`listTenantSchemas` + per-schema passes), which changes batching, locking and the consent gate's shape at once. That is the checkpointed Faz 3b work, and it deserves its own PR with its own proof rather than being appended to an invariant.
+
+**Detectable in the meantime:** `tests/invariants/non-http-entrypoint-tenant-context.spec.ts` carries it as the one allowlist entry marked DEFECT rather than exemption, and the list can only shrink.
+
+**Owner:** claude. **Deadline:** next messaging Faz 3b slice. **Status:** OPEN.
+
+## ORPHAN-MEDIUM-586 — the tenant-context rule was auth-shaped; the platform half was missing — RESOLVED (this PR)
+
+`auth-tenant-context-ssot.spec.ts` (ORPHAN-CRITICAL-573) closed the auth tenant module and stated its own limits: entry points elsewhere, and entry points that delegate. Nothing covered the other seven tenant-scoped services, where the same shape — a NATS handler or a cron writing tenant data with nothing bound — was as compilable as it had been in auth.
+
+**Measured first, then written.** Across the eight tenant-scoped services there are 19 entry-point files that write. Thirteen already establish context; six do not, and each of the six was read individually rather than swept into a list: four write cross-tenant infrastructure tables (auth's audit ledger, `auth.tenants` which is on the RLS exclusion list by design, messaging's idempotency ledger, messaging's admin plane), one is the NATS handler that delegates to the now-bound receipt transaction, and one is a real defect (ORPHAN-HIGH-585).
+
+**The design decision that matters:** the spec recognises **two** sanctioned mechanisms, not one. AsyncLocalStorage binding (`withTenantContext` and friends) is the obvious one; explicit tenant-schema iteration (`listTenantSchemas` + `search_path`) is the other, and it is what a cron with no single tenant to bind must use — `hr-service`'s monthly leave accrual is the reference. A first draft that knew only the first mechanism judged forty files wrong. That draft was thrown away rather than shipped with a forty-entry allowlist, which would have been a rubber stamp wearing an invariant's clothes.
+
+Four assertions keep the list from rotting: nothing unexplained, no entry that has since gained a mechanism, no entry pointing at a vanished file, and no exemption without a stated reason. Proven by deliberate break in both directions.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

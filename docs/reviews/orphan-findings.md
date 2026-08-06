@@ -7947,3 +7947,44 @@ Worth naming beyond the one font: an offline-first PWA that reaches for a CDN at
 **Fix (this PR):** Geist and Geist Mono are self-hosted under `web/apps/aquamobil/public/fonts/` (96 KB total; variable weight 400–700, latin + latin-ext so Turkish glyphs resolve, since the app's default locale is `tr`) and declared with `@font-face` in `src/styles/tokens.css`. They land in `dist/fonts/` and appear in the service worker's precache manifest, so the type survives offline. `design-token.invariant.spec.ts` now fails the build on any `@import url(https://…)` or `fonts.googleapis.com` / `fonts.gstatic.com` reference in the app's CSS or `index.html`, so the CDN cannot come back.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-573 — AquaMobil has no shared UI primitives, so every screen re-derives the same surface and occasionally gets it wrong — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while planning the v4 redesign; the audit of `web/apps/aquamobil/src/components/` found the gap rather than any single bug report.
+
+The app ships 91 `.tsx` files and ~23k lines of UI, and `src/components/ui/` contained exactly one primitive: `IconButton`. There was **no** shared Button, Card, Modal/Sheet, EmptyState or Skeleton. Consequences visible in the tree before this PR:
+
+- **Cards** were an inline six-class incantation — background, rounded corner, card shadow and hairline border, each with its own theme variant — repeated across dozens of files and drifting slightly in each.
+- **Buttons** were raw `<button>` elements carrying gradient class strings, each re-deciding its own height. That is the mechanism by which sub-44px tap targets entered: `IconButton`'s own header cites the 28px VoicePlayer speed toggle as the case that prompted it.
+- **Overlays** were hand-rolled three times (`InstallPrompt`, `AccountPage`'s inline confirm, `messaging/ConfirmDialog`) and **none of them trapped focus or restored it to the opener**, so a keyboard or screen-reader user was dropped at the top of the page after every dialog.
+- **Empty states and skeletons** were per-page (`ChannelListSkeleton`, `ChecklistSkeleton`, `MetricSkeleton`), and several lists rendered _nothing_ when empty — indistinguishable from a failed fetch, which on intermittent boat signal is the difference between "no alarms" and "we could not load alarms".
+
+This is a Tier-2 gap: the correct surface was available to anyone willing to copy it correctly, and nothing made it the default.
+
+**Fix (this PR):** thirteen primitives under `web/apps/aquamobil/src/components/ui/`, exported from one barrel — Button, Card, Chip, SegmentedControl, ListRow, StatTile, SparkBars, CapacityMeter, TypeTile, Sheet, NumPad, HoldToConfirm, EmptyState, Skeleton. All are token-only and density-aware. `Sheet` owns the modal contract the three hand-rolled overlays each got wrong (Escape, focus enter/return, Tab wrap, scroll lock, keyboard-operable scrim) and its spec pins all five. `EmptyState` carries a distinct `error` tone so "nothing here" and "could not load" can no longer render identically.
+
+**Owner:** claude (this session). **Status:** RESOLVED (primitives landed; adoption across pages is the following phases' work, tracked by the ratchets in `design-token.invariant.spec.ts`).
+
+## ORPHAN-LOW-574 — the v4 log-type palette misses two soft checks in the categorical validator — ACCEPTED AS DESIGNED
+
+**Discovered:** 2026-08-06, by running the six-check categorical palette validator over the six log-type hues in both themes, rather than eyeballing them.
+
+Results (adjacent-pair, OKLab ×100):
+
+| Check                     | Night (surface `#111c2e`)                              | Day (surface `#ffffff`)           |
+| ------------------------- | ------------------------------------------------------ | --------------------------------- |
+| CVD separation (floor 8)  | **PASS** 15.7 deutan · 12.1 tritan                     | **PASS** 14.7 protan · 7.9 tritan |
+| Normal-vision floor (15)  | **PASS** 25.4                                          | **PASS** 23.8                     |
+| Contrast vs surface (3:1) | **PASS** all six                                       | **PASS** all six                  |
+| Chroma floor (0.10)       | PASS                                                   | **FAIL** teal `#0e7c86` at 0.089  |
+| Lightness band            | **FAIL** span 0.691–0.803, amber `#e5b84e` the outlier | PASS                              |
+
+Every check that governs whether two types can be **told apart** passes in both themes. The two failures are uniformity preferences: the day teal reads very slightly grey, and the night amber is lighter than its neighbours.
+
+**Why this is accepted rather than repainted:** these are the approved design's own values, and the amber/coral/green hues are deliberately shared with the status vocabulary (amber watches, coral alarms) because in this domain a mortality _is_ the serious event and a cull _is_ the watch-level one — the overlap carries meaning. Repainting them to satisfy a lightness-band check would break that.
+
+**What was done instead:** the risk the checks are proxies for — identity conveyed by colour alone — is closed structurally. `TypeTile` requires a `label` and always renders it, and `StatTile` types `state` and `caption` as a discriminated union so a value cannot turn amber or coral without the text naming the threshold it crossed. A colourblind worker reads the word regardless of the hue.
+
+**Revisit if:** the palette is ever reused for a chart series where marks are not directly labelled (the reports charts in a later phase) — direct labels or texture become mandatory there.
+
+**Owner:** claude (this session). **Status:** ACCEPTED AS DESIGNED (mitigation is structural, above).

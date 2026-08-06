@@ -45395,13 +45395,115 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/__tests__/HoldToConfirm.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/ui/__tests__/IconButton.spec.tsx",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/__tests__/Sheet.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/Button.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/CapacityMeter.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/Card.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/Chip.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/EmptyState.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/HoldToConfirm.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/ui/IconButton.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/ListRow.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/NumPad.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/SegmentedControl.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/Sheet.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/Skeleton.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/SparkBars.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/StatTile.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/TypeTile.tsx",
       "prettier_managed": true
     },
     {
@@ -56466,10 +56568,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9260,
+  "file_count": 9277,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9079,
-  "managed_file_list_sha256": "c95a138e7cd8a1c56051effe57aedc159be59f85d7c33a89825edee32af33c29",
+  "managed_count": 9096,
+  "managed_file_list_sha256": "115303505a273c34ed27fdcf74108478cd0a83c25f24370afd5c2b70a5e95756",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

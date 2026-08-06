@@ -34687,6 +34687,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/runbooks/monitoring/alert-delivery.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/monitoring/critical-error-rate.md",
       "prettier_managed": true
     },
@@ -44323,6 +44329,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/agent-dispatch-gate.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/alertmanager-render.spec.ts",
       "prettier_managed": true
     },
     {
@@ -56586,10 +56598,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9280,
+  "file_count": 9282,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9099,
-  "managed_file_list_sha256": "7231a5a707c43d302d78f272872a6634f35c83641e4e715b044d3ff1da057138",
+  "managed_count": 9101,
+  "managed_file_list_sha256": "f063d731c45a2f151e7226ff2bd5f8b91f4995baf7dc17f235a42eef07602e0a",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -1362,6 +1362,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to a JSON wake_condition object ({kind, key, not_before?}).",
     )
     mission_transition.add_argument("--evidence-ref", action="append", default=None)
+    # Wave 2 PR 1.6 — the scheduler. `--dry-run` reads the decision WITHOUT
+    # recording it, because an operator asking "what would you pick?" must not
+    # thereby write a decision into the governance ledger.
+    mission_next = add_subparser(
+        mission_sub, "next",
+        help="Select the mission that gets the WIP slot, and say why the others did not.",
+    )
+    mission_next.add_argument("--dry-run", action="store_true")
     mission_bind = add_subparser(mission_sub, "bind")
     mission_bind.add_argument("--mission-id", required=True)
     mission_bind.add_argument("--step-id", required=True)
@@ -2544,6 +2552,13 @@ def _main(argv: list[str] | None = None) -> int:
         # as though recovery finished: the operator has more to do.
         if result.get("breaker_state_after") == "tripped":
             return 1
+        return 0
+
+    if args.command == "mission" and args.mission_command == "next":
+        from .mission_scheduler import select_next_mission
+
+        decision = select_next_mission(base_dir=args.tools_dir, record=not args.dry_run)
+        print(json.dumps(decision.as_event(), indent=2, sort_keys=True))
         return 0
 
     if args.command == "state":

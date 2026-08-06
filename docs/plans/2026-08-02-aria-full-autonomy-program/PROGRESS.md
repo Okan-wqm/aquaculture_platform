@@ -2,6 +2,58 @@
 
 Program plan: [`PLAN.md`](./PLAN.md). Newest entries first.
 
+## 2026-08-06 — the defect class the programme kept meeting, named twice
+
+Two shapes were closed this day, and they are worth recording together because
+each was first met as a single bug and only became tractable once it was asked
+mechanically.
+
+**"Correct, tested, exported — and called by nobody."** `ORPHAN-CRITICAL-498`,
+`ORPHAN-HIGH-569`, `ORPHAN-MEDIUM-571` and `ORPHAN-MEDIUM-572` are one defect
+wearing four names, and every instance was found by a human noticing. Measured:
+of 85 public control-verb callables in `aria_kernel`, **18 were referenced by no
+production module at all**. The worst was `verify_no_secret_in_envelope`, whose
+own docstring calls it a hard-fail check on the agent-response envelope —
+exported, tested, absent from `HARD_FAIL_CHECKS`, called by nothing, while its
+sibling scanning diffs _was_ wired. `ORPHAN-HIGH-573` makes it a test failure
+(#1110).
+
+**"Committing inside an unguarded loop."** `ORPHAN-HIGH-575` was found by reading
+a traceback: one `TypeError` on the repository's most ordinary commit shape —
+code plus its own review document — escaped the loop over every pending dispatch
+and disabled impact-graph computation for a whole cycle. Fixing the `TypeError`
+removed the instance. Asking mechanically removed the assumption: **12 of the 16
+cycle learning hooks, across 7 modules**, commit as they iterate, so item _k_
+raising leaves items 1.._k_-1 on disk, skips _k_+1.._n_, and collapses the report
+to one wholesale failure. `ORPHAN-HIGH-578` closes it (#1121).
+
+**What the two have in common is the lesson.** A green suite is no evidence
+against either, because the tests call the thing directly — that is precisely how
+it stays green while governing nothing. Both cures are the same mechanism reused
+rather than reinvented: enumerate what should hold, derive the roster instead of
+listing it, require a declared waiver with an expiry compared **to the clock**,
+and give the gate a positive control so "found nothing" can be told apart from
+"cannot see". Both gates were caught being wrong in exactly that way before they
+shipped — one counted an `import` as a use; the other stayed green when its scan
+was blinded.
+
+**Honest limits, recorded so a green gate is not read as more than it is.**
+`control_reachability` asks whether a control is _called_, not whether its
+refusal branch is _reachable_ — `ORPHAN-HIGH-577` is the live counter-example and
+stays OPEN pending an operator policy decision, because a check that cannot
+refuse is false assurance and both honest fixes need intent this session does not
+have. `batch_containment` makes containment the zero-effort default, not a
+structural impossibility, and its gate covers the 16 cycle learning hooks only;
+the same shape elsewhere in the kernel is unmeasured.
+
+**Also measured, correcting two of my own earlier claims.** ARIA does not
+autonomously merge today: the nightly runs `--profile standard`, which selects
+`NoOpAutoMergeRunner`; real merging needs `strict` or `autonomous`, which the
+scheduled lane never uses. And `evaluate_v9_implementation_merge`'s hardcoded
+`eligible=False` is not a defect but a deliberately demoted fail-closed surface,
+with `auto_merge.merge_if_green` as the only real executor. `ORPHAN-MEDIUM-562`
+is therefore an operator/ladder decision, not a code fix.
+
 ## 2026-08-04 — Wave 1 PR 2.6b: the lane cutover (written, not yet exercised)
 
 Merged as `249a5e940` (#1073). Both scheduled lanes now restore from and publish

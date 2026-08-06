@@ -1,5 +1,6 @@
 import * as crypto from 'crypto';
 
+import { bindTenantRlsContext } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import {
   USER_TOKEN_REVOCATION,
@@ -947,9 +948,7 @@ export class TenantProvisioningCommandService {
       // Third argument `true` makes the setting transaction-local, so a pooled
       // connection cannot carry this tenant into the next caller's query -
       // the failure mode that makes a bypass here unacceptable.
-      await manager.query(`SELECT set_config('app.current_tenant', $1, true)`, [
-        command.tenantId,
-      ]);
+      await bindTenantRlsContext(manager, command.tenantId, 'auth');
 
       const receiptRowsRaw: unknown = await manager.query(
         `SELECT "payloadHash", status, "entityId", "resultSummary"

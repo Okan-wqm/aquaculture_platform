@@ -78,6 +78,16 @@ function sqlOf(calls: unknown[][]): string[] {
   return calls.map(([sql]) => String(sql));
 }
 
+/** The binding is `set_config($1, $2, true)` with the GUC name as a parameter. */
+function tenantGucCall(calls: unknown[][]): unknown[] | undefined {
+  return calls.find(
+    ([sql, params]) =>
+      String(sql).includes('set_config') &&
+      Array.isArray(params) &&
+      params.includes('app.current_tenant'),
+  );
+}
+
 describe('tenant command receipts run under an RLS tenant context', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -90,7 +100,12 @@ describe('tenant command receipts run under an RLS tenant context', () => {
     await service.suspendTenant(command);
 
     const statements = sqlOf(manager.query.mock.calls);
-    const gucIndex = statements.findIndex((sql) => sql.includes("set_config('app.current_tenant'"));
+    const gucIndex = manager.query.mock.calls.findIndex(
+      ([sql, params]) =>
+        String(sql).includes('set_config') &&
+        Array.isArray(params) &&
+        params.includes('app.current_tenant'),
+    );
     const receiptIndex = statements.findIndex((sql) =>
       sql.includes('auth.tenant_command_receipts'),
     );
@@ -108,11 +123,44 @@ describe('tenant command receipts run under an RLS tenant context', () => {
 
     await service.suspendTenant(command);
 
-    const gucCall = manager.query.mock.calls.find(([sql]) =>
-      String(sql).includes("set_config('app.current_tenant'"),
+    const gucCall = tenantGucCall(manager.query.mock.calls);
+
+    expect(gucCall?.[1]).toEqual(['app.current_tenant', TENANT_ID]);
+  });
+
+  it('forces bypass off in the same breath', async () => {
+    // Binding the tenant while leaving a stale `app.bypass_rls=on` from a
+    // previous audited path would satisfy the policy for EVERY row, which is
+    // worse than the refusal being fixed.
+    const manager = createManager();
+    const service = createService(manager);
+
+    await service.suspendTenant(command);
+
+    const bypassCall = manager.query.mock.calls.find(
+      ([sql, params]) =>
+        String(sql).includes('set_config') &&
+        Array.isArray(params) &&
+        params.includes('app.bypass_rls'),
     );
 
-    expect(gucCall?.[1]).toEqual([TENANT_ID]);
+    expect(bypassCall).toBeDefined();
+    expect(String(bypassCall?.[0])).toContain("'off', true");
+  });
+
+  it('reads the settings back instead of trusting them', async () => {
+    // A GUC that silently failed to apply produced an RLS refusal naming a
+    // table and not a cause - which is why this stayed unexplained for months.
+    const manager = createManager();
+    const service = createService(manager);
+
+    await service.suspendTenant(command);
+
+    const readback = manager.query.mock.calls.find(([sql]) =>
+      String(sql).includes('current_setting'),
+    );
+
+    expect(readback).toBeDefined();
   });
 
   it('keeps the setting transaction-local so a pooled connection cannot carry it', async () => {
@@ -121,13 +169,11 @@ describe('tenant command receipts run under an RLS tenant context', () => {
 
     await service.suspendTenant(command);
 
-    const gucCall = manager.query.mock.calls.find(([sql]) =>
-      String(sql).includes("set_config('app.current_tenant'"),
-    );
+    const gucCall = tenantGucCall(manager.query.mock.calls);
 
     // Third argument `true` = local to the transaction. Without it the tenant
     // outlives the work on a pooled connection, which is a cross-tenant read
     // waiting to happen - strictly worse than the bug being fixed.
-    expect(String(gucCall?.[0])).toContain('$1, true');
+    expect(String(gucCall?.[0])).toContain('$2, true');
   });
 });

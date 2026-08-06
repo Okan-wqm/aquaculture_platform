@@ -7996,3 +7996,17 @@ Per-tenant tables live only in tenant schemas, so a tenant without one cannot ho
 **Not fixed here, deliberately:** the two tenants already stuck in `PENDING` (ORPHAN-HIGH-570). With provisioning working again they can be retried through the documented `retryProvisioning` action rather than hand-built schemas, but that is a production data act for the operator to trigger and watch, not a side effect of a code fix.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-CRITICAL-574 — auth-service was the one tenant-writing service with no execution context, so every NATS lifecycle command ran with an empty RLS GUC — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, root-causing ORPHAN-CRITICAL-573 rather than stopping at its symptom. Verified firsthand: an exhaustive search of `apps/auth-service/src/modules/tenant/**` and `apps/admin-api-service/src/tenant/**` for `set_config` / `withTenantContext` / `runInTenant*` returns exactly ONE hit (`tenant-provisioning-command.service.ts:795`, a refresh-token update). Everything else depended on the pool-checkout patch (`rls-connection-bootstrap.service.ts:96`), which is fed from AsyncLocalStorage seeded ONLY by HTTP middleware (`auth-service/src/app.module.ts:445-462`).
+
+Every tenant lifecycle command arrives over NATS (`auth-admin-nats.handler.ts:507-695`). No HTTP frame means no context, means `app.current_tenant = ''`, means the RLS predicate fails closed on every RLS-armed `auth` table — `tenant_command_receipts`, `tenant_roles`, `tenant_modules`, `invitations`, `action_tokens`. ORPHAN-CRITICAL-573 fixed the first of those by binding the GUC inside one transaction; this finding is the reason that fix alone would have been a patch. auth-service also does not register `TenantExecutionContextModule`, and the invariant that would have caught it (`tenant-execution-context-registered.spec.ts:41-44`) exempts auth **by construction**.
+
+**Fix (this PR):** the shared `TenantExecutionContextInterceptor` gains an RPC arm that reads `tenantId` from the message payload, and auth-service registers `TenantExecutionContextModule`. A new message handler therefore cannot forget to bind context — which is the difference between this and wrapping twelve handlers by hand. Payload-sourced identity is acceptable at this boundary specifically because NATS identity is the mTLS certificate CN (ADR-015), so the sender is authenticated before the payload is read, and because the value only ever NARROWS access: absent or malformed leaves the context unset, which is fail-closed.
+
+The receipt binding now goes through `bindTenantRlsContext`, extracted from `assertTenantTransactionContext`. The full assertion was the wrong tool — it also demands `current_schema()` be the tenant schema, while auth writes land in the source schema and, during provisioning, the tenant schema does not exist yet. The extracted primitive sets both GUCs transaction-locally and **reads them back**, so a setting that silently failed to apply becomes a named `TenantContextError` instead of an RLS refusal that names a table and not a cause.
+
+**A fixture that was never real:** `tenant-lifecycle-suspension.spec.ts` passed `tenantId: 'tenant-1'`. `auth.tenants.id` is a uuid column and the policy casts the GUC to uuid, so that value could never have reached this code in production. The new validation refused it; the fixture was corrected rather than the guard relaxed.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).

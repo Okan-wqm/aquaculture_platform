@@ -44916,6 +44916,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/supervisor/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/testing/tsconfig.json",
       "prettier_managed": true
     },
@@ -56490,10 +56496,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9264,
+  "file_count": 9265,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9083,
-  "managed_file_list_sha256": "1eb60c34edd50439586d1ef74ce190cf10690f41fd6206eeed08cd6f809761b7",
+  "managed_count": 9084,
+  "managed_file_list_sha256": "caa5de1d14f4019872606b391440e7c5517dee11be1a0948cd03df5bc1e7a1cf",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

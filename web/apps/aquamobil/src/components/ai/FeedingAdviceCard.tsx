@@ -21,6 +21,8 @@
 import { MessageCircle } from 'lucide-react';
 import type { ReactElement } from 'react';
 
+import { AdvisoryChip, Approx } from './AdvisoryChip';
+
 import { Card, Skeleton } from '@/components/ui';
 import { useFeedingAdvice } from '@/hooks/useAiInsights';
 
@@ -45,7 +47,10 @@ export function FeedingAdviceCard({ tankId }: FeedingAdviceCardProps): ReactElem
     <section className="flex flex-col gap-2">
       <div className="flex items-center gap-2 px-1">
         <MessageCircle size={14} className="text-acc" />
-        <h2 className="text-body font-semibold text-ink-3">AI Feeding Advice</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-body font-semibold text-ink-3">AI Feeding Advice</h2>
+          <AdvisoryChip />
+        </div>
       </div>
 
       <Card className="p-4">
@@ -54,6 +59,7 @@ export function FeedingAdviceCard({ tankId }: FeedingAdviceCardProps): ReactElem
         <div className="grid grid-cols-3 gap-3 mb-3">
           <div className="text-center">
             <div className="text-head font-mono font-bold text-ink-1 tabular-nums">
+              <Approx />
               {advice.recommendedAmount.toFixed(1)}
             </div>
             <div className="text-meta text-ink-3 font-semibold">kg/feeding</div>

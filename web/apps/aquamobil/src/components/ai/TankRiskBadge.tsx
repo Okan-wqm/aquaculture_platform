@@ -25,6 +25,8 @@ import { clsx } from 'clsx';
 import { AlertTriangle, ChevronRight } from 'lucide-react';
 import type { ReactElement } from 'react';
 
+import { AdvisoryChip, Approx } from './AdvisoryChip';
+
 import { Card, Skeleton, StatusDot } from '@/components/ui';
 import { useTankRiskAssessment } from '@/hooks/useAiInsights';
 
@@ -70,7 +72,10 @@ export function TankRiskBadge({ tankId }: TankRiskBadgeProps): ReactElement | nu
           "AI" word that marks everything below it as advisory. */}
       <div className="flex items-center gap-2 px-1">
         <AlertTriangle size={14} className="text-acc" />
-        <h2 className="text-body font-semibold text-ink-3">AI Risk Assessment</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-body font-semibold text-ink-3">AI Risk Assessment</h2>
+          <AdvisoryChip />
+        </div>
       </div>
 
       <Card className={clsx('p-4', tone.border)}>
@@ -81,6 +86,10 @@ export function TankRiskBadge({ tankId }: TankRiskBadgeProps): ReactElement | nu
             <span className={clsx('text-title font-semibold', tone.text)}>{risk.riskLevel}</span>
           </div>
           <span className={clsx('text-display font-mono font-bold tabular-nums', tone.text)}>
+            {/* ORPHAN-MEDIUM-589: a model's score, not a reading. The tilde
+                travels with the number so it survives being screenshotted or
+                read aloud away from the card's Advisory chip. */}
+            <Approx />
             {risk.riskScore}
             <span className="text-meta font-medium text-ink-3 ml-0.5 font-sans">/100</span>
           </span>

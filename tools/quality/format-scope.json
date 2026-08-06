@@ -45167,7 +45167,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/apps/aquamobil/scripts/patch-konsta.cjs",
+      "path": "web/apps/aquamobil/src/__tests__/advisory-marking.invariant.spec.ts",
       "prettier_managed": true
     },
     {
@@ -45240,6 +45240,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/components/__tests__/VirtualList.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ai/AdvisoryChip.tsx",
       "prettier_managed": true
     },
     {
@@ -56778,10 +56784,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9312,
+  "file_count": 9313,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9131,
-  "managed_file_list_sha256": "3ca076d93eaee6843b5ec816205e690beb8dd4cdac72845758ab6d60684edba0",
+  "managed_count": 9132,
+  "managed_file_list_sha256": "da7952d207def5876cce76def4ec7a6cd658b727601115397cc26ec369fbfb35",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

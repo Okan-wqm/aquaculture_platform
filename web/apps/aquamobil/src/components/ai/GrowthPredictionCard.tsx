@@ -23,6 +23,8 @@ import { clsx } from 'clsx';
 import { Activity, ArrowRight } from 'lucide-react';
 import type { ReactElement } from 'react';
 
+import { AdvisoryChip, Approx } from './AdvisoryChip';
+
 import { Card, Skeleton } from '@/components/ui';
 import { useBatchGrowthPrediction } from '@/hooks/useAiInsights';
 
@@ -60,7 +62,10 @@ export function GrowthPredictionCard({ batchId }: GrowthPredictionCardProps): Re
     <section className="flex flex-col gap-2">
       <div className="flex items-center gap-2 px-1">
         <Activity size={14} className="text-acc" />
-        <h2 className="text-body font-semibold text-ink-3">30-Day Growth Prediction</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-body font-semibold text-ink-3">30-Day Growth Prediction</h2>
+          <AdvisoryChip />
+        </div>
       </div>
 
       <Card className="p-4">
@@ -69,7 +74,10 @@ export function GrowthPredictionCard({ batchId }: GrowthPredictionCardProps): Re
         <div className="flex items-center justify-between mb-4">
           <div className="text-center">
             <div className="text-meta text-ink-3 font-medium mb-1">Current</div>
+            {/* ORPHAN-MEDIUM-589: predicted, not measured — the tilde travels
+                with the number, away from the card's Advisory chip. */}
             <div className="text-head font-mono font-bold text-ink-2 tabular-nums">
+              <Approx />
               {prediction.currentAvgWeight.toFixed(0)}
               <span className="text-meta text-ink-3 font-medium font-sans ml-0.5">g</span>
             </div>

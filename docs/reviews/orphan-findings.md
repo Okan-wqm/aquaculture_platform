@@ -8355,7 +8355,7 @@ Four ratchets fall with it: `dark:` 1254→1049, legacy palettes 285→185, stoc
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
 
-## ORPHAN-MEDIUM-589 — the AI cards' only "this is advisory" signal was their colour, and v4 has no colour to spare for it — OPEN
+## ORPHAN-MEDIUM-589 — the AI cards' only "this is advisory" signal was their colour, and v4 has no colour to spare for it — RESOLVED (this PR)
 
 **Discovered:** 2026-08-06, during the v4 conversion of the four AI cards.
 
@@ -8367,7 +8367,13 @@ What now carries the signal is wording that already existed: "AI Insights", "AI 
 
 **What it needs:** one explicit, non-colour advisory marker applied consistently across all four cards — a `~` before predicted numerals, an "Advisory" chip, or both. That is a content decision affecting what the worker reads, so it is deliberately not being invented mid-conversion.
 
-**Owner:** claude (this session). **Status:** OPEN — needs an operator decision on the marker, then one consistent application.
+**Fix (this PR):** the operator chose both markers, and both are applied to all four cards. `<AdvisoryChip/>` labels the card; `<Approx/>` puts the design's own `~` in front of every predicted numeral, so a number screenshotted or read aloud away from its card still carries its own caveat.
+
+Deliberately **not colour**: a colourblind worker must read the same thing everyone else does. The chip is a word on a neutral surface, and the invariant asserts it never leans on the accent or a status hue.
+
+`src/__tests__/advisory-marking.invariant.spec.ts` makes this a BAN rather than a ratchet — all four comply today, so a fifth AI card added without marking fails the build rather than shipping an estimate that looks like a measurement. It also fails loudly if the directory is restructured, so it cannot start guarding nothing. Proven by deliberate break: removing one chip turns it red.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
 
 ## ORPHAN-MEDIUM-590 — the regulator-submission review page renders a blank screen when its query fails — RESOLVED (this PR)
 
@@ -8477,5 +8483,24 @@ All four proven by deliberate break: one line reintroducing a `dark:` and an `oc
 **A seventh instance of the failed-fetch defect was found and fixed during this work** — `useTodaysDayPlans` destroyed its error arm, so the feeding page rendered "no plans today" on an outage. Fixed at the hook, the same layer as ORPHAN-MEDIUM-592. Notably the page deliberately does NOT route through `<DataState>`: FE-MEDIUM-054 requires the last-synced plan to render _while_ the query is failing, which is the exception `loadable.ts` documents in its own header. The error arm is split by hand and rendered with the same components `DataState` uses, so the two states still cannot be confused.
 
 **Also worth recording:** the build got faster without Konsta — 18.4s to 12.6s.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-LOW-597 — the Konsta dependency, its postinstall patch and its duplicate in the Dockerfile outlived the last import — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, immediately after the last page came off Konsta.
+
+Removing the components is not removing the dependency. Four things survived the last import:
+
+- `konsta` in `web/apps/aquamobil/package.json`
+- a `postinstall` running `scripts/patch-konsta.cjs`, which existed only to inject a root `"."` export into Konsta's own `package.json` so Vite could resolve it
+- a **hand-rolled duplicate of that same patch** in `infrastructure/docker/Dockerfile.aquamobil`, needed because the image builds with `npm ci --ignore-scripts` and therefore skipped the postinstall
+- `optimizeDeps.include: ['konsta/react']` in `vite.config.ts`
+
+The Dockerfile copy is the interesting one: a build step patching a third-party package's manifest at image-build time, duplicated from a script that ran at install time, kept in step by nothing. It worked, and it was one upstream change away from not working.
+
+All four are gone. `package.json` no longer has a `postinstall` at all, which also means the image no longer needs `--ignore-scripts` to be reasoned about for this app.
+
+**Measured side effect:** the production build went 18.4s → 14.2s, and the app dropped a runtime dependency that wrapped every screen.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).

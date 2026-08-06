@@ -25,6 +25,8 @@ import { clsx } from 'clsx';
 import { Brain, MessageCircle } from 'lucide-react';
 import type { ReactElement } from 'react';
 
+import { AdvisoryChip, Approx } from './AdvisoryChip';
+
 import { Card, CardDivider, EmptyState, Skeleton } from '@/components/ui';
 import { useAiDashboardInsights } from '@/hooks/useAiInsights';
 
@@ -95,6 +97,7 @@ function RiskGauge({ score }: { score: number }): ReactElement {
       {/* WHY: Centered score number inside the ring — the most prominent element on the card */}
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className={clsx('text-display font-mono font-bold tabular-nums', tone.text)}>
+          <Approx />
           {score}
         </span>
         <span className="text-meta font-semibold text-ink-3">Risk</span>
@@ -130,6 +133,7 @@ function InsightsHeader({ trailing }: { trailing?: ReactElement }): ReactElement
       <div className="flex items-center gap-2">
         <Brain size={16} className="text-acc" aria-hidden />
         <h3 className="text-title font-semibold text-ink-1">AI Insights</h3>
+        <AdvisoryChip />
       </div>
       {trailing}
     </div>

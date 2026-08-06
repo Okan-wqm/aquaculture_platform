@@ -957,6 +957,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/manifests/dr-activation.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/manifests/main-required-status-checks.json",
       "prettier_managed": true
     },
@@ -6562,6 +6568,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/modules/metering/__tests__/usage-aggregator.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/modules/metering/__tests__/usage-metering.canary.spec.ts",
       "prettier_managed": true
     },
     {
@@ -33361,6 +33373,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-06-project-graph-blind-spot.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-06-twin-cycle-wiring.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -34718,6 +34742,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/runbooks/monitoring/monitoring-target-down.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/runbooks/monitoring/runtime-supervisor.md",
       "prettier_managed": true
     },
     {
@@ -36424,6 +36454,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/billing/__tests__/canary-tenant.registry.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/billing/__tests__/dynamic-stripe-client.provider.spec.ts",
       "prettier_managed": true
     },
@@ -36431,6 +36467,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/billing/__tests__/stripe-api.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/billing/canary-tenant.registry.ts",
       "prettier_managed": true
     },
     {
@@ -42810,6 +42852,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/dr-activation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/drift-repair-naming.spec.ts",
       "prettier_managed": true
     },
@@ -44929,6 +44977,30 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/scripts/utilities/seed-test-data.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/supervisor/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/supervisor/runtime-supervisor.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/supervisor/runtime-supervisor.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/supervisor/tsconfig.json",
       "prettier_managed": true
     },
     {
@@ -56508,10 +56580,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9267,
+  "file_count": 9279,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9086,
-  "managed_file_list_sha256": "f33235fa0a0926d52fbf361c85e49fa5ac1db9ec3b1c4728dec0142a265d44c1",
+  "managed_count": 9098,
+  "managed_file_list_sha256": "e8c48b469e68405438caa1f95e719def8720f61bf923227f312d52528d3b7728",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

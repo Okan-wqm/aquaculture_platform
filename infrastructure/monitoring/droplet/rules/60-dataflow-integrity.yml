@@ -134,3 +134,31 @@ groups:
           summary: '{{ $labels.job }} has been failing for at least an hour'
           description: 'Every recent attempt ended in failure. A job that swallows its own errors looks healthy in its domain metrics; this is the surface that does not.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/cron-heartbeat.md'
+  # 5a — the T0 supervisor. These read the textfile it writes every two
+  # minutes; the supervisor itself needs watching, because a supervisor that
+  # stopped is indistinguishable from a healthy host by definition.
+  - name: aquaculture.runtime.supervisor
+    rules:
+      - alert: RuntimeSupervisorStale
+        expr: |
+          time() - max(aqua_supervisor_last_run_timestamp_seconds) > 900
+        for: 5m
+        labels:
+          severity: high
+          target_auditor: infra-expert
+        annotations:
+          summary: 'Runtime supervisor has not run in 15 minutes'
+          description: 'The timer fires every two minutes. Seven missed passes means the supervisor is gone - and with it the only thing that notices a container Docker gave up on.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/runtime-supervisor.md'
+
+      - alert: RuntimeSupervisorCannotRevive
+        expr: |
+          max(aqua_supervisor_problems{severity="critical"}) > 0
+        for: 5m
+        labels:
+          severity: critical
+          target_auditor: infra-expert
+        annotations:
+          summary: 'Runtime supervisor found a CRITICAL condition it could not fix'
+          description: 'Either a supervised container will not start, its restart cap is exhausted, or the root filesystem is past the threshold that began the 2026-08-03 outage. The supervisor deliberately does not delete anything to free space.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/runtime-supervisor.md'

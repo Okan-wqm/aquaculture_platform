@@ -13,6 +13,26 @@ from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 IMPORT_RE = re.compile(r"""from\s+['"]([^'"]+)['"]|import\s+[^'"]*['"]([^'"]+)['"]""")
 
+# A directory is a project when it carries one of these. ``project.json`` is
+# nx's own SSoT; the other three cover the deliverable roots nx does not model
+# (the Rust edge gateway, ARIA's Python kernel, the standalone PWA). The
+# vocabulary is closed on purpose — every additional marker nominates
+# directories, and a graph that names non-projects misroutes as badly as one
+# that misses projects.
+PROJECT_MARKERS = ("project.json", "package.json", "Cargo.toml", "pyproject.toml")
+
+# Directories that are not this repository's source: dependencies, build
+# output, and vendored third-party trees. They carry markers of their own and
+# would otherwise flood the graph with projects nobody here maintains.
+NOT_THE_REPOSITORY = frozenset(
+    {"node_modules", "dist", "build", "coverage", "target", "vendor", "tmp", "__pycache__"}
+)
+
+# The walk prunes at every project it finds, so depth is reached only inside
+# grouping directories (``web/apps/…``, ``tools/executors/…``). The bound is a
+# cost guard on pathological trees, not a statement about repository layout.
+_MARKER_SCAN_MAX_DEPTH = 6
+
 
 def plan_downstream_impact(
     *,
@@ -376,6 +396,13 @@ def _read_nx_graph(*, root: Path, graph_file: Path) -> dict[str, Any]:
 
 
 def _discover_projects(root: Path) -> dict[str, dict[str, str]]:
+    """Every project in the repository, by convention first and marker second.
+
+    The conventional layout runs first because the names it produces are what
+    agent routing, the validation matrix and the twin already key on; the
+    marker sweep is strictly ADDITIVE on top of it, so no existing project can
+    be renamed or re-rooted by a marker appearing next to it.
+    """
     projects: dict[str, dict[str, str]] = {}
     for parent in ("apps", "libs"):
         for child in _children(root / parent):
@@ -390,7 +417,72 @@ def _discover_projects(root: Path) -> dict[str, dict[str, str]]:
     shell = root / "web" / "shell"
     if shell.exists():
         projects["web-shell"] = {"root": shell.relative_to(root).as_posix()}
+    _add_marker_projects(root, projects)
     return projects
+
+
+def _add_marker_projects(root: Path, projects: dict[str, dict[str, str]]) -> None:
+    """Add the marker-bearing directories the conventional layout does not name.
+
+    The conventional list was accurate for the repository it was written
+    against and then stopped growing with it: ``crates/``, ``mcp/``,
+    ``tests/``, ``tools/executors/``, ``e2e/``, ``scripts/``, the Rust edge
+    gateway and ARIA's own Python kernel were all invisible to it, which made
+    every path under them ``unknown_files`` and every plan touching them
+    ``blocked_unknown_graph``. Discovering by marker means a project joins the
+    graph when it acquires its marker, with no list to remember to edit.
+
+    Walk order is shallow-first, which is what makes containment come out
+    right: ``sens-api-gateway`` is a project and ``sens-api-gateway/fuzz`` is
+    part of it, not a sibling. Two guards below enforce that, and each is
+    sufficient alone (measured: removing either leaves the suite green,
+    removing both turns it red) — the prune catches a nested marker reached by
+    another route, the ``continue`` means it is not reached at all. The
+    ``continue`` earns its place on cost, not on correctness: without it the
+    walk lists the children of every project it finds.
+    """
+    queue: list[tuple[Path, int]] = [(root, 0)]
+    while queue:
+        directory, depth = queue.pop(0)
+        if directory != root:
+            rel = directory.relative_to(root).as_posix()
+            # Already inside a known project: there is nothing nested to find.
+            if _project_for_path(rel, projects) is not None:
+                continue
+            if any((directory / marker).is_file() for marker in PROJECT_MARKERS):
+                name = _marker_project_name(directory, rel)
+                # A name already taken is never reassigned — moving a project's
+                # root under a consumer's feet is worse than not adding one.
+                if name and name not in projects:
+                    projects[name] = {"root": rel}
+                continue
+        if depth >= _MARKER_SCAN_MAX_DEPTH:
+            continue
+        for child in _children(directory):
+            if child.name in NOT_THE_REPOSITORY or child.name.startswith("."):
+                continue
+            queue.append((child, depth + 1))
+
+
+def _marker_project_name(directory: Path, rel: str) -> str:
+    """The project's in-graph identity.
+
+    ``project.json``'s ``name`` wins because nx owns that identity and enforces
+    its uniqueness — inventing a second name would file one project under two
+    identities in two consumers. The other markers declare PUBLISH identities
+    (this repository's root crate publishes as ``suderra-agent``), which are
+    not the repository's name for the directory, so those fall back to the
+    repo-relative path.
+    """
+    manifest = directory / "project.json"
+    if manifest.is_file():
+        try:
+            declared = json.loads(manifest.read_text(encoding="utf-8")).get("name")
+        except (OSError, ValueError):
+            declared = None
+        if isinstance(declared, str) and declared.strip():
+            return declared.strip()
+    return rel.replace("/", "-")
 
 
 def _scan_project_dependencies(

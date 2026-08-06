@@ -10,6 +10,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Optional } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { isCanaryTenant } from '@aquaculture/backend-common/billing';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { randomUUID } from 'crypto';
 
@@ -149,6 +150,24 @@ export interface UsageEventBatch {
   timestamp: string;
 }
 
+/**
+ * Counters describing what the meter did with what it was handed.
+ *
+ * Named and exported rather than inferred from a private field: a caller
+ * that wants to assert on `canaryEventsSkipped` should be able to say what
+ * shape it expects without casting through the type system, and a cast in a
+ * test is a claim nothing checks.
+ */
+export interface UsageMeteringMetrics {
+  totalEventsReceived: number;
+  totalEventsProcessed: number;
+  duplicateEventsSkipped: number;
+  canaryEventsSkipped: number;
+  batchesProcessed: number;
+  thresholdBreaches: number;
+  errors: number;
+}
+
 @Injectable()
 export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(UsageMeteringService.name);
@@ -168,10 +187,11 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
   private static readonly SYNC_RETRY_MAX_DELAY_MS = 5 * 60 * 1_000; // 5 minutes cap
 
   // Metrics
-  private metrics = {
+  private metrics: UsageMeteringMetrics = {
     totalEventsReceived: 0,
     totalEventsProcessed: 0,
     duplicateEventsSkipped: 0,
+    canaryEventsSkipped: 0,
     batchesProcessed: 0,
     thresholdBreaches: 0,
     errors: 0,
@@ -506,6 +526,20 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
     };
 
     this.metrics.totalEventsReceived++;
+
+    // Synthetic traffic from an authorised canary tenant never becomes
+    // billable. The refusal lives HERE, at the one place usage enters the
+    // buffer, rather than as a rule each caller remembers: a canary that
+    // bills is a canary nobody keeps running, and its usage would be
+    // indistinguishable from a customer's in revenue reporting.
+    //
+    // Counted rather than dropped in silence - an exemption that leaves no
+    // trace is how a mis-set env var becomes an invisible revenue hole.
+    if (isCanaryTenant(event.tenantId)) {
+      this.metrics.canaryEventsSkipped++;
+      this.logger.debug(`Canary tenant usage not metered: ${event.meterType}`);
+      return fullEvent;
+    }
 
     // Check idempotency
     if (event.idempotencyKey) {
@@ -882,7 +916,7 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
   /**
    * Get metrics
    */
-  getMetrics(): typeof this.metrics {
+  getMetrics(): UsageMeteringMetrics {
     return { ...this.metrics };
   }
 

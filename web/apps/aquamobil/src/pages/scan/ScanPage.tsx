@@ -70,7 +70,7 @@ type ScanState =
   | { kind: 'idle' }
   | { kind: 'scanning' }
   | { kind: 'hit'; tank: Tank }
-  | { kind: 'unknown'; value: string }
+  | { kind: 'unknown'; value: string; listUnavailable: boolean }
   | { kind: 'unsupported' }
   | { kind: 'denied' };
 
@@ -126,7 +126,13 @@ export function ScanPage(): ReactElement {
             // A tag that decodes but matches nothing is a real state — a tag
             // from another site, or a unit this user cannot see. Saying so
             // beats silently continuing to scan.
-            setState(tank ? { kind: 'hit', tank } : { kind: 'unknown', value });
+            // With no unit list loaded, "not recognised" would be an
+            // authorisation claim manufactured from a network failure.
+            setState(
+              tank
+                ? { kind: 'hit', tank }
+                : { kind: 'unknown', value, listUnavailable: tanksRef.current.length === 0 },
+            );
           })
           .catch((error: unknown) => {
             logger.debug('[scan] detect frame failed', error);
@@ -235,8 +241,12 @@ export function ScanPage(): ReactElement {
           <EmptyState
             tone="error"
             icon={<ScanLine size={22} />}
-            title="Tag not recognised"
-            description={`"${state.value}" does not match a unit you have access to. It may belong to another site.`}
+            title={state.listUnavailable ? 'Units not loaded' : 'Tag not recognised'}
+            description={
+              state.listUnavailable
+                ? `Read "${state.value}", but the unit list is unavailable so it cannot be matched. Check your connection and scan again.`
+                : `"${state.value}" does not match a unit you have access to. It may belong to another site.`
+            }
             action={
               <Button variant="primary" onClick={() => void start()}>
                 Scan again

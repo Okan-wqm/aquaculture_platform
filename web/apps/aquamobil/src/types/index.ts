@@ -42,7 +42,22 @@ export interface Tank {
   name: string;
   code: string;
   volume: number;
-  status: 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE' | 'QUARANTINE' | 'PREPARING' | 'HARVESTING';
+  /**
+   * Mirrors the backend `TankStatus` enum (apps/farm-service .../tank.entity.ts),
+   * which has EIGHT members. This union was missing CLEANING and FALLOW, and the
+   * wire type is a free-form String that useTanks casts blind — so a fallowing
+   * pen (routine between cycles) reached the render tree as a status no lookup
+   * table had, and the unit detail crashed on it.
+   */
+  status:
+    | 'ACTIVE'
+    | 'PREPARING'
+    | 'CLEANING'
+    | 'MAINTENANCE'
+    | 'HARVESTING'
+    | 'FALLOW'
+    | 'QUARANTINE'
+    | 'INACTIVE';
   currentBiomass: number;
   maxBiomass: number;
   batchMetrics: BatchMetrics | null;
@@ -559,17 +574,33 @@ export interface WaterQualityParameters {
   hardness?: number;
 }
 
+/**
+ * Mirrors `input CreateWaterQualityInput` in apps/farm-service/schema.graphql.
+ *
+ * THIS TYPE HAD DRIFTED and the drift was not cosmetic: it declared a
+ * `parameters` field the schema does not have, and made `equipmentId` and
+ * `dynamicParameters` optional when the schema requires both. Any caller that
+ * trusted it produced a payload the server must reject — and because these
+ * writes go through the offline queue, the rejection happens on replay, long
+ * after the worker has been shown a "Saved" receipt. Realigned with the SDL so
+ * `tsc` refuses the wrong shape instead of the server refusing it silently.
+ *
+ * Readings are keyed by the tenant's own parameter codes, hence the JSON map
+ * rather than a fixed field set — see WaterQualityRecordPage, which builds it
+ * from the equipment's ParameterFieldConfig.
+ */
 export interface CreateWaterQualityInput {
   tankId?: string;
   pondId?: string;
   siteId?: string;
   batchId?: string;
-  equipmentId?: string;
+  /** REQUIRED by the schema: readings belong to the instrument that took them. */
+  equipmentId: string;
   measuredAt: string;
   source: MeasurementSource;
   measuredBy?: string;
-  parameters: WaterQualityParameters;
-  dynamicParameters?: Record<string, number | string | boolean>;
+  /** REQUIRED by the schema. Keyed by the tenant's parameter codes. */
+  dynamicParameters: Record<string, number | string | boolean>;
   idempotencyKey?: string;
   notes?: string;
   weatherConditions?: string;

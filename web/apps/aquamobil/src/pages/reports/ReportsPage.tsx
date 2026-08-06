@@ -74,7 +74,7 @@ export function ReportsPage(): JSX.Element {
   const navigate = useNavigate();
   const isOnline = useNetworkStatus();
   const { tenantId, isAuthenticated } = useAuth();
-  const { data: tanks, isLoading: tanksLoading } = useTanks();
+  const { data: tanks, isLoading: tanksLoading, isError: tanksError } = useTanks();
   // SEC-MEDIUM-050: the regulatory section carries a MODULE_MANAGER floor, the
   // same one the route enforces. Gating the SECTION rather than the screen is
   // what lets a MODULE_USER still read the farm summary above it.
@@ -143,6 +143,15 @@ export function ReportsPage(): JSX.Element {
           <h2 className="text-body font-semibold text-ink-3 px-1">Farm summary</h2>
           {tanksLoading ? (
             <Skeleton variant="tile" count={2} />
+          ) : tanksError ? (
+            // "Nothing stocked" is a claim about the farm. A failed fetch is not
+            // entitled to make it.
+            <EmptyState
+              tone="error"
+              icon={<TrendingUp size={22} />}
+              title="Could not load the farm summary"
+              description="These figures are unavailable, not zero."
+            />
           ) : summary.stockedCount === 0 ? (
             <EmptyState
               icon={<TrendingUp size={22} />}

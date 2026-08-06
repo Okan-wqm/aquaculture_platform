@@ -1,40 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <!-- Theme + density flash prevention: synchronously applies the stored
-         preferences before any CSS is parsed, preventing a visible flash of the
-         wrong theme or a re-layout when controls resize. This MUST be inline and
-         synchronous -- external scripts load asynchronously and would cause FOUC.
-
-         Keep in step with src/hooks/useTheme.ts and src/hooks/useDensity.ts:
-         same storage keys, same legacy-value migration, same DOM effects. -->
-    <script>
-      (function () {
-        var raw = localStorage.getItem('aquamobil_dark_mode');
-        // Migrate the pre-v4 vocabulary so an upgrading install keeps its choice.
-        if (raw === 'dark') raw = 'night';
-        else if (raw === 'light') raw = 'day';
-        var pref = raw === 'night' || raw === 'day' || raw === 'colour' ? raw : 'system';
-        var theme =
-          pref === 'system'
-            ? window.matchMedia('(prefers-color-scheme: dark)').matches
-              ? 'night'
-              : 'day'
-            : pref;
-
-        var root = document.documentElement;
-        root.setAttribute('data-theme', theme);
-        // Migration bridge: Konsta and not-yet-migrated pages still use `dark:`.
-        root.classList.toggle('dark', theme === 'night' || theme === 'colour');
-        root.setAttribute(
-          'data-density',
-          localStorage.getItem('aquamobil_touch_density') === 'glove' ? 'glove' : 'standard',
-        );
-
-        var color = theme === 'day' ? '#f2f5f9' : theme === 'colour' ? '#0b2036' : '#0a1220';
-        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', color);
-      })();
-    </script>
+    <!-- Theme + density pre-paint. EXTERNAL and same-origin ON PURPOSE:
+         production nginx serves `script-src 'self'` with no 'unsafe-inline'
+         (D14-SC-02), so an inline script here is blocked in production and the
+         whole theme + touch-density layer silently never applies. Blocking
+         <script src> keeps it ahead of first paint. Logic lives in
+         public/theme-init.js; keep it in step with useTheme/useDensity. -->
+    <script src="/mobile/theme-init.js"></script>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/icons/icon-192x192.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />

@@ -45035,6 +45035,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/public/theme-init.js",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/scripts/patch-konsta.cjs",
       "prettier_managed": true
     },
@@ -56610,10 +56616,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9284,
+  "file_count": 9285,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9103,
-  "managed_file_list_sha256": "e5fb00caf9071b514987a6d316c13eb74163043f3379250a305d533cfb660abc",
+  "managed_count": 9104,
+  "managed_file_list_sha256": "93709cf84d643d5f8d73748ac2af5315d79bd31a736452222af23e0572d5e25a",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

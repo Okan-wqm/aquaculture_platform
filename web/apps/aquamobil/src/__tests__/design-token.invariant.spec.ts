@@ -161,8 +161,27 @@ describe('design-token invariant (AquaMobil v4)', () => {
     );
   });
 
-  it('keeps the anti-FOUC script in step with useTheme', () => {
+  it('keeps the pre-paint script EXTERNAL — an inline one is blocked by the production CSP', () => {
+    // Production nginx serves `script-src 'self'` with no 'unsafe-inline'
+    // (D14-SC-02). An inline <script> in index.html is silently blocked there,
+    // which pinned every user to the fallback theme and left gloved workers on
+    // standard-size controls. It failed ONLY in production, ONLY as a console
+    // entry — so the gate has to be the thing that notices.
     const html = readFileSync(join(APP_DIR, 'index.html'), 'utf8');
+    // Strip HTML comments first: the gate must judge MARKUP, not the prose that
+    // explains it. (The note above this tag mentions `<script src>` and would
+    // otherwise trip the check that it exists to enforce.)
+    const markup = html.replace(/<!--[\s\S]*?-->/g, '');
+    expect(
+      /<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?<\/script>/.test(markup),
+      'index.html contains an inline <script>. The production CSP blocks it — put the ' +
+        'logic in a same-origin file under public/ and load it with <script src>.',
+    ).toBe(false);
+    expect(html, 'the pre-paint script is not loaded at all').toContain('/mobile/theme-init.js');
+  });
+
+  it('keeps the pre-paint script in step with useTheme', () => {
+    const html = readFileSync(join(APP_DIR, 'public/theme-init.js'), 'utf8');
     const hook = readFileSync(join(SRC_DIR, 'hooks/useTheme.ts'), 'utf8');
     const density = readFileSync(join(SRC_DIR, 'hooks/useDensity.ts'), 'utf8');
 

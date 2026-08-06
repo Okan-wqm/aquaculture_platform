@@ -209,7 +209,10 @@ export function WaterQualityRecordPage(): JSX.Element {
         measuredAt: new Date().toISOString(),
         source: 'MANUAL',
         idempotencyKey: crypto.randomUUID(),
-        parameters: {},
+        // `parameters` was sent here as an empty object for a field the schema does
+        // not declare. GraphQL rejects unknown input fields, so every reading this
+        // page produced was invalid — and offline it failed on replay, after the
+        // worker had been told it was saved. Readings travel in dynamicParameters.
         dynamicParameters,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         ...(weatherConditions?.trim() ? { weatherConditions: weatherConditions.trim() } : {}),

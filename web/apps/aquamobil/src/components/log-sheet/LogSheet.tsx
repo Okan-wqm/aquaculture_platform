@@ -28,7 +28,7 @@
  * used, so the command envelope, payload hash and at-most-once dedup
  * (`farm_mobile_command_receipts`) are unchanged.
  */
-import { ArrowLeftRight, Check, Droplets, QrCode, Scissors, Skull } from 'lucide-react';
+import { ArrowLeftRight, Check, QrCode, Scissors, Skull } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -53,18 +53,17 @@ import type {
   OperationType,
   Tank,
   TransferInput,
-  CreateWaterQualityInput,
 } from '@/types';
 import { useFeatureAccess } from '@/utils/feature-access';
 
 /** The four types this sheet covers. */
-export type SheetType = 'mortality' | 'cull' | 'water' | 'transfer';
+export type SheetType = 'mortality' | 'cull' | 'transfer';
 
 interface TypeMeta {
   type: SheetType;
   label: string;
   title: string;
-  feature: 'mortality' | 'cull' | 'waterQuality' | 'transfer';
+  feature: 'mortality' | 'cull' | 'transfer';
   operation: OperationType;
   icon: ReactElement;
   /** Field label above the numpad value. */
@@ -100,18 +99,6 @@ const TYPES: TypeMeta[] = [
     unit: 'fish',
     chips: [1, 5, 10, 25],
     integer: true,
-  },
-  {
-    type: 'water',
-    label: 'Water',
-    title: 'Water reading',
-    feature: 'waterQuality',
-    operation: 'createWaterQuality',
-    icon: <Droplets size={17} />,
-    field: 'Dissolved oxygen',
-    unit: 'mg/L',
-    chips: [],
-    integer: false,
   },
   {
     type: 'transfer',
@@ -153,16 +140,6 @@ const CULL_REASONS: Array<{ value: CullReason; label: string }> = [
 
 const TRANSFER_REASONS = ['Grading by size', 'Density relief', 'Health separation'];
 
-/** Water parameters the sheet captures, mapped onto WaterQualityParameters. */
-const WQ_PARAMS = [
-  { key: 'dissolvedOxygen', label: 'Dissolved oxygen', unit: 'mg/L' },
-  { key: 'temperature', label: 'Temperature', unit: '°C' },
-  { key: 'pH', label: 'pH', unit: '' },
-  { key: 'salinity', label: 'Salinity', unit: 'ppt' },
-] as const;
-
-type WqKey = (typeof WQ_PARAMS)[number]['key'];
-
 /** Everything the submit gate needs, so it can be reasoned about and tested. */
 export interface SubmitGateInput {
   type: SheetType;
@@ -170,7 +147,6 @@ export interface SubmitGateInput {
   qty: string;
   destTankId: string;
   reason: string;
-  wqEnteredCount: number;
   integer: boolean;
 }
 
@@ -191,15 +167,10 @@ export function submitBlocker({
   qty,
   destTankId,
   reason,
-  wqEnteredCount,
   integer,
 }: SubmitGateInput): string | null {
   if (!tank) return 'Choose a unit';
   if (!tank.batchMetrics?.batchId) return 'This unit has no stocked batch';
-
-  if (type === 'water') {
-    return wqEnteredCount > 0 ? null : 'Enter at least one reading';
-  }
 
   const numeric = Number(qty);
   if (qty.trim() === '' || Number.isNaN(numeric) || numeric <= 0) return 'Enter a quantity';
@@ -246,12 +217,6 @@ export function LogSheet({
   const [destTankId, setDestTankId] = useState<string>('');
   const [qty, setQty] = useState('');
   const [reason, setReason] = useState<string>('');
-  const [wq, setWq] = useState<Record<WqKey, string>>({
-    dissolvedOxygen: '',
-    temperature: '',
-    pH: '',
-    salinity: '',
-  });
   const [receipt, setReceipt] = useState<{ id: string; duplicate: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -264,7 +229,6 @@ export function LogSheet({
     setQty('');
     setReason('');
     setDestTankId('');
-    setWq({ dissolvedOxygen: '', temperature: '', pH: '', salinity: '' });
     setReceipt(null);
     setError(null);
   }, [open, initialTankId, initialType]);
@@ -290,9 +254,6 @@ export function LogSheet({
           : [];
 
   const numeric = Number(qty);
-  const wqEntered = WQ_PARAMS.filter(
-    (p) => wq[p.key].trim() !== '' && !Number.isNaN(Number(wq[p.key])),
-  );
 
   const blocker = submitBlocker({
     type: effectiveType,
@@ -300,7 +261,6 @@ export function LogSheet({
     qty,
     destTankId,
     reason,
-    wqEnteredCount: wqEntered.length,
     integer: meta.integer,
   });
 
@@ -328,7 +288,7 @@ export function LogSheet({
           culledAt: new Date().toISOString(),
         };
         result = await addToQueue('recordCull', payload);
-      } else if (effectiveType === 'transfer') {
+      } else {
         const payload: TransferInput = {
           batchId,
           sourceTankId: tank.id,
@@ -338,19 +298,6 @@ export function LogSheet({
           transferredAt: new Date().toISOString(),
         };
         result = await addToQueue('recordTransfer', payload);
-      } else {
-        const parameters: Record<string, number> = {};
-        for (const p of wqEntered) parameters[p.key] = Number(wq[p.key]);
-        const payload: CreateWaterQualityInput = {
-          tankId: tank.id,
-          batchId,
-          measuredAt: new Date().toISOString(),
-          // Typed by hand on this screen — a sensor value would arrive through
-          // the ingestion path, never through a worker's numpad.
-          source: 'MANUAL',
-          parameters,
-        };
-        result = await addToQueue('createWaterQuality', payload);
       }
       // FE-HIGH-050: addToQueue returns a DISCRIMINATED result. `duplicate`
       // means the at-most-once ledger already holds this command — telling the
@@ -414,7 +361,6 @@ export function LogSheet({
                 setReceipt(null);
                 setQty('');
                 setReason('');
-                setWq({ dissolvedOxygen: '', temperature: '', pH: '', salinity: '' });
               }}
             >
               Log another
@@ -476,11 +422,11 @@ export function LogSheet({
 
         {/* Type picker — every tile carries its label, so type identity is never
             colour alone (TypeTile requires it). */}
-        <div className="grid grid-cols-4 gap-2 px-5">
+        <div className="grid grid-cols-3 gap-2 px-5">
           {available.map((t) => (
             <TypeTile
               key={t.type}
-              type={t.type === 'water' ? 'water' : t.type}
+              type={t.type}
               label={t.label}
               icon={t.icon}
               selected={t.type === effectiveType}
@@ -493,69 +439,47 @@ export function LogSheet({
           ))}
         </div>
 
-        {effectiveType === 'water' ? (
-          <div className="px-5 flex flex-col gap-2">
-            <span className="text-meta text-ink-3">Parameters · {wqEntered.length} entered</span>
-            {WQ_PARAMS.map((p) => (
-              <label
-                key={p.key}
-                className="flex items-center gap-3 bg-surface-1 border border-line rounded-xl px-3 py-2"
-              >
-                <span className="flex-1 text-body text-ink-2">{p.label}</span>
-                <input
-                  inputMode="decimal"
-                  value={wq[p.key]}
-                  onChange={(e) => setWq((s) => ({ ...s, [p.key]: e.target.value }))}
-                  placeholder="—"
-                  className="w-20 bg-transparent text-right text-title font-mono text-ink-1 outline-none"
-                />
-                <span className="w-12 text-meta text-ink-3">{p.unit}</span>
-              </label>
-            ))}
-          </div>
-        ) : (
-          <>
-            {/* Value + numpad */}
-            <div className="px-5 flex items-end justify-between gap-3 border-t border-line pt-4">
-              <div>
-                <div className="text-meta text-ink-3 mb-2">{meta.field}</div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-hero font-mono font-bold text-ink-1 tabular-nums">
-                    {qty || '0'}
-                  </span>
-                  <span className="text-title text-ink-3">{meta.unit}</span>
-                </div>
+        <>
+          {/* Value + numpad */}
+          <div className="px-5 flex items-end justify-between gap-3 border-t border-line pt-4">
+            <div>
+              <div className="text-meta text-ink-3 mb-2">{meta.field}</div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-hero font-mono font-bold text-ink-1 tabular-nums">
+                  {qty || '0'}
+                </span>
+                <span className="text-title text-ink-3">{meta.unit}</span>
               </div>
-              {tank?.batchMetrics && (
-                <div className="text-right">
-                  <div className="text-meta text-ink-3 mb-1">Stock in unit</div>
-                  <div className="text-body font-mono text-ink-2 tabular-nums">
-                    {(tank.batchMetrics.pieces ?? 0).toLocaleString()}
-                  </div>
-                </div>
-              )}
             </div>
-
-            {meta.chips.length > 0 && (
-              <div className="px-5 flex gap-2">
-                {meta.chips.map((n) => (
-                  <button
-                    key={n}
-                    type="button"
-                    onClick={() => setQty(String((Number(qty) || 0) + n))}
-                    className="flex-1 h-tap-add min-h-touch rounded-xl bg-surface-2 border border-line text-title font-mono font-semibold text-ink-1 touch-feedback"
-                  >
-                    +{n}
-                  </button>
-                ))}
+            {tank?.batchMetrics && (
+              <div className="text-right">
+                <div className="text-meta text-ink-3 mb-1">Stock in unit</div>
+                <div className="text-body font-mono text-ink-2 tabular-nums">
+                  {(tank.batchMetrics.pieces ?? 0).toLocaleString()}
+                </div>
               </div>
             )}
+          </div>
 
-            <div className="px-5">
-              <NumPad value={qty} onChange={setQty} allowDecimal={!meta.integer} />
+          {meta.chips.length > 0 && (
+            <div className="px-5 flex gap-2">
+              {meta.chips.map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setQty(String((Number(qty) || 0) + n))}
+                  className="flex-1 h-tap-add min-h-touch rounded-xl bg-surface-2 border border-line text-title font-mono font-semibold text-ink-1 touch-feedback"
+                >
+                  +{n}
+                </button>
+              ))}
             </div>
-          </>
-        )}
+          )}
+
+          <div className="px-5">
+            <NumPad value={qty} onChange={setQty} allowDecimal={!meta.integer} />
+          </div>
+        </>
 
         {/* Destination unit — transfer only. */}
         {effectiveType === 'transfer' && (

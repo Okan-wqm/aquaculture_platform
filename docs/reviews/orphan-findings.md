@@ -8091,3 +8091,63 @@ A fifth issue was fixed in the same pass without ever shipping: the sheet's init
 **Needed to close the gap (backend):** a per-site or per-batch time-series endpoint returning bucketed average weight and mortality over a requested window. Until it exists, the charts stay out.
 
 **Owner:** claude (this session). **Status:** RESOLVED for the tab dead-end; charts blocked on the query above.
+
+## ORPHAN-CRITICAL-581 — every water-quality reading was rejected by the server after the worker was shown a green "Saved" — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, by a multi-lens audit of the v4 redesign that compared each queued payload against the real SDL rather than against the frontend's mirror of it.
+
+`apps/farm-service/schema.graphql:9551` `input CreateWaterQualityInput` requires **`equipmentId: ID!`** and **`dynamicParameters: JSON!`**, and declares **no `parameters` field**. The frontend mirror at `web/apps/aquamobil/src/types/index.ts` had drifted: `equipmentId` optional, `dynamicParameters` optional, `parameters` required. Two callers trusted it:
+
+- The new v4 log sheet sent `{ tankId, batchId, measuredAt, source, parameters }` — omitting both required fields and sending one the schema does not have.
+- **`WaterQualityRecordPage` — which predates this redesign — sent `parameters: {}` alongside correct values.** GraphQL rejects unknown input fields, so this page's readings have been invalid too.
+
+Nothing sanitised the payload between the UI and the wire (`src/pwa/operation-registry.ts` forwards it as `{ input: payload }`), and because these writes go through the offline queue, the rejection lands on replay — long after the receipt said the entry was saved. Water readings feed regulatory reporting.
+
+**Fix (this PR):** the mirror is realigned with the SDL, so `tsc` now refuses the wrong shape instead of the server refusing it silently — which is what surfaced the second, pre-existing caller. The stray `parameters: {}` is removed from `WaterQualityRecordPage`. Water is **removed from the log sheet's types**: its input requires an instrument, and the sheet has no equipment context standing at a pen. Inventing an `equipmentId` to satisfy the schema would have made the record worse than absent. Water quality keeps its full page with the equipment picker.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-HIGH-582 — the whole theme and touch-density layer was inert in production, and only in production — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, same audit, by reading the deployed CSP rather than trusting the dev server.
+
+`infrastructure/docker/nginx/snippets/security-headers.conf:22` serves `script-src 'self'` with no `'unsafe-inline'` — the header even carries the note "D14-SC-02: unsafe-inline removed; Vite production builds emit no inline scripts." The v4 pre-paint logic was an **inline `<script>`** in `index.html`, copied verbatim into `dist/index.html`. It was therefore blocked on every production load.
+
+The module-init fallback in `useTheme.ts` / `useDensity.ts` does not cover it: the only importer is `AccountPage`, which is `lazy()`. Until a worker opens Account, `data-theme` and `data-density` are unset — so every user is pinned to the night fallback regardless of their saved choice, and **gloved workers get standard-size controls instead of the enlarged ones the density layer exists to provide**. It worked perfectly in development, which is why nothing caught it.
+
+This is the second CSP-shaped defect in this work; the first was the brand font (ORPHAN-MEDIUM-572). Same root cause: an asset assumed permitted, verified only against the dev server.
+
+**Fix (this PR):** the logic moves to a same-origin `public/theme-init.js`, loaded with a blocking `<script src>` so it still runs before first paint. It lands in `dist/` and in the service-worker precache manifest. `design-token.invariant.spec.ts` now **bans any inline `<script>` in index.html outright** and requires the external file — the gate judges markup with HTML comments stripped, so prose explaining the rule cannot trip it.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-HIGH-583 — the unit detail crashed on any pen that was fallowing or being cleaned — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, same audit.
+
+The backend `TankStatus` enum has **eight** members (`apps/farm-service/src/tank/entities/tank.entity.ts:84`), including `CLEANING` and `FALLOW`. The frontend union in `web/apps/aquamobil/src/types/index.ts` had **six**, and `useTanks` casts the free-form wire string into it unchecked. The v4 unit detail looked the status up in a `Record` and dereferenced the result immediately, so a fallowing pen produced `undefined.tone` and took the screen down to the ErrorBoundary.
+
+This was a regression introduced by the redesign: the page it replaced ended its lookup with `|| STATUS_CONFIG.INACTIVE`. Fallowing is routine between production cycles, and this page is now the only route to the primary "Log entry" action.
+
+**Fix (this PR):** the union gains `CLEANING` and `FALLOW` (all eight now mirror the backend), the lookup degrades with `?? STATUS_META.INACTIVE`, and both are documented as mirroring a free-form wire value. **The blind cast in `useTanks` remains** — narrowing it properly is follow-up work, tracked here rather than claimed as done.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the crash; the unchecked cast that permitted it is open.
+
+## ORPHAN-HIGH-584 — a failed fetch rendered as an authoritative all-clear about the farm — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, same audit; the two worst outputs were reproduced under mocked error states rather than inferred.
+
+Four screens destructured only `data` and `isLoading` from `useTanks`, then defaulted with `?? []`. A network failure therefore rendered as positive claims:
+
+| Screen      | What a failed fetch showed                                                                            |
+| ----------- | ----------------------------------------------------------------------------------------------------- |
+| Today       | "0 alarms · 0 queued · 0 Fish · 0kg Biomass · Capacity **OK**"                                        |
+| Reports     | "Nothing stocked"                                                                                     |
+| Unit detail | "This unit is not in your current inventory"                                                          |
+| Scan        | "does not match a unit you have access to" — an authorisation claim manufactured from a network error |
+
+`useTanks` only throws after its IndexedDB fallback also misses, so this is precisely the cold-open-with-no-signal case the app exists for. A worker on a boat reading "Capacity OK" from a screen that in fact knows nothing is the worst available failure mode.
+
+**Fix (this PR):** all four branch on `isError` before rendering and say the figures are unavailable rather than zero. Scan distinguishes "the unit list never loaded" from "this tag matches nothing". The correct pattern already existed in this codebase (`UnitsPage`), which is what made the omission a slip rather than a gap in knowledge.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).

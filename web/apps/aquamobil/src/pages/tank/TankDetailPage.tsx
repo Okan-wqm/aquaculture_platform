@@ -40,10 +40,12 @@ import type { Tank } from '@/types';
 /** Status → label plus the tone its dot takes. */
 const STATUS_META: Record<Tank['status'], { label: string; tone: 'ok' | 'warn' | 'crit' }> = {
   ACTIVE: { label: 'Active', tone: 'ok' },
-  MAINTENANCE: { label: 'Maintenance', tone: 'crit' },
-  QUARANTINE: { label: 'Quarantine', tone: 'crit' },
   PREPARING: { label: 'Preparing', tone: 'warn' },
+  CLEANING: { label: 'Cleaning', tone: 'warn' },
+  MAINTENANCE: { label: 'Maintenance', tone: 'crit' },
   HARVESTING: { label: 'Harvesting', tone: 'warn' },
+  FALLOW: { label: 'Fallow', tone: 'warn' },
+  QUARANTINE: { label: 'Quarantine', tone: 'crit' },
   INACTIVE: { label: 'Inactive', tone: 'warn' },
 };
 
@@ -56,7 +58,7 @@ function compact(num: number): string {
 export function TankDetailPage(): JSX.Element {
   const { tankId } = useParams<{ tankId: string }>();
   const navigate = useNavigate();
-  const { data: tanks, isLoading } = useTanks();
+  const { data: tanks, isLoading, isError } = useTanks();
   const [logOpen, setLogOpen] = useState(false);
 
   const tank = tanks?.find((t) => t.id === tankId);
@@ -75,14 +77,21 @@ export function TankDetailPage(): JSX.Element {
   }
 
   if (!tank) {
+    // A failed fetch is not the same as "this unit does not exist" — saying the
+    // second when the first happened is an authorisation claim the app cannot
+    // support, and it sends the worker looking for a problem that is not there.
     return (
       <div className="pb-32">
         <AppHeader title="Unit" onBack={() => navigate(-1)} showAvatar={false} />
         <EmptyState
           tone="error"
           icon={<AlertTriangle size={22} />}
-          title="Unit not found"
-          description="This unit is not in your current inventory. It may belong to another site, or the list may be stale."
+          title={isError ? 'Could not load units' : 'Unit not found'}
+          description={
+            isError
+              ? 'The unit list could not be fetched, so this unit cannot be shown. Anything you log is still queued on this device.'
+              : 'This unit is not in your current inventory. It may belong to another site, or the list may be stale.'
+          }
           action={
             <Button variant="primary" onClick={() => navigate('/units')}>
               Back to units
@@ -93,7 +102,10 @@ export function TankDetailPage(): JSX.Element {
     );
   }
 
-  const status = STATUS_META[tank.status];
+  // The wire type is a free-form String, so an unrecognised status must degrade
+  // to a label rather than to undefined — dereferencing a missing entry is what
+  // crashed this page on fallowing pens.
+  const status = STATUS_META[tank.status] ?? STATUS_META.INACTIVE;
   const capacityPct = metrics?.capacityUsedPercent ?? 0;
 
   return (

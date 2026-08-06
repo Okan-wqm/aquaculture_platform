@@ -144,7 +144,7 @@ function greetingFor(hour: number): string {
 export function HomePage(): JSX.Element {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { data: tanks, isLoading: tanksLoading } = useTanks();
+  const { data: tanks, isLoading: tanksLoading, isError: tanksError } = useTanks();
   const { pendingCount, isOnline } = useOfflineQueue();
   const { canAccess, permissionsDegraded, permissionSource, refreshPermissions } =
     useMobilePermissions();
@@ -370,6 +370,16 @@ export function HomePage(): JSX.Element {
           <SectionHead title="Snapshot" />
           {tanksLoading ? (
             <Skeleton variant="tile" />
+          ) : tanksError ? (
+            // A failed fetch must NOT render as "0 fish, 0 biomass, capacity OK".
+            // On a boat with no signal that reads as an authoritative all-clear
+            // about the farm, which is worse than showing nothing.
+            <EmptyState
+              tone="error"
+              icon={<Activity size={22} />}
+              title="Could not load the farm summary"
+              description="These figures are unavailable, not zero. Anything you log is still queued on this device."
+            />
           ) : (
             <Card className="p-4">
               <div className="flex items-center gap-2 mb-3">

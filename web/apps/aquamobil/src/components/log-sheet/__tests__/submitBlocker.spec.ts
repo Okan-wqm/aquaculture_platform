@@ -48,7 +48,6 @@ function gate(over: Partial<SubmitGateInput> = {}): string | null {
     qty: '10',
     destTankId: '',
     reason: 'DISEASE',
-    wqEnteredCount: 0,
     integer: true,
     ...over,
   });
@@ -110,17 +109,10 @@ describe('submitBlocker', () => {
     );
   });
 
-  it('gates water on readings rather than on a quantity', () => {
-    // The water branch ignores qty entirely — its payload is a parameter map.
-    expect(gate({ type: 'water', qty: '', wqEnteredCount: 0 })).toBe('Enter at least one reading');
-    expect(gate({ type: 'water', qty: '', wqEnteredCount: 1 })).toBeNull();
-  });
-
-  it('still requires a stocked unit for a water reading', () => {
-    expect(gate({ type: 'water', tank: tank({ batchId: null }), wqEnteredCount: 3 })).toBe(
-      'This unit has no stocked batch',
-    );
-  });
+  // Water quality is deliberately NOT a sheet type. Its schema input requires an
+  // equipmentId (readings belong to the instrument that took them) and the sheet
+  // has no instrument context standing at a pen. It stays a full page with an
+  // equipment picker — see ORPHAN-CRITICAL-581.
 
   it('allows a decimal when the type is not counted in fish', () => {
     expect(

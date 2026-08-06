@@ -41004,6 +41004,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "platform/libs/outbox/src/__tests__/outbox-relay-liveness.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "platform/libs/outbox/src/__tests__/outbox-worker.service.spec.ts",
       "prettier_managed": true
     },
@@ -56532,10 +56538,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9271,
+  "file_count": 9272,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9090,
-  "managed_file_list_sha256": "d99709a212f3c5a25029072136e04356de95b6ff16a80d225e276f62c08adc24",
+  "managed_count": 9091,
+  "managed_file_list_sha256": "b424c062b2d2e2ab5855454e0c5e79250588a21c979f719f0fb3508a90415ddc",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

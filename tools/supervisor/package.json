@@ -1,0 +1,5 @@
+{
+  "name": "@aquaculture/supervisor-tools",
+  "private": true,
+  "type": "module"
+}

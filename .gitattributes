@@ -1,0 +1,10 @@
+# The orphan findings ledger is append-only: every branch adds its own
+# block at the end and nothing edits another's. Git's default merge treats
+# two appends at the same offset as a conflict, so every branch that
+# recorded a finding had to hand-resolve the same non-conflict — several
+# times a day once two sessions are working at once.
+#
+# `union` keeps both sides' lines, which for an append-only ledger is not a
+# compromise but the correct answer: losing either block would be losing a
+# recorded finding.
+docs/reviews/orphan-findings.md merge=union

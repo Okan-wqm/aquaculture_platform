@@ -34663,6 +34663,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/runbooks/monitoring/cron-heartbeat.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/monitoring/dataflow-integrity.md",
       "prettier_managed": true
     },
@@ -37882,6 +37888,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/metrics/__tests__/cron-heartbeat.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/metrics/__tests__/metrics.service.spec.ts",
       "prettier_managed": true
     },
@@ -37889,6 +37901,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/metrics/__tests__/route-normalizer.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/metrics/cron-heartbeat.service.ts",
       "prettier_managed": true
     },
     {
@@ -56496,10 +56514,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9265,
+  "file_count": 9268,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9084,
-  "managed_file_list_sha256": "caa5de1d14f4019872606b391440e7c5517dee11be1a0948cd03df5bc1e7a1cf",
+  "managed_count": 9087,
+  "managed_file_list_sha256": "49c10a24b2fa863bf9b3392bcd52c73863b7e953643119465672d8c8dc57de7c",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -33385,6 +33385,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-06-js-yaml-advisory.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-08-06-project-graph-blind-spot.md",
       "prettier_managed": true
     },
@@ -40866,7 +40872,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "af18ff621a572319b326f89be6f72dcab2e761d6c48ce9fd6cd00a6249e63229",
+      "content_sha256": "80eabeec57e047260e7c6c1268376b6e02b7c486692775a613b9414ebcf81340",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",

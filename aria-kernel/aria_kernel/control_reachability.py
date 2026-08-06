@@ -31,15 +31,22 @@ what makes it a usable definition rather than an arbitrary one: it selects 85
 functions today, and it selects them because their authors named them as
 guarantees.
 
-WHAT COUNTS AS REACHABLE, and why the bar is set here. A control is reachable
-if any production module (not a test) mentions its name anywhere other than
-its own ``def`` line and its own module's ``__all__`` block. That is
-deliberately generous: a bare name in a registry tuple counts, a string in a
-dispatch table counts, an import counts. Being generous means a control wired
-by indirection is not falsely accused — and a gate that cries wolf is a gate
-that gets waived into uselessness. Exporting is NOT using, which is why
-``__all__`` is excluded: ORPHAN-MEDIUM-572 was in ``__all__`` and governed
-nothing.
+WHAT COUNTS AS REACHABLE, and where the bar sits. A control is reachable if a
+production module (not a test) USES it: a call, a bare name in a registry
+tuple, a string in a dispatch table. The bar is deliberately generous about
+indirection, because a control wired through a registry must not be falsely
+accused — a gate that cries wolf is a gate that gets waived into uselessness.
+
+Four things are excluded, and each exclusion is a lesson rather than a
+preference:
+
+* its own ``def`` line — defining is not calling;
+* its module's ``__all__`` — exporting is not calling, and ORPHAN-MEDIUM-572
+  was in ``__all__`` while governing nothing;
+* prose — a docstring naming a sibling check is how
+  ``verify_no_secret_in_envelope`` looked connected;
+* **imports** — importing is not calling. This one was found by mutating the
+  gate itself; see ``_import_lines``.
 """
 
 from __future__ import annotations
@@ -63,6 +70,20 @@ CONTROL_VERBS = (
 # Directories whose Python is not production: the tests that call a control
 # directly are exactly what cannot count as evidence that anything else does.
 _NON_PRODUCTION_PARTS = ("tests", "node_modules", ".git", "__pycache__", "build", "dist")
+
+# The repository's production Python lives in exactly these roots (measured:
+# aria-kernel 640 files, tools 30, scripts 2). Scanning only them keeps the
+# walk ~16x smaller and, more importantly, keeps it OUT of the transient
+# directories the rest of the suite creates while this gate is running — a
+# gate that flakes is a gate that gets ignored, which for an anti-defect gate
+# is the worst outcome available.
+#
+# A hardcoded roster is the same shape as the defect ORPHAN-HIGH-569 was: a
+# list that was true when written and silently stopped describing the repo. So
+# it does NOT stand alone — `unrostered_production_dirs` reports any directory
+# holding production Python outside it, and the suite fails on a non-empty
+# result. The list may be wrong; it cannot be wrong quietly.
+PRODUCTION_SOURCE_ROOTS = ("aria-kernel", "tools", "scripts")
 
 
 def kernel_root(repo_root: str | Path) -> Path:
@@ -123,18 +144,58 @@ def _import_lines(source: str) -> set[int]:
     return spans
 
 
+def _is_production_python(path: Path) -> bool:
+    if any(part in _NON_PRODUCTION_PARTS for part in path.parts):
+        return False
+    return not (path.name.startswith("test_") or path.name.endswith("_test.py"))
+
+
+def _walk_python(root: Path) -> list[Path]:
+    """``rglob`` that cannot be broken by a directory vanishing mid-walk.
+
+    The suite this gate runs inside creates and removes trees while it runs.
+    An unguarded walk over live filesystem state is a coin flip, and a gate
+    that fails once in four runs teaches people to re-run it rather than to
+    read it.
+    """
+    try:
+        return sorted(p for p in root.rglob("*.py") if p.is_file())
+    except OSError:
+        return []
+
+
+def unrostered_production_dirs(repo_root: str | Path) -> dict[str, int]:
+    """Top-level directories holding production Python outside the roster.
+
+    The completeness check that keeps PRODUCTION_SOURCE_ROOTS from becoming
+    the next stale hardcoded list.
+    """
+    root = Path(repo_root)
+    stray: dict[str, int] = {}
+    for path in _walk_python(root):
+        try:
+            relative = path.relative_to(root)
+        except ValueError:
+            continue
+        top = relative.parts[0] if len(relative.parts) > 1 else "."
+        if top in PRODUCTION_SOURCE_ROOTS or not _is_production_python(relative):
+            continue
+        stray[top] = stray.get(top, 0) + 1
+    return stray
+
+
 def _production_sources(repo_root: str | Path) -> dict[Path, tuple[list[str], set[int]]]:
     sources: dict[Path, tuple[list[str], set[int]]] = {}
-    for path in Path(repo_root).rglob("*.py"):
-        if any(part in _NON_PRODUCTION_PARTS for part in path.parts):
-            continue
-        if path.name.startswith("test_") or path.name.endswith("_test.py"):
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        sources[path] = (text.splitlines(), _import_lines(text))
+    root = Path(repo_root)
+    for source_root in PRODUCTION_SOURCE_ROOTS:
+        for path in _walk_python(root / source_root):
+            if not _is_production_python(path):
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            sources[path] = (text.splitlines(), _import_lines(text))
     return sources
 
 
@@ -194,5 +255,7 @@ __all__ = [
     "declared_controls",
     "first_production_reference",
     "kernel_root",
+    "PRODUCTION_SOURCE_ROOTS",
+    "unrostered_production_dirs",
     "unreachable_controls",
 ]

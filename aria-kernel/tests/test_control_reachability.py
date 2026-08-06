@@ -37,9 +37,11 @@ from datetime import date
 from pathlib import Path
 
 from aria_kernel.control_reachability import (
+    PRODUCTION_SOURCE_ROOTS,
     declared_controls,
     first_production_reference,
     unreachable_controls,
+    unrostered_production_dirs,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -66,6 +68,22 @@ class ControlReachabilityTests(unittest.TestCase):
         # is deliberately far below the 85 measured, so it fails on collapse
         # rather than on ordinary drift.
         self.assertGreater(len(self.controls), 40, "control-verb convention no longer selects the kernel's controls")
+
+    def test_the_production_roster_still_covers_the_repository(self) -> None:
+        # PRODUCTION_SOURCE_ROOTS narrows the scan so this gate cannot be
+        # raced by the trees the rest of the suite creates. A narrowed scan
+        # is exactly the shape of ORPHAN-HIGH-569 — a list that was true when
+        # written and quietly stopped describing the repo — so the list is
+        # not allowed to stand unchecked. Production Python appearing outside
+        # the roster means the roster is stale, and a stale roster would make
+        # a live caller invisible and its control look dormant.
+        stray = unrostered_production_dirs(REPO_ROOT)
+        self.assertEqual(
+            stray,
+            {},
+            "production Python outside PRODUCTION_SOURCE_ROOTS "
+            f"{PRODUCTION_SOURCE_ROOTS}: {stray} — extend the roster",
+        )
 
     def test_every_dormant_control_is_declared(self) -> None:
         undeclared = sorted(set(self.unreachable) - set(self.manifest))

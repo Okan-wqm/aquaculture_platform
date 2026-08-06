@@ -994,6 +994,38 @@ def build_parser() -> argparse.ArgumentParser:
     runtime_retention_apply.add_argument("--reason", required=True, type=_validate_reason)
     runtime_retention_apply.add_argument("--operator-approval-ref", required=True)
     runtime_retention_apply.add_argument("--acknowledge", action="store_true")
+    runtime_signal = add_subparser(runtime_sub, "signal")
+    runtime_signal_sub = runtime_signal.add_subparsers(dest="runtime_signal_command", required=True)
+    rs_ingest = add_subparser(runtime_signal_sub, "ingest")
+    rs_ingest.add_argument("--source", required=True)
+    rs_ingest.add_argument("--service", required=True)
+    rs_ingest.add_argument("--summary", required=True)
+    rs_ingest.add_argument("--code-ref", action="append", required=True, dest="code_refs")
+    rs_ingest.add_argument("--severity", default="high")
+    rs_resolve = add_subparser(runtime_signal_sub, "resolve")
+    rs_resolve.add_argument("--signal-id", required=True)
+    rs_resolve.add_argument("--resolution-note", required=True)
+    rs_list = add_subparser(runtime_signal_sub, "list")
+
+    # F4.2 of the ARIA intelligence program: the gold corpus ceremony. The
+    # proposal side is machine work (count labelled feedback), so the cycle
+    # mints proposals on its own; PROMOTION is an operator act and stays a
+    # named-curator verb here, never automatic.
+    goldset_parser = add_subparser(sub, "goldset")
+    goldset_sub = goldset_parser.add_subparsers(dest="goldset_command", required=True)
+    gs_propose = add_subparser(goldset_sub, "propose")
+    gs_propose.add_argument("--tool-id", required=True)
+    gs_propose.add_argument("--cycle-id")
+    gs_propose.add_argument("--target-true-positives", type=int, default=None)
+    gs_propose.add_argument("--target-known-false-positives", type=int, default=None)
+    gs_list = add_subparser(goldset_sub, "list")
+    gs_list.add_argument("--tool-id")
+    gs_promote = add_subparser(goldset_sub, "promote")
+    gs_promote.add_argument("--tool-id", required=True)
+    gs_promote.add_argument("--curator", required=True)
+    gs_show = add_subparser(goldset_sub, "show")
+    gs_show.add_argument("--tool-id", required=True)
+
     runtime_restore = add_subparser(runtime_sub, "restore-artifact")
     runtime_restore.add_argument("--artifact-ref", required=True)
     runtime_restore.add_argument("--workspace-root", required=True)
@@ -1044,6 +1076,15 @@ def build_parser() -> argparse.ArgumentParser:
     pressure_list.add_argument("--include-archived", action="store_true")
     pressure_list.add_argument("--include-closed", action="store_true")
     pressure_list.add_argument("--include-satisfied", action="store_true")
+    pressure_weights_cmd = add_subparser(pressure_sub, "weights")
+    add_workspace_args(pressure_weights_cmd)
+    pressure_override = add_subparser(pressure_sub, "weight-override")
+    add_workspace_args(pressure_override)
+    pressure_override.add_argument("--source", required=True)
+    pressure_override.add_argument("--weight", required=True, type=int)
+    pressure_override.add_argument("--acknowledge", action="store_true", required=True)
+    pressure_override.add_argument("--reason", required=True)
+    pressure_override.add_argument("--operator-approval-ref", required=True)
     pressure_explain = add_subparser(pressure_sub, "explain")
     add_workspace_args(pressure_explain)
     pressure_explain.add_argument("pressure_event_id", nargs="?")
@@ -2793,6 +2834,69 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(list_profile_history(base_dir=args.tools_dir), indent=2, sort_keys=True))
         return 0
 
+    if args.command == "runtime" and args.runtime_command == "signal":
+        # W-A of the dataflow-integrity watchdog: the bridge existed since
+        # Plan 029 but had NO CLI, so no probe or workflow could feed it
+        # without importing the kernel. These verbs are the missing mouth.
+        from .runtime_signal_bridge import (
+            ingest_runtime_signal,
+            load_open_runtime_signals,
+            resolve_runtime_signal,
+        )
+        if args.runtime_signal_command == "ingest":
+            row = ingest_runtime_signal(
+                source=args.source, service=args.service,
+                summary=args.summary, code_refs=args.code_refs,
+                severity=args.severity, base_dir=args.tools_dir,
+            )
+        elif args.runtime_signal_command == "resolve":
+            row = resolve_runtime_signal(
+                signal_id=args.signal_id,
+                resolution_note=args.resolution_note,
+                base_dir=args.tools_dir,
+            )
+        else:
+            row = load_open_runtime_signals(base_dir=args.tools_dir)
+        print(json.dumps(row, indent=2, sort_keys=True, default=str))
+        return 0
+
+    if args.command == "goldset":
+        from .goldset import (
+            DEFAULT_TARGET_KNOWN_FALSE_POSITIVES,
+            DEFAULT_TARGET_TRUE_POSITIVES,
+            list_goldset_proposals,
+            load_active_goldset,
+            promote_goldset_proposal,
+            propose_goldset,
+        )
+        if args.goldset_command == "propose":
+            result = propose_goldset(
+                tool_id=args.tool_id,
+                cycle_id=args.cycle_id,
+                target_true_positives=(
+                    args.target_true_positives
+                    if args.target_true_positives is not None
+                    else DEFAULT_TARGET_TRUE_POSITIVES
+                ),
+                target_known_false_positives=(
+                    args.target_known_false_positives
+                    if args.target_known_false_positives is not None
+                    else DEFAULT_TARGET_KNOWN_FALSE_POSITIVES
+                ),
+                base_dir=args.tools_dir,
+            )
+        elif args.goldset_command == "list":
+            rows = list_goldset_proposals(base_dir=args.tools_dir)
+            result = [r for r in rows if args.tool_id is None or r.get("tool_id") == args.tool_id]
+        elif args.goldset_command == "promote":
+            result = promote_goldset_proposal(
+                tool_id=args.tool_id, curator=args.curator, base_dir=args.tools_dir,
+            )
+        else:
+            result = load_active_goldset(tool_id=args.tool_id, base_dir=args.tools_dir)
+        print(json.dumps(result, indent=2, sort_keys=True, default=str))
+        return 0
+
     if args.command == "runtime" and args.runtime_command == "verify-artifacts":
         result = verify_runtime_artifacts(
             base_dir=args.tools_dir,
@@ -2897,6 +3001,29 @@ def _main(argv: list[str] | None = None) -> int:
             acknowledge=args.acknowledge,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "pressure" and args.pressure_command == "weights":
+        from .pressure import SOURCE_WEIGHTS, effective_source_weights, load_weight_overrides
+        eff = effective_source_weights(args.tools_dir)
+        ov = load_weight_overrides(args.tools_dir)
+        print(json.dumps({
+            "effective": eff,
+            "overridden_sources": sorted(ov),
+            "base": SOURCE_WEIGHTS,
+        }, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "pressure" and args.pressure_command == "weight-override":
+        from .pressure import record_weight_override
+        row = record_weight_override(
+            source=args.source,
+            weight=args.weight,
+            reason=args.reason,
+            operator_approval_ref=args.operator_approval_ref,
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(row, indent=2, sort_keys=True))
         return 0
 
     if args.command == "pressure" and args.pressure_command == "explain":

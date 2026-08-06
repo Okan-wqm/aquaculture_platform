@@ -1,0 +1,62 @@
+# Data-flow integrity rules (Watchdog W-A — plan tranquil-sniffing-pancake F5).
+#
+# WHY THIS FILE: the platform already EXPORTS delivery-integrity metrics —
+# outbox_oldest_pending_age_seconds, outbox_dead_letter, publish-failure
+# counters, messaging DLQ growth — but no rule read them, so a stalled relay
+# or a growing dead-letter set was invisible until a human went looking.
+# These first rules only threshold metrics that already exist; the probe
+# exporter (tools/watchdog/) adds probe_* metrics in W-B.
+#
+# Thresholds: OUTBOX_PENDING_AGE_ALARM_MS=600000 is the documented stall SLO
+# (platform/libs/outbox/src/constants.ts:60); the rules quote it rather than
+# inventing a new number.
+groups:
+  - name: aquaculture.dataflow.integrity
+    rules:
+      - alert: OutboxPendingAgeSloBreached
+        expr: |
+          max by (app) (outbox_oldest_pending_age_seconds{namespace="aquaculture"}) > 600
+        for: 10m
+        labels:
+          severity: critical
+          target_auditor: job-queue-auditor
+        annotations:
+          summary: "{{ $labels.app }} outbox oldest pending event exceeds the 10-minute stall SLO"
+          description: "outbox_oldest_pending_age_seconds={{ $value }}s on {{ $labels.app }}; the relay is stalled or dead. SLO source: platform/libs/outbox/src/constants.ts:60."
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
+
+      - alert: OutboxDeadLetterGrowing
+        expr: |
+          sum by (app) (increase(outbox_publish_failures_total{namespace="aquaculture"}[30m])) > 5
+        for: 15m
+        labels:
+          severity: high
+          target_auditor: job-queue-auditor
+        annotations:
+          summary: "{{ $labels.app }} outbox publish failures accumulating"
+          description: "More than 5 publish failures in 30m on {{ $labels.app }}; check lastError on unpublished rows before they dead-letter."
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
+
+      - alert: MessagingDlqGrowing
+        expr: |
+          increase(messaging_dlq_growth_total{namespace="aquaculture"}[30m]) > 0
+        for: 10m
+        labels:
+          severity: high
+          target_auditor: job-queue-auditor
+        annotations:
+          summary: "messaging-service DLQ grew in the last 30 minutes"
+          description: "messaging_dlq_growth_total increased; inspect messaging.messaging_outbox rows with isDeadLettered=true."
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
+
+      - alert: NotificationChannelFailing
+        expr: |
+          sum by (app) (increase(http_requests_total{namespace="aquaculture",app="notification-service",status=~"5.."}[15m])) > 10
+        for: 10m
+        labels:
+          severity: high
+          target_auditor: realtime-sync-auditor
+        annotations:
+          summary: "notification-service 5xx burst"
+          description: "Delivery path erroring; join notification.notification_logs by (channel,status) for the failing channel."
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'

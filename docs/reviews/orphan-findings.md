@@ -1,5 +1,16 @@
 # Orphan Findings — Plan-Independent Real Problems
 
+<!-- markdownlint-disable -->
+<!-- WHY: append-only machine-written evidence ledger; entries carry verbatim
+     evidence (file:line quotes, SHAs, JSON, bare fences, repeated headings)
+     recorded long before any style rule existed and never rewritten after
+     the fact. The docs-check whole-file lint would otherwise go red on
+     historical evidence every time a future finding ceremony appends here
+     (MD013 x ~2,864 lines, plus MD024/MD031/MD037/MD040 across the ledger),
+     so markdownlint is disabled for this one file. Structure is enforced by
+     the real parsers instead: ORPHAN_HEADING_REGEX in
+     tools/gates/commit-msg-validator.ts and the registry invariants. -->
+
 **Purpose:** Problems spotted while reading code for planned work (ADRs / Faz implementation) that are **NOT** part of the current plan. Discovery → test → document here.
 
 **Policy:** Append-only. Findings RESOLVED via commits carry closure note + commit SHA. Never silently dropped.
@@ -7826,4 +7837,70 @@ The lane cutover (#1073) shipped `python3 -m aria_kernel state publish --repo-ro
 
 **A near-miss worth recording:** the first version of that test probed with `argv + ["--help"]`. argparse prints help and exits 0 _before_ validating required arguments, so the test passed with the defect deliberately re-introduced — a green gate measuring nothing, the same class as ORPHAN-HIGH-550 check (4) and the continuity probe. Caught only by running the negative case; the shipped version calls `parse_args(argv)` and fails naming `--snapshot-id`.
 
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-557 — ARIA computed its own per-source precision and threw the number away: weight recommendations had no consumer, and their "current" values came from a table that had silently drifted from the one scoring uses — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, flywheel mapping for the training-loop plan; verified firsthand (zero consumers of `recommended_weight` across kernel+tools; `DEFAULT_PRESSURE_WEIGHTS` said `evidence_gone=65` while the live `pressure.SOURCE_WEIGHTS` says 80).
+
+`calibration.recommend_calibration` computes TP-precision per pressure source and proposes ±weight changes (`calibration.py:72-99`); the only reader was a status display. Separately, calibration kept a private copy of the defaults that had drifted from `SOURCE_WEIGHTS` — so even a future consumer would have adjusted numbers nothing reads. The cheapest genuine learning loop in the repo was severed at both ends.
+
+**Fix (this PR):** pressure.py owns the SSoT and gains an operator-approved override layer — append-only `aria-tools/calibration/weight-overrides.jsonl` with breaker-verb ceremony (reason ≥10 chars, operator-approval-ref, unknown source/out-of-range refused); `effective_source_weights()` overlays the live table; `run_pressure` resolves it once per compute so approved overrides change the very next cycle's scoring. Calibration's drifted table is deleted; its recommendations now reference the effective table. CLI: `pressure weights` / `pressure weight-override` (auto-covered by the workflow-CLI contract test). Proven by tests: override lowers the next `_pressure` score, ledger append-only last-write-wins, four ceremony refusals, and a regression pinning the drifted symbol's removal.
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-558 — the runtime-signal bridge had no CLI mouth and the delivery-integrity metrics had no rules: ARIA's highest-weight input (85) was structurally unfeedable and outbox stalls were invisible — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, Watchdog W-A design (plan tranquil-sniffing-pancake §F5); verified firsthand.
+
+Two halves of one severed sensor path. (1) `runtime_signal_bridge.ingest_runtime_signal` — the input `pressure.py` weights at 85, second only to tool_quarantine — was a Python-function-only API: no CLI subcommand existed, so no probe, workflow, or operator could feed it without importing the kernel. Designed since Plan 029 §D5; zero producers ever. (2) The platform already exported `outbox_oldest_pending_age_seconds`, `outbox_publish_failures_total`, `messaging_dlq_growth_total` — and no Prometheus rule read any of them, so a stalled relay was invisible while its metric sat green on the wire (the same "exists but not wired where it matters" class as the six back-test stamps and the dead pressure-weight recommendations).
+
+# **Fix (this PR):** `aria-kernel runtime signal ingest|resolve|list` verbs (auto-covered by the workflow-CLI contract test), and `rules/60-dataflow-integrity.yml` thresholding the existing metrics — the stall rule quotes the documented SLO (`OUTBOX_PENDING_AGE_ALARM_MS`, `platform/libs/outbox/src/constants.ts:60`) rather than inventing a number; every rule carries a `target_auditor` label routing to the owning Lane-B auditor. Probe exporter skeleton at `tools/watchdog/` (T1 set lands in W-B).
+
+## ORPHAN-HIGH-561 — three scheduled workflows referenced a secret that has never existed on this repository, so each one did a full day's work and died on its last step, every day — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, operator-reported scheduled-workflow sweep; verified firsthand against the GitHub API (`gh secret list` for the repository and for all five environments: `ARIA_GITHUB_APP_TOKEN` appears nowhere; 32 of the 37 secrets the workflows reference are unprovisioned).
+
+`finding-state-sweep`, `aria-daily-report` and `rule-health-report` all end by calling `tools/scripts/automation/open-report-pr.sh` with `GH_TOKEN: ${{ secrets.ARIA_GITHUB_APP_TOKEN }}`. GitHub does not error on an unknown secret — it substitutes the empty string. So each workflow computed its report or registry sweep, then failed with "GH_TOKEN or GITHUB_TOKEN is required", discarding the work. Three of the ten reds in the scheduled-workflow watchdog issue were this single missing secret, and a daily red that always fails the same way stops carrying information.
+
+**Fix (this PR):** the three call sites resolve `${{ secrets.ARIA_GITHUB_APP_TOKEN || github.token }}` and pass `PR_TOKEN_SOURCE`, so the automation PR opens under the Actions default identity when the App token is absent. Because GitHub deliberately does not trigger workflow runs for PRs authored by that token, `open-report-pr.sh` appends the reason to the PR body — a reviewer must not read absent checks as "nothing to run". Tier-3 closure: `.github/provisioned-secrets.json` declares every secret the workflows depend on with its scope and provisioning state, and `tests/invariants/workflow-secret-provisioning.spec.ts` pins the two directions (no undeclared reference, no orphaned declaration). Proven by the deliberate break: adding a reference to `secrets.NEVER_PROVISIONED_TOKEN` turns the invariant red naming the file.
+
+**Left to the operator, deliberately:** provisioning the App token itself (identity creation is not mine to do). The `automation-publication` environment already exists and is empty; that is where it belongs. Until then these three lanes run green under the default token with the limitation stated in every PR they open.
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-HIGH-562 — the ARIA executor uploaded an envelope path it invented, the request envelope named a different one, and the contract gate pinned the invented spelling — every claimed request ended red after its work succeeded — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, dispatched `aria-agent-executor` in mock mode after #1084 to test whether the state-restore failure was fixed; it was — and the run surfaced the next defect underneath.
+
+The upload step named `.aria-state-store/tools/agent-invocations/outputs/<request_id>.json`. `agent_invocations.py:925` builds the real path as `outputs/<group>/<round>-<role>-<request_id>.md`. Two spellings of one path that never agreed: with `if-no-files-found: error`, an executor run that claimed a request would run the agent, pass pre-submit validation, submit the result (`rc=0`) — and then fail, losing the artefact evidence and painting the whole lane red. Worse, `workflow_contract_registry.py:270-271` pinned the INVENTED spelling, so the contract test certified the mismatch: the same green-gate-measuring-nothing class as the `--help` probe in ORPHAN-CRITICAL-551.
+
+**Fix (this PR):** the executor publishes where it actually wrote (`_publish_artifact_paths` → `envelope_path` / `transcript_path` on `$GITHUB_OUTPUT`, workspace-relative because that is what `upload-artifact` resolves against), the workflow uploads those step outputs, and the registry pins THE DERIVATION rather than a literal path, so a future author cannot re-guess it in YAML. `aria-kernel/tests/test_executor_artifact_path_contract.py` proves both directions; restoring the old spelling turns two of its tests red.
+
+## ORPHAN-MEDIUM-563 — two alert-engine "performance" tests asserted wall-clock milliseconds on a shared CI runner, so they measured the runner's load and went red on unrelated PRs — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, `nx run alert-engine:test` went red on an ARIA-only PR (#1088, which touches nothing outside `aria-kernel/` and docs). Verified firsthand: the same spec passes 20/20 locally on the same commit, and the assertion that failed was `avgTime < 5` for `calculateStdDev`.
+
+`should calculate standard deviation efficiently` and `should calculate trend efficiently with large datasets` timed 100 iterations and asserted an average under 5 ms. On a shared runner that is a measurement of the neighbouring jobs, not of the algorithm — the failure mode is a red check on a PR that changed nothing related, whose remedy is "re-run", which is exactly the habit that lets a real regression through unread. The file already contained the better idiom two tests above: `should calculate trend with one allocation-free pass over the samples` counts indexed reads through a `Proxy`.
+
+**Fix (this PR):** both tests now count work instead of time. Trend must read each sample exactly once; standard deviation exactly twice (the mean pass, then the squared-deviation pass). That pins what the timing budget was reaching for — an accidental extra pass or an O(N²) rewrite — and gives the same answer on a laptop and on a loaded runner. Proven by the deliberate break: inserting a third pass into `calculateStdDev` turns the new assertion red.
+
+**Not changed, and why:** the two async assertions in the same describe (`risk score < 50ms`, `batch < 500ms`) exercise mocked repository paths where the count that matters is already asserted elsewhere (`toHaveBeenCalledTimes` in the caching tests). They keep their wall-clock budgets, which have 10-100x headroom rather than the 5 ms this defect lived in. If either ever flakes, it gets the same treatment rather than a bigger number.
+**Fix (this PR):** `aria-kernel runtime signal ingest|resolve|list` verbs (auto-covered by the workflow-CLI contract test), and `rules/60-dataflow-integrity.yml` thresholding the existing metrics — the stall rule quotes the documented SLO (`OUTBOX_PENDING_AGE_ALARM_MS`, `platform/libs/outbox/src/constants.ts:60`) rather than inventing a number; every rule carries a `target_auditor` label routing to the owning Lane-B auditor. Probe exporter skeleton at `tools/watchdog/` (T1 set lands in W-B).
+
+## ORPHAN-MEDIUM-564 — the platform's only live end-to-end probes ran once per deploy and never again: a container that died an hour later stayed "Up" in `docker ps` for two days, and no scheduled surface ever asked the questions `post-deploy-verify.sh` asks — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, Watchdog W-B implementation (plan tranquil-sniffing-pancake §F5); verified firsthand against production.
+
+`scripts/deploy/post-deploy-verify.sh:238-355` already contains the strongest runtime evidence the platform has: an anonymous `farms` query through the public edge that classifies returned data as a tenant-isolation breach rather than a flaky deploy, plus a Socket.IO handshake and a single-JSON evidence envelope. It is `workflow_dispatch`-only. Between deploys nothing asks those questions, and the 2026-08-03 outage is what that costs: six containers exited on a full disk at 02:07 and `docker ps` reported "Up 2 weeks" for two days, because the text listing reports the container record, not `State.Running`. The same blindness covers `aria/state` freshness — ARIA's never-forget property is only real while that branch advances, and nothing watched it.
+
+**Fix (this PR):** `tools/watchdog/probe-runner.mjs` runs four read-only, credential-free T1 probes (anonymous negative contract, Socket.IO handshake, `docker inspect` State.Running truth vs the listing, `aria/state` freshness) on an hourly workflow shaped like `scheduled-workflow-watchdog.yml`; evidence JSON follows the post-deploy-verify envelope and `probe_ok{probe_id,target_auditor}` lands in Prometheus textfile form so the existing rule files own the thresholds. On CRITICAL the run ingests ONE runtime signal — stable summary, variables carried in measurement fields, because `signal_id = hash(source|service|summary|code_refs)` would otherwise mint an unbounded signal stream — and dispatches an ARIA cycle, so investigation starts within the hour instead of at the next nightly. Proven against production before commit: exit 0, 38 containers listed with 0 listed-but-not-running, aria/state age 7.2h.
+
+**NOT in this slice** (tracked, not silently dropped): the SQL-backed T1 probes (outbox pending age, Stripe pending-webhook age, certificate expiry), W-C service instrumentation, and every write probe — those stay staging-only until the operator decides on a canary service account and canary tenant, because "never invent an identity" is a standing rule and a write probe needs one.
+
+## ORPHAN-MEDIUM-565 — the gold corpus had a reader, a promoter and a curator agent, and no producer: `propose_goldset` had zero callers, so `judge_replay` and `proactive_priority` gated on an active corpus that could never come into existence — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, F4.2 of the ARIA intelligence program; verified firsthand (zero call sites for `propose_goldset` across kernel + tools; `promote_goldset_proposal` raises `no ready goldset proposal` on an empty ledger; `judge_replay:45` and `proactive_priority:70` both short-circuit on `load_active_goldset(...) is None`).
+
+Plan 025 §B shipped the full ceremony except its first step. `aria-goldset-curator` drafts fixture candidates into a surface nothing minted; the operator had no verb to run; and the two consumers that gate on an active corpus therefore never activated. The same "read side live, write side unreachable" shape as the runtime-signal bridge (ORPHAN-MEDIUM-558) and the dead weight recommendations (ORPHAN-MEDIUM-557) — three instances of one class in one week, which is what makes it worth naming rather than patching quietly.
+
+**Fix (this PR):** the cycle mints proposals. `propose_goldsets_for_labelled_tools` walks the feedback ledger and proposes for every labelled tool, so the operator reads distance-to-ready ("2 more known false positives") instead of silence; a new `goldset_proposal` cycle phase runs it beside `judge_calibration`, which reads the same ledger. Counting labels is machine work and is now automatic; PROMOTION stays an operator act behind `goldset promote --tool-id X --curator NAME`. Append-only discipline: a proposal is written only when the picture changed against that tool's last one, because a nightly that appends an identical row every night buries the real transitions. CLI: `goldset propose|list|promote|show` (auto-covered by the workflow-CLI contract test). Proven by tests including the deliberate-break case: disabling the unchanged-skip turns the append-only test red.
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).

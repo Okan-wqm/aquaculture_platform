@@ -969,6 +969,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/provisioned-secrets.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/pull_request_template.md",
       "prettier_managed": true
     },
@@ -31531,6 +31537,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-07-30-enterprise-backup-restore-architecture/PLAN.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/2026-08-02-aria-full-autonomy-program/PLAN.md",
       "prettier_managed": true
     },
@@ -33313,6 +33325,24 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-05-aria-first-restored-night.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-05-aria-ledger-rechain.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-05-protected-ssh-candidate-scan.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -34622,6 +34652,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/runbooks/monitoring/critical-latency.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/runbooks/monitoring/dataflow-integrity.md",
       "prettier_managed": true
     },
     {
@@ -43098,6 +43134,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/markdownlint-event-range.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/messaging-e2e-tenant-context.spec.ts",
       "prettier_managed": true
     },
@@ -43699,6 +43741,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/workflow-npm-script-references.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/workflow-secret-provisioning.spec.ts",
       "prettier_managed": true
     },
     {
@@ -44905,6 +44953,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/vendor/apollo-playground-disabled/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/watchdog/probe-runner.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/watchdog/README.md",
       "prettier_managed": true
     },
     {
@@ -56394,10 +56454,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9248,
+  "file_count": 9258,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9067,
-  "managed_file_list_sha256": "ead60a210e81554e92f1fd268bc813e6adaf57f036688b1b84e352489d536bc7",
+  "managed_count": 9077,
+  "managed_file_list_sha256": "0cd1bb73117f2269cc18d9df99b01ee7f377d190f8b8872534960bd7fa500505",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

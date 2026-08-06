@@ -896,6 +896,14 @@ def build_parser() -> argparse.ArgumentParser:
     eval_aggregate.add_argument("--target-agent", required=True)
     eval_aggregate.add_argument("--window-days", type=int, default=30)
     eval_aggregate.add_argument("--mock-mode", choices=["true", "false", "all"], default="all")
+    # F4.3 — the comparison the program's success test needs: window N+1
+    # against window N, with a verdict that refuses to speak on thin data.
+    eval_delta = add_subparser(eval_sub, "delta")
+    eval_delta.add_argument("--target-agent", required=True)
+    eval_delta.add_argument("--window-days", type=int, default=30)
+    eval_delta.add_argument("--mock-mode", choices=["true", "false", "all"], default="all")
+    eval_delta.add_argument("--min-runs", type=int, default=None,
+        help="Runs required in BOTH windows before a verdict is given.")
     eval_list = add_subparser(eval_sub, "list")
     eval_list.add_argument("--target-agent", default=None)
     eval_list.add_argument("--fixture-id", default=None)
@@ -2738,6 +2746,25 @@ def _main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+    if args.command == "agent-eval" and args.agent_eval_command == "delta":
+        from .agent_eval import MIN_RUNS_FOR_TREND, compare_eval_windows
+        delta_mock: Any = None
+        if args.mock_mode == "true":
+            delta_mock = True
+        elif args.mock_mode == "false":
+            delta_mock = False
+        result = compare_eval_windows(
+            target_agent=args.target_agent,
+            base_dir=args.tools_dir,
+            window_days=args.window_days,
+            mock_mode=delta_mock,
+            min_runs=args.min_runs if args.min_runs is not None else MIN_RUNS_FOR_TREND,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        # A regression is not a crash, but it must not read as success to a
+        # workflow that only checks the exit code.
+        return 1 if result["verdict"] == "regressed" else 0
+
     if args.command == "agent-eval" and args.agent_eval_command == "list":
         mock_filter = None
         if args.mock_mode == "true":

@@ -5669,6 +5669,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/services/__tests__/tenant-command-receipt-rls.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/services/__tests__/tenant-lifecycle-suspension.spec.ts",
       "prettier_managed": true
     },
@@ -56550,10 +56556,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9274,
+  "file_count": 9275,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9093,
-  "managed_file_list_sha256": "d573706b6880d557646a422baec8b4634af6c55e1f3e869a3ecf05fe1545580b",
+  "managed_count": 9094,
+  "managed_file_list_sha256": "d4c5cd801e15666c5ffb104fcf6a03702e680900a4555a30709cdcadb68337a9",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

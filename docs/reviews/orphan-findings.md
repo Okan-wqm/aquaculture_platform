@@ -7980,3 +7980,19 @@ Per-tenant tables live only in tenant schemas, so a tenant without one cannot ho
 **Deliberately not fixed here.** Creating two tenant schemas on production is a data-shaping act with migration-ledger and RLS consequences, and the right first question is why they were never created rather than how fast they can be. That question needs the tenant-provisioning path read end to end (auth-service tenant creation → `tenant_schema_jobs` → provisioner claim) against these three rows.
 
 **Owner:** operator to route (candidate: multi-tenant-saas-expert). **Status:** OPEN.
+
+## ORPHAN-CRITICAL-573 — tenant onboarding has been broken in production: the receipt transaction never bound an RLS tenant context, so every tenant creation failed at step zero — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while creating the operator-authorised canary tenant through the platform's own provisioning API. Reproduced deliberately and read firsthand from production: `POST /api/v1/tenants` returned 202, the operation moved to `FAILED`, all eight provisioning steps were still `QUEUED` (none had started), and `admin.tenant_provisioning_runs.lastError` said:
+
+> `new row violates row-level security policy for table "tenant_command_receipts"`
+
+`auth.tenant_command_receipts` carries the standard isolation policy — a row is writable only under `app.bypass_rls=on` or when `app.current_tenant` equals its `tenantId`. `runWithReceipt` (`apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts:933`) opens a SERIALIZABLE transaction and immediately writes the receipt with NEITHER set, so the INSERT was refused every time. The receipt is written before any provisioning work runs, which is why nothing downstream ever executed: the failure is at step zero, and the eight QUEUED steps are the fingerprint.
+
+**This is the cause of ORPHAN-HIGH-570**, filed hours earlier as "three tenants, one schema, empty job queue". Oceanfarm and Suderra AS are not victims of a six-day provisioner outage — they are tenants whose provisioning failed on creation and left `auth.tenants` rows in `PENDING` with no schema and no queued job. The same file already contained the correct pattern for a different code path (`set_config('app.current_tenant', $1, true)` before a refresh-token update, with the comment _"tenant-SCOPED context, not a bypass"_), so the fix is the file's own idiom applied where it was missing.
+
+**Fix (this PR):** bind the tenant GUC as the first statement of the receipt transaction. Tenant-scoped rather than `bypass_rls`, because the receipt belongs to exactly that tenant and the policy should be satisfied honestly rather than switched off. Transaction-local (`set_config(..., true)`) because a session-wide setting on a pooled connection would carry this tenant into the next caller's query — a cross-tenant read strictly worse than the bug being fixed. Proven by the deliberate break: removing the binding reddens all three new tests.
+
+**Not fixed here, deliberately:** the two tenants already stuck in `PENDING` (ORPHAN-HIGH-570). With provisioning working again they can be retried through the documented `retryProvisioning` action rather than hand-built schemas, but that is a production data act for the operator to trigger and watch, not a side effect of a code fix.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).

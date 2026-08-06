@@ -931,6 +931,26 @@ export class TenantProvisioningCommandService {
     );
 
     return this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+      // ORPHAN-CRITICAL-573 — bind the RLS tenant context before the FIRST
+      // statement of the receipt lifecycle.
+      //
+      // `auth.tenant_command_receipts` carries the standard isolation policy:
+      // a row is visible/writable only under `app.bypass_rls=on` or when
+      // `app.current_tenant` equals its `tenantId`. This transaction ran with
+      // NEITHER, so every INSERT here was refused — and because the receipt is
+      // written before any provisioning step executes, EVERY tenant creation
+      // failed at step zero. Production carried two tenants stuck in PENDING
+      // with no schema for months as a result.
+      //
+      // Tenant-SCOPED, not a bypass: the receipt belongs to exactly this
+      // tenant, so the policy is satisfied honestly rather than switched off.
+      // Third argument `true` makes the setting transaction-local, so a pooled
+      // connection cannot carry this tenant into the next caller's query -
+      // the failure mode that makes a bypass here unacceptable.
+      await manager.query(`SELECT set_config('app.current_tenant', $1, true)`, [
+        command.tenantId,
+      ]);
+
       const receiptRowsRaw: unknown = await manager.query(
         `SELECT "payloadHash", status, "entityId", "resultSummary"
            FROM auth.tenant_command_receipts

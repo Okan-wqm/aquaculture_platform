@@ -957,6 +957,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/manifests/dr-activation.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/manifests/main-required-status-checks.json",
       "prettier_managed": true
     },
@@ -42798,6 +42804,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/container-log-rotation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/coverage-evidence-contract.spec.ts",
       "prettier_managed": true
     },
@@ -42859,6 +42871,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/doc-cardinality.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/dr-activation.spec.ts",
       "prettier_managed": true
     },
     {
@@ -56592,10 +56610,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9281,
+  "file_count": 9284,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9100,
-  "managed_file_list_sha256": "6d64e5dc0d12900689b911db55a0615077a4a8ab6a4e09c4176ca54b7e6eb94b",
+  "managed_count": 9103,
+  "managed_file_list_sha256": "0a2ebfc45f023c96807220f6a609805fa99beff5d31eb30f2917a00284ec2c9c",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

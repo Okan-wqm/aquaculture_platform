@@ -8022,3 +8022,49 @@ Ran all ten by hand before wiring them: **all pass** (37+19+11+6+6+5+3 and three
 **Fix:** a single `gates:test` script that globs the directory, invoked by the workflow in place of the two by-name calls. A gate spec written tomorrow is covered the moment the file exists. The invariant now asserts both that the glob script exists and that a workflow invokes it — proven by deliberate break: pointing the workflow back at one by-name script turns it red.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-563 — the five-minute RPO alarm could not tell "production is losing data" apart from "this was never deployed", and had been crying wolf 288 times a day for three weeks — RESOLVED (this PR)
+
+**Discovered and reproduced:** 2026-08-05, tracing the `Database WAL Archive Freshness` red reported by the scheduled-workflow watchdog (issue #1005). Verified firsthand on the production droplet: `docker exec aqua-postgres /usr/local/bin/postgres-walg-healthcheck.sh` → `stat: no such file or directory`, exit **127**; `SHOW archive_mode` → `off`; `pg_stat_archiver` → all zeroes; the container runs the bare `timescale/timescaledb-ha:pg16` base image, created 2026-07-14, not the WAL-G derivative `docker-compose.droplet.yml` has declared since `b89c623e9` (2026-07-16).
+
+`database-wal-archive-freshness.yml` is the platform's only alarm for the five-minute PostgreSQL RPO. It asserted its _secret_ preconditions rigorously (`assert-backup-secrets.sh`, profile `archive-freshness` — all four resolve) and then invoked the healthcheck directly, with no _runtime_ precondition. So a subject that had never been deployed surfaced as a bare shell `exit 127`, byte-identical to the failure mode of a deployed-but-stalled archiver. Two opposite emergencies — **production is losing data right now** and **known backlog, plan phase BR-3** — rendered the same.
+
+It had been in the second state for three weeks at 288 runs a day (`cron: */5`). An alarm that fires 288 times a day for a non-event has stopped carrying information; had it ever entered the first state, nothing about the output would have looked different. The same shape applied to `backup-production.yml`, whose twelve Spaces/WAL-G/GPG secrets have never been provisioned (`.github/provisioned-secrets.json`) and which therefore failed its own preflight nightly.
+
+**Root cause:** activation state was implicit. Nothing declared whether a DR capability was supposed to exist yet, so each lane inferred it from whatever error its subject happened to throw.
+
+**Fix (this PR):** `.github/manifests/dr-activation.json` declares each production DR capability, its state, the evidence that proves it live, the plan phase that unlocks it, and the lanes that monitor it. `tools/scripts/database/resolve-dr-activation.sh` is the single place declared state meets observation, and it fails closed on drift in **both** directions: a stale `not-activated` whose runtime has gone live is an error (the monitor was blind), and a declared-`active` capability the runtime no longer proves is an error (protection regressed). The WAL lane's remote payload now reports a three-valued observation — `present` / `absent` / `indeterminate` — so an unreachable droplet can never be mistaken for an undeployed one. When BR-3 lands, both lanes begin enforcing automatically; nobody has to remember to re-enable them. An inactive lane stays green but annotates every run with `::warning::PRODUCTION HAS NO <capability>` plus a job summary, so a green tick cannot be misread as "backups are fine".
+
+Proven by deliberate breaks: all six declared/observed combinations exercised against the real manifest, the probe verified to return `present` (against a container that carries the script), `absent` (against live production) and `indeterminate` (against a missing container), and each of the five invariant assertions confirmed to fail on its own drift and restore green.
+
+**Not fixed here, and deliberately so:** production still has no WAL archiving and no off-box backup. That is a credential-minting and deploy-lock decision (`PRODUCTION_DEPLOY_ENABLED=false`), not a code change — this PR makes the gap impossible to misread, it does not close it. Tracked by plan phases BR-1 (secrets) and BR-3 (cutover).
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-HIGH-564 — three WAL-G integration containers have been running on the production droplet for three weeks, declared in no compose file, script, or workflow — OPEN
+
+**Discovered and reproduced:** 2026-08-05, while auditing disk pressure on the production droplet. `aqua-walg-it-source`, `aqua-walg-it-target` and `aqua-walg-it-minio` have been up since 2026-07-16 (the day `b89c623e9` landed the WAL-G DR control plane). They run `aqua-postgres-walg:enterprise-closure`, a locally-built image that was never pushed to GHCR and carries the placeholder revision label `aaaaaaaa…` — so it corresponds to no commit. `grep -rl 'aqua-walg-it-'` over the repository returns exactly one hit, and it is a prose mention in a review document, not a definition.
+
+The source container is not idle: it is actively archiving WAL to the co-located MinIO on a 5-second `archive_timeout` and has written 493 segments. Its PostgreSQL process is owned by `gharunner` — the self-hosted Actions runner account — as is a second stray instance on port 55432 under `/tmp/aqua-walg-pitr-final`. The image accounts for 7.76 GB on a host that is 89% full and whose capacity gate has been failing since 2026-07-17.
+
+The hazard is not the disk: it is that production carries undeclared, self-mutating state that no gate, inventory, or teardown owns. `INFRA-HIGH-079` already observed these containers and explicitly withheld authority to kill them ("this does not authorize killing those owners or deleting their state"), which is correct — and three weeks later nothing has classified them, so the note has not converted into either a teardown or a declaration.
+
+**Fix:** classify the rig — either give it a declared definition with an owning workflow and a teardown path, or remove it and reclaim the image. This is BR-0's "zero unknown asset / zero duplicate mutation authority" exit gate meeting a concrete instance, and it should close as part of BR-0 rather than as a one-off cleanup. **Not actioned in this PR:** removing live state on the production host is an operator decision, and the operator has asked to inspect it first.
+
+**Owner:** Okan / infra-expert (with `INFRA-HIGH-079`). **Deadline:** 2026-08-19. **Related:** `INFRA-HIGH-079`, `INFRA-MEDIUM-057`, `ORPHAN-HIGH-417`.
+
+## ORPHAN-HIGH-569 — container logs were the third unbounded disk consumer and nothing in the platform had ever set a ceiling — RESOLVED (this PR)
+
+**Discovered and reproduced:** 2026-08-06, tracing droplet disk pressure after the WAL-G rig was stopped and the disk kept climbing anyway. Docker's default `json-file` driver performs no rotation, no `/etc/docker/daemon.json` exists on the host, and `grep -l 'max-size\|logging:' docker-compose*.yml` returned nothing — no compose file had ever configured it. Measured on the production droplet: 2.0 GB of `*-json.log` across the running stack, `aqua-auth` alone at 658 MB and still being written to within the last 15 minutes, `aqua-postgres` 535 MB, `aqua-gateway` 464 MB — on a host at 94% with 11 GB free, whose capacity gate wants 37.6 GB.
+
+Nothing in the system would ever have stopped that growth except the disk filling, which it had already done on 2026-08-04, taking production down.
+
+This is the same shape as the DR-monitor defect in `ORPHAN-HIGH-563`: the protection exists but is blind to the class. `deploy-capacity-maintenance.yml` measures free space, so it can only react once the damage is done, and `ORPHAN-HIGH-417` already records that it could not see the two consumers that actually filled the droplet. Container logs were a third it never named. A gate that reacts to a full disk is not a substitute for a ceiling that makes filling it this way impossible.
+
+**Fix (this PR):** one `x-default-logging` anchor in `docker-compose.droplet.yml`, referenced by all 37 services — 20 MB × 3 files, so the whole stack holds at most ~2.2 GB however long it runs. The number is not the point; the point is that a number exists at all and is a property of the file rather than of whoever remembered. `tests/invariants/container-log-rotation.spec.ts` keeps it true: it refuses a service with no `logging`, refuses a half-bound one (`max-size` without `max-file` keeps unlimited rotated files; `max-file` without `max-size` keeps a fixed number of unlimited ones), and refuses a per-service ceiling that diverges from the shared anchor.
+
+Proven by deliberate breaks: a new service with no `logging` reddens all three assertions, dropping `max-size` reddens only the boundedness one, and giving `auth-service` its own 500m/9 ceiling reddens only the single-declaration one. `docker compose config` validates clean for both the droplet file and the droplet+staging overlay, with the anchor resolving to identical options on every service.
+
+**Not fixed here:** the ~2.0 GB already on disk is not reclaimed by this change — rotation applies to new writes after the containers are recreated, and production deploys are locked (`PRODUCTION_DEPLOY_ENABLED=false`). Truncating the existing logs is an operator action against live diagnostic state and is deliberately left out of a code change.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-417`, `ORPHAN-HIGH-563`, `INFRA-MEDIUM-057`.

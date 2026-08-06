@@ -957,6 +957,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/manifests/dr-activation.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/manifests/main-required-status-checks.json",
       "prettier_managed": true
     },
@@ -42852,6 +42858,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/dr-activation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/drift-repair-naming.spec.ts",
       "prettier_managed": true
     },
@@ -56574,10 +56586,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9278,
+  "file_count": 9280,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9097,
-  "managed_file_list_sha256": "eb4814fb230df4a6f71a62cdf38a61a8d199063c2e2d9140923a4a8aa7a649a0",
+  "managed_count": 9099,
+  "managed_file_list_sha256": "98faa14b5406ac721faee999c9f2bbc9eed94ed011d6ee442e665b531cd05af9",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

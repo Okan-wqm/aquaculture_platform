@@ -51,8 +51,21 @@ autonomously merge today: the nightly runs `--profile standard`, which selects
 `NoOpAutoMergeRunner`; real merging needs `strict` or `autonomous`, which the
 scheduled lane never uses. And `evaluate_v9_implementation_merge`'s hardcoded
 `eligible=False` is not a defect but a deliberately demoted fail-closed surface,
-with `auto_merge.merge_if_green` as the only real executor. `ORPHAN-MEDIUM-562`
-is therefore an operator/ladder decision, not a code fix.
+with `auto_merge.merge_if_green` as the only real executor.
+
+**Neither of those measurements says anything about `ORPHAN-MEDIUM-562`, and an
+earlier version of this entry claimed they did.** 562 is not about whether ARIA
+merges autonomously; it is that the external watchdog **notifies but cannot
+freeze** — it files an incident issue and fails its own run, while PLAN Wave 2
+specifies a `MERGE_FROZEN` breaker. The finding already records the correct
+shape, so this is tracked work with a known fix rather than a decision waiting on
+the operator: the freeze must be an alarm the MERGE side READS, not a write the
+watchdog performs, because freezing writes the breaker ledger, that requires
+importing the kernel, and every failure the watchdog exists to catch is a failure
+of that kernel — a watchman that dies of the illness it watches for is not a
+watchman. `aria-merge-authority` is already a required check and can refuse while
+a watchdog incident issue is open, which keeps the dependency pointing the safe
+way. Until it lands, a stalled ARIA memory is visible but not enforcing.
 
 ## 2026-08-04 — Wave 1 PR 2.6b: the lane cutover (written, not yet exercised)
 

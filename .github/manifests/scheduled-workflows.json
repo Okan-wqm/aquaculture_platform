@@ -19,6 +19,10 @@
       "maxAgeHours": 30
     },
     {
+      "workflow": "aria-external-watchdog.yml",
+      "maxAgeHours": 50
+    },
+    {
       "workflow": "backup-production.yml",
       "maxAgeHours": 30
     },

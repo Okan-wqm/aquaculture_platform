@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `0363df4ee79a6792f49bbf74d857aa5c012c01db918d9dcb19dfda4d104d0696`
+Registry tip: `0fdb9b9751a36388bdf5f35a58da5f552cde24aadb032bcf237077bd0fd621c6`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -122,6 +122,15 @@ production deploy/capacity recurrence of opaque, unpinned SSH and mutable
 target-host Git authority. Both remain `real-open` until native fingerprinted
 transport, hermetic release material, the shared lock, and adversarial recovery
 tests merge.
+
+Updated 2026-08-06 (torn-ledger close ceremony): PR #1104 merged to main as
+`5cfdc81e`, and the post-merge ceremony recorded that main-reachable closing
+commit for `ORPHAN-CRITICAL-561` (one torn write bricked a governed ledger —
+`_verify_jsonl_from_text` treated an unparseable LAST line the same as a damaged
+line mid-file, so an interrupted process ended the mission layer until a human
+repaired the JSONL by hand). It is RESOLVED and leaves the active table (the
+table mirrors `active_critical_ids` exactly; the contract invariant enforces the
+bijection). 46 active CRITICALs remain.
 
 Allowed truth buckets:
 

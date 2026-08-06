@@ -27089,6 +27089,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "aria-kernel/control-reachability.dormant.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "aria-kernel/tests/fixtures/feedback_v2/feedback_event.json",
       "prettier_managed": true
     },
@@ -33362,6 +33368,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/claude/2026-08-05-torn-ledger-tail.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-06-control-reachability.md",
       "prettier_managed": true
     },
     {
@@ -56562,10 +56574,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9276,
+  "file_count": 9278,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9095,
-  "managed_file_list_sha256": "c3de0507441f6d5681e66ad646c9cc2dc1e911747d04c39d1f74f44a26df675c",
+  "managed_count": 9097,
+  "managed_file_list_sha256": "eb4814fb230df4a6f71a62cdf38a61a8d199063c2e2d9140923a4a8aa7a649a0",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

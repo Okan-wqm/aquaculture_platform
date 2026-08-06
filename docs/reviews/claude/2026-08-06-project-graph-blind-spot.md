@@ -35,7 +35,7 @@ So the failure is not a false claim of safety. It is that ARIA is structurally
 blocked from planning a change to 38% of its own repository — including the
 kernel it edits most. Measured directly, before the fix:
 
-```
+```text
 plan_impact(changed_files=['aria-kernel/aria_kernel/ledger.py'], …)
   blocked_by       : ['impact_graph_unknown', 'operator_scope_decision_required']
   direct_projects  : []

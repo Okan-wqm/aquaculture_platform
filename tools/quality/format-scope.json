@@ -44340,6 +44340,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/backup-secret-guidance.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/banned-construct.spec.ts",
       "prettier_managed": true
     },
@@ -56592,10 +56598,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9281,
+  "file_count": 9282,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9100,
-  "managed_file_list_sha256": "6d64e5dc0d12900689b911db55a0615077a4a8ab6a4e09c4176ca54b7e6eb94b",
+  "managed_count": 9101,
+  "managed_file_list_sha256": "b5a60e1cf0105a1f1444282f27ac0cffcafd076d95bbbd3a7add831fb7f37577",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

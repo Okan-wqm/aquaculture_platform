@@ -8022,3 +8022,25 @@ Ran all ten by hand before wiring them: **all pass** (37+19+11+6+6+5+3 and three
 **Fix:** a single `gates:test` script that globs the directory, invoked by the workflow in place of the two by-name calls. A gate spec written tomorrow is covered the moment the file exists. The invariant now asserts both that the glob script exists and that a workflow invokes it — proven by deliberate break: pointing the workflow back at one by-name script turns it red.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-MEDIUM-583 — the backup gate has failed every scheduled run for months and its message told nobody how to fix it — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, tracing why production has no backups.
+
+The chain is single-file: `PRODUCTION_DEPLOY_ENABLED=false` waits on an isolated-restore proof, the proof waits on a working backup, and `backup-production.yml` dies on its first step with twelve unprovisioned secrets. The step is correct — it fails closed, names every missing secret, and links the environment settings page. What it does not say is what any of them **are**. An operator reading `Missing ... WALG_LIBSODIUM_KEY_B64 LOGICAL_BACKUP_GPG_RECIPIENT` gets a list of names and a settings URL.
+
+The information was never missing, only distant: `.github/manifests/backup-secrets.json` carries a plain-English `meaning` and a `safeExample` for all 25 secrets and 4 variables, and `docs/runbooks/secret-rotation.md` explains how each principal is created and rotated. Three files from the error, which in practice is the same as absent — the run has been red for months and the list has not moved.
+
+**Fix:** the assertion reads the manifest it is already pinned against and prints, per missing item, its meaning and the shape of a valid value, ending with the runbook path. The gate's behaviour is unchanged: same exit code, same fail-closed semantics. Only the message got useful.
+
+    ::error::Missing required resolved Actions secrets ...
+      WALG_LIBSODIUM_KEY_B64 — Canonical base64 text encoding of the independently
+          escrowed 32-byte WAL-G client-encryption key.
+          shape: <base64-encoded 32-byte random key>
+    How each value is obtained and rotated: docs/runbooks/secret-rotation.md
+
+**Test:** `tools/gates/backup-secret-guidance.spec.ts` runs the real script under an incomplete environment and asserts both the guidance and the exit code — a helpful message on a gate that stopped failing would be worse than the silence. Removing the guidance call turns two of its four tests red. It needed no `package.json` entry: the glob runner from ORPHAN-HIGH-582 picked it up on creation, which is the first evidence that fix works.
+
+**NOT done:** the twelve values still do not exist. Minting Spaces keys, a libsodium key and a GPG recipient is the operator's, and this changes only how legibly the platform asks.
+
+**Owner:** claude (this session). **Status:** RESOLVED for legibility; provisioning remains operator-owned and still blocks the deploy chain.

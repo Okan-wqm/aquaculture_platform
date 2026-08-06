@@ -2,19 +2,65 @@
   "schemaVersion": 1,
   "incidentTitle": "[scheduled-workflow-watchdog] Scheduled workflow incident",
   "workflows": [
-    { "workflow": "aria-agent-eval.yml", "maxAgeHours": 192 },
-    { "workflow": "aria-agent-executor.yml", "maxAgeHours": 30 },
-    { "workflow": "aria-auto-cycle.yml", "maxAgeHours": 30 },
-    { "workflow": "aria-daily-report.yml", "maxAgeHours": 30 },
-    { "workflow": "backup-production.yml", "maxAgeHours": 30 },
-    { "workflow": "ci-full.yml", "maxAgeHours": 192 },
-    { "workflow": "database-wal-archive-freshness.yml", "maxAgeHours": 1 },
-    { "workflow": "db-migration-check.yml", "maxAgeHours": 30 },
-    { "workflow": "deploy-capacity-maintenance.yml", "maxAgeHours": 8 },
-    { "workflow": "finding-state-sweep.yml", "maxAgeHours": 30 },
-    { "workflow": "fuzz-st-parser-nightly.yml", "maxAgeHours": 30 },
-    { "workflow": "rule-health-report.yml", "maxAgeHours": 800 },
-    { "workflow": "secret-rotation-reminder.yml", "maxAgeHours": 192 },
-    { "workflow": "security-trivy.yml", "maxAgeHours": 192 }
+    {
+      "workflow": "aria-agent-eval.yml",
+      "maxAgeHours": 192
+    },
+    {
+      "workflow": "aria-agent-executor.yml",
+      "maxAgeHours": 30
+    },
+    {
+      "workflow": "aria-auto-cycle.yml",
+      "maxAgeHours": 30
+    },
+    {
+      "workflow": "aria-daily-report.yml",
+      "maxAgeHours": 30
+    },
+    {
+      "workflow": "backup-production.yml",
+      "maxAgeHours": 30
+    },
+    {
+      "workflow": "ci-full.yml",
+      "maxAgeHours": 192
+    },
+    {
+      "workflow": "database-wal-archive-freshness.yml",
+      "maxAgeHours": 1
+    },
+    {
+      "workflow": "dataflow-integrity-watchdog.yml",
+      "maxAgeHours": 3
+    },
+    {
+      "workflow": "db-migration-check.yml",
+      "maxAgeHours": 30
+    },
+    {
+      "workflow": "deploy-capacity-maintenance.yml",
+      "maxAgeHours": 8
+    },
+    {
+      "workflow": "finding-state-sweep.yml",
+      "maxAgeHours": 30
+    },
+    {
+      "workflow": "fuzz-st-parser-nightly.yml",
+      "maxAgeHours": 30
+    },
+    {
+      "workflow": "rule-health-report.yml",
+      "maxAgeHours": 800
+    },
+    {
+      "workflow": "secret-rotation-reminder.yml",
+      "maxAgeHours": 192
+    },
+    {
+      "workflow": "security-trivy.yml",
+      "maxAgeHours": 192
+    }
   ]
 }

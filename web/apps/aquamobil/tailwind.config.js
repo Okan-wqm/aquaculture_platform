@@ -148,6 +148,9 @@ export default konstaConfig({
         // shadow rather than a border, which is what makes the surface read as
         // layered instead of outlined.
         token: 'var(--shadow)',
+        // The accent's own halo, for the primary CTA and the raised scan button.
+        // Kept as a token so it tracks the theme instead of freezing one teal.
+        acc: '0 10px 24px var(--acc-dim)',
         'card': '0 1px 3px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.06)',
         'card-hover': '0 4px 16px rgba(0,0,0,0.1)',
         'elevated': '0 8px 30px rgba(0,0,0,0.12)',

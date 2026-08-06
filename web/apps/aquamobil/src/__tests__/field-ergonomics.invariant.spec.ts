@@ -56,7 +56,7 @@ function countOccurrences(pattern: RegExp): number {
  * the token layer must not become a way to reintroduce tiny text under a
  * friendlier class name. The gate measures rendered size, not spelling.
  */
-const TINY_TEXT_BASELINE = 86;
+const TINY_TEXT_BASELINE = 84;
 
 /** Both spellings of the sub-12px sizes — see TINY_TEXT_BASELINE. */
 const TINY_TEXT_PATTERN = /text-\[1[01]px\]|\btext-(?:micro|caption)\b/g;
@@ -68,10 +68,7 @@ describe('field-ergonomics invariant (MOB-MEDIUM-009)', () => {
   });
 
   it('shared header icon buttons carry the touch floor', () => {
-    for (const component of [
-      'components/NotificationBell.tsx',
-      'components/AlertsBell.tsx',
-    ]) {
+    for (const component of ['components/NotificationBell.tsx', 'components/AlertsBell.tsx']) {
       const source = readFileSync(join(SRC_DIR, component), 'utf8');
       expect(source, `${component} lost its touch floor`).toContain('min-h-touch');
       expect(source, `${component} lost its touch floor`).toContain('min-w-touch');

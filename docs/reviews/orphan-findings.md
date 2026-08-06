@@ -7988,3 +7988,17 @@ Every check that governs whether two types can be **told apart** passes in both 
 **Revisit if:** the palette is ever reused for a chart series where marks are not directly labelled (the reports charts in a later phase) — direct labels or texture become mandatory there.
 
 **Owner:** claude (this session). **Status:** ACCEPTED AS DESIGNED (mitigation is structural, above).
+
+## ORPHAN-MEDIUM-575 — AquaMobil's central noun had no route: reaching a unit meant scrolling past a greeting, a stats row and a nine-item grid — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while adapting the app to the v4 design; the gap is structural rather than a reported bug.
+
+Every entry AquaMobil exists to capture — mortality, feeding, water quality, cull, transfer, harvest — is made **against a unit**. The app had no unit list route. `TankCard` rows lived inside `HomePage`, below the greeting header, the aggregate stats and the nine-item quick-action grid, so selecting a pen on a phone meant scrolling past three unrelated sections. `/tank/:tankId` existed but was reachable only from that buried list.
+
+Meanwhile the bottom navigation spent a permanent slot on **Account** — theme, notifications, cache and biometric settings, none of which a worker touches during a shift — and two more on **Operations**, a hub whose only content is links to other hubs (two taps of pure navigation before any real screen), and **Tasks**, a list deliberately separated from the alarms it should be prioritised against.
+
+**Fix (this PR):** `/units` becomes a first-class dock destination backed by the real `farmStockInventory` query, grouped by site. Account moves to the header avatar; Operations stops being a destination (all routes and guards untouched — only the entry point moved); Tasks folds into Today in the following phase. The freed centre slot becomes the raised Scan button, so the fastest path to a unit is now standing in front of it and pointing the camera at its tag.
+
+**Deliberately not built:** the design's Feeders tab. The mobile client has no feeder query — no dose, hopper level, drive percentage or run/stop state — so the tab is absent rather than populated with mock values. Reinstating it requires a backend query first; see the phase notes for the redesign.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).

@@ -45137,6 +45137,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/AppHeader.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/BarcodeScanButton.tsx",
       "prettier_managed": true
     },
@@ -46258,6 +46264,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/scan/__tests__/resolveScannedUnit.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/scan/ScanPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/pages/schedule/MySchedulePage.tsx",
       "prettier_managed": true
     },
@@ -46319,6 +46337,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pages/transfer/RecordTransferPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/units/UnitsPage.tsx",
       "prettier_managed": true
     },
     {
@@ -56568,10 +56592,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9277,
+  "file_count": 9281,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9096,
-  "managed_file_list_sha256": "115303505a273c34ed27fdcf74108478cd0a83c25f24370afd5c2b70a5e95756",
+  "managed_count": 9100,
+  "managed_file_list_sha256": "d15d155aa12a40b2c21bb5e211f2d62bb82233e1fac1ccd571960b2a673b5c93",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

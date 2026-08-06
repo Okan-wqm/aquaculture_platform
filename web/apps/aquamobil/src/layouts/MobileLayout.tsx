@@ -1,19 +1,14 @@
 import { clsx } from 'clsx';
-import { Home, ClipboardList, CheckSquare, MessageSquare, User, CloudOff } from 'lucide-react';
+import { BarChart3, CalendarDays, CloudOff, LayoutGrid, MessageSquare, QrCode } from 'lucide-react';
 import { ReactNode, type ReactElement } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
-// WHY: Konsta's <Page> applies its own bg-ios-light-surface / bg-md-light-surface background
-// classes with dark: variants that use Konsta's internal color tokens (#efeff4 / #1c1c1e).
-// These override our Tailwind dark:bg-gray-950 design system. We use a plain div instead
-// to maintain full control over light/dark backgrounds via Tailwind's class-based dark mode.
 import { CriticalAlertBanner } from '@/components/CriticalAlertBanner';
+import { StatusDot } from '@/components/ui';
 import { useFarmRealtimeSync } from '@/hooks/useFarmRealtimeSync';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
-import { useNotifications } from '@/hooks/useNotifications';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useUnreadCount } from '@/hooks/useUnreadCount';
-
 
 interface MobileLayoutProps {
   children: ReactNode;
@@ -21,196 +16,224 @@ interface MobileLayoutProps {
 
 interface TabItem {
   id: string;
-  icon: typeof Home;
+  icon: typeof CalendarDays;
   label: string;
   path: string;
-  activeColor?: string;
-  activeBg?: string;
-  // If features is set, tab shows if ANY of these features are enabled
+  /** If set, the tab shows when ANY of these features is enabled. */
   features?: MobileFeature[];
-  // Child paths that should highlight this tab even though they don't start
-  // with the tab's primary path. Essential for the Operations tab where routes
-  // like /feeding/record don't share a /operations URL prefix.
+  /**
+   * Child paths that light this tab up even though they do not share its URL
+   * prefix — the record routes belong to Today's shortcuts, not to a hub.
+   */
   childPaths?: string[];
 }
 
-// WHY: MobileLayout is the single shell for all authenticated pages — consistent bottom nav,
-// offline banner, and safe area handling across all screens without duplication.
+/**
+ * MobileLayout — the v4 app shell.
+ *
+ * WHAT CHANGED FROM V3, and why:
+ *
+ * The dock is now Today · Units · [Scan] · Reports · Chat. The old five were
+ * Home, Operations, Tasks, Messages, Account, and three of those were in the
+ * wrong place for a field app:
+ *
+ * - ACCOUNT left the dock. Settings is not something a worker touches during a
+ *   shift; it now hangs off the avatar in AppHeader. Its slot went to Units,
+ *   the app's central noun, which previously had no route of its own at all.
+ * - TASKS folded into Today. A task list separated from the alarms it competes
+ *   with makes the worker hold the priority order in their head; v4 puts alarms
+ *   and tasks on one screen so the order is visible.
+ * - OPERATIONS, a hub of hubs, stopped being a destination. Its ten features are
+ *   reached from Today's shortcuts and from the unit they apply to. The routes
+ *   are untouched and every guard still applies — nothing was orphaned, the
+ *   entry point moved.
+ *
+ * The centre slot is a raised scan button rather than a tab: it is the one
+ * control a worker uses standing at a pen with one hand, so it gets the largest
+ * target, the accent fill and the thumb's natural resting position.
+ *
+ * The dock floats above the content on a blurred surface instead of sitting in a
+ * bordered bar, so a long list scrolls under it rather than stopping short.
+ */
 export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
   const location = useLocation();
   const navigate = useNavigate();
   const { pendingCount, isOnline, isSyncing } = useOfflineQueue();
   const { canAccess } = useMobilePermissions();
-  const { unreadCount } = useNotifications();
 
-  // Cross-surface real-time sync: subscribe to the `/farms` gateway so a
-  // mortality/feeding/transfer recorded elsewhere (another mobile user or the
-  // web tenant panel) invalidates this app's tank/ops caches within ~1s,
-  // instead of waiting for the 1-min staleTime (the 719-vs-900 divergence).
-  // MOB-MEDIUM-008: isConnected is no longer discarded — a live-channel drop
-  // while HTTP is fine means the "~1s freshness" promise is silently broken,
-  // and the worker must see that data may lag (degraded-live strip below).
+  // MOB-MEDIUM-008: a live-channel drop while HTTP is fine means the "~1s
+  // freshness" promise is silently broken, and the worker must see that data
+  // may lag (the degraded-live strip below).
   const { isConnected: isLiveConnected } = useFarmRealtimeSync();
 
-  // ADR-012: Unread message count for the Messages tab badge.
-  // WHY useUnreadCount hook: Replaces manual fetch + polling with the shared
-  // TanStack Query hook that also integrates with Socket.IO cache invalidation
-  // from useMessageSocket. The hook polls every 60s as a fallback safety net
-  // but is primarily updated in real-time via Socket.IO events.
+  // ADR-012: unread messages for the Chat badge, kept live by Socket.IO with a
+  // 60s poll as the safety net.
   const { unreadCount: messageUnreadCount } = useUnreadCount();
 
-  /**
-   * Bottom tab navigation — 5 tabs: Home, Operations, Tasks, Messages, Account.
-   * Messages tab added per ADR-012 for in-app messaging (replaces WhatsApp/Telegram).
-   *
-   * The Operations tab uses a `childPaths` array for active-state detection
-   * because its child routes (e.g., /feeding/record, /attendance) don't start
-   * with /operations. Without this, the tab appears inactive during operations.
-   */
   const allTabs: TabItem[] = [
     {
-      id: 'home', icon: Home, label: 'Home', path: '/',
-      activeColor: 'text-ocean-600', activeBg: 'bg-ocean-50 dark:bg-ocean-900/30',
+      id: 'today',
+      icon: CalendarDays,
+      label: 'Today',
+      path: '/',
+      // Today owns the tasks it absorbed plus the alarm and notification
+      // surfaces it links out to.
+      childPaths: ['/tasks', '/alerts', '/notifications', '/operations'],
     },
     {
-      id: 'operations', icon: ClipboardList, label: 'Operations', path: '/operations',
-      activeColor: 'text-orange-600', activeBg: 'bg-orange-50 dark:bg-orange-900/30',
-      features: ['feeding', 'mortality', 'cull', 'harvest', 'transfer', 'waterQuality', 'storage', 'attendance', 'leave', 'schedule'],
-      // Child paths that should highlight the Operations tab even though they
-      // don't start with /operations. This includes all operation sub-routes
-      // and the hub pages they navigate to.
-      childPaths: ['/feeding', '/mortality', '/cull', '/harvest', '/transfer', '/water-quality', '/storage', '/attendance', '/leave', '/schedule'],
+      id: 'units',
+      icon: LayoutGrid,
+      label: 'Units',
+      path: '/units',
+      childPaths: ['/tank'],
     },
     {
-      id: 'tasks', icon: CheckSquare, label: 'Tasks', path: '/tasks',
-      activeColor: 'text-green-600', activeBg: 'bg-green-50 dark:bg-green-900/30',
-      features: ['tasks'],
+      id: 'reports',
+      icon: BarChart3,
+      label: 'Reports',
+      path: '/reports',
+      features: ['reports'],
     },
     {
-      id: 'messages', icon: MessageSquare, label: 'Messages', path: '/messages',
-      activeColor: 'text-indigo-600', activeBg: 'bg-indigo-50 dark:bg-indigo-900/30',
-    },
-    {
-      id: 'account', icon: User, label: 'Account', path: '/account',
-      activeColor: 'text-gray-600', activeBg: 'bg-gray-100 dark:bg-gray-800/30',
+      id: 'chat',
+      icon: MessageSquare,
+      label: 'Chat',
+      path: '/messages',
     },
   ];
 
   const tabs = allTabs.filter((tab) => {
     if (!tab.features) return true;
-    // Show tab if ANY of its features are enabled
     return tab.features.some((f) => canAccess(f));
   });
 
-  // Active state detection: a tab is active if the current path matches
-  // the tab's path directly, OR if it matches any of the tab's childPaths.
-  // This is essential for the Operations tab which owns routes that don't
-  // share a common URL prefix (e.g., /feeding/record, /attendance).
   const isActive = (tab: TabItem): boolean => {
     if (tab.path === '/' && location.pathname === '/') return true;
     if (tab.path !== '/' && location.pathname.startsWith(tab.path)) return true;
-    if (tab.childPaths?.some(cp => location.pathname.startsWith(cp))) return true;
-    return false;
+    return tab.childPaths?.some((cp) => location.pathname.startsWith(cp)) ?? false;
   };
 
-  // Badge count aggregation — Account tab shows combined pending sync + unread
-  // notifications; Messages tab shows total unread message count from messaging service.
-  const getBadge = (tabId: string): number => {
-    if (tabId === 'account') return pendingCount + unreadCount;
-    if (tabId === 'messages') return messageUnreadCount;
-    return 0;
-  };
+  // The scan button is only useful if the worker may log something against the
+  // unit it resolves to; with none of the log features granted it would lead to
+  // a screen whose every action is denied.
+  const canScan = (
+    ['mortality', 'cull', 'harvest', 'feeding', 'transfer', 'waterQuality'] as const
+  ).some((f) => canAccess(f));
 
   return (
-    <div className="flex flex-col h-full w-full overflow-auto pb-safe bg-gray-50 dark:bg-gray-950">
+    <div className="flex flex-col h-full w-full overflow-auto pb-safe">
       {/* MOB-HIGH-006: unacknowledged CRITICAL alarms top every screen and stay
           until acknowledged — life-safety alerts never hide behind a badge. */}
       <CriticalAlertBanner />
 
-      {/* WHY: Offline banner appears above all content — field workers need clear indication that
-          their actions are queuing locally, not syncing to the server in real-time. */}
+      {/* Field workers need to know their actions are queuing locally rather
+          than reaching the farm. */}
       {!isOnline && (
-        <div className="bg-gradient-to-r from-amber-500 to-amber-600 text-white px-4 py-2.5 flex items-center justify-center gap-2 text-sm font-semibold shadow-md">
+        <div className="bg-warn-dim text-warn px-4 py-2.5 flex items-center justify-center gap-2 text-body font-semibold border-b border-line">
           <CloudOff size={15} />
-          <span>Offline -- changes will sync when connected</span>
+          <span>Offline — changes will sync when connected</span>
         </div>
       )}
 
-      {/* MOB-MEDIUM-008: degraded-live strip — HTTP is reachable but the
-          real-time channel is down, so tank/ops data may lag behind the farm.
-          Distinct from the offline banner: requests still work, freshness
-          doesn't. Hidden while offline (the offline banner already owns that). */}
+      {/* Online but the real-time channel is down: requests still work,
+          freshness does not. Distinct from the offline banner on purpose. */}
       {isOnline && !isLiveConnected && (
-        <div className="bg-gray-700 text-white px-4 py-1.5 flex items-center justify-center gap-2 text-xs font-semibold">
-          <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" aria-hidden />
+        <div className="bg-surface-2 text-ink-2 px-4 py-1.5 flex items-center justify-center gap-2 text-meta font-semibold">
+          <StatusDot tone="warn" live />
           <span>Live updates unavailable — data may lag</span>
         </div>
       )}
 
-      {/* Syncing indicator */}
       {isSyncing && (
-        <div className="bg-gradient-to-r from-ocean-500 to-ocean-600 text-white px-4 py-2.5 flex items-center justify-center gap-2 text-sm font-semibold shadow-md">
-          <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
-          <span>Syncing data...</span>
+        <div className="bg-acc-dim text-acc px-4 py-2.5 flex items-center justify-center gap-2 text-body font-semibold border-b border-line">
+          <div className="animate-spin rounded-full h-4 w-4 border-2 border-acc border-t-transparent" />
+          <span>Syncing…</span>
         </div>
       )}
 
-      {/* Main Content */}
       <div className="flex-1 overflow-auto">{children}</div>
 
-      {/* WHY: Bottom tab bar with backdrop-blur creates a modern iOS/Android-style navigation.
-          Safe area padding (pb-safe) ensures the tab bar sits above the home indicator on notch devices. */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-t border-gray-200/60 dark:border-gray-800/60 pb-safe z-50">
-        <div className="flex items-center justify-around h-16 max-w-lg mx-auto px-2">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const active = isActive(tab);
-            const badge = getBadge(tab.id);
+      <nav
+        aria-label="Main"
+        className={clsx(
+          'fixed left-3 right-3 bottom-3 z-30 h-[68px] rounded-[22px]',
+          'bg-dock backdrop-blur-xl border border-line-strong',
+          'shadow-[0_18px_40px_rgba(2,8,18,0.45)]',
+          'grid items-center',
+          canScan ? 'grid-cols-[1fr_1fr_1.1fr_1fr_1fr]' : 'grid-cols-4',
+        )}
+        // The dock floats, so the safe-area inset is applied as margin rather
+        // than padding — otherwise the blur panel itself grows on notch devices.
+        style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        {tabs.slice(0, 2).map((tab) => (
+          <DockTab
+            key={tab.id}
+            tab={tab}
+            active={isActive(tab)}
+            onSelect={() => navigate(tab.path)}
+          />
+        ))}
 
-            return (
-              <button
-                key={tab.id}
-                onClick={() => navigate(tab.path)}
-                className={clsx(
-                  'flex flex-col items-center justify-center flex-1 h-full gap-0.5 transition-all duration-150 ease-out touch-feedback relative',
-                  active ? tab.activeColor : 'text-gray-400 dark:text-gray-500',
-                )}
-              >
-                {/* WHY: Active indicator bar on top of the icon — follows iOS Human Interface Guidelines
-                    for selected tab state, more subtle than a full background fill. */}
-                <div className="relative">
-                  {active && (
-                    <div className="absolute -top-1.5 left-1/2 -translate-x-1/2 w-8 h-1 rounded-full bg-current transition-all duration-200" />
-                  )}
-                  <div className={clsx(
-                    'p-1 rounded-xl transition-all duration-150',
-                    active ? tab.activeBg : 'bg-transparent',
-                  )}>
-                    <Icon
-                      size={21}
-                      strokeWidth={active ? 2.5 : 1.8}
-                      className="transition-all duration-150"
-                    />
-                  </div>
-                  {/* WHY: Badge count on tab icons — immediate visibility of pending items without
-                      navigating to the tab. Red badge follows platform convention for actionable items. */}
-                  {badge > 0 && (
-                    <span className="absolute -top-1.5 -right-2 bg-coral-500 text-white text-[10px] font-bold rounded-full min-w-[16px] h-[16px] flex items-center justify-center px-1 shadow-sm border border-white dark:border-gray-900">
-                      {badge > 99 ? '99+' : badge}
-                    </span>
-                  )}
-                </div>
-                <span className={clsx(
-                  'text-[10px] font-semibold transition-all duration-150',
-                  active ? 'opacity-100' : 'opacity-60',
-                )}>
-                  {tab.label}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        {canScan && (
+          <div className="flex items-center justify-center">
+            <button
+              type="button"
+              onClick={() => navigate('/scan')}
+              aria-label="Scan a unit tag"
+              // Raised out of the dock: the one control used one-handed at a
+              // pen edge gets the biggest target and the accent fill.
+              className="w-14 h-14 -mt-7 rounded-[20px] bg-acc border-[3px] border-surface-0 inline-flex items-center justify-center shadow-acc touch-feedback focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc"
+            >
+              <QrCode size={22} className="text-acc-on" />
+            </button>
+          </div>
+        )}
+
+        {tabs.slice(2).map((tab) => (
+          <DockTab
+            key={tab.id}
+            tab={tab}
+            active={isActive(tab)}
+            badge={tab.id === 'chat' ? messageUnreadCount : tab.id === 'today' ? pendingCount : 0}
+            onSelect={() => navigate(tab.path)}
+          />
+        ))}
       </nav>
     </div>
+  );
+}
+
+function DockTab({
+  tab,
+  active,
+  badge = 0,
+  onSelect,
+}: {
+  tab: TabItem;
+  active: boolean;
+  badge?: number;
+  onSelect: () => void;
+}): ReactElement {
+  const Icon = tab.icon;
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-current={active ? 'page' : undefined}
+      className={clsx(
+        'relative h-[52px] mx-1 rounded-2xl flex flex-col items-center justify-center gap-1',
+        'touch-feedback focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc',
+        active ? 'bg-acc-dim text-acc' : 'text-ink-3',
+      )}
+    >
+      {badge > 0 && (
+        <span className="absolute top-1 right-2 min-w-[16px] h-4 px-1 rounded-full bg-crit text-white text-meta font-mono font-semibold inline-flex items-center justify-center">
+          {badge > 99 ? '99+' : badge}
+        </span>
+      )}
+      <Icon size={19} strokeWidth={active ? 2.2 : 1.7} />
+      <span className="text-meta font-semibold">{tab.label}</span>
+    </button>
   );
 }

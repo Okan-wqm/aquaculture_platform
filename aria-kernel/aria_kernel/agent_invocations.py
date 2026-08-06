@@ -135,6 +135,99 @@ def build_invocation_context(
     return payload
 
 
+def _repository_map_for_refs(
+    evidence_refs: list[str] | None, *, base_dir: Path
+) -> dict[str, Any] | None:
+    """The twin slice for the files an evidence ref points at, or None.
+
+    ``evidence_refs`` are ``path:line`` entries, so the path is everything
+    before the first colon. Returns None — rather than an empty projection —
+    when there is no map or no resolvable path, because a request carrying an
+    empty map asserts that the map knows nothing about these files, which is
+    a different and stronger claim than carrying no map at all.
+
+    Never raises into the mint path: a missing or unreadable map costs an
+    agent its orientation, and that must not cost the cycle its request.
+    """
+    paths = [
+        ref.split(":", 1)[0].strip()
+        for ref in (evidence_refs or [])
+        if isinstance(ref, str) and ref.split(":", 1)[0].strip()
+    ]
+    if not paths:
+        return None
+    try:
+        from .twin import read_twin_map, twin_context_for_files
+
+        twin = read_twin_map(base_dir=base_dir)
+        if twin is None:
+            return None
+        return twin_context_for_files(twin, sorted(dict.fromkeys(paths)))
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _render_repository_map(repository_map: Any) -> str:
+    """The Twin-lite slice for the files in scope — orientation, not evidence.
+
+    This is what an agent reads INSTEAD of walking directories: for each file,
+    its project, the tests that cover it, how often it churns, and what tends
+    to ship with it. The whole point is that the model does not have to spend
+    its context discovering the shape of the repository for itself.
+
+    The section is emitted ONLY when there is a map. An empty scaffold would
+    read as "the map knows nothing about these files", which is a different
+    claim from "no map was attached".
+
+    The header states the trust class in the model's own reading order,
+    directly against the evidence section's "the ONLY admissible evidence":
+    every value here is DERIVED from the repository at ``indexed_sha`` and
+    recomputable from it, so it orients and never proves.
+    """
+    if not isinstance(repository_map, dict):
+        return ""
+    files = repository_map.get("files")
+    if not isinstance(files, list) or not files:
+        return ""
+
+    lines = [
+        "## Repository map",
+        "",
+        "Derived from the repository at "
+        f"`{repository_map.get('indexed_sha') or 'unknown'}` — a projection, "
+        "**not evidence**. Use it to orient; cite only evidence_refs.",
+        "",
+    ]
+    for entry in files:
+        if not isinstance(entry, dict):
+            continue
+        lines.append(f"- `{entry.get('file')}`" + (f" — project `{entry.get('project')}`" if entry.get("project") else ""))
+        tests = entry.get("tests") or []
+        if tests:
+            lines.append(f"  - covered by: {', '.join(f'`{t}`' for t in tests)}")
+        churn = entry.get("churn_commits")
+        if churn:
+            lines.append(f"  - churn: {churn} commits in the indexed window")
+        partners = entry.get("co_changes_with") or []
+        if partners:
+            rendered = ", ".join(
+                f"`{p.get('file')}` ({p.get('count')}x)" for p in partners if isinstance(p, dict)
+            )
+            lines.append(f"  - usually ships with: {rendered}")
+
+    impacted = repository_map.get("impacted_projects") or []
+    if impacted:
+        lines.append("")
+        lines.append("Projects in the blast radius:")
+        for item in impacted:
+            # `twin_context_for_files` returns sorted (name, meta) pairs.
+            if isinstance(item, (list, tuple)) and len(item) == 2 and isinstance(item[1], dict):
+                dependents = item[1].get("dependents") or []
+                suffix = f" → dependents: {', '.join(f'`{d}`' for d in dependents)}" if dependents else ""
+                lines.append(f"- `{item[0]}` (layer {item[1].get('layer')}){suffix}")
+    return "\n".join(lines) + "\n\n"
+
+
 def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | None = None) -> str:
     """Render the exact model-visible prompt for an invocation request.
 
@@ -169,6 +262,8 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
             return "\n".join(f"  - `{item}`" for item in items)
         return "\n".join(f"  - {key_func(item)}" for item in items)
 
+    repository_map_block = _render_repository_map(request.get("repository_map"))
+
     return (
         f"# ARIA agent request {request_id}\n\n"
         f"**Role**: {request.get('role', 'unknown')}\n"
@@ -185,6 +280,7 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         f"## Allowed scope\n\n{_bullet_list(allowed_scope)}\n\n"
         f"## Forbidden scope\n\n{_bullet_list(forbidden_scope)}\n\n"
         f"## Impact graph refs\n\n{_bullet_list(impact_refs)}\n\n"
+        f"{repository_map_block}"
         f"## Validation commands\n\n"
         f"{_bullet_list(validation_cmds, lambda c: '`' + c.get('cmd', str(c)) + '`' if isinstance(c, dict) else '`' + str(c) + '`')}\n"
         f"{must_satisfy_block}\n"
@@ -519,6 +615,15 @@ def create_agent_invocation_request(
         "shadow_eval_proof": shadow_eval_proof,
         "target_sha": target_sha,
     }
+    # PLAN Wave 3 — the Twin-lite slice for the files this request points at.
+    # This is the map's ONE reader: what the agent gets instead of walking
+    # directories to work out which project a file belongs to, what covers it,
+    # and what tends to change with it. Absent when there is no map, so a
+    # request never carries an empty projection that reads as "the map knows
+    # nothing about these files".
+    repository_map = _repository_map_for_refs(evidence_refs, base_dir=root)
+    if repository_map is not None:
+        row["repository_map"] = repository_map
     # Plan 024 §B-2 — when the caller opted out of strict enforcement,
     # emit a governance event capturing target_agent + role + missing
     # fields so the operator audit trail records every legacy creation.

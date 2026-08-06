@@ -67,6 +67,21 @@ BURN_IN_PHASES = {
     "state_continuity",
     "discovery",
     "cycle_diff",
+    # PLAN Wave 3 — `twin_refresh` joins the observe lane, by the same
+    # argument and with the same evidence.
+    #
+    # It writes ONE surface, `twin_map`, which is declared `observation` and
+    # is DERIVED: every byte recomputable from the repository at
+    # `indexed_sha`. No claim, tool, PR or merge surface is touched, so the
+    # lane's no-action guarantee is intact — refreshing a projection of the
+    # tree is not an action ON the tree.
+    #
+    # And it must be HERE rather than standard-only for the reason above:
+    # the burn-in lane's output is the acceptance evidence the ladder counts.
+    # A map frozen at some past commit would have the observe lane judging a
+    # repository that no longer exists, which is the same defect as gathering
+    # evidence on a tree that forgot its history.
+    "twin_refresh",
     "memory",
     "pressure",
     "triage",

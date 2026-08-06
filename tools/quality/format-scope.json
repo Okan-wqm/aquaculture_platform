@@ -33373,6 +33373,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-06-project-graph-blind-spot.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-06-twin-cycle-wiring.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -56562,10 +56574,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9276,
+  "file_count": 9278,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9095,
-  "managed_file_list_sha256": "35328f5aa3d9ceb63bceb813b7611880f51fe1fd4c4c3cb30d5b369c44bae170",
+  "managed_count": 9097,
+  "managed_file_list_sha256": "154fff8e08fa0a345b7811c92c79edd673f24e544d9649d77f1c96c43d94434c",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

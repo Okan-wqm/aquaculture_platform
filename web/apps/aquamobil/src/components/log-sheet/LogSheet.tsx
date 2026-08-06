@@ -45,6 +45,7 @@ import {
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTanks } from '@/hooks/useTanks';
 import type {
+  AddToQueueResult,
   CullInput,
   CullReason,
   MortalityInput,
@@ -251,7 +252,7 @@ export function LogSheet({
     pH: '',
     salinity: '',
   });
-  const [receipt, setReceipt] = useState<{ id: string; queued: boolean } | null>(null);
+  const [receipt, setReceipt] = useState<{ id: string; duplicate: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Re-seed when the sheet is opened from a new context (a different unit, a
@@ -268,16 +269,23 @@ export function LogSheet({
     setError(null);
   }, [open, initialTankId, initialType]);
 
-  const meta = TYPE_BY_KEY[type];
+  // Permissions resolve asynchronously, so the first render can compute an
+  // `available` list that does not yet contain the seeded type. Falling back to
+  // the first reachable type keeps the sheet from titling — and submitting —
+  // an entry the worker is not allowed to make.
+  const effectiveType: SheetType = available.some((t) => t.type === type)
+    ? type
+    : (available[0]?.type ?? type);
+  const meta = TYPE_BY_KEY[effectiveType];
   const stocked = (tanks ?? []).filter((t) => t.batchMetrics?.batchId);
   const tank = stocked.find((t) => t.id === tankId);
 
   const reasons: Array<{ value: string; label: string }> =
-    type === 'mortality'
+    effectiveType === 'mortality'
       ? MORTALITY_REASONS
-      : type === 'cull'
+      : effectiveType === 'cull'
         ? CULL_REASONS
-        : type === 'transfer'
+        : effectiveType === 'transfer'
           ? TRANSFER_REASONS.map((r) => ({ value: r, label: r }))
           : [];
 
@@ -287,7 +295,7 @@ export function LogSheet({
   );
 
   const blocker = submitBlocker({
-    type,
+    type: effectiveType,
     tank,
     qty,
     destTankId,
@@ -301,8 +309,8 @@ export function LogSheet({
     const batchId = tank.batchMetrics.batchId;
     setError(null);
     try {
-      let result: { id: string; queued?: boolean } | undefined;
-      if (type === 'mortality') {
+      let result: AddToQueueResult;
+      if (effectiveType === 'mortality') {
         const payload: MortalityInput = {
           batchId,
           tankId: tank.id,
@@ -311,7 +319,7 @@ export function LogSheet({
           observedAt: new Date().toISOString(),
         };
         result = await addToQueue('recordMortality', payload);
-      } else if (type === 'cull') {
+      } else if (effectiveType === 'cull') {
         const payload: CullInput = {
           batchId,
           tankId: tank.id,
@@ -320,7 +328,7 @@ export function LogSheet({
           culledAt: new Date().toISOString(),
         };
         result = await addToQueue('recordCull', payload);
-      } else if (type === 'transfer') {
+      } else if (effectiveType === 'transfer') {
         const payload: TransferInput = {
           batchId,
           sourceTankId: tank.id,
@@ -344,7 +352,10 @@ export function LogSheet({
         };
         result = await addToQueue('createWaterQuality', payload);
       }
-      setReceipt({ id: result?.id ?? '—', queued: !isOnline });
+      // FE-HIGH-050: addToQueue returns a DISCRIMINATED result. `duplicate`
+      // means the at-most-once ledger already holds this command — telling the
+      // worker "saved" for a second time would invite them to log it again.
+      setReceipt({ id: result.id, duplicate: result.status === 'duplicate' });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save this entry');
     }
@@ -373,11 +384,15 @@ export function LogSheet({
               <Check size={26} />
             </span>
             <div>
-              <div className="text-head font-semibold text-ink-1">{meta.title} saved</div>
+              <div className="text-head font-semibold text-ink-1">
+                {receipt.duplicate ? 'Already recorded' : `${meta.title} saved`}
+              </div>
               <div className="text-body text-ink-3">
-                {receipt.queued
-                  ? 'Held on this device — it will send when there is signal.'
-                  : 'Sent to the farm.'}
+                {receipt.duplicate
+                  ? 'This exact entry was already logged — nothing was added.'
+                  : isOnline
+                    ? 'Sent to the farm.'
+                    : 'Held on this device — it will send when there is signal.'}
               </div>
             </div>
           </div>
@@ -389,7 +404,7 @@ export function LogSheet({
             <div className="flex items-center justify-between px-4 py-3">
               <span className="text-body text-ink-3">State</span>
               <span className="text-body font-mono text-acc">
-                {receipt.queued ? 'QUEUED' : 'SENT'}
+                {receipt.duplicate ? 'DUPLICATE' : isOnline ? 'SENT' : 'QUEUED'}
               </span>
             </div>
           </Card>
@@ -468,7 +483,7 @@ export function LogSheet({
               type={t.type === 'water' ? 'water' : t.type}
               label={t.label}
               icon={t.icon}
-              selected={t.type === type}
+              selected={t.type === effectiveType}
               onSelect={() => {
                 setType(t.type);
                 setReason('');
@@ -478,7 +493,7 @@ export function LogSheet({
           ))}
         </div>
 
-        {type === 'water' ? (
+        {effectiveType === 'water' ? (
           <div className="px-5 flex flex-col gap-2">
             <span className="text-meta text-ink-3">Parameters · {wqEntered.length} entered</span>
             {WQ_PARAMS.map((p) => (
@@ -543,7 +558,7 @@ export function LogSheet({
         )}
 
         {/* Destination unit — transfer only. */}
-        {type === 'transfer' && (
+        {effectiveType === 'transfer' && (
           <div className="px-5 flex flex-col gap-2">
             <span className="text-meta text-ink-3">Destination unit</span>
             <div className="flex gap-2 overflow-x-auto">
@@ -564,7 +579,7 @@ export function LogSheet({
         {reasons.length > 0 && (
           <div className="px-5 flex flex-col gap-2">
             <span className="text-meta text-ink-3">
-              {type === 'transfer' ? 'Reason for the move' : 'Cause'}
+              {effectiveType === 'transfer' ? 'Reason for the move' : 'Cause'}
             </span>
             <div className="flex gap-2 overflow-x-auto">
               {reasons.map((r) => (

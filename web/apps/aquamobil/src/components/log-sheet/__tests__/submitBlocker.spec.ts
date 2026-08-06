@@ -9,9 +9,9 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { Tank } from '@/types';
-
 import { submitBlocker, type SubmitGateInput } from '../LogSheet';
+
+import type { Tank } from '@/types';
 
 function tank(overrides: Partial<Tank['batchMetrics']> & { id?: string } = {}): Tank {
   const { id = 'unit-a', ...metrics } = overrides;

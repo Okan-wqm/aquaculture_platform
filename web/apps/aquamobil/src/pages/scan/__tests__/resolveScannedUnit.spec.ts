@@ -10,9 +10,9 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { Tank } from '@/types';
-
 import { resolveScannedUnit } from '../ScanPage';
+
+import type { Tank } from '@/types';
 
 function tank(overrides: Partial<Tank>): Tank {
   return {

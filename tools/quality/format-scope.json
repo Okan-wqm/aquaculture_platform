@@ -45053,6 +45053,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/__tests__/route-reachability.invariant.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/App.tsx",
       "prettier_managed": true
     },
@@ -56604,10 +56610,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9283,
+  "file_count": 9284,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9102,
-  "managed_file_list_sha256": "95190c68f85ea9d3a802c970391cf9fd7de64106c457e3219c9ec04c455fc289",
+  "managed_count": 9103,
+  "managed_file_list_sha256": "bf7cf824c252f5eae144ed8d29621074913e608da28f21ebe9fe0604c172843b",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

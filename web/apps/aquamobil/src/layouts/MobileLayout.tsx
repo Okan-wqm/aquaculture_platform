@@ -6,9 +6,10 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { CriticalAlertBanner } from '@/components/CriticalAlertBanner';
 import { StatusDot } from '@/components/ui';
 import { useFarmRealtimeSync } from '@/hooks/useFarmRealtimeSync';
-import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
+import { type MobileFeature } from '@/hooks/useMobilePermissions';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useUnreadCount } from '@/hooks/useUnreadCount';
+import { useFeatureAccess } from '@/utils/feature-access';
 
 interface MobileLayoutProps {
   children: ReactNode;
@@ -59,7 +60,10 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
   const location = useLocation();
   const navigate = useNavigate();
   const { pendingCount, isOnline, isSyncing } = useOfflineQueue();
-  const { canAccess } = useMobilePermissions();
+  // SEC-MEDIUM-050: canReach folds the entitlement flag with the feature's role
+  // floor. `reports` has a MODULE_MANAGER floor, so gating the tab on canAccess
+  // alone would show a MODULE_USER a tab whose route immediately bounces them.
+  const { canReach } = useFeatureAccess();
 
   // MOB-MEDIUM-008: a live-channel drop while HTTP is fine means the "~1s
   // freshness" promise is silently broken, and the worker must see that data
@@ -104,7 +108,7 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
 
   const tabs = allTabs.filter((tab) => {
     if (!tab.features) return true;
-    return tab.features.some((f) => canAccess(f));
+    return tab.features.some((f) => canReach(f));
   });
 
   const isActive = (tab: TabItem): boolean => {
@@ -118,7 +122,11 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
   // a screen whose every action is denied.
   const canScan = (
     ['mortality', 'cull', 'harvest', 'feeding', 'transfer', 'waterQuality'] as const
-  ).some((f) => canAccess(f));
+  ).some((f) => canReach(f));
+
+  // Split the tabs around the raised scan button. Derived rather than a fixed
+  // slice(0,2) so a permission-filtered dock stays balanced at any tab count.
+  const splitAt = Math.ceil(tabs.length / 2);
 
   return (
     <div className="flex flex-col h-full w-full overflow-auto pb-safe">
@@ -160,13 +168,17 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
           'bg-dock backdrop-blur-xl border border-line-strong',
           'shadow-[0_18px_40px_rgba(2,8,18,0.45)]',
           'grid items-center',
-          canScan ? 'grid-cols-[1fr_1fr_1.1fr_1fr_1fr]' : 'grid-cols-4',
+          // The column template must follow the ACTUAL child count: tabs are
+          // permission-filtered (a user without `reports` sees three, not four)
+          // and the scan slot is conditional. A fixed five-column template left
+          // an empty column and pushed the dock's contents off-centre.
+          DOCK_COLUMNS[tabs.length + (canScan ? 1 : 0)] ?? 'grid-cols-4',
         )}
         // The dock floats, so the safe-area inset is applied as margin rather
         // than padding — otherwise the blur panel itself grows on notch devices.
         style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
       >
-        {tabs.slice(0, 2).map((tab) => (
+        {tabs.slice(0, splitAt).map((tab) => (
           <DockTab
             key={tab.id}
             tab={tab}
@@ -190,7 +202,7 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
           </div>
         )}
 
-        {tabs.slice(2).map((tab) => (
+        {tabs.slice(splitAt).map((tab) => (
           <DockTab
             key={tab.id}
             tab={tab}
@@ -203,6 +215,20 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
     </div>
   );
 }
+
+/**
+ * Column templates by total slot count. WHY a static lookup rather than a
+ * template literal: Tailwind's JIT scans source text, so a computed class name
+ * would be purged from the build (the same PERF-09 reason the old quick-action
+ * grid used a map).
+ * The scan slot is deliberately wider — it holds the raised button.
+ */
+const DOCK_COLUMNS: Record<number, string> = {
+  2: 'grid-cols-2',
+  3: 'grid-cols-3',
+  4: 'grid-cols-4',
+  5: 'grid-cols-[1fr_1fr_1.1fr_1fr_1fr]',
+};
 
 function DockTab({
   tab,

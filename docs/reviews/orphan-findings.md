@@ -8055,3 +8055,23 @@ Forcing either in would have meant shaping irreversible farm records through a f
 **Open follow-up (owner: claude, deadline: at merge of this PR):** the superseded `/mortality/record`, `/cull/record` and `/transfer/record` pages still exist and still work. Retiring them (and `_shared/RecordEntityPage.tsx`, once harvest is the only consumer left) is deliberately a separate step — deleting live record paths without first exercising the sheet against a running backend is the kind of change that should be verified visually first.
 
 **Owner:** claude (this session). **Status:** RESOLVED for the four covered types; page retirement tracked above.
+
+## ORPHAN-HIGH-579 — self-review of the v4 redesign found four defects the green build did not: an unreachable feature, a mis-sized dock, a role-blind tab, and a duplicate shown as a fresh save — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, by reviewing the six v4 phases already committed rather than by any failing test. Every one of these shipped with a green build, a passing suite, a clean typecheck and a clean lint.
+
+**1. `/notifications` became unreachable (the most serious).** Rewriting `HomePage` for v4 replaced the old gradient header, and `AlertsBell` + `NotificationBell` lived inside it. The route, its guard and `NotificationsPage` all survived; nothing rendered a control that navigated there. Two components became dead code that still compiled. Nothing anywhere failed — the feature was simply gone.
+
+**2. The dock's column template was fixed at five while its child count varies.** `grid-cols-[1fr_1fr_1.1fr_1fr_1fr]` with `tabs.slice(0, 2)` / `tabs.slice(2)` assumed four tabs plus scan. Tabs are permission-filtered, so a user without `reports` gets three — four children in a five-column grid, leaving an empty column and pushing the dock off-centre. The scan slot could also vanish, taking the count to three.
+
+**3. The Reports tab was gated on the entitlement but not the role floor.** `MobileLayout` filtered on `canAccess('reports')`, while the route enforces `FeatureRoute` **plus** a `MODULE_MANAGER` floor (`FEATURE_ROLE_FLOOR`). A `MODULE_USER` holding the reports entitlement would see a tab that bounced them straight home. `HomePage` already used the role-aware `canReach` for exactly this reason (SEC-MEDIUM-050); the dock did not.
+
+**4. A deduplicated re-submit was reported as a fresh save.** `addToQueue` returns the discriminated `AddToQueueResult` — `{ status: 'queued' | 'duplicate'; id }` (FE-HIGH-050). The log sheet typed the result loosely enough that `{ id: string; queued?: boolean }` type-checked, then ignored `status` entirely and derived "queued" from `!isOnline`. A worker whose entry hit the at-most-once ledger saw "Record mortality saved", inviting them to log it again.
+
+**Fixes (this PR):** the bells move into `AppHeader`'s actions on Today; the dock derives its column template and its split point from the real slot count via a static lookup (a computed class name would be purged by Tailwind's JIT — the same PERF-09 reason the old action grid used a map); the dock filters on `canReach`; and the sheet reads `result.status`, showing `DUPLICATE` with copy that says nothing was added.
+
+A fifth issue was fixed in the same pass without ever shipping: the sheet's initial log type was computed from the permission list on first render, before permissions resolve, so it could sit on — and submit — a type the worker is not allowed to make.
+
+**Prevention (Tier 3):** `src/__tests__/route-reachability.invariant.spec.ts` asserts that every destination without a dock slot is still pointed at from somewhere, and that the two components which are a route's sole entry point are actually rendered. Proven by deliberate break: removing the bells again turns it red, restoring them turns it green. Its blind spot is documented in the file rather than papered over — the textual path check cannot tell that a route named only inside an orphaned component is unreachable, which is exactly how defect 1 hid.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).

@@ -40,8 +40,10 @@ import { useState, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { AiInsightsCard } from '@/components/ai';
+import { AlertsBell } from '@/components/AlertsBell';
 import { AppHeader } from '@/components/AppHeader';
 import { LogSheet, type SheetType } from '@/components/log-sheet/LogSheet';
+import { NotificationBell } from '@/components/NotificationBell';
 import { Card, Chip, EmptyState, ListRow, Skeleton, StatusDot } from '@/components/ui';
 import type { RowTone } from '@/components/ui';
 import { useAlerts, type MobileAlert } from '@/hooks/useAlerts';
@@ -181,6 +183,15 @@ export function HomePage(): JSX.Element {
           day: 'numeric',
           month: 'long',
         })}
+        // The bells are the ONLY entry point to /alerts and /notifications.
+        // Dropping the old gradient header took them off the screen with it and
+        // left both routes unreachable — they belong beside the avatar.
+        actions={
+          <>
+            <AlertsBell />
+            <NotificationBell />
+          </>
+        }
       />
 
       {/* Status row — the shift's context in one line: connection, alarm load,

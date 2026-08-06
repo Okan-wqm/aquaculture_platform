@@ -17,12 +17,13 @@
  * line, approaching consent" without the worker knowing the numbers by heart.
  */
 import { AlertTriangle, Fish } from 'lucide-react';
-import type { JSX } from 'react';
+import { useState, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { FeedingAdviceCard, GrowthPredictionCard, TankRiskBadge } from '@/components/ai';
 import { AppHeader } from '@/components/AppHeader';
 import { LiveReadingsCard } from '@/components/LiveReadingsCard';
+import { LogSheet } from '@/components/log-sheet/LogSheet';
 import {
   Button,
   CapacityMeter,
@@ -56,6 +57,7 @@ export function TankDetailPage(): JSX.Element {
   const { tankId } = useParams<{ tankId: string }>();
   const navigate = useNavigate();
   const { data: tanks, isLoading } = useTanks();
+  const [logOpen, setLogOpen] = useState(false);
 
   const tank = tanks?.find((t) => t.id === tankId);
   const metrics = tank?.batchMetrics;
@@ -187,6 +189,15 @@ export function TankDetailPage(): JSX.Element {
           <FeedingAdviceCard tankId={tank.id} />
         </div>
 
+        {/* The primary action of this screen. The v4 design puts it here rather
+            than in a menu because the worker is already standing at the unit —
+            reaching a log entry should not cost a navigation. */}
+        {hasBatch && (
+          <Button variant="primary" size="save" block onClick={() => setLogOpen(true)}>
+            Log entry for {tank.code || tank.name}
+          </Button>
+        )}
+
         {/* The unit's configuration, demoted from the old header banner: volume
             and max capacity are set once and read rarely, so they belong at the
             bottom rather than above the numbers that change every day. */}
@@ -212,6 +223,8 @@ export function TankDetailPage(): JSX.Element {
           </div>
         </Card>
       </div>
+
+      <LogSheet open={logOpen} onClose={() => setLogOpen(false)} initialTankId={tank.id} />
     </div>
   );
 }

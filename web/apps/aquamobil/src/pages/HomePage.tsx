@@ -36,11 +36,12 @@ import {
   Skull,
   Warehouse,
 } from 'lucide-react';
-import type { JSX } from 'react';
+import { useState, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { AiInsightsCard } from '@/components/ai';
 import { AppHeader } from '@/components/AppHeader';
+import { LogSheet, type SheetType } from '@/components/log-sheet/LogSheet';
 import { Card, Chip, EmptyState, ListRow, Skeleton, StatusDot } from '@/components/ui';
 import type { RowTone } from '@/components/ui';
 import { useAlerts, type MobileAlert } from '@/hooks/useAlerts';
@@ -54,7 +55,14 @@ import { useFeatureAccess } from '@/utils/feature-access';
 
 interface Shortcut {
   feature: MobileFeature;
+  /** Where a tap goes when the type is NOT covered by the log sheet. */
   path: string;
+  /**
+   * Set when this entry type is one the log sheet covers. Tapping opens the
+   * sheet in place instead of navigating — the worker keeps their context and
+   * the entry is two taps rather than a page load plus a form.
+   */
+  sheet?: SheetType;
   icon: typeof Skull;
   label: string;
   tone: RowTone;
@@ -75,7 +83,14 @@ const ALL_SHORTCUTS: Shortcut[] = [
     label: 'Mortality',
     tone: 'mortality',
   },
-  { feature: 'cull', path: '/cull/record', icon: Scissors, label: 'Culling', tone: 'cull' },
+  {
+    feature: 'cull',
+    sheet: 'cull',
+    path: '/cull/record',
+    icon: Scissors,
+    label: 'Culling',
+    tone: 'cull',
+  },
   { feature: 'harvest', path: '/harvest/record', icon: Package, label: 'Harvest', tone: 'harvest' },
   {
     feature: 'waterQuality',
@@ -151,6 +166,8 @@ export function HomePage(): JSX.Element {
     0,
   );
   const overCapacityCount = activeTanks.filter((t) => t.batchMetrics?.isOverCapacity).length;
+
+  const [sheet, setSheet] = useState<{ type: SheetType } | null>(null);
 
   const firstName = (user?.name ?? '').split(/\s+/)[0] ?? '';
   const greeting = greetingFor(new Date().getHours());
@@ -325,7 +342,7 @@ export function HomePage(): JSX.Element {
                   <button
                     key={s.feature}
                     type="button"
-                    onClick={() => navigate(s.path)}
+                    onClick={() => (s.sheet ? setSheet({ type: s.sheet }) : navigate(s.path))}
                     className="h-tap-tile min-h-touch rounded-2xl border border-line bg-surface-1 shadow-token flex flex-col items-center justify-center gap-1.5 touch-feedback focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc"
                   >
                     <Icon size={19} className={SHORTCUT_ICON_CLASS[s.tone]} />
@@ -380,6 +397,8 @@ export function HomePage(): JSX.Element {
           <AiInsightsCard />
         </section>
       </div>
+
+      <LogSheet open={sheet !== null} onClose={() => setSheet(null)} initialType={sheet?.type} />
     </div>
   );
 }

@@ -8032,3 +8032,26 @@ The consequence is that **density against consent**, the number that legally con
 **Fix (this PR):** the four numbers a shift check actually reads (standing biomass, average weight, density, capacity used) are promoted to hero numerals, and density gets its own `CapacityMeter` with the watch and limit lines **labelled under the track**. Being past the watch line is now legible without prior knowledge. The capacity tile can only take an alarm colour together with a caption naming the threshold it crossed — enforced by `StatTile`'s discriminated union, not by convention. Volume and max capacity are demoted to a "Unit configuration" card at the bottom, where read-rarely values belong.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-578 — logging an entry cost a full page navigation away from the unit the worker was standing at — RESOLVED (this PR, for four of six types)
+
+**Discovered:** 2026-08-06, while building the v4 log sheet.
+
+Recording a mortality meant leaving the unit screen for `/mortality/record`, re-selecting the unit from a dropdown, filling a page-sized form, stepping through a confirm screen, and landing on a success page — for a datum that is one number and one cause. The context the worker had (they are standing at U-07, they can see its oxygen trace) was discarded at the navigation and had to be re-established by hand.
+
+**Fix (this PR):** `LogSheet`, a bottom sheet that keeps the unit list or unit detail visible underneath. Unit chips, four type tiles, a numpad sized by the density tokens, cause pills, and hold-to-save. It is reached from the unit detail's primary CTA and from Today's shortcuts.
+
+**No new backend contract:** every type enqueues through the same `useOfflineQueue.addToQueue(operationType, payload)` path its page already used, so the command envelope, payload hash and at-most-once dedup against `farm_mobile_command_receipts` are untouched.
+
+**Four types, not the design's six — and why.** Mortality, cull, water quality and transfer all reduce to "a quantity (or a set of readings) against a unit", which is the shape this sheet is. The other two do not:
+
+- **Harvest** requires five fields (`quantityHarvested`, `averageWeight`, `totalBiomass`, `qualityClass`, `harvestDate`). It is a form, not a number.
+- **Feeding** is not a quantity flow at all: it is meal-centric off `feedingDayPlans`, with per-meal `SCHEDULED / FED / PARTIALLY_FED / SKIPPED / MISSED` state and a finalize step. Re-expressing it in the sheet would put day-plan logic in a second place and let the two drift.
+
+Forcing either in would have meant shaping irreversible farm records through a form that does not fit them. Both keep their full pages, restyled in a later phase. The operator approved this narrowing after the payload shapes were read.
+
+**The submit gate is a pure, tested function** (`submitBlocker`), not inline JSX conditionals: it is the only thing between a gloved thumb and a bad record, including the stock ceiling that rejects a mortality larger than the pen's population — a mistyped extra zero is a data-integrity event, not a validation nicety. Thirteen specs cover every branch.
+
+**Open follow-up (owner: claude, deadline: at merge of this PR):** the superseded `/mortality/record`, `/cull/record` and `/transfer/record` pages still exist and still work. Retiring them (and `_shared/RecordEntityPage.tsx`, once harvest is the only consumer left) is deliberately a separate step — deleting live record paths without first exercising the sheet against a running backend is the kind of change that should be verified visually first.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the four covered types; page retirement tracked above.

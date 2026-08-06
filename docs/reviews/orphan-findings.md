@@ -8365,7 +8365,7 @@ What now carries the signal is wording that already existed: "AI Insights", "AI 
 
 **Owner:** claude (this session). **Status:** OPEN — needs an operator decision on the marker, then one consistent application.
 
-## ORPHAN-MEDIUM-590 — the regulator-submission review page renders a blank screen when its query fails — OPEN
+## ORPHAN-MEDIUM-590 — the regulator-submission review page renders a blank screen when its query fails — RESOLVED (this PR)
 
 **Discovered:** 2026-08-06, while converting `ReportReviewPage` (FARM-HIGH-214 / RPT-019).
 
@@ -8373,9 +8373,11 @@ The page branches on `isLoading` and on `isSuccess && !draft`. There is no `isEr
 
 This is worse than the "empty list looks like a failed fetch" class already fixed elsewhere in this work: there is no list to misread, only absence.
 
-**Fix needed:** one branch rendering `<EmptyState tone="error">` with a retry. Deliberately not done during the conversion pass, which was scoped to markup — adding a render branch is logic, and this page is a regulated surface where the change deserves its own review rather than riding along in a restyle.
+**Fix (this PR):** NOT the `isError` branch originally proposed — that would have been the sixth application of the same patch (see ORPHAN-HIGH-595). The page now routes its query through `toLoadable()` + `<DataState>`, so `data` sits on one arm of a discriminated union and the failure case cannot be dropped again without a compile error. It is the mechanism's first adopter.
 
-**Owner:** claude (this session). **Status:** OPEN.
+Proven by `src/pages/reports/__tests__/ReportReviewPage.outage.spec.tsx`, which renders under a genuinely rejected request. Three cases: the failure states that the draft could not be loaded and offers a retry; it does NOT claim "Draft not found", because a network error is not entitled to tell a manager a regulatory submission is gone; and a successful fetch returning no matching draft is still reported as missing rather than dressed up as an outage.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
 
 ## ORPHAN-MEDIUM-591 — the remaining AquaMobil pages carried ~1,300 pre-v4 class usages, and three of them made claims the app could not support — RESOLVED (this PR)
 

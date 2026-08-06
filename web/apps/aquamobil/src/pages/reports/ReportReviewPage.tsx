@@ -15,7 +15,7 @@ import { type JSX, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { AppHeader } from '@/components/AppHeader';
-import { Button, Card, CardDivider, EmptyState, Skeleton } from '@/components/ui';
+import { Button, Card, CardDivider, DataState, EmptyState } from '@/components/ui';
 import type {
   MobileApproveAndSubmitReportDraftMutation,
   MobileReportDraftsQuery,
@@ -24,6 +24,7 @@ import { MOBILE_APPROVE_AND_SUBMIT_REPORT_DRAFT, MOBILE_REPORT_DRAFTS } from '@/
 import { useAuth } from '@/hooks/useAuth';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { graphqlRequest } from '@/services/authenticated-fetch';
+import { toLoadable } from '@/utils/loadable';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 type DraftRow = MobileReportDraftsQuery['reportDrafts'][number];
@@ -148,15 +149,32 @@ export function ReportReviewPage(): JSX.Element {
           </Card>
         )}
 
-        {isOnline && draftsQuery.isLoading && <Skeleton variant="tile" count={2} />}
-
-        {isOnline && draftsQuery.isSuccess && !draft && (
-          <EmptyState
-            tone="error"
-            icon={<FileText size={22} />}
-            title="Draft not found"
-            description="It may have been submitted or dismissed elsewhere."
-          />
+        {/* ORPHAN-MEDIUM-590 / ORPHAN-HIGH-595: this page previously branched on
+            isLoading and isSuccess only, so a FAILED query rendered the header
+            and nothing else — a blank screen on the surface where a Mattilsynet
+            submission is approved. Rather than bolt an isError branch on (the
+            sixth instance of that same patch), it now goes through Loadable:
+            `data` sits on one arm of a discriminated union, so the failure case
+            cannot be skipped without a compile error. */}
+        {isOnline && (
+          <DataState
+            value={toLoadable(draftsQuery)}
+            label="the report draft"
+            skeleton="tile"
+            skeletonCount={2}
+            isEmpty={() => draft === undefined}
+            empty={
+              <EmptyState
+                icon={<FileText size={22} />}
+                title="Draft not found"
+                description="It may have been submitted or dismissed elsewhere."
+              />
+            }
+          >
+            {/* The draft itself is rendered below, gated on `draft` — this arm
+                only has to prove the fetch genuinely succeeded. */}
+            {() => null}
+          </DataState>
         )}
 
         {draft && (

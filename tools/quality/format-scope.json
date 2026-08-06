@@ -42786,6 +42786,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/container-log-rotation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/coverage-evidence-contract.spec.ts",
       "prettier_managed": true
     },
@@ -56580,10 +56586,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9279,
+  "file_count": 9280,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9098,
-  "managed_file_list_sha256": "413ff34f3fe8a929c691f7244d417142bcdca5b0e8fc2424b54f4b0edaeca8da",
+  "managed_count": 9099,
+  "managed_file_list_sha256": "3b87a3d34242d5e72db1272ac1dff103455022fb221053af7b163c189da27f5f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

@@ -964,6 +964,23 @@ def _phase_cycle_diff(context: PhaseContext) -> dict[str, Any]:
     return run_cycle_diff(cycle_id=context.cycle_id, base_dir=context.base_dir)
 
 
+def _phase_twin_refresh(context: PhaseContext) -> dict[str, Any]:
+    """Keep the repository map current, incrementally, once per cycle.
+
+    Twin-lite shipped as a CLI, so the map was only ever as fresh as the last
+    time a human ran `twin refresh`. A map ARIA consults about a tree it no
+    longer has is worse than no map: it answers confidently about the past.
+
+    The refresh re-parses only what changed since ``indexed_sha`` and falls
+    back to a full build when there is no prior map or its anchor commit is
+    unknown to this clone — and it SAYS WHICH in ``refresh.mode``, so "the
+    cycle did no full scan" is an observation rather than an assumption.
+    """
+    from .twin import refresh_twin_map
+
+    return refresh_twin_map(workspace_root=context.workspace_root, base_dir=context.base_dir)
+
+
 def _phase_tools(context: PhaseContext) -> dict[str, Any]:
     """Run every dispatchable tool and summarise the runs it produced.
 
@@ -1531,6 +1548,24 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     CyclePhase(
         "cycle_diff", "discovery", _phase_cycle_diff,
         on_error="propagate",
+        modes=frozenset({"standard", "burn_in"}),
+    ),
+    # The repository map, kept current by the cycle that reads it.
+    #
+    # `record_and_continue`, not `propagate`: a refresh that CRASHED leaves a
+    # stale map, which is a degraded read for the one consumer that wants it
+    # — not a reason to end a cycle whose real work succeeded. The failure is
+    # still an outcome row, and `twin_status` reports `fresh: false`, so
+    # "the map is old" and "the map is current" stay distinguishable.
+    #
+    # In `burn_in` too. The map is a declared OBSERVATION surface and touches
+    # no claim, tool or PR surface, so it does not weaken the observe lane's
+    # no-action claim; and the observe lane's output is the acceptance
+    # evidence the ladder counts, which must not be judged against a map
+    # frozen at some past commit.
+    CyclePhase(
+        "twin_refresh", "discovery", _phase_twin_refresh,
+        on_error="record_and_continue", state_key="twin_refresh",
         modes=frozenset({"standard", "burn_in"}),
     ),
 

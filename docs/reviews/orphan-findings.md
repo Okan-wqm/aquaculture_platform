@@ -7939,6 +7939,20 @@ A `@Cron` method that stops firing produces no error and no log line. A schedule
 
 **Owner:** claude (this session). **Status:** RESOLVED for the mechanism and the first adopter; the remaining 89 adoptions are tracked here and belong to each owning service.
 
+## ORPHAN-HIGH-571 — a write probe needs a real account, and the platform had no way to keep that account's traffic out of billing — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, W-D preparation after the operator authorised a canary account for write probes (the standing "never invent an identity" rule had blocked write probes entirely until that decision).
+
+Proving a write reaches the database and comes back requires actually writing, which requires a real, authenticated account. Verified firsthand that `UsageMeteringService.recordUsage` (`apps/billing-service/src/modules/metering/usage-metering.service.ts:501`) buffers every event it is handed with no notion of a non-billable tenant — so a canary's synthetic traffic would land in the usage stream indistinguishable from a customer's. That is worse than a wrong number: it is a right-looking one, and it would surface as unexplained revenue drift rather than as an error.
+
+**Fix (this PR):** `isCanaryTenant` in backend-common reads `CANARY_TENANT_IDS`, and `recordUsage` refuses to buffer for a canary. The refusal sits at the single point where usage becomes billable rather than as a rule each caller must remember. Two deliberate properties: a malformed id throws at parse time instead of silently dropping out of the set (a typo'd canary looks exempt in config and gets billed in reality — the hardest billing bug to trace), and the skip is counted (`canaryEventsSkipped`) rather than silent, so a mis-set variable shows up as a number instead of a hole.
+
+Membership is read per call, not cached: the exemption must be as revocable as it is grantable, and a cached copy would keep exempting a tenant the operator just removed until the next restart.
+
+**Not in this slice:** the canary tenant itself is not created here, and no write probe uses it yet. Provisioning the account and running writes against production are separate acts that deserve their own review — this is the guard rail that has to exist first.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the exemption mechanism.
+
 ## ORPHAN-CRITICAL-569 — Docker gives up restarting and tells nobody: the tenant-schema provisioner was dead for six days, and the platform had no layer that notices — RESOLVED (this PR)
 
 **Discovered:** 2026-08-06, while building the T0 supervisor; found live on the production droplet, not in code review. `aqua-tenant-schema-provisioner` had `restart: unless-stopped`, exited on a DNS failure (`getaddrinfo EAI_AGAIN`, the same class as the 2026-08-05 auth outage) at 2026-07-31T11:51Z, and was still stopped six days later. `docker inspect -f '{{.State.Running}}'` said false; nothing asked.

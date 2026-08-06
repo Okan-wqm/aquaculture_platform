@@ -6567,6 +6567,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/modules/metering/__tests__/usage-metering.canary.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/modules/metering/__tests__/usage-metering.service.spec.ts",
       "prettier_managed": true
     },
@@ -36430,6 +36436,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/billing/__tests__/canary-tenant.registry.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/billing/__tests__/dynamic-stripe-client.provider.spec.ts",
       "prettier_managed": true
     },
@@ -36437,6 +36449,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/billing/__tests__/stripe-api.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/billing/canary-tenant.registry.ts",
       "prettier_managed": true
     },
     {
@@ -56538,10 +56556,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9272,
+  "file_count": 9275,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9091,
-  "managed_file_list_sha256": "b424c062b2d2e2ab5855454e0c5e79250588a21c979f719f0fb3508a90415ddc",
+  "managed_count": 9094,
+  "managed_file_list_sha256": "885baa17b7e2436d83c9ab7972271379871ad78cfd4db0549587190086a97b4a",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

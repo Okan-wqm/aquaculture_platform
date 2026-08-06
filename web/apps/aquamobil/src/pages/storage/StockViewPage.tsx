@@ -14,14 +14,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { gql } from 'graphql-tag';
-import {
-  Package,
-  AlertCircle,
-  Loader2,
-  RefreshCw,
-  MapPin,
-  WifiOff,
-} from 'lucide-react';
+import { Package, AlertCircle, Loader2, RefreshCw, MapPin, WifiOff } from 'lucide-react';
 import { useState, useCallback, useMemo, useRef } from 'react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -33,7 +26,6 @@ import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-
 
 // ============================================================================
 // TYPES
@@ -69,7 +61,11 @@ interface StockItem {
 const STORAGE_LOCATIONS_QUERY = gql`
   query StorageLocations {
     storageLocations {
-      items { id name code }
+      items {
+        id
+        name
+        code
+      }
     }
   }
 `;
@@ -220,7 +216,9 @@ export function StockViewPage(): JSX.Element {
     try {
       await refetchStock();
       // Also invalidate the query client cache to force fresh data
-      await queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'stock-at-location', selectedLocationId) });
+      await queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'stock-at-location', selectedLocationId),
+      });
     } finally {
       setIsRefreshing(false);
     }
@@ -230,16 +228,19 @@ export function StockViewPage(): JSX.Element {
     touchStartY.current = e.touches[0].clientY;
   }, []);
 
-  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
-    const scrollTop = scrollContainerRef.current?.scrollTop ?? 0;
-    // Trigger refresh if user pulls down from top of list
-    if (deltaY > 80 && scrollTop <= 0) {
-      // Fire-and-forget: pull-to-refresh is a UI gesture; errors surface via the
-      // refetch's own error state, so the promise is intentionally not awaited.
-      void handleRefresh();
-    }
-  }, [handleRefresh]);
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+      const scrollTop = scrollContainerRef.current?.scrollTop ?? 0;
+      // Trigger refresh if user pulls down from top of list
+      if (deltaY > 80 && scrollTop <= 0) {
+        // Fire-and-forget: pull-to-refresh is a UI gesture; errors surface via the
+        // refetch's own error state, so the promise is intentionally not awaited.
+        void handleRefresh();
+      }
+    },
+    [handleRefresh],
+  );
 
   // ---- Render --------------------------------------------------------------
 
@@ -257,7 +258,9 @@ export function StockViewPage(): JSX.Element {
           selectedLocationId && isOnline ? (
             <IconButton
               aria-label="Refresh stock"
-              onClick={() => { void handleRefresh(); }}
+              onClick={() => {
+                void handleRefresh();
+              }}
               disabled={isRefreshing}
               className="bg-surface-2 rounded-xl"
             >
@@ -390,9 +393,7 @@ export function StockViewPage(): JSX.Element {
                         <h3 className="text-body font-bold text-ink-1 truncate">
                           {item.itemName ?? item.itemType}
                         </h3>
-                        <p className="text-meta text-ink-3 mt-0.5">
-                          {item.itemType}
-                        </p>
+                        <p className="text-meta text-ink-3 mt-0.5">{item.itemType}</p>
                       </div>
                       <div className="text-right ml-3">
                         <span className="text-head font-mono font-bold text-ink-1 tabular-nums">
@@ -419,7 +420,9 @@ export function StockViewPage(): JSX.Element {
                             expiryStatus === 'ok' && 'bg-surface-2 text-ok',
                           )}
                         >
-                          {expiryStatus === 'expired' ? 'EXPIRED' : `Exp: ${formatExpiryDate(item.expiryDate)}`}
+                          {expiryStatus === 'expired'
+                            ? 'EXPIRED'
+                            : `Exp: ${formatExpiryDate(item.expiryDate)}`}
                         </span>
                       )}
                     </div>

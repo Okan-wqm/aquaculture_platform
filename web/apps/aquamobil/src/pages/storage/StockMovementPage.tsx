@@ -94,7 +94,11 @@ const STORAGE_ITEMS_QUERY = gql`
 const STORAGE_LOCATIONS_QUERY = gql`
   query StorageLocations {
     storageLocations {
-      items { id name code }
+      items {
+        id
+        name
+        code
+      }
     }
   }
 `;
@@ -102,7 +106,9 @@ const STORAGE_LOCATIONS_QUERY = gql`
 const RECORD_STOCK_MOVEMENT_MUTATION = gql`
   mutation RecordStockMovement($input: RecordStockMovementInput!) {
     recordStockMovement(input: $input) {
-      id movementType quantity
+      id
+      movementType
+      quantity
     }
   }
 `;
@@ -121,7 +127,10 @@ const RECORD_STOCK_MOVEMENT_MUTATION = gql`
 // header icon and the confirm screen's Type row: receiving confirms (ok),
 // dispensing is a watch (warn), and a write-off is a loss (crit). It used to be
 // grey, which made the destructive movement the quietest one on the screen.
-const MOVEMENT_CONFIG: Record<StockMovementType, { label: string; color: string; icon: typeof ArrowDownToLine }> = {
+const MOVEMENT_CONFIG: Record<
+  StockMovementType,
+  { label: string; color: string; icon: typeof ArrowDownToLine }
+> = {
   IN: { label: 'Stock In', color: 'text-ok', icon: ArrowDownToLine },
   OUT: { label: 'Stock Out', color: 'text-warn', icon: ArrowUpFromLine },
   WASTE: { label: 'Write Off', color: 'text-crit', icon: Trash2 },
@@ -172,7 +181,7 @@ export function StockMovementPage(): JSX.Element {
 
   // Parse movement type from URL, default to IN for safety
   const rawType = searchParams.get('type') ?? 'IN';
-  const movementType: StockMovementType = (rawType === 'OUT' || rawType === 'WASTE') ? rawType : 'IN';
+  const movementType: StockMovementType = rawType === 'OUT' || rawType === 'WASTE' ? rawType : 'IN';
   const config = MOVEMENT_CONFIG[movementType];
   const MovementIcon = config.icon;
 
@@ -241,14 +250,22 @@ export function StockMovementPage(): JSX.Element {
   const locations = useMemo(() => locationsData ?? [], [locationsData]);
 
   // Derived values
-  const selectedItem = useMemo(() => items.find((i) => i.id === selectedItemId), [items, selectedItemId]);
-  const selectedLocation = useMemo(() => locations.find((l) => l.id === selectedLocationId), [locations, selectedLocationId]);
+  const selectedItem = useMemo(
+    () => items.find((i) => i.id === selectedItemId),
+    [items, selectedItemId],
+  );
+  const selectedLocation = useMemo(
+    () => locations.find((l) => l.id === selectedLocationId),
+    [locations, selectedLocationId],
+  );
 
   // Filtered items for the searchable list
   const filteredItems = useMemo(() => {
     if (!itemSearch.trim()) return items;
     const q = itemSearch.toLowerCase();
-    return items.filter((i) => i.name.toLowerCase().includes(q) || i.code.toLowerCase().includes(q));
+    return items.filter(
+      (i) => i.name.toLowerCase().includes(q) || i.code.toLowerCase().includes(q),
+    );
   }, [items, itemSearch]);
 
   // WHY: Lot number is required for feed and chemicals to satisfy food safety
@@ -271,10 +288,14 @@ export function StockMovementPage(): JSX.Element {
 
   const canAdvance = useCallback((): boolean => {
     switch (step) {
-      case 1: return selectedItemType !== null;
-      case 2: return selectedItemId !== '';
-      case 3: return quantity !== '' && parseFloat(quantity) > 0;
-      case 4: return selectedLocationId !== '';
+      case 1:
+        return selectedItemType !== null;
+      case 2:
+        return selectedItemId !== '';
+      case 3:
+        return quantity !== '' && parseFloat(quantity) > 0;
+      case 4:
+        return selectedLocationId !== '';
       case 5: {
         if (needsLot && !lotNumber.trim()) return false;
         if (needsExpiry && !expiryDate) return false;
@@ -284,10 +305,24 @@ export function StockMovementPage(): JSX.Element {
         if (needsNotes && !notes.trim()) return false;
         return true;
       }
-      case 7: return true;
-      default: return false;
+      case 7:
+        return true;
+      default:
+        return false;
     }
-  }, [step, selectedItemType, selectedItemId, quantity, selectedLocationId, lotNumber, expiryDate, notes, needsLot, needsExpiry, needsNotes]);
+  }, [
+    step,
+    selectedItemType,
+    selectedItemId,
+    quantity,
+    selectedLocationId,
+    lotNumber,
+    expiryDate,
+    notes,
+    needsLot,
+    needsExpiry,
+    needsNotes,
+  ]);
 
   const handleNext = useCallback(() => {
     if (!canAdvance()) return;
@@ -398,7 +433,9 @@ export function StockMovementPage(): JSX.Element {
           setTimeout(() => navigate('/storage'), 1500);
           return;
         } catch (queueError) {
-          setSubmitError(queueError instanceof Error ? queueError.message : 'Failed to queue operation');
+          setSubmitError(
+            queueError instanceof Error ? queueError.message : 'Failed to queue operation',
+          );
           return;
         }
       }
@@ -407,9 +444,21 @@ export function StockMovementPage(): JSX.Element {
       setIsSubmitting(false);
     }
   }, [
-    selectedItem, selectedLocation, movementType, selectedItemType, selectedItemId,
-    quantity, selectedLocationId, lotNumber, expiryDate, notes, isOnline,
-    addToQueue, navigate, queryClient, tenantId,
+    selectedItem,
+    selectedLocation,
+    movementType,
+    selectedItemType,
+    selectedItemId,
+    quantity,
+    selectedLocationId,
+    lotNumber,
+    expiryDate,
+    notes,
+    isOnline,
+    addToQueue,
+    navigate,
+    queryClient,
+    tenantId,
   ]);
 
   // ---- Success screen ------------------------------------------------------
@@ -481,7 +530,13 @@ export function StockMovementPage(): JSX.Element {
           <div>
             <h2 className="text-head font-bold text-ink-1 mb-2">What type of item?</h2>
             <p className="text-body text-ink-2 mb-6">
-              Select the category of the stock item you are {movementType === 'IN' ? 'receiving' : movementType === 'OUT' ? 'dispensing' : 'writing off'}.
+              Select the category of the stock item you are{' '}
+              {movementType === 'IN'
+                ? 'receiving'
+                : movementType === 'OUT'
+                  ? 'dispensing'
+                  : 'writing off'}
+              .
             </p>
             <div className="grid grid-cols-2 gap-3">
               {ITEM_TYPES.map((it) => (
@@ -503,10 +558,12 @@ export function StockMovementPage(): JSX.Element {
                   )}
                 >
                   <span className="text-3xl block mb-2">{it.emoji}</span>
-                  <span className={clsx(
-                    'text-body font-bold',
-                    selectedItemType === it.type ? 'text-acc' : 'text-ink-1',
-                  )}>
+                  <span
+                    className={clsx(
+                      'text-body font-bold',
+                      selectedItemType === it.type ? 'text-acc' : 'text-ink-1',
+                    )}
+                  >
                     {it.label}
                   </span>
                 </button>
@@ -573,10 +630,12 @@ export function StockMovementPage(): JSX.Element {
                         : 'border-line bg-surface-1',
                     )}
                   >
-                    <span className={clsx(
-                      'text-body font-bold block',
-                      selectedItemId === item.id ? 'text-acc' : 'text-ink-1',
-                    )}>
+                    <span
+                      className={clsx(
+                        'text-body font-bold block',
+                        selectedItemId === item.id ? 'text-acc' : 'text-ink-1',
+                      )}
+                    >
                       {item.name}
                     </span>
                     <span className="text-meta text-ink-3">
@@ -594,7 +653,13 @@ export function StockMovementPage(): JSX.Element {
           <div>
             <h2 className="text-head font-bold text-ink-1 mb-2">Enter quantity</h2>
             <p className="text-body text-ink-2 mb-6">
-              How much are you {movementType === 'IN' ? 'receiving' : movementType === 'OUT' ? 'dispensing' : 'writing off'}?
+              How much are you{' '}
+              {movementType === 'IN'
+                ? 'receiving'
+                : movementType === 'OUT'
+                  ? 'dispensing'
+                  : 'writing off'}
+              ?
             </p>
             <div className="relative">
               {/* The v4 hero numeral: mono at 700 so the digits are tabular and
@@ -615,9 +680,7 @@ export function StockMovementPage(): JSX.Element {
               )}
             </div>
             {selectedItem && (
-              <p className="text-center text-body text-ink-2 mt-3">
-                {selectedItem.name}
-              </p>
+              <p className="text-center text-body text-ink-2 mt-3">{selectedItem.name}</p>
             )}
           </div>
         )}
@@ -660,10 +723,12 @@ export function StockMovementPage(): JSX.Element {
                         : 'border-line bg-surface-1',
                     )}
                   >
-                    <span className={clsx(
-                      'text-body font-bold block',
-                      selectedLocationId === loc.id ? 'text-acc' : 'text-ink-1',
-                    )}>
+                    <span
+                      className={clsx(
+                        'text-body font-bold block',
+                        selectedLocationId === loc.id ? 'text-acc' : 'text-ink-1',
+                      )}
+                    >
                       {loc.name}
                     </span>
                     <span className="text-meta text-ink-3">{loc.code}</span>
@@ -725,7 +790,9 @@ export function StockMovementPage(): JSX.Element {
             </p>
             <textarea
               ref={notesInputRef}
-              placeholder={needsNotes ? 'e.g. Feed damaged by water ingress...' : 'Optional notes...'}
+              placeholder={
+                needsNotes ? 'e.g. Feed damaged by water ingress...' : 'Optional notes...'
+              }
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={4}
@@ -755,7 +822,9 @@ export function StockMovementPage(): JSX.Element {
               </div>
               <div className="p-4 flex justify-between">
                 <span className="text-body text-ink-2">Location</span>
-                <span className="text-body font-bold text-ink-1">{selectedLocation?.name ?? '-'}</span>
+                <span className="text-body font-bold text-ink-1">
+                  {selectedLocation?.name ?? '-'}
+                </span>
               </div>
               {lotNumber && (
                 <div className="p-4 flex justify-between">
@@ -771,7 +840,9 @@ export function StockMovementPage(): JSX.Element {
               )}
               {notes && (
                 <div className="p-4">
-                  <span className="text-body text-ink-2 block mb-1">{movementType === 'WASTE' ? 'Reason' : 'Notes'}</span>
+                  <span className="text-body text-ink-2 block mb-1">
+                    {movementType === 'WASTE' ? 'Reason' : 'Notes'}
+                  </span>
                   <span className="text-body text-ink-1">{notes}</span>
                 </div>
               )}
@@ -791,7 +862,9 @@ export function StockMovementPage(): JSX.Element {
               size="save"
               block
               className="mt-6 font-bold"
-              onClick={() => { void handleSubmit(); }}
+              onClick={() => {
+                void handleSubmit();
+              }}
               disabled={isSubmitting}
             >
               {isSubmitting ? (
@@ -810,11 +883,7 @@ export function StockMovementPage(): JSX.Element {
       {/* Bottom navigation buttons (except on confirm step) */}
       {step < 7 && (
         <div className="px-4 pb-6 pb-safe-bottom flex gap-3">
-          <Button
-            variant="ghost"
-            onClick={handleBack}
-            className="flex-1 border border-line"
-          >
+          <Button variant="ghost" onClick={handleBack} className="flex-1 border border-line">
             <ChevronLeft size={18} />
             Back
           </Button>

@@ -8395,7 +8395,7 @@ Three findings inside the conversion are worth recording separately from the res
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
 
-## ORPHAN-MEDIUM-592 — `useWarehouseSummary` swallows a failed fetch, so an outage renders as a clean, empty warehouse — OPEN
+## ORPHAN-MEDIUM-592 — `useWarehouseSummary` swallows a failed fetch, so an outage renders as a clean, empty warehouse — RESOLVED (this PR)
 
 **Discovered:** 2026-08-06, during the v4 conversion of the storage pages.
 
@@ -8405,7 +8405,7 @@ This is the same shape as ORPHAN-HIGH-584 (failed fetch presented as an all-clea
 
 **Fix:** expose `isError` from the hook, then split the states on the hub.
 
-**Owner:** claude (this session). **Status:** OPEN.
+**Owner:** claude (this session). **Status:** RESOLVED — the hook now returns `isError` + `refetch`, and `StorageHubPage` splits the KPI row and the movement list into distinct outage states. Proven by `src/pages/storage/__tests__/StorageHubPage.outage.spec.tsx`, which renders the page under a FAILED query rather than inspecting the code — this defect class had survived five reviews precisely because reading the source shows a plausible empty state and only a mocked failure shows the lie.
 
 ## ORPHAN-LOW-593 — `KpiStrip` is built for a header that no longer exists — OPEN
 

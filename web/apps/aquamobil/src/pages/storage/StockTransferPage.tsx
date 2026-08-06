@@ -82,7 +82,11 @@ const STORAGE_ITEMS_QUERY = gql`
 const STORAGE_LOCATIONS_QUERY = gql`
   query StorageLocations {
     storageLocations {
-      items { id name code }
+      items {
+        id
+        name
+        code
+      }
     }
   }
 `;
@@ -90,7 +94,8 @@ const STORAGE_LOCATIONS_QUERY = gql`
 const TRANSFER_STOCK_MUTATION = gql`
   mutation TransferStock($input: TransferStockInput!) {
     transferStock(input: $input) {
-      id quantity
+      id
+      quantity
     }
   }
 `;
@@ -199,14 +204,25 @@ export function StockTransferPage(): JSX.Element {
   const locations = useMemo(() => locationsData ?? [], [locationsData]);
 
   // Derived values
-  const selectedItem = useMemo(() => items.find((i) => i.id === selectedItemId), [items, selectedItemId]);
-  const fromLocation = useMemo(() => locations.find((l) => l.id === fromLocationId), [locations, fromLocationId]);
-  const toLocation = useMemo(() => locations.find((l) => l.id === toLocationId), [locations, toLocationId]);
+  const selectedItem = useMemo(
+    () => items.find((i) => i.id === selectedItemId),
+    [items, selectedItemId],
+  );
+  const fromLocation = useMemo(
+    () => locations.find((l) => l.id === fromLocationId),
+    [locations, fromLocationId],
+  );
+  const toLocation = useMemo(
+    () => locations.find((l) => l.id === toLocationId),
+    [locations, toLocationId],
+  );
 
   const filteredItems = useMemo(() => {
     if (!itemSearch.trim()) return items;
     const q = itemSearch.toLowerCase();
-    return items.filter((i) => i.name.toLowerCase().includes(q) || i.code.toLowerCase().includes(q));
+    return items.filter(
+      (i) => i.name.toLowerCase().includes(q) || i.code.toLowerCase().includes(q),
+    );
   }, [items, itemSearch]);
 
   // WHY: Exclude the "from" location from the "to" list to prevent no-op transfers
@@ -220,12 +236,18 @@ export function StockTransferPage(): JSX.Element {
 
   const canAdvance = useCallback((): boolean => {
     switch (step) {
-      case 1: return selectedItemType !== null && selectedItemId !== '';
-      case 2: return fromLocationId !== '';
-      case 3: return toLocationId !== '';
-      case 4: return quantity !== '' && parseFloat(quantity) > 0;
-      case 5: return true;
-      default: return false;
+      case 1:
+        return selectedItemType !== null && selectedItemId !== '';
+      case 2:
+        return fromLocationId !== '';
+      case 3:
+        return toLocationId !== '';
+      case 4:
+        return quantity !== '' && parseFloat(quantity) > 0;
+      case 5:
+        return true;
+      default:
+        return false;
     }
   }, [step, selectedItemType, selectedItemId, fromLocationId, toLocationId, quantity]);
 
@@ -270,10 +292,7 @@ export function StockTransferPage(): JSX.Element {
 
     try {
       if (isOnline) {
-        await graphqlRequest<{ transferStock: { id: string } }>(
-          TRANSFER_STOCK_MUTATION,
-          { input },
-        );
+        await graphqlRequest<{ transferStock: { id: string } }>(TRANSFER_STOCK_MUTATION, { input });
         if (tenantId) {
           await invalidateSyncedOperationQueries(queryClient, tenantId, ['transferStock']);
         }
@@ -294,7 +313,9 @@ export function StockTransferPage(): JSX.Element {
           setTimeout(() => navigate('/storage'), 1500);
           return;
         } catch (queueError) {
-          setSubmitError(queueError instanceof Error ? queueError.message : 'Failed to queue operation');
+          setSubmitError(
+            queueError instanceof Error ? queueError.message : 'Failed to queue operation',
+          );
           return;
         }
       }
@@ -303,9 +324,19 @@ export function StockTransferPage(): JSX.Element {
       setIsSubmitting(false);
     }
   }, [
-    selectedItem, fromLocation, toLocation, selectedItemType, selectedItemId,
-    fromLocationId, toLocationId, quantity, isOnline, addToQueue, navigate,
-    queryClient, tenantId,
+    selectedItem,
+    fromLocation,
+    toLocation,
+    selectedItemType,
+    selectedItemId,
+    fromLocationId,
+    toLocationId,
+    quantity,
+    isOnline,
+    addToQueue,
+    navigate,
+    queryClient,
+    tenantId,
   ]);
 
   // ---- Success screen ------------------------------------------------------
@@ -390,10 +421,12 @@ export function StockTransferPage(): JSX.Element {
                 >
                   <span className="text-xl block">{it.emoji}</span>
                   {/* Was a 10px label — below the sunlight floor, and on the ratchet. */}
-                  <span className={clsx(
-                    'text-meta font-bold',
-                    selectedItemType === it.type ? 'text-acc' : 'text-ink-2',
-                  )}>
+                  <span
+                    className={clsx(
+                      'text-meta font-bold',
+                      selectedItemType === it.type ? 'text-acc' : 'text-ink-2',
+                    )}
+                  >
                     {it.label}
                   </span>
                 </button>
@@ -405,15 +438,18 @@ export function StockTransferPage(): JSX.Element {
               <>
                 <div className="flex items-stretch gap-2 mb-3">
                   <div className="relative flex-1">
-                  <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3" />
-                  <input
-                    type="text"
-                    placeholder="Search items..."
-                    value={itemSearch}
-                    onChange={(e) => setItemSearch(e.target.value)}
-                    className="w-full min-h-touch pl-10 pr-4 py-3 rounded-xl border border-line bg-surface-1 text-ink-1 text-body focus:outline-none focus:ring-2 focus:ring-acc"
-                  />
-                </div>
+                    <Search
+                      size={18}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Search items..."
+                      value={itemSearch}
+                      onChange={(e) => setItemSearch(e.target.value)}
+                      className="w-full min-h-touch pl-10 pr-4 py-3 rounded-xl border border-line bg-surface-1 text-ink-1 text-body focus:outline-none focus:ring-2 focus:ring-acc"
+                    />
+                  </div>
                   <BarcodeScanButton onScan={setItemSearch} />
                 </div>
                 {itemsLoading ? (
@@ -448,10 +484,12 @@ export function StockTransferPage(): JSX.Element {
                             : 'border-line bg-surface-1',
                         )}
                       >
-                        <span className={clsx(
-                          'text-body font-bold block',
-                          selectedItemId === item.id ? 'text-acc' : 'text-ink-1',
-                        )}>
+                        <span
+                          className={clsx(
+                            'text-body font-bold block',
+                            selectedItemId === item.id ? 'text-acc' : 'text-ink-1',
+                          )}
+                        >
                           {item.name}
                         </span>
                         <span className="text-meta text-ink-3">
@@ -470,9 +508,7 @@ export function StockTransferPage(): JSX.Element {
         {step === 2 && (
           <div>
             <h2 className="text-head font-bold text-ink-1 mb-2">From location</h2>
-            <p className="text-body text-ink-2 mb-4">
-              Where is the stock currently stored?
-            </p>
+            <p className="text-body text-ink-2 mb-4">Where is the stock currently stored?</p>
             {locationsLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 size={28} className="animate-spin text-acc" />
@@ -498,10 +534,12 @@ export function StockTransferPage(): JSX.Element {
                         : 'border-line bg-surface-1',
                     )}
                   >
-                    <span className={clsx(
-                      'text-body font-bold block',
-                      fromLocationId === loc.id ? 'text-acc' : 'text-ink-1',
-                    )}>
+                    <span
+                      className={clsx(
+                        'text-body font-bold block',
+                        fromLocationId === loc.id ? 'text-acc' : 'text-ink-1',
+                      )}
+                    >
                       {loc.name}
                     </span>
                     <span className="text-meta text-ink-3">{loc.code}</span>
@@ -516,9 +554,7 @@ export function StockTransferPage(): JSX.Element {
         {step === 3 && (
           <div>
             <h2 className="text-head font-bold text-ink-1 mb-2">To location</h2>
-            <p className="text-body text-ink-2 mb-4">
-              Where should the stock be moved to?
-            </p>
+            <p className="text-body text-ink-2 mb-4">Where should the stock be moved to?</p>
             {toLocationOptions.length === 0 ? (
               <EmptyState
                 icon={<Package size={22} />}
@@ -541,10 +577,12 @@ export function StockTransferPage(): JSX.Element {
                         : 'border-line bg-surface-1',
                     )}
                   >
-                    <span className={clsx(
-                      'text-body font-bold block',
-                      toLocationId === loc.id ? 'text-acc' : 'text-ink-1',
-                    )}>
+                    <span
+                      className={clsx(
+                        'text-body font-bold block',
+                        toLocationId === loc.id ? 'text-acc' : 'text-ink-1',
+                      )}
+                    >
                       {loc.name}
                     </span>
                     <span className="text-meta text-ink-3">{loc.code}</span>
@@ -622,7 +660,9 @@ export function StockTransferPage(): JSX.Element {
               size="save"
               block
               className="mt-6 font-bold"
-              onClick={() => { void handleSubmit(); }}
+              onClick={() => {
+                void handleSubmit();
+              }}
               disabled={isSubmitting}
             >
               {isSubmitting ? (
@@ -641,11 +681,7 @@ export function StockTransferPage(): JSX.Element {
       {/* Bottom navigation buttons (except on confirm step) */}
       {step < 5 && (
         <div className="px-4 pb-6 pb-safe-bottom flex gap-3">
-          <Button
-            variant="ghost"
-            onClick={handleBack}
-            className="flex-1 border border-line"
-          >
+          <Button variant="ghost" onClick={handleBack} className="flex-1 border border-line">
             <ChevronLeft size={18} />
             Back
           </Button>

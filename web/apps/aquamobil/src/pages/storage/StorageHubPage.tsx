@@ -20,11 +20,16 @@ import { useNavigate } from 'react-router-dom';
 
 import { AppHeader } from '@/components/AppHeader';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { EmptyState, ListRow, Skeleton, StatTile } from '@/components/ui';
+import { Button, EmptyState, ListRow, Skeleton, StatTile } from '@/components/ui';
 import { useMobilePermissions } from '@/hooks/useMobilePermissions';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useWarehouseSummary } from '@/hooks/useWarehouseSummary';
-import type { LowStockItem, RecentStockMovement, StockMovementType, WarehouseFeedCoverage } from '@/types';
+import type {
+  LowStockItem,
+  RecentStockMovement,
+  StockMovementType,
+  WarehouseFeedCoverage,
+} from '@/types';
 
 /**
  * WHY: Five core warehouse operations cover 95%+ of daily warehouse floor activity.
@@ -80,12 +85,15 @@ const storageActions = [
 ];
 
 /** WHY static config: ensures PurgeCSS sees all Tailwind class literals. */
-const MOVEMENT_TYPE_CONFIG: Record<StockMovementType, {
-  icon: LucideIcon;
-  iconColor: string;
-  iconBg: string;
-  label: string;
-}> = {
+const MOVEMENT_TYPE_CONFIG: Record<
+  StockMovementType,
+  {
+    icon: LucideIcon;
+    iconColor: string;
+    iconBg: string;
+    label: string;
+  }
+> = {
   IN: {
     icon: ArrowDownToLine,
     iconColor: 'text-ok',
@@ -132,9 +140,8 @@ function formatRelativeTime(isoDate: string): string {
 
 /** Low stock alert row with red progress bar showing current vs minimum quantity. */
 function LowStockRow({ item }: { item: LowStockItem }): JSX.Element {
-  const fillPercent = item.minQty > 0
-    ? Math.min(Math.round((item.currentQty / item.minQty) * 100), 100)
-    : 0;
+  const fillPercent =
+    item.minQty > 0 ? Math.min(Math.round((item.currentQty / item.minQty) * 100), 100) : 0;
 
   return (
     // Not a <ListRow>: this row carries a progressbar with its own aria values,
@@ -142,9 +149,7 @@ function LowStockRow({ item }: { item: LowStockItem }): JSX.Element {
     // no meter slot, so adopting it would cost both.
     <li className="bg-surface-1 rounded-xl shadow-token border border-line p-3">
       <div className="flex items-center justify-between mb-1.5">
-        <span className="text-body font-semibold text-ink-1 truncate">
-          {item.name}
-        </span>
+        <span className="text-body font-semibold text-ink-1 truncate">{item.name}</span>
         <span className="text-meta text-crit font-bold tabular-nums flex-shrink-0">
           {item.currentQty}/{item.minQty} {item.unit}
         </span>
@@ -183,9 +188,7 @@ function MovementRow({ movement }: { movement: RecentStockMovement }): JSX.Eleme
         <Icon size={18} className={config.iconColor} />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-body font-semibold text-ink-1 truncate">
-          {movement.itemName}
-        </p>
+        <p className="text-body font-semibold text-ink-1 truncate">{movement.itemName}</p>
         <p className="text-meta text-ink-3">
           {movement.quantity} {movement.unit}
         </p>
@@ -214,7 +217,7 @@ export function StorageHubPage(): JSX.Element {
   const navigate = useNavigate();
   const { canAccess } = useMobilePermissions();
   const { isOnline } = useOfflineQueue();
-  const { summary, isLoading } = useWarehouseSummary();
+  const { summary, isLoading, isError, refetch } = useWarehouseSummary();
 
   // WHY: Defense-in-depth for direct URL navigation when admin revokes access mid-session.
   const hasAccess = canAccess('storage');
@@ -249,6 +252,22 @@ export function StorageHubPage(): JSX.Element {
               <Skeleton variant="tile" />
               <Skeleton variant="tile" />
             </div>
+          ) : isError ? (
+            // ORPHAN-MEDIUM-592: a failed fetch used to render "0 Items /
+            // 0 Low Stock / 0 Today" — zeroes that read as a clean bill of
+            // health. The figures are UNAVAILABLE, not zero, and the hook now
+            // says which.
+            <EmptyState
+              tone="error"
+              icon={<AlertTriangle size={22} />}
+              title="Could not load the warehouse"
+              description="These figures are unavailable, not zero. Stock levels could not be fetched and no cached copy was available."
+              action={
+                <Button variant="primary" onClick={refetch}>
+                  Try again
+                </Button>
+              }
+            />
           ) : (
             <div className="grid grid-cols-3 gap-2">
               <div role="status" aria-label={`${totalItems} total inventory items`}>
@@ -275,9 +294,7 @@ export function StorageHubPage(): JSX.Element {
 
         <div className="px-5 pt-4">
           {!isOnline && (
-            <p className="text-center text-warn text-meta font-medium mb-4">
-              Data may be outdated
-            </p>
+            <p className="text-center text-warn text-meta font-medium mb-4">Data may be outdated</p>
           )}
 
           {hasAccess ? (
@@ -330,9 +347,7 @@ export function StorageHubPage(): JSX.Element {
                               coverage.coverageStatus === 'critical' ? 'text-crit' : 'text-warn'
                             }
                           >
-                            {coverage.daysOfCover !== null
-                              ? `${coverage.daysOfCover}d left`
-                              : 'OK'}
+                            {coverage.daysOfCover !== null ? `${coverage.daysOfCover}d left` : 'OK'}
                           </span>
                           {coverage.stockoutDate && (
                             <span className="text-meta font-normal text-ink-3">
@@ -381,11 +396,18 @@ export function StorageHubPage(): JSX.Element {
 
               {isLoading ? (
                 <SectionSkeleton />
+              ) : isError ? (
+                // The hook now distinguishes an outage from an idle warehouse
+                // (ORPHAN-MEDIUM-592), so this no longer has to claim the
+                // second when it means the first.
+                <EmptyState
+                  tone="error"
+                  icon={<AlertTriangle size={22} />}
+                  title="Could not load movements"
+                  description="The movement history is unavailable. It has not necessarily been quiet."
+                  className="py-8"
+                />
               ) : recentMovements.length === 0 ? (
-                // NOTE: this cannot say "could not load" instead, because
-                // useWarehouseSummary swallows a failed fetch and returns a
-                // zeroed summary — so an outage is indistinguishable from an
-                // idle warehouse here. Reported, not patched over.
                 <EmptyState
                   icon={<Inbox size={22} />}
                   title="No recent movements"

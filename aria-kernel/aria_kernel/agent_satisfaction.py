@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import load_jsonl, read_jsonl
+from .batch_containment import guard_item, with_item_failures
 from .phase2_utils import atomic_write_json, record_workspace_governance_once, utc_now_iso
 from .pressure import append_pressure_state_event, effective_workspace_pressures
 from .workspace import WorkspacePaths
@@ -16,25 +17,34 @@ def agent_satisfaction_scan(paths: WorkspacePaths, *, cycle_id: str, tools_root:
     first_index = not (paths.state_dir / "agent_index.json").exists()
     removals = _removed_agents(previous, agents) if not first_index else []
     satisfied = _satisfy_pressures(paths, cycle_id, agents, tools_root=tools_root)
+    item_failures: list[dict[str, Any]] = []
     for row in removals:
-        record_workspace_governance_once(
-            paths,
-            "agent_removed",
-            {
-                "agent_path": row["path"],
-                "removed_at_cycle": cycle_id,
-                "addressed_pressures": row.get("addresses_pressure", []),
-            },
+        # One unrecordable removal must not hide the removals after it: the
+        # agent index is rewritten below either way, so a lost row means an
+        # agent vanished from the index with nothing in governance saying so.
+        guard_item(
+            item_failures,
+            item_kind="agent_removal",
+            item_id=str(row.get("path") or ""),
+            work=lambda row=row: record_workspace_governance_once(
+                paths,
+                "agent_removed",
+                {
+                    "agent_path": row["path"],
+                    "removed_at_cycle": cycle_id,
+                    "addressed_pressures": row.get("addresses_pressure", []),
+                },
+            ),
         )
     _write_agent_index(paths, agents)
-    return {
+    return with_item_failures({
         "schema_version": 1,
         "cycle_id": cycle_id,
         "indexed_count": len(agents),
         "removed_count": len(removals),
         "satisfied_count": len(satisfied),
         "first_index": first_index,
-    }
+    }, item_failures)
 
 
 def _scan_agents(repo_root: Path) -> list[dict[str, Any]]:

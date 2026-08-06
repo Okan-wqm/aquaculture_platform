@@ -33373,6 +33373,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-06-batch-containment.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-08-06-project-graph-blind-spot.md",
       "prettier_managed": true
     },
@@ -56580,10 +56586,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9279,
+  "file_count": 9280,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9098,
-  "managed_file_list_sha256": "e8c48b469e68405438caa1f95e719def8720f61bf923227f312d52528d3b7728",
+  "managed_count": 9099,
+  "managed_file_list_sha256": "2d367c2fd98934faac39efcf86b5c1c334ad41cb9ce4685c4a10ef2048c4251f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

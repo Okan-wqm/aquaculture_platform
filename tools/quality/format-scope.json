@@ -43314,6 +43314,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/monitoring-alert-delivery.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/monitoring-alert-runbook-url.spec.ts",
       "prettier_managed": true
     },
@@ -56574,10 +56580,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9278,
+  "file_count": 9279,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9097,
-  "managed_file_list_sha256": "154fff8e08fa0a345b7811c92c79edd673f24e544d9649d77f1c96c43d94434c",
+  "managed_count": 9098,
+  "managed_file_list_sha256": "8dcc97c5220daf04c01d2e35081a6f1030dda3534b87d3d5bfa2864167dc6305",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

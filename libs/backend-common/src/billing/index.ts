@@ -44,3 +44,4 @@ export type {
   StripeRefund,
   StripeMeterEvent,
 } from './stripe-api.types';
+export * from './canary-tenant.registry';

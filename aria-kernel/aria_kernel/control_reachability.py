@@ -47,6 +47,27 @@ preference:
   ``verify_no_secret_in_envelope`` looked connected;
 * **imports** — importing is not calling. This one was found by mutating the
   gate itself; see ``_import_lines``.
+
+WHAT THIS GATE DOES NOT MEASURE, stated because a green gate must not be read
+as more than it is. It asks *"is this control called"*. It does **not** ask
+*"can this control's refusal branch be reached with production inputs"* — and
+those are different questions with different answers.
+
+The live counter-example is ``ORPHAN-HIGH-577``:
+``agent_contract.enforce_separation_of_duties`` is invoked on every agent
+submit, so it is reachable and this gate passes it, yet the field its refusal
+depends on (``separation_of_duties.forbidden_agent_ids``) has no production
+writer, so it always evaluates an empty list and can never refuse. A control
+that is called and cannot decide is the same false assurance as one that is
+never called — and it is invisible here.
+
+A generalised efficacy check was prototyped and deliberately not shipped: a
+mechanical scan for controls reading dict keys that no production module
+writes flagged 10 of 68 live controls, but most were false positives from
+writers living in JSON/YAML or from short key names. A gate that cries wolf
+gets waived into uselessness, which would cost more than the gap it closes.
+Until that check can be made precise, efficacy is tracked per finding rather
+than asserted here.
 """
 
 from __future__ import annotations

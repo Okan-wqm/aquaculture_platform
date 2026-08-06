@@ -78,10 +78,14 @@ collapse (`assert_within_breaker`, `verify_branch_tip`, `require_tools_v2`),
 or a decision owned by a specific PLAN wave — carries a deadline, and fails
 the day it expires.
 
-Three are worth naming as genuinely missing consumers rather than duplicates:
-`verify_claim_disjointness` (judge fan-out scores claims with no independence
-pass), `validate_generated_adapter` and the two adapter sandbox checks (the
+Two are worth naming as genuinely missing consumers rather than duplicates:
+`validate_generated_adapter` and the two adapter sandbox checks (the
 skill-genesis lane validates nothing kernel-side).
+
+`verify_claim_disjointness` was originally listed here as a third. It is not —
+see the correction at the end of this document. The claim that the judge
+fan-out has no independence pass was false, and it had ranked that control as
+the strongest wiring candidate on the strength of it.
 
 ### What counts as reachable, and the hole the gate found in itself
 
@@ -194,7 +198,7 @@ reported a production-reachable `TypeError`. Earlier the same day a
 confidently-wrong HIGH was drafted and deleted on this same kind of evidence,
 so the claim was reproduced by hand before being believed. It reproduced.
 
-### The mechanism
+### The mechanism, line by line
 
 ```python
 changed = sorted({_project_for_path(path, graph["projects"]) for path in ...})
@@ -262,3 +266,100 @@ instance.
 2. Whether a docs-only change _should_ be blocked as `impact_graph_unknown`
    is still unanswered. This fix makes the measurement possible without
    deciding the policy.
+
+---
+
+## ORPHAN-HIGH-576 — a second normalizer that mangled every dotfile path
+
+`impact.py` carried its own inline normalizer:
+
+```python
+item.replace("\\", "/").lstrip("./")
+```
+
+`str.lstrip` strips **characters from a set**, not a prefix. Verified by
+execution:
+
+| input                            | output                          |
+| -------------------------------- | ------------------------------- |
+| `.github/workflows/x.yml`        | `github/workflows/x.yml`        |
+| `.claude/agents/orchestrator.md` | `claude/agents/orchestrator.md` |
+| `./docs/a.md`                    | `docs/a.md` (correct, by luck)  |
+
+Two consequences, both verified. The mangled path is what `plan_impact` writes
+to the impact-plans ledger as the record of what a change touched — a
+corrupted audit trail. And no discovered project root begins with `github/`,
+so the mangling _also_ guaranteed such a path could never be placed, inflating
+`unknown_files` for a reason that was an artifact of the normalizer rather
+than of the repository.
+
+Fixed by deleting the second normalizer and calling the promoted
+`impact_graph.normalize_paths`, which uses `removeprefix("./")`. Tier 2: a
+second normalizer cannot drift from the first because there is no second
+normalizer.
+
+**Blind-spot sweep.** `executor.py` and `codegen.py` have their own
+`_normalize_paths`, but both delegate to `_strip_relative_prefix`, which
+strips the prefix in a `while` loop and was verified _not_ to mangle dotfiles.
+This was the only defective one.
+
+---
+
+## ORPHAN-HIGH-577 — a control that is called and cannot decide
+
+The gate built above asks _"is this control called"_. Here is the case that
+question cannot see.
+
+`enforce_separation_of_duties` runs on **every** agent submit
+(`agent_invocations.py:2306`). It refuses when the submitter appears in
+`request["separation_of_duties"]["forbidden_agent_ids"]`. Verified by
+repo-wide search: that field appears at exactly one production site — the
+enforcer's own read — plus three test files. **No production path ever sets
+it.** The control always evaluates an empty list, so its refusal branch is
+unreachable and the property its docstring claims (_implementer != reviewer
+for the same request_id_) is enforced nowhere.
+
+### Why this is HIGH rather than MEDIUM
+
+Because it is invisible to the control built hours earlier to police exactly
+this class. `control_reachability` passes it — it _is_ called. The gate
+measures **call-site existence**, not **decision efficacy**, and the most
+dangerous member of the class falls in the gap between those two questions.
+
+The gate's docstring now says so. A green gate must not be read as "every
+control can refuse".
+
+### Why no fix is guessed here
+
+The blocker is a policy decision, not effort. Making it able to refuse
+requires deciding _what_ is forbidden, and the code expresses no such policy:
+
+- Deriving the forbidden set from prior claims on the same `request_id` — the
+  ledger carries `request_id` and `agent_id` and could supply it — would also
+  refuse a **legitimate retry** by the same agent after a transient failure.
+- _Implementer != reviewer_ is a role-separation rule, and the queue layer
+  does not currently record roles to separate.
+
+Two honest options, both needing the operator's intent: mint a real forbidden
+set at request creation, or delete the control, because a check that cannot
+refuse is false assurance. A third was considered and rejected as unshippable
+— raise when the forbidden set is empty — since that would refuse every
+production submit today.
+
+A generalised _vacuous control_ gate was prototyped and **not shipped**: a
+mechanical scan for controls reading dict keys no production module writes
+flagged 10 of 68 live controls, but most were false positives from writers
+living in JSON/YAML or from short key names. A gate that cries wolf gets
+waived into uselessness.
+
+---
+
+## Two of my own waivers were wrong, and corrected
+
+A waiver whose reason is false is worse than no waiver — the finding notes
+said so before either of these was caught.
+
+| waiver                      | the claim                                                     | the code                                                                                                                                                                                                                                                |
+| --------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `verify_claim_disjointness` | _"the judge fan-out scores claims with no independence pass"_ | `verify_principal_disjointness` **is** the live pass, reached from `human_required_adjudication.py:364`. This is a second entry point, not an absent guarantee — and it was mis-ranked as the strongest wiring candidate on a claim nobody had checked. |
+| `assert_real_mode_env_safe` | _"the mode this guard exists for is not reachable yet"_       | `eval-run --no-mock-mode` is registered at `cli.py:888`. Real mode is reachable today; the guard is simply not on that path.                                                                                                                            |

@@ -13,7 +13,7 @@
   },
   "assert_real_mode_env_safe": {
     "owner": "okan",
-    "reason": "Guards real-mode agent evaluation against an unsafe environment. run_agent_eval still defaults to mock_mode=True (DEBT-2026-05-08-001), so the mode this guard exists for is not reachable yet. It must be wired in the same change that unlocks real-mode eval, never after.",
+    "reason": "CORRECTED 2026-08-06. The first version of this waiver claimed the mode this guard protects is 'not reachable yet' because run_agent_eval defaults to mock_mode=True. That premise is FALSE and was disproved by reading cli.py: `eval-run --no-mock-mode` is a registered argument (cli.py:888) and reaching real mode needs only that flag plus --real-envelope-file (cli.py:2767). So real-mode eval is reachable today and this guard is not on that path. Blast radius is bounded because the flag is operator-typed rather than scheduled, which is why this stays MEDIUM rather than escalating - but it is an unguarded live path, not a dormant future one.",
     "expires_on": "2026-09-06",
     "finding_id": "ORPHAN-HIGH-573"
   },
@@ -91,7 +91,7 @@
   },
   "verify_claim_disjointness": {
     "owner": "okan",
-    "reason": "Asserts two judge claims are independent rather than restatements. The judge fan-out currently scores claims without an independence pass; this is a real missing consumer on a live lane and the strongest candidate to wire next after the envelope secret scan.",
+    "reason": "CORRECTED 2026-08-06. The first version of this waiver called it 'a real missing consumer on a live lane' because the judge fan-out scores claims 'without an independence pass'. That is FALSE: verify_principal_disjointness in the same module IS the live independence pass, reached from human_required_adjudication.py:364. So this is a SECOND entry point no lane adopted, not an absent guarantee - the same duplicate-entry-point shape as assert_within_breaker and verify_branch_tip, and it was mis-ranked as the strongest wiring candidate on the strength of a claim nobody had checked. Decide whether it collapses into verify_principal_disjointness or is deleted; do not wire a second independence answer beside the first.",
     "expires_on": "2026-09-06",
     "finding_id": "ORPHAN-HIGH-573"
   },

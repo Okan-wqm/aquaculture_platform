@@ -10,6 +10,7 @@ import {
   Send,
   ChevronDown,
   AlertCircle,
+  X,
 } from 'lucide-react';
 import {
   useState,
@@ -28,6 +29,7 @@ import { MessageBubble } from '@/components/messaging/MessageBubble';
 import { MessageDateSeparator } from '@/components/messaging/MessageDateSeparator';
 import { MessageInput } from '@/components/messaging/MessageInput';
 import { TypingIndicator } from '@/components/messaging/TypingIndicator';
+import { Button, EmptyState, IconButton, Skeleton } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannelDetail } from '@/hooks/useChannelDetail';
 import { useEditMessage } from '@/hooks/useEditMessage';
@@ -461,19 +463,27 @@ export function ChatRoomPage(): JSX.Element {
     : null;
 
   return (
+    // The page ground comes from <body>, so no background is set here.
     <div
-      className="flex flex-col h-screen bg-gray-100 dark:bg-gray-950"
+      className="flex flex-col h-screen"
       style={{ paddingBottom: 'var(--keyboard-offset, 0px)' }}
     >
-      {/* Header */}
-      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex-shrink-0 z-10">
+      {/* Header. NOT the shared AppHeader: a chat header carries the channel
+          avatar, the presence line and a tap target that opens settings, none of
+          which AppHeader models — it renders a brand mark or a back chevron and
+          a plain string title. Swapping it in would cost the avatar. */}
+      <div className="bg-surface-1 border-b border-line flex-shrink-0 z-10">
         <div className="flex items-center gap-3 px-3 py-3 pt-safe-top">
-          <button
+          {/* IconButton supplies the touch floor and the accessible name this
+              icon-only control was missing. */}
+          <IconButton
+            size="lg"
             onClick={() => navigate('/messages')}
-            className="min-w-[48px] min-h-[48px] p-3 -ml-1 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback flex items-center justify-center"
+            className="-ml-1 hover:bg-surface-2"
+            aria-label="Back to messages"
           >
-            <ArrowLeft size={22} className="text-gray-700 dark:text-gray-300" />
-          </button>
+            <ArrowLeft size={22} className="text-ink-2" />
+          </IconButton>
 
           <div
             className="flex-1 min-w-0 flex items-center gap-3 cursor-pointer"
@@ -495,23 +505,21 @@ export function ChatRoomPage(): JSX.Element {
               size="sm"
             />
             <div className="min-w-0">
-              <h1 className="text-sm font-bold text-gray-900 dark:text-white truncate">
-                {displayName}
-              </h1>
-              {statusText && (
-                <p className="text-[11px] text-gray-400 dark:text-gray-500">
-                  {statusText}
-                </p>
-              )}
+              <h1 className="text-title font-bold text-ink-1 truncate">{displayName}</h1>
+              {/* text-meta is 12px, the sunlight floor — it replaces an 11px
+                  arbitrary size, so it LOWERS the tiny-text ratchet. */}
+              {statusText && <p className="text-meta text-ink-3">{statusText}</p>}
             </div>
           </div>
 
-          <button
+          <IconButton
+            size="lg"
             onClick={() => navigate(`/messages/${channelId}/settings`)}
-            className="min-w-[48px] min-h-[48px] p-3 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback flex items-center justify-center"
+            className="hover:bg-surface-2"
+            aria-label="Channel settings"
           >
-            <Settings size={20} className="text-gray-500 dark:text-gray-400" />
-          </button>
+            <Settings size={20} className="text-ink-2" />
+          </IconButton>
         </div>
       </div>
 
@@ -523,34 +531,32 @@ export function ChatRoomPage(): JSX.Element {
       >
         {hasNextPage && (
           <div className="flex justify-center py-3">
-            <button
+            <Button
+              variant="ghost"
               onClick={() => { void fetchNextPage(); }}
-              className="text-xs text-ocean-500 font-medium touch-feedback flex items-center gap-1"
+              className="text-acc text-body px-3"
             >
               <ChevronDown size={14} className="rotate-180" />
               Load older messages
-            </button>
+            </Button>
           </div>
         )}
 
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-ocean-500" />
+          <div className="px-4 py-6">
+            <Skeleton variant="row" count={4} />
           </div>
         ) : errorMsg ? (
-          <div className="text-center py-12 px-4">
-            <AlertCircle size={40} className="mx-auto mb-3 text-gray-300 opacity-60" />
-            <p className="text-sm text-gray-500">{errorMsg}</p>
-          </div>
+          // tone="error" announces itself and takes the alarm tile, so a failed
+          // history fetch never reads as an empty channel.
+          <EmptyState
+            tone="error"
+            icon={<AlertCircle size={22} />}
+            title="Could not load messages"
+            description={errorMsg}
+          />
         ) : messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 px-4">
-            <div className="w-16 h-16 bg-ocean-50 dark:bg-ocean-900/20 rounded-full flex items-center justify-center mb-3">
-              <Send size={24} className="text-ocean-400" />
-            </div>
-            <p className="text-sm text-gray-500 dark:text-gray-400 text-center">
-              No messages yet. Say hello!
-            </p>
-          </div>
+          <EmptyState icon={<Send size={22} />} title="No messages yet" description="Say hello!" />
         ) : (
           <div className="py-2">
             {messageGroups.map((group) => (
@@ -759,18 +765,19 @@ export function ChatRoomPage(): JSX.Element {
       {offlineMediaNotice && (
         <div
           role="status"
-          className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 max-w-[90%] bg-gray-900/90 text-white text-sm rounded-xl px-4 py-2.5 shadow-elevated flex items-center gap-2"
+          className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 max-w-[90%] bg-surface-3 text-ink-1 text-body rounded-2xl border border-line-strong px-4 py-2 shadow-token flex items-center gap-2"
         >
-          <AlertCircle size={16} className="flex-shrink-0 text-amber-300" />
+          {/* Amber, because "queued until you are back online" is a watch
+              condition — the send has not failed, it has not happened yet. */}
+          <AlertCircle size={16} className="flex-shrink-0 text-warn" />
           <span>{offlineMediaNotice}</span>
-          <button
-            type="button"
+          <IconButton
             aria-label="Dismiss"
-            className="ml-1 px-1.5 rounded-md hover:bg-white/10 touch-feedback text-base leading-none"
+            className="ml-1 hover:bg-surface-2"
             onClick={() => setOfflineMediaNotice(null)}
           >
-            <span aria-hidden="true">×</span>
-          </button>
+            <X size={16} className="text-ink-2" />
+          </IconButton>
         </div>
       )}
     </div>

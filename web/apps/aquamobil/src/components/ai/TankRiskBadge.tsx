@@ -9,11 +9,23 @@
  *
  * Graceful degradation: renders nothing when AI is unavailable or loading fails,
  * so the tank detail page works identically with or without MCP.
+ *
+ * v4 / ADVISORY: the purple chrome that used to mark this card as AI-produced
+ * has no token — the palette is teal for actions, amber/coral/green for state,
+ * and the per-log-type hues. The advisory signal therefore rests entirely on
+ * the wording that was already carrying it: the section head reads "AI Risk
+ * Assessment" at the same prominence as every other section head, and the
+ * "Contributing Factors" / "Recommendations" labels describe a judgement rather
+ * than a measurement. Nothing here is presented as a sensor value. Do not
+ * delete or demote that heading — with the purple gone it is the only thing
+ * separating this card from the measured readings directly above it.
  */
 
 import { clsx } from 'clsx';
+import { AlertTriangle, ChevronRight } from 'lucide-react';
 import type { ReactElement } from 'react';
 
+import { Card, Skeleton, StatusDot } from '@/components/ui';
 import { useTankRiskAssessment } from '@/hooks/useAiInsights';
 
 interface TankRiskBadgeProps {
@@ -21,36 +33,19 @@ interface TankRiskBadgeProps {
 }
 
 /**
- * WHY: Color mapping by risk level string — aligns with backend TankRiskAssessment.riskLevel values
+ * WHY: risk level → the semantic tone it wears. Aligns with the backend
+ * TankRiskAssessment.riskLevel values. HIGH and CRITICAL share the `crit` token
+ * because the design has one alarm colour; the LEVEL WORD beside the dot is
+ * what tells them apart, and it is always rendered.
  */
-const RISK_COLORS: Record<string, { bg: string; text: string; border: string; dot: string }> = {
-  LOW: {
-    bg: 'bg-emerald-50 dark:bg-emerald-900/20',
-    text: 'text-emerald-700 dark:text-emerald-300',
-    border: 'border-emerald-200 dark:border-emerald-800',
-    dot: 'bg-emerald-500',
-  },
-  MEDIUM: {
-    bg: 'bg-amber-50 dark:bg-amber-900/20',
-    text: 'text-amber-700 dark:text-amber-300',
-    border: 'border-amber-200 dark:border-amber-800',
-    dot: 'bg-amber-500',
-  },
-  HIGH: {
-    bg: 'bg-red-50 dark:bg-red-900/20',
-    text: 'text-red-700 dark:text-red-300',
-    border: 'border-red-200 dark:border-red-800',
-    dot: 'bg-red-500',
-  },
-  CRITICAL: {
-    bg: 'bg-red-100 dark:bg-red-900/30',
-    text: 'text-red-800 dark:text-red-200',
-    border: 'border-red-300 dark:border-red-700',
-    dot: 'bg-red-700',
-  },
+const RISK_TONE: Record<string, { border: string; text: string; dot: 'ok' | 'warn' | 'crit' }> = {
+  LOW: { border: 'border-line', text: 'text-ok', dot: 'ok' },
+  MEDIUM: { border: 'border-warn', text: 'text-warn', dot: 'warn' },
+  HIGH: { border: 'border-crit', text: 'text-crit', dot: 'crit' },
+  CRITICAL: { border: 'border-crit', text: 'text-crit', dot: 'crit' },
 };
 
-const DEFAULT_COLORS = RISK_COLORS.LOW;
+const DEFAULT_TONE = RISK_TONE.LOW;
 
 export function TankRiskBadge({ tankId }: TankRiskBadgeProps): ReactElement | null {
   const { data: risk, isLoading, isError } = useTankRiskAssessment(tankId);
@@ -58,12 +53,7 @@ export function TankRiskBadge({ tankId }: TankRiskBadgeProps): ReactElement | nu
   // WHY: Skeleton shown only during initial load — subtle enough to not distract
   // from the core tank metrics above.
   if (isLoading) {
-    return (
-      <div className="mt-4">
-        <div className="h-4 w-40 skeleton rounded mb-2" />
-        <div className="h-20 skeleton rounded-xl" />
-      </div>
-    );
+    return <Skeleton variant="tile" />;
   }
 
   // WHY: When AI is unavailable, render nothing — the tank detail page remains
@@ -72,48 +62,39 @@ export function TankRiskBadge({ tankId }: TankRiskBadgeProps): ReactElement | nu
     return null;
   }
 
-  const colors = RISK_COLORS[risk.riskLevel.toUpperCase()] || DEFAULT_COLORS;
+  const tone = RISK_TONE[risk.riskLevel.toUpperCase()] || DEFAULT_TONE;
 
   return (
-    <div className="mt-4">
-      {/* WHY: Section header matches the existing tank detail page's heading style */}
-      <div className="flex items-center gap-2 mb-3">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-purple-500">
-          <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-          <path d="M12 9v4" />
-          <path d="M12 17h.01" />
-        </svg>
-        <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-          AI Risk Assessment
-        </h2>
+    <section className="flex flex-col gap-2">
+      {/* Section head matches every other v4 section head, and carries the
+          "AI" word that marks everything below it as advisory. */}
+      <div className="flex items-center gap-2 px-1">
+        <AlertTriangle size={14} className="text-acc" />
+        <h2 className="text-body font-semibold text-ink-3">AI Risk Assessment</h2>
       </div>
 
-      <div className={clsx('rounded-xl border p-4', colors.bg, colors.border)}>
+      <Card className={clsx('p-4', tone.border)}>
         {/* WHY: Risk level header with score and label — the primary information */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <span className={clsx('w-2.5 h-2.5 rounded-full', colors.dot)} />
-            <span className={clsx('text-sm font-bold', colors.text)}>
-              {risk.riskLevel}
-            </span>
+            <StatusDot tone={tone.dot} />
+            <span className={clsx('text-title font-semibold', tone.text)}>{risk.riskLevel}</span>
           </div>
-          <span className={clsx('text-2xl font-bold tabular-nums', colors.text)}>
+          <span className={clsx('text-display font-mono font-bold tabular-nums', tone.text)}>
             {risk.riskScore}
-            <span className="text-xs font-medium text-gray-400 ml-0.5">/100</span>
+            <span className="text-meta font-medium text-ink-3 ml-0.5 font-sans">/100</span>
           </span>
         </div>
 
         {/* WHY: Risk factors explain "why" the score is what it is — builds operator trust */}
         {risk.factors.length > 0 && (
           <div className="mb-3">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
-              Contributing Factors
-            </p>
+            <p className="text-meta font-semibold text-ink-3 mb-1.5">Contributing Factors</p>
             <div className="flex flex-wrap gap-1.5">
               {risk.factors.map((factor, idx) => (
                 <span
                   key={idx}
-                  className="text-[10px] font-medium bg-white/60 dark:bg-gray-800/60 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-md"
+                  className="text-meta font-medium bg-surface-2 text-ink-2 px-2 py-0.5 rounded-md"
                 >
                   {factor}
                 </span>
@@ -126,26 +107,18 @@ export function TankRiskBadge({ tankId }: TankRiskBadgeProps): ReactElement | nu
             the risk assessment. Operators can act immediately without consulting a manual. */}
         {risk.recommendations.length > 0 && (
           <div>
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
-              Recommendations
-            </p>
+            <p className="text-meta font-semibold text-ink-3 mb-1.5">Recommendations</p>
             <ul className="space-y-1">
               {risk.recommendations.map((rec, idx) => (
                 <li key={idx} className="flex items-start gap-1.5">
-                  <span className="text-purple-500 mt-0.5 flex-shrink-0">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="m9 18 6-6-6-6" />
-                    </svg>
-                  </span>
-                  <span className="text-xs text-gray-600 dark:text-gray-300 font-medium leading-relaxed">
-                    {rec}
-                  </span>
+                  <ChevronRight size={12} className="text-acc mt-1 shrink-0" aria-hidden />
+                  <span className="text-body text-ink-2 font-medium leading-relaxed">{rec}</span>
                 </li>
               ))}
             </ul>
           </div>
         )}
-      </div>
-    </div>
+      </Card>
+    </section>
   );
 }

@@ -10,21 +10,24 @@
  * Channels are sorted by last message timestamp DESC so the most active
  * conversations bubble to the top. DM channels display the other user's
  * computed name (not "Direct Message") for clarity.
+ *
+ * WHY the shared AppHeader rather than the ocean-gradient banner this had: this
+ * is a dock destination like Today, Units and Reports, and before v4 it was the
+ * only one wearing a different header — different height, different title size,
+ * no route to the account. The gradient also cost contrast in sunlight, which is
+ * the condition the whole app is designed for.
  */
 
 import { clsx } from 'clsx';
-import {
-  MessageSquare,
-  Plus,
-  RefreshCw,
-  Search,
-  X,
-} from 'lucide-react';
+import { MessageSquare, Plus, RefreshCw, Search, WifiOff, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
+import { AppHeader } from '@/components/AppHeader';
 import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
+import { UnreadBadge } from '@/components/messaging/UnreadBadge';
+import { Button, EmptyState, IconButton, Skeleton } from '@/components/ui';
 import { VirtualList } from '@/components/VirtualList';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannels } from '@/hooks/useChannels';
@@ -63,20 +66,6 @@ function isOtherUserOnline(channel: Channel, currentUserId: string | undefined):
 // Sub-components
 // ---------------------------------------------------------------------------
 
-/** Skeleton loader for a single channel row while data is fetching. */
-function ChannelSkeleton(): ReactElement {
-  return (
-    <div className="flex items-center gap-3 px-4 py-3">
-      <div className="w-12 h-12 rounded-full skeleton flex-shrink-0" />
-      <div className="flex-1 min-w-0 space-y-2">
-        <div className="h-4 w-32 rounded skeleton" />
-        <div className="h-3 w-48 rounded skeleton" />
-      </div>
-      <div className="h-3 w-8 rounded skeleton" />
-    </div>
-  );
-}
-
 /** A single channel row in the list. */
 function ChannelRow({
   channel,
@@ -104,7 +93,7 @@ function ChannelRow({
   return (
     <button
       onClick={onPress}
-      className="w-full flex items-center gap-3 px-4 py-3 touch-feedback transition-all active:bg-gray-50 dark:active:bg-gray-800/50"
+      className="w-full flex items-center gap-3 px-4 py-3 min-h-touch text-left touch-feedback transition-all active:bg-surface-2"
     >
       <ChannelAvatar
         type={avatarType}
@@ -116,12 +105,14 @@ function ChannelRow({
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2">
+          {/* Unread rows climb one step up the ink ramp rather than changing
+              colour — the badge and the accent timestamp carry the state. This
+              mirrors ChannelListItem so the same row reads the same way
+              wherever it is drawn. */}
           <h3
             className={clsx(
-              'text-sm truncate',
-              hasUnread
-                ? 'font-bold text-gray-900 dark:text-white'
-                : 'font-medium text-gray-700 dark:text-gray-300',
+              'text-body truncate',
+              hasUnread ? 'font-bold text-ink-1' : 'font-medium text-ink-2',
             )}
           >
             {displayName}
@@ -129,10 +120,8 @@ function ChannelRow({
           {lastMsgTime && (
             <span
               className={clsx(
-                'text-[11px] flex-shrink-0',
-                hasUnread
-                  ? 'font-semibold text-ocean-600 dark:text-ocean-400'
-                  : 'text-gray-400 dark:text-gray-500',
+                'text-meta flex-shrink-0',
+                hasUnread ? 'font-semibold text-acc' : 'text-ink-3',
               )}
             >
               {formatRelativeTime(lastMsgTime)}
@@ -143,10 +132,8 @@ function ChannelRow({
         <div className="flex items-center justify-between gap-2 mt-0.5">
           <p
             className={clsx(
-              'text-xs truncate flex-1',
-              hasUnread
-                ? 'font-medium text-gray-600 dark:text-gray-300'
-                : 'text-gray-400 dark:text-gray-500',
+              'text-meta truncate flex-1',
+              hasUnread ? 'font-medium text-ink-2' : 'text-ink-3',
             )}
           >
             {lastMsgContent
@@ -156,16 +143,12 @@ function ChannelRow({
               : 'No messages yet'}
           </p>
 
-          {hasUnread && (
-            <span className="bg-ocean-500 text-white text-[10px] font-bold rounded-full min-w-[20px] h-[20px] flex items-center justify-center px-1 flex-shrink-0">
-              {(channel.unreadCount ?? 0) > 99 ? '99+' : channel.unreadCount}
-            </span>
-          )}
+          {/* The shared badge caps at 99+ and announces itself, replacing the
+              hand-rolled 10px pill that did the same arithmetic silently. */}
+          {hasUnread && <UnreadBadge count={channel.unreadCount ?? 0} size="md" color="blue" />}
 
           {channel.type === 'group' && !hasUnread && (
-            <span className="text-[10px] text-gray-400 dark:text-gray-500 flex-shrink-0">
-              {channel.memberCount ?? 0}
-            </span>
+            <span className="text-meta text-ink-3 flex-shrink-0">{channel.memberCount ?? 0}</span>
           )}
         </div>
       </div>
@@ -277,113 +260,101 @@ export function ChannelListPage(): ReactElement {
     // MOB-MEDIUM-012: bounded flex column (matching NotificationsPage) so the
     // channel list virtualizes inside its own scroll region instead of paging
     // the whole document — the header stays put while a large membership scrolls.
-    <div className="h-screen overflow-hidden bg-gray-50 dark:bg-gray-950 flex flex-col">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-ocean-600 to-ocean-500 text-white">
-        <div className="px-4 py-4 pt-safe-top">
-          {isSearchOpen ? (
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleCloseSearch}
-                className="min-w-[48px] min-h-[48px] p-3 -ml-2 rounded-xl hover:bg-white/10 touch-feedback flex items-center justify-center"
-              >
-                <X size={22} />
-              </button>
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search conversations..."
-                className="flex-1 bg-white/20 text-white placeholder-white/60 rounded-xl px-4 py-2.5 text-sm outline-none focus:bg-white/30 transition-colors"
-              />
-            </div>
-          ) : (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <MessageSquare size={22} />
-                <h1 className="text-lg font-bold">Messages</h1>
-              </div>
-              <button
-                onClick={handleOpenSearch}
-                className="min-w-[48px] min-h-[48px] p-3 rounded-xl hover:bg-white/10 touch-feedback flex items-center justify-center"
-              >
-                <Search size={20} />
-              </button>
-            </div>
-          )}
+    // The page ground comes from <body>, so no background is set here.
+    <div className="h-screen overflow-hidden flex flex-col">
+      <AppHeader
+        title="Messages"
+        subtitle={channels.length > 0 ? `${channels.length} conversations` : undefined}
+        actions={
+          // Hidden while the field is open — the field IS the search affordance
+          // at that point, which is the same toggle the gradient header had.
+          isSearchOpen ? undefined : (
+            <IconButton
+              aria-label="Search conversations"
+              onClick={handleOpenSearch}
+              className="bg-surface-2 rounded-xl"
+            >
+              <Search size={18} className="text-ink-2" />
+            </IconButton>
+          )
+        }
+      />
+
+      {isSearchOpen && (
+        <div className="flex items-center gap-2 px-4 pb-2">
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search conversations..."
+            aria-label="Search conversations"
+            // The well is a recessed surface, matching the composer's field.
+            className="flex-1 min-w-0 rounded-2xl border border-line bg-surface-2 px-4 py-3 text-body text-ink-1 placeholder-ink-3 outline-none focus:ring-2 focus:ring-acc focus:border-acc transition-colors"
+          />
+          <IconButton aria-label="Close search" onClick={handleCloseSearch}>
+            <X size={20} className="text-ink-3" />
+          </IconButton>
         </div>
-      </div>
+      )}
 
       {/* Pull-to-refresh button */}
-      <div className="px-4 pt-3 flex justify-end">
-        <button
+      <div className="px-4 pt-1 flex justify-end">
+        <Button
+          variant="ghost"
           onClick={() => {
             void handleRefresh();
           }}
           disabled={isRefreshing}
-          className="flex items-center gap-1.5 text-xs text-ocean-500 font-medium touch-feedback"
+          className="text-acc text-body px-2"
         >
-          <RefreshCw
-            size={14}
-            className={clsx(isRefreshing && 'animate-spin')}
-          />
+          <RefreshCw size={14} className={clsx(isRefreshing && 'animate-spin')} />
           {isRefreshing ? 'Refreshing...' : 'Refresh'}
-        </button>
+        </Button>
       </div>
 
       {/* Channel list */}
       <div className="pt-1 flex-1 min-h-0 flex flex-col">
         {loading ? (
-          <div className="space-y-1">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <ChannelSkeleton key={i} />
-            ))}
+          <div className="px-4">
+            <Skeleton variant="row" count={5} />
           </div>
         ) : errorMsg ? (
-          <div className="text-center py-12 px-4">
-            <MessageSquare
-              size={48}
-              className="mx-auto mb-3 text-gray-300 opacity-60"
-            />
-            <p className="font-medium text-gray-600 dark:text-gray-300">
-              Could not load messages
-            </p>
-            <p className="text-sm text-gray-400 mt-1">{errorMsg}</p>
-            <button
-              onClick={() => {
-                void handleRefresh();
-              }}
-              className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 bg-ocean-500 text-white rounded-xl text-sm font-semibold touch-feedback"
-            >
-              <RefreshCw size={16} />
-              Retry
-            </button>
-          </div>
-        ) : sortedChannels.length === 0 ? (
-          <div className="text-center py-12 px-4">
-            <MessageSquare
-              size={48}
-              className="mx-auto mb-3 text-gray-300 dark:text-gray-600 opacity-30"
-            />
-            <p className="font-medium text-gray-500 dark:text-gray-400">
-              {searchQuery ? 'No conversations found' : 'No messages yet'}
-            </p>
-            <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
-              {searchQuery
-                ? 'Try a different search term'
-                : 'Start a conversation with your team'}
-            </p>
-            {!searchQuery && (
-              <button
-                onClick={handleNewChat}
-                className="mt-4 inline-flex items-center gap-2 px-4 py-2.5 bg-ocean-500 text-white rounded-xl text-sm font-semibold touch-feedback"
+          // tone="error" is the whole point: on a boat with intermittent signal
+          // "no conversations" and "we could not fetch them" must not look alike.
+          <EmptyState
+            tone="error"
+            icon={<WifiOff size={22} />}
+            title="Could not load messages"
+            description={errorMsg}
+            action={
+              <Button
+                variant="primary"
+                onClick={() => {
+                  void handleRefresh();
+                }}
               >
-                <Plus size={16} />
-                New Message
-              </button>
-            )}
-          </div>
+                <RefreshCw size={16} />
+                Retry
+              </Button>
+            }
+          />
+        ) : sortedChannels.length === 0 ? (
+          <EmptyState
+            icon={<MessageSquare size={22} />}
+            title={searchQuery ? 'No conversations found' : 'No messages yet'}
+            description={
+              searchQuery ? 'Try a different search term' : 'Start a conversation with your team'
+            }
+            action={
+              searchQuery ? undefined : (
+                <Button variant="primary" onClick={handleNewChat}>
+                  <Plus size={16} />
+                  New Message
+                </Button>
+              )
+            }
+          />
         ) : (
           <VirtualList
             items={sortedChannels}
@@ -391,7 +362,9 @@ export function ChannelListPage(): ReactElement {
             estimateSize={() => 72}
             className="flex-1 min-h-0"
             renderItem={(channel) => (
-              <div className="border-b border-gray-100 dark:border-gray-800/50">
+              // A hairline between rows of one list — the only place v4 allows a
+              // divider outside a card, because the list itself is the surface.
+              <div className="border-b border-line">
                 <ChannelRow
                   channel={channel}
                   currentUserId={user?.id}
@@ -403,11 +376,13 @@ export function ChannelListPage(): ReactElement {
         )}
       </div>
 
-      {/* FAB -- New chat button (bottom-right, above tab bar) */}
+      {/* FAB -- New chat button (bottom-right, above tab bar).
+          The accent fill plus its own halo replaces the ocean gradient: one teal
+          carries every action, and the halo tracks the theme. */}
       {!loading && !errorMsg && (
         <button
           onClick={handleNewChat}
-          className="fixed bottom-24 right-5 w-14 h-14 bg-gradient-to-br from-ocean-500 to-ocean-600 text-white rounded-full shadow-lg shadow-ocean-500/30 flex items-center justify-center touch-feedback transition-transform active:scale-95 z-40"
+          className="fixed bottom-24 right-5 w-14 h-14 min-h-touch min-w-touch bg-acc text-acc-on rounded-full shadow-acc flex items-center justify-center touch-feedback transition-transform active:scale-95 z-40"
           aria-label="New message"
         >
           <Plus size={24} />

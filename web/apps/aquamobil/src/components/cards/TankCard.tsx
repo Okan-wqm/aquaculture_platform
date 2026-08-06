@@ -1,8 +1,9 @@
 import { clsx } from 'clsx';
-import { Skull, Scissors, Package, ArrowLeftRight } from 'lucide-react';
+import { Skull, Scissors, Package, ArrowLeftRight, ChevronRight } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { Card, StatusDot } from '@/components/ui';
 import type { Tank } from '@/types';
 // BUG-09: feature permissions gate the action buttons so a button that would
 // redirect back to / via FeatureRoute is not rendered at all.
@@ -13,15 +14,34 @@ interface TankCardProps {
   tank: Tank;
 }
 
-// WHY: Gradient headers make tank status immediately scannable — color encodes operational state
-// so field workers can triage at a glance without reading text labels.
-const STATUS_CONFIG: Record<string, { dot: string; gradient: string; label: string }> = {
-  ACTIVE: { dot: 'bg-sky-400', gradient: 'from-sky-500 to-blue-600', label: 'Active' },
-  MAINTENANCE: { dot: 'bg-amber-400', gradient: 'from-amber-500 to-orange-600', label: 'Maintenance' },
-  QUARANTINE: { dot: 'bg-red-400', gradient: 'from-red-500 to-rose-600', label: 'Quarantine' },
-  PREPARING: { dot: 'bg-cyan-400', gradient: 'from-cyan-500 to-blue-600', label: 'Preparing' },
-  HARVESTING: { dot: 'bg-violet-400', gradient: 'from-violet-500 to-purple-600', label: 'Harvesting' },
-  INACTIVE: { dot: 'bg-gray-400', gradient: 'from-gray-400 to-gray-500', label: 'Inactive' },
+/**
+ * WHY NOT <ListRow/>: the four permission-gated action buttons along the bottom
+ * (BUG-09 / SEC-MEDIUM-050) are the point of this card, and ListRow has one
+ * `onClick` and no action row. Reducing it to a row would delete the log
+ * shortcuts, which is a capability change, not a restyle. UnitsPage renders the
+ * unit LIST as ListRows because it offers no per-row actions; this card keeps
+ * its own shape.
+ *
+ * v4: the per-status gradient header is gone. Gradients cost contrast in
+ * sunlight — the reason AppHeader dropped its own — and status now reads as a
+ * dot + label in the semantic tones, matching TankDetailPage's STATUS_META so
+ * one status means one colour on both screens.
+ */
+type StatusTone = 'ok' | 'warn' | 'crit';
+
+const STATUS_CONFIG: Record<string, { tone: StatusTone; label: string }> = {
+  ACTIVE: { tone: 'ok', label: 'Active' },
+  MAINTENANCE: { tone: 'crit', label: 'Maintenance' },
+  QUARANTINE: { tone: 'crit', label: 'Quarantine' },
+  PREPARING: { tone: 'warn', label: 'Preparing' },
+  HARVESTING: { tone: 'warn', label: 'Harvesting' },
+  INACTIVE: { tone: 'warn', label: 'Inactive' },
+};
+
+const STATUS_TEXT_CLASS: Record<StatusTone, string> = {
+  ok: 'text-ok',
+  warn: 'text-warn',
+  crit: 'text-crit',
 };
 
 export function TankCard({ tank }: TankCardProps): ReactElement {
@@ -39,11 +59,13 @@ export function TankCard({ tank }: TankCardProps): ReactElement {
   const capacityPercent = metrics?.capacityUsedPercent ?? (
     tank.maxBiomass > 0 ? ((tank.currentBiomass / tank.maxBiomass) * 100) : 0
   );
-  const capacityColor = capacityPercent > 90
-    ? 'bg-red-500'
+  const capacityTone = capacityPercent > 90
+    ? 'crit'
     : capacityPercent > 70
-      ? 'bg-amber-500'
-      : 'bg-emerald-500';
+      ? 'warn'
+      : 'ok';
+  const capacityFill = { crit: 'bg-crit', warn: 'bg-warn', ok: 'bg-ok' }[capacityTone];
+  const capacityText = { crit: 'text-crit', warn: 'text-warn', ok: 'text-ok' }[capacityTone];
 
   const formatNumber = (num: number): string => {
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
@@ -52,43 +74,41 @@ export function TankCard({ tank }: TankCardProps): ReactElement {
   };
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg overflow-hidden border border-gray-100 dark:border-gray-800">
-      {/* WHY: Gradient header with status color — enables rapid visual scanning across tank list.
-          The pulse dot on active tanks draws attention to tanks that need daily operations. */}
+    <Card className="overflow-hidden">
+      {/* WHY: the header row is the tap target for the unit itself. It sits one
+          tone above the card so it still reads as a distinct band, without the
+          gradient that used to cost contrast outdoors. */}
       <button
+        type="button"
         onClick={() => navigate(`/tank/${tank.id}`)}
-        className={clsx(
-          'w-full px-4 py-3.5 flex items-center justify-between text-left touch-feedback transition-all',
-          `bg-gradient-to-r ${status.gradient}`,
-        )}
+        className="w-full min-h-touch px-4 py-3.5 flex items-center justify-between text-left bg-surface-2 touch-feedback transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc"
       >
-        <div className="flex items-center gap-3">
-          <div className="flex flex-col">
-            <h3 className="font-bold text-white text-[15px] tracking-tight">{tank.name}</h3>
-            <p className="text-xs text-white/85 font-medium">
-              {tank.code} &middot; {tank.volume > 0 ? `${tank.volume}m\u00B3` : 'Not configured'}
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex flex-col min-w-0">
+            <h3 className="text-title font-semibold text-ink-1 truncate">{tank.name}</h3>
+            <p className="text-meta text-ink-3 truncate">
+              {tank.code} &middot; {tank.volume > 0 ? `${tank.volume}m³` : 'Not configured'}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-2.5 shrink-0">
           {hasBatch && (
-            <span className="text-xs font-bold text-white bg-white/20 backdrop-blur-sm px-2.5 py-1 rounded-lg">
+            <span className="text-meta font-mono font-semibold text-ink-2 bg-surface-3 px-2.5 py-1 rounded-lg">
               {metrics.batchNumber}
             </span>
           )}
-          <span className="flex items-center gap-1.5 text-xs font-semibold text-white/90">
-            {/* WHY: Pulse animation on active tanks signals "alive" status — immediately distinguishes
+          <span
+            className={clsx(
+              'flex items-center gap-1.5 text-meta font-semibold',
+              STATUS_TEXT_CLASS[status.tone],
+            )}
+          >
+            {/* WHY: the live blip on active tanks signals "alive" — it distinguishes
                 operational tanks from idle ones in a scrollable list. */}
-            <span className={clsx(
-              'w-2.5 h-2.5 rounded-full border border-white/30',
-              status.dot,
-              tank.status === 'ACTIVE' && 'animate-pulse',
-            )} />
+            <StatusDot tone={status.tone} live={tank.status === 'ACTIVE'} />
             {status.label}
           </span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-white/75">
-            <path d="m9 18 6-6-6-6" />
-          </svg>
+          <ChevronRight size={16} className="text-ink-3" aria-hidden />
         </div>
       </button>
 
@@ -97,43 +117,40 @@ export function TankCard({ tank }: TankCardProps): ReactElement {
       {hasBatch ? (
         <div className="px-4 py-3.5">
           <div className="grid grid-cols-3 gap-3">
-            <div className="bg-gray-50 dark:bg-gray-800/60 rounded-xl p-2.5 text-center">
-              <div className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
+            <div className="bg-surface-2 rounded-xl p-2.5 text-center">
+              <div className="text-head font-mono font-bold text-ink-1 tabular-nums">
                 {formatNumber(metrics.pieces ?? 0)}
               </div>
-              <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Fish</div>
+              <div className="text-meta text-ink-3 font-semibold">Fish</div>
             </div>
-            <div className="bg-gray-50 dark:bg-gray-800/60 rounded-xl p-2.5 text-center">
-              <div className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
+            <div className="bg-surface-2 rounded-xl p-2.5 text-center">
+              <div className="text-head font-mono font-bold text-ink-1 tabular-nums">
                 {(metrics.avgWeight ?? 0).toFixed(0)}g
               </div>
-              <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Avg Wt</div>
+              <div className="text-meta text-ink-3 font-semibold">Avg Wt</div>
             </div>
-            <div className="bg-gray-50 dark:bg-gray-800/60 rounded-xl p-2.5 text-center">
-              <div className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
+            <div className="bg-surface-2 rounded-xl p-2.5 text-center">
+              <div className="text-head font-mono font-bold text-ink-1 tabular-nums">
                 {(metrics.biomass ?? tank.currentBiomass ?? 0).toFixed(0)}
-                <span className="text-xs text-gray-400 font-medium">kg</span>
+                <span className="text-meta text-ink-3 font-medium font-sans">kg</span>
               </div>
-              <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Biomass</div>
+              <div className="text-meta text-ink-3 font-semibold">Biomass</div>
             </div>
           </div>
 
           {/* WHY: Capacity progress bar — visual fill indicator is faster to parse than a percentage number.
-              Color coding (green/amber/red) follows universal traffic-light convention for urgency. */}
+              Colour coding (ok/warn/crit) follows the same traffic-light convention as the rest of v4. */}
           {capacityPercent > 0 && (
             <div className="mt-3">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Capacity</span>
-                <span className={clsx(
-                  'text-[10px] font-bold',
-                  capacityPercent > 90 ? 'text-red-500' : capacityPercent > 70 ? 'text-amber-500' : 'text-emerald-500',
-                )}>
+                <span className="text-meta font-semibold text-ink-3">Capacity</span>
+                <span className={clsx('text-meta font-mono font-bold tabular-nums', capacityText)}>
                   {capacityPercent.toFixed(0)}%
                 </span>
               </div>
-              <div className="h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+              <div className="h-1.5 bg-surface-2 rounded-full overflow-hidden">
                 <div
-                  className={clsx('h-full rounded-full transition-all duration-500 ease-out', capacityColor)}
+                  className={clsx('h-full rounded-full transition-all duration-500 ease-out', capacityFill)}
                   style={{ width: `${Math.min(capacityPercent, 100)}%` }}
                 />
               </div>
@@ -143,19 +160,19 @@ export function TankCard({ tank }: TankCardProps): ReactElement {
       ) : (
         <div className="px-4 py-3.5">
           <div className="grid grid-cols-2 gap-3">
-            <div className="bg-gray-50 dark:bg-gray-800/60 rounded-xl p-2.5 text-center">
-              <div className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
+            <div className="bg-surface-2 rounded-xl p-2.5 text-center">
+              <div className="text-head font-mono font-bold text-ink-1 tabular-nums">
                 {tank.currentBiomass > 0 ? `${tank.currentBiomass.toFixed(0)}kg` : '--'}
               </div>
-              <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
+              <div className="text-meta text-ink-3 font-semibold">
                 {tank.currentBiomass > 0 ? 'Biomass' : 'Not configured'}
               </div>
             </div>
-            <div className="bg-gray-50 dark:bg-gray-800/60 rounded-xl p-2.5 text-center">
-              <div className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
+            <div className="bg-surface-2 rounded-xl p-2.5 text-center">
+              <div className="text-head font-mono font-bold text-ink-1 tabular-nums">
                 {tank.maxBiomass > 0 ? `${formatNumber(tank.maxBiomass)}kg` : '--'}
               </div>
-              <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
+              <div className="text-meta text-ink-3 font-semibold">
                 {tank.maxBiomass > 0 ? 'Max Cap' : 'Not configured'}
               </div>
             </div>
@@ -164,7 +181,7 @@ export function TankCard({ tank }: TankCardProps): ReactElement {
               for stocking — prevents confusion about why there are no fish metrics. */}
           {tank.status === 'ACTIVE' && (
             <div className="mt-2.5 flex justify-center">
-              <span className="text-xs font-medium text-gray-400 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded-full">
+              <span className="text-meta font-medium text-ink-3 bg-surface-2 px-3 py-1 rounded-full">
                 No active batch
               </span>
             </div>
@@ -173,47 +190,53 @@ export function TankCard({ tank }: TankCardProps): ReactElement {
       )}
 
       {/* WHY: Action buttons only render for tanks with batches AND for features the user has permission for.
-          This prevents dead-end navigation where FeatureRoute would redirect back to home. */}
+          This prevents dead-end navigation where FeatureRoute would redirect back to home.
+          The per-log-type hues are the one place v4 lets colour be decorative — a worker
+          identifies an entry type by hue before reading the word. */}
       {hasBatch && (canReach('mortality') || canReach('cull') || canReach('harvest') || canReach('transfer')) && (
-        <div className="flex border-t border-gray-100 dark:border-gray-800">
+        <div className="flex border-t border-line">
           {canReach('mortality') && (
             <button
+              type="button"
               onClick={() => navigate(`/mortality/record/${tank.id}`)}
-              className="flex-1 flex items-center justify-center gap-1.5 py-3 text-mortality hover:bg-mortality-light dark:hover:bg-red-900/20 touch-feedback transition-colors border-r border-gray-100 dark:border-gray-800 last:border-r-0"
+              className="flex-1 min-h-touch flex items-center justify-center gap-1.5 py-3 text-type-mortality hover:bg-type-mortality-dim touch-feedback transition-colors border-r border-line last:border-r-0"
             >
               <Skull size={15} />
-              <span className="text-xs font-bold">Mortality</span>
+              <span className="text-meta font-semibold">Mortality</span>
             </button>
           )}
           {canReach('cull') && (
             <button
+              type="button"
               onClick={() => navigate(`/cull/record/${tank.id}`)}
-              className="flex-1 flex items-center justify-center gap-1.5 py-3 text-cull hover:bg-cull-light dark:hover:bg-orange-900/20 touch-feedback transition-colors border-r border-gray-100 dark:border-gray-800 last:border-r-0"
+              className="flex-1 min-h-touch flex items-center justify-center gap-1.5 py-3 text-type-cull hover:bg-type-cull-dim touch-feedback transition-colors border-r border-line last:border-r-0"
             >
               <Scissors size={15} />
-              <span className="text-xs font-bold">Cull</span>
+              <span className="text-meta font-semibold">Cull</span>
             </button>
           )}
           {canReach('harvest') && (
             <button
+              type="button"
               onClick={() => navigate(`/harvest/record/${tank.id}`)}
-              className="flex-1 flex items-center justify-center gap-1.5 py-3 text-harvest hover:bg-harvest-light dark:hover:bg-purple-900/20 touch-feedback transition-colors border-r border-gray-100 dark:border-gray-800 last:border-r-0"
+              className="flex-1 min-h-touch flex items-center justify-center gap-1.5 py-3 text-type-harvest hover:bg-type-harvest-dim touch-feedback transition-colors border-r border-line last:border-r-0"
             >
               <Package size={15} />
-              <span className="text-xs font-bold">Harvest</span>
+              <span className="text-meta font-semibold">Harvest</span>
             </button>
           )}
           {canReach('transfer') && (
             <button
+              type="button"
               onClick={() => navigate(`/transfer/record/${tank.id}`)}
-              className="flex-1 flex items-center justify-center gap-1.5 py-3 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 touch-feedback transition-colors border-r border-gray-100 dark:border-gray-800 last:border-r-0"
+              className="flex-1 min-h-touch flex items-center justify-center gap-1.5 py-3 text-type-transfer hover:bg-type-transfer-dim touch-feedback transition-colors border-r border-line last:border-r-0"
             >
               <ArrowLeftRight size={15} />
-              <span className="text-xs font-bold">Transfer</span>
+              <span className="text-meta font-semibold">Transfer</span>
             </button>
           )}
         </div>
       )}
-    </div>
+    </Card>
   );
 }

@@ -5,31 +5,41 @@
 /**
  * WHY: Dedicated AI insights card for the mobile dashboard. Shows aggregated
  * risk score, active anomalies count, and top feeding recommendation.
- * Uses a gradient header (purple→indigo) to visually distinguish AI-powered
- * content from standard operational data — operators immediately recognize
- * which cards show AI predictions vs. live sensor readings.
  *
  * Graceful degradation strategy:
- *   - Loading: skeleton pulse animation (matches existing app pattern)
- *   - Error/null: subtle "AI insights unavailable" message (not intrusive)
+ *   - Loading: token skeleton (shaped like the card it replaces)
+ *   - Error/unavailable: an EmptyState inside the card's own header, so the
+ *     card is visibly present-but-down rather than silently absent
  *   - Success: full AI card with risk gauge, anomaly badge, feeding tip
+ *
+ * v4 / ADVISORY: the purple→indigo gradient header that used to say "this is a
+ * prediction, not a live reading" has no token — v4 spends teal on actions and
+ * amber/coral/green on state, and it drops gradients because they cost contrast
+ * in sunlight. The advisory signal therefore rests on the wording that was
+ * already carrying it: the card is titled "AI Insights", the gauge is labelled
+ * "Risk" (a score, not a measurement), and the recommendation block is titled
+ * "Feeding Tip". Those words are load-bearing now — do not shorten them away.
  */
 
 import { clsx } from 'clsx';
+import { Brain, MessageCircle } from 'lucide-react';
 import type { ReactElement } from 'react';
 
+import { Card, CardDivider, EmptyState, Skeleton } from '@/components/ui';
 import { useAiDashboardInsights } from '@/hooks/useAiInsights';
 
 /**
- * WHY: Risk level to color mapping follows universal severity conventions.
- * Green=safe, amber=warning, red=danger, deep-red=critical. This enables
- * field operators to triage without reading text labels.
+ * WHY: Risk tier → the semantic tone it wears. Green=safe, amber=watch,
+ * coral=alarm, so a field operator triages without reading the label. HIGH and
+ * CRITICAL share the `crit` token because the design has exactly one alarm
+ * colour — the LABEL ("High Risk" vs "Critical") is what separates them, and it
+ * is always rendered beside the gauge.
  */
-const RISK_LEVEL_COLORS: Record<number, { ring: string; text: string; label: string }> = {
-  0: { ring: 'stroke-emerald-500', text: 'text-emerald-600 dark:text-emerald-400', label: 'Low Risk' },
-  1: { ring: 'stroke-amber-500', text: 'text-amber-600 dark:text-amber-400', label: 'Medium Risk' },
-  2: { ring: 'stroke-red-500', text: 'text-red-600 dark:text-red-400', label: 'High Risk' },
-  3: { ring: 'stroke-red-700', text: 'text-red-700 dark:text-red-300', label: 'Critical' },
+const RISK_LEVEL_TONE: Record<number, { ring: string; text: string; label: string }> = {
+  0: { ring: 'stroke-ok', text: 'text-ok', label: 'Low Risk' },
+  1: { ring: 'stroke-warn', text: 'text-warn', label: 'Medium Risk' },
+  2: { ring: 'stroke-crit', text: 'text-crit', label: 'High Risk' },
+  3: { ring: 'stroke-crit', text: 'text-crit', label: 'Critical' },
 };
 
 /**
@@ -50,7 +60,7 @@ function getRiskTier(score: number): number {
  */
 function RiskGauge({ score }: { score: number }): ReactElement {
   const tier = getRiskTier(score);
-  const colors = RISK_LEVEL_COLORS[tier];
+  const tone = RISK_LEVEL_TONE[tier];
   // WHY: SVG circle math — circumference = 2 * PI * radius. The dashoffset
   // controls how much of the ring is "filled" based on the score percentage.
   const radius = 36;
@@ -65,7 +75,7 @@ function RiskGauge({ score }: { score: number }): ReactElement {
           cx="40" cy="40" r={radius}
           fill="none"
           strokeWidth="6"
-          className="stroke-gray-200 dark:stroke-gray-700"
+          className="stroke-surface-3"
         />
         {/* WHY: Foreground ring — dasharray/dashoffset technique creates the animated progress arc */}
         <circle
@@ -73,81 +83,90 @@ function RiskGauge({ score }: { score: number }): ReactElement {
           fill="none"
           strokeWidth="6"
           strokeLinecap="round"
-          className={clsx('transition-all duration-700 ease-out', colors.ring)}
+          className={clsx('transition-all duration-700 ease-out', tone.ring)}
           strokeDasharray={circumference}
           strokeDashoffset={dashoffset}
         />
       </svg>
       {/* WHY: Centered score number inside the ring — the most prominent element on the card */}
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className={clsx('text-2xl font-bold tabular-nums', colors.text)}>
+        <span className={clsx('text-display font-mono font-bold tabular-nums', tone.text)}>
           {score}
         </span>
-        <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
-          Risk
-        </span>
+        <span className="text-meta font-semibold text-ink-3">Risk</span>
       </div>
     </div>
   );
 }
 
 /**
- * WHY: Severity color mapping for anomaly badges. Matches the backend's
- * FarmAnomaly.severity enum values.
+ * WHY: Severity → tone for anomaly badges. Matches the backend's
+ * FarmAnomaly.severity enum. CRITICAL and HIGH both take `crit` because both
+ * land in the "needs attention now" bucket this list is filtered to — softening
+ * HIGH to amber here would understate an anomaly the app has already decided is
+ * urgent enough to surface on the dashboard.
  */
-function getSeverityColor(severity: string): string {
+function getSeverityTone(severity: string): string {
   switch (severity.toLowerCase()) {
-    case 'critical': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300';
-    case 'high': return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300';
-    case 'medium': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300';
-    default: return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300';
+    case 'critical': return 'bg-crit-dim text-crit';
+    case 'high': return 'bg-crit-dim text-crit';
+    case 'medium': return 'bg-warn-dim text-warn';
+    default: return 'bg-acc-dim text-acc';
   }
+}
+
+/** The card's own title row — present in every state, including the down ones. */
+function InsightsHeader({ trailing }: { trailing?: ReactElement }): ReactElement {
+  return (
+    <div className="px-4 py-3 flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
+        <Brain size={16} className="text-acc" aria-hidden />
+        <h3 className="text-title font-semibold text-ink-1">AI Insights</h3>
+      </div>
+      {trailing}
+    </div>
+  );
 }
 
 export function AiInsightsCard(): ReactElement {
   const { data: insights, isLoading, isError } = useAiDashboardInsights();
 
-  // WHY: Loading skeleton matches the app's existing skeleton pattern (pulse animation).
-  // Shown during initial fetch — subsequent refetches use stale data.
+  // WHY: Loading skeleton shaped like the card it replaces, so the dashboard
+  // does not jump when the insights land.
   if (isLoading) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 overflow-hidden">
-        <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-4 py-3">
-          <div className="h-4 w-32 bg-white/20 rounded skeleton" />
+      <Card className="p-4">
+        <Skeleton variant="text" className="w-32" />
+        <div className="flex items-center gap-4 mt-3">
+          <div className="skeleton w-24 h-24 rounded-full shrink-0" aria-hidden />
+          <Skeleton variant="text" count={3} className="flex-1" />
         </div>
-        <div className="p-4 space-y-3">
-          <div className="flex items-center gap-4">
-            <div className="w-24 h-24 rounded-full skeleton" />
-            <div className="flex-1 space-y-2">
-              <div className="h-4 w-full skeleton rounded" />
-              <div className="h-4 w-3/4 skeleton rounded" />
-              <div className="h-4 w-1/2 skeleton rounded" />
-            </div>
-          </div>
-        </div>
-      </div>
+      </Card>
     );
   }
 
   // WHY: When AI is unavailable (MCP_ENABLED=false, MCP down, or query error),
-  // show a subtle non-intrusive message. The dashboard remains fully functional
-  // without AI — this is graceful degradation, not a hard failure.
+  // the dashboard remains fully functional — this is graceful degradation, not a
+  // hard failure. But "the advisory service is switched off" and "we could not
+  // reach it" are different facts, so the tone (and the wording) tell them apart
+  // instead of sharing one grey shrug.
   if (isError || !insights) {
     return (
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 overflow-hidden">
-        <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-4 py-3 flex items-center gap-2">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/80">
-            <path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93L12 22" />
-            <path d="M8 6a4 4 0 0 1 .68-2.23" />
-            <path d="M17 12.5c1.77.77 3 2.53 3 4.5a5 5 0 0 1-10 0c0-1.97 1.23-3.73 3-4.5" />
-            <path d="M7 17a5 5 0 0 1-3-4.5" />
-          </svg>
-          <h3 className="text-sm font-bold text-white">AI Insights</h3>
-        </div>
-        <div className="p-4 flex items-center justify-center">
-          <p className="text-sm text-gray-400 font-medium">AI insights currently unavailable</p>
-        </div>
-      </div>
+      <Card className="overflow-hidden">
+        <InsightsHeader />
+        <CardDivider />
+        <EmptyState
+          tone={isError ? 'error' : 'empty'}
+          icon={<Brain size={22} />}
+          title={isError ? 'AI insights could not be loaded' : 'AI insights unavailable'}
+          description={
+            isError
+              ? 'The advisory service could not be reached. Everything else on this screen is unaffected.'
+              : 'Advisory intelligence is not switched on for this farm.'
+          }
+          className="py-6"
+        />
+      </Card>
     );
   }
 
@@ -157,34 +176,28 @@ export function AiInsightsCard(): ReactElement {
   );
   const topFeeding = insights.feedingAdvice[0];
   const riskTier = getRiskTier(insights.overallRiskScore);
-  const riskLabel = RISK_LEVEL_COLORS[riskTier].label;
+  const riskLabel = RISK_LEVEL_TONE[riskTier].label;
+  const elevatedRiskCount = insights.tankRisks.filter((t) => t.riskScore >= 50).length;
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 overflow-hidden">
-      {/* WHY: Gradient header (purple→indigo) visually distinguishes AI-powered content
-          from standard operational cards. Operators learn to associate this color with
-          "AI prediction" vs. "live data". */}
-      <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/80">
-            <path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93L12 22" />
-            <path d="M8 6a4 4 0 0 1 .68-2.23" />
-            <path d="M17 12.5c1.77.77 3 2.53 3 4.5a5 5 0 0 1-10 0c0-1.97 1.23-3.73 3-4.5" />
-            <path d="M7 17a5 5 0 0 1-3-4.5" />
-          </svg>
-          <h3 className="text-sm font-bold text-white">AI Insights</h3>
-        </div>
-        {/* WHY: Anomaly count badge in the header — red when anomalies exist, green when clear.
-            Provides at-a-glance anomaly awareness without scrolling to the details section. */}
-        <span className={clsx(
-          'text-xs font-bold px-2.5 py-0.5 rounded-full',
-          anomalyCount > 0
-            ? 'bg-red-500/20 text-red-100'
-            : 'bg-emerald-500/20 text-emerald-100',
-        )}>
-          {anomalyCount > 0 ? `${anomalyCount} anomal${anomalyCount > 1 ? 'ies' : 'y'}` : 'All clear'}
-        </span>
-      </div>
+    <Card className="overflow-hidden">
+      <InsightsHeader
+        // WHY: Anomaly count badge in the header — coral when anomalies exist,
+        // green when clear. At-a-glance awareness without scrolling to details.
+        trailing={
+          <span
+            className={clsx(
+              'text-meta font-semibold px-2.5 py-0.5 rounded-full shrink-0',
+              anomalyCount > 0 ? 'bg-crit-dim text-crit' : 'bg-surface-2 text-ok',
+            )}
+          >
+            {anomalyCount > 0
+              ? `${anomalyCount} anomal${anomalyCount > 1 ? 'ies' : 'y'}`
+              : 'All clear'}
+          </span>
+        }
+      />
+      <CardDivider />
 
       <div className="p-4">
         {/* WHY: Two-column layout — gauge on left, stats on right. The gauge is the primary
@@ -192,13 +205,13 @@ export function AiInsightsCard(): ReactElement {
         <div className="flex items-center gap-4">
           <RiskGauge score={insights.overallRiskScore} />
 
-          <div className="flex-1 space-y-2">
+          <div className="flex-1 min-w-0 space-y-2">
             {/* WHY: Risk level label reinforces the gauge color with text for accessibility */}
             <div>
-              <span className={clsx('text-sm font-bold', RISK_LEVEL_COLORS[riskTier].text)}>
+              <span className={clsx('text-title font-semibold', RISK_LEVEL_TONE[riskTier].text)}>
                 {riskLabel}
               </span>
-              <p className="text-[10px] text-gray-400 font-medium">
+              <p className="text-meta text-ink-3 font-medium">
                 {insights.tankRisks.length} tank{insights.tankRisks.length !== 1 ? 's' : ''} monitored
               </p>
             </div>
@@ -210,8 +223,8 @@ export function AiInsightsCard(): ReactElement {
                   <div
                     key={idx}
                     className={clsx(
-                      'text-[10px] font-semibold px-2 py-1 rounded-lg truncate',
-                      getSeverityColor(anomaly.severity),
+                      'text-meta font-semibold px-2 py-1 rounded-lg truncate',
+                      getSeverityTone(anomaly.severity),
                     )}
                   >
                     {anomaly.description}
@@ -221,9 +234,9 @@ export function AiInsightsCard(): ReactElement {
             )}
 
             {/* WHY: Tank risk count summary — tells the manager how many tanks need attention */}
-            {insights.tankRisks.filter((t) => t.riskScore >= 50).length > 0 && (
-              <p className="text-[10px] text-gray-500 font-medium">
-                {insights.tankRisks.filter((t) => t.riskScore >= 50).length} tank{insights.tankRisks.filter((t) => t.riskScore >= 50).length !== 1 ? 's' : ''} at elevated risk
+            {elevatedRiskCount > 0 && (
+              <p className="text-meta text-ink-3 font-medium">
+                {elevatedRiskCount} tank{elevatedRiskCount !== 1 ? 's' : ''} at elevated risk
               </p>
             )}
           </div>
@@ -233,24 +246,21 @@ export function AiInsightsCard(): ReactElement {
             has feeding advice. Gives the manager a quick actionable tip without navigating
             to individual tank details. */}
         {topFeeding && (
-          <div className="mt-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800 rounded-xl p-3">
+          <div className="mt-3 bg-surface-2 border border-line rounded-xl p-3">
             <div className="flex items-center gap-1.5 mb-1">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-purple-500">
-                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-              </svg>
-              <span className="text-[10px] font-bold text-purple-600 dark:text-purple-300 uppercase tracking-wider">
-                Feeding Tip
-              </span>
+              <MessageCircle size={12} className="text-acc" aria-hidden />
+              <span className="text-meta font-semibold text-ink-3">Feeding Tip</span>
             </div>
-            <p className="text-xs text-purple-700 dark:text-purple-200 font-medium leading-relaxed">
+            <p className="text-body text-ink-1 font-medium leading-relaxed">
               {topFeeding.rationale}
             </p>
-            <p className="text-[10px] text-purple-500 dark:text-purple-400 mt-1">
-              {topFeeding.recommendedAmount}kg {topFeeding.feedType} &middot; {topFeeding.feedingFrequency}x/day
+            <p className="text-meta text-ink-3 mt-1">
+              {topFeeding.recommendedAmount}kg {topFeeding.feedType} &middot;{' '}
+              {topFeeding.feedingFrequency}x/day
             </p>
           </div>
         )}
       </div>
-    </div>
+    </Card>
   );
 }

@@ -10,10 +10,12 @@
  * manager who has reviewed the draft and wants to file it from the field.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, CheckCircle2, CloudOff, FileText, ShieldAlert } from 'lucide-react';
+import { CheckCircle2, CloudOff, FileText, ShieldAlert } from 'lucide-react';
 import { type JSX, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { AppHeader } from '@/components/AppHeader';
+import { Button, Card, CardDivider, EmptyState, Skeleton } from '@/components/ui';
 import type {
   MobileApproveAndSubmitReportDraftMutation,
   MobileReportDraftsQuery,
@@ -50,26 +52,26 @@ const SUBMITTABLE_STATUSES = new Set(['DRAFT', 'READY', 'APPROVED']);
  */
 function PayloadTree({ value, depth = 0 }: { value: unknown; depth?: number }): JSX.Element {
   if (value === null || value === undefined) {
-    return <span className="text-gray-400">—</span>;
+    return <span className="text-ink-3">—</span>;
   }
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return <span className="text-gray-800 dark:text-gray-200 break-all">{String(value)}</span>;
+    return <span className="text-ink-1 break-all">{String(value)}</span>;
   }
   if (typeof value !== 'object') {
     // Symbols/functions never appear in a JSON wire payload; render a marker.
-    return <span className="text-gray-400">(unrenderable)</span>;
+    return <span className="text-ink-3">(unrenderable)</span>;
   }
   const entries: ReadonlyArray<readonly [string, unknown]> = Array.isArray(value)
     ? (value as unknown[]).map((v, i) => [String(i), v] as const)
     : Object.entries(value as Record<string, unknown>);
   if (entries.length === 0) {
-    return <span className="text-gray-400">{Array.isArray(value) ? '[]' : '{}'}</span>;
+    return <span className="text-ink-3">{Array.isArray(value) ? '[]' : '{}'}</span>;
   }
   return (
-    <div className={depth > 0 ? 'pl-3 border-l border-gray-100 dark:border-gray-800' : ''}>
+    <div className={depth > 0 ? 'pl-3 border-l border-line' : ''}>
       {entries.map(([key, v]) => (
         <div key={key} className="py-0.5">
-          <span className="text-gray-500 font-medium">{key}: </span>
+          <span className="text-ink-3 font-medium">{key}: </span>
           <PayloadTree value={v} depth={depth + 1} />
         </div>
       ))}
@@ -132,155 +134,150 @@ export function ReportReviewPage(): JSX.Element {
     !submitResult?.success;
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      <div className="bg-gradient-to-r from-indigo-700 to-indigo-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button
-            onClick={() => navigate('/reports')}
-            className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
-          >
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <FileText size={22} />
-            <h1 className="text-lg font-bold">Review Draft</h1>
-          </div>
-        </div>
-      </div>
+    <div className="pb-28">
+      {/* Back goes to /reports rather than history — a manager reaches this page
+          from the deadline list and expects to land back on it. */}
+      <AppHeader title="Review Draft" onBack={() => navigate('/reports')} showAvatar={false} />
 
-      <div className="px-4 pt-4 space-y-4 pb-28">
+      <div className="px-4 flex flex-col gap-4">
         {!isOnline && (
-          <div className="bg-amber-50 dark:bg-amber-900/20 rounded-2xl p-4 border border-amber-200 dark:border-amber-800 flex items-center gap-3">
-            <CloudOff size={20} className="text-amber-600 flex-shrink-0" />
-            <p className="text-amber-700 dark:text-amber-300 text-sm font-medium">
+          <Card className="p-4 flex items-center gap-3 border-warn">
+            <span className="w-9 h-9 shrink-0 rounded-xl bg-warn-dim text-warn inline-flex items-center justify-center">
+              <CloudOff size={18} />
+            </span>
+            <p className="text-body text-ink-1">
               Approval needs a live connection — reconnect to review and submit.
             </p>
-          </div>
+          </Card>
         )}
 
-        {isOnline && draftsQuery.isLoading && (
-          <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mx-auto" />
-          </div>
-        )}
+        {isOnline && draftsQuery.isLoading && <Skeleton variant="tile" count={2} />}
 
         {isOnline && draftsQuery.isSuccess && !draft && (
-          <div className="bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 border border-red-200 dark:border-red-800">
-            <p className="text-red-600 dark:text-red-300 text-sm">
-              Draft not found — it may have been submitted or dismissed elsewhere.
-            </p>
-          </div>
+          <EmptyState
+            tone="error"
+            icon={<FileText size={22} />}
+            title="Draft not found"
+            description="It may have been submitted or dismissed elsewhere."
+          />
         )}
 
         {draft && (
           <>
-            <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 p-4 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-gray-900 dark:text-white">{draft.reportType}</span>
-                <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+            <Card className="p-4 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-title font-semibold text-ink-1">{draft.reportType}</span>
+                {/* The status is a machine value, so it keeps its mono/uppercase
+                    treatment — "uppercase survives only where a machine speaks". */}
+                <span className="text-meta font-mono font-semibold text-ink-3 uppercase tracking-wide shrink-0">
                   {draft.status}
                 </span>
               </div>
-              <div className="text-sm text-gray-500">
+              <div className="text-body text-ink-2">
                 {draft.periodYear}
                 {draft.periodWeek != null ? ` · W${draft.periodWeek}` : ''}
                 {draft.periodMonth != null ? `-${String(draft.periodMonth).padStart(2, '0')}` : ''}
                 {draft.dueAt ? ` · due ${String(draft.dueAt)}` : ''}
               </div>
-              <div className="text-xs text-gray-400">
+              <div className="text-meta text-ink-3">
                 Schema {draft.schemaValid === false ? 'INVALID' : 'valid'} · {fieldMeta.length}{' '}
                 assembled fields · {manualFields.length} manual
               </div>
-            </div>
+            </Card>
 
             {blockingFields.length > 0 && (
-              <div className="bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 border border-red-200 dark:border-red-800">
-                <div className="flex items-start gap-2">
-                  <ShieldAlert size={18} className="text-red-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-red-700 dark:text-red-300 text-sm font-bold">
+              <Card className="p-4 border-crit">
+                <div className="flex items-start gap-3">
+                  <span className="w-9 h-9 shrink-0 rounded-xl bg-crit-dim text-crit inline-flex items-center justify-center">
+                    <ShieldAlert size={18} />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-body font-semibold text-ink-1">
                       {blockingFields.length} blocking field
                       {blockingFields.length > 1 ? 's' : ''} — complete on the Reports desk first
                     </p>
                     <ul className="mt-1 space-y-1">
                       {blockingFields.slice(0, 5).map((f, i) => (
-                        <li key={f.path ?? i} className="text-xs text-red-600 dark:text-red-400">
+                        <li key={f.path ?? i} className="text-meta text-ink-2">
                           {f.path}: {f.message ?? 'manual value required'}
                         </li>
                       ))}
                     </ul>
                   </div>
                 </div>
-              </div>
+              </Card>
             )}
 
-            <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 overflow-hidden">
-              <div className="p-3 border-b border-gray-100 dark:border-gray-800">
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+            <Card className="overflow-hidden">
+              <div className="p-3">
+                <h3 className="text-meta font-semibold text-ink-3">
                   Assembled payload (read-only)
                 </h3>
               </div>
-              <div className="p-3 text-xs overflow-x-auto max-h-96 overflow-y-auto">
+              <CardDivider />
+              <div className="p-3 text-meta overflow-x-auto max-h-96 overflow-y-auto">
                 <PayloadTree value={draft.assembledPayload} />
               </div>
-            </div>
+            </Card>
 
             {submitResult?.success && (
-              <div className="bg-green-50 dark:bg-green-900/20 rounded-2xl p-4 border border-green-200 dark:border-green-800 flex items-start gap-3">
-                <CheckCircle2 size={22} className="text-green-600 flex-shrink-0" />
-                <div>
-                  <p className="text-green-700 dark:text-green-300 font-bold text-sm">
-                    Submitted to Mattilsynet
-                  </p>
+              <Card className="p-4 flex items-start gap-3 border-ok">
+                <span className="w-9 h-9 shrink-0 rounded-xl bg-surface-2 text-ok inline-flex items-center justify-center">
+                  <CheckCircle2 size={18} />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-body font-semibold text-ink-1">Submitted to Mattilsynet</p>
                   {submitResult.referanse && (
-                    <p className="text-green-600 dark:text-green-400 text-xs mt-1">
+                    <p className="text-meta font-mono text-ink-2 mt-1 break-all">
                       Referanse: {submitResult.referanse}
                     </p>
                   )}
                 </div>
-              </div>
+              </Card>
             )}
 
             {submitResult && !submitResult.success && (
-              <div className="bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 border border-red-200 dark:border-red-800">
-                <p className="text-red-700 dark:text-red-300 text-sm font-bold">
+              <Card className="p-4 border-crit">
+                <p className="text-body font-semibold text-ink-1">
                   Submission failed{submitResult.feilmelding ? `: ${submitResult.feilmelding}` : ''}
                 </p>
                 {(submitResult.valideringsfeil ?? []).slice(0, 5).map((v, i) => (
-                  <p key={v?.felt ?? i} className="text-xs text-red-600 dark:text-red-400 mt-1">
+                  <p key={v?.felt ?? i} className="text-meta text-ink-2 mt-1">
                     {v?.felt}: {v?.melding}
                   </p>
                 ))}
-              </div>
+              </Card>
             )}
 
             {approveMutation.isError && !submitResult && (
-              <div className="bg-red-50 dark:bg-red-900/20 rounded-2xl p-4 border border-red-200 dark:border-red-800">
-                <p className="text-red-600 dark:text-red-300 text-sm">
+              <Card className="p-4 border-crit">
+                <p className="text-body text-ink-1">
                   {approveMutation.error instanceof Error
                     ? approveMutation.error.message
                     : 'Submission failed'}
                 </p>
-              </div>
+              </Card>
             )}
 
-            <button
+            <Button
+              variant="primary"
+              size="save"
+              block
               onClick={() => approveMutation.mutate()}
               disabled={!canSubmit}
-              className="w-full py-4 text-white font-bold rounded-2xl shadow-lg bg-gradient-to-r from-indigo-600 to-indigo-500 shadow-indigo-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
             >
               {approveMutation.isPending ? (
                 <>
-                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent" />
                   Submitting…
                 </>
               ) : (
                 <>
                   <CheckCircle2 size={20} />
-                  Approve & Submit
+                  Approve &amp; Submit
                 </>
               )}
-            </button>
+            </Button>
           </>
         )}
       </div>

@@ -56,7 +56,7 @@ function countOccurrences(pattern: RegExp): number {
  * the token layer must not become a way to reintroduce tiny text under a
  * friendlier class name. The gate measures rendered size, not spelling.
  */
-const TINY_TEXT_BASELINE = 55;
+const TINY_TEXT_BASELINE = 15;
 
 /** Both spellings of the sub-12px sizes — see TINY_TEXT_BASELINE. */
 const TINY_TEXT_PATTERN = /text-\[1[01]px\]|\btext-(?:micro|caption)\b/g;

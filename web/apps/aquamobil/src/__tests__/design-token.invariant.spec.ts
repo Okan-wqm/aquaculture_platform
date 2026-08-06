@@ -57,9 +57,9 @@ function countOccurrences(pattern: RegExp): number {
  * Shrink freely — lower the constant in the same commit that reduces the count.
  * Growing one means new code took the pre-v4 path; use the tokens instead.
  */
-const DARK_VARIANT_BASELINE = 1049;
-const LEGACY_PALETTE_BASELINE = 185;
-const STOCK_GRAY_BASELINE = 1202;
+const DARK_VARIANT_BASELINE = 695;
+const LEGACY_PALETTE_BASELINE = 127;
+const STOCK_GRAY_BASELINE = 790;
 
 const TOKENS_CSS = readFileSync(join(SRC_DIR, 'styles/tokens.css'), 'utf8');
 

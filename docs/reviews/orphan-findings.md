@@ -8197,3 +8197,48 @@ Four ratchets fall with it: `dark:` 1254→1049, legacy palettes 285→185, stoc
 **Process note worth recording:** this work was produced by a parallel fan-out across six disjoint file groups. Five of the six were **lost** when another session moved this shared checkout to an unrelated detached commit mid-run; only the uncommitted messaging-component edits carried across and were recovered by patch. The branch ref and all pushed commits were never at risk. The lesson is mechanical: in a shared checkout, agent output must be committed per group as it lands, not batched at the end of the run.
 
 **Owner:** claude (this session). **Status:** RESOLVED for the components; pages open.
+
+## ORPHAN-MEDIUM-588 — the cards embedded inside the redesigned screens were still pre-v4, so Today and the unit detail showed v4 chrome around v3 content — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, by measuring which files the redesign had actually reached rather than trusting the phase list. The screens were reported done; the components they render were not.
+
+`AiInsightsCard`, `TankRiskBadge`, `GrowthPredictionCard`, `FeedingAdviceCard`, `LiveReadingsCard`, `TankCard`, `TaskCard`, both bells, `CriticalAlertBanner`, `DataFreshness`, `QueuedStatusBadge` and `ReportReviewPage` carried ~198 pre-v4 class usages between them — and they sit in the middle of the two screens a worker looks at most.
+
+**Fix (this PR):** all thirteen converted, plus the six messaging pages. Four things in it are more than a class swap and are recorded here because they change what a user sees:
+
+- **`QueuedStatusBadge`'s retry button was below the touch floor** (~36px). It now uses `<Button>`, which bakes in `min-h-touch`. Its colour moved red→accent: retry is a recovery action, not a destructive one.
+- **`TankCard`'s status colours disagreed with `TankDetailPage`'s.** MAINTENANCE was amber on the card and crit on the detail; PREPARING and HARVESTING likewise diverged. One status now means one colour on both.
+- **`AiInsightsCard` collapsed two different failures into one message.** "AI is switched off for this farm" and "we could not reach the advisory service" rendered identically; they are now distinguishable.
+- **`CriticalAlertBanner` was deliberately made LARGER** (14px→15px) rather than following the substitution table down to 13px. It is life-safety (MOB-HIGH-006) and must stay the loudest thing on any screen it appears on.
+
+**`AlertsBell` and `NotificationBell` repeat `min-h-touch min-w-touch` in their className despite using `IconButton`, which already provides them.** That duplication is deliberate: `field-ergonomics.invariant.spec.ts` greps those two files' _text_ for both strings, so adopting the primitive alone would fail the gate. This is a gate testing spelling rather than behaviour — worth revisiting, noted rather than worked around silently.
+
+**Two cards were deliberately NOT reduced to `<ListRow>`:** `TaskCard` carries a two-line title, a badge pair and a checklist progress bar that `ListRow` would silently drop, and `TankCard`'s four permission-gated action buttons (BUG-09 / SEC-MEDIUM-050) are the point of the card. Reducing either would be a capability change wearing a restyle's clothes. Both carry a comment recording the decision.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-589 — the AI cards' only "this is advisory" signal was their colour, and v4 has no colour to spare for it — OPEN
+
+**Discovered:** 2026-08-06, during the v4 conversion of the four AI cards.
+
+The brief for the conversion said the advisory marker must stay legible. There was none to keep: no tilde, no "advisory" wording. The sole thing distinguishing these cards from measured data was **purple/indigo chrome** — a gradient header, purple fills, purple ink. v4 has no purple token (teal is reserved for actions, gradients were dropped for sunlight contrast), so the conversion necessarily removed it.
+
+What now carries the signal is wording that already existed: "AI Insights", "AI Risk Assessment", "AI Feeding Advice", "30-Day Growth Prediction", "Predicted (30d)", "Feeding Tip", "Rationale". Every one was preserved and each file carries a comment saying those strings are now load-bearing.
+
+**Why this is still open:** on `TankDetailPage` the three AI cards now sit directly beneath `LiveReadingsCard`'s **measured sensor values**, separated only by their headings. A predicted 30-day weight and a measured dissolved-oxygen reading should not be one glance apart with nothing but a title to tell them apart. An operator acting on a forecast believing it is a measurement is the failure mode.
+
+**What it needs:** one explicit, non-colour advisory marker applied consistently across all four cards — a `~` before predicted numerals, an "Advisory" chip, or both. That is a content decision affecting what the worker reads, so it is deliberately not being invented mid-conversion.
+
+**Owner:** claude (this session). **Status:** OPEN — needs an operator decision on the marker, then one consistent application.
+
+## ORPHAN-MEDIUM-590 — the regulator-submission review page renders a blank screen when its query fails — OPEN
+
+**Discovered:** 2026-08-06, while converting `ReportReviewPage` (FARM-HIGH-214 / RPT-019).
+
+The page branches on `isLoading` and on `isSuccess && !draft`. There is no `isError` branch, so a failed drafts query renders the header and **nothing else** — not "could not load", not "nothing here", just an empty page on the surface where a Mattilsynet submission is reviewed and approved.
+
+This is worse than the "empty list looks like a failed fetch" class already fixed elsewhere in this work: there is no list to misread, only absence.
+
+**Fix needed:** one branch rendering `<EmptyState tone="error">` with a retry. Deliberately not done during the conversion pass, which was scoped to markup — adding a render branch is logic, and this page is a regulated surface where the change deserves its own review rather than riding along in a restyle.
+
+**Owner:** claude (this session). **Status:** OPEN.

@@ -8,6 +8,12 @@
  *
  * Supports images (with CSS transform pinch-to-zoom), PDFs (filename +
  * download button), and loading states while fetching presigned URLs.
+ *
+ * WHY this screen keeps a black ground and white chrome instead of taking the
+ * surface/ink tokens: a lightbox is a neutral viewing booth. The photo IS the
+ * content, and judging a tank photo's colour against a tinted surface — or a
+ * light one in the day theme — misreads the water. So the chrome here is
+ * deliberately theme-independent; the tokens still govern everything else.
  */
 
 import {
@@ -21,6 +27,7 @@ import {
 import { useState, useCallback, useRef, useEffect, useMemo, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { IconButton } from '@/components/ui';
 import { useMessages } from '@/hooks/useMessages';
 import type { Message, MessageAttachment } from '@/types/messaging';
 import { getUserDisplayName, isSafeUrl } from '@/utils/messaging-helpers';
@@ -326,33 +333,34 @@ export function MediaViewerPage(): JSX.Element {
     <div className="fixed inset-0 z-50 bg-black flex flex-col">
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-3 pt-safe-top bg-black/60 backdrop-blur-sm z-10">
-        <button
-          onClick={handleClose}
-          className="w-12 h-12 flex items-center justify-center rounded-full hover:bg-white/10 touch-feedback"
-          aria-label="Close"
-        >
+        {/* IconButton carries the 48px target, the touch affordance and the
+            focus ring, so the hand-rolled w-12/h-12 pair goes away. */}
+        <IconButton size="lg" onClick={handleClose} className="hover:bg-white/10" aria-label="Close">
           <X size={24} className="text-white" />
-        </button>
+        </IconButton>
 
         {currentMedia && (
           <div className="flex-1 text-center min-w-0 px-2">
-            <p className="text-sm font-medium text-white truncate">
+            <p className="text-body font-medium text-white truncate">
               {currentMedia.senderName}
             </p>
-            <p className="text-[11px] text-white/75">
+            {/* text-meta is 12px, the sunlight floor — it replaces an 11px
+                arbitrary size, so it LOWERS the tiny-text ratchet. */}
+            <p className="text-meta text-white/75">
               {formatMediaDate(currentMedia.sentAt)}
             </p>
           </div>
         )}
 
-        <button
+        <IconButton
+          size="lg"
           onClick={handleDownload}
           disabled={!currentMedia}
-          className="w-12 h-12 flex items-center justify-center rounded-full hover:bg-white/10 touch-feedback disabled:opacity-30"
+          className="hover:bg-white/10"
           aria-label="Download"
         >
           <Download size={22} className="text-white" />
-        </button>
+        </IconButton>
       </div>
 
       {/* Main content */}
@@ -376,17 +384,20 @@ export function MediaViewerPage(): JSX.Element {
         {loading ? (
           <div className="flex flex-col items-center gap-3">
             <div className="animate-spin rounded-full h-10 w-10 border-2 border-white border-t-transparent" />
-            <p className="text-sm text-white/75">Loading media...</p>
+            <p className="text-body text-white/75">Loading media...</p>
           </div>
         ) : error ? (
-          <div className="flex flex-col items-center gap-3 px-6 text-center">
+          // A load failure is announced; "no media here" is not. The kit's
+          // EmptyState is skipped on this screen only because its ink tokens
+          // would render dark-on-black in the day theme.
+          <div className="flex flex-col items-center gap-3 px-6 text-center" role="alert">
             <AlertCircle size={40} className="text-white/75" />
-            <p className="text-sm text-white/75">{error}</p>
+            <p className="text-body text-white/75">{error}</p>
           </div>
         ) : !currentMedia ? (
           <div className="flex flex-col items-center gap-3 px-6 text-center">
             <AlertCircle size={40} className="text-white/75" />
-            <p className="text-sm text-white/75">Media not found</p>
+            <p className="text-body text-white/75">Media not found</p>
           </div>
         ) : currentMedia.type === 'IMAGE' && safeMediaUrl ? (
           <img
@@ -404,18 +415,22 @@ export function MediaViewerPage(): JSX.Element {
           />
         ) : currentMedia.type === 'PDF' ? (
           <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-8 flex flex-col items-center gap-4 max-w-xs w-full mx-6">
-            <div className="w-20 h-20 bg-red-500/20 rounded-2xl flex items-center justify-center">
-              <FileText size={40} className="text-red-400" />
+            {/* WHY the PDF tile is no longer red: in v4 coral means ALARM, and
+                nothing else may borrow it — a red document icon spends the one
+                colour the app uses to say "something is wrong" on a file type.
+                The kind is already stated in words underneath. */}
+            <div className="w-20 h-20 bg-white/10 rounded-2xl flex items-center justify-center">
+              <FileText size={40} className="text-white/75" />
             </div>
             <div className="text-center">
-              <p className="text-sm font-semibold text-white truncate max-w-[200px]">
+              <p className="text-body font-semibold text-white truncate max-w-[200px]">
                 {currentMedia.fileName}
               </p>
-              <p className="text-xs text-white/75 mt-1">PDF Document</p>
+              <p className="text-meta text-white/75 mt-1">PDF Document</p>
             </div>
             <button
               onClick={handleDownload}
-              className="w-full py-3 bg-white/20 hover:bg-white/30 text-white font-semibold rounded-xl touch-feedback transition-all flex items-center justify-center gap-2 text-sm"
+              className="w-full py-3 min-h-touch bg-white/20 hover:bg-white/30 text-white font-semibold rounded-xl touch-feedback transition-all flex items-center justify-center gap-2 text-body"
             >
               <Download size={18} />
               Download
@@ -423,17 +438,17 @@ export function MediaViewerPage(): JSX.Element {
           </div>
         ) : (
           <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-8 flex flex-col items-center gap-4 max-w-xs w-full mx-6">
-            <div className="w-20 h-20 bg-gray-500/20 rounded-2xl flex items-center justify-center">
-              <FileText size={40} className="text-gray-400" />
+            <div className="w-20 h-20 bg-white/10 rounded-2xl flex items-center justify-center">
+              <FileText size={40} className="text-white/75" />
             </div>
             <div className="text-center">
-              <p className="text-sm font-semibold text-white truncate max-w-[200px]">
+              <p className="text-body font-semibold text-white truncate max-w-[200px]">
                 {currentMedia.fileName}
               </p>
             </div>
             <button
               onClick={handleDownload}
-              className="w-full py-3 bg-white/20 hover:bg-white/30 text-white font-semibold rounded-xl touch-feedback transition-all flex items-center justify-center gap-2 text-sm"
+              className="w-full py-3 min-h-touch bg-white/20 hover:bg-white/30 text-white font-semibold rounded-xl touch-feedback transition-all flex items-center justify-center gap-2 text-body"
             >
               <Download size={18} />
               Download
@@ -446,22 +461,24 @@ export function MediaViewerPage(): JSX.Element {
       {media.length > 1 && (
         <>
           {activeIndex > 0 && (
-            <button
+            <IconButton
+              size="lg"
               onClick={handlePrev}
-              className="absolute left-2 top-1/2 -translate-y-1/2 w-12 h-12 flex items-center justify-center rounded-full bg-black/30 hover:bg-black/50 touch-feedback transition-all z-10"
+              className="absolute left-2 top-1/2 -translate-y-1/2 bg-black/30 hover:bg-black/50 transition-all z-10"
               aria-label="Previous"
             >
               <ChevronLeft size={24} className="text-white" />
-            </button>
+            </IconButton>
           )}
           {activeIndex < media.length - 1 && (
-            <button
+            <IconButton
+              size="lg"
               onClick={handleNext}
-              className="absolute right-2 top-1/2 -translate-y-1/2 w-12 h-12 flex items-center justify-center rounded-full bg-black/30 hover:bg-black/50 touch-feedback transition-all z-10"
+              className="absolute right-2 top-1/2 -translate-y-1/2 bg-black/30 hover:bg-black/50 transition-all z-10"
               aria-label="Next"
             >
               <ChevronRight size={24} className="text-white" />
-            </button>
+            </IconButton>
           )}
         </>
       )}
@@ -485,7 +502,7 @@ export function MediaViewerPage(): JSX.Element {
       {/* Counter for many items */}
       {media.length > 20 && (
         <div className="flex items-center justify-center py-4 pb-safe bg-black/40">
-          <span className="text-xs text-white/75 font-medium">
+          <span className="text-meta text-white/75 font-medium tabular-nums">
             {activeIndex + 1} / {media.length}
           </span>
         </div>

@@ -447,6 +447,10 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("triage_decisions", "triage/decisions.jsonl", "ledger", "triage", "runtime", True, "append_fsync", True),
     StateSurface("impact_graphs", "impact/impact-graphs.jsonl", "ledger", "impact", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
     StateSurface("impact_plans", "impact/impact-plans.jsonl", "ledger", "impact", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
+    # Wave 3 Twin-lite — the repository map (twin.py). DERIVED data: every
+    # byte recomputable from the repo at indexed_sha, hence index-class and
+    # write_driving=False; it informs reads, it never authorises an action.
+    StateSurface("twin_map", "twin/map.json", "index", "impact", "runtime", True, "rewrite_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("executor_registry", "executor/registry.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("executor_packets", "executor/packets.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("executor_diff_reviews", "executor/diff-reviews.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),

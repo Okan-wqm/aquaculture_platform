@@ -8010,3 +8010,15 @@ The same shape holds for `platform/libs/outbox` (43 tests), `platform/libs/event
 **NOT done, stated rather than absorbed:** the 18 aquamobil specs still do not run; wiring them needs the PWA's test-runner story settled. `farm-service` is quarantined out of the affected lane's `test` target with a boilerplate reason and no expiry — that quarantine deserves its own review.
 
 **Owner:** claude (this session). **Status:** RESOLVED for the mechanism and four libraries; the allowlist is the tracked remainder.
+
+## ORPHAN-HIGH-582 — eight of the ten CI gate test-suites were never invoked by CI — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, following the ORPHAN-CRITICAL-579 thread one link further. The invariant written for 579 declared that `tools/gates/*.spec.ts` was covered by "the `gates:*:test` npm scripts". That declaration was itself untrue, which is the same defect one level up.
+
+`tools/gates/` holds ten spec files. Six had an npm script. **Two** were invoked by a workflow (`closes-footer-check.yml` named `gates:commit-msg:test` and `gates:finding-registry:test`). The other eight — including `banned-construct`, which enforces the `as any` / `as unknown as` prohibition, and `migration-sql-lint` — ran nowhere. The pattern is the naming: a per-spec script must be remembered twice, once in `package.json` and once in the workflow, and the second one is what got forgotten.
+
+Ran all ten by hand before wiring them: **all pass** (37+19+11+6+6+5+3 and three more, ~50s wall clock dominated by `plan-coverage-witness` at 31s). So this was latent coverage, not hidden breakage — but it was coverage nobody could rely on.
+
+**Fix:** a single `gates:test` script that globs the directory, invoked by the workflow in place of the two by-name calls. A gate spec written tomorrow is covered the moment the file exists. The invariant now asserts both that the glob script exists and that a workflow invokes it — proven by deliberate break: pointing the workflow back at one by-name script turns it red.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

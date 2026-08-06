@@ -51,8 +51,9 @@ const DECLARED_NON_NX_RUNNERS: ReadonlyArray<{
     owns: (p) => /^tools\/(supervisor|watchdog)\/[^/]+\.spec\.(ts|mjs)$/.test(p),
   },
   {
-    // package.json `gates:*:test`, invoked by .github/workflows/closes-footer-check.yml
-    script: 'gates:*:test',
+    // package.json `gates:test` (globs the directory), invoked by
+    // .github/workflows/closes-footer-check.yml
+    script: 'gates:test',
     owns: (p) => /^tools\/gates\/[^/]+\.spec\.ts$/.test(p),
   },
   {
@@ -178,5 +179,13 @@ describe('every spec has a runner', () => {
     expect(readFileSync(join(repoRoot, '.github/workflows/quality-gates.yml'), 'utf8')).toContain(
       'npm run tools:test',
     );
+
+    // `gates:test` globs tools/gates, which is what lets the runner entry
+    // above claim the whole directory. Naming specs one at a time is how
+    // eight of the ten came to have no CI invocation at all.
+    expect(pkg.scripts['gates:test']).toContain('tools/gates/*.spec.ts');
+    expect(
+      readFileSync(join(repoRoot, '.github/workflows/closes-footer-check.yml'), 'utf8'),
+    ).toContain('npm run gates:test');
   });
 });

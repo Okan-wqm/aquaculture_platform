@@ -33349,6 +33349,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-06-project-graph-blind-spot.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -56484,10 +56490,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9263,
+  "file_count": 9264,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9082,
-  "managed_file_list_sha256": "c88af1fabb8e0c99fbda00f48626a468d4a498f39ea4aec1257cdcdcadab64c9",
+  "managed_count": 9083,
+  "managed_file_list_sha256": "60ba43eca708787ae20bb85e45e6399bc6c5366d5c751850df66bf8de66fcb84",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

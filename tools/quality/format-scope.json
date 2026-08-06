@@ -42822,6 +42822,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/dependabot-lockfile-coverage.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/dependency-policy-source-scope.spec.ts",
       "prettier_managed": true
     },
@@ -56580,10 +56586,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9279,
+  "file_count": 9280,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9098,
-  "managed_file_list_sha256": "e8c48b469e68405438caa1f95e719def8720f61bf923227f312d52528d3b7728",
+  "managed_count": 9099,
+  "managed_file_list_sha256": "9b4a86d69b376505386e8a05f0794c08b086cb1cdf3f031f1579fc812eb7aa70",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

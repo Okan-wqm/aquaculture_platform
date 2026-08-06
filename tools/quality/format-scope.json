@@ -43542,6 +43542,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/sarif-upload-permissions.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/scada-storage-tenant-context.spec.ts",
       "prettier_managed": true
     },
@@ -56580,10 +56586,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9279,
+  "file_count": 9280,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9098,
-  "managed_file_list_sha256": "e8c48b469e68405438caa1f95e719def8720f61bf923227f312d52528d3b7728",
+  "managed_count": 9099,
+  "managed_file_list_sha256": "070d5feb2d751c1d373c44b24c29c82a34ddf9b68f6631e48543ade56e2abf19",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

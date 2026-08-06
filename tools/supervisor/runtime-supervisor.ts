@@ -40,8 +40,8 @@
  * something CRITICAL is unresolved after intervention.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 interface SupervisorState {
   /** container name -> restart attempt timestamps (ms), pruned to the window */
@@ -96,7 +96,9 @@ function readState(): SupervisorState {
 function writeState(state: SupervisorState): void {
   mkdirSync(dirname(STATE_PATH), { recursive: true });
   const tmp = `${STATE_PATH}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  // Single-line JSON throughout: this process writes to journald, and a
+  // pretty-printed envelope arrives there as N unrelated log lines.
+  writeFileSync(tmp, `${JSON.stringify(state)}\n`, { encoding: 'utf8', mode: 0o600 });
   renameSync(tmp, STATE_PATH);
 }
 
@@ -285,7 +287,7 @@ function main(): number {
     disk_used_percent: disk,
     swap_used_percent: swap,
   };
-  process.stdout.write(`${JSON.stringify(envelope, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify(envelope)}\n`);
 
   return problems.some((p) => p.severity === 'critical') ? 3 : 0;
 }

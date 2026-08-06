@@ -78,7 +78,7 @@ function freshStatePath(): string {
   return join(mkdtempSync(join(tmpdir(), 'sup-state-')), 'state.json');
 }
 
-test('revives a container Docker itself says should be running', () => {
+void test('revives a container Docker itself says should be running', () => {
   const { envelope } = runWithFakeDocker({
     statePath: freshStatePath(),
     inspectOutput: [
@@ -92,7 +92,7 @@ test('revives a container Docker itself says should be running', () => {
   assert.equal(envelope.actions[0]?.action, 'restarted');
 });
 
-test('leaves a finished one-shot job alone', () => {
+void test('leaves a finished one-shot job alone', () => {
   // db-migrate exits 0 with restart:no once its work is done, and the
   // walg integration containers are killed on purpose. Neither is a
   // casualty; treating them as one would restart a migration runner every
@@ -112,7 +112,7 @@ test('leaves a finished one-shot job alone', () => {
   assert.notEqual(exitCode, 1);
 });
 
-test('stops restarting after the cap and asks for a human', () => {
+void test('stops restarting after the cap and asks for a human', () => {
   const statePath = freshStatePath();
   const down = '/aqua-crashloop\tfalse\t1\talways\t2026-08-06T05:00:00Z';
 
@@ -131,7 +131,7 @@ test('stops restarting after the cap and asks for a human', () => {
   assert.equal(fourth.exitCode, 3);
 });
 
-test('reports a failed restart instead of swallowing it', () => {
+void test('reports a failed restart instead of swallowing it', () => {
   const { envelope, exitCode } = runWithFakeDocker({
     statePath: freshStatePath(),
     startFails: true,
@@ -143,7 +143,7 @@ test('reports a failed restart instead of swallowing it', () => {
   assert.equal(exitCode, 3);
 });
 
-test('remembers restarts across passes so the cap is real', () => {
+void test('remembers restarts across passes so the cap is real', () => {
   const statePath = freshStatePath();
   runWithFakeDocker({
     statePath,

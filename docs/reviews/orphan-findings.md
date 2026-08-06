@@ -8452,3 +8452,30 @@ The common root is not carelessness in five files. It is that `data` is **readab
 **The gate was wrong twice before it was right, and that is worth recording.** Its first baseline was a guess of 24 against a real count of 5 — nineteen slots of slack. The deliberate-break check (remove `isError` from `useWarehouseSummary`, expect red) stayed **green** through two baseline revisions before the count was measured with the spec's own logic rather than a lookalike script. A ratchet with slack is not a ratchet; it is a comment that runs. Every ratchet in this repo should be set from a measurement taken by the gate itself, and proven by breaking the thing it guards.
 
 **Owner:** claude (this session). **Status:** RESOLVED — mechanism landed and proven. Migrating the 5 remaining hooks and the existing screens onto `Loadable`/`DataState` is incremental work the ratchet now drives.
+
+## ORPHAN-MEDIUM-596 — Konsta UI removed; the v4 migration bridge is gone and its three ratchets are now bans — RESOLVED (this PR)
+
+**Discovered:** planned work, closing the v4 conversion.
+
+Konsta wrapped the entire app (`KonstaApp` in `main.tsx`) and the entire Tailwind theme (`konstaConfig()` in `tailwind.config.js`), injecting its own `ios-`/`md-` colour classes and a second dark-mode mechanism through the `List`/`ListInput`/`BlockTitle` components in seven pages. **80% of the app's remaining pre-v4 classes sat in exactly those pages** — which is why they could not be converted earlier, and why removing Konsta and finishing the conversion was one job rather than two.
+
+Both are done. Every page is off Konsta, the root wrapper and the Tailwind preset are gone, and the hand-rolled konsta patch in `Dockerfile.aquamobil` (needed because `npm ci --ignore-scripts` skipped its postinstall) can follow.
+
+**The migration bridge is deleted.** `darkMode: 'class'` and the `ocean`/`sea`/`coral`/`mortality`/`cull`/`harvest` palettes existed only so unconverted pages would keep painting correctly. With nothing using them, they are removed from `tailwind.config.js`.
+
+**Three ratchets promoted to outright bans** — Tier 3 becomes Tier 1:
+
+| Gate                  | Start |                  Now |
+| --------------------- | ----: | -------------------: |
+| `dark:` variants      |  1312 |           **banned** |
+| legacy brand palettes |   332 |           **banned** |
+| stock gray ramps      |  1481 |           **banned** |
+| sub-12px text         |    86 | **banned** (earlier) |
+
+All four proven by deliberate break: one line reintroducing a `dark:` and an `ocean-*` class turns three red at once, and reverting turns them green. Nothing in this app can now paint itself outside the token system.
+
+**A seventh instance of the failed-fetch defect was found and fixed during this work** — `useTodaysDayPlans` destroyed its error arm, so the feeding page rendered "no plans today" on an outage. Fixed at the hook, the same layer as ORPHAN-MEDIUM-592. Notably the page deliberately does NOT route through `<DataState>`: FE-MEDIUM-054 requires the last-synced plan to render _while_ the query is failing, which is the exception `loadable.ts` documents in its own header. The error arm is split by hand and rendered with the same components `DataState` uses, so the two states still cannot be confused.
+
+**Also worth recording:** the build got faster without Konsta — 18.4s to 12.6s.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).

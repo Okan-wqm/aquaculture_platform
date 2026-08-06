@@ -87,11 +87,13 @@ function resolveTheme(pref: ThemePreference): ResolvedTheme {
  * The ONLY place the theme touches the DOM. Both this module and the
  * index.html anti-FOUC script must apply the same three effects.
  *
- * WHY `.dark` is toggled alongside `data-theme`: Konsta UI's own components and
- * every page not yet migrated to the token layer still style themselves with
- * Tailwind `dark:` variants. Dropping the class now would leave those surfaces
- * painted for the wrong theme. The bridge disappears once the `dark:` ratchet in
- * src/__tests__/design-token.invariant.spec.ts reaches zero.
+ * WHY `.dark` is still toggled alongside `data-theme`: it was a migration
+ * bridge for Konsta and the unconverted pages. Both are now gone — Konsta was
+ * removed and every page is on the tokens — so the class no longer drives
+ * anything in this app. It is kept only because the service worker may still
+ * be serving a previously cached bundle to a device that has not updated; a
+ * stale chunk that reads `.dark` must not paint itself for the wrong theme.
+ * Drop it once the SW rollout window has passed.
  */
 function applyTheme(theme: ResolvedTheme): void {
   const root = document.documentElement;

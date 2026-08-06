@@ -13,7 +13,6 @@
  * (ADR-028 lib-creation rubric).
  */
 import { clsx } from 'clsx';
-import { List, ListInput, BlockTitle } from 'konsta/react';
 import { ArrowLeft, AlertCircle, Minus, Plus, type LucideIcon } from 'lucide-react';
 import type { JSX } from 'react';
 import {
@@ -22,15 +21,17 @@ import {
   type ReactNode,
   type SetStateAction,
   useEffect,
+  useId,
   useState,
 } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
-import { Button, Card, CardDivider, IconButton } from '@/components/ui';
+import { Button, Card, CardDivider, DataState, EmptyState, IconButton } from '@/components/ui';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTanks } from '@/hooks/useTanks';
 import type { OperationPayload, OperationType } from '@/types';
+import { toLoadable } from '@/utils/loadable';
 
 /* ---------------------------------------------------------------- */
 /*  Theme                                                            */
@@ -71,6 +72,27 @@ export interface RecordEntityTheme {
   selectionBorder: string;
   selectionGlow: string;
 }
+
+/* ---------------------------------------------------------------- */
+/*  Field surface                                                    */
+/* ---------------------------------------------------------------- */
+
+/**
+ * The caption above a control, and the control itself.
+ *
+ * WHY two exported constants rather than a class string written per field:
+ * these replace Konsta's <List>/<ListInput>, which used to own the look of
+ * every input in the record family (cull, mortality, harvest, lice, escape,
+ * welfare). Konsta also injected its own `ios-`/`md-` colour classes and its
+ * own dark-mode handling, which is precisely why these pages could not adopt
+ * the v4 tokens. Dropping it without a shared string would scatter the same
+ * nine-class incantation across six pages and let it drift a little in each —
+ * the pre-v4 mistake <Card> exists to end. One import now owns the field
+ * surface, its 44px gloved-use floor and its focus ring.
+ */
+export const FIELD_LABEL_CLASS = 'block text-body font-semibold text-ink-1 mb-2';
+export const FIELD_CONTROL_CLASS =
+  'w-full min-h-touch px-4 py-3 rounded-xl border border-line bg-surface-1 text-ink-1 text-body focus:outline-none focus:ring-2 focus:ring-acc';
 
 /* ---------------------------------------------------------------- */
 /*  Shared form-error shape                                          */
@@ -199,7 +221,13 @@ export function RecordEntityPage<
 
   const navigate = useNavigate();
   const { tankId } = useParams<{ tankId?: string }>();
-  const { data: tanks } = useTanks();
+  const tanksQuery = useTanks();
+  const tanks = tanksQuery.data;
+  // The tank selector picks WHICH batch the entry is written against, so a
+  // failed unit fetch rendering an empty picker says "you have no stocked
+  // tanks" when the truth is "we could not read them" — the defect this app
+  // has now been bitten by six times. Loadable keeps the two apart.
+  const tanksView = toLoadable(tanksQuery);
   const { addToQueue, isOnline } = useOfflineQueue();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -400,44 +428,72 @@ export function RecordEntityPage<
           with their real id so the user understands the tank exists but is
           not selectable. */}
       {!tankId && (
-        <>
-          <BlockTitle>Select Tank</BlockTitle>
-          <List strongIos insetIos>
-            <ListInput
-              type="select"
-              value={selectedTankId}
-              onChange={handleTankChange}
-              error={errors.tank}
-            >
-              <option value="">-- Select Tank --</option>
-              {tanks
-                ?.filter((t) => t.batchMetrics)
-                .map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
-                  </option>
-                ))}
-              {tanks
-                ?.filter((t) => !t.batchMetrics)
-                .map((t) => (
-                  <option key={t.id} value={t.id} disabled>
-                    {t.name} (No active batch)
-                  </option>
-                ))}
-            </ListInput>
-          </List>
-          {errors.tank && <p className="text-crit text-body px-4 -mt-2">{errors.tank}</p>}
-          {tanks && tanks.length > 0 && tanks.every((t) => !t.batchMetrics) && (
-            <Card className="mx-4 mt-2 p-3 border-warn">
-              <p className="text-warn text-body font-medium">
-                All tanks currently have no active batches.
-              </p>
-              <p className="text-ink-2 text-meta mt-1">
-                Stock fish into a tank before recording {tankEmptyActionWord}.
-              </p>
-            </Card>
-          )}
-        </>
+        <div className="px-4 mt-5">
+          <DataState
+            value={tanksView}
+            label="your units"
+            skeleton="row"
+            skeletonCount={1}
+            empty={
+              <EmptyState
+                title="No units"
+                description="No units are assigned to this tenant yet, so there is nothing to record against."
+              />
+            }
+          >
+            {(units) => (
+              <>
+                {/* WHY a wrapping <label> where Konsta had a <BlockTitle> above
+                    a <ListInput>: the block title was a heading with no
+                    association to the control under it, so the combobox was
+                    announced unlabelled. Wrapping IS the association, and it
+                    cannot come apart the way a heading and a control two
+                    elements away can. */}
+                <label className="block">
+                  <span className={FIELD_LABEL_CLASS}>Select Tank</span>
+                  <select
+                    value={selectedTankId}
+                    onChange={handleTankChange}
+                    aria-invalid={errors.tank ? true : undefined}
+                    aria-describedby={errors.tank ? 'record-entity-tank-error' : undefined}
+                    className={FIELD_CONTROL_CLASS}
+                  >
+                    <option value="">-- Select Tank --</option>
+                    {units
+                      .filter((t) => t.batchMetrics)
+                      .map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
+                        </option>
+                      ))}
+                    {units
+                      .filter((t) => !t.batchMetrics)
+                      .map((t) => (
+                        <option key={t.id} value={t.id} disabled>
+                          {t.name} (No active batch)
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                {errors.tank && (
+                  <p id="record-entity-tank-error" className="text-crit text-body mt-2">
+                    {errors.tank}
+                  </p>
+                )}
+                {units.length > 0 && units.every((t) => !t.batchMetrics) && (
+                  <Card className="mt-3 p-3 border-warn">
+                    <p className="text-warn text-body font-medium">
+                      All tanks currently have no active batches.
+                    </p>
+                    <p className="text-ink-2 text-meta mt-1">
+                      Stock fish into a tank before recording {tankEmptyActionWord}.
+                    </p>
+                  </Card>
+                )}
+              </>
+            )}
+          </DataState>
+        </div>
       )}
 
       {/* Page-specific body (stepper/reason/notes/harvest fields) */}
@@ -525,12 +581,16 @@ export function QuantityStepper(props: {
       <h3 className="text-meta font-bold text-ink-3 uppercase tracking-wider mb-3">{label}</h3>
       <Card className="p-5">
         <div className="flex items-center justify-center gap-5">
+          {/* The two arrows were icon-only buttons with no accessible name —
+              a screen reader announced "button, button" either side of a
+              number. The label the section already carries names them. */}
           <button
             type="button"
+            aria-label={`Decrease ${label}`}
             onClick={() => onChange(clamp(value - 1))}
             disabled={value <= 1}
             className={clsx(
-              'w-14 h-14 rounded-2xl flex items-center justify-center disabled:opacity-30 touch-feedback border',
+              'w-14 h-14 min-h-touch min-w-touch rounded-2xl flex items-center justify-center disabled:opacity-30 touch-feedback border',
               theme.surfaceSoftBg,
               theme.surfaceBorder,
             )}
@@ -542,10 +602,11 @@ export function QuantityStepper(props: {
           </div>
           <button
             type="button"
+            aria-label={`Increase ${label}`}
             onClick={() => onChange(clamp(value + 1))}
             disabled={value >= max}
             className={clsx(
-              'w-14 h-14 rounded-2xl flex items-center justify-center disabled:opacity-30 touch-feedback border',
+              'w-14 h-14 min-h-touch min-w-touch rounded-2xl flex items-center justify-center disabled:opacity-30 touch-feedback border',
               theme.surfaceSoftBg,
               theme.surfaceBorder,
             )}
@@ -612,11 +673,15 @@ export function ReasonGrid<TValue extends string>(props: {
 }
 
 /**
- * Numeric field (decimal-capable) — konsta-styled, used by the regulatory
- * field-capture pages (FARM-HIGH-214): lice-stage averages are decimals
- * (e.g. 0.15 adult females per fish), which the integer QuantityStepper
- * cannot express. Empty input surfaces as null so "not entered" is
- * distinguishable from 0 (a real, meaningful lice count).
+ * Numeric field (decimal-capable) — used by the regulatory field-capture pages
+ * (FARM-HIGH-214): lice-stage averages are decimals (e.g. 0.15 adult females
+ * per fish), which the integer QuantityStepper cannot express. Empty input
+ * surfaces as null so "not entered" is distinguishable from 0 (a real,
+ * meaningful lice count).
+ *
+ * v4: a native input on the token surface. The `error` text is now rendered
+ * here — Konsta's <ListInput error> used to draw it, so dropping Konsta without
+ * this would have silently swallowed every validation message on these fields.
  */
 export function NumberField(props: {
   label: string;
@@ -628,32 +693,49 @@ export function NumberField(props: {
   error?: string;
 }): JSX.Element {
   const { label, value, onChange, placeholder = '0', step = '0.01', min = 0, error } = props;
+  // Several of these stack on one page (three lice stages), so the error's id
+  // has to be per-instance or aria-describedby would point at a sibling's text.
+  const errorId = useId();
   return (
-    <List strongIos insetIos>
-      <ListInput
-        label={label}
-        type="number"
-        inputMode="decimal"
-        step={step}
-        min={min}
-        placeholder={placeholder}
-        value={value ?? ''}
-        error={error}
-        onInput={(e: ChangeEvent<HTMLInputElement>) => {
-          const raw = e.target.value;
-          if (raw === '') {
-            onChange(null);
-            return;
-          }
-          const parsed = Number(raw);
-          onChange(Number.isFinite(parsed) ? parsed : null);
-        }}
-      />
-    </List>
+    <div className="px-4 mt-3">
+      <label className="block">
+        <span className={FIELD_LABEL_CLASS}>{label}</span>
+        <input
+          type="number"
+          inputMode="decimal"
+          step={step}
+          min={min}
+          placeholder={placeholder}
+          value={value ?? ''}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
+          className={FIELD_CONTROL_CLASS}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => {
+            const raw = e.target.value;
+            if (raw === '') {
+              onChange(null);
+              return;
+            }
+            const parsed = Number(raw);
+            onChange(Number.isFinite(parsed) ? parsed : null);
+          }}
+        />
+      </label>
+      {error && (
+        <p id={errorId} className="text-crit text-body mt-2">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 
-/** Notes textarea — konsta-styled, used by cull + mortality. */
+/**
+ * Notes textarea — used by cull + mortality + the regulatory pages.
+ *
+ * The Konsta block title that sat above it was a heading pointing at nothing;
+ * it is now the textarea's own caption, so the control is named.
+ */
 export function NotesInput(props: {
   value: string;
   onChange: (next: string) => void;
@@ -661,18 +743,17 @@ export function NotesInput(props: {
 }): JSX.Element {
   const { value, onChange, placeholder = 'Additional observations...' } = props;
   return (
-    <>
-      <BlockTitle>Notes (Optional)</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
-          type="textarea"
+    <div className="px-4 mt-5">
+      <label className="block">
+        <span className={FIELD_LABEL_CLASS}>Notes (Optional)</span>
+        <textarea
           placeholder={placeholder}
           value={value}
-          onInput={(e: ChangeEvent<HTMLTextAreaElement>) => onChange(e.target.value)}
-          inputClassName="!h-24"
+          onChange={(e: ChangeEvent<HTMLTextAreaElement>) => onChange(e.target.value)}
+          className={clsx(FIELD_CONTROL_CLASS, 'h-24 resize-none')}
         />
-      </List>
-    </>
+      </label>
+    </div>
   );
 }
 

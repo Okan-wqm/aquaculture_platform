@@ -1,5 +1,4 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { App as KonstaApp } from 'konsta/react';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
@@ -74,14 +73,6 @@ const updateSW = registerSW({
   },
 });
 
-// Detect iOS for Konsta theme
-// SEC-08: Use navigator.maxTouchPoints instead of the deprecated navigator.platform.
-// The maxTouchPoints check handles iPadOS 13+ which reports a Mac-like userAgent.
-const isIOS =
-  typeof navigator !== 'undefined' &&
-  (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent)));
-
 // FE-HIGH-056: explicit null check for the mount node instead of a forbidden
 // non-null assertion. A missing #root is a deploy-shell error, not a runtime
 // condition to hide — throw a clear message so it surfaces immediately.
@@ -108,9 +99,7 @@ ReactDOM.createRoot(rootElement).render(
             <AuthProvider>
               <IdentityBoundary>
                 <OfflineProvider>
-                  <KonstaApp theme={isIOS ? 'ios' : 'material'} safeAreas>
-                    <App />
-                  </KonstaApp>
+                  <App />
                 </OfflineProvider>
               </IdentityBoundary>
             </AuthProvider>

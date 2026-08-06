@@ -9,12 +9,18 @@
  * FE-MEDIUM-054 davranışı korunur: son eşitlenen plan şifreli tenant-scoped
  * cache'e yazılır ve çevrimdışı açılışta dürüst bir bantla gösterilir.
  * Enum alanları tel üzerinde AD taşır ('SCHEDULED', 'FED', ...).
+ *
+ * v4 dönüşümü: Konsta (List/ListInput/BlockTitle) kaldırıldı VE renkler
+ * semantik token'lara taşındı (src/styles/tokens.css). İkisi tek geçiştir:
+ * Konsta kendi `ios-`/`md-` renk sınıflarını ve kendi karanlık-tema
+ * varyantlarını enjekte ettiği için, bileşenler yerli <select>/<textarea>'ya
+ * inmeden sayfa tema doğruluğunu kazanamıyordu. Öğün durum renkleri SÜS DEĞİL ANLAMDIR —
+ * eşleme MEAL_BADGE üzerinde belgelidir. Alan mantığı (sorgu, kuyruk,
+ * doğrulama, adım akışı, gezinme hedefleri) bilerek DOKUNULMADI.
  */
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { List, ListInput, BlockTitle } from 'konsta/react';
 import {
-  ArrowLeft,
   Package,
   CheckCircle,
   AlertCircle,
@@ -22,10 +28,13 @@ import {
   Settings,
   Radio,
   Thermometer,
+  WifiOff,
 } from 'lucide-react';
 import { useState, useEffect, ChangeEvent, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { AppHeader } from '@/components/AppHeader';
+import { Button, Card, EmptyState } from '@/components/ui';
 import { GET_FEEDING_DAY_PLANS } from '@/graphql/operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -93,14 +102,32 @@ const FEEDING_METHODS: {
   { value: 'demand', labelKey: 'feeding.method.demand', Icon: Radio },
 ];
 
+/**
+ * Öğün durumunun rengi ANLAMDIR — bir işçi rozetin tonundan öğünün akıbetini
+ * okur, metni okumadan önce. v4 token eşlemesi ve GEREKÇESİ:
+ *
+ *   FED           → ok    yemleme tamamlandı, teyit rengi.
+ *   MISSED        → crit  ALARM: öğün geçti ve balık yemlenmedi; müdahale ister.
+ *   SKIPPED       → warn  operatörün BİLEREK verdiği karar (hava, sağlık, hasat
+ *                         öncesi perhiz). Kasıtlı bir seçim alarm değildir —
+ *                         crit yapmak MISSED ile aynı aciliyeti iddia ederdi.
+ *   PARTIALLY_FED → acc   arada: ne bitti ne kaçtı. Teal bu ekranda "sürüyor /
+ *                         aktif" halidir ve WARN'a bitişik durmadığı için
+ *                         SKIPPED ile karışmaz.
+ *   SCHEDULED     → nötr  henüz bir olay yok; renk iddia etmez.
+ *   CANCELLED     → sessiz nötr; plandan düşmüştür, dikkat çekmemelidir.
+ */
 const MEAL_BADGE: Record<MealStatus, string> = {
-  SCHEDULED: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
-  FED: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-  PARTIALLY_FED: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-  SKIPPED: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
-  MISSED: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
-  CANCELLED: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-500',
+  SCHEDULED: 'bg-surface-2 text-ink-2',
+  FED: 'bg-surface-2 text-ok',
+  PARTIALLY_FED: 'bg-acc-dim text-acc',
+  SKIPPED: 'bg-warn-dim text-warn',
+  MISSED: 'bg-crit-dim text-crit',
+  CANCELLED: 'bg-surface-2 text-ink-3',
 };
+
+/** Bölüm başlığı — v4'te BlockTitle'ın yerini alan tek tipografi. */
+const SECTION_HEADING = 'text-body font-semibold text-ink-3 px-1';
 
 /** Döküm alınabilen öğünler (D-8): planlı veya yarım kalmış. */
 function isMealOpen(meal: DayPlanMeal): boolean {
@@ -124,7 +151,15 @@ const DAY_PLANS_CACHE_TTL_MS = 1000 * 60 * 60 * 12; // 12h
 function useTodaysDayPlans(): {
   plans: FeedingDayPlanSlice[];
   isLoading: boolean;
+  /**
+   * Sorgu düştü mü. Hata kolu DIŞARI VERİLİR: yutulursa ekran "bugün plan yok"
+   * ile "planı okuyamadım"ı ayırt edemez ve outage otoriter bir iddiaya
+   * dönüşür — bu uygulamada altı kez bulunmuş kusurun ta kendisi
+   * (src/utils/loadable.ts).
+   */
+  isError: boolean;
   isOfflineCached: boolean;
+  retry: () => void;
 } {
   const { accessToken, tenantId, isAuthenticated } = useAuth();
 
@@ -150,7 +185,7 @@ function useTodaysDayPlans(): {
     };
   }, [tenantId, cacheKey]);
 
-  const { data, isLoading, isSuccess } = useQuery<FeedingDayPlanSlice[]>({
+  const { data, isLoading, isSuccess, isError, refetch } = useQuery<FeedingDayPlanSlice[]>({
     queryKey: createTenantQueryKey(tenantId, 'feedingDayPlans', tenantId, dateStr),
     queryFn: async () => {
       if (!accessToken || !tenantId) {
@@ -173,7 +208,15 @@ function useTodaysDayPlans(): {
   const plans = isSuccess ? (data ?? []) : (cachedSeed ?? []);
   const isOfflineCached = !isSuccess && (cachedSeed?.length ?? 0) > 0;
 
-  return { plans, isLoading, isOfflineCached };
+  return {
+    plans,
+    isLoading,
+    isError,
+    isOfflineCached,
+    retry: () => {
+      void refetch();
+    },
+  };
 }
 
 // ============================================================================
@@ -190,7 +233,13 @@ export function RecordFeedingPage(): JSX.Element {
   const { t } = useI18n();
   const { tankId } = useParams<{ tankId?: string }>();
   const { addToQueue, isOnline } = useOfflineQueue();
-  const { plans, isLoading: plansLoading, isOfflineCached } = useTodaysDayPlans();
+  const {
+    plans,
+    isLoading: plansLoading,
+    isError: plansFailed,
+    isOfflineCached,
+    retry: retryPlans,
+  } = useTodaysDayPlans();
 
   const [selectedUnitId, setSelectedUnitId] = useState(tankId || '');
   const [selectedMealId, setSelectedMealId] = useState<string>('');
@@ -209,6 +258,20 @@ export function RecordFeedingPage(): JSX.Element {
   const selectedPlan = plans.find((plan) => plan.unitId === selectedUnitId);
   const meals = [...(selectedPlan?.meals ?? [])].sort((a, b) => a.mealIndex - b.mealIndex);
   const selectedMeal = meals.find((meal) => meal.id === selectedMealId);
+
+  /**
+   * Sorgu düştü VE elde önbellek yok: ekranın söyleyebileceği tek dürüst şey
+   * "planlar bilinmiyor"dur, "plan yok" DEĞİL. Bu iki cümle aynı görünürse
+   * işçi, planı olan bir üniteyi plansız sanıp yemlemeden geçer.
+   *
+   * WHY toLoadable/<DataState> değil: loadable.ts hata kolunu bayat veriden
+   * ÖNCE değerlendirir ("callers that genuinely want stale-while-error should
+   * read the query directly and say so at the callsite") — bu ekran tam olarak
+   * o çağrandır; FE-MEDIUM-054 çevrimdışı planı, sorgu düşmüşken bilerek
+   * gösterir. Bu yüzden hata kolu burada elle ayrılır ve <DataState>'in hata
+   * kolunun render ettiği bileşenin AYNISI (EmptyState tone="error") kullanılır.
+   */
+  const plansUnavailable = plansFailed && !isOfflineCached && plans.length === 0;
 
   // Öğün seçimi olay-güdümlü: seçim anında kalan plan miktarı ön-dolur
   // (kısmi dökümde kalan kadar) — effect + bağımlılık istisnası gerekmez.
@@ -269,200 +332,209 @@ export function RecordFeedingPage(): JSX.Element {
 
   if (showSuccess) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-green-50 dark:bg-green-900/10">
-        <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
-          <CheckCircle size={48} className="text-green-600" />
+      // Sayfa tonu kaldırıldı — zemin <body>'nin. Yeşil yalnız anlam taşıdığı
+      // yerde kaldı: onay işareti ve başlığı. role=status, ekran okuyucunun
+      // kaydın alındığını duyurmasını sağlar (eskiden sessiz bir ekrandı).
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex flex-col items-center justify-center min-h-screen"
+      >
+        <div className="w-20 h-20 bg-surface-2 rounded-full flex items-center justify-center mb-4">
+          <CheckCircle size={48} className="text-ok" />
         </div>
-        <h2 className="text-xl font-bold text-green-700 dark:text-green-300">
-          {t('feeding.recorded')}
-        </h2>
+        <h2 className="text-head font-bold text-ok">{t('feeding.recorded')}</h2>
         {/* Kayıt her zaman önce kuyruğa gider ve arka planda eşitlenir. */}
-        <p className="text-green-600 dark:text-green-400 text-sm mt-1">
-          {t('feeding.queuedForSync')}
-        </p>
+        <p className="text-ink-2 text-body mt-1">{t('feeding.queuedForSync')}</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-green-600 to-green-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button
-            onClick={() => navigate(-1)}
-            className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
-          >
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <Package size={22} />
-            <h1 className="text-lg font-bold">{t('feeding.title')}</h1>
-          </div>
-        </div>
-      </div>
+    <div className="min-h-screen">
+      {/* v4: yeşil gradyan bant yerine uygulamanın tek başlığı. Geri hedefi
+          değişmedi (navigate(-1)); etiketsiz ArrowLeft düğmesinin yerini
+          AppHeader'ın adlandırılmış, 44px tabanlı IconButton'ı aldı. Paket
+          simgesi kayıt türünün kendi rengini (type-feeding) taşır. */}
+      <AppHeader
+        title={t('feeding.title')}
+        onBack={() => navigate(-1)}
+        showAvatar={false}
+        actions={<Package size={20} className="text-type-feeding" aria-hidden />}
+      />
 
       {/* FE-MEDIUM-054: dürüst kaynak bandı — plan şifreli offline cache'ten
           geliyorsa işçiye söyle. */}
       {isOfflineCached && (
-        <div className="mx-4 mt-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 flex items-center gap-2 border border-amber-200 dark:border-amber-800">
-          <AlertCircle size={18} className="text-amber-500 flex-shrink-0" />
-          <span className="text-amber-700 dark:text-amber-300 text-sm">
-            {t('feeding.offlineCachedBanner')}
-          </span>
-        </div>
+        <Card className="mx-4 mt-3 p-3 flex items-center gap-2 border-warn">
+          <AlertCircle size={18} className="text-warn flex-shrink-0" />
+          <span className="text-warn text-body">{t('feeding.offlineCachedBanner')}</span>
+        </Card>
       )}
 
       {errors.general && (
-        <div className="mx-4 mt-3 bg-red-50 dark:bg-red-900/20 rounded-xl p-3 flex items-center gap-2 border border-red-200 dark:border-red-800">
-          <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
-          <span className="text-red-600 dark:text-red-300 text-sm">{errors.general}</span>
-        </div>
+        <Card role="alert" className="mx-4 mt-3 p-3 flex items-center gap-2 border-crit">
+          <AlertCircle size={18} className="text-crit flex-shrink-0" />
+          <span className="text-crit text-body">{errors.general}</span>
+        </Card>
+      )}
+
+      {/* "Okuyamadım" ile "yok" ayrı iddialardır; ayrı görünürler. */}
+      {plansUnavailable && (
+        <EmptyState
+          tone="error"
+          icon={<WifiOff size={22} />}
+          title={t('feeding.plansError')}
+          description={t('feeding.plansErrorHint')}
+          action={
+            <Button variant="primary" onClick={retryPlans}>
+              {t('common.retry')}
+            </Button>
+          }
+        />
       )}
 
       {/* Ünite seçimi — bugünün gün planları (protokol atanmış üniteler) */}
-      {!tankId && (
-        <>
-          <BlockTitle>{t('feeding.selectUnit')}</BlockTitle>
-          <List strongIos insetIos>
-            <ListInput type="select" value={selectedUnitId} onChange={handleUnitChange}>
-              <option value="">{t('feeding.selectUnitPlaceholder')}</option>
-              {plans.map((plan) => (
-                <option key={plan.unitId} value={plan.unitId}>
-                  {plan.unitName} ({plan.unitCode})
-                </option>
-              ))}
-            </ListInput>
-          </List>
+      {!tankId && !plansUnavailable && (
+        <div className="px-4 mt-4">
+          {/* Konsta BlockTitle + ListInput yerine gerçek bir <label> + yerli
+              <select>: başlık artık kontrolün erişilebilir ADI (Konsta'nın
+              ListInput'u bunu kendi içinde taşıyordu, bölüm başlığı taşımaz). */}
+          <label htmlFor="feeding-unit-select" className={clsx(SECTION_HEADING, 'block mb-2')}>
+            {t('feeding.selectUnit')}
+          </label>
+          <select
+            id="feeding-unit-select"
+            value={selectedUnitId}
+            onChange={handleUnitChange}
+            className="w-full min-h-touch px-4 py-3 rounded-xl border border-line bg-surface-1 text-ink-1 text-body focus:outline-none focus:ring-2 focus:ring-acc"
+          >
+            <option value="">{t('feeding.selectUnitPlaceholder')}</option>
+            {plans.map((plan) => (
+              <option key={plan.unitId} value={plan.unitId}>
+                {plan.unitName} ({plan.unitCode})
+              </option>
+            ))}
+          </select>
           {!plansLoading && plans.length === 0 && (
-            <div className="mx-4 mt-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 border border-amber-200 dark:border-amber-800">
-              <p className="text-amber-700 dark:text-amber-300 text-sm font-medium">
-                {t('feeding.noPlansToday')}
-              </p>
-              <p className="text-amber-600 dark:text-amber-400 text-xs mt-1">
-                {t('feeding.noPlansTodayHint')}
-              </p>
-            </div>
+            <Card className="mt-2 p-3 border-warn">
+              <p className="text-warn text-body font-medium">{t('feeding.noPlansToday')}</p>
+              <p className="text-ink-2 text-meta mt-1">{t('feeding.noPlansTodayHint')}</p>
+            </Card>
           )}
-        </>
+        </div>
       )}
 
       {/* Ünitesi param'dan gelip planı olmayan durum */}
-      {selectedUnitId && !plansLoading && !selectedPlan && (
-        <div className="mx-4 mt-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 border border-amber-200 dark:border-amber-800">
-          <p className="text-amber-700 dark:text-amber-300 font-medium">
-            {t('feeding.noPlanForUnit')}
-          </p>
-          <p className="text-amber-600 dark:text-amber-400 text-sm mt-1">
-            {t('feeding.noPlanForUnitHint')}
-          </p>
-        </div>
+      {selectedUnitId && !plansLoading && !plansUnavailable && !selectedPlan && (
+        <Card className="mx-4 mt-4 p-4 border-warn">
+          <p className="text-warn text-body font-medium">{t('feeding.noPlanForUnit')}</p>
+          <p className="text-ink-2 text-meta mt-1">{t('feeding.noPlanForUnitHint')}</p>
+        </Card>
       )}
 
       {/* Plan kartı — tipli alanlar (P-25) */}
       {selectedPlan && (
-        <div className="mx-4 mt-4 bg-white dark:bg-gray-900 rounded-2xl shadow-card p-4 border border-gray-100 dark:border-gray-800">
+        <Card className="mx-4 mt-4 p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-3">
-              <div className="w-11 h-11 bg-green-50 dark:bg-green-900/20 rounded-xl flex items-center justify-center">
-                <Package className="text-green-600" size={22} />
+              <div className="w-11 h-11 bg-type-feeding-dim rounded-xl flex items-center justify-center">
+                <Package className="text-type-feeding" size={22} />
               </div>
               <div>
-                <h3 className="font-semibold text-gray-900 dark:text-white">
-                  {selectedPlan.unitName}
-                </h3>
-                <p className="text-sm text-gray-500">{selectedPlan.unitCode}</p>
+                <h2 className="text-title font-semibold text-ink-1">{selectedPlan.unitName}</h2>
+                <p className="text-meta text-ink-3 font-mono">{selectedPlan.unitCode}</p>
               </div>
             </div>
-            <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">
+            <span className="text-body font-semibold text-ink-2">
               {t('feeding.progress', { done: mealsDone, total: mealsTotal })}
             </span>
           </div>
+          {/* İki kuyu da nötr yüzey: buradaki mavi/gri ayrımı ANLAM taşımıyordu,
+              süstü. Teal yalnız eylem ve aktif hâl rengidir, duran bir sayıya
+              takılmaz. */}
           <div className="grid grid-cols-2 gap-3">
-            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3">
-              <p className="text-xs text-blue-600 font-medium">{t('feeding.plannedTotal')}</p>
-              <p className="text-lg font-bold text-blue-900 dark:text-blue-200">
+            <div className="bg-surface-2 rounded-xl p-3">
+              <p className="text-meta text-ink-3 font-medium">{t('feeding.plannedTotal')}</p>
+              <p className="text-head font-mono font-bold text-ink-1 tabular-nums">
                 {Number(selectedPlan.plannedTotalKg).toFixed(2)} kg
               </p>
-              <p className="text-xs text-blue-500">
+              <p className="text-meta text-ink-3">
                 {t('feeding.rate')} {Number(selectedPlan.effectiveRatePercent).toFixed(2)}% ·{' '}
                 {t('feeding.expectedFcr')} {Number(selectedPlan.expectedFcr).toFixed(2)}
               </p>
             </div>
-            <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3">
-              <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">
-                {t('feeding.feed')}
-              </p>
-              <p className="text-lg font-bold text-gray-900 dark:text-gray-200">
-                {selectedPlan.feedCode}
-              </p>
-              <p className="text-xs text-gray-500">
+            <div className="bg-surface-2 rounded-xl p-3">
+              <p className="text-meta text-ink-3 font-medium">{t('feeding.feed')}</p>
+              <p className="text-head font-mono font-bold text-ink-1">{selectedPlan.feedCode}</p>
+              <p className="text-meta text-ink-3">
                 {t('feeding.biomass')} {Number(selectedPlan.biomassKg).toFixed(1)} kg
               </p>
             </div>
           </div>
           {/* Sıcaklık provenansı — P-20: sessiz varsayılan yok */}
-          <div className="mt-3 flex items-center gap-2 text-xs">
-            <Thermometer size={14} className="text-gray-400" />
+          <div className="mt-3 flex items-center gap-2 text-meta">
+            <Thermometer size={14} className="text-ink-3" />
             {selectedPlan.usingDefaultTemperature ? (
-              <span className="text-amber-600 dark:text-amber-400 font-medium">
-                {t('feeding.defaultTempWarning')}
-              </span>
+              <span className="text-warn font-medium">{t('feeding.defaultTempWarning')}</span>
             ) : (
-              <span className="text-gray-500">
+              <span className="text-ink-2">
                 {t('feeding.waterTemp')}: {Number(selectedPlan.waterTempC ?? 0).toFixed(1)}°C (
                 {selectedPlan.temperatureSource})
               </span>
             )}
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Öğün listesi */}
       {selectedPlan && (
         <div className="px-4 mt-5">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+          <h2 id="feeding-meals-heading" className={clsx(SECTION_HEADING, 'mb-3')}>
             {t('feeding.meals')}
-          </h3>
-          <div className="space-y-2">
+          </h2>
+          <div role="group" aria-labelledby="feeding-meals-heading" className="space-y-2">
             {meals.map((meal) => {
               const open = isMealOpen(meal);
               const selected = meal.id === selectedMealId;
               return (
                 <button
                   key={meal.id}
+                  type="button"
                   disabled={!open}
+                  aria-pressed={selected}
                   onClick={() => handleMealSelect(meal)}
                   className={clsx(
-                    'w-full text-left bg-white dark:bg-gray-900 rounded-2xl p-3 border-2 transition-all touch-feedback',
-                    selected
-                      ? 'border-green-500 shadow-glow-green'
-                      : 'border-gray-100 dark:border-gray-800',
+                    'w-full text-left min-h-touch bg-surface-1 rounded-2xl p-3 border-2 transition-all touch-feedback',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc',
+                    selected ? 'border-acc shadow-acc' : 'border-line',
                     !open && 'opacity-60',
                   )}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <span className="text-base font-bold text-gray-900 dark:text-white">
+                      <span className="text-title font-mono font-bold text-ink-1 tabular-nums">
                         {timeOf(meal.scheduledAt)}
                       </span>
-                      <span className="text-sm text-gray-500">
+                      <span className="text-body text-ink-3">
                         {t('feeding.meal', { index: meal.mealIndex + 1 })}
                       </span>
                     </div>
                     <span
                       className={clsx(
-                        'text-xs font-semibold px-2 py-1 rounded-lg',
+                        'text-meta font-semibold px-2 py-1 rounded-lg',
                         MEAL_BADGE[meal.status],
                       )}
                     >
                       {t(`feeding.mealStatus.${meal.status}`)}
                     </span>
                   </div>
-                  <div className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                  <div className="mt-1 text-body text-ink-2">
                     {Number(meal.plannedKg).toFixed(2)} kg
                     {meal.actualKg > 0 && (
-                      <span className="ml-2 text-blue-600 dark:text-blue-400">
+                      // Dökülen miktar "sürüyor" halidir — rozetteki
+                      // PARTIALLY_FED ile aynı tonda okunur.
+                      <span className="ml-2 text-acc font-mono tabular-nums">
                         → {Number(meal.actualKg).toFixed(2)} kg
                       </span>
                     )}
@@ -478,81 +550,108 @@ export function RecordFeedingPage(): JSX.Element {
       {selectedMeal && (
         <>
           <div className="px-4 mt-5">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+            {/* Bölüm başlığı DEĞİL, gerçek bir <label>: kahraman rakam alanının
+                erişilebilir adı yoktu — ekran okuyucu "sayı girin" diyordu. */}
+            <label htmlFor="feeding-pour-kg" className={clsx(SECTION_HEADING, 'block mb-3')}>
               {t('feeding.pour.amountTitle')}
-            </h3>
-            <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-5 border border-gray-100 dark:border-gray-800">
+            </label>
+            <Card className="p-5">
               <input
+                id="feeding-pour-kg"
                 type="number"
                 inputMode="decimal"
                 step="0.01"
                 min="0"
                 max="10000"
                 value={pourKg}
+                aria-invalid={errors.amount !== undefined}
+                aria-describedby={clsx(
+                  'feeding-pour-remaining',
+                  errors.amount !== undefined && 'feeding-pour-error',
+                )}
                 onChange={(e) => {
                   setPourKg(e.target.value);
                   setErrors((prev) => ({ ...prev, amount: undefined }));
                 }}
-                className="w-full text-center text-4xl font-bold text-gray-900 dark:text-white bg-transparent border-none focus:outline-none focus:ring-0 placeholder:text-gray-300"
+                className="w-full text-center text-hero font-mono font-bold tabular-nums text-ink-1 bg-transparent border-none rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-acc"
               />
-              <p className="text-center text-xs text-gray-400 mt-1 font-medium">kg</p>
-              <p className="text-center text-xs text-gray-500 mt-1">
+              <p className="text-center text-meta text-ink-3 mt-1 font-medium">kg</p>
+              <p id="feeding-pour-remaining" className="text-center text-meta text-ink-3 mt-1">
                 {t('feeding.pour.remaining', {
                   kg: Math.max(0, selectedMeal.plannedKg - selectedMeal.actualKg).toFixed(2),
                 })}
               </p>
               {errors.amount && (
-                <p className="text-red-500 text-sm text-center mt-2">{errors.amount}</p>
-              )}
-            </div>
-
-            {/* Finalize — D-8 kısmi öğün: kapatmadan döküm eklenebilir */}
-            <div className="mt-3 flex items-start gap-3 bg-white dark:bg-gray-900 rounded-2xl p-4 border border-gray-100 dark:border-gray-800">
-              <input
-                id="finalize-meal"
-                type="checkbox"
-                checked={finalize}
-                onChange={(e) => setFinalize(e.target.checked)}
-                className="mt-0.5 h-5 w-5 rounded accent-green-600"
-              />
-              <span>
-                <label
-                  htmlFor="finalize-meal"
-                  className="block text-sm font-semibold text-gray-900 dark:text-white"
+                <p
+                  id="feeding-pour-error"
+                  role="alert"
+                  className="text-crit text-body text-center mt-2"
                 >
+                  {errors.amount}
+                </p>
+              )}
+            </Card>
+
+            {/* Finalize — D-8 kısmi öğün: kapatmadan döküm eklenebilir.
+                Etiket kutuyu SARAR: 20px'lik onay kutusu tek başına 44px
+                tabanının altındaydı; şimdi kartın tüm satırı dokunma hedefi. */}
+            <Card className="mt-3">
+              <label
+                htmlFor="finalize-meal"
+                className="flex items-start gap-3 px-4 pt-4 min-h-touch cursor-pointer"
+              >
+                <input
+                  id="finalize-meal"
+                  type="checkbox"
+                  checked={finalize}
+                  onChange={(e) => setFinalize(e.target.checked)}
+                  aria-describedby="finalize-meal-hint"
+                  className="mt-0.5 h-5 w-5 shrink-0 rounded accent-acc"
+                />
+                <span className="text-body font-semibold text-ink-1">
                   {t('feeding.pour.finalize')}
-                </label>
-                <span className="block text-xs text-gray-500 mt-0.5">
-                  {t('feeding.pour.finalizeHint')}
                 </span>
-              </span>
-            </div>
+              </label>
+              <p id="finalize-meal-hint" className="text-meta text-ink-3 pl-12 pr-4 pb-4">
+                {t('feeding.pour.finalizeHint')}
+              </p>
+            </Card>
           </div>
 
           {/* Yöntem */}
           <div className="px-4 mt-5">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+            <h2 id="feeding-method-heading" className={clsx(SECTION_HEADING, 'mb-3')}>
               {t('feeding.method.title')}
-            </h3>
-            <div className="grid grid-cols-3 gap-2">
+            </h2>
+            <div
+              role="group"
+              aria-labelledby="feeding-method-heading"
+              className="grid grid-cols-3 gap-2"
+            >
               {FEEDING_METHODS.map((m) => {
                 const Icon = m.Icon;
+                const active = feedingMethod === m.value;
                 return (
                   <button
                     key={m.value}
+                    type="button"
+                    aria-pressed={active}
                     onClick={() => setFeedingMethod(m.value)}
                     className={clsx(
-                      'flex flex-col items-center p-4 rounded-2xl border-2 transition-all touch-feedback bg-white dark:bg-gray-900',
-                      feedingMethod === m.value
-                        ? 'border-green-500 bg-green-50 dark:bg-green-900/20 shadow-glow-green'
-                        : 'border-gray-100 dark:border-gray-800',
+                      'flex flex-col items-center p-4 min-h-touch rounded-2xl border-2 transition-all touch-feedback',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc',
+                      active ? 'border-acc bg-acc-dim shadow-acc' : 'border-line bg-surface-1',
                     )}
                   >
-                    <Icon
-                      size={24}
-                      className={feedingMethod === m.value ? 'text-green-600' : 'text-gray-400'}
-                    />
-                    <span className="text-xs font-semibold mt-1.5">{t(m.labelKey)}</span>
+                    <Icon size={24} className={active ? 'text-acc' : 'text-ink-3'} />
+                    <span
+                      className={clsx(
+                        'text-meta font-semibold mt-1.5',
+                        active ? 'text-acc' : 'text-ink-2',
+                      )}
+                    >
+                      {t(m.labelKey)}
+                    </span>
                   </button>
                 );
               })}
@@ -560,29 +659,35 @@ export function RecordFeedingPage(): JSX.Element {
           </div>
 
           {/* Notlar */}
-          <BlockTitle>{t('feeding.notes.title')}</BlockTitle>
-          <List strongIos insetIos>
-            <ListInput
-              type="textarea"
+          <div className="px-4 mt-5">
+            <label htmlFor="feeding-notes" className={clsx(SECTION_HEADING, 'block mb-2')}>
+              {t('feeding.notes.title')}
+            </label>
+            <textarea
+              id="feeding-notes"
+              rows={4}
               placeholder={t('feeding.notes.placeholder')}
               value={notes}
-              onInput={(e: ChangeEvent<HTMLTextAreaElement>) => setNotes(e.target.value)}
-              inputClassName="!h-24"
+              onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setNotes(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl border border-line bg-surface-1 text-ink-1 text-body placeholder:text-ink-3 focus:outline-none focus:ring-2 focus:ring-acc resize-none"
             />
-          </List>
+          </div>
 
           {/* Kaydet */}
-          <div className="px-4 pb-28">
-            <button
+          <div className="px-4 mt-5 pb-28">
+            <Button
+              variant="primary"
+              size="save"
+              block
               onClick={() => {
                 void handleSubmit();
               }}
               disabled={parsedPour <= 0 || isSubmitting}
-              className="w-full py-4 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-2xl shadow-lg shadow-green-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
+              className="font-bold"
             >
               {isSubmitting ? (
                 <>
-                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent" />
                   {t('feeding.recording')}
                 </>
               ) : (
@@ -593,9 +698,9 @@ export function RecordFeedingPage(): JSX.Element {
                     : t('feeding.record')}
                 </>
               )}
-            </button>
+            </Button>
             {!isOnline && (
-              <p className="text-center text-amber-500 text-sm mt-3 font-medium">
+              <p className="text-center text-warn text-body mt-3 font-medium">
                 {t('feeding.offlineWillSync')}
               </p>
             )}

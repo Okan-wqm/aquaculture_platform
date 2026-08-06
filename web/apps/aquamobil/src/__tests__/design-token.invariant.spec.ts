@@ -57,9 +57,15 @@ function countOccurrences(pattern: RegExp): number {
  * Shrink freely — lower the constant in the same commit that reduces the count.
  * Growing one means new code took the pre-v4 path; use the tokens instead.
  */
-const DARK_VARIANT_BASELINE = 149;
-const LEGACY_PALETTE_BASELINE = 19;
-const STOCK_GRAY_BASELINE = 122;
+// PROMOTED TO A BAN: Konsta is gone and every page is on the tokens, so this reached zero.
+// Tier 3 becomes Tier 1 — there is no longer a way to add one.
+const DARK_VARIANT_BASELINE = 0;
+// PROMOTED TO A BAN: the ocean/sea/coral palettes were deleted from tailwind.config.js, so this reached zero.
+// Tier 3 becomes Tier 1 — there is no longer a way to add one.
+const LEGACY_PALETTE_BASELINE = 0;
+// PROMOTED TO A BAN: every surface is a token now, so this reached zero.
+// Tier 3 becomes Tier 1 — there is no longer a way to add one.
+const STOCK_GRAY_BASELINE = 0;
 
 const TOKENS_CSS = readFileSync(join(SRC_DIR, 'styles/tokens.css'), 'utf8');
 
@@ -106,17 +112,17 @@ describe('design-token invariant (AquaMobil v4)', () => {
     ).toEqual([]);
   });
 
-  it('ratchets `dark:` variants — shrink only, never grow', () => {
+  it('BANS `dark:` variants outright', () => {
     const current = countOccurrences(/\bdark:/g);
     expect(
       current,
       `\`dark:\` variants grew past the frozen baseline (${DARK_VARIANT_BASELINE}). ` +
         'Use the semantic tokens (bg-surface-1, text-ink-2, border-line) — they resolve ' +
         'per theme, so a second class is never needed.',
-    ).toBeLessThanOrEqual(DARK_VARIANT_BASELINE);
+    ).toBe(0);
   });
 
-  it('ratchets the legacy brand palettes — shrink only, never grow', () => {
+  it('BANS the legacy brand palettes outright', () => {
     const current = countOccurrences(
       /\b(?:ocean|sea|coral|mortality|cull|harvest)-(?:50|[1-9]00|950)\b/g,
     );
@@ -124,10 +130,10 @@ describe('design-token invariant (AquaMobil v4)', () => {
       current,
       `legacy palette usage grew past the frozen baseline (${LEGACY_PALETTE_BASELINE}). ` +
         'ocean-* is bg-acc, the status palettes are text-type-mortality/-cull/-harvest.',
-    ).toBeLessThanOrEqual(LEGACY_PALETTE_BASELINE);
+    ).toBe(0);
   });
 
-  it('ratchets stock gray ramps — shrink only, never grow', () => {
+  it('BANS stock gray ramps outright', () => {
     const current = countOccurrences(
       /\b(?:bg|text|border|from|to|via|ring|divide)-(?:gray|slate|zinc|neutral)-\d{2,3}\b/g,
     );
@@ -135,7 +141,7 @@ describe('design-token invariant (AquaMobil v4)', () => {
       current,
       `stock gray usage grew past the frozen baseline (${STOCK_GRAY_BASELINE}). ` +
         'Surfaces are bg-surface-0/1/2/3, text is text-ink-1/2/3, dividers are border-line.',
-    ).toBeLessThanOrEqual(STOCK_GRAY_BASELINE);
+    ).toBe(0);
   });
 
   it('loads no font from a CDN — offline-first typography', () => {

@@ -1,13 +1,38 @@
-import { List, ListInput, BlockTitle } from 'konsta/react';
+/**
+ * RecordTransferPage — move fish between two units, with a confirm step.
+ *
+ * ORPHAN-MEDIUM-578: this path is superseded by the log sheet and scheduled for
+ * retirement, but it is still routed and still writes real records, so it is
+ * converted rather than left looking broken. Deleting a live record path means
+ * exercising the sheet against a running backend first — a separate, deliberate
+ * step, not a side effect of a restyle.
+ *
+ * v4 conversion: Konsta's <List>/<ListInput>/<BlockTitle> are gone and the
+ * colours moved to the semantic tokens (src/styles/tokens.css). The two are ONE
+ * pass, not two: Konsta injected its own `ios-`/`md-` colour classes and its own
+ * dark-mode handling into every control on this page, so the page could not be
+ * theme-correct while it was still drawing the inputs. The blue gradient chrome
+ * was page identity rather than meaning; what identity the screen keeps is the
+ * transfer hue from the per-log-type token set, while teal carries the actions,
+ * as it does everywhere in v4.
+ *
+ * Field logic — the queries, the offline-queue call, validation, the payload
+ * contract and the step machine — is deliberately UNTOUCHED.
+ */
+import { clsx } from 'clsx';
 import { ArrowLeft, ArrowLeftRight, AlertCircle, ChevronRight } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useEffect, ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { FIELD_CONTROL_CLASS, FIELD_LABEL_CLASS } from '../_shared/RecordEntityPage';
+
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { Button, Card, CardDivider, DataState, IconButton } from '@/components/ui';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTanks } from '@/hooks/useTanks';
 import type { TransferInput } from '@/types';
+import { toLoadable } from '@/utils/loadable';
 
 interface FormErrors {
   sourceTank?: string;
@@ -23,7 +48,13 @@ type FormStep = 'entry' | 'confirm';
 export function RecordTransferPage(): JSX.Element {
   const navigate = useNavigate();
   const { tankId } = useParams<{ tankId?: string }>();
-  const { data: tanks } = useTanks();
+  const tanksQuery = useTanks();
+  const tanks = tanksQuery.data;
+  // A failed unit fetch used to render as two empty dropdowns, which reads as
+  // "this tenant has no units" — the same defect src/utils/loadable.ts was
+  // written for after it was found six times. The Loadable makes the failure a
+  // state the selectors cannot be rendered during.
+  const tanksLoadable = toLoadable(tanksQuery);
   const { addToQueue, isOnline } = useOfflineQueue();
 
   const [sourceTankId, setSourceTankId] = useState(tankId || '');
@@ -126,10 +157,11 @@ export function RecordTransferPage(): JSX.Element {
   };
 
   // C7: Two-phase success UX -- show honest sync status via QueuedStatusBadge
-  // instead of premature "Saved!" green checkmark.
+  // instead of premature "Saved!" green checkmark. The watch tone (amber before
+  // v4, `warn` now) is the point: the record is QUEUED, not confirmed.
   if (showSuccess) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
+      <div className="flex flex-col items-center justify-center min-h-screen bg-warn-dim">
         <QueuedStatusBadge operationId={queuedOperationId} />
       </div>
     );
@@ -140,100 +172,104 @@ export function RecordTransferPage(): JSX.Element {
   if (step === 'confirm') {
     const qty = parseInt(quantity, 10);
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
+      // No page tint: the ground is the <body>'s in every theme.
+      <div className="min-h-screen">
+        <div className="bg-surface-1 text-ink-1 border-b border-line">
           <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-            <button
+            {/* Was a 38px icon-only <button> with no accessible name — a screen
+                reader announced it as an unlabelled button. IconButton bakes in
+                the 44px gloved-use floor and forces the label. */}
+            <IconButton
+              aria-label="Back"
               onClick={() => setStep('entry')}
-              className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
+              className="-ml-2 rounded-xl hover:bg-surface-2"
             >
               <ArrowLeft size={22} />
-            </button>
+            </IconButton>
             <div className="flex items-center gap-2.5">
-              <ArrowLeftRight size={22} />
-              <h1 className="text-lg font-bold">Confirm Transfer</h1>
+              <ArrowLeftRight size={22} className="text-type-transfer" />
+              <h1 className="text-head font-bold">Confirm Transfer</h1>
             </div>
           </div>
         </div>
 
         <div className="px-4 mt-5">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
-            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 border-b border-blue-100 dark:border-blue-800/50">
-              <h3 className="text-sm font-bold text-blue-700 dark:text-blue-300 uppercase tracking-wider">
+          <Card className="overflow-hidden">
+            <div className="bg-type-transfer-dim p-4 border-b border-line">
+              <h2 className="text-body font-bold text-type-transfer uppercase tracking-wider">
                 Transfer Summary
-              </h3>
+              </h2>
             </div>
             <div className="p-4 space-y-4">
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">From</span>
-                <span className="font-semibold text-gray-900 dark:text-white">
-                  {sourceTank?.name}
-                </span>
+                <span className="text-body text-ink-2">From</span>
+                <span className="font-semibold text-ink-1">{sourceTank?.name}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Batch</span>
-                <span className="font-semibold text-gray-900 dark:text-white">
+                <span className="text-body text-ink-2">Batch</span>
+                <span className="font-semibold text-ink-1">
                   {sourceMetrics?.batchNumber ?? '--'}
                 </span>
               </div>
               <div className="flex justify-center">
-                <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                  <ArrowLeftRight size={16} className="text-blue-600" />
+                <div className="w-8 h-8 rounded-full bg-type-transfer-dim flex items-center justify-center">
+                  <ArrowLeftRight size={16} className="text-type-transfer" />
                 </div>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">To</span>
-                <span className="font-semibold text-gray-900 dark:text-white">
+                <span className="text-body text-ink-2">To</span>
+                <span className="font-semibold text-ink-1">
                   {destTank?.name}
                   {!destTank?.batchMetrics ? ' (Empty)' : ''}
                 </span>
               </div>
-              <div className="h-px bg-gray-100 dark:bg-gray-800" />
+              <CardDivider />
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Quantity</span>
-                <span className="text-2xl font-bold text-blue-600">{qty.toLocaleString()} pcs</span>
+                {/* The headline figure is a machine value, so it is set in mono
+                    and carries the transfer hue — the same hue the summary
+                    heading and the direction glyph wear. */}
+                <span className="text-body text-ink-2">Quantity</span>
+                <span className="text-head font-mono font-bold tabular-nums text-type-transfer">
+                  {qty.toLocaleString()} pcs
+                </span>
               </div>
               {avgWeightG && (
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-500">Avg weight</span>
-                  <span className="font-semibold text-gray-900 dark:text-white">
+                  <span className="text-body text-ink-2">Avg weight</span>
+                  <span className="font-semibold font-mono tabular-nums text-ink-1">
                     {parseFloat(avgWeightG).toFixed(1)} g/fish
                   </span>
                 </div>
               )}
               {transferReason.trim() && (
                 <>
-                  <div className="h-px bg-gray-100 dark:bg-gray-800" />
+                  <CardDivider />
                   <div>
-                    <span className="text-sm text-gray-500">Reason</span>
-                    <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">
-                      {transferReason}
-                    </p>
+                    <span className="text-body text-ink-2">Reason</span>
+                    <p className="text-body text-ink-1 mt-1">{transferReason}</p>
                   </div>
                 </>
               )}
             </div>
-          </div>
+          </Card>
         </div>
 
-        {errors.general && (
-          <div className="mx-4 mt-3 bg-red-50 dark:bg-red-900/20 rounded-xl p-3 flex items-center gap-2 border border-red-200 dark:border-red-800">
-            <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
-            <span className="text-red-600 dark:text-red-300 text-sm">{errors.general}</span>
-          </div>
-        )}
+        {errors.general && <ErrorBanner message={errors.general} />}
 
         <div className="px-4 mt-6 space-y-3 pb-28">
-          <button
+          <Button
+            variant="primary"
+            size="save"
+            block
             onClick={() => {
               void handleSubmit();
             }}
             disabled={isSubmitting}
-            className="w-full py-4 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-bold rounded-2xl shadow-lg shadow-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
+            className="font-bold"
           >
             {isSubmitting ? (
               <>
-                <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                <span className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent" />
                 Saving...
               </>
             ) : (
@@ -242,218 +278,273 @@ export function RecordTransferPage(): JSX.Element {
                 Confirm Transfer
               </>
             )}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
+            block
             onClick={() => setStep('entry')}
             disabled={isSubmitting}
-            className="w-full py-3 text-gray-500 font-semibold rounded-2xl border border-gray-200 dark:border-gray-700 touch-feedback transition-all"
+            className="border border-line"
           >
             Go Back & Edit
-          </button>
-          {!isOnline && (
-            <p className="text-center text-amber-500 text-sm font-medium">
-              Offline -- will sync when connected
-            </p>
-          )}
+          </Button>
+          {!isOnline && <OfflineNotice />}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+    <div className="min-h-screen">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
+      <div className="bg-surface-1 text-ink-1 border-b border-line">
         <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button
+          {/* Same story as the confirm header: named, and above the floor. */}
+          <IconButton
+            aria-label="Back"
             onClick={() => navigate(-1)}
-            className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
+            className="-ml-2 rounded-xl hover:bg-surface-2"
           >
             <ArrowLeft size={22} />
-          </button>
+          </IconButton>
           <div className="flex items-center gap-2.5">
-            <ArrowLeftRight size={22} />
-            <h1 className="text-lg font-bold">Transfer Record</h1>
+            <ArrowLeftRight size={22} className="text-type-transfer" />
+            <h1 className="text-head font-bold">Transfer Record</h1>
           </div>
         </div>
       </div>
 
       {/* Source tank info */}
       {sourceTank && sourceMetrics && (
-        <div className="mx-4 mt-4 bg-white dark:bg-gray-900 rounded-2xl shadow-card p-4 border border-gray-100 dark:border-gray-800">
+        <Card className="mx-4 mt-4 p-4">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 bg-blue-50 dark:bg-blue-900/20 rounded-xl flex items-center justify-center">
-              <ArrowLeftRight className="text-blue-600" size={22} />
+            <div className="w-11 h-11 bg-type-transfer-dim rounded-xl flex items-center justify-center">
+              <ArrowLeftRight className="text-type-transfer" size={22} />
             </div>
             <div>
-              <h3 className="font-semibold text-gray-900 dark:text-white">{sourceTank.name}</h3>
-              <p className="text-sm text-gray-500">
+              <h2 className="font-semibold text-ink-1">{sourceTank.name}</h2>
+              <p className="text-body text-ink-3">
                 {sourceMetrics.batchNumber ?? '--'} &middot;{' '}
                 {(sourceMetrics.pieces ?? 0).toLocaleString()} pcs
               </p>
             </div>
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Error banner */}
-      {errors.general && (
-        <div className="mx-4 mt-3 bg-red-50 dark:bg-red-900/20 rounded-xl p-3 flex items-center gap-2 border border-red-200 dark:border-red-800">
-          <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
-          <span className="text-red-600 dark:text-red-300 text-sm">{errors.general}</span>
-        </div>
-      )}
+      {errors.general && <ErrorBanner message={errors.general} />}
 
-      {/* Source tank selector */}
-      {/* WHY: Source must have an active batch — you can only transfer fish that exist in a batch context */}
-      {!tankId && (
-        <>
-          <BlockTitle>Source Tank</BlockTitle>
-          <List strongIos insetIos>
-            <ListInput
-              type="select"
-              value={sourceTankId}
-              onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-                setSourceTankId(e.target.value);
-                setErrors((prev) => ({ ...prev, sourceTank: undefined }));
-              }}
-              error={errors.sourceTank}
-            >
-              <option value="">-- Select Tank --</option>
-              {tanks
-                ?.filter((t) => t.batchMetrics)
-                .map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
-                  </option>
-                ))}
-              {/* WHY: Show batchless tanks as disabled options with their real ID so users know
-                  the tank exists but has no fish to transfer. Using the actual tank ID (not
-                  empty string) prevents the browser from treating disabled selection as valid. */}
-              {tanks
-                ?.filter((t) => !t.batchMetrics)
-                .map((t) => (
-                  <option key={t.id} value={t.id} disabled>
-                    {t.name} (No active batch)
-                  </option>
-                ))}
-            </ListInput>
-          </List>
-          {errors.sourceTank && (
-            <p className="text-red-500 text-sm px-4 -mt-2">{errors.sourceTank}</p>
-          )}
-          {/* FIX: Inform user when all tanks lack active batches — prevents confusion when
-              every dropdown option is disabled and no selection is possible. */}
-          {tanks && tanks.length > 0 && tanks.every((t) => !t.batchMetrics) && (
-            <div className="mx-4 mt-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 border border-amber-200 dark:border-amber-800">
-              <p className="text-amber-700 dark:text-amber-300 text-sm font-medium">
-                All tanks currently have no active batches.
-              </p>
-              <p className="text-amber-600 dark:text-amber-400 text-xs mt-1">
-                Stock fish into a tank before recording transfers.
-              </p>
+      {/* Tank selectors.
+          "Could not read the unit list" and "this tenant has no units" are
+          different facts, and a worker about to move fish must not be shown the
+          second when the first happened — so the pickers are rendered from the
+          Loadable's ready arm only. */}
+      <DataState value={tanksLoadable} label="units" skeleton="row" skeletonCount={2}>
+        {(unitList) => (
+          <>
+            {/* Source tank selector */}
+            {/* WHY: Source must have an active batch — you can only transfer fish that exist in a batch context */}
+            {!tankId && (
+              <div className="px-4 mt-5">
+                {/* WHY a wrapping <label> where Konsta had a <BlockTitle> above a
+                    <ListInput>: the block title was a heading with no association
+                    to the control under it, so the combobox was announced
+                    unlabelled. Wrapping IS the association, and it cannot come
+                    apart the way a heading and a control two elements away can. */}
+                <label className="block">
+                  <span className={FIELD_LABEL_CLASS}>Source Tank</span>
+                  <select
+                    value={sourceTankId}
+                    onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                      setSourceTankId(e.target.value);
+                      setErrors((prev) => ({ ...prev, sourceTank: undefined }));
+                    }}
+                    aria-invalid={errors.sourceTank ? true : undefined}
+                    aria-describedby={errors.sourceTank ? 'transfer-source-error' : undefined}
+                    className={FIELD_CONTROL_CLASS}
+                  >
+                    <option value="">-- Select Tank --</option>
+                    {unitList
+                      .filter((t) => t.batchMetrics)
+                      .map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
+                        </option>
+                      ))}
+                    {/* WHY: Show batchless tanks as disabled options with their real ID so users know
+                        the tank exists but has no fish to transfer. Using the actual tank ID (not
+                        empty string) prevents the browser from treating disabled selection as valid. */}
+                    {unitList
+                      .filter((t) => !t.batchMetrics)
+                      .map((t) => (
+                        <option key={t.id} value={t.id} disabled>
+                          {t.name} (No active batch)
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                {errors.sourceTank && (
+                  <p id="transfer-source-error" className="text-crit text-body mt-2">
+                    {errors.sourceTank}
+                  </p>
+                )}
+                {/* FIX: Inform user when all tanks lack active batches — prevents confusion when
+                    every dropdown option is disabled and no selection is possible. */}
+                {unitList.length > 0 && unitList.every((t) => !t.batchMetrics) && (
+                  <Card className="mt-3 p-3 border-warn">
+                    <p className="text-warn text-body font-medium">
+                      All tanks currently have no active batches.
+                    </p>
+                    <p className="text-ink-2 text-meta mt-1">
+                      Stock fish into a tank before recording transfers.
+                    </p>
+                  </Card>
+                )}
+              </div>
+            )}
+
+            {/* Destination tank selector */}
+            {/* WHY: Destination tanks are sorted — empty tanks first (ideal transfer targets), then tanks with
+                batches. The source tank is excluded to prevent self-transfer. Capacity info helps users choose. */}
+            <div className="px-4 mt-5">
+              <label className="block">
+                <span className={FIELD_LABEL_CLASS}>Destination Tank</span>
+                <select
+                  value={destinationTankId}
+                  onChange={(e: ChangeEvent<HTMLSelectElement>) => {
+                    setDestinationTankId(e.target.value);
+                    setErrors((prev) => ({ ...prev, destinationTank: undefined }));
+                  }}
+                  aria-invalid={errors.destinationTank ? true : undefined}
+                  aria-describedby={
+                    errors.destinationTank ? 'transfer-destination-error' : undefined
+                  }
+                  className={FIELD_CONTROL_CLASS}
+                >
+                  <option value="">-- Select Tank --</option>
+                  {/* WHY: Empty tanks appear first — they are the preferred transfer destination (no mixing risk) */}
+                  {unitList
+                    .filter((t) => t.id !== sourceTankId && !t.batchMetrics)
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} (Empty{t.maxBiomass > 0 ? ` - ${t.maxBiomass}kg capacity` : ''})
+                      </option>
+                    ))}
+                  {/* WHY: Tanks with batches are shown below — user may want to merge batches, but with a clear label */}
+                  {unitList
+                    .filter((t) => t.id !== sourceTankId && t.batchMetrics)
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} - {t.batchMetrics?.batchNumber} (
+                        {(t.batchMetrics?.pieces ?? 0).toLocaleString()} fish)
+                      </option>
+                    ))}
+                </select>
+              </label>
+              {errors.destinationTank && (
+                <p id="transfer-destination-error" className="text-crit text-body mt-2">
+                  {errors.destinationTank}
+                </p>
+              )}
             </div>
-          )}
-        </>
-      )}
-
-      {/* Destination tank selector */}
-      {/* WHY: Destination tanks are sorted — empty tanks first (ideal transfer targets), then tanks with
-          batches. The source tank is excluded to prevent self-transfer. Capacity info helps users choose. */}
-      <BlockTitle>Destination Tank</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
-          type="select"
-          value={destinationTankId}
-          onChange={(e: ChangeEvent<HTMLSelectElement>) => {
-            setDestinationTankId(e.target.value);
-            setErrors((prev) => ({ ...prev, destinationTank: undefined }));
-          }}
-          error={errors.destinationTank}
-        >
-          <option value="">-- Select Tank --</option>
-          {/* WHY: Empty tanks appear first — they are the preferred transfer destination (no mixing risk) */}
-          {tanks
-            ?.filter((t) => t.id !== sourceTankId && !t.batchMetrics)
-            .map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name} (Empty{t.maxBiomass > 0 ? ` - ${t.maxBiomass}kg capacity` : ''})
-              </option>
-            ))}
-          {/* WHY: Tanks with batches are shown below — user may want to merge batches, but with a clear label */}
-          {tanks
-            ?.filter((t) => t.id !== sourceTankId && t.batchMetrics)
-            .map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name} - {t.batchMetrics?.batchNumber} (
-                {(t.batchMetrics?.pieces ?? 0).toLocaleString()} fish)
-              </option>
-            ))}
-        </ListInput>
-      </List>
-      {errors.destinationTank && (
-        <p className="text-red-500 text-sm px-4 -mt-2">{errors.destinationTank}</p>
-      )}
+          </>
+        )}
+      </DataState>
 
       {/* Quantity */}
-      <BlockTitle>Quantity</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
-          type="number"
-          placeholder="Number of pieces to transfer"
-          value={quantity}
-          onInput={(e: ChangeEvent<HTMLInputElement>) => {
-            setQuantity(e.target.value);
-            setErrors((prev) => ({ ...prev, quantity: undefined }));
-          }}
-          error={errors.quantity}
-        />
-      </List>
-      {errors.quantity && <p className="text-red-500 text-sm px-4 -mt-2">{errors.quantity}</p>}
+      <div className="px-4 mt-5">
+        <label className="block">
+          <span className={FIELD_LABEL_CLASS}>Quantity</span>
+          <input
+            type="number"
+            placeholder="Number of pieces to transfer"
+            value={quantity}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => {
+              setQuantity(e.target.value);
+              setErrors((prev) => ({ ...prev, quantity: undefined }));
+            }}
+            aria-invalid={errors.quantity ? true : undefined}
+            aria-describedby={errors.quantity ? 'transfer-quantity-error' : undefined}
+            className={FIELD_CONTROL_CLASS}
+          />
+        </label>
+        {errors.quantity && (
+          <p id="transfer-quantity-error" className="text-crit text-body mt-2">
+            {errors.quantity}
+          </p>
+        )}
+      </div>
 
       {/* Average weight per fish (grams) */}
       {/* WHY: the backend derives total biomass from quantity x avgWeightG, so we
           ask for average weight, not total biomass. Pre-filled from the source
           batch average; override only if the transferred fish differ in size. */}
-      <BlockTitle>Average Weight (g/fish) - Optional</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
-          type="number"
-          placeholder="Average weight per fish in grams"
-          value={avgWeightG}
-          onInput={(e: ChangeEvent<HTMLInputElement>) => setAvgWeightG(e.target.value)}
-        />
-      </List>
+      <div className="px-4 mt-5">
+        <label className="block">
+          <span className={FIELD_LABEL_CLASS}>Average Weight (g/fish) - Optional</span>
+          <input
+            type="number"
+            placeholder="Average weight per fish in grams"
+            value={avgWeightG}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => setAvgWeightG(e.target.value)}
+            className={FIELD_CONTROL_CLASS}
+          />
+        </label>
+      </div>
 
       {/* Transfer reason */}
-      <BlockTitle>Transfer Reason (Optional)</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
-          type="textarea"
-          placeholder="Transfer reason..."
-          value={transferReason}
-          onInput={(e: ChangeEvent<HTMLTextAreaElement>) => setTransferReason(e.target.value)}
-          inputClassName="!h-20"
-        />
-      </List>
+      <div className="px-4 mt-5">
+        <label className="block">
+          <span className={FIELD_LABEL_CLASS}>Transfer Reason (Optional)</span>
+          <textarea
+            placeholder="Transfer reason..."
+            value={transferReason}
+            onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setTransferReason(e.target.value)}
+            className={clsx(FIELD_CONTROL_CLASS, 'h-20 resize-none')}
+          />
+        </label>
+      </div>
 
       {/* WHY: "Review" button triggers confirmation step — transfer operations affect two tanks simultaneously */}
-      <div className="px-4 pb-28">
-        <button
+      <div className="px-4 pt-5 pb-28">
+        <Button
+          variant="primary"
+          size="save"
+          block
           onClick={handleReview}
           disabled={!sourceTankId || !destinationTankId || !quantity}
-          className="w-full py-4 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-bold rounded-2xl shadow-lg shadow-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
+          className="font-bold"
         >
           <ArrowLeftRight size={20} />
           Review Transfer
           <ChevronRight size={18} className="ml-1" />
-        </button>
-        {!isOnline && (
-          <p className="text-center text-amber-500 text-sm mt-3 font-medium">
-            Offline -- will sync when connected
-          </p>
-        )}
+        </Button>
+        {!isOnline && <OfflineNotice className="mt-3" />}
       </div>
     </div>
+  );
+}
+
+/**
+ * The submit-failure banner. `role="alert"` so a worker using a screen reader
+ * hears that the transfer did not go through — the pre-v4 banner was a silent
+ * red box.
+ */
+function ErrorBanner({ message }: { message: string }): JSX.Element {
+  return (
+    <Card role="alert" className="mx-4 mt-3 p-3 flex items-center gap-2 border-crit">
+      <AlertCircle size={18} className="text-crit flex-shrink-0" />
+      <span className="text-crit text-body">{message}</span>
+    </Card>
+  );
+}
+
+/** Amber is the watch tone: the record will be kept, just not sent yet. */
+function OfflineNotice({ className }: { className?: string }): JSX.Element {
+  return (
+    <p className={clsx('text-center text-warn text-body font-medium', className)}>
+      Offline -- will sync when connected
+    </p>
   );
 }

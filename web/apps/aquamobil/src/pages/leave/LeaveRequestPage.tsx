@@ -1,15 +1,15 @@
 import { clsx } from 'clsx';
-import { List, ListInput } from 'konsta/react';
 import { CalendarOff, AlertCircle } from 'lucide-react';
 import { useState, useEffect, useCallback, ChangeEvent, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { AppHeader } from '@/components/AppHeader';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
-import { Button, Card } from '@/components/ui';
+import { Button, Card, DataState, EmptyState } from '@/components/ui';
 import { useLeaveTypes, useMyLeaveBalances } from '@/hooks/useLeave';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { LeaveType, CreateLeaveRequestInput } from '@/types';
+import { toLoadable } from '@/utils/loadable';
 
 interface FormErrors {
   leaveType?: string;
@@ -18,13 +18,35 @@ interface FormErrors {
   general?: string;
 }
 
+/**
+ * The caption above a control, and the control itself — this page's native
+ * date/textarea fields, on the token surface with the 44px gloved-use floor and
+ * the shared focus ring.
+ *
+ * WHY declared here and not imported: the record family's identical constants
+ * are exported from pages/_shared/RecordEntityPage.tsx, and pulling that module
+ * in would drag the whole cull/mortality/harvest shell — its queue hook, its
+ * tank query, its step machine — across a bounded-context line into an HR
+ * screen, for two strings. RecordFeedingPage made the same call. If a third
+ * page outside the record family needs them, the fix is to lift them into
+ * components/ui, not to copy them a fourth time.
+ */
+const FIELD_LABEL_CLASS = 'block text-body font-semibold text-ink-1 mb-2';
+const FIELD_CONTROL_CLASS =
+  'w-full min-h-touch px-4 py-3 rounded-xl border border-line bg-surface-1 text-ink-1 text-body focus:outline-none focus:ring-2 focus:ring-acc';
+
 export function LeaveRequestPage(): JSX.Element {
   const navigate = useNavigate();
   const { addToQueue, isOnline } = useOfflineQueue();
   // WHY no imperative fetch calls: React Query auto-fetches on mount when
   // enabled conditions are met, and the data is shared/deduplicated across
   // components that use the same queryKey.
-  const { data: leaveTypes = [] } = useLeaveTypes();
+  //
+  // The leave types are read as a Loadable rather than `data ?? []`: a failed
+  // fetch used to render an empty type grid, i.e. "your employer offers no
+  // leave", which is the claim src/utils/loadable.ts exists to stop this app
+  // making. `data` is now unreachable without the error arm being handled.
+  const leaveTypesQuery = useLeaveTypes();
   const { data: balances = [] } = useMyLeaveBalances(new Date().getFullYear());
 
   const [selectedTypeId, setSelectedTypeId] = useState('');
@@ -142,36 +164,63 @@ export function LeaveRequestPage(): JSX.Element {
 
       {/* Leave Type Selector */}
       <div className="px-4">
-        <h3 className="text-body font-semibold text-ink-3 mb-2 px-1">Leave Type</h3>
-        <div className="grid grid-cols-2 gap-2">
-          {leaveTypes.map((type: LeaveType) => (
-            <button
-              key={type.id}
-              type="button"
-              aria-pressed={selectedTypeId === type.id}
-              onClick={() => {
-                setSelectedTypeId(type.id);
-                setErrors((prev) => ({ ...prev, leaveType: undefined }));
-              }}
-              className={clsx(
-                'flex flex-col p-3 rounded-2xl border min-h-touch touch-feedback',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc',
-                selectedTypeId === type.id ? 'border-acc bg-acc-dim' : 'border-line bg-surface-1',
-              )}
+        <h3 id="leave-type-heading" className="text-body font-semibold text-ink-3 mb-2 px-1">
+          Leave Type
+        </h3>
+        {/* "Could not load the leave types" and "this tenant offers none" are
+            different facts, and an employee about to book time off must not be
+            shown the second when the first happened. */}
+        <DataState
+          value={toLoadable(leaveTypesQuery)}
+          label="leave types"
+          skeleton="tile"
+          skeletonCount={2}
+          empty={
+            <EmptyState
+              icon={<CalendarOff size={22} />}
+              title="No leave types"
+              description="No leave types are configured for this tenant yet. Ask an administrator to add one."
+            />
+          }
+        >
+          {(types) => (
+            <div
+              role="group"
+              aria-labelledby="leave-type-heading"
+              className="grid grid-cols-2 gap-2"
             >
-              <div className="flex items-center gap-2">
-                {/* The dot is the TENANT's own colour for this leave type, set in
-                    admin — it is data, not a design token, so it stays inline. */}
-                <div
-                  className="w-3 h-3 rounded-full shrink-0"
-                  style={{ backgroundColor: type.color || '#6366f1' }}
-                />
-                <span className="text-body font-semibold text-ink-1">{type.name}</span>
-              </div>
-              {type.isPaid && <span className="text-meta text-ok font-medium mt-1">Paid</span>}
-            </button>
-          ))}
-        </div>
+              {types.map((type: LeaveType) => (
+                <button
+                  key={type.id}
+                  type="button"
+                  aria-pressed={selectedTypeId === type.id}
+                  onClick={() => {
+                    setSelectedTypeId(type.id);
+                    setErrors((prev) => ({ ...prev, leaveType: undefined }));
+                  }}
+                  className={clsx(
+                    'flex flex-col p-3 rounded-2xl border min-h-touch touch-feedback',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc',
+                    selectedTypeId === type.id
+                      ? 'border-acc bg-acc-dim'
+                      : 'border-line bg-surface-1',
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    {/* The dot is the TENANT's own colour for this leave type, set in
+                        admin — it is data, not a design token, so it stays inline. */}
+                    <div
+                      className="w-3 h-3 rounded-full shrink-0"
+                      style={{ backgroundColor: type.color || '#6366f1' }}
+                    />
+                    <span className="text-body font-semibold text-ink-1">{type.name}</span>
+                  </div>
+                  {type.isPaid && <span className="text-meta text-ok font-medium mt-1">Paid</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </DataState>
         {errors.leaveType && <p className="text-crit text-body mt-2">{errors.leaveType}</p>}
       </div>
 
@@ -189,35 +238,58 @@ export function LeaveRequestPage(): JSX.Element {
       )}
 
       {/* Dates.
-          The inputs stay Konsta `ListInput`: they own the date picker and the
-          per-field error rendering that `errors.startDate` feeds, and rebuilding
-          that here would be a behaviour change, not a restyle. */}
-      <h3 className="text-body font-semibold text-ink-3 mt-4 mb-2 px-5">Dates</h3>
-      <List strongIos insetIos>
-        <ListInput
-          type="date"
-          label="Start Date"
-          value={startDate}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => {
-            setStartDate(e.target.value);
-            setErrors((prev) => ({ ...prev, startDate: undefined }));
-          }}
-          error={errors.startDate}
-        />
-        <ListInput
-          type="date"
-          label="End Date"
-          value={endDate}
-          onChange={(e: ChangeEvent<HTMLInputElement>) => {
-            setEndDate(e.target.value);
-            setErrors((prev) => ({ ...prev, endDate: undefined }));
-          }}
-          error={errors.endDate}
-        />
-      </List>
+          Konsta's <ListInput type="date"> was only ever a wrapper around the
+          native date input, so the picker is unchanged — but it also drew the
+          `error` text, which is why the per-field messages are rendered
+          explicitly here. Dropping Konsta without them would have silently
+          swallowed every date-validation message on this form. */}
+      <div className="px-4 mt-4">
+        <h3 className="text-body font-semibold text-ink-3 mb-2 px-1">Dates</h3>
+        <label className="block">
+          <span className={FIELD_LABEL_CLASS}>Start Date</span>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => {
+              setStartDate(e.target.value);
+              setErrors((prev) => ({ ...prev, startDate: undefined }));
+            }}
+            aria-invalid={errors.startDate ? true : undefined}
+            aria-describedby={errors.startDate ? 'leave-start-date-error' : undefined}
+            className={FIELD_CONTROL_CLASS}
+          />
+        </label>
+        {errors.startDate && (
+          <p id="leave-start-date-error" className="text-crit text-body mt-2">
+            {errors.startDate}
+          </p>
+        )}
 
-      {/* Half Day Toggle */}
-      <div className="px-4">
+        <label className="block mt-4">
+          <span className={FIELD_LABEL_CLASS}>End Date</span>
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => {
+              setEndDate(e.target.value);
+              setErrors((prev) => ({ ...prev, endDate: undefined }));
+            }}
+            aria-invalid={errors.endDate ? true : undefined}
+            aria-describedby={errors.endDate ? 'leave-end-date-error' : undefined}
+            className={FIELD_CONTROL_CLASS}
+          />
+        </label>
+        {errors.endDate && (
+          <p id="leave-end-date-error" className="text-crit text-body mt-2">
+            {errors.endDate}
+          </p>
+        )}
+      </div>
+
+      {/* Half Day Toggle. The `mt-4` replaces the vertical rhythm Konsta's
+          inset <List> used to contribute above it — without it this control
+          would now sit flush against the date fields. */}
+      <div className="px-4 mt-4">
         <label className="flex items-center gap-3 min-h-touch bg-surface-1 rounded-2xl p-3 border border-line">
           <input
             type="checkbox"
@@ -241,20 +313,25 @@ export function LeaveRequestPage(): JSX.Element {
         </div>
       )}
 
-      {/* Reason */}
-      <h3 className="text-body font-semibold text-ink-3 mt-4 mb-2 px-5">Reason (Optional)</h3>
-      <List strongIos insetIos>
-        <ListInput
-          type="textarea"
-          placeholder="Why are you taking leave?"
-          value={reason}
-          onInput={(e: ChangeEvent<HTMLTextAreaElement>) => setReason(e.target.value)}
-          inputClassName="!h-24"
-        />
-      </List>
+      {/* Reason.
+          The heading that sat above the Konsta list pointed at nothing; it is
+          now the textarea's own caption, so the control has an accessible name
+          instead of a nearby paragraph that could drift away from it. */}
+      <div className="px-4 mt-4">
+        <label className="block">
+          <span className={FIELD_LABEL_CLASS}>Reason (Optional)</span>
+          <textarea
+            placeholder="Why are you taking leave?"
+            value={reason}
+            onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setReason(e.target.value)}
+            className={clsx(FIELD_CONTROL_CLASS, 'h-24 resize-none')}
+          />
+        </label>
+      </div>
 
-      {/* Submit Button */}
-      <div className="px-4">
+      {/* Submit Button — same story as the Half Day toggle: the gap above it
+          was Konsta's list margin, so it is now explicit. */}
+      <div className="px-4 mt-5">
         <Button
           variant="primary"
           size="save"

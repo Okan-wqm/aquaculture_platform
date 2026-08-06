@@ -719,6 +719,23 @@ def build_parser() -> argparse.ArgumentParser:
             # refuse — a local commit the remote does not have — and it had
             # no caller. Publishing is one indivisible act here.
 
+    # Wave 3 Twin-lite — the repository map (twin.py). `context` is the
+    # operator/agent consumer: a compact slice read INSTEAD of a repo walk.
+    twin_parser = add_subparser(sub, "twin")
+    twin_sub = twin_parser.add_subparsers(dest="twin_command", required=True)
+    for name, helptext in (
+        ("build", "Full build of the twin map at HEAD."),
+        ("refresh", "Incremental refresh since the map's indexed_sha."),
+        ("status", "Freshness + layer stats for the stored map."),
+        ("context", "Compact context slice for --files, read from the map."),
+    ):
+        twin_cmd = add_subparser(twin_sub, name, help=helptext)
+        twin_cmd.add_argument("--workspace-root", default=".")
+        if name in ("build", "refresh"):
+            twin_cmd.add_argument("--nx-graph-file", default=None)
+        if name == "context":
+            twin_cmd.add_argument("--files", nargs="+", required=True)
+
     integrity_parser = add_subparser(sub, "integrity")
     integrity_sub = integrity_parser.add_subparsers(dest="integrity_command", required=True)
     verify_parser = add_subparser(integrity_sub, "verify")
@@ -2563,6 +2580,36 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "state":
         return _handle_state_command(args)
+
+    if args.command == "twin":
+        from .twin import build_twin_map, read_twin_map, refresh_twin_map, twin_context_for_files, twin_status
+
+        if args.twin_command == "build":
+            result = build_twin_map(
+                workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
+                nx_graph_file=args.nx_graph_file,
+            )
+            print(json.dumps({"indexed_sha": result["indexed_sha"], "stats": result["stats"]}, indent=2, sort_keys=True))
+            return 0
+        if args.twin_command == "refresh":
+            result = refresh_twin_map(
+                workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
+                nx_graph_file=args.nx_graph_file,
+            )
+            print(json.dumps({"indexed_sha": result["indexed_sha"], "refresh": result.get("refresh"), "stats": result["stats"]}, indent=2, sort_keys=True))
+            return 0
+        if args.twin_command == "status":
+            print(json.dumps(twin_status(workspace_root=args.workspace_root, base_dir=args.tools_dir), indent=2, sort_keys=True))
+            return 0
+        if args.twin_command == "context":
+            twin = read_twin_map(base_dir=args.tools_dir)
+            if twin is None:
+                print(json.dumps({"error": "twin_map_absent", "hint": "run `twin build` first"}, sort_keys=True))
+                return 1
+            print(json.dumps(twin_context_for_files(twin, list(args.files)), indent=2, sort_keys=True))
+            return 0
 
     if args.command == "integrity" and args.integrity_command == "verify":
         result = verify_integrity(

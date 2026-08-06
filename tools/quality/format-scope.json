@@ -13197,6 +13197,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/infrastructure/__tests__/watchdog-cron.metrics.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/infrastructure/watchdog-cron.service.ts",
       "prettier_managed": true
     },
@@ -34700,6 +34706,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/runbooks/monitoring/service-down.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/runbooks/monitoring/tenant-isolation-watchdog.md",
       "prettier_managed": true
     },
     {
@@ -56454,10 +56466,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9258,
+  "file_count": 9260,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9077,
-  "managed_file_list_sha256": "0cd1bb73117f2269cc18d9df99b01ee7f377d190f8b8872534960bd7fa500505",
+  "managed_count": 9079,
+  "managed_file_list_sha256": "877ca7b9e5efcbde0ab5a2921286149b297cbffaf32c5671b483a1001908c376",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

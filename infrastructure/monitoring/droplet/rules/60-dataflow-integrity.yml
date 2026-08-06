@@ -60,3 +60,45 @@ groups:
           summary: "notification-service 5xx burst"
           description: "Delivery path erroring; join notification.notification_logs by (channel,status) for the failing channel."
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
+
+  # W-C — the tenant isolation watchdog scans every ten minutes and, until
+  # now, told only the log file. These rules read the gauges the scan
+  # publishes so a breach pages someone, and so a watchdog that stopped
+  # running is distinguishable from one reporting all-clear.
+  - name: aquaculture.tenant.isolation
+    rules:
+      - alert: TenantIsolationViolationDetected
+        expr: |
+          max by (severity, type) (farm_tenant_isolation_violations{severity="CRITICAL"}) > 0
+        for: 0m
+        labels:
+          severity: critical
+          target_auditor: tenant-isolation-auditor
+        annotations:
+          summary: 'Tenant isolation watchdog found a CRITICAL violation ({{ $labels.type }})'
+          description: 'farm_tenant_isolation_violations{severity="CRITICAL",type="{{ $labels.type }}"}={{ $value }}. One tenant can potentially read another tenant''s rows. There is no `for:` delay on purpose - a cross-tenant leak is not something to observe for ten minutes first.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-isolation-watchdog.md'
+
+      - alert: TenantIsolationWatchdogStale
+        expr: |
+          time() - max(farm_tenant_isolation_scan_last_run_timestamp_seconds) > 2700
+        for: 15m
+        labels:
+          severity: high
+          target_auditor: tenant-isolation-auditor
+        annotations:
+          summary: 'Tenant isolation watchdog has not completed a scan in 45 minutes'
+          description: 'The scan runs every 10 minutes; three missed turns means the scanner is dead, and a dead scanner reports no violations - which reads exactly like safety.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-isolation-watchdog.md'
+
+      - alert: TenantIsolationScannerErrors
+        expr: |
+          max(farm_tenant_isolation_scan_errors) > 0
+        for: 30m
+        labels:
+          severity: medium
+          target_auditor: tenant-isolation-auditor
+        annotations:
+          summary: 'Tenant isolation scan is running half-blind ({{ $value }} scanner(s) failing)'
+          description: 'Individual scanners failed inside an otherwise completed scan, so the all-clear covers less ground than it appears to.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-isolation-watchdog.md'

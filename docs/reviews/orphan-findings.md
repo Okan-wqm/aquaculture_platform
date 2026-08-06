@@ -7915,4 +7915,14 @@ The program's stated criterion is that each round must show measured improvement
 
 Proven by two deliberate breaks: removing the thin-data refusal reddens the refusal test, and making the windows overlap (`elif` → `if`) reddens four.
 
+## ORPHAN-HIGH-567 — the tenant isolation watchdog has scanned every ten minutes since it was written and told only the log file: a cross-tenant leak paged nobody, and a scanner that stopped running was indistinguishable from one finding nothing — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, W-C of the data-flow integrity design; verified firsthand (`apps/farm-service/src/infrastructure/watchdog-cron.service.ts` holds the report in a private field, `getLastReport()` has zero callers across the repo, and CRITICAL violations reach exactly one destination: `this.logger.error`).
+
+`WatchdogRunner` checks the three ways tenant isolation breaks — source-schema contamination, cross-tenant row visibility, tenant-clone schema drift — and it is the strongest runtime evidence the platform has about the invariant customers care most about. Its verdict was unreadable by anything except a human grepping logs. Two consequences, the second worse than the first: a CRITICAL breach raised no alert, and because absence of a log line is also what a dead scanner produces, "isolation is holding" and "nobody has checked since Tuesday" looked identical.
+
+**Fix (this PR):** the scan publishes three gauges — `farm_tenant_isolation_violations{severity,type}` (reset before each write, so a repaired violation falls to zero rather than reporting a fixed breach forever), `farm_tenant_isolation_scan_last_run_timestamp_seconds{outcome}` and `farm_tenant_isolation_scan_errors`. A scan that throws records `outcome="failed"` and no counts, which is what keeps a broken scanner from reading as a clean one. Three rules consume them: a CRITICAL leak alerts with no `for:` delay (a cross-tenant leak is not something to observe for ten minutes first), a scan older than 45 minutes — three missed turns — alerts as stale, and per-scanner failures alert as a half-blind all-clear. Runbook at `docs/runbooks/monitoring/tenant-isolation-watchdog.md` stops at establishing what is true and escalating; row-level repair stays an operator decision because leaked rows are incident evidence before they are a mess to clean.
+
+No tenant label on any series: the scrape surface is unauthenticated, and a tenant id there would enumerate customers for anyone who asks.
+
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).

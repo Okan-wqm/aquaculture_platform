@@ -58,8 +58,22 @@ export interface Tank {
     | 'FALLOW'
     | 'QUARANTINE'
     | 'INACTIVE';
+  /**
+   * The CONTAINER's own totals — every fish in the unit, across every batch in
+   * it. Use these for anything unit- or farm-level: totals, stock ceilings,
+   * capacity. `batchMetrics` below is the PRIMARY BATCH only and understates a
+   * mixed pen, which is what made farm aggregates too low and made the log
+   * sheet reject valid entries (ORPHAN-HIGH-585).
+   */
+  currentQuantity: number;
   currentBiomass: number;
   maxBiomass: number;
+  /**
+   * The container's PRIMARY batch only — batch id, number and species for field
+   * attribution, plus that batch's own figures. NOT a unit total: a mixed pen
+   * has more fish than this reports. Unit- and farm-level numbers must come
+   * from currentQuantity / currentBiomass above.
+   */
   batchMetrics: BatchMetrics | null;
   /** FARM-HIGH-214: the tank's siteId (from the inventory container snapshot) —
    * the regulatory field-capture inputs (lice/welfare/escape) are site-scoped,

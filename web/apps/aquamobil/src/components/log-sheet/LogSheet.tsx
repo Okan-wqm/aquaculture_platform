@@ -183,7 +183,10 @@ export function submitBlocker({
 
   if ((type === 'mortality' || type === 'cull') && !reason) return 'Choose a reason';
 
-  const stock = tank.batchMetrics.pieces ?? 0;
+  // The UNIT's fish, not the primary batch's — ceiling against the batch made
+  // the gate reject valid entries on mixed pens, which teaches workers to
+  // distrust a safety-critical check.
+  const stock = tank.currentQuantity;
   if (stock > 0 && numeric > stock) {
     return `Only ${stock.toLocaleString()} fish in this unit`;
   }

@@ -8151,3 +8151,33 @@ Four screens destructured only `data` and `isLoading` from `useTanks`, then defa
 **Fix (this PR):** all four branch on `isError` before rendering and say the figures are unavailable rather than zero. Scan distinguishes "the unit list never loaded" from "this tag matches nothing". The correct pattern already existed in this codebase (`UnitsPage`), which is what made the omission a slip rather than a gap in knowledge.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-HIGH-585 — every farm and unit total counted only each pen's primary batch, and the log sheet rejected valid entries because of it — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, by the v4 audit tracing each displayed number back to the query that produces it.
+
+`useTanks` selects the container's own `currentQuantity` and `currentBiomassKg` in its GraphQL document, then discards `currentQuantity` entirely and maps only the PRIMARY batch's `quantity` / `biomassKg` into `batchMetrics`. The backend confirms these differ — `tank-batch.service.ts` sums `batchDetails` and sets `isMixedBatch` when a pen holds more than one.
+
+Consequences, all from one root:
+
+- **Understated totals** on Today ("Fish", "Biomass"), Reports ("Standing biomass", presented as the _farm_ total), the unit list, and the unit detail.
+- **Three tiles disagreeing about one pen:** the unit detail showed primary-batch biomass beside whole-container density and capacity.
+- **A safety gate rejecting valid work:** the log sheet ceilinged quantity against the primary batch, so a 70 000 mortality on a mixed 92 400-fish pen failed with "Only 60,000 fish in this unit". Teaching a worker that a safety-critical check is wrong is worse than not having it.
+
+**Fix (this PR):** `currentQuantity` is mapped onto `Tank` alongside `currentBiomass`, and every unit- or farm-level figure — plus the sheet's stock ceiling — now reads those. `batchMetrics` keeps its legitimate job (batch id, number, species, density, capacity flag) and its doc comment now states plainly that it is the primary batch only and must not be used for totals.
+
+**Not done:** per-batch selection when a pen is mixed. `useTanks` already fetches the full `batches` array, so a picker is possible; until it exists, field capture still attributes to the primary batch. Tracked here.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the totals and the ceiling; mixed-pen batch attribution open.
+
+## ORPHAN-HIGH-586 — Today and Reports disagreed about which pens are over the consent limit — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, same audit.
+
+Today used the backend flag `batchMetrics.isOverCapacity`; Reports hardcoded `LIMIT_AT = 90` against density and labelled the result "Units at consent limit". Per `tank-capacity.service.ts` the backend flag fires at 100% density **or** on the status and biomass axes at any utilisation — so the two definitions genuinely diverge: a pen blocked on biomass at 60% counted on Today and not on Reports; a pen at 92% density counted on Reports and not on Today. On the unit detail a 95% pen got a coral meter captioned "90 limit" beside a neutral capacity tile.
+
+Compliance numbers that change depending on which screen you open are worse than a missing number, because they look authoritative.
+
+**Fix (this PR):** `isOverCapacity` is the single definition of at/over consent, on every screen. The 70/90 lines survive only as an **advisory density band**, relabelled as such — the meter's ticks now read "70% watch / 90% density" rather than "limit", and its prop docs say the farm service owns the consent verdict. `?? 0` no longer classifies an unknown capacity as safe.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).

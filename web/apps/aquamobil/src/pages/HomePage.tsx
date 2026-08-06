@@ -162,11 +162,11 @@ export function HomePage(): JSX.Element {
   const openAlerts = alerts.filter((a) => !a.acknowledged).slice(0, 4);
   const doneCount = todayTasks.filter((t) => t.status === 'COMPLETED').length;
 
-  const totalFish = activeTanks.reduce((sum, t) => sum + (t.batchMetrics?.pieces ?? 0), 0);
-  const totalBiomass = activeTanks.reduce(
-    (sum, t) => sum + (t.batchMetrics?.biomass ?? t.currentBiomass ?? 0),
-    0,
-  );
+  // Unit totals, not primary-batch totals: a mixed pen holds more than its
+  // primary batch reports, and farm aggregates built from the batch understate
+  // the farm (ORPHAN-HIGH-585).
+  const totalFish = activeTanks.reduce((sum, t) => sum + t.currentQuantity, 0);
+  const totalBiomass = activeTanks.reduce((sum, t) => sum + t.currentBiomass, 0);
   const overCapacityCount = activeTanks.filter((t) => t.batchMetrics?.isOverCapacity).length;
 
   const [sheet, setSheet] = useState<{ type: SheetType } | null>(null);

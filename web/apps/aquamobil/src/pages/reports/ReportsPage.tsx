@@ -50,9 +50,15 @@ const REPORT_TYPE_LABELS: Record<string, string> = {
   BIOMASS: 'Biomass (Altinn)',
 };
 
-/** The consent thresholds the unit detail's meter also uses. */
+/**
+ * The ADVISORY watch line. It is not the consent limit: the backend owns that,
+ * via `batchMetrics.isOverCapacity`, which fires on density, status and biomass
+ * axes — so a pen blocked on biomass at 60% is over consent while a pen at 92%
+ * density may not be. Using a hardcoded 90 here as "at consent limit" made this
+ * screen and Today disagree about the same pen. This constant now only labels
+ * the advisory band; `isOverCapacity` is the single definition of at/over.
+ */
 const WATCH_AT = 70;
-const LIMIT_AT = 90;
 
 function periodLabel(row: DeadlineRow): string {
   if (row.periodWeek != null) return `${row.periodYear} · W${row.periodWeek}`;
@@ -110,10 +116,13 @@ export function ReportsPage(): JSX.Element {
    */
   const summary = useMemo(() => {
     const stocked = (tanks ?? []).filter((t) => t.batchMetrics?.batchId);
-    const fish = stocked.reduce((n, t) => n + (t.batchMetrics?.pieces ?? 0), 0);
-    const biomassKg = stocked.reduce((n, t) => n + (t.batchMetrics?.biomass ?? 0), 0);
+    // Unit totals across every batch in each pen — the primary batch alone
+    // understates a mixed pen and this figure is presented as the farm's.
+    const fish = stocked.reduce((n, t) => n + t.currentQuantity, 0);
+    const biomassKg = stocked.reduce((n, t) => n + t.currentBiomass, 0);
     const atWatch = stocked.filter((t) => (t.batchMetrics?.capacityUsedPercent ?? 0) >= WATCH_AT);
-    const atLimit = stocked.filter((t) => (t.batchMetrics?.capacityUsedPercent ?? 0) >= LIMIT_AT);
+    // The backend flag, the same one Today uses — not a local threshold.
+    const atLimit = stocked.filter((t) => t.batchMetrics?.isOverCapacity === true);
     return {
       stockedCount: stocked.length,
       totalCount: (tanks ?? []).length,
@@ -177,17 +186,17 @@ export function ReportsPage(): JSX.Element {
               </div>
               {summary.atLimit > 0 ? (
                 <StatTile
-                  label="Units at consent limit"
+                  label="Units over consent"
                   value={String(summary.atLimit)}
                   state="crit"
-                  caption={`Of ${summary.stockedCount} stocked · limit ${LIMIT_AT}%`}
+                  caption={`Of ${summary.stockedCount} stocked · flagged by the farm service`}
                 />
               ) : summary.atWatch > 0 ? (
                 <StatTile
                   label="Units past the watch line"
                   value={String(summary.atWatch)}
                   state="warn"
-                  caption={`Of ${summary.stockedCount} stocked · watch ${WATCH_AT}%`}
+                  caption={`Of ${summary.stockedCount} stocked · advisory ${WATCH_AT}% density`}
                 />
               ) : (
                 <StatTile
@@ -210,7 +219,13 @@ export function ReportsPage(): JSX.Element {
                 <ListRow
                   key={t.id}
                   leading={t.code || t.name}
-                  tone={pct >= LIMIT_AT ? 'crit' : pct >= WATCH_AT ? 'warn' : 'neutral'}
+                  tone={
+                    t.batchMetrics?.isOverCapacity === true
+                      ? 'crit'
+                      : pct >= WATCH_AT
+                        ? 'warn'
+                        : 'neutral'
+                  }
                   title={t.name}
                   subtitle={`${(t.batchMetrics?.density ?? 0).toFixed(1)} kg/m³`}
                   trailing={<span className="font-mono">{pct.toFixed(0)}%</span>}

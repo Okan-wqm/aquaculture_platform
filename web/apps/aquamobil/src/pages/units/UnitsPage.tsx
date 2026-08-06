@@ -125,13 +125,13 @@ export function UnitsPage(): ReactElement {
                   }
                   subtitle={
                     metrics?.batchNumber
-                      ? `${metrics.batchNumber} · ${(metrics.pieces ?? 0).toLocaleString()} fish`
+                      ? `${metrics.batchNumber} · ${tank.currentQuantity.toLocaleString()} fish`
                       : 'No batch stocked'
                   }
                   trailing={
-                    metrics?.biomass != null ? (
+                    tank.currentBiomass > 0 ? (
                       <span className="font-mono tabular-nums">
-                        {(metrics.biomass / 1000).toFixed(1)}
+                        {(tank.currentBiomass / 1000).toFixed(1)}
                         <span className="text-ink-3 font-sans"> t</span>
                       </span>
                     ) : undefined

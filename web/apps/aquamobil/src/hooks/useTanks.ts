@@ -90,6 +90,10 @@ function mapInventoryItemToTank(item: FarmStockInventoryResult['farmStockInvento
     code: item.container.code,
     volume: item.container.volume ?? 0,
     status: (item.container.status?.toUpperCase() ?? 'ACTIVE') as Tank['status'],
+    // The container's OWN totals, across every batch in it. These are what
+    // unit- and farm-level figures must use; the per-batch block below covers
+    // only the primary batch and understates a mixed pen.
+    currentQuantity: item.container.currentQuantity ?? 0,
     currentBiomass: item.container.currentBiomassKg ?? 0,
     maxBiomass: item.container.maxBiomassKg ?? 0,
     siteId: item.container.siteId,

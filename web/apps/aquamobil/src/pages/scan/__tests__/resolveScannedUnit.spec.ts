@@ -21,6 +21,7 @@ function tank(overrides: Partial<Tank>): Tank {
     code: 'U-07',
     volume: 1200,
     status: 'ACTIVE',
+    currentQuantity: 92_400,
     currentBiomass: 0,
     maxBiomass: 0,
     batchMetrics: null,

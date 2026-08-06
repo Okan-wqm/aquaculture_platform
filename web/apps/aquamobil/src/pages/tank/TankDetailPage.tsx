@@ -127,11 +127,17 @@ export function TankDetailPage(): JSX.Element {
         {hasBatch && metrics ? (
           <>
             <div className="grid grid-cols-2 gap-2">
+              {/* The UNIT's standing biomass, across every batch in it — shown
+                  beside density and capacity, which are also whole-container
+                  figures. Reading the primary batch here made three tiles on
+                  one screen disagree about one pen. */}
               <StatTile
                 label="Standing biomass"
-                value={((metrics.biomass ?? 0) / 1000).toFixed(1)}
+                value={(tank.currentBiomass / 1000).toFixed(1)}
                 unit="t"
-                caption={`${compact(metrics.pieces ?? 0)} fish`}
+                caption={
+                  tank.currentQuantity > 0 ? `${compact(tank.currentQuantity)} fish` : undefined
+                }
               />
               <StatTile
                 label="Average weight"

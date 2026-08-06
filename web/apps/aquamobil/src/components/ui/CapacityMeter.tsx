@@ -21,7 +21,13 @@ export interface CapacityMeterProps {
   percent: number;
   /** Amber band start. Default 70 matches the v4 design's watch threshold. */
   watchAt?: number;
-  /** Coral band start — the consent limit. Default 90. */
+  /**
+   * Coral band start. These are DENSITY lines, not the consent verdict: the
+   * farm service owns that via `isOverCapacity`, which also fires on status and
+   * biomass axes. Treating 90 here as "the limit" is what made two screens
+   * disagree about the same pen (ORPHAN-HIGH-586), so the ticks are labelled as
+   * density rather than as consent.
+   */
   limitAt?: number;
   /** Right-hand readout, e.g. "93% · 28.4 kg/m³". Caller formats it. */
   readout?: string;
@@ -59,7 +65,7 @@ export function CapacityMeter({
         aria-valuenow={Math.round(percent)}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-label={`Stocking density ${Math.round(percent)} percent of consent; watch at ${watchAt}, limit at ${limitAt}`}
+        aria-label={`Stocking density ${Math.round(percent)} percent; advisory watch at ${watchAt}, high at ${limitAt}`}
       >
         {Array.from({ length: segments }, (_, i) => (
           <span
@@ -73,8 +79,8 @@ export function CapacityMeter({
           colour-alone, so it is not optional decoration. */}
       <div className="flex justify-between text-meta font-mono text-ink-3">
         <span>0</span>
-        <span>{watchAt} watch</span>
-        <span>{limitAt} limit</span>
+        <span>{watchAt}% watch</span>
+        <span>{limitAt}% density</span>
       </div>
     </div>
   );

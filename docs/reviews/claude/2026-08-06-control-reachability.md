@@ -114,3 +114,71 @@ New suite `aria-kernel/tests/test_control_reachability.py`, 7 tests.
 | leave a stale waiver for a control that is wired   | 2 red                          |
 
 Counts: 85 controls, 18 dormant before, **17 declared + 1 wired** after.
+
+---
+
+## ORPHAN-MEDIUM-574 — three numbers that made every merge conflict
+
+### Found by counting, not by irritation
+
+`tools/quality/format-scope.json` conflicted on **five separate merges in one
+day** once two sessions were working concurrently. Each was resolved
+identically. After the fifth, the conflict was inspected instead of resolved
+again.
+
+### The mechanism
+
+The manifest is ~9,300 sorted entries. Two branches adding entries at
+different paths should merge cleanly — and the entries did. The conflict was
+elsewhere: three summary scalars emitted beside them.
+
+```text
+file_count               entries.length
+managed_count            managedFiles.length
+managed_file_list_sha256 sha256(managedFiles.join('\n'))
+```
+
+Adding or removing **any** tracked file changes all three. So two branches
+conflict on exactly those lines _regardless of which files each one touched_ —
+a structurally certain conflict rather than an occasional one.
+
+### Why the conflicts carried no information
+
+`checkManifest` rebuilds the manifest from the tree and compares it
+byte-for-byte, and the pre-commit hook runs that check **unconditionally**
+(`.husky/pre-commit`), as does CI. So whichever side of the conflict is taken,
+the content is recomputed and anything else is refused. Five hand-resolutions,
+zero decisions.
+
+### Why removal, not a merge driver
+
+Measured: the three scalars have **one producer and zero readers**.
+`getManagedFormatFiles` is the manifest's only consumer and reads `.entries`
+alone; a repo-wide search returns nothing but their own assignment lines.
+
+A checksum over a file's own contents, stored in that same file, cannot detect
+anything the contents do not already show. Removing them costs no detection
+power — `checkManifest` still compares all entries byte-for-byte.
+
+The obvious alternative was a git merge driver. It was rejected on
+architecture, not effort: `merge.<name>.driver` must be registered in every
+clone's git config, **does not travel with the repository**, and would change
+merge behaviour for everyone in order to work around data that should not
+exist. The neighbouring precedent — `merge=union` on the append-only
+`orphan-findings.md` ledger — is right for that file and wrong here, because
+this is structured JSON where union produces an invalid document.
+
+### Pinned in two places, deliberately
+
+`tools/gates/format-scope-derived-scalars.spec.ts` checks the artifact **and**
+the generator. Checking only the artifact would pass while the defect sat one
+command away: a field absent from today's manifest but still emitted by
+`buildFormatScope` reappears on the next `generate`.
+
+| mutation                                         | result                                                                   |
+| ------------------------------------------------ | ------------------------------------------------------------------------ |
+| re-add a scalar to `buildFormatScope`            | red — _"the committed manifest is only clean until the next regenerate"_ |
+| manifest carries a scalar the generator does not | red                                                                      |
+
+The spec also re-runs the existing freshness check, so it can never become a
+way to pass while the manifest drifts.

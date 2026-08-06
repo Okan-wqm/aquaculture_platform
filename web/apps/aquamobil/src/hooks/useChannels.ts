@@ -47,10 +47,9 @@ const CACHE_TTL_MS = 2 * 60 * 60 * 1000;
  * @returns ChannelPage with items and total count
  */
 async function fetchChannels(limit: number, offset: number): Promise<ChannelPage> {
-  const result = await graphqlRequest<{ myChannels: ChannelPage }>(
-    MY_CHANNELS,
-    { filter: { limit, offset } },
-  );
+  const result = await graphqlRequest<{ myChannels: ChannelPage }>(MY_CHANNELS, {
+    filter: { limit, offset },
+  });
 
   if (!result.myChannels?.items) {
     throw new Error('Invalid response: no channel data');
@@ -152,7 +151,9 @@ export function useChannels(
     if (!socket) return;
 
     const handleChannelUpdated = (): void => {
-      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+      void queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+      });
     };
 
     socket.on('channelUpdated', handleChannelUpdated);
@@ -183,9 +184,10 @@ export function useChannels(
   }, [query.data?.items, offset]);
 
   return {
-    channels: accumulatedChannelsRef.current.length > 0
-      ? accumulatedChannelsRef.current
-      : (query.data?.items ?? []),
+    channels:
+      accumulatedChannelsRef.current.length > 0
+        ? accumulatedChannelsRef.current
+        : (query.data?.items ?? []),
     isLoading: query.isLoading,
     error: query.error,
     refetch: query.refetch,

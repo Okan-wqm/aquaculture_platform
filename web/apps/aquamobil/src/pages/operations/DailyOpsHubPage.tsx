@@ -99,10 +99,7 @@ function TaskRow({ task }: { task: Task }): JSX.Element {
       </span>
       {badge && (
         <span
-          className={clsx(
-            'text-meta font-semibold px-2 py-0.5 rounded-full flex-shrink-0',
-            badge,
-          )}
+          className={clsx('text-meta font-semibold px-2 py-0.5 rounded-full flex-shrink-0', badge)}
         >
           {task.priority}
         </span>
@@ -171,9 +168,8 @@ export function DailyOpsHubPage(): JSX.Element {
 
   // WHY: Progress percentage is clamped to 0-100 to handle edge cases where
   // completed > total (e.g., task added mid-day then completed concurrently).
-  const progressPercent = totalTasks > 0
-    ? Math.min(Math.round((completedTasks / totalTasks) * 100), 100)
-    : 0;
+  const progressPercent =
+    totalTasks > 0 ? Math.min(Math.round((completedTasks / totalTasks) * 100), 100) : 0;
 
   return (
     <ErrorBoundary fallbackTitle="Daily Operations Error">
@@ -190,20 +186,14 @@ export function DailyOpsHubPage(): JSX.Element {
 
           {/* Shift Checklist Progress Card */}
           <section aria-label="Today's checklist">
-            <h2 className="text-body font-semibold text-ink-3 mb-2 px-1">
-              Today&apos;s Checklist
-            </h2>
+            <h2 className="text-body font-semibold text-ink-3 mb-2 px-1">Today&apos;s Checklist</h2>
 
             {tasksLoading ? (
               <div aria-busy="true" aria-label="Loading checklist">
                 <Skeleton variant="row" count={3} />
               </div>
             ) : totalTasks === 0 ? (
-              <EmptyState
-                icon={<Inbox size={22} />}
-                title="No tasks for today"
-                className="py-8"
-              />
+              <EmptyState icon={<Inbox size={22} />} title="No tasks for today" className="py-8" />
             ) : (
               <Card className="p-4">
                 {/* Progress bar */}

@@ -4,17 +4,9 @@ import { useState, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { AppHeader } from '@/components/AppHeader';
-import {
-  Button,
-  Card,
-  EmptyState,
-  IconButton,
-  SegmentedControl,
-  Skeleton,
-} from '@/components/ui';
+import { Button, Card, EmptyState, IconButton, SegmentedControl, Skeleton } from '@/components/ui';
 import { useMyLeaveBalances, useMyLeaveRequests, useCancelLeaveRequest } from '@/hooks/useLeave';
 import type { LeaveBalance, LeaveRequest } from '@/types';
-
 
 /**
  * Request status → badge tone. DRAFT and CANCELLED share the neutral treatment
@@ -182,9 +174,13 @@ export function MyLeavesPage(): JSX.Element {
 
               <div className="text-body text-ink-2 space-y-1">
                 <p>
-                  {new Date(request.startDate).toLocaleDateString()} - {new Date(request.endDate).toLocaleDateString()}
+                  {new Date(request.startDate).toLocaleDateString()} -{' '}
+                  {new Date(request.endDate).toLocaleDateString()}
                 </p>
-                <p>{request.totalDays} day{request.totalDays !== 1 ? 's' : ''}{request.isHalfDayStart || request.isHalfDayEnd ? ' (half day)' : ''}</p>
+                <p>
+                  {request.totalDays} day{request.totalDays !== 1 ? 's' : ''}
+                  {request.isHalfDayStart || request.isHalfDayEnd ? ' (half day)' : ''}
+                </p>
                 {request.reason && <p className="text-ink-3 italic">{request.reason}</p>}
               </div>
 
@@ -208,12 +204,7 @@ export function MyLeavesPage(): JSX.Element {
           )}
 
           {/* New Request Button */}
-          <Button
-            variant="primary"
-            size="save"
-            block
-            onClick={() => navigate('/leave/request')}
-          >
+          <Button variant="primary" size="save" block onClick={() => navigate('/leave/request')}>
             <Plus size={20} />
             New Leave Request
           </Button>

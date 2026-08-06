@@ -33,7 +33,9 @@ describe('offline queue synced operation invalidation', () => {
   });
 
   it('deduplicates shared invalidation keys across synced operation types', () => {
-    expect(getSyncedOperationInvalidationKeys('tenant-1', ['recordFeeding', 'recordMortality'])).toEqual([
+    expect(
+      getSyncedOperationInvalidationKeys('tenant-1', ['recordFeeding', 'recordMortality']),
+    ).toEqual([
       ['tenant', 'tenant-1', 'tanks'],
       ['tenant', 'tenant-1', 'feedingDayPlans'],
       ['tenant', 'tenant-1', 'dailyOpsCounts'],
@@ -43,11 +45,13 @@ describe('offline queue synced operation invalidation', () => {
   });
 
   it('invalidates task, storage, and messaging read models through the same tenant-scoped map', () => {
-    expect(getSyncedOperationInvalidationKeys('tenant-1', [
-      'completeTask',
-      'recordStockMovement',
-      'sendMessage',
-    ])).toEqual([
+    expect(
+      getSyncedOperationInvalidationKeys('tenant-1', [
+        'completeTask',
+        'recordStockMovement',
+        'sendMessage',
+      ]),
+    ).toEqual([
       ['tenant', 'tenant-1', 'myTasks'],
       ['tenant', 'tenant-1', 'taskStats'],
       ['tenant', 'tenant-1', 'dailyOpsCounts'],

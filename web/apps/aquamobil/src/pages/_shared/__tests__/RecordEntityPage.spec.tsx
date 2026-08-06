@@ -127,7 +127,12 @@ vi.mock('konsta/react', () => ({
     return (
       <label>
         {label}
-        <input type={type || 'text'} value={value ?? ''} onChange={onInput} placeholder={placeholder} />
+        <input
+          type={type || 'text'}
+          value={value ?? ''}
+          onChange={onInput}
+          placeholder={placeholder}
+        />
       </label>
     );
   },

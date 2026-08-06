@@ -86,8 +86,7 @@ export function ChannelSettingsPage(): JSX.Element {
   const { channelId } = useParams<{ channelId: string }>();
   const { user } = useAuth();
 
-  const { channel, isLoading: loading, error: queryError, refetch } =
-    useChannelDetail(channelId);
+  const { channel, isLoading: loading, error: queryError, refetch } = useChannelDetail(channelId);
   const {
     updateNotificationPref,
     leaveChannel,
@@ -105,12 +104,7 @@ export function ChannelSettingsPage(): JSX.Element {
   const [addMemberSearch, setAddMemberSearch] = useState('');
 
   // AI consent hook
-  const {
-    isAiEnabled,
-    hasConsented,
-    toggleConsent,
-    isLoading: aiConsentLoading,
-  } = useAiConsent();
+  const { isAiEnabled, hasConsented, toggleConsent, isLoading: aiConsentLoading } = useAiConsent();
 
   // Determine current user's role in this channel
   const myMembership = useMemo(() => {
@@ -157,7 +151,9 @@ export function ChannelSettingsPage(): JSX.Element {
   }, [archiveChannel, navigate]);
 
   const error = queryError
-    ? (queryError instanceof Error ? queryError.message : 'Failed to load channel')
+    ? queryError instanceof Error
+      ? queryError.message
+      : 'Failed to load channel'
     : null;
 
   /** Add a user to the channel and close the add-member sheet. */
@@ -183,9 +179,7 @@ export function ChannelSettingsPage(): JSX.Element {
     if (!addMemberSearch.trim()) return filtered;
     const query = addMemberSearch.toLowerCase();
     return filtered.filter(
-      (u) =>
-        u.name.toLowerCase().includes(query) ||
-        u.email.toLowerCase().includes(query),
+      (u) => u.name.toLowerCase().includes(query) || u.email.toLowerCase().includes(query),
     );
   }, [tenantUsers, activeMembers, addMemberSearch]);
 
@@ -283,9 +277,7 @@ export function ChannelSettingsPage(): JSX.Element {
               <span className="text-title font-medium text-ink-1">
                 {currentNotifOption?.label ?? 'All Messages'}
               </span>
-              <p className="text-meta text-ink-3 mt-0.5">
-                {currentNotifOption?.description ?? ''}
-              </p>
+              <p className="text-meta text-ink-3 mt-0.5">{currentNotifOption?.description ?? ''}</p>
             </div>
             <ChevronRight
               size={18}
@@ -301,7 +293,9 @@ export function ChannelSettingsPage(): JSX.Element {
                 return (
                   <button
                     key={option.value}
-                    onClick={() => { void handleNotifChange(option.value); }}
+                    onClick={() => {
+                      void handleNotifChange(option.value);
+                    }}
                     className="w-full flex items-center gap-3 px-4 py-3.5 min-h-touch touch-feedback transition-all border-b border-line last:border-0"
                   >
                     <OptIcon size={18} className={isSelected ? 'text-acc' : 'text-ink-3'} />
@@ -454,9 +448,7 @@ export function ChannelSettingsPage(): JSX.Element {
             <div className="w-10 h-10 rounded-xl bg-surface-2 flex items-center justify-center">
               <Link size={20} className="text-ink-2" />
             </div>
-            <span className="text-title font-medium text-ink-1 flex-1 text-left">
-              Shared Links
-            </span>
+            <span className="text-title font-medium text-ink-1 flex-1 text-left">Shared Links</span>
             <ChevronRight size={18} className="text-ink-3" />
           </button>
         </Card>
@@ -507,7 +499,9 @@ export function ChannelSettingsPage(): JSX.Element {
           title="Leave Channel"
           message="Are you sure you want to leave this channel? You will no longer receive messages."
           confirmLabel="Leave"
-          onConfirm={() => { void handleLeave(); }}
+          onConfirm={() => {
+            void handleLeave();
+          }}
           onCancel={() => setShowLeaveDialog(false)}
         />
       )}
@@ -517,14 +511,20 @@ export function ChannelSettingsPage(): JSX.Element {
           title="Delete Channel"
           message="This will permanently delete the channel and all its messages for all members. This action cannot be undone."
           confirmLabel="Delete"
-          onConfirm={() => { void handleDelete(); }}
+          onConfirm={() => {
+            void handleDelete();
+          }}
           onCancel={() => setShowDeleteDialog(false)}
         />
       )}
 
       {/* Add Member bottom sheet */}
       {showAddMemberSheet && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center" role="dialog" aria-modal="true">
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center"
+          role="dialog"
+          aria-modal="true"
+        >
           {/* WHY a native <button> backdrop: a clickable dismiss target must be
               keyboard-operable and focusable. This mirrors the kit's own
               overlays. The kit's <Sheet> is NOT adopted here because it brings a
@@ -583,7 +583,9 @@ export function ChannelSettingsPage(): JSX.Element {
                   {availableUsers.map((u) => (
                     <button
                       key={u.id}
-                      onClick={() => { void handleAddMember(u.id); }}
+                      onClick={() => {
+                        void handleAddMember(u.id);
+                      }}
                       disabled={actionLoading}
                       className="w-full flex items-center gap-3 px-3 py-2.5 min-h-touch rounded-xl hover:bg-surface-2 touch-feedback transition-colors"
                     >

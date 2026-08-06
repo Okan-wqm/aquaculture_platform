@@ -16,14 +16,7 @@
  * deliberately theme-independent; the tokens still govern everything else.
  */
 
-import {
-  X,
-  Download,
-  ChevronLeft,
-  ChevronRight,
-  FileText,
-  AlertCircle,
-} from 'lucide-react';
+import { X, Download, ChevronLeft, ChevronRight, FileText, AlertCircle } from 'lucide-react';
 import { useState, useCallback, useRef, useEffect, useMemo, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
@@ -75,19 +68,16 @@ function flattenMessageMedia(messages: readonly Message[]): MediaItem[] {
   return media;
 }
 
-function useChannelMedia(channelId: string | undefined, attachmentId: string | undefined): {
+function useChannelMedia(
+  channelId: string | undefined,
+  attachmentId: string | undefined,
+): {
   media: MediaItem[];
   loading: boolean;
   error: string | null;
 } {
-  const {
-    messages,
-    isLoading,
-    error,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
-  } = useMessages(channelId);
+  const { messages, isLoading, error, fetchNextPage, hasNextPage, isFetchingNextPage } =
+    useMessages(channelId);
 
   const media = useMemo(() => flattenMessageMedia(messages), [messages]);
   const hasCurrentAttachment = !!attachmentId && media.some((item) => item.id === attachmentId);
@@ -179,9 +169,7 @@ export function MediaViewerPage(): JSX.Element {
 
   // Find the current media index
   const currentIndex = media.findIndex((m) => m.id === attachmentId);
-  const [activeIndex, setActiveIndex] = useState(
-    currentIndex >= 0 ? currentIndex : 0,
-  );
+  const [activeIndex, setActiveIndex] = useState(currentIndex >= 0 ? currentIndex : 0);
 
   // Keep activeIndex in sync when media loads
   useEffect(() => {
@@ -335,20 +323,21 @@ export function MediaViewerPage(): JSX.Element {
       <div className="flex items-center justify-between px-4 py-3 pt-safe-top bg-black/60 backdrop-blur-sm z-10">
         {/* IconButton carries the 48px target, the touch affordance and the
             focus ring, so the hand-rolled w-12/h-12 pair goes away. */}
-        <IconButton size="lg" onClick={handleClose} className="hover:bg-white/10" aria-label="Close">
+        <IconButton
+          size="lg"
+          onClick={handleClose}
+          className="hover:bg-white/10"
+          aria-label="Close"
+        >
           <X size={24} className="text-white" />
         </IconButton>
 
         {currentMedia && (
           <div className="flex-1 text-center min-w-0 px-2">
-            <p className="text-body font-medium text-white truncate">
-              {currentMedia.senderName}
-            </p>
+            <p className="text-body font-medium text-white truncate">{currentMedia.senderName}</p>
             {/* text-meta is 12px, the sunlight floor — it replaces an 11px
                 arbitrary size, so it LOWERS the tiny-text ratchet. */}
-            <p className="text-meta text-white/75">
-              {formatMediaDate(currentMedia.sentAt)}
-            </p>
+            <p className="text-meta text-white/75">{formatMediaDate(currentMedia.sentAt)}</p>
           </div>
         )}
 
@@ -490,9 +479,7 @@ export function MediaViewerPage(): JSX.Element {
             <div
               key={idx}
               className={`w-1.5 h-1.5 rounded-full transition-all ${
-                idx === activeIndex
-                  ? 'bg-white w-4'
-                  : 'bg-white/40'
+                idx === activeIndex ? 'bg-white w-4' : 'bg-white/40'
               }`}
             />
           ))}

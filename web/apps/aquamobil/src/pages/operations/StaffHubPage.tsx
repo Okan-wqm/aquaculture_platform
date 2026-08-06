@@ -10,14 +10,7 @@
  * from 4+ taps to 1.
  */
 
-import {
-  Users,
-  MapPin,
-  CalendarOff,
-  Calendar,
-  Clock,
-  ChevronRight,
-} from 'lucide-react';
+import { Users, MapPin, CalendarOff, Calendar, Clock, ChevronRight } from 'lucide-react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -90,9 +83,7 @@ export function StaffHubPage(): JSX.Element {
   const totalLeaveRemaining = summary?.totalLeaveRemaining ?? 0;
   const nextShiftDate = summary?.nextShiftDate ?? null;
 
-  const subtitle = isClockedIn
-    ? `On duty since ${formatClockTime(clockedInSince)}`
-    : 'Off duty';
+  const subtitle = isClockedIn ? `On duty since ${formatClockTime(clockedInSince)}` : 'Off duty';
 
   const kpiItems: KpiItem[] = [
     {
@@ -121,9 +112,10 @@ export function StaffHubPage(): JSX.Element {
   // WHY: Schedule preview days is used to calculate the leave progress bar.
   // The denominator is the total annual entitlement, approximated by remaining + used.
   // Since we only have "remaining" from the summary, we show a simplified card.
-  const leaveProgressPercent = totalLeaveRemaining > 0
-    ? Math.min(Math.round((totalLeaveRemaining / (totalLeaveRemaining + 1)) * 100), 100)
-    : 0;
+  const leaveProgressPercent =
+    totalLeaveRemaining > 0
+      ? Math.min(Math.round((totalLeaveRemaining / (totalLeaveRemaining + 1)) * 100), 100)
+      : 0;
 
   return (
     <ErrorBoundary fallbackTitle="Staff Error">

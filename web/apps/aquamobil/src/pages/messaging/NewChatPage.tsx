@@ -227,9 +227,7 @@ export function NewChatPage(): JSX.Element {
     if (!canUseAi) return [];
     const tierOf = (id: string | null | undefined): string => {
       const prefix = (id ?? '').split('-')[0];
-      return ['operator', 'manager', 'expert', 'supervisor'].includes(prefix)
-        ? prefix
-        : 'operator';
+      return ['operator', 'manager', 'expert', 'supervisor'].includes(prefix) ? prefix : 'operator';
     };
     return aiPersonas.filter((p) => hasPermission(`ai_personas:${tierOf(p.id)}`));
   }, [aiPersonas, canUseAi, hasPermission]);
@@ -248,9 +246,7 @@ export function NewChatPage(): JSX.Element {
 
     const query = searchQuery.toLowerCase();
     return available.filter(
-      (u) =>
-        u.name.toLowerCase().includes(query) ||
-        u.email.toLowerCase().includes(query),
+      (u) => u.name.toLowerCase().includes(query) || u.email.toLowerCase().includes(query),
     );
   }, [users, searchQuery, currentUser?.id]);
 
@@ -317,10 +313,7 @@ export function NewChatPage(): JSX.Element {
   const handleAiPersonaPress = useCallback(
     async (persona: AiPersona) => {
       try {
-        const channelId = await createAiChannel(
-          persona.id ?? undefined,
-          persona.name,
-        );
+        const channelId = await createAiChannel(persona.id ?? undefined, persona.name);
         if (channelId) {
           navigate(`/messages/ai/${channelId}`, { replace: true });
         }
@@ -332,14 +325,14 @@ export function NewChatPage(): JSX.Element {
   );
 
   const selectedUserNames = useMemo(() => {
-    return users
-      .filter((u) => selectedUserIds.has(u.id))
-      .map((u) => u.name);
+    return users.filter((u) => selectedUserIds.has(u.id)).map((u) => u.name);
   }, [users, selectedUserIds]);
 
   const loading = usersLoading;
   const errorMsg = usersError
-    ? (usersError instanceof Error ? usersError.message : 'Failed to load users')
+    ? usersError instanceof Error
+      ? usersError.message
+      : 'Failed to load users'
     : null;
 
   return (
@@ -398,14 +391,21 @@ export function NewChatPage(): JSX.Element {
           </Card>
 
           <div className="flex gap-3">
-            <Button variant="secondary" size="save" block onClick={() => setShowGroupNameInput(false)}>
+            <Button
+              variant="secondary"
+              size="save"
+              block
+              onClick={() => setShowGroupNameInput(false)}
+            >
               Back
             </Button>
             <Button
               variant="primary"
               size="save"
               block
-              onClick={() => { void handleCreateGroup(); }}
+              onClick={() => {
+                void handleCreateGroup();
+              }}
               disabled={!groupName.trim() || isCreating}
             >
               {isCreating ? (
@@ -463,7 +463,9 @@ export function NewChatPage(): JSX.Element {
                   <AiPersonaCard
                     key={persona.id ?? 'general'}
                     persona={persona}
-                    onPress={() => { void handleAiPersonaPress(persona); }}
+                    onPress={() => {
+                      void handleAiPersonaPress(persona);
+                    }}
                     disabled={isCreating}
                   />
                 ))}
@@ -548,7 +550,9 @@ export function NewChatPage(): JSX.Element {
                     user={u}
                     isSelected={selectedUserIds.has(u.id)}
                     showCheckbox={isGroupMode}
-                    onPress={() => { void handleUserPress(u.id); }}
+                    onPress={() => {
+                      void handleUserPress(u.id);
+                    }}
                   />
                 ))}
               </div>

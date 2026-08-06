@@ -72,14 +72,18 @@ function RiskGauge({ score }: { score: number }): ReactElement {
       <svg className="w-24 h-24 -rotate-90" viewBox="0 0 80 80">
         {/* WHY: Background ring shows the full circle track so the progress is visually contextualized */}
         <circle
-          cx="40" cy="40" r={radius}
+          cx="40"
+          cy="40"
+          r={radius}
           fill="none"
           strokeWidth="6"
           className="stroke-surface-3"
         />
         {/* WHY: Foreground ring — dasharray/dashoffset technique creates the animated progress arc */}
         <circle
-          cx="40" cy="40" r={radius}
+          cx="40"
+          cy="40"
+          r={radius}
           fill="none"
           strokeWidth="6"
           strokeLinecap="round"
@@ -108,10 +112,14 @@ function RiskGauge({ score }: { score: number }): ReactElement {
  */
 function getSeverityTone(severity: string): string {
   switch (severity.toLowerCase()) {
-    case 'critical': return 'bg-crit-dim text-crit';
-    case 'high': return 'bg-crit-dim text-crit';
-    case 'medium': return 'bg-warn-dim text-warn';
-    default: return 'bg-acc-dim text-acc';
+    case 'critical':
+      return 'bg-crit-dim text-crit';
+    case 'high':
+      return 'bg-crit-dim text-crit';
+    case 'medium':
+      return 'bg-warn-dim text-warn';
+    default:
+      return 'bg-acc-dim text-acc';
   }
 }
 
@@ -212,7 +220,8 @@ export function AiInsightsCard(): ReactElement {
                 {riskLabel}
               </span>
               <p className="text-meta text-ink-3 font-medium">
-                {insights.tankRisks.length} tank{insights.tankRisks.length !== 1 ? 's' : ''} monitored
+                {insights.tankRisks.length} tank{insights.tankRisks.length !== 1 ? 's' : ''}{' '}
+                monitored
               </p>
             </div>
 

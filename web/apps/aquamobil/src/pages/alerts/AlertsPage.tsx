@@ -4,14 +4,7 @@ import { type JSX, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { AppHeader } from '@/components/AppHeader';
-import {
-  Button,
-  Card,
-  EmptyState,
-  IconButton,
-  SegmentedControl,
-  Skeleton,
-} from '@/components/ui';
+import { Button, Card, EmptyState, IconButton, SegmentedControl, Skeleton } from '@/components/ui';
 import type { AlertSeverity } from '@/generated/graphql';
 import { useAlerts, type MobileAlert } from '@/hooks/useAlerts';
 
@@ -81,21 +74,14 @@ function AlertCard({
     <Card
       className={clsx(
         'p-4',
-        alert.acknowledged
-          ? 'opacity-70'
-          : alert.severity === 'CRITICAL' && 'border-crit',
+        alert.acknowledged ? 'opacity-70' : alert.severity === 'CRITICAL' && 'border-crit',
       )}
     >
       <div className="flex items-start gap-3">
         <AlertTriangle size={22} className={clsx('mt-0.5 shrink-0', style.icon)} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <span
-              className={clsx(
-                'px-2 py-0.5 rounded-full text-meta font-semibold',
-                style.badge,
-              )}
-            >
+            <span className={clsx('px-2 py-0.5 rounded-full text-meta font-semibold', style.badge)}>
               {style.label}
             </span>
             <span className="text-meta text-ink-3">{formatTimeAgo(alert.triggeredAt)}</span>

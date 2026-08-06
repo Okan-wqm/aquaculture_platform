@@ -16,7 +16,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { gql } from 'graphql-tag';
 
-
 import type {
   MyChannelsQuery,
   MyChannelsQueryVariables,
@@ -218,17 +217,21 @@ export const GET_MESSAGES: TypedDocumentNode<GetMessagesQuery, GetMessagesQueryV
 `;
 
 /** Get messages since a timestamp for a single channel (offline sync). */
-export const MESSAGES_SINCE: TypedDocumentNode<MessagesSinceQuery, MessagesSinceQueryVariables> = gql`
-  query MessagesSince($channelId: ID!, $since: DateTime!) {
-    messagesSince(channelId: $channelId, since: $since) {
-      ...MessageFields
+export const MESSAGES_SINCE: TypedDocumentNode<MessagesSinceQuery, MessagesSinceQueryVariables> =
+  gql`
+    query MessagesSince($channelId: ID!, $since: DateTime!) {
+      messagesSince(channelId: $channelId, since: $since) {
+        ...MessageFields
+      }
     }
-  }
-  ${MESSAGE_FIELDS}
-`;
+    ${MESSAGE_FIELDS}
+  `;
 
 /** Bulk offline sync — all new messages across all channels since timestamp. */
-export const ALL_MESSAGES_SINCE: TypedDocumentNode<AllMessagesSinceQuery, AllMessagesSinceQueryVariables> = gql`
+export const ALL_MESSAGES_SINCE: TypedDocumentNode<
+  AllMessagesSinceQuery,
+  AllMessagesSinceQueryVariables
+> = gql`
   query AllMessagesSince($since: DateTime!, $limit: Int, $syncToken: String) {
     allMessagesSince(since: $since, limit: $limit, syncToken: $syncToken) {
       messages {
@@ -242,24 +245,31 @@ export const ALL_MESSAGES_SINCE: TypedDocumentNode<AllMessagesSinceQuery, AllMes
 `;
 
 /** Get total unread message count across all channels. */
-export const TOTAL_UNREAD_MESSAGE_COUNT: TypedDocumentNode<TotalUnreadMessageCountQuery, TotalUnreadMessageCountQueryVariables> = gql`
+export const TOTAL_UNREAD_MESSAGE_COUNT: TypedDocumentNode<
+  TotalUnreadMessageCountQuery,
+  TotalUnreadMessageCountQueryVariables
+> = gql`
   query TotalUnreadMessageCount {
     totalUnreadMessageCount
   }
 `;
 
 /** Full-text search across messages. */
-export const SEARCH_MESSAGES: TypedDocumentNode<SearchMessagesQuery, SearchMessagesQueryVariables> = gql`
-  query SearchMessages($input: SearchMessagesInput!) {
-    searchMessages(input: $input) {
-      ...MessageFields
+export const SEARCH_MESSAGES: TypedDocumentNode<SearchMessagesQuery, SearchMessagesQueryVariables> =
+  gql`
+    query SearchMessages($input: SearchMessagesInput!) {
+      searchMessages(input: $input) {
+        ...MessageFields
+      }
     }
-  }
-  ${MESSAGE_FIELDS}
-`;
+    ${MESSAGE_FIELDS}
+  `;
 
 /** Get pinned messages in a channel. */
-export const GET_PINNED_MESSAGES: TypedDocumentNode<GetPinnedMessagesQuery, GetPinnedMessagesQueryVariables> = gql`
+export const GET_PINNED_MESSAGES: TypedDocumentNode<
+  GetPinnedMessagesQuery,
+  GetPinnedMessagesQueryVariables
+> = gql`
   query GetPinnedMessages($channelId: ID!) {
     pinnedMessages(channelId: $channelId) {
       id
@@ -288,17 +298,21 @@ export const USER_PRESENCE: TypedDocumentNode<UserPresenceQuery, UserPresenceQue
 `;
 
 /** Get or create a DM channel with another user. */
-export const DIRECT_CHANNEL: TypedDocumentNode<DirectChannelQuery, DirectChannelQueryVariables> = gql`
-  query DirectChannel($userId: ID!) {
-    directChannel(userId: $userId) {
-      ...ChannelFields
+export const DIRECT_CHANNEL: TypedDocumentNode<DirectChannelQuery, DirectChannelQueryVariables> =
+  gql`
+    query DirectChannel($userId: ID!) {
+      directChannel(userId: $userId) {
+        ...ChannelFields
+      }
     }
-  }
-  ${CHANNEL_FIELDS}
-`;
+    ${CHANNEL_FIELDS}
+  `;
 
 /** Get available AI personas for the current tenant. */
-export const AVAILABLE_AI_PERSONAS: TypedDocumentNode<AvailableAiPersonasQuery, AvailableAiPersonasQueryVariables> = gql`
+export const AVAILABLE_AI_PERSONAS: TypedDocumentNode<
+  AvailableAiPersonasQuery,
+  AvailableAiPersonasQueryVariables
+> = gql`
   query AvailableAiPersonas {
     availableAiPersonas {
       id
@@ -316,7 +330,10 @@ export const AVAILABLE_AI_PERSONAS: TypedDocumentNode<AvailableAiPersonasQuery, 
 // ============================================================================
 
 /** Create a new group channel. */
-export const CREATE_CHANNEL: TypedDocumentNode<CreateChannelMutation, CreateChannelMutationVariables> = gql`
+export const CREATE_CHANNEL: TypedDocumentNode<
+  CreateChannelMutation,
+  CreateChannelMutationVariables
+> = gql`
   mutation CreateChannel($input: CreateChannelInput!) {
     createChannel(input: $input) {
       ...ChannelFields
@@ -326,7 +343,10 @@ export const CREATE_CHANNEL: TypedDocumentNode<CreateChannelMutation, CreateChan
 `;
 
 /** Update channel name, description, or avatar. */
-export const UPDATE_CHANNEL: TypedDocumentNode<UpdateChannelMutation, UpdateChannelMutationVariables> = gql`
+export const UPDATE_CHANNEL: TypedDocumentNode<
+  UpdateChannelMutation,
+  UpdateChannelMutationVariables
+> = gql`
   mutation UpdateChannel($id: ID!, $input: UpdateChannelInput!) {
     updateChannel(id: $id, input: $input) {
       ...ChannelFields
@@ -336,14 +356,20 @@ export const UPDATE_CHANNEL: TypedDocumentNode<UpdateChannelMutation, UpdateChan
 `;
 
 /** Archive (soft-delete) a channel. */
-export const ARCHIVE_CHANNEL: TypedDocumentNode<ArchiveChannelMutation, ArchiveChannelMutationVariables> = gql`
+export const ARCHIVE_CHANNEL: TypedDocumentNode<
+  ArchiveChannelMutation,
+  ArchiveChannelMutationVariables
+> = gql`
   mutation ArchiveChannel($id: ID!) {
     archiveChannel(id: $id)
   }
 `;
 
 /** Add a member to a channel. */
-export const ADD_CHANNEL_MEMBER: TypedDocumentNode<AddChannelMemberMutation, AddChannelMemberMutationVariables> = gql`
+export const ADD_CHANNEL_MEMBER: TypedDocumentNode<
+  AddChannelMemberMutation,
+  AddChannelMemberMutationVariables
+> = gql`
   mutation AddChannelMember($channelId: ID!, $userId: ID!, $role: ChannelMemberRole) {
     addChannelMember(channelId: $channelId, userId: $userId, role: $role) {
       id
@@ -364,14 +390,20 @@ export const ADD_CHANNEL_MEMBER: TypedDocumentNode<AddChannelMemberMutation, Add
 `;
 
 /** Remove a member from a channel (or leave). */
-export const REMOVE_CHANNEL_MEMBER: TypedDocumentNode<RemoveChannelMemberMutation, RemoveChannelMemberMutationVariables> = gql`
+export const REMOVE_CHANNEL_MEMBER: TypedDocumentNode<
+  RemoveChannelMemberMutation,
+  RemoveChannelMemberMutationVariables
+> = gql`
   mutation RemoveChannelMember($channelId: ID!, $userId: ID!) {
     removeChannelMember(channelId: $channelId, userId: $userId)
   }
 `;
 
 /** Update notification preference for a channel. */
-export const UPDATE_NOTIFICATION_PREFERENCE: TypedDocumentNode<UpdateNotificationPreferenceMutation, UpdateNotificationPreferenceMutationVariables> = gql`
+export const UPDATE_NOTIFICATION_PREFERENCE: TypedDocumentNode<
+  UpdateNotificationPreferenceMutation,
+  UpdateNotificationPreferenceMutationVariables
+> = gql`
   mutation UpdateNotificationPreference($channelId: ID!, $preference: NotificationPreference!) {
     updateNotificationPreference(channelId: $channelId, preference: $preference) {
       id
@@ -381,41 +413,52 @@ export const UPDATE_NOTIFICATION_PREFERENCE: TypedDocumentNode<UpdateNotificatio
 `;
 
 /** Send a message to a channel. */
-export const SEND_MESSAGE: TypedDocumentNode<SendMessageMutation, SendMessageMutationVariables> = gql`
-  mutation SendMessage($input: SendMessageInput!) {
-    sendMessage(input: $input) {
-      ...MessageFields
+export const SEND_MESSAGE: TypedDocumentNode<SendMessageMutation, SendMessageMutationVariables> =
+  gql`
+    mutation SendMessage($input: SendMessageInput!) {
+      sendMessage(input: $input) {
+        ...MessageFields
+      }
     }
-  }
-  ${MESSAGE_FIELDS}
-`;
+    ${MESSAGE_FIELDS}
+  `;
 
 /** Edit a message (own messages only). */
-export const EDIT_MESSAGE: TypedDocumentNode<EditMessageMutation, EditMessageMutationVariables> = gql`
-  mutation EditMessage($id: ID!, $input: EditMessageInput!) {
-    editMessage(id: $id, input: $input) {
-      ...MessageFields
+export const EDIT_MESSAGE: TypedDocumentNode<EditMessageMutation, EditMessageMutationVariables> =
+  gql`
+    mutation EditMessage($id: ID!, $input: EditMessageInput!) {
+      editMessage(id: $id, input: $input) {
+        ...MessageFields
+      }
     }
-  }
-  ${MESSAGE_FIELDS}
-`;
+    ${MESSAGE_FIELDS}
+  `;
 
 /** Soft-delete a message. */
-export const DELETE_MESSAGE: TypedDocumentNode<DeleteMessageMutation, DeleteMessageMutationVariables> = gql`
+export const DELETE_MESSAGE: TypedDocumentNode<
+  DeleteMessageMutation,
+  DeleteMessageMutationVariables
+> = gql`
   mutation DeleteMessage($id: ID!) {
     deleteMessage(id: $id)
   }
 `;
 
 /** Mark messages as read up to a given message. */
-export const MARK_MESSAGES_READ: TypedDocumentNode<MarkMessagesReadMutation, MarkMessagesReadMutationVariables> = gql`
+export const MARK_MESSAGES_READ: TypedDocumentNode<
+  MarkMessagesReadMutation,
+  MarkMessagesReadMutationVariables
+> = gql`
   mutation MarkMessagesRead($input: MarkReadInput!) {
     markMessagesRead(input: $input)
   }
 `;
 
 /** Request a presigned URL for media upload. */
-export const REQUEST_MEDIA_UPLOAD: TypedDocumentNode<RequestMediaUploadMutation, RequestMediaUploadMutationVariables> = gql`
+export const REQUEST_MEDIA_UPLOAD: TypedDocumentNode<
+  RequestMediaUploadMutation,
+  RequestMediaUploadMutationVariables
+> = gql`
   mutation RequestMediaUpload($input: RequestMediaUploadInput!) {
     requestMediaUpload(input: $input) {
       uploadUrl
@@ -442,30 +485,46 @@ export const PIN_MESSAGE: TypedDocumentNode<PinMessageMutation, PinMessageMutati
 `;
 
 /** Unpin a message. */
-export const UNPIN_MESSAGE: TypedDocumentNode<UnpinMessageMutation, UnpinMessageMutationVariables> = gql`
-  mutation UnpinMessage($channelId: ID!, $messageId: ID!) {
-    unpinMessage(channelId: $channelId, messageId: $messageId)
-  }
-`;
+export const UNPIN_MESSAGE: TypedDocumentNode<UnpinMessageMutation, UnpinMessageMutationVariables> =
+  gql`
+    mutation UnpinMessage($channelId: ID!, $messageId: ID!) {
+      unpinMessage(channelId: $channelId, messageId: $messageId)
+    }
+  `;
 
 /** Add a reaction to a message. */
-export const ADD_REACTION: TypedDocumentNode<AddReactionMutation, AddReactionMutationVariables> = gql`
-  mutation AddReaction($messageId: ID!, $emoji: String!) {
-    addReaction(messageId: $messageId, emoji: $emoji)
-  }
-`;
+export const ADD_REACTION: TypedDocumentNode<AddReactionMutation, AddReactionMutationVariables> =
+  gql`
+    mutation AddReaction($messageId: ID!, $emoji: String!) {
+      addReaction(messageId: $messageId, emoji: $emoji)
+    }
+  `;
 
 /** Remove a reaction from a message. */
-export const REMOVE_REACTION: TypedDocumentNode<RemoveReactionMutation, RemoveReactionMutationVariables> = gql`
+export const REMOVE_REACTION: TypedDocumentNode<
+  RemoveReactionMutation,
+  RemoveReactionMutationVariables
+> = gql`
   mutation RemoveReaction($messageId: ID!, $emoji: String!) {
     removeReaction(messageId: $messageId, emoji: $emoji)
   }
 `;
 
 /** Forward a message to another channel. */
-export const FORWARD_MESSAGE: TypedDocumentNode<ForwardMessageMutation, ForwardMessageMutationVariables> = gql`
-  mutation ForwardMessage($sourceMessageId: ID!, $sourceMessageCreatedAt: DateTime!, $targetChannelId: ID!) {
-    forwardMessage(sourceMessageId: $sourceMessageId, sourceMessageCreatedAt: $sourceMessageCreatedAt, targetChannelId: $targetChannelId) {
+export const FORWARD_MESSAGE: TypedDocumentNode<
+  ForwardMessageMutation,
+  ForwardMessageMutationVariables
+> = gql`
+  mutation ForwardMessage(
+    $sourceMessageId: ID!
+    $sourceMessageCreatedAt: DateTime!
+    $targetChannelId: ID!
+  ) {
+    forwardMessage(
+      sourceMessageId: $sourceMessageId
+      sourceMessageCreatedAt: $sourceMessageCreatedAt
+      targetChannelId: $targetChannelId
+    ) {
       ...MessageFields
     }
   }

@@ -54,7 +54,8 @@ function formatTimeAgo(dateStr: string): string {
 
 export function NotificationsPage(): JSX.Element {
   const navigate = useNavigate();
-  const { notifications, loading, error, markAsRead, markAllAsRead, unreadCount, refetch } = useNotifications();
+  const { notifications, loading, error, markAsRead, markAllAsRead, unreadCount, refetch } =
+    useNotifications();
 
   const handleNotificationPress = async (notification: InAppNotification): Promise<void> => {
     if (!notification.isRead) {
@@ -131,14 +132,15 @@ export function NotificationsPage(): JSX.Element {
               <button
                 type="button"
                 onClick={() => {
-                  runAsyncAction(() => handleNotificationPress(notification), 'notifications-press');
+                  runAsyncAction(
+                    () => handleNotificationPress(notification),
+                    'notifications-press',
+                  );
                 }}
                 className={clsx(
                   'w-full min-h-touch rounded-2xl p-4 border text-left touch-feedback shadow-token',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc',
-                  notification.isRead
-                    ? 'bg-surface-1 border-line'
-                    : 'bg-acc-dim border-acc',
+                  notification.isRead ? 'bg-surface-1 border-line' : 'bg-acc-dim border-acc',
                 )}
               >
                 <div className="flex items-start gap-3">

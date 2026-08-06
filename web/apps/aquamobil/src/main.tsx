@@ -118,5 +118,5 @@ ReactDOM.createRoot(rootElement).render(
         </I18nProvider>
       </ErrorBoundary>
     </QueryClientProvider>
-  </React.StrictMode>
+  </React.StrictMode>,
 );

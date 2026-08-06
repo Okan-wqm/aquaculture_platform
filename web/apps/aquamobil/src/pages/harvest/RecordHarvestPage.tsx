@@ -202,7 +202,9 @@ export function RecordHarvestPage(): JSX.Element {
 
       {/* Quality class — uses horizontal scroll + color dots, distinct from cull/mortality 4-col emoji grid */}
       <div className="px-4 mt-5">
-        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Quality Class</h3>
+        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
+          Quality Class
+        </h3>
         <div className="flex gap-2 overflow-x-auto pb-1">
           {QUALITY_CLASSES.map((g) => {
             const selected = qualityClass === g.value;
@@ -265,7 +267,9 @@ export function RecordHarvestPage(): JSX.Element {
               })}{' '}
               USD
             </div>
-            <div className="text-sm text-sea-600/70 dark:text-sea-400 font-medium">Estimated Value</div>
+            <div className="text-sm text-sea-600/70 dark:text-sea-400 font-medium">
+              Estimated Value
+            </div>
           </div>
         </div>
       )}

@@ -56,14 +56,10 @@ export function TankCard({ tank }: TankCardProps): ReactElement {
 
   // WHY: Capacity percentage drives the progress bar color — visual urgency scales with fill level
   // so overcrowding risks are immediately apparent without reading numbers.
-  const capacityPercent = metrics?.capacityUsedPercent ?? (
-    tank.maxBiomass > 0 ? ((tank.currentBiomass / tank.maxBiomass) * 100) : 0
-  );
-  const capacityTone = capacityPercent > 90
-    ? 'crit'
-    : capacityPercent > 70
-      ? 'warn'
-      : 'ok';
+  const capacityPercent =
+    metrics?.capacityUsedPercent ??
+    (tank.maxBiomass > 0 ? (tank.currentBiomass / tank.maxBiomass) * 100 : 0);
+  const capacityTone = capacityPercent > 90 ? 'crit' : capacityPercent > 70 ? 'warn' : 'ok';
   const capacityFill = { crit: 'bg-crit', warn: 'bg-warn', ok: 'bg-ok' }[capacityTone];
   const capacityText = { crit: 'text-crit', warn: 'text-warn', ok: 'text-ok' }[capacityTone];
 
@@ -150,7 +146,10 @@ export function TankCard({ tank }: TankCardProps): ReactElement {
               </div>
               <div className="h-1.5 bg-surface-2 rounded-full overflow-hidden">
                 <div
-                  className={clsx('h-full rounded-full transition-all duration-500 ease-out', capacityFill)}
+                  className={clsx(
+                    'h-full rounded-full transition-all duration-500 ease-out',
+                    capacityFill,
+                  )}
                   style={{ width: `${Math.min(capacityPercent, 100)}%` }}
                 />
               </div>
@@ -193,50 +192,54 @@ export function TankCard({ tank }: TankCardProps): ReactElement {
           This prevents dead-end navigation where FeatureRoute would redirect back to home.
           The per-log-type hues are the one place v4 lets colour be decorative — a worker
           identifies an entry type by hue before reading the word. */}
-      {hasBatch && (canReach('mortality') || canReach('cull') || canReach('harvest') || canReach('transfer')) && (
-        <div className="flex border-t border-line">
-          {canReach('mortality') && (
-            <button
-              type="button"
-              onClick={() => navigate(`/mortality/record/${tank.id}`)}
-              className="flex-1 min-h-touch flex items-center justify-center gap-1.5 py-3 text-type-mortality hover:bg-type-mortality-dim touch-feedback transition-colors border-r border-line last:border-r-0"
-            >
-              <Skull size={15} />
-              <span className="text-meta font-semibold">Mortality</span>
-            </button>
-          )}
-          {canReach('cull') && (
-            <button
-              type="button"
-              onClick={() => navigate(`/cull/record/${tank.id}`)}
-              className="flex-1 min-h-touch flex items-center justify-center gap-1.5 py-3 text-type-cull hover:bg-type-cull-dim touch-feedback transition-colors border-r border-line last:border-r-0"
-            >
-              <Scissors size={15} />
-              <span className="text-meta font-semibold">Cull</span>
-            </button>
-          )}
-          {canReach('harvest') && (
-            <button
-              type="button"
-              onClick={() => navigate(`/harvest/record/${tank.id}`)}
-              className="flex-1 min-h-touch flex items-center justify-center gap-1.5 py-3 text-type-harvest hover:bg-type-harvest-dim touch-feedback transition-colors border-r border-line last:border-r-0"
-            >
-              <Package size={15} />
-              <span className="text-meta font-semibold">Harvest</span>
-            </button>
-          )}
-          {canReach('transfer') && (
-            <button
-              type="button"
-              onClick={() => navigate(`/transfer/record/${tank.id}`)}
-              className="flex-1 min-h-touch flex items-center justify-center gap-1.5 py-3 text-type-transfer hover:bg-type-transfer-dim touch-feedback transition-colors border-r border-line last:border-r-0"
-            >
-              <ArrowLeftRight size={15} />
-              <span className="text-meta font-semibold">Transfer</span>
-            </button>
-          )}
-        </div>
-      )}
+      {hasBatch &&
+        (canReach('mortality') ||
+          canReach('cull') ||
+          canReach('harvest') ||
+          canReach('transfer')) && (
+          <div className="flex border-t border-line">
+            {canReach('mortality') && (
+              <button
+                type="button"
+                onClick={() => navigate(`/mortality/record/${tank.id}`)}
+                className="flex-1 min-h-touch flex items-center justify-center gap-1.5 py-3 text-type-mortality hover:bg-type-mortality-dim touch-feedback transition-colors border-r border-line last:border-r-0"
+              >
+                <Skull size={15} />
+                <span className="text-meta font-semibold">Mortality</span>
+              </button>
+            )}
+            {canReach('cull') && (
+              <button
+                type="button"
+                onClick={() => navigate(`/cull/record/${tank.id}`)}
+                className="flex-1 min-h-touch flex items-center justify-center gap-1.5 py-3 text-type-cull hover:bg-type-cull-dim touch-feedback transition-colors border-r border-line last:border-r-0"
+              >
+                <Scissors size={15} />
+                <span className="text-meta font-semibold">Cull</span>
+              </button>
+            )}
+            {canReach('harvest') && (
+              <button
+                type="button"
+                onClick={() => navigate(`/harvest/record/${tank.id}`)}
+                className="flex-1 min-h-touch flex items-center justify-center gap-1.5 py-3 text-type-harvest hover:bg-type-harvest-dim touch-feedback transition-colors border-r border-line last:border-r-0"
+              >
+                <Package size={15} />
+                <span className="text-meta font-semibold">Harvest</span>
+              </button>
+            )}
+            {canReach('transfer') && (
+              <button
+                type="button"
+                onClick={() => navigate(`/transfer/record/${tank.id}`)}
+                className="flex-1 min-h-touch flex items-center justify-center gap-1.5 py-3 text-type-transfer hover:bg-type-transfer-dim touch-feedback transition-colors border-r border-line last:border-r-0"
+              >
+                <ArrowLeftRight size={15} />
+                <span className="text-meta font-semibold">Transfer</span>
+              </button>
+            )}
+          </div>
+        )}
     </Card>
   );
 }

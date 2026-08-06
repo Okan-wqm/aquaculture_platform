@@ -13,7 +13,6 @@ import { useTaskActions } from '@/hooks/useTaskActions';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Task, ChecklistItem, TaskNote } from '@/types';
 
-
 /**
  * Priority → badge tone. URGENT and HIGH share the alarm token and MEDIUM takes
  * the watch token — the same mapping the Today screen uses, so one task does not
@@ -73,10 +72,7 @@ export function TaskDetailPage(): JSX.Element {
     setError(null);
 
     try {
-      const result = await graphqlRequest<{ task: Task }>(
-        GET_TASK_DETAIL,
-        { id: taskId },
-      );
+      const result = await graphqlRequest<{ task: Task }>(GET_TASK_DETAIL, { id: taskId });
 
       setTask(result.task ?? null);
     } catch (err) {
@@ -107,10 +103,13 @@ export function TaskDetailPage(): JSX.Element {
         setSuccessMessage('Task started!');
       }
       setShowSuccess(true);
-      setTimeout(() => {
-        setShowSuccess(false);
-        void fetchTask();
-      }, result.wasQueued ? 2000 : 1000);
+      setTimeout(
+        () => {
+          setShowSuccess(false);
+          void fetchTask();
+        },
+        result.wasQueued ? 2000 : 1000,
+      );
     } catch {
       setError('Failed to start task');
     } finally {
@@ -135,10 +134,13 @@ export function TaskDetailPage(): JSX.Element {
         setSuccessMessage('Task completed!');
       }
       setShowSuccess(true);
-      setTimeout(() => {
-        setShowSuccess(false);
-        void fetchTask();
-      }, result.wasQueued ? 2000 : 1000);
+      setTimeout(
+        () => {
+          setShowSuccess(false);
+          void fetchTask();
+        },
+        result.wasQueued ? 2000 : 1000,
+      );
     } catch {
       setError('Failed to complete task');
     } finally {
@@ -150,7 +152,10 @@ export function TaskDetailPage(): JSX.Element {
   // current state, so a tap on a checked item targets `false` and vice versa. The
   // backend SETs this value (no server-side flip), so the operation is idempotent
   // and safe to queue offline.
-  const handleToggleChecklist = async (itemId: string, currentIsCompleted: boolean): Promise<void> => {
+  const handleToggleChecklist = async (
+    itemId: string,
+    currentIsCompleted: boolean,
+  ): Promise<void> => {
     if (!taskId) return;
     try {
       await setChecklistItem(taskId, itemId, !currentIsCompleted);
@@ -212,7 +217,11 @@ export function TaskDetailPage(): JSX.Element {
     return (
       <div className="pb-32">
         <AppHeader title="Task Details" onBack={() => navigate(-1)} showAvatar={false} />
-        <EmptyState tone="error" icon={<AlertCircle size={22} />} title={error || 'Task not found'} />
+        <EmptyState
+          tone="error"
+          icon={<AlertCircle size={22} />}
+          title={error || 'Task not found'}
+        />
       </div>
     );
   }
@@ -224,7 +233,7 @@ export function TaskDetailPage(): JSX.Element {
   const checklistItems: ChecklistItem[] = Array.isArray(task.checklistItems)
     ? task.checklistItems.map((item) =>
         typeof item === 'object' && item !== null
-          ? (item)
+          ? item
           : { id: String(item), text: String(item), isCompleted: false },
       )
     : [];
@@ -232,7 +241,7 @@ export function TaskDetailPage(): JSX.Element {
   const notes: TaskNote[] = Array.isArray(task.notes)
     ? task.notes.map((note) =>
         typeof note === 'object' && note !== null
-          ? (note)
+          ? note
           : { id: String(note), text: String(note), createdBy: '', createdAt: '' },
       )
     : [];
@@ -274,7 +283,11 @@ export function TaskDetailPage(): JSX.Element {
               <div className="flex items-center gap-2 text-body text-ink-3">
                 <Clock size={14} />
                 <span>
-                  {new Date(task.dueDate).toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })}
+                  {new Date(task.dueDate).toLocaleDateString('en-US', {
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                  })}
                   {task.dueTime && ` - ${task.dueTime}`}
                 </span>
               </div>
@@ -296,10 +309,7 @@ export function TaskDetailPage(): JSX.Element {
                 <Tag size={14} />
                 <div className="flex flex-wrap gap-1">
                   {task.tags.map((tag, i) => (
-                    <span
-                      key={i}
-                      className="text-meta bg-surface-2 text-ink-2 px-2 py-0.5 rounded"
-                    >
+                    <span key={i} className="text-meta bg-surface-2 text-ink-2 px-2 py-0.5 rounded">
                       {tag}
                     </span>
                   ))}
@@ -313,7 +323,8 @@ export function TaskDetailPage(): JSX.Element {
         {checklistItems.length > 0 && (
           <section className="flex flex-col gap-2">
             <h3 className="text-body font-semibold text-ink-3 px-1">
-              Checklist ({checklistItems.filter((c) => c.isCompleted).length}/{checklistItems.length})
+              Checklist ({checklistItems.filter((c) => c.isCompleted).length}/
+              {checklistItems.length})
             </h3>
             <Card className="overflow-hidden">
               {checklistItems.map((item, index) => (
@@ -337,7 +348,16 @@ export function TaskDetailPage(): JSX.Element {
                     )}
                   >
                     {item.isCompleted && (
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="white"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
                         <path d="M20 6 9 17l-5-5" />
                       </svg>
                     )}

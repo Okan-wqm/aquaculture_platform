@@ -44,16 +44,11 @@ function formatAge(ageMs: number, dateStr: string): string {
 
 export function DataFreshness({ timestamp, label, className }: DataFreshnessProps): ReactElement {
   if (!timestamp) {
-    return (
-      <span className={clsx('text-meta font-medium text-ink-3', className)}>
-        No data
-      </span>
-    );
+    return <span className={clsx('text-meta font-medium text-ink-3', className)}>No data</span>;
   }
 
   const ageMs = Date.now() - new Date(timestamp).getTime();
-  const tier =
-    ageMs < FRESH_CEILING_MS ? 'fresh' : ageMs < AGING_CEILING_MS ? 'aging' : 'stale';
+  const tier = ageMs < FRESH_CEILING_MS ? 'fresh' : ageMs < AGING_CEILING_MS ? 'aging' : 'stale';
 
   const tierClass = {
     fresh: 'text-ok',

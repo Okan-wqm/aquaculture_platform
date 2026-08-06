@@ -33,8 +33,7 @@ export function InstallPrompt(): ReactElement | null {
   useEffect(() => {
     // Check if already running as installed PWA
     const standalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      isIosStandalone(window.navigator);
+      window.matchMedia('(display-mode: standalone)').matches || isIosStandalone(window.navigator);
     setIsStandalone(standalone);
 
     if (standalone) return;
@@ -105,7 +104,23 @@ export function InstallPrompt(): ReactElement | null {
             <h3 className="font-bold text-gray-900 dark:text-white text-sm">Install AquaMobil</h3>
             {isIOS ? (
               <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-                Tap the <span className="inline-flex items-center"><svg className="w-4 h-4 inline text-ocean-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg></span> share button, then <strong>&quot;Add to Home Screen&quot;</strong>
+                Tap the{' '}
+                <span className="inline-flex items-center">
+                  <svg
+                    className="w-4 h-4 inline text-ocean-500"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+                    />
+                  </svg>
+                </span>{' '}
+                share button, then <strong>&quot;Add to Home Screen&quot;</strong>
               </p>
             ) : (
               <p className="text-xs text-gray-500 mt-1">

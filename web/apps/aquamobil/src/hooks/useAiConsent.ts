@@ -21,7 +21,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 import { useCallback } from 'react';
 
-
 import { useAuth } from './useAuth';
 
 import { graphqlRequest } from '@/services/authenticated-fetch';
@@ -102,10 +101,9 @@ async function mutateAiConsent(consented: boolean): Promise<{ hasConsented: bool
     // `updateUserAiConsent` returns Boolean (success flag), not the new
     // consent value. On success the requested `consented` is the new state;
     // we surface it so the cache update + optimistic UI stay consistent.
-    await graphqlRequest<{ updateUserAiConsent: boolean }>(
-      UPDATE_USER_AI_CONSENT,
-      { consent: consented },
-    );
+    await graphqlRequest<{ updateUserAiConsent: boolean }>(UPDATE_USER_AI_CONSENT, {
+      consent: consented,
+    });
     return { hasConsented: consented };
   } catch {
     return { hasConsented: !consented };

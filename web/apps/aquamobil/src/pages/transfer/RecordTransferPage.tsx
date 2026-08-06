@@ -67,7 +67,8 @@ export function RecordTransferPage(): JSX.Element {
     if (!sourceTankId) newErrors.sourceTank = 'Please select source tank';
     if (!sourceMetrics) newErrors.sourceTank = 'Selected tank has no active batch';
     if (!destinationTankId) newErrors.destinationTank = 'Please select destination tank';
-    if (sourceTankId === destinationTankId) newErrors.destinationTank = 'Source and destination tank cannot be the same';
+    if (sourceTankId === destinationTankId)
+      newErrors.destinationTank = 'Source and destination tank cannot be the same';
     const qty = parseInt(quantity, 10);
     if (!qty || qty < 1) newErrors.quantity = 'Quantity must be at least 1';
     if (sourceMetrics && qty > (sourceMetrics.pieces ?? 0)) {
@@ -142,7 +143,10 @@ export function RecordTransferPage(): JSX.Element {
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
         <div className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
           <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-            <button onClick={() => setStep('entry')} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
+            <button
+              onClick={() => setStep('entry')}
+              className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
+            >
               <ArrowLeft size={22} />
             </button>
             <div className="flex items-center gap-2.5">
@@ -155,16 +159,22 @@ export function RecordTransferPage(): JSX.Element {
         <div className="px-4 mt-5">
           <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
             <div className="bg-blue-50 dark:bg-blue-900/20 p-4 border-b border-blue-100 dark:border-blue-800/50">
-              <h3 className="text-sm font-bold text-blue-700 dark:text-blue-300 uppercase tracking-wider">Transfer Summary</h3>
+              <h3 className="text-sm font-bold text-blue-700 dark:text-blue-300 uppercase tracking-wider">
+                Transfer Summary
+              </h3>
             </div>
             <div className="p-4 space-y-4">
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-500">From</span>
-                <span className="font-semibold text-gray-900 dark:text-white">{sourceTank?.name}</span>
+                <span className="font-semibold text-gray-900 dark:text-white">
+                  {sourceTank?.name}
+                </span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-500">Batch</span>
-                <span className="font-semibold text-gray-900 dark:text-white">{sourceMetrics?.batchNumber ?? '--'}</span>
+                <span className="font-semibold text-gray-900 dark:text-white">
+                  {sourceMetrics?.batchNumber ?? '--'}
+                </span>
               </div>
               <div className="flex justify-center">
                 <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
@@ -174,7 +184,8 @@ export function RecordTransferPage(): JSX.Element {
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-500">To</span>
                 <span className="font-semibold text-gray-900 dark:text-white">
-                  {destTank?.name}{!destTank?.batchMetrics ? ' (Empty)' : ''}
+                  {destTank?.name}
+                  {!destTank?.batchMetrics ? ' (Empty)' : ''}
                 </span>
               </div>
               <div className="h-px bg-gray-100 dark:bg-gray-800" />
@@ -185,7 +196,9 @@ export function RecordTransferPage(): JSX.Element {
               {avgWeightG && (
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-gray-500">Avg weight</span>
-                  <span className="font-semibold text-gray-900 dark:text-white">{parseFloat(avgWeightG).toFixed(1)} g/fish</span>
+                  <span className="font-semibold text-gray-900 dark:text-white">
+                    {parseFloat(avgWeightG).toFixed(1)} g/fish
+                  </span>
                 </div>
               )}
               {transferReason.trim() && (
@@ -193,7 +206,9 @@ export function RecordTransferPage(): JSX.Element {
                   <div className="h-px bg-gray-100 dark:bg-gray-800" />
                   <div>
                     <span className="text-sm text-gray-500">Reason</span>
-                    <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{transferReason}</p>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">
+                      {transferReason}
+                    </p>
                   </div>
                 </>
               )}
@@ -210,7 +225,9 @@ export function RecordTransferPage(): JSX.Element {
 
         <div className="px-4 mt-6 space-y-3 pb-28">
           <button
-            onClick={() => { void handleSubmit(); }}
+            onClick={() => {
+              void handleSubmit();
+            }}
             disabled={isSubmitting}
             className="w-full py-4 bg-gradient-to-r from-blue-600 to-blue-500 text-white font-bold rounded-2xl shadow-lg shadow-blue-500/25 disabled:opacity-50 disabled:cursor-not-allowed touch-feedback transition-all flex items-center justify-center gap-2"
           >
@@ -248,7 +265,10 @@ export function RecordTransferPage(): JSX.Element {
       {/* Header */}
       <div className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
         <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
+          <button
+            onClick={() => navigate(-1)}
+            className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
+          >
             <ArrowLeft size={22} />
           </button>
           <div className="flex items-center gap-2.5">
@@ -268,7 +288,8 @@ export function RecordTransferPage(): JSX.Element {
             <div>
               <h3 className="font-semibold text-gray-900 dark:text-white">{sourceTank.name}</h3>
               <p className="text-sm text-gray-500">
-                {sourceMetrics.batchNumber ?? '--'} &middot; {(sourceMetrics.pieces ?? 0).toLocaleString()} pcs
+                {sourceMetrics.batchNumber ?? '--'} &middot;{' '}
+                {(sourceMetrics.pieces ?? 0).toLocaleString()} pcs
               </p>
             </div>
           </div>
@@ -299,22 +320,28 @@ export function RecordTransferPage(): JSX.Element {
               error={errors.sourceTank}
             >
               <option value="">-- Select Tank --</option>
-              {tanks?.filter((t) => t.batchMetrics).map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
-                </option>
-              ))}
+              {tanks
+                ?.filter((t) => t.batchMetrics)
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
+                  </option>
+                ))}
               {/* WHY: Show batchless tanks as disabled options with their real ID so users know
                   the tank exists but has no fish to transfer. Using the actual tank ID (not
                   empty string) prevents the browser from treating disabled selection as valid. */}
-              {tanks?.filter((t) => !t.batchMetrics).map((t) => (
-                <option key={t.id} value={t.id} disabled>
-                  {t.name} (No active batch)
-                </option>
-              ))}
+              {tanks
+                ?.filter((t) => !t.batchMetrics)
+                .map((t) => (
+                  <option key={t.id} value={t.id} disabled>
+                    {t.name} (No active batch)
+                  </option>
+                ))}
             </ListInput>
           </List>
-          {errors.sourceTank && <p className="text-red-500 text-sm px-4 -mt-2">{errors.sourceTank}</p>}
+          {errors.sourceTank && (
+            <p className="text-red-500 text-sm px-4 -mt-2">{errors.sourceTank}</p>
+          )}
           {/* FIX: Inform user when all tanks lack active batches — prevents confusion when
               every dropdown option is disabled and no selection is possible. */}
           {tanks && tanks.length > 0 && tanks.every((t) => !t.batchMetrics) && (
@@ -346,20 +373,27 @@ export function RecordTransferPage(): JSX.Element {
         >
           <option value="">-- Select Tank --</option>
           {/* WHY: Empty tanks appear first — they are the preferred transfer destination (no mixing risk) */}
-          {tanks?.filter((t) => t.id !== sourceTankId && !t.batchMetrics).map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name} (Empty{t.maxBiomass > 0 ? ` - ${t.maxBiomass}kg capacity` : ''})
-            </option>
-          ))}
+          {tanks
+            ?.filter((t) => t.id !== sourceTankId && !t.batchMetrics)
+            .map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name} (Empty{t.maxBiomass > 0 ? ` - ${t.maxBiomass}kg capacity` : ''})
+              </option>
+            ))}
           {/* WHY: Tanks with batches are shown below — user may want to merge batches, but with a clear label */}
-          {tanks?.filter((t) => t.id !== sourceTankId && t.batchMetrics).map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name} - {t.batchMetrics?.batchNumber} ({(t.batchMetrics?.pieces ?? 0).toLocaleString()} fish)
-            </option>
-          ))}
+          {tanks
+            ?.filter((t) => t.id !== sourceTankId && t.batchMetrics)
+            .map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name} - {t.batchMetrics?.batchNumber} (
+                {(t.batchMetrics?.pieces ?? 0).toLocaleString()} fish)
+              </option>
+            ))}
         </ListInput>
       </List>
-      {errors.destinationTank && <p className="text-red-500 text-sm px-4 -mt-2">{errors.destinationTank}</p>}
+      {errors.destinationTank && (
+        <p className="text-red-500 text-sm px-4 -mt-2">{errors.destinationTank}</p>
+      )}
 
       {/* Quantity */}
       <BlockTitle>Quantity</BlockTitle>

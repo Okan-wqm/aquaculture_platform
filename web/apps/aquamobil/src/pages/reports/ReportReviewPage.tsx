@@ -20,10 +20,7 @@ import type {
   MobileApproveAndSubmitReportDraftMutation,
   MobileReportDraftsQuery,
 } from '@/generated/graphql';
-import {
-  MOBILE_APPROVE_AND_SUBMIT_REPORT_DRAFT,
-  MOBILE_REPORT_DRAFTS,
-} from '@/graphql/operations';
+import { MOBILE_APPROVE_AND_SUBMIT_REPORT_DRAFT, MOBILE_REPORT_DRAFTS } from '@/graphql/operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { graphqlRequest } from '@/services/authenticated-fetch';

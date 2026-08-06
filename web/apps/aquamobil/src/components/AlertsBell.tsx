@@ -20,9 +20,7 @@ export function AlertsBell(): ReactElement {
   const { unacknowledgedCount } = useAlerts();
 
   const ariaLabel =
-    unacknowledgedCount > 0
-      ? `Alerts, ${unacknowledgedCount} unacknowledged`
-      : 'Alerts';
+    unacknowledgedCount > 0 ? `Alerts, ${unacknowledgedCount} unacknowledged` : 'Alerts';
 
   return (
     <IconButton

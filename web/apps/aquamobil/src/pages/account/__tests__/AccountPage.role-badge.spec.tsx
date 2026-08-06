@@ -26,7 +26,12 @@ vi.mock('@/hooks/useAuth', () => ({
 }));
 
 vi.mock('@/hooks/useOfflineQueue', () => ({
-  useOfflineQueue: () => ({ pendingCount: 0, isOnline: true, isSyncing: false, syncNow: vi.fn(() => Promise.resolve({ success: 0, failed: 0 })) }),
+  useOfflineQueue: () => ({
+    pendingCount: 0,
+    isOnline: true,
+    isSyncing: false,
+    syncNow: vi.fn(() => Promise.resolve({ success: 0, failed: 0 })),
+  }),
 }));
 
 vi.mock('@/hooks/useNotifications', () => ({

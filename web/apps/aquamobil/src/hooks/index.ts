@@ -7,7 +7,12 @@ export { useOfflineQueue, OfflineProvider } from './useOfflineQueue';
 export { useNetworkStatus } from './useNetworkStatus';
 export { useTanks } from './useTanks';
 export { useWebAuthn, isWebAuthnSupported, hasLocalCredentials } from './useWebAuthn';
-export { useAiDashboardInsights, useTankRiskAssessment, useBatchGrowthPrediction, useFeedingAdvice } from './useAiInsights';
+export {
+  useAiDashboardInsights,
+  useTankRiskAssessment,
+  useBatchGrowthPrediction,
+  useFeedingAdvice,
+} from './useAiInsights';
 
 // Messaging hooks (ADR-012)
 export { useChannels } from './useChannels';

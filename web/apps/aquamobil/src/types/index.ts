@@ -263,7 +263,17 @@ export interface RecordMealFeedingPayload {
 
 // Attendance types
 export type ClockMethod = 'BIOMETRIC' | 'CARD' | 'MOBILE' | 'WEB' | 'MANUAL' | 'GPS';
-export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'LATE' | 'EARLY_LEAVE' | 'HALF_DAY' | 'ON_LEAVE' | 'HOLIDAY' | 'OFFSHORE' | 'REST_DAY' | 'WORK_FROM_HOME';
+export type AttendanceStatus =
+  | 'PRESENT'
+  | 'ABSENT'
+  | 'LATE'
+  | 'EARLY_LEAVE'
+  | 'HALF_DAY'
+  | 'ON_LEAVE'
+  | 'HOLIDAY'
+  | 'OFFSHORE'
+  | 'REST_DAY'
+  | 'WORK_FROM_HOME';
 
 export interface GeoLocation {
   latitude: number;
@@ -375,7 +385,31 @@ export interface CreateLeaveRequestInput {
 // a reference to a recorded/selected Blob persisted in the dedicated binary
 // store. Its in-app sync replay runs the 3-step online flow that cannot happen
 // offline: requestMediaUpload (presign) → PUT blob → sendMessage(storageKey).
-export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'recordMealFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'setChecklistItem' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock' | 'recordLiceCount' | 'recordWelfareAssessment' | 'recordEscapeIncident' | 'acknowledgeAlert' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'markMessagesRead' | 'uploadAndSendMessage';
+export type OperationType =
+  | 'recordMortality'
+  | 'recordCull'
+  | 'createHarvestRecord'
+  | 'recordFeeding'
+  | 'recordMealFeeding'
+  | 'clockIn'
+  | 'clockOut'
+  | 'createLeaveRequest'
+  | 'completeTask'
+  | 'startTask'
+  | 'setChecklistItem'
+  | 'recordTransfer'
+  | 'createWaterQuality'
+  | 'recordStockMovement'
+  | 'transferStock'
+  | 'recordLiceCount'
+  | 'recordWelfareAssessment'
+  | 'recordEscapeIncident'
+  | 'acknowledgeAlert'
+  | 'sendMessage'
+  | 'editMessage'
+  | 'deleteMessage'
+  | 'markMessagesRead'
+  | 'uploadAndSendMessage';
 
 /**
  * FARM-HIGH-057 — offline payload for an idempotent checklist SET.
@@ -403,7 +437,15 @@ export interface MobileCommandEnvelope {
 /** Messaging offline payloads — sendMessage uses SendMessageInput, editMessage uses { id, content },
  * deleteMessage uses { id }, markMessagesRead uses { channelId, messageId }. */
 export type MessagingOfflinePayload =
-  | { channelId: string; content: string | null; contentType: string; idempotencyKey: string; parentId?: string; attachmentKeys?: string[]; metadata?: Record<string, unknown> }
+  | {
+      channelId: string;
+      content: string | null;
+      contentType: string;
+      idempotencyKey: string;
+      parentId?: string;
+      attachmentKeys?: string[];
+      metadata?: Record<string, unknown>;
+    }
   | { id: string; content: string }
   | { id: string }
   | { channelId: string; messageId: string };
@@ -444,8 +486,28 @@ export interface AcknowledgeAlertInputPayload {
 }
 
 export type OperationPayload = (
-  MortalityInput | CullInput | HarvestInput | FeedingInput | RecordMealFeedingPayload | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | ChecklistItemSetInput | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | LiceCountInput | WelfareAssessmentInput | EscapeIncidentInput | AcknowledgeAlertInputPayload | MessagingOfflinePayload | UploadAndSendMessageOfflinePayload
-) & MobileCommandEnvelope;
+  | MortalityInput
+  | CullInput
+  | HarvestInput
+  | FeedingInput
+  | RecordMealFeedingPayload
+  | ClockInInput
+  | ClockOutInput
+  | CreateLeaveRequestInput
+  | { id: string }
+  | ChecklistItemSetInput
+  | TransferInput
+  | CreateWaterQualityInput
+  | StockMovementInput
+  | StockTransferInput
+  | LiceCountInput
+  | WelfareAssessmentInput
+  | EscapeIncidentInput
+  | AcknowledgeAlertInputPayload
+  | MessagingOfflinePayload
+  | UploadAndSendMessageOfflinePayload
+) &
+  MobileCommandEnvelope;
 
 export interface QueuedOperation {
   id: string;
@@ -485,7 +547,18 @@ export interface SelectOption<T = string> {
 }
 
 // Task types
-export type TaskCategory = 'FEEDING' | 'WATER_QUALITY' | 'HEALTH_CHECK' | 'EQUIPMENT_MAINTENANCE' | 'STOCK_MANAGEMENT' | 'CLEANING' | 'REGULATORY' | 'HARVEST' | 'ENVIRONMENTAL' | 'SAFETY' | 'GENERAL';
+export type TaskCategory =
+  | 'FEEDING'
+  | 'WATER_QUALITY'
+  | 'HEALTH_CHECK'
+  | 'EQUIPMENT_MAINTENANCE'
+  | 'STOCK_MANAGEMENT'
+  | 'CLEANING'
+  | 'REGULATORY'
+  | 'HARVEST'
+  | 'ENVIRONMENTAL'
+  | 'SAFETY'
+  | 'GENERAL';
 export type TaskPriority = 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW';
 export type TaskStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'OVERDUE' | 'CANCELLED';
 

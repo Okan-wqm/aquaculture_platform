@@ -1,5 +1,14 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactElement, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 
 import { useAuth } from './useAuth';
 import { useNetworkStatus } from './useNetworkStatus';
@@ -36,7 +45,6 @@ import { logger } from '@/utils/logger';
 import { applyOptimisticKpiBump } from '@/utils/offline-optimistic';
 import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 
-
 export interface SyncResult {
   success: number;
   failed: number;
@@ -58,7 +66,11 @@ interface OfflineContextValue {
   isOnline: boolean;
   isSyncing: boolean;
   syncError: string | null;
-  addToQueue: (type: OperationType, payload: OperationPayload, clientCommandId?: string) => Promise<AddToQueueResult>;
+  addToQueue: (
+    type: OperationType,
+    payload: OperationPayload,
+    clientCommandId?: string,
+  ) => Promise<AddToQueueResult>;
   syncNow: () => Promise<SyncResult>;
   removeFromQueue: (id: string) => Promise<void>;
   getSyncStatus: (id: string) => SyncStatus;
@@ -131,9 +143,7 @@ async function replayUploadAndSendMessage(
       parentId: payload.parentId ?? null,
       attachmentKeys: [storageKey],
       metadata:
-        payload.durationSeconds !== undefined
-          ? { durationSeconds: payload.durationSeconds }
-          : null,
+        payload.durationSeconds !== undefined ? { durationSeconds: payload.durationSeconds } : null,
     },
   });
 
@@ -170,7 +180,9 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
   // WHY no async: the placeholder needs no await — it just resolves the zero
   // result. Written with Promise.resolve so it is not an async function lacking
   // an await (require-await). It is replaced by the real syncNow on first effect run.
-  const syncNowRef = useRef<() => Promise<SyncResult>>(() => Promise.resolve({ success: 0, failed: 0 }));
+  const syncNowRef = useRef<() => Promise<SyncResult>>(() =>
+    Promise.resolve({ success: 0, failed: 0 }),
+  );
 
   // SECURITY (C11): All queue operations are scoped to the current tenantId.
   // refreshQueue only shows the active tenant's operations, preventing
@@ -228,7 +240,11 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
     // this offline fallback, so the server dedups an online-fail-then-queue
     // retry. Omitted by pure-offline-first callers, which mint a fresh id inside
     // queueOperation as before.
-    async (type: OperationType, payload: OperationPayload, clientCommandId?: string): Promise<AddToQueueResult> => {
+    async (
+      type: OperationType,
+      payload: OperationPayload,
+      clientCommandId?: string,
+    ): Promise<AddToQueueResult> => {
       // SECURITY (C11): tenantId is required -- reject if not authenticated
       if (!tenantId) {
         throw new Error('Cannot queue operations without an active tenant');
@@ -247,7 +263,7 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
       await refreshQueue();
       return result;
     },
-    [refreshQueue, accessToken, tenantId, user, queryClient]
+    [refreshQueue, accessToken, tenantId, user, queryClient],
   );
 
   const executeGraphQL = useCallback(
@@ -294,7 +310,10 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
         throw new Error(`HTTP error: ${response.status}`);
       }
 
-      const result = await response.json() as { data?: unknown; errors?: Array<{ message: string }> };
+      const result = (await response.json()) as {
+        data?: unknown;
+        errors?: Array<{ message: string }>;
+      };
 
       if (result.errors && result.errors.length > 0) {
         throw new Error(result.errors[0]?.message || 'GraphQL error');
@@ -313,7 +332,10 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
           throw new Error(`HTTP error: ${submitResponse.status}`);
         }
 
-        const submitResult = await submitResponse.json() as { data?: unknown; errors?: Array<{ message: string }> };
+        const submitResult = (await submitResponse.json()) as {
+          data?: unknown;
+          errors?: Array<{ message: string }>;
+        };
         if (submitResult.errors && submitResult.errors.length > 0) {
           throw new Error(submitResult.errors[0]?.message || 'GraphQL error');
         }
@@ -321,7 +343,7 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
 
       return result.data;
     },
-    [accessToken, tenantId, user]
+    [accessToken, tenantId, user],
   );
 
   const syncNow = useCallback(async (): Promise<SyncResult> => {
@@ -458,7 +480,7 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
       await removeOperation(tenantId, id);
       await refreshQueue();
     },
-    [refreshQueue, tenantId]
+    [refreshQueue, tenantId],
   );
 
   const clearError = useCallback(() => {

@@ -143,7 +143,9 @@ describe('MSG-HIGH-069: firebase-messaging-sw.js notificationRef deep-link', () 
     // The ref is validated as a UUID and used to build the /messages?ref deep-link.
     expect(click).toMatch(/data\.notificationRef/);
     expect(click).toMatch(/UUID_PATTERN\.test\(rawRef\)/);
-    expect(click).toMatch(/\/messages\?notificationRef=\$\{encodeURIComponent\(notificationRef\)\}/);
+    expect(click).toMatch(
+      /\/messages\?notificationRef=\$\{encodeURIComponent\(notificationRef\)\}/,
+    );
     // A focused window is handed the ref to resolve over its authenticated socket.
     expect(click).toMatch(/type: 'NAVIGATE_TO_NOTIFICATION_REF', notificationRef/);
   });

@@ -1,5 +1,14 @@
 import { clsx } from 'clsx';
-import { Cloud, CloudOff, RefreshCw, Trash2, CheckCircle, AlertCircle, Clock, RotateCcw } from 'lucide-react';
+import {
+  Cloud,
+  CloudOff,
+  RefreshCw,
+  Trash2,
+  CheckCircle,
+  AlertCircle,
+  Clock,
+  RotateCcw,
+} from 'lucide-react';
 import type { JSX } from 'react';
 
 import { AppHeader } from '@/components/AppHeader';
@@ -119,8 +128,10 @@ export function SyncStatusPage(): JSX.Element {
               const config = OPERATION_LABELS[op.type] || { label: op.type, icon: '📝' };
               // BUG-17: Distinguish between retryable failures (will auto-retry)
               // and permanently failed operations (exceeded MAX_RETRY_COUNT).
-              const isPermanentlyFailed = op.status === 'failed' && op.retryCount >= MAX_RETRY_COUNT;
-              const isRetrying = op.status === 'failed' && op.retryCount > 0 && op.retryCount < MAX_RETRY_COUNT;
+              const isPermanentlyFailed =
+                op.status === 'failed' && op.retryCount >= MAX_RETRY_COUNT;
+              const isRetrying =
+                op.status === 'failed' && op.retryCount > 0 && op.retryCount < MAX_RETRY_COUNT;
 
               const statusIcon =
                 op.status === 'syncing' ? (

@@ -91,8 +91,8 @@ function VarslingImmediateBanner(): JSX.Element {
           </p>
           <p className="text-crit text-meta mt-1 flex items-center gap-1">
             <PhoneCall size={12} className="inline flex-shrink-0" />
-            Notify your site manager NOW — do not wait for this record to sync.
-            The official varsling is submitted from the Reports desk.
+            Notify your site manager NOW — do not wait for this record to sync. The official
+            varsling is submitted from the Reports desk.
           </p>
         </div>
       </div>
@@ -173,11 +173,7 @@ export function EscapeIncidentPage(): JSX.Element {
       canReview={
         !!selectedTankId && !!metrics?.batchId && !!metrics?.speciesId && estimatedCount >= 1
       }
-      reviewLabel={
-        <>
-          Review ~{estimatedCount.toLocaleString()} Escaped Fish
-        </>
-      }
+      reviewLabel={<>Review ~{estimatedCount.toLocaleString()} Escaped Fish</>}
       submitLabel="Confirm & Record"
       confirmSummary={
         <>

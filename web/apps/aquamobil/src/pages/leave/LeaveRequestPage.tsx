@@ -11,7 +11,6 @@ import { useLeaveTypes, useMyLeaveBalances } from '@/hooks/useLeave';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { LeaveType, CreateLeaveRequestInput } from '@/types';
 
-
 interface FormErrors {
   leaveType?: string;
   startDate?: string;
@@ -157,9 +156,7 @@ export function LeaveRequestPage(): JSX.Element {
               className={clsx(
                 'flex flex-col p-3 rounded-2xl border min-h-touch touch-feedback',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc',
-                selectedTypeId === type.id
-                  ? 'border-acc bg-acc-dim'
-                  : 'border-line bg-surface-1',
+                selectedTypeId === type.id ? 'border-acc bg-acc-dim' : 'border-line bg-surface-1',
               )}
             >
               <div className="flex items-center gap-2">
@@ -183,7 +180,8 @@ export function LeaveRequestPage(): JSX.Element {
         <div className="mx-4 mt-3">
           <Card className="bg-acc-dim border-acc p-3">
             <p className="text-body text-acc">
-              Available: <span className="font-bold font-mono">{selectedBalance.remainingDays}</span> days
+              Available:{' '}
+              <span className="font-bold font-mono">{selectedBalance.remainingDays}</span> days
               (Used: {selectedBalance.usedDays} / Total: {selectedBalance.totalEntitlement})
             </p>
           </Card>

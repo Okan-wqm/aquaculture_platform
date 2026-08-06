@@ -86,7 +86,15 @@ export function LiceCountPage(): JSX.Element {
     if (fishSampled < 1) next.fishSampled = 'At least 1 fish must be sampled';
     setErrors(next);
     return Object.keys(next).length === 0;
-  }, [selectedTankId, selectedTank, metrics, adultFemaleLice, mobileLice, attachedLice, fishSampled]);
+  }, [
+    selectedTankId,
+    selectedTank,
+    metrics,
+    adultFemaleLice,
+    mobileLice,
+    attachedLice,
+    fishSampled,
+  ]);
 
   const buildPayload = (): LiceCountInput => {
     const siteId = selectedTank?.siteId;

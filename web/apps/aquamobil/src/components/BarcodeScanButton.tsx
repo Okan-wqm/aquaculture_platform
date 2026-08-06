@@ -29,7 +29,11 @@ function getBarcodeDetectorCtor(): BarcodeDetectorConstructor | null {
 
 const DETECT_INTERVAL_MS = 300;
 
-export function BarcodeScanButton({ onScan }: { onScan: (value: string) => void }): ReactElement | null {
+export function BarcodeScanButton({
+  onScan,
+}: {
+  onScan: (value: string) => void;
+}): ReactElement | null {
   const [isScanning, setIsScanning] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -107,7 +111,9 @@ export function BarcodeScanButton({ onScan }: { onScan: (value: string) => void 
                 honestly instead of suppressing the rule. */}
             <track kind="captions" />
           </video>
-          <p className="text-white text-sm font-medium mt-4">Point the camera at a barcode or QR code</p>
+          <p className="text-white text-sm font-medium mt-4">
+            Point the camera at a barcode or QR code
+          </p>
           <button
             type="button"
             onClick={stopScanning}

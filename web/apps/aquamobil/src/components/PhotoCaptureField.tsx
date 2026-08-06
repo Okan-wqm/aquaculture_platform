@@ -154,11 +154,7 @@ export function PhotoCaptureField({
               key={it.key}
               className="relative aspect-square rounded-xl overflow-hidden border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800"
             >
-              <img
-                src={it.url}
-                alt="Incident evidence"
-                className="w-full h-full object-cover"
-              />
+              <img src={it.url} alt="Incident evidence" className="w-full h-full object-cover" />
               <IconButton
                 aria-label="Remove photo"
                 onClick={() => handleRemove(it.key)}
@@ -190,9 +186,7 @@ export function PhotoCaptureField({
               ) : (
                 <ImageOff size={24} />
               )}
-              <span className="text-xs font-semibold">
-                {isUploading ? 'Uploading' : 'Add'}
-              </span>
+              <span className="text-xs font-semibold">{isUploading ? 'Uploading' : 'Add'}</span>
             </button>
           )}
         </div>

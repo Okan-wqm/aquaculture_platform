@@ -145,7 +145,9 @@ describe('handleBackgroundSyncEvent (MOB-MEDIUM-002)', () => {
 
   it('delegates to open window clients without touching the network', async () => {
     await queueOperation(TENANT_A, 'recordMortality', { batchId: 'b1', quantity: 1 } as never);
-    const { sw, clients } = fakeSw({ clients: [{ postMessage: vi.fn() }, { postMessage: vi.fn() }] });
+    const { sw, clients } = fakeSw({
+      clients: [{ postMessage: vi.fn() }, { postMessage: vi.fn() }],
+    });
 
     await handleBackgroundSyncEvent(sw);
 
@@ -171,7 +173,9 @@ describe('handleBackgroundSyncEvent (MOB-MEDIUM-002)', () => {
     expect(refreshInit.credentials).toBe('include');
     const refreshBody = typeof refreshInit.body === 'string' ? refreshInit.body : '';
     expect(refreshBody).toContain('refreshToken');
-    expect((refreshInit.headers as Record<string, string>)['X-Requested-With']).toBe('XMLHttpRequest');
+    expect((refreshInit.headers as Record<string, string>)['X-Requested-With']).toBe(
+      'XMLHttpRequest',
+    );
 
     // Call 2 — the queued mutation with the minted token + tenant header.
     const [opUrl, opInit] = fetchMock.mock.calls[1] as [string, RequestInit];

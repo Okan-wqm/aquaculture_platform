@@ -1,11 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
-
 import { useTodaysAttendance } from './useAttendance';
 import { useAuth } from './useAuth';
 
-import { GET_FEEDING_DAY_PLANS, GET_TASK_STATS, GET_TODAYS_DAILY_OPS_COUNTS } from '@/graphql/operations';
+import {
+  GET_FEEDING_DAY_PLANS,
+  GET_TASK_STATS,
+  GET_TODAYS_DAILY_OPS_COUNTS,
+} from '@/graphql/operations';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { DailyOpsStats, TaskStats } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
@@ -13,8 +16,12 @@ import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 // WHY inline type: mirrors GraphQL response shape used only here (Faz 6 öğün
 // cutover'ı — sayım aggregate ile aynı semantik: fed|skipped / iptal-dışı).
 // Enum alanları tel üzerinde AD taşır ('FED', 'SKIPPED', 'CANCELLED').
-interface DayPlanMealSlice { status: string }
-interface FeedingDayPlanSlice { meals: DayPlanMealSlice[] }
+interface DayPlanMealSlice {
+  status: string;
+}
+interface FeedingDayPlanSlice {
+  meals: DayPlanMealSlice[];
+}
 
 // WHY explicit shape: backend aggregate returns flat counts, not entity lists.
 interface DailyOpsCountsResponse {
@@ -47,7 +54,8 @@ export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean }
     queryKey: createTenantQueryKey(tenantId, 'feedingDayPlans', tenantId, todayStr),
     queryFn: async () => {
       const result = await graphqlRequest<{ feedingDayPlans: FeedingDayPlanSlice[] }>(
-        GET_FEEDING_DAY_PLANS, { planDate: todayStr },
+        GET_FEEDING_DAY_PLANS,
+        { planDate: todayStr },
       );
       return result.feedingDayPlans ?? [];
     },

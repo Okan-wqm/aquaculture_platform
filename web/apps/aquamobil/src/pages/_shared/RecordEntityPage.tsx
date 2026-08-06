@@ -293,7 +293,12 @@ export function RecordEntityPage<
         <div className="px-4 mt-5">
           <Card className="overflow-hidden">
             <div className={clsx('p-4 border-b', theme.summaryHeaderBg)}>
-              <h3 className={clsx('text-body font-bold uppercase tracking-wider', theme.summaryHeaderText)}>
+              <h3
+                className={clsx(
+                  'text-body font-bold uppercase tracking-wider',
+                  theme.summaryHeaderText,
+                )}
+              >
                 {summaryHeading}
               </h3>
             </div>
@@ -309,7 +314,9 @@ export function RecordEntityPage<
           <Button
             size="save"
             block
-            onClick={() => { void handleSubmit(); }}
+            onClick={() => {
+              void handleSubmit();
+            }}
             disabled={isSubmitting}
             className={clsx('font-bold', theme.ctaGradient, theme.ctaShadow)}
           >
@@ -403,16 +410,20 @@ export function RecordEntityPage<
               error={errors.tank}
             >
               <option value="">-- Select Tank --</option>
-              {tanks?.filter((t) => t.batchMetrics).map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
-                </option>
-              ))}
-              {tanks?.filter((t) => !t.batchMetrics).map((t) => (
-                <option key={t.id} value={t.id} disabled>
-                  {t.name} (No active batch)
-                </option>
-              ))}
+              {tanks
+                ?.filter((t) => t.batchMetrics)
+                .map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} - {t.batchMetrics?.batchNumber ?? '--'}
+                  </option>
+                ))}
+              {tanks
+                ?.filter((t) => !t.batchMetrics)
+                .map((t) => (
+                  <option key={t.id} value={t.id} disabled>
+                    {t.name} (No active batch)
+                  </option>
+                ))}
             </ListInput>
           </List>
           {errors.tank && <p className="text-crit text-body px-4 -mt-2">{errors.tank}</p>}
@@ -577,7 +588,12 @@ export function ReasonGrid<TValue extends string>(props: {
               className={clsx(
                 'flex flex-col items-center p-3 min-h-touch rounded-2xl border-2 transition-all duration-150 ease-out touch-feedback bg-surface-1',
                 selected
-                  ? clsx(theme.selectionBorder, theme.surfaceSoftBg, theme.selectionGlow, 'scale-[1.02]')
+                  ? clsx(
+                      theme.selectionBorder,
+                      theme.surfaceSoftBg,
+                      theme.selectionGlow,
+                      'scale-[1.02]',
+                    )
                   : 'border-line',
               )}
             >

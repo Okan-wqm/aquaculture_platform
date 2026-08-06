@@ -77,7 +77,9 @@ interface FarmStockInventoryResult {
   };
 }
 
-function mapInventoryItemToTank(item: FarmStockInventoryResult['farmStockInventory']['items'][number]): Tank {
+function mapInventoryItemToTank(
+  item: FarmStockInventoryResult['farmStockInventory']['items'][number],
+): Tank {
   // FARM-LOW-216: the container's PRIMARY batch drives species/batch
   // attribution for field capture. Prefer the explicit isPrimary row (the
   // tank-composition ledger's primaryBatchId, projected into the snapshot);

@@ -1,5 +1,13 @@
 import { clsx } from 'clsx';
-import { ChevronLeft, ChevronRight, Clock, Coffee, Palmtree, GraduationCap, CalendarOff } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Coffee,
+  Palmtree,
+  GraduationCap,
+  CalendarOff,
+} from 'lucide-react';
 import type { JSX } from 'react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -9,9 +17,16 @@ import { Card, EmptyState, IconButton, Skeleton } from '@/components/ui';
 import { useMySchedule, formatMinutesAsHours } from '@/hooks/useMySchedule';
 import type { WeeklyPlanEntry } from '@/hooks/useMySchedule';
 
-
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const DAY_NAMES_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const DAY_NAMES_FULL = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+];
 
 /**
  * Entry type → its well and its ink.
@@ -24,12 +39,45 @@ const DAY_NAMES_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
  * label ("Work", "Day Off", "Leave", "Holiday", "Training") is always drawn, so
  * none of this rests on colour alone.
  */
-const ENTRY_TYPE_CONFIG: Record<string, { icon: typeof Clock; label: string; bgColor: string; textColor: string; barColor: string }> = {
-  work: { icon: Clock, label: 'Work', bgColor: 'bg-acc-dim', textColor: 'text-acc', barColor: 'bg-acc' },
-  off: { icon: Coffee, label: 'Day Off', bgColor: 'bg-surface-2', textColor: 'text-ink-3', barColor: 'bg-surface-3' },
-  leave: { icon: Palmtree, label: 'Leave', bgColor: 'bg-surface-2', textColor: 'text-ok', barColor: 'bg-ok' },
-  holiday: { icon: CalendarOff, label: 'Holiday', bgColor: 'bg-warn-dim', textColor: 'text-warn', barColor: 'bg-warn' },
-  training: { icon: GraduationCap, label: 'Training', bgColor: 'bg-type-transfer-dim', textColor: 'text-type-transfer', barColor: 'bg-type-transfer' },
+const ENTRY_TYPE_CONFIG: Record<
+  string,
+  { icon: typeof Clock; label: string; bgColor: string; textColor: string; barColor: string }
+> = {
+  work: {
+    icon: Clock,
+    label: 'Work',
+    bgColor: 'bg-acc-dim',
+    textColor: 'text-acc',
+    barColor: 'bg-acc',
+  },
+  off: {
+    icon: Coffee,
+    label: 'Day Off',
+    bgColor: 'bg-surface-2',
+    textColor: 'text-ink-3',
+    barColor: 'bg-surface-3',
+  },
+  leave: {
+    icon: Palmtree,
+    label: 'Leave',
+    bgColor: 'bg-surface-2',
+    textColor: 'text-ok',
+    barColor: 'bg-ok',
+  },
+  holiday: {
+    icon: CalendarOff,
+    label: 'Holiday',
+    bgColor: 'bg-warn-dim',
+    textColor: 'text-warn',
+    barColor: 'bg-warn',
+  },
+  training: {
+    icon: GraduationCap,
+    label: 'Training',
+    bgColor: 'bg-type-transfer-dim',
+    textColor: 'text-type-transfer',
+    barColor: 'bg-type-transfer',
+  },
 };
 
 function isToday(dateStr: string): boolean {
@@ -51,9 +99,7 @@ function DayCard({ entry }: { entry: WeeklyPlanEntry }): JSX.Element {
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           {today && <span aria-hidden className="w-2 h-2 rounded-full bg-acc animate-am-blip" />}
-          <span
-            className={clsx('text-body font-bold', today ? 'text-acc' : 'text-ink-1')}
-          >
+          <span className={clsx('text-body font-bold', today ? 'text-acc' : 'text-ink-1')}>
             {DAY_NAMES_FULL[adjustedIndex]}
           </span>
         </div>
@@ -79,7 +125,10 @@ function DayCard({ entry }: { entry: WeeklyPlanEntry }): JSX.Element {
         </div>
         {entry.shift?.colorCode && (
           // The tenant's own shift colour — data, not a design token.
-          <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: entry.shift.colorCode }} />
+          <div
+            className="w-3 h-3 rounded-full shrink-0"
+            style={{ backgroundColor: entry.shift.colorCode }}
+          />
         )}
       </div>
     </Card>
@@ -125,7 +174,13 @@ export function MySchedulePage(): JSX.Element {
           <div className="text-center">
             <div className="text-title font-semibold text-ink-1">{formatWeekRange()}</div>
             <div className="text-meta text-ink-3 font-medium mt-0.5">
-              {weekOffset === 0 ? 'This Week' : weekOffset === 1 ? 'Next Week' : weekOffset === -1 ? 'Last Week' : ''}
+              {weekOffset === 0
+                ? 'This Week'
+                : weekOffset === 1
+                  ? 'Next Week'
+                  : weekOffset === -1
+                    ? 'Last Week'
+                    : ''}
             </div>
           </div>
           <IconButton
@@ -153,7 +208,10 @@ export function MySchedulePage(): JSX.Element {
               <div className="text-meta text-ink-3 font-medium">Total Hours</div>
             </Card>
             <Card
-              className={clsx('p-2.5 text-center', plan.plannedOvertimeMinutes > 0 && 'border-warn')}
+              className={clsx(
+                'p-2.5 text-center',
+                plan.plannedOvertimeMinutes > 0 && 'border-warn',
+              )}
             >
               <div
                 className={clsx(
@@ -161,7 +219,9 @@ export function MySchedulePage(): JSX.Element {
                   plan.plannedOvertimeMinutes > 0 ? 'text-warn' : 'text-ink-1',
                 )}
               >
-                {plan.plannedOvertimeMinutes > 0 ? formatMinutesAsHours(plan.plannedOvertimeMinutes) : '--'}
+                {plan.plannedOvertimeMinutes > 0
+                  ? formatMinutesAsHours(plan.plannedOvertimeMinutes)
+                  : '--'}
               </div>
               <div className="text-meta text-ink-3 font-medium">Overtime</div>
             </Card>
@@ -208,7 +268,10 @@ export function MySchedulePage(): JSX.Element {
                 return (
                   <div key={entry.id} className="flex-1 text-center">
                     <div
-                      className={clsx('text-meta font-bold mb-1', today ? 'text-acc' : 'text-ink-3')}
+                      className={clsx(
+                        'text-meta font-bold mb-1',
+                        today ? 'text-acc' : 'text-ink-3',
+                      )}
                     >
                       {DAY_NAMES[adjustedIndex]}
                     </div>
@@ -216,7 +279,11 @@ export function MySchedulePage(): JSX.Element {
                         is dimmed, which is what the light/dark blue pair was
                         doing before the legacy palette went. */}
                     <div
-                      className={clsx('h-1.5 rounded-full', config.barColor, !today && 'opacity-60')}
+                      className={clsx(
+                        'h-1.5 rounded-full',
+                        config.barColor,
+                        !today && 'opacity-60',
+                      )}
                     />
                   </div>
                 );

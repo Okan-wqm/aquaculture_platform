@@ -7,7 +7,11 @@ import { useNavigate } from 'react-router-dom';
 import { AppHeader } from '@/components/AppHeader';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { Button, Card, Chip, EmptyState, ListRow, StatusDot } from '@/components/ui';
-import { useMyAttendanceRecords, useMyAttendanceSummary, useTodaysAttendance } from '@/hooks/useAttendance';
+import {
+  useMyAttendanceRecords,
+  useMyAttendanceSummary,
+  useTodaysAttendance,
+} from '@/hooks/useAttendance';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { GeoLocation, AttendanceRecord } from '@/types';
 

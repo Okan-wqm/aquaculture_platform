@@ -180,11 +180,7 @@ export function ChannelListPage(): ReactElement {
 
   useEffect(() => {
     const notificationRef = searchParams.get('notificationRef');
-    if (
-      !notificationRef ||
-      !isConnected ||
-      resolvingNotificationRef.current === notificationRef
-    ) {
+    if (!notificationRef || !isConnected || resolvingNotificationRef.current === notificationRef) {
       return;
     }
 
@@ -214,12 +210,8 @@ export function ChannelListPage(): ReactElement {
   // Sort by last message timestamp DESC
   const sortedChannels = useMemo(() => {
     return [...filteredChannels].sort((a, b) => {
-      const aTime = a.lastMessage
-        ? new Date(a.lastMessage.createdAt).getTime()
-        : 0;
-      const bTime = b.lastMessage
-        ? new Date(b.lastMessage.createdAt).getTime()
-        : 0;
+      const aTime = a.lastMessage ? new Date(a.lastMessage.createdAt).getTime() : 0;
+      const bTime = b.lastMessage ? new Date(b.lastMessage.createdAt).getTime() : 0;
       return bTime - aTime;
     });
   }, [filteredChannels]);
@@ -254,7 +246,11 @@ export function ChannelListPage(): ReactElement {
   }, [navigate]);
 
   const loading = isLoading;
-  const errorMsg = error ? (error instanceof Error ? error.message : 'Failed to load channels') : null;
+  const errorMsg = error
+    ? error instanceof Error
+      ? error.message
+      : 'Failed to load channels'
+    : null;
 
   return (
     // MOB-MEDIUM-012: bounded flex column (matching NotificationsPage) so the

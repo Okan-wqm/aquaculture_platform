@@ -80,9 +80,8 @@ vi.mock('../useAuth', () => ({
 }));
 
 vi.mock('@tanstack/react-query', async () => {
-  const actual = await vi.importActual<typeof import('@tanstack/react-query')>(
-    '@tanstack/react-query',
-  );
+  const actual =
+    await vi.importActual<typeof import('@tanstack/react-query')>('@tanstack/react-query');
   return {
     ...actual,
     useQueryClient: () => ({
@@ -198,9 +197,15 @@ describe('useMessageSocket — sender enrichment (MSG-MEDIUM-052 WS-half)', () =
     renderHook(() => useMessageSocket());
     await waitFor(() => expect(handlers.get('newMessage')).toBeDefined());
 
-    fire('newMessage', baseMessage({ id: 'm2', sender: { id: 'u1', firstName: 'Alice', lastName: 'Smith' } }));
+    fire(
+      'newMessage',
+      baseMessage({ id: 'm2', sender: { id: 'u1', firstName: 'Alice', lastName: 'Smith' } }),
+    );
 
-    expect(lastWritten(emptyCache()).sender).toMatchObject({ firstName: 'Alice', lastName: 'Smith' });
+    expect(lastWritten(emptyCache()).sender).toMatchObject({
+      firstName: 'Alice',
+      lastName: 'Smith',
+    });
   });
 
   it('leaves the sender id-only when the member is not cached (graceful)', async () => {
@@ -222,7 +227,13 @@ describe('useMessageSocket — sender enrichment (MSG-MEDIUM-052 WS-half)', () =
     const existing: TestCache = {
       pages: [
         {
-          items: [baseMessage({ id: 'm1', sender: { id: 'u1', firstName: 'Alice', lastName: 'Smith' }, content: 'original' })],
+          items: [
+            baseMessage({
+              id: 'm1',
+              sender: { id: 'u1', firstName: 'Alice', lastName: 'Smith' },
+              content: 'original',
+            }),
+          ],
           hasMore: false,
           cursor: null,
         },

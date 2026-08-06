@@ -63,8 +63,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     if (this.state.hasError) {
       const title = this.props.fallbackTitle ?? 'Something went wrong';
       const message =
-        this.props.fallbackMessage ??
-        'An unexpected error occurred. Please try again.';
+        this.props.fallbackMessage ?? 'An unexpected error occurred. Please try again.';
 
       return (
         <div
@@ -78,9 +77,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             <div className="w-14 h-14 bg-red-50 dark:bg-red-900/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <AlertTriangle size={28} className="text-red-500" />
             </div>
-            <h1 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
-              {title}
-            </h1>
+            <h1 className="text-lg font-bold text-gray-900 dark:text-white mb-2">{title}</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 leading-relaxed">
               {message}
             </p>

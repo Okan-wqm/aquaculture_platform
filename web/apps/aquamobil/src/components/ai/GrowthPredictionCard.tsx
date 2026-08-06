@@ -49,9 +49,12 @@ export function GrowthPredictionCard({ batchId }: GrowthPredictionCardProps): Re
    * WHY: Growth delta percentage shows whether the batch is growing faster or slower
    * than current pace. A positive delta means acceleration (good); negative means deceleration.
    */
-  const growthDelta = prediction.currentAvgWeight > 0
-    ? ((prediction.predictedAvgWeight30d - prediction.currentAvgWeight) / prediction.currentAvgWeight * 100)
-    : 0;
+  const growthDelta =
+    prediction.currentAvgWeight > 0
+      ? ((prediction.predictedAvgWeight30d - prediction.currentAvgWeight) /
+          prediction.currentAvgWeight) *
+        100
+      : 0;
 
   return (
     <section className="flex flex-col gap-2">

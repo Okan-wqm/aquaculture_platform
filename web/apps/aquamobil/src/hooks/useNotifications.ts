@@ -111,8 +111,12 @@ export function useNotifications(): UseNotificationsResult {
     },
     onMutate: async (id: string) => {
       await Promise.all([
-        queryClient.cancelQueries({ queryKey: createTenantQueryKey(tenantId, 'notifications', 'list') }),
-        queryClient.cancelQueries({ queryKey: createTenantQueryKey(tenantId, 'notifications', 'unreadCount') }),
+        queryClient.cancelQueries({
+          queryKey: createTenantQueryKey(tenantId, 'notifications', 'list'),
+        }),
+        queryClient.cancelQueries({
+          queryKey: createTenantQueryKey(tenantId, 'notifications', 'unreadCount'),
+        }),
       ]);
       const previousList = queryClient.getQueryData<InAppNotification[]>(listKey);
       const previousCount = queryClient.getQueryData<number>(countKey);
@@ -143,8 +147,12 @@ export function useNotifications(): UseNotificationsResult {
     },
     onMutate: async () => {
       await Promise.all([
-        queryClient.cancelQueries({ queryKey: createTenantQueryKey(tenantId, 'notifications', 'list') }),
-        queryClient.cancelQueries({ queryKey: createTenantQueryKey(tenantId, 'notifications', 'unreadCount') }),
+        queryClient.cancelQueries({
+          queryKey: createTenantQueryKey(tenantId, 'notifications', 'list'),
+        }),
+        queryClient.cancelQueries({
+          queryKey: createTenantQueryKey(tenantId, 'notifications', 'unreadCount'),
+        }),
       ]);
       const previousList = queryClient.getQueryData<InAppNotification[]>(listKey);
       const previousCount = queryClient.getQueryData<number>(countKey);
@@ -210,8 +218,7 @@ export function useNotifications(): UseNotificationsResult {
   // numeric value. `unreadCount` keeps its `?? 0` success default so numeric
   // consumers and the optimistic mark-read setQueryData writes are untouched.
   const isCountError = countQuery.isError;
-  const unreadCountError =
-    countQuery.error instanceof Error ? countQuery.error.message : null;
+  const unreadCountError = countQuery.error instanceof Error ? countQuery.error.message : null;
 
   return {
     notifications: listQuery.data ?? [],

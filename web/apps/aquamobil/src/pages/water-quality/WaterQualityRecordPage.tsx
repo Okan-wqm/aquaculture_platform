@@ -29,12 +29,23 @@ interface EquipmentItem {
 
 interface EquipmentParameterConfig {
   parameterConfig: {
-    id: string; code: string; name: string; unit: string;
-    dataType: 'NUMBER' | 'ENUM' | 'BOOLEAN'; precision: number; group: string;
-    optimalMin: number | null; optimalMax: number | null;
-    warningMin: number | null; warningMax: number | null;
-    criticalMin: number | null; criticalMax: number | null;
-    enumValues: string[] | null; displayOrder: number; isRequired: boolean; chartColor: string;
+    id: string;
+    code: string;
+    name: string;
+    unit: string;
+    dataType: 'NUMBER' | 'ENUM' | 'BOOLEAN';
+    precision: number;
+    group: string;
+    optimalMin: number | null;
+    optimalMax: number | null;
+    warningMin: number | null;
+    warningMax: number | null;
+    criticalMin: number | null;
+    criticalMax: number | null;
+    enumValues: string[] | null;
+    displayOrder: number;
+    isRequired: boolean;
+    chartColor: string;
   };
 }
 
@@ -52,7 +63,17 @@ type FieldValue = number | string | boolean;
  */
 const EQUIPMENT_LIST_QUERY = gql`
   query EquipmentList($filter: EquipmentFilterInput) {
-    equipmentList(filter: $filter) { items { id name code equipmentType { category name } } }
+    equipmentList(filter: $filter) {
+      items {
+        id
+        name
+        code
+        equipmentType {
+          category
+          name
+        }
+      }
+    }
   }
 `;
 
@@ -60,9 +81,23 @@ const EQUIPMENT_PARAMS_QUERY = gql`
   query EquipmentParameters($equipmentId: ID!) {
     equipmentParameters(equipmentId: $equipmentId) {
       parameterConfig {
-        id code name unit dataType precision group
-        optimalMin optimalMax warningMin warningMax criticalMin criticalMax
-        enumValues displayOrder isRequired chartColor
+        id
+        code
+        name
+        unit
+        dataType
+        precision
+        group
+        optimalMin
+        optimalMax
+        warningMin
+        warningMax
+        criticalMin
+        criticalMax
+        enumValues
+        displayOrder
+        isRequired
+        chartColor
       }
     }
   }
@@ -70,7 +105,11 @@ const EQUIPMENT_PARAMS_QUERY = gql`
 
 const CREATE_WQ_MUTATION = gql`
   mutation CreateWaterQualityMeasurement($input: CreateWaterQualityInput!) {
-    createWaterQualityMeasurement(input: $input) { id overallStatus hasAlarm }
+    createWaterQualityMeasurement(input: $input) {
+      id
+      overallStatus
+      hasAlarm
+    }
   }
 `;
 
@@ -81,8 +120,11 @@ const CREATE_WQ_MUTATION = gql`
 const MRU_KEY = 'aquamobil-wq-mru';
 
 function getMRU(): string[] {
-  try { return JSON.parse(localStorage.getItem(MRU_KEY) || '[]') as string[]; }
-  catch { return []; }
+  try {
+    return JSON.parse(localStorage.getItem(MRU_KEY) || '[]') as string[];
+  } catch {
+    return [];
+  }
 }
 
 function addMRU(id: string): void {
@@ -118,7 +160,8 @@ export function WaterQualityRecordPage(): JSX.Element {
     queryKey: createTenantQueryKey(tenantId, 'equipment-list', tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{ equipmentList: { items: EquipmentItem[] } }>(
-        EQUIPMENT_LIST_QUERY, { filter: { isActive: true } },
+        EQUIPMENT_LIST_QUERY,
+        { filter: { isActive: true } },
       );
       return result.equipmentList?.items ?? [];
     },
@@ -157,19 +200,30 @@ export function WaterQualityRecordPage(): JSX.Element {
     queryKey: createTenantQueryKey(tenantId, 'equipment-params', selectedEquipmentId, tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{ equipmentParameters: EquipmentParameterConfig[] }>(
-        EQUIPMENT_PARAMS_QUERY, { equipmentId: selectedEquipmentId },
+        EQUIPMENT_PARAMS_QUERY,
+        { equipmentId: selectedEquipmentId },
       );
       return (result.equipmentParameters ?? [])
         .map((ep) => {
           const pc = ep.parameterConfig;
           return {
-            code: pc.code, name: pc.name, unit: pc.unit, dataType: pc.dataType,
-            precision: pc.precision, enumValues: pc.enumValues, isRequired: pc.isRequired,
-            group: pc.group, displayOrder: pc.displayOrder, chartColor: pc.chartColor,
+            code: pc.code,
+            name: pc.name,
+            unit: pc.unit,
+            dataType: pc.dataType,
+            precision: pc.precision,
+            enumValues: pc.enumValues,
+            isRequired: pc.isRequired,
+            group: pc.group,
+            displayOrder: pc.displayOrder,
+            chartColor: pc.chartColor,
             limits: {
-              optimalMin: pc.optimalMin, optimalMax: pc.optimalMax,
-              warningMin: pc.warningMin, warningMax: pc.warningMax,
-              criticalMin: pc.criticalMin, criticalMax: pc.criticalMax,
+              optimalMin: pc.optimalMin,
+              optimalMax: pc.optimalMax,
+              warningMin: pc.warningMin,
+              warningMax: pc.warningMax,
+              criticalMin: pc.criticalMin,
+              criticalMax: pc.criticalMax,
             },
           } satisfies ParameterFieldConfig;
         })
@@ -184,9 +238,9 @@ export function WaterQualityRecordPage(): JSX.Element {
   // -- Create mutation -------------------------------------------------------
   const { mutateAsync: createMeasurement, isPending: isSubmitting } = useMutation({
     mutationFn: async (input: CreateWaterQualityInput) =>
-      graphqlRequest<{ createWaterQualityMeasurement: { id: string; overallStatus: string; hasAlarm: boolean } }>(
-        CREATE_WQ_MUTATION, { input },
-      ),
+      graphqlRequest<{
+        createWaterQualityMeasurement: { id: string; overallStatus: string; hasAlarm: boolean };
+      }>(CREATE_WQ_MUTATION, { input }),
     onSuccess: async () => {
       if (tenantId) {
         await invalidateSyncedOperationQueries(queryClient, tenantId, ['createWaterQuality']);
@@ -199,10 +253,7 @@ export function WaterQualityRecordPage(): JSX.Element {
     async (values: Record<string, FieldValue>, notes: string, weatherConditions?: string) => {
       setSubmitError(null);
       const dynamicParameters = Object.fromEntries(
-        Object.entries(values).map(([parameterCode, value]) => [
-          parameterCode,
-          value,
-        ]),
+        Object.entries(values).map(([parameterCode, value]) => [parameterCode, value]),
       ) as Record<string, number | string | boolean>;
       const input: CreateWaterQualityInput = {
         equipmentId: selectedEquipmentId,
@@ -237,7 +288,9 @@ export function WaterQualityRecordPage(): JSX.Element {
             setTimeout(() => navigate('/'), 1500);
             return;
           } catch (queueError) {
-            setSubmitError(queueError instanceof Error ? queueError.message : 'Failed to queue measurement');
+            setSubmitError(
+              queueError instanceof Error ? queueError.message : 'Failed to queue measurement',
+            );
             return;
           }
         }
@@ -249,13 +302,10 @@ export function WaterQualityRecordPage(): JSX.Element {
     [selectedEquipmentId, isOnline, createMeasurement, addToQueue, navigate],
   );
 
-  const handleEquipmentChange = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      setSelectedEquipmentId(e.target.value);
-      setSubmitError(null);
-    },
-    [],
-  );
+  const handleEquipmentChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedEquipmentId(e.target.value);
+    setSubmitError(null);
+  }, []);
 
   // -- Success screen --------------------------------------------------------
   if (showSuccess) {
@@ -264,7 +314,9 @@ export function WaterQualityRecordPage(): JSX.Element {
         <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
           <CheckCircle size={48} className="text-green-600" />
         </div>
-        <h2 className="text-xl font-bold text-green-700 dark:text-green-300">Measurement Recorded!</h2>
+        <h2 className="text-xl font-bold text-green-700 dark:text-green-300">
+          Measurement Recorded!
+        </h2>
         <p className="text-green-600 dark:text-green-400 text-sm mt-1">Returning to home...</p>
       </div>
     );
@@ -276,7 +328,10 @@ export function WaterQualityRecordPage(): JSX.Element {
       {/* Gradient Header */}
       <div className="bg-gradient-to-r from-cyan-600 to-blue-500 text-white">
         <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
+          <button
+            onClick={() => navigate(-1)}
+            className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
+          >
             <ArrowLeft size={22} />
           </button>
           <div className="flex items-center gap-2.5">
@@ -307,7 +362,9 @@ export function WaterQualityRecordPage(): JSX.Element {
               {Object.entries(groupedEquipment).map(([category, items]) => (
                 <optgroup key={category} label={category}>
                   {items.map((eq) => (
-                    <option key={eq.id} value={eq.id}>{eq.name} ({eq.code})</option>
+                    <option key={eq.id} value={eq.id}>
+                      {eq.name} ({eq.code})
+                    </option>
                   ))}
                 </optgroup>
               ))}
@@ -331,14 +388,19 @@ export function WaterQualityRecordPage(): JSX.Element {
       )}
 
       {/* No parameters warning */}
-      {selectedEquipmentId && !paramsLoading && parameterConfigs && parameterConfigs.length === 0 && (
-        <div className="mx-4 mt-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 border border-amber-200 dark:border-amber-800">
-          <p className="text-amber-700 dark:text-amber-300 font-medium">No parameters configured</p>
-          <p className="text-amber-600 dark:text-amber-400 text-sm mt-1">
-            This equipment has no water quality parameters assigned.
-          </p>
-        </div>
-      )}
+      {selectedEquipmentId &&
+        !paramsLoading &&
+        parameterConfigs &&
+        parameterConfigs.length === 0 && (
+          <div className="mx-4 mt-4 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 border border-amber-200 dark:border-amber-800">
+            <p className="text-amber-700 dark:text-amber-300 font-medium">
+              No parameters configured
+            </p>
+            <p className="text-amber-600 dark:text-amber-400 text-sm mt-1">
+              This equipment has no water quality parameters assigned.
+            </p>
+          </div>
+        )}
 
       {/* Dynamic Measurement Form */}
       {selectedEquipmentId && parameterConfigs && parameterConfigs.length > 0 && (

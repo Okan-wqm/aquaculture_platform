@@ -156,7 +156,12 @@ vi.mock('konsta/react', () => ({
       return <textarea value={value} onChange={onInput} placeholder={placeholder} />;
     }
     return (
-      <input type={type || 'text'} value={value ?? ''} onChange={onInput} placeholder={placeholder} />
+      <input
+        type={type || 'text'}
+        value={value ?? ''}
+        onChange={onInput}
+        placeholder={placeholder}
+      />
     );
   },
 }));
@@ -208,7 +213,9 @@ async function flushAct(action: () => void): Promise<void> {
  * payload. Selects source tank-1 (has batch), destination tank-2 (empty), and
  * sets quantity. Avg weight is left to its pre-filled default unless overridden.
  */
-async function submitTransfer(opts?: { avgWeightOverride?: string }): Promise<Record<string, unknown>> {
+async function submitTransfer(opts?: {
+  avgWeightOverride?: string;
+}): Promise<Record<string, unknown>> {
   // selects[0] = source tank, selects[1] = destination tank
   await flushAct(() => {
     fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'tank-1' } });
@@ -258,78 +265,84 @@ async function submitTransfer(opts?: { avgWeightOverride?: string }): Promise<Re
 // (notably the avgWeightG prefill effect). Under CI load that exceeds vitest's
 // default 5s per-test ceiling, so raise the timeout suite-wide. This is a test
 // harness concession to render latency, not a slow code path in the page.
-describe('RecordTransferPage — backend TransferBatchInput contract (FARM-MEDIUM-050)', { timeout: 20000 }, () => {
-  it('enqueues avgWeightG and never the rejected biomassKg field', async () => {
-    render(<RecordTransferPage />);
-    const payload = await submitTransfer();
+describe(
+  'RecordTransferPage — backend TransferBatchInput contract (FARM-MEDIUM-050)',
+  { timeout: 20000 },
+  () => {
+    it('enqueues avgWeightG and never the rejected biomassKg field', async () => {
+      render(<RecordTransferPage />);
+      const payload = await submitTransfer();
 
-    expect(payload).toMatchObject({
-      batchId: 'batch-1',
-      sourceTankId: 'tank-1',
-      destinationTankId: 'tank-2',
-      quantity: 100,
+      expect(payload).toMatchObject({
+        batchId: 'batch-1',
+        sourceTankId: 'tank-1',
+        destinationTankId: 'tank-2',
+        quantity: 100,
+      });
+      // The whole point of the fix: avgWeightG present, biomassKg absent.
+      expect(payload.avgWeightG).toBe(200);
+      expect('biomassKg' in payload).toBe(false);
     });
-    // The whole point of the fix: avgWeightG present, biomassKg absent.
-    expect(payload.avgWeightG).toBe(200);
-    expect('biomassKg' in payload).toBe(false);
-  });
 
-  it('pre-fills avgWeightG from the source batch average (zero manual entry)', async () => {
-    render(<RecordTransferPage />);
-    const payload = await submitTransfer();
-    // 200 g/fish comes straight from sourceMetrics.avgWeight — the same backend
-    // SSoT field surfaced via useTanks — not from any user input.
-    expect(payload.avgWeightG).toBe(200);
-  });
+    it('pre-fills avgWeightG from the source batch average (zero manual entry)', async () => {
+      render(<RecordTransferPage />);
+      const payload = await submitTransfer();
+      // 200 g/fish comes straight from sourceMetrics.avgWeight — the same backend
+      // SSoT field surfaced via useTanks — not from any user input.
+      expect(payload.avgWeightG).toBe(200);
+    });
 
-  it('honours a manual avgWeightG override for a differently-sized sub-population', async () => {
-    render(<RecordTransferPage />);
-    const payload = await submitTransfer({ avgWeightOverride: '150' });
-    expect(payload.avgWeightG).toBe(150);
-    expect('biomassKg' in payload).toBe(false);
-  });
+    it('honours a manual avgWeightG override for a differently-sized sub-population', async () => {
+      render(<RecordTransferPage />);
+      const payload = await submitTransfer({ avgWeightOverride: '150' });
+      expect(payload.avgWeightG).toBe(150);
+      expect('biomassKg' in payload).toBe(false);
+    });
 
-  it('omits avgWeightG when no source average exists and the user enters none', async () => {
-    // Source batch with avgWeight null → no prefill; user leaves the field blank.
-    h.tanks[0] = h.sourceWithoutAvgWeight;
-    render(<RecordTransferPage />);
-    const payload = await submitTransfer();
-    expect(payload.avgWeightG).toBeUndefined();
-    expect('biomassKg' in payload).toBe(false);
-  });
+    it('omits avgWeightG when no source average exists and the user enters none', async () => {
+      // Source batch with avgWeight null → no prefill; user leaves the field blank.
+      h.tanks[0] = h.sourceWithoutAvgWeight;
+      render(<RecordTransferPage />);
+      const payload = await submitTransfer();
+      expect(payload.avgWeightG).toBeUndefined();
+      expect('biomassKg' in payload).toBe(false);
+    });
 
-  it('exposes an Average Weight field, not a Biomass field, in the entry form', () => {
-    render(<RecordTransferPage />);
-    expect(screen.getByPlaceholderText(/Average weight per fish in grams/i)).toBeTruthy();
-    expect(screen.queryByPlaceholderText(/Total biomass kg/i)).toBeNull();
-  });
+    it('exposes an Average Weight field, not a Biomass field, in the entry form', () => {
+      render(<RecordTransferPage />);
+      expect(screen.getByPlaceholderText(/Average weight per fish in grams/i)).toBeTruthy();
+      expect(screen.queryByPlaceholderText(/Total biomass kg/i)).toBeNull();
+    });
 
-  // Tier-1 guard: the page binds its enqueued payload to the `TransferInput`
-  // SSoT type (buildPayload(): TransferInput), so tsc excess-property checking
-  // rejects any non-contract key at compile time. This runtime test pins the
-  // SAME invariant — the enqueued payload carries ONLY the whitelisted
-  // TransferInput keys — so a future refactor that re-inlines an untyped literal
-  // (re-opening the door to a stray `biomassKg`) fails the suite, not just tsc.
-  it('enqueues exactly the whitelisted TransferInput keys and nothing else', async () => {
-    render(<RecordTransferPage />);
-    const payload = await submitTransfer();
+    // Tier-1 guard: the page binds its enqueued payload to the `TransferInput`
+    // SSoT type (buildPayload(): TransferInput), so tsc excess-property checking
+    // rejects any non-contract key at compile time. This runtime test pins the
+    // SAME invariant — the enqueued payload carries ONLY the whitelisted
+    // TransferInput keys — so a future refactor that re-inlines an untyped literal
+    // (re-opening the door to a stray `biomassKg`) fails the suite, not just tsc.
+    it('enqueues exactly the whitelisted TransferInput keys and nothing else', async () => {
+      render(<RecordTransferPage />);
+      const payload = await submitTransfer();
 
-    const allowedKeys = [
-      'batchId',
-      'sourceTankId',
-      'destinationTankId',
-      'quantity',
-      'avgWeightG',
-      'transferReason',
-      'transferredAt',
-    ].sort();
-    // Keys with an `undefined` value (e.g. an omitted optional) are not wire
-    // fields — JSON.stringify drops them — so compare on present keys only.
-    const presentKeys = Object.keys(payload)
-      .filter((k) => payload[k] !== undefined)
-      .sort();
-    presentKeys.forEach((k) => expect(allowedKeys).toContain(k));
-    // The four required fields must always be present.
-    expect(presentKeys).toEqual(expect.arrayContaining(['batchId', 'sourceTankId', 'destinationTankId', 'quantity']));
-  });
-});
+      const allowedKeys = [
+        'batchId',
+        'sourceTankId',
+        'destinationTankId',
+        'quantity',
+        'avgWeightG',
+        'transferReason',
+        'transferredAt',
+      ].sort();
+      // Keys with an `undefined` value (e.g. an omitted optional) are not wire
+      // fields — JSON.stringify drops them — so compare on present keys only.
+      const presentKeys = Object.keys(payload)
+        .filter((k) => payload[k] !== undefined)
+        .sort();
+      presentKeys.forEach((k) => expect(allowedKeys).toContain(k));
+      // The four required fields must always be present.
+      expect(presentKeys).toEqual(
+        expect.arrayContaining(['batchId', 'sourceTankId', 'destinationTankId', 'quantity']),
+      );
+    });
+  },
+);

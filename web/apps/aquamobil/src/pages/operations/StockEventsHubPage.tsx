@@ -11,12 +11,7 @@
  */
 
 import { clsx } from 'clsx';
-import {
-  Package,
-  Scissors,
-  ArrowLeftRight,
-  Skull,
-} from 'lucide-react';
+import { Package, Scissors, ArrowLeftRight, Skull } from 'lucide-react';
 import type { JSX } from 'react';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -42,12 +37,15 @@ import type { StockEvent } from '@/types';
  * type by hue before reading it, and these six are validated as discriminable
  * under the common colour-vision deficiencies. The label is still always drawn.
  */
-const EVENT_TYPE_CONFIG: Record<StockEvent['type'], {
-  icon: typeof Package;
-  tone: RowTone;
-  badge: string;
-  label: string;
-}> = {
+const EVENT_TYPE_CONFIG: Record<
+  StockEvent['type'],
+  {
+    icon: typeof Package;
+    tone: RowTone;
+    badge: string;
+    label: string;
+  }
+> = {
   MORTALITY: {
     icon: Skull,
     tone: 'mortality',
@@ -241,9 +239,7 @@ export function StockEventsHubPage(): JSX.Element {
 
           {/* Recent Events List */}
           <section aria-label="Recent stock events">
-            <h2 className="text-body font-semibold text-ink-3 mb-2 px-1">
-              Recent Events (7 Days)
-            </h2>
+            <h2 className="text-body font-semibold text-ink-3 mb-2 px-1">Recent Events (7 Days)</h2>
 
             {isLoading ? (
               <EventListSkeleton />

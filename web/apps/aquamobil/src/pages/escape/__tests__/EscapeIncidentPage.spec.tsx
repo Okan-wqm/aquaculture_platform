@@ -174,54 +174,58 @@ async function flushAct(action: () => void): Promise<void> {
   });
 }
 
-describe('EscapeIncidentPage — RecordEscapeIncidentInput contract (FARM-HIGH-214)', { timeout: 20000 }, () => {
-  it('always shows the legally-immediate varsling banner', () => {
-    render(<EscapeIncidentPage />);
-    expect(screen.getByText(/legally IMMEDIATE/i)).toBeTruthy();
-    expect(screen.getByText(/Notify your site manager NOW/i)).toBeTruthy();
-  });
+describe(
+  'EscapeIncidentPage — RecordEscapeIncidentInput contract (FARM-HIGH-214)',
+  { timeout: 20000 },
+  () => {
+    it('always shows the legally-immediate varsling banner', () => {
+      render(<EscapeIncidentPage />);
+      expect(screen.getByText(/legally IMMEDIATE/i)).toBeTruthy();
+      expect(screen.getByText(/Notify your site manager NOW/i)).toBeTruthy();
+    });
 
-  it('enqueues speciesId from the tank batch plus site/tank/count/cause', async () => {
-    render(<EscapeIncidentPage />);
-    await flushAct(() => {
-      fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'tank-1' } });
-    });
-    await flushAct(() => {
-      fireEvent.click(screen.getByRole('button', { name: /Hole in Net/i }));
-    });
-    await flushAct(() => {
-      fireEvent.click(screen.getByRole('button', { name: /Review ~1 Escaped Fish/i }));
-    });
-    await screen.findByRole('button', { name: /Confirm & Record/i });
-    await flushAct(() => {
-      fireEvent.click(screen.getByRole('button', { name: /Confirm & Record/i }));
-    });
-    await waitFor(() => expect(h.addToQueue).toHaveBeenCalledTimes(1));
+    it('enqueues speciesId from the tank batch plus site/tank/count/cause', async () => {
+      render(<EscapeIncidentPage />);
+      await flushAct(() => {
+        fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'tank-1' } });
+      });
+      await flushAct(() => {
+        fireEvent.click(screen.getByRole('button', { name: /Hole in Net/i }));
+      });
+      await flushAct(() => {
+        fireEvent.click(screen.getByRole('button', { name: /Review ~1 Escaped Fish/i }));
+      });
+      await screen.findByRole('button', { name: /Confirm & Record/i });
+      await flushAct(() => {
+        fireEvent.click(screen.getByRole('button', { name: /Confirm & Record/i }));
+      });
+      await waitFor(() => expect(h.addToQueue).toHaveBeenCalledTimes(1));
 
-    const [opName, payload] = h.addToQueue.mock.calls[0] ?? [];
-    expect(opName).toBe('recordEscapeIncident');
-    expect(payload).toMatchObject({
-      siteId: 'site-1',
-      tankId: 'tank-1',
-      batchId: 'batch-1',
-      speciesId: 'species-1',
-      estimatedCount: 1,
-      cause: 'HOLE_IN_NET',
-      recoveryOngoing: false,
+      const [opName, payload] = h.addToQueue.mock.calls[0] ?? [];
+      expect(opName).toBe('recordEscapeIncident');
+      expect(payload).toMatchObject({
+        siteId: 'site-1',
+        tankId: 'tank-1',
+        batchId: 'batch-1',
+        speciesId: 'species-1',
+        estimatedCount: 1,
+        cause: 'HOLE_IN_NET',
+        recoveryOngoing: false,
+      });
+      // avgWeightG defaults to the batch average when the operator enters none.
+      expect(payload.avgWeightG).toBe(3200);
+      expect(String(payload.detectedAt)).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     });
-    // avgWeightG defaults to the batch average when the operator enters none.
-    expect(payload.avgWeightG).toBe(3200);
-    expect(String(payload.detectedAt)).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-  });
 
-  it('fails closed when the batch species is unknown (no species-less incident)', async () => {
-    render(<EscapeIncidentPage />);
-    await flushAct(() => {
-      fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'tank-2' } });
+    it('fails closed when the batch species is unknown (no species-less incident)', async () => {
+      render(<EscapeIncidentPage />);
+      await flushAct(() => {
+        fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'tank-2' } });
+      });
+      // canReview requires speciesId — the review CTA stays disabled.
+      const reviewBtn = screen.getByRole('button', { name: /Review ~1 Escaped Fish/i });
+      expect((reviewBtn as HTMLButtonElement).disabled).toBe(true);
+      expect(h.addToQueue).not.toHaveBeenCalled();
     });
-    // canReview requires speciesId — the review CTA stays disabled.
-    const reviewBtn = screen.getByRole('button', { name: /Review ~1 Escaped Fish/i });
-    expect((reviewBtn as HTMLButtonElement).disabled).toBe(true);
-    expect(h.addToQueue).not.toHaveBeenCalled();
-  });
-});
+  },
+);

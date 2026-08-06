@@ -7926,3 +7926,19 @@ Proven by two deliberate breaks: removing the thin-data refusal reddens the refu
 No tenant label on any series: the scrape surface is unauthenticated, and a tenant id there would enumerate customers for anyone who asks.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-HIGH-569 — container logs were the third unbounded disk consumer and nothing in the platform had ever set a ceiling — RESOLVED (this PR)
+
+**Discovered and reproduced:** 2026-08-06, tracing droplet disk pressure after the WAL-G rig was stopped and the disk kept climbing anyway. Docker's default `json-file` driver performs no rotation, no `/etc/docker/daemon.json` exists on the host, and `grep -l 'max-size\|logging:' docker-compose*.yml` returned nothing — no compose file had ever configured it. Measured on the production droplet: 2.0 GB of `*-json.log` across the running stack, `aqua-auth` alone at 658 MB and still being written to within the last 15 minutes, `aqua-postgres` 535 MB, `aqua-gateway` 464 MB — on a host at 94% with 11 GB free, whose capacity gate wants 37.6 GB.
+
+Nothing in the system would ever have stopped that growth except the disk filling, which it had already done on 2026-08-04, taking production down.
+
+This is the same shape as the DR-monitor defect in `ORPHAN-HIGH-563`: the protection exists but is blind to the class. `deploy-capacity-maintenance.yml` measures free space, so it can only react once the damage is done, and `ORPHAN-HIGH-417` already records that it could not see the two consumers that actually filled the droplet. Container logs were a third it never named. A gate that reacts to a full disk is not a substitute for a ceiling that makes filling it this way impossible.
+
+**Fix (this PR):** one `x-default-logging` anchor in `docker-compose.droplet.yml`, referenced by all 37 services — 20 MB × 3 files, so the whole stack holds at most ~2.2 GB however long it runs. The number is not the point; the point is that a number exists at all and is a property of the file rather than of whoever remembered. `tests/invariants/container-log-rotation.spec.ts` keeps it true: it refuses a service with no `logging`, refuses a half-bound one (`max-size` without `max-file` keeps unlimited rotated files; `max-file` without `max-size` keeps a fixed number of unlimited ones), and refuses a per-service ceiling that diverges from the shared anchor.
+
+Proven by deliberate breaks: a new service with no `logging` reddens all three assertions, dropping `max-size` reddens only the boundedness one, and giving `auth-service` its own 500m/9 ceiling reddens only the single-declaration one. `docker compose config` validates clean for both the droplet file and the droplet+staging overlay, with the anchor resolving to identical options on every service.
+
+**Not fixed here:** the ~2.0 GB already on disk is not reclaimed by this change — rotation applies to new writes after the containers are recreated, and production deploys are locked (`PRODUCTION_DEPLOY_ENABLED=false`). Truncating the existing logs is an operator action against live diagnostic state and is deliberately left out of a code change.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-417`, `ORPHAN-HIGH-563`, `INFRA-MEDIUM-057`.

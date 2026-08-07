@@ -44604,6 +44604,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/run-all.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/schema-drift-registration.ts",
       "prettier_managed": true
     },
@@ -56610,10 +56616,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9284,
+  "file_count": 9285,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9103,
-  "managed_file_list_sha256": "0a2ebfc45f023c96807220f6a609805fa99beff5d31eb30f2917a00284ec2c9c",
+  "managed_count": 9104,
+  "managed_file_list_sha256": "4b0b78f4a1ce89ab9c57f7a9c3f1959ab6a46cddf29eeccb3a5899330001376e",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

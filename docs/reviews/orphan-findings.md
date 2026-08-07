@@ -8068,3 +8068,24 @@ Proven by deliberate breaks: a new service with no `logging` reddens all three a
 **Not fixed here:** the ~2.0 GB already on disk is not reclaimed by this change — rotation applies to new writes after the containers are recreated, and production deploys are locked (`PRODUCTION_DEPLOY_ENABLED=false`). Truncating the existing logs is an operator action against live diagnostic state and is deliberately left out of a code change.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-417`, `ORPHAN-HIGH-563`, `INFRA-MEDIUM-057`.
+
+## ORPHAN-HIGH-588 — the same four libraries had never been linted either — OPEN (quarantined with counts)
+
+**Discovered:** 2026-08-06, by CI failing the PR that closed ORPHAN-CRITICAL-579.
+
+Declaring `project.json` for `backend-common`, `event-bus`, `outbox` and `storage` did not only expose 1,473 tests that had never run. It exposed the `lint` target too, because `@nx/eslint` infers one for any project with an eslint config. First CI run:
+
+| project          | eslint problems                   |
+| ---------------- | --------------------------------- |
+| `backend-common` | **891** (841 errors, 50 warnings) |
+| `event-bus`      | 60 errors                         |
+| `storage`        | 37 (36 errors, 1 warning)         |
+| `outbox`         | 13 errors                         |
+
+None of it is new. These projects were invisible to Nx, so `nx affected --target=lint` could never select them, exactly as it could never select their tests. The debt has been accruing for as long as the directories have existed — in the library every service imports.
+
+**Quarantined, not hidden.** All four are added to `scripts/ci/affected-target-policy.json` under `targets.lint.knownUnstableProjects`, which is the repo's existing mechanism for pre-existing monorepo debt, with a reason that says what the numbers are and why they are not being paid here: enforcing 941 errors inside the PR that merely made them visible would bury the change and make it unreviewable. The test wiring — the actual point of that PR — is NOT quarantined and gates for real.
+
+**Owner:** claude. **Deadline:** the next CI-Green Program slice; `backend-common` first, since it is the widest blast radius. **Status:** OPEN.
+
+**Two smaller things the same CI run caught, both fixed in that PR:** the `gates:test` npm script began with a shell `for` loop, and `repo-hygiene-invariants` rejects any script whose leading token is not a resolvable binary — a rule written to catch Storybook-class rot, doing its job on the first run. It is now `node tools/gates/run-all.mjs`, which globs the directory (so a gate spec written tomorrow is still covered) and is a real binary invocation.

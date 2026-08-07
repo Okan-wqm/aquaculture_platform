@@ -134,7 +134,7 @@
     "gates:auth-db-ownership": "node scripts/ci/check-auth-db-ownership.mjs",
     "gates:migration-sql": "ts-node --project tools/gates/tsconfig.json tools/gates/migration-sql-lint.ts",
     "gates:clippy-affected": "ts-node --project tools/gates/tsconfig.json tools/gates/clippy-affected.ts",
-    "gates:test": "for f in tools/gates/*.spec.ts; do echo \"--- $f\"; ts-node --project tools/gates/tsconfig.json \"$f\" || exit 1; done",
+    "gates:test": "node tools/gates/run-all.mjs",
     "gates:clippy-affected:test": "ts-node --project tools/gates/tsconfig.json tools/gates/clippy-affected.spec.ts",
     "gates:commit-msg:test": "ts-node --project tools/gates/tsconfig.json tools/gates/commit-msg-validator.spec.ts",
     "gates:finding-registry:test": "ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry-store.spec.ts",

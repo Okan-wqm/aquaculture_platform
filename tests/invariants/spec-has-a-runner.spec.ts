@@ -183,7 +183,12 @@ describe('every spec has a runner', () => {
     // `gates:test` globs tools/gates, which is what lets the runner entry
     // above claim the whole directory. Naming specs one at a time is how
     // eight of the ten came to have no CI invocation at all.
-    expect(pkg.scripts['gates:test']).toContain('tools/gates/*.spec.ts');
+    expect(pkg.scripts['gates:test']).toContain('tools/gates/run-all.mjs');
+    // The runner must GLOB the directory — naming specs one at a time is how
+    // eight of the ten came to have no CI invocation at all.
+    expect(readFileSync(join(repoRoot, 'tools/gates/run-all.mjs'), 'utf8')).toContain(
+      "endsWith('.spec.ts')",
+    );
     expect(
       readFileSync(join(repoRoot, '.github/workflows/closes-footer-check.yml'), 'utf8'),
     ).toContain('npm run gates:test');

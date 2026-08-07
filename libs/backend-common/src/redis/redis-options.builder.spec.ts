@@ -26,13 +26,18 @@ describe('buildRedisOptions', () => {
   beforeEach(() => {
     for (const key of REDIS_ENV_KEYS) {
       savedEnv.set(key, process.env[key]);
-      delete process.env[key];
+      // Reflect.deleteProperty rather than `delete process.env[key]`: the key
+      // is computed, and no-dynamic-delete exists because a computed delete on
+      // a typed object silently removes something the type system still
+      // believes is there. process.env is the one place it is unavoidable, so
+      // it goes through the reflective form that says so.
+      Reflect.deleteProperty(process.env, key);
     }
   });
 
   afterEach(() => {
     for (const [key, value] of savedEnv) {
-      if (value === undefined) delete process.env[key];
+      if (value === undefined) Reflect.deleteProperty(process.env, key);
       else process.env[key] = value;
     }
     savedEnv.clear();

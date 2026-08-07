@@ -33,6 +33,7 @@ import { join, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const EXCLUSIONS = join(REPO_ROOT, 'scripts/ci/lint-all-exclusions.json');
+const AFFECTED_POLICY = join(REPO_ROOT, 'scripts/ci/affected-target-policy.json');
 const RUNNER = join(REPO_ROOT, 'scripts/ci/lint-all.mjs');
 
 interface Exclusions {
@@ -80,6 +81,21 @@ describe('lint quarantine has one source', () => {
     // An entry with no reason is indistinguishable from a project someone
     // quietly stopped linting.
     expect(unexplained).toEqual([]);
+  });
+
+  it('keeps the full lane a SUBSET of the affected lane, so the two cannot contradict', () => {
+    // Two lists is the right shape — they answer different questions — but two
+    // lists that disagree is just duplication with extra steps. A project the
+    // FULL lane refuses to lint must also be one the AFFECTED lane knows is
+    // unstable; the reverse is fine and common (that list is far broader and
+    // mostly historical).
+    const affected = JSON.parse(readFileSync(AFFECTED_POLICY, 'utf8')) as {
+      targets?: { lint?: { knownUnstableProjects?: Record<string, string> } };
+    };
+    const known = new Set(Object.keys(affected.targets?.lint?.knownUnstableProjects ?? {}));
+    const contradictions = Object.keys(exclusions()).filter((project) => !known.has(project));
+
+    expect(contradictions).toEqual([]);
   });
 
   it('keeps the quarantine pointed at projects that exist', () => {

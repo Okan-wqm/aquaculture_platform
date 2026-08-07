@@ -8059,6 +8059,7 @@ Proven by deliberate break, and the important one is the first: pointed at `orig
 **Not in scope:** the advisories themselves. `SUPPLY-HIGH-001` (OPEN, deadline 2026-08-09) owns the CVE backlog, and `INFRA-HIGH-104` records the unsolved part — `minimatch`'s nested `brace-expansion` resists `overrides` because npm matches override keys against the spec a **parent requests**, not the resolved version, and lockfile regeneration is not idempotent against the committed state. That is a separate, careful pass.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `SUPPLY-HIGH-001`, `INFRA-HIGH-104`, `ORPHAN-HIGH-572`.
+
 ## ORPHAN-HIGH-573 — the CI hang detector had four minutes of margin, so it fired on runner load and reported the result as a test failure — RESOLVED (this PR)
 
 **Discovered and reproduced:** 2026-08-06. PR #1103 was blocked by `test` in `ci-full.yml` reporting failure; the log showed `##[error]The operation was canceled` after exactly 30m23s against `timeout-minutes: 30`. Nothing had failed — the job had run out of budget. Measured across 14 completed runs of that job: median 23m29s, p90 25m41s, max 29m03s. p90 sat at **86%** of the budget, and two Dependabot PRs in the same window had already died the same way.

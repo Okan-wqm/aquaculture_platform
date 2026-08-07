@@ -7993,6 +7993,36 @@ Proven by deliberate breaks: an extra `criteria.impactScore` read reddens the cl
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-MEDIUM-563`.
 
+## ORPHAN-CRITICAL-579 — 1,359 tests in the library every service depends on had never run in CI, and nobody could have noticed — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, auditing my own day's merges. An independent reviewer traced each new spec to the command that runs it and found three that no command reaches. Pulling that thread found the mechanism, and the mechanism is repo-wide.
+
+`libs/backend-common` ships a working `jest.config.ts` and **no `project.json`**. Nx therefore sees no project, so `nx affected --target=test` can never select it and `nx run-many --target=test --all` can never include it. Measured firsthand: 122 spec files, **1,359 tests**, none of which had ever executed in CI — in the library that every service imports. Running them by hand today: 1,340 pass, 19 fail (two `*.integration.spec.ts` files that need a live Postgres and report `Driver not Connected`).
+
+Worse than invisible. `nx.json`'s `sharedGlobals` includes `{workspaceRoot}/libs/*/src/**/*.ts`, so editing any file there marks **all 42** test projects affected. CI did maximum work and still ran none of that library's specs.
+
+The same shape holds for `platform/libs/outbox` (43 tests), `platform/libs/event-bus` (55), and `libs/storage` (26) — each a config with no runner. Three of my own merges landed in exactly this hole: the cron-heartbeat spec (#1098), the outbox relay-liveness spec (open PR), and the supervisor spec, which lives outside every Nx project so `affected` returns zero projects for it. All three were written, reviewed and merged green, and their greenness carried no information.
+
+**Fix (this PR):** `project.json` for backend-common, outbox, event-bus and storage — 1,473 previously-unreachable tests now run under `nx test`, and none is quarantined in `affected-target-policy.json`, so they gate. The two DB-dependent integration specs are excluded from the unit lane by an explicit `testPathIgnorePatterns` with the reason inline, rather than being left to redden a lane they do not belong to. `tools/` gets an npm script wired into `quality-gates`, because code with production intervention authority — the T0 supervisor restarts containers on the droplet — must not be the untested part.
+
+**The structural half:** `tests/invariants/spec-has-a-runner.spec.ts` walks every `*.spec.*` in the repo and fails if no declared runner claims it. A new spec in a new directory now fails at authoring time instead of passing silently forever. Today's remaining gaps start in a ratchet allowlist with reasons — `web/apps/aquamobil` (18 specs; it is an Nx project with lint/build/typecheck and no `test` target at all), `tools/lint-gates`, `tools/worktree-audit` — and a second assertion fails if an allowlist entry goes stale, so the list cannot be satisfied by fiction.
+
+**NOT done, stated rather than absorbed:** the 18 aquamobil specs still do not run; wiring them needs the PWA's test-runner story settled. `farm-service` is quarantined out of the affected lane's `test` target with a boilerplate reason and no expiry — that quarantine deserves its own review.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the mechanism and four libraries; the allowlist is the tracked remainder.
+
+## ORPHAN-HIGH-582 — eight of the ten CI gate test-suites were never invoked by CI — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, following the ORPHAN-CRITICAL-579 thread one link further. The invariant written for 579 declared that `tools/gates/*.spec.ts` was covered by "the `gates:*:test` npm scripts". That declaration was itself untrue, which is the same defect one level up.
+
+`tools/gates/` holds ten spec files. Six had an npm script. **Two** were invoked by a workflow (`closes-footer-check.yml` named `gates:commit-msg:test` and `gates:finding-registry:test`). The other eight — including `banned-construct`, which enforces the `as any` / `as unknown as` prohibition, and `migration-sql-lint` — ran nowhere. The pattern is the naming: a per-spec script must be remembered twice, once in `package.json` and once in the workflow, and the second one is what got forgotten.
+
+Ran all ten by hand before wiring them: **all pass** (37+19+11+6+6+5+3 and three more, ~50s wall clock dominated by `plan-coverage-witness` at 31s). So this was latent coverage, not hidden breakage — but it was coverage nobody could rely on.
+
+**Fix:** a single `gates:test` script that globs the directory, invoked by the workflow in place of the two by-name calls. A gate spec written tomorrow is covered the moment the file exists. The invariant now asserts both that the glob script exists and that a workflow invokes it — proven by deliberate break: pointing the workflow back at one by-name script turns it red.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-HIGH-563 — the five-minute RPO alarm could not tell "production is losing data" apart from "this was never deployed", and had been crying wolf 288 times a day for three weeks — RESOLVED (this PR)
 
 **Discovered and reproduced:** 2026-08-05, tracing the `Database WAL Archive Freshness` red reported by the scheduled-workflow watchdog (issue #1005). Verified firsthand on the production droplet: `docker exec aqua-postgres /usr/local/bin/postgres-walg-healthcheck.sh` → `stat: no such file or directory`, exit **127**; `SHOW archive_mode` → `off`; `pg_stat_archiver` → all zeroes; the container runs the bare `timescale/timescaledb-ha:pg16` base image, created 2026-07-14, not the WAL-G derivative `docker-compose.droplet.yml` has declared since `b89c623e9` (2026-07-16).
@@ -8038,6 +8068,33 @@ Proven by deliberate breaks: a new service with no `logging` reddens all three a
 **Not fixed here:** the ~2.0 GB already on disk is not reclaimed by this change — rotation applies to new writes after the containers are recreated, and production deploys are locked (`PRODUCTION_DEPLOY_ENABLED=false`). Truncating the existing logs is an operator action against live diagnostic state and is deliberately left out of a code change.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-417`, `ORPHAN-HIGH-563`, `INFRA-MEDIUM-057`.
+
+## ORPHAN-HIGH-588 — the same four libraries had never been linted either — OPEN (quarantined with counts)
+
+**Discovered:** 2026-08-06, by CI failing the PR that closed ORPHAN-CRITICAL-579.
+
+Declaring `project.json` for `backend-common`, `event-bus`, `outbox` and `storage` did not only expose 1,473 tests that had never run. It exposed the `lint` target too, because `@nx/eslint` infers one for any project with an eslint config. First CI run:
+
+| project          | eslint problems                   |
+| ---------------- | --------------------------------- |
+| `backend-common` | **891** (841 errors, 50 warnings) |
+| `event-bus`      | 60 errors                         |
+| `storage`        | 37 (36 errors, 1 warning)         |
+| `outbox`         | 13 errors                         |
+
+None of it is new. These projects were invisible to Nx, so `nx affected --target=lint` could never select them, exactly as it could never select their tests. The debt has been accruing for as long as the directories have existed — in the library every service imports.
+
+**Quarantined in BOTH lanes, which took two attempts and is worth recording.** The affected lane reads `scripts/ci/affected-target-policy.json`; adding the four there made that lane green and the PR still could not merge, because `build-status` — a REQUIRED context — depends on `ci-full`'s `lint-and-typecheck`, which ran `nx run-many --target=lint --all` and knew nothing about that file.
+
+The obvious consolidation — point `lint:all` at the affected lane's list — was written, run, and **thrown away**: that list quarantines roughly forty projects, most of which lint clean today, so reusing it would have collapsed full-lane coverage to almost nothing while looking like a tidy-up. The two lanes answer different questions and get different lists.
+
+So `lint:all` now goes through `scripts/ci/lint-all.mjs`, reading `scripts/ci/lint-all-exclusions.json` — four entries, each naming its error count and this finding. `tests/invariants/lint-quarantine-ssot.spec.ts` caps that list at six and requires a reason per entry, because without a ceiling "exclude the failing project" is always the cheapest way to make a red lane green. The test wiring — the actual point of the PR — is NOT quarantined and gates for real.
+
+**A pre-existing defect surfaced while writing the invariant:** four entries in the affected lane's quarantine (`@aquaculture/hr-module`, `@aquaculture/hydroponics-module`, `@aquaculture/sensor-module`, `@platform/aquaculture-engines`) name projects by scoped package name, but Nx's project names are the short forms. They have **never matched**, so those four projects have been linted strictly all along — and pass. Renaming them would have silently quarantined four healthy projects; they are deleted instead, which changes nothing operationally and makes the list honest about the size of the debt.
+
+**Owner:** claude. **Deadline:** the next CI-Green Program slice; `backend-common` first, since it is the widest blast radius. **Status:** OPEN.
+
+**Two smaller things the same CI run caught, both fixed in that PR:** the `gates:test` npm script began with a shell `for` loop, and `repo-hygiene-invariants` rejects any script whose leading token is not a resolvable binary — a rule written to catch Storybook-class rot, doing its job on the first run. It is now `node tools/gates/run-all.mjs`, which globs the directory (so a gate spec written tomorrow is still covered) and is a real binary invocation.
 
 ## ORPHAN-HIGH-572 — two vulnerability scanners ran, found real CVEs, and threw every finding away on an upload nobody had granted — RESOLVED (this PR)
 

@@ -36310,6 +36310,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/README.md",
       "prettier_managed": true
     },
@@ -40357,6 +40363,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/storage/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/storage/src/__tests__/file-upload-security.service.spec.ts",
       "prettier_managed": true
     },
@@ -40962,6 +40974,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "platform/libs/event-bus/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "platform/libs/event-bus/src/decorators/event-handler.decorator.ts",
       "prettier_managed": true
     },
@@ -41053,6 +41071,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "platform/libs/outbox/jest.config.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/outbox/project.json",
       "prettier_managed": true
     },
     {
@@ -41359,6 +41383,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "scripts/ci/lib/compose-dummy-env.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/lint-all-exclusions.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/lint-all.mjs",
       "prettier_managed": true
     },
     {
@@ -43272,6 +43308,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/lint-quarantine-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/maintenance-isolation.spec.ts",
       "prettier_managed": true
     },
@@ -43687,6 +43729,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/source-schema-write-guard-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/spec-has-a-runner.spec.ts",
       "prettier_managed": true
     },
     {
@@ -44623,6 +44671,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/required-status-checks.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/run-all.mjs",
       "prettier_managed": true
     },
     {

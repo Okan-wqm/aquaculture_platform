@@ -32,6 +32,7 @@ interface StatusCountResult {
 
 import { VfdDevice } from '../entities/vfd-device.entity';
 import { VfdBrand, VfdProtocol, VfdDeviceStatus } from '../entities/vfd.enums';
+import { VfdDriveBindingService } from './vfd-drive-binding.service';
 import { VfdEdgeProvisioningService } from './vfd-edge-provisioning.service';
 
 /** A drive's edge-gateway binding, captured for provisioning/decommission. */
@@ -54,11 +55,14 @@ export interface CreateVfdDeviceInput {
   description?: string;
   location?: string;
   farmId?: string;
-  tankId?: string;
   tags?: string[];
   // SENSOR-HIGH-026: previously accepted by the DTO but dropped at persistence.
   modelSeries?: string;
-  pumpId?: string;
+  /**
+   * The farm equipment this drive turns. Not stored on the device row — it opens
+   * a VfdDriveBinding, which is PENDING until the owning service attests it.
+   */
+  drivenEquipmentId?: string;
   notes?: string;
   // SENSOR-CRITICAL-007: edge-delegated write binding (both-or-neither).
   edgeDeviceId?: string;
@@ -77,7 +81,6 @@ export interface UpdateVfdDeviceInput {
   description?: string;
   location?: string;
   farmId?: string;
-  tankId?: string;
   tags?: string[];
   status?: VfdDeviceStatus;
   // SENSOR-CRITICAL-007: edge-delegated write binding (both-or-neither).
@@ -118,6 +121,9 @@ export class VfdDeviceService {
   constructor(
     @InjectRepository(VfdDevice)
     private readonly vfdDeviceRepository: Repository<VfdDevice>,
+    // Owns the drive→equipment binding. Registration may open one; deletion must
+    // close one, or a re-used device id would inherit a dead binding.
+    private readonly driveBindingService: VfdDriveBindingService,
     // @Optional so `new`-based unit tests and edge-less boots work; when present,
     // binding a drive to an edge gateway pushes it there as a Modbus device
     // (SENSOR-CRITICAL-007), and unbinding/deleting removes it.
@@ -139,7 +145,11 @@ export class VfdDeviceService {
     // name, or vice versa) could never be dispatched to and must be rejected.
     this.validateEdgeBinding(input.edgeDeviceId, input.edgeModbusDeviceName);
 
-    const { notes, ...rest } = input;
+    // `drivenEquipmentId` is NOT a device column — it opens a binding that the
+    // owning service has to attest. Destructured out so the spread below cannot
+    // smuggle it into the device row as an unchecked uuid, which is precisely the
+    // shape `tank_id` and `pump_id` had.
+    const { notes, drivenEquipmentId, ...rest } = input;
     const deviceData: DeepPartial<VfdDevice> = {
       ...rest,
       tenantId,
@@ -164,6 +174,13 @@ export class VfdDeviceService {
     // as a Modbus device so the edge-delegated write path has a real target.
     if (savedDevice.edgeDeviceId && savedDevice.edgeModbusDeviceName) {
       await this.safeEdgeProvision(savedDevice);
+    }
+
+    // Commissioning-time binding. The drive stays uncommandable until the owning
+    // service answers, which is the whole point — a registration cannot assert
+    // what a farm equipment row is.
+    if (drivenEquipmentId) {
+      await this.driveBindingService.bind(savedDevice.id, tenantId, drivenEquipmentId);
     }
 
     return savedDevice;
@@ -218,7 +235,18 @@ export class VfdDeviceService {
     }
 
     if (filter?.tankId) {
-      queryBuilder.andWhere('vfd.tankId = :tankId', { tankId: filter.tankId });
+      // Through the binding, not off the row. A drive "belongs to" a unit only
+      // because the equipment it turns serves that unit, and only while the
+      // owning service still says so.
+      queryBuilder.andWhere(
+        `EXISTS (
+           SELECT 1 FROM vfd_drive_binding_units u
+            WHERE u.vfd_device_id = vfd.id
+              AND u.tenant_id = vfd."tenant_id"
+              AND u.unit_id = :tankId
+         )`,
+        { tankId: filter.tankId },
+      );
     }
 
     if (filter?.search) {
@@ -301,6 +329,11 @@ export class VfdDeviceService {
       edgeDeviceId: device.edgeDeviceId,
       edgeModbusDeviceName: device.edgeModbusDeviceName,
     };
+
+    // Close the binding BEFORE the device row goes: an orphan binding would be
+    // inherited by nothing, but it would still be counted by the unattested-drive
+    // health surface and confuse whoever reads it.
+    await this.driveBindingService.unbind(id, tenantId);
 
     await this.vfdDeviceRepository.remove(device);
     this.logger.log(`VFD device ${id} deleted`);
@@ -479,13 +512,28 @@ export class VfdDeviceService {
   }
 
   /**
-   * Get devices by tank
+   * Drives serving a unit — resolved through the attested binding.
+   *
+   * The old form read a `tank_id` column an operator typed. That column is gone,
+   * so this can no longer return a drive that merely CLAIMS to serve the unit: it
+   * returns drives whose driven equipment the owning service says serves it. A
+   * drive on a pump is correctly absent.
    */
   async findByTank(tankId: string, tenantId: string): Promise<VfdDevice[]> {
-    return this.vfdDeviceRepository.find({
-      where: { tankId, tenantId },
-      order: { name: 'ASC' },
-    });
+    return this.vfdDeviceRepository
+      .createQueryBuilder('vfd')
+      .where('vfd.tenantId = :tenantId', { tenantId })
+      .andWhere(
+        `EXISTS (
+           SELECT 1 FROM vfd_drive_binding_units u
+            WHERE u.vfd_device_id = vfd.id
+              AND u.tenant_id = vfd."tenant_id"
+              AND u.unit_id = :tankId
+         )`,
+        { tankId },
+      )
+      .orderBy('vfd.name', 'ASC')
+      .getMany();
   }
 
   /**

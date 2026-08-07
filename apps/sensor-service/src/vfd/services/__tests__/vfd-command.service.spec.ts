@@ -16,6 +16,7 @@ import { VfdDevice } from '../../entities/vfd-device.entity';
 import { VfdProtocol, VfdBrand, VfdDeviceStatus, VfdCommandType } from '../../entities/vfd.enums';
 import { VfdCommandService, VfdCommandInput } from '../vfd-command.service';
 import { VfdDeviceService } from '../vfd-device.service';
+import { VfdDriveBindingService } from '../vfd-drive-binding.service';
 import { VfdEdgeWriteService } from '../vfd-edge-write.service';
 import { VfdRegisterMappingService } from '../vfd-register-mapping.service';
 
@@ -24,6 +25,7 @@ describe('VfdCommandService', () => {
   let deviceService: jest.Mocked<VfdDeviceService>;
   let registerMappingService: jest.Mocked<VfdRegisterMappingService>;
   let edgeWriteService: jest.Mocked<VfdEdgeWriteService>;
+  let driveBindingService: jest.Mocked<VfdDriveBindingService>;
 
   const tenantId = 'tenant-123';
 
@@ -75,6 +77,14 @@ describe('VfdCommandService', () => {
           },
         },
         {
+          // The gate that decides whether this drive may move a shaft at all.
+          // Default: attested, so the command tests below are about commands.
+          provide: VfdDriveBindingService,
+          useValue: {
+            assertActuable: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
           provide: VfdRegisterMappingService,
           useValue: {
             getControlWordMapping: jest.fn().mockResolvedValue(mockControlMapping),
@@ -109,10 +119,46 @@ describe('VfdCommandService', () => {
     deviceService = module.get(VfdDeviceService);
     registerMappingService = module.get(VfdRegisterMappingService);
     edgeWriteService = module.get(VfdEdgeWriteService);
+    driveBindingService = module.get(VfdDriveBindingService);
   });
 
   afterEach(() => {
     jest.clearAllMocks();
+  });
+
+  describe('the equipment-binding gate', () => {
+    it('refuses the command when the drive is not bound to the equipment it drives', async () => {
+      driveBindingService.assertActuable.mockRejectedValueOnce(
+        new BadRequestException('VFD device-123 is not bound to the equipment it drives.'),
+      );
+
+      await expect(
+        service.executeCommand('device-123', tenantId, { command: VfdCommandType.START }),
+      ).rejects.toThrow(BadRequestException);
+
+      // Nothing reached the wire. An unbound drive fails closed rather than
+      // spinning something nobody recorded.
+      expect(edgeWriteService.writeRegister).not.toHaveBeenCalled();
+    });
+
+    it('refuses the command when the binding is stale', async () => {
+      driveBindingService.assertActuable.mockRejectedValueOnce(
+        new BadRequestException("VFD device-123's equipment binding has aged out."),
+      );
+
+      await expect(
+        service.executeCommand('device-123', tenantId, { command: VfdCommandType.SET_FREQUENCY, value: 40 }),
+      ).rejects.toThrow(/aged out/);
+      expect(edgeWriteService.writeRegister).not.toHaveBeenCalled();
+    });
+
+    it('consults the gate before every command, including EMERGENCY_STOP', async () => {
+      await service.executeCommand('device-123', tenantId, {
+        command: VfdCommandType.EMERGENCY_STOP,
+      });
+
+      expect(driveBindingService.assertActuable).toHaveBeenCalledWith('device-123', tenantId);
+    });
   });
 
   describe('executeCommand', () => {

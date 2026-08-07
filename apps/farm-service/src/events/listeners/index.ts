@@ -14,3 +14,4 @@ export * from './low-stock-alert.listener';
 export * from './feeding-completed.listener';
 export * from './farm-stock-projection.listener';
 export * from './sensor-temperature-projection.listener';
+export * from './vfd-drive-binding-attestation.listener';

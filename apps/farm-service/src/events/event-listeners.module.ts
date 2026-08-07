@@ -60,6 +60,7 @@ import {
   FeedingCompletedListener,
   FarmStockProjectionListener,
   SensorTemperatureProjectionListener,
+  VfdDriveBindingAttestationListener,
 } from './listeners';
 
 /**
@@ -74,6 +75,9 @@ const EventListeners = [
   FeedingCompletedListener,
   FarmStockProjectionListener,
   SensorTemperatureProjectionListener,
+  // Answers sensor-service's "what is the equipment this drive turns?" — the
+  // only place that question can be answered, since equipment identity is here.
+  VfdDriveBindingAttestationListener,
 ];
 
 @Module({

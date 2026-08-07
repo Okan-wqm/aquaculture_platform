@@ -10899,6 +10899,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/events/listeners/__tests__/vfd-drive-binding-attestation.listener.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/events/listeners/batch-created.listener.ts",
       "prettier_managed": true
     },
@@ -10948,6 +10954,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/events/listeners/sensor-temperature-projection.listener.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/events/listeners/vfd-drive-binding-attestation.listener.ts",
       "prettier_managed": true
     },
     {
@@ -24887,6 +24899,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1817000000000-CreateVfdDriveBindings.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1817100000000-DropVfdDeviceFreeTextUnitColumns.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/deploy-artifact/__tests__/artifact-immutability.spec.ts",
       "prettier_managed": true
     },
@@ -26903,6 +26927,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/vfd/dto/vfd-drive-binding.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/vfd/dto/vfd-filter.dto.ts",
       "prettier_managed": true
     },
@@ -26958,6 +26988,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/vfd/entities/vfd-device.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/entities/vfd-drive-binding-unit.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/entities/vfd-drive-binding.entity.ts",
       "prettier_managed": true
     },
     {
@@ -27077,6 +27119,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-drive-binding.listener.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-drive-binding.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-edge-provisioning.service.spec.ts",
       "prettier_managed": true
     },
@@ -27132,6 +27186,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/vfd/services/vfd-device.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/vfd-drive-binding.listener.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/vfd-drive-binding.service.ts",
       "prettier_managed": true
     },
     {
@@ -57150,10 +57216,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9374,
+  "file_count": 9385,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9193,
-  "managed_file_list_sha256": "19e02bd423f2fbfb559c818e58b696b4c3edbc632300db538dd7dd58552be877",
+  "managed_count": 9204,
+  "managed_file_list_sha256": "f8b14e7607417d70115586a364a77514f4254e1be66544c8fc79062d2cdcd98d",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

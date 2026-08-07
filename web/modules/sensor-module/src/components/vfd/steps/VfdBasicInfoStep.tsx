@@ -133,6 +133,20 @@ export function VfdBasicInfoStep({
       <div className="border-t border-gray-200 pt-6">
         <h4 className="text-sm font-medium text-gray-900 mb-4">Atama (Opsiyonel)</h4>
 
+        {/*
+          The Tank/Havuz and Pompa selects that used to live here are gone. They
+          were permanently empty — no query ever populated their options — while
+          the fields behind them were sent to the backend as free uuids. What a
+          drive turns is now one generic binding (`drivenEquipmentId`) that
+          farm-service confirms, and the unit follows from that binding rather than
+          from an operator's choice.
+
+          The equipment picker that would fill `drivenEquipmentId` from
+          farm-service's `equipmentList` is NOT built here: this module has no
+          farm-service query yet, and shipping a third empty dropdown would repeat
+          the defect being removed. Until it exists the binding is made through
+          `bindVfdDrivenEquipment`.
+        */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Farm ID */}
           <div>
@@ -148,40 +162,6 @@ export function VfdBasicInfoStep({
             >
               <option value="">Seçiniz...</option>
               {/* Farm options would be loaded dynamically */}
-            </select>
-          </div>
-
-          {/* Tank ID */}
-          <div>
-            <label htmlFor="tankId" className="block text-sm font-medium text-gray-700 mb-1">
-              Tank/Havuz
-            </label>
-            <select
-              id="tankId"
-              name="tankId"
-              value={values.tankId || ''}
-              onChange={handleChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="">Seçiniz...</option>
-              {/* Tank options would be loaded dynamically */}
-            </select>
-          </div>
-
-          {/* Pump ID */}
-          <div>
-            <label htmlFor="pumpId" className="block text-sm font-medium text-gray-700 mb-1">
-              Pompa
-            </label>
-            <select
-              id="pumpId"
-              name="pumpId"
-              value={values.pumpId || ''}
-              onChange={handleChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="">Seçiniz...</option>
-              {/* Pump options would be loaded dynamically */}
             </select>
           </div>
         </div>

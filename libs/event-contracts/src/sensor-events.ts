@@ -404,6 +404,28 @@ export interface ScadaDeployFailedEvent extends BaseEvent {
   errorMessage?: string;
 }
 
+/**
+ * A drive asks the owner of equipment identity what it is wired to.
+ *
+ * WHAT: sensor-service owns the drive; farm-service owns the equipment the drive
+ * turns. This event is the question; `VfdDriveBindingAttested` (farm-events) is
+ * the answer. It is emitted when an operator binds or re-binds a drive, and again
+ * whenever the drive finds its held answer missing or aged out — so a lost
+ * attestation heals itself instead of leaving the drive permanently mute.
+ *
+ * WHY the question exists at all: a VFD is an actuator. Before this contract the
+ * drive carried a hand-typed `tank_id` that nothing on either side ever checked,
+ * so a typo pointed a feeder at the wrong container — one tank overfed, another
+ * starved, and no surface anywhere would have said so.
+ */
+export interface VfdDriveBindingAttestationRequestedEvent extends BaseEvent {
+  eventType: 'VfdDriveBindingAttestationRequested';
+  /** `vfd_devices.id` — the drive asking. */
+  vfdDeviceId: string;
+  /** The farm `equipment.id` the drive claims to actuate. */
+  drivenEquipmentId: string;
+}
+
 // ==================== Type Union ====================
 
 /**
@@ -430,4 +452,5 @@ export type SensorEvent =
   | ParentReadingRoutedEvent
   | ScadaPackageDeployedEvent
   | ScadaDeploySucceededEvent
-  | ScadaDeployFailedEvent;
+  | ScadaDeployFailedEvent
+  | VfdDriveBindingAttestationRequestedEvent;

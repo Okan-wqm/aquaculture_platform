@@ -83,3 +83,6 @@ export { VfdReadingStats } from './vfd-stats.dto';
 
 // Read Result DTOs
 export { VfdReadResultDto } from './vfd-read-result.dto';
+
+// Drive-binding DTOs (what a drive turns, and what unit follows from it)
+export { VfdDrivenUnitOutcome, VfdDrivenUnitResolutionDto } from './vfd-drive-binding.dto';

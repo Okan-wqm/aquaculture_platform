@@ -44,14 +44,20 @@ describe('VfdDevice Entity', () => {
 
     it('should set optional location properties', () => {
       device.farmId = 'farm-123';
-      device.tankId = 'tank-456';
       device.location = 'Building A, Room 101';
       device.description = 'Main pump VFD';
 
       expect(device.farmId).toBe('farm-123');
-      expect(device.tankId).toBe('tank-456');
       expect(device.location).toBe('Building A, Room 101');
       expect(device.description).toBe('Main pump VFD');
+    });
+
+    it('has nowhere left to store a unit — the drive cannot claim a tank on its own', () => {
+      // `tank_id` and `pump_id` were bare uuids an operator typed and nothing
+      // checked. The unit a drive serves is now derived through VfdDriveBinding,
+      // so the entity must expose no property that could hold a guess.
+      expect(Object.prototype.hasOwnProperty.call(device, 'tankId')).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(device, 'pumpId')).toBe(false);
     });
   });
 

@@ -275,6 +275,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // cross-tenant reference data pinned to `sensor` (see infrastructureTables
       // above, SENSOR-MEDIUM-009), not a per-tenant clone.
       'vfd_devices',
+      // Which farm equipment each drive turns, and the units that follow from it.
+      // Per-tenant like the drive itself — a binding is meaningless outside the
+      // tenant whose equipment it names.
+      'vfd_drive_bindings',
+      'vfd_drive_binding_units',
       'vfd_readings',
       'vfd_parameter_definitions',
       'vfd_change_sets',

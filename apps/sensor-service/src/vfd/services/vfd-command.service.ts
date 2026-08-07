@@ -8,6 +8,7 @@ import { VfdDevice } from '../entities/vfd-device.entity';
 import { VfdCommandType, VfdDeviceStatus } from '../entities/vfd.enums';
 
 import { VfdDeviceService } from './vfd-device.service';
+import { VfdDriveBindingService } from './vfd-drive-binding.service';
 import { VfdEdgeWriteService } from './vfd-edge-write.service';
 import { VfdRegisterMappingService } from './vfd-register-mapping.service';
 
@@ -75,6 +76,7 @@ export class VfdCommandService {
 
   constructor(
     private readonly vfdDeviceService: VfdDeviceService,
+    private readonly driveBindingService: VfdDriveBindingService,
     private readonly registerMappingService: VfdRegisterMappingService,
     private readonly edgeWriteService: VfdEdgeWriteService,
     @InjectRepository(VfdCommandAuditLog)
@@ -98,6 +100,15 @@ export class VfdCommandService {
         `Device ${deviceId} is not active. Current status: ${device.status}`,
       );
     }
+
+    // A VFD is an actuator. Before this gate, a drive whose equipment binding was
+    // never confirmed — or whose equipment had since been deleted — would happily
+    // move a shaft, and if that shaft was a feeder the feed went to whatever the
+    // stale record named. Refuse instead: an unbound or unconfirmed drive fails
+    // closed, and a revoked binding stops actuating the moment the news lands.
+    // It deliberately does NOT require a unit — a pump serves none, and a feeder
+    // whose assignment lapsed still has to be able to run.
+    await this.driveBindingService.assertActuable(deviceId, tenantId);
 
     this.logger.log(
       `Executing command ${commandInput.command} on device ${deviceId}` +

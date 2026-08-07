@@ -8558,3 +8558,21 @@ Severity: HIGH. Discovered 2026-08-06.
 **Fix:** readers repointed at the v2 assignment through a single resolver; column and comment removed. Also corrected the mixed-tank band comment, which claimed the band is picked from the dominant-biomass batch while the code correctly uses the tank-wide blended weight.
 
 **BREAKING CHANGE:** `Batch.protocolId` removed from the GraphQL schema and the entity.
+
+## ORPHAN-HIGH-603 — nothing bound a feeder to the unit it feeds, and the dose had nowhere to split — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-07 designing the VFD feeding chain.
+
+**Problem:** feed is computed per unit (`plannedTotalKg = biomassKg × effectiveRate / 100`), but no relation carried that number to the feeders that deliver it. `Equipment` has no tank link at all — only `departmentId`. A tank can carry more than one feeder, and nothing could express how the daily dose divides between them. Grouping (`equipment_systems`) was considered and rejected for this: a membership row has nowhere to hold a share, and feeding is a directed, proportional relation rather than a peer group.
+
+**Fix:** `FeederAssignment`, mirroring the proven `ProtocolAssignment` discipline — keyed by unit, ending rows rather than deleting them so historical feeding records stay traceable. The dose share is enforced in the DATABASE, not the service layer: a derived `feeder_assignment_unit_totals` row carries `CHECK (total = 0 OR total = 100)`, kept honest by a DEFERRABLE INITIALLY DEFERRED constraint trigger. A sum cannot be a CHECK over the assignment table itself, but it can be a CHECK over a derived total — so a unit whose feeders cover 90% is uncommittable rather than silently underfeeding fish every day. The deferred timing is load-bearing: adding a second feeder necessarily passes through a moment where the shares do not yet sum to 100.
+
+**Also settled:** feeder identity. `FeederCalibration` keyed by a top-level `Equipment` row while `daily_feeding_executions.feederEquipmentId` documented itself as a SubEquipment id — calibration and records described different objects. Records are now bound to `Equipment`, matching calibration, and the alternative is no longer expressible.
+
+## ORPHAN-HIGH-604 — the sub-equipment tier shipped empty, so spare parts and components were unreachable — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-07.
+
+**Problem:** `SUB_EQUIPMENT_TYPES_SEED` declares 20 types including `feeder`, `hopper` and `spreading-disc`, but the identifier appeared exactly once in the whole repo — its own declaration. Nothing imported it, no SQL seed existed, and the Baseline migration only CREATEs the table. So `sub_equipment_types` shipped empty, `createSubEquipment` could never be given a valid type id, and the entire composition tier plus its CRUD and UI were unreachable on any fresh tenant. Two further drifts would have kept it broken after seeding: the seed used codes from the archived catalogue (`fish-tank`, `auto-feeder`) while the live catalogue uses `tank-circular`/`feeder-automatic`, so the compatibility check rejected every pairing; and the type filter used a raw `LIKE '%code%'` against a comma-joined array, matching codes that are substrings of other codes.
+
+**Fix:** the seed is wired into the seeder, the two catalogues are made structurally unable to disagree rather than hand-synchronised, and the substring collision is closed.

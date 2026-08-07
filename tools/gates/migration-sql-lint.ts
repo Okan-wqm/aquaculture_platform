@@ -261,6 +261,43 @@ function isSearchPathIdentifier(token: SqlStructuralToken | undefined): boolean 
   );
 }
 
+/**
+ * Offsets of `SET search_path` clauses that belong to an `ALTER FUNCTION` /
+ * `ALTER PROCEDURE` statement.
+ *
+ * WHY this exists alongside {@link routineConfigurationSetOffsets}: that helper
+ * recognises the CREATE spelling of the routine configuration option, but the
+ * same option is equally settable afterwards. `ALTER FUNCTION f() SET
+ * search_path TO s` pins the routine's execution environment and touches no
+ * session state at all. It is in fact the only way to pin a routine to a schema
+ * name known only at migration time (`current_schema()` under per-tenant
+ * fan-out), because the CREATE spelling needs the schema as a literal. R4 exists
+ * to catch session contamination; flagging a routine attribute as contamination
+ * pushes authors toward leaving routines unpinned, which is the state that
+ * actually breaks — an unpinned trigger body resolves its own tables through the
+ * caller's search_path.
+ *
+ * This works on raw text rather than the structural tokenizer because the clause
+ * is usually assembled inside `format(...)` and run with EXECUTE, and the
+ * tokenizer deliberately skips string literals. `[^;]*?` keeps the match inside
+ * one statement, so a standalone `SET search_path` after a semicolon is still
+ * reported.
+ */
+function alterRoutineConfigurationSetOffsets(sql: string): ReadonlySet<number> {
+  const re =
+    /\bALTER\s+(?:FUNCTION|PROCEDURE)\b[^;]*?(\bSET\s+(?:"search_path"|search_path)\s*(?:=|TO)\s)/gi;
+  const offsets = new Set<number>();
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(sql)) !== null) {
+    const clause = match[1];
+    if (clause === undefined) continue;
+    // Group 1 is anchored at the end of the whole match.
+    offsets.add(match.index + match[0].length - clause.length);
+    if (match.index === re.lastIndex) re.lastIndex++;
+  }
+  return offsets;
+}
+
 function routineConfigurationSetOffsets(sql: string): ReadonlySet<number> {
   const tokens = tokenizeSqlStructure(sql);
   const allowedOffsets = new Set<number>();
@@ -437,10 +474,13 @@ const RULES: readonly Rule[] = [
     // local to the routine and must not be confused with a standalone SET.
     scan: (sql) => {
       const routineConfigurationOffsets = routineConfigurationSetOffsets(sql);
+      const alterRoutineOffsets = alterRoutineConfigurationSetOffsets(sql);
       return collectMatches(
         sql,
         /\bSET\s+(?!LOCAL\b)(?:SESSION\s+)?(?:"search_path"|search_path)\s*(?:=|TO)\s/i,
-      ).filter(({ start }) => !routineConfigurationOffsets.has(start));
+      ).filter(
+        ({ start }) => !routineConfigurationOffsets.has(start) && !alterRoutineOffsets.has(start),
+      );
     },
     message:
       'session-scoped `SET search_path` in migration body. Use `SET LOCAL ' +

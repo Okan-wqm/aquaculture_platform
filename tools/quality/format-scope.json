@@ -7588,6 +7588,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/feeder-assignment-share-sum.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/feeding-record-tenant-isolation.postgres.spec.ts",
       "prettier_managed": true
     },
@@ -10227,6 +10233,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1808800000000-AlignSubEquipmentTypeCompatibilityArray.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1808900000000-CreateFeederAssignments.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1809000000000-BindExecutionFeederToEquipment.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -10426,6 +10450,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/equipment/__tests__/equipment-type-catalog-checker.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/equipment/__tests__/equipment-types.seed.spec.ts",
       "prettier_managed": true
     },
     {
@@ -11385,6 +11415,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/feeder-dose-split.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/__tests__/feeding-cron-v2.chunk.spec.ts",
       "prettier_managed": true
     },
@@ -11475,6 +11511,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/set-unit-feeders.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/__tests__/unit-protocol-resolver.service.spec.ts",
       "prettier_managed": true
     },
@@ -11482,6 +11524,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/__tests__/weighing-drives-the-plan.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/commands/feeder-assignment.commands.ts",
       "prettier_managed": true
     },
     {
@@ -11511,6 +11559,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/dto/feeder-assignment.inputs.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/dto/feeding-protocol-v2.inputs.ts",
       "prettier_managed": true
     },
@@ -11524,6 +11578,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/dto/meal-execution.results.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/entities/feeder-assignment-unit-total.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/entities/feeder-assignment.entity.ts",
       "prettier_managed": true
     },
     {
@@ -11565,6 +11631,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/handlers/feeder-assignment.handlers.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/handlers/protocol-assignment.handlers.ts",
       "prettier_managed": true
     },
@@ -11589,6 +11661,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/queries/feeder-assignment.queries.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/queries/feeding-protocol-v2.queries.ts",
       "prettier_managed": true
     },
@@ -11601,6 +11679,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/query-handlers/feeder-assignment.query-handlers.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/query-handlers/feeding-protocol-v2.query-handlers.ts",
       "prettier_managed": true
     },
@@ -11608,6 +11692,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/resolvers/feed-forecast.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/resolvers/feeder-assignment.resolver.ts",
       "prettier_managed": true
     },
     {
@@ -11644,6 +11734,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/services/feed-fcr-source.util.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/services/feeder-dose-split.service.ts",
       "prettier_managed": true
     },
     {
@@ -11692,6 +11788,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/services/unit-protocol-resolver.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/utils/unit-type.util.ts",
       "prettier_managed": true
     },
     {
@@ -57048,10 +57150,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9357,
+  "file_count": 9374,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9176,
-  "managed_file_list_sha256": "9b90ecd71112f65ebf9333a0c0656a5ee2efc83bf04297ee7b8366ac3317f4c5",
+  "managed_count": 9193,
+  "managed_file_list_sha256": "19e02bd423f2fbfb559c818e58b696b4c3edbc632300db538dd7dd58552be877",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

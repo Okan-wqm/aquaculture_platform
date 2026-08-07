@@ -263,6 +263,24 @@ interface WireFeedingProtocolAssignmentPaused extends WireBaseEvent {
   reason: 'protocol_archived' | 'operator_paused' | 'unit_emptied';
 }
 
+interface WireUnitFeederShareEntry {
+  assignmentId: string;
+  feederEquipmentId: string;
+  feederCode: string;
+  doseSharePercent: number;
+}
+
+interface WireUnitFeederAssignmentsChanged extends WireBaseEvent {
+  eventType: 'UnitFeederAssignmentsChanged';
+  userId?: string;
+  unitId: string;
+  unitType: 'tank' | 'pond' | 'cage';
+  unitCode: string;
+  siteId: string;
+  feeders: WireUnitFeederShareEntry[];
+  endedAssignmentIds: string[];
+}
+
 // ── Meal engine wire shapes (Faz 5 — plan §7/§10) ──────────────────────────
 
 interface WireMealWindowEntry {
@@ -1080,6 +1098,56 @@ export const feedingProtocolAssignmentPausedSchema: JSONSchemaType<WireFeedingPr
   ],
 };
 
+/**
+ * Ünitenin yemleyici kümesi değişimi. `maxItems` girdi tarafındaki
+ * MAX_FEEDERS_PER_UNIT ile aynı büyüklük sınıfındadır: bir ünitede onlarca
+ * yemleyici olmaz, cap kaza korumasıdır.
+ */
+const MAX_FEEDERS_PER_UNIT_WIRE = 12;
+
+export const unitFeederAssignmentsChangedSchema: JSONSchemaType<WireUnitFeederAssignmentsChanged> =
+  {
+    ...EVENT_OBJECT_OPTS,
+    properties: {
+      ...BASE_EVENT_PROPERTIES,
+      eventType: { type: 'string', const: 'UnitFeederAssignmentsChanged' },
+      userId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+      unitId: UUID_SCHEMA,
+      unitType: { type: 'string', enum: ['tank', 'pond', 'cage'] },
+      unitCode: SHORT_CODE,
+      siteId: UUID_SCHEMA,
+      feeders: {
+        type: 'array',
+        maxItems: MAX_FEEDERS_PER_UNIT_WIRE,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            assignmentId: UUID_SCHEMA,
+            feederEquipmentId: UUID_SCHEMA,
+            feederCode: SHORT_CODE,
+            doseSharePercent: { type: 'number', minimum: 0, maximum: 100 },
+          },
+          required: ['assignmentId', 'feederEquipmentId', 'feederCode', 'doseSharePercent'],
+        },
+      },
+      endedAssignmentIds: {
+        type: 'array',
+        maxItems: MAX_FEEDERS_PER_UNIT_WIRE,
+        items: UUID_SCHEMA,
+      },
+    },
+    required: [
+      ...BASE_EVENT_REQUIRED,
+      'unitId',
+      'unitType',
+      'unitCode',
+      'siteId',
+      'feeders',
+      'endedAssignmentIds',
+    ],
+  };
+
 // ── Meal engine schemas (Faz 5 — hepsi farm→NATS trust boundary, C-13) ─────
 
 /** Toplu pencere event'inin girdi cap'i (K-2 — şekil kararının parçası). */
@@ -1881,6 +1949,7 @@ export type FarmEventType =
   | 'LowStockDetected'
   | 'FeedingProtocolAssigned'
   | 'FeedingProtocolAssignmentPaused'
+  | 'UnitFeederAssignmentsChanged'
   | 'MealWindowUpcoming'
   | 'MealFed'
   | 'MealSkipped'
@@ -1944,6 +2013,7 @@ export const FARM_EVENT_SCHEMAS: Record<FarmEventType, object> = {
   LowStockDetected: lowStockDetectedSchema,
   FeedingProtocolAssigned: feedingProtocolAssignedSchema,
   FeedingProtocolAssignmentPaused: feedingProtocolAssignmentPausedSchema,
+  UnitFeederAssignmentsChanged: unitFeederAssignmentsChangedSchema,
   MealWindowUpcoming: mealWindowUpcomingSchema,
   MealFed: mealFedSchema,
   MealSkipped: mealSkippedSchema,

@@ -12,6 +12,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { FeedingProtocolV2 } from './entities/feeding-protocol-v2.entity';
 import { ProtocolAssignment } from './entities/protocol-assignment.entity';
+import { FeederAssignment } from './entities/feeder-assignment.entity';
+import { FeederAssignmentUnitTotal } from './entities/feeder-assignment-unit-total.entity';
 import { FeedingDayPlan } from './entities/feeding-day-plan.entity';
 import { FeedingMeal } from './entities/feeding-meal.entity';
 import { FeedingForecastSnapshot } from './entities/feeding-forecast-snapshot.entity';
@@ -55,6 +57,10 @@ import {
 } from './query-handlers/feeding-protocol-v2.query-handlers';
 import { FeedingProtocolV2Resolver } from './resolvers/feeding-protocol-v2.resolver';
 import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
+import { SetUnitFeedersHandler } from './handlers/feeder-assignment.handlers';
+import { GetUnitFeederAssignmentsHandler } from './query-handlers/feeder-assignment.query-handlers';
+import { FeederAssignmentResolver } from './resolvers/feeder-assignment.resolver';
+import { FeederDoseSplitService } from './services/feeder-dose-split.service';
 
 @Module({
   imports: [
@@ -69,6 +75,8 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     TypeOrmModule.forFeature([
       FeedingProtocolV2,
       ProtocolAssignment,
+      FeederAssignment,
+      FeederAssignmentUnitTotal,
       FeedingDayPlan,
       FeedingMeal,
       FeedingForecastSnapshot,
@@ -105,9 +113,13 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     ListFeedingProtocolsV2Handler,
     GetFeedingProtocolV2Handler,
     ListProtocolAssignmentsHandler,
+    SetUnitFeedersHandler,
+    GetUnitFeederAssignmentsHandler,
+    FeederDoseSplitService,
     FeedingProtocolV2Resolver,
     MealExecutionResolver,
     FeedForecastResolver,
+    FeederAssignmentResolver,
   ],
   exports: [
     ProtocolValidationService,
@@ -118,6 +130,8 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     DayPlanRecalcService,
     MealExecutionService,
     ProtocolFeedForecastService,
+    // Doz bölme SSoT'si — öğün üretimi ve mobil pano aynı gövdeyi okur.
+    FeederDoseSplitService,
   ],
 })
 export class FeedingProtocolModule {}

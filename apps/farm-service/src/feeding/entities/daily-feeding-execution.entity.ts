@@ -308,7 +308,18 @@ export class DailyFeedingExecution {
   // FEEDER BİLGİSİ (Kim/ne ile yemleme yapıldı)
   // -------------------------------------------------------------------------
 
-  @Field({ nullable: true, description: 'SubEquipment feeder ID (for automatic feeders)' })
+  /**
+   * WHAT: the Equipment row (category FEEDING) that delivered this feeding.
+   *
+   * WHY the name matters: this field was documented as a "SubEquipment feeder
+   * ID" while `feeder_calibrations` keys calibration by `equipment_id`, so the
+   * calibration record and the feeding record described different objects. The
+   * Equipment reading is the one with a silo, a calibration and a dose share, so
+   * it wins — and the winning reading is now enforced by a foreign key onto
+   * `equipment(id)` (BindExecutionFeederToEquipment1809000000000) plus a write
+   * path that only accepts a feeder ASSIGNED to this execution's unit.
+   */
+  @Field({ nullable: true, description: 'Equipment id of the feeder that delivered this feeding' })
   @Column('uuid', { nullable: true })
   feederEquipmentId?: string;
 

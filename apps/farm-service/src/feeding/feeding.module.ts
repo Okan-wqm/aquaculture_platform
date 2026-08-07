@@ -38,6 +38,7 @@ import { Feed } from '../feed/entities/feed.entity';
 import { Tank } from '../tank/entities/tank.entity';
 import { Site } from '../site/entities/site.entity';
 import { Equipment } from '../equipment/entities/equipment.entity';
+import { FeederAssignment } from '../feeding-protocol/entities/feeder-assignment.entity';
 
 // Services
 import { FeedSelectorService } from './services/feed-selector.service';
@@ -101,6 +102,10 @@ import { FinanceModule } from '../finance/finance.module';
       Site,
       Equipment,
       FarmMobileCommandReceipt,
+      // Yemleme kaydı hangi yemleyicinin yaptığını yazarken üniteye ATANMIŞ
+      // yemleyiciyi doğrular (feeding-program.resolver): kayıt yalnız ünitenin
+      // gerçekten sahip olduğu bir yemleyiciyi adlandırabilir.
+      FeederAssignment,
     ]),
     BackdatePolicyModule,
     RestoreModule,

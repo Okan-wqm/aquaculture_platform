@@ -844,6 +844,35 @@ export interface FeedingProtocolAssignmentPausedEvent extends BaseEvent {
   reason: 'protocol_archived' | 'operator_paused' | 'unit_emptied';
 }
 
+/** Bir ünitenin AKTİF yemleyici atamasındaki tek bir satırın özeti. */
+export interface UnitFeederShareEntry {
+  assignmentId: string;
+  feederEquipmentId: string;
+  feederCode: string;
+  /** Günlük dozdaki pay (%); aktif girdilerin toplamı tam 100'dür. */
+  doseSharePercent: number;
+}
+
+/**
+ * Bir ünitenin yemleyici kümesi değiştiğinde (ekleme, çıkarma, pay değişimi).
+ *
+ * Event ÜNİTE düzeyindedir, satır düzeyinde değil: bir ünitenin payları ancak
+ * birlikte anlamlıdır (toplamları 100'dür), dolayısıyla tek bir satırın
+ * değiştiğini duyurmak tüketiciye eksik bilgi verir. `feeders` değişiklik
+ * sonrasındaki TAM aktif küme, `endedAssignmentIds` ise aynı işlemde tarihçeye
+ * inen satırlardır.
+ */
+export interface UnitFeederAssignmentsChangedEvent extends BaseEvent {
+  eventType: 'UnitFeederAssignmentsChanged';
+  userId?: string;
+  unitId: string;
+  unitType: 'tank' | 'pond' | 'cage';
+  unitCode: string;
+  siteId: string;
+  feeders: UnitFeederShareEntry[];
+  endedAssignmentIds: string[];
+}
+
 // ==================== Meal Engine Events (Faz 5 — plan §7/§10) ====================
 
 /**
@@ -1696,6 +1725,7 @@ export type FarmEvent =
   | FeederCalibrationsSavedEvent
   | FeedingProtocolAssignedEvent
   | FeedingProtocolAssignmentPausedEvent
+  | UnitFeederAssignmentsChangedEvent
   | MealWindowUpcomingEvent
   | MealFedEvent
   | MealSkippedEvent

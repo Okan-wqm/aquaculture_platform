@@ -91,6 +91,9 @@ import { AddSatelliteCoverageProvenance1808000000000 } from './1808000000000-Add
 import { RestoreAuditImmutabilityContract1808500000000 } from './1808500000000-RestoreAuditImmutabilityContract';
 import { AddTankBatchWeightProvenance1808600000000 } from './1808600000000-AddTankBatchWeightProvenance';
 import { DropBatchProtocolId1808700000000 } from './1808700000000-DropBatchProtocolId';
+import { AlignSubEquipmentTypeCompatibilityArray1808800000000 } from './1808800000000-AlignSubEquipmentTypeCompatibilityArray';
+import { CreateFeederAssignments1808900000000 } from './1808900000000-CreateFeederAssignments';
+import { BindExecutionFeederToEquipment1809000000000 } from './1809000000000-BindExecutionFeederToEquipment';
 
 /**
  * Canonical farm-service migration class list.
@@ -179,4 +182,7 @@ export const FARM_MIGRATIONS = [
   RestoreAuditImmutabilityContract1808500000000,
   AddTankBatchWeightProvenance1808600000000,
   DropBatchProtocolId1808700000000,
+  AlignSubEquipmentTypeCompatibilityArray1808800000000,
+  CreateFeederAssignments1808900000000,
+  BindExecutionFeederToEquipment1809000000000,
 ] as const;

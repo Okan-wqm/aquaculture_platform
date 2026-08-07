@@ -77,6 +77,8 @@ export const MUTATION_ROLES: Readonly<Record<string, readonly Role[]>> = Object.
   transitionUnitFeed: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   updateProtocolAssignment: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   unassignProtocolFromUnit: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
+  // Ünite → yemleyici bağlaması: kurulum kararı, günlük operasyon değil.
+  setUnitFeeders: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createFeedingRecord: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createHarvestPlan: [Role.MODULE_MANAGER, Role.TENANT_ADMIN],
   createHealthEvent: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
@@ -364,6 +366,10 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   protocolFeedForecast: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedingProtocolV2: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   protocolAssignments: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  // Yemleyici okumaları operatöre de açık: sahadaki kullanıcı dozun hangi
+  // yemleyiciye ne kadar düştüğünü görmeden yemleme yapamaz.
+  unitFeederAssignments: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  unitFeederDoseSplit: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedingRecords: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedingSummary: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feeds: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],

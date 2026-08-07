@@ -462,6 +462,13 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'feeding_day_plans',
       'feeding_meals',
       'feeding_forecast_snapshots',
+      // Ünite → yemleyici bağlaması ve payların toplamını 100'de tutan türetilmiş
+      // çapa satırı (CreateFeederAssignments1808900000000). İkisi de per-tenant
+      // DATA tablosudur — `feeder_assignment_unit_totals` bir infrastructure
+      // ledger DEĞİLDİR: içeriği tenant'ın kendi atama satırlarından türer, bu
+      // yüzden guarded set'te kalması ve tenant şemasına klonlanması doğrudur.
+      'feeder_assignments',
+      'feeder_assignment_unit_totals',
 
       // Chemical management
       'chemical_types',

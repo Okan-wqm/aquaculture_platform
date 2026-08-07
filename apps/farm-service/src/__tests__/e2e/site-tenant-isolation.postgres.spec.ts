@@ -168,6 +168,10 @@ const MANAGER_CALLER = {
   roles: [Role.MODULE_MANAGER],
 };
 const PUMP_EQUIPMENT_TYPE_ID = '18d6e179-af77-45f3-b33b-9a2a5e61b751';
+// Feeder calibration belongs to FEEDING-category equipment. This fixture used to
+// calibrate a PUMP row, which the sink now refuses: a feeder is a specific kind
+// of machine, not any equipment that happens to be named "Feeder Pump".
+const FEEDER_EQUIPMENT_TYPE_ID = '2f0a1c65-9b3d-4a55-8f0e-1c4d7b2a6e39';
 const TANK_EQUIPMENT_TYPE_ID = 'eae12d34-514b-4d1a-87c9-6d8626547cae';
 const SETUP_TENANT_TABLES = [
   'sites',
@@ -955,18 +959,18 @@ describe('Site tenant isolation on real Postgres', () => {
       TENANT_A,
       departmentA.id,
       systemA.id,
-      PUMP_EQUIPMENT_TYPE_ID,
-      'Feeder Pump',
-      'FEEDER-PUMP-01',
+      FEEDER_EQUIPMENT_TYPE_ID,
+      'Automatic Feeder',
+      'FEEDER-AUTO-01',
       true,
     );
     const equipmentB = await createEquipmentForTenant(
       TENANT_B,
       departmentB.id,
       systemB.id,
-      PUMP_EQUIPMENT_TYPE_ID,
-      'Feeder Pump',
-      'FEEDER-PUMP-01',
+      FEEDER_EQUIPMENT_TYPE_ID,
+      'Automatic Feeder',
+      'FEEDER-AUTO-01',
       true,
     );
 
@@ -1061,8 +1065,8 @@ describe('Site tenant isolation on real Postgres', () => {
       TENANT_A,
       departmentA.id,
       systemA.id,
-      PUMP_EQUIPMENT_TYPE_ID,
-      'Feeder Rollback Pump',
+      FEEDER_EQUIPMENT_TYPE_ID,
+      'Feeder Rollback Unit',
       'FEEDER-ROLLBACK-01',
       true,
     );
@@ -1957,6 +1961,18 @@ describe('Site tenant isolation on real Postgres', () => {
         isActive: true,
         isSystem: true,
         sortOrder: 1,
+      }),
+      requireDataSource().manager.create(EquipmentType, {
+        id: FEEDER_EQUIPMENT_TYPE_ID,
+        name: 'Automatic Feeder',
+        code: 'feeder-automatic',
+        category: EquipmentCategory.FEEDING,
+        specificationSchema: {
+          fields: [{ name: 'siloVolume', label: 'Silo Volume', type: 'number' }],
+        },
+        isActive: true,
+        isSystem: true,
+        sortOrder: 3,
       }),
       requireDataSource().manager.create(EquipmentType, {
         id: TANK_EQUIPMENT_TYPE_ID,

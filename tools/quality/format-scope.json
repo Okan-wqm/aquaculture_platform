@@ -33391,6 +33391,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-07-contracts-doc-lint.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -56586,10 +56592,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9280,
+  "file_count": 9281,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9099,
-  "managed_file_list_sha256": "2d367c2fd98934faac39efcf86b5c1c334ad41cb9ce4685c4a10ef2048c4251f",
+  "managed_count": 9100,
+  "managed_file_list_sha256": "19471fd09fd7166e02c65d5152cfdc4a576ac1b2079a3e2f8d6be9732bdba810",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

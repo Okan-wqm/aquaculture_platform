@@ -42,6 +42,8 @@ interface UseAiConsentReturn {
   isAiEnabled: boolean;
   /** Whether the current user has consented to AI analysis. */
   hasConsented: boolean;
+  /** ORPHAN-HIGH-595: an unreadable consent state is not "not consented". */
+  isError: boolean;
   /** Toggle the user's AI consent. */
   toggleConsent: () => Promise<void>;
   /** True during initial fetch or mutation. */
@@ -147,5 +149,8 @@ export function useAiConsent(): UseAiConsentReturn {
     hasConsented: query.data?.hasConsented ?? false,
     toggleConsent,
     isLoading: query.isLoading || mutation.isPending,
+    // ORPHAN-HIGH-595: an unreadable consent state is not the same as
+    // "not consented" — the caller decides, fail-closed, knowing which it is.
+    isError: query.isError,
   };
 }

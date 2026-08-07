@@ -8457,7 +8457,9 @@ The common root is not carelessness in five files. It is that `data` is **readab
 
 **The gate was wrong twice before it was right, and that is worth recording.** Its first baseline was a guess of 24 against a real count of 5 — nineteen slots of slack. The deliberate-break check (remove `isError` from `useWarehouseSummary`, expect red) stayed **green** through two baseline revisions before the count was measured with the spec's own logic rather than a lookalike script. A ratchet with slack is not a ratchet; it is a comment that runs. Every ratchet in this repo should be set from a measurement taken by the gate itself, and proven by breaking the thing it guards.
 
-**Owner:** claude (this session). **Status:** RESOLVED — mechanism landed and proven. Migrating the 5 remaining hooks and the existing screens onto `Loadable`/`DataState` is incremental work the ratchet now drives.
+**Owner:** claude (this session). **Status:** RESOLVED — and the ratchet is now a **BAN**. All ten hooks that swallowed their query error have been converted: `useWarehouseSummary`, `useTodaysDayPlans`, `useUnreadCount`, `useSentimentTrends`, `useStockEventsSummary`, `useDailyOpsStats`, `useAiConsent` and the rest now carry the error arm out. No hook in this app may destroy the difference between "no data" and "could not fetch data". Proven by deliberate break.
+
+Two of the conversions carry a decision worth reading: `useStockEventsSummary` ORs the error across BOTH its sources (tanks and the events aggregate), because either failing makes the summary's zeroes unknown rather than real; and `useAiConsent` surfaces it because an unreadable consent state is not the same as "not consented" — the caller still fails closed, but now knowing which it is.
 
 ## ORPHAN-MEDIUM-596 — Konsta UI removed; the v4 migration bridge is gone and its three ratchets are now bans — RESOLVED (this PR)
 

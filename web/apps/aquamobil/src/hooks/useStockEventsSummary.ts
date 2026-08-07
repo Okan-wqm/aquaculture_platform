@@ -28,14 +28,20 @@ interface StockEventsSummaryResponse {
 export function useStockEventsSummary(): {
   summary: StockEventsSummary;
   isLoading: boolean;
+  /** ORPHAN-HIGH-595: either source failing makes the zeroes unknown, not real. */
+  isError: boolean;
 } {
   const { tenantId, isAuthenticated } = useAuth();
 
   // --- Source 1: Active batch count from cached tank data ---
-  const { data: tanks, isLoading: tanksLoading } = useTanks();
+  const { data: tanks, isLoading: tanksLoading, isError: tanksError } = useTanks();
 
   // --- Source 2: Stock events aggregate ---
-  const { data: eventsSummary, isLoading: eventsLoading } = useQuery<StockEventsSummaryResponse>({
+  const {
+    data: eventsSummary,
+    isLoading: eventsLoading,
+    isError: eventsError,
+  } = useQuery<StockEventsSummaryResponse>({
     queryKey: createTenantQueryKey(tenantId, 'stockEventsSummary', tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{
@@ -69,6 +75,9 @@ export function useStockEventsSummary(): {
   }, [tanks, eventsSummary]);
 
   const isLoading = tanksLoading || eventsLoading;
+  // ORPHAN-HIGH-595: either source failing means the summary's zeroes are
+  // unknown rather than real — the hub must be able to say so.
+  const isError = tanksError || eventsError;
 
-  return { summary, isLoading };
+  return { summary, isLoading, isError };
 }

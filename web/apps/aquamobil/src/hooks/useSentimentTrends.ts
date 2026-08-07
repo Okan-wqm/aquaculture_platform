@@ -41,6 +41,8 @@ export interface UseSentimentTrendsResult {
   /** Latest week's sentiment, or null when no analysis rows exist. */
   latest: LatestSentiment | null;
   isLoading: boolean;
+  /** ORPHAN-HIGH-595: distinguishes "no trend data" from "could not fetch it". */
+  isError: boolean;
 }
 
 const POSITIVE_FLOOR = 0.6;
@@ -95,5 +97,6 @@ export function useSentimentTrends(
   return {
     latest: query.data ?? null,
     isLoading: query.isLoading && query.fetchStatus !== 'idle',
+    isError: query.isError,
   };
 }

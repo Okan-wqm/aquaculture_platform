@@ -20,10 +20,9 @@
  * So: a hook that wraps `useQuery` and hand-shapes its return MUST carry the
  * error arm out. Hooks that return the raw `UseQueryResult` already do.
  *
- * This is a RATCHET, not a ban — 24 hooks predate it and converting them all at
- * once would be a change nobody could review. It may only shrink. Every hook
- * converted lowers the number; a new hook that swallows its error raises it and
- * fails the build.
+ * This began as a shrink-only ratchet because ten hooks predated it. They have
+ * all been converted, so it is now a BAN: no hook in this app may destroy the
+ * difference between "no data" and "could not fetch data". Tier 3 became Tier 1.
  *
  * The permanent fix a converted hook should reach for is src/utils/loadable.ts
  * (`Loadable<T>` makes `data` unreachable without handling the error arm) plus
@@ -49,7 +48,7 @@ const HOOKS_DIR = resolve(__dirname, '../hooks');
  *
  * Shrink freely; lower this constant in the same commit. It may never grow.
  */
-const SWALLOWED_ERROR_BASELINE = 5;
+const SWALLOWED_ERROR_BASELINE = 0;
 
 /** A hook "surfaces" its error if any of these appear in its return shape. */
 const SURFACES_ERROR = /\bisError\b|\berror\b\s*[,:}]|status:\s*['"]error|Loadable</;
@@ -81,16 +80,16 @@ function swallowingHooks(): string[] {
 }
 
 describe('query-error-surface invariant', () => {
-  it('ratchets hooks that swallow their query error — shrink only, never grow', () => {
+  it('BANS hooks that swallow their query error', () => {
     const offenders = swallowingHooks();
     expect(
       offenders.length,
-      `${offenders.length} hooks wrap useQuery without surfacing an error arm, past the ` +
-        `frozen baseline of ${SWALLOWED_ERROR_BASELINE}. A hook that drops isError makes the ` +
+      `${offenders.length} hooks wrap useQuery without surfacing an error arm. ` +
+        'A hook that drops isError makes the ' +
         'defect unfixable in the screen above it — the screen cannot tell an outage from ' +
         'empty data no matter how it is written. Return the error (or a Loadable from ' +
         `src/utils/loadable.ts).\n\nCurrent:\n${offenders.join('\n')}`,
-    ).toBeLessThanOrEqual(SWALLOWED_ERROR_BASELINE);
+    ).toBe(0);
   });
 
   it('ships the Loadable primitive the converted hooks are meant to reach for', () => {

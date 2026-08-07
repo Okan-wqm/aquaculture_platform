@@ -379,10 +379,29 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # machine-local state that means nothing on the next host and rewrites on
     # every one.
     #
-    # It is DERIVED state, re-established per runner. The restore action runs
-    # `integrity migrate-tools-bootstrap` immediately after the checkout, so
-    # every lane gets a bound root from one definition rather than each
-    # remembering to bootstrap. See .github/actions/restore-aria-state.
+    # It is DERIVED state, re-established per runner by
+    # `tools_binding.bind_tools_root`, which the restore action runs
+    # immediately after the checkout — one definition, rather than each lane
+    # remembering to bind. See .github/actions/restore-aria-state.
+    #
+    # ORPHAN-HIGH-556 — but only the HOST half is derived, and treating the
+    # whole file as host-local was the defect. `tools_contract.json` below
+    # carries the part that is a property of the TREE and the REPOSITORY:
+    # the contract version and the environment-independent canonical
+    # identity. Publishing it is what lets a restored tree state what it
+    # already is. Without it `tools_contract_version` read 0 on a healthy v3
+    # tree, so the nightly bind ran a full v0→v2→v3 MIGRATION every night —
+    # a whole-tree backup and a rewrite of every covered ledger, to
+    # re-establish a binding.
+    # `profile_surface` is DECLARED rather than inferred. The fallback is the
+    # lock group, which would have minted a brand-new profile surface
+    # ("registry") that no callsite ever names — a gate with no consumer,
+    # which is ORPHAN-CRITICAL-498's shape. `tool_governance` is the gate
+    # every writer of this file actually passes through.
+    StateSurface(
+        "tools_contract", "tools_contract.json", "index", "registry", "tools", True,
+        "rewrite_fsync", True, profile_surface="tool_governance",
+    ),
     StateSurface("runtime_profile_state", "runtime-profile.json", "runtime_state", "runtime_profile", "tools", True, "rewrite_fsync", True),
     StateSurface("runtime_profile_history", "runtime-profile-history.jsonl", "ledger", "runtime_profile", "tools", True, "append_fsync", True),
     StateSurface("raw_findings", "raw-findings.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),

@@ -13,7 +13,7 @@ from typing import Any, Iterator
 
 from .feedback import normalize_feedback_event, pressure_evidence_fingerprint, slug
 from .ledger import append_jsonl, read_jsonl, rewrite_jsonl, stamp_row_format, verify_jsonl, write_index
-from .tool_registry import GovernanceError, SCHEMA_VERSION as TOOLS_SCHEMA_VERSION, append_tools_governance, covered_tool_ledgers, tools_contract_version, update_tools_index
+from .tool_registry import GovernanceError, SCHEMA_VERSION as TOOLS_SCHEMA_VERSION, append_tools_governance, covered_tool_ledgers, sync_tools_contract, tools_contract_version, update_tools_index
 from .workspace import WorkspacePaths, canonical_identity, canonical_identity_source, default_actor, governance_event, record_workspace_governance, repo_hash, workspace_paths
 
 
@@ -149,7 +149,7 @@ def migrate_tools_v1_to_v2(
     repo_root = _resolve_repo_root(workspace_root)
     _assert_workspace_binding(repo_root)
     root.mkdir(parents=True, exist_ok=True)
-    with _tools_lock(root, "tools_migration", repo_hash(repo_root)):
+    with tools_lock(root, "tools_migration", repo_hash(repo_root)):
         version = tools_contract_version(root)
         if version >= 2:
             existing_state = _read_json(root / "migration_state.json")
@@ -166,6 +166,7 @@ def migrate_tools_v1_to_v2(
                 "schema_version": 2,
             }
             _atomic_write_json(root / "repo_identity.json", identity)
+            sync_tools_contract(root)
             if not (root / "registry.json").exists():
                 _atomic_write_json(root / "registry.json", {"schema_version": TOOLS_SCHEMA_VERSION, "tools": []})
             _append_tools_migration_governance(
@@ -227,6 +228,7 @@ def migrate_tools_v1_to_v2(
             "schema_version": 2,
         }
         _atomic_write_json(root / "repo_identity.json", identity)
+        sync_tools_contract(root)
         if not (root / "registry.json").exists():
             _atomic_write_json(root / "registry.json", {"schema_version": TOOLS_SCHEMA_VERSION, "tools": []})
         index = _read_json(root / "integrity_index.json")
@@ -265,7 +267,7 @@ def rollback_tools_v2_to_v1(
         raise ValueError("tools rollback requires --acknowledge and --reason")
     root = Path(tools_dir)
     backup = Path(from_backup)
-    with _tools_lock(root, "tools_rollback", ""):
+    with tools_lock(root, "tools_rollback", ""):
         actor = default_actor()
         discarded = _discarded_event_count(covered_tool_ledgers(root), backup)
         _guard_post_migration_rows(covered_tool_ledgers(root), backup, force_discard_since_migration)
@@ -396,6 +398,7 @@ def migrate_tools_v2_to_v3(
         "bound_repo_root": str(repo_root),
     }
     _atomic_write_json(root / "repo_identity.json", new_identity)
+    sync_tools_contract(root)
     post_strip_hash = hashlib.sha256(json.dumps(new_identity, sort_keys=True).encode()).hexdigest()
     append_tools_governance(
         root,
@@ -458,6 +461,25 @@ def migrate_tools_bootstrap(
     from .runtime_profile import enforce_profile_for_write
     enforce_profile_for_write("tool_governance", base_dir=str(root))
     current_version = tools_contract_version(root) if root.exists() else 0
+    # ORPHAN-HIGH-556 — a MIGRATION IS NOT A BIND, and this is where the two
+    # used to be indistinguishable. Now that the tree publishes its own
+    # contract version, a restored tree already at the target reaches here
+    # with nothing to migrate — and returning `already_at_target` would hand
+    # back a success for a root that still has no host identity and still
+    # fails `ensure_tools_dir` as `ambiguous_tools_root`. Refusing names the
+    # operation the caller actually wanted instead of leaving them a tree that
+    # reports healthy and cannot be used.
+    if (
+        root.exists()
+        and current_version >= TOOLS_SCHEMA_VERSION
+        and not (root / "repo_identity.json").exists()
+    ):
+        raise GovernanceError(
+            "tools_root_needs_binding_not_migration: the tree is already at "
+            f"contract v{current_version} and has no host identity. Run "
+            "`aria-kernel integrity bind-tools-root` — a migration cannot bind "
+            "a root, and this one has nothing to migrate."
+        )
     chain = []
     if current_version < 2:
         v2_result = migrate_tools_v1_to_v2(
@@ -523,6 +545,13 @@ def rollback_tools_v3_to_v2(
         "bound_repo_root": identity.get("bound_repo_root"),
     }
     _atomic_write_json(root / "repo_identity.json", rolled_back)
+    # The rollback is a WRITER too. `sync_tools_contract` was wired into every
+    # forward writer and the reverse ones were missed, so a rollback downgraded
+    # the identity to v2 while the published contract went on claiming v3 —
+    # and `tools_contract_version` reads the contract first. Caught by
+    # `test_rollback_v3_to_v2_downgrades_contract`, which is the whole reason
+    # a reverse migration has a test at all.
+    sync_tools_contract(root)
     append_tools_governance(
         root,
         "aria_tools_contract_version_rolled_back",
@@ -673,7 +702,7 @@ def _append_migration_phase(root: Path, phase: str) -> None:
 
 
 @contextmanager
-def _tools_lock(root: Path, operation: str, target_repo_hash: str) -> Iterator[None]:
+def tools_lock(root: Path, operation: str, target_repo_hash: str) -> Iterator[None]:
     root.mkdir(parents=True, exist_ok=True)
     lock_path = root / "tools.lock"
     deadline = time.monotonic() + TOOLS_LOCK_TIMEOUT_SECONDS

@@ -8,7 +8,36 @@ function config(values: RedisConfigFixture): ConfigService<RedisConfigFixture, f
   return new ConfigService<RedisConfigFixture, false>(values);
 }
 
+/**
+ * Every REDIS_* key this builder reads. The list is explicit because the
+ * failure it prevents is silent: `ConfigService.get()` consults `process.env`
+ * BEFORE the object it was constructed with, so an ambient REDIS_URL — which
+ * CI sets and a laptop usually does not — overrides the fixture and the test
+ * exercises a configuration it never declared.
+ *
+ * This spec passed for as long as it existed and failed on its first CI run,
+ * for exactly that reason (ORPHAN-CRITICAL-579: these tests had no runner).
+ */
+const REDIS_ENV_KEYS = ['REDIS_URL', 'REDIS_HOST', 'REDIS_PORT', 'REDIS_PASSWORD', 'REDIS_DB'];
+
 describe('buildRedisOptions', () => {
+  const savedEnv = new Map<string, string | undefined>();
+
+  beforeEach(() => {
+    for (const key of REDIS_ENV_KEYS) {
+      savedEnv.set(key, process.env[key]);
+      delete process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    for (const [key, value] of savedEnv) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    savedEnv.clear();
+  });
+
   it('uses REDIS_URL as the canonical URL-mode Redis config', () => {
     expect(
       buildRedisOptions(

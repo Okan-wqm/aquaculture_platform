@@ -41388,6 +41388,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "scripts/ci/lint-all-exclusions.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/lint-all.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "scripts/ci/lint-changed-files.mjs",
       "prettier_managed": true
     },
@@ -43291,6 +43303,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/lib/migration-corpus.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/lint-quarantine-ssot.spec.ts",
       "prettier_managed": true
     },
     {

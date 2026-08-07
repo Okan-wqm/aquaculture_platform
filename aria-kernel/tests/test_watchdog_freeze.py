@@ -216,3 +216,98 @@ class FreezeScopeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheFreezeMustNotStopTheRun(unittest.TestCase):
+    """The claim this whole control rests on, finally driven.
+
+    `watchdog_freeze`'s docstring promises the cycle keeps running so the lanes
+    can publish the state that closes the incident. An end-to-end audit found
+    that promise was false: `merge_pr_if_ready` raises, and its one production
+    caller invokes it bare inside `for pr_number in candidate_prs` — the only
+    `try` there covers the readiness claim. So the first candidate would have
+    aborted `run_autonomy_orchestrator` outright.
+
+    Nothing tested the promise, because every test drove the freeze at the
+    function that raises rather than at the loop that had to survive it.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name)
+
+    def _runner(self, payload):
+        from aria_kernel.auto_merge_runners import select_auto_merge_runner
+
+        adapter = _Adapter(payload)
+        return select_auto_merge_runner(
+            profile="autonomous",
+            adapter_factory=lambda: adapter,
+            pr_enumerator=lambda _a: [11, 22, 33],
+            readiness_claim_resolver=lambda _a, _pr, _b: "claim-1",
+        )
+
+    def test_an_open_incident_blocks_every_candidate_without_raising(self):
+        runner = self._runner({
+            "readable": True,
+            "issues": [{"number": 42, "title": "ARIA external watchdog: memory is NOT advancing"}],
+        })
+        result = runner(base_dir=self.base, workspace_root=self.base)
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["merges_completed"], 0)
+        # Every candidate is accounted for. k+1..n silently skipped is the
+        # partial-state defect this repository already paid for once.
+        self.assertEqual([d["pr_number"] for d in result["decisions"]], [11, 22, 33])
+        for decision in result["decisions"]:
+            self.assertEqual(decision["decision"], "blocked")
+            self.assertIn("merge_frozen_watchdog_incident_open", decision["reasons"][0])
+
+    def test_an_unreadable_alarm_blocks_the_run_rather_than_ending_it(self):
+        """Fail-closed must not mean fail-fatal. A transient `gh issue list`
+        error is exactly what the adapter turns into readable=False, and that
+        must cost a merge, not the whole autonomy run."""
+        runner = self._runner(RuntimeError("gh exploded"))
+        result = runner(base_dir=self.base, workspace_root=self.base)
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("merge_frozen_watchdog_unreadable", result["decisions"][0]["reasons"][0])
+
+    def test_the_refusal_answers_in_the_same_shape_as_a_normal_run(self):
+        """A refusal with a different key set is a refusal every consumer has
+        to special-case, which is how one of them comes to miss it."""
+        blocked = self._runner({"readable": True, "issues": [
+            {"number": 42, "title": "ARIA external watchdog: stalled"},
+        ]})(base_dir=self.base, workspace_root=self.base)
+        clear = self._runner({"readable": True, "issues": []})(
+            base_dir=self.base, workspace_root=self.base
+        )
+        for key in ("schema_version", "status", "merges_completed",
+                    "candidates_evaluated", "decisions", "dry_run", "profile"):
+            self.assertIn(key, blocked, key)
+            self.assertIn(key, clear, key)
+
+    def test_a_clear_alarm_does_not_short_circuit_the_loop(self):
+        """The positive control. Without it, every assertion above would pass
+        just as well if the runner refused unconditionally."""
+        result = self._runner({"readable": True, "issues": []})(
+            base_dir=self.base, workspace_root=self.base
+        )
+        self.assertNotEqual(result.get("reason"), "watchdog_merge_frozen")
+        self.assertEqual(result["candidates_evaluated"], 3)
+
+    def test_the_observing_profile_never_asks_the_watchdog(self):
+        """Strict observes with dry_run=True and must not be frozen — it does
+        not merge, so freezing it would stop observation for no safety gain."""
+        from aria_kernel.auto_merge_runners import select_auto_merge_runner
+
+        adapter = _Adapter(RuntimeError("must not be asked"))
+        runner = select_auto_merge_runner(
+            profile="strict",
+            adapter_factory=lambda: adapter,
+            pr_enumerator=lambda _a: [11],
+            readiness_claim_resolver=lambda _a, _pr, _b: "claim-1",
+        )
+        runner(base_dir=self.base, workspace_root=self.base)
+        self.assertIsNone(adapter.labels_asked, "strict asked the watchdog it must not need")

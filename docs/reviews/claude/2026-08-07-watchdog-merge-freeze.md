@@ -63,6 +63,49 @@ docstring. The refusal sits immediately after the profile gate, so:
 - **the cycle keeps running**, and can publish the state that closes the incident;
 - **human pull requests are untouched**.
 
+### The second bullet was false when first written, and an audit caught it
+
+Putting the refusal at the merge authority is right. Asking it **per pull
+request** was not, and it made the middle claim above untrue.
+
+`merge_pr_if_ready` raises, and its one production caller invokes it bare inside
+`for pr_number in candidate_prs` — the only `try` there covers the readiness
+claim (`auto_merge_runners.py:157-171`). Nothing above catches `GovernanceError`
+either: the orchestrator's enclosing handler is `except TimeoutError`, and
+`cli.py`'s `autonomy run` branch has none. So under `--profile autonomous` the
+first candidate would have ended `run_autonomy_orchestrator` outright — PRs
+k+1..n never evaluated, no result dict, and the cycle's seal, calibration and
+reflection all skipped. **The freeze would have caused exactly the cycle-level
+stop this design says it must never cause**, and a single transient
+`gh issue list` error would have done it, because the read is deliberately
+fail-closed.
+
+The fix is to ask the run-level question **once per runner invocation**. The
+freeze is a property of the run, not of a pull request; asking it N times was
+wrong on its own terms. Frozen, every candidate now gets the `blocked` decision
+shape the loop already uses, in the same key set as a normal return.
+`merge_pr_if_ready` keeps its assertion as defence in depth — it is the single
+authority and must refuse when called directly.
+
+Writing the test for that then exposed a **second** unguarded raise in the same
+loop: `enforce_profile_for_action("pr_merge")`. It is one of eight gates that
+answer by raising rather than returning, all of them previously able to end the
+run on candidate one. Fixing one and leaving seven would be fixing the instance
+and not the class, so the loop is now contained with `batch_containment`'s
+`guard_item` — this repository's own primitive for this shape, written for
+`ORPHAN-HIGH-578`, whose ceremony this same change carries. `LedgerIntegrityError`
+still propagates: a corrupt ledger is not one candidate's problem.
+
+### One argument in the original write-up does not survive either
+
+It is tempting to say a watchdog stall would wedge the very loop whose output
+closes the incident. Measured, it would not: the scheduled lane runs
+`--profile standard`, which selects `NoOpAutoMergeRunner` and never reaches the
+merge path at all, and its state-publish step is `if: always()`. The freeze
+cannot fire in the lane that advances the branch tip. The blast radius is
+operator-invoked autonomous runs — which is smaller than claimed, and is the
+honest statement.
+
 `watchdog_freeze.py` reads the incident signature from
 `.github/manifests/aria-state-watchdog.json` — the watchdog's own manifest —
 rather than restating the labels. Two copies of one truth, and the copy that

@@ -42858,6 +42858,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/dependabot-lockfile-coverage.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/dependency-policy-source-scope.spec.ts",
       "prettier_managed": true
     },

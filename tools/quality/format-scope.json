@@ -42864,6 +42864,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/dependabot-lockfile-coverage.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/dependency-policy-source-scope.spec.ts",
       "prettier_managed": true
     },
@@ -43579,6 +43585,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/runtime-lifecycle-timer-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/sarif-upload-permissions.spec.ts",
       "prettier_managed": true
     },
     {

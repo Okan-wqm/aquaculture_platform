@@ -8520,3 +8520,13 @@ All four are gone. `package.json` no longer has a `postinstall` at all, which al
 Verified against a real nginx container serving the actual `dist/`: `/assets/*.css` immutable-1y, `/icons/` 30d, `/fonts/*.woff2` 86400, `/theme-init.js` `no-store` + `application/javascript`, a missing asset **404**, and `/units` still 200 + HTML. `tests/invariants/mobile-asset-serving.spec.ts` pins all of it, including the `^~` requirement — proven by deliberate break, since removing it breaks caching invisibly.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-599 — AquaMobil had no tablet layout at all: every wall-mounted screen ran the one-handed phone shell — RESOLVED (this PR)
+
+Severity: MEDIUM. Discovered 2026-08-06 while planning the v4 tablet control board.
+
+**Problem:** `src/` contained not one `sm:`/`md:`/`lg:` breakpoint and no layout branched on viewport. `MobileLayout` rendered full-width at every size, so a 12.9" tablet mounted at a feed station showed a single column of phone-sized cards with a thumb dock at the bottom — the two-handed, glanceable surface the hardware exists for was never built.
+
+**Fix:** `AppShell` is now the single viewport-aware seam, choosing between the handheld shell and a three-pane board. The breakpoint is two-dimensional — `(min-width:900px) and (min-height:600px)` — because the widest phone in landscape (932x430) clears any width-only threshold a tablet can also clear; height is the only reliable discriminator. Tailwind's default breakpoints are replaced rather than extended, so an accidental laptop case is structurally impossible. `board-breakpoint.spec.ts` fails the build if the Tailwind literal and the TS literal diverge or the height term is dropped.
+
+**Not done:** the feeders strip and the site/system scope picker. Both need backend this client cannot reach — see ORPHAN-MEDIUM-575 (corrected: the VFD surface DOES exist in `apps/sensor-service/src/vfd/`; it is the mobile client that has no VFD documents).

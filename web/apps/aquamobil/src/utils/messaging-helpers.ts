@@ -114,6 +114,60 @@ export function getUserDisplayName(user: {
   return 'Unknown';
 }
 
+/** The subset of a user needed to build a display name. */
+interface MessageUserLike {
+  firstName?: string | null;
+  lastName?: string | null;
+  displayName?: string | null;
+}
+
+/**
+ * The name a human reads for a channel.
+ *
+ * WHY it belongs here rather than on each screen: THREE surfaces title the same
+ * conversation — the phone's channel list, the phone's chat header, and the
+ * board's two-pane Chat view — and each had grown its own copy of this rule. A
+ * DM whose members are loaded must show the OTHER person, never the stored
+ * channel name (empty or an id for a DM), or one conversation reads
+ * "Ola Nordvik" in a pocket and "Direct Message" on the cabin wall.
+ *
+ * `members` is a field-resolver result and is genuinely absent from some list
+ * payloads; falling back to the channel name is the right answer then, not a
+ * papered-over null.
+ */
+export function getChannelDisplayName(
+  channel: {
+    type: string;
+    name: string | null;
+    members?: Array<{ userId: string; user?: MessageUserLike | null }>;
+  },
+  currentUserId: string | undefined,
+): string {
+  if (channel.type === 'direct' && channel.members) {
+    const other = channel.members.find((member) => member.userId !== currentUserId);
+    if (other?.user) return getUserDisplayName(other.user);
+  }
+  return channel.name ?? 'Unnamed Channel';
+}
+
+/**
+ * Whether the OTHER party in a direct channel is online.
+ *
+ * Groups have no single presence to report, so they are always false rather than
+ * showing the dot for whichever member happens to be listed first.
+ */
+export function isOtherMemberOnline(
+  channel: {
+    type: string;
+    members?: Array<{ userId: string; user?: { isOnline?: boolean | null } | null }>;
+  },
+  currentUserId: string | undefined,
+): boolean {
+  if (channel.type !== 'direct' || !channel.members) return false;
+  const other = channel.members.find((member) => member.userId !== currentUserId);
+  return other?.user?.isOnline ?? false;
+}
+
 /**
  * Validate a URL protocol for safe rendering in href/src attributes.
  * Prevents javascript: and data: URI injection attacks.

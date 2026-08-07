@@ -37,19 +37,6 @@ import { describe, expect, it } from 'vitest';
 
 const HOOKS_DIR = resolve(__dirname, '../hooks');
 
-/**
- * RATCHET BASELINE — hooks that wrap useQuery and do NOT surface an error arm.
- *
- * MEASURED, not estimated. The first draft of this gate guessed 24; the real
- * count is 5, and the deliberate-break check proved the guess made the gate
- * useless: removing isError from useWarehouseSummary took the count to 6 and
- * the gate stayed GREEN. A ratchet with slack is not a ratchet, it is a comment
- * that runs. Always set this to the measured count.
- *
- * Shrink freely; lower this constant in the same commit. It may never grow.
- */
-const SWALLOWED_ERROR_BASELINE = 0;
-
 /** A hook "surfaces" its error if any of these appear in its return shape. */
 const SURFACES_ERROR = /\bisError\b|\berror\b\s*[,:}]|status:\s*['"]error|Loadable</;
 

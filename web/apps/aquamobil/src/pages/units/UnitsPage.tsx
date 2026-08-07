@@ -21,22 +21,7 @@ import { AppHeader } from '@/components/AppHeader';
 import { Chip, EmptyState, ListRow, Skeleton, StatusDot } from '@/components/ui';
 import { useTanks } from '@/hooks/useTanks';
 import type { Tank } from '@/types';
-
-/** Status → the tone its dot and code tile take. */
-function toneForStatus(status: Tank['status']): 'ok' | 'warn' | 'crit' | 'neutral' {
-  switch (status) {
-    case 'ACTIVE':
-      return 'ok';
-    case 'HARVESTING':
-    case 'PREPARING':
-      return 'warn';
-    case 'QUARANTINE':
-    case 'MAINTENANCE':
-      return 'crit';
-    default:
-      return 'neutral';
-  }
-}
+import { groupUnitsBySite, unitStatusMeta } from '@/utils/unit-display';
 
 /**
  * The short code shown in the row's tile. Codes like "U-07" already read well;
@@ -53,24 +38,10 @@ export function UnitsPage(): ReactElement {
   const { data: tanks, isLoading, isError, refetch } = useTanks();
 
   // Group by site so a worker on a multi-site tenant sees their own site's units
-  // together. Sites arrive as opaque ids from the inventory snapshot; until the
-  // mobile client has a site-name query the group is labelled by position, which
-  // is honest about what is known rather than inventing a site name.
-  const groups = useMemo(() => {
-    if (!tanks) return [];
-    const bySite = new Map<string, Tank[]>();
-    for (const tank of tanks) {
-      const key = tank.siteId ?? 'unassigned';
-      const bucket = bySite.get(key);
-      if (bucket) bucket.push(tank);
-      else bySite.set(key, [tank]);
-    }
-    return [...bySite.entries()].map(([siteId, rows], index) => ({
-      siteId,
-      label: bySite.size === 1 ? 'Units' : `Site ${index + 1}`,
-      rows,
-    }));
-  }, [tanks]);
+  // together. The grouping and its positional labelling live in
+  // src/utils/unit-display.ts because the tablet board's unit grid groups the
+  // same units the same way — two copies would drift the moment either changed.
+  const groups = useMemo(() => (tanks ? groupUnitsBySite(tanks) : []), [tanks]);
 
   const total = tanks?.length ?? 0;
 
@@ -107,20 +78,25 @@ export function UnitsPage(): ReactElement {
           <section key={group.siteId} className="flex flex-col gap-2">
             <div className="flex items-baseline justify-between px-1">
               <h2 className="text-body font-semibold text-ink-3">{group.label}</h2>
-              <span className="text-meta font-mono text-ink-3">{group.rows.length}</span>
+              <span className="text-meta font-mono text-ink-3">{group.units.length}</span>
             </div>
-            {group.rows.map((tank) => {
-              const tone = toneForStatus(tank.status);
+            {group.units.map((tank) => {
+              // One status means one colour on every unit surface — see
+              // src/utils/unit-display.ts. This screen used to answer `neutral`
+              // for CLEANING, FALLOW and INACTIVE while the unit detail answered
+              // `warn` for the same three, so a pen changed colour when a worker
+              // tapped into it.
+              const { tone } = unitStatusMeta(tank.status);
               const metrics = tank.batchMetrics;
               return (
                 <ListRow
                   key={tank.id}
                   leading={shortCode(tank)}
-                  tone={tone === 'neutral' ? 'neutral' : tone}
+                  tone={tone}
                   title={
                     <span className="flex items-center gap-2">
                       {tank.name}
-                      <StatusDot tone={tone === 'neutral' ? 'ok' : tone} />
+                      <StatusDot tone={tone} />
                     </span>
                   }
                   subtitle={

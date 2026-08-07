@@ -33,34 +33,20 @@ import { useAuth } from '@/hooks/useAuth';
 import { useChannels } from '@/hooks/useChannels';
 import { useMessageSocket } from '@/hooks/useMessageSocket';
 import type { Channel } from '@/types/messaging';
-import { formatRelativeTime, getUserDisplayName } from '@/utils/messaging-helpers';
+import {
+  formatRelativeTime,
+  getChannelDisplayName,
+  getUserDisplayName,
+  isOtherMemberOnline,
+} from '@/utils/messaging-helpers';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Compute the display name for a channel. For direct channels, derive from
- * the other member's user details instead of using channel.name.
- */
-function getChannelDisplayName(channel: Channel, currentUserId: string | undefined): string {
-  if (channel.type === 'direct' && channel.members) {
-    const otherMember = channel.members.find((m) => m.userId !== currentUserId);
-    if (otherMember?.user) {
-      return getUserDisplayName(otherMember.user);
-    }
-  }
-  return channel.name ?? 'Unnamed Channel';
-}
-
-/**
- * Determine if the other user in a DM channel is online.
- */
-function isOtherUserOnline(channel: Channel, currentUserId: string | undefined): boolean {
-  if (channel.type !== 'direct' || !channel.members) return false;
-  const otherMember = channel.members.find((m) => m.userId !== currentUserId);
-  return otherMember?.user?.isOnline ?? false;
-}
+// The two that used to live here — "what is this conversation called" and "is
+// the other party online" — moved to src/utils/messaging-helpers.ts when the
+// cabin board grew its own conversation list. Three surfaces title the same
+// channel; one of them must not be able to call it something else.
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -77,7 +63,7 @@ function ChannelRow({
   onPress: () => void;
 }): ReactElement {
   const displayName = getChannelDisplayName(channel, currentUserId);
-  const online = isOtherUserOnline(channel, currentUserId);
+  const online = isOtherMemberOnline(channel, currentUserId);
   const hasUnread = (channel.unreadCount ?? 0) > 0;
 
   // Compute last message preview

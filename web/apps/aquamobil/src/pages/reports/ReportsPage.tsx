@@ -22,7 +22,6 @@
  * inventing the history, so the period selector and both charts are not built.
  * The gap is a tracked finding, not an oversight.
  */
-import { useQuery } from '@tanstack/react-query';
 import { CloudOff, FileText, TrendingUp } from 'lucide-react';
 import type { JSX } from 'react';
 import { useMemo } from 'react';
@@ -30,56 +29,16 @@ import { useNavigate } from 'react-router-dom';
 
 import { AppHeader } from '@/components/AppHeader';
 import { Card, Chip, EmptyState, ListRow, Skeleton, StatTile } from '@/components/ui';
-import type { MobileReportDeadlinesQuery } from '@/generated/graphql';
-import { MOBILE_REPORT_DEADLINES } from '@/graphql/operations';
-import { useAuth } from '@/hooks/useAuth';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { useReportDeadlines } from '@/hooks/useReportDeadlines';
 import { useTanks } from '@/hooks/useTanks';
-import { graphqlRequest } from '@/services/authenticated-fetch';
+import { farmSummary, WATCH_AT } from '@/utils/farm-summary';
 import { useFeatureAccess } from '@/utils/feature-access';
-import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-
-type DeadlineRow = MobileReportDeadlinesQuery['reportDeadlines'][number];
-
-const REPORT_TYPE_LABELS: Record<string, string> = {
-  SEA_LICE: 'Sea Lice (weekly)',
-  CLEANER_FISH: 'Cleaner Fish (monthly)',
-  SMOLT: 'Smolt (monthly)',
-  SLAUGHTER_PLANNED: 'Slaughter Planned',
-  SLAUGHTER_EXECUTED: 'Slaughter Executed',
-  BIOMASS: 'Biomass (Altinn)',
-};
-
-/**
- * The ADVISORY watch line. It is not the consent limit: the backend owns that,
- * via `batchMetrics.isOverCapacity`, which fires on density, status and biomass
- * axes — so a pen blocked on biomass at 60% is over consent while a pen at 92%
- * density may not be. Using a hardcoded 90 here as "at consent limit" made this
- * screen and Today disagree about the same pen. This constant now only labels
- * the advisory band; `isOverCapacity` is the single definition of at/over.
- */
-const WATCH_AT = 70;
-
-function periodLabel(row: DeadlineRow): string {
-  if (row.periodWeek != null) return `${row.periodYear} · W${row.periodWeek}`;
-  if (row.periodMonth != null) {
-    return `${row.periodYear}-${String(row.periodMonth).padStart(2, '0')}`;
-  }
-  return String(row.periodYear);
-}
-
-function dueLabel(row: DeadlineRow): { text: string; tone: 'crit' | 'warn' | 'neutral' } {
-  if (row.overdue) return { text: 'Overdue', tone: 'crit' };
-  if (row.daysUntilDue != null && row.daysUntilDue <= 2) {
-    return { text: `Due in ${row.daysUntilDue}d`, tone: 'warn' };
-  }
-  return { text: row.dueAt ? `Due ${row.dueAt}` : 'Unscheduled', tone: 'neutral' };
-}
+import { dueLabel, periodLabel, reportTypeLabel } from '@/utils/report-deadline-display';
 
 export function ReportsPage(): JSX.Element {
   const navigate = useNavigate();
   const isOnline = useNetworkStatus();
-  const { tenantId, isAuthenticated } = useAuth();
   const { data: tanks, isLoading: tanksLoading, isError: tanksError } = useTanks();
   // SEC-MEDIUM-050: the regulatory section carries a MODULE_MANAGER floor, the
   // same one the route enforces. Gating the SECTION rather than the screen is
@@ -87,60 +46,18 @@ export function ReportsPage(): JSX.Element {
   const { canReach } = useFeatureAccess();
   const canSeeRegulatory = canReach('reports');
 
-  const deadlinesQuery = useQuery({
-    queryKey: createTenantQueryKey(tenantId, 'reportDeadlines'),
-    queryFn: async () => {
-      const result = await graphqlRequest<MobileReportDeadlinesQuery>(MOBILE_REPORT_DEADLINES, {});
-      return result.reportDeadlines;
-    },
-    enabled: isAuthenticated && !!tenantId && isOnline && canSeeRegulatory,
-    staleTime: 1000 * 60,
-  });
-
-  const rows = useMemo(
-    () =>
-      (deadlinesQuery.data ?? [])
-        .slice()
-        .sort(
-          (a, b) =>
-            Number(b.overdue) - Number(a.overdue) ||
-            (a.dueAt ?? '9999').localeCompare(b.dueAt ?? '9999'),
-        ),
-    [deadlinesQuery.data],
-  );
+  // The query, its tenant key, its three gates and the row order all live in the
+  // hook (src/hooks/useReportDeadlines.ts) so the cabin board's Reports view
+  // renders the same queue from the same cache entry rather than a second copy.
+  const deadlinesQuery = useReportDeadlines();
+  const rows = deadlinesQuery.data ?? [];
 
   /**
-   * Farm shape from the inventory snapshot. Average weight is biomass-weighted,
-   * not a mean of means: a 100k-fish pen and a 5k-fish pen contribute in
-   * proportion, which is the number a manager is actually asking for.
+   * Farm shape from the inventory snapshot. The arithmetic lives in
+   * src/utils/farm-summary.ts because the board's Reports view answers the same
+   * four questions — two copies would eventually disagree about one farm.
    */
-  const summary = useMemo(() => {
-    const stocked = (tanks ?? []).filter((t) => t.batchMetrics?.batchId);
-    // Unit totals across every batch in each pen — the primary batch alone
-    // understates a mixed pen and this figure is presented as the farm's.
-    const fish = stocked.reduce((n, t) => n + t.currentQuantity, 0);
-    const biomassKg = stocked.reduce((n, t) => n + t.currentBiomass, 0);
-    const atWatch = stocked.filter((t) => (t.batchMetrics?.capacityUsedPercent ?? 0) >= WATCH_AT);
-    // The backend flag, the same one Today uses — not a local threshold.
-    const atLimit = stocked.filter((t) => t.batchMetrics?.isOverCapacity === true);
-    return {
-      stockedCount: stocked.length,
-      totalCount: (tanks ?? []).length,
-      fish,
-      biomassKg,
-      // Grams per fish, from the totals rather than averaged averages.
-      avgWeightG: fish > 0 ? (biomassKg * 1000) / fish : 0,
-      atWatch: atWatch.length,
-      atLimit: atLimit.length,
-      densest: stocked
-        .slice()
-        .sort(
-          (a, b) =>
-            (b.batchMetrics?.capacityUsedPercent ?? 0) - (a.batchMetrics?.capacityUsedPercent ?? 0),
-        )
-        .slice(0, 5),
-    };
-  }, [tanks]);
+  const summary = useMemo(() => farmSummary(tanks ?? []), [tanks]);
 
   return (
     <div className="pb-32">
@@ -210,7 +127,13 @@ export function ReportsPage(): JSX.Element {
         </section>
 
         {/* ── Densest units ──────────────────────────────────────────── */}
-        {summary.densest.length > 0 && (
+        {/* `!tanksError` is load-bearing, not belt-and-braces: TanStack keeps the
+            LAST GOOD `data` when a refetch fails, so without this a failed
+            refresh would draw "Could not load the farm summary" above a list of
+            pens presented as today's densest. Half a screen of stale figures
+            under an outage notice is the seven-times-found defect wearing a
+            disguise (src/utils/loadable.ts). */}
+        {!tanksError && summary.densest.length > 0 && (
           <section className="flex flex-col gap-2">
             <h2 className="text-body font-semibold text-ink-3 px-1">Closest to consent</h2>
             {summary.densest.map((t) => {
@@ -288,7 +211,7 @@ export function ReportsPage(): JSX.Element {
                   key={row.id}
                   leading={<FileText size={18} />}
                   tone={due.tone === 'neutral' ? 'neutral' : due.tone}
-                  title={REPORT_TYPE_LABELS[row.reportType] ?? row.reportType}
+                  title={reportTypeLabel(row)}
                   subtitle={`${periodLabel(row)} · ${row.status}`}
                   trailing={<span className="font-mono">{due.text}</span>}
                   onClick={() => navigate(`/reports/${row.id}`)}

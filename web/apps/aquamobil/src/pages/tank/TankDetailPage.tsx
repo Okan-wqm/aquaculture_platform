@@ -15,8 +15,13 @@
  * density, capacity) to hero numerals, and gives density its own meter with the
  * watch and limit thresholds labelled — so 93% is legible as "past the watch
  * line, approaching consent" without the worker knowing the numbers by heart.
+ *
+ * Those read-only blocks now live in src/components/unit/ because the tablet
+ * board's inspector shows the same unit. What stays HERE is what only the
+ * handheld has: the log-entry CTA and the sheet behind it. The board renders the
+ * same vitals with no way to log, which is the whole point of the board.
  */
-import { AlertTriangle, Fish } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import { useState, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
@@ -24,36 +29,10 @@ import { FeedingAdviceCard, GrowthPredictionCard, TankRiskBadge } from '@/compon
 import { AppHeader } from '@/components/AppHeader';
 import { LiveReadingsCard } from '@/components/LiveReadingsCard';
 import { LogSheet } from '@/components/log-sheet/LogSheet';
-import {
-  Button,
-  CapacityMeter,
-  Card,
-  Chip,
-  EmptyState,
-  Skeleton,
-  StatTile,
-  StatusDot,
-} from '@/components/ui';
+import { Button, Chip, EmptyState, Skeleton, StatusDot } from '@/components/ui';
+import { UnitConfiguration, UnitVitals } from '@/components/unit';
 import { useTanks } from '@/hooks/useTanks';
-import type { Tank } from '@/types';
-
-/** Status → label plus the tone its dot takes. */
-const STATUS_META: Record<Tank['status'], { label: string; tone: 'ok' | 'warn' | 'crit' }> = {
-  ACTIVE: { label: 'Active', tone: 'ok' },
-  PREPARING: { label: 'Preparing', tone: 'warn' },
-  CLEANING: { label: 'Cleaning', tone: 'warn' },
-  MAINTENANCE: { label: 'Maintenance', tone: 'crit' },
-  HARVESTING: { label: 'Harvesting', tone: 'warn' },
-  FALLOW: { label: 'Fallow', tone: 'warn' },
-  QUARANTINE: { label: 'Quarantine', tone: 'crit' },
-  INACTIVE: { label: 'Inactive', tone: 'warn' },
-};
-
-function compact(num: number): string {
-  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
-  if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
-  return num.toLocaleString();
-}
+import { unitStatusMeta } from '@/utils/unit-display';
 
 export function TankDetailPage(): JSX.Element {
   const { tankId } = useParams<{ tankId: string }>();
@@ -102,11 +81,10 @@ export function TankDetailPage(): JSX.Element {
     );
   }
 
-  // The wire type is a free-form String, so an unrecognised status must degrade
-  // to a label rather than to undefined — dereferencing a missing entry is what
-  // crashed this page on fallowing pens.
-  const status = STATUS_META[tank.status] ?? STATUS_META.INACTIVE;
-  const capacityPct = metrics?.capacityUsedPercent ?? 0;
+  // The eight-member lookup is exhaustive by type and narrowTankStatus keeps the
+  // wire from smuggling a ninth in, so no fallback is needed here any more —
+  // dereferencing a missing entry is what crashed this page on fallowing pens.
+  const status = unitStatusMeta(tank.status);
 
   return (
     <div className="pb-32">
@@ -124,75 +102,10 @@ export function TankDetailPage(): JSX.Element {
       />
 
       <div className="px-4 flex flex-col gap-5">
-        {hasBatch && metrics ? (
-          <>
-            <div className="grid grid-cols-2 gap-2">
-              {/* The UNIT's standing biomass, across every batch in it — shown
-                  beside density and capacity, which are also whole-container
-                  figures. Reading the primary batch here made three tiles on
-                  one screen disagree about one pen. */}
-              <StatTile
-                label="Standing biomass"
-                value={(tank.currentBiomass / 1000).toFixed(1)}
-                unit="t"
-                caption={
-                  tank.currentQuantity > 0 ? `${compact(tank.currentQuantity)} fish` : undefined
-                }
-              />
-              <StatTile
-                label="Average weight"
-                value={(metrics.avgWeight ?? 0).toFixed(0)}
-                unit="g"
-                caption={
-                  metrics.daysSinceStocking != null
-                    ? `${metrics.daysSinceStocking} d since stocking`
-                    : undefined
-                }
-              />
-              <StatTile label="Density" value={(metrics.density ?? 0).toFixed(1)} unit="kg/m³" />
-              {/* The capacity tile is the one that may turn colour, and it can
-                  only do so with the caption that names the threshold — the
-                  StatTile type enforces that pairing. */}
-              {metrics.isOverCapacity === true ? (
-                <StatTile
-                  label="Capacity used"
-                  value={capacityPct.toFixed(0)}
-                  unit="%"
-                  state="crit"
-                  caption="Over consent limit"
-                />
-              ) : (
-                <StatTile label="Capacity used" value={capacityPct.toFixed(0)} unit="%" />
-              )}
-            </div>
-
-            {/* Density against consent gets its own meter because it is the
-                regulated number: the thresholds are what make it readable. */}
-            <Card className="p-4">
-              <CapacityMeter
-                percent={capacityPct}
-                readout={`${capacityPct.toFixed(0)}% · ${(metrics.density ?? 0).toFixed(1)} kg/m³`}
-              />
-            </Card>
-
-            {metrics.isOverCapacity === true && (
-              <Card className="p-3.5 flex items-center gap-3 border-crit">
-                <span className="w-9 h-9 shrink-0 rounded-xl bg-crit-dim text-crit inline-flex items-center justify-center">
-                  <AlertTriangle size={18} />
-                </span>
-                <span className="text-body text-ink-1">
-                  This unit is over capacity. Consider harvesting or transferring.
-                </span>
-              </Card>
-            )}
-          </>
-        ) : (
-          <EmptyState
-            icon={<Fish size={22} />}
-            title="No active batch"
-            description="Assign a batch to this unit to see biomass, density and growth."
-          />
-        )}
+        {/* Biomass, average weight, density, the consent meter and the
+            over-capacity notice — shared with the board's inspector so the
+            cabin and the handheld cannot disagree about a pen. */}
+        <UnitVitals tank={tank} />
 
         {/* MOB-MEDIUM-008: live water values with per-value freshness stamps —
             the operational data a worker standing at this unit actually needs,
@@ -219,27 +132,7 @@ export function TankDetailPage(): JSX.Element {
         {/* The unit's configuration, demoted from the old header banner: volume
             and max capacity are set once and read rarely, so they belong at the
             bottom rather than above the numbers that change every day. */}
-        <Card className="p-4">
-          <div className="text-meta text-ink-3 mb-3">Unit configuration</div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className="text-title font-mono font-semibold text-ink-1 tabular-nums">
-                {tank.volume > 0 ? `${tank.volume}` : '—'}
-              </div>
-              <div className="text-meta text-ink-3">
-                {tank.volume > 0 ? 'm³ volume' : 'Volume not configured'}
-              </div>
-            </div>
-            <div>
-              <div className="text-title font-mono font-semibold text-ink-1 tabular-nums">
-                {tank.maxBiomass > 0 ? compact(tank.maxBiomass) : '—'}
-              </div>
-              <div className="text-meta text-ink-3">
-                {tank.maxBiomass > 0 ? 'kg max capacity' : 'Capacity not configured'}
-              </div>
-            </div>
-          </div>
-        </Card>
+        <UnitConfiguration tank={tank} />
       </div>
 
       <LogSheet open={logOpen} onClose={() => setLogOpen(false)} initialTankId={tank.id} />

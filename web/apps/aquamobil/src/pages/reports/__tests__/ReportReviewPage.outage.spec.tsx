@@ -21,7 +21,7 @@ import { ReportReviewPage } from '../ReportReviewPage';
 
 const h = vi.hoisted(() => ({
   shouldFail: false,
-  graphqlRequest: vi.fn(),
+  graphqlRequest: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
 }));
 
 vi.mock('@/services/authenticated-fetch', () => ({

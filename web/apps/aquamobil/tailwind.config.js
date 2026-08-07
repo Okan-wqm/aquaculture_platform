@@ -2,6 +2,59 @@
 export default {
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
+    // ── BREAKPOINT STRATEGY ────────────────────────────────────────────────
+    // Read this before adding a responsive prefix. The app had NO breakpoints
+    // at all until the tablet control board; these two are the whole ladder.
+    //
+    // THERE ARE EXACTLY TWO DEVICE CLASSES, and neither is a laptop:
+    //   • a phone held in one hand at the pen — 360–430px wide in portrait,
+    //     and 640–932px wide but only 350–430px TALL in landscape;
+    //   • a tablet in the site cabin, wall-mounted or on a desk — 1024–1366px
+    //     wide in landscape, 744–1024px in portrait.
+    //
+    // THE THRESHOLD IS TWO-DIMENSIONAL: (min-width: 900px) AND (min-height: 600px).
+    //
+    // WHY the height term is load-bearing and not decoration: the widest phone
+    // in landscape (iPhone 16 Pro Max, 932×430) is WIDER than any width-only
+    // threshold that tablets can still clear. A `min-width` breakpoint alone
+    // therefore hands the three-column board to a phone lying on its side with
+    // 430px of vertical room — three ~300px columns, none of them usable, on
+    // the device the handheld layout was designed for. Height separates them
+    // cleanly: every tablet in landscape is ≥744px tall, every phone in
+    // landscape ≤430px. So A PHONE IN LANDSCAPE ALWAYS GETS THE HANDHELD SHELL.
+    //
+    // WHY 900px and not 768px: 768–834px is iPad portrait. Three columns there
+    // are ~250px each — the unit grid and the detail pane both unreadable — so
+    // a portrait tablet is better served by the handheld layout at full width.
+    // 900px sits above every phone-portrait width and below every
+    // tablet-landscape width (smallest ≈1024), leaving room for browser chrome
+    // and split view. 12.9" iPad portrait (1024×1366) clears it and gets the
+    // board, which is correct: it has the width for three columns.
+    //
+    // WHY `raw` queries instead of ordinary min-width breakpoints: a Tailwind
+    // screen key cannot express the AND-height term any other way, and `raw`
+    // keeps ONE query string that both the CSS prefix and the JS switch use.
+    // The strings here are mirrored in src/hooks/useViewport.ts and held
+    // identical by src/layouts/__tests__/board-breakpoint.spec.ts — a second,
+    // different number living in CSS is exactly the drift that gate prevents.
+    //
+    // WHY the defaults (sm/md/lg/xl/2xl) are REPLACED rather than extended:
+    // they encode a desktop ladder this app has no case for. Deleting them
+    // makes an accidental laptop breakpoint impossible instead of merely
+    // discouraged — Tier 1 rather than Tier 4.
+    //
+    // WHICH MECHANISM TO USE. The PRIMARY switch is JS (useIsBoardViewport →
+    // src/layouts/AppShell.tsx), because phone and board are different
+    // COMPONENT TREES — different chrome, different navigation, different hooks
+    // mounted — not one tree with different padding. A CSS-only branch would
+    // mount both, double every query and socket, and leave the hidden one in
+    // the accessibility tree. These prefixes are for refinements INSIDE the
+    // board (e.g. `board-wide:` widening the grid), where the tree is already
+    // chosen and only the proportions change.
+    screens: {
+      board: { raw: '(min-width: 900px) and (min-height: 600px)' },
+      'board-wide': { raw: '(min-width: 1280px) and (min-height: 600px)' },
+    },
     extend: {
       fontFamily: {
         // v4 design typeface. Geist is self-hosted (src/styles/tokens.css) —
@@ -78,7 +131,6 @@ export default {
           harvest: 'var(--type-harvest)',
           'harvest-dim': 'var(--type-harvest-dim)',
         },
-
       },
       boxShadow: {
         // v4: one theme-aware elevation. Cards sit above the ground with a real
@@ -88,9 +140,9 @@ export default {
         // The accent's own halo, for the primary CTA and the raised scan button.
         // Kept as a token so it tracks the theme instead of freezing one teal.
         acc: '0 10px 24px var(--acc-dim)',
-        'card': '0 1px 3px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.06)',
+        card: '0 1px 3px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.06)',
         'card-hover': '0 4px 16px rgba(0,0,0,0.1)',
-        'elevated': '0 8px 30px rgba(0,0,0,0.12)',
+        elevated: '0 8px 30px rgba(0,0,0,0.12)',
         // WHY: Glow shadows provide a colored halo on selected/active elements — reinforces
         // the status color coding system (ocean=info, red=mortality, orange=cull, etc.)
         'glow-ocean': '0 4px 24px rgba(0,115,230,0.25)',

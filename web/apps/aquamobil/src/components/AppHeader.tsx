@@ -13,10 +13,9 @@
  */
 import { ChevronLeft } from 'lucide-react';
 import { type ReactElement, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
 
+import { AccountAvatar } from '@/components/AccountAvatar';
 import { IconButton } from '@/components/ui';
-import { useAuth } from '@/hooks/useAuth';
 
 export interface AppHeaderProps {
   /** The screen name, set at the display size. */
@@ -31,15 +30,6 @@ export interface AppHeaderProps {
   showAvatar?: boolean;
 }
 
-/** First letters of the first and last word — "Ola Nordvik" → "ON". */
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  const first = parts[0]?.charAt(0) ?? '';
-  const last = parts.length > 1 ? (parts[parts.length - 1]?.charAt(0) ?? '') : '';
-  return (first + last).toUpperCase();
-}
-
 export function AppHeader({
   title,
   subtitle,
@@ -47,10 +37,6 @@ export function AppHeader({
   actions,
   showAvatar = true,
 }: AppHeaderProps): ReactElement {
-  const navigate = useNavigate();
-  const { user } = useAuth();
-  const name = user?.name ?? user?.email ?? '';
-
   return (
     <header className="px-4 pt-safe-top">
       <div className="flex items-start justify-between gap-3 py-4">
@@ -77,19 +63,11 @@ export function AppHeader({
 
         <div className="flex items-center gap-2 shrink-0">
           {actions}
-          {showAvatar && (
-            <button
-              type="button"
-              onClick={() => navigate('/account')}
-              aria-label="Account"
-              // The avatar is the v4 route to Account, which no longer holds a
-              // dock slot — the dock's five slots go to the things a worker uses
-              // during a shift, and settings is not one of them.
-              className="w-10 h-10 min-h-touch min-w-touch shrink-0 rounded-xl bg-acc text-acc-on font-mono text-meta font-semibold inline-flex items-center justify-center touch-feedback focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc"
-            >
-              {initials(name)}
-            </button>
-          )}
+          {/* The avatar is the v4 route to Account, which no longer holds a dock
+              slot — the dock's five slots go to the things a worker uses during a
+              shift, and settings is not one of them. Shared with the tablet
+              board's top bar (src/components/AccountAvatar.tsx). */}
+          {showAvatar && <AccountAvatar />}
         </div>
       </div>
     </header>

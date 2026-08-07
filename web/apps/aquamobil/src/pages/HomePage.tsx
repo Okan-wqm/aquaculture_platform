@@ -46,13 +46,13 @@ import { LogSheet, type SheetType } from '@/components/log-sheet/LogSheet';
 import { NotificationBell } from '@/components/NotificationBell';
 import { Card, Chip, EmptyState, ListRow, Skeleton, StatusDot } from '@/components/ui';
 import type { RowTone } from '@/components/ui';
-import { useAlerts, type MobileAlert } from '@/hooks/useAlerts';
+import { useAlerts } from '@/hooks/useAlerts';
 import { useAuth } from '@/hooks/useAuth';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { useMyTasks } from '@/hooks/useMyTasks';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTanks } from '@/hooks/useTanks';
-import type { Task } from '@/types';
+import { alertSeverityTone, taskPriorityTone } from '@/utils/attention-tone';
 import { useFeatureAccess } from '@/utils/feature-access';
 
 interface Shortcut {
@@ -113,19 +113,11 @@ const ALL_SHORTCUTS: Shortcut[] = [
   { feature: 'storage', path: '/storage', icon: Warehouse, label: 'Storage', tone: 'neutral' },
 ];
 
-/** Alarm severity → the row's icon tile tone. */
-function alertTone(severity: MobileAlert['severity']): RowTone {
-  if (severity === 'CRITICAL' || severity === 'HIGH') return 'crit';
-  if (severity === 'MEDIUM' || severity === 'WARNING') return 'warn';
-  return 'neutral';
-}
-
-/** Task priority → tone. Overdue is decided separately, below. */
-function taskTone(task: Task): RowTone {
-  if (task.priority === 'URGENT' || task.priority === 'HIGH') return 'crit';
-  if (task.priority === 'MEDIUM') return 'warn';
-  return 'neutral';
-}
+// Alarm-severity and task-priority tones now live in src/utils/attention-tone.ts.
+// WHY THEY MOVED: the tablet board's attention pane renders these same two lists
+// from these same two hooks. A private copy here would have let one CRITICAL
+// alarm be coral in a worker's hand and amber on the cabin wall after the next
+// edit to either file — colour is what ranks these rows before a word is read.
 
 /** "07:12" from an ISO stamp, in the device's own zone. */
 function clockOf(iso: string): string {
@@ -281,7 +273,7 @@ export function HomePage(): JSX.Element {
           {openAlerts.map((alert) => (
             <ListRow
               key={alert.id}
-              tone={alertTone(alert.severity)}
+              tone={alertSeverityTone(alert.severity)}
               leading={<AlertTriangle size={18} />}
               title={alert.ruleName}
               subtitle={alert.message}
@@ -318,7 +310,7 @@ export function HomePage(): JSX.Element {
               return (
                 <ListRow
                   key={task.id}
-                  tone={done ? 'ok' : taskTone(task)}
+                  tone={done ? 'ok' : taskPriorityTone(task.priority)}
                   muted={done}
                   leading={done ? <CheckCircle2 size={18} /> : <Circle size={18} />}
                   title={task.title}

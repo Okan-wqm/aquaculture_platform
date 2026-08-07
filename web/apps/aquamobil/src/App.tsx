@@ -11,7 +11,7 @@ import {
   type MobileFeature,
 } from './hooks/useMobilePermissions';
 import { useSwNavigation } from './hooks/useSwNavigation';
-import { MobileLayout } from './layouts/MobileLayout';
+import { AppShell } from './layouts/AppShell';
 import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -110,6 +110,19 @@ const UnitsPage = lazy(() =>
   import('./pages/units/UnitsPage').then((m) => ({ default: m.UnitsPage })),
 );
 const ScanPage = lazy(() => import('./pages/scan/ScanPage').then((m) => ({ default: m.ScanPage })));
+
+// The tablet control board's three views. Lazy like every other destination: a
+// phone never loads these chunks, because AppShell only routes to `/board/*`
+// above the board threshold (src/hooks/useViewport.ts).
+const BoardPage = lazy(() =>
+  import('./pages/tablet/BoardPage').then((m) => ({ default: m.BoardPage })),
+);
+const ReportsBoardPage = lazy(() =>
+  import('./pages/tablet/ReportsBoardPage').then((m) => ({ default: m.ReportsBoardPage })),
+);
+const ChatBoardPage = lazy(() =>
+  import('./pages/tablet/ChatBoardPage').then((m) => ({ default: m.ChatBoardPage })),
+);
 
 // Messaging pages — in-app messaging (ADR-012)
 const ChannelListPage = lazy(() =>
@@ -241,7 +254,10 @@ export function App(): ReactElement {
             path="/*"
             element={
               <ProtectedRoute>
-                <MobileLayout>
+                {/* AppShell is the ONE viewport-aware seam: the handheld dock on
+                    a phone, the cabin control board on a tablet, swapped live on
+                    resize and rotation. Everything below it is shell-agnostic. */}
+                <AppShell>
                   {/* FE-HIGH-053: ROUTE-level ErrorBoundary wrapping the lazy
                       Routes + Suspense subtree. A chunk-load rejection or a
                       single-page render crash resets to this recoverable shell
@@ -259,6 +275,26 @@ export function App(): ReactElement {
                           union of the log features, since a resolved unit whose
                           every action is denied is a dead end. */}
                         <Route path="/units" element={<UnitsPage />} />
+                        {/* The tablet control board. Ungated for the same reason
+                          /units is: reading unit, alarm and task state is the
+                          baseline field capability, and each pane inside it
+                          carries the phone's own gating. AppShell owns whether
+                          this path is reachable at all — below the board
+                          threshold it redirects to Today, so a phone cannot
+                          land on a three-column grid. */}
+                        <Route path="/board" element={<BoardPage />} />
+                        {/* The board's other two views. They are UNGATED at the
+                          route for the same reason /board is — and because
+                          gating them here would be the wrong layer: the
+                          regulatory column inside Reports self-gates on
+                          canReach('reports') (the MODULE_MANAGER floor), and the
+                          conversations a role may read are already decided
+                          server-side by membership. Every path under /board is
+                          unreachable below the board threshold: AppShell
+                          redirects the whole prefix to Today, so a phone can
+                          never land on a multi-column layout. */}
+                        <Route path="/board/reports" element={<ReportsBoardPage />} />
+                        <Route path="/board/chat" element={<ChatBoardPage />} />
                         <Route
                           path="/scan"
                           element={
@@ -608,7 +644,7 @@ export function App(): ReactElement {
                       </Routes>
                     </Suspense>
                   </ErrorBoundary>
-                </MobileLayout>
+                </AppShell>
               </ProtectedRoute>
             }
           />

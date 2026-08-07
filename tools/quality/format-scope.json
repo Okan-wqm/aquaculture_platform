@@ -43584,6 +43584,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/sarif-upload-permissions.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/scada-storage-tenant-context.spec.ts",
       "prettier_managed": true
     },

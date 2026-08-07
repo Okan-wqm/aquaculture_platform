@@ -19,7 +19,7 @@ Two HIGH production advisories, one root cause:
 
 ### It is not this PR's doing
 
-#1110 changes Python, docs and `tools/` — **no `package.json`, no `package-lock.json`**
+PR #1110 changes Python, docs and `tools/` — **no `package.json`, no `package-lock.json`**
 (`git diff --name-only origin/main...` confirms it). The advisory was published
 against a dependency tree that `main` already carries, so `main` fails the same
 gate. This blocks every merge in the repository, exactly as `INFRA-HIGH-104` did

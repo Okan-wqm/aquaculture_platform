@@ -27095,6 +27095,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "aria-kernel/control-reachability.dormant.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "aria-kernel/tests/fixtures/feedback_v2/feedback_event.json",
       "prettier_managed": true
     },
@@ -33373,6 +33379,24 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-06-batch-containment.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-06-control-reachability.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-06-js-yaml-advisory.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-08-06-project-graph-blind-spot.md",
       "prettier_managed": true
     },
@@ -33380,6 +33404,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/claude/2026-08-06-twin-cycle-wiring.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-07-contracts-doc-lint.md",
       "prettier_managed": true
     },
     {
@@ -40854,7 +40884,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "af18ff621a572319b326f89be6f72dcab2e761d6c48ce9fd6cd00a6249e63229",
+      "content_sha256": "80eabeec57e047260e7c6c1268376b6e02b7c486692775a613b9414ebcf81340",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -44467,6 +44497,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/fixtures/plan-coverage/repo/libs/event-contracts/src/farm-events.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/format-scope-derived-scalars.spec.ts",
       "prettier_managed": true
     },
     {
@@ -56586,10 +56622,7 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9280,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9099,
-  "managed_file_list_sha256": "ba1a355b755b5c0d31013fd2ddf830dde92acaffb5b7e31433b96b4d516c54af",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

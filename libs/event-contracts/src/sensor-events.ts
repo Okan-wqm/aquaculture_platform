@@ -22,7 +22,15 @@ export type SensorReadingParameter =
   | 'nitrite'
   | 'nitrate'
   | 'turbidity'
-  | 'waterLevel';
+  | 'waterLevel'
+  /**
+   * Mass in kilograms — load cells. Added because the platform had no way to
+   * express a weight at all, which made "this feeder dispenses by measured
+   * weight" an unbacked claim: farm-service could store the sensor id but
+   * nothing could ever tell it what the silo weighed. See
+   * `FeederSiloMassLatest` (farm-service) for the consumer.
+   */
+  | 'mass';
 
 /**
  * Sensor Reading Event (v3 — federation correlation fields, Scope B Phase S1.1)
@@ -74,6 +82,12 @@ export interface SensorReadingEvent extends BaseEvent {
   readingNitrate?: number;
   readingTurbidity?: number;
   readingWaterLevel?: number;
+  /**
+   * Mass in KILOGRAMS. Emitted by mass sensors (`SensorType.MASS`) — the load
+   * cells under a feed silo. Optional like every other `readingXxx`, so events
+   * from sensors that measure something else deserialise unchanged.
+   */
+  readingMass?: number;
 
   // ---- v3 federation correlation fields ----------------------------------
   /**

@@ -1102,11 +1102,31 @@ export interface FeedingDailySummaryEvent extends BaseEvent {
   missedMealCount: number;
 }
 
+/**
+ * A feeder's dosing physics and its per-feed calibrations were rewritten.
+ *
+ * BREAKING CHANGE (v2): `feedSizeMm: number[]` is replaced by `feedIds:
+ * string[]`. Pellet diameter was never an identity — two 4 mm feeds from
+ * different mills flow differently through the same auger, so a diameter list
+ * could not tell a consumer WHICH feeds were recalibrated. `feedId` is the axis
+ * the rest of the feeding system already turns on (`ProtocolBand.feedId`), so a
+ * consumer can now invalidate exactly the plans that depend on what changed.
+ *
+ * `dosingMode` and `dispenseControl` are carried because they decide the SHAPE
+ * of every derived command (a speed and a duration, or a shot count) and whether
+ * a weight source is in the loop. A consumer caching derived commands must drop
+ * them when either changes.
+ */
 export interface FeederCalibrationsSavedEvent extends BaseEvent {
   eventType: 'FeederCalibrationsSaved';
   equipmentId: string;
   calibrationCount: number;
-  feedSizeMm: number[];
+  /** `'discrete'` (grams per shot) or `'continuous'` (grams per minute at a speed). */
+  dosingMode: string;
+  /** `'time_based'` or `'weight_based'`. */
+  dispenseControl: string;
+  /** `feeds.id` of every calibrated feed, in the order persisted. */
+  feedIds: string[];
   changedBy: string;
 }
 

@@ -353,7 +353,7 @@ export const QUERY_ROLES: Readonly<Record<string, readonly Role[]>> = Object.fre
   feedConsumptionForecast: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedSuppliers: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedTypes: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
-  feederCalibrations: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
+  feederSetup: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedingAdvice: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedingProgram: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],
   feedingPrograms: [Role.MODULE_MANAGER, Role.MODULE_USER, Role.TENANT_ADMIN],

@@ -61,6 +61,10 @@ import { SetUnitFeedersHandler } from './handlers/feeder-assignment.handlers';
 import { GetUnitFeederAssignmentsHandler } from './query-handlers/feeder-assignment.query-handlers';
 import { FeederAssignmentResolver } from './resolvers/feeder-assignment.resolver';
 import { FeederDoseSplitService } from './services/feeder-dose-split.service';
+import { FeederDoseDirectiveService } from './services/feeder-dose-directive.service';
+import { FeederCapability } from '../equipment/entities/feeder-capability.entity';
+import { FeederCalibration } from '../equipment/entities/feeder-calibration.entity';
+import { FeederSiloMassLatest } from '../equipment/entities/feeder-silo-mass-latest.entity';
 
 @Module({
   imports: [
@@ -82,6 +86,11 @@ import { FeederDoseSplitService } from './services/feeder-dose-split.service';
       FeedingForecastSnapshot,
       Feed,
       Species,
+      // Kalibrasyon SSoT'si equipment domain'inde yaşar; buradaki kayıt
+      // yalnızca doz→hız/süre türetmesinin okuma yoludur (yazma yolu değil).
+      FeederCapability,
+      FeederCalibration,
+      FeederSiloMassLatest,
     ]),
   ],
   providers: [
@@ -116,6 +125,7 @@ import { FeederDoseSplitService } from './services/feeder-dose-split.service';
     SetUnitFeedersHandler,
     GetUnitFeederAssignmentsHandler,
     FeederDoseSplitService,
+    FeederDoseDirectiveService,
     FeedingProtocolV2Resolver,
     MealExecutionResolver,
     FeedForecastResolver,
@@ -132,6 +142,8 @@ import { FeederDoseSplitService } from './services/feeder-dose-split.service';
     ProtocolFeedForecastService,
     // Doz bölme SSoT'si — öğün üretimi ve mobil pano aynı gövdeyi okur.
     FeederDoseSplitService,
+    // Doz → sürücü hızı + motor çalışma süresi türetmesinin TEK gövdesi.
+    FeederDoseDirectiveService,
   ],
 })
 export class FeedingProtocolModule {}

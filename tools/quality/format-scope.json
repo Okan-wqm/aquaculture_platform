@@ -7594,6 +7594,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/feeder-calibration-physics.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/feeding-record-tenant-isolation.postgres.spec.ts",
       "prettier_managed": true
     },
@@ -9290,6 +9296,12 @@
       "prettier_managed": true
     },
     {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/__tests__/1809100000000-ReshapeFeederCalibrationForVfd.spec.ts",
+      "prettier_managed": true
+    },
+    {
       "class": "archive_immutable",
       "content_sha256": "ef2b9a69f2aca0ffb24f36c9d193741f669acec7cd840d23808dd27691a3bd65",
       "hash_policy": "sha256",
@@ -10251,6 +10263,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1809100000000-ReshapeFeederCalibrationForVfd.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1809200000000-CreateFeederSiloMassProjection.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -10965,6 +10989,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/events/listeners/sensor-mass-projection.listener.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/events/listeners/sensor-temperature-projection.listener.ts",
       "prettier_managed": true
     },
@@ -11434,6 +11464,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/__tests__/feed-forecast.slice.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/feeder-dose-directive.spec.ts",
       "prettier_managed": true
     },
     {
@@ -57234,10 +57270,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9388,
+  "file_count": 9394,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9207,
-  "managed_file_list_sha256": "a4a2cac1cbe7a4b5d5923b21e6bfc345f8f6a1e86dd6f09b08a9f613628b4fb9",
+  "managed_count": 9213,
+  "managed_file_list_sha256": "7a46d98229b6b79d7fc61179b4da9a281f8f7f8d9f8152f0ef7a6c154a06106f",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

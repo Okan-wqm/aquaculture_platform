@@ -533,13 +533,32 @@ Tür ve aşamaya göre genel kurallardır. `farm.feeding_protocols` tablosunda:
 
 ### 6.5 Yemleyici Kalibrasyonu
 
-Her otomatik yemleyici her pellet boyutu için farklı miktarda yem dağıtır. Örneğin 3 mm pellet için dönüş başına 12.5 g, 6 mm pellet için 28 g.
+Bir yemleyici her YEM için farklı debide yem taşır. Anahtar pellet ÇAPI değil yem
+KİMLİĞİdir (`feedId`): farklı fabrikaların iki 4 mm yemi yoğunluk ve yağ kaplaması
+yüzünden aynı helezondan farklı akar, ve `feedId` protokol bandının zaten seçtiği
+eksendir — yani balık yeni banda geçtiğinde doğru kalibrasyon kimse bir şey
+girmeden kendiliğinden bulunur.
 
-**Ekran:** EquipmentTab içindeki `FeederCalibrationSection`. `saveFeederCalibrations` mutation'ı her pellet boyutu için bir satır yazar.
+Makinenin kendisi (atımlı mı sürekli akış mı, silo kapasitesi, sürücünün geçerli
+hız bandı, dozu ağırlık mı süre mi bitirir) `feeder_capabilities`'te TEK satırda
+durur. Kalibrasyon satırları bu satıra FK ile çakılıdır: yanlış fizik taşıyan bir
+satır ya da hiç devreye alınmamış bir makineye kalibrasyon YAZILAMAZ.
 
-**Tablo:** `public.feeder_calibrations` (farm şemasında değil, dikkat).
+**Ekran:** EquipmentTab içindeki `FeederCalibrationSection`. `saveFeederCalibrations`
+mutation'ı makineyi ve tüm kalibrasyon kümesini TEK işlemde yazar; `feederSetup`
+query'si ikisini birlikte okur.
 
-Alanlar: `equipment_id`, `feed_size_mm`, `feed_size_label`, `grams_per_dispensing`, `silo_capacity_kg`. UNIQUE `(tenant_id, equipment_id, feed_size_mm)`.
+**Tablolar:** `farm.feeder_capabilities` + `farm.feeder_calibrations` (her ikisi de
+tenant-scoped; `feeder_silo_mass_latest` ağırlık kaynağının gerçekten raporladığının
+kanıtıdır).
+
+Kalibrasyon alanları: `equipment_id`, `feed_id`, `dosing_mode`, `grams_per_dispensing`
+(atımlı), `grams_per_minute` + `reference_speed_hz` (sürekli akış). UNIQUE
+`(tenant_id, equipment_id, feed_id)`.
+
+Doz → sürücü hızı + motor çalışma süresi türetmesinin TEK gövdesi
+`feeding-protocol/services/feeder-dose-directive.service.ts`'tir; akış hıza
+ORANTILIDIR ama YALNIZ bandın içinde, dışarısı ekstrapole edilmez REDDEDİLİR.
 
 ---
 

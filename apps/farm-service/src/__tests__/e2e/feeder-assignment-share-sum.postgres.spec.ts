@@ -37,6 +37,7 @@ const UNIT = '22222222-2222-4222-8222-222222222222';
 const FEEDER_A = '33333333-3333-4333-8333-333333333333';
 const FEEDER_B = '44444444-4444-4444-8444-444444444444';
 const SUB_EQUIPMENT = '55555555-5555-4555-8555-555555555555';
+const FEED = '66666666-6666-4666-8666-666666666666';
 
 describe('feeder assignment share-sum guarantee (real Postgres, service layer bypassed)', () => {
   let pg: HarnessContext | undefined;
@@ -66,8 +67,9 @@ describe('feeder assignment share-sum guarantee (real Postgres, service layer by
         "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
         "tenant_id" uuid NOT NULL,
         "equipment_id" uuid NOT NULL REFERENCES farm.equipment ("id"),
-        "feed_size_mm" numeric(5,2) NOT NULL,
-        "grams_per_dispensing" numeric(8,2) NOT NULL
+        "feed_id" uuid NOT NULL,
+        "dosing_mode" character varying(20) NOT NULL,
+        "grams_per_dispensing" numeric(8,2)
       )
     `);
     await pg.dataSource.query(`
@@ -389,8 +391,9 @@ describe('feeder identity: calibration and feeding records name the same object'
         "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
         "tenant_id" uuid NOT NULL,
         "equipment_id" uuid NOT NULL REFERENCES farm.equipment ("id"),
-        "feed_size_mm" numeric(5,2) NOT NULL,
-        "grams_per_dispensing" numeric(8,2) NOT NULL
+        "feed_id" uuid NOT NULL,
+        "dosing_mode" character varying(20) NOT NULL,
+        "grams_per_dispensing" numeric(8,2)
       )
     `);
     await pg.dataSource.query(`
@@ -426,9 +429,9 @@ describe('feeder identity: calibration and feeding records name the same object'
 
   it('lets a feeding record name the very equipment row that carries the calibration', async () => {
     await pg!.dataSource.query(
-      `INSERT INTO farm.feeder_calibrations ("tenant_id", "equipment_id", "feed_size_mm", "grams_per_dispensing")
-       VALUES ($1, $2, 4.5, 120)`,
-      [TENANT, FEEDER_A],
+      `INSERT INTO farm.feeder_calibrations ("tenant_id", "equipment_id", "feed_id", "dosing_mode", "grams_per_dispensing")
+       VALUES ($1, $2, $3, 'discrete', 120)`,
+      [TENANT, FEEDER_A, FEED],
     );
 
     await expect(

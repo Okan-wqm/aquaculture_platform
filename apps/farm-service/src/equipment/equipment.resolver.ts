@@ -49,7 +49,7 @@ import { DepartmentResponse } from '../department/dto/department.response';
 import { GetDepartmentQuery } from '../department/queries/get-department.query';
 import { Equipment } from './entities/equipment.entity';
 import { EquipmentSystem } from './entities/equipment-system.entity';
-import { FeederCalibrationResponse } from './dto/feeder-calibration.response';
+import { FeederCalibrationResponse, FeederSetupResponse } from './dto/feeder-calibration.response';
 import { SaveFeederCalibrationsInput } from './dto/feeder-calibration.input';
 import { SaveFeederCalibrationsCommand } from './commands/save-feeder-calibrations.command';
 import { ListFeederCalibrationsQuery } from './queries/list-feeder-calibrations.query';
@@ -488,14 +488,18 @@ export class EquipmentResolver {
   // =========================================================================
 
   /**
-   * List feeder calibrations for an equipment
+   * A feeder's dosing physics and its per-feed calibrations, read together.
+   *
+   * One query rather than two because neither half is interpretable alone: a
+   * flow rate needs the speed band it holds on, and the band lives on the
+   * capability row (stated once per machine, never once per feed).
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
-  @Query(() => [FeederCalibrationResponse])
-  async feederCalibrations(
+  @Query(() => FeederSetupResponse)
+  async feederSetup(
     @Args('equipmentId', { type: () => ID }) equipmentId: string,
     @CurrentTenant() tenantId: string,
-  ): Promise<FeederCalibrationResponse[]> {
+  ): Promise<FeederSetupResponse> {
     const query = new ListFeederCalibrationsQuery(equipmentId, tenantId);
     return this.queryBus.execute(query);
   }

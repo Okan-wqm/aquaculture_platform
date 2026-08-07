@@ -443,6 +443,13 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'sub_equipment_types',
       'sub_equipment',
       'feeder_calibrations',
+      // Yemleyicinin FİZİĞİ (atımlı/sürekli, silo kapasitesi, hız bandı,
+      // ağırlık kaynağı) — makine başına TEK satır. Kalibrasyon satırları
+      // buna FK ile çakılıdır (ReshapeFeederCalibrationForVfd1809100000000).
+      'feeder_capabilities',
+      // Ağırlık-tabanlı yemleyicinin yük hücresinin GERÇEKTEN raporladığının
+      // kanıtı — sensor_temperature_latest emsali per-tenant projeksiyon.
+      'feeder_silo_mass_latest',
 
       // Maintenance
       'maintenance_schedules',

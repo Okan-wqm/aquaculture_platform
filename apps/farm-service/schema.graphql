@@ -967,14 +967,47 @@ type EquipmentDeletePreviewResponse {
 
 type FeederCalibrationResponse {
   id: ID!
-  equipmentId: String!
-  feedSizeMm: Float!
-  feedSizeLabel: String
-  gramsPerDispensing: Float!
-  siloCapacityKg: Float!
+  equipmentId: ID!
+  feedId: ID!
+  dosingMode: FeederDosingMode!
+  gramsPerDispensing: Float
+  gramsPerMinute: Float
+  referenceSpeedHz: Float
   notes: String
   createdAt: DateTime!
   updatedAt: DateTime!
+}
+
+"""
+Yemleyicinin dozlama fiziği — atımlı (discrete) veya sürekli akış (continuous)
+"""
+enum FeederDosingMode {
+  DISCRETE
+  CONTINUOUS
+}
+
+type FeederCapabilityResponse {
+  equipmentId: ID!
+  dosingMode: FeederDosingMode!
+  siloCapacityKg: Float
+  minSpeedHz: Float
+  maxSpeedHz: Float
+  dispenseControl: FeederDispenseControl!
+  weightSensorId: ID
+  notes: String
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+"""Dozun tamamlandığını ne söyler — ölçülen ağırlık mı, geçen süre mi"""
+enum FeederDispenseControl {
+  TIME_BASED
+  WEIGHT_BASED
+}
+
+type FeederSetupResponse {
+  capability: FeederCapabilityResponse
+  calibrations: [FeederCalibrationResponse!]!
 }
 
 type SubEquipmentTypeResponse {
@@ -5684,7 +5717,7 @@ type Query {
   equipmentByDepartment(departmentId: ID!): [EquipmentResponse!]!
   equipmentTypes(filter: EquipmentTypeFilterInput): [EquipmentTypeResponse!]!
   equipmentType(id: ID!): EquipmentTypeResponse
-  feederCalibrations(equipmentId: ID!): [FeederCalibrationResponse!]!
+  feederSetup(equipmentId: ID!): FeederSetupResponse!
   subEquipment(id: ID!, includeRelations: Boolean = false): SubEquipmentResponse
   subEquipmentList(filter: SubEquipmentFilterInput, pagination: FarmPaginationInput): PaginatedSubEquipmentResponse!
   subEquipmentByParent(parentEquipmentId: ID!, includeInactive: Boolean = false): [SubEquipmentResponse!]!
@@ -7697,15 +7730,40 @@ input UpdateEquipmentInput {
 }
 
 input SaveFeederCalibrationsInput {
-  equipmentId: String!
-  calibrations: [FeederCalibrationItemInput!]!
+  equipmentId: ID!
+  dispense: FeederDispenseControlInput!
+  discrete: DiscreteFeederSetupInput
+  continuous: ContinuousFeederSetupInput
+  notes: String
 }
 
-input FeederCalibrationItemInput {
-  feedSizeMm: Float!
-  feedSizeLabel: String
+input FeederDispenseControlInput {
+  mode: FeederDispenseControl!
+  weightSensorId: ID
+}
+
+input DiscreteFeederSetupInput {
+  siloCapacityKg: Float
+  calibrations: [DiscreteFeederCalibrationItemInput!]!
+}
+
+input DiscreteFeederCalibrationItemInput {
+  feedId: ID!
   gramsPerDispensing: Float!
-  siloCapacityKg: Float!
+  notes: String
+}
+
+input ContinuousFeederSetupInput {
+  siloCapacityKg: Float
+  minSpeedHz: Float!
+  maxSpeedHz: Float!
+  calibrations: [ContinuousFeederCalibrationItemInput!]!
+}
+
+input ContinuousFeederCalibrationItemInput {
+  feedId: ID!
+  gramsPerMinute: Float!
+  referenceSpeedHz: Float!
   notes: String
 }
 

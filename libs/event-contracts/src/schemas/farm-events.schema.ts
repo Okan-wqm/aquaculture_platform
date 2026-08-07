@@ -702,7 +702,9 @@ interface WireFeederCalibrationsSaved extends WireSetupBaseEvent {
   eventType: 'FeederCalibrationsSaved';
   equipmentId: string;
   calibrationCount: number;
-  feedSizeMm: number[];
+  dosingMode: string;
+  dispenseControl: string;
+  feedIds: string[];
   changedBy: string;
 }
 
@@ -1985,14 +1987,27 @@ export const feederCalibrationsSavedSchema: JSONSchemaType<WireFeederCalibration
     eventType: { type: 'string', const: 'FeederCalibrationsSaved' },
     equipmentId: UUID_SCHEMA,
     calibrationCount: NON_NEGATIVE_INT,
-    feedSizeMm: {
+    // Closed enums on the wire: a consumer switches on these to decide the
+    // shape of the derived command, so an unrecognised value must be rejected
+    // at the boundary rather than silently defaulted to one of the branches.
+    dosingMode: { type: 'string', enum: ['discrete', 'continuous'] },
+    dispenseControl: { type: 'string', enum: ['time_based', 'weight_based'] },
+    feedIds: {
       type: 'array',
-      items: NON_NEGATIVE_NUMBER,
+      items: UUID_SCHEMA,
       maxItems: 100,
     },
     changedBy: UUID_SCHEMA,
   },
-  required: [...SETUP_EVENT_REQUIRED, 'equipmentId', 'calibrationCount', 'feedSizeMm', 'changedBy'],
+  required: [
+    ...SETUP_EVENT_REQUIRED,
+    'equipmentId',
+    'calibrationCount',
+    'dosingMode',
+    'dispenseControl',
+    'feedIds',
+    'changedBy',
+  ],
 };
 
 /**

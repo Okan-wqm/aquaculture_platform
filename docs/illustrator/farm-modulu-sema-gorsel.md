@@ -1116,23 +1116,47 @@ Non-tenant referans: `id`, `name`, `code UNIQUE`, `description`, `compatible_equ
 
 Junction: `id`, `tenant_id`, `equipment_id` (FK CASCADE), `system_id` (FK CASCADE), `is_primary` (boolean), `role` (varchar 50), `criticality_level` (1–5), `notes`, audit. UNIQUE (equipment_id, system_id).
 
-#### `public.feeder_calibrations` ⚠ (farm şemasında değil)
+#### `farm.feeder_capabilities`
 
-Entity: `equipment/entities/feeder-calibration.entity.ts`. Cross-service tablosu.
+Entity: `equipment/entities/feeder-capability.entity.ts`. Makine başına TEK satır —
+silo kapasitesi ve hız bandı burada YALNIZ BİR KEZ yazılır (yem başına tekrarlanmaz).
 
-| Sütun                      | Tip          | Not   |
-| -------------------------- | ------------ | ----- |
-| `id`                       | uuid         | PK    |
-| `tenant_id`                | uuid         | INDEX |
-| `equipment_id`             | uuid         | —     |
-| `feed_size_mm`             | decimal(5,2) | —     |
-| `feed_size_label`          | varchar(100) | —     |
-| `grams_per_dispensing`     | decimal(8,2) | —     |
-| `silo_capacity_kg`         | decimal(8,2) | —     |
-| `notes`                    | text         | —     |
-| `created_at`, `updated_at` | —            | —     |
+| Sütun                          | Tip           | Not                                    |
+| ------------------------------ | ------------- | -------------------------------------- |
+| `tenant_id`, `equipment_id`    | uuid          | PK (equipment'e FK)                    |
+| `dosing_mode`                  | varchar(20)   | `discrete` \| `continuous`             |
+| `silo_capacity_kg`             | numeric(10,3) | NULL = beyan edilmedi                  |
+| `min_speed_hz`, `max_speed_hz` | numeric(6,2)  | sürekli akışta ZORUNLU, atımlıda YASAK |
+| `dispense_control`             | varchar(20)   | `time_based` \| `weight_based`         |
+| `weight_sensor_id`             | uuid          | `weight_based` ise ZORUNLU (CHECK)     |
+| `notes`                        | text          | —                                      |
+| `created_at`, `updated_at`     | —             | —                                      |
 
-UNIQUE (tenant_id, equipment_id, feed_size_mm).
+#### `farm.feeder_calibrations`
+
+Entity: `equipment/entities/feeder-calibration.entity.ts`. Yem BAŞINA bir satır.
+
+| Sütun                          | Tip           | Not                                       |
+| ------------------------------ | ------------- | ----------------------------------------- |
+| `id`                           | uuid          | PK                                        |
+| `tenant_id`                    | uuid          | INDEX                                     |
+| `equipment_id`                 | uuid          | —                                         |
+| `feed_id`                      | uuid          | `feeds.id` — FK (çap DEĞİL, kimlik)       |
+| `dosing_mode`                  | varchar(20)   | feeder_capabilities'e FK ile çakılı       |
+| `grams_per_dispensing`         | numeric(8,2)  | atımlıda ZORUNLU, sürekli akışta YASAK    |
+| `grams_per_minute`             | numeric(10,3) | sürekli akışta ZORUNLU                    |
+| `reference_speed_hz`           | numeric(6,2)  | debinin ÖLÇÜLDÜĞÜ hız; bant içinde olmalı |
+| `min_speed_hz`, `max_speed_hz` | numeric(6,2)  | FK-taşınan kopya (ON UPDATE CASCADE)      |
+| `notes`                        | text          | —                                         |
+| `created_at`, `updated_at`     | —             | —                                         |
+
+UNIQUE (tenant_id, equipment_id, feed_id).
+
+#### `farm.feeder_silo_mass_latest`
+
+Entity: `equipment/entities/feeder-silo-mass-latest.entity.ts`. Yük hücresinin
+GERÇEKTEN raporladığının kanıtı — `sensor_temperature_latest` emsali projeksiyon.
+`(tenantId, sensorId)` PK, `massKg` numeric(12,3) (>= 0 CHECK), `measuredAt`.
 
 #### `farm.species`
 

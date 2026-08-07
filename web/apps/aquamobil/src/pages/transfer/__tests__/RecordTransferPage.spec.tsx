@@ -17,7 +17,7 @@
  */
 
 import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
-import type { ReactNode, ChangeEvent } from 'react';
+import type { ReactNode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { RecordTransferPage } from '../RecordTransferPage';
@@ -127,44 +127,6 @@ vi.mock('@/components/QueuedStatusBadge', () => ({
 
 // konsta/react uses useRef internally which trips on the dual-React copy.
 // Stub the components the page uses so tests run against plain DOM nodes.
-vi.mock('konsta/react', () => ({
-  List: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  BlockTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
-  ListInput: ({
-    type,
-    value,
-    onChange,
-    onInput,
-    children,
-    placeholder,
-  }: {
-    type?: string;
-    value?: string;
-    onChange?: (e: ChangeEvent<HTMLSelectElement>) => void;
-    onInput?: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
-    children?: ReactNode;
-    placeholder?: string;
-  }) => {
-    if (type === 'select') {
-      return (
-        <select value={value} onChange={onChange}>
-          {children}
-        </select>
-      );
-    }
-    if (type === 'textarea') {
-      return <textarea value={value} onChange={onInput} placeholder={placeholder} />;
-    }
-    return (
-      <input
-        type={type || 'text'}
-        value={value ?? ''}
-        onChange={onInput}
-        placeholder={placeholder}
-      />
-    );
-  },
-}));
 
 // lucide-react icons use forwardRef; stub each one the page transitively needs.
 vi.mock('lucide-react', () => {

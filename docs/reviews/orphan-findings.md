@@ -8588,3 +8588,11 @@ Severity: HIGH. Discovered 2026-08-07.
 **Cross-service integrity:** attestation. sensor-service publishes a request; farm-service, the owner of equipment identity, answers with the category and the served units. A binding is written PENDING and cannot actuate until the owner answers. What it cannot guarantee is stated plainly: the reference is soft and can be wrong for as long as the news takes to arrive. That risk is bounded rather than silent — a refresh window re-asks, and a maximum age refuses, so a drive whose owner has been unreachable for a day stops actuating instead of acting on day-old truth. `feeder_without_unit` is deliberately allowed to run: a feeder whose assignment lapsed still has to feed, and refusing would be the worse welfare outcome.
 
 **Not done:** `VfdDevice.farmId` remains a bare uuid — it is a location scope rather than an actuation target, and deriving it needs a site-hierarchy projection that does not exist. There is no equipment picker in sensor-module (the binding is reachable by mutation only); building one needs an `equipmentList` query that module does not have. The migrations passed the SQL linter and the expand-contract gate but were not exercised against a live Postgres in this session.
+
+## ORPHAN-LOW-606 — dead weight left behind by the v4 conversion — RESOLVED (this PR)
+
+Severity: LOW. Discovered 2026-08-07 auditing the finished v4 conversion.
+
+**Problem:** four spec files carried `vi.mock('konsta/react')` for a package that is neither installed nor imported — no-ops that read as live wiring. `tailwind.config.js` still declared `card`, `card-hover`, `elevated`, a family of coloured `glow-*` shadows and `inner-glow`, all with frozen `rgba()` that cannot follow a theme and all at zero usages. `tokens.css` documented a migration bridge whose stated precondition had already been met, so the comment asserted something false about the config. `ImagePreview.tsx` held the last two stock-hue classes in shipped code.
+
+**Fix:** all removed; the amber pair moved to the `warn` token. The shadow block now states why it is only two entries, so a hard-coded shadow is not reintroduced by someone assuming the set was merely incomplete.

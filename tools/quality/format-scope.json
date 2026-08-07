@@ -10635,6 +10635,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/equipment/entities/feeder-capability.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/equipment/entities/feeder-silo-mass-latest.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/equipment/entities/sub-equipment-type.entity.ts",
       "prettier_managed": true
     },
@@ -11746,6 +11758,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/services/feed-fcr-source.util.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/services/feeder-dose-directive.service.ts",
       "prettier_managed": true
     },
     {
@@ -57216,10 +57234,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9385,
+  "file_count": 9388,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9204,
-  "managed_file_list_sha256": "f8b14e7607417d70115586a364a77514f4254e1be66544c8fc79062d2cdcd98d",
+  "managed_count": 9207,
+  "managed_file_list_sha256": "a4a2cac1cbe7a4b5d5923b21e6bfc345f8f6a1e86dd6f09b08a9f613628b4fb9",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

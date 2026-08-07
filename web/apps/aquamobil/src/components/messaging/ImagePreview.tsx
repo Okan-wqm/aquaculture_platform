@@ -114,7 +114,7 @@ export function ImagePreview({
           {/* Amber stays a fixed value rather than becoming the warn token: the
               day theme's warn is a dark ochre chosen for LIGHT surfaces, and
               this pill sits on the viewer's fixed black. */}
-          <span className="text-meta text-amber-400 font-medium bg-amber-500/10 px-3 py-1 rounded-full">
+          <span className="text-meta text-warn font-medium bg-warn/10 px-3 py-1 rounded-full">
             Image will be compressed before sending
           </span>
         </div>

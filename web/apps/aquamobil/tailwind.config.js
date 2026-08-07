@@ -140,18 +140,11 @@ export default {
         // The accent's own halo, for the primary CTA and the raised scan button.
         // Kept as a token so it tracks the theme instead of freezing one teal.
         acc: '0 10px 24px var(--acc-dim)',
-        card: '0 1px 3px rgba(0,0,0,0.06), 0 2px 8px rgba(0,0,0,0.06)',
-        'card-hover': '0 4px 16px rgba(0,0,0,0.1)',
-        elevated: '0 8px 30px rgba(0,0,0,0.12)',
-        // WHY: Glow shadows provide a colored halo on selected/active elements — reinforces
-        // the status color coding system (ocean=info, red=mortality, orange=cull, etc.)
-        'glow-ocean': '0 4px 24px rgba(0,115,230,0.25)',
-        'glow-red': '0 4px 20px rgba(220,38,38,0.2)',
-        'glow-orange': '0 4px 20px rgba(234,88,12,0.2)',
-        'glow-purple': '0 4px 20px rgba(124,58,237,0.2)',
-        'glow-green': '0 4px 20px rgba(34,197,94,0.2)',
-        'glow-blue': '0 4px 20px rgba(59,130,246,0.2)',
-        'inner-glow': 'inset 0 1px 0 rgba(255,255,255,0.1)',
+        // These two are the whole set on purpose. The pre-v4 config also declared
+        // card/card-hover/elevated and a family of coloured glows, all with frozen
+        // rgba() that could not follow a theme; every one of them ended at zero
+        // usages once the token system landed, so they are gone rather than left
+        // as an invitation to reintroduce a hard-coded shadow.
       },
       borderRadius: {
         '2xl': '1rem',

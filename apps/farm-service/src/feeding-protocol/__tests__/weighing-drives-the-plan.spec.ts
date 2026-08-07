@@ -27,6 +27,7 @@ import {
   type ComputeDayPlanInput,
 } from '../services/meal-plan-generator.service';
 import { ProtocolRateService, tankBandWeightG } from '../services/protocol-rate.service';
+import { FeedTypeTransitionService } from '../services/feed-transition.service';
 import { ProtocolFcrSource, type MealSchedule } from '../entities/feeding-protocol-v2.entity';
 import { Batch } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
@@ -158,7 +159,13 @@ function makeManager(unit: TankBatch, shareSums: Array<{ biomass: number; quanti
 
 /** The 06:00 planner, run against whatever state the unit is in right now. */
 function planFor(unit: TankBatch): ReturnType<MealPlanGeneratorService['computeDayPlan']> {
-  const generator = new MealPlanGeneratorService(new ProtocolRateService());
+  const rateService = new ProtocolRateService();
+  const generator = new MealPlanGeneratorService(
+    rateService,
+    new FeedTypeTransitionService(rateService, {
+      enqueue: jest.fn().mockResolvedValue(undefined),
+    } as never),
+  );
   const input: ComputeDayPlanInput = {
     assignment: { overrides: {}, suspensions: [], currentFeedId: undefined },
     protocol: PROTOCOL,

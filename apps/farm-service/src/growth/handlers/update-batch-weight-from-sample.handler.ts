@@ -137,7 +137,9 @@ export class UpdateBatchWeightFromSampleHandler implements ICommandHandler<Updat
       await manager.save(GrowthMeasurement, measurement);
 
       if (unitId && locked) {
-        await this.recalcService.recalcForUnit(manager, tenantId, unitId, 'growth_sample');
+        await this.recalcService.recalcForUnit(manager, tenantId, unitId, {
+          reason: 'growth_sample',
+        });
       }
 
       return lockedBatch;

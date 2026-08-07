@@ -10,23 +10,47 @@
  *
  * WHAT: `batchDetails[]` is the SSoT. `totalQuantity` / `totalBiomassKg` /
  * `avgWeightG` / `densityKgM3` / `percentageOfTank` are ALWAYS derived from it,
- * so the aggregate can never diverge from the per-batch truth. Every handler
- * that changes a tank's stock (allocate, mortality, cull, transfer, createBatch)
- * routes through {@link applyBatchDelta}; the two duplicate primitives delegate
- * here. `batchDetails[]` is ALWAYS persisted (the historical
- * `length > 1 ? details : undefined` discard is the drift this fixes).
+ * so the aggregate can never diverge from the per-batch truth. The stock
+ * handlers — allocate, mortality, cull, transfer, harvest and its reversal,
+ * ledger reconcile — route through {@link applyStockChange}. `batchDetails[]` is
+ * ALWAYS persisted (the historical `length > 1 ? details : undefined` discard is
+ * the drift this fixes).
+ *
+ * NOT yet routed here, and therefore neither deriving through this writer nor
+ * repricing the day: `create-batch.handler`'s bulk `initialLocations` path
+ * (it builds and bulk-saves TankBatch rows itself) and the legacy
+ * `BatchService.updateTankBatch*` primitives that recompute a tank from its
+ * allocation ledger. Both predate this service; stocking a tank THROUGH batch
+ * creation still bypasses the mechanism below.
  *
  * Concurrency: callers already hold a `pessimistic_write` lock on the TankBatch
  * row (consistent with transfer/mortality), so the read-modify-write below is
  * serialised per tank without needing SERIALIZABLE isolation.
+ *
+ * A COUNT CHANGE IS A RATION CHANGE — and it is not optional. Four of the five
+ * stock paths remembered to reprice the day afterwards and `allocate-to-tank`
+ * did not, so stocking a tank raised its biomass while the day's remaining meals
+ * kept feeding the old, smaller number: fish underfed on their first day, with
+ * nothing to warn anyone. Adding a fifth call site would only have left the sixth
+ * writer free to forget again, so the write itself was made unreachable without
+ * the recalculation: {@link applyBatchDelta} is PRIVATE and the only way to reach
+ * it is {@link applyStockChange}, which settles every unit it touched — exactly
+ * once each, in the caller's transaction, before it returns. Two additional paths
+ * that had never recalculated at all (harvest reversal, ledger reconcile) became
+ * correct by construction the moment they were routed through it.
  */
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { TankBatch, BatchDetail } from '../entities/tank-batch.entity';
 import { findTankOrEquipmentWithManager } from '../utils/tank-lookup.util';
+import {
+  StockChangeReason,
+  UnitRationRecalculator,
+  UNIT_RATION_RECALCULATOR,
+} from './unit-ration-recalculator.port';
 
 export interface TankBatchDelta {
   batchId: string;
@@ -48,17 +72,97 @@ export interface TankMeta {
   volumeM3?: number;
 }
 
+/**
+ * The stock-mutation handle handed to {@link TankBatchService.applyStockChange}.
+ *
+ * It cannot be constructed anywhere else: `applyStockChange` is the only producer
+ * and the underlying writer is private to the service, so holding one of these is
+ * the same thing as being inside a scope that will recalculate.
+ */
+export interface StockChange {
+  /**
+   * Apply one signed per-batch delta to one unit. May be called any number of
+   * times, for any number of units — every touched unit is recalculated once
+   * when the scope closes, never once per delta.
+   */
+  applyDelta(tankId: string, delta: TankBatchDelta, tankMeta?: TankMeta): Promise<TankBatch>;
+}
+
 @Injectable()
 export class TankBatchService {
+  constructor(
+    @Inject(UNIT_RATION_RECALCULATOR)
+    private readonly rationRecalculator: UnitRationRecalculator,
+  ) {}
+
+  /**
+   * The ONLY way to change a unit's stock.
+   *
+   * Runs `work` with a {@link StockChange} handle, then — still inside the
+   * caller's transaction — reprices today's remaining meals for every unit that
+   * handle touched:
+   *
+   *  - EXACTLY ONCE per unit, no matter how many deltas landed on it (a caller
+   *    that legitimately batches several deltas, e.g. a grading that moves two
+   *    batches out of one tank, still produces one recalculation);
+   *  - with the ACCUMULATED signed biomass delta, which is what moves the day's
+   *    ration basis (see `ration-basis.ts`);
+   *  - in ascending unitId order, so two transactions touching the same pair of
+   *    units (a transfer and its mirror) can never take the day-plan locks in
+   *    opposite orders;
+   *  - AFTER every delta is written, so the recalculation reads settled stock;
+   *  - only on success — a throwing `work` rolls the transaction back and there
+   *    is nothing to reprice.
+   *
+   * Lock order is the canonical one (K-1): the caller already holds Batch →
+   * TankBatch; the recalculation then takes DayPlan → Meals → Assignment.
+   */
+  async applyStockChange<T>(
+    manager: EntityManager,
+    tenantId: string,
+    reason: StockChangeReason,
+    work: (stock: StockChange) => Promise<T>,
+  ): Promise<T> {
+    const touchedUnits = new Map<string, number>();
+    const stock: StockChange = {
+      applyDelta: async (tankId, delta, tankMeta) => {
+        const saved = await this.applyBatchDelta(manager, tenantId, tankId, delta, tankMeta);
+        touchedUnits.set(tankId, (touchedUnits.get(tankId) ?? 0) + delta.biomassDelta);
+        return saved;
+      },
+    };
+
+    const result = await work(stock);
+
+    const settlements = [...touchedUnits.entries()].sort(([left], [right]) =>
+      left.localeCompare(right),
+    );
+    for (const [unitId, stockBiomassDeltaKg] of settlements) {
+      await this.rationRecalculator.recalcAfterStockChange(
+        manager,
+        tenantId,
+        unitId,
+        reason,
+        stockBiomassDeltaKg,
+      );
+    }
+    return result;
+  }
+
   /**
    * Apply a signed per-batch delta to a tank's composition and persist it,
    * re-deriving every aggregate from `batchDetails[]`. Returns the saved row.
+   *
+   * PRIVATE ON PURPOSE — this is the writer that must never run without the
+   * ration recalculation that follows it. Reach it through
+   * {@link applyStockChange}; re-widening it (or reaching it from a second file)
+   * fails `__tests__/services/tank-batch.service.spec.ts`.
    *
    * The caller MUST run this inside the tenant transaction (runInTenantTransaction)
    * and SHOULD pre-lock the TankBatch row (pessimistic_write) — this method also
    * locks defensively when it loads the row.
    */
-  async applyBatchDelta(
+  private async applyBatchDelta(
     manager: EntityManager,
     tenantId: string,
     tankId: string,

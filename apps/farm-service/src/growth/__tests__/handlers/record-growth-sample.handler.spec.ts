@@ -422,7 +422,7 @@ describe('RecordGrowthSampleHandler — the weighing reaches the TANK (Faz 0.1)'
       expect.anything(),
       TENANT_UUID,
       UNIT,
-      'growth_sample',
+      { reason: 'growth_sample' },
     );
   });
 

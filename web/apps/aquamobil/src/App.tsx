@@ -111,6 +111,15 @@ const UnitsPage = lazy(() =>
 );
 const ScanPage = lazy(() => import('./pages/scan/ScanPage').then((m) => ({ default: m.ScanPage })));
 
+// The VFD (drive) surface — feeders, pumps and blowers. Reached from Units and
+// from a unit's own detail; the detail screen is where a drive is commanded.
+const DrivesPage = lazy(() =>
+  import('./pages/drives/DrivesPage').then((m) => ({ default: m.DrivesPage })),
+);
+const DriveDetailPage = lazy(() =>
+  import('./pages/drives/DriveDetailPage').then((m) => ({ default: m.DriveDetailPage })),
+);
+
 // The tablet control board's three views. Lazy like every other destination: a
 // phone never loads these chunks, because AppShell only routes to `/board/*`
 // above the board threshold (src/hooks/useViewport.ts).
@@ -275,6 +284,20 @@ export function App(): ReactElement {
                           union of the log features, since a resolved unit whose
                           every action is denied is a dead end. */}
                         <Route path="/units" element={<UnitsPage />} />
+                        {/* The drive surface is UNGATED at the route for the
+                          same reason /units is, and the reason is the server's:
+                          the VFD read queries on the sensor resolver carry no
+                          @Roles, so the drive inventory is a baseline field
+                          capability. The COMMANDS are role-floored
+                          (@Roles(TENANT_ADMIN, MODULE_MANAGER)), and that floor
+                          is enforced on the detail screen where the buttons are
+                          — through the same role-rank SSoT the harvest gate
+                          uses, so the client never offers a button the server
+                          will reject. There is no mobile feature FLAG for
+                          drives: allowedFeatures is a server-owned set and this
+                          client cannot invent a member of it. */}
+                        <Route path="/drives" element={<DrivesPage />} />
+                        <Route path="/drives/:vfdDeviceId" element={<DriveDetailPage />} />
                         {/* The tablet control board. Ungated for the same reason
                           /units is: reading unit, alarm and task state is the
                           baseline field capability, and each pane inside it

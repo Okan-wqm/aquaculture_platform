@@ -8608,3 +8608,17 @@ Severity: HIGH. Discovered 2026-08-07.
 **BREAKING CHANGE:** `FeederCalibrationsSavedEvent.feedSizeMm: number[]` becomes `feedIds: string[]`; the `feederCalibrations` query is replaced by `feederSetup`.
 
 **Not done:** `web/shared-ui/src/generated/graphql-types.ts` is stale until the next codegen run against a composed supergraph; nothing imports the stale symbols. `FeederDoseDirectiveService` has no production caller yet — issuing the command is the next phase.
+
+## ORPHAN-MEDIUM-608 — the mobile client had no VFD documents, and the finding that said so had it backwards — RESOLVED (this PR)
+
+Severity: MEDIUM. Discovered 2026-08-07.
+
+**Problem:** the string `vfd` did not appear anywhere in `web/apps/aquamobil/src/`. Two in-code notes stated that no feeder query existed, citing ORPHAN-MEDIUM-575. That premise was wrong: `apps/sensor-service/src/vfd/` carries a full surface — devices, readings, commands, eight brands, eight protocols. Only the client lacked documents for it.
+
+**Fix:** the client's first VFD documents, plus a fleet index, a drive detail screen, a unit card and the board's drive strip. Nothing on the server changed.
+
+An actuation command can no longer be enqueued for offline replay, and the ban is at the type level rather than by convention: adding a command to `OperationType` makes `Extract<OperationType, ActuationCommandRootField>` non-empty and the module stops compiling. Proven by deliberately adding one and watching the build go red. A second gate scans the registry's documents for the root fields directly, so a command smuggled in under an innocent operation name is caught too. A queued auger command spins a machine nobody is watching.
+
+**Honesty preserved throughout:** drive state is not cached for offline, because a cached "Running" is a claim about a turning shaft; an unobserved drive renders "State unknown" rather than "Stopped"; an untested one renders "Never tested" rather than "Not reachable".
+
+**Not shown, because no query backs it:** drive percentage (`speedReference` is declared `%` by ABB, `Hz` by Danfoss and Rockwell, `RPM` by Siemens, and the wire carries no unit — so output frequency in Hz is shown instead, which all eight brand configs agree on); hopper contents (only silo capacity is stored, and it is labelled as capacity); fault meaning (the code is brand-specific and this client holds no fault tables, so it prints the code and names the manual); run state on the fleet index, because `vfdDevices` resolves to a projection without it.

@@ -100,29 +100,39 @@ export class DeleteHarvestRecordHandler implements ICommandHandler<DeleteHarvest
       await queryRunner.manager.save(Batch, batch);
 
       // Reverse the tank batch changes
-      if (harvestRecord.tankId) {
+      const reversalTankId = harvestRecord.tankId;
+      if (reversalTankId) {
         const tank = await queryRunner.manager.findOne(Tank, {
-          where: { id: harvestRecord.tankId, tenantId },
+          where: { id: reversalTankId, tenantId },
         });
 
         // Reverse the harvest decrement through the single SSoT writer so
         // batchDetails[] (the per-batch truth the web + mobile read models
         // render) is restored in lock-step with the aggregates — never by hand.
         // A positive delta re-adds the harvested fish; if the tank-batch was
-        // emptied by the harvest, applyBatchDelta re-creates it. Mirrors the
-        // forward path (one writer, no drift).
+        // emptied by the harvest, the writer re-creates it. Mirrors the forward
+        // path (one writer, no drift).
+        //
+        // Routing it through the stock scope also gives the reversal the day-plan
+        // recalculation it NEVER had: cancelling a harvest puts fish back, and
+        // the unit's remaining meals must feed the restored stock. Nothing here
+        // had to remember that — the writer cannot be reached without it.
         const biomassKg = Number(harvestRecord.totalBiomass);
-        await this.tankBatchService.applyBatchDelta(
+        await this.tankBatchService.applyStockChange(
           queryRunner.manager,
           tenantId,
-          harvestRecord.tankId,
-          {
-            batchId: harvestRecord.batchId,
-            batchNumber: batch.batchNumber,
-            quantityDelta: harvestRecord.quantityHarvested,
-            biomassDelta: biomassKg,
-          },
-          { volumeM3: Number(tank?.waterVolume || tank?.volume) || 0 },
+          'harvest_reversal',
+          (stock) =>
+            stock.applyDelta(
+              reversalTankId,
+              {
+                batchId: harvestRecord.batchId,
+                batchNumber: batch.batchNumber,
+                quantityDelta: harvestRecord.quantityHarvested,
+                biomassDelta: biomassKg,
+              },
+              { volumeM3: Number(tank?.waterVolume || tank?.volume) || 0 },
+            ),
         );
 
         // Reverse tank biomass. currentCount is derived + written by
@@ -140,7 +150,7 @@ export class DeleteHarvestRecordHandler implements ICommandHandler<DeleteHarvest
         await this.farmStockProjection.refreshContainers(
           queryRunner.manager,
           tenantId,
-          [harvestRecord.tankId],
+          [reversalTankId],
         );
       }
 

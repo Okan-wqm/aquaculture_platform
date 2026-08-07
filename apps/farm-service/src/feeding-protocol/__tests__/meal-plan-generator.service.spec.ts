@@ -13,6 +13,7 @@ import {
   type ComputeDayPlanInput,
 } from '../services/meal-plan-generator.service';
 import { ProtocolRateService, derivedBandWeightG } from '../services/protocol-rate.service';
+import { FeedTypeTransitionService } from '../services/feed-transition.service';
 import { FeedingDayPlanStatus } from '../entities/feeding-day-plan.entity';
 import {
   FcrResolvedSource,
@@ -65,7 +66,12 @@ const PROTOCOL = {
 const TEMP_NONE: EffectiveTemperature = { celsius: null, source: 'none' };
 const TEMP_COLD: EffectiveTemperature = { celsius: 8, source: 'sensor', sensorId: 's1' };
 
-const service = new MealPlanGeneratorService(new ProtocolRateService());
+const rateService = new ProtocolRateService();
+const outboxDouble = { enqueue: jest.fn().mockResolvedValue(undefined) } as never;
+const service = new MealPlanGeneratorService(
+  rateService,
+  new FeedTypeTransitionService(rateService, outboxDouble),
+);
 
 const baseInput = (): ComputeDayPlanInput => ({
   assignment: { overrides: {}, suspensions: [], currentFeedId: undefined },

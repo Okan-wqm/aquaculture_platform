@@ -74,6 +74,11 @@ const MUST_BE_REACHABLE: Array<{ path: string; loses: string }> = [
   { path: '/sync', loses: 'the offline queue contents and manual sync' },
   { path: '/scan', loses: 'resolving a unit by its QR tag' },
   { path: '/units', loses: 'the unit list' },
+  {
+    path: '/drives',
+    loses:
+      'the drive list — every feeder, pump and blower, their run state, their faults, and the only place a drive can be started or stopped',
+  },
   { path: '/tasks', loses: 'the full task list beyond the five shown on Today' },
   { path: '/storage', loses: 'warehouse stock operations' },
   { path: '/attendance', loses: 'clocking in and out' },

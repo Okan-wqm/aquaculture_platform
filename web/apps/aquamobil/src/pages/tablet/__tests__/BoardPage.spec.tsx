@@ -1,9 +1,9 @@
 /**
  * The board grid is a skeleton the pane agents fill, so what is worth pinning is
- * the contract between them: three labelled regions, a selection that lives in
- * the URL (so choosing a unit fills the right column instead of navigating away
- * from the board), and the footer line that tells a worker why this screen has
- * no log buttons on it.
+ * the contract between them: three labelled regions plus the full-width drives
+ * strip beneath them, a selection that lives in the URL (so choosing a unit fills
+ * the right column instead of navigating away from the board), and the footer
+ * line that tells a worker why this screen has no log or command buttons on it.
  */
 import { render, screen, cleanup, fireEvent, within } from '@testing-library/react';
 import { type ReactElement } from 'react';
@@ -34,9 +34,16 @@ vi.mock('@/pages/tablet/panes/UnitGridPane', () => ({
 vi.mock('@/pages/tablet/panes/UnitInspectorPane', () => ({
   UnitInspectorPane: (): ReactElement => <span data-testid="unit-inspector-pane" />,
 }));
+// The drives strip owns two queries of its own and is pinned in
+// src/pages/tablet/panes/__tests__/DrivesPane.spec.tsx. BoardPage's side of the
+// contract is only that the strip is mounted at all — which is exactly what was
+// lost once before, when a header rewrite silently retired two features.
+vi.mock('@/pages/tablet/panes/DrivesPane', () => ({
+  DrivesPane: (): ReactElement => <span data-testid="drives-pane" />,
+}));
 
 const FOOTER =
-  'Tap a unit to inspect it. Log entries happen on the handheld, standing at the unit — this board is for watching and planning.';
+  'Tap a unit to inspect it. Log entries and drive commands happen on the handheld, standing at the machine — this board is for watching and planning.';
 
 /** Where the router thinks we are — the proof that selecting is not navigating. */
 function LocationProbe(): ReactElement {
@@ -77,6 +84,14 @@ describe('BoardPage', () => {
 
     const selected = screen.getByRole('region', { name: 'Selected unit' });
     expect(within(selected).getByTestId('unit-inspector-pane')).toBeTruthy();
+  });
+
+  it('mounts the drives strip beneath the columns', () => {
+    // The design's feeders row. It is asserted here rather than assumed because
+    // a strip that quietly stops rendering looks exactly like a site with no
+    // drives — and this board is on a wall so somebody notices machinery.
+    renderBoard();
+    expect(screen.getByTestId('drives-pane')).toBeTruthy();
   });
 
   it('lets the attention pane select a unit without leaving the board', () => {

@@ -36,6 +36,7 @@ import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Equipment } from '../../equipment/entities/equipment.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { EquipmentType } from '../../equipment/entities/equipment-type.entity';
+import { createStockChangeDouble } from '../../batch/__tests__/support/stock-change-double';
 
 // ============================================================================
 // HELPERS
@@ -192,7 +193,6 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       createMockOutboxPublisher(),
       // Gün-içi recalc (P-31) + giriş modu politikası (D-3) — bu race testleri
       // kilit/TOCTOU davranışına odaklı; recalc mock, politika gerçek (saf).
-      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
       new RemovalQuantityPolicyService(),
       { validate: jest.fn() } as never,
       { logWithManager: jest.fn().mockResolvedValue({}) } as never,
@@ -200,7 +200,7 @@ describe('Race Condition Protection: RecordMortalityHandler', () => {
       // commands below default to MODULE_MANAGER, so the hierarchy bypass keeps
       // these lock/TOCTOU race tests focused on concurrency, not site authz).
       new SiteAuthorizationService(),
-      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
+      createStockChangeDouble().tankBatchService,
       new MortalityCullPolicyService(),
       { refreshContainers: jest.fn().mockResolvedValue(undefined) } as never,
       new MobileCommandReceiptService(),
@@ -413,7 +413,6 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
       createMockOutboxPublisher(),
       // Gün-içi recalc (P-31) + giriş modu politikası (D-3) — bu race testleri
       // kilit/TOCTOU davranışına odaklı; recalc mock, politika gerçek (saf).
-      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
       new RemovalQuantityPolicyService(),
       { validate: jest.fn() } as never,
       { logWithManager: jest.fn().mockResolvedValue({}) } as never,
@@ -421,7 +420,7 @@ describe('Race Condition Protection: Cross-handler concurrent safety', () => {
       // commands below default to MODULE_MANAGER, so the hierarchy bypass keeps
       // these lock/TOCTOU race tests focused on concurrency, not site authz).
       new SiteAuthorizationService(),
-      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
+      createStockChangeDouble().tankBatchService,
       new MortalityCullPolicyService(),
       { refreshContainers: jest.fn().mockResolvedValue(undefined) } as never,
       new MobileCommandReceiptService(),

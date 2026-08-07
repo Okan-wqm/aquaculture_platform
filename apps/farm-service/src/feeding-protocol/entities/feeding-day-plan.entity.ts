@@ -84,12 +84,27 @@ export interface DayPlanSnapshot {
 /** Gün içi yeniden hesap gerekçe kaydı — sessiz recalc yok. */
 export interface RecalcLogEntry {
   at: string; // ISO timestamp
+  /**
+   * İlk YEDİ değer STOK gerekçesidir ve `StockChangeReason` ile BİREBİRDİR:
+   * ünitenin balık mevcudu değişti. Hepsi `TankBatchService.applyStockChange`
+   * üzerinden gelir ve tayın tabanını taşıdıkları biyokütle kadar kaydırır. Bu
+   * kümeden bir değer eksik kalırsa `DayPlanRecalcService` DERLENMEZ — denetim
+   * izi yazma yollarının gerisinde kalamaz.
+   */
   reason:
+    | 'allocation'
     | 'mortality'
     | 'harvest'
+    | 'harvest_reversal'
     | 'transfer'
-    | 'grading'
     | 'cull'
+    | 'count_reconcile'
+    /**
+     * Boy ayrımı, `TransferBatchCommand`'ları compose ederek yürür; bu yüzden
+     * yazılan gerekçe 'transfer'dır. Etiket, bu compose'dan ÖNCE üretilmiş log
+     * satırları için korunur.
+     */
+    | 'grading'
     | 'temperature'
     | 'protocol_change'
     | 'assignment_change'
@@ -109,6 +124,12 @@ export interface RecalcLogEntry {
   /** Yeniden hesap sonrası kalan öğünlerin toplam planlanan kg'ı. */
   remainingPlannedKg: number;
   biomassKg?: number;
+  /**
+   * Tayının fiyatlandığı taban (kg) — canlı biyokütleden AYRI tutulur, çünkü
+   * FCR projeksiyonunun gün içinde eklediği büyüme biyokütleyi büyütür ama
+   * tabanı büyütmez. İkisinin farkı, günün kendi yeminin ürettiği büyümedir.
+   */
+  rationBasisKg?: number;
   note?: string;
 }
 
@@ -177,6 +198,24 @@ export class FeedingDayPlan {
   @Field(() => Float)
   @Column({ type: 'numeric', precision: 12, scale: 3 })
   plannedTotalKg!: number;
+
+  /**
+   * Günlük tayının fiyatlandığı biyokütle (kg) — üretim anında gün başındaki
+   * `snapshot.biomassKg`, sonrasında YALNIZ gerçek stok hareketleri ve tartım
+   * ile değişir.
+   *
+   * WHY ayrı bir kolon: canlı `TankBatch.totalBiomassKg`'den fiyatlamak, günün
+   * kendi yeminin ürettiği FCR büyümesini günün tayınına geri besliyordu (sabah
+   * öğünü öğleyi, öğle akşamı büyütüyordu). Taban ile canlı biyokütlenin FARKI
+   * artık okunabilir bir sayıdır: o fark, o gün yenen yemin ürettiği büyümedir.
+   *
+   * Bu kolondan önce üretilmiş planlar `null` taşır ve üretim snapshot'larına
+   * demirlenir (`dayPlanRationBasisKg`) — yazarın bugün kalıcılaştırdığı DEĞERİN
+   * AYNISI; migration mevcut satırları aynı ifadeyle doldurur.
+   */
+  @Field(() => Float, { nullable: true })
+  @Column({ type: 'numeric', precision: 12, scale: 3, nullable: true })
+  rationBasisKg?: number;
 
   /** Plan-dışı manuel yemler (D-7) — gün-sonu varyansına dahil. */
   @Field(() => Float)

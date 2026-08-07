@@ -404,7 +404,9 @@ describe('CreateFeedingRecordHandler — D-7 plan-dışı yem bağlama', () => {
     expect(applyGrowth.mock.calls[0]![4]).toBe(1.25);
 
     // (3) Kalan öğünler 'unplanned_feed' gerekçesiyle yeniden fiyatlandı.
-    expect(recalcForUnit).toHaveBeenCalledWith(expect.anything(), TENANT, TANK, 'unplanned_feed');
+    expect(recalcForUnit).toHaveBeenCalledWith(expect.anything(), TENANT, TANK, {
+      reason: 'unplanned_feed',
+    });
 
     // Kayıt plana bağlandı (mealId YOK) + site kapsamı plan denormundan (D-9).
     const record = managerCreate.mock.calls.find(

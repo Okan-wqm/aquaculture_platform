@@ -15,10 +15,19 @@
  * every query and socket twice and leave the hidden shell in the accessibility
  * tree. The choice is therefore made once, in JS, in src/layouts/AppShell.tsx.
  *
- * WHAT IS DELIBERATELY ABSENT, because the mobile client has no query for it and
+ * THE FEEDERS STRIP NOW EXISTS. This header used to record it as impossible,
+ * citing ORPHAN-MEDIUM-575 — and that finding's premise was wrong. The VFD
+ * surface is rich in apps/sensor-service/src/vfd (devices, bindings, readings,
+ * commands); what was missing was any DOCUMENT on this client, so nothing on the
+ * server had to change. `src/pages/tablet/panes/DrivesPane.tsx` draws the strip
+ * beneath the columns from `vfdStats` + `vfdDevicesByTank`.
+ *
+ * WHAT IS STILL ABSENT, because the mobile client has no query for it and
  * inventing farm numbers is the worst thing this app can do:
- *   • the design's FEEDERS strip (dose, hopper level, drive %, run/stop) —
- *     no feeder query exists on this client (ORPHAN-MEDIUM-575);
+ *   • the drive PERCENTAGE and the hopper LEVEL the design's feeders strip
+ *     shows — no brand-neutral percentage field exists (the candidates disagree
+ *     between %, Hz and RPM across brands) and `feederSetup` reports the silo's
+ *     CAPACITY, never its contents. See the header of src/utils/vfd-drive.ts;
  *   • the SITE + SYSTEM scope picker — there is no site-name query and no
  *     site filter in the API this client speaks, so the scope line below is a
  *     READOUT of what is actually loaded, not a control that pretends to

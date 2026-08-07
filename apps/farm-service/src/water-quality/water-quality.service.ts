@@ -174,7 +174,8 @@ export class WaterQualityService {
     // çarpanı kalan öğünlere hemen yansır, yarını beklemez.
     await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       await queryRunner.manager.save(measurement);
-      await this.dayPlanRecalc.recalcForUnit(queryRunner.manager, tenantId, tankId, 'temperature', {
+      await this.dayPlanRecalc.recalcForUnit(queryRunner.manager, tenantId, tankId, {
+        reason: 'temperature',
         newTemperatureC: celsius,
       });
     });
@@ -376,13 +377,10 @@ export class WaterQualityService {
       // P-31: ölçüm sıcaklık taşıyorsa ünitenin bugünkü beslenmemiş öğünleri
       // aynı transaction'da yeni çarpanla yeniden fiyatlanır.
       if (saved.tankId && typeof saved.temperature === 'number') {
-        await this.dayPlanRecalc.recalcForUnit(
-          queryRunner.manager,
-          tenantId,
-          saved.tankId,
-          'temperature',
-          { newTemperatureC: Number(saved.temperature) },
-        );
+        await this.dayPlanRecalc.recalcForUnit(queryRunner.manager, tenantId, saved.tankId, {
+          reason: 'temperature',
+          newTemperatureC: Number(saved.temperature),
+        });
       }
 
       await queryRunner.commitTransaction();

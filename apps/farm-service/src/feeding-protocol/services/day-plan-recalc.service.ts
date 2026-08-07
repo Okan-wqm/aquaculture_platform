@@ -16,11 +16,16 @@
  * kapanır, atama otomatik `paused` + `FeedingProtocolAssignmentPaused`
  * (unit_emptied) event'i — 06:00'da boş üniteye plan üretilmez.
  *
- * Band geçişi: autoTransition + `transitionBufferG` HİSTEREZİSİ (sınırda
- * ileri-geri salınım imkânsız): yukarı geçiş yeni bandın min'ini buffer kadar
- * AŞMAYI, aşağı geçiş yeni bandın max'inin buffer kadar ALTINI şart koşar.
- * Geçişte assignment currentFeed/band güncellenir, kalan öğünlerin feedId'si
- * değişir, `FeedTypeTransitioned` outbox'a yazılır (P-12).
+ * Band geçişi: `FeedTypeTransitionService` — 06:00 üreticisiyle PAYLAŞILAN tek
+ * mekanizma (histerezis, atama durumu yazımı ve `FeedTypeTransitioned` orada
+ * yaşar); geçişte kalan öğünlerin feedId'si burada güncellenir.
+ *
+ * RATION BASIS (P-31'in kapanmamış yarısı): günlük tayın ARTIK canlı
+ * biyokütleden değil, planın `rationBasisKg`'sinden fiyatlanır — gün başındaki
+ * biyokütle, yalnız GERÇEK stok hareketleriyle (stoklama/ölüm/cull/transfer/
+ * hasat/mutabakat) ve TARTIMLA değişir. FCR projeksiyonunun ürettiği büyümenin
+ * basis'e yolu YOKTUR; `dailyRationKg` çıplak `number` kabul etmez. Böylece
+ * sabah öğünü öğle öğününü, öğle akşamı büyütemez (bkz. `ration-basis.ts`).
  *
  * @module FeedingProtocol/Services
  */
@@ -30,7 +35,6 @@ import { OutboxPublisher } from '@platform/outbox';
 import {
   createBaseEvent,
   FeedingProtocolAssignmentPausedEvent,
-  FeedTypeTransitionedEvent,
 } from '@platform/event-contracts';
 
 import { FeedingProtocolV2 } from '../entities/feeding-protocol-v2.entity';
@@ -46,30 +50,84 @@ import {
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import {
-  ProtocolRateService,
-  ResolvedBand,
-  tankBandWeightG,
-  type BandWeightG,
-} from './protocol-rate.service';
+  StockChangeReason,
+  UnitRationRecalculator,
+} from '../../batch/services/unit-ration-recalculator.port';
+import { ProtocolRateService, tankBandWeightG } from './protocol-rate.service';
+import { FeedTypeTransitionService } from './feed-transition.service';
 import { repriceRemaining } from './meal-schedule.util';
+import {
+  dailyRationKg,
+  dayPlanRationBasisKg,
+  measuredRationBasisKg,
+  shiftRationBasisKg,
+  type RationBasisKg,
+} from './ration-basis';
 
 export type RecalcReason = RecalcLogEntry['reason'];
+
+/**
+ * WHY a recalculation is asked for — and, INSEPARABLY, what it does to the day's
+ * ration basis. The two used to be independent (`reason` was a label, the basis
+ * was always "whatever biomass currently says"), which is how the day's own feed
+ * ended up re-pricing the day.
+ *
+ * The union makes the pairing structural:
+ *  - a STOCK reason cannot be raised without the signed biomass that moved (the
+ *    only thing allowed to shift the basis) — omitting it does not compile;
+ *  - a weighing re-baselines the basis onto the measured biomass;
+ *  - every other reason (growth application, temperature, protocol/assignment
+ *    edits, unplanned feed, manual regenerate) reprices at the SAME basis: it
+ *    can change the rate, never the biomass the rate applies to.
+ */
+export type RecalcTrigger =
+  | { reason: StockChangeReason; stockBiomassDeltaKg: number }
+  | { reason: 'temperature'; newTemperatureC: number | null }
+  | {
+      reason:
+        | 'growth_sample'
+        | 'meal_growth'
+        | 'pour_correction'
+        | 'protocol_change'
+        | 'assignment_change'
+        | 'unplanned_feed'
+        | 'manual_regenerate'
+        | 'grading';
+    };
 
 export interface RecalcResult {
   dayPlanId: string;
   outcome: 'repriced' | 'cancelled_empty_unit' | 'no_active_plan';
   transitioned: boolean;
   remainingPlannedKg: number;
+  /** The biomass the day was priced from after this pass (audit + tests). */
+  rationBasisKg: number;
 }
 
 @Injectable()
-export class DayPlanRecalcService {
+export class DayPlanRecalcService implements UnitRationRecalculator {
   private readonly logger = new Logger(DayPlanRecalcService.name);
 
   constructor(
     private readonly rateService: ProtocolRateService,
+    private readonly transitionService: FeedTypeTransitionService,
     private readonly outboxPublisher: OutboxPublisher,
   ) {}
+
+  /**
+   * `UnitRationRecalculator` port implementation — the settlement step of
+   * `TankBatchService.applyStockChange`. Every stock path in the service reaches
+   * the recalculation through here, so none of them can forget it.
+   */
+  async recalcAfterStockChange(
+    manager: EntityManager,
+    tenantId: string,
+    unitId: string,
+    reason: StockChangeReason,
+    stockBiomassDeltaKg: number,
+  ): Promise<void> {
+    await this.recalcForUnit(manager, tenantId, unitId, { reason, stockBiomassDeltaKg });
+  }
 
   /**
    * Ünitenin AKTİF (planned/in_progress) en güncel planını yeniden hesaplar.
@@ -79,9 +137,9 @@ export class DayPlanRecalcService {
     manager: EntityManager,
     tenantId: string,
     unitId: string,
-    reason: RecalcReason,
-    opts?: { newTemperatureC?: number | null },
+    trigger: RecalcTrigger,
   ): Promise<RecalcResult | null> {
+    const reason: RecalcReason = trigger.reason;
     const dayPlan = await manager
       .createQueryBuilder(FeedingDayPlan, 'plan')
       .setLock('pessimistic_write')
@@ -111,6 +169,10 @@ export class DayPlanRecalcService {
       tankBatch ?? { avgWeightG: 0, totalQuantity: 0, totalBiomassKg: 0 },
     );
 
+    // Tayın tabanı: gün başındaki biyokütle + BU tetiklemenin taşıdığı gerçek
+    // stok hareketi (ya da tartım re-baseline'ı). FCR büyümesi buraya giremez.
+    const rationBasis = this.nextRationBasis(dayPlan, trigger, biomassKg);
+
     // Boş ünite: kalan öğünler iptal, plan kapanır, atama otomatik pause.
     if (fishCount <= 0 || biomassKg <= 0) {
       for (const meal of remainingMeals) {
@@ -118,7 +180,8 @@ export class DayPlanRecalcService {
         await manager.save(meal);
       }
       dayPlan.status = FeedingDayPlanStatus.CANCELLED;
-      this.appendRecalcLog(dayPlan, reason, 0, biomassKg, 'unit emptied');
+      dayPlan.rationBasisKg = 0;
+      this.appendRecalcLog(dayPlan, reason, 0, biomassKg, 0, 'unit emptied');
       await manager.save(dayPlan);
       await this.pauseAssignment(manager, tenantId, dayPlan.assignmentId, unitId);
       return {
@@ -126,6 +189,7 @@ export class DayPlanRecalcService {
         outcome: 'cancelled_empty_unit',
         transitioned: false,
         remainingPlannedKg: 0,
+        rationBasisKg: 0,
       };
     }
 
@@ -143,58 +207,38 @@ export class DayPlanRecalcService {
       this.logger.warn(
         `Recalc skipped: assignment/protocol missing for day plan ${dayPlan.id} (unit ${unitId}).`,
       );
-      return { dayPlanId: dayPlan.id, outcome: 'no_active_plan', transitioned: false, remainingPlannedKg: 0 };
+      return this.inertResult(dayPlan.id, rationBasis);
     }
 
-    // Band çözümü + histerezisli geçiş kararı.
-    const resolved = this.rateService.bandFor(protocol.bands, avgWeightG);
-    if (!resolved) {
-      return { dayPlanId: dayPlan.id, outcome: 'no_active_plan', transitioned: false, remainingPlannedKg: 0 };
-    }
-    const currentIndex = assignment.currentBandIndex ?? dayPlan.snapshot.bandIndex;
-    const effective = this.applyTransitionHysteresis(
-      resolved,
-      currentIndex,
-      avgWeightG,
+    // Band çözümü + histerezisli geçiş kararı — 06:00 üreticisiyle PAYLAŞILAN
+    // tek mekanizma (tek histerezis kuralı, tek atama-durumu yazarı, tek event).
+    const decision = this.transitionService.decide({
       protocol,
-    );
-    let transitioned = false;
-    if (
-      protocol.settings.autoTransition &&
-      effective.index !== currentIndex &&
-      effective.band.feedId !== (assignment.currentFeedId ?? dayPlan.snapshot.feed.id)
-    ) {
-      transitioned = true;
-      const fromFeedId = assignment.currentFeedId ?? dayPlan.snapshot.feed.id;
-      assignment.currentFeedId = effective.band.feedId;
-      assignment.currentBandIndex = effective.index;
-      assignment.lastTransitionAt = new Date();
-      assignment.totalTransitions = (assignment.totalTransitions ?? 0) + 1;
-      await manager.save(assignment);
-      const event: FeedTypeTransitionedEvent = {
-        ...createBaseEvent<FeedTypeTransitionedEvent>('FeedTypeTransitioned', tenantId, {
-          aggregateId: unitId,
-          aggregateType: 'FeedingUnit',
-        }),
+      avgWeightG,
+      state: {
+        currentBandIndex: assignment.currentBandIndex ?? dayPlan.snapshot.bandIndex,
+        currentFeedId: assignment.currentFeedId ?? dayPlan.snapshot.feed.id,
+      },
+    });
+    if (!decision) {
+      return this.inertResult(dayPlan.id, rationBasis);
+    }
+    if (decision.stateChange) {
+      await this.transitionService.apply(manager, tenantId, assignment, {
         unitId,
         unitCode: dayPlan.unitCode,
-        assignmentId: assignment.id,
-        fromFeedId,
-        toFeedId: effective.band.feedId,
-        toFeedCode: effective.band.feedCode,
-        bandIndex: effective.index,
         avgWeightG,
+        change: decision.stateChange,
         automatic: true,
-      };
-      await this.outboxPublisher.enqueue(event, manager);
+      });
     }
+    const transitioned = decision.stateChange?.feedChanged ?? false;
+    const effective = { band: decision.band, index: decision.index };
 
     // Yeni günlük toplam (K-18 zinciri) → kalan öğünler KENDİ yüzdeleriyle
     // yeniden fiyatlanır; sıcaklık gerekçesinde yeni okuma kullanılır.
     const temperatureC =
-      reason === 'temperature' && opts?.newTemperatureC !== undefined
-        ? opts.newTemperatureC
-        : dayPlan.snapshot.waterTempC;
+      trigger.reason === 'temperature' ? trigger.newTemperatureC : dayPlan.snapshot.waterTempC;
     const tempMultiplier = this.rateService.temperatureMultiplier(
       protocol.temperatureAdjustments,
       temperatureC,
@@ -206,7 +250,10 @@ export class DayPlanRecalcService {
       minRatePercent: protocol.settings.minFeedingRatePercent,
       maxRatePercent: protocol.settings.maxFeedingRatePercent,
     });
-    const newDailyTotalKg = round3((biomassKg * effectiveRate) / 100);
+    // Tayın CANLI biyokütleden değil basis'ten hesaplanır: `dailyRationKg`
+    // çıplak `number` almaz, dolayısıyla "şu anki biyokütleden yeniden fiyatla"
+    // yazılamaz — gün-içi bileşik büyüme derlenmez.
+    const newDailyTotalKg = dailyRationKg(rationBasis, effectiveRate);
     const newPlanned = repriceRemaining(remainingMeals, newDailyTotalKg);
 
     let remainingPlannedKg = 0;
@@ -227,33 +274,63 @@ export class DayPlanRecalcService {
       .getMany();
     const settledPlannedKg = settledMeals.reduce((acc, meal) => acc + Number(meal.plannedKg), 0);
     dayPlan.plannedTotalKg = round3(settledPlannedKg + remainingPlannedKg);
-    this.appendRecalcLog(dayPlan, reason, remainingPlannedKg, biomassKg);
+    dayPlan.rationBasisKg = rationBasis;
+    this.appendRecalcLog(dayPlan, reason, remainingPlannedKg, biomassKg, rationBasis);
     await manager.save(dayPlan);
 
-    return { dayPlanId: dayPlan.id, outcome: 'repriced', transitioned, remainingPlannedKg };
+    return {
+      dayPlanId: dayPlan.id,
+      outcome: 'repriced',
+      transitioned,
+      remainingPlannedKg,
+      rationBasisKg: rationBasis,
+    };
   }
 
   /**
-   * Histerezis (transitionBufferG): yukarı geçiş yeni bandın minWeight'ini
-   * buffer kadar aşmayı, aşağı geçiş yeni bandın maxWeight'inin buffer kadar
-   * altını şart koşar; şart sağlanmazsa MEVCUT band korunur.
+   * The day's ration basis after this trigger.
+   *
+   * The switch is the ONE place a reason is classified, and it is exhaustive by
+   * construction: a new stock reason must be added to `StockChangeReason`, which
+   * makes the delta mandatory at every call site; anything else lands in the
+   * default and reprices at the SAME basis. There is deliberately no case that
+   * reads the live biomass for a growth application — that read is what made the
+   * morning meal enlarge the noon meal.
    */
-  private applyTransitionHysteresis(
-    resolved: ResolvedBand,
-    currentIndex: number,
-    avgWeightG: BandWeightG,
-    protocol: Pick<FeedingProtocolV2, 'bands' | 'settings'>,
-  ): ResolvedBand {
-    if (resolved.index === currentIndex) return resolved;
-    const buffer = protocol.settings.transitionBufferG ?? 0;
-    const currentBand = protocol.bands[currentIndex];
-    if (!currentBand) return resolved;
-    if (resolved.index > currentIndex) {
-      if (avgWeightG >= resolved.band.minWeightG + buffer) return resolved;
-    } else if (avgWeightG <= resolved.band.maxWeightG - buffer) {
-      return resolved;
+  private nextRationBasis(
+    dayPlan: FeedingDayPlan,
+    trigger: RecalcTrigger,
+    currentBiomassKg: number,
+  ): RationBasisKg {
+    const current = dayPlanRationBasisKg(dayPlan);
+    switch (trigger.reason) {
+      case 'allocation':
+      case 'mortality':
+      case 'cull':
+      case 'transfer':
+      case 'harvest':
+      case 'harvest_reversal':
+      case 'count_reconcile':
+        // Fish physically entered or left: the basis moves with the biomass they
+        // carried, not with whatever the column happens to say now.
+        return shiftRationBasisKg(current, trigger.stockBiomassDeltaKg);
+      case 'growth_sample':
+        // A weighing is evidence; it supersedes the model outright (P0-1).
+        return measuredRationBasisKg(currentBiomassKg);
+      default:
+        return current;
     }
-    return { band: currentBand, index: currentIndex };
+  }
+
+  /** A plan that cannot be repriced (no assignment/protocol/band) keeps its basis. */
+  private inertResult(dayPlanId: string, rationBasis: RationBasisKg): RecalcResult {
+    return {
+      dayPlanId,
+      outcome: 'no_active_plan',
+      transitioned: false,
+      remainingPlannedKg: 0,
+      rationBasisKg: rationBasis,
+    };
   }
 
   private appendRecalcLog(
@@ -261,6 +338,7 @@ export class DayPlanRecalcService {
     reason: RecalcReason,
     remainingPlannedKg: number,
     biomassKg: number,
+    rationBasisKg: number,
     note?: string,
   ): void {
     dayPlan.recalcLog = [
@@ -270,6 +348,7 @@ export class DayPlanRecalcService {
         reason,
         remainingPlannedKg: round3(remainingPlannedKg),
         biomassKg: round3(biomassKg),
+        rationBasisKg: round3(rationBasisKg),
         note,
       },
     ];

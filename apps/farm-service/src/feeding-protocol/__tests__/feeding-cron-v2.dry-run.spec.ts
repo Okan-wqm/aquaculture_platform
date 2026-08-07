@@ -27,6 +27,7 @@ import { OutboxPublisher } from '@platform/outbox';
 import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.service';
 import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
+import { FeedTypeTransitionService } from '../services/feed-transition.service';
 import { ProtocolRateService } from '../services/protocol-rate.service';
 import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.service';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
@@ -131,7 +132,13 @@ function makeService(fixture: DryRunFixture): {
     return [];
   });
 
-  const generator = new MealPlanGeneratorService(new ProtocolRateService());
+  const rateService = new ProtocolRateService();
+  const generator = new MealPlanGeneratorService(
+    rateService,
+    new FeedTypeTransitionService(rateService, {
+      enqueue: jest.fn().mockResolvedValue(undefined),
+    } as never),
+  );
   const persistDayPlan = jest.spyOn(generator, 'persistDayPlan');
   const enqueue = jest.fn().mockResolvedValue(undefined);
   const getEffectiveTemperaturesForUnits = jest.fn();

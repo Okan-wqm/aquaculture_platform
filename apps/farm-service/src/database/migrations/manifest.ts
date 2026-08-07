@@ -96,6 +96,7 @@ import { CreateFeederAssignments1808900000000 } from './1808900000000-CreateFeed
 import { BindExecutionFeederToEquipment1809000000000 } from './1809000000000-BindExecutionFeederToEquipment';
 import { ReshapeFeederCalibrationForVfd1809100000000 } from './1809100000000-ReshapeFeederCalibrationForVfd';
 import { CreateFeederSiloMassProjection1809200000000 } from './1809200000000-CreateFeederSiloMassProjection';
+import { AddDayPlanRationBasis1809300000000 } from './1809300000000-AddDayPlanRationBasis';
 
 /**
  * Canonical farm-service migration class list.
@@ -189,4 +190,5 @@ export const FARM_MIGRATIONS = [
   BindExecutionFeederToEquipment1809000000000,
   ReshapeFeederCalibrationForVfd1809100000000,
   CreateFeederSiloMassProjection1809200000000,
+  AddDayPlanRationBasis1809300000000,
 ] as const;

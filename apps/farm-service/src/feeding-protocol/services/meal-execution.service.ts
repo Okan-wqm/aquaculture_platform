@@ -285,12 +285,9 @@ export class MealExecutionService {
             expectedFcr,
           );
           // Kalan öğünler yeni biomass'tan — band geçişi histerezisle burada.
-          await this.recalcService.recalcForUnit(
-            manager,
-            params.tenantId,
-            meal.unitId,
-            'meal_growth',
-          );
+          await this.recalcService.recalcForUnit(manager, params.tenantId, meal.unitId, {
+            reason: 'meal_growth',
+          });
         }
 
         // P-21: az-atım eşiği (negatif varyans) — finalize'da, öğün kapsamında.
@@ -483,12 +480,9 @@ export class MealExecutionService {
             growthDelta,
             expectedFcr,
           );
-          await this.recalcService.recalcForUnit(
-            manager,
-            params.tenantId,
-            meal.unitId,
-            'pour_correction',
-          );
+          await this.recalcService.recalcForUnit(manager, params.tenantId, meal.unitId, {
+            reason: 'pour_correction',
+          });
         }
       }
 

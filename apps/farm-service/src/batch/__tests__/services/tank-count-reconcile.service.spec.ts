@@ -2,7 +2,10 @@
  * TankCountReconcileService unit tests — the ledger-based count reconciliation.
  *
  * Proves: dryRun (default) computes the per-tank-batch diff WITHOUT writing;
- * apply routes non-zero corrections through applyBatchDelta (the single writer);
+ * apply routes non-zero corrections through the stock scope (the single writer),
+ * which also reprices the unit's remaining meals — a correction that moves the
+ * count without moving the ration would leave the day feeding a number the
+ * operator just declared wrong;
  * a pre-SSoT row (batchDetails NULL) baselines from totalQuantity instead of 0
  * and gets a zero-delta self-heal that seeds batchDetails (the currentQuantity
  * mirror itself is retired — ORPHAN-HIGH-353); an
@@ -11,8 +14,8 @@
  */
 import { createMockDataSource } from '@aquaculture/testing';
 
-import { TankBatchService } from '../../services/tank-batch.service';
 import { TankCountReconcileService } from '../../services/tank-count-reconcile.service';
+import { createStockChangeDouble } from '../support/stock-change-double';
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const TANK = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -30,12 +33,9 @@ function harness(ledger: MockLedgerRow[], tankBatch: unknown) {
   // The factory mock has no `query`; the reconcile ledger SQL uses it.
   mockManager.query = jest.fn().mockResolvedValue(ledger);
   (mockManager.findOne as jest.Mock).mockResolvedValue(tankBatch);
-  const applyBatchDelta = jest.fn().mockResolvedValue({});
-  const tankBatchService = {
-    applyBatchDelta,
-  } as Partial<TankBatchService> as TankBatchService;
-  const svc = new TankCountReconcileService(mockDataSource, tankBatchService);
-  return { svc, applyBatchDelta };
+  const stockChange = createStockChangeDouble();
+  const svc = new TankCountReconcileService(mockDataSource, stockChange.tankBatchService);
+  return { svc, stockChange };
 }
 
 // Post-SSoT row whose batchDetails drifted from the ledger.
@@ -62,7 +62,7 @@ const PRE_SSOT_NO_DETAILS = {
 
 describe('TankCountReconcileService.reconcile', () => {
   it('dryRun (default) reports the diff and does NOT write', async () => {
-    const { svc, applyBatchDelta } = harness(
+    const { svc, stockChange } = harness(
       [{ tankId: TANK, batchId: BATCH, trueQty: '719', inflowRows: '2' }],
       DRIFTED_TANK_BATCH,
     );
@@ -82,11 +82,11 @@ describe('TankCountReconcileService.reconcile', () => {
         healed: false,
       },
     ]);
-    expect(applyBatchDelta).not.toHaveBeenCalled();
+    expect(stockChange.deltas).toHaveLength(0);
   });
 
-  it('apply (dryRun=false) routes the correction through applyBatchDelta (the single writer)', async () => {
-    const { svc, applyBatchDelta } = harness(
+  it('apply (dryRun=false) routes the correction through the stock scope (single writer + ration settlement)', async () => {
+    const { svc, stockChange } = harness(
       [{ tankId: TANK, batchId: BATCH, trueQty: '719', inflowRows: '2' }],
       DRIFTED_TANK_BATCH,
     );
@@ -94,21 +94,22 @@ describe('TankCountReconcileService.reconcile', () => {
     const rows = await svc.reconcile(TENANT, { dryRun: false });
 
     expect(rows[0]!.applied).toBe(true);
-    expect(applyBatchDelta).toHaveBeenCalledTimes(1);
-    expect(applyBatchDelta).toHaveBeenCalledWith(
-      expect.anything(),
-      TENANT,
-      TANK,
-      expect.objectContaining({
+    expect(stockChange.deltas).toHaveLength(1);
+    expect(stockChange.deltas[0]).toMatchObject({
+      reason: 'count_reconcile',
+      tankId: TANK,
+      delta: {
         batchId: BATCH,
         quantityDelta: -181,
         biomassDelta: (-181 * 50) / 1000,
-      }),
-    );
+      },
+    });
+    // The unit was touched exactly once, so the scope reprices it exactly once.
+    expect(stockChange.touchedUnits()).toEqual([TANK]);
   });
 
   it('pre-SSoT row baselines from totalQuantity (not 0) — no phantom delta', async () => {
-    const { svc, applyBatchDelta } = harness(
+    const { svc, stockChange } = harness(
       [{ tankId: TANK, batchId: BATCH, trueQty: '719', inflowRows: '5' }],
       PRE_SSOT_NO_DETAILS,
     );
@@ -122,11 +123,11 @@ describe('TankCountReconcileService.reconcile', () => {
       ledgerComplete: true,
       healed: false, // dry-run never writes
     });
-    expect(applyBatchDelta).not.toHaveBeenCalled();
+    expect(stockChange.deltas).toHaveLength(0);
   });
 
-  it('apply seeds missing batchDetails at delta 0 via a zero-delta applyBatchDelta', async () => {
-    const { svc, applyBatchDelta } = harness(
+  it('apply seeds missing batchDetails at delta 0 via a zero-delta write', async () => {
+    const { svc, stockChange } = harness(
       [{ tankId: TANK, batchId: BATCH, trueQty: '719', inflowRows: '5' }],
       PRE_SSOT_NO_DETAILS,
     );
@@ -135,17 +136,15 @@ describe('TankCountReconcileService.reconcile', () => {
 
     expect(rows[0]!.healed).toBe(true);
     expect(rows[0]!.applied).toBe(false);
-    expect(applyBatchDelta).toHaveBeenCalledTimes(1);
-    expect(applyBatchDelta).toHaveBeenCalledWith(
-      expect.anything(),
-      TENANT,
-      TANK,
-      expect.objectContaining({ batchId: BATCH, quantityDelta: 0, biomassDelta: 0 }),
-    );
+    expect(stockChange.deltas).toHaveLength(1);
+    expect(stockChange.deltas[0]).toMatchObject({
+      reason: 'count_reconcile',
+      delta: { batchId: BATCH, quantityDelta: 0, biomassDelta: 0 },
+    });
   });
 
   it('fail-closed: an incomplete ledger (negative net) is reported but NEVER applied', async () => {
-    const { svc, applyBatchDelta } = harness(
+    const { svc, stockChange } = harness(
       // Missing initial stocking → net went negative (transfer_out > known inflows).
       [{ tankId: TANK, batchId: BATCH, trueQty: '-902', inflowRows: '4' }],
       { ...DRIFTED_TANK_BATCH, totalQuantity: 98 },
@@ -156,11 +155,11 @@ describe('TankCountReconcileService.reconcile', () => {
     expect(rows[0]!.ledgerComplete).toBe(false);
     expect(rows[0]!.applied).toBe(false);
     expect(rows[0]!.healed).toBe(false);
-    expect(applyBatchDelta).not.toHaveBeenCalled();
+    expect(stockChange.deltas).toHaveLength(0);
   });
 
   it('fail-closed: no inflow rows at all → ledgerComplete=false, never applied', async () => {
-    const { svc, applyBatchDelta } = harness(
+    const { svc, stockChange } = harness(
       [{ tankId: TANK, batchId: BATCH, trueQty: '50', inflowRows: '0' }],
       DRIFTED_TANK_BATCH,
     );
@@ -168,11 +167,11 @@ describe('TankCountReconcileService.reconcile', () => {
     const rows = await svc.reconcile(TENANT, { dryRun: false });
 
     expect(rows[0]!.ledgerComplete).toBe(false);
-    expect(applyBatchDelta).not.toHaveBeenCalled();
+    expect(stockChange.deltas).toHaveLength(0);
   });
 
   it('does NOT write when consistent and already healed (delta 0, details present)', async () => {
-    const { svc, applyBatchDelta } = harness(
+    const { svc, stockChange } = harness(
       [{ tankId: TANK, batchId: BATCH, trueQty: '900', inflowRows: '2' }],
       DRIFTED_TANK_BATCH,
     );
@@ -182,11 +181,11 @@ describe('TankCountReconcileService.reconcile', () => {
     expect(rows[0]!.delta).toBe(0);
     expect(rows[0]!.applied).toBe(false);
     expect(rows[0]!.healed).toBe(false);
-    expect(applyBatchDelta).not.toHaveBeenCalled();
+    expect(stockChange.deltas).toHaveLength(0);
   });
 
   it('honours the tankIds filter (skips tanks not requested)', async () => {
-    const { svc, applyBatchDelta } = harness(
+    const { svc, stockChange } = harness(
       [
         { tankId: TANK, batchId: BATCH, trueQty: '719', inflowRows: '2' },
         { tankId: 'other-tank', batchId: BATCH, trueQty: '10', inflowRows: '1' },
@@ -198,6 +197,6 @@ describe('TankCountReconcileService.reconcile', () => {
 
     expect(rows).toHaveLength(1);
     expect(rows[0]!.tankId).toBe(TANK);
-    expect(applyBatchDelta).toHaveBeenCalledTimes(1);
+    expect(stockChange.deltas).toHaveLength(1);
   });
 });

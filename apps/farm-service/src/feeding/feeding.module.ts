@@ -55,6 +55,7 @@ import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.
 // Unit-keyed protocol lookup + rate SSoT — FeedSelectorService and the legacy
 // daily-plan engine both resolve "which protocol feeds this tank" through it.
 import { UnitProtocolResolverService } from '../feeding-protocol/services/unit-protocol-resolver.service';
+import { FeedTypeTransitionService } from '../feeding-protocol/services/feed-transition.service';
 import { DayPlanRecalcService } from '../feeding-protocol/services/day-plan-recalc.service';
 import { BiomassGrowthApplierService } from '../feeding-protocol/services/biomass-growth-applier.service';
 
@@ -128,6 +129,7 @@ import { FinanceModule } from '../finance/finance.module';
     // D-7: CreateFeedingRecordHandler plan-dışı yemi aktif gün planına bağlar.
     ProtocolRateService,
     UnitProtocolResolverService,
+    FeedTypeTransitionService,
     DayPlanRecalcService,
     BiomassGrowthApplierService,
     MobileCommandReceiptService,

@@ -9,10 +9,17 @@
  *   3. SELECTED UNIT — the right column, the detail of whatever the middle
  *      column has selected (<UnitInspectorPane/>).
  *
+ * Beneath the three columns runs the DRIVES strip (<DrivesPane/>) — the design's
+ * feeders row, which the mobile client could not draw until it had VFD documents
+ * of its own. It spans the full width because it is about machinery rather than
+ * about one pen's biology, and it scrolls sideways within itself so a site with
+ * many drives never pushes the columns off the screen.
+ *
  * SELECTION IS NOT NAVIGATION. Choosing a unit in the middle fills the right
  * pane and leaves the board mounted; both panes reach that state through
  * useSelectedUnit() (see ./useSelectedUnit.ts) rather than through props, so
- * neither pane has to know the other exists.
+ * neither pane has to know the other exists. The drives strip reads the same
+ * selection, which is why picking a pen also shows what feeds it.
  *
  * WHY THE COLUMNS SCROLL SEPARATELY: a wall display that has been scrolled away
  * from its alarms is worse than one that shows less. The page itself never
@@ -24,6 +31,7 @@ import { type ReactElement } from 'react';
 
 import { BoardRegion } from '@/pages/tablet/BoardRegion';
 import { AttentionPane } from '@/pages/tablet/panes/AttentionPane';
+import { DrivesPane } from '@/pages/tablet/panes/DrivesPane';
 import { UnitGridPane } from '@/pages/tablet/panes/UnitGridPane';
 import { UnitInspectorPane } from '@/pages/tablet/panes/UnitInspectorPane';
 import { useSelectedUnit } from '@/pages/tablet/useSelectedUnit';
@@ -64,9 +72,14 @@ export function BoardPage(): ReactElement {
         </BoardRegion>
       </div>
 
+      {/* The feeders/drives strip. It sits BELOW the columns rather than inside
+          one because it is about the site's machinery, not about one pen — and
+          because a wall board's alarms must never be pushed off screen by it. */}
+      <DrivesPane />
+
       <p className="shrink-0 px-4 pb-3 text-meta text-ink-3">
-        Tap a unit to inspect it. Log entries happen on the handheld, standing at the unit — this
-        board is for watching and planning.
+        Tap a unit to inspect it. Log entries and drive commands happen on the handheld, standing at
+        the machine — this board is for watching and planning.
       </p>
     </div>
   );

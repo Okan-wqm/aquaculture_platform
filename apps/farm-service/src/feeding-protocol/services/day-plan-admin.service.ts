@@ -24,8 +24,6 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
-import { OutboxPublisher } from '@platform/outbox';
-import { createBaseEvent, FeedTypeTransitionedEvent } from '@platform/event-contracts';
 
 import {
   FeedingProtocolV2,
@@ -41,6 +39,7 @@ import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { MealPlanGeneratorService, mixedTankStats } from './meal-plan-generator.service';
 import { DayPlanRecalcService } from './day-plan-recalc.service';
+import { FeedTypeTransitionService } from './feed-transition.service';
 import { tankBandWeightG } from './protocol-rate.service';
 import { calendarDayIn } from './meal-schedule.util';
 import { collectFeedSourceFeedIds, buildFeedFcrMatrixMap } from './feed-fcr-source.util';
@@ -70,7 +69,9 @@ export class DayPlanAdminService {
     private readonly generator: MealPlanGeneratorService,
     private readonly recalcService: DayPlanRecalcService,
     private readonly temperatureService: WaterTemperatureService,
-    private readonly outboxPublisher: OutboxPublisher,
+    // Yem geçişinin TEK yazarı (atama durumu + FeedTypeTransitioned) — manuel
+    // geçiş de otomatik geçişlerle aynı mekanizmayı kullanır.
+    private readonly transitionService: FeedTypeTransitionService,
   ) {}
 
   async regenerateDayPlan(
@@ -95,12 +96,9 @@ export class DayPlanAdminService {
 
       if (existing) {
         // Recalc kendi kilit sırasını (DayPlan → Meals → Assignment) sahiplenir.
-        const result = await this.recalcService.recalcForUnit(
-          manager,
-          tenantId,
-          unitId,
-          'manual_regenerate',
-        );
+        const result = await this.recalcService.recalcForUnit(manager, tenantId, unitId, {
+          reason: 'manual_regenerate',
+        });
         this.logger.log(
           `Day plan ${existing.id} manually recalculated for unit ${unitId} by ${userId}`,
         );
@@ -222,11 +220,30 @@ export class DayPlanAdminService {
       const band = protocol.bands[bandIndex]!;
 
       const fromFeedId = assignment.currentFeedId;
-      assignment.currentFeedId = toFeedId;
-      assignment.currentBandIndex = bandIndex;
-      assignment.lastTransitionAt = new Date();
-      assignment.totalTransitions = (assignment.totalTransitions ?? 0) + 1;
-      await manager.save(assignment);
+      const tankBatch = await manager.findOne(TankBatch, {
+        where: { tenantId, tankId: unitId },
+      });
+
+      // Operatörün geçişi, otomatik yollarla (06:00 üretimi, gün-içi recalc)
+      // AYNI yazardan geçer — yalnız `automatic: false` farklıdır. Burada elle
+      // yazılmış ikinci bir durum+event yazımı, üç yolun yeniden ayrışmasının
+      // ta kendisi olurdu.
+      await this.transitionService.apply(manager, tenantId, assignment, {
+        unitId,
+        unitCode: assignment.unitCode,
+        avgWeightG: Number(tankBatch?.avgWeightG || 0),
+        change: {
+          fromBandIndex: assignment.currentBandIndex,
+          fromFeedId,
+          toBandIndex: bandIndex,
+          toFeedId,
+          toFeedCode: band.feedCode,
+          // Manuel geçiş, ünitenin band hafızası boş olsa da bir GEÇİŞTİR:
+          // operatör ünitenin yemini bilinçli olarak değiştirdi.
+          feedChanged: true,
+        },
+        automatic: false,
+      });
 
       const now = new Date();
       for (const meal of remainingMeals) {
@@ -234,26 +251,6 @@ export class DayPlanAdminService {
         meal.recalculatedAt = now;
         await manager.save(meal);
       }
-
-      const tankBatch = await manager.findOne(TankBatch, {
-        where: { tenantId, tankId: unitId },
-      });
-      const event: FeedTypeTransitionedEvent = {
-        ...createBaseEvent<FeedTypeTransitionedEvent>('FeedTypeTransitioned', tenantId, {
-          aggregateId: unitId,
-          aggregateType: 'FeedingUnit',
-        }),
-        unitId,
-        unitCode: assignment.unitCode,
-        assignmentId: assignment.id,
-        fromFeedId,
-        toFeedId,
-        toFeedCode: band.feedCode,
-        bandIndex,
-        avgWeightG: Number(tankBatch?.avgWeightG || 0),
-        automatic: false,
-      };
-      await this.outboxPublisher.enqueue(event, manager);
 
       this.logger.log(
         `Manual feed transition on unit ${unitId}: ${fromFeedId ?? 'none'} → ${toFeedId} ` +

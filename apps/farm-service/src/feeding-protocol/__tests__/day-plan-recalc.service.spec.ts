@@ -12,6 +12,7 @@ import { EntityManager } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
+import { FeedTypeTransitionService } from '../services/feed-transition.service';
 import { ProtocolRateService } from '../services/protocol-rate.service';
 import { FeedingDayPlan, FeedingDayPlanStatus } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
@@ -84,6 +85,8 @@ function makeDayPlan(over: Partial<FeedingDayPlan> = {}): FeedingDayPlan {
     unitCode: 'T-01',
     planDate: '2026-07-20',
     plannedTotalKg: 1.5,
+    // Tayın tabanı = üretim anındaki biyokütle (generator bunu yazar).
+    rationBasisKg: 50,
     recalcLog: [],
     status: FeedingDayPlanStatus.PLANNED,
     snapshot: {
@@ -183,14 +186,22 @@ function makeHarness(opts: HarnessOpts = {}) {
       return undefined as never;
     }),
   });
-  const service = new DayPlanRecalcService(new ProtocolRateService(), outbox);
+  const rateService = new ProtocolRateService();
+  const service = new DayPlanRecalcService(
+    rateService,
+    new FeedTypeTransitionService(rateService, outbox),
+    outbox,
+  );
   return { service, manager, dayPlan, meals, assignment, saved, enqueued };
 }
 
 describe('DayPlanRecalcService.recalcForUnit', () => {
   it('cancels remaining meals, closes the plan and auto-pauses the assignment on an empty unit', async () => {
     const harness = makeHarness({ tankBatch: { totalQuantity: 0, totalBiomassKg: 0 } });
-    const result = await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, 'harvest');
+    const result = await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, {
+      reason: 'harvest',
+      stockBiomassDeltaKg: -50,
+    });
 
     expect(result?.outcome).toBe('cancelled_empty_unit');
     expect(harness.meals.every((meal) => meal.status === FeedingMealStatus.CANCELLED)).toBe(true);
@@ -204,7 +215,10 @@ describe('DayPlanRecalcService.recalcForUnit', () => {
   it('reprices remaining meals from the new daily total with their OWN percents and logs the reason', async () => {
     // Ölüm sonrası biomass 50→40kg: yeni günlük %3 × 40 = 1.2kg → 0.72 / 0.48
     const harness = makeHarness({ tankBatch: { totalBiomassKg: 40, avgWeightG: 50 } });
-    const result = await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, 'mortality');
+    const result = await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, {
+      reason: 'mortality',
+      stockBiomassDeltaKg: -10,
+    });
 
     expect(result?.outcome).toBe('repriced');
     expect(harness.meals[0]!.plannedKg).toBeCloseTo(0.72);
@@ -215,8 +229,11 @@ describe('DayPlanRecalcService.recalcForUnit', () => {
 
   it('holds the current band inside the hysteresis buffer (no oscillation)', async () => {
     // 102g: yeni band min 100 + buffer 5 = 105 AŞILMADI → band 0 korunur.
-    const harness = makeHarness({ tankBatch: { avgWeightG: 102, totalBiomassKg: 102 } });
-    const result = await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, 'grading');
+    const harness = makeHarness({
+      tankBatch: { avgWeightG: 102, totalBiomassKg: 102 },
+      dayPlan: makeDayPlan({ rationBasisKg: 102 }),
+    });
+    const result = await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, { reason: 'grading' });
 
     expect(result?.transitioned).toBe(false);
     expect(harness.assignment.currentFeedId).toBe('feed-a');
@@ -224,8 +241,11 @@ describe('DayPlanRecalcService.recalcForUnit', () => {
   });
 
   it('transitions feed beyond the buffer: assignment + remaining meals + durable event (P-12)', async () => {
-    const harness = makeHarness({ tankBatch: { avgWeightG: 110, totalBiomassKg: 110 } });
-    const result = await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, 'grading');
+    const harness = makeHarness({
+      tankBatch: { avgWeightG: 110, totalBiomassKg: 110 },
+      dayPlan: makeDayPlan({ rationBasisKg: 110 }),
+    });
+    const result = await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, { reason: 'grading' });
 
     expect(result?.transitioned).toBe(true);
     expect(harness.assignment.currentFeedId).toBe('feed-b');
@@ -239,7 +259,8 @@ describe('DayPlanRecalcService.recalcForUnit', () => {
 
   it('uses the fresh reading for temperature-triggered recalcs', async () => {
     const harness = makeHarness({});
-    const result = await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, 'temperature', {
+    const result = await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, {
+      reason: 'temperature',
       newTemperatureC: 8, // 5–12°C bandı → ×0.5
     });
     expect(result?.outcome).toBe('repriced');
@@ -248,9 +269,72 @@ describe('DayPlanRecalcService.recalcForUnit', () => {
     expect(harness.meals[1]!.plannedKg).toBeCloseTo(0.3);
   });
 
+  // ==========================================================================
+  // RATION BASIS — the day's ration follows FISH, never the day's own feed
+  // ==========================================================================
+
+  it('a growth application does NOT enlarge the same day\'s remaining ration', async () => {
+    // per_meal mode: finalising the morning meal wrote FCR growth into the
+    // unit's biomass (50 → 55 kg) and then asked for a recalculation. The old
+    // code repriced from 55 kg, so the morning meal enlarged the noon meal,
+    // which enlarged the evening meal — the day's total drifting above the
+    // prescribed rate once per meal, every day.
+    const harness = makeHarness({ tankBatch: { totalBiomassKg: 55, avgWeightG: 55 } });
+    const before = harness.meals.map((meal) => meal.plannedKg);
+
+    const result = await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, {
+      reason: 'meal_growth',
+    });
+
+    expect(result?.outcome).toBe('repriced');
+    expect(harness.meals.map((meal) => meal.plannedKg)).toEqual(before);
+    expect(result?.rationBasisKg).toBe(50); // start-of-day biomass, untouched
+    expect(harness.dayPlan!.plannedTotalKg).toBeCloseTo(1.5);
+  });
+
+  it('an unplanned feed does not enlarge the remaining ration either (same growth path)', async () => {
+    const harness = makeHarness({ tankBatch: { totalBiomassKg: 58, avgWeightG: 58 } });
+    const before = harness.meals.map((meal) => meal.plannedKg);
+
+    await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, {
+      reason: 'unplanned_feed',
+    });
+
+    expect(harness.meals.map((meal) => meal.plannedKg)).toEqual(before);
+  });
+
+  it('stocking a unit RAISES the day\'s remaining meals (the allocation gap)', async () => {
+    // +500 fish at 50 g = +25 kg. Basis 50 → 75 kg; %3 → 2.25 kg/day.
+    const harness = makeHarness({ tankBatch: { totalQuantity: 1500, totalBiomassKg: 75, avgWeightG: 50 } });
+
+    const result = await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, {
+      reason: 'allocation',
+      stockBiomassDeltaKg: 25,
+    });
+
+    expect(result?.rationBasisKg).toBe(75);
+    expect(harness.meals[0]!.plannedKg).toBeCloseTo(1.35); // %60
+    expect(harness.meals[1]!.plannedKg).toBeCloseTo(0.9); // %40
+    expect(harness.dayPlan!.recalcLog.at(-1)?.reason).toBe('allocation');
+  });
+
+  it('a weighing RE-BASELINES the day onto the measured biomass (evidence beats the model)', async () => {
+    const harness = makeHarness({ tankBatch: { totalBiomassKg: 60, avgWeightG: 60 } });
+
+    const result = await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, {
+      reason: 'growth_sample',
+    });
+
+    expect(result?.rationBasisKg).toBe(60);
+    expect(harness.dayPlan!.plannedTotalKg).toBeCloseTo(1.8); // 60 × %3
+  });
+
   it('returns null when the unit has no active day plan (nothing to recalc)', async () => {
     const harness = makeHarness({ dayPlan: null });
-    const result = await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, 'mortality');
+    const result = await harness.service.recalcForUnit(harness.manager, TENANT, UNIT, {
+      reason: 'mortality',
+      stockBiomassDeltaKg: -10,
+    });
     expect(result).toBeNull();
   });
 });

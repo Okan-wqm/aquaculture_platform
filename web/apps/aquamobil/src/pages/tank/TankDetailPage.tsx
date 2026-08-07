@@ -27,6 +27,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 import { FeedingAdviceCard, GrowthPredictionCard, TankRiskBadge } from '@/components/ai';
 import { AppHeader } from '@/components/AppHeader';
+import { UnitDrivesCard } from '@/components/drive';
 import { LiveReadingsCard } from '@/components/LiveReadingsCard';
 import { LogSheet } from '@/components/log-sheet/LogSheet';
 import { Button, Chip, EmptyState, Skeleton, StatusDot } from '@/components/ui';
@@ -111,6 +112,14 @@ export function TankDetailPage(): JSX.Element {
             the operational data a worker standing at this unit actually needs,
             joined by sensor.tank_id at the resolver. */}
         <LiveReadingsCard tankId={tank.id} />
+
+        {/* The machinery serving this pen — which drives feed it, whether any is
+            running and whether any has faulted. It sits directly under the
+            MEASURED water values and above the advisory cards because it is also
+            measured: every state here came off a drive's status word, not out of
+            a model. Rows link to the drive's own screen, where commanding one is
+            a considered act rather than a stray tap. */}
+        <UnitDrivesCard tankId={tank.id} />
 
         {/* Advisory intelligence, which degrades to null when the AI surface is
             disabled or unavailable. */}

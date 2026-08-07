@@ -320,7 +320,9 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
           // evaluated against the weight that was actually observed. Runs in
           // this transaction, so the plan can never reflect a measurement that
           // rolled back.
-          await this.recalcService.recalcForUnit(manager, tenantId, unitId, 'growth_sample');
+          await this.recalcService.recalcForUnit(manager, tenantId, unitId, {
+            reason: 'growth_sample',
+          });
         }
       }
 

@@ -12,9 +12,16 @@
  * (P-20). Biomass tabanı ÜRETİM biomass'ıdır (`totalBiomassKg`) — temizlikçi
  * balık yem tabanına GİRMEZ (D-13, spec pinli).
  *
+ * YEM TİPİ GEÇİŞİ: band, ağırlıktan TEK BAŞINA seçilmez — `assignment`'ın
+ * taşıdığı band hafızasıyla birlikte, gün-içi recalc'ın kullandığı AYNI
+ * `FeedTypeTransitionService` üzerinden çözülür (histerezis dahil). Geçiş
+ * etkisi `ComputedDayPlan.bandStateChange` ile taşınır ve YALNIZ plan gerçekten
+ * yazıldığında (`persistDayPlan`'ın ON CONFLICT'i yeni satır ürettiğinde)
+ * uygulanır — dry-run hiçbir şey yazmaz, çift üretim çift geçiş üretemez.
+ *
  * @module FeedingProtocol/Services
  */
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
 
 import {
@@ -29,6 +36,8 @@ import {
 } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import { ProtocolRateService, type BandWeightG } from './protocol-rate.service';
+import { BandStateChange, FeedTypeTransitionService } from './feed-transition.service';
+import { dailyRationKg, initialRationBasisKg, type RationBasisKg } from './ration-basis';
 import {
   effectiveMealSchedule,
   materializeMeals,
@@ -95,7 +104,16 @@ export function mixedTankStats(
 }
 
 export interface ComputeDayPlanInput {
-  assignment: Pick<ProtocolAssignment, 'overrides' | 'suspensions' | 'currentFeedId'>;
+  /**
+   * `currentFeedId`/`currentBandIndex` ARE read: they are the unit's band
+   * memory, and the plan's feed follows the shared transition mechanism instead
+   * of the naked weight (that omission is what let an overnight band crossing
+   * change the morning feed while the assignment still named yesterday's).
+   */
+  assignment: Pick<
+    ProtocolAssignment,
+    'overrides' | 'suspensions' | 'currentFeedId' | 'currentBandIndex'
+  >;
   protocol: Pick<
     FeedingProtocolV2,
     'bands' | 'defaultMealSchedule' | 'temperatureAdjustments' | 'fcrMatrix' | 'settings'
@@ -121,9 +139,16 @@ export interface ComputedMeal {
 export interface ComputedDayPlan {
   snapshot: DayPlanSnapshot;
   plannedTotalKg: number;
+  /** Bu planın fiyatlandığı taban — gün başındaki üretim biyokütlesi. */
+  rationBasisKg: RationBasisKg;
   status: FeedingDayPlanStatus.PLANNED | FeedingDayPlanStatus.SKIPPED;
   skipReason?: string;
   meals: ComputedMeal[];
+  /**
+   * Atamanın band hafızasına yazılması gereken değişiklik (varsa) — `persistDayPlan`
+   * planı GERÇEKTEN yazdıysa uygular. Dry-run yalnız okur.
+   */
+  bandStateChange: BandStateChange | null;
 }
 
 export interface PersistDayPlanContext {
@@ -144,7 +169,10 @@ export interface PersistDayPlanContext {
 
 @Injectable()
 export class MealPlanGeneratorService {
-  constructor(private readonly rateService: ProtocolRateService) {}
+  constructor(
+    private readonly rateService: ProtocolRateService,
+    private readonly transitionService: FeedTypeTransitionService,
+  ) {}
 
   /**
    * Saf gün planı hesabı. `null` = plan üretilmez (boş ünite veya bandsız
@@ -154,9 +182,18 @@ export class MealPlanGeneratorService {
     const { stock, protocol, assignment, temperature } = input;
     if (stock.fishCount <= 0 || stock.biomassKg <= 0) return null;
 
-    const resolved = this.rateService.bandFor(protocol.bands, stock.avgWeightG);
-    if (!resolved) return null;
-    const { band, index: bandIndex } = resolved;
+    // Band, ağırlık + atamanın band hafızasından birlikte çözülür (histerezis
+    // dahil): gün-içi recalc ile AYNI karar fonksiyonu, tek geçiş mekanizması.
+    const decision = this.transitionService.decide({
+      protocol,
+      avgWeightG: stock.avgWeightG,
+      state: {
+        currentBandIndex: assignment.currentBandIndex,
+        currentFeedId: assignment.currentFeedId,
+      },
+    });
+    if (!decision) return null;
+    const { band, index: bandIndex } = decision;
 
     const tempMultiplier = this.rateService.temperatureMultiplier(
       protocol.temperatureAdjustments,
@@ -197,7 +234,10 @@ export class MealPlanGeneratorService {
       weightCvPercent: stock.weightCvPercent ?? null,
     };
 
-    const plannedTotalKg = round3((stock.biomassKg * effectiveRate) / 100);
+    // Günün tabanı: gün başındaki üretim biyokütlesi. Aynı gün içindeki her
+    // yeniden fiyatlama bu tabandan yürür (bkz. `ration-basis.ts`).
+    const rationBasisKg = initialRationBasisKg(stock.biomassKg);
+    const plannedTotalKg = dailyRationKg(rationBasisKg, effectiveRate);
 
     // D-12: oruç penceresi günü atlar (otomatik devam); ilaç penceresi öğün
     // yemini medicatedFeedId ile değiştirir.
@@ -206,9 +246,13 @@ export class MealPlanGeneratorService {
       return {
         snapshot,
         plannedTotalKg: 0,
+        rationBasisKg,
         status: FeedingDayPlanStatus.SKIPPED,
         skipReason: `fasting: ${suspension.reason}`,
         meals: [],
+        // Oruç günü de bandı ilerletir: balık sınırı geçtiyse atamanın hafızası
+        // güncellenir, yoksa ertesi gün bayat durumdan plan üretilirdi.
+        bandStateChange: decision.stateChange,
       };
     }
     const mealFeedId =
@@ -232,12 +276,25 @@ export class MealPlanGeneratorService {
       feedId: mealFeedId,
     }));
 
-    return { snapshot, plannedTotalKg, status: FeedingDayPlanStatus.PLANNED, meals };
+    return {
+      snapshot,
+      plannedTotalKg,
+      rationBasisKg,
+      status: FeedingDayPlanStatus.PLANNED,
+      meals,
+      bandStateChange: decision.stateChange,
+    };
   }
 
   /**
    * Idempotent persist: gün planı zaten varsa (unique anahtar) HİÇBİR ŞEY
    * yazılmaz ve `null` döner; yenisi yazıldıysa day plan id'si döner.
+   *
+   * Yem geçişi de BURADA uygulanır: plan satırı gerçekten üretildiyse (yani bu
+   * koşum günün planını yazan koşumsa) atamanın band durumu güncellenir ve
+   * gerekiyorsa `FeedTypeTransitioned` yazılır. Aynı gün ikinci kez koşan cron
+   * ON CONFLICT'e takılır, `null` döner ve geçişi TEKRAR uygulamaz — çift event
+   * mevcut idempotency anahtarının altında yapısal olarak imkânsızdır.
    */
   async persistDayPlan(
     manager: EntityManager,
@@ -247,11 +304,11 @@ export class MealPlanGeneratorService {
     const inserted: Array<{ id: string }> = await manager.query(
       `INSERT INTO "feeding_day_plans"
          (id, "tenantId", "assignmentId", "protocolId", "unitId", "siteId", "unitType",
-          "unitName", "unitCode", "planDate", snapshot, "plannedTotalKg",
+          "unitName", "unitCode", "planDate", snapshot, "plannedTotalKg", "rationBasisKg",
           "unplannedActualKg", "mealsPlanned", status, "skipReason", "recalcLog", version)
        VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5,
                $6::feeding_protocol_assignments_unittype_enum, $7, $8, $9, $10::jsonb,
-               $11, 0, $12, $13::feeding_day_plans_status_enum, $14, '[]'::jsonb, 1)
+               $11, $12, 0, $13, $14::feeding_day_plans_status_enum, $15, '[]'::jsonb, 1)
        ON CONFLICT ("tenantId", "unitId", "planDate") DO NOTHING
        RETURNING id`,
       [
@@ -266,6 +323,7 @@ export class MealPlanGeneratorService {
         context.planDate,
         JSON.stringify(computed.snapshot),
         computed.plannedTotalKg,
+        computed.rationBasisKg,
         computed.meals.length,
         computed.status,
         computed.skipReason ?? null,
@@ -288,6 +346,29 @@ export class MealPlanGeneratorService {
         actualKg: 0,
         pours: [],
         feedId: meal.feedId,
+      });
+    }
+
+    if (computed.bandStateChange) {
+      // Kanonik kilit sırası (K-1): DayPlan → Meals → Assignment — atama EN SON
+      // ve taze okunur (sayfa okumasındaki bayat kopya değil).
+      const assignment = await manager.findOne(ProtocolAssignment, {
+        where: { id: context.assignmentId, tenantId: context.tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!assignment) {
+        // Aynı transaction'da okunup plan yazılan atamanın kaybolması tutarsız
+        // bir durumdur; sessizce geçmek atamayı bayat band durumuyla bırakırdı.
+        throw new ConflictException(
+          `Ünitenin ataması (${context.assignmentId}) plan yazımı sırasında bulunamadı — geçiş uygulanamadı`,
+        );
+      }
+      await this.transitionService.apply(manager, context.tenantId, assignment, {
+        unitId: context.unitId,
+        unitCode: context.unitCode,
+        avgWeightG: computed.snapshot.avgWeightG,
+        change: computed.bandStateChange,
+        automatic: true,
       });
     }
     return dayPlanId;

@@ -7930,6 +7930,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/batch/__tests__/support/stock-change-double.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/batch/__tests__/tank-batch-module-di.spec.ts",
       "prettier_managed": true
     },
@@ -8525,6 +8531,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/batch/services/tank-count-reconcile.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/batch/services/unit-ration-recalculator.port.ts",
       "prettier_managed": true
     },
     {
@@ -10275,6 +10287,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1809300000000-AddDayPlanRationBasis.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -11469,6 +11487,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/feed-transition-one-mechanism.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/__tests__/feeder-dose-directive.spec.ts",
       "prettier_managed": true
     },
@@ -11799,6 +11823,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/services/feed-transition.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/services/feeder-dose-directive.service.ts",
       "prettier_managed": true
     },
@@ -11848,6 +11878,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/services/protocol-validation.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/services/ration-basis.ts",
       "prettier_managed": true
     },
     {
@@ -45623,6 +45659,30 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/drive/__tests__/UnitDrivesCard.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/drive/DriveState.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/drive/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/drive/UnitDrivesCard.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/ErrorBoundary.tsx",
       "prettier_managed": true
     },
@@ -46012,7 +46072,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "7e466c7bd3d1e34786fb8e3bb0c9d33c8cb67909dca568b1c6c02f9ffca90229",
+      "content_sha256": "9c9e09690577a1fe0e481289845704be929400a9efde265a7e6b61a8a0c60ca7",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -46055,6 +46115,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/graphql/sensor-operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/graphql/vfd-operations.ts",
       "prettier_managed": true
     },
     {
@@ -46223,6 +46289,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/__tests__/useTaskActions.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/__tests__/useVfdCommand.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -46480,6 +46552,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/useVfdCommand.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/useVfdDrives.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/useViewport.ts",
       "prettier_managed": true
     },
@@ -46619,6 +46703,30 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pages/cull/RecordCullPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/drives/__tests__/drive-routes.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/drives/__tests__/DriveDetailPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/drives/DriveDetailPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/drives/DrivesPage.tsx",
       "prettier_managed": true
     },
     {
@@ -46906,6 +47014,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/tablet/panes/__tests__/DrivesPane.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/pages/tablet/panes/__tests__/UnitGridPane.spec.tsx",
       "prettier_managed": true
     },
@@ -46919,6 +47033,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pages/tablet/panes/AttentionPane.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pages/tablet/panes/DrivesPane.tsx",
       "prettier_managed": true
     },
     {
@@ -47033,6 +47153,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pwa/__tests__/sw-replay.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pwa/__tests__/vfd-command-never-queued.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pwa/actuation-commands.ts",
       "prettier_managed": true
     },
     {
@@ -47170,6 +47302,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/utils/__tests__/vfd-drive.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/utils/async-action.ts",
       "prettier_managed": true
     },
@@ -47297,6 +47435,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/utils/user-scoped-cache-key.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/utils/vfd-drive.ts",
       "prettier_managed": true
     },
     {
@@ -57270,10 +57414,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9394,
+  "file_count": 9418,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9213,
-  "managed_file_list_sha256": "7a46d98229b6b79d7fc61179b4da9a281f8f7f8d9f8152f0ef7a6c154a06106f",
+  "managed_count": 9237,
+  "managed_file_list_sha256": "6d60e6fc8188977a8601446bdbefa0f2b4c2c4fb1955b6c5744338b5ad109236",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

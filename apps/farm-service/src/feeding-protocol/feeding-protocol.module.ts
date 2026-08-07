@@ -27,6 +27,7 @@ import { FeedForecastResolver } from './resolvers/feed-forecast.resolver';
 import { ForecastRefreshListener } from './listeners/forecast-refresh.listener';
 import { MealPlanGeneratorService } from './services/meal-plan-generator.service';
 import { BiomassGrowthApplierService } from './services/biomass-growth-applier.service';
+import { FeedTypeTransitionService } from './services/feed-transition.service';
 import { DayPlanRecalcService } from './services/day-plan-recalc.service';
 import { MealExecutionService } from './services/meal-execution.service';
 import { DayPlanAdminService } from './services/day-plan-admin.service';
@@ -99,6 +100,7 @@ import { FeederSiloMassLatest } from '../equipment/entities/feeder-silo-mass-lat
     UnitProtocolResolverService,
     MealPlanGeneratorService,
     BiomassGrowthApplierService,
+    FeedTypeTransitionService,
     DayPlanRecalcService,
     MealExecutionService,
     DayPlanAdminService,
@@ -137,6 +139,7 @@ import { FeederSiloMassLatest } from '../equipment/entities/feeder-silo-mass-lat
     UnitProtocolResolverService,
     MealPlanGeneratorService,
     BiomassGrowthApplierService,
+    FeedTypeTransitionService,
     DayPlanRecalcService,
     MealExecutionService,
     ProtocolFeedForecastService,

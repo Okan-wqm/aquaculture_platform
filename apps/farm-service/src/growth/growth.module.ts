@@ -52,6 +52,7 @@ import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.
 // EntityManager üzerinden çalışır (repository enjeksiyonu yok), bu yüzden
 // ek `forFeature` kaydı gerekmez.
 import { BiomassGrowthApplierService } from '../feeding-protocol/services/biomass-growth-applier.service';
+import { FeedTypeTransitionService } from '../feeding-protocol/services/feed-transition.service';
 import { DayPlanRecalcService } from '../feeding-protocol/services/day-plan-recalc.service';
 
 @Module({
@@ -72,6 +73,7 @@ import { DayPlanRecalcService } from '../feeding-protocol/services/day-plan-reca
     FCRCalculationService,
     ProtocolRateService,
     BiomassGrowthApplierService,
+    FeedTypeTransitionService,
     DayPlanRecalcService,
     ...GrowthCommandHandlers,
     ...GrowthQueryHandlers,

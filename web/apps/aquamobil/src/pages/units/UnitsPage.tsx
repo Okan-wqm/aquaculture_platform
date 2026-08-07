@@ -8,12 +8,22 @@
  * makes the app's central noun reachable in one tap.
  *
  * Data is the real inventory (`useTanks` → `farmStockInventory`), grouped by
- * site. What the v4 mock shows and this does NOT show is a Feeders tab: the
- * mobile client has no feeder query — no dose, hopper level, drive percentage or
- * run/stop — so the tab is absent rather than filled with plausible numbers.
- * Tracked as an orphan finding; see the phase notes.
+ * site.
+ *
+ * THE FEEDERS TAB THE v4 MOCK SHOWS IS NOW A DESTINATION. This header used to
+ * say the mobile client had no feeder query at all (ORPHAN-MEDIUM-575), which
+ * was wrong in a way that sent people to the wrong place: apps/sensor-service
+ * has carried a full VFD surface throughout, and only this client lacked
+ * documents for it. The drive list lives at `/drives` and is reached from the
+ * row below rather than from a tab, because a drive is not a kind of unit — it
+ * is the machinery that serves one, and several drives serve several pens.
+ *
+ * WHAT IS STILL ABSENT: the mock's dose, hopper LEVEL and drive PERCENTAGE. No
+ * query reports how much feed is in a silo, and no brand-neutral field carries a
+ * drive percentage — the header of src/utils/vfd-drive.ts names the candidates
+ * and why each one would be a different unit depending on the drive's brand.
  */
-import { Boxes, WifiOff } from 'lucide-react';
+import { Boxes, Cog, WifiOff } from 'lucide-react';
 import { useMemo, type ReactElement } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -50,6 +60,18 @@ export function UnitsPage(): ReactElement {
       <AppHeader title="Units" subtitle={total > 0 ? `${total} units` : undefined} />
 
       <div className="px-4 flex flex-col gap-5">
+        {/* The only entry point to the drive surface, and deliberately OUTSIDE
+            the loading/error branches below: the drives are a separate query
+            against a separate service, so a farm-inventory outage must not also
+            hide the way to the machinery. */}
+        <ListRow
+          leading={<Cog size={18} />}
+          tone="accent"
+          title="Drives"
+          subtitle="Feeders, pumps and blowers — state, faults and start/stop"
+          onClick={() => navigate('/drives')}
+        />
+
         {isLoading && <Skeleton variant="row" count={5} />}
 
         {isError && (

@@ -8039,6 +8039,20 @@ Proven by deliberate breaks: a new service with no `logging` reddens all three a
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-417`, `ORPHAN-HIGH-563`, `INFRA-MEDIUM-057`.
 
+## ORPHAN-HIGH-572 — two vulnerability scanners ran, found real CVEs, and threw every finding away on an upload nobody had granted — RESOLVED (this PR)
+
+**Discovered and reproduced:** 2026-08-06, working through the scheduled-workflow reds in issue #1005. `security-trivy.yml:trivy-image-scan` ends with `Resource not accessible by integration` on its `github/codeql-action/upload-sarif` step, annotated `This run of the CodeQL Action does not have permission to access the CodeQL Action API endpoints`. A sweep over every workflow found a second instance with the same defect: `security-snyk.yml:snyk-infrastructure`. Neither job declares a `permissions:` block, neither workflow declares one at the top level, and the repository default does not include `security-events: write`. The sibling job in the very same Trivy workflow — `trivy-fs-scan` — declares it explicitly, which is why one scanner's findings reach the Security tab and the other's never did.
+
+The failure mode is the dangerous one. Trivy is configured with `exit-code: '1'` so that HIGH/CRITICAL findings block the pipeline; that is correct and it means the job is red for a _legitimate_ reason. The discarded upload hides behind that red. Anyone glancing at the lane concludes "the scanner is noisy" rather than "the results are missing" — and with 139 open Dependabot alerts on the default branch (2 critical, 46 high), the results were worth having.
+
+**Fix (this PR):** both jobs now declare `contents: read` + `security-events: write`, keeping the grant per-job rather than widening the whole workflow. `tests/invariants/sarif-upload-permissions.spec.ts` makes the omission impossible to reintroduce: it resolves each job's effective grant (job-level block replaces workflow-level, `write-all` counts) and fails naming any job that uploads SARIF without it. A second assertion guards the guard — if the uploader action is ever renamed, the first assertion would pass vacuously while checking nothing, so the test also insists it still finds uploaders to check.
+
+Proven by deliberate breaks: removing the grant reddens the permission assertion only; renaming `upload-sarif` out of both workflows reddens the vacuity assertion only.
+
+**Not fixed here, and it should not be:** `security-trivy` will stay red after this change, because the CVEs it reports are real. This PR does not silence that red — it makes the findings reach the Security tab instead of the bin, which is the difference between a red that carries information and one that does not. Closing the CVEs themselves is the Dependabot backlog, owned separately.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-563`, `ORPHAN-HIGH-569`.
+
 ## ORPHAN-HIGH-574 — Dependabot watched two ecosystems and not the one carrying almost every advisory, and nothing could tell — RESOLVED (this PR)
 
 **Discovered and reproduced:** 2026-08-06, tracing why the "139 vulnerabilities on the default branch" banner on every push never turned into a single fix PR. `.github/dependabot.yml` declares `github-actions` and `cargo`. It declares no `npm` entry, so the root `package-lock.json` — which resolves every member of the `workspaces` globs (`apps/*`, `libs/*`, `platform/libs/*`, `web/apps/*`, `web/shared-ui`, `web/shell`, `web/modules/*`, `mcp/*`, `tools/executors/cargo`) — has never received a version-update PR. Of the first 100 open alerts, **96 are npm and 4 are rust**.

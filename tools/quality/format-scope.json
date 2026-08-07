@@ -42786,6 +42786,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/ci-timeout-budget-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/circuit-breaker-canonical-lib.spec.ts",
       "prettier_managed": true
     },

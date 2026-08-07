@@ -8039,6 +8039,27 @@ Proven by deliberate breaks: a new service with no `logging` reddens all three a
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-417`, `ORPHAN-HIGH-563`, `INFRA-MEDIUM-057`.
 
+## ORPHAN-HIGH-574 — Dependabot watched two ecosystems and not the one carrying almost every advisory, and nothing could tell — RESOLVED (this PR)
+
+**Discovered and reproduced:** 2026-08-06, tracing why the "139 vulnerabilities on the default branch" banner on every push never turned into a single fix PR. `.github/dependabot.yml` declares `github-actions` and `cargo`. It declares no `npm` entry, so the root `package-lock.json` — which resolves every member of the `workspaces` globs (`apps/*`, `libs/*`, `platform/libs/*`, `web/apps/*`, `web/shared-ui`, `web/shell`, `web/modules/*`, `mcp/*`, `tools/executors/cargo`) — has never received a version-update PR. Of the first 100 open alerts, **96 are npm and 4 are rust**.
+
+The gap was invisible by construction. A missing ecosystem produces no error, no warning and no PR; it looks exactly like an ecosystem with nothing to update. Every entry that _was_ in the file was correct, so the config read as deliberate. Nothing anywhere compared the ecosystems present in the repository against the ecosystems being watched.
+
+**Two adjacent facts found in the same pass, both fixed outside this file:**
+
+- `automated-security-fixes` was **disabled** (`{"enabled": false}`) while `vulnerability-alerts` was enabled — the platform knew about all 139 and was configured never to act on them. This is a repository setting, not a file; it is being enabled as an operator step after this config and the missing labels land, so the resulting PRs arrive into a pipeline that can accept them.
+- The three labels this config references — `dependencies`, `github-actions`, `rust` — **did not exist** among the repository's 16 labels, so Dependabot posted "The following labels could not be found" on every PR it opened. Created 2026-08-06.
+
+**Fix (this PR):** an `npm` entry at `directory: /`, deliberately conservative — `open-pull-requests-limit: 5`, minor+patch grouped into one PR so majors stay individually reviewable. `tests/invariants/dependabot-lockfile-coverage.spec.ts` is what stops the next gap: it enumerates every tracked lockfile via `git ls-files` and requires each to be either covered by an `updates` entry or listed in `DOCUMENTED_EXCLUSIONS` **with a reason**, so an ecosystem's absence becomes a decision someone wrote down rather than a silence nobody notices. Six lockfiles sit outside root coverage today (`e2e/`, `web/apps/aquamobil/`, two wasm crates, and the `sens-api-gateway` tree which manages its own cadence via `deny.toml` + `cargo-audit`); each now carries its reason.
+
+Proven by deliberate break, and the important one is the first: pointed at `origin/main`'s actual pre-fix config, the coverage assertion **fails** — this defect would have been caught the day the file was written. Also verified: a stale exclusion (naming a lockfile that no longer exists) and a reasonless exclusion each redden their own assertion.
+
+**Known limit, stated rather than hidden:** the spec verifies the config, not GitHub's side. It cannot see whether security updates are enabled or whether the referenced labels exist — both live behind the API and neither is checkable offline. Those remain operator responsibilities, which is why they are named here.
+
+**Not in scope:** the advisories themselves. `SUPPLY-HIGH-001` (OPEN, deadline 2026-08-09) owns the CVE backlog, and `INFRA-HIGH-104` records the unsolved part — `minimatch`'s nested `brace-expansion` resists `overrides` because npm matches override keys against the spec a **parent requests**, not the resolved version, and lockfile regeneration is not idempotent against the committed state. That is a separate, careful pass.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `SUPPLY-HIGH-001`, `INFRA-HIGH-104`, `ORPHAN-HIGH-572`.
+
 ## ORPHAN-HIGH-573 — the CI hang detector had four minutes of margin, so it fired on runner load and reported the result as a test failure — RESOLVED (this PR)
 
 **Discovered and reproduced:** 2026-08-06. PR #1103 was blocked by `test` in `ci-full.yml` reporting failure; the log showed `##[error]The operation was canceled` after exactly 30m23s against `timeout-minutes: 30`. Nothing had failed — the job had run out of budget. Measured across 14 completed runs of that job: median 23m29s, p90 25m41s, max 29m03s. p90 sat at **86%** of the budget, and two Dependabot PRs in the same window had already died the same way.

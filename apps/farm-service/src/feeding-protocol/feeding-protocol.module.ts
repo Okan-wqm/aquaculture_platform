@@ -19,6 +19,7 @@ import { Feed } from '../feed/entities/feed.entity';
 import { Species } from '../species/entities/species.entity';
 import { ProtocolValidationService } from './services/protocol-validation.service';
 import { ProtocolRateService } from './services/protocol-rate.service';
+import { UnitProtocolResolverService } from './services/unit-protocol-resolver.service';
 import { ProtocolFeedForecastService } from './services/protocol-feed-forecast.service';
 import { FeedForecastResolver } from './resolvers/feed-forecast.resolver';
 import { ForecastRefreshListener } from './listeners/forecast-refresh.listener';
@@ -78,6 +79,7 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
   providers: [
     ProtocolValidationService,
     ProtocolRateService,
+    UnitProtocolResolverService,
     MealPlanGeneratorService,
     BiomassGrowthApplierService,
     DayPlanRecalcService,
@@ -110,6 +112,7 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
   exports: [
     ProtocolValidationService,
     ProtocolRateService,
+    UnitProtocolResolverService,
     MealPlanGeneratorService,
     BiomassGrowthApplierService,
     DayPlanRecalcService,

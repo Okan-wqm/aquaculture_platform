@@ -176,7 +176,11 @@ export class MealExecutionResolver {
     return plan.snapshot.fcrResolvedSource;
   }
 
-  /** D-2 rozeti: band dominant-biomass'tan seçildi, tank karışık (B3 öncesi snapshot'ta false). */
+  /**
+   * D-2 rozeti: tankta birden fazla üretim batch'i var. Bandı ETKİLEMEZ — band
+   * tank geneli adet-ağırlıklı ortalamadan çözülür; bu alan yalnız
+   * görünürlüktür (B3 öncesi snapshot'ta false).
+   */
   @ResolveField(() => Boolean)
   mixedBatch(@Parent() plan: FeedingDayPlan): boolean {
     return plan.snapshot.mixedBatch ?? false;

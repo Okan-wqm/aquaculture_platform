@@ -41,6 +41,36 @@ registerEnumType(BatchStatus, {
   description: 'Batch durumu',
 });
 
+/**
+ * The statuses in which a batch is in ACTIVE PRODUCTION — it holds live fish
+ * that are being fed, so feed accumulates against it and a Feed Conversion
+ * Ratio is a meaningful, watchable number.
+ *
+ * WHY this is one exported constant instead of four inline array literals: the
+ * set is load-bearing in three independent places that MUST agree, and they had
+ * already drifted.
+ *   1. `Batch.isOperational()` / `BatchDomainService.isOperational()`
+ *   2. `BatchDomainService.assertFeedable()` — decides whether feed may be
+ *      recorded against the batch at all
+ *   3. the running-FCR scope SQL (`LIVE_BATCH_FCR_SCOPE_SQL` in
+ *      FCRCalculationService) — decides whose FCR gets computed and alerted on
+ * (3) hardcoded `status IN ('ACTIVE','GROWING')`, so PRE_HARVEST and HARVESTING
+ * batches — which (2) happily lets operators feed — could never raise an FCR
+ * alert. Deriving all three from this constant makes the invariant structural:
+ * a batch that CAN BE FED is exactly a batch whose FCR IS WATCHED.
+ *
+ * WHAT: ACTIVE, GROWING, PRE_HARVEST, HARVESTING. QUARANTINE is excluded (fish
+ * are alive but the production feeding cycle has not begun); the terminal
+ * states HARVESTED / TRANSFERRED / FAILED / CLOSED are excluded (cycle over —
+ * their FCR is frozen at close by CloseBatchHandler).
+ */
+export const OPERATIONAL_BATCH_STATUSES: readonly BatchStatus[] = [
+  BatchStatus.ACTIVE,
+  BatchStatus.GROWING,
+  BatchStatus.PRE_HARVEST,
+  BatchStatus.HARVESTING,
+];
+
 /** Girdi tipi — batch'in başlangıç formu */
 export enum BatchInputType {
   EGGS = 'EGGS',

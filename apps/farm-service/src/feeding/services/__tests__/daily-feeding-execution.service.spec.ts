@@ -62,6 +62,9 @@ import { StockMovementService } from '../../../storage/services/stock-movement.s
 import { StockMovement } from '../../../storage/entities/stock-movement.entity';
 import { RecordMovementResult } from '../../../storage/services/stock-movement.service';
 import { FeedingLedgerService } from '../feeding-ledger.service';
+import { BiomassGrowthApplierService } from '../../../feeding-protocol/services/biomass-growth-applier.service';
+import { ProtocolRateService } from '../../../feeding-protocol/services/protocol-rate.service';
+import { UnitProtocolResolverService } from '../../../feeding-protocol/services/unit-protocol-resolver.service';
 import { FeedingRecord } from '../../entities/feeding-record.entity';
 import { Feed } from '../../../feed/entities/feed.entity';
 import { FinanceSettingsService } from '../../../finance/services/finance-settings.service';
@@ -172,12 +175,43 @@ interface Harness {
   lockedBatch: Batch | null;
 }
 
+/**
+ * A unit carrying its per-batch SSoT. recordActualFeeding locks the unit through
+ * BiomassGrowthApplierService (canonical order) and the growth it applies is
+ * distributed across `batchDetails[]`, so a detail-less row would exercise
+ * nothing. `primaryBatchId` is derived from details[0] by the single stock
+ * writer — the invariant the recording path's lookup relies on.
+ */
+function unitFixture(): TankBatch {
+  return mock<TankBatch>({
+    tankId: TANK,
+    tenantId: TENANT,
+    primaryBatchId: BATCH,
+    totalQuantity: 1000,
+    totalBiomassKg: 100,
+    currentBiomassKg: 100,
+    avgWeightG: 100,
+    batchDetails: [
+      {
+        batchId: BATCH,
+        batchNumber: 'B-1',
+        quantity: 1000,
+        avgWeightG: 100,
+        biomassKg: 100,
+        percentageOfTank: 100,
+      },
+    ],
+  });
+}
+
 function makeHarness(opts: HarnessOpts = {}): Harness {
   const execution = opts.execution ?? makeExecution();
-  const tankBatch =
-    opts.tankBatch === undefined
-      ? mock<TankBatch>({ tankId: TANK, tenantId: TENANT, primaryBatchId: BATCH })
-      : opts.tankBatch;
+  // The unit fixture now carries batchDetails[]: recordActualFeeding locks the
+  // unit through BiomassGrowthApplierService (canonical order) and the growth it
+  // applies is distributed across that SSoT, so a detail-less row would exercise
+  // nothing. `primaryBatchId` is derived from details[0] by the single stock
+  // writer, which is the invariant the handler's lookup relies on.
+  const tankBatch = opts.tankBatch === undefined ? unitFixture() : opts.tankBatch;
   const lockedBatch = opts.lockedBatch === undefined ? makeFeedableBatch() : opts.lockedBatch;
   const tank = mock({ id: TANK, currentBiomass: 0 });
   const feedRow = mock<Feed>({ id: FEED, code: 'GR-4', name: 'Grower 4mm', pricePerKg: 2 });
@@ -214,10 +248,25 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
   // reached) does not reject. enqueue itself is mocked, so the assertion never
   // touches the real publisher's transaction guard, but we keep the shape
   // honest.
+  // lockUnitForGrowth loads the unit's batches with manager.find(Batch, ...);
+  // applyGrowth's D-1 recomputation reads cross-unit shares with manager.query.
+  const managerFind = jest.fn();
+  managerFind.mockImplementation(async (entity: unknown): Promise<unknown> => {
+    if (entity === Batch) return lockedBatch ? [lockedBatch] : [];
+    return [];
+  });
+  const managerQuery = jest.fn();
+  managerQuery.mockImplementation(async () => {
+    const detail = tankBatch?.batchDetails?.[0];
+    return [{ biomass: detail?.biomassKg ?? 0, quantity: detail?.quantity ?? 0 }];
+  });
+
   const manager = mock<EntityManager>({
     findOne: managerFindOne,
+    find: managerFind,
     save: managerSave,
     create: managerCreate,
+    query: managerQuery,
   });
 
   const commit = jest.fn().mockResolvedValue(undefined);
@@ -306,8 +355,15 @@ function makeHarness(opts: HarnessOpts = {}): Harness {
     dataSource,
     batchDomainService,
     feedingLedger,
+    // The REAL single writer — recordActualFeeding must acquire the unit lock
+    // and apply growth THROUGH it, not around it.
+    new BiomassGrowthApplierService(),
     mobileCommandReceipts,
     new SiteAuthorizationService(),
+    // Unit-keyed protocol resolver. Real instance over a real ProtocolRateService:
+    // these specs drive it through the mocked DataSource.query, so stubbing it
+    // would hide the very lookup the protocol path depends on.
+    new UnitProtocolResolverService(new ProtocolRateService()),
   );
 
   return {
@@ -485,7 +541,7 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
         settings: mock<ProgramSettings>({ growthApplicationMode: GrowthApplicationMode.DAILY }),
       }),
     });
-    const tankBatch = mock<TankBatch>({ tankId: TANK, tenantId: TENANT, primaryBatchId: BATCH });
+    const tankBatch = unitFixture();
     const { service, commit } = makeHarness({
       execution: dailyExecution,
       tankBatch,
@@ -498,13 +554,14 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
     // daily roll-up and the tank weight is NOT updated now.
     expect(commit).toHaveBeenCalledTimes(1);
     expect(dailyExecution.growthAppliedAt).toBeUndefined();
-    expect(tankBatch.totalBiomassKg).toBeUndefined();
-    expect(tankBatch.avgWeightG).toBeUndefined();
+    expect(tankBatch.totalBiomassKg).toBe(100);
+    expect(tankBatch.avgWeightG).toBe(100);
+    expect(tankBatch.weightProvenance).toBeUndefined();
   });
 
   it('PER_FEEDING (default) applies growth inline: stamps growthAppliedAt + updates the tank', async () => {
     const perFeeding = makeExecution(); // no program → PER_FEEDING default
-    const tankBatch = mock<TankBatch>({ tankId: TANK, tenantId: TENANT, primaryBatchId: BATCH });
+    const tankBatch = unitFixture();
     const { service, commit } = makeHarness({
       execution: perFeeding,
       tankBatch,
@@ -515,7 +572,26 @@ describe('DailyFeedingExecutionService.recordActualFeeding — feed dual-SSoT wr
 
     expect(commit).toHaveBeenCalledTimes(1);
     expect(perFeeding.growthAppliedAt).toBeInstanceOf(Date);
-    // Growth was rolled into the tank now (50kg fed / 1.1 FCR ≈ 45.45kg on 100kg).
-    expect(tankBatch.totalBiomassKg).toBeGreaterThan(100);
+    // Growth was rolled into the tank now: 50 kg fed / 1.1 FCR ≈ 45.4545 kg
+    // added to the unit's 100 kg.
+    expect(tankBatch.totalBiomassKg).toBeCloseTo(145.455, 2);
+    expect(tankBatch.currentBiomassKg).toBeCloseTo(145.455, 2);
+    // Derived FROM batchDetails[] — the deleted absolute-value writer used to
+    // set the aggregate directly and leave the per-batch SSoT behind.
+    const details = tankBatch.batchDetails!;
+    expect(details[0]!.biomassKg).toBeCloseTo(145.455, 2);
+    expect(tankBatch.totalBiomassKg).toBeCloseTo(
+      details.reduce((acc, d) => acc + d.biomassKg, 0),
+      6,
+    );
+    // Growth from feed is a PROJECTION and is tagged as one.
+    expect(tankBatch.weightProvenance).toMatchObject({
+      source: 'fcr_projection',
+      basedOnFcr: 1.1,
+    });
+    // A feeding is not a weighing.
+    expect(tankBatch.lastSamplingAt).toBeUndefined();
+    // The count is untouched by growth.
+    expect(tankBatch.totalQuantity).toBe(1000);
   });
 });

@@ -48,8 +48,15 @@ import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projecti
 
 /**
  * Every farm stock-mutation event whose commit changes a container's fish or
- * cleaner-fish occupancy, and therefore its read-model snapshot. Storage-domain
- * `StockMovementRecorded` (consumables/inventory, not tank stock) is excluded.
+ * cleaner-fish occupancy — or its WEIGHT — and therefore its read-model
+ * snapshot. Storage-domain `StockMovementRecorded` (consumables/inventory, not
+ * tank stock) is excluded.
+ *
+ * `GrowthSampleRecorded` belongs here because a weighing now re-bases the
+ * unit's `avgWeightG` / `totalBiomassKg` onto the measured track. The batch
+ * snapshot carries both figures, so without this subscription the mobile app
+ * would keep showing the FCR-projected weight the operator just disproved.
+ * (Before this phase the event had no consumer at all.)
  */
 const STOCK_MUTATION_EVENTS = [
   'BatchCreated',
@@ -59,6 +66,7 @@ const STOCK_MUTATION_EVENTS = [
   'CullRecorded',
   'CleanerFishMortalityRecorded',
   'FeedingRecorded',
+  'GrowthSampleRecorded',
 ] as const;
 
 @Injectable()

@@ -51,6 +51,9 @@ import { WaterTemperatureService } from '../water-quality/services/water-tempera
 // D-7 (plan-dışı yem bağlama): stateless motor yardımcıları doğrudan provider —
 // FeedingProtocolModule import'u modül döngüsü yaratırdı (BatchModule emsali).
 import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.service';
+// Unit-keyed protocol lookup + rate SSoT — FeedSelectorService and the legacy
+// daily-plan engine both resolve "which protocol feeds this tank" through it.
+import { UnitProtocolResolverService } from '../feeding-protocol/services/unit-protocol-resolver.service';
 import { DayPlanRecalcService } from '../feeding-protocol/services/day-plan-recalc.service';
 import { BiomassGrowthApplierService } from '../feeding-protocol/services/biomass-growth-applier.service';
 
@@ -119,6 +122,7 @@ import { FinanceModule } from '../finance/finance.module';
     FeedingLedgerService,
     // D-7: CreateFeedingRecordHandler plan-dışı yemi aktif gün planına bağlar.
     ProtocolRateService,
+    UnitProtocolResolverService,
     DayPlanRecalcService,
     BiomassGrowthApplierService,
     MobileCommandReceiptService,

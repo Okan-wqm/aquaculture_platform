@@ -27,6 +27,9 @@ import { Tank } from '../../../tank/entities/tank.entity';
 import { Feed } from '../../../feed/entities/feed.entity';
 import { BatchDomainService } from '../../../batch/services/batch-domain.service';
 import { FeedingLedgerService } from '../../services/feeding-ledger.service';
+import { BiomassGrowthApplierService } from '../../../feeding-protocol/services/biomass-growth-applier.service';
+import { ProtocolRateService } from '../../../feeding-protocol/services/protocol-rate.service';
+import { UnitProtocolResolverService } from '../../../feeding-protocol/services/unit-protocol-resolver.service';
 import { BilinearInterpolationService } from '../../services/bilinear-interpolation.service';
 import { WaterTemperatureService } from '../../../water-quality/services/water-temperature.service';
 import { DailyFeedingExecution } from '../../entities/daily-feeding-execution.entity';
@@ -138,8 +141,18 @@ function makeService(siteIdOnManager: string | null): {
     dataSource,
     {} as BatchDomainService,
     {} as FeedingLedgerService,
+    // `lockUnitForGrowth` answers null for a tank with no TankBatch row — a
+    // REAL outcome of the collaborator, so the post-authz step below fails with
+    // the service's own BadRequestException. An empty object would throw
+    // `lockUnitForGrowth is not a function` instead, and the `rejects.not
+    // .toBeInstanceOf(ForbiddenException)` assertions would pass on a broken
+    // double rather than on the behaviour they name.
+    {
+      lockUnitForGrowth: async () => null,
+    } as Partial<BiomassGrowthApplierService> as BiomassGrowthApplierService,
     receipts,
     new SiteAuthorizationService(),
+    new UnitProtocolResolverService(new ProtocolRateService()),
   );
   return { service, queryRunner };
 }

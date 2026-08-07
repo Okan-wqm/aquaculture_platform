@@ -7630,6 +7630,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/__tests__/e2e/running-fcr-sweep.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/__tests__/e2e/sentinel-erasure-authorization-trigger.postgres.spec.ts",
       "prettier_managed": true
     },
@@ -7691,6 +7697,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/app.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/batch/__tests__/batch-protocol-id-retired.architecture.spec.ts",
       "prettier_managed": true
     },
     {
@@ -8518,6 +8530,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/batch/utils/unit-for-batch.util.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/cache/farm-cache.service.ts",
       "prettier_managed": true
     },
@@ -9251,6 +9269,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/migrations/__tests__/1808000000000-AddSatelliteCoverageProvenance.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/__tests__/1808600000000-AddTankBatchWeightProvenance.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/__tests__/1808700000000-DropBatchProtocolId.spec.ts",
       "prettier_managed": true
     },
     {
@@ -10180,6 +10210,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/migrations/1808500000000-RestoreAuditImmutabilityContract.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1808600000000-AddTankBatchWeightProvenance.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1808700000000-DropBatchProtocolId.ts",
       "prettier_managed": true
     },
     {
@@ -11313,6 +11355,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/biomass-growth-applier.measurement.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/__tests__/biomass-growth-applier.service.spec.ts",
       "prettier_managed": true
     },
@@ -11422,6 +11470,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/__tests__/raw-sql-entity-backed.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/unit-protocol-resolver.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/__tests__/weighing-drives-the-plan.spec.ts",
       "prettier_managed": true
     },
     {
@@ -11626,6 +11686,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/feeding-protocol/services/protocol-validation.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/feeding-protocol/services/unit-protocol-resolver.service.ts",
       "prettier_managed": true
     },
     {
@@ -56306,7 +56372,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "0612e928d0180e08aa2bb554de6cbfb769545a84ef96a50f03d36ef4410bb8fc",
+      "content_sha256": "b593ff2319c18cddbce72867c56e0b3f53410c17cadbf253bbaa01dbaccb6830",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",
@@ -56982,10 +57048,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9346,
+  "file_count": 9357,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9165,
-  "managed_file_list_sha256": "80bf4312f8765645f59a0abfcda3c7d63c3295f7dc88efd3dfaa68767435b031",
+  "managed_count": 9176,
+  "managed_file_list_sha256": "9b90ecd71112f65ebf9333a0c0656a5ee2efc83bf04297ee7b8366ac3317f4c5",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

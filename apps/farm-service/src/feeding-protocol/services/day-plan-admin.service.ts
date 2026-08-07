@@ -41,6 +41,7 @@ import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { MealPlanGeneratorService, mixedTankStats } from './meal-plan-generator.service';
 import { DayPlanRecalcService } from './day-plan-recalc.service';
+import { tankBandWeightG } from './protocol-rate.service';
 import { calendarDayIn } from './meal-schedule.util';
 import { collectFeedSourceFeedIds, buildFeedFcrMatrixMap } from './feed-fcr-source.util';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
@@ -138,7 +139,7 @@ export class DayPlanAdminService {
         stock: {
           fishCount: tankBatch.totalQuantity,
           biomassKg: Number(tankBatch.totalBiomassKg || 0),
-          avgWeightG: Number(tankBatch.avgWeightG || 0),
+          avgWeightG: tankBandWeightG(tankBatch),
           ...mixedTankStats(tankBatch.batchDetails),
         },
         temperature,

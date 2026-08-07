@@ -8530,3 +8530,31 @@ Severity: MEDIUM. Discovered 2026-08-06 while planning the v4 tablet control boa
 **Fix:** `AppShell` is now the single viewport-aware seam, choosing between the handheld shell and a three-pane board. The breakpoint is two-dimensional — `(min-width:900px) and (min-height:600px)` — because the widest phone in landscape (932x430) clears any width-only threshold a tablet can also clear; height is the only reliable discriminator. Tailwind's default breakpoints are replaced rather than extended, so an accidental laptop case is structurally impossible. `board-breakpoint.spec.ts` fails the build if the Tailwind literal and the TS literal diverge or the height term is dropped.
 
 **Not done:** the feeders strip and the site/system scope picker. Both need backend this client cannot reach — see ORPHAN-MEDIUM-575 (corrected: the VFD surface DOES exist in `apps/sensor-service/src/vfd/`; it is the mobile client that has no VFD documents).
+
+## ORPHAN-CRITICAL-600 — weighing fish changed nothing: the biomass loop never read a measurement — RESOLVED (this PR)
+
+Severity: CRITICAL. Discovered 2026-08-06 auditing the feeding loop.
+
+**Problem:** `growth/handlers/record-growth-sample.handler.ts` wrote only `Batch.weight.actual`; it never touched `TankBatch`. Every plan, band, rate and forecast path reads `TankBatch.avgWeightG`. So weighing 200 fish and finding them 40% off the model changed no plan, no band, no feed type and no `plannedTotalKg`. Biomass evolved forever as `biomass += fedKg / assumedFCR` — a projection nothing could correct. `TankBatch.lastSamplingAt` had no writer anywhere in the repo.
+
+**Fix:** `BiomassGrowthApplierService.reconcileMeasuredWeight` shares one private writer with `applyGrowth` — same lock order, same proportional distribution across `batchDetails` (correct, because a mixed tank is one size-graded cohort and a sample represents the tank). The writer takes a REQUIRED discriminated `BiomassWriteProvenance`, so a growth write that does not declare whether it was measured or projected is inexpressible. `TankBatch.weightProvenance` stores the measured value, the projection it superseded, and the error between them — projected-vs-measured error is a stored fact for the first time. A sample asserts an average WEIGHT, never a population: `totalQuantity` is untouched and `TankBatchService.applyBatchDelta` stays the sole count owner.
+
+**Not done:** `RecordGrowthSamplePayload.tankId` stays optional (making it required is a breaking GraphQL input change); ambiguity is caught fail-closed instead — a batch in >1 tank with no `tankId` throws rather than guessing.
+
+## ORPHAN-CRITICAL-601 — the FCR alert sweep ran for months on a predicate that can never be true — RESOLVED (this PR)
+
+Severity: CRITICAL. Discovered 2026-08-06.
+
+**Problem:** the 18:00 sweep in `feeding-cron-v2.service.ts` selected `isActive = true AND (fcr->>'actual')::numeric > 0`. The only writer of `fcr.actual` is `close-batch.handler.ts`, which sets `isActive = false` and `status = CLOSED` in the same block. A live batch has `fcr.actual = 0`; a closed batch fails the other two terms. Unsatisfiable — zero `FCRAlertEvent` have ever been emitted, though the alert-engine consumer exists. The existing spec mocked `manager.query` to return rows, so it passed while the feature was dead.
+
+**Fix:** the running FCR is now maintained on live batches, and the sweep targets them. The new spec exercises the real predicate against real postgres and goes red if it regresses.
+
+## ORPHAN-HIGH-602 — `Batch.protocolId` was a dead column carrying an authoritative-sounding lie — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-06.
+
+**Problem:** the column was declared with a doc comment stating the protocol is bound to the batch and follows the fish. No code ever wrote it, and it pointed at the retired v1 `feeding_protocols` table. Authority is `ProtocolAssignment.unitId`, which enforces one active assignment per unit via a partial unique index. Three legacy readers still fell back to the dead column, one of them unconditionally.
+
+**Fix:** readers repointed at the v2 assignment through a single resolver; column and comment removed. Also corrected the mixed-tank band comment, which claimed the band is picked from the dominant-biomass batch while the code correctly uses the tank-wide blended weight.
+
+**BREAKING CHANGE:** `Batch.protocolId` removed from the GraphQL schema and the entity.

@@ -803,7 +803,6 @@ type Batch
   description: String
   speciesId: String!
   strain: String
-  protocolId: ID
   inputType: BatchInputType!
   batchType: BatchType!
   sourceType: String

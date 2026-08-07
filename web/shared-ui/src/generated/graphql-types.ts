@@ -1006,7 +1006,6 @@ export type Batch = {
   mortalitySummary: Scalars['JSON']['output'];
   name?: Maybe<Scalars['String']['output']>;
   notes?: Maybe<Scalars['String']['output']>;
-  protocolId?: Maybe<Scalars['ID']['output']>;
   /** @deprecated Use purchaseCostDecimal (exact decimal string, ADR-0004). */
   purchaseCost?: Maybe<Scalars['Float']['output']>;
   purchaseCostDecimal?: Maybe<Scalars['Decimal']['output']>;

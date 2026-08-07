@@ -40,12 +40,31 @@ import type { Batch } from '../../../batch/entities/batch.entity';
 import type { FCRCalculationService } from '../../services/fcr-calculation.service';
 import type { BackdatePolicyService } from '../../../common/services/backdate-policy.service';
 import type { OutboxPublisher } from '@platform/outbox';
+import {
+  BiomassGrowthApplierService,
+  type LockedUnit,
+} from '../../../feeding-protocol/services/biomass-growth-applier.service';
+import type { DayPlanRecalcService } from '../../../feeding-protocol/services/day-plan-recalc.service';
+
+/**
+ * Partial double. The repo's standard spec idiom (see
+ * biomass-growth-applier.service.spec.ts): double-widening casts are a banned
+ * construct, and a Partial<T> widened once here keeps every call site free of
+ * them.
+ */
+function mock<T>(impl: Partial<T>): T {
+  return impl as T;
+}
 
 // Valid UUID v4 — runInTenantTransaction rejects non-UUID tenant IDs.
 const TENANT_UUID = '11111111-1111-4111-8111-111111111111';
 
 interface HarnessOpts {
   batch?: Partial<Batch> | null;
+  /** Unit returned by lockUnitForGrowth; null = the batch is in no tank. */
+  lockedUnit?: LockedUnit | null;
+  /** Rows resolveUnitHoldingBatch's raw lookup answers with. */
+  unitLookupRows?: Array<{ tankId: string }>;
   previousMeasurement?: Partial<GrowthMeasurement> | null;
   measurementSaveImpl?: (entity: GrowthMeasurement) => Promise<GrowthMeasurement>;
   batchSaveImpl?: (entity: Batch) => Promise<Batch>;
@@ -135,7 +154,13 @@ function makeHarness(opts: HarnessOpts = {}) {
         calculateStatistics() {
           (this as GrowthMeasurement).averageWeight = 250;
           (this as GrowthMeasurement).weightCV = 8;
-          (this as GrowthMeasurement).estimatedBiomass = 250 * 1000;
+          // GrowthMeasurement.calculateStatistics defines estimatedBiomass as
+          // averageWeight × populationSize / 1000. The double must honour that
+          // invariant: the handler now DERIVES the batch's measured average
+          // back out of the biomass, so a double that breaks the relation makes
+          // the batch look 1000× heavier than the fish it just weighed.
+          (this as GrowthMeasurement).estimatedBiomass =
+            (250 * (this as GrowthMeasurement).populationSize) / 1000;
           (this as GrowthMeasurement).statistics = {} as GrowthMeasurement['statistics'];
         },
         evaluatePerformance() {
@@ -171,6 +196,31 @@ function makeHarness(opts: HarnessOpts = {}) {
   });
   const outboxPublisher = { enqueue } as unknown as OutboxPublisher;
 
+  // resolveUnitHoldingBatch's jsonb lookup runs on the tx manager. Installed via
+  // Object.assign (not `mockManager.query.mockResolvedValue(...)`) because the
+  // shared createMockDataSource factory has historically shipped without a
+  // `query` double, and this spec must not depend on which revision of it the
+  // resolver picks up.
+  const managerQuery = jest.fn().mockResolvedValue(opts.unitLookupRows ?? []);
+  Object.assign(mockManager, { query: managerQuery });
+
+  // The applier's OWN behaviour is proven in biomass-growth-applier*.spec.ts.
+  // Here the unit under test is the HANDLER'S WIRING, so lockUnitForGrowth /
+  // reconcileMeasuredWeight are spies — but stampBatchWeight delegates to the
+  // REAL implementation, because the no-unit branch's batch provenance write is
+  // behaviour this spec does assert.
+  const realApplier = new BiomassGrowthApplierService();
+  const lockUnitForGrowth = jest.fn().mockResolvedValue(opts.lockedUnit ?? null);
+  const reconcileMeasuredWeight = jest.fn().mockResolvedValue(null);
+  const growthApplier = mock<BiomassGrowthApplierService>({
+    lockUnitForGrowth,
+    reconcileMeasuredWeight,
+    stampBatchWeight: realApplier.stampBatchWeight.bind(realApplier),
+  });
+
+  const recalcForUnit = jest.fn().mockResolvedValue(null);
+  const recalcService = mock<DayPlanRecalcService>({ recalcForUnit });
+
   const handler = new RecordGrowthSampleHandler(
     dataSource as DataSource,
     measurementRepository as unknown as Repository<GrowthMeasurement>,
@@ -178,6 +228,8 @@ function makeHarness(opts: HarnessOpts = {}) {
     fcrService,
     backdatePolicy,
     outboxPublisher,
+    growthApplier,
+    recalcService,
   );
 
   return {
@@ -189,6 +241,11 @@ function makeHarness(opts: HarnessOpts = {}) {
     measurementSave,
     batchSave,
     backdatePolicy: backdatePolicy as unknown as { validate: jest.Mock },
+    lockUnitForGrowth,
+    reconcileMeasuredWeight,
+    recalcForUnit,
+    managerQuery,
+    batchRow,
   };
 }
 
@@ -326,5 +383,101 @@ describe('RecordGrowthSampleHandler — transactional outbox', () => {
     );
     expect(backdatePolicy.validate).toHaveBeenCalledTimes(1);
     expect(enqueue).not.toHaveBeenCalled();
+  });
+});
+
+describe('RecordGrowthSampleHandler — the weighing reaches the TANK (Faz 0.1)', () => {
+  const UNIT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+  /** A locked unit that holds the sampled batch. */
+  const lockedUnitHolding = (batchId: string): LockedUnit =>
+    ({
+      tankBatch: { tankId: UNIT } as LockedUnit['tankBatch'],
+      batches: new Map([[batchId, mock<Batch>({ id: batchId })]]),
+      details: [],
+    }) as LockedUnit;
+
+  it('re-bases the unit onto the MEASURED weight and reprices the live day plan', async () => {
+    const harness = makeHarness({
+      unitLookupRows: [{ tankId: UNIT }],
+      lockedUnit: lockedUnitHolding('batch-1'),
+    });
+
+    await harness.handler.execute(makeCommand());
+
+    // The link that did not exist: the measurement is handed to the unit
+    // primitive with the measured average weight and measurement provenance.
+    expect(harness.lockUnitForGrowth).toHaveBeenCalledWith(
+      expect.anything(),
+      TENANT_UUID,
+      UNIT,
+    );
+    expect(harness.reconcileMeasuredWeight).toHaveBeenCalledTimes(1);
+    const call = harness.reconcileMeasuredWeight.mock.calls[0]!;
+    expect(call[3]).toBe(250); // measurement.averageWeight
+    expect(call[4]).toMatchObject({ source: 'measurement', sampleSize: 3, confidencePercent: 95 });
+
+    // …and today's remaining meals are re-costed from the measured biomass.
+    expect(harness.recalcForUnit).toHaveBeenCalledWith(
+      expect.anything(),
+      TENANT_UUID,
+      UNIT,
+      'growth_sample',
+    );
+  });
+
+  it('publishes the unit on the event so the read model can converge (0.7)', async () => {
+    const harness = makeHarness({
+      unitLookupRows: [{ tankId: UNIT }],
+      lockedUnit: lockedUnitHolding('batch-1'),
+    });
+
+    await harness.handler.execute(makeCommand());
+
+    const event = harness.enqueue.mock.calls[0]![0] as Record<string, unknown>;
+    expect(event['eventType']).toBe('GrowthSampleRecorded');
+    expect(event['tankId']).toBe(UNIT);
+  });
+
+  it('refuses a sample filed against a tank that does not hold the batch', async () => {
+    const harness = makeHarness({
+      unitLookupRows: [{ tankId: UNIT }],
+      // Locked unit holds a DIFFERENT batch — applying this sample would move
+      // another cohort's weight.
+      lockedUnit: lockedUnitHolding('some-other-batch'),
+    });
+
+    await expect(harness.handler.execute(makeCommand())).rejects.toThrow(BadRequestException);
+    expect(harness.reconcileMeasuredWeight).not.toHaveBeenCalled();
+    expect(harness.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the batch spans several tanks and none was named', async () => {
+    const harness = makeHarness({
+      unitLookupRows: [{ tankId: UNIT }, { tankId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }],
+    });
+
+    await expect(harness.handler.execute(makeCommand())).rejects.toThrow(BadRequestException);
+    // Guessing a "dominant" tank would silently re-base fish nobody weighed.
+    expect(harness.reconcileMeasuredWeight).not.toHaveBeenCalled();
+    expect(harness.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('records batch-level provenance (and no tankId) when the batch is in no unit', async () => {
+    const harness = makeHarness({ unitLookupRows: [] });
+
+    await harness.handler.execute(makeCommand());
+
+    expect(harness.reconcileMeasuredWeight).not.toHaveBeenCalled();
+    expect(harness.recalcForUnit).not.toHaveBeenCalled();
+    // The real stampBatchWeight ran on the locked batch row. `batchRow` is a
+    // Partial<Batch> fixture, so narrow it before reading the JSONB block.
+    const weight = harness.batchRow.weight;
+    expect(weight).toBeDefined();
+    expect(weight?.actual.avgWeight).toBe(250);
+    expect(weight?.actual.sampleSize).toBe(3);
+    expect(weight?.actual.confidencePercent).toBe(95);
+    const event = harness.enqueue.mock.calls[0]![0] as Record<string, unknown>;
+    expect(event['tankId']).toBeUndefined();
   });
 });

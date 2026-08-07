@@ -28,7 +28,7 @@ import {
   FeedingDayPlanStatus,
 } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
-import { ProtocolRateService } from './protocol-rate.service';
+import { ProtocolRateService, type BandWeightG } from './protocol-rate.service';
 import {
   effectiveMealSchedule,
   materializeMeals,
@@ -46,8 +46,9 @@ export interface UnitStockState {
   fishCount: number;
   /** Üretim biomass'ı kg (temizlikçi hariç — TankBatch.totalBiomassKg, D-13). */
   biomassKg: number;
-  avgWeightG: number;
-  /** D-2: tankta >1 üretim batch'i var (band dominant-biomass'tan seçilir). */
+  /** Ünite-otoriteli ortalama ağırlık — kurucuları `protocol-rate.service`'te. */
+  avgWeightG: BandWeightG;
+  /** D-2: tankta >1 üretim batch'i var. Bandı ETKİLEMEZ — yalnız rozet/uyarı. */
   mixedBatch?: boolean;
   /** D-2: batch'ler arası ağırlık dağılımının değişim katsayısı (%). */
   weightCvPercent?: number | null;
@@ -55,10 +56,21 @@ export interface UnitStockState {
 
 /**
  * D-2 (SAF, spec pinli): TankBatch.batchDetails SSoT'sinden karışık-tank
- * istatistiği — `mixedBatch` (balıklı üretim batch'i sayısı ≥ 2) + batch'ler
- * arası ortalama-ağırlık dağılımının adet-ağırlıklı değişim katsayısı (%).
- * Band politikası dominant-biomass batch'ten hesaplanır; bu istatistik o
- * varsayımı operatöre GÖRÜNÜR kılar (rozet + yüksek-CV uyarısı).
+ * GÖRÜNÜRLÜK istatistiği — `mixedBatch` (balıklı üretim batch'i sayısı ≥ 2) +
+ * batch'ler arası ortalama-ağırlık dağılımının adet-ağırlıklı değişim
+ * katsayısı (%).
+ *
+ * NE YAPMAZ: batch SEÇMEZ. Bir batch'i "dominant" ilan edip bandı ondan
+ * türetmez, `stock.avgWeightG`'yi değiştirmez, hesabın hiçbir adımına girmez.
+ * Tek çıktısı `DayPlanSnapshot`'a düşen iki alandır (rozet + yüksek-CV uyarısı).
+ *
+ * NEDEN böyle doğru: balık STOKLAMADAN ÖNCE boy ayrımına tabi tutulur, bu
+ * yüzden bir tank TEK boy sınıfı taşır — tek pelet, tek protokol. Band girdisi
+ * bu yüzden tank geneli, adet-ağırlıklı ortalamadır (`stock.avgWeightG`,
+ * BandWeightG): karışık tankın gerçek kohort ağırlığı odur. Bandı tek bir
+ * batch'ten seçmek, tankın tamamını kendi bir örneklemine göre beslemek olurdu.
+ * CV'nin işlevi bandı kaydırmak değil, boy ayrımının bozulduğunu (yüksek CV)
+ * operatöre GÖRÜNÜR kılmaktır — karar insanındır, hesabın değil.
  */
 export function mixedTankStats(
   batchDetails: ReadonlyArray<Pick<BatchDetail, 'quantity' | 'avgWeightG'>> | null | undefined,

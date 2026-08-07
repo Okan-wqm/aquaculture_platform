@@ -70,8 +70,11 @@ export interface DayPlanSnapshot {
   expectedFcr: number;
   fcrResolvedSource: FcrResolvedSource;
   /**
-   * D-2 karışık-tank görünürlüğü (FARM-MEDIUM-231): band dominant-biomass
-   * batch'ten seçilir; tank karışıksa rozet + yüksek ağırlık-CV'sinde uyarı.
+   * D-2 karışık-tank GÖRÜNÜRLÜĞÜ (FARM-MEDIUM-231) — raporlama alanları, hesap
+   * girdisi DEĞİL. Band, yukarıdaki `avgWeightG` (tank geneli adet-ağırlıklı
+   * ortalama) ile çözülür; bu iki alan onu ne seçer ne kaydırır. Tank karışıksa
+   * rozet, yüksek ağırlık-CV'sinde uyarı gösterilir — boy ayrımının bozulduğunu
+   * operatöre bildirmek için (bkz. `mixedTankStats`, meal-plan-generator).
    * B3 öncesi üretilen snapshot'larda alanlar yoktur (opsiyonel bundan).
    */
   mixedBatch?: boolean;
@@ -95,7 +98,14 @@ export interface RecalcLogEntry {
     /** Öğün finalize'ındaki per_meal büyümesi sonrası kalan öğün recalc'ı. */
     | 'meal_growth'
     /** correctMealPour düzeltmesi sonrası growth-delta recalc'ı (C-11). */
-    | 'pour_correction';
+    | 'pour_correction'
+    /**
+     * Tartım ünitenin ağırlığını ÖLÇÜLEN değere oturttu; kalan öğünler
+     * projeksiyondan değil ölçümden fiyatlanır. Gerekçe ayrı bir etiket
+     * taşır ki recalcLog'da "modelin sandığı" ile "tartılan" birbirine
+     * karışmasın.
+     */
+    | 'growth_sample';
   /** Yeniden hesap sonrası kalan öğünlerin toplam planlanan kg'ı. */
   remainingPlannedKg: number;
   biomassKg?: number;

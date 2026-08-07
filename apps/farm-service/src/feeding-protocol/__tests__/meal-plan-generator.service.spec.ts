@@ -12,7 +12,7 @@ import {
   mixedTankStats,
   type ComputeDayPlanInput,
 } from '../services/meal-plan-generator.service';
-import { ProtocolRateService } from '../services/protocol-rate.service';
+import { ProtocolRateService, derivedBandWeightG } from '../services/protocol-rate.service';
 import { FeedingDayPlanStatus } from '../entities/feeding-day-plan.entity';
 import {
   FcrResolvedSource,
@@ -70,7 +70,7 @@ const service = new MealPlanGeneratorService(new ProtocolRateService());
 const baseInput = (): ComputeDayPlanInput => ({
   assignment: { overrides: {}, suspensions: [], currentFeedId: undefined },
   protocol: PROTOCOL,
-  stock: { fishCount: 1000, biomassKg: 50, avgWeightG: 50 },
+  stock: { fishCount: 1000, biomassKg: 50, avgWeightG: derivedBandWeightG(50, 1000) },
   temperature: TEMP_NONE,
   planDate: '2026-07-20',
   timezone: 'Europe/Istanbul',
@@ -122,7 +122,7 @@ describe('MealPlanGeneratorService.computeDayPlan', () => {
       stock: {
         fishCount: 1000,
         biomassKg: 50,
-        avgWeightG: 50,
+        avgWeightG: derivedBandWeightG(50, 1000),
         mixedBatch: true,
         weightCvPercent: 32.5,
       },
@@ -168,7 +168,7 @@ describe('MealPlanGeneratorService.computeDayPlan', () => {
 
   it('produces no plan for an empty unit', () => {
     const input = baseInput();
-    input.stock = { fishCount: 0, biomassKg: 0, avgWeightG: 0 };
+    input.stock = { fishCount: 0, biomassKg: 0, avgWeightG: derivedBandWeightG(0, 0) };
     expect(service.computeDayPlan(input)).toBeNull();
   });
 

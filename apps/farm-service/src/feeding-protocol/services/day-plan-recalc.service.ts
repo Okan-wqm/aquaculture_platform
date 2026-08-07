@@ -45,7 +45,12 @@ import {
 } from '../entities/feeding-day-plan.entity';
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
-import { ProtocolRateService, ResolvedBand } from './protocol-rate.service';
+import {
+  ProtocolRateService,
+  ResolvedBand,
+  tankBandWeightG,
+  type BandWeightG,
+} from './protocol-rate.service';
 import { repriceRemaining } from './meal-schedule.util';
 
 export type RecalcReason = RecalcLogEntry['reason'];
@@ -101,7 +106,10 @@ export class DayPlanRecalcService {
     const tankBatch = await manager.findOne(TankBatch, { where: { tankId: unitId, tenantId } });
     const fishCount = tankBatch?.totalQuantity ?? 0;
     const biomassKg = Number(tankBatch?.totalBiomassKg ?? 0);
-    const avgWeightG = Number(tankBatch?.avgWeightG ?? 0);
+    // Band ağırlığı ÜNİTE aggregate'inden (alan kuralı: tank otoritedir).
+    const avgWeightG = tankBandWeightG(
+      tankBatch ?? { avgWeightG: 0, totalQuantity: 0, totalBiomassKg: 0 },
+    );
 
     // Boş ünite: kalan öğünler iptal, plan kapanır, atama otomatik pause.
     if (fishCount <= 0 || biomassKg <= 0) {
@@ -233,7 +241,7 @@ export class DayPlanRecalcService {
   private applyTransitionHysteresis(
     resolved: ResolvedBand,
     currentIndex: number,
-    avgWeightG: number,
+    avgWeightG: BandWeightG,
     protocol: Pick<FeedingProtocolV2, 'bands' | 'settings'>,
   ): ResolvedBand {
     if (resolved.index === currentIndex) return resolved;

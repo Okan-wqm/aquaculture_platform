@@ -15,11 +15,18 @@
  *   correction for water temperature (default 1.0 when temperature is unknown
  *   or falls outside every configured band).
  *
- * A batch assigns exactly one protocol (`Batch.protocolId`); the rate is always
- * evaluated on the TANK's average weight (mixed tanks feed on the aggregate, per
- * the combined-batch rule), so this service takes a plain `avgWeightG` and an
- * optional `waterTempC` and stays free of any batch/tank/DB dependency — which
- * keeps it pure and unit-testable.
+ * SCOPE — this is the v1 protocol's rate math, kept alongside the rest of the
+ * still-live v1 `feeding_protocols` surface (entity, seeder, query handler). It
+ * has NO production caller: the three that used to reach it did so through
+ * `Batch.protocolId`, a column that never had a writer and has now been
+ * dropped. Protocol-driven rates in production resolve through
+ * `UnitProtocolResolverService` → `ProtocolRateService` (v2, unit-keyed). Do
+ * not wire new callers here — extend the v2 path.
+ *
+ * The rate is always evaluated on the TANK's average weight (a tank is one
+ * size-graded cohort, so mixed tanks feed on the aggregate), which is why this
+ * service takes a plain `avgWeightG` plus an optional `waterTempC` and stays
+ * free of any batch/tank/DB dependency — keeping it pure and unit-testable.
  */
 import { Injectable } from '@nestjs/common';
 import type {

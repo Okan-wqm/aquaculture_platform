@@ -484,6 +484,13 @@ export interface BatchAllocatedToTankEvent extends BaseEvent {
 export interface GrowthSampleRecordedEvent extends BaseEvent {
   eventType: 'GrowthSampleRecorded';
   batchId: string;
+  /**
+   * Unit the sample re-based (additive, v1-compatible). A weighing moves the
+   * tank's avgWeightG / totalBiomassKg, so the farm-stock read model must
+   * refresh that container — without this field the consumer cannot tell which
+   * one changed. Absent when the batch is in no unit (pond-held/unallocated).
+   */
+  tankId?: string;
   measurementId: string;
   sampleSize: number;
   averageWeightG: number;

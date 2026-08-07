@@ -46,6 +46,13 @@ import { BackdatePolicyModule } from '../common/services/backdate-policy.module'
 // Doğrudan provider: FeedingProtocolModule import'u modül döngüsü yaratırdı
 // (BatchModule/HarvestModule emsali).
 import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.service';
+// Tartımın üniteye inmesi (0.1) ve gün planının ölçülen ağırlıktan yeniden
+// fiyatlanması için gereken iki servis. AYNI doğrudan-provider gerekçesi:
+// FeedingProtocolModule'ü import etmek modül döngüsü yaratırdı. İkisi de
+// EntityManager üzerinden çalışır (repository enjeksiyonu yok), bu yüzden
+// ek `forFeature` kaydı gerekmez.
+import { BiomassGrowthApplierService } from '../feeding-protocol/services/biomass-growth-applier.service';
+import { DayPlanRecalcService } from '../feeding-protocol/services/day-plan-recalc.service';
 
 @Module({
   imports: [
@@ -64,6 +71,8 @@ import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.
   providers: [
     FCRCalculationService,
     ProtocolRateService,
+    BiomassGrowthApplierService,
+    DayPlanRecalcService,
     ...GrowthCommandHandlers,
     ...GrowthQueryHandlers,
     ...GrowthResolvers,

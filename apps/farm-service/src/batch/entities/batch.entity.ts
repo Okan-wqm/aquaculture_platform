@@ -33,7 +33,13 @@ import type { BatchDocument } from './batch-document.entity';
 // IP-3: Enums and interfaces extracted to batch.types.ts (keeps entity under 500 lines).
 // Import for local use, then re-export for backward compatibility.
 // All existing `import { BatchStatus } from '../entities/batch.entity'` continue to work.
-import { BatchStatus, BatchInputType, ArrivalMethod, BatchType } from './batch.types';
+import {
+  BatchStatus,
+  BatchInputType,
+  ArrivalMethod,
+  BatchType,
+  OPERATIONAL_BATCH_STATUSES,
+} from './batch.types';
 import type {
   BatchWeight,
   BatchFCR,
@@ -42,7 +48,7 @@ import type {
   BatchMortalitySummary,
 } from './batch.types';
 
-export { BatchStatus, BatchInputType, ArrivalMethod, BatchType };
+export { BatchStatus, BatchInputType, ArrivalMethod, BatchType, OPERATIONAL_BATCH_STATUSES };
 export type {
   BatchWeight,
   BatchFCR,
@@ -107,20 +113,19 @@ export class Batch {
   strain?: string; // Irk/çeşit
 
   // -------------------------------------------------------------------------
-  // BESLEME PROTOKOLÜ
+  // BESLEME PROTOKOLÜ — the batch does NOT carry one.
+  //
+  // A `protocolId` column used to live here, documented as "the protocol is
+  // bound to the batch and follows the fish". Neither half was true: it
+  // referenced the v1 `feeding_protocols` table, and NOTHING in the repo ever
+  // wrote it — no create handler, no update handler, no input DTO. Feeding
+  // authority is UNIT-scoped: `ProtocolAssignment.unitId` (an `Equipment.id`)
+  // holds at most one active row per unit, enforced by the partial unique index
+  // `(tenantId, unitId) WHERE status = 'active'`. That also matches the domain:
+  // the tank owns weight, band, feed type and rate; batch identity is kept for
+  // TRACEABILITY. Resolve a tank's protocol through
+  // `UnitProtocolResolverService`, never through the batch.
   // -------------------------------------------------------------------------
-
-  /**
-   * Atanan besleme protokolü (feeding_protocols.id). Protokol batch'e bağlıdır;
-   * balık kimliği transferlerde kalıcı olduğu için protokol otomatik olarak
-   * balığı takip eder, hasatta batch kapanınca doğal olarak biter. Günlük yem
-   * oranı (feedPercent × sıcaklık çarpanı) bu protokolden hesaplanır. Soft
-   * reference (FK yok) — protokol silinse bile batch kaydı bozulmaz, hesap
-   * protokol-dışı yola düşer.
-   */
-  @Field(() => ID, { nullable: true })
-  @Column({ type: 'uuid', nullable: true })
-  protocolId?: string;
 
   @Field(() => BatchInputType)
   @Column({
@@ -504,12 +509,12 @@ export class Batch {
   }
 
   isOperational(): boolean {
-    return [
-      BatchStatus.ACTIVE,
-      BatchStatus.GROWING,
-      BatchStatus.PRE_HARVEST,
-      BatchStatus.HARVESTING,
-    ].includes(this.status);
+    // WHY the set is not inlined here: the same four statuses gate feeding
+    // (BatchDomainService.assertFeedable) and the running-FCR sweep scope
+    // (LIVE_BATCH_FCR_SCOPE_SQL). Three copies drifted once already — the SQL
+    // copy stopped at ('ACTIVE','GROWING'), so PRE_HARVEST/HARVESTING batches
+    // could be fed but never FCR-alerted. One constant, no drift.
+    return OPERATIONAL_BATCH_STATUSES.includes(this.status);
   }
 
   /**

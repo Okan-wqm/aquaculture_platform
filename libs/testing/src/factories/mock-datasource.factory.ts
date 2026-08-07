@@ -58,6 +58,13 @@ export function createMockDataSource(): MockDataSourceResult {
       qb.getOne = jest.fn().mockResolvedValue(null);
       return qb;
     }),
+    // Raw SQL escape hatch. Handlers reach for `manager.query` whenever the
+    // shape is not expressible through the repository API (jsonb array
+    // membership, LATERAL joins, cross-unit share sums). Without it here every
+    // such handler blows up with "query is not a function" inside the mocked
+    // transaction — an infrastructure failure that looks like a domain bug.
+    // Empty result is the correct default: "no rows matched".
+    query: jest.fn().mockResolvedValue([]),
     getRepository: jest.fn().mockReturnValue({
       find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn().mockResolvedValue(null),

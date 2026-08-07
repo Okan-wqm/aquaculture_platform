@@ -31,6 +31,7 @@ import {
 } from './dto/equipment.response';
 import { TankBatch } from '../batch/entities/tank-batch.entity';
 import { FeedSelectorService } from '../feeding/services/feed-selector.service';
+import { tankBandWeightG } from '../feeding-protocol/services/protocol-rate.service';
 import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
 import { EquipmentDeletePreviewResponse } from './dto/equipment-delete-preview.response';
 import { CreateEquipmentInput } from './dto/create-equipment.input';
@@ -392,7 +393,9 @@ export class EquipmentResolver {
       dailyFeedKg?: number;
     } = {};
 
-    const avgWeightG = Number(tankBatch.avgWeightG);
+    // Band/oran çözümü ÜNİTE aggregate'inden — batch ağırlığı geçirmek derleme
+    // hatasıdır (BandWeightG); tanks-page ile plan motoru aynı sayıyı okur.
+    const avgWeightG = tankBandWeightG(tankBatch);
     const biomassKg = Number(tankBatch.currentBiomassKg ?? tankBatch.totalBiomassKg);
 
     if (tankBatch.primaryBatchId && avgWeightG > 0 && biomassKg > 0) {
@@ -425,6 +428,10 @@ export class EquipmentResolver {
             tenantId,
             schemaName,
             tankBatch.primaryBatchId,
+            // The unit whose protocol assignment governs this tank — the same
+            // `equipment.id` handed to the DataLoader path above, so both
+            // branches of this if/else resolve the identical protocol.
+            equipment.id,
             avgWeightG,
             biomassKg,
             waterTempC,

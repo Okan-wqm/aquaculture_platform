@@ -57,7 +57,6 @@ function makeManager(): EntityManager {
     getDaysInProduction: () => 34,
     initialQuantity: 1000,
     currentQuantity: 900,
-    protocolId: 'p-1',
     weight: mock<Batch['weight']>({
       initial: { avgWeight: 50, totalBiomass: 50, measuredAt: D0 },
       theoretical: { avgWeight: 120, totalBiomass: 108, lastCalculatedAt: D10, basedOnFCR: 1.2 },
@@ -73,8 +72,10 @@ function makeManager(): EntityManager {
     if (entity === Batch) return Promise.resolve(batch);
     return Promise.resolve(null);
   });
-  // C-4: protokol provenansı dominant-biomass ünitesinin aktif v2 atamasından
-  // gelir — ham SQL yolu spec'te tek satırlık sonuçla temsil edilir.
+  // C-4: protokol provenansı dominant-biomass ÜNİTESİNİN aktif v2 atamasından
+  // gelir — ham SQL yolu spec'te tek satırlık sonuçla temsil edilir. Batch'in
+  // kendisi protokol TAŞIMAZ: eski batches_v2.protocolId kolonu (yazarı hiç
+  // olmayan v1 kalıntısı) kaldırıldı, bu yüzden fixture'da da yok.
   const query = jest.fn().mockResolvedValue([
     { protocolId: 'p-v2-1', protocolName: 'Std Protocol' },
   ]);

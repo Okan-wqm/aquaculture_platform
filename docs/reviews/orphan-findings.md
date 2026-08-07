@@ -8504,3 +8504,17 @@ All four are gone. `package.json` no longer has a `postinstall` at all, which al
 **Measured side effect:** the production build went 18.4s → 14.2s, and the app dropped a runtime dependency that wrapped every screen.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-HIGH-598 — the SPA fallback answered a missing asset with HTTP 200 and HTML, and the two new same-origin assets had no cache policy — RESOLVED (this PR)
+
+**Discovered:** 2026-08-07, hardening the deploy surface for the two files the v4 work added (`public/theme-init.js` and the self-hosted Geist faces).
+
+**The silent failure.** `location / { try_files $uri $uri/ /index.html; }` answers a _missing_ `.js`, `.css` or `.woff2` with `index.html` and **HTTP 200**. The browser then executes HTML as JavaScript (parse error, theme layer silently dead — ORPHAN-HIGH-582's shape) or parses it as a font (silent fallback to system-ui — ORPHAN-MEDIUM-572's shape). Nothing 500s, nothing logs, and a status-code health check passes. That is the third member of a family that has already cost this app two production-only defects. Asset extensions now `try_files $uri =404` and 404 honestly; only real routes fall through.
+
+**The cache gap.** `/theme-init.js` and `/fonts/` matched none of the existing blocks and fell to `location /`, which sets no `Cache-Control` at all. `theme-init.js` is unhashed and must stay in step with `useTheme.ts`, so a heuristically-cached copy could drift a deploy behind the hashed bundle and reproduce ORPHAN-HIGH-582 by a different route. It is now `no-store`; the fonts get a day (not `immutable` — their filenames are stable rather than content-hashed, so an immutable year would pin a stale face until someone renamed it).
+
+**A regression this introduced and running it caught.** nginx evaluates **regex** locations before plain **prefix** ones, so adding the asset-extension regex silently stripped `/assets/` of its `immutable` year and `/fonts/` of its headers entirely. Everything still returned 200; only the response headers were wrong. Fixed with `^~` on all three prefix blocks, which makes the prefix win.
+
+Verified against a real nginx container serving the actual `dist/`: `/assets/*.css` immutable-1y, `/icons/` 30d, `/fonts/*.woff2` 86400, `/theme-init.js` `no-store` + `application/javascript`, a missing asset **404**, and `/units` still 200 + HTML. `tests/invariants/mobile-asset-serving.spec.ts` pins all of it, including the `^~` requirement — proven by deliberate break, since removing it breaks caching invisibly.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).

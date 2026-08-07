@@ -43314,6 +43314,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/mobile-asset-serving.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/mobile-csp-headers.spec.ts",
       "prettier_managed": true
     },
@@ -56784,10 +56790,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9313,
+  "file_count": 9314,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9132,
-  "managed_file_list_sha256": "da7952d207def5876cce76def4ec7a6cd658b727601115397cc26ec369fbfb35",
+  "managed_count": 9133,
+  "managed_file_list_sha256": "48f5c690c7f909f14fb5f0ba5d0271fabd5685a425719bfdc84087bcca8600b7",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

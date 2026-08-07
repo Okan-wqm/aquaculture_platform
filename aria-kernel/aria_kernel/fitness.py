@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .batch_containment import guard_item, with_item_failures
 from .impact_graph import list_impact_graphs
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .runs_reader import read_runs_rows
@@ -148,17 +149,32 @@ def agent_fitness_score(
     if not force and last_at is not None and now - last_at < timedelta(days=6):
         return {"schema_version": 1, "cycle_id": cycle_id, "status": "skipped", "reason": "weekly_gate", "last_computed_at": _format_dt(last_at)}
     rows = _compute_agent_fitness(root, cycle_id=cycle_id, computed_at=now)
+    item_failures: list[dict[str, Any]] = []
+    written: list[dict[str, Any]] = []
     for row in rows:
-        append_declared_jsonl(
-            root / "fitness" / "agent-fitness.jsonl",
-            row,
-            expected_surface="fitness_agent",
+        # A weekly-gated hook: losing the batch to one bad row means no fitness
+        # data for six days, while the rows written before it stay on disk and
+        # `agent_fitness_computed` never reports them.
+        ok, _stored = guard_item(
+            item_failures,
+            item_kind="agent_fitness_row",
+            item_id=str(row.get("agent") or row.get("agent_path") or ""),
+            work=lambda row=row: append_declared_jsonl(
+                root / "fitness" / "agent-fitness.jsonl",
+                row,
+                expected_surface="fitness_agent",
+            ),
         )
+        if ok:
+            written.append(row)
     from .tool_registry import append_tools_governance, update_tools_index
 
     update_tools_index(root)
-    append_tools_governance(root, "agent_fitness_computed", {"cycle_id": cycle_id, "agent_count": len(rows), "computed_at": _format_dt(now)})
-    return {"schema_version": 1, "cycle_id": cycle_id, "status": "computed", "computed_at": _format_dt(now), "agent_count": len(rows), "agents": rows}
+    append_tools_governance(root, "agent_fitness_computed", {"cycle_id": cycle_id, "agent_count": len(written), "computed_at": _format_dt(now)})
+    return with_item_failures(
+        {"schema_version": 1, "cycle_id": cycle_id, "status": "computed", "computed_at": _format_dt(now), "agent_count": len(written), "agents": written},
+        item_failures,
+    )
 
 
 def latest_agent_fitness(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:

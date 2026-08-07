@@ -2308,6 +2308,23 @@ def submit_claim_result(
             )
         except GovernanceError as exc:
             reasons.append(f"separation_of_duties: {exc}")
+        # ORPHAN-HIGH-573 — `verify_no_secret_in_envelope` describes itself as
+        # "Hard-fail check — scan agent response envelope before kernel
+        # persists", was exported, was tested, and was called by nothing. Its
+        # sibling `verify_no_secret_in_diff` IS wired, so diffs were scanned
+        # and the envelope carrying agent stdout, stderr and validation_results
+        # was not — the exact leak path its docstring names. This is that
+        # caller, at the moment the docstring specifies.
+        #
+        # The exception message is redacted by construction (pattern name +
+        # count, never the matched value), so appending it to `reasons` cannot
+        # move a secret into the rejection row.
+        try:
+            from .implementation_safety import SecretLeakDetected, verify_no_secret_in_envelope
+
+            verify_no_secret_in_envelope(envelope)
+        except SecretLeakDetected as exc:
+            reasons.append(f"secret_in_envelope: {exc}")
         revalidation = validate_agent_response_evidence(
             response=envelope,
             workspace_root=workspace_root,

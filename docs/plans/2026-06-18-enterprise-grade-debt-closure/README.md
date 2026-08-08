@@ -138,39 +138,39 @@ and `derived_from` fields are forbidden. The invariant in
 `tests/invariants/enterprise-grade-debt-plan-contract.spec.ts` rejects drift in
 that control plane.
 
-Source discovery is not a manually trusted count. CI Full fetches all remote
-heads and runs `npm run gates:capability-source-inventory:remote`. That hosted
-gate compares exact `origin/main` and remote branch heads only; it excludes
-only the trusted detached pull-request ref and the exact event SHA, never a
-named product branch.
+Source discovery is not a manually trusted count. Generic CI validates only
+committed source-manifest and content-addressed source-finding evidence through
+`gates:capability-source-inventory:static` and
+`gates:source-finding-inventory:static`; mutable remote refs and host worktrees
+cannot make an unrelated PR red.
 
-The host gate runs `git fetch --prune origin` and then
+The governed generation lane runs `git fetch --prune origin` and then
 `npm run gates:capability-source-inventory:live`. Pruning makes deleted remote
-refs observable before comparison. The live mode adds locally unique branch
-tips, every dirty registered worktree, and its byte digest evidence. Both
-modes are read-only: the inventory gate itself never fetches, prunes, checks
-out, resets, cleans, resolves, or deletes anything. Inspection failures and
-undeclared, moved-head, base-SHA, kind, digest, or duplicate drift fail closed.
-No remote branch, local branch, or dirty worktree record may disappear merely
-because it becomes integrated or superseded. Retirement requires a nested
-`retirement` record with `RETIRE_APPROVED`, approver, date, snapshot SHA-256,
-content-addressed snapshot URI, evidence, and a `SIGSTORE_BUNDLE_V1`
-authorization. The signed subject is the content-addressed authorization
-statement; that statement binds the snapshot digest and source identity. The
-snapshot, statement, and Sigstore bundle each have their own distinct
-content-addressed URI and SHA-256, and all three artifacts appear in
-`evidence`. Only issuer `https://token.actions.githubusercontent.com` and the
-protected-main `source-retirement.yml` signer identity are trusted. A
-dirty-worktree retirement also binds
-`captured_content_sha256` to the recorded source content digest.
+refs observable before comparison. This explicit lane uses a clean
+repository-owned runner with an independent Git common-dir, then adds locally
+unique branch tips and every registered clean or dirty worktree with exact
+status and content digest evidence. Discovery itself never fetches, prunes,
+checks out, resets, cleans, resolves, or deletes anything. Inspection failures
+and undeclared, moved-head, base-SHA, kind, digest, or duplicate drift fail
+closed.
+No remote branch, local branch, clean worktree, or dirty worktree record may
+disappear merely because it becomes integrated or superseded. The compiler has
+no retirement admission path: every nested `retirement` object is rejected and
+every missing terminal source remains `SOURCE_NO_LONGER_LIVE`. A future removal
+capability requires its own durable governed preservation authority before the
+source-inventory schema can expose it. The v1 manifest's
+`source_retirement_policy` block is verbatim-retained, non-executable historical
+metadata; the parser never consumes it or uses it to authorize removal. It is
+forbidden in v2 and its byte removal belongs to the signed #1064 full-generation
+manifest/artifact cut.
 
 The content-addressed `source-findings.<sha256>.jsonl` selected by
 `finding_inventory.artifact_path` is the occurrence-level finding provenance
 SSoT. It contains one deterministic row per unique `source_id#raw_id`,
 preserving noncanonical legacy variants such as `EDGE-CRITICAL-001-R1`
 verbatim. The manifest pins the artifact bytes, its source-ref set, normalized
-registry-and-schema authority, all 45 source attestations including zero-result
-sources, and every integration-unit targeted-occurrence count. Finding
+registry-and-schema authority, an exact set-equal attestation for every source
+including zero-result sources, and every integration-unit targeted-occurrence count. Finding
 authority is one joint coordinate: the registry JSONL blob and the schema blob
 that defines semantic projection and raw-ID grammar. Reconciled-base and
 discovery-candidate coordinates are attested independently; identical blobs
@@ -311,7 +311,7 @@ for the missing operational evidence.
 
 | ID                              | State  | Owner               | Deadline   | Missing machine proof                                                                                                                                                                                                                                    | Execution plan                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | ------------------------------- | ------ | ------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `P1-WRITER-PROTOCOL-001`        | `OPEN` | `context-manager`   | 2026-07-30 | Fourteen registered historical worktrees still expose writers that do not prove the `finding-registry-v1.lock` protocol.                                                                                                                                 | Preserve every dirty-worktree digest and patch, add the fail-closed/common-lease guard or retire the exact worktree registration through the governed retirement contract, then run `npm run test:finding-registry-authority` and `npm run findings:writer-preflight`; both canonical mutation and source-finding publication must pass the shared preflight.                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `P1-WRITER-PROTOCOL-001`        | `OPEN` | `context-manager`   | 2026-07-30 | Fourteen registered historical worktrees still expose writers that do not prove the `finding-registry-v1.lock` protocol.                                                                                                                                 | Preserve every dirty-worktree digest and patch, add the fail-closed/common-lease guard to every registered writer, then run `npm run test:finding-registry-authority` and `npm run findings:writer-preflight`; both canonical mutation and source-finding publication must pass the shared preflight.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `P1-ALLOCATOR-OIDC-001`         | `OPEN` | `security-reviewer` | 2026-07-30 | The OIDC verifier and authority workflow exist, but there is no retained exact-run proof that a durable repository-global allocation transaction prevents two fresh clones from issuing the same ID while an earlier allocation PR is unmerged.          | Make the protected-main GitHub Actions OIDC workflow the only mutation authority; verify issuer discovery, JWKS key, RS256 signature, audience, repository, protected ref, workflow identity, workflow SHA, run ID/attempt, and token lifetime; bind allocation to a durable repository-global high-water transaction; run an adversarial two-clone allocation test and retain the signed run artifact.                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `P1-AUTOMATION-PUBLICATION-001` | `OPEN` | `security-reviewer` | 2026-07-30 | Live GitHub inspection at `2026-07-30T07:22:24Z` found no `ARIA_GITHUB_APP_*` variables or private-key secret, and the protected-base `automation-publication-admission` context cannot be required until its workflow first exists on protected `main`. | `Okan-wqm` creates or selects a GitHub App installed only on `Okan-wqm/aquaculture_platform`, with requested token permissions exactly Actions `read`, Contents `write`, and Pull requests `write` (no Administration or Workflows permission), then places `ARIA_GITHUB_APP_CLIENT_ID`, `ARIA_GITHUB_APP_INSTALLATION_ID`, `ARIA_GITHUB_APP_SLUG`, and `ARIA_GITHUB_APP_PRIVATE_KEY` only in the `automation-publication` environment. After this bootstrap control-plane PR merges, immediately promote the base-owned admission workflow in one configuration-only PR, add its exact context to `.github/manifests/main-required-status-checks.json` and live branch protection, then retain an exact-head add/close/report retry run proving App scope, GitHub signature, artifact digest, and PR provenance. |
 | `P1-HOST-SOURCE-TRANSFER-001`   | `OPEN` | `infra-expert`      | 2026-07-30 | Local-branch and dirty-worktree rows are retained, but no signed host-source snapshot and transfer artifact lets the isolated runner reproduce their bytes and Git coordinates.                                                                          | Capture each registered host source as an immutable manifest plus required patch/archive bytes without secrets; bind source ID, locator, HEAD, merge base, content SHA-256, and start/end observation pins; sign the manifest with the repository-owned GitHub OIDC/Sigstore identity, verify the bundle after transfer to the isolated runner, run bounded full rediscovery, and replace retained rows only when all digests agree.                                                                                                                                                                                                                                                                                                                                                                              |

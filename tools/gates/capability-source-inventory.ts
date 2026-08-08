@@ -1,153 +1,94 @@
 #!/usr/bin/env ts-node
-import { spawn, spawnSync } from 'node:child_process';
-import { createHash, type Hash } from 'node:crypto';
-import {
-  closeSync,
-  constants,
-  fstatSync,
-  lstatSync,
-  mkdtempSync,
-  openSync,
-  readFileSync,
-  readSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-  type BigIntStats,
-} from 'node:fs';
-import { lstat, open, readlink, type FileHandle } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { isAbsolute, join, sep } from 'node:path';
-import { type Readable } from 'node:stream';
+import { readFileSync, realpathSync } from 'node:fs';
+import { isAbsolute, join } from 'node:path';
 
+import {
+  computeCanonicalGitWorktreeEvidence,
+  HERMETIC_GIT_RUNTIME,
+  InventoryInspectionError,
+} from './lib/hermetic-git-runtime';
+import {
+  REGISTERED_COMMON_DIR_LOCATOR_SCHEMA,
+  WORKTREE_OWNER_CLASSES,
+  discoverRegisteredCommonDirs,
+  type RegisteredCommonDirLocatorV1,
+  type WorktreeOwnerClassV1,
+  type WorktreeCoordinate,
+} from './lib/registered-common-dir-discovery';
+import {
+  SOURCE_INVENTORY_SCHEMA_V2,
+  SOURCE_DISPOSITIONS,
+  SOURCE_KINDS,
+  SOURCE_ROLES,
+  SOURCE_STATES,
+  isSourceDisposition,
+  isSourceState,
+  isWorktreeSourceKind,
+  type SourceDisposition,
+  type SourceKind,
+  type SourceRole,
+  type SourceState,
+} from './lib/capability-source-contract';
 import { REPO_ROOT } from './lib/repo-root';
+
+export { InventoryInspectionError } from './lib/hermetic-git-runtime';
+export {
+  SOURCE_INVENTORY_SCHEMA_V2,
+  SOURCE_DISPOSITIONS,
+  SOURCE_KINDS,
+  SOURCE_ROLES,
+  SOURCE_STATES,
+  type SourceDisposition,
+  type SourceKind,
+  type SourceRole,
+  type SourceState,
+} from './lib/capability-source-contract';
 
 const MANIFEST_PATH = 'docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest.json';
 const MAIN_REF = 'refs/remotes/origin/main';
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
-const MAX_GIT_OUTPUT_BYTES = 256 * 1024 * 1024;
-const MAX_STREAMED_GIT_STDERR_BYTES = 64 * 1024;
-const MAX_BOUNDED_GIT_TEXT_BYTES = 4 * 1024;
-const MAX_RETIREMENT_STATEMENT_BYTES = 64 * 1024;
-const MAX_RETIREMENT_BUNDLE_BYTES = 16 * 1024 * 1024;
-const MAX_RETIREMENT_SNAPSHOT_BYTES = 256 * 1024 * 1024;
-const MAX_COSIGN_OUTPUT_BYTES = 64 * 1024;
-const MINIMUM_COSIGN_VERSION = [3, 0, 4] as const;
-const RETIREMENT_STATEMENT_SCHEMA =
-  'https://app.suderra.com/schemas/capability-source-retirement-authorization/v1';
-const CONTENT_ADDRESSED_ARTIFACT_URI =
-  /^artifact:\/\/sha256\/([0-9a-f]{64})\/([A-Za-z0-9][A-Za-z0-9._/-]{0,511})$/;
-export const TRUSTED_RETIREMENT_ISSUER = 'https://token.actions.githubusercontent.com';
-export const TRUSTED_RETIREMENT_WORKFLOW_IDENTITY =
-  'https://github.com/Okan-wqm/aquaculture_platform/.github/workflows/source-retirement.yml@refs/heads/main';
-const GIT_OBJECT_MODE_REGULAR = '100644';
-const GIT_OBJECT_MODE_EXECUTABLE = '100755';
-const GIT_OBJECT_MODE_SYMLINK = '120000';
+const REPOSITORY_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,127}$/;
+export const SOURCE_INVENTORY_RUNNER_PROFILE =
+  'REPOSITORY_OWNED_INDEPENDENT_COMMON_DIR_V1' as const;
+export const TRUSTED_REMOTE_INVENTORY_WORKFLOW =
+  'Okan-wqm/aquaculture_platform/.github/workflows/ci-full.yml' as const;
+export const TRUSTED_REMOTE_INVENTORY_JOB = 'deploy-ssot-gates' as const;
 const SOURCE_KIND_ORDER: Readonly<Record<SourceKind, number>> = {
   REMOTE_BRANCH: 0,
   LOCAL_BRANCH: 1,
-  DIRTY_WORKTREE: 2,
+  CLEAN_WORKTREE: 2,
+  DIRTY_WORKTREE: 3,
 };
 
-export type SourceKind = 'REMOTE_BRANCH' | 'LOCAL_BRANCH' | 'DIRTY_WORKTREE';
 export type InventoryScope = 'full' | 'remote';
-export type SourceDisposition =
-  | 'ALREADY_ON_MAIN'
-  | 'EXACT_HEAD_PR'
-  | 'FORENSIC_ONLY'
-  | 'PRESERVE_PENDING'
-  | 'REIMPLEMENT'
-  | 'SELECTIVE_EXTRACT'
-  | 'SUPERSEDE';
-export type SourceState =
-  | 'UNASSESSED'
-  | 'ASSESSING'
-  | 'PRESERVED_DIRTY'
-  | 'SUPERSEDED'
-  | 'INTEGRATED';
+export type InventoryCliMode = 'static' | 'live';
 
-interface BranchSourceCoordinate {
+export interface BranchSourceCoordinate {
   kind: 'REMOTE_BRANCH' | 'LOCAL_BRANCH';
   locator: string;
   headSha: string;
+  role: Exclude<SourceRole, 'WORKTREE_PRESERVATION' | 'UNKNOWN'>;
 }
 
-interface DirtyWorktreeSourceCoordinate {
-  kind: 'DIRTY_WORKTREE';
+export type UnclassifiedBranchSourceCoordinate = Omit<BranchSourceCoordinate, 'role'>;
+
+interface WorktreeSourceCoordinate {
+  kind: 'CLEAN_WORKTREE' | 'DIRTY_WORKTREE';
   locator: string;
   headSha: string;
+  role: 'CAPABILITY_CANDIDATE' | 'WORKTREE_PRESERVATION';
+  repositoryId: string;
+  ownerClass: WorktreeOwnerClassV1;
+  statusSha256: string;
   contentSha256: string;
 }
 
-export type SourceCoordinate = BranchSourceCoordinate | DirtyWorktreeSourceCoordinate;
-
-export interface RetirementApproval {
-  status: 'RETIRE_APPROVED';
-  approvedAt: string;
-  approvedBy: string;
-  snapshotSha256: string;
-  snapshotUri: string;
-  capturedContentSha256?: string;
-  evidence: string[];
-  authorization: RetirementAuthorization;
-}
-
-export interface RetirementAuthorization {
-  kind: 'SIGSTORE_BUNDLE_V1';
-  issuer: string;
-  signerIdentity: string;
-  statementSha256: string;
-  statementUri: string;
-  subjectSha256: string;
-  bundleSha256: string;
-  bundleUri: string;
-}
-
-export interface RetirementAuthorizationDecision {
-  authorized: boolean;
-  reason: string;
-  verifiedSubjectSha256: string;
-  verifiedSnapshotSha256: string;
-  verifiedBundleSha256: string;
-  verifiedIssuer: string;
-  verifiedSignerIdentity: string;
-  verifiedSourceId: string;
-  verifiedSourceKind: SourceKind;
-  verifiedSourceLocator: string;
-  verifiedSourceHeadSha: string;
-  verifiedApprovedBy: string;
-  verifiedApprovedAt: string;
-  verifiedCapturedContentSha256?: string;
-}
-
-export interface RetirementAuthorizationContext {
-  source: ManifestSourceCoordinate;
-  approval: RetirementApproval;
-}
-
-export type RetirementAuthorizationVerifier = (
-  context: RetirementAuthorizationContext,
-) => RetirementAuthorizationDecision;
-
-export interface CosignCommandResult {
-  status: number | null;
-  stdout: string;
-  stderr: string;
-  error?: Error;
-}
-
-export interface RetirementVerifierDependencies {
-  invokeCosign?: (args: readonly string[]) => CosignCommandResult;
-}
+export type SourceCoordinate = BranchSourceCoordinate | WorktreeSourceCoordinate;
 
 export interface InventoryCliOptions {
+  mode: InventoryCliMode;
   scope: InventoryScope;
-  retirementEvidenceRoot?: string;
-}
-
-export interface DirtyContentHashObserver {
-  beforeSnapshotVerification?: () => Promise<void> | void;
 }
 
 export interface AncestorMainProof {
@@ -165,15 +106,35 @@ export interface TreeEquivalentMainProof {
 
 export type MainProof = AncestorMainProof | TreeEquivalentMainProof;
 
-export type ManifestSourceCoordinate = SourceCoordinate & {
+interface ManifestSourceGovernance {
   id: string;
   state: SourceState;
   disposition: SourceDisposition;
   mainProof?: MainProof;
-  retirement?: RetirementApproval;
-};
+}
+
+type ManifestBranchSourceCoordinate = Omit<BranchSourceCoordinate, 'role'> &
+  ManifestSourceGovernance & {
+    role: BranchSourceCoordinate['role'] | null;
+  };
+
+type ManifestWorktreeSourceCoordinate = Omit<
+  WorktreeSourceCoordinate,
+  'role' | 'repositoryId' | 'ownerClass' | 'statusSha256'
+> &
+  ManifestSourceGovernance & {
+    role: WorktreeSourceCoordinate['role'] | null;
+    repositoryId: string | null;
+    ownerClass: WorktreeOwnerClassV1 | null;
+    statusSha256: string | null;
+  };
+
+export type ManifestSourceCoordinate =
+  | ManifestBranchSourceCoordinate
+  | ManifestWorktreeSourceCoordinate;
 
 export interface InventoryManifest {
+  schemaVersion: 1 | 2;
   reconciledBaseSha: string;
   sources: ManifestSourceCoordinate[];
 }
@@ -183,15 +144,18 @@ export interface RefCoordinate {
   headSha: string;
 }
 
-export interface WorktreeCoordinate {
-  path: string;
-  headSha: string;
-  branchRef: string | null;
-}
-
 export interface InspectedWorktree extends WorktreeCoordinate {
   dirty: boolean;
-  contentSha256?: string;
+  repositoryId: string;
+  ownerClass: WorktreeOwnerClassV1;
+  statusSha256: string;
+  contentSha256: string;
+}
+
+export interface ExecutionExclusionProofV1 {
+  kind: 'INDEPENDENT_CLEAN_INVENTORY_RUNNER_V1';
+  committed: true;
+  clean: true;
 }
 
 export interface ExecutionIdentity {
@@ -199,6 +163,20 @@ export interface ExecutionIdentity {
   headSha: string;
   branchRef: string | null;
   originRef: string | null;
+  exclusionProof: ExecutionExclusionProofV1 | null;
+}
+
+export interface ExecutionExclusionAdmissionInputV1 {
+  identity: ExecutionIdentity;
+  scope: InventoryScope;
+  githubActions: string | undefined;
+  workflowRef: string | undefined;
+  jobId: string | undefined;
+  localRunnerProfile: string | undefined;
+  checkoutHeadSha: string;
+  checkoutDirty: boolean;
+  executionCommonDir: string;
+  governedCommonDirs: readonly string[];
 }
 
 export interface GitHubActionsIdentityInput {
@@ -219,7 +197,104 @@ export interface DiscoveryInput {
   worktrees: readonly InspectedWorktree[];
   executionIdentity: ExecutionIdentity | null;
   isAncestor: (ancestorSha: string, descendantSha: string) => boolean;
+  classifyBranchSourceRole: (source: UnclassifiedBranchSourceCoordinate) => SourceRole;
   isReachableFromRemote?: (headSha: string) => boolean;
+}
+
+export interface SourceRoleClassificationInput {
+  mainSha: string;
+  sourceHeadSha: string;
+  executionHeadSha: string | null;
+  isAncestor: (ancestorSha: string, descendantSha: string) => boolean;
+  mergeBase: (leftSha: string, rightSha: string) => string;
+  changedPaths: (baseSha: string, headSha: string) => readonly string[];
+}
+
+const INVENTORY_GOVERNANCE_ARTIFACT =
+  /^docs\/plans\/2026-06-18-enterprise-grade-debt-closure\/source-findings\.[0-9a-f]{64}\.jsonl$/;
+const INVENTORY_GOVERNANCE_PATHS = new Set([
+  'docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest.json',
+  'tests/invariants/enterprise-grade-debt-plan-contract.spec.ts',
+  'tests/invariants/source-finding-inventory-contract.spec.ts',
+  'tools/gates/source-finding-inventory.ts',
+]);
+const PLAN_GOVERNANCE_DOCUMENT =
+  'docs/plans/2026-07-30-enterprise-backup-restore-architecture/PLAN.md';
+const PLAN_GOVERNANCE_PATHS = new Set([
+  '.github/workflows/ci-affected.yml',
+  PLAN_GOVERNANCE_DOCUMENT,
+  'scripts/ci/markdownlint-changed.mjs',
+  'tools/quality/format-scope.json',
+]);
+
+function isInventoryGovernancePath(path: string): boolean {
+  return INVENTORY_GOVERNANCE_PATHS.has(path) || INVENTORY_GOVERNANCE_ARTIFACT.test(path);
+}
+
+function normalizeChangedPaths(paths: readonly string[]): string[] | null {
+  const normalized = [...new Set(paths)].sort((left, right) => left.localeCompare(right));
+  return normalized.length > 0 &&
+    normalized.every((path) => path.length > 0 && !path.startsWith('/'))
+    ? normalized
+    : null;
+}
+
+function classifyChangedPathRole(
+  changedPaths: readonly string[],
+  inventoryGovernanceAllowed: boolean,
+): SourceRole {
+  if (changedPaths.some(isInventoryGovernancePath)) {
+    return inventoryGovernanceAllowed && changedPaths.every(isInventoryGovernancePath)
+      ? 'INVENTORY_GOVERNANCE'
+      : 'CAPABILITY_CANDIDATE';
+  }
+  if (changedPaths.includes(PLAN_GOVERNANCE_DOCUMENT)) {
+    return changedPaths.every((path) => PLAN_GOVERNANCE_PATHS.has(path))
+      ? 'PLAN_GOVERNANCE'
+      : 'CAPABILITY_CANDIDATE';
+  }
+  return 'CAPABILITY_CANDIDATE';
+}
+
+/**
+ * Classifies branch purpose from governed paths and graph ancestry, never from a mutable branch
+ * name. Governance branches are omitted from the capability inventory only when their complete
+ * delta is inside one closed authority surface. Mixed deltas remain capability candidates, which
+ * preserves them in both inventory and finding discovery; only malformed or ancestry-invalid
+ * observations fail closed as UNKNOWN.
+ */
+export function classifySourceRole(input: SourceRoleClassificationInput): SourceRole {
+  const mainSha = requireSha(input.mainSha, 'source-role main SHA');
+  const sourceHeadSha = requireSha(input.sourceHeadSha, 'source-role head SHA');
+  const executionHeadSha =
+    input.executionHeadSha === null
+      ? null
+      : requireSha(input.executionHeadSha, 'source-role execution SHA');
+
+  if (
+    executionHeadSha !== null &&
+    executionHeadSha !== sourceHeadSha &&
+    input.isAncestor(executionHeadSha, sourceHeadSha)
+  ) {
+    const executionDelta = normalizeChangedPaths(
+      input.changedPaths(executionHeadSha, sourceHeadSha),
+    );
+    return executionDelta === null ? 'UNKNOWN' : classifyChangedPathRole(executionDelta, true);
+  }
+
+  const commonBase = requireSha(
+    input.mergeBase(mainSha, sourceHeadSha),
+    'source-role merge-base SHA',
+  );
+  if (!input.isAncestor(commonBase, mainSha) || !input.isAncestor(commonBase, sourceHeadSha)) {
+    return 'UNKNOWN';
+  }
+  const branchDelta = normalizeChangedPaths(input.changedPaths(commonBase, sourceHeadSha));
+  if (branchDelta === null) {
+    return 'UNKNOWN';
+  }
+
+  return classifyChangedPathRole(branchDelta, false);
 }
 
 export interface LiveInventory {
@@ -234,9 +309,12 @@ export type InventoryDriftCode =
   | 'RECONCILED_BASE_NOT_ANCESTOR'
   | 'SOURCE_KIND_DRIFT'
   | 'SOURCE_HEAD_DRIFT'
+  | 'SOURCE_ROLE_DRIFT'
+  | 'SOURCE_REPOSITORY_DRIFT'
+  | 'SOURCE_OWNER_DRIFT'
+  | 'SOURCE_STATUS_DRIFT'
   | 'SOURCE_CONTENT_DRIFT'
   | 'SOURCE_MAIN_PROOF_INVALID'
-  | 'SOURCE_RETIREMENT_INVALID'
   | 'SOURCE_UNDECLARED'
   | 'SOURCE_NO_LONGER_LIVE';
 
@@ -250,11 +328,14 @@ interface RawManifestSource {
   kind: SourceKind;
   locator: string;
   head_sha: string;
+  role?: SourceRole;
+  repository_id?: string;
+  owner_class?: WorktreeOwnerClassV1;
+  status_sha256?: string;
   content_sha256?: string;
   state: SourceState;
   disposition: SourceDisposition;
   main_proof?: MainProof;
-  retirement?: RetirementApproval;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -285,40 +366,79 @@ function requireSha256(value: unknown, field: string): string {
 }
 
 function requireSourceKind(value: unknown, field: string): SourceKind {
-  if (value !== 'REMOTE_BRANCH' && value !== 'LOCAL_BRANCH' && value !== 'DIRTY_WORKTREE') {
-    throw new Error(`${field} must be REMOTE_BRANCH, LOCAL_BRANCH, or DIRTY_WORKTREE`);
+  if (!SOURCE_KINDS.includes(value as SourceKind)) {
+    throw new Error(
+      `${field} must be REMOTE_BRANCH, LOCAL_BRANCH, CLEAN_WORKTREE, or DIRTY_WORKTREE`,
+    );
   }
-  return value;
+  return value as SourceKind;
+}
+
+function requireSourceRole(value: unknown, field: string): SourceRole {
+  if (!SOURCE_ROLES.includes(value as SourceRole) || value === 'UNKNOWN') {
+    throw new Error(`${field} must be one explicit non-UNKNOWN source role`);
+  }
+  return value as SourceRole;
+}
+
+function requireRepositoryId(value: unknown, field: string): string {
+  const repositoryId = requireString(value, field);
+  if (!REPOSITORY_ID_PATTERN.test(repositoryId)) {
+    throw new Error(`${field} must be one stable lowercase repository identifier`);
+  }
+  return repositoryId;
+}
+
+function requireWorktreeOwnerClass(value: unknown, field: string): WorktreeOwnerClassV1 {
+  if (!WORKTREE_OWNER_CLASSES.includes(value as WorktreeOwnerClassV1)) {
+    throw new Error(`${field} must be one closed worktree owner class`);
+  }
+  return value as WorktreeOwnerClassV1;
+}
+
+function isWorktreeKind(kind: SourceKind): kind is WorktreeSourceCoordinate['kind'] {
+  return isWorktreeSourceKind(kind);
+}
+
+function isWorktreeSource(source: SourceCoordinate): source is WorktreeSourceCoordinate {
+  return isWorktreeKind(source.kind);
+}
+
+function isManifestWorktreeSource(
+  source: ManifestSourceCoordinate,
+): source is ManifestWorktreeSourceCoordinate {
+  return isWorktreeKind(source.kind);
+}
+
+type StrictManifestWorktreeSourceCoordinate = ManifestWorktreeSourceCoordinate & {
+  role: WorktreeSourceCoordinate['role'];
+  repositoryId: string;
+  ownerClass: WorktreeOwnerClassV1;
+  statusSha256: string;
+};
+
+function isStrictManifestWorktreeSource(
+  source: ManifestSourceCoordinate,
+): source is StrictManifestWorktreeSourceCoordinate {
+  return (
+    isManifestWorktreeSource(source) &&
+    source.role !== null &&
+    source.repositoryId !== null &&
+    source.ownerClass !== null &&
+    source.statusSha256 !== null
+  );
 }
 
 function requireSourceState(value: unknown, field: string): SourceState {
-  if (
-    value !== 'UNASSESSED' &&
-    value !== 'ASSESSING' &&
-    value !== 'PRESERVED_DIRTY' &&
-    value !== 'SUPERSEDED' &&
-    value !== 'INTEGRATED'
-  ) {
-    throw new Error(
-      `${field} must be UNASSESSED, ASSESSING, PRESERVED_DIRTY, SUPERSEDED, or INTEGRATED`,
-    );
+  if (!isSourceState(value)) {
+    throw new Error(`${field} must be one of ${SOURCE_STATES.join(', ')}`);
   }
   return value;
 }
 
 function requireSourceDisposition(value: unknown, field: string): SourceDisposition {
-  if (
-    value !== 'ALREADY_ON_MAIN' &&
-    value !== 'EXACT_HEAD_PR' &&
-    value !== 'FORENSIC_ONLY' &&
-    value !== 'PRESERVE_PENDING' &&
-    value !== 'REIMPLEMENT' &&
-    value !== 'SELECTIVE_EXTRACT' &&
-    value !== 'SUPERSEDE'
-  ) {
-    throw new Error(
-      `${field} must be ALREADY_ON_MAIN, EXACT_HEAD_PR, FORENSIC_ONLY, PRESERVE_PENDING, REIMPLEMENT, SELECTIVE_EXTRACT, or SUPERSEDE`,
-    );
+  if (!isSourceDisposition(value)) {
+    throw new Error(`${field} must be one of ${SOURCE_DISPOSITIONS.join(', ')}`);
   }
   return value;
 }
@@ -334,22 +454,6 @@ function requireRecordArray(value: unknown, field: string): Record<string, unkno
   return value;
 }
 
-function requireStringArray(value: unknown, field: string): string[] {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new Error(`${field} must be a non-empty string array`);
-  }
-  return value.map((entry, index) => requireString(entry, `${field}[${index}]`));
-}
-
-function requireIsoTimestamp(value: unknown, field: string): string {
-  const timestamp = requireString(value, field);
-  const parsed = new Date(timestamp);
-  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString() !== timestamp) {
-    throw new Error(`${field} must be a canonical ISO-8601 UTC timestamp`);
-  }
-  return timestamp;
-}
-
 function compareSources(left: SourceCoordinate, right: SourceCoordinate): number {
   return (
     SOURCE_KIND_ORDER[left.kind] - SOURCE_KIND_ORDER[right.kind] ||
@@ -360,161 +464,6 @@ function compareSources(left: SourceCoordinate, right: SourceCoordinate): number
 
 function isOriginMainAlias(locator: string): boolean {
   return locator === MAIN_REF || locator === 'refs/remotes/origin/HEAD';
-}
-
-interface ContentAddressedArtifactCoordinate {
-  relativePath: string;
-  sha256: string;
-}
-
-function parseContentAddressedArtifactUri(
-  uri: string,
-  expectedSha256: string,
-  field: string,
-): ContentAddressedArtifactCoordinate {
-  const match = CONTENT_ADDRESSED_ARTIFACT_URI.exec(uri);
-  if (!match) {
-    throw new Error(`${field} must use artifact://sha256/<digest>/<safe-relative-name>`);
-  }
-  const [, uriSha256, suffix] = match;
-  if (!uriSha256 || !suffix) {
-    throw new Error(`${field} lost its content-addressed coordinate`);
-  }
-  if (uriSha256 !== expectedSha256) {
-    throw new Error(`${field} digest must equal its declared SHA-256`);
-  }
-  const components = suffix.split('/');
-  if (
-    components.some(
-      (component) =>
-        component.length === 0 ||
-        component === '.' ||
-        component === '..' ||
-        component.includes('\\'),
-    )
-  ) {
-    throw new Error(`${field} contains an unsafe path component`);
-  }
-  return {
-    relativePath: join('sha256', uriSha256, ...components),
-    sha256: uriSha256,
-  };
-}
-
-function parseRetirement(
-  value: unknown,
-  field: string,
-  sourceState: SourceState,
-  sourceKind: SourceKind,
-  sourceContentSha256: string | undefined,
-): RetirementApproval | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  if (!isRecord(value)) {
-    throw new Error(`${field} must be an object`);
-  }
-  if (value.status !== 'RETIRE_APPROVED') {
-    throw new Error(`${field}.status must be RETIRE_APPROVED`);
-  }
-  if (!isTerminalSourceState(sourceState)) {
-    throw new Error(`${field} is allowed only for a terminal source`);
-  }
-
-  const snapshotSha256 = requireSha256(value.snapshot_sha256, `${field}.snapshot_sha256`);
-  const snapshotUri = requireString(value.snapshot_uri, `${field}.snapshot_uri`);
-  parseContentAddressedArtifactUri(snapshotUri, snapshotSha256, `${field}.snapshot_uri`);
-  const capturedContentSha256 =
-    value.captured_content_sha256 === undefined
-      ? undefined
-      : requireSha256(value.captured_content_sha256, `${field}.captured_content_sha256`);
-  if (sourceKind === 'DIRTY_WORKTREE') {
-    if (capturedContentSha256 === undefined) {
-      throw new Error(`${field}.captured_content_sha256 is required for a dirty worktree`);
-    }
-    if (capturedContentSha256 !== sourceContentSha256) {
-      throw new Error(`${field}.captured_content_sha256 must equal source content_sha256`);
-    }
-  } else if (capturedContentSha256 !== undefined) {
-    throw new Error(`${field}.captured_content_sha256 is allowed only for a dirty worktree`);
-  }
-
-  if (!isRecord(value.authorization)) {
-    throw new Error(`${field}.authorization must be an object`);
-  }
-  const authorizationField = `${field}.authorization`;
-  if (value.authorization.kind !== 'SIGSTORE_BUNDLE_V1') {
-    throw new Error(`${authorizationField}.kind must be SIGSTORE_BUNDLE_V1`);
-  }
-  const subjectSha256 = requireSha256(
-    value.authorization.subject_sha256,
-    `${authorizationField}.subject_sha256`,
-  );
-  const bundleUri = requireString(
-    value.authorization.bundle_uri,
-    `${authorizationField}.bundle_uri`,
-  );
-  const bundleSha256 = requireSha256(
-    value.authorization.bundle_sha256,
-    `${authorizationField}.bundle_sha256`,
-  );
-  parseContentAddressedArtifactUri(bundleUri, bundleSha256, `${authorizationField}.bundle_uri`);
-  const statementSha256 = requireSha256(
-    value.authorization.statement_sha256,
-    `${authorizationField}.statement_sha256`,
-  );
-  const statementUri = requireString(
-    value.authorization.statement_uri,
-    `${authorizationField}.statement_uri`,
-  );
-  parseContentAddressedArtifactUri(
-    statementUri,
-    statementSha256,
-    `${authorizationField}.statement_uri`,
-  );
-  if (subjectSha256 !== statementSha256) {
-    throw new Error(`${authorizationField}.subject_sha256 must equal statement_sha256`);
-  }
-  const evidence = requireStringArray(value.evidence, `${field}.evidence`);
-  if (evidence.length !== 3) {
-    throw new Error(`${field}.evidence must contain exactly three retirement artifacts`);
-  }
-  if (new Set(evidence).size !== evidence.length) {
-    throw new Error(`${field}.evidence must not contain duplicate artifact URIs`);
-  }
-  for (const requiredUri of [snapshotUri, statementUri, bundleUri]) {
-    if (!evidence.includes(requiredUri)) {
-      throw new Error(
-        `${field}.evidence must include snapshot, authorization statement, and signature bundle URIs`,
-      );
-    }
-  }
-  if (new Set([snapshotUri, statementUri, bundleUri]).size !== 3) {
-    throw new Error(`${field} artifact URIs must be distinct`);
-  }
-
-  return {
-    status: value.status,
-    approvedAt: requireIsoTimestamp(value.approved_at, `${field}.approved_at`),
-    approvedBy: requireString(value.approved_by, `${field}.approved_by`),
-    snapshotSha256,
-    snapshotUri,
-    ...(capturedContentSha256 ? { capturedContentSha256 } : {}),
-    evidence,
-    authorization: {
-      kind: value.authorization.kind,
-      issuer: requireString(value.authorization.issuer, `${authorizationField}.issuer`),
-      signerIdentity: requireString(
-        value.authorization.signer_identity,
-        `${authorizationField}.signer_identity`,
-      ),
-      statementSha256,
-      statementUri,
-      subjectSha256,
-      bundleSha256,
-      bundleUri,
-    },
-  };
 }
 
 function parseMainProof(
@@ -561,17 +510,44 @@ function parseMainProof(
   throw new Error(`${field}.kind must be ANCESTOR or TREE_EQUIVALENT`);
 }
 
-function parseRawManifestSource(source: Record<string, unknown>, index: number): RawManifestSource {
+function parseRawManifestSource(
+  source: Record<string, unknown>,
+  index: number,
+  schemaVersion: 1 | 2,
+): RawManifestSource {
   const field = `capability_reconciliation.sources[${index}]`;
   const kind = requireSourceKind(source.kind, `${field}.kind`);
   const locator = requireString(source.locator, `${field}.locator`);
   const state = requireSourceState(source.state, `${field}.state`);
   const disposition = requireSourceDisposition(source.disposition, `${field}.disposition`);
   const headSha = requireSha(source.head_sha, `${field}.head_sha`);
-  const contentSha256 =
-    kind === 'DIRTY_WORKTREE'
-      ? requireSha256(source.content_sha256, `${field}.content_sha256`)
-      : undefined;
+  const role = schemaVersion === 2 ? requireSourceRole(source.role, `${field}.role`) : undefined;
+  if (schemaVersion === 1) {
+    if (source.role !== undefined) {
+      throw new Error(`${field}.role requires source_inventory_schema v2`);
+    }
+    if (kind === 'CLEAN_WORKTREE') {
+      throw new Error(`${field}.kind CLEAN_WORKTREE requires source_inventory_schema v2`);
+    }
+    for (const migratedField of ['repository_id', 'owner_class', 'status_sha256'] as const) {
+      if (source[migratedField] !== undefined) {
+        throw new Error(`${field}.${migratedField} requires source_inventory_schema v2`);
+      }
+    }
+  }
+  const contentSha256 = isWorktreeKind(kind)
+    ? requireSha256(source.content_sha256, `${field}.content_sha256`)
+    : undefined;
+
+  if (schemaVersion === 2 && isWorktreeKind(kind)) {
+    const expectedRole =
+      kind === 'CLEAN_WORKTREE' ? 'WORKTREE_PRESERVATION' : 'CAPABILITY_CANDIDATE';
+    if (role !== expectedRole) {
+      throw new Error(`${field}.role must be ${expectedRole} for ${kind}`);
+    }
+  } else if (schemaVersion === 2 && role === 'WORKTREE_PRESERVATION') {
+    throw new Error(`${field}.role WORKTREE_PRESERVATION is allowed only for a worktree`);
+  }
 
   if (kind === 'REMOTE_BRANCH' && !locator.startsWith('refs/remotes/origin/')) {
     throw new Error(`${field}.locator must be an origin remote ref`);
@@ -579,8 +555,13 @@ function parseRawManifestSource(source: Record<string, unknown>, index: number):
   if (kind === 'LOCAL_BRANCH' && !locator.startsWith('refs/heads/')) {
     throw new Error(`${field}.locator must be a local branch ref`);
   }
-  if (kind === 'DIRTY_WORKTREE' && !isAbsolute(locator)) {
+  if (isWorktreeKind(kind) && !isAbsolute(locator)) {
     throw new Error(`${field}.locator must be an absolute worktree path`);
+  }
+  if (source.retirement !== undefined) {
+    throw new Error(
+      `${field}.retirement is forbidden: source retirement remains fail-closed until a durable governed preservation authority exists`,
+    );
   }
 
   return {
@@ -588,9 +569,13 @@ function parseRawManifestSource(source: Record<string, unknown>, index: number):
     kind,
     locator,
     head_sha: headSha,
-    ...(kind === 'DIRTY_WORKTREE'
+    ...(role !== undefined ? { role } : {}),
+    ...(isWorktreeKind(kind) ? { content_sha256: contentSha256 } : {}),
+    ...(schemaVersion === 2 && isWorktreeKind(kind)
       ? {
-          content_sha256: contentSha256,
+          repository_id: requireRepositoryId(source.repository_id, `${field}.repository_id`),
+          owner_class: requireWorktreeOwnerClass(source.owner_class, `${field}.owner_class`),
+          status_sha256: requireSha256(source.status_sha256, `${field}.status_sha256`),
         }
       : {}),
     state,
@@ -601,13 +586,6 @@ function parseRawManifestSource(source: Record<string, unknown>, index: number):
       kind,
       headSha,
       disposition,
-    ),
-    retirement: parseRetirement(
-      source.retirement,
-      `${field}.retirement`,
-      state,
-      kind,
-      contentSha256,
     ),
   };
 }
@@ -621,12 +599,43 @@ export function parseInventoryManifest(raw: unknown): InventoryManifest {
   }
 
   const reconciliation = raw.capability_reconciliation;
+  const schemaVersion: 1 | 2 =
+    reconciliation.source_inventory_schema === undefined
+      ? 1
+      : reconciliation.source_inventory_schema === SOURCE_INVENTORY_SCHEMA_V2
+        ? 2
+        : (() => {
+            throw new Error(
+              `capability_reconciliation.source_inventory_schema must be ${SOURCE_INVENTORY_SCHEMA_V2}`,
+            );
+          })();
+  if (schemaVersion === 2 && reconciliation.source_retirement_policy !== undefined) {
+    throw new Error(
+      'capability_reconciliation.source_retirement_policy is forbidden in source inventory v2',
+    );
+  }
   const sources = requireRecordArray(
     reconciliation.sources,
     'capability_reconciliation.sources',
-  ).map(parseRawManifestSource);
+  ).map((source, index) => parseRawManifestSource(source, index, schemaVersion));
+  const duplicateIds = sources
+    .map((source) => source.id)
+    .filter((id, index, ids) => ids.indexOf(id) !== index);
+  const duplicateLocators = sources
+    .map((source) => source.locator)
+    .filter((locator, index, locators) => locators.indexOf(locator) !== index);
+  if (duplicateIds.length > 0 || duplicateLocators.length > 0) {
+    throw new Error(
+      `capability_reconciliation.sources must have unique IDs and locators; duplicate_ids=${[
+        ...new Set(duplicateIds),
+      ]
+        .sort()
+        .join(',')}; duplicate_locators=${[...new Set(duplicateLocators)].sort().join(',')}`,
+    );
+  }
 
   return {
+    schemaVersion,
     reconciledBaseSha: requireSha(
       reconciliation.reconciled_base_sha,
       'capability_reconciliation.reconciled_base_sha',
@@ -637,17 +646,30 @@ export function parseInventoryManifest(raw: unknown): InventoryManifest {
         state: source.state,
         disposition: source.disposition,
         ...(source.main_proof ? { mainProof: source.main_proof } : {}),
-        ...(source.retirement ? { retirement: source.retirement } : {}),
       };
-      if (source.kind === 'DIRTY_WORKTREE') {
+      if (isWorktreeKind(source.kind)) {
         if (!source.content_sha256) {
-          throw new Error(`capability_reconciliation source ${source.id} lost its content SHA-256`);
+          throw new Error(
+            `capability_reconciliation source ${source.id} lost its worktree content digest`,
+          );
+        }
+        if (
+          schemaVersion === 2 &&
+          (!source.repository_id || !source.owner_class || !source.status_sha256 || !source.role)
+        ) {
+          throw new Error(
+            `capability_reconciliation source ${source.id} lost its v2 authority fields`,
+          );
         }
         return {
           ...governance,
           kind: source.kind,
           locator: source.locator,
           headSha: source.head_sha,
+          role: (source.role ?? null) as WorktreeSourceCoordinate['role'] | null,
+          repositoryId: source.repository_id ?? null,
+          ownerClass: source.owner_class ?? null,
+          statusSha256: source.status_sha256 ?? null,
           contentSha256: source.content_sha256,
         };
       }
@@ -656,6 +678,7 @@ export function parseInventoryManifest(raw: unknown): InventoryManifest {
         kind: source.kind,
         locator: source.locator,
         headSha: source.head_sha,
+        role: (source.role ?? null) as BranchSourceCoordinate['role'] | null,
       };
     }),
   };
@@ -683,53 +706,6 @@ export function parseRefList(raw: string): RefCoordinate[] {
   return refs;
 }
 
-export function parseWorktreeList(raw: string): WorktreeCoordinate[] {
-  const worktrees: WorktreeCoordinate[] = [];
-  let path: string | null = null;
-  let headSha: string | null = null;
-  let branchRef: string | null = null;
-
-  const flush = (): void => {
-    if (path === null) {
-      return;
-    }
-    if (headSha === null) {
-      throw new Error(`registered worktree ${path} has no HEAD`);
-    }
-    worktrees.push({ path, headSha, branchRef });
-    path = null;
-    headSha = null;
-    branchRef = null;
-  };
-
-  for (const field of raw.split('\0')) {
-    if (field.length === 0) {
-      continue;
-    }
-    if (field.startsWith('worktree ')) {
-      flush();
-      path = field.slice('worktree '.length);
-      if (!isAbsolute(path)) {
-        throw new Error(`registered worktree path must be absolute: ${path}`);
-      }
-      continue;
-    }
-    if (field.startsWith('HEAD ')) {
-      headSha = requireSha(field.slice('HEAD '.length), `worktree ${path ?? '<unknown>'}.HEAD`);
-      continue;
-    }
-    if (field.startsWith('branch ')) {
-      branchRef = requireString(
-        field.slice('branch '.length),
-        `worktree ${path ?? '<unknown>'}.branch`,
-      );
-    }
-  }
-  flush();
-
-  return worktrees;
-}
-
 export function discoverInventory(
   input: DiscoveryInput,
   scope: InventoryScope = 'full',
@@ -747,16 +723,38 @@ export function discoverInventory(
       ref.locator === input.executionIdentity.branchRef) ||
       (input.executionIdentity.originRef !== null &&
         ref.locator === input.executionIdentity.originRef));
+  const admitBranchSource = (source: UnclassifiedBranchSourceCoordinate): void => {
+    const role = input.classifyBranchSourceRole(source);
+    if (!SOURCE_ROLES.includes(role)) {
+      throw new Error(`source-role classifier returned an unsupported role for ${source.locator}`);
+    }
+    if (role === 'UNKNOWN') {
+      throw new Error(
+        `source-role classifier could not safely classify ${source.locator} at ${source.headSha}`,
+      );
+    }
+    if (role === 'WORKTREE_PRESERVATION') {
+      throw new Error(`branch source ${source.locator} cannot have a worktree-only role`);
+    }
+    if (
+      isExecutionRef(source) &&
+      input.executionIdentity?.exclusionProof !== null &&
+      role === 'INVENTORY_GOVERNANCE'
+    ) {
+      return;
+    }
+    sources.push({ ...source, role });
+  };
 
   for (const remote of remoteRefs) {
-    if (isOriginMainAlias(remote.locator) || isExecutionRef(remote)) {
+    if (isOriginMainAlias(remote.locator)) {
       continue;
     }
     if (!remote.locator.startsWith('refs/remotes/origin/')) {
       throw new Error(`unexpected non-origin remote ref: ${remote.locator}`);
     }
     if (!input.isAncestor(remote.headSha, input.mainSha)) {
-      sources.push({
+      admitBranchSource({
         kind: 'REMOTE_BRANCH',
         locator: remote.locator,
         headSha: remote.headSha,
@@ -773,14 +771,14 @@ export function discoverInventory(
     };
 
     for (const local of input.localRefs) {
-      if (local.locator === 'refs/heads/main' || isExecutionRef(local)) {
+      if (local.locator === 'refs/heads/main') {
         continue;
       }
       if (!local.locator.startsWith('refs/heads/')) {
         throw new Error(`unexpected non-local branch ref: ${local.locator}`);
       }
       if (!input.isAncestor(local.headSha, input.mainSha) && !remoteContains(local.headSha)) {
-        sources.push({
+        admitBranchSource({
           kind: 'LOCAL_BRANCH',
           locator: local.locator,
           headSha: local.headSha,
@@ -789,23 +787,28 @@ export function discoverInventory(
     }
 
     for (const worktree of input.worktrees) {
-      if (
-        !worktree.dirty ||
-        (input.executionIdentity !== null &&
-          worktree.path === input.executionIdentity.worktreePath &&
-          worktree.headSha === input.executionIdentity.headSha &&
-          worktree.branchRef === input.executionIdentity.branchRef)
-      ) {
-        continue;
-      }
       const contentSha256 = requireSha256(
         worktree.contentSha256,
-        `dirty worktree ${worktree.path}.contentSha256`,
+        `worktree ${worktree.path}.contentSha256`,
+      );
+      const statusSha256 = requireSha256(
+        worktree.statusSha256,
+        `worktree ${worktree.path}.statusSha256`,
       );
       sources.push({
-        kind: 'DIRTY_WORKTREE',
+        kind: worktree.dirty ? 'DIRTY_WORKTREE' : 'CLEAN_WORKTREE',
         locator: worktree.path,
         headSha: worktree.headSha,
+        role: worktree.dirty ? 'CAPABILITY_CANDIDATE' : 'WORKTREE_PRESERVATION',
+        repositoryId: requireRepositoryId(
+          worktree.repositoryId,
+          `worktree ${worktree.path}.repositoryId`,
+        ),
+        ownerClass: requireWorktreeOwnerClass(
+          worktree.ownerClass,
+          `worktree ${worktree.path}.ownerClass`,
+        ),
+        statusSha256,
         contentSha256,
       });
     }
@@ -821,7 +824,7 @@ export function discoverInventory(
   };
 }
 
-function groupedByLocator<T extends SourceCoordinate>(sources: readonly T[]): Map<string, T[]> {
+function groupedByLocator<T extends { locator: string }>(sources: readonly T[]): Map<string, T[]> {
   const grouped = new Map<string, T[]>();
   for (const source of sources) {
     const entries = grouped.get(source.locator) ?? [];
@@ -831,7 +834,7 @@ function groupedByLocator<T extends SourceCoordinate>(sources: readonly T[]): Ma
   return grouped;
 }
 
-function sourcesForScope<T extends SourceCoordinate>(
+function sourcesForScope<T extends { kind: SourceKind }>(
   sources: readonly T[],
   scope: InventoryScope,
 ): T[] {
@@ -840,432 +843,11 @@ function sourcesForScope<T extends SourceCoordinate>(
     : sources.filter((source) => source.kind === 'REMOTE_BRANCH');
 }
 
-interface ReadEvidenceArtifact {
-  bytes?: Buffer;
-  sha256: string;
-}
-
-function isPathWithinRoot(rootPath: string, candidatePath: string): boolean {
-  return candidatePath.startsWith(rootPath.endsWith(sep) ? rootPath : `${rootPath}${sep}`);
-}
-
-function readEvidenceArtifact(
-  evidenceRoot: string | undefined,
-  uri: string,
-  expectedSha256: string,
-  maxBytes: number,
-  captureBytes: boolean,
-): ReadEvidenceArtifact {
-  if (!evidenceRoot || !isAbsolute(evidenceRoot)) {
-    throw new Error('an absolute retirement evidence root is required');
-  }
-  const rootObservation = lstatSync(evidenceRoot, { bigint: true });
-  if (rootObservation.isSymbolicLink() || !rootObservation.isDirectory()) {
-    throw new Error('retirement evidence root must be a non-symlink directory');
-  }
-  const canonicalRoot = realpathSync(evidenceRoot);
-  if (canonicalRoot !== evidenceRoot) {
-    throw new Error('retirement evidence root must already be canonical');
-  }
-
-  const coordinate = parseContentAddressedArtifactUri(
-    uri,
-    expectedSha256,
-    'retirement artifact URI',
-  );
-  const components = coordinate.relativePath.split(sep);
-  const parentObservations: Array<{ path: string; stat: BigIntStats }> = [];
-  let parentPath = canonicalRoot;
-  for (const component of components.slice(0, -1)) {
-    parentPath = join(parentPath, component);
-    const observation = lstatSync(parentPath, { bigint: true });
-    if (observation.isSymbolicLink() || !observation.isDirectory()) {
-      throw new Error(
-        `retirement evidence path component is not a trusted directory: ${component}`,
-      );
-    }
-    parentObservations.push({ path: parentPath, stat: observation });
-  }
-
-  const artifactPath = join(canonicalRoot, coordinate.relativePath);
-  if (!isPathWithinRoot(canonicalRoot, artifactPath)) {
-    throw new Error('retirement artifact escaped its evidence root');
-  }
-  const pathBefore = lstatSync(artifactPath, { bigint: true });
-  if (pathBefore.isSymbolicLink() || !pathBefore.isFile()) {
-    throw new Error('retirement artifact must be a non-symlink regular file');
-  }
-
-  const descriptor = openSync(artifactPath, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    const descriptorBefore = fstatSync(descriptor, { bigint: true });
-    if (!descriptorBefore.isFile() || !sameFileObservation(pathBefore, descriptorBefore)) {
-      throw new Error('retirement artifact changed before its evidence descriptor opened');
-    }
-    if (descriptorBefore.size > BigInt(maxBytes)) {
-      throw new Error(`retirement artifact exceeds its ${maxBytes}-byte read contract`);
-    }
-
-    const descriptorPath = realpathSync(`/proc/self/fd/${descriptor}`);
-    if (descriptorPath !== artifactPath || !isPathWithinRoot(canonicalRoot, descriptorPath)) {
-      throw new Error('retirement artifact descriptor resolved outside its evidence root');
-    }
-
-    const digest = createHash('sha256');
-    const chunks: Buffer[] = [];
-    const readBuffer = Buffer.allocUnsafe(64 * 1024);
-    let position = 0;
-    while (BigInt(position) < descriptorBefore.size) {
-      const remaining = Number(descriptorBefore.size - BigInt(position));
-      const requested = Math.min(readBuffer.length, remaining);
-      const bytesRead = readSync(descriptor, readBuffer, 0, requested, position);
-      if (bytesRead === 0) {
-        throw new Error('retirement artifact ended before its observed size');
-      }
-      const bytes = Buffer.from(readBuffer.subarray(0, bytesRead));
-      digest.update(bytes);
-      if (captureBytes) {
-        chunks.push(bytes);
-      }
-      position += bytesRead;
-    }
-
-    const descriptorAfter = fstatSync(descriptor, { bigint: true });
-    const pathAfter = lstatSync(artifactPath, { bigint: true });
-    if (
-      !sameFileObservation(descriptorBefore, descriptorAfter) ||
-      !sameFileObservation(pathBefore, pathAfter) ||
-      BigInt(position) !== descriptorBefore.size
-    ) {
-      throw new Error('retirement artifact changed during bounded evidence reading');
-    }
-    for (const parent of parentObservations) {
-      const current = lstatSync(parent.path, { bigint: true });
-      if (!sameFileObservation(parent.stat, current)) {
-        throw new Error('retirement evidence path changed during artifact reading');
-      }
-    }
-    const rootAfter = lstatSync(evidenceRoot, { bigint: true });
-    if (!sameFileObservation(rootObservation, rootAfter)) {
-      throw new Error('retirement evidence root changed during artifact reading');
-    }
-
-    const sha256 = digest.digest('hex');
-    if (sha256 !== coordinate.sha256) {
-      throw new Error(`retirement artifact digest ${sha256} differs from ${coordinate.sha256}`);
-    }
-    return {
-      sha256,
-      ...(captureBytes ? { bytes: Buffer.concat(chunks, position) } : {}),
-    };
-  } finally {
-    closeSync(descriptor);
-  }
-}
-
-export function serializeRetirementAuthorizationStatement(
-  context: RetirementAuthorizationContext,
-): string {
-  const { source, approval } = context;
-  return `${JSON.stringify({
-    schema: RETIREMENT_STATEMENT_SCHEMA,
-    issuer: TRUSTED_RETIREMENT_ISSUER,
-    signer_identity: TRUSTED_RETIREMENT_WORKFLOW_IDENTITY,
-    source: {
-      id: source.id,
-      kind: source.kind,
-      locator: source.locator,
-      head_sha: source.headSha,
-      content_sha256: source.kind === 'DIRTY_WORKTREE' ? source.contentSha256 : null,
-      state: source.state,
-      disposition: source.disposition,
-    },
-    approval: {
-      status: approval.status,
-      approved_by: approval.approvedBy,
-      approved_at: approval.approvedAt,
-    },
-    snapshot: {
-      uri: approval.snapshotUri,
-      sha256: approval.snapshotSha256,
-    },
-  })}\n`;
-}
-
-function invokeCosign(args: readonly string[]): CosignCommandResult {
-  const result = spawnSync('cosign', [...args], {
-    encoding: 'utf8',
-    maxBuffer: MAX_COSIGN_OUTPUT_BYTES,
-    shell: false,
-    timeout: 60_000,
-  });
-  return {
-    status: result.status,
-    stdout: result.stdout,
-    stderr: result.stderr,
-    ...(result.error ? { error: result.error } : {}),
-  };
-}
-
-function assertCosignCommandSucceeded(result: CosignCommandResult, operation: string): void {
-  if (result.error) {
-    throw new Error(`${operation} could not execute: ${result.error.message}`);
-  }
-  if (result.status !== 0) {
-    throw new Error(
-      `${operation} failed with status ${String(result.status)}: ${
-        result.stderr.trim() || 'no stderr'
-      }`,
-    );
-  }
-}
-
-function assertSupportedCosignVersion(
-  invoke: (args: readonly string[]) => CosignCommandResult,
-): void {
-  const result = invoke(['version', '--json']);
-  assertCosignCommandSucceeded(result, 'cosign version preflight');
-
-  let payload: unknown;
-  try {
-    payload = JSON.parse(result.stdout);
-  } catch {
-    throw new Error('cosign version preflight returned non-JSON output');
-  }
-  if (!isRecord(payload) || typeof payload.gitVersion !== 'string') {
-    throw new Error('cosign version preflight omitted gitVersion');
-  }
-  const match = /^v?([0-9]+)\.([0-9]+)\.([0-9]+)(?:\+[0-9A-Za-z.-]+)?$/.exec(payload.gitVersion);
-  if (!match) {
-    throw new Error(`cosign gitVersion ${payload.gitVersion} is not a stable semantic version`);
-  }
-  const version = match.slice(1).map(Number);
-  const supported = MINIMUM_COSIGN_VERSION.every((minimum, index) => {
-    const actual = version[index];
-    if (actual === undefined) {
-      return false;
-    }
-    const previousEqual = version
-      .slice(0, index)
-      .every((component, previousIndex) => component === MINIMUM_COSIGN_VERSION[previousIndex]);
-    return !previousEqual || actual >= minimum;
-  });
-  if (!supported) {
-    throw new Error(
-      `cosign ${payload.gitVersion} is below required v${MINIMUM_COSIGN_VERSION.join('.')}`,
-    );
-  }
-}
-
-function verifyStatementWithCosign(
-  statement: Buffer,
-  bundle: Buffer,
-  invoke: (args: readonly string[]) => CosignCommandResult,
-): void {
-  const temporaryDirectory = mkdtempSync(join(tmpdir(), 'aqua-retirement-cosign-'));
-  const statementPath = join(temporaryDirectory, 'authorization-statement.json');
-  const bundlePath = join(temporaryDirectory, 'sigstore-bundle.json');
-  try {
-    writeFileSync(statementPath, statement, { flag: 'wx', mode: 0o600 });
-    writeFileSync(bundlePath, bundle, { flag: 'wx', mode: 0o600 });
-    const result = invoke([
-      'verify-blob',
-      '--bundle',
-      bundlePath,
-      '--certificate-identity',
-      TRUSTED_RETIREMENT_WORKFLOW_IDENTITY,
-      '--certificate-oidc-issuer',
-      TRUSTED_RETIREMENT_ISSUER,
-      statementPath,
-    ]);
-    assertCosignCommandSucceeded(result, 'cosign retirement statement verification');
-  } finally {
-    rmSync(temporaryDirectory, { recursive: true, force: true });
-  }
-}
-
-export function createTrustedRetirementAuthorizationVerifier(
-  evidenceRoot: string | undefined,
-  dependencies: RetirementVerifierDependencies = {},
-): RetirementAuthorizationVerifier {
-  const trustedCosign = dependencies.invokeCosign ?? invokeCosign;
-  let versionVerified = false;
-
-  return (context): RetirementAuthorizationDecision => {
-    const { source, approval } = context;
-    requireIsoTimestamp(approval.approvedAt, 'retirement.approved_at');
-    requireString(approval.approvedBy, 'retirement.approved_by');
-    if (
-      approval.authorization.issuer !== TRUSTED_RETIREMENT_ISSUER ||
-      approval.authorization.signerIdentity !== TRUSTED_RETIREMENT_WORKFLOW_IDENTITY
-    ) {
-      throw new Error('retirement authorization is not signed by the trusted main workflow');
-    }
-    if (approval.authorization.subjectSha256 !== approval.authorization.statementSha256) {
-      throw new Error('retirement authorization subject differs from the signed statement digest');
-    }
-
-    parseContentAddressedArtifactUri(
-      approval.snapshotUri,
-      requireSha256(approval.snapshotSha256, 'retirement.snapshot_sha256'),
-      'retirement.snapshot_uri',
-    );
-    parseContentAddressedArtifactUri(
-      approval.authorization.statementUri,
-      requireSha256(
-        approval.authorization.statementSha256,
-        'retirement.authorization.statement_sha256',
-      ),
-      'retirement.authorization.statement_uri',
-    );
-    parseContentAddressedArtifactUri(
-      approval.authorization.bundleUri,
-      requireSha256(approval.authorization.bundleSha256, 'retirement.authorization.bundle_sha256'),
-      'retirement.authorization.bundle_uri',
-    );
-
-    const statementArtifact = readEvidenceArtifact(
-      evidenceRoot,
-      approval.authorization.statementUri,
-      approval.authorization.statementSha256,
-      MAX_RETIREMENT_STATEMENT_BYTES,
-      true,
-    );
-    const statement = statementArtifact.bytes;
-    if (!statement) {
-      throw new Error('retirement authorization statement bytes were not captured');
-    }
-    const expectedStatement = Buffer.from(
-      serializeRetirementAuthorizationStatement(context),
-      'utf8',
-    );
-    if (!statement.equals(expectedStatement)) {
-      throw new Error(
-        'signed retirement statement does not exactly bind the manifest source, approval, and snapshot',
-      );
-    }
-
-    readEvidenceArtifact(
-      evidenceRoot,
-      approval.snapshotUri,
-      approval.snapshotSha256,
-      MAX_RETIREMENT_SNAPSHOT_BYTES,
-      false,
-    );
-    const bundleArtifact = readEvidenceArtifact(
-      evidenceRoot,
-      approval.authorization.bundleUri,
-      approval.authorization.bundleSha256,
-      MAX_RETIREMENT_BUNDLE_BYTES,
-      true,
-    );
-    const bundle = bundleArtifact.bytes;
-    if (!bundle) {
-      throw new Error('Sigstore bundle bytes were not captured');
-    }
-
-    if (!versionVerified) {
-      assertSupportedCosignVersion(trustedCosign);
-      versionVerified = true;
-    }
-    verifyStatementWithCosign(statement, bundle, trustedCosign);
-
-    return {
-      authorized: true,
-      reason: 'trusted main workflow Sigstore authorization verified',
-      verifiedSubjectSha256: approval.authorization.statementSha256,
-      verifiedSnapshotSha256: approval.snapshotSha256,
-      verifiedBundleSha256: approval.authorization.bundleSha256,
-      verifiedIssuer: TRUSTED_RETIREMENT_ISSUER,
-      verifiedSignerIdentity: TRUSTED_RETIREMENT_WORKFLOW_IDENTITY,
-      verifiedSourceId: source.id,
-      verifiedSourceKind: source.kind,
-      verifiedSourceLocator: source.locator,
-      verifiedSourceHeadSha: source.headSha,
-      verifiedApprovedBy: approval.approvedBy,
-      verifiedApprovedAt: approval.approvedAt,
-      ...(source.kind === 'DIRTY_WORKTREE'
-        ? { verifiedCapturedContentSha256: source.contentSha256 }
-        : {}),
-    };
-  };
-}
-
-function retirementAuthorizationFailure(
-  source: ManifestSourceCoordinate,
-  verifier: RetirementAuthorizationVerifier | undefined,
-): string | null {
-  const approval = source.retirement;
-  if (!approval || approval.status !== 'RETIRE_APPROVED') {
-    return 'typed retirement approval is absent';
-  }
-  if (
-    approval.authorization.kind !== 'SIGSTORE_BUNDLE_V1' ||
-    !SHA256_PATTERN.test(approval.authorization.subjectSha256) ||
-    approval.authorization.subjectSha256 !== approval.authorization.statementSha256 ||
-    !SHA256_PATTERN.test(approval.authorization.statementSha256) ||
-    !SHA256_PATTERN.test(approval.authorization.bundleSha256) ||
-    !approval.evidence.includes(approval.snapshotUri) ||
-    !approval.evidence.includes(approval.authorization.statementUri) ||
-    !approval.evidence.includes(approval.authorization.bundleUri)
-  ) {
-    return 'retirement authorization is not bound to its snapshot and signature bundle';
-  }
-  if (source.kind === 'DIRTY_WORKTREE') {
-    if (approval.capturedContentSha256 !== source.contentSha256) {
-      return 'dirty retirement is not bound to the observed content SHA-256';
-    }
-  } else if (approval.capturedContentSha256 !== undefined) {
-    return 'branch retirement declares a dirty-worktree content binding';
-  }
-  if (!verifier) {
-    return 'no trusted retirement authorization verifier is configured';
-  }
-
-  let decision: RetirementAuthorizationDecision;
-  try {
-    decision = verifier({ source, approval });
-  } catch (error) {
-    return `authorization verifier failed: ${
-      error instanceof Error ? error.message : String(error)
-    }`;
-  }
-  if (
-    !isRecord(decision) ||
-    typeof decision.authorized !== 'boolean' ||
-    typeof decision.reason !== 'string' ||
-    decision.reason.length === 0
-  ) {
-    return 'authorization verifier returned a malformed decision';
-  }
-  if (!decision.authorized) {
-    return decision.reason;
-  }
-  if (
-    decision.verifiedSubjectSha256 !== approval.authorization.statementSha256 ||
-    decision.verifiedSnapshotSha256 !== approval.snapshotSha256 ||
-    decision.verifiedBundleSha256 !== approval.authorization.bundleSha256 ||
-    decision.verifiedIssuer !== approval.authorization.issuer ||
-    decision.verifiedSignerIdentity !== approval.authorization.signerIdentity ||
-    decision.verifiedSourceId !== source.id ||
-    decision.verifiedSourceKind !== source.kind ||
-    decision.verifiedSourceLocator !== source.locator ||
-    decision.verifiedSourceHeadSha !== source.headSha ||
-    decision.verifiedApprovedBy !== approval.approvedBy ||
-    decision.verifiedApprovedAt !== approval.approvedAt ||
-    decision.verifiedCapturedContentSha256 !== approval.capturedContentSha256
-  ) {
-    return 'verified signature claims do not match the retirement source and snapshot';
-  }
-  return null;
-}
-
 export function compareInventory(
   manifest: InventoryManifest,
   live: LiveInventory,
   isAncestor: (ancestorSha: string, descendantSha: string) => boolean,
   scope: InventoryScope = 'full',
-  verifyRetirementAuthorization?: RetirementAuthorizationVerifier,
 ): InventoryDrift[] {
   const drifts: InventoryDrift[] = [];
   const manifestGroups = groupedByLocator(sourcesForScope(manifest.sources, scope));
@@ -1323,15 +905,48 @@ export function compareInventory(
         message: `${locator} changed head from ${expected.headSha} to ${actual.headSha}`,
       });
     }
-    if (
-      expected.kind === 'DIRTY_WORKTREE' &&
-      actual.kind === 'DIRTY_WORKTREE' &&
-      expected.contentSha256 !== actual.contentSha256
-    ) {
+    if (manifest.schemaVersion === 2 && expected.role !== actual.role) {
       drifts.push({
-        code: 'SOURCE_CONTENT_DRIFT',
-        message: `${locator} changed content from ${expected.contentSha256} to ${actual.contentSha256}`,
+        code: 'SOURCE_ROLE_DRIFT',
+        message: `${locator} changed role from ${expected.role} to ${actual.role}`,
       });
+    }
+    if (
+      manifest.schemaVersion === 2 &&
+      isManifestWorktreeSource(expected) &&
+      !isStrictManifestWorktreeSource(expected)
+    ) {
+      throw new Error(`${locator} lost strict v2 worktree authority fields`);
+    }
+    if (
+      manifest.schemaVersion === 2 &&
+      isStrictManifestWorktreeSource(expected) &&
+      isWorktreeSource(actual)
+    ) {
+      if (expected.repositoryId !== actual.repositoryId) {
+        drifts.push({
+          code: 'SOURCE_REPOSITORY_DRIFT',
+          message: `${locator} changed repository from ${expected.repositoryId} to ${actual.repositoryId}`,
+        });
+      }
+      if (expected.ownerClass !== actual.ownerClass) {
+        drifts.push({
+          code: 'SOURCE_OWNER_DRIFT',
+          message: `${locator} changed owner from ${expected.ownerClass} to ${actual.ownerClass}`,
+        });
+      }
+      if (expected.statusSha256 !== actual.statusSha256) {
+        drifts.push({
+          code: 'SOURCE_STATUS_DRIFT',
+          message: `${locator} changed status from ${expected.statusSha256} to ${actual.statusSha256}`,
+        });
+      }
+      if (expected.contentSha256 !== actual.contentSha256) {
+        drifts.push({
+          code: 'SOURCE_CONTENT_DRIFT',
+          message: `${locator} changed content from ${expected.contentSha256} to ${actual.contentSha256}`,
+        });
+      }
     }
   }
 
@@ -1368,20 +983,6 @@ export function compareInventory(
         continue;
       }
     }
-    if (isTerminalSourceState(expected.state) && expected.retirement) {
-      const authorizationFailure = retirementAuthorizationFailure(
-        expected,
-        verifyRetirementAuthorization,
-      );
-      if (authorizationFailure === null) {
-        continue;
-      }
-      drifts.push({
-        code: 'SOURCE_RETIREMENT_INVALID',
-        message: `${expected.id} ${expected.locator}: ${authorizationFailure}`,
-      });
-      continue;
-    }
     drifts.push({
       code: 'SOURCE_NO_LONGER_LIVE',
       message: `${expected.id} ${expected.kind} ${locator} at ${expected.headSha} is no longer an unmerged or dirty source`,
@@ -1396,6 +997,7 @@ export function validateMainProofs(
   liveMainSha: string,
   isAncestor: (ancestorSha: string, descendantSha: string) => boolean,
   resolveTreeSha: (commitSha: string) => string | null,
+  validationMode: 'LIVE_ANCESTRY' | 'COMMITTED_OBJECTS' = 'LIVE_ANCESTRY',
 ): InventoryDrift[] {
   requireSha(liveMainSha, 'live main SHA');
   const drifts: InventoryDrift[] = [];
@@ -1416,7 +1018,12 @@ export function validateMainProofs(
       reasons.push('proof source commit differs from source head');
     } else if (source.mainProof.kind === 'ANCESTOR') {
       try {
-        if (!isAncestor(source.mainProof.sourceCommitSha, liveMainSha)) {
+        if (validationMode === 'COMMITTED_OBJECTS') {
+          const sourceTree = resolveTreeSha(source.mainProof.sourceCommitSha);
+          if (sourceTree === null || !SHA_PATTERN.test(sourceTree)) {
+            reasons.push('legacy ancestor source commit does not resolve to a commit tree');
+          }
+        } else if (!isAncestor(source.mainProof.sourceCommitSha, liveMainSha)) {
           reasons.push('source commit is not an ancestor of live main');
         }
       } catch (error) {
@@ -1507,27 +1114,30 @@ function runGit(
   acceptedStatuses: readonly number[] = [0],
   worktreePath: string = REPO_ROOT,
 ): GitTextResult {
-  const result = spawnSync('git', ['-C', worktreePath, ...args], {
-    encoding: 'utf8',
-    env: { ...process.env, LC_ALL: 'C' },
-    maxBuffer: MAX_GIT_OUTPUT_BYTES,
-  });
-  if (result.error) {
-    throw result.error;
-  }
-  const status = result.status;
-  if (status === null || !acceptedStatuses.includes(status)) {
-    throw new Error(
-      `git ${args.join(' ')} failed with status ${String(status)}: ${
-        result.stderr.trim() || 'no stderr'
-      }`,
-    );
-  }
-  return { stdout: result.stdout, status };
+  const result = HERMETIC_GIT_RUNTIME.runText(worktreePath, args, acceptedStatuses);
+  return { stdout: result.stdout, status: result.status };
 }
 
 function gitIsAncestor(ancestorSha: string, descendantSha: string): boolean {
   return runGit(['merge-base', '--is-ancestor', ancestorSha, descendantSha], [0, 1]).status === 0;
+}
+
+function gitMergeBase(leftSha: string, rightSha: string): string {
+  return requireSha(
+    runGit(['merge-base', leftSha, rightSha]).stdout.trim(),
+    `merge-base(${leftSha}, ${rightSha})`,
+  );
+}
+
+function gitChangedPaths(baseSha: string, headSha: string): string[] {
+  const raw = runGit(['diff', '--name-only', '--no-renames', '-z', baseSha, headSha, '--']).stdout;
+  if (raw.length === 0) {
+    return [];
+  }
+  if (!raw.endsWith('\0')) {
+    throw new Error(`git diff path stream for ${baseSha}..${headSha} is not NUL-terminated`);
+  }
+  return raw.slice(0, -1).split('\0');
 }
 
 function gitResolveCommitTreeSha(commitSha: string): string | null {
@@ -1551,462 +1161,6 @@ function gitRemoteContains(headSha: string): boolean {
     ]).stdout,
   );
   return refs.length > 0;
-}
-
-function updateDigestFrame(digest: Hash, label: string, payload: Buffer): void {
-  const labelBytes = Buffer.from(label, 'utf8');
-  const lengths = Buffer.alloc(16);
-  lengths.writeBigUInt64BE(BigInt(labelBytes.length), 0);
-  lengths.writeBigUInt64BE(BigInt(payload.length), 8);
-  digest.update(lengths);
-  digest.update(labelBytes);
-  digest.update(payload);
-}
-
-interface StreamFingerprint {
-  byteLength: bigint;
-  sha256: string;
-}
-
-interface DirtySnapshotAnchor {
-  headSha: string;
-  status: StreamFingerprint;
-}
-
-interface GitProcessCompletion {
-  status: number | null;
-  signal: NodeJS.Signals | null;
-}
-
-function bufferFromUnknownChunk(chunk: unknown): Buffer {
-  if (Buffer.isBuffer(chunk)) {
-    return chunk;
-  }
-  if (typeof chunk === 'string') {
-    return Buffer.from(chunk);
-  }
-  if (chunk instanceof Uint8Array) {
-    return Buffer.from(chunk);
-  }
-  throw new Error('stream emitted a non-byte chunk');
-}
-
-async function collectBoundedStderr(stream: Readable): Promise<string> {
-  let captured = '';
-  let capturedBytes = 0;
-  let truncated = false;
-  for await (const chunk of stream) {
-    const bytes = bufferFromUnknownChunk(chunk);
-    if (capturedBytes >= MAX_STREAMED_GIT_STDERR_BYTES) {
-      truncated = true;
-      continue;
-    }
-    const remaining = MAX_STREAMED_GIT_STDERR_BYTES - capturedBytes;
-    const accepted = bytes.subarray(0, remaining);
-    captured += accepted.toString('utf8');
-    capturedBytes += accepted.length;
-    truncated ||= accepted.length !== bytes.length;
-  }
-  return `${captured.trim()}${truncated ? ' [stderr truncated]' : ''}`;
-}
-
-async function consumeGitStdout(
-  args: readonly string[],
-  worktreePath: string,
-  consumeChunk: (chunk: Buffer) => Promise<void> | void,
-  acceptedStatuses: readonly number[] = [0],
-): Promise<number> {
-  const child = spawn('git', ['--no-optional-locks', '-C', worktreePath, ...args], {
-    env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  const completion = new Promise<GitProcessCompletion>((resolve, reject) => {
-    child.once('error', reject);
-    child.once('close', (status, signal) => resolve({ status, signal }));
-  });
-  const stderrPromise = collectBoundedStderr(child.stderr);
-
-  try {
-    for await (const chunk of child.stdout) {
-      await consumeChunk(bufferFromUnknownChunk(chunk));
-    }
-    const [result, stderr] = await Promise.all([completion, stderrPromise]);
-    if (result.status === null || !acceptedStatuses.includes(result.status)) {
-      throw new Error(
-        `git ${args.join(' ')} failed in ${worktreePath} with status ${String(
-          result.status,
-        )}${result.signal ? ` (${result.signal})` : ''}: ${stderr || 'no stderr'}`,
-      );
-    }
-    return result.status;
-  } catch (error) {
-    if (child.exitCode === null && child.signalCode === null) {
-      child.kill('SIGTERM');
-    }
-    await Promise.allSettled([completion, stderrPromise]);
-    throw error;
-  }
-}
-
-async function fingerprintGitStdout(
-  args: readonly string[],
-  worktreePath: string,
-): Promise<StreamFingerprint> {
-  const digest = createHash('sha256');
-  let byteLength = 0n;
-  await consumeGitStdout(args, worktreePath, (chunk) => {
-    byteLength += BigInt(chunk.length);
-    digest.update(chunk);
-  });
-  return { byteLength, sha256: digest.digest('hex') };
-}
-
-async function readBoundedGitText(args: readonly string[], worktreePath: string): Promise<string> {
-  const chunks: Buffer[] = [];
-  let byteLength = 0;
-  await consumeGitStdout(args, worktreePath, (chunk) => {
-    byteLength += chunk.length;
-    if (byteLength > MAX_BOUNDED_GIT_TEXT_BYTES) {
-      throw new Error(
-        `git ${args.join(' ')} exceeded the ${MAX_BOUNDED_GIT_TEXT_BYTES}-byte text contract`,
-      );
-    }
-    chunks.push(Buffer.from(chunk));
-  });
-  return Buffer.concat(chunks, byteLength).toString('utf8');
-}
-
-async function consumeGitNulRecords(
-  args: readonly string[],
-  worktreePath: string,
-  label: string,
-  consumeRecord: (record: Buffer) => Promise<void>,
-): Promise<void> {
-  let remainder = Buffer.alloc(0);
-  await consumeGitStdout(args, worktreePath, async (chunk) => {
-    const bytes =
-      remainder.length === 0
-        ? chunk
-        : Buffer.concat([remainder, chunk], remainder.length + chunk.length);
-    let offset = 0;
-    for (;;) {
-      const terminator = bytes.indexOf(0, offset);
-      if (terminator === -1) {
-        break;
-      }
-      if (terminator === offset) {
-        throw new Error(`${label} contains an empty record`);
-      }
-      await consumeRecord(Buffer.from(bytes.subarray(offset, terminator)));
-      offset = terminator + 1;
-    }
-    remainder = Buffer.from(bytes.subarray(offset));
-  });
-  if (remainder.length !== 0) {
-    throw new Error(`${label} is not NUL terminated`);
-  }
-}
-
-function updateDigestFingerprintFrame(
-  digest: Hash,
-  label: string,
-  fingerprint: StreamFingerprint,
-): void {
-  if (fingerprint.byteLength > 0xffff_ffff_ffff_ffffn) {
-    throw new Error(`${label} exceeds the canonical 64-bit length frame`);
-  }
-  const payload = Buffer.alloc(40);
-  payload.writeBigUInt64BE(fingerprint.byteLength, 0);
-  Buffer.from(requireSha256(fingerprint.sha256, `${label}.sha256`), 'hex').copy(payload, 8);
-  updateDigestFrame(digest, label, payload);
-}
-
-function fingerprintBuffer(payload: Buffer): StreamFingerprint {
-  return {
-    byteLength: BigInt(payload.length),
-    sha256: createHash('sha256').update(payload).digest('hex'),
-  };
-}
-
-async function fingerprintFileHandle(handle: FileHandle): Promise<StreamFingerprint> {
-  const digest = createHash('sha256');
-  let byteLength = 0n;
-  for await (const chunk of handle.createReadStream({
-    autoClose: false,
-    highWaterMark: 64 * 1024,
-  })) {
-    const bytes = bufferFromUnknownChunk(chunk);
-    byteLength += BigInt(bytes.length);
-    digest.update(bytes);
-  }
-  return { byteLength, sha256: digest.digest('hex') };
-}
-
-async function fingerprintRegularFile(
-  path: Buffer,
-  pathObservation: BigIntStats,
-  worktreePath: string,
-  relativePath: Buffer,
-): Promise<StreamFingerprint> {
-  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    const descriptorBefore = await handle.stat({ bigint: true });
-    if (!descriptorBefore.isFile() || !sameFileObservation(pathObservation, descriptorBefore)) {
-      throw new InventoryInspectionError(
-        'DIRTY_SNAPSHOT_MOVED',
-        `${worktreePath}/${relativePath.toString('utf8')} changed before its evidence stream opened`,
-      );
-    }
-    const fingerprint = await fingerprintFileHandle(handle);
-    const descriptorAfter = await handle.stat({ bigint: true });
-    if (
-      !sameFileObservation(descriptorBefore, descriptorAfter) ||
-      fingerprint.byteLength !== descriptorBefore.size
-    ) {
-      throw new InventoryInspectionError(
-        'DIRTY_SNAPSHOT_MOVED',
-        `${worktreePath}/${relativePath.toString('utf8')} changed during evidence hashing`,
-      );
-    }
-    return fingerprint;
-  } finally {
-    await handle.close();
-  }
-}
-
-function validateRelativeGitPath(pathBytes: Buffer): void {
-  if (pathBytes.length === 0 || pathBytes[0] === 0x2f) {
-    throw new Error('git returned an empty or absolute untracked path');
-  }
-  for (const component of pathBytes.toString('binary').split('/')) {
-    if (component.length === 0 || component === '.' || component === '..') {
-      throw new Error('git returned an unsafe untracked path');
-    }
-  }
-}
-
-function absoluteBufferPath(worktreePath: string, relativePath: Buffer): Buffer {
-  validateRelativeGitPath(relativePath);
-  const prefix = Buffer.from(worktreePath.endsWith(sep) ? worktreePath : `${worktreePath}${sep}`);
-  return Buffer.concat([prefix, relativePath]);
-}
-
-function sameFileObservation(left: BigIntStats, right: BigIntStats): boolean {
-  return (
-    left.dev === right.dev &&
-    left.ino === right.ino &&
-    left.mode === right.mode &&
-    left.nlink === right.nlink &&
-    left.uid === right.uid &&
-    left.gid === right.gid &&
-    left.rdev === right.rdev &&
-    left.size === right.size &&
-    left.mtimeNs === right.mtimeNs &&
-    left.ctimeNs === right.ctimeNs
-  );
-}
-
-function resolveGitObjectMode(stat: BigIntStats): string {
-  if (stat.isSymbolicLink()) {
-    return GIT_OBJECT_MODE_SYMLINK;
-  }
-  if (!stat.isFile()) {
-    throw new Error('unsupported untracked filesystem object');
-  }
-  return (stat.mode & 0o100n) === 0n ? GIT_OBJECT_MODE_REGULAR : GIT_OBJECT_MODE_EXECUTABLE;
-}
-
-const DIRTY_STATUS_ARGS = [
-  '-c',
-  'core.fsmonitor=false',
-  '-c',
-  'core.untrackedCache=false',
-  '-c',
-  'status.renames=false',
-  'status',
-  '--porcelain=v2',
-  '-z',
-  '--untracked-files=all',
-  '--ignore-submodules=none',
-  '--',
-] as const;
-
-async function captureDirtySnapshotAnchor(worktreePath: string): Promise<DirtySnapshotAnchor> {
-  const startHead = requireSha(
-    (await readBoundedGitText(['rev-parse', '--verify', 'HEAD^{commit}'], worktreePath)).trim(),
-    `${worktreePath}.HEAD`,
-  );
-  const status = await fingerprintGitStdout(DIRTY_STATUS_ARGS, worktreePath);
-  const endHead = requireSha(
-    (await readBoundedGitText(['rev-parse', '--verify', 'HEAD^{commit}'], worktreePath)).trim(),
-    `${worktreePath}.HEAD`,
-  );
-  if (startHead !== endHead) {
-    throw new InventoryInspectionError(
-      'DIRTY_SNAPSHOT_MOVED',
-      `${worktreePath} HEAD moved from ${startHead} to ${endHead} while pinning dirty status`,
-    );
-  }
-  return { headSha: startHead, status };
-}
-
-function sameFingerprint(left: StreamFingerprint, right: StreamFingerprint): boolean {
-  return left.byteLength === right.byteLength && left.sha256 === right.sha256;
-}
-
-function assertSameDirtySnapshot(
-  worktreePath: string,
-  expected: DirtySnapshotAnchor,
-  actual: DirtySnapshotAnchor,
-): void {
-  if (expected.headSha !== actual.headSha || !sameFingerprint(expected.status, actual.status)) {
-    throw new InventoryInspectionError(
-      'DIRTY_SNAPSHOT_MOVED',
-      `${worktreePath} HEAD or exact index/worktree status changed during evidence hashing`,
-    );
-  }
-}
-
-async function hashDirtyEvidence(
-  worktreePath: string,
-  anchor: DirtySnapshotAnchor,
-): Promise<string> {
-  const digest = createHash('sha256');
-  updateDigestFrame(digest, 'FORMAT', Buffer.from('DIRTY_CONTENT_V2', 'ascii'));
-  updateDigestFrame(digest, 'HEAD', Buffer.from(anchor.headSha, 'ascii'));
-  updateDigestFingerprintFrame(digest, 'STATUS', anchor.status);
-  updateDigestFingerprintFrame(
-    digest,
-    'INDEX_STAGE_RECORDS',
-    await fingerprintGitStdout(['ls-files', '--stage', '--full-name', '-z', '--'], worktreePath),
-  );
-  updateDigestFingerprintFrame(
-    digest,
-    'STAGED_BINARY_DIFF',
-    await fingerprintGitStdout(
-      [
-        '-c',
-        'diff.algorithm=myers',
-        'diff',
-        '--cached',
-        '--binary',
-        '--full-index',
-        '--no-color',
-        '--no-ext-diff',
-        '--no-textconv',
-        '--',
-      ],
-      worktreePath,
-    ),
-  );
-  updateDigestFingerprintFrame(
-    digest,
-    'UNSTAGED_BINARY_DIFF',
-    await fingerprintGitStdout(
-      [
-        '-c',
-        'diff.algorithm=myers',
-        'diff',
-        '--binary',
-        '--full-index',
-        '--no-color',
-        '--no-ext-diff',
-        '--no-textconv',
-        '--',
-      ],
-      worktreePath,
-    ),
-  );
-
-  let previousPath: Buffer | null = null;
-  let untrackedCount = 0n;
-  await consumeGitNulRecords(
-    ['ls-files', '--others', '--exclude-standard', '--full-name', '-z', '--'],
-    worktreePath,
-    `${worktreePath} untracked path list`,
-    async (untrackedPath) => {
-      validateRelativeGitPath(untrackedPath);
-      if (previousPath !== null && Buffer.compare(previousPath, untrackedPath) >= 0) {
-        throw new Error(`${worktreePath} untracked path list is not strictly ordered`);
-      }
-      previousPath = Buffer.from(untrackedPath);
-
-      const absolutePath = absoluteBufferPath(worktreePath, untrackedPath);
-      const before = await lstat(absolutePath, { bigint: true });
-      let mode: string;
-      try {
-        mode = resolveGitObjectMode(before);
-      } catch (error) {
-        throw new Error(
-          `unsupported untracked filesystem object ${untrackedPath.toString('utf8')}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-      const content =
-        mode === GIT_OBJECT_MODE_SYMLINK
-          ? fingerprintBuffer(await readlink(absolutePath, { encoding: 'buffer' }))
-          : await fingerprintRegularFile(absolutePath, before, worktreePath, untrackedPath);
-      const after = await lstat(absolutePath, { bigint: true });
-      if (!sameFileObservation(before, after) || content.byteLength !== before.size) {
-        throw new InventoryInspectionError(
-          'DIRTY_SNAPSHOT_MOVED',
-          `${worktreePath}/${untrackedPath.toString('utf8')} changed during evidence hashing`,
-        );
-      }
-
-      updateDigestFrame(digest, 'UNTRACKED_PATH', untrackedPath);
-      updateDigestFrame(digest, 'UNTRACKED_GIT_MODE', Buffer.from(mode, 'ascii'));
-      updateDigestFingerprintFrame(digest, 'UNTRACKED_CONTENT', content);
-      untrackedCount += 1n;
-    },
-  );
-  const countFrame = Buffer.alloc(8);
-  countFrame.writeBigUInt64BE(untrackedCount);
-  updateDigestFrame(digest, 'UNTRACKED_COUNT', countFrame);
-  return digest.digest('hex');
-}
-
-/**
- * Streams the complete non-ignored dirty evidence through a domain-separated Merkle-style digest.
- * A second evidence pass plus exact HEAD/status anchors rejects torn worktree or index snapshots.
- */
-export async function computeDirtyContentSha256(
-  worktreePath: string,
-  observer: DirtyContentHashObserver = {},
-): Promise<string> {
-  const absoluteWorktreePath = realpathSync(worktreePath);
-  const start = await captureDirtySnapshotAnchor(absoluteWorktreePath);
-  const digest = await hashDirtyEvidence(absoluteWorktreePath, start);
-  if (observer.beforeSnapshotVerification) {
-    await observer.beforeSnapshotVerification();
-  }
-  const verificationStart = await captureDirtySnapshotAnchor(absoluteWorktreePath);
-  assertSameDirtySnapshot(absoluteWorktreePath, start, verificationStart);
-  const verificationDigest = await hashDirtyEvidence(absoluteWorktreePath, verificationStart);
-  const verificationEnd = await captureDirtySnapshotAnchor(absoluteWorktreePath);
-  assertSameDirtySnapshot(absoluteWorktreePath, start, verificationEnd);
-  if (verificationDigest !== digest) {
-    throw new InventoryInspectionError(
-      'DIRTY_SNAPSHOT_MOVED',
-      `${absoluteWorktreePath} evidence changed between the primary and verification scans`,
-    );
-  }
-  return digest;
-}
-
-export class InventoryInspectionError extends Error {
-  public constructor(
-    public readonly code:
-      | 'CI_EXECUTION_IDENTITY_INVALID'
-      | 'CI_EXECUTION_IDENTITY_MISMATCH'
-      | 'DIRTY_SNAPSHOT_MOVED'
-      | 'ORIGIN_MAIN_MOVED',
-    message: string,
-  ) {
-    super(message);
-    this.name = 'InventoryInspectionError';
-  }
 }
 
 export function resolveGitHubActionsExecutionIdentity(
@@ -2090,6 +1244,7 @@ export function resolveGitHubActionsExecutionIdentity(
     headSha: currentSha,
     branchRef: null,
     originRef,
+    exclusionProof: null,
   };
 }
 
@@ -2099,6 +1254,55 @@ export function selectExecutionIdentity(
   resolveLocalIdentity: () => ExecutionIdentity | null,
 ): ExecutionIdentity | null {
   return githubActions === 'true' ? resolveGitHubActionsIdentity() : resolveLocalIdentity();
+}
+
+export function admitExecutionExclusionProof(
+  input: ExecutionExclusionAdmissionInputV1,
+): ExecutionIdentity {
+  const checkoutHeadSha = requireSha(input.checkoutHeadSha, 'inventory runner checkout HEAD');
+  const identityHeadSha = requireSha(input.identity.headSha, 'inventory runner execution identity');
+  if (checkoutHeadSha !== identityHeadSha) {
+    throw new InventoryInspectionError(
+      'CI_EXECUTION_IDENTITY_MISMATCH',
+      `inventory runner checkout HEAD ${checkoutHeadSha} differs from execution identity ${identityHeadSha}`,
+    );
+  }
+  if (input.checkoutDirty) return { ...input.identity, exclusionProof: null };
+
+  const trustedHostedRunner =
+    input.scope === 'remote' &&
+    input.githubActions === 'true' &&
+    input.jobId === TRUSTED_REMOTE_INVENTORY_JOB &&
+    input.workflowRef !== undefined &&
+    input.workflowRef.startsWith(`${TRUSTED_REMOTE_INVENTORY_WORKFLOW}@`) &&
+    input.workflowRef.length > TRUSTED_REMOTE_INVENTORY_WORKFLOW.length + 1 &&
+    !/[\0\r\n]/.test(input.workflowRef);
+  const trustedRepositoryRunner =
+    input.scope === 'full' &&
+    input.githubActions !== 'true' &&
+    input.localRunnerProfile === SOURCE_INVENTORY_RUNNER_PROFILE;
+
+  if (!trustedHostedRunner && !trustedRepositoryRunner) {
+    return { ...input.identity, exclusionProof: null };
+  }
+  if (
+    trustedRepositoryRunner &&
+    (input.governedCommonDirs.length === 0 ||
+      input.governedCommonDirs.includes(input.executionCommonDir))
+  ) {
+    throw new InventoryInspectionError(
+      'CI_EXECUTION_IDENTITY_MISMATCH',
+      'full inventory runner does not have an independent Git common-dir',
+    );
+  }
+  return {
+    ...input.identity,
+    exclusionProof: {
+      kind: 'INDEPENDENT_CLEAN_INVENTORY_RUNNER_V1',
+      committed: true,
+      clean: true,
+    },
+  };
 }
 
 export function assertOriginMainStable(startSha: string, endSha: string): void {
@@ -2150,6 +1354,7 @@ function resolveLocalExecutionIdentity(): ExecutionIdentity | null {
     headSha,
     branchRef,
     originRef: `refs/remotes/origin/${branchRef.slice('refs/heads/'.length)}`,
+    exclusionProof: null,
   };
 }
 
@@ -2171,49 +1376,213 @@ function resolveExecutionIdentity(remoteRefs: readonly RefCoordinate[]): Executi
   );
 }
 
-async function inspectLiveRepository(scope: InventoryScope): Promise<LiveInventory> {
-  const mainSha = resolveOriginMain();
-  const remoteRefs = parseRefList(
-    runGit(['for-each-ref', '--format=%(refname)%09%(objectname)', 'refs/remotes/origin']).stdout,
+/**
+ * Compiles the only worktree locator authority directly from capability_reconciliation.sources.
+ * No path-prefix owner inference or second locator manifest is permitted.
+ */
+export function compileRegisteredCommonDirLocators(
+  manifest: InventoryManifest,
+): readonly RegisteredCommonDirLocatorV1[] {
+  if (manifest.schemaVersion !== 2) {
+    throw new InventoryInspectionError(
+      'WORKTREE_AUTHORITY_MIGRATION_REQUIRED',
+      `full inventory requires ${SOURCE_INVENTORY_SCHEMA_V2}; v1 remains readable only in remote scope`,
+    );
+  }
+  const declaredWorktrees = manifest.sources.filter(isManifestWorktreeSource);
+  if (declaredWorktrees.some((source) => !isStrictManifestWorktreeSource(source))) {
+    throw new Error('source inventory v2 contains an incomplete worktree authority');
+  }
+  const worktreeSources = declaredWorktrees.filter(isStrictManifestWorktreeSource);
+  if (worktreeSources.length === 0) {
+    throw new Error('full inventory requires governed worktree sources');
+  }
+  const byRepository = new Map<string, typeof worktreeSources>();
+  for (const source of worktreeSources) {
+    const entries = byRepository.get(source.repositoryId) ?? [];
+    entries.push(source);
+    byRepository.set(source.repositoryId, entries);
+  }
+  if (byRepository.size !== 1) {
+    throw new Error(
+      `capability source inventory requires exactly one governed repository/common-dir authority, received ${byRepository.size}`,
+    );
+  }
+
+  return Object.freeze(
+    [...byRepository.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([repositoryId, sources]): RegisteredCommonDirLocatorV1 => {
+        const ordered = [...sources].sort((left, right) =>
+          left.locator.localeCompare(right.locator),
+        );
+        const querySource = ordered[0];
+        if (!querySource) {
+          throw new Error(`repository ${repositoryId} lost its query worktree`);
+        }
+        const queryWorktreePath = realpathSync(querySource.locator);
+        if (queryWorktreePath !== querySource.locator) {
+          throw new Error(`${querySource.locator} is not one canonical governed worktree path`);
+        }
+        const commonDirPath = realpathSync(
+          runGit(
+            ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+            [0],
+            queryWorktreePath,
+          ).stdout.trim(),
+        );
+        return Object.freeze({
+          schema: REGISTERED_COMMON_DIR_LOCATOR_SCHEMA,
+          locatorId: repositoryId,
+          repositoryId,
+          queryWorktreePath,
+          commonDirPath,
+          worktrees: Object.freeze(
+            ordered.map((source) =>
+              Object.freeze({
+                worktreePath: source.locator,
+                ownerClass: source.ownerClass,
+              }),
+            ),
+          ),
+        });
+      }),
   );
-  const executionIdentity = resolveExecutionIdentity(remoteRefs);
+}
+
+async function inspectLiveRepository(
+  manifest: InventoryManifest,
+  scope: InventoryScope,
+): Promise<LiveInventory> {
+  const locators = scope === 'full' ? compileRegisteredCommonDirLocators(manifest) : [];
+  const fullAuthority = scope === 'full' ? locators[0] : undefined;
+  if (scope === 'full' && fullAuthority === undefined) {
+    throw new Error('full inventory lost its single governed repository authority');
+  }
+  const authorityWorktreePath = fullAuthority?.queryWorktreePath ?? REPO_ROOT;
+  const resolveAuthorityOriginMain = (): string =>
+    requireSha(
+      runGit(
+        ['rev-parse', '--verify', `${MAIN_REF}^{commit}`],
+        [0],
+        authorityWorktreePath,
+      ).stdout.trim(),
+      MAIN_REF,
+    );
+  const mainSha = resolveAuthorityOriginMain();
+  const remoteRefs = parseRefList(
+    runGit(
+      ['for-each-ref', '--format=%(refname)%09%(objectname)', 'refs/remotes/origin'],
+      [0],
+      authorityWorktreePath,
+    ).stdout,
+  );
+  let executionIdentity = resolveExecutionIdentity(remoteRefs);
+  const shouldAttestExecutionRunner = scope === 'full' || executionIdentity !== null;
+  if (shouldAttestExecutionRunner) {
+    const executionWorktreePath = executionIdentity?.worktreePath ?? REPO_ROOT;
+    const executionEvidence = await computeCanonicalGitWorktreeEvidence(executionWorktreePath);
+    const executionCommonDir = realpathSync(
+      runGit(
+        ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+        [0],
+        executionWorktreePath,
+      ).stdout.trim(),
+    );
+    const governedCommonDirs = locators.map((locator) => locator.commonDirPath);
+    if (
+      scope === 'full' &&
+      (process.env.GITHUB_ACTIONS === 'true' ||
+        process.env.CAPABILITY_INVENTORY_RUNNER_PROFILE !== SOURCE_INVENTORY_RUNNER_PROFILE ||
+        executionEvidence.dirty ||
+        governedCommonDirs.includes(executionCommonDir))
+    ) {
+      throw new InventoryInspectionError(
+        'INVENTORY_RUNNER_PROFILE_INVALID',
+        'full inventory requires the clean repository-owned runner profile on an independent Git common-dir',
+      );
+    }
+    if (executionIdentity !== null) {
+      executionIdentity = admitExecutionExclusionProof({
+        identity: executionIdentity,
+        scope,
+        githubActions: process.env.GITHUB_ACTIONS,
+        workflowRef: process.env.GITHUB_WORKFLOW_REF,
+        jobId: process.env.GITHUB_JOB,
+        localRunnerProfile: process.env.CAPABILITY_INVENTORY_RUNNER_PROFILE,
+        checkoutHeadSha: executionEvidence.headSha,
+        checkoutDirty: executionEvidence.dirty,
+        executionCommonDir,
+        governedCommonDirs,
+      });
+    }
+  }
   const localRefs =
     scope === 'full'
       ? parseRefList(
-          runGit(['for-each-ref', '--format=%(refname)%09%(objectname)', 'refs/heads']).stdout,
+          runGit(
+            ['for-each-ref', '--format=%(refname)%09%(objectname)', 'refs/heads'],
+            [0],
+            authorityWorktreePath,
+          ).stdout,
         )
       : [];
   const worktrees: InspectedWorktree[] = [];
   if (scope === 'full') {
-    const registeredWorktrees = parseWorktreeList(
-      runGit(['worktree', 'list', '--porcelain', '-z']).stdout,
-    );
-    for (const worktree of registeredWorktrees) {
-      const status = await fingerprintGitStdout(DIRTY_STATUS_ARGS, worktree.path);
-      if (status.byteLength === 0n) {
-        worktrees.push({ ...worktree, dirty: false });
-        continue;
-      }
-      if (
-        executionIdentity !== null &&
-        realpathSync(worktree.path) === executionIdentity.worktreePath &&
-        worktree.branchRef === executionIdentity.branchRef &&
-        worktree.headSha === executionIdentity.headSha
-      ) {
+    const observations = await discoverRegisteredCommonDirs(locators);
+    for (const observation of observations) {
+      for (const worktree of observation.worktrees) {
         worktrees.push({
-          ...worktree,
-          path: executionIdentity.worktreePath,
-          dirty: true,
+          path: worktree.worktreePath,
+          headSha: worktree.headSha,
+          branchRef: worktree.branchRef,
+          lockReason: worktree.lockReason,
+          dirty: worktree.dirty,
+          repositoryId: observation.repository.repositoryId,
+          ownerClass: worktree.ownerClass,
+          statusSha256: worktree.statusSha256,
+          contentSha256: worktree.contentSha256,
         });
-        continue;
       }
-      worktrees.push({
-        ...worktree,
-        dirty: true,
-        contentSha256: await computeDirtyContentSha256(worktree.path),
-      });
     }
   }
+
+  const isAncestorAtAuthority = (ancestorSha: string, descendantSha: string): boolean =>
+    runGit(
+      ['merge-base', '--is-ancestor', ancestorSha, descendantSha],
+      [0, 1],
+      authorityWorktreePath,
+    ).status === 0;
+  const mergeBaseAtAuthority = (leftSha: string, rightSha: string): string =>
+    requireSha(
+      runGit(['merge-base', leftSha, rightSha], [0], authorityWorktreePath).stdout.trim(),
+      `merge-base(${leftSha}, ${rightSha})`,
+    );
+  const changedPathsAtAuthority = (baseSha: string, headSha: string): string[] => {
+    const raw = runGit(
+      ['diff', '--name-only', '--no-renames', '-z', baseSha, headSha, '--'],
+      [0],
+      authorityWorktreePath,
+    ).stdout;
+    if (raw.length === 0) return [];
+    if (!raw.endsWith('\0')) {
+      throw new Error(`git diff path stream for ${baseSha}..${headSha} is not NUL-terminated`);
+    }
+    return raw.slice(0, -1).split('\0');
+  };
+  const remoteContainsAtAuthority = (headSha: string): boolean =>
+    parseRefList(
+      runGit(
+        [
+          'for-each-ref',
+          `--contains=${headSha}`,
+          '--format=%(refname)%09%(objectname)',
+          'refs/remotes/origin',
+        ],
+        [0],
+        authorityWorktreePath,
+      ).stdout,
+    ).length > 0;
 
   const inventory = discoverInventory(
     {
@@ -2222,12 +1591,21 @@ async function inspectLiveRepository(scope: InventoryScope): Promise<LiveInvento
       localRefs,
       worktrees,
       executionIdentity,
-      isAncestor: gitIsAncestor,
-      isReachableFromRemote: gitRemoteContains,
+      isAncestor: isAncestorAtAuthority,
+      classifyBranchSourceRole: (source) =>
+        classifySourceRole({
+          mainSha,
+          sourceHeadSha: source.headSha,
+          executionHeadSha: executionIdentity?.headSha ?? null,
+          isAncestor: isAncestorAtAuthority,
+          mergeBase: mergeBaseAtAuthority,
+          changedPaths: changedPathsAtAuthority,
+        }),
+      isReachableFromRemote: remoteContainsAtAuthority,
     },
     scope,
   );
-  assertOriginMainStable(mainSha, resolveOriginMain());
+  assertOriginMainStable(mainSha, resolveAuthorityOriginMain());
   return inventory;
 }
 
@@ -2237,30 +1615,22 @@ function readManifest(): InventoryManifest {
 }
 
 export function parseInventoryCliOptions(args: readonly string[]): InventoryCliOptions {
+  const staticArguments = args.filter((argument) => argument === '--static');
   const liveArguments = args.filter((argument) => argument === '--live');
   const scopeArguments = args.filter((argument) => argument === '--scope=remote');
-  const evidenceRootArguments = args.filter((argument) =>
-    argument.startsWith('--retirement-evidence-root='),
-  );
-  const recognizedCount =
-    liveArguments.length + scopeArguments.length + evidenceRootArguments.length;
+  const recognizedCount = staticArguments.length + liveArguments.length + scopeArguments.length;
   if (
-    liveArguments.length !== 1 ||
+    staticArguments.length + liveArguments.length !== 1 ||
     scopeArguments.length > 1 ||
-    evidenceRootArguments.length > 1 ||
+    (staticArguments.length === 1 && scopeArguments.length !== 0) ||
     recognizedCount !== args.length
   ) {
-    throw new Error(
-      'expected --live [--scope=remote] [--retirement-evidence-root=<absolute-path>]',
-    );
+    throw new Error('expected --static or --live [--scope=remote]');
   }
 
-  const retirementEvidenceRoot = evidenceRootArguments[0]?.slice(
-    '--retirement-evidence-root='.length,
-  );
   return {
+    mode: staticArguments.length === 1 ? 'static' : 'live',
     scope: scopeArguments.length === 1 ? 'remote' : 'full',
-    ...(retirementEvidenceRoot !== undefined ? { retirementEvidenceRoot } : {}),
   };
 }
 
@@ -2273,21 +1643,14 @@ export function compareInventoryForCli(
   live: LiveInventory,
   isAncestor: (ancestorSha: string, descendantSha: string) => boolean,
   options: InventoryCliOptions,
-  dependencies: RetirementVerifierDependencies = {},
 ): InventoryDrift[] {
-  return compareInventory(
-    manifest,
-    live,
-    isAncestor,
-    options.scope,
-    createTrustedRetirementAuthorizationVerifier(options.retirementEvidenceRoot, dependencies),
-  );
+  return compareInventory(manifest, live, isAncestor, options.scope);
 }
 
-async function main(): Promise<void> {
+export async function runCapabilitySourceInventoryCli(args: readonly string[]): Promise<void> {
   let options: InventoryCliOptions;
   try {
-    options = parseInventoryCliOptions(process.argv.slice(2));
+    options = parseInventoryCliOptions(args);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`capability-source-inventory: ${message}\n`);
@@ -2297,7 +1660,27 @@ async function main(): Promise<void> {
 
   try {
     const manifest = readManifest();
-    const live = await inspectLiveRepository(options.scope);
+    if (options.mode === 'static') {
+      const proofDrifts = validateMainProofs(
+        manifest,
+        manifest.reconciledBaseSha,
+        gitIsAncestor,
+        gitResolveCommitTreeSha,
+        'COMMITTED_OBJECTS',
+      );
+      if (proofDrifts.length > 0) {
+        throw new Error(
+          `committed main proofs are invalid: ${proofDrifts
+            .map((drift) => `[${drift.code}] ${drift.message}`)
+            .join('; ')}`,
+        );
+      }
+      process.stdout.write(
+        `capability-source-inventory: committed contract exact at ${manifest.reconciledBaseSha} (${manifest.sources.length} sources)\n`,
+      );
+      return;
+    }
+    const live = await inspectLiveRepository(manifest, options.scope);
     const drifts = [
       ...compareInventoryForCli(manifest, live, gitIsAncestor, options),
       ...validateMainProofs(manifest, live.mainSha, gitIsAncestor, gitResolveCommitTreeSha),
@@ -2327,7 +1710,7 @@ async function main(): Promise<void> {
 }
 
 if (require.main === module) {
-  main().catch((error: unknown) => {
+  runCapabilitySourceInventoryCli(process.argv.slice(2)).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`capability-source-inventory: unexpected failure: ${message}\n`);
     process.exit(1);

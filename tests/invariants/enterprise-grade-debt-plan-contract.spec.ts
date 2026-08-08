@@ -16,7 +16,10 @@ import {
   validateExecutionIdentityDefinitions,
   validateIntegrationEvidenceStatic,
 } from '../../tools/gates/capability-integration-evidence';
-import { parseInventoryManifest } from '../../tools/gates/capability-source-inventory';
+import {
+  SOURCE_INVENTORY_SCHEMA_V2,
+  parseInventoryManifest,
+} from '../../tools/gates/capability-source-inventory';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const PLAN_ID = '2026-06-18-enterprise-grade-debt-closure';
@@ -511,7 +514,7 @@ describe('enterprise-grade debt closure plan contract', () => {
     expect(
       validateExecutionIdentityDefinitions(evidenceManifest, new LocalDispatchIdentityCatalog()),
     ).toEqual([]);
-    expect(parseInventoryManifest(manifest).sources).toHaveLength(45);
+    const sourceInventory = parseInventoryManifest(manifest);
 
     const gitObjectId = /^[0-9a-f]{40}$/;
     const visitGitObjectIds = (value: unknown, path: string): void => {
@@ -550,32 +553,7 @@ describe('enterprise-grade debt closure plan contract', () => {
       stringArray(dropletPolicy.evidence).some((entry) => /2026-07-29.*OOM/i.test(entry)),
     ).toBe(true);
 
-    const retirementPolicy = reconciliation.source_retirement_policy;
-    expect(isRecord(retirementPolicy)).toBe(true);
-    if (!isRecord(retirementPolicy)) return;
-    expect(retirementPolicy.retirement_status).toBe('RETIRE_APPROVED');
-    expect(stringArray(retirementPolicy.required_approval_fields)).toEqual([
-      'approved_at',
-      'approved_by',
-      'snapshot_sha256',
-      'snapshot_uri',
-      'evidence',
-      'authorization',
-    ]);
-    expect(stringArray(retirementPolicy.dirty_worktree_required_approval_fields)).toEqual([
-      'captured_content_sha256',
-    ]);
-    expect(stringArray(retirementPolicy.authorization_required_fields)).toEqual([
-      'kind',
-      'issuer',
-      'signer_identity',
-      'subject_sha256',
-      'statement_sha256',
-      'statement_uri',
-      'bundle_sha256',
-      'bundle_uri',
-    ]);
-    expect(retirementPolicy.authorization_contract).toBe('SIGSTORE_BUNDLE_V1');
+    expect(isRecord(reconciliation.source_retirement_policy)).toBe(true);
 
     const allocationPolicy = reconciliation.finding_allocation_policy;
     expect(isRecord(allocationPolicy)).toBe(true);
@@ -593,137 +571,19 @@ describe('enterprise-grade debt closure plan contract', () => {
     }
 
     const sources = objectArray(reconciliation.sources);
-    expect(sources).toHaveLength(45);
     const sourceIds = sources.map((source) => stringValue(source.id, 'source.id'));
-    const sourceCoordinates = sources.map((source) => {
+    expect([...sourceIds].sort()).toEqual(
+      sourceInventory.sources.map((source) => source.id).sort(),
+    );
+    const sourceCoordinates = sourceInventory.sources.map(
+      (source) => `${source.kind}:${source.locator}@${source.headSha}`,
+    );
+    for (const source of sources) {
       const id = stringValue(source.id, 'source.id');
-      const kind = stringValue(source.kind, id + '.kind');
-      const locator = stringValue(source.locator, id + '.locator');
-      const headSha = stringValue(source.head_sha, id + '.head_sha');
-      expect(headSha).toMatch(gitObjectId);
-      expect(['REMOTE_BRANCH', 'LOCAL_BRANCH', 'DIRTY_WORKTREE']).toContain(kind);
-      expect(['UNASSESSED', 'ASSESSING', 'PRESERVED_DIRTY', 'SUPERSEDED', 'INTEGRATED']).toContain(
-        source.state,
-      );
-      expect([
-        'ALREADY_ON_MAIN',
-        'SUPERSEDE',
-        'REIMPLEMENT',
-        'SELECTIVE_EXTRACT',
-        'EXACT_HEAD_PR',
-        'FORENSIC_ONLY',
-        'PRESERVE_PENDING',
-      ]).toContain(source.disposition);
       expect(stringValue(source.assessed_at, id + '.assessed_at')).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(stringValue(source.assessment, id + '.assessment')).not.toBe('');
       expect(stringArray(source.evidence).length).toBeGreaterThan(0);
       expect(stringValue(source.next_action, id + '.next_action')).not.toBe('');
-
-      if (kind === 'DIRTY_WORKTREE') {
-        expect(stringValue(source.content_sha256, id + '.content_sha256')).toMatch(
-          /^[0-9a-f]{64}$/,
-        );
-      }
-      if (source.disposition === 'ALREADY_ON_MAIN') {
-        expect(kind).toBe('REMOTE_BRANCH');
-        expect(source.state).toBe('INTEGRATED');
-        expect(isRecord(source.main_proof)).toBe(true);
-        if (!isRecord(source.main_proof)) return '';
-        const proofKind = stringValue(source.main_proof.kind, id + '.main_proof.kind');
-        expect(['ANCESTOR', 'TREE_EQUIVALENT']).toContain(proofKind);
-        expect(source.main_proof.source_commit_sha).toBe(headSha);
-        if (proofKind === 'TREE_EQUIVALENT') {
-          expect(source.main_proof.source_tree_sha).toBe(source.main_proof.main_tree_sha);
-        }
-      } else {
-        expect(source.main_proof).toBeUndefined();
-      }
-      if (source.state === 'INTEGRATED') {
-        expect(source.disposition).toBe('ALREADY_ON_MAIN');
-      }
-      if (source.state === 'SUPERSEDED') {
-        expect(['SUPERSEDE', 'FORENSIC_ONLY']).toContain(source.disposition);
-      }
-      if (source.retirement !== undefined) {
-        expect(['SUPERSEDED', 'INTEGRATED']).toContain(source.state);
-        expect(isRecord(source.retirement)).toBe(true);
-        if (!isRecord(source.retirement)) return '';
-        expect(source.retirement.status).toBe('RETIRE_APPROVED');
-        const approvedAt = stringValue(
-          source.retirement.approved_at,
-          id + '.retirement.approved_at',
-        );
-        expect(approvedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
-        expect(new Date(approvedAt).toISOString()).toBe(approvedAt);
-        expect(stringValue(source.retirement.approved_by, id + '.retirement.approved_by')).not.toBe(
-          '',
-        );
-        expect(
-          stringValue(source.retirement.snapshot_sha256, id + '.retirement.snapshot_sha256'),
-        ).toMatch(/^[0-9a-f]{64}$/);
-        const snapshotUri = stringValue(
-          source.retirement.snapshot_uri,
-          id + '.retirement.snapshot_uri',
-        );
-        expect(snapshotUri).toContain(
-          `artifact://sha256/${String(source.retirement.snapshot_sha256)}/`,
-        );
-        expect(stringArray(source.retirement.evidence).length).toBeGreaterThan(0);
-        expect(source.retirement.evidence).toContain(snapshotUri);
-        expect(isRecord(source.retirement.authorization)).toBe(true);
-        if (!isRecord(source.retirement.authorization)) return '';
-        expect(source.retirement.authorization.kind).toBe('SIGSTORE_BUNDLE_V1');
-        const signedSubjectSha256 = stringValue(
-          source.retirement.authorization.subject_sha256,
-          id + '.retirement.authorization.subject_sha256',
-        );
-        expect(signedSubjectSha256).toMatch(/^[0-9a-f]{64}$/);
-        expect(
-          stringValue(
-            source.retirement.authorization.bundle_sha256,
-            id + '.retirement.authorization.bundle_sha256',
-          ),
-        ).toMatch(/^[0-9a-f]{64}$/);
-        const bundleUri = stringValue(
-          source.retirement.authorization.bundle_uri,
-          id + '.retirement.authorization.bundle_uri',
-        );
-        expect(bundleUri).toContain(
-          `artifact://sha256/${String(source.retirement.authorization.bundle_sha256)}/`,
-        );
-        expect(source.retirement.evidence).toContain(bundleUri);
-        const statementSha256 = stringValue(
-          source.retirement.authorization.statement_sha256,
-          id + '.retirement.authorization.statement_sha256',
-        );
-        expect(statementSha256).toMatch(/^[0-9a-f]{64}$/);
-        expect(signedSubjectSha256).toBe(statementSha256);
-        const statementUri = stringValue(
-          source.retirement.authorization.statement_uri,
-          id + '.retirement.authorization.statement_uri',
-        );
-        expect(statementUri).toContain(statementSha256);
-        expect(source.retirement.evidence).toContain(statementUri);
-        expect(
-          stringValue(
-            source.retirement.authorization.issuer,
-            id + '.retirement.authorization.issuer',
-          ),
-        ).toBe('https://token.actions.githubusercontent.com');
-        expect(
-          stringValue(
-            source.retirement.authorization.signer_identity,
-            id + '.retirement.authorization.signer_identity',
-          ),
-        ).toBe(
-          'https://github.com/Okan-wqm/aquaculture_platform/.github/workflows/source-retirement.yml@refs/heads/main',
-        );
-        if (kind === 'DIRTY_WORKTREE') {
-          expect(source.retirement.captured_content_sha256).toBe(source.content_sha256);
-        } else {
-          expect(source.retirement.captured_content_sha256).toBeUndefined();
-        }
-      }
       if (source.slice_proof !== undefined) {
         expect(isRecord(source.slice_proof)).toBe(true);
         if (isRecord(source.slice_proof)) {
@@ -734,8 +594,7 @@ describe('enterprise-grade debt closure plan contract', () => {
           }
         }
       }
-      return kind + ':' + locator + '@' + headSha;
-    });
+    }
     expect(new Set(sourceIds).size).toBe(sourceIds.length);
     expect(new Set(sourceCoordinates).size).toBe(sourceCoordinates.length);
 
@@ -750,9 +609,8 @@ describe('enterprise-grade debt closure plan contract', () => {
     expect(findingInventory.artifact_path).toBe(
       `docs/plans/${PLAN_ID}/source-findings.${artifactSha256}.jsonl`,
     );
-    expect(findingInventory.occurrence_count).toBe(964);
-    expect(stringValue(findingInventory.occurrence_sha256, 'finding_inventory.digest')).toBe(
-      'dd4c57f30de688a6c640862b8c1e50ddd44226f8adbe033d5a8a9dd773054cd2',
+    expect(stringValue(findingInventory.occurrence_sha256, 'finding_inventory.digest')).toMatch(
+      /^[0-9a-f]{64}$/,
     );
     expect(objectArray(findingInventory.source_attestations)).toHaveLength(sources.length);
     const sourceFindingRows = readFileSync(sourceFindingsPath, 'utf8')
@@ -763,16 +621,16 @@ describe('enterprise-grade debt closure plan contract', () => {
         if (!isRecord(row)) throw new Error('source finding row must be an object');
         return row;
       });
-    expect(sourceFindingRows).toHaveLength(964);
-    expect(sourceFindingRows.filter((row) => row.classification === 'ID_COLLISION')).toHaveLength(
-      27,
+    expect(sourceFindingRows).toHaveLength(
+      numberValue(findingInventory.occurrence_count, 'finding_inventory.occurrence_count'),
     );
     expect(
-      sourceFindingRows.filter((row) => row.classification === 'LEGACY_UNREGISTERED'),
-    ).toHaveLength(618);
-    expect(
-      sourceFindingRows.filter((row) => row.classification === 'PENDING_ADJUDICATION'),
-    ).toHaveLength(319);
+      sourceFindingRows.every((row) =>
+        ['ID_COLLISION', 'LEGACY_UNREGISTERED', 'PENDING_ADJUDICATION'].includes(
+          stringValue(row.classification, 'source finding classification'),
+        ),
+      ),
+    ).toBe(true);
 
     const gateProfiles = reconciliation.gate_profiles;
     expect(isRecord(gateProfiles)).toBe(true);
@@ -819,8 +677,7 @@ describe('enterprise-grade debt closure plan contract', () => {
     );
     const orderIndex = new Map(integrationOrder.map((id, index) => [id, index]));
 
-    expect(units).toHaveLength(127);
-    expect(integrationOrder).toHaveLength(127);
+    expect(integrationOrder).toHaveLength(units.length);
     expect(new Set(integrationOrder).size).toBe(integrationOrder.length);
     expect([...integrationOrder].sort()).toEqual([...unitIds].sort());
     expect(new Set(unitIds).size).toBe(unitIds.length);
@@ -1237,7 +1094,7 @@ describe('enterprise-grade debt closure plan contract', () => {
     expect(sourceAuthorityCodes).toContain('SOURCE_CANNOT_BE_BEHAVIOR_AUTHORITY');
   });
 
-  it('rejects retirement records without the cryptographic authorization contract', () => {
+  it('rejects every source retirement record through the source-inventory compiler', () => {
     const retirementManifest: unknown = JSON.parse(JSON.stringify(manifest));
     expect(isRecord(retirementManifest)).toBe(true);
     if (!isRecord(retirementManifest) || !isRecord(retirementManifest.capability_reconciliation)) {
@@ -1257,8 +1114,28 @@ describe('enterprise-grade debt closure plan contract', () => {
       evidence: [`artifact://sha256/${'a'.repeat(64)}/snapshot.tar.zst`],
     };
 
-    expect(() => parseInventoryManifest(retirementManifest)).toThrow(
-      'retirement.authorization must be an object',
+    expect(() => parseInventoryManifest(retirementManifest)).toThrow('retirement is forbidden');
+  });
+
+  it('ignores inert v1 retirement metadata and forbids it in v2', () => {
+    const alteredLegacy: unknown = JSON.parse(JSON.stringify(manifest));
+    expect(isRecord(alteredLegacy)).toBe(true);
+    if (!isRecord(alteredLegacy) || !isRecord(alteredLegacy.capability_reconciliation)) return;
+    const legacyPolicy = alteredLegacy.capability_reconciliation.source_retirement_policy;
+    expect(isRecord(legacyPolicy)).toBe(true);
+    if (!isRecord(legacyPolicy)) return;
+    legacyPolicy.authorization_contract = 'ATTACKER_CONTROLLED';
+    expect(parseInventoryManifest(alteredLegacy).schemaVersion).toBe(1);
+
+    const v2WithLegacyPolicy: unknown = JSON.parse(JSON.stringify(manifest));
+    expect(isRecord(v2WithLegacyPolicy)).toBe(true);
+    if (!isRecord(v2WithLegacyPolicy) || !isRecord(v2WithLegacyPolicy.capability_reconciliation)) {
+      return;
+    }
+    v2WithLegacyPolicy.capability_reconciliation.source_inventory_schema =
+      SOURCE_INVENTORY_SCHEMA_V2;
+    expect(() => parseInventoryManifest(v2WithLegacyPolicy)).toThrow(
+      'source_retirement_policy is forbidden in source inventory v2',
     );
   });
 });

@@ -5,6 +5,11 @@ import { readFileSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 
 import {
+  AUTOMATION_PUBLICATION_AUTHORITY_SCHEMA,
+  AUTOMATION_PUBLICATION_AUTHORITY_SCHEMA_VERSION,
+  parseAutomationPublicationDeploymentBranchPolicy,
+} from './lib/automation-publication-authority';
+import {
   AUTOMATION_BASE_BRANCH,
   AUTOMATION_PUBLICATION_COMMIT_TRAILER_ORDER,
   AUTOMATION_PUBLICATION_COMMIT_TRAILERS,
@@ -1498,8 +1503,8 @@ export class ProtectedBaseAuthorityProvider implements AutomationPublicationAuth
 export function activeAuthorityFromManifest(value: unknown): AutomationPublicationAuthority | null {
   const manifest = requireRecord(value, 'automation authority manifest');
   if (
-    manifest.$schema !== 'aqua/github-automation-publication-authority/v1' ||
-    manifest.schema_version !== 1 ||
+    manifest.$schema !== AUTOMATION_PUBLICATION_AUTHORITY_SCHEMA ||
+    manifest.schema_version !== AUTOMATION_PUBLICATION_AUTHORITY_SCHEMA_VERSION ||
     manifest.authority_id !== 'aqua.github.automation-publication'
   ) {
     throw new Error('Automation publication authority schema or identity is invalid');
@@ -1524,6 +1529,11 @@ export function activeAuthorityFromManifest(value: unknown): AutomationPublicati
     ),
   };
   assertRepository(repository, 'Automation authority repository');
+  const environment = requireRecord(
+    manifest.environment,
+    'automation authority manifest.environment',
+  );
+  parseAutomationPublicationDeploymentBranchPolicy(environment.deployment_branch_policy);
   if (manifest.state === 'BOOTSTRAP_PENDING') return null;
   const activation = requireRecord(
     manifest.activation_evidence,

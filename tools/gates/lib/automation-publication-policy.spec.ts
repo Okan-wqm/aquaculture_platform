@@ -22,6 +22,7 @@ import {
   type AutomationPublicationRetryIdentityFields,
   type ResolvedAutomationPublicationPolicy,
 } from './automation-publication-policy';
+import { hasOwn } from './json-contract';
 
 const BASE_SHA = '1'.repeat(40);
 const OTHER_SHA = '2'.repeat(40);
@@ -74,8 +75,8 @@ function ruleHealthInput(reportMonth: string, pathDate: string): AutomationPubli
   };
 }
 
-describe('automation publication policy selection', () => {
-  it('selects registry add, close, and sweep through exact workflow authority', () => {
+void describe('automation publication policy selection', () => {
+  void it('selects registry add, close, and sweep through exact workflow authority', () => {
     const add = resolve(registryInput('add'));
     const close = resolve(registryInput('close'));
     const sweep = resolve({
@@ -101,7 +102,7 @@ describe('automation publication policy selection', () => {
     assert.deepEqual(sweep.workflowEvents, ['schedule', 'workflow_dispatch']);
   });
 
-  it('binds daily reports to a real date and their evidence artifact prefix', () => {
+  void it('binds daily reports to a real date and their evidence artifact prefix', () => {
     const policy = resolve(dailyInput('2026-07-30'));
 
     assert.equal(policy.key, 'aria-daily-report');
@@ -114,7 +115,7 @@ describe('automation publication policy selection', () => {
     assert.throws(() => resolve(dailyInput('2026-02-30')), /real UTC calendar date/);
   });
 
-  it('allows the rule-health path stamp to differ from its report month', () => {
+  void it('allows the rule-health path stamp to differ from its report month', () => {
     const policy = resolve(ruleHealthInput('2026-06', '2026-07-30'));
 
     assert.equal(policy.key, 'rule-health-report');
@@ -126,7 +127,7 @@ describe('automation publication policy selection', () => {
     );
   });
 
-  it('rejects a rule-health month, protected base, or report suffix mismatch', () => {
+  void it('rejects a rule-health month, protected base, or report suffix mismatch', () => {
     assert.throws(
       () => resolve(ruleHealthInput('2026-13', '2026-07-30')),
       /select exactly one|real YYYY-MM month/,
@@ -149,7 +150,7 @@ describe('automation publication policy selection', () => {
     );
   });
 
-  it('fails closed when workflow, branch, path, headline, or title differs', () => {
+  void it('fails closed when workflow, branch, path, headline, or title differs', () => {
     const canonical = registryInput('add');
     for (const candidate of [
       {
@@ -167,8 +168,8 @@ describe('automation publication policy selection', () => {
   });
 });
 
-describe('automation publication shared contract helpers', () => {
-  it('recognizes only policy-managed registry and report paths', () => {
+void describe('automation publication shared contract helpers', () => {
+  void it('recognizes only policy-managed registry and report paths', () => {
     assert.equal(isManagedAutomationPublicationPath(REGISTRY_PATH), true);
     assert.equal(
       isManagedAutomationPublicationPath('aria-tools/reports/daily/2026-07-30.md'),
@@ -187,7 +188,7 @@ describe('automation publication shared contract helpers', () => {
     assert.equal(isManagedAutomationPublicationPath('docs/reviews/arbitrary.md'), false);
   });
 
-  it('owns every exact durable result basename through one mapping', () => {
+  void it('owns every exact durable result basename through one mapping', () => {
     assert.equal(
       automationPublicationResultBasename('registry-add'),
       'finding-registry-publication.json',
@@ -223,7 +224,7 @@ describe('automation publication shared contract helpers', () => {
     );
   });
 
-  it('builds a canonical stable retry payload and binds the base PR body', () => {
+  void it('builds a canonical stable retry payload and binds the base PR body', () => {
     const fields: AutomationPublicationRetryIdentityFields = {
       baseSha: BASE_SHA,
       branch: 'automation/finding-registry-active',
@@ -245,11 +246,11 @@ describe('automation publication shared contract helpers', () => {
     assert.equal(payload.repository_id, '1132698735');
     assert.equal(payload.base_pull_request_body_sha256, fields.basePullRequestBodySha256);
     assert.equal(
-      Object.hasOwn(payload, 'workflow_run_id'),
+      hasOwn(payload, 'workflow_run_id'),
       false,
       'attempt provenance must not enter the stable retry identity',
     );
-    assert.equal(Object.hasOwn(payload, 'evidence_artifact'), false);
+    assert.equal(hasOwn(payload, 'evidence_artifact'), false);
     assert.equal(
       automationPublicationRetryIdentityHash(fields),
       automationPublicationRetryIdentityHash({ ...fields }),
@@ -263,7 +264,7 @@ describe('automation publication shared contract helpers', () => {
     );
   });
 
-  it('derives one immutable physical branch from the repository-global command identity', () => {
+  void it('derives one immutable physical branch from the repository-global command identity', () => {
     const policy = resolve(registryInput('add'));
     const commandId = 'finding-request:TEST-add';
     const identity = automationPublicationCommandIdentityHash(policy, commandId);
@@ -277,9 +278,9 @@ describe('automation publication shared contract helpers', () => {
       logical_branch: 'automation/finding-registry-active',
       command_id: commandId,
     });
-    assert.equal(Object.hasOwn(payload, 'base_sha'), false);
-    assert.equal(Object.hasOwn(payload, 'input_sha256'), false);
-    assert.equal(Object.hasOwn(payload, 'workflow_run_id'), false);
+    assert.equal(hasOwn(payload, 'base_sha'), false);
+    assert.equal(hasOwn(payload, 'input_sha256'), false);
+    assert.equal(hasOwn(payload, 'workflow_run_id'), false);
     assert.equal(
       automationPublicationBranch(policy, commandId),
       `automation/finding-registry-active--${identity}`,
@@ -287,7 +288,7 @@ describe('automation publication shared contract helpers', () => {
     assert.throws(() => automationPublicationBranch(policy, 'short'), /command ID/i);
   });
 
-  it('selects logical policy authority before binding the live physical branch', () => {
+  void it('selects logical policy authority before binding the live physical branch', () => {
     const { branch: _branch, ...authorityInput } = registryInput('close');
     const selected = selectAutomationPublicationPolicy(authorityInput);
 
@@ -295,7 +296,7 @@ describe('automation publication shared contract helpers', () => {
     assert.equal(selected.branch, 'automation/finding-registry-active');
   });
 
-  it('owns exact input and result artifact members for every policy', () => {
+  void it('owns exact input and result artifact members for every policy', () => {
     const registry = resolve(registryInput('add'));
     const daily = resolve(dailyInput('2026-07-30'));
     const ruleHealth = resolve(ruleHealthInput('2026-06', '2026-07-30'));
@@ -322,7 +323,7 @@ describe('automation publication shared contract helpers', () => {
     });
   });
 
-  it('publishes one ordered, duplicate-free commit trailer vocabulary', () => {
+  void it('publishes one ordered, duplicate-free commit trailer vocabulary', () => {
     assert.equal(
       new Set(AUTOMATION_PUBLICATION_COMMIT_TRAILER_ORDER).size,
       AUTOMATION_PUBLICATION_COMMIT_TRAILER_ORDER.length,

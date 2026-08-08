@@ -11,17 +11,15 @@ import { resolve } from 'node:path';
 
 import * as YAML from 'yaml';
 
-type AuthorityState = 'BOOTSTRAP_PENDING' | 'ACTIVE';
+import {
+  AUTOMATION_PUBLICATION_AUTHORITY_SCHEMA,
+  AUTOMATION_PUBLICATION_AUTHORITY_SCHEMA_VERSION,
+  EXPECTED_AUTOMATION_PUBLICATION_BRANCH_POLICY,
+  parseAutomationPublicationDeploymentBranchPolicy,
+  type AutomationPublicationDeploymentBranchPolicy,
+} from '../../tools/gates/lib/automation-publication-authority';
 
-interface DeploymentBranchPolicy {
-  protected_branches: boolean;
-  custom_branch_policies: boolean;
-  custom_branch_policy_count: number;
-  custom_branch_policies: Array<{
-    name: string;
-    type: string;
-  }>;
-}
+type AuthorityState = 'BOOTSTRAP_PENDING' | 'ACTIVE';
 
 interface AuthorizedPublisher {
   workflow_path: string;
@@ -77,7 +75,7 @@ interface AutomationPublicationAuthority {
   };
   environment: {
     name: string;
-    deployment_branch_policy: DeploymentBranchPolicy;
+    deployment_branch_policy: AutomationPublicationDeploymentBranchPolicy;
   };
   credentials: {
     scope: string;
@@ -350,10 +348,10 @@ function validateAuthority(inputs: ValidationInputs): string[] {
   const admissionIsRequired = requiredContexts.includes(authority.admission.context);
   const blocker = blockerRow(blockerReadme, authority.bootstrap_blocker.id);
 
-  if (authority.$schema !== 'aqua/github-automation-publication-authority/v1') {
+  if (authority.$schema !== AUTOMATION_PUBLICATION_AUTHORITY_SCHEMA) {
     violations.push('schema identity');
   }
-  if (authority.schema_version !== 1) {
+  if (authority.schema_version !== AUTOMATION_PUBLICATION_AUTHORITY_SCHEMA_VERSION) {
     violations.push('schema version');
   }
   if (authority.authority_id !== 'aqua.github.automation-publication') {
@@ -367,6 +365,18 @@ function validateAuthority(inputs: ValidationInputs): string[] {
   }
   if (authority.environment.name !== EXPECTED_ENVIRONMENT) {
     violations.push('environment identity');
+  }
+  try {
+    const branchPolicy = parseAutomationPublicationDeploymentBranchPolicy(
+      authority.environment.deployment_branch_policy,
+    );
+    if (
+      JSON.stringify(branchPolicy) !== JSON.stringify(EXPECTED_AUTOMATION_PUBLICATION_BRANCH_POLICY)
+    ) {
+      violations.push('deployment branch policy');
+    }
+  } catch {
+    violations.push('deployment branch policy');
   }
   if (authority.credentials.scope !== 'ENVIRONMENT_ONLY') {
     violations.push('credential scope');
@@ -587,12 +597,7 @@ describe('automation publication authority SSoT', () => {
     });
     expect(authority.environment).toEqual({
       name: EXPECTED_ENVIRONMENT,
-      deployment_branch_policy: {
-        protected_branches: false,
-        custom_branch_policies: true,
-        custom_branch_policy_count: 1,
-        custom_branch_policies: [{ name: 'main', type: 'branch' }],
-      },
+      deployment_branch_policy: EXPECTED_AUTOMATION_PUBLICATION_BRANCH_POLICY,
     });
     expect(authority.credentials.scope).toBe('ENVIRONMENT_ONLY');
     expect(sorted(authority.credentials.required_environment_secret_names)).toEqual(

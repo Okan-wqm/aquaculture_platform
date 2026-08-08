@@ -176,9 +176,7 @@ jobs:
           FINDING_EFFECTIVE_AT: ${{ steps.authority.outputs.effective_at }}
         run: |
           set -euo pipefail
-          npx ts-node --project tools/gates/tsconfig.json \
-            tools/gates/finding-registry.ts sweep \
-            --stale-after=${STALE_AFTER}
+          npm run findings:sweep -- --stale-after=${STALE_AFTER}
 
       - name: Verify post-sweep chain integrity
         if: steps.plan.outputs.has_changes == 'true' && steps.plan.outputs.dry_run != 'true'

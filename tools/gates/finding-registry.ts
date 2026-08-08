@@ -54,15 +54,14 @@
  *   2 — usage error
  */
 
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 
 // The .js extension on the ajv specifier survives both module systems
 // (it is a real file in node_modules); ts-jest interop in the Jest
 // invariant test omits it.
-import Ajv2020Mod, { type ValidateFunction } from 'ajv/dist/2020.js';
+import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 
 // PROC-HIGH-001 structural guard — close ceremony refuses branch-local
@@ -70,12 +69,12 @@ import addFormats from 'ajv-formats';
 // node:test specs, which use the same extensionless CJS specifier.
 import { findNonCanonicalFindingEvidence } from './finding-evidence-shape';
 import {
-  atomicWriteFileWithRegistryLease,
+  atomicWriteFindingReservationFile,
   atomicWriteRegistryFile,
   listAtomicWriteStagingFiles,
   nextFindingId,
-  orphanMarkdownReservedIds,
-  recoverAtomicWriteStagingFiles,
+  orphanMarkdownReservedIdsFromText,
+  recoverGovernedFindingStagingFiles,
   RegistryLockError,
   type RegistryLockLease,
   withRegistryFileLock,
@@ -84,6 +83,7 @@ import { commitHasFindingCloseTrailer } from './finding-traceability';
 import { commitReachableFrom } from './git-reachability';
 import {
   acquireRepositoryMutationAuthority,
+  assertRepositoryMutationAuthority,
   type RegistryMutationOperation,
   type RepositoryMutationAuthority,
 } from './github-actions-oidc-authority';
@@ -91,13 +91,53 @@ import {
   deriveRawFindingIdFloors,
   parseFindingRegistrySchemaContract,
 } from './lib/finding-registry-schema-contract';
+import { HERMETIC_GIT_RUNTIME } from './lib/hermetic-git-runtime';
+import { parseWorktreeList } from './lib/registered-common-dir-discovery';
 import {
+  assertStableRegularFileCurrent,
+  decodeFatalUtf8,
+  observeStableRegularFile,
+  sameStableParentIdentities,
+  type StableRegularFileObservationV1,
+} from './lib/anchored-filesystem';
+import { FINDING_REGISTRY_RELATIVE_PATH } from './lib/finding-authority-target-catalog';
+import {
+  admitFindingWriterCliInvocation,
+  findingWriterCliOperationNames,
+  isFindingWriterRegistryMutationOperation,
+} from './lib/finding-writer-cli-contract';
+import {
+  assertFindingWriterFenceAuthority,
+  assertFindingWriterFenceCurrent,
+  consumeFindingWriterFenceSnapshot,
+  createFindingWriterFenceSnapshot,
+  prepareFindingWriterFenceSnapshot,
+  readFindingWriterAllocationSnapshot,
+  redeemRegistryFindingWriterFence,
+  releaseFindingWriterFence,
+  type FindingWriterAllocationSnapshot,
+  type FindingWriterFenceCapability,
+  type FindingWriterAllocationFence,
+  type FindingWriterFenceSnapshot,
+  type FindingWriterMutationProfile,
+  type FindingWriterWorktreeGeneration,
+  type RedeemedFindingWriterFenceCapability,
+} from './lib/finding-writer-fence';
+import {
+  createFindingWriterRepositorySnapshot,
   FINDING_WRITER_AUTHORITY_PATH,
   FINDING_WRITER_PROTOCOL_ID,
-  parseFindingWriterProtocolManifest,
+  FINDING_WRITER_RETIRED_MUTATION_SURFACES,
+  type FindingWriterRepositorySnapshot,
+  verifyFindingWriterProtocolManifest,
 } from './lib/finding-registry-writer-authority';
 
-const Ajv2020 = (Ajv2020Mod as unknown as { default?: typeof Ajv2020Mod }).default ?? Ajv2020Mod;
+export type {
+  FindingWriterFenceCapability,
+  FindingWriterFenceSnapshot,
+  FindingWriterMutationProfile,
+  RedeemedFindingWriterFenceCapability,
+} from './lib/finding-writer-fence';
 
 // __dirname (CommonJS, per tools/gates/tsconfig.json) — this file
 // previously derived REPO_ROOT from import.meta.url, which forced the
@@ -107,7 +147,9 @@ const Ajv2020 = (Ajv2020Mod as unknown as { default?: typeof Ajv2020Mod }).defau
 // type-check. Every other gate in this directory is CJS; the odd one
 // out is now aligned (farm-service-enterprise-guardrails.ts precedent).
 const REPO_ROOT = resolve(__dirname, '..', '..');
-const REGISTRY_RELATIVE_PATH = join('docs', 'reviews', '_registry', 'findings.jsonl');
+const REGISTRY_RELATIVE_PATH = FINDING_REGISTRY_RELATIVE_PATH;
+const SCHEMA_RELATIVE_PATH = join('docs', 'reviews', '_registry', 'findings.jsonl.schema.json');
+const ORPHAN_FINDINGS_MD_RELATIVE_PATH = join('docs', 'reviews', 'orphan-findings.md');
 const CAPABILITY_MANIFEST_RELATIVE_PATH = join(
   'docs',
   'plans',
@@ -117,14 +159,7 @@ const CAPABILITY_MANIFEST_RELATIVE_PATH = join(
 const ALLOCATOR_RELATIVE_PATH = join('tools', 'gates', 'finding-registry.ts');
 const WRITER_PROTOCOL_MANIFEST_RELATIVE_PATH = FINDING_WRITER_AUTHORITY_PATH;
 const REGISTRY_PATH = resolve(REPO_ROOT, REGISTRY_RELATIVE_PATH);
-const SCHEMA_PATH = resolve(
-  REPO_ROOT,
-  'docs',
-  'reviews',
-  '_registry',
-  'findings.jsonl.schema.json',
-);
-const ORPHAN_FINDINGS_MD_PATH = resolve(REPO_ROOT, 'docs', 'reviews', 'orphan-findings.md');
+const SCHEMA_PATH = resolve(REPO_ROOT, SCHEMA_RELATIVE_PATH);
 const ZERO_HASH = '0'.repeat(64);
 const REGISTRY_STAGING_STALE_MS = 5 * 60_000;
 const GIT_OUTPUT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
@@ -152,49 +187,368 @@ interface FindingIdReservationLedger {
 }
 
 export interface FindingAllocationAuthority {
+  readonly repoRoot: string;
   readonly lockPath: string;
   readonly reservationPath: string;
-  readonly assertCompatibleWriters: () => void;
+  readonly assertCompatibleWriters: () => FindingWriterFenceSnapshot;
+  readonly consumeCompatibleWriters: (
+    snapshot: FindingWriterFenceSnapshot,
+  ) => FindingWriterFenceCapability;
+  readonly redeemCompatibleWriters: (
+    capability: FindingWriterFenceCapability,
+    lease: RegistryLockLease,
+    profile: FindingWriterMutationProfile,
+  ) => RedeemedFindingWriterFenceCapability;
+  readonly releaseCompatibleWriters: (capability: RedeemedFindingWriterFenceCapability) => void;
   readonly activeRegistryPaths: () => readonly string[];
-  readonly reservedDomainFloors: () => Readonly<Record<string, number>>;
 }
 
-function assertCommittedRegularFile(worktreePath: string, relativePath: string): string {
-  const absolutePath = resolve(worktreePath, relativePath);
-  if (
-    !existsSync(absolutePath) ||
-    !lstatSync(absolutePath).isFile() ||
-    lstatSync(absolutePath).isSymbolicLink()
-  ) {
-    throw new Error(`Finding writer governed file is missing or non-regular: ${absolutePath}`);
+function findingWriterHeadOid(worktreePath: string): string {
+  const raw = HERMETIC_GIT_RUNTIME.runText(
+    worktreePath,
+    ['rev-parse', '--verify', 'HEAD^{commit}'],
+    [0],
+    GIT_OUTPUT_MAX_BUFFER_BYTES,
+  ).stdout.trim();
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(raw)) {
+    throw new Error(`Finding writer worktree HEAD is not one exact commit: ${worktreePath}`);
   }
-  let committed: string;
-  try {
-    committed = gitOutput(worktreePath, ['show', `HEAD:${relativePath.replaceAll('\\', '/')}`]);
-  } catch {
-    throw new Error(`Finding writer governed file is not committed at HEAD: ${absolutePath}`);
-  }
-  const effective = readFileSync(absolutePath, 'utf8');
-  if (effective.trimEnd() !== committed.trimEnd()) {
-    throw new Error(`Finding writer governed file differs from committed HEAD: ${absolutePath}`);
-  }
-  return effective;
+  return raw;
 }
 
-export function assertActiveWorktreeFindingWritersFenced(worktreePaths: readonly string[]): void {
-  const legacyWriters: string[] = [];
-  for (const worktreePath of [...new Set(worktreePaths)].sort()) {
-    const allocatorPath = resolve(worktreePath, ALLOCATOR_RELATIVE_PATH);
-    if (!existsSync(allocatorPath)) continue;
-    try {
-      const protocolPath = resolve(worktreePath, WRITER_PROTOCOL_MANIFEST_RELATIVE_PATH);
-      const protocolRaw = assertCommittedRegularFile(
-        worktreePath,
-        WRITER_PROTOCOL_MANIFEST_RELATIVE_PATH,
+function assertFindingWriterWorktreeGeneration(generation: FindingWriterWorktreeGeneration): void {
+  const currentHead = findingWriterHeadOid(generation.worktree_path);
+  if (currentHead !== generation.head_oid) {
+    throw new Error(
+      `Finding writer worktree HEAD changed: ${generation.worktree_path} expected=${generation.head_oid} current=${currentHead}`,
+    );
+  }
+}
+
+type FindingWriterPinnedAllocationFile = StableRegularFileObservationV1;
+
+const findingWriterAllocationFences = new WeakMap<
+  FindingWriterFenceSnapshot,
+  FindingWriterAllocationFence
+>();
+
+function observeFindingWriterAllocationFile(path: string): FindingWriterPinnedAllocationFile {
+  return observeStableRegularFile(
+    path,
+    GIT_OUTPUT_MAX_BUFFER_BYTES,
+    'Finding writer allocation input',
+  );
+}
+
+function assertFindingWriterAllocationFileCurrent(
+  expected: FindingWriterPinnedAllocationFile,
+  transitionedSha256?: string,
+): void {
+  const current = observeFindingWriterAllocationFile(expected.path);
+  if (transitionedSha256 !== undefined) {
+    if (
+      current.sha256 !== transitionedSha256 ||
+      !sameStableParentIdentities(expected.parentGenerations, current.parentGenerations)
+    ) {
+      throw new Error(
+        `Finding writer registry transition digest or anchored parent differs: ${expected.path}`,
       );
-      const protocol = parseFindingWriterProtocolManifest(protocolRaw, protocolPath);
+    }
+    return;
+  }
+  assertStableRegularFileCurrent(
+    expected,
+    GIT_OUTPUT_MAX_BUFFER_BYTES,
+    'Finding writer allocation input',
+  );
+}
+
+function assertCommittedRegularFiles(
+  worktreePath: string,
+  relativePaths: readonly string[],
+  headOid: string,
+  repositorySnapshot: FindingWriterRepositorySnapshot,
+): ReadonlyMap<string, Buffer> {
+  const normalizedPaths = relativePaths.map((path) => path.replaceAll('\\', '/'));
+  if (new Set(normalizedPaths).size !== normalizedPaths.length) {
+    throw new Error('Finding writer governed file batch contains duplicate paths');
+  }
+  let treeOutput: Buffer;
+  try {
+    treeOutput = HERMETIC_GIT_RUNTIME.runBuffer(
+      worktreePath,
+      ['ls-tree', '-rz', headOid, '--', ...normalizedPaths],
+      [0],
+      undefined,
+      GIT_OUTPUT_MAX_BUFFER_BYTES,
+    ).stdout;
+  } catch {
+    throw new Error(`Finding writer governed file batch cannot be read at HEAD: ${worktreePath}`);
+  }
+
+  const treeObjects = new Map<string, string>();
+  let treeOffset = 0;
+  while (treeOffset < treeOutput.length) {
+    const terminator = treeOutput.indexOf(0, treeOffset);
+    if (terminator === -1) {
+      throw new Error('Finding writer HEAD tree batch has a truncated record');
+    }
+    const record = treeOutput.subarray(treeOffset, terminator);
+    const separator = record.indexOf(0x09);
+    const metadataBytes = separator === -1 ? Buffer.alloc(0) : record.subarray(0, separator);
+    if ([...metadataBytes].some((byte) => byte > 0x7f)) {
+      throw new Error('Finding writer HEAD tree batch metadata is not ASCII');
+    }
+    const metadata = metadataBytes.toString('ascii').split(' ');
+    const relativePath =
+      separator === -1
+        ? ''
+        : decodeFatalUtf8(record.subarray(separator + 1), 'Finding writer HEAD tree path');
+    const [mode, type, objectId] = metadata;
+    if (
+      (mode !== '100644' && mode !== '100755') ||
+      type !== 'blob' ||
+      objectId === undefined ||
+      !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(objectId) ||
+      !normalizedPaths.includes(relativePath) ||
+      treeObjects.has(relativePath)
+    ) {
+      throw new Error(
+        `Finding writer HEAD tree batch has an invalid record: ${record.toString('hex')}`,
+      );
+    }
+    treeObjects.set(relativePath, objectId);
+    treeOffset = terminator + 1;
+  }
+  if (treeObjects.size !== normalizedPaths.length) {
+    throw new Error(`Finding writer governed file batch is incomplete at HEAD: ${worktreePath}`);
+  }
+
+  const objectIds = normalizedPaths.map((path) => {
+    const objectId = treeObjects.get(path);
+    if (objectId === undefined) {
+      throw new Error(`Finding writer governed file is absent from the HEAD tree: ${path}`);
+    }
+    return objectId;
+  });
+  let batchOutput: Buffer;
+  try {
+    batchOutput = HERMETIC_GIT_RUNTIME.runBuffer(
+      worktreePath,
+      ['cat-file', '--batch'],
+      [0],
+      `${objectIds.join('\n')}\n`,
+      GIT_OUTPUT_MAX_BUFFER_BYTES,
+    ).stdout;
+  } catch {
+    throw new Error(`Finding writer governed blobs cannot be read at HEAD: ${worktreePath}`);
+  }
+
+  const effectiveFiles = new Map<string, Buffer>();
+  let batchOffset = 0;
+  for (let index = 0; index < normalizedPaths.length; index += 1) {
+    const relativePath = normalizedPaths[index];
+    const expectedObjectId = objectIds[index];
+    if (relativePath === undefined || expectedObjectId === undefined) {
+      throw new Error('Finding writer governed blob batch lost its requested order');
+    }
+    const headerEnd = batchOutput.indexOf(10, batchOffset);
+    if (headerEnd === -1) {
+      throw new Error('Finding writer governed blob batch has a truncated header');
+    }
+    const header = batchOutput.subarray(batchOffset, headerEnd).toString('ascii');
+    const [objectId, type, rawSize, ...unexpected] = header.split(' ');
+    const size = Number.parseInt(rawSize ?? '', 10);
+    if (
+      objectId !== expectedObjectId ||
+      type !== 'blob' ||
+      unexpected.length > 0 ||
+      !/^(?:0|[1-9]\d*)$/.test(rawSize ?? '') ||
+      !Number.isSafeInteger(size) ||
+      size < 0
+    ) {
+      throw new Error(`Finding writer governed blob batch has an invalid header: ${header}`);
+    }
+    const contentStart = headerEnd + 1;
+    const contentEnd = contentStart + size;
+    if (contentEnd >= batchOutput.length || batchOutput[contentEnd] !== 10) {
+      throw new Error(`Finding writer governed blob batch has truncated content: ${relativePath}`);
+    }
+    const committed = batchOutput.subarray(contentStart, contentEnd);
+    const effective = repositorySnapshot.readFile(relativePath);
+    if (!effective.equals(committed)) {
+      throw new Error(
+        `Finding writer governed file differs from committed HEAD: ${resolve(worktreePath, relativePath)}`,
+      );
+    }
+    effectiveFiles.set(relativePath, effective);
+    batchOffset = contentEnd + 1;
+  }
+  if (batchOffset !== batchOutput.length) {
+    throw new Error('Finding writer governed blob batch contains trailing records');
+  }
+  return effectiveFiles;
+}
+
+export function assertActiveWorktreeFindingWritersFenced(
+  worktreePaths: readonly string[],
+  authorityWorktreePath: string,
+): FindingWriterFenceSnapshot {
+  const incompatibleWriters = new Map<string, string>();
+  const markIncompatibleWriter = (path: string, reason: unknown): void => {
+    if (!incompatibleWriters.has(path)) {
+      incompatibleWriters.set(path, reason instanceof Error ? reason.message : String(reason));
+    }
+  };
+  const activeWorktrees = [
+    ...new Set(worktreePaths.map((worktreePath) => resolve(worktreePath))),
+  ].sort();
+  const worktreeGenerations: FindingWriterWorktreeGeneration[] = [];
+  const repositorySnapshots: FindingWriterRepositorySnapshot[] = [];
+  const verifiedFilesByWorktree = new Map<string, Readonly<Record<string, string>>>();
+  const allocationFiles: FindingWriterPinnedAllocationFile[] = [];
+  const registryPaths = new Set<string>();
+  const claimedIds = new Set<string>();
+  const orphanReservedIds = new Set<string>();
+  const allocationIdentities = new Map<
+    string,
+    { readonly fingerprint: string; readonly registryPath: string }
+  >();
+  const reservedDomainFloors: Record<string, number> = {};
+  for (const worktreePath of activeWorktrees) {
+    const allocatorPath = resolve(worktreePath, ALLOCATOR_RELATIVE_PATH);
+    try {
+      const headOid = findingWriterHeadOid(worktreePath);
+      const repositorySnapshot = createFindingWriterRepositorySnapshot(worktreePath);
+      repositorySnapshots.push(repositorySnapshot);
+      const generation: FindingWriterWorktreeGeneration = Object.freeze({
+        worktree_path: worktreePath,
+        head_oid: headOid,
+        allocator_present: repositorySnapshot.fileExists(allocatorPath),
+      });
+      worktreeGenerations.push(generation);
+      const registryRelativePath = REGISTRY_RELATIVE_PATH.replaceAll('\\', '/');
+      const schemaRelativePath = SCHEMA_RELATIVE_PATH.replaceAll('\\', '/');
+      const registryRaw = repositorySnapshot.readText(registryRelativePath);
+      const schemaRaw = repositorySnapshot.readText(schemaRelativePath);
+      const registryPath = resolve(worktreePath, registryRelativePath);
+      const registryEntries = parseRegistryRaw(
+        registryRaw,
+        registryPath,
+        compileFindingValidator(schemaRaw, resolve(worktreePath, schemaRelativePath)),
+      );
+      const registryVerification = verify(registryEntries);
+      if (!registryVerification.ok) {
+        throw new Error(
+          `Active worktree finding registry is invalid: ${resolve(worktreePath, registryRelativePath)}: ${registryVerification.reason}`,
+        );
+      }
+      for (const entry of registryEntries) {
+        const fingerprint = findingAllocationIdentityFingerprint(entry);
+        const prior = allocationIdentities.get(entry.id);
+        if (prior !== undefined && prior.fingerprint !== fingerprint) {
+          throw new Error(
+            `Active worktree registries assign ${entry.id} to different immutable finding identities: ${prior.registryPath}, ${registryPath}`,
+          );
+        }
+        allocationIdentities.set(entry.id, { fingerprint, registryPath });
+        claimedIds.add(entry.id);
+      }
+      const registryFile = observeFindingWriterAllocationFile(registryPath);
+      if (registryFile.sha256 !== sha256hex(registryRaw)) {
+        throw new Error(`Finding writer registry changed while pinning: ${registryPath}`);
+      }
+      allocationFiles.push(registryFile);
+      registryPaths.add(registryPath);
+
+      const orphanRelativePath = ORPHAN_FINDINGS_MD_RELATIVE_PATH.replaceAll('\\', '/');
+      const orphanPath = resolve(worktreePath, orphanRelativePath);
+      const orphanRaw = repositorySnapshot.readText(orphanRelativePath);
+      for (const orphanId of orphanMarkdownReservedIdsFromText(orphanRaw)) {
+        orphanReservedIds.add(orphanId);
+      }
+      const orphanFile = observeFindingWriterAllocationFile(orphanPath);
+      if (orphanFile.sha256 !== sha256hex(orphanRaw)) {
+        throw new Error(
+          `Finding writer orphan allocation input changed while pinning: ${orphanPath}`,
+        );
+      }
+      allocationFiles.push(orphanFile);
+      const retiredSurfaces = FINDING_WRITER_RETIRED_MUTATION_SURFACES.filter((path) =>
+        repositorySnapshot.fileExists(resolve(worktreePath, path)),
+      );
+      for (const retiredSurface of retiredSurfaces) {
+        markIncompatibleWriter(
+          resolve(worktreePath, retiredSurface),
+          'retired finding mutation surface is present',
+        );
+      }
+      if (retiredSurfaces.length > 0) continue;
+      if (!generation.allocator_present) {
+        continue;
+      }
+      const readSnapshotAuthorityText = (absolutePath: string): string => {
+        const relativePath = relative(worktreePath, absolutePath).replaceAll('\\', '/');
+        if (
+          relativePath.length === 0 ||
+          relativePath === '..' ||
+          relativePath.startsWith('../') ||
+          relativePath.startsWith('/')
+        ) {
+          throw new Error(
+            `Finding writer allocation authority escapes its worktree: ${absolutePath}`,
+          );
+        }
+        return repositorySnapshot.readText(relativePath);
+      };
+      const sourceManifestPath = resolve(worktreePath, CAPABILITY_MANIFEST_RELATIVE_PATH);
+      const floorAuthority = readSourceFindingFloorAuthority(
+        sourceManifestPath,
+        readSnapshotAuthorityText,
+      );
+      for (const [namespace, floor] of Object.entries(floorAuthority.floors)) {
+        reservedDomainFloors[namespace] = Math.max(reservedDomainFloors[namespace] ?? 0, floor);
+      }
+      for (const allocationPath of [sourceManifestPath, floorAuthority.artifactPath]) {
+        const allocationFile = observeFindingWriterAllocationFile(allocationPath);
+        const expectedSha256 =
+          allocationPath === sourceManifestPath
+            ? floorAuthority.manifestSha256
+            : floorAuthority.artifactSha256;
+        if (allocationFile.sha256 !== expectedSha256) {
+          throw new Error(
+            `Finding writer source allocation input changed while pinning: ${allocationPath}`,
+          );
+        }
+        allocationFiles.push(allocationFile);
+      }
+      const protocolPath = resolve(worktreePath, WRITER_PROTOCOL_MANIFEST_RELATIVE_PATH);
+      const protocolRaw = repositorySnapshot.readFile(WRITER_PROTOCOL_MANIFEST_RELATIVE_PATH);
+      const protocol = verifyFindingWriterProtocolManifest(
+        decodeFatalUtf8(protocolRaw, 'Finding writer protocol manifest'),
+        protocolPath,
+        worktreePath,
+        repositorySnapshot,
+      );
+      const effectiveFiles = assertCommittedRegularFiles(
+        worktreePath,
+        [WRITER_PROTOCOL_MANIFEST_RELATIVE_PATH, ...Object.keys(protocol.files)],
+        generation.head_oid,
+        repositorySnapshot,
+      );
+      const committedProtocol = effectiveFiles.get(WRITER_PROTOCOL_MANIFEST_RELATIVE_PATH);
+      if (committedProtocol === undefined || !committedProtocol.equals(protocolRaw)) {
+        throw new Error(
+          `Finding writer protocol changed while loading its snapshot: ${protocolPath}`,
+        );
+      }
       for (const [relativePath, expectedSha256] of Object.entries(protocol.files)) {
-        const content = assertCommittedRegularFile(worktreePath, relativePath);
+        const content = effectiveFiles.get(relativePath);
+        if (content === undefined) {
+          throw new Error(
+            `Finding writer governed file is absent from its snapshot: ${relativePath}`,
+          );
+        }
         if (sha256hex(content) !== expectedSha256) {
           throw new Error(
             `Finding writer governed file digest differs from ${protocolPath}: ${resolve(
@@ -204,29 +558,129 @@ export function assertActiveWorktreeFindingWritersFenced(worktreePaths: readonly
           );
         }
       }
-    } catch {
-      legacyWriters.push(allocatorPath);
+      verifiedFilesByWorktree.set(worktreePath, protocol.files);
+    } catch (error) {
+      markIncompatibleWriter(allocatorPath, error);
     }
   }
-  if (legacyWriters.length > 0) {
+  const resolvedAuthorityWorktree = resolve(authorityWorktreePath);
+  const authorityFiles = verifiedFilesByWorktree.get(resolvedAuthorityWorktree);
+  if (authorityFiles === undefined) {
+    markIncompatibleWriter(
+      resolve(resolvedAuthorityWorktree, ALLOCATOR_RELATIVE_PATH),
+      'authority worktree has no verified writer protocol',
+    );
+  } else {
+    for (const worktreePath of activeWorktrees) {
+      const allocatorPath = resolve(worktreePath, ALLOCATOR_RELATIVE_PATH);
+      if (incompatibleWriters.has(allocatorPath)) continue;
+      const verifiedFiles = verifiedFilesByWorktree.get(worktreePath);
+      const allocatorPresent = worktreeGenerations.find(
+        (generation) => generation.worktree_path === worktreePath,
+      )?.allocator_present;
+      if (allocatorPresent === false) continue;
+      if (
+        verifiedFiles === undefined ||
+        JSON.stringify(verifiedFiles) !== JSON.stringify(authorityFiles)
+      ) {
+        markIncompatibleWriter(
+          allocatorPath,
+          'writer protocol differs from the authority worktree',
+        );
+      }
+    }
+  }
+  for (const generation of worktreeGenerations) {
+    try {
+      assertFindingWriterWorktreeGeneration(generation);
+    } catch (error) {
+      markIncompatibleWriter(resolve(generation.worktree_path, ALLOCATOR_RELATIVE_PATH), error);
+    }
+  }
+  for (const repositorySnapshot of repositorySnapshots) {
+    try {
+      repositorySnapshot.assertCurrent();
+    } catch (error) {
+      markIncompatibleWriter(resolve(repositorySnapshot.repoRoot, ALLOCATOR_RELATIVE_PATH), error);
+    }
+  }
+  if (incompatibleWriters.size > 0) {
     throw new Error(
-      `Active worktrees expose uncommitted or protocol-incompatible finding writers: ${legacyWriters.join(
-        ',',
-      )}; retire them or advance them to the committed ${FINDING_WRITER_PROTOCOL_ID} authority before publication or canonical mutation`,
+      `Active worktrees expose uncommitted or protocol-incompatible finding writers: ${[
+        ...incompatibleWriters.entries(),
+      ]
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+        .map(([path, reason]) => `${path}: ${reason}`)
+        .join(
+          ',',
+        )}; preserve them and record an explicit governed disposition or advance them to the committed ${FINDING_WRITER_PROTOCOL_ID} authority before publication or canonical mutation; automatic retirement is forbidden`,
     );
   }
+  if (worktreeGenerations.length !== activeWorktrees.length) {
+    throw new Error('Finding writer fence did not capture every active worktree generation');
+  }
+  const frozenWorktrees = Object.freeze([...worktreeGenerations]);
+  const frozenAllocationFiles = Object.freeze([...allocationFiles]);
+  const allocationSnapshot = Object.freeze({
+    registryPaths: Object.freeze([...registryPaths].sort()),
+    claimedIds: Object.freeze([...claimedIds].sort()),
+    orphanReservedIds: Object.freeze([...orphanReservedIds].sort()),
+    reservedDomainFloors: Object.freeze(
+      Object.fromEntries(
+        Object.entries(reservedDomainFloors).sort(([left], [right]) =>
+          left < right ? -1 : left > right ? 1 : 0,
+        ),
+      ),
+    ),
+  });
+  const allocationFence: FindingWriterAllocationFence = Object.freeze({
+    snapshot: allocationSnapshot,
+    assertCurrent: () => {
+      for (const file of frozenAllocationFiles) assertFindingWriterAllocationFileCurrent(file);
+    },
+    assertRegistryTransition: (registryPath: string, contentSha256: string) => {
+      let matched = false;
+      for (const file of frozenAllocationFiles) {
+        if (file.path === registryPath) {
+          matched = true;
+          assertFindingWriterAllocationFileCurrent(file, contentSha256);
+        } else {
+          assertFindingWriterAllocationFileCurrent(file);
+        }
+      }
+      if (!matched) {
+        throw new Error(
+          `Finding writer registry transition target was not snapshotted: ${registryPath}`,
+        );
+      }
+    },
+  });
+  const generation = sha256hex(
+    JSON.stringify({
+      worktrees: frozenWorktrees.map((worktree) => [
+        worktree.worktree_path,
+        worktree.head_oid,
+        worktree.allocator_present,
+      ]),
+      allocation_inputs: frozenAllocationFiles.map((file) => [file.path, file.sha256]),
+    }),
+  );
+  const snapshot = createFindingWriterFenceSnapshot(
+    generation,
+    frozenWorktrees,
+    repositorySnapshots,
+  );
+  findingWriterAllocationFences.set(snapshot, allocationFence);
+  return snapshot;
 }
 
-const HERMETIC_GIT_ENV: NodeJS.ProcessEnv = Object.fromEntries(
-  Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')),
-);
-
 function gitOutput(repoRoot: string, args: readonly string[]): string {
-  return execFileSync('git', ['-C', repoRoot, ...args], {
-    encoding: 'utf8',
-    env: HERMETIC_GIT_ENV,
-    maxBuffer: GIT_OUTPUT_MAX_BUFFER_BYTES,
-  }).trim();
+  return HERMETIC_GIT_RUNTIME.runText(
+    repoRoot,
+    args,
+    [0],
+    GIT_OUTPUT_MAX_BUFFER_BYTES,
+  ).stdout.trim();
 }
 
 export function resolveGitFindingAllocationAuthority(
@@ -242,40 +696,67 @@ export function resolveGitFindingAllocationAuthority(
     throw new Error(`Git common-dir resolution returned an empty path for ${repoRoot}`);
   }
   const activeWorktreePaths = (): string[] => {
-    const output = execFileSync('git', ['-C', repoRoot, 'worktree', 'list', '--porcelain', '-z'], {
-      encoding: 'utf8',
-      env: HERMETIC_GIT_ENV,
-    });
-    return [
-      ...new Set(
-        output
-          .split('\0')
-          .filter((field) => field.startsWith('worktree '))
-          .map((field) => resolve(field.slice('worktree '.length))),
-      ),
-    ].sort();
+    const protocolRaw = HERMETIC_GIT_RUNTIME.runBuffer(repoRoot, [
+      'worktree',
+      'list',
+      '--porcelain',
+      '-z',
+    ]).stdout;
+    return parseWorktreeList(
+      decodeFatalUtf8(protocolRaw, 'Finding writer worktree list protocol'),
+    ).map((worktree) => worktree.path);
   };
   const activeRegistryPaths = (): string[] => {
     const worktreePaths = activeWorktreePaths();
     const registryPaths = worktreePaths.map((worktreePath) =>
       resolve(worktreePath, registryRelativePath),
     );
-    for (const registryPath of registryPaths) {
-      if (!existsSync(registryPath)) {
+    const snapshots = worktreePaths.map((worktreePath) =>
+      createFindingWriterRepositorySnapshot(worktreePath),
+    );
+    for (const [index, registryPath] of registryPaths.entries()) {
+      const snapshot = snapshots[index];
+      if (snapshot === undefined || !snapshot.fileExists(registryPath)) {
         throw new Error(`Active worktree finding registry is missing: ${registryPath}`);
       }
     }
+    for (const snapshot of snapshots) snapshot.assertCurrent();
     return registryPaths;
   };
 
-  return {
+  const authority: FindingAllocationAuthority = {
+    repoRoot: resolve(repoRoot),
     lockPath: join(commonDir, 'finding-registry-v1.lock'),
     reservationPath: join(commonDir, 'finding-id-reservations-v1.json'),
-    assertCompatibleWriters: () => assertActiveWorktreeFindingWritersFenced(activeWorktreePaths()),
+    assertCompatibleWriters: () => {
+      const activePaths = activeWorktreePaths();
+      const snapshot = assertActiveWorktreeFindingWritersFenced(activePaths, repoRoot);
+      const allocationFence = findingWriterAllocationFences.get(snapshot);
+      if (allocationFence === undefined) {
+        throw new Error('Finding writer allocation fence was not bound to its snapshot');
+      }
+      findingWriterAllocationFences.delete(snapshot);
+      prepareFindingWriterFenceSnapshot(
+        authority,
+        snapshot,
+        activePaths,
+        activeWorktreePaths,
+        assertFindingWriterWorktreeGeneration,
+        allocationFence,
+      );
+      return snapshot;
+    },
+    consumeCompatibleWriters: (snapshot) => consumeFindingWriterFenceSnapshot(authority, snapshot),
+    redeemCompatibleWriters: (capability, lease, profile) => {
+      if (profile.kind !== 'REGISTRY_MUTATION') {
+        throw new Error('Public finding writer redemption accepts registry mutation profiles only');
+      }
+      return redeemRegistryFindingWriterFence(authority, capability, lease, profile);
+    },
+    releaseCompatibleWriters: (capability) => releaseFindingWriterFence(authority, capability),
     activeRegistryPaths,
-    reservedDomainFloors: () =>
-      reservedDomainFloorsFromManifest(resolve(repoRoot, CAPABILITY_MANIFEST_RELATIVE_PATH)),
   };
+  return Object.freeze(authority);
 }
 
 /**
@@ -289,15 +770,29 @@ export function resolveGitFindingAllocationAuthority(
  * Now every append is schema-checked before the hash chain advances.
  */
 const cachedValidators = new Map<string, ValidateFunction>();
-function loadStubValidator(schemaPath = SCHEMA_PATH): ValidateFunction {
-  const cached = cachedValidators.get(schemaPath);
+
+function compileFindingValidator(schemaRaw: string, schemaAuthority: string): ValidateFunction {
+  const cacheKey = sha256hex(schemaRaw);
+  const cached = cachedValidators.get(cacheKey);
   if (cached) return cached;
-  const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as object;
+  let schema: unknown;
+  try {
+    schema = JSON.parse(schemaRaw) as unknown;
+  } catch (error) {
+    throw new Error(`Finding registry schema is not JSON: ${schemaAuthority}`, { cause: error });
+  }
+  if (!isJsonRecord(schema)) {
+    throw new Error(`Finding registry schema is not an object: ${schemaAuthority}`);
+  }
   const ajv = new Ajv2020({ allErrors: true, strict: false });
   addFormats(ajv);
   const validator = ajv.compile(schema);
-  cachedValidators.set(schemaPath, validator);
+  cachedValidators.set(cacheKey, validator);
   return validator;
+}
+
+function loadStubValidator(schemaPath = SCHEMA_PATH): ValidateFunction {
+  return compileFindingValidator(readFileSync(schemaPath, 'utf8'), schemaPath);
 }
 
 /**
@@ -346,8 +841,25 @@ function canonicalJson(value: unknown): string {
   return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(obj[k])).join(',') + '}';
 }
 
-function sha256hex(input: string): string {
-  return createHash('sha256').update(input, 'utf8').digest('hex');
+function findingAllocationIdentityFingerprint(entry: Finding): string {
+  const lifecycleAndChainFields = new Set([
+    'state',
+    'closed_at',
+    'closing_commits',
+    'prev_hash',
+    'content_hash',
+  ]);
+  return sha256hex(
+    canonicalJson(
+      Object.fromEntries(
+        Object.entries(entry).filter(([field]) => !lifecycleAndChainFields.has(field)),
+      ),
+    ),
+  );
+}
+
+function sha256hex(input: string | Buffer): string {
+  return createHash('sha256').update(input).digest('hex');
 }
 
 const ADD_STUB_FIELDS = new Set([
@@ -503,14 +1015,57 @@ function committedMutationCommand(commandId: string): CommittedMutationCommand |
   return { commitSha, operation, inputSha256 };
 }
 
-function loadRegistry(registryPath = REGISTRY_PATH): Finding[] {
+function parseRegistryRaw(
+  rawInput: string,
+  registryPath: string,
+  validate: ValidateFunction,
+): Finding[] {
+  if (rawInput.length === 0) return [];
+  const lines = rawInput.split(/\r?\n/);
+  if (lines.at(-1) === '') lines.pop();
+  const entries: Finding[] = [];
+  const ids = new Set<string>();
+  for (const [index, line] of lines.entries()) {
+    const lineNumber = index + 1;
+    if (line.length === 0) {
+      throw new Error(`Finding registry has an empty JSONL row: ${registryPath}:${lineNumber}`);
+    }
+    let value: unknown;
+    try {
+      value = JSON.parse(line) as unknown;
+    } catch (error) {
+      throw new Error(`Finding registry JSON is invalid: ${registryPath}:${lineNumber}`, {
+        cause: error,
+      });
+    }
+    if (!validate(value)) {
+      const diagnostics = (validate.errors ?? [])
+        .map((failure) => `${failure.instancePath || '/'} ${failure.message ?? 'is invalid'}`)
+        .join('; ');
+      throw new Error(
+        `Finding registry row violates its canonical schema: ${registryPath}:${lineNumber}: ${diagnostics}`,
+      );
+    }
+    const entry = value as Finding;
+    if (ids.has(entry.id)) {
+      throw new Error(`Finding registry repeats id ${entry.id}: ${registryPath}:${lineNumber}`);
+    }
+    ids.add(entry.id);
+    entries.push(entry);
+  }
+  return entries;
+}
+
+function loadRegistry(
+  registryPath = REGISTRY_PATH,
+  schemaPath = resolve(dirname(registryPath), 'findings.jsonl.schema.json'),
+): Finding[] {
   if (!existsSync(registryPath)) return [];
-  const raw = readFileSync(registryPath, 'utf8').trim();
-  if (!raw) return [];
-  return raw
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as Finding);
+  return parseRegistryRaw(
+    readFileSync(registryPath, 'utf8'),
+    registryPath,
+    loadStubValidator(schemaPath),
+  );
 }
 
 function loadReservationLedger(reservationPath: string): FindingIdReservationLedger {
@@ -556,6 +1111,7 @@ function loadReservationLedger(reservationPath: string): FindingIdReservationLed
 
 function registryMutationStagingLocations(
   authority: FindingAllocationAuthority,
+  includeReservation = true,
 ): { parentPath: string; basename: string }[] {
   const registryPaths = authority.activeRegistryPaths();
   for (const registryPath of registryPaths) {
@@ -563,16 +1119,37 @@ function registryMutationStagingLocations(
       throw new Error(`Active worktree finding registry is missing: ${registryPath}`);
     }
   }
-  return [
+  const legacyLocations = [
     ...registryPaths.map((registryPath) => ({
       parentPath: dirname(registryPath),
       basename: basename(registryPath),
     })),
-    {
-      parentPath: dirname(authority.reservationPath),
-      basename: basename(authority.reservationPath),
-    },
+    ...(includeReservation
+      ? [
+          {
+            parentPath: dirname(authority.reservationPath),
+            basename: basename(authority.reservationPath),
+          },
+        ]
+      : []),
   ];
+  const stagingParent = dirname(authority.lockPath);
+  const stagingBasenames = new Set(registryPaths.map((registryPath) => basename(registryPath)));
+  if (includeReservation) stagingBasenames.add(basename(authority.reservationPath));
+  const locations = [
+    ...[...stagingBasenames].map((targetBasename) => ({
+      parentPath: stagingParent,
+      basename: targetBasename,
+    })),
+    ...legacyLocations,
+  ];
+  return locations.filter(
+    (location, index) =>
+      locations.findIndex(
+        (candidate) =>
+          candidate.parentPath === location.parentPath && candidate.basename === location.basename,
+      ) === index,
+  );
 }
 
 export function registryMutationStagingFiles(authority: FindingAllocationAuthority): string[] {
@@ -589,39 +1166,75 @@ export function registryMutationStagingFiles(authority: FindingAllocationAuthori
 export function recoverRegistryMutationStaging(
   authority: FindingAllocationAuthority,
   lease: RegistryLockLease,
+  writerFence: RedeemedFindingWriterFenceCapability,
+  repositoryAuthority: RepositoryMutationAuthority,
+  operation: RegistryMutationOperation,
 ): void {
-  for (const location of registryMutationStagingLocations(authority)) {
-    recoverAtomicWriteStagingFiles(
+  assertFindingWriterFenceAuthority(writerFence, lease, authority);
+  const commonStagingParent = dirname(lease.lockPath);
+  const targetByBasename = new Map<string, string>([
+    [basename(lease.resourcePath), lease.resourcePath],
+    ...(operation === 'add'
+      ? ([[basename(authority.reservationPath), authority.reservationPath]] as const)
+      : []),
+  ]);
+  recoverGovernedFindingStagingFiles(
+    commonStagingParent,
+    (candidate) => targetByBasename.has(candidate),
+    lease,
+    REGISTRY_STAGING_STALE_MS,
+    writerFence,
+    repositoryAuthority,
+    operation,
+    (candidate) => {
+      const targetPath = targetByBasename.get(candidate);
+      if (targetPath === undefined) {
+        throw new Error(`Registry staging recovery lost its target mapping: ${candidate}`);
+      }
+      return targetPath;
+    },
+  );
+  const locations = [
+    ...(operation === 'add'
+      ? [
+          {
+            parentPath: dirname(authority.reservationPath),
+            basename: basename(authority.reservationPath),
+          },
+        ]
+      : []),
+    { parentPath: dirname(lease.resourcePath), basename: basename(lease.resourcePath) },
+  ];
+  for (const location of locations) {
+    recoverGovernedFindingStagingFiles(
       location.parentPath,
       (candidate) => candidate === location.basename,
       lease,
       REGISTRY_STAGING_STALE_MS,
+      writerFence,
+      repositoryAuthority,
+      operation,
     );
   }
-}
-
-function idsFromActiveRegistries(authority: FindingAllocationAuthority): string[] {
-  const ids: string[] = [];
-  for (const registryPath of authority.activeRegistryPaths()) {
-    if (!existsSync(registryPath)) {
-      throw new Error(`Active worktree finding registry is missing: ${registryPath}`);
-    }
-    ids.push(...loadRegistry(registryPath).map((entry) => entry.id));
-  }
-  return ids;
 }
 
 function isJsonRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-export function reservedDomainFloorsFromManifest(
+interface SourceFindingFloorAuthority {
+  readonly floors: Readonly<Record<string, number>>;
+  readonly artifactPath: string;
+  readonly manifestSha256: string;
+  readonly artifactSha256: string;
+}
+
+function readSourceFindingFloorAuthority(
   manifestPath: string,
-): Readonly<Record<string, number>> {
-  if (!existsSync(manifestPath)) {
-    throw new Error(`Active worktree capability manifest is missing: ${manifestPath}`);
-  }
-  const manifestValue: unknown = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  readAuthorityText: (absolutePath: string) => string,
+): SourceFindingFloorAuthority {
+  const manifestRaw = readAuthorityText(manifestPath);
+  const manifestValue: unknown = JSON.parse(manifestRaw);
   if (!isJsonRecord(manifestValue)) {
     throw new Error(`Capability manifest is not an object: ${manifestPath}`);
   }
@@ -668,10 +1281,7 @@ export function reservedDomainFloorsFromManifest(
     planDirectory,
     artifactPath.slice(artifactPath.lastIndexOf('/') + 1),
   );
-  if (!existsSync(artifactAbsolutePath)) {
-    throw new Error(`Finding inventory artifact is missing: ${artifactAbsolutePath}`);
-  }
-  const artifactRaw = readFileSync(artifactAbsolutePath, 'utf8');
+  const artifactRaw = readAuthorityText(artifactAbsolutePath);
   if (sha256hex(artifactRaw) !== artifactSha256) {
     throw new Error(
       `Finding inventory artifact SHA-256 differs from its authority: ${manifestPath}`,
@@ -703,7 +1313,7 @@ export function reservedDomainFloorsFromManifest(
     'findings.jsonl.schema.json',
   );
   const schemaContract = parseFindingRegistrySchemaContract(
-    JSON.parse(readFileSync(schemaPath, 'utf8')) as unknown,
+    JSON.parse(readAuthorityText(schemaPath)) as unknown,
   );
   const artifactRawIds: string[] = [];
   for (const [index, row] of artifactRows.entries()) {
@@ -734,7 +1344,26 @@ export function reservedDomainFloorsFromManifest(
       );
     }
   }
-  return normalizedDerivedFloors;
+  return Object.freeze({
+    floors: Object.freeze({ ...normalizedDerivedFloors }),
+    artifactPath: artifactAbsolutePath,
+    manifestSha256: sha256hex(manifestRaw),
+    artifactSha256,
+  });
+}
+
+export function reservedDomainFloorsFromManifest(
+  manifestPath: string,
+): Readonly<Record<string, number>> {
+  if (!existsSync(manifestPath)) {
+    throw new Error(`Active worktree capability manifest is missing: ${manifestPath}`);
+  }
+  return readSourceFindingFloorAuthority(manifestPath, (absolutePath) => {
+    if (!existsSync(absolutePath)) {
+      throw new Error(`Finding inventory authority input is missing: ${absolutePath}`);
+    }
+    return readFileSync(absolutePath, 'utf8');
+  }).floors;
 }
 
 export function allocationFloorForDomain(
@@ -758,6 +1387,7 @@ function reserveFindingId(
   registryPath: string,
   lease: RegistryLockLease,
   reservedAt: string,
+  writerFence: RedeemedFindingWriterFenceCapability,
 ): void {
   const sequence = Number.parseInt(findingId.slice(-3), 10);
   if (!Number.isSafeInteger(sequence) || sequence < 1 || sequence > 999) {
@@ -777,10 +1407,11 @@ function reserveFindingId(
       },
     },
   };
-  atomicWriteFileWithRegistryLease(
+  atomicWriteFindingReservationFile(
     authority.reservationPath,
     `${JSON.stringify(nextLedger)}\n`,
     lease,
+    writerFence,
   );
 }
 
@@ -788,11 +1419,20 @@ function writeRegistry(
   entries: readonly Finding[],
   lease: RegistryLockLease,
   repositoryAuthority: RepositoryMutationAuthority,
+  writerFence: RedeemedFindingWriterFenceCapability,
   operation: RegistryMutationOperation,
   registryPath = REGISTRY_PATH,
 ): void {
+  assertFindingWriterFenceCurrent(writerFence, lease);
   const content = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
-  atomicWriteRegistryFile(registryPath, content, lease, repositoryAuthority, operation);
+  atomicWriteRegistryFile(
+    registryPath,
+    content,
+    lease,
+    repositoryAuthority,
+    operation,
+    writerFence,
+  );
 }
 
 /**
@@ -886,15 +1526,15 @@ function cmdVerify(): number {
 function cmdWriterPreflight(): number {
   try {
     const authority = resolveGitFindingAllocationAuthority(REPO_ROOT);
-    authority.assertCompatibleWriters();
-    const registryCount = authority.activeRegistryPaths().length;
-    const floorCount = Object.keys(authority.reservedDomainFloors()).length;
+    const snapshot = authority.assertCompatibleWriters();
+    authority.consumeCompatibleWriters(snapshot);
+    const registryCount = snapshot.worktrees.length;
     const stagingFiles = registryMutationStagingFiles(authority);
     if (stagingFiles.length > 0) {
       throw new Error(`unpublished atomic staging files exist: ${stagingFiles.join(',')}`);
     }
     process.stdout.write(
-      `OK: finding writer preflight passed (${registryCount} active registries, ${floorCount} reserved namespaces).\n`,
+      `OK: finding writer preflight passed (${registryCount} active registry snapshots).\n`,
     );
     return 0;
   } catch (error) {
@@ -953,6 +1593,7 @@ function validateAndAppendFinding(
   entries: Finding[],
   lease: RegistryLockLease,
   repositoryAuthority: RepositoryMutationAuthority,
+  writerFence: RedeemedFindingWriterFenceCapability,
   paths: RegistryPaths,
   beforeRegistryWrite?: () => void,
 ): number {
@@ -998,8 +1639,9 @@ function validateAndAppendFinding(
     return 1;
   }
 
+  assertFindingWriterFenceCurrent(writerFence, lease);
   beforeRegistryWrite?.();
-  writeRegistry(entries, lease, repositoryAuthority, 'add', paths.registryPath);
+  writeRegistry(entries, lease, repositoryAuthority, writerFence, 'add', paths.registryPath);
   process.stdout.write(`Added: ${newEntry.id} at position ${entries.length - 1}\n`);
   process.stdout.write(`Chain tip: ${newEntry.content_hash}\n`);
   return 0;
@@ -1025,19 +1667,18 @@ function validateAndAppendFinding(
  */
 export function claimedIdsForDomain(
   domain: string,
-  entries: ReadonlyArray<{ id: string }>,
-  authority?: FindingAllocationAuthority,
+  allocationSnapshot: FindingWriterAllocationSnapshot,
 ): string[] {
-  const claimed = entries.map((entry) => entry.id);
-  if (authority) {
-    claimed.push(...idsFromActiveRegistries(authority));
-    const sourceInventoryFloor = allocationFloorForDomain(authority.reservedDomainFloors(), domain);
-    if (sourceInventoryFloor > 0) {
-      claimed.push(`${domain}-SOURCEINVENTORY-${String(sourceInventoryFloor).padStart(3, '0')}`);
-    }
+  const claimed = [...allocationSnapshot.claimedIds];
+  const sourceInventoryFloor = allocationFloorForDomain(
+    allocationSnapshot.reservedDomainFloors,
+    domain,
+  );
+  if (sourceInventoryFloor > 0) {
+    claimed.push(`${domain}-SOURCEINVENTORY-${String(sourceInventoryFloor).padStart(3, '0')}`);
   }
   if (domain === 'ORPHAN') {
-    claimed.push(...orphanMarkdownReservedIds(ORPHAN_FINDINGS_MD_PATH));
+    claimed.push(...allocationSnapshot.orphanReservedIds);
   }
   return claimed;
 }
@@ -1047,19 +1688,17 @@ export function appendAllocatedFinding(
   stubPath: string,
   lease: RegistryLockLease,
   repositoryAuthority: RepositoryMutationAuthority,
+  writerFence: RedeemedFindingWriterFenceCapability,
+  authority: FindingAllocationAuthority,
   paths: RegistryPaths = DEFAULT_REGISTRY_PATHS,
-  authority?: FindingAllocationAuthority,
 ): number {
-  if (
-    lease.resourcePath !== paths.registryPath ||
-    (authority !== undefined && lease.lockPath !== authority.lockPath)
-  ) {
+  assertFindingWriterFenceAuthority(writerFence, lease, authority);
+  if (lease.resourcePath !== paths.registryPath || lease.lockPath !== authority.lockPath) {
     throw new RegistryLockError(
       'LOCK_OWNERSHIP_LOST',
       'Allocated append requires a lease for both the target registry and its allocation authority.',
     );
   }
-  authority?.assertCompatibleWriters();
   const stub = readFindingStub(stubPath);
   if (!stub) return 2;
   if (stub.id !== undefined) {
@@ -1071,10 +1710,11 @@ export function appendAllocatedFinding(
     return 2;
   }
 
-  const entries = loadRegistry(paths.registryPath);
-  const reservationLedger = authority ? loadReservationLedger(authority.reservationPath) : null;
-  const existingIds = claimedIdsForDomain(domain, entries, authority);
-  const reserved = reservationLedger?.domains[domain];
+  const allocationSnapshot = readFindingWriterAllocationSnapshot(writerFence, lease);
+  const entries = loadRegistry(paths.registryPath, paths.schemaPath);
+  const reservationLedger = loadReservationLedger(authority.reservationPath);
+  const existingIds = claimedIdsForDomain(domain, allocationSnapshot);
+  const reserved = reservationLedger.domains[domain];
   if (reserved) {
     existingIds.push(`${domain}-RESERVED-${String(reserved.sequence).padStart(3, '0')}`);
   }
@@ -1087,8 +1727,14 @@ export function appendAllocatedFinding(
   }
   const newEntry = buildFinding(stub, id, repositoryAuthority.effectiveAt);
   if (!newEntry) return 2;
-  return validateAndAppendFinding(newEntry, entries, lease, repositoryAuthority, paths, () => {
-    if (authority && reservationLedger) {
+  return validateAndAppendFinding(
+    newEntry,
+    entries,
+    lease,
+    repositoryAuthority,
+    writerFence,
+    paths,
+    () => {
       reserveFindingId(
         authority,
         reservationLedger,
@@ -1097,9 +1743,10 @@ export function appendAllocatedFinding(
         paths.registryPath,
         lease,
         repositoryAuthority.effectiveAt,
+        writerFence,
       );
-    }
-  });
+    },
+  );
 }
 
 function cmdClose(
@@ -1107,6 +1754,7 @@ function cmdClose(
   shortSha: string,
   lease: RegistryLockLease,
   repositoryAuthority: RepositoryMutationAuthority,
+  writerFence: RedeemedFindingWriterFenceCapability,
 ): number {
   if (!/^[a-f0-9]{40}$/.test(shortSha)) {
     console.error(`Invalid SHA: ${shortSha} (expected a full lowercase main SHA).`);
@@ -1172,7 +1820,7 @@ function cmdClose(
     return 1;
   }
 
-  writeRegistry(entries, lease, repositoryAuthority, 'close');
+  writeRegistry(entries, lease, repositoryAuthority, writerFence, 'close');
   console.log(`Closed: ${id} at position ${index} → state=RESOLVED, +commit ${shortSha}`);
   const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
   console.log(`Chain tip: ${tip}`);
@@ -1253,6 +1901,7 @@ function cmdSweep(
   args: string[],
   lease?: RegistryLockLease,
   repositoryAuthority?: RepositoryMutationAuthority,
+  writerFence?: RedeemedFindingWriterFenceCapability,
 ): number {
   const dryRun = args.includes('--dry-run');
   const staleAfterDays = sweepStaleAfterDays(args);
@@ -1282,8 +1931,10 @@ function cmdSweep(
     console.log('--dry-run: no mutations written.');
     return 0;
   }
-  if (!lease || !repositoryAuthority) {
-    throw new Error('Sweep mutation requires repository-global mutation authority');
+  if (!lease || !repositoryAuthority || !writerFence) {
+    throw new Error(
+      'Sweep mutation requires repository-global authority and a redeemed writer fence',
+    );
   }
 
   // Apply transitions; earliest mutated entry anchors rechain scope.
@@ -1304,7 +1955,7 @@ function cmdSweep(
     return 1;
   }
 
-  writeRegistry(entries, lease, repositoryAuthority, 'sweep');
+  writeRegistry(entries, lease, repositoryAuthority, writerFence, 'sweep');
   const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
   console.log('');
   console.log(`Applied ${actions.length} transitions. Chain tip: ${tip}`);
@@ -1439,11 +2090,12 @@ function cmdList(args: readonly string[]): number {
 }
 
 async function main(): Promise<void> {
-  const [, , sub, ...args] = process.argv;
-  if (!sub) {
-    console.error(
-      'Usage: finding-registry <verify|writer-preflight|request-digest|add|close|sweep|export|list> [args]',
-    );
+  const commandArguments = process.argv.slice(2);
+  const requestedOperation = commandArguments[0];
+  const args = commandArguments.slice(1);
+  if (!requestedOperation) {
+    const operations = findingWriterCliOperationNames('tools/gates/finding-registry.ts');
+    console.error(`Usage: finding-registry <${operations.join('|')}> [args]`);
     console.error('  verify');
     console.error('  writer-preflight');
     console.error('  request-digest <add|close|sweep> [operation args]');
@@ -1456,6 +2108,10 @@ async function main(): Promise<void> {
     );
     process.exit(2);
   }
+  const sub = admitFindingWriterCliInvocation(
+    'tools/gates/finding-registry.ts',
+    commandArguments,
+  ).operation;
 
   let exitCode = 0;
   if (sub === 'verify') {
@@ -1464,7 +2120,7 @@ async function main(): Promise<void> {
     exitCode = cmdWriterPreflight();
   } else if (sub === 'request-digest') {
     const operation = args[0];
-    if (operation !== 'add' && operation !== 'close' && operation !== 'sweep') {
+    if (!isFindingWriterRegistryMutationOperation(operation)) {
       console.error('request-digest requires one of: add, close, sweep');
       process.exit(2);
     }
@@ -1481,14 +2137,15 @@ async function main(): Promise<void> {
     exitCode = await runRegistryMutation(
       'add',
       inputSha256,
-      (lease, authority, repositoryAuthority) =>
+      (lease, authority, repositoryAuthority, writerFence) =>
         appendAllocatedFinding(
           domain,
           resolve(stubPath),
           lease,
           repositoryAuthority,
-          DEFAULT_REGISTRY_PATHS,
+          writerFence,
           authority,
+          DEFAULT_REGISTRY_PATHS,
         ),
     );
   } else if (sub === 'close') {
@@ -1502,7 +2159,8 @@ async function main(): Promise<void> {
     exitCode = await runRegistryMutation(
       'close',
       inputSha256,
-      (lease, authority, repositoryAuthority) => cmdClose(id, sha, lease, repositoryAuthority),
+      (lease, _authority, repositoryAuthority, writerFence) =>
+        cmdClose(id, sha, lease, repositoryAuthority, writerFence),
     );
   } else if (sub === 'export') {
     const format = args[0];
@@ -1517,7 +2175,8 @@ async function main(): Promise<void> {
       : await runRegistryMutation(
           'sweep',
           mutationInputSha256('sweep', args),
-          (lease, authority, repositoryAuthority) => cmdSweep(args, lease, repositoryAuthority),
+          (lease, _authority, repositoryAuthority, writerFence) =>
+            cmdSweep(args, lease, repositoryAuthority, writerFence),
         );
   } else if (sub === 'list') {
     exitCode = cmdList(args);
@@ -1536,6 +2195,7 @@ async function runRegistryMutation(
     lease: RegistryLockLease,
     authority: FindingAllocationAuthority,
     repositoryAuthority: RepositoryMutationAuthority,
+    writerFence: RedeemedFindingWriterFenceCapability,
   ) => number,
 ): Promise<number> {
   try {
@@ -1564,9 +2224,25 @@ async function runRegistryMutation(
     return withRegistryFileLock(
       REGISTRY_PATH,
       (lease) => {
-        authority.assertCompatibleWriters();
-        recoverRegistryMutationStaging(authority, lease);
-        return action(lease, authority, repositoryAuthority);
+        const snapshot = authority.assertCompatibleWriters();
+        const capability = authority.consumeCompatibleWriters(snapshot);
+        const writerFence = authority.redeemCompatibleWriters(capability, lease, {
+          kind: 'REGISTRY_MUTATION',
+          operation,
+          repositoryAuthority,
+        });
+        try {
+          recoverRegistryMutationStaging(
+            authority,
+            lease,
+            writerFence,
+            repositoryAuthority,
+            operation,
+          );
+          return action(lease, authority, repositoryAuthority, writerFence);
+        } finally {
+          authority.releaseCompatibleWriters(writerFence);
+        }
       },
       {
         lockPath: authority.lockPath,

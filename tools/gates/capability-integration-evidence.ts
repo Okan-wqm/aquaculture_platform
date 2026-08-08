@@ -1,10 +1,13 @@
 #!/usr/bin/env ts-node
-import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 
+import { hasOwn } from './lib/json-contract';
+import { HERMETIC_GIT_RUNTIME } from './lib/hermetic-git-runtime';
 import { REPO_ROOT } from './lib/repo-root';
+import { type SourceKind, type SourceRole } from './lib/capability-source-contract';
+import { parseInventoryManifest } from './capability-source-inventory';
 
 const DEFAULT_MANIFEST_PATH = 'docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest.json';
 const ORIGIN_MAIN_REF = 'refs/remotes/origin/main';
@@ -16,6 +19,9 @@ const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:/-]*$/;
 const MAX_GIT_STDOUT_BYTES = 16 * 1024;
 const MAX_GIT_STDERR_BYTES = 16 * 1024;
+const ALL_GIT_EXIT_STATUSES = Object.freeze(
+  Array.from({ length: 256 }, (_unused, status) => status),
+);
 const MAX_GITHUB_API_RESPONSE_BYTES = 1024 * 1024;
 const GITHUB_API_TIMEOUT_MS = 15_000;
 const MAX_SOURCE_SELECTOR_ITEMS = 512;
@@ -175,10 +181,15 @@ export type SourceMainProof = AncestorSourceMainProof | TreeEquivalentSourceMain
 
 export interface ManifestSource {
   id: string;
-  kind: 'REMOTE_BRANCH' | 'LOCAL_BRANCH' | 'DIRTY_WORKTREE';
+  kind: SourceKind;
+  role: Exclude<SourceRole, 'UNKNOWN'> | null;
   headSha: string;
   contentSha256: string | null;
   mainProof: SourceMainProof | null;
+}
+
+function isCapabilityIntegrationSource(source: ManifestSource): boolean {
+  return source.role === null || source.role === 'CAPABILITY_CANDIDATE';
 }
 
 export interface MainCommitEvidence {
@@ -483,6 +494,7 @@ export interface GateProfile {
 }
 
 export interface IntegrationEvidenceManifest {
+  sourceSchemaVersion: 1 | 2;
   requiredStatusManifestPath: string;
   integrationOrder: string[];
   units: IntegrationUnit[];
@@ -595,10 +607,6 @@ export interface ValidationIssue {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function hasOwn(record: Record<string, unknown>, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(record, key);
 }
 
 function requireRecord(value: unknown, field: string): Record<string, unknown> {
@@ -884,51 +892,6 @@ export function computeSourceSliceSelectorSha256(selector: unknown): string {
   return createHash('sha256')
     .update(canonicalJson(selector, 'source slice selector'))
     .digest('hex');
-}
-
-function parseSourceMainProof(value: unknown, field: string): SourceMainProof {
-  const record = requireRecord(value, field);
-  const kind = requireLiteral(
-    record.kind,
-    ['ANCESTOR', 'TREE_EQUIVALENT'] as const,
-    `${field}.kind`,
-  );
-  if (kind === 'ANCESTOR') {
-    return {
-      kind,
-      sourceCommitSha: requireSha(record.source_commit_sha, `${field}.source_commit_sha`),
-    };
-  }
-  return {
-    kind,
-    sourceCommitSha: requireSha(record.source_commit_sha, `${field}.source_commit_sha`),
-    sourceTreeSha: requireSha(record.source_tree_sha, `${field}.source_tree_sha`),
-    mainCommitSha: requireSha(record.main_commit_sha, `${field}.main_commit_sha`),
-    mainTreeSha: requireSha(record.main_tree_sha, `${field}.main_tree_sha`),
-  };
-}
-
-function parseSource(value: unknown, index: number): ManifestSource {
-  const field = `capability_reconciliation.sources[${index}]`;
-  const record = requireRecord(value, field);
-  const kind = requireLiteral(
-    record.kind,
-    ['REMOTE_BRANCH', 'LOCAL_BRANCH', 'DIRTY_WORKTREE'] as const,
-    `${field}.kind`,
-  );
-  const proofRecord = requireOptionalNullableRecord(record, 'main_proof', `${field}.main_proof`);
-  const contentSha256 =
-    kind === 'DIRTY_WORKTREE'
-      ? requireSha256(record.content_sha256, `${field}.content_sha256`)
-      : null;
-  return {
-    id: requireIdentifier(record.id, `${field}.id`),
-    kind,
-    headSha: requireSha(record.head_sha, `${field}.head_sha`),
-    contentSha256,
-    mainProof:
-      proofRecord === null ? null : parseSourceMainProof(proofRecord, `${field}.main_proof`),
-  };
 }
 
 function parseAuthorityTarget(value: unknown, field: string): AuthorityTarget {
@@ -1757,12 +1720,14 @@ function parseGateProfiles(value: unknown): GateProfile[] {
 export function parseIntegrationEvidenceManifest(value: unknown): IntegrationEvidenceManifest {
   const root = requireRecord(value, 'manifest');
   const reconciliation = requireRecord(root.capability_reconciliation, 'capability_reconciliation');
+  const sourceInventory = parseInventoryManifest(value);
   const integrationOrder = requireStringArray(
     reconciliation.integration_order,
     'capability_reconciliation.integration_order',
   );
   requireUniqueStrings(integrationOrder, 'capability_reconciliation.integration_order');
   return {
+    sourceSchemaVersion: sourceInventory.schemaVersion,
     requiredStatusManifestPath: requireRepoPath(
       root.required_status_checks_manifest,
       'required_status_checks_manifest',
@@ -1772,9 +1737,14 @@ export function parseIntegrationEvidenceManifest(value: unknown): IntegrationEvi
       reconciliation.integration_units,
       'capability_reconciliation.integration_units',
     ).map(parseIntegrationUnit),
-    sources: requireArray(reconciliation.sources, 'capability_reconciliation.sources').map(
-      parseSource,
-    ),
+    sources: sourceInventory.sources.map((source) => ({
+      id: source.id,
+      kind: source.kind,
+      role: source.role,
+      headSha: source.headSha,
+      contentSha256: 'contentSha256' in source ? source.contentSha256 : null,
+      mainProof: source.mainProof ?? null,
+    })),
     sourceSlices: hasOwn(reconciliation, 'source_slices')
       ? requireArray(reconciliation.source_slices, 'capability_reconciliation.source_slices').map(
           parseSourceSlice,
@@ -2179,6 +2149,13 @@ function validateSourceSlices(
       );
     }
     const source = sourcesById.get(slice.sourceId);
+    if (source !== undefined && !isCapabilityIntegrationSource(source)) {
+      addIssue(
+        issues,
+        'SOURCE_ROLE_NOT_INTEGRATION_CANDIDATE',
+        `${slice.id} references ${source.role} source ${source.id}, outside the capability-integration lane`,
+      );
+    }
     if (
       source !== undefined &&
       slice.selector.kind === 'WHOLE_TREE_PROOF' &&
@@ -2200,6 +2177,24 @@ function validateSourceSlices(
   }
   const owners = new Map<string, string>();
   for (const unit of manifest.units) {
+    for (const sourceId of unit.legacySourceIds) {
+      const source = sourcesById.get(sourceId);
+      if (source === undefined) {
+        addIssue(
+          issues,
+          'LEGACY_UNKNOWN_SOURCE_ID',
+          `${unit.id}.source_ids references unknown source ${sourceId}`,
+          unit.id,
+        );
+      } else if (!isCapabilityIntegrationSource(source)) {
+        addIssue(
+          issues,
+          'SOURCE_ROLE_NOT_INTEGRATION_CANDIDATE',
+          `${unit.id}.source_ids references ${source.role} source ${source.id}, outside the capability-integration lane`,
+          unit.id,
+        );
+      }
+    }
     const refs = unit.sourceSliceIds;
     if (new Set(refs).size !== refs.length) {
       addIssue(
@@ -3115,6 +3110,7 @@ async function validateMainEvidenceLive(
           const source = sources.get(evidence.legacySourceId);
           if (
             source === undefined ||
+            !isCapabilityIntegrationSource(source) ||
             source.mainProof === null ||
             source.mainProof.kind !== evidence.legacyProofKind ||
             !(await validateSourceProofLive(source, source.mainProof, mainSha, git))
@@ -3187,6 +3183,7 @@ async function validateMainEvidenceLive(
           const source = sources.get(evidence.legacySourceId);
           const valid =
             source !== undefined &&
+            isCapabilityIntegrationSource(source) &&
             (await git.objectExists(source.headSha, 'commit')) &&
             (await git.objectExists(evidence.legacyStackHeadSha, 'commit')) &&
             (await git.isAncestor(source.headSha, evidence.legacyStackHeadSha)) &&
@@ -3704,53 +3701,27 @@ interface GitResult {
 }
 
 function runBoundedGit(args: readonly string[]): Promise<GitResult> {
-  return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn('git', [...args], {
-      cwd: REPO_ROOT,
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-    let stdoutBytes = 0;
-    let stderrBytes = 0;
-    let overflow: Error | null = null;
-    const capture = (
-      chunk: Buffer,
-      chunks: Buffer[],
-      currentBytes: number,
-      maximumBytes: number,
-      streamName: string,
-    ): number => {
-      const nextBytes = currentBytes + chunk.length;
-      if (nextBytes > maximumBytes && overflow === null) {
-        overflow = new Error(
-          `bounded git ${streamName} exceeded ${String(maximumBytes)} bytes: git ${args.join(' ')}`,
-        );
-        child.kill('SIGKILL');
-      } else if (overflow === null) {
-        chunks.push(chunk);
-      }
-      return nextBytes;
-    };
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdoutBytes = capture(chunk, stdoutChunks, stdoutBytes, MAX_GIT_STDOUT_BYTES, 'stdout');
-    });
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderrBytes = capture(chunk, stderrChunks, stderrBytes, MAX_GIT_STDERR_BYTES, 'stderr');
-    });
-    child.on('error', rejectPromise);
-    child.on('close', (code) => {
-      if (overflow !== null) {
-        rejectPromise(overflow);
-        return;
-      }
-      resolvePromise({
-        code: code ?? 128,
-        stdout: Buffer.concat(stdoutChunks).toString('utf8').trim(),
-        stderr: Buffer.concat(stderrChunks).toString('utf8').trim(),
-      });
-    });
+  const result = HERMETIC_GIT_RUNTIME.runBuffer(
+    REPO_ROOT,
+    args,
+    ALL_GIT_EXIT_STATUSES,
+    undefined,
+    MAX_GIT_STDOUT_BYTES + MAX_GIT_STDERR_BYTES,
+  );
+  if (result.stdout.length > MAX_GIT_STDOUT_BYTES) {
+    throw new Error(
+      `bounded git stdout exceeded ${String(MAX_GIT_STDOUT_BYTES)} bytes: git ${args.join(' ')}`,
+    );
+  }
+  if (result.stderr.length > MAX_GIT_STDERR_BYTES) {
+    throw new Error(
+      `bounded git stderr exceeded ${String(MAX_GIT_STDERR_BYTES)} bytes: git ${args.join(' ')}`,
+    );
+  }
+  return Promise.resolve({
+    code: result.status,
+    stdout: result.stdout.toString('utf8').trim(),
+    stderr: result.stderr.toString('utf8').trim(),
   });
 }
 

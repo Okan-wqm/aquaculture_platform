@@ -1,8 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import {
   chmodSync,
-  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -15,30 +13,43 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  InventoryInspectionError,
-  TRUSTED_RETIREMENT_ISSUER,
-  TRUSTED_RETIREMENT_WORKFLOW_IDENTITY,
+  SOURCE_INVENTORY_SCHEMA_V2,
+  SOURCE_INVENTORY_RUNNER_PROFILE,
+  TRUSTED_REMOTE_INVENTORY_JOB,
+  TRUSTED_REMOTE_INVENTORY_WORKFLOW,
+  admitExecutionExclusionProof,
   assertOriginMainStable,
+  classifySourceRole,
   compareInventory,
-  compareInventoryForCli,
-  computeDirtyContentSha256,
-  createTrustedRetirementAuthorizationVerifier,
+  compileRegisteredCommonDirLocators,
   discoverInventory,
   parseInventoryCliArgs,
   parseInventoryCliOptions,
   parseInventoryManifest,
   parseRefList,
-  parseWorktreeList,
   resolveGitHubActionsExecutionIdentity,
-  serializeRetirementAuthorizationStatement,
   selectExecutionIdentity,
   validateMainProofs,
   type DiscoveryInput,
   type InventoryManifest,
   type ManifestSourceCoordinate,
-  type RetirementApproval,
-  type RetirementAuthorizationVerifier,
 } from '../../tools/gates/capability-source-inventory';
+import {
+  computeCanonicalGitWorktreeEvidence,
+  InventoryInspectionError,
+  type CanonicalGitWorktreeEvidenceObserver,
+} from '../../tools/gates/lib/hermetic-git-runtime';
+import {
+  discoverRegisteredCommonDirs,
+  parseWorktreeList,
+} from '../../tools/gates/lib/registered-common-dir-discovery';
+
+async function computeWorktreeContentSha256(
+  worktreePath: string,
+  observer: CanonicalGitWorktreeEvidenceObserver = {},
+): Promise<string> {
+  return (await computeCanonicalGitWorktreeEvidence(worktreePath, observer)).contentSha256;
+}
 
 const MAIN_SHA = '1111111111111111111111111111111111111111';
 const MERGED_SHA = '2222222222222222222222222222222222222222';
@@ -51,61 +62,12 @@ const OTHER_BASE_SHA = '8888888888888888888888888888888888888888';
 const CURRENT_SHA = '9999999999999999999999999999999999999999';
 const DIRTY_CONTENT_SHA = 'a'.repeat(64);
 const CHANGED_DIRTY_CONTENT_SHA = 'b'.repeat(64);
-const RETIREMENT_SNAPSHOT_SHA = 'c'.repeat(64);
-const RETIREMENT_STATEMENT_SHA = 'e'.repeat(64);
-const RETIREMENT_BUNDLE_SHA = 'f'.repeat(64);
+const CLEAN_CONTENT_SHA = '1'.repeat(64);
+const CLEAN_STATUS_SHA = '2'.repeat(64);
+const DIRTY_STATUS_SHA = '3'.repeat(64);
 const EQUIVALENT_TREE_SHA = 'd'.repeat(40);
 const DIFFERENT_TREE_SHA = 'e'.repeat(40);
 const CURRENT_BRANCH = 'chore/current-inventory';
-
-const RETIREMENT: RetirementApproval = {
-  status: 'RETIRE_APPROVED',
-  approvedAt: '2026-07-29T12:00:00.000Z',
-  approvedBy: 'release-engineering',
-  snapshotSha256: RETIREMENT_SNAPSHOT_SHA,
-  snapshotUri: `artifact://sha256/${RETIREMENT_SNAPSHOT_SHA}/snapshot.tar.zst`,
-  evidence: [
-    `artifact://sha256/${RETIREMENT_SNAPSHOT_SHA}/snapshot.tar.zst`,
-    `artifact://sha256/${RETIREMENT_STATEMENT_SHA}/authorization-statement.json`,
-    `artifact://sha256/${RETIREMENT_BUNDLE_SHA}/sigstore-bundle.json`,
-  ],
-  authorization: {
-    kind: 'SIGSTORE_BUNDLE_V1',
-    issuer: TRUSTED_RETIREMENT_ISSUER,
-    signerIdentity: TRUSTED_RETIREMENT_WORKFLOW_IDENTITY,
-    statementSha256: RETIREMENT_STATEMENT_SHA,
-    statementUri: `artifact://sha256/${RETIREMENT_STATEMENT_SHA}/authorization-statement.json`,
-    subjectSha256: RETIREMENT_STATEMENT_SHA,
-    bundleSha256: RETIREMENT_BUNDLE_SHA,
-    bundleUri: `artifact://sha256/${RETIREMENT_BUNDLE_SHA}/sigstore-bundle.json`,
-  },
-};
-
-const DIRTY_RETIREMENT: RetirementApproval = {
-  ...RETIREMENT,
-  capturedContentSha256: DIRTY_CONTENT_SHA,
-};
-
-const AUTHORIZE_RETIREMENT: RetirementAuthorizationVerifier = ({ source, approval }) => ({
-  authorized:
-    approval.authorization.issuer === TRUSTED_RETIREMENT_ISSUER &&
-    approval.authorization.signerIdentity === TRUSTED_RETIREMENT_WORKFLOW_IDENTITY,
-  reason: 'trusted repository retirement workflow identity',
-  verifiedSubjectSha256: approval.authorization.statementSha256,
-  verifiedSnapshotSha256: approval.snapshotSha256,
-  verifiedBundleSha256: approval.authorization.bundleSha256,
-  verifiedIssuer: approval.authorization.issuer,
-  verifiedSignerIdentity: approval.authorization.signerIdentity,
-  verifiedSourceId: source.id,
-  verifiedSourceKind: source.kind,
-  verifiedSourceLocator: source.locator,
-  verifiedSourceHeadSha: source.headSha,
-  verifiedApprovedBy: approval.approvedBy,
-  verifiedApprovedAt: approval.approvedAt,
-  ...(source.kind === 'DIRTY_WORKTREE'
-    ? { verifiedCapturedContentSha256: source.contentSha256 }
-    : {}),
-});
 
 function input(overrides: Partial<DiscoveryInput> = {}): DiscoveryInput {
   const ancestry = new Set([
@@ -145,20 +107,23 @@ function input(overrides: Partial<DiscoveryInput> = {}): DiscoveryInput {
         path: '/repo',
         headSha: MAIN_SHA,
         branchRef: 'refs/heads/main',
+        lockReason: null,
         dirty: false,
+        repositoryId: 'aquaculture-platform',
+        ownerClass: 'USER',
+        statusSha256: CLEAN_STATUS_SHA,
+        contentSha256: CLEAN_CONTENT_SHA,
       },
       {
         path: '/tmp/dirty',
         headSha: DIRTY_SHA,
         branchRef: 'refs/heads/feature/local-only',
+        lockReason: null,
         dirty: true,
+        repositoryId: 'aquaculture-platform',
+        ownerClass: 'CODEX',
+        statusSha256: DIRTY_STATUS_SHA,
         contentSha256: DIRTY_CONTENT_SHA,
-      },
-      {
-        path: '/tmp/integration',
-        headSha: CURRENT_SHA,
-        branchRef: `refs/heads/${CURRENT_BRANCH}`,
-        dirty: true,
       },
     ],
     executionIdentity: {
@@ -166,8 +131,15 @@ function input(overrides: Partial<DiscoveryInput> = {}): DiscoveryInput {
       headSha: CURRENT_SHA,
       branchRef: `refs/heads/${CURRENT_BRANCH}`,
       originRef: `refs/remotes/origin/${CURRENT_BRANCH}`,
+      exclusionProof: {
+        kind: 'INDEPENDENT_CLEAN_INVENTORY_RUNNER_V1',
+        committed: true,
+        clean: true,
+      },
     },
     isAncestor: (ancestor, descendant) => ancestry.has(`${ancestor}:${descendant}`),
+    classifyBranchSourceRole: (source) =>
+      source.headSha === CURRENT_SHA ? 'INVENTORY_GOVERNANCE' : 'CAPABILITY_CANDIDATE',
     ...overrides,
   };
 }
@@ -175,6 +147,7 @@ function input(overrides: Partial<DiscoveryInput> = {}): DiscoveryInput {
 function exactManifest(): InventoryManifest {
   const live = discoverInventory(input());
   return {
+    schemaVersion: 2,
     reconciledBaseSha: BASE_SHA,
     sources: live.sources.map((source, index) => ({
       id: `SRC-${String(index + 1).padStart(3, '0')}`,
@@ -185,73 +158,109 @@ function exactManifest(): InventoryManifest {
   };
 }
 
-function writeContentAddressedArtifact(
-  evidenceRoot: string,
-  name: string,
-  bytes: Buffer,
-): { sha256: string; uri: string; path: string } {
-  const sha256 = createHash('sha256').update(bytes).digest('hex');
-  const directory = join(evidenceRoot, 'sha256', sha256);
-  mkdirSync(directory, { recursive: true });
-  const path = join(directory, name);
-  writeFileSync(path, bytes, { flag: 'wx', mode: 0o600 });
-  return {
-    sha256,
-    uri: `artifact://sha256/${sha256}/${name}`,
-    path,
-  };
-}
-
-function createRetirementEvidence(
-  evidenceRoot: string,
-  source: ManifestSourceCoordinate,
-): RetirementApproval {
-  const snapshot = writeContentAddressedArtifact(
-    evidenceRoot,
-    'snapshot.tar.zst',
-    Buffer.from('immutable source snapshot\n'),
-  );
-  const bundle = writeContentAddressedArtifact(
-    evidenceRoot,
-    'sigstore-bundle.json',
-    Buffer.from('{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}\n'),
-  );
-  const approval: RetirementApproval = {
-    status: 'RETIRE_APPROVED',
-    approvedAt: '2026-07-29T12:00:00.000Z',
-    approvedBy: 'release-engineering',
-    snapshotSha256: snapshot.sha256,
-    snapshotUri: snapshot.uri,
-    evidence: [],
-    authorization: {
-      kind: 'SIGSTORE_BUNDLE_V1',
-      issuer: TRUSTED_RETIREMENT_ISSUER,
-      signerIdentity: TRUSTED_RETIREMENT_WORKFLOW_IDENTITY,
-      statementSha256: '0'.repeat(64),
-      statementUri: `artifact://sha256/${'0'.repeat(64)}/authorization-statement.json`,
-      subjectSha256: '0'.repeat(64),
-      bundleSha256: bundle.sha256,
-      bundleUri: bundle.uri,
-    },
-  };
-  const statement = writeContentAddressedArtifact(
-    evidenceRoot,
-    'authorization-statement.json',
-    Buffer.from(serializeRetirementAuthorizationStatement({ source, approval }), 'utf8'),
-  );
-  approval.authorization.statementSha256 = statement.sha256;
-  approval.authorization.statementUri = statement.uri;
-  approval.authorization.subjectSha256 = statement.sha256;
-  approval.evidence = [snapshot.uri, statement.uri, bundle.uri];
-  return approval;
-}
-
 function fixtureIsAncestor(ancestorSha: string, descendantSha: string): boolean {
   return input().isAncestor(ancestorSha, descendantSha);
 }
 
 describe('capability source inventory discovery', () => {
-  it('excludes only the exact currently executing non-main branch, ref, and worktree', () => {
+  it('classifies governance only from a closed path surface plus commit ancestry', () => {
+    const INVENTORY_HEAD = 'a'.repeat(40);
+    const PLAN_HEAD = 'b'.repeat(40);
+    const COMMON_BASE = 'c'.repeat(40);
+    const classify = (
+      sourceHeadSha: string,
+      paths: readonly string[],
+      executionHeadSha: string | null = CURRENT_SHA,
+    ) =>
+      classifySourceRole({
+        mainSha: MAIN_SHA,
+        sourceHeadSha,
+        executionHeadSha,
+        isAncestor: (ancestor, descendant) =>
+          (ancestor === CURRENT_SHA && descendant === INVENTORY_HEAD) ||
+          (ancestor === COMMON_BASE && (descendant === MAIN_SHA || descendant === sourceHeadSha)),
+        mergeBase: () => COMMON_BASE,
+        changedPaths: (base, head) => {
+          expect(head).toBe(sourceHeadSha);
+          expect([CURRENT_SHA, COMMON_BASE]).toContain(base);
+          return paths;
+        },
+      });
+
+    expect(
+      classify(INVENTORY_HEAD, [
+        'docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest.json',
+        `docs/plans/2026-06-18-enterprise-grade-debt-closure/source-findings.${'d'.repeat(64)}.jsonl`,
+        'tools/gates/source-finding-inventory.ts',
+      ]),
+    ).toBe('INVENTORY_GOVERNANCE');
+    expect(
+      classify(
+        PLAN_HEAD,
+        [
+          '.github/workflows/ci-affected.yml',
+          'docs/plans/2026-07-30-enterprise-backup-restore-architecture/PLAN.md',
+          'scripts/ci/markdownlint-changed.mjs',
+          'tools/quality/format-scope.json',
+        ],
+        null,
+      ),
+    ).toBe('PLAN_GOVERNANCE');
+    expect(classify(PLAN_HEAD, ['apps/farm-service/src/main.ts'], null)).toBe(
+      'CAPABILITY_CANDIDATE',
+    );
+    expect(classify(INVENTORY_HEAD, ['apps/farm-service/src/main.ts'])).toBe(
+      'CAPABILITY_CANDIDATE',
+    );
+    expect(
+      classify(INVENTORY_HEAD, [
+        'tools/gates/source-finding-inventory.ts',
+        'apps/farm-service/src/main.ts',
+      ]),
+    ).toBe('CAPABILITY_CANDIDATE');
+    expect(
+      classify(
+        PLAN_HEAD,
+        [
+          'docs/plans/2026-07-30-enterprise-backup-restore-architecture/PLAN.md',
+          'infrastructure/docker-compose.yml',
+        ],
+        null,
+      ),
+    ).toBe('CAPABILITY_CANDIDATE');
+  });
+
+  it('retains typed governance refs outside the finding lane and rejects an UNKNOWN role', () => {
+    const governance = discoverInventory(
+      input({
+        classifyBranchSourceRole: (source) =>
+          source.locator === 'refs/remotes/origin/feature/remote'
+            ? 'INVENTORY_GOVERNANCE'
+            : 'CAPABILITY_CANDIDATE',
+      }),
+    );
+    expect(governance.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          locator: 'refs/remotes/origin/feature/remote',
+          role: 'INVENTORY_GOVERNANCE',
+        }),
+      ]),
+    );
+
+    expect(() =>
+      discoverInventory(
+        input({
+          classifyBranchSourceRole: (source) =>
+            source.locator === 'refs/remotes/origin/feature/remote'
+              ? 'UNKNOWN'
+              : 'CAPABILITY_CANDIDATE',
+        }),
+      ),
+    ).toThrow(/could not safely classify refs\/remotes\/origin\/feature\/remote/);
+  });
+
+  it('excludes only an exact independently proven inventory-governance runner ref', () => {
     const inventory = discoverInventory(input());
 
     expect(inventory.sources).not.toEqual(
@@ -268,19 +277,15 @@ describe('capability source inventory discovery', () => {
         kind: 'REMOTE_BRANCH',
         locator: 'refs/remotes/origin/feature/remote',
         headSha: REMOTE_SHA,
+        role: 'CAPABILITY_CANDIDATE',
       },
     ]);
   });
 
-  it('does not exclude a historical branch name when execution is on main', () => {
+  it('retains an exact execution ref when it is a capability branch or lacks runner proof', () => {
     const historical = discoverInventory(
       input({
-        executionIdentity: null,
-        worktrees: input().worktrees.map((worktree) =>
-          worktree.path === '/tmp/integration'
-            ? { ...worktree, contentSha256: CHANGED_DIRTY_CONTENT_SHA }
-            : worktree,
-        ),
+        classifyBranchSourceRole: () => 'CAPABILITY_CANDIDATE',
       }),
     );
 
@@ -290,13 +295,29 @@ describe('capability source inventory discovery', () => {
           kind: 'REMOTE_BRANCH',
           locator: `refs/remotes/origin/${CURRENT_BRANCH}`,
           headSha: CURRENT_SHA,
+          role: 'CAPABILITY_CANDIDATE',
         },
-        {
-          kind: 'DIRTY_WORKTREE',
-          locator: '/tmp/integration',
-          headSha: CURRENT_SHA,
-          contentSha256: CHANGED_DIRTY_CONTENT_SHA,
+      ]),
+    );
+
+    const defaultExecutionIdentity = input().executionIdentity;
+    if (defaultExecutionIdentity === null) {
+      throw new Error('execution identity fixture is absent');
+    }
+    const unproven = discoverInventory(
+      input({
+        executionIdentity: {
+          ...defaultExecutionIdentity,
+          exclusionProof: null,
         },
+      }),
+    );
+    expect(unproven.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          locator: `refs/remotes/origin/${CURRENT_BRANCH}`,
+          role: 'INVENTORY_GOVERNANCE',
+        }),
       ]),
     );
   });
@@ -309,11 +330,13 @@ describe('capability source inventory discovery', () => {
         kind: 'LOCAL_BRANCH',
         locator: 'refs/heads/feature/diverged',
         headSha: DIVERGED_LOCAL_SHA,
+        role: 'CAPABILITY_CANDIDATE',
       },
       {
         kind: 'LOCAL_BRANCH',
         locator: 'refs/heads/feature/local-only',
         headSha: LOCAL_SHA,
+        role: 'CAPABILITY_CANDIDATE',
       },
     ]);
     expect(inventory.sources.filter((source) => source.kind === 'DIRTY_WORKTREE')).toEqual([
@@ -321,7 +344,23 @@ describe('capability source inventory discovery', () => {
         kind: 'DIRTY_WORKTREE',
         locator: '/tmp/dirty',
         headSha: DIRTY_SHA,
+        role: 'CAPABILITY_CANDIDATE',
+        repositoryId: 'aquaculture-platform',
+        ownerClass: 'CODEX',
+        statusSha256: DIRTY_STATUS_SHA,
         contentSha256: DIRTY_CONTENT_SHA,
+      },
+    ]);
+    expect(inventory.sources.filter((source) => source.kind === 'CLEAN_WORKTREE')).toEqual([
+      {
+        kind: 'CLEAN_WORKTREE',
+        locator: '/repo',
+        headSha: MAIN_SHA,
+        role: 'WORKTREE_PRESERVATION',
+        repositoryId: 'aquaculture-platform',
+        ownerClass: 'USER',
+        statusSha256: CLEAN_STATUS_SHA,
+        contentSha256: CLEAN_CONTENT_SHA,
       },
     ]);
   });
@@ -357,11 +396,13 @@ describe('capability source inventory discovery', () => {
         path: '/repo',
         headSha: MAIN_SHA,
         branchRef: 'refs/heads/main',
+        lockReason: null,
       },
       {
         path: '/tmp/detached evidence',
         headSha: DIRTY_SHA,
         branchRef: null,
+        lockReason: null,
       },
     ]);
   });
@@ -433,24 +474,21 @@ describe('remote-only inventory scope', () => {
     ).toEqual(['RECONCILED_BASE_NOT_ANCESTOR']);
     expect(parseInventoryCliArgs(['--live'])).toBe('full');
     expect(parseInventoryCliArgs(['--scope=remote', '--live'])).toBe('remote');
-    expect(
-      parseInventoryCliOptions(['--live', '--retirement-evidence-root=/tmp/retirement-evidence']),
-    ).toEqual({
-      scope: 'full',
-      retirementEvidenceRoot: '/tmp/retirement-evidence',
-    });
+    expect(parseInventoryCliOptions(['--static'])).toEqual({ mode: 'static', scope: 'full' });
+    expect(parseInventoryCliOptions(['--live'])).toEqual({ mode: 'live', scope: 'full' });
     expect(() => parseInventoryCliArgs(['--live', '--scope=local'])).toThrow(
-      'expected --live [--scope=remote]',
+      'expected --static or --live [--scope=remote]',
     );
     expect(() =>
-      parseInventoryCliOptions(['--live', '--retirement-verifier-command=attacker-controlled']),
-    ).toThrow('expected --live');
+      parseInventoryCliOptions(['--live', '--retirement-evidence-root=/tmp/evidence']),
+    ).toThrow('expected --static or --live [--scope=remote]');
   });
 
   it('does not let remote scope bypass static host-local manifest validation', () => {
     expect(() =>
       parseInventoryManifest({
         capability_reconciliation: {
+          source_inventory_schema: SOURCE_INVENTORY_SCHEMA_V2,
           reconciled_base_sha: BASE_SHA,
           sources: [
             {
@@ -458,6 +496,10 @@ describe('remote-only inventory scope', () => {
               kind: 'DIRTY_WORKTREE',
               locator: '/tmp/dirty',
               head_sha: DIRTY_SHA,
+              role: 'CAPABILITY_CANDIDATE',
+              repository_id: 'aquaculture-platform',
+              owner_class: 'CODEX',
+              status_sha256: DIRTY_STATUS_SHA,
               state: 'ASSESSING',
               disposition: 'REIMPLEMENT',
             },
@@ -466,10 +508,53 @@ describe('remote-only inventory scope', () => {
       }),
     ).toThrow('content_sha256');
   });
+
+  it('reads legacy v1 without inventing authority and blocks full discovery until v2', () => {
+    const legacy = parseInventoryManifest({
+      capability_reconciliation: {
+        reconciled_base_sha: BASE_SHA,
+        sources: [
+          {
+            id: 'SRC-LEGACY-WORKTREE',
+            kind: 'DIRTY_WORKTREE',
+            locator: '/historical/worktree',
+            head_sha: DIRTY_SHA,
+            content_sha256: DIRTY_CONTENT_SHA,
+            state: 'ASSESSING',
+            disposition: 'PRESERVE_PENDING',
+          },
+        ],
+      },
+    });
+    expect(legacy).toEqual({
+      schemaVersion: 1,
+      reconciledBaseSha: BASE_SHA,
+      sources: [
+        {
+          id: 'SRC-LEGACY-WORKTREE',
+          kind: 'DIRTY_WORKTREE',
+          locator: '/historical/worktree',
+          headSha: DIRTY_SHA,
+          role: null,
+          repositoryId: null,
+          ownerClass: null,
+          statusSha256: null,
+          contentSha256: DIRTY_CONTENT_SHA,
+          state: 'ASSESSING',
+          disposition: 'PRESERVE_PENDING',
+        },
+      ],
+    });
+    expect(() => compileRegisteredCommonDirLocators(legacy)).toThrow(
+      expect.objectContaining<Partial<InventoryInspectionError>>({
+        code: 'WORKTREE_AUTHORITY_MIGRATION_REQUIRED',
+      }),
+    );
+  });
 });
 
-describe('remote inventory required-gate wiring', () => {
-  it('pins the hosted-runner command, fetch, checkout, and trusted PR identity contract', () => {
+describe('source inventory CI authority separation', () => {
+  it('keeps generic CI deterministic while retaining explicit live generation commands', () => {
     const repositoryRoot = join(__dirname, '..', '..');
     const packageJsonRaw: unknown = JSON.parse(
       readFileSync(join(repositoryRoot, 'package.json'), 'utf8'),
@@ -484,8 +569,11 @@ describe('remote inventory required-gate wiring', () => {
       throw new Error('package.json scripts contract is unavailable');
     }
     const scripts = packageJsonRaw.scripts as Record<string, unknown>;
+    expect(scripts['gates:capability-source-inventory:static']).toBe(
+      'ts-node --project tools/gates/tsconfig.json tools/gates/capability-source-inventory.ts --static',
+    );
     expect(scripts['gates:capability-source-inventory:live']).toBe(
-      'ts-node --project tools/gates/tsconfig.json tools/gates/capability-source-inventory.ts --live',
+      'ts-node --project tools/gates/tsconfig.json tools/gates/source-inventory-runner.ts --live',
     );
     expect(scripts['gates:capability-source-inventory:remote']).toBe(
       'ts-node --project tools/gates/tsconfig.json tools/gates/capability-source-inventory.ts --live --scope=remote',
@@ -502,33 +590,26 @@ describe('remote inventory required-gate wiring', () => {
     }
     const job = workflow.slice(jobStart, jobEnd);
     const checkout = job.indexOf('- uses: actions/checkout@');
+    const checkoutRef = job.indexOf(
+      'ref: ${{ github.event.pull_request.head.sha || github.sha }}',
+      checkout,
+    );
     const fetchDepth = job.indexOf('fetch-depth: 0', checkout);
     const setupNode = job.indexOf('- name: Setup Node.js', checkout);
     expect(checkout).toBeGreaterThanOrEqual(0);
-    expect(fetchDepth).toBeGreaterThan(checkout);
+    expect(checkoutRef).toBeGreaterThan(checkout);
+    expect(fetchDepth).toBeGreaterThan(checkoutRef);
     expect(setupNode).toBeGreaterThan(fetchDepth);
 
-    const fetchCommand = "run: git fetch --no-tags origin '+refs/heads/*:refs/remotes/origin/*'";
-    const remoteGateCommand = 'run: npm run gates:capability-source-inventory:remote';
-    const fetchCommandIndex = job.indexOf(fetchCommand);
-    const remoteGateIndex = job.indexOf(remoteGateCommand);
-    expect(fetchCommandIndex).toBeGreaterThan(setupNode);
-    expect(remoteGateIndex).toBeGreaterThan(fetchCommandIndex);
-
-    const gateStepStart = job.lastIndexOf(
-      '- name: Verify remote capability source inventory',
-      remoteGateIndex,
-    );
-    const gateStepEnd = job.indexOf('\n      - name:', remoteGateIndex);
-    if (gateStepStart < 0 || gateStepEnd < 0) {
-      throw new Error('remote capability inventory step boundary is unavailable');
-    }
-    const gateStep = job.slice(gateStepStart, gateStepEnd);
-    expect(gateStep).toContain(remoteGateCommand);
-    expect(gateStep).toContain('CAPABILITY_INVENTORY_CURRENT_REF: ${{ github.head_ref }}');
-    expect(gateStep).toContain(
-      'CAPABILITY_INVENTORY_CURRENT_SHA: ${{ github.event.pull_request.head.sha }}',
-    );
+    const staticCapabilityCommand = 'run: npm run gates:capability-source-inventory:static';
+    const staticFindingCommand = 'run: npm run gates:source-finding-inventory:static';
+    expect(job.indexOf(staticCapabilityCommand)).toBeGreaterThan(setupNode);
+    expect(job.indexOf(staticFindingCommand)).toBeGreaterThan(job.indexOf(staticCapabilityCommand));
+    expect(job).not.toContain('git fetch --no-tags origin');
+    expect(job).not.toContain('gates:capability-source-inventory:remote');
+    expect(job).not.toContain('gates:source-finding-inventory:remote');
+    expect(job).not.toContain('CAPABILITY_INVENTORY_CURRENT_');
+    expect(job).not.toContain('SOURCE_FINDING_EVENT_');
   });
 });
 
@@ -545,6 +626,7 @@ describe('GitHub Actions detached execution identity', () => {
       headSha: REMOTE_SHA,
       branchRef: null,
       originRef: ciRemoteRef.locator,
+      exclusionProof: null,
     };
     const resolveActions = jest.fn(() => actionsIdentity);
     const resolveSymbolicLocal = jest.fn(() => ({
@@ -552,6 +634,7 @@ describe('GitHub Actions detached execution identity', () => {
       headSha: DIRTY_SHA,
       branchRef: 'refs/heads/colliding-fork-name',
       originRef: 'refs/remotes/origin/colliding-fork-name',
+      exclusionProof: null,
     }));
 
     expect(selectExecutionIdentity('true', resolveActions, resolveSymbolicLocal)).toEqual(
@@ -561,7 +644,79 @@ describe('GitHub Actions detached execution identity', () => {
     expect(resolveSymbolicLocal).not.toHaveBeenCalled();
   });
 
-  it('excludes the exact same-repository pull-request ref and resolved head', () => {
+  it('admits exclusion only for an exact clean runner profile and independent full common-dir', () => {
+    const identity = {
+      worktreePath: '/runner/repository',
+      headSha: REMOTE_SHA,
+      branchRef: null,
+      originRef: ciRemoteRef.locator,
+      exclusionProof: null,
+    } as const;
+    const common = {
+      identity,
+      checkoutHeadSha: REMOTE_SHA,
+      checkoutDirty: false,
+      executionCommonDir: '/runner/repository/.git',
+      governedCommonDirs: [] as string[],
+      localRunnerProfile: undefined,
+    };
+    expect(
+      admitExecutionExclusionProof({
+        ...common,
+        scope: 'remote',
+        githubActions: 'true',
+        workflowRef: `${TRUSTED_REMOTE_INVENTORY_WORKFLOW}@refs/pull/1040/merge`,
+        jobId: TRUSTED_REMOTE_INVENTORY_JOB,
+      }).exclusionProof,
+    ).toEqual({
+      kind: 'INDEPENDENT_CLEAN_INVENTORY_RUNNER_V1',
+      committed: true,
+      clean: true,
+    });
+    expect(() =>
+      admitExecutionExclusionProof({
+        ...common,
+        checkoutHeadSha: CURRENT_SHA,
+        scope: 'remote',
+        githubActions: 'true',
+        workflowRef: `${TRUSTED_REMOTE_INVENTORY_WORKFLOW}@refs/pull/1040/merge`,
+        jobId: TRUSTED_REMOTE_INVENTORY_JOB,
+      }),
+    ).toThrow(/checkout HEAD .* differs from execution identity/);
+    expect(
+      admitExecutionExclusionProof({
+        ...common,
+        scope: 'remote',
+        githubActions: 'true',
+        workflowRef: `${TRUSTED_REMOTE_INVENTORY_WORKFLOW}@refs/pull/1040/merge`,
+        jobId: 'another-job',
+      }).exclusionProof,
+    ).toBeNull();
+    expect(
+      admitExecutionExclusionProof({
+        ...common,
+        scope: 'full',
+        githubActions: undefined,
+        workflowRef: undefined,
+        jobId: undefined,
+        localRunnerProfile: SOURCE_INVENTORY_RUNNER_PROFILE,
+        governedCommonDirs: ['/governed/repository/.git'],
+      }).exclusionProof,
+    ).not.toBeNull();
+    expect(() =>
+      admitExecutionExclusionProof({
+        ...common,
+        scope: 'full',
+        githubActions: undefined,
+        workflowRef: undefined,
+        jobId: undefined,
+        localRunnerProfile: SOURCE_INVENTORY_RUNNER_PROFILE,
+        governedCommonDirs: ['/runner/repository/.git'],
+      }),
+    ).toThrow(/independent Git common-dir/);
+  });
+
+  it('does not treat generic Actions identity as inventory-runner exclusion proof', () => {
     const executionIdentity = resolveGitHubActionsExecutionIdentity({
       githubActions: 'true',
       eventName: 'pull_request',
@@ -577,6 +732,7 @@ describe('GitHub Actions detached execution identity', () => {
       headSha: REMOTE_SHA,
       branchRef: null,
       originRef: ciRemoteRef.locator,
+      exclusionProof: null,
     });
 
     const live = discoverInventory(
@@ -588,7 +744,33 @@ describe('GitHub Actions detached execution identity', () => {
       }),
       'remote',
     );
-    expect(live.sources).toEqual([]);
+    expect(live.sources).toEqual([
+      {
+        kind: 'REMOTE_BRANCH',
+        locator: ciRemoteRef.locator,
+        headSha: REMOTE_SHA,
+        role: 'CAPABILITY_CANDIDATE',
+      },
+    ]);
+
+    const provenGovernanceRunner = discoverInventory(
+      input({
+        remoteRefs: [{ locator: 'refs/remotes/origin/main', headSha: MAIN_SHA }, ciRemoteRef],
+        localRefs: [],
+        worktrees: [],
+        executionIdentity: {
+          ...executionIdentity,
+          exclusionProof: {
+            kind: 'INDEPENDENT_CLEAN_INVENTORY_RUNNER_V1',
+            committed: true,
+            clean: true,
+          },
+        },
+        classifyBranchSourceRole: () => 'INVENTORY_GOVERNANCE',
+      }),
+      'remote',
+    );
+    expect(provenGovernanceRunner.sources).toEqual([]);
 
     const movedAfterResolution = discoverInventory(
       input({
@@ -607,6 +789,7 @@ describe('GitHub Actions detached execution identity', () => {
         kind: 'REMOTE_BRANCH',
         locator: ciRemoteRef.locator,
         headSha: DIRTY_SHA,
+        role: 'CAPABILITY_CANDIDATE',
       },
     ]);
   });
@@ -729,14 +912,78 @@ describe('dirty worktree content identity', () => {
     rmSync(repositoryPath, { recursive: true, force: true });
   });
 
+  it('compiles production common-dir discovery only from strict v2 source rows', async () => {
+    const evidence = await computeCanonicalGitWorktreeEvidence(repositoryPath);
+    const manifest: InventoryManifest = {
+      schemaVersion: 2,
+      reconciledBaseSha: BASE_SHA,
+      sources: [
+        {
+          id: 'SRC-WORKTREE',
+          kind: 'CLEAN_WORKTREE',
+          locator: repositoryPath,
+          headSha: evidence.headSha,
+          role: 'WORKTREE_PRESERVATION',
+          repositoryId: 'fixture-repository',
+          ownerClass: 'REPOSITORY_RUNNER',
+          statusSha256: evidence.statusSha256,
+          contentSha256: evidence.contentSha256,
+          state: 'ASSESSING',
+          disposition: 'PRESERVE_PENDING',
+        },
+      ],
+    };
+    const locators = compileRegisteredCommonDirLocators(manifest);
+    expect(locators).toHaveLength(1);
+    expect(locators[0]).toEqual(
+      expect.objectContaining({
+        locatorId: 'fixture-repository',
+        repositoryId: 'fixture-repository',
+        queryWorktreePath: repositoryPath,
+        worktrees: [{ worktreePath: repositoryPath, ownerClass: 'REPOSITORY_RUNNER' }],
+      }),
+    );
+    const [observation] = await discoverRegisteredCommonDirs(locators);
+    expect(observation?.worktrees).toEqual([
+      expect.objectContaining({
+        worktreePath: repositoryPath,
+        ownerClass: 'REPOSITORY_RUNNER',
+        dirty: false,
+        statusSha256: evidence.statusSha256,
+        contentSha256: evidence.contentSha256,
+      }),
+    ]);
+    const declaredSource = manifest.sources[0];
+    if (
+      !declaredSource ||
+      declaredSource.kind === 'REMOTE_BRANCH' ||
+      declaredSource.kind === 'LOCAL_BRANCH'
+    ) {
+      throw new Error('strict worktree fixture lost its declared source');
+    }
+    expect(() =>
+      compileRegisteredCommonDirLocators({
+        ...manifest,
+        sources: [
+          ...manifest.sources,
+          {
+            ...declaredSource,
+            id: 'SRC-SECOND-REPOSITORY',
+            repositoryId: 'second-repository',
+          },
+        ],
+      }),
+    ).toThrow(/exactly one governed repository\/common-dir authority/);
+  }, 20_000);
+
   it('changes for staged and unstaged tracked bytes without mutating repository state', async () => {
-    const cleanDigest = await computeDirtyContentSha256(repositoryPath);
+    const cleanDigest = await computeWorktreeContentSha256(repositoryPath);
     writeFileSync(join(repositoryPath, 'tracked.bin'), Buffer.from([0x00, 0xff, 0x02]));
     const statusBefore = git('status', '--porcelain=v1', '-z');
-    const unstagedDigest = await computeDirtyContentSha256(repositoryPath);
+    const unstagedDigest = await computeWorktreeContentSha256(repositoryPath);
     const statusAfter = git('status', '--porcelain=v1', '-z');
     git('add', 'tracked.bin');
-    const stagedDigest = await computeDirtyContentSha256(repositoryPath);
+    const stagedDigest = await computeWorktreeContentSha256(repositoryPath);
 
     expect(unstagedDigest).not.toBe(cleanDigest);
     expect(stagedDigest).not.toBe(unstagedDigest);
@@ -744,15 +991,15 @@ describe('dirty worktree content identity', () => {
   });
 
   it('changes for untracked path and byte mutations while excluded secrets stay outside evidence', async () => {
-    const baselineDigest = await computeDirtyContentSha256(repositoryPath);
+    const baselineDigest = await computeWorktreeContentSha256(repositoryPath);
     const untrackedPath = join(repositoryPath, 'evidence.bin');
     writeFileSync(untrackedPath, Buffer.from([0x00, 0x10, 0x00]));
-    const firstDigest = await computeDirtyContentSha256(repositoryPath);
+    const firstDigest = await computeWorktreeContentSha256(repositoryPath);
     writeFileSync(untrackedPath, Buffer.from([0x00, 0x11, 0x00]));
-    const mutatedDigest = await computeDirtyContentSha256(repositoryPath);
+    const mutatedDigest = await computeWorktreeContentSha256(repositoryPath);
     writeFileSync(join(repositoryPath, '.env'), 'PRIVATE_TOKEN=must-not-enter-evidence\n');
     writeFileSync(join(repositoryPath, 'private.key'), 'must-not-enter-evidence\n');
-    const ignoredSecretDigest = await computeDirtyContentSha256(repositoryPath);
+    const ignoredSecretDigest = await computeWorktreeContentSha256(repositoryPath);
 
     expect(firstDigest).not.toBe(baselineDigest);
     expect(mutatedDigest).not.toBe(firstDigest);
@@ -763,39 +1010,39 @@ describe('dirty worktree content identity', () => {
     const largeBinaryPath = join(repositoryPath, 'large-binary-evidence.bin');
     writeFileSync(largeBinaryPath, Buffer.alloc(0));
     truncateSync(largeBinaryPath, 8 * 1024 * 1024);
-    const firstDigest = await computeDirtyContentSha256(repositoryPath);
+    const firstDigest = await computeWorktreeContentSha256(repositoryPath);
     writeFileSync(largeBinaryPath, Buffer.from([0x00, 0xff, 0x80, 0x00]), {
       flag: 'r+',
     });
 
-    expect(await computeDirtyContentSha256(repositoryPath)).not.toBe(firstDigest);
+    expect(await computeWorktreeContentSha256(repositoryPath)).not.toBe(firstDigest);
   }, 15_000);
 
   it('binds the canonical Git executable mode for untracked regular files', async () => {
     const executablePath = join(repositoryPath, 'mode-sensitive-evidence');
     writeFileSync(executablePath, Buffer.from([0x00, 0x01, 0x00]));
     chmodSync(executablePath, 0o644);
-    const regularDigest = await computeDirtyContentSha256(repositoryPath);
+    const regularDigest = await computeWorktreeContentSha256(repositoryPath);
     chmodSync(executablePath, 0o755);
 
-    expect(await computeDirtyContentSha256(repositoryPath)).not.toBe(regularDigest);
+    expect(await computeWorktreeContentSha256(repositoryPath)).not.toBe(regularDigest);
   });
 
   it('hashes an untracked symlink target and canonical 120000 mode', async () => {
     const linkPath = join(repositoryPath, 'evidence-link');
     symlinkSync('first-target', linkPath);
-    const firstDigest = await computeDirtyContentSha256(repositoryPath);
+    const firstDigest = await computeWorktreeContentSha256(repositoryPath);
     unlinkSync(linkPath);
     symlinkSync('second-target', linkPath);
 
-    expect(await computeDirtyContentSha256(repositoryPath)).not.toBe(firstDigest);
+    expect(await computeWorktreeContentSha256(repositoryPath)).not.toBe(firstDigest);
   });
 
   it('rejects a torn snapshot even when the path-level dirty status is unchanged', async () => {
     writeFileSync(join(repositoryPath, 'tracked.bin'), Buffer.from([0x00, 0x10, 0x02]));
 
     await expect(
-      computeDirtyContentSha256(repositoryPath, {
+      computeWorktreeContentSha256(repositoryPath, {
         beforeSnapshotVerification: () => {
           writeFileSync(join(repositoryPath, 'tracked.bin'), Buffer.from([0x00, 0x11, 0x02]));
         },
@@ -843,6 +1090,7 @@ describe('capability source manifest reconciliation', () => {
       kind: 'LOCAL_BRANCH',
       locator: 'refs/heads/stale',
       headSha: MERGED_SHA,
+      role: 'CAPABILITY_CANDIDATE',
       state: 'ASSESSING',
       disposition: 'REIMPLEMENT',
     });
@@ -851,6 +1099,7 @@ describe('capability source manifest reconciliation', () => {
       kind: 'LOCAL_BRANCH',
       locator: 'refs/heads/stale',
       headSha: MERGED_SHA,
+      role: 'CAPABILITY_CANDIDATE',
       state: 'ASSESSING',
       disposition: 'REIMPLEMENT',
     });
@@ -896,7 +1145,7 @@ describe('capability source manifest reconciliation', () => {
     expect(compareInventory(manifest, live, fixtureIsAncestor)).toEqual([]);
   });
 
-  it('requires retirement approval when a terminal remote ref is deleted', () => {
+  it('fails closed when a terminal remote ref is deleted', () => {
     const manifest = exactManifest();
     const remote = manifest.sources.find(
       (source) => source.locator === 'refs/remotes/origin/feature/remote',
@@ -919,28 +1168,6 @@ describe('capability source manifest reconciliation', () => {
     expect(compareInventory(manifest, live, fixtureIsAncestor).map((drift) => drift.code)).toEqual([
       'SOURCE_NO_LONGER_LIVE',
     ]);
-    remote.retirement = RETIREMENT;
-    expect(compareInventory(manifest, live, fixtureIsAncestor).map((drift) => drift.code)).toEqual([
-      'SOURCE_RETIREMENT_INVALID',
-    ]);
-    expect(
-      compareInventory(manifest, live, fixtureIsAncestor, 'full', (context) => ({
-        ...AUTHORIZE_RETIREMENT(context),
-        verifiedSourceHeadSha: DIRTY_SHA,
-      })).map((drift) => drift.code),
-    ).toEqual(['SOURCE_RETIREMENT_INVALID']);
-    expect(
-      compareInventory(manifest, live, fixtureIsAncestor, 'full', (context) => ({
-        ...AUTHORIZE_RETIREMENT(context),
-        verifiedSourceKind: 'LOCAL_BRANCH',
-        verifiedSourceLocator: 'refs/heads/different',
-        verifiedApprovedAt: '2026-07-29T12:00:01.000Z',
-        verifiedSnapshotSha256: CHANGED_DIRTY_CONTENT_SHA,
-      })).map((drift) => drift.code),
-    ).toEqual(['SOURCE_RETIREMENT_INVALID']);
-    expect(
-      compareInventory(manifest, live, fixtureIsAncestor, 'full', AUTHORIZE_RETIREMENT),
-    ).toEqual([]);
   });
 
   it('reports head drift when a terminal branch remains but its ref moves', () => {
@@ -970,7 +1197,7 @@ describe('capability source manifest reconciliation', () => {
     ]);
   });
 
-  it('requires typed retirement approval before local-only or dirty evidence disappears', () => {
+  it('fails closed when local-only or dirty evidence disappears', () => {
     const manifest = exactManifest();
     const historicalSources = manifest.sources.filter(
       (source) =>
@@ -995,57 +1222,33 @@ describe('capability source manifest reconciliation', () => {
       'SOURCE_NO_LONGER_LIVE',
       'SOURCE_NO_LONGER_LIVE',
     ]);
-
-    for (const historical of historicalSources) {
-      historical.retirement = historical.kind === 'DIRTY_WORKTREE' ? DIRTY_RETIREMENT : RETIREMENT;
-    }
-    expect(compareInventory(manifest, live, fixtureIsAncestor).map((drift) => drift.code)).toEqual([
-      'SOURCE_RETIREMENT_INVALID',
-      'SOURCE_RETIREMENT_INVALID',
-    ]);
-    expect(
-      compareInventory(manifest, live, fixtureIsAncestor, 'full', AUTHORIZE_RETIREMENT),
-    ).toEqual([]);
   });
 
-  it('requires reconciled_base_sha, dirty content identity, and complete retirement evidence', () => {
+  it('requires reconciled_base_sha and dirty content identity while rejecting retirement authority', () => {
     const source = {
       id: 'SRC-001',
       kind: 'DIRTY_WORKTREE',
       locator: '/tmp/dirty',
       head_sha: DIRTY_SHA,
+      role: 'CAPABILITY_CANDIDATE',
+      repository_id: 'aquaculture-platform',
+      owner_class: 'CODEX',
+      status_sha256: DIRTY_STATUS_SHA,
       content_sha256: DIRTY_CONTENT_SHA,
       state: 'INTEGRATED',
-      disposition: 'FORENSIC_ONLY',
-      retirement: {
-        status: 'RETIRE_APPROVED',
-        approved_at: RETIREMENT.approvedAt,
-        approved_by: RETIREMENT.approvedBy,
-        snapshot_sha256: RETIREMENT.snapshotSha256,
-        snapshot_uri: RETIREMENT.snapshotUri,
-        captured_content_sha256: DIRTY_CONTENT_SHA,
-        evidence: RETIREMENT.evidence,
-        authorization: {
-          kind: RETIREMENT.authorization.kind,
-          issuer: RETIREMENT.authorization.issuer,
-          signer_identity: RETIREMENT.authorization.signerIdentity,
-          statement_sha256: RETIREMENT.authorization.statementSha256,
-          statement_uri: RETIREMENT.authorization.statementUri,
-          subject_sha256: RETIREMENT.authorization.subjectSha256,
-          bundle_sha256: RETIREMENT.authorization.bundleSha256,
-          bundle_uri: RETIREMENT.authorization.bundleUri,
-        },
-      },
+      disposition: 'PRESERVE',
     };
 
     expect(
       parseInventoryManifest({
         capability_reconciliation: {
+          source_inventory_schema: SOURCE_INVENTORY_SCHEMA_V2,
           reconciled_base_sha: BASE_SHA,
           sources: [source],
         },
       }),
     ).toEqual({
+      schemaVersion: 2,
       reconciledBaseSha: BASE_SHA,
       sources: [
         {
@@ -1053,10 +1256,13 @@ describe('capability source manifest reconciliation', () => {
           kind: 'DIRTY_WORKTREE',
           locator: '/tmp/dirty',
           headSha: DIRTY_SHA,
+          role: 'CAPABILITY_CANDIDATE',
+          repositoryId: 'aquaculture-platform',
+          ownerClass: 'CODEX',
+          statusSha256: DIRTY_STATUS_SHA,
           contentSha256: DIRTY_CONTENT_SHA,
           state: 'INTEGRATED',
-          disposition: 'FORENSIC_ONLY',
-          retirement: DIRTY_RETIREMENT,
+          disposition: 'PRESERVE',
         },
       ],
     });
@@ -1064,6 +1270,7 @@ describe('capability source manifest reconciliation', () => {
     expect(() =>
       parseInventoryManifest({
         capability_reconciliation: {
+          source_inventory_schema: SOURCE_INVENTORY_SCHEMA_V2,
           main_sha: BASE_SHA,
           sources: [source],
         },
@@ -1072,6 +1279,7 @@ describe('capability source manifest reconciliation', () => {
     expect(() =>
       parseInventoryManifest({
         capability_reconciliation: {
+          source_inventory_schema: SOURCE_INVENTORY_SCHEMA_V2,
           reconciled_base_sha: BASE_SHA,
           sources: [{ ...source, content_sha256: undefined }],
         },
@@ -1080,389 +1288,26 @@ describe('capability source manifest reconciliation', () => {
     expect(() =>
       parseInventoryManifest({
         capability_reconciliation: {
+          source_inventory_schema: SOURCE_INVENTORY_SCHEMA_V2,
           reconciled_base_sha: BASE_SHA,
           sources: [
             {
               ...source,
               retirement: {
-                ...source.retirement,
-                evidence: [],
+                status: 'RETIRE_APPROVED',
               },
             },
           ],
         },
       }),
-    ).toThrow('retirement.evidence');
-    expect(() =>
-      parseInventoryManifest({
-        capability_reconciliation: {
-          reconciled_base_sha: BASE_SHA,
-          sources: [
-            {
-              ...source,
-              retirement: {
-                ...source.retirement,
-                captured_content_sha256: CHANGED_DIRTY_CONTENT_SHA,
-              },
-            },
-          ],
-        },
-      }),
-    ).toThrow('captured_content_sha256 must equal source content_sha256');
-    expect(() =>
-      parseInventoryManifest({
-        capability_reconciliation: {
-          reconciled_base_sha: BASE_SHA,
-          sources: [
-            {
-              ...source,
-              retirement: {
-                ...source.retirement,
-                authorization: {
-                  ...source.retirement.authorization,
-                  subject_sha256: CHANGED_DIRTY_CONTENT_SHA,
-                },
-              },
-            },
-          ],
-        },
-      }),
-    ).toThrow('authorization.subject_sha256 must equal statement_sha256');
-  });
-});
-
-describe('trusted terminal source retirement verification', () => {
-  let evidenceRoot: string;
-
-  beforeEach(() => {
-    evidenceRoot = mkdtempSync(join(tmpdir(), 'capability-retirement-evidence-'));
-  });
-
-  afterEach(() => {
-    rmSync(evidenceRoot, { recursive: true, force: true });
-  });
-
-  function terminalRemoteFixture(): {
-    manifest: InventoryManifest;
-    live: ReturnType<typeof discoverInventory>;
-    source: ManifestSourceCoordinate;
-  } {
-    const manifest = exactManifest();
-    const source = manifest.sources.find(
-      (candidate) => candidate.locator === 'refs/remotes/origin/feature/remote',
-    );
-    if (!source) {
-      throw new Error('fixture remote source missing');
-    }
-    source.state = 'INTEGRATED';
-    source.retirement = createRetirementEvidence(evidenceRoot, source);
-    const live = discoverInventory(
-      input({
-        remoteRefs: input().remoteRefs.filter(
-          (candidate) => candidate.locator !== 'refs/remotes/origin/feature/remote',
-        ),
-        localRefs: input().localRefs.filter(
-          (candidate) => candidate.locator !== 'refs/heads/feature/remote-copy',
-        ),
-      }),
-    );
-    return { manifest, live, source };
-  }
-
-  it('uses the fixed cosign v3 command to verify exact workflow claims and artifacts', () => {
-    const { manifest, live, source } = terminalRemoteFixture();
-    const approval = source.retirement;
-    if (!approval) {
-      throw new Error('fixture retirement approval missing');
-    }
-    const invocations: string[][] = [];
-    const invokeCosign = jest.fn((args: readonly string[]) => {
-      invocations.push([...args]);
-      if (args[0] === 'version') {
-        return {
-          status: 0,
-          stdout: '{"gitVersion":"v3.0.4"}',
-          stderr: '',
-        };
-      }
-
-      const bundleFlag = args.indexOf('--bundle');
-      const identityFlag = args.indexOf('--certificate-identity');
-      const issuerFlag = args.indexOf('--certificate-oidc-issuer');
-      const statementPath = args[args.length - 1];
-      const bundlePath = args[bundleFlag + 1];
-      if (!statementPath || !bundlePath) {
-        throw new Error('cosign invocation lost its evidence paths');
-      }
-      expect(args[0]).toBe('verify-blob');
-      expect(args[identityFlag + 1]).toBe(TRUSTED_RETIREMENT_WORKFLOW_IDENTITY);
-      expect(args[issuerFlag + 1]).toBe(TRUSTED_RETIREMENT_ISSUER);
-      const statement = readFileSync(statementPath, 'utf8');
-      expect(statement).toBe(serializeRetirementAuthorizationStatement({ source, approval }));
-      expect(JSON.parse(statement)).toMatchObject({
-        issuer: TRUSTED_RETIREMENT_ISSUER,
-        signer_identity: TRUSTED_RETIREMENT_WORKFLOW_IDENTITY,
-        source: {
-          id: source.id,
-          kind: source.kind,
-          locator: source.locator,
-          head_sha: source.headSha,
-          content_sha256: null,
-        },
-        approval: {
-          approved_by: approval.approvedBy,
-          approved_at: approval.approvedAt,
-        },
-        snapshot: {
-          uri: approval.snapshotUri,
-          sha256: approval.snapshotSha256,
-        },
-      });
-      expect(createHash('sha256').update(readFileSync(bundlePath)).digest('hex')).toBe(
-        approval.authorization.bundleSha256,
-      );
-      expect(args).not.toEqual(
-        expect.arrayContaining([
-          '--insecure-ignore-sct',
-          '--insecure-ignore-tlog',
-          '--certificate-identity-regexp',
-        ]),
-      );
-      return { status: 0, stdout: 'Verified OK\n', stderr: '' };
-    });
-
-    expect(
-      compareInventoryForCli(
-        manifest,
-        live,
-        fixtureIsAncestor,
-        { scope: 'full', retirementEvidenceRoot: evidenceRoot },
-        { invokeCosign },
-      ),
-    ).toEqual([]);
-    expect(invocations[0]).toEqual(['version', '--json']);
-    expect(invocations[1]?.[0]).toBe('verify-blob');
-    expect(invokeCosign).toHaveBeenCalledTimes(2);
-  });
-
-  it('loads no retirement evidence for live sources and fails closed only when it is needed', () => {
-    const exact = exactManifest();
-    const exactLive = discoverInventory(input());
-    const invokeCosign = jest.fn(() => {
-      throw new Error('cosign must not run for a live source');
-    });
-
-    expect(
-      compareInventoryForCli(
-        exact,
-        exactLive,
-        fixtureIsAncestor,
-        { scope: 'full' },
-        { invokeCosign },
-      ),
-    ).toEqual([]);
-    expect(invokeCosign).not.toHaveBeenCalled();
-
-    const { manifest, live } = terminalRemoteFixture();
-    const drifts = compareInventoryForCli(
-      manifest,
-      live,
-      fixtureIsAncestor,
-      { scope: 'full' },
-      { invokeCosign },
-    );
-    expect(drifts).toEqual([
-      expect.objectContaining({
-        code: 'SOURCE_RETIREMENT_INVALID',
-        message: expect.stringContaining('absolute retirement evidence root is required'),
-      }),
-    ]);
-    expect(invokeCosign).not.toHaveBeenCalled();
-  });
-
-  it('rejects old cosign versions, failed signatures, and non-main identities', () => {
-    const oldVersionFixture = terminalRemoteFixture();
-    expect(
-      compareInventoryForCli(
-        oldVersionFixture.manifest,
-        oldVersionFixture.live,
-        fixtureIsAncestor,
-        { scope: 'full', retirementEvidenceRoot: evidenceRoot },
-        {
-          invokeCosign: (args) =>
-            args[0] === 'version'
-              ? {
-                  status: 0,
-                  stdout: '{"gitVersion":"v3.0.3"}',
-                  stderr: '',
-                }
-              : { status: 0, stdout: '', stderr: '' },
-        },
-      )[0]?.message,
-    ).toContain('below required v3.0.4');
-
-    rmSync(evidenceRoot, { recursive: true, force: true });
-    evidenceRoot = mkdtempSync(join(tmpdir(), 'capability-retirement-evidence-'));
-    const failedSignatureFixture = terminalRemoteFixture();
-    expect(
-      compareInventoryForCli(
-        failedSignatureFixture.manifest,
-        failedSignatureFixture.live,
-        fixtureIsAncestor,
-        { scope: 'full', retirementEvidenceRoot: evidenceRoot },
-        {
-          invokeCosign: (args) =>
-            args[0] === 'version'
-              ? {
-                  status: 0,
-                  stdout: '{"gitVersion":"v3.1.0"}',
-                  stderr: '',
-                }
-              : { status: 1, stdout: '', stderr: 'signature mismatch' },
-        },
-      )[0]?.message,
-    ).toContain('signature mismatch');
-
-    const approval = failedSignatureFixture.source.retirement;
-    if (!approval) {
-      throw new Error('fixture retirement approval missing');
-    }
-    approval.authorization.signerIdentity =
-      'https://github.com/Okan-wqm/aquaculture_platform/.github/workflows/source-retirement.yml@refs/heads/feature';
-    const untrustedInvocation = jest.fn(() => ({
-      status: 0,
-      stdout: '{"gitVersion":"v3.0.4"}',
-      stderr: '',
-    }));
-    expect(
-      compareInventoryForCli(
-        failedSignatureFixture.manifest,
-        failedSignatureFixture.live,
-        fixtureIsAncestor,
-        { scope: 'full', retirementEvidenceRoot: evidenceRoot },
-        { invokeCosign: untrustedInvocation },
-      )[0]?.message,
-    ).toContain('trusted main workflow');
-    expect(untrustedInvocation).not.toHaveBeenCalled();
-  });
-
-  it('rejects altered claims, snapshot bytes, traversal, and symlinked evidence', () => {
-    const alteredClaimsFixture = terminalRemoteFixture();
-    const approval = alteredClaimsFixture.source.retirement;
-    if (!approval) {
-      throw new Error('fixture retirement approval missing');
-    }
-    const alteredStatement = Buffer.from(
-      serializeRetirementAuthorizationStatement({
-        source: alteredClaimsFixture.source,
-        approval,
-      }).replace('"approved_by":"release-engineering"', '"approved_by":"untrusted-actor"'),
-      'utf8',
-    );
-    const alteredCoordinate = writeContentAddressedArtifact(
-      evidenceRoot,
-      'altered-authorization-statement.json',
-      alteredStatement,
-    );
-    approval.authorization.statementSha256 = alteredCoordinate.sha256;
-    approval.authorization.statementUri = alteredCoordinate.uri;
-    approval.authorization.subjectSha256 = alteredCoordinate.sha256;
-    approval.evidence = [
-      approval.snapshotUri,
-      alteredCoordinate.uri,
-      approval.authorization.bundleUri,
-    ];
-    const neverCosign = jest.fn(() => ({
-      status: 0,
-      stdout: '{"gitVersion":"v3.0.4"}',
-      stderr: '',
-    }));
-    expect(
-      compareInventoryForCli(
-        alteredClaimsFixture.manifest,
-        alteredClaimsFixture.live,
-        fixtureIsAncestor,
-        { scope: 'full', retirementEvidenceRoot: evidenceRoot },
-        { invokeCosign: neverCosign },
-      )[0]?.message,
-    ).toContain('does not exactly bind');
-    expect(neverCosign).not.toHaveBeenCalled();
-
-    rmSync(evidenceRoot, { recursive: true, force: true });
-    evidenceRoot = mkdtempSync(join(tmpdir(), 'capability-retirement-evidence-'));
-    const alteredSnapshotFixture = terminalRemoteFixture();
-    const alteredSnapshotApproval = alteredSnapshotFixture.source.retirement;
-    if (!alteredSnapshotApproval) {
-      throw new Error('fixture retirement approval missing');
-    }
-    const snapshotPath = join(
-      evidenceRoot,
-      'sha256',
-      alteredSnapshotApproval.snapshotSha256,
-      'snapshot.tar.zst',
-    );
-    writeFileSync(snapshotPath, 'altered snapshot\n');
-    expect(
-      compareInventoryForCli(
-        alteredSnapshotFixture.manifest,
-        alteredSnapshotFixture.live,
-        fixtureIsAncestor,
-        { scope: 'full', retirementEvidenceRoot: evidenceRoot },
-        { invokeCosign: neverCosign },
-      )[0]?.message,
-    ).toContain('differs from');
-
-    alteredSnapshotApproval.authorization.statementUri = `artifact://sha256/${alteredSnapshotApproval.authorization.statementSha256}/../outside.json`;
-    expect(() =>
-      createTrustedRetirementAuthorizationVerifier(evidenceRoot)({
-        source: alteredSnapshotFixture.source,
-        approval: alteredSnapshotApproval,
-      }),
-    ).toThrow('safe-relative-name');
-  });
-
-  it('refuses artifact symlinks even when the target has the declared bytes', () => {
-    const fixture = terminalRemoteFixture();
-    const approval = fixture.source.retirement;
-    if (!approval) {
-      throw new Error('fixture retirement approval missing');
-    }
-    const statementPath = join(
-      evidenceRoot,
-      'sha256',
-      approval.authorization.statementSha256,
-      'authorization-statement.json',
-    );
-    const externalDirectory = mkdtempSync(join(tmpdir(), 'capability-retirement-external-'));
-    const externalPath = join(externalDirectory, 'authorization-statement.json');
-    writeFileSync(externalPath, readFileSync(statementPath));
-    unlinkSync(statementPath);
-    symlinkSync(externalPath, statementPath);
-    try {
-      const invokeCosign = jest.fn(() => ({
-        status: 0,
-        stdout: '{"gitVersion":"v3.0.4"}',
-        stderr: '',
-      }));
-      expect(
-        compareInventoryForCli(
-          fixture.manifest,
-          fixture.live,
-          fixtureIsAncestor,
-          { scope: 'full', retirementEvidenceRoot: evidenceRoot },
-          { invokeCosign },
-        )[0]?.message,
-      ).toContain('non-symlink regular file');
-      expect(invokeCosign).not.toHaveBeenCalled();
-    } finally {
-      rmSync(externalDirectory, { recursive: true, force: true });
-    }
+    ).toThrow('retirement is forbidden');
   });
 });
 
 describe('already-main proof validation', () => {
   function ancestorProofManifest(): InventoryManifest {
     return {
+      schemaVersion: 2,
       reconciledBaseSha: BASE_SHA,
       sources: [
         {
@@ -1470,6 +1315,7 @@ describe('already-main proof validation', () => {
           kind: 'REMOTE_BRANCH',
           locator: 'refs/remotes/origin/feature/proven',
           headSha: REMOTE_SHA,
+          role: 'CAPABILITY_CANDIDATE',
           state: 'INTEGRATED',
           disposition: 'ALREADY_ON_MAIN',
           mainProof: {
@@ -1546,6 +1392,7 @@ describe('already-main proof validation', () => {
       kind: 'REMOTE_BRANCH',
       locator: 'refs/remotes/origin/feature/proven',
       head_sha: REMOTE_SHA,
+      role: 'CAPABILITY_CANDIDATE',
       state: 'INTEGRATED',
       disposition: 'ALREADY_ON_MAIN',
       main_proof: proof,
@@ -1553,6 +1400,7 @@ describe('already-main proof validation', () => {
     expect(
       parseInventoryManifest({
         capability_reconciliation: {
+          source_inventory_schema: SOURCE_INVENTORY_SCHEMA_V2,
           reconciled_base_sha: BASE_SHA,
           sources: [source],
         },
@@ -1562,6 +1410,7 @@ describe('already-main proof validation', () => {
       kind: 'REMOTE_BRANCH',
       locator: 'refs/remotes/origin/feature/proven',
       headSha: REMOTE_SHA,
+      role: 'CAPABILITY_CANDIDATE',
       state: 'INTEGRATED',
       disposition: 'ALREADY_ON_MAIN',
       mainProof: {
@@ -1572,6 +1421,7 @@ describe('already-main proof validation', () => {
     expect(
       parseInventoryManifest({
         capability_reconciliation: {
+          source_inventory_schema: SOURCE_INVENTORY_SCHEMA_V2,
           reconciled_base_sha: BASE_SHA,
           sources: [
             {
@@ -1598,6 +1448,7 @@ describe('already-main proof validation', () => {
     expect(() =>
       parseInventoryManifest({
         capability_reconciliation: {
+          source_inventory_schema: SOURCE_INVENTORY_SCHEMA_V2,
           reconciled_base_sha: BASE_SHA,
           sources: [{ ...source, main_proof: undefined }],
         },
@@ -1606,6 +1457,7 @@ describe('already-main proof validation', () => {
     expect(() =>
       parseInventoryManifest({
         capability_reconciliation: {
+          source_inventory_schema: SOURCE_INVENTORY_SCHEMA_V2,
           reconciled_base_sha: BASE_SHA,
           sources: [{ ...source, kind: 'LOCAL_BRANCH', locator: 'refs/heads/proven' }],
         },
@@ -1614,6 +1466,7 @@ describe('already-main proof validation', () => {
     expect(() =>
       parseInventoryManifest({
         capability_reconciliation: {
+          source_inventory_schema: SOURCE_INVENTORY_SCHEMA_V2,
           reconciled_base_sha: BASE_SHA,
           sources: [
             {
@@ -1627,6 +1480,7 @@ describe('already-main proof validation', () => {
     expect(() =>
       parseInventoryManifest({
         capability_reconciliation: {
+          source_inventory_schema: SOURCE_INVENTORY_SCHEMA_V2,
           reconciled_base_sha: BASE_SHA,
           sources: [
             {

@@ -65,6 +65,14 @@ export function ariaRepoRoot(): string {
  * the spec fail for a file no reviewer can see.
  */
 const AUTHORITY_ROOTS = ['docs/aria', 'aria-kernel', 'tools/aria-poc'] as const;
+const AUTHORITY_GIT_PATHS = [...AUTHORITY_ROOTS, '.github/workflows'] as const;
+
+function isAriaAuthorityPath(rel: string): boolean {
+  return (
+    AUTHORITY_ROOTS.some((root) => rel === root || rel.startsWith(`${root}/`)) ||
+    /^\.github\/workflows\/aria-[^/]+\.ya?ml$/.test(rel)
+  );
+}
 
 function gitIn(repoRoot: string, args: string[]): string {
   return execFileSync('git', ['-C', repoRoot, ...args], {
@@ -74,13 +82,10 @@ function gitIn(repoRoot: string, args: string[]): string {
 }
 
 export function ariaAuthorityFiles(repoRoot: string = ariaRepoRoot()): string[] {
-  const tracked = gitIn(repoRoot, ['ls-files', ...AUTHORITY_ROOTS])
+  return gitIn(repoRoot, ['ls-files', ...AUTHORITY_GIT_PATHS])
     .split(/\r?\n/)
-    .filter(Boolean);
-  const workflowFiles = gitIn(repoRoot, ['ls-files', '.github/workflows'])
-    .split(/\r?\n/)
-    .filter((rel) => /^\.github\/workflows\/aria-[^/]+\.ya?ml$/.test(rel));
-  return [...new Set([...tracked, ...workflowFiles])].sort();
+    .filter(isAriaAuthorityPath)
+    .sort();
 }
 
 /**
@@ -95,36 +100,66 @@ export function ariaAuthorityFiles(repoRoot: string = ariaRepoRoot()): string[] 
  * uses to answer "what will the commit contain".
  */
 export function unstagedAuthorityFiles(repoRoot: string = ariaRepoRoot()): string[] {
-  return gitIn(repoRoot, ['ls-files', '--others', '--exclude-standard', ...AUTHORITY_ROOTS])
+  return gitIn(repoRoot, ['ls-files', '--others', '--exclude-standard', ...AUTHORITY_GIT_PATHS])
     .split(/\r?\n/)
-    .filter(Boolean)
+    .filter(isAriaAuthorityPath)
     .sort();
 }
 
 export function normalizedAriaAuthorityContent(
   rel: string,
   repoRoot: string = ariaRepoRoot(),
+  readText: (relativePath: string) => string = (relativePath) =>
+    readFileSync(join(repoRoot, relativePath), 'utf8'),
 ): string {
-  const body = readFileSync(join(repoRoot, rel), 'utf8');
+  const body = readText(rel);
   if (rel !== CURRENT_STATE_PATH) return body;
   return body.replace(ARIA_AUTHORITY_HASH_LINE, ARIA_AUTHORITY_HASH_SENTINEL);
 }
 
-export function ariaAuthorityHash(repoRoot: string = ariaRepoRoot()): string {
+export function ariaAuthorityHash(
+  repoRoot: string = ariaRepoRoot(),
+  readText?: (relativePath: string) => string,
+  authorityFiles: readonly string[] = ariaAuthorityFiles(repoRoot),
+): string {
   const hash = createHash('sha256');
-  for (const rel of ariaAuthorityFiles(repoRoot)) {
+  for (const rel of authorityFiles) {
     hash.update(rel);
     hash.update('\0');
-    hash.update(normalizedAriaAuthorityContent(rel, repoRoot));
+    hash.update(normalizedAriaAuthorityContent(rel, repoRoot, readText));
     hash.update('\0');
   }
   return hash.digest('hex');
 }
 
 /** Returns the hash recorded in CURRENT_STATE, or null if the line is absent. */
-export function recordedAriaAuthorityHash(repoRoot: string = ariaRepoRoot()): string | null {
-  const body = readFileSync(join(repoRoot, CURRENT_STATE_PATH), 'utf8');
+export function recordedAriaAuthorityHash(
+  repoRoot: string = ariaRepoRoot(),
+  readText: (relativePath: string) => string = (relativePath) =>
+    readFileSync(join(repoRoot, relativePath), 'utf8'),
+): string | null {
+  const body = readText(CURRENT_STATE_PATH);
   return body.match(/Last verified ARIA authority hash: `([a-f0-9]{64})`/)?.[1] ?? null;
+}
+
+/**
+ * Prove that the committed ARIA runtime authority and its compact document link agree.
+ * Consumers hash-link CURRENT_STATE instead of copying the kernel's large file inventory, while
+ * this assertion prevents a stale link from hiding any runtime change.
+ */
+export function assertAriaAuthorityHashCurrent(
+  repoRoot: string = ariaRepoRoot(),
+  readText?: (relativePath: string) => string,
+  authorityFiles: readonly string[] = ariaAuthorityFiles(repoRoot),
+): string {
+  const recorded = recordedAriaAuthorityHash(repoRoot, readText);
+  const current = ariaAuthorityHash(repoRoot, readText, authorityFiles);
+  if (recorded === null || recorded !== current) {
+    throw new Error(
+      `${CURRENT_STATE_PATH} ARIA authority hash is stale: recorded=${recorded ?? '(missing)'} current=${current}`,
+    );
+  }
+  return current;
 }
 
 export function writeAriaAuthorityHash(repoRoot: string = ariaRepoRoot()): {

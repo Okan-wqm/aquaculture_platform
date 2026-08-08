@@ -32,6 +32,9 @@
     "test:automation-publication-publisher": "ts-node --project tools/scripts/automation/tsconfig.json tools/scripts/automation/publish-automation-pr.spec.ts",
     "test:automation-run-clock": "node tools/scripts/automation/resolve-github-run-clock.spec.mjs",
     "test:finding-registry-authority": "ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry-store.spec.ts",
+    "test:finding-registry-writer-authority": "ts-node --project tools/gates/tsconfig.json tools/gates/lib/finding-registry-writer-authority.spec.ts",
+    "findings:writer-authority:check": "ts-node --project tools/gates/tsconfig.json tools/gates/lib/finding-registry-writer-authority.ts --check",
+    "findings:writer-authority:write": "ts-node --project tools/gates/tsconfig.json tools/gates/lib/finding-registry-writer-authority.ts --write",
     "test:e2e:water-chemistry": "npm --prefix e2e run test:water-chemistry",
     "test:e2e:mobile": "npm --prefix e2e run test:mobile",
     "lint": "node tools/toolchain/run.mjs nx affected --target=lint",
@@ -172,8 +175,10 @@
     "gates:required-status-checks:live": "npm run gates:required-status-checks -- --live",
     "gates:capability-integration-evidence:static": "ts-node --project tools/gates/tsconfig.json tools/gates/capability-integration-evidence.ts --static",
     "gates:capability-integration-evidence:live": "ts-node --project tools/gates/tsconfig.json tools/gates/capability-integration-evidence.ts --live",
-    "gates:capability-source-inventory:live": "ts-node --project tools/gates/tsconfig.json tools/gates/capability-source-inventory.ts --live",
+    "gates:capability-source-inventory:static": "ts-node --project tools/gates/tsconfig.json tools/gates/capability-source-inventory.ts --static",
+    "gates:capability-source-inventory:live": "ts-node --project tools/gates/tsconfig.json tools/gates/source-inventory-runner.ts --live",
     "gates:capability-source-inventory:remote": "ts-node --project tools/gates/tsconfig.json tools/gates/capability-source-inventory.ts --live --scope=remote",
+    "gates:source-finding-inventory:static": "ts-node --project tools/gates/tsconfig.json tools/gates/source-finding-inventory.ts --static",
     "gates:source-finding-inventory:check": "ts-node --project tools/gates/tsconfig.json tools/gates/source-finding-inventory.ts --check",
     "gates:source-finding-inventory:generate": "ts-node --project tools/gates/tsconfig.json tools/gates/source-finding-inventory.ts --write",
     "gates:source-finding-inventory:refresh": "ts-node --project tools/gates/tsconfig.json tools/gates/source-finding-inventory.ts --refresh",
@@ -353,7 +358,8 @@
     "tsc-alias": "^1.8.16",
     "typescript": "5.9.3",
     "vite": "^7.3.5",
-    "vitest": "3.2.4"
+    "vitest": "3.2.4",
+    "yaml": "2.9.0"
   },
   "engines": {
     "node": ">=20.11.0",

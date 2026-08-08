@@ -1,3 +1,5 @@
+import { hasOwn } from './json-contract';
+
 const SOURCE_LOCAL_SUFFIX_PATTERN = '[A-Z0-9]+';
 const SOURCE_LOCAL_NAMESPACE_PATTERN = '[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*';
 const SCHEMA_SEMANTIC_FIELDS_KEY = 'x-source-finding-semantic-fields';
@@ -27,6 +29,14 @@ export interface FindingRegistrySchemaContract {
   rawIdRegex: RegExp;
   sourceLocalIdRegex: RegExp;
   semanticFields: readonly string[];
+}
+
+function isNonEmptyStringArray(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((field): field is string => typeof field === 'string' && field.length > 0)
+  );
 }
 
 function requireNonEmptyString(value: unknown, field: string): string {
@@ -111,11 +121,7 @@ export function parseFindingRegistrySchemaContract(
   }
 
   const semanticFields = schema[SCHEMA_SEMANTIC_FIELDS_KEY];
-  if (
-    !Array.isArray(semanticFields) ||
-    semanticFields.length === 0 ||
-    !semanticFields.every((field) => typeof field === 'string' && field.length > 0)
-  ) {
+  if (!isNonEmptyStringArray(semanticFields)) {
     throw new Error(
       `finding registry schema ${SCHEMA_SEMANTIC_FIELDS_KEY} must be a non-empty string array`,
     );
@@ -126,7 +132,7 @@ export function parseFindingRegistrySchemaContract(
     );
   }
   for (const field of semanticFields) {
-    if (!Object.hasOwn(schema.properties ?? {}, field)) {
+    if (!hasOwn(schema.properties ?? {}, field)) {
       throw new Error(`finding registry semantic field ${field} is absent from schema properties`);
     }
   }

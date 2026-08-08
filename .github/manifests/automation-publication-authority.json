@@ -1,6 +1,6 @@
 {
-  "$schema": "aqua/github-automation-publication-authority/v1",
-  "schema_version": 1,
+  "$schema": "aqua/github-automation-publication-authority/v2",
+  "schema_version": 2,
   "authority_id": "aqua.github.automation-publication",
   "state": "BOOTSTRAP_PENDING",
   "repository": {
@@ -14,10 +14,8 @@
   "environment": {
     "name": "automation-publication",
     "deployment_branch_policy": {
-      "protected_branches": false,
-      "custom_branch_policies": true,
-      "custom_branch_policy_count": 1,
-      "custom_branch_policies": [
+      "mode": "CUSTOM_BRANCH_POLICIES",
+      "rules": [
         {
           "name": "main",
           "type": "branch"

@@ -1,5 +1,11 @@
 import { createPublicKey, verify as verifySignature, type JsonWebKey } from 'node:crypto';
 
+import {
+  FINDING_WRITER_REGISTRY_MUTATION_OPERATIONS,
+  type FindingWriterRegistryMutationOperation,
+} from './lib/finding-writer-cli-contract';
+import { AUTOMATION_REGISTRY_WRITER_WORKFLOW_POLICY } from './lib/automation-publication-policy';
+
 const ISSUER = 'https://token.actions.githubusercontent.com';
 const OPENID_CONFIGURATION_URL = `${ISSUER}/.well-known/openid-configuration`;
 const EXPECTED_JWKS_URL = `${ISSUER}/.well-known/jwks`;
@@ -58,26 +64,49 @@ export interface RepositoryMutationAuthorityDependencies {
   ) => Promise<unknown>;
 }
 
-interface TrustedWorkflow {
+export interface TrustedWorkflowPolicy {
   readonly workflowRef: string;
-  readonly events: ReadonlySet<string>;
-  readonly operations: ReadonlySet<RegistryMutationOperation>;
+  readonly events: readonly string[];
+  readonly operations: readonly RegistryMutationOperation[];
 }
 
-export type RegistryMutationOperation = 'add' | 'close' | 'sweep';
+export type RegistryMutationOperation = FindingWriterRegistryMutationOperation;
 
-const TRUSTED_WORKFLOWS: readonly TrustedWorkflow[] = [
-  {
-    workflowRef: `${EXPECTED_REPOSITORY}/.github/workflows/finding-registry-authority.yml@${EXPECTED_REF}`,
-    events: new Set(['workflow_dispatch']),
-    operations: new Set(['add', 'close']),
-  },
-  {
-    workflowRef: `${EXPECTED_REPOSITORY}/.github/workflows/finding-state-sweep.yml@${EXPECTED_REF}`,
-    events: new Set(['schedule', 'workflow_dispatch']),
-    operations: new Set(['sweep']),
-  },
-];
+function freezeTrustedWorkflowPolicy(policy: TrustedWorkflowPolicy): TrustedWorkflowPolicy {
+  return Object.freeze({
+    ...policy,
+    events: Object.freeze([...policy.events]),
+    operations: Object.freeze([...policy.operations]),
+  });
+}
+
+export const FINDING_WRITER_TRUSTED_WORKFLOW_POLICY = Object.freeze([
+  ...AUTOMATION_REGISTRY_WRITER_WORKFLOW_POLICY.map((policy) =>
+    freezeTrustedWorkflowPolicy({
+      workflowRef: policy.workflowRef,
+      events: policy.workflowEvents,
+      operations: policy.operations,
+    }),
+  ),
+]);
+
+function assertTrustedWorkflowPolicyClosed(): void {
+  const workflowRefs = FINDING_WRITER_TRUSTED_WORKFLOW_POLICY.map((policy) => policy.workflowRef);
+  if (new Set(workflowRefs).size !== workflowRefs.length) {
+    throw new Error('Finding writer trusted-workflow policy contains duplicate workflow refs');
+  }
+  const governedOperations = [
+    ...new Set(FINDING_WRITER_TRUSTED_WORKFLOW_POLICY.flatMap((policy) => policy.operations)),
+  ].sort();
+  const mutationOperations = [...FINDING_WRITER_REGISTRY_MUTATION_OPERATIONS].sort();
+  if (JSON.stringify(governedOperations) !== JSON.stringify(mutationOperations)) {
+    throw new Error(
+      `Finding writer trusted-workflow operation coverage drifted: governed=${governedOperations.join(',')} mutations=${mutationOperations.join(',')}`,
+    );
+  }
+}
+
+assertTrustedWorkflowPolicyClosed();
 
 const ISSUED_AUTHORITIES = new WeakMap<object, bigint>();
 const NANOSECONDS_PER_SECOND = 1_000_000_000n;
@@ -262,11 +291,11 @@ function validateClaims(
     requireString(env.GITHUB_WORKFLOW_SHA, 'GITHUB_WORKFLOW_SHA'),
   );
   const eventName = requireString(claims.event_name, 'jwt.event_name');
-  const trustedWorkflow = TRUSTED_WORKFLOWS.find(
+  const trustedWorkflow = FINDING_WRITER_TRUSTED_WORKFLOW_POLICY.find(
     (candidate) =>
       candidate.workflowRef === workflowRef &&
-      candidate.events.has(eventName) &&
-      candidate.operations.has(operation),
+      candidate.events.includes(eventName) &&
+      candidate.operations.includes(operation),
   );
   if (!trustedWorkflow) {
     throw new Error(

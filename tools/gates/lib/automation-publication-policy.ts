@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto';
 import { basename } from 'node:path';
 
+import {
+  FINDING_WRITER_REGISTRY_MUTATION_OPERATIONS,
+  isFindingWriterRegistryMutationOperation,
+  type FindingWriterRegistryMutationOperation,
+} from './finding-writer-cli-contract';
+
 export const AUTOMATION_REPOSITORY_IDENTITY = {
   owner: 'Okan-wqm',
   ownerId: '77401788',
@@ -30,14 +36,6 @@ export const AUTOMATION_PUBLICATION_COMPARE_AND_SWAP =
 export const AUTOMATION_PUBLICATION_IDEMPOTENCY =
   'AUTOMATION_PUBLICATION_COMMAND_IDENTITY_V1' as const;
 export const AUTOMATION_REGISTRY_LOGICAL_BRANCH = 'automation/finding-registry-active' as const;
-export const AUTOMATION_REGISTRY_WRITER_WORKFLOW_PATHS = [
-  '.github/workflows/finding-registry-authority.yml',
-  '.github/workflows/finding-state-sweep.yml',
-] as const;
-export const AUTOMATION_REGISTRY_WRITER_WORKFLOW_REFS = [
-  `${AUTOMATION_REPOSITORY}/${AUTOMATION_REGISTRY_WRITER_WORKFLOW_PATHS[0]}@${AUTOMATION_BASE_REF}`,
-  `${AUTOMATION_REPOSITORY}/${AUTOMATION_REGISTRY_WRITER_WORKFLOW_PATHS[1]}@${AUTOMATION_BASE_REF}`,
-] as const;
 
 export const AUTOMATION_PUBLICATION_COMMIT_TRAILERS = {
   commandId: 'Automation-Command-ID',
@@ -247,11 +245,11 @@ function registryPolicy(
   };
 }
 
-export const AUTOMATION_PUBLICATION_POLICY_TABLE: readonly PolicyDefinition[] = [
+const RAW_AUTOMATION_PUBLICATION_POLICY_TABLE = [
   {
     key: 'registry-add',
     operation: 'add',
-    workflowPath: AUTOMATION_REGISTRY_WRITER_WORKFLOW_PATHS[0],
+    workflowPath: '.github/workflows/finding-registry-authority.yml',
     workflowEvents: ['workflow_dispatch'],
     commandPattern: REGISTRY_COMMAND_PATTERN,
     resolve: () => registryPolicy('add'),
@@ -259,7 +257,7 @@ export const AUTOMATION_PUBLICATION_POLICY_TABLE: readonly PolicyDefinition[] = 
   {
     key: 'registry-close',
     operation: 'close',
-    workflowPath: AUTOMATION_REGISTRY_WRITER_WORKFLOW_PATHS[0],
+    workflowPath: '.github/workflows/finding-registry-authority.yml',
     workflowEvents: ['workflow_dispatch'],
     commandPattern: REGISTRY_COMMAND_PATTERN,
     resolve: () => registryPolicy('close'),
@@ -267,7 +265,7 @@ export const AUTOMATION_PUBLICATION_POLICY_TABLE: readonly PolicyDefinition[] = 
   {
     key: 'registry-sweep',
     operation: 'sweep',
-    workflowPath: AUTOMATION_REGISTRY_WRITER_WORKFLOW_PATHS[1],
+    workflowPath: '.github/workflows/finding-state-sweep.yml',
     workflowEvents: ['schedule', 'workflow_dispatch'],
     commandPattern: /^finding-sweep:([1-9][0-9]{0,19})$/,
     resolve: () => ({
@@ -324,7 +322,85 @@ export const AUTOMATION_PUBLICATION_POLICY_TABLE: readonly PolicyDefinition[] = 
       };
     },
   },
-];
+] satisfies readonly PolicyDefinition[];
+
+export const AUTOMATION_PUBLICATION_POLICY_TABLE: readonly PolicyDefinition[] = Object.freeze(
+  RAW_AUTOMATION_PUBLICATION_POLICY_TABLE.map((definition) =>
+    Object.freeze({
+      ...definition,
+      workflowEvents: Object.freeze([...definition.workflowEvents]),
+    }),
+  ),
+);
+
+export interface AutomationRegistryWriterWorkflowPolicy {
+  readonly workflowPath: string;
+  readonly workflowRef: string;
+  readonly workflowEvents: readonly string[];
+  readonly operations: readonly FindingWriterRegistryMutationOperation[];
+}
+
+function deriveAutomationRegistryWriterWorkflowPolicy(): readonly AutomationRegistryWriterWorkflowPolicy[] {
+  const policies = new Map<
+    string,
+    {
+      readonly events: readonly string[];
+      readonly operations: FindingWriterRegistryMutationOperation[];
+    }
+  >();
+  const operationOwners = new Map<FindingWriterRegistryMutationOperation, string>();
+  for (const definition of AUTOMATION_PUBLICATION_POLICY_TABLE) {
+    if (!isFindingWriterRegistryMutationOperation(definition.operation)) continue;
+    const priorOwner = operationOwners.get(definition.operation);
+    if (priorOwner !== undefined) {
+      throw new Error(
+        `Finding writer mutation ${definition.operation} has duplicate publication policies: ${priorOwner}, ${definition.key}`,
+      );
+    }
+    operationOwners.set(definition.operation, definition.key);
+    const existing = policies.get(definition.workflowPath);
+    if (
+      existing !== undefined &&
+      JSON.stringify(existing.events) !== JSON.stringify(definition.workflowEvents)
+    ) {
+      throw new Error(
+        `Finding writer workflow events differ within publication policy: ${definition.workflowPath}`,
+      );
+    }
+    if (existing === undefined) {
+      policies.set(definition.workflowPath, {
+        events: definition.workflowEvents,
+        operations: [definition.operation],
+      });
+    } else {
+      existing.operations.push(definition.operation);
+    }
+  }
+  const missingOperations = FINDING_WRITER_REGISTRY_MUTATION_OPERATIONS.filter(
+    (operation) => !operationOwners.has(operation),
+  );
+  if (
+    missingOperations.length > 0 ||
+    operationOwners.size !== FINDING_WRITER_REGISTRY_MUTATION_OPERATIONS.length
+  ) {
+    throw new Error(
+      `Finding writer publication policy operation coverage drifted: missing=${missingOperations.join(',')}`,
+    );
+  }
+  return Object.freeze(
+    [...policies.entries()].map(([workflowPath, policy]) =>
+      Object.freeze({
+        workflowPath,
+        workflowRef: workflowRef(workflowPath),
+        workflowEvents: Object.freeze([...policy.events]),
+        operations: Object.freeze([...policy.operations]),
+      }),
+    ),
+  );
+}
+
+export const AUTOMATION_REGISTRY_WRITER_WORKFLOW_POLICY =
+  deriveAutomationRegistryWriterWorkflowPolicy();
 
 function resolveRuleHealthPath(month: string, changedPath: string): string {
   const match = RULE_HEALTH_REPORT_PATH_PATTERN.exec(changedPath);

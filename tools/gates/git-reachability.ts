@@ -16,7 +16,7 @@
  * No top-level execution — import-safe for node:test specs.
  */
 
-import { execFileSync } from 'node:child_process';
+import { HERMETIC_GIT_RUNTIME } from './lib/hermetic-git-runtime';
 
 export interface ReachabilityResult {
   readonly ok: boolean;
@@ -24,38 +24,11 @@ export interface ReachabilityResult {
   readonly reason?: string;
 }
 
-/**
- * Repo-location env vars are stripped before every query: the helper's
- * contract is "the repository at repoRoot", never the ambient git
- * context. When a caller runs inside a git hook, git exports GIT_DIR /
- * GIT_INDEX_FILE / GIT_WORK_TREE to the process — an inherited GIT_DIR
- * overrides `-C repoRoot` discovery and redirects the query at whatever
- * repository the hook belongs to (2026-06-10 fixture incident class).
- */
-const REPO_LOCATION_ENV_VARS = [
-  'GIT_DIR',
-  'GIT_WORK_TREE',
-  'GIT_INDEX_FILE',
-  'GIT_COMMON_DIR',
-  'GIT_OBJECT_DIRECTORY',
-  'GIT_NAMESPACE',
-] as const;
-
-export function repoPinnedEnv(): NodeJS.ProcessEnv {
-  return Object.fromEntries(
-    Object.entries(process.env).filter(
-      ([key]) => !(REPO_LOCATION_ENV_VARS as readonly string[]).includes(key),
-    ),
-  );
-}
-
 function gitStatus(repoRoot: string, args: readonly string[]): number {
   try {
-    execFileSync('git', ['-C', repoRoot, ...args], { stdio: 'ignore', env: repoPinnedEnv() });
-    return 0;
-  } catch (err) {
-    const e = err as { status?: number };
-    return typeof e.status === 'number' ? e.status : 128;
+    return HERMETIC_GIT_RUNTIME.runText(repoRoot, args, [0, 1, 128]).status;
+  } catch {
+    return 128;
   }
 }
 

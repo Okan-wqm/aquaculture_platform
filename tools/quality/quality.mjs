@@ -9,7 +9,6 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 process.env.NX_DAEMON = 'false';
 process.env.NX_INTERACTIVE = 'false';
-process.env.NX_ISOLATE_PLUGINS = 'false';
 process.env.NX_TASKS_RUNNER_DYNAMIC_OUTPUT = 'false';
 process.env.CI = 'true';
 const QUALITY_ROOT = join(REPO_ROOT, 'tools', 'quality');
@@ -102,7 +101,6 @@ const CLOSURE_ENVIRONMENT = Object.freeze({
   CI: 'true',
   NX_DAEMON: 'false',
   NX_INTERACTIVE: 'false',
-  NX_ISOLATE_PLUGINS: 'false',
   NX_TASKS_RUNNER_DYNAMIC_OUTPUT: 'false',
 });
 
@@ -188,6 +186,14 @@ function extensionOf(path) {
 
 function classifyFormatFile(path) {
   if (!FORMAT_EXTENSIONS.has(extensionOf(path))) return null;
+  if (path === '.github/manifests/finding-registry-writer-authority.json') {
+    return excluded(
+      path,
+      'generated',
+      'finding-registry-writer-authority-generator',
+      'bytes are owned exclusively by the byte-idempotent finding writer authority generator',
+    );
+  }
   if (path === 'package-lock.json' || path.endsWith('/package-lock.json')) {
     return excluded(
       path,
@@ -692,7 +698,6 @@ function runLintAll() {
     }
     const env = { ...process.env };
     env.NX_DAEMON = 'false';
-    env.NX_ISOLATE_PLUGINS = 'false';
     if (entry.resource_class.startsWith('eslint-')) {
       env.NODE_OPTIONS = process.env.NODE_OPTIONS ?? '--max-old-space-size=4096';
     }

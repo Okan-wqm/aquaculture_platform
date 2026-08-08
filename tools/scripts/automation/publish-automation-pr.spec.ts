@@ -31,6 +31,7 @@ import {
   finalizeAutomationPublication,
   publicationRequestFromEnvironment,
   readImmutableFileSnapshot,
+  rethrowPublicationWriteErrors,
   writeExclusiveDurableResult,
   writeGitHubOutputs,
   type GitHubAutomationPublicationTransport,
@@ -671,6 +672,30 @@ describe('automation publication retry and remote reconciliation', () => {
     );
   });
 
+  it('preserves the primary failure and every cleanup failure in deterministic order', () => {
+    const primary = new Error('primary write failure');
+    const closeFailure = new Error('descriptor cleanup failure');
+    const unlinkFailure = new Error('temporary-file cleanup failure');
+    assert.throws(
+      () => rethrowPublicationWriteErrors(primary, [closeFailure, null, unlinkFailure]),
+      (error: unknown) => {
+        assert.ok(error instanceof AggregateError);
+        assert.deepEqual(error.errors, [primary, closeFailure, unlinkFailure]);
+        return true;
+      },
+    );
+    assert.throws(() => rethrowPublicationWriteErrors(primary, []), primary);
+    assert.throws(() => rethrowPublicationWriteErrors(null, [unlinkFailure]), unlinkFailure);
+    assert.throws(
+      () => rethrowPublicationWriteErrors('non-Error primary evidence', []),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.equal((error as Error & { cause?: unknown }).cause, 'non-Error primary evidence');
+        return true;
+      },
+    );
+  });
+
   it('records output-sink finalization failure as the one durable FAILED result', async () => {
     const request = publicationRequest();
     const published = await new AutomationPublisher(new FakePublicationRemote()).publish(request);
@@ -935,7 +960,12 @@ describe('cross-source pull request identity', () => {
 describe('GitHub output boundary', () => {
   it('writes only canonical single-line values and rejects symlink/injection targets', () => {
     const request = publicationRequest();
-    const result = automationPublicationFailureResult(new Error('publication failed'), {}, request);
+    const result = automationPublicationFailureResult(
+      new Error('publication\0failed\nwith\u007fcontrols\u0085'),
+      {},
+      request,
+    );
+    assert.equal(result.error, 'publication failed with controls ');
     const runnerTemp = mkdtempSync(join(tmpdir(), 'automation-output-'));
     temporaryDirectories.push(runnerTemp);
     const outputPath = join(runnerTemp, 'github-output');

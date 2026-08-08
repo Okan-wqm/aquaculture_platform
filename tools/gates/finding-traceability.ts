@@ -1,6 +1,4 @@
-import { execFileSync } from 'node:child_process';
-
-import { repoPinnedEnv } from './git-reachability';
+import { HERMETIC_GIT_RUNTIME } from './lib/hermetic-git-runtime';
 
 export interface TraceabilityResult {
   readonly ok: boolean;
@@ -21,10 +19,7 @@ export function commitMessageClosesFinding(message: string, findingId: string): 
 }
 
 export function readCommitMessage(repoRoot: string, sha: string): string {
-  return execFileSync('git', ['-C', repoRoot, 'show', '-s', '--format=%B', sha], {
-    encoding: 'utf8',
-    env: repoPinnedEnv(),
-  });
+  return HERMETIC_GIT_RUNTIME.runText(repoRoot, ['show', '-s', '--format=%B', sha]).stdout;
 }
 
 export function commitHasFindingCloseTrailer(

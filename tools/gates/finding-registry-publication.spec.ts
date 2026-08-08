@@ -4,6 +4,11 @@ import { createHash } from 'node:crypto';
 import { describe, it } from 'node:test';
 
 import {
+  AUTOMATION_PUBLICATION_AUTHORITY_SCHEMA,
+  AUTOMATION_PUBLICATION_AUTHORITY_SCHEMA_VERSION,
+  EXPECTED_AUTOMATION_PUBLICATION_BRANCH_POLICY,
+} from './lib/automation-publication-authority';
+import {
   activeAuthorityFromManifest,
   type AutomationPublicationAdmissionContext,
   type AutomationPublicationAuthority,
@@ -663,13 +668,16 @@ function unmanagedScenario(actor: {
 void describe('automation publication merge-side admission', () => {
   void it('loads App authority only from an ACTIVE protected-base manifest and ignores unrelated extensions', () => {
     const manifest = {
-      $schema: 'aqua/github-automation-publication-authority/v1',
-      schema_version: 1,
+      $schema: AUTOMATION_PUBLICATION_AUTHORITY_SCHEMA,
+      schema_version: AUTOMATION_PUBLICATION_AUTHORITY_SCHEMA_VERSION,
       authority_id: 'aqua.github.automation-publication',
       state: 'ACTIVE',
       repository: {
         full_name: AUTOMATION_REPOSITORY,
         repository_id: Number(AUTOMATION_REPOSITORY_ID),
+      },
+      environment: {
+        deployment_branch_policy: EXPECTED_AUTOMATION_PUBLICATION_BRANCH_POLICY,
       },
       requested_token_contract: { permissions: { contents: 'write' } },
       authorized_publishers: [
@@ -691,6 +699,19 @@ void describe('automation publication merge-side admission', () => {
       appInstallationId: INSTALLATION_ID,
     });
     assert.equal(activeAuthorityFromManifest({ ...manifest, state: 'BOOTSTRAP_PENDING' }), null);
+    assert.throws(
+      () =>
+        activeAuthorityFromManifest({
+          ...manifest,
+          environment: {
+            deployment_branch_policy: {
+              mode: 'CUSTOM_BRANCH_POLICIES',
+              rules: [{ name: 'unprotected-branch', type: 'branch' }],
+            },
+          },
+        }),
+      /exact protected main branch/,
+    );
   });
 
   for (const key of Object.keys(DEFINITIONS) as AutomationPublicationPolicyKey[]) {

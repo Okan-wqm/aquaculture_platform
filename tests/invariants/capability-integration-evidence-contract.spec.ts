@@ -276,6 +276,7 @@ function manifest(
   overrides: Partial<IntegrationEvidenceManifest> = {},
 ): IntegrationEvidenceManifest {
   return {
+    sourceSchemaVersion: 1,
     requiredStatusManifestPath: '.github/manifests/main-required-status-checks.json',
     integrationOrder: units.map((entry) => entry.id),
     units,
@@ -700,6 +701,7 @@ describe('capability integration evidence authority and source slices', () => {
     const source: ManifestSource = {
       id: 'SRC-001',
       kind: 'REMOTE_BRANCH',
+      role: null,
       headSha: SOURCE_SHA,
       contentSha256: null,
       mainProof: null,
@@ -754,6 +756,7 @@ describe('capability integration evidence authority and source slices', () => {
     const source: ManifestSource = {
       id: 'SRC-UNOWNED',
       kind: 'REMOTE_BRANCH',
+      role: null,
       headSha: SOURCE_SHA,
       contentSha256: null,
       mainProof: null,
@@ -792,6 +795,7 @@ describe('capability integration evidence authority and source slices', () => {
     const source: ManifestSource = {
       id: 'SRC-PATH-EQUALITY',
       kind: 'REMOTE_BRANCH',
+      role: null,
       headSha: SOURCE_SHA,
       contentSha256: null,
       mainProof: null,
@@ -896,6 +900,7 @@ describe('capability integration evidence authority and source slices', () => {
     const source: ManifestSource = {
       id: 'SRC-WHOLE-TREE',
       kind: 'REMOTE_BRANCH',
+      role: null,
       headSha: SOURCE_SHA,
       contentSha256: null,
       mainProof: null,
@@ -1105,6 +1110,7 @@ describe('capability integration exact-head and live Git proof', () => {
     const sourceWithProof: ManifestSource = {
       id: 'SRC-PROOF',
       kind: 'REMOTE_BRANCH',
+      role: null,
       headSha: SOURCE_SHA,
       contentSha256: null,
       mainProof: {
@@ -1433,6 +1439,7 @@ describe('manifest parsing and main pinning', () => {
     const parsed = parseIntegrationEvidenceManifest({
       required_status_checks_manifest: '.github/manifests/main-required-status-checks.json',
       capability_reconciliation: {
+        reconciled_base_sha: MAIN_SHA,
         integration_order: ['IU-001'],
         integration_units: [
           {
@@ -1481,6 +1488,7 @@ describe('manifest parsing and main pinning', () => {
       parseIntegrationEvidenceManifest({
         required_status_checks_manifest: '.github/manifests/main-required-status-checks.json',
         capability_reconciliation: {
+          reconciled_base_sha: MAIN_SHA,
           integration_order: ['IU-UNTRUSTED'],
           integration_units: [
             {
@@ -1556,6 +1564,7 @@ describe('manifest parsing and main pinning', () => {
     const parsed = parseIntegrationEvidenceManifest({
       required_status_checks_manifest: '.github/manifests/main-required-status-checks.json',
       capability_reconciliation: {
+        reconciled_base_sha: MAIN_SHA,
         integration_order: ['IU-001'],
         integration_units: [
           {
@@ -1573,7 +1582,10 @@ describe('manifest parsing and main pinning', () => {
           {
             id: 'SRC-001',
             kind: 'REMOTE_BRANCH',
+            locator: 'refs/remotes/origin/claude/source-001',
             head_sha: SOURCE_SHA,
+            state: 'ASSESSING',
+            disposition: 'SELECTIVE_EXTRACT',
           },
         ],
         source_slices: [

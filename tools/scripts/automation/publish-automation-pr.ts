@@ -2106,9 +2106,19 @@ function safePositiveIntegerEnvironment(env: NodeJS.ProcessEnv, name: string): n
   return Number.isSafeInteger(value) ? value : null;
 }
 
+function isControlCodePoint(codePoint: number): boolean {
+  return codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f);
+}
+
 function sanitizedFailureMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
-  return message.replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 2048);
+  return [...message]
+    .map((character) => {
+      const codePoint = character.codePointAt(0);
+      return codePoint !== undefined && isControlCodePoint(codePoint) ? ' ' : character;
+    })
+    .join('')
+    .slice(0, 2048);
 }
 
 function canonicalProgress(error: unknown): PublicationFailureProgress | null {
@@ -2236,6 +2246,7 @@ export function writeExclusiveDurableResult(
   );
   const bytes = Buffer.from(`${JSON.stringify(result)}\n`, 'utf8');
   let descriptor: number | null = null;
+  let primaryError: unknown = null;
   try {
     descriptor = openSync(
       temporaryPath,
@@ -2251,19 +2262,71 @@ export function writeExclusiveDurableResult(
       canonicalRunnerTemp,
       fsConstants.O_RDONLY | fsConstants.O_DIRECTORY,
     );
+    let directoryPrimaryError: unknown = null;
+    let directoryCleanupError: unknown = null;
     try {
       fsyncSync(directoryDescriptor);
-    } finally {
-      closeSync(directoryDescriptor);
-    }
-  } finally {
-    if (descriptor !== null) closeSync(descriptor);
-    try {
-      unlinkSync(temporaryPath);
     } catch (error) {
-      if (!isRecord(error) || error.code !== 'ENOENT') throw error;
+      directoryPrimaryError = error;
+    }
+    try {
+      closeSync(directoryDescriptor);
+    } catch (error) {
+      directoryCleanupError = error;
+    }
+    rethrowPublicationWriteErrors(directoryPrimaryError, [directoryCleanupError]);
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanupErrors: unknown[] = [];
+  if (descriptor !== null) {
+    try {
+      closeSync(descriptor);
+    } catch (error) {
+      cleanupErrors.push(error);
     }
   }
+  try {
+    unlinkSync(temporaryPath);
+  } catch (error) {
+    if (!isRecord(error) || error.code !== 'ENOENT') cleanupErrors.push(error);
+  }
+  rethrowPublicationWriteErrors(primaryError, cleanupErrors);
+}
+
+export function rethrowPublicationWriteErrors(
+  primaryError: unknown,
+  cleanupErrors: readonly unknown[],
+): void {
+  const observedCleanupErrors = cleanupErrors.filter((error) => error !== null);
+  if (primaryError !== null && observedCleanupErrors.length === 0) {
+    throw publicationThrowable(primaryError, 'Automation publication result write failed');
+  }
+  if (primaryError === null && observedCleanupErrors.length === 1) {
+    throw publicationThrowable(
+      observedCleanupErrors[0],
+      'Automation publication result cleanup failed',
+    );
+  }
+  if (primaryError !== null || observedCleanupErrors.length > 0) {
+    throw new AggregateError(
+      primaryError === null ? observedCleanupErrors : [primaryError, ...observedCleanupErrors],
+      'Automation publication result write and cleanup did not both complete',
+    );
+  }
+}
+
+function publicationThrowable(value: unknown, message: string): Error {
+  if (value instanceof Error) return value;
+  const error = new Error(`${message}: ${String(value)}`);
+  Object.defineProperty(error, 'cause', {
+    configurable: false,
+    enumerable: false,
+    value,
+    writable: false,
+  });
+  return error;
 }
 
 export function writeGitHubOutputs(

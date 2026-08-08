@@ -12,40 +12,72 @@ import {
   readFileSync,
   readdirSync,
   readSync,
-  unlinkSync,
 } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { TextDecoder } from 'node:util';
 
 import type { Options as PrettierOptions } from 'prettier';
 
-import { REPO_ROOT } from './lib/repo-root';
-import { computeDirtyContentSha256 } from './capability-source-inventory';
 import { resolveGitFindingAllocationAuthority } from './finding-registry';
 import {
-  atomicWriteFileWithRegistryLease,
   assertRegistryLockOwned,
+  bindSourceFindingPublicationStore,
   listAtomicWriteStagingFiles,
-  recoverAtomicWriteStagingFiles,
+  recoverGovernedFindingStagingFiles,
+  type GovernedFindingCompensationAuthorization,
   type RegistryLockLease,
+  type SourceFindingPublicationStore,
   withRegistryFileLockAsync,
 } from './finding-registry-store';
 import {
   deriveRawFindingIdFloors,
   parseFindingRegistrySchemaContract,
 } from './lib/finding-registry-schema-contract';
+import { hasOwn } from './lib/json-contract';
+import {
+  computeCanonicalGitWorktreeEvidence,
+  HERMETIC_GIT_RUNTIME,
+} from './lib/hermetic-git-runtime';
+import {
+  assertSourceFindingWriterFenceSessionCurrent,
+  closeSourceFindingWriterFenceSession,
+  openSourceFindingWriterFenceSession,
+  type SourceFindingWriterFenceSession,
+} from './lib/finding-writer-fence';
+import { REPO_ROOT } from './lib/repo-root';
+import {
+  SOURCE_INVENTORY_SCHEMA_V2,
+  SOURCE_KINDS,
+  SOURCE_ROLES,
+  isWorktreeSourceKind,
+  type SourceKind,
+  type SourceRole,
+} from './lib/capability-source-contract';
+import {
+  executeSourceFindingPublicationTransaction,
+  executeSourceFindingRestartRecovery,
+} from './lib/source-finding-publication-kernel';
+import { admitFindingWriterCliInvocation } from './lib/finding-writer-cli-contract';
+import {
+  FINDING_REGISTRY_RELATIVE_PATH,
+  FINDING_REGISTRY_SCHEMA_RELATIVE_PATH,
+  SOURCE_FINDING_ARTIFACT_BASENAME,
+  SOURCE_FINDING_LEGACY_ARTIFACT_BASENAME,
+  SOURCE_FINDING_MANIFEST_BASENAME,
+  SOURCE_FINDING_PLAN_RELATIVE_PATH,
+} from './lib/finding-authority-target-catalog';
 
-const PLAN_DIRECTORY = 'docs/plans/2026-06-18-enterprise-grade-debt-closure';
-const MANIFEST_PATH = `${PLAN_DIRECTORY}/manifest.json`;
+const PLAN_DIRECTORY = SOURCE_FINDING_PLAN_RELATIVE_PATH;
+const MANIFEST_PATH = `${PLAN_DIRECTORY}/${SOURCE_FINDING_MANIFEST_BASENAME}`;
 const PRETTIER_CONFIG_PATH = '.prettierrc';
 const PACKAGE_LOCK_PATH = 'package-lock.json';
-const LEGACY_ARTIFACT_PATH = `${PLAN_DIRECTORY}/source-findings.jsonl`;
-const ARTIFACT_FILENAME_PATTERN = /^source-findings\.(?<sha256>[0-9a-f]{64})\.jsonl$/;
+const LEGACY_ARTIFACT_PATH = `${PLAN_DIRECTORY}/${SOURCE_FINDING_LEGACY_ARTIFACT_BASENAME}`;
+const ARTIFACT_FILENAME_PATTERN = SOURCE_FINDING_ARTIFACT_BASENAME;
 const ARTIFACT_PATH_PATTERN = new RegExp(
   `^${PLAN_DIRECTORY.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/source-findings\\.(?<sha256>[0-9a-f]{64})\\.jsonl$`,
 );
-const REGISTRY_PATH = 'docs/reviews/_registry/findings.jsonl';
-const REGISTRY_SCHEMA_PATH = 'docs/reviews/_registry/findings.jsonl.schema.json';
+const REGISTRY_PATH = FINDING_REGISTRY_RELATIVE_PATH;
+const REGISTRY_SCHEMA_PATH = FINDING_REGISTRY_SCHEMA_RELATIVE_PATH;
 const MAX_GIT_OUTPUT_BYTES = 32 * 1024 * 1024;
 const MAX_EVIDENCE_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_REGISTRY_SCHEMA_BYTES = 1024 * 1024;
@@ -160,14 +192,27 @@ function auditLineage(): FindingInventoryManifest['audit_lineage'] {
 export type InventoryScope = 'full' | 'remote';
 export type EvidenceKind = 'REGISTRY_RECORD' | 'REGISTRY_REFERENCE' | 'REVIEW_MENTION';
 export type FindingClassification = 'LEGACY_UNREGISTERED' | 'PENDING_ADJUDICATION' | 'ID_COLLISION';
-export type SourceKind = 'REMOTE_BRANCH' | 'LOCAL_BRANCH' | 'DIRTY_WORKTREE';
-
 interface SourceRecord {
   id: string;
   kind: SourceKind;
   locator: string;
   headSha: string;
   contentSha256: string | null;
+  role: Exclude<SourceRole, 'UNKNOWN'> | null;
+}
+
+function isFindingLaneSource(source: SourceRecord): boolean {
+  return source.role === null || source.role === 'CAPABILITY_CANDIDATE';
+}
+
+function sourcesForFindingLane(
+  sources: readonly SourceRecord[],
+  scope: InventoryScope,
+): SourceRecord[] {
+  return sources.filter(
+    (source) =>
+      isFindingLaneSource(source) && (scope === 'full' || source.kind === 'REMOTE_BRANCH'),
+  );
 }
 
 export interface CanonicalPromotionEvidence {
@@ -294,6 +339,7 @@ interface ParsedManifest {
   reconciliation: Record<string, unknown>;
   reconciledAt: string;
   reconciledBaseSha: string;
+  sourceSchemaVersion: 1 | 2;
   sources: SourceRecord[];
   sourceAdjudications: SourceAdjudication[];
   units: IntegrationUnit[];
@@ -403,7 +449,7 @@ export interface RefreshAssignmentEvidenceContext {
 }
 
 export interface CliOptions {
-  mode: 'check' | 'write' | 'refresh';
+  mode: 'static' | 'check' | 'write' | 'refresh';
   scope: InventoryScope;
 }
 
@@ -441,7 +487,7 @@ function requireExactKeys(
   field: string,
 ): void {
   const expected = new Set(expectedKeys);
-  const missing = expectedKeys.filter((key) => !Object.hasOwn(record, key)).sort(compareText);
+  const missing = expectedKeys.filter((key) => !hasOwn(record, key)).sort(compareText);
   const extra = Object.keys(record)
     .filter((key) => !expected.has(key))
     .sort(compareText);
@@ -499,10 +545,17 @@ function requireObjectArray(value: unknown, field: string): Record<string, unkno
 }
 
 function requireSourceKind(value: unknown, field: string): SourceKind {
-  if (value !== 'REMOTE_BRANCH' && value !== 'LOCAL_BRANCH' && value !== 'DIRTY_WORKTREE') {
-    throw new Error(`${field} must be REMOTE_BRANCH, LOCAL_BRANCH, or DIRTY_WORKTREE`);
+  if (!SOURCE_KINDS.includes(value as SourceKind)) {
+    throw new Error(`${field} must be one governed source kind`);
   }
-  return value;
+  return value as SourceKind;
+}
+
+function requireSourceRole(value: unknown, field: string): Exclude<SourceRole, 'UNKNOWN'> {
+  if (!SOURCE_ROLES.includes(value as SourceRole) || value === 'UNKNOWN') {
+    throw new Error(`${field} must be one explicit non-UNKNOWN source role`);
+  }
+  return value as Exclude<SourceRole, 'UNKNOWN'>;
 }
 
 function requireExecutionOwner(record: Record<string, unknown>, field: string): string {
@@ -597,21 +650,12 @@ function runGit(
   worktreePath: string = REPO_ROOT,
   acceptedStatuses: readonly number[] = [0],
 ): { stdout: string; status: number } {
-  const result = spawnSync('git', ['-C', worktreePath, ...args], {
-    encoding: 'utf8',
-    env: { ...process.env, LC_ALL: 'C' },
-    maxBuffer: MAX_GIT_OUTPUT_BYTES,
-  });
-  if (result.error) {
-    throw result.error;
-  }
-  if (result.status === null || !acceptedStatuses.includes(result.status)) {
-    throw new Error(
-      `git ${args.join(' ')} failed in ${worktreePath} with status ${String(
-        result.status,
-      )}: ${result.stderr.trim() || 'no stderr'}`,
-    );
-  }
+  const result = HERMETIC_GIT_RUNTIME.runText(
+    worktreePath,
+    args,
+    acceptedStatuses,
+    MAX_GIT_OUTPUT_BYTES,
+  );
   return { stdout: result.stdout, status: result.status };
 }
 
@@ -669,7 +713,7 @@ function registryAtBlob(blobSha: string): RegistryBlobSnapshot {
   };
   registryBlobCache.set(checkedBlobSha, result);
   if (registryBlobCache.size > MAX_REGISTRY_BLOB_CACHE_ENTRIES) {
-    const oldestBlob = registryBlobCache.keys().next().value as string | undefined;
+    const oldestBlob = registryBlobCache.keys().next().value;
     if (oldestBlob !== undefined) {
       registryBlobCache.delete(oldestBlob);
     }
@@ -690,10 +734,7 @@ function registryAtWorktree(worktreePath: string): RegistrySnapshot {
 
 export function semanticRegistryValue(record: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
-    REGISTRY_SEMANTIC_FIELDS.filter((key) => Object.hasOwn(record, key)).map((key) => [
-      key,
-      record[key],
-    ]),
+    REGISTRY_SEMANTIC_FIELDS.filter((key) => hasOwn(record, key)).map((key) => [key, record[key]]),
   );
 }
 
@@ -1194,7 +1235,11 @@ async function discoverForSource(
     if (!isAbsolute(source.locator)) {
       throw new Error(`${source.id} dirty worktree locator must be absolute`);
     }
-    dirtyContentBefore = await computeDirtyContentSha256(source.locator);
+    const dirtyEvidenceBefore = await computeCanonicalGitWorktreeEvidence(source.locator);
+    if (!dirtyEvidenceBefore.dirty) {
+      throw new Error(`${source.id} is registered as dirty but its canonical status is clean`);
+    }
+    dirtyContentBefore = dirtyEvidenceBefore.contentSha256;
     if (source.contentSha256 === null || dirtyContentBefore !== source.contentSha256) {
       throw new Error(`${source.id} dirty content differs from its capability source attestation`);
     }
@@ -1266,7 +1311,8 @@ async function discoverForSource(
     });
   }
   if (source.kind === 'DIRTY_WORKTREE') {
-    const dirtyContentAfter = await computeDirtyContentSha256(source.locator);
+    const dirtyContentAfter = (await computeCanonicalGitWorktreeEvidence(source.locator))
+      .contentSha256;
     if (dirtyContentAfter !== dirtyContentBefore) {
       throw new Error(`${source.id} dirty content moved during finding discovery`);
     }
@@ -1276,41 +1322,31 @@ async function discoverForSource(
 }
 
 export function parseCliOptions(args: readonly string[]): CliOptions {
-  let mode: CliOptions['mode'] | null = null;
-  let scope: InventoryScope = 'full';
-  for (const arg of args) {
-    if (arg === '--check' || arg === '--write' || arg === '--refresh') {
-      const candidate = arg.slice(2) as CliOptions['mode'];
-      if (mode !== null && mode !== candidate) {
-        throw new Error('--check, --write, and --refresh are mutually exclusive');
-      }
-      mode = candidate;
-      continue;
-    }
-    if (arg === '--scope=remote') {
-      scope = 'remote';
-      continue;
-    }
-    if (arg === '--scope=full') {
-      scope = 'full';
-      continue;
-    }
-    throw new Error(`unknown source-finding inventory argument: ${arg}`);
+  const admission = admitFindingWriterCliInvocation(
+    'tools/gates/source-finding-inventory.ts',
+    args,
+  );
+  if (
+    admission.operation !== 'static' &&
+    admission.operation !== 'check' &&
+    admission.operation !== 'write' &&
+    admission.operation !== 'refresh'
+  ) {
+    throw new Error(
+      `source-finding inventory received an impossible operation: ${admission.operation}`,
+    );
   }
-  if (mode === null) {
-    throw new Error('source-finding inventory requires --check, --write, or --refresh');
-  }
-  if ((mode === 'write' || mode === 'refresh') && scope !== 'full') {
-    throw new Error(`--${mode} is supported only with --scope=full`);
-  }
-  return { mode, scope };
+  return {
+    mode: admission.operation,
+    scope: args.includes('--scope=remote') ? 'remote' : 'full',
+  };
 }
 
 export function assertExecutionSafety(
   options: CliOptions,
   evidence: FullExecutionSafetyEvidence | undefined,
 ): void {
-  if (options.scope !== 'full' || options.mode === 'refresh') {
+  if (options.scope !== 'full' || options.mode === 'refresh' || options.mode === 'static') {
     return;
   }
   if (!evidence) {
@@ -1911,20 +1947,36 @@ export function assertFindingInventoryClosedSchema(value: unknown): void {
   }
 }
 
-function parseManifest(raw: unknown, includeFindingInventory: boolean = true): ParsedManifest {
+function parseManifest(raw: unknown, includeFindingInventory = true): ParsedManifest {
   const manifest = requireRecord(raw, 'manifest');
   const reconciliation = requireRecord(
     manifest.capability_reconciliation,
     'manifest.capability_reconciliation',
   );
+  const sourceSchemaVersion: 1 | 2 =
+    reconciliation.source_inventory_schema === undefined
+      ? 1
+      : reconciliation.source_inventory_schema === SOURCE_INVENTORY_SCHEMA_V2
+        ? 2
+        : (() => {
+            throw new Error(
+              `capability_reconciliation.source_inventory_schema must be ${SOURCE_INVENTORY_SCHEMA_V2}`,
+            );
+          })();
   const sources = requireObjectArray(
     reconciliation.sources,
     'capability_reconciliation.sources',
   ).map((entry, index): SourceRecord => {
     const kind = requireSourceKind(entry.kind, `sources[${index}].kind`);
     const locator = requireString(entry.locator, `sources[${index}].locator`);
-    if (kind === 'DIRTY_WORKTREE' && !isAbsolute(locator)) {
-      throw new Error(`sources[${index}].locator must be absolute for a dirty worktree`);
+    if (isWorktreeSourceKind(kind) && !isAbsolute(locator)) {
+      throw new Error(`sources[${index}].locator must be absolute for a worktree`);
+    }
+    if (sourceSchemaVersion === 1 && kind === 'CLEAN_WORKTREE') {
+      throw new Error(`sources[${index}].kind CLEAN_WORKTREE requires source inventory v2`);
+    }
+    if (sourceSchemaVersion === 1 && entry.role !== undefined) {
+      throw new Error(`sources[${index}].role requires source inventory v2`);
     }
     if (kind === 'REMOTE_BRANCH' && !locator.startsWith('refs/remotes/origin/')) {
       throw new Error(`sources[${index}].locator must be an origin remote ref for REMOTE_BRANCH`);
@@ -1932,15 +1984,24 @@ function parseManifest(raw: unknown, includeFindingInventory: boolean = true): P
     if (kind === 'LOCAL_BRANCH' && !locator.startsWith('refs/heads/')) {
       throw new Error(`sources[${index}].locator must be a local ref for LOCAL_BRANCH`);
     }
+    const role =
+      sourceSchemaVersion === 2 ? requireSourceRole(entry.role, `sources[${index}].role`) : null;
+    if (
+      (kind === 'CLEAN_WORKTREE' && role !== 'WORKTREE_PRESERVATION') ||
+      (kind === 'DIRTY_WORKTREE' && sourceSchemaVersion === 2 && role !== 'CAPABILITY_CANDIDATE') ||
+      ((kind === 'REMOTE_BRANCH' || kind === 'LOCAL_BRANCH') && role === 'WORKTREE_PRESERVATION')
+    ) {
+      throw new Error(`sources[${index}].role is incompatible with ${kind}`);
+    }
     return {
       id: requireString(entry.id, `sources[${index}].id`),
       kind,
       locator,
       headSha: requireSha(entry.head_sha, `sources[${index}].head_sha`),
-      contentSha256:
-        kind === 'DIRTY_WORKTREE'
-          ? requireSha256(entry.content_sha256, `sources[${index}].content_sha256`)
-          : null,
+      role,
+      contentSha256: isWorktreeSourceKind(kind)
+        ? requireSha256(entry.content_sha256, `sources[${index}].content_sha256`)
+        : null,
     };
   });
   const sourceAdjudications = requireObjectArray(
@@ -2063,6 +2124,7 @@ function parseManifest(raw: unknown, includeFindingInventory: boolean = true): P
       reconciliation.reconciled_base_sha,
       'capability_reconciliation.reconciled_base_sha',
     ),
+    sourceSchemaVersion,
     sources,
     sourceAdjudications,
     units,
@@ -2074,7 +2136,7 @@ function parseManifest(raw: unknown, includeFindingInventory: boolean = true): P
 
 function parseArtifact(
   raw: string,
-  artifactPath: string = 'source-finding artifact',
+  artifactPath = 'source-finding artifact',
 ): SourceFindingOccurrence[] {
   const occurrences: SourceFindingOccurrence[] = [];
   for (const [index, line] of raw.split(/\r?\n/).entries()) {
@@ -2276,7 +2338,6 @@ export function materializeOccurrences(
   sourceAdjudications: readonly SourceAdjudication[],
   units: readonly IntegrationUnit[],
 ): SourceFindingOccurrence[] {
-  const unitIds = new Set(units.map((unit) => unit.id));
   const findingRefs = new Set(findings.map((finding) => finding.sourceRef));
   if (findingRefs.size !== findings.length) {
     throw new Error('discovered source finding refs are not unique');
@@ -2602,10 +2663,11 @@ function registryBlobAttestation(blobSha: string): RegistryBlobAttestation {
 function registrySchemaBlobAttestation(
   blobSha: string,
   discoverySchemaBlobSha: string,
+  discoveryAuthority: 'EFFECTIVE_HEAD' | 'COMMITTED_BLOB' = 'EFFECTIVE_HEAD',
 ): RegistrySchemaBlobAttestation {
   const checkedBlobSha = requireSha(blobSha, 'registry schema authority blob SHA');
   let raw: string;
-  if (checkedBlobSha === discoverySchemaBlobSha) {
+  if (discoveryAuthority === 'EFFECTIVE_HEAD' && checkedBlobSha === discoverySchemaBlobSha) {
     if (effectiveRegistrySchemaBlobSha() !== discoverySchemaBlobSha) {
       throw new Error('effective registry schema differs from its discovery Git blob');
     }
@@ -2629,6 +2691,7 @@ function registryAuthorityAttestation(
   reconciledBaseSha: string,
   discoveryRegistryBlobSha: string,
   discoverySchemaBlobSha: string,
+  discoveryAuthority: 'EFFECTIVE_HEAD' | 'COMMITTED_BLOB' = 'EFFECTIVE_HEAD',
 ): RegistryAuthority {
   const reconciledRegistryBlobSha = registryBlobAtCommit(reconciledBaseSha);
   const reconciledSchemaBlobSha = registrySchemaBlobAtCommit(reconciledBaseSha);
@@ -2649,7 +2712,7 @@ function registryAuthorityAttestation(
     },
     registry_snapshots: uniqueRegistryBlobShas.map(registryBlobAttestation),
     schema_snapshots: uniqueSchemaBlobShas.map((blobSha) =>
-      registrySchemaBlobAttestation(blobSha, discoverySchemaBlobSha),
+      registrySchemaBlobAttestation(blobSha, discoverySchemaBlobSha, discoveryAuthority),
     ),
   };
 }
@@ -2734,9 +2797,7 @@ async function discover(
   }
   const discoveryRegistry = registryAtBlob(discoveryRegistryBlobSha).snapshot;
   const findings: DiscoveredFinding[] = [];
-  for (const source of manifest.sources.filter(
-    (candidate) => scope === 'full' || candidate.kind === 'REMOTE_BRANCH',
-  )) {
+  for (const source of sourcesForFindingLane(manifest.sources, scope)) {
     findings.push(
       ...(await discoverForSource(source, manifest.reconciledBaseSha, discoveryRegistry)),
     );
@@ -2992,7 +3053,8 @@ function validateInternalContract(
     manifest.sourceAdjudications.map((adjudication) => adjudication.id),
     'manifest source adjudication IDs',
   );
-  const sourceIds = new Set(manifest.sources.map((source) => source.id));
+  const sourcesById = new Map(manifest.sources.map((source) => [source.id, source]));
+  const sourceIds = new Set(sourcesById.keys());
   const adjudicationsBySource = sourceAdjudicationsBySource(manifest.sourceAdjudications);
   const adjudicationsById = new Map(
     manifest.sourceAdjudications.map((adjudication) => [adjudication.id, adjudication]),
@@ -3011,8 +3073,14 @@ function validateInternalContract(
   assertPendingAdjudicationStates(occurrences, manifest.sourceAdjudications, manifest.units);
   for (const occurrence of occurrences) {
     assertOccurrenceIntrinsicShape(occurrence);
-    if (!sourceIds.has(occurrence.source_id)) {
+    const source = sourcesById.get(occurrence.source_id);
+    if (!source) {
       throw new Error(`${occurrence.source_ref} names an unknown source`);
+    }
+    if (!isFindingLaneSource(source)) {
+      throw new Error(
+        `${occurrence.source_ref} belongs to ${source.role} source ${source.id}, outside the capability-finding lane`,
+      );
     }
     const sourceAdjudication = adjudicationsById.get(
       occurrence.adjudication.source_adjudication_id,
@@ -3045,9 +3113,7 @@ function validateInternalContract(
     'finding_inventory static source_attestations',
   );
   if (scope !== null) {
-    const liveSources = manifest.sources.filter(
-      (source) => scope === 'full' || source.kind === 'REMOTE_BRANCH',
-    );
+    const liveSources = sourcesForFindingLane(manifest.sources, scope);
     const liveSourceIds = new Set(liveSources.map((source) => source.id));
     assertJsonEqual(
       inventory.source_attestations.filter((attestation) =>
@@ -3163,7 +3229,7 @@ function validatePriorAttestedContract(
   );
   for (const attestation of inventory.source_attestations) {
     if (
-      (attestation.source_kind === 'DIRTY_WORKTREE') !==
+      isWorktreeSourceKind(attestation.source_kind) !==
       (attestation.source_content_sha256 !== null)
     ) {
       throw new Error(
@@ -3242,11 +3308,13 @@ function validateRegistryAuthority(
   manifest: ParsedManifest,
   discoveryRegistryBlobSha: string,
   discoveryRegistrySchemaBlobSha: string,
+  discoveryAuthority: 'EFFECTIVE_HEAD' | 'COMMITTED_BLOB' = 'EFFECTIVE_HEAD',
 ): void {
   const expected = registryAuthorityAttestation(
     manifest.reconciledBaseSha,
     discoveryRegistryBlobSha,
     discoveryRegistrySchemaBlobSha,
+    discoveryAuthority,
   );
   assertJsonEqual(
     manifest.findingInventory?.registry_authority,
@@ -3255,7 +3323,10 @@ function validateRegistryAuthority(
   );
 }
 
-function validateStoredRegistryAuthority(manifest: ParsedManifest): void {
+function validateStoredRegistryAuthority(
+  manifest: ParsedManifest,
+  discoveryAuthority: 'EFFECTIVE_HEAD' | 'COMMITTED_BLOB' = 'EFFECTIVE_HEAD',
+): void {
   const inventory = manifest.findingInventory;
   if (!inventory) {
     throw new Error('stored registry authority requires a finding inventory');
@@ -3264,6 +3335,7 @@ function validateStoredRegistryAuthority(manifest: ParsedManifest): void {
     manifest,
     inventory.registry_authority.discovery_candidate.registry_blob_sha,
     inventory.registry_authority.discovery_candidate.schema_blob_sha,
+    discoveryAuthority,
   );
 }
 
@@ -3447,9 +3519,7 @@ async function assertIncludedSourcesStable(
   manifest: ParsedManifest,
   scope: InventoryScope,
 ): Promise<void> {
-  const includedSources = manifest.sources.filter(
-    (source) => scope === 'full' || source.kind === 'REMOTE_BRANCH',
-  );
+  const includedSources = sourcesForFindingLane(manifest.sources, scope);
   const dirtySources = includedSources.filter(
     (source): source is SourceRecord & { kind: 'DIRTY_WORKTREE' } =>
       source.kind === 'DIRTY_WORKTREE',
@@ -3457,7 +3527,11 @@ async function assertIncludedSourcesStable(
   const assertDirtyContentPin = async (
     source: SourceRecord & { kind: 'DIRTY_WORKTREE' },
   ): Promise<void> => {
-    const observedContentSha256 = await computeDirtyContentSha256(source.locator);
+    const evidence = await computeCanonicalGitWorktreeEvidence(source.locator);
+    if (!evidence.dirty) {
+      throw new Error(`${source.id} is registered as dirty but its canonical status is clean`);
+    }
+    const observedContentSha256 = evidence.contentSha256;
     if (source.contentSha256 === null || observedContentSha256 !== source.contentSha256) {
       throw new Error(`${source.id} dirty content differs from its capability source attestation`);
     }
@@ -3589,7 +3663,7 @@ function assertFormattingContractSnapshotStable(snapshot: SourceInventoryInputSn
 export function parseSourceFindingPrettierConfig(prettierConfigText: string): PrettierOptions {
   const parsed: unknown = JSON.parse(prettierConfigText);
   const config = requireRecord(parsed, PRETTIER_CONFIG_PATH);
-  const unsupportedKeys = ['overrides', 'plugins'].filter((key) => Object.hasOwn(config, key));
+  const unsupportedKeys = ['overrides', 'plugins'].filter((key) => hasOwn(config, key));
   if (unsupportedKeys.length > 0) {
     throw new Error(
       `source-finding publication requires one hermetic global .prettierrc contract; unsupported=${unsupportedKeys.join(
@@ -3597,7 +3671,7 @@ export function parseSourceFindingPrettierConfig(prettierConfigText: string): Pr
       )}`,
     );
   }
-  return config as PrettierOptions;
+  return config;
 }
 
 export function lockedPrettierVersion(packageLockText: string): string {
@@ -3643,11 +3717,11 @@ export function assertFormattedManifestSemantics(
   }
 }
 
-async function formatSourceFindingManifestWithConfig(
+function formatSourceFindingManifestWithConfig(
   manifest: Record<string, unknown>,
   prettierConfigText: string,
   expectedPrettierVersion: string,
-): Promise<string> {
+): string {
   const manifestPath = join(REPO_ROOT, MANIFEST_PATH);
   const result = spawnSync(process.execPath, ['-e', PRETTIER_FORMATTER_SCRIPT], {
     cwd: REPO_ROOT,
@@ -3719,50 +3793,14 @@ async function assertPublicationFenceStable(fence: PublicationFence): Promise<vo
   assertPublicationIdentityStable(fence);
 }
 
-function restoreArtifactSnapshot(snapshot: ArtifactSnapshot, lease: RegistryLockLease): void {
-  const absolutePath = artifactAbsolutePath(snapshot.path);
-  if (
-    existsSync(absolutePath) &&
-    readBoundedText(absolutePath, MAX_GIT_OUTPUT_BYTES) === snapshot.text
-  ) {
-    return;
-  }
-  atomicWriteFileWithRegistryLease(absolutePath, snapshot.text, lease);
-}
-
 function rollbackPublishedState(
   inputSnapshot: SourceInventoryInputSnapshot,
-  publishedArtifactPath: string,
   lease: RegistryLockLease,
+  publicationStore: SourceFindingPublicationStore,
+  compensation: GovernedFindingCompensationAuthorization,
 ): void {
   assertRegistryLockOwned(lease);
-  for (const artifact of inputSnapshot.governedArtifacts) {
-    restoreArtifactSnapshot(artifact, lease);
-  }
-  if (inputSnapshot.legacyArtifactText !== null) {
-    const legacyPath = artifactAbsolutePath(LEGACY_ARTIFACT_PATH);
-    if (
-      !existsSync(legacyPath) ||
-      readBoundedText(legacyPath, MAX_GIT_OUTPUT_BYTES) !== inputSnapshot.legacyArtifactText
-    ) {
-      atomicWriteFileWithRegistryLease(legacyPath, inputSnapshot.legacyArtifactText, lease);
-    }
-  }
-  atomicWriteFileWithRegistryLease(
-    join(REPO_ROOT, MANIFEST_PATH),
-    inputSnapshot.manifestText,
-    lease,
-  );
-
-  const originalPaths = new Set(inputSnapshot.governedArtifacts.map((artifact) => artifact.path));
-  if (!originalPaths.has(publishedArtifactPath)) {
-    const publishedAbsolutePath = artifactAbsolutePath(publishedArtifactPath);
-    if (existsSync(publishedAbsolutePath)) {
-      assertRegistryLockOwned(lease);
-      unlinkSync(publishedAbsolutePath);
-      fsyncParentDirectory(join(REPO_ROOT, PLAN_DIRECTORY));
-    }
-  }
+  publicationStore.restoreCompensation(compensation);
   assertInputSnapshotStable(inputSnapshot);
 }
 
@@ -3772,6 +3810,7 @@ async function publishGeneratedState(
   inputSnapshot: SourceInventoryInputSnapshot,
   fence: PublicationFence,
   lease: RegistryLockLease,
+  writerFence: SourceFindingWriterFenceSession,
 ): Promise<void> {
   const inventory = manifest.findingInventory;
   if (!inventory) {
@@ -3779,96 +3818,103 @@ async function publishGeneratedState(
   }
   const nextArtifactPath = inventory.artifact_path;
   const nextArtifactAbsolutePath = artifactAbsolutePath(nextArtifactPath);
-  let mutationStarted = false;
-  try {
-    assertInputSnapshotStable(inputSnapshot);
-    assertRegistryLockOwned(lease);
-    await assertPublicationFenceStable(fence);
-    assertInputSnapshotStable(inputSnapshot);
-
-    if (existsSync(nextArtifactAbsolutePath)) {
-      if (readBoundedText(nextArtifactAbsolutePath, MAX_GIT_OUTPUT_BYTES) !== artifact) {
-        throw new Error(
-          `content-addressed source-finding artifact collision at ${nextArtifactPath}`,
-        );
-      }
-    } else {
-      mutationStarted = true;
-      atomicWriteFileWithRegistryLease(nextArtifactAbsolutePath, artifact, lease);
-    }
-
-    const allowedAdditionalArtifacts = new Set([nextArtifactPath]);
-    assertInputSnapshotStable(inputSnapshot, allowedAdditionalArtifacts);
-    await assertPublicationFenceStable(fence);
-    assertInputSnapshotStable(inputSnapshot, allowedAdditionalArtifacts);
-
-    const nextManifest = await formatSourceFindingManifestWithConfig(
-      manifest.raw,
-      inputSnapshot.prettierConfigText,
-      lockedPrettierVersion(inputSnapshot.packageLockText),
-    );
-    assertInputSnapshotStable(inputSnapshot, allowedAdditionalArtifacts);
-    assertPublicationIdentityStable(fence);
-    assertFormattingContractSnapshotStable(inputSnapshot);
-    mutationStarted = true;
-    atomicWriteFileWithRegistryLease(join(REPO_ROOT, MANIFEST_PATH), nextManifest, lease);
-    assertFormattingContractSnapshotStable(inputSnapshot);
-    await assertPublicationFenceStable(fence);
-    assertFormattingContractSnapshotStable(inputSnapshot);
-
-    let removedArtifact = false;
-    for (const governedArtifact of inputSnapshot.governedArtifacts) {
-      if (governedArtifact.path === nextArtifactPath) continue;
-      assertFormattingContractSnapshotStable(inputSnapshot);
-      assertPublicationIdentityStable(fence);
+  const publicationStore = bindSourceFindingPublicationStore(lease, writerFence);
+  const compensation = publicationStore.captureCompensation(
+    [
+      join(REPO_ROOT, MANIFEST_PATH),
+      nextArtifactAbsolutePath,
+      ...inputSnapshot.governedArtifacts.map((entry) => artifactAbsolutePath(entry.path)),
+      ...(inputSnapshot.legacyArtifactText === null
+        ? []
+        : [artifactAbsolutePath(LEGACY_ARTIFACT_PATH)]),
+    ].filter((path, index, paths) => paths.indexOf(path) === index),
+  );
+  const allowedAdditionalArtifacts = new Set([nextArtifactPath]);
+  await executeSourceFindingPublicationTransaction({
+    prepare: async () => {
+      assertInputSnapshotStable(inputSnapshot);
       assertRegistryLockOwned(lease);
-      const governedAbsolutePath = artifactAbsolutePath(governedArtifact.path);
-      if (readBoundedText(governedAbsolutePath, MAX_GIT_OUTPUT_BYTES) !== governedArtifact.text) {
-        throw new Error(`source-finding artifact changed before cleanup: ${governedArtifact.path}`);
+      await assertPublicationFenceStable(fence);
+      assertInputSnapshotStable(inputSnapshot);
+    },
+    publishArtifact: async () => {
+      if (existsSync(nextArtifactAbsolutePath)) {
+        if (readBoundedText(nextArtifactAbsolutePath, MAX_GIT_OUTPUT_BYTES) !== artifact) {
+          throw new Error(
+            `content-addressed source-finding artifact collision at ${nextArtifactPath}`,
+          );
+        }
+        return;
       }
-      unlinkSync(governedAbsolutePath);
-      removedArtifact = true;
-    }
-    if (inputSnapshot.legacyArtifactText !== null) {
-      assertFormattingContractSnapshotStable(inputSnapshot);
-      assertPublicationIdentityStable(fence);
-      assertRegistryLockOwned(lease);
-      const legacyAbsolutePath = artifactAbsolutePath(LEGACY_ARTIFACT_PATH);
-      if (
-        readBoundedText(legacyAbsolutePath, MAX_GIT_OUTPUT_BYTES) !==
-        inputSnapshot.legacyArtifactText
-      ) {
-        throw new Error('legacy source-finding artifact changed before cleanup');
-      }
-      unlinkSync(legacyAbsolutePath);
-      removedArtifact = true;
-    }
-    if (removedArtifact) {
-      fsyncParentDirectory(join(REPO_ROOT, PLAN_DIRECTORY));
-    }
-    assertExclusiveArtifactAuthority(nextArtifactPath);
-    assertFormattingContractSnapshotStable(inputSnapshot);
-    await assertPublicationFenceStable(fence);
-    assertFormattingContractSnapshotStable(inputSnapshot);
-  } catch (publicationError) {
-    if (!mutationStarted) {
-      throw publicationError;
-    }
-    try {
-      rollbackPublishedState(inputSnapshot, nextArtifactPath, lease);
-    } catch (rollbackError) {
-      throw new AggregateError(
-        [
-          publicationError instanceof Error
-            ? publicationError
-            : new Error(String(publicationError)),
-          rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError)),
-        ],
-        'Source-finding publication and rollback both failed.',
+      assertSourceFindingWriterFenceSessionCurrent(writerFence, lease);
+      publicationStore.publishImmutableArtifact(nextArtifactAbsolutePath, artifact);
+    },
+    verifyArtifact: async () => {
+      assertInputSnapshotStable(inputSnapshot, allowedAdditionalArtifacts);
+      await assertPublicationFenceStable(fence);
+      assertInputSnapshotStable(inputSnapshot, allowedAdditionalArtifacts);
+    },
+    publishManifestCommitMarker: async () => {
+      const nextManifest = await formatSourceFindingManifestWithConfig(
+        manifest.raw,
+        inputSnapshot.prettierConfigText,
+        lockedPrettierVersion(inputSnapshot.packageLockText),
       );
-    }
-    throw publicationError;
-  }
+      assertInputSnapshotStable(inputSnapshot, allowedAdditionalArtifacts);
+      assertPublicationIdentityStable(fence);
+      assertFormattingContractSnapshotStable(inputSnapshot);
+      assertSourceFindingWriterFenceSessionCurrent(writerFence, lease);
+      publicationStore.commitManifest(join(REPO_ROOT, MANIFEST_PATH), nextManifest);
+      assertFormattingContractSnapshotStable(inputSnapshot);
+      await assertPublicationFenceStable(fence);
+      assertFormattingContractSnapshotStable(inputSnapshot);
+    },
+    cleanupSupersededArtifacts: async (checkpoint) => {
+      let removedArtifact = false;
+      for (const governedArtifact of inputSnapshot.governedArtifacts) {
+        if (governedArtifact.path === nextArtifactPath) continue;
+        assertFormattingContractSnapshotStable(inputSnapshot);
+        assertPublicationIdentityStable(fence);
+        assertRegistryLockOwned(lease);
+        const governedAbsolutePath = artifactAbsolutePath(governedArtifact.path);
+        if (readBoundedText(governedAbsolutePath, MAX_GIT_OUTPUT_BYTES) !== governedArtifact.text) {
+          throw new Error(
+            `source-finding artifact changed before cleanup: ${governedArtifact.path}`,
+          );
+        }
+        assertSourceFindingWriterFenceSessionCurrent(writerFence, lease);
+        publicationStore.removeArtifact(governedAbsolutePath);
+        removedArtifact = true;
+        checkpoint();
+      }
+      if (inputSnapshot.legacyArtifactText !== null) {
+        assertFormattingContractSnapshotStable(inputSnapshot);
+        assertPublicationIdentityStable(fence);
+        assertRegistryLockOwned(lease);
+        const legacyAbsolutePath = artifactAbsolutePath(LEGACY_ARTIFACT_PATH);
+        if (
+          readBoundedText(legacyAbsolutePath, MAX_GIT_OUTPUT_BYTES) !==
+          inputSnapshot.legacyArtifactText
+        ) {
+          throw new Error('legacy source-finding artifact changed before cleanup');
+        }
+        assertSourceFindingWriterFenceSessionCurrent(writerFence, lease);
+        publicationStore.removeArtifact(legacyAbsolutePath);
+        removedArtifact = true;
+        checkpoint();
+      }
+      if (removedArtifact) fsyncParentDirectory(join(REPO_ROOT, PLAN_DIRECTORY));
+    },
+    verifyCommittedCut: async () => {
+      assertExclusiveArtifactAuthority(nextArtifactPath);
+      assertFormattingContractSnapshotStable(inputSnapshot);
+      await assertPublicationFenceStable(fence);
+      assertFormattingContractSnapshotStable(inputSnapshot);
+    },
+    rollback: async () =>
+      rollbackPublishedState(inputSnapshot, lease, publicationStore, compensation),
+    release: () => publicationStore.releaseCompensation(compensation),
+  });
 }
 
 async function writeGeneratedState(
@@ -3877,6 +3923,7 @@ async function writeGeneratedState(
   fence: PublicationFence,
   inputSnapshot: SourceInventoryInputSnapshot,
   lease: RegistryLockLease,
+  writerFence: SourceFindingWriterFenceSession,
 ): Promise<string> {
   const occurrenceRefs = new Set(occurrences.map((occurrence) => occurrence.source_ref));
   assertLegacyFindingRefsResolvable(manifest.units, occurrenceRefs);
@@ -3930,6 +3977,7 @@ async function writeGeneratedState(
     inputSnapshot,
     { ...fence, manifest: reparsed },
     lease,
+    writerFence,
   );
   return generatedInventory.artifact_path;
 }
@@ -3941,9 +3989,10 @@ async function refreshAttestedState(
   fence: PublicationFence,
   inputSnapshot: SourceInventoryInputSnapshot,
   lease: RegistryLockLease,
+  writerFence: SourceFindingWriterFenceSession,
 ): Promise<string> {
   const remoteSourceIds = new Set(
-    manifest.sources.filter((source) => source.kind === 'REMOTE_BRANCH').map((source) => source.id),
+    sourcesForFindingLane(manifest.sources, 'remote').map((source) => source.id),
   );
   const retainedHostOccurrences = occurrences
     .filter((occurrence) => !remoteSourceIds.has(occurrence.source_id))
@@ -4015,7 +4064,7 @@ async function refreshAttestedState(
   const publishedOccurrences = parseArtifact(artifact, generatedInventory.artifact_path);
   validateInternalContract(manifest, artifact, publishedOccurrences, 'remote');
   validateStoredRegistryAuthority(manifest);
-  await publishGeneratedState(manifest, artifact, inputSnapshot, fence, lease);
+  await publishGeneratedState(manifest, artifact, inputSnapshot, fence, lease, writerFence);
   return generatedInventory.artifact_path;
 }
 
@@ -4035,16 +4084,6 @@ function assertFindingAuthorityCommitted(): void {
   }
 }
 
-function sourceInventoryLockPath(): string {
-  const authority = resolveGitFindingAllocationAuthority(REPO_ROOT);
-  // Publication derives identity floors and source semantics from every
-  // active worktree. An unfenced legacy writer can move those inputs without
-  // observing this lease, so publication and canonical registry mutation must
-  // share the same writer-protocol preflight.
-  authority.assertCompatibleWriters();
-  return authority.lockPath;
-}
-
 function isSourceInventoryGovernedBasename(basename: string): boolean {
   return (
     basename === 'manifest.json' ||
@@ -4053,23 +4092,125 @@ function isSourceInventoryGovernedBasename(basename: string): boolean {
   );
 }
 
+export function assertNoLegacyPlanDirectorySourceFindingStaging(planDirectory: string): void {
+  const stagingFiles = listAtomicWriteStagingFiles(
+    planDirectory,
+    isSourceInventoryGovernedBasename,
+  ).map((name) => join(planDirectory, name));
+  if (stagingFiles.length > 0) {
+    throw new Error(
+      `source-finding legacy plan-directory staging has no mutation authority: ${stagingFiles.join(
+        ',',
+      )}`,
+    );
+  }
+}
+
+async function recoverSourceInventoryPublication(
+  lease: RegistryLockLease,
+  writerFence: SourceFindingWriterFenceSession,
+): Promise<void> {
+  const manifestPath = join(REPO_ROOT, MANIFEST_PATH);
+  const publicationStore = bindSourceFindingPublicationStore(lease, writerFence);
+  let artifactSha256: string | null = null;
+  let selectedArtifactPath: string | null = null;
+  let supersededArtifactPaths: string[] = [];
+  await executeSourceFindingRestartRecovery({
+    readAndVerifyManifestCommitMarker: async () => {
+      let rawManifest: unknown;
+      try {
+        rawManifest = JSON.parse(readBoundedText(manifestPath, MAX_GIT_OUTPUT_BYTES)) as unknown;
+      } catch {
+        throw new Error('source-finding restart recovery requires a valid manifest commit marker');
+      }
+      const root = requireRecord(rawManifest, 'source-finding restart manifest');
+      const reconciliation = requireRecord(
+        root.capability_reconciliation,
+        'source-finding restart manifest.capability_reconciliation',
+      );
+      const inventory = requireRecord(
+        reconciliation.finding_inventory,
+        'source-finding restart manifest.finding_inventory',
+      );
+      const artifactPath = requireString(
+        inventory.artifact_path,
+        'source-finding restart manifest.finding_inventory.artifact_path',
+      );
+      artifactSha256 = requireSha256(
+        inventory.artifact_sha256,
+        'source-finding restart manifest.finding_inventory.artifact_sha256',
+      );
+      if (ARTIFACT_PATH_PATTERN.exec(artifactPath)?.groups?.sha256 !== artifactSha256) {
+        throw new Error('source-finding restart manifest pointer is not content-addressed');
+      }
+      selectedArtifactPath = artifactAbsolutePath(artifactPath);
+      supersededArtifactPaths = readdirSync(join(REPO_ROOT, PLAN_DIRECTORY), {
+        withFileTypes: true,
+      })
+        .filter(
+          (entry) =>
+            entry.isFile() &&
+            (entry.name === SOURCE_FINDING_LEGACY_ARTIFACT_BASENAME ||
+              ARTIFACT_FILENAME_PATTERN.test(entry.name)),
+        )
+        .map((entry) => join(REPO_ROOT, PLAN_DIRECTORY, entry.name))
+        .filter((candidatePath) => candidatePath !== selectedArtifactPath)
+        .sort(compareText);
+    },
+    verifySelectedArtifact: async () => {
+      if (selectedArtifactPath === null || artifactSha256 === null) {
+        throw new Error('source-finding restart recovery lost its manifest selection');
+      }
+      const selectedArtifact = readBoundedText(selectedArtifactPath, MAX_GIT_OUTPUT_BYTES);
+      if (sha256(selectedArtifact) !== artifactSha256) {
+        throw new Error('source-finding restart manifest points to a digest-mismatched artifact');
+      }
+    },
+    removeOneSupersededArtifact: async () => {
+      const candidatePath = supersededArtifactPaths.shift();
+      if (candidatePath === undefined) return false;
+      assertSourceFindingWriterFenceSessionCurrent(writerFence, lease);
+      publicationStore.removeArtifact(candidatePath);
+      return true;
+    },
+    syncRecoveredCut: async () => fsyncParentDirectory(join(REPO_ROOT, PLAN_DIRECTORY)),
+  });
+}
+
 async function executeWithSnapshot(
   options: CliOptions,
   lease: RegistryLockLease | null,
+  writerFence: SourceFindingWriterFenceSession | null,
 ): Promise<void> {
+  if ((lease === null) !== (writerFence === null)) {
+    throw new Error(
+      'source-finding publication requires its writer fence capability inside the shared lease',
+    );
+  }
   const planDirectory = join(REPO_ROOT, PLAN_DIRECTORY);
-  if (lease) {
-    recoverAtomicWriteStagingFiles(
-      planDirectory,
+  if (lease !== null && writerFence !== null) {
+    assertSourceFindingWriterFenceSessionCurrent(writerFence, lease);
+    recoverGovernedFindingStagingFiles(
+      dirname(lease.lockPath),
       isSourceInventoryGovernedBasename,
       lease,
       SOURCE_INVENTORY_STAGING_STALE_MS,
+      writerFence,
+      undefined,
+      undefined,
+      (targetBasename) => join(planDirectory, targetBasename),
     );
-  } else {
-    const stagingFiles = listAtomicWriteStagingFiles(
-      planDirectory,
-      isSourceInventoryGovernedBasename,
-    );
+    assertNoLegacyPlanDirectorySourceFindingStaging(planDirectory);
+    await recoverSourceInventoryPublication(lease, writerFence);
+  }
+  if (!lease) {
+    const commonStagingParent = dirname(resolveGitFindingAllocationAuthority(REPO_ROOT).lockPath);
+    const stagingFiles = [
+      ...listAtomicWriteStagingFiles(commonStagingParent, isSourceInventoryGovernedBasename).map(
+        (name) => join(commonStagingParent, name),
+      ),
+    ].sort();
+    assertNoLegacyPlanDirectorySourceFindingStaging(planDirectory);
     if (stagingFiles.length > 0) {
       throw new Error(
         `source-finding validation found unpublished atomic staging files: ${stagingFiles.join(
@@ -4116,7 +4257,8 @@ async function executeWithSnapshot(
       inputSnapshot.artifactText === null ||
       priorOccurrences === null ||
       priorInventory === null ||
-      !lease
+      !lease ||
+      !writerFence
     ) {
       throw new Error('host-safe refresh requires a locked prior source-finding artifact');
     }
@@ -4162,11 +4304,7 @@ async function executeWithSnapshot(
     assertCanonicalRebindsRetiredByRemoteDiscovery(
       canonicalRebinds,
       remoteOccurrences,
-      new Set(
-        manifest.sources
-          .filter((source) => source.kind === 'REMOTE_BRANCH')
-          .map((source) => source.id),
-      ),
+      new Set(sourcesForFindingLane(manifest.sources, 'remote').map((source) => source.id)),
     );
     const artifactPath = await refreshAttestedState(
       manifest,
@@ -4184,6 +4322,7 @@ async function executeWithSnapshot(
       },
       inputSnapshot,
       lease,
+      writerFence,
     );
     process.stdout.write(`Refreshed static source finding attestations at ${artifactPath}.\n`);
     return;
@@ -4213,7 +4352,7 @@ async function executeWithSnapshot(
       manifest.sourceAdjudications,
       manifest.units,
     );
-    if (!lease) {
+    if (!lease || !writerFence) {
       throw new Error('full source-finding generation lost its publication lease');
     }
     const artifactPath = await writeGeneratedState(
@@ -4231,6 +4370,7 @@ async function executeWithSnapshot(
       },
       inputSnapshot,
       lease,
+      writerFence,
     );
     process.stdout.write(
       `Wrote ${occurrences.length} source finding occurrences to ${artifactPath}.\n`,
@@ -4260,9 +4400,7 @@ async function executeWithSnapshot(
     discovery.discoveryRegistrySchemaBlobSha,
   );
   const includedSourceIds = new Set(
-    manifest.sources
-      .filter((source) => options.scope === 'full' || source.kind === 'REMOTE_BRANCH')
-      .map((source) => source.id),
+    sourcesForFindingLane(manifest.sources, options.scope).map((source) => source.id),
   );
   const expected = materializeOccurrences(
     discovery.findings,
@@ -4312,28 +4450,108 @@ async function executeWithSnapshot(
   );
 }
 
-async function execute(options: CliOptions): Promise<void> {
+async function executeSourceInventoryMutationUnderAuthority(
+  rawOptions: unknown,
+  lease: RegistryLockLease,
+  writerFence: SourceFindingWriterFenceSession,
+): Promise<void> {
+  if (
+    !isRecord(rawOptions) ||
+    Object.keys(rawOptions).sort().join('\0') !== ['mode', 'scope'].sort().join('\0') ||
+    (rawOptions.mode !== 'write' && rawOptions.mode !== 'refresh') ||
+    rawOptions.scope !== 'full'
+  ) {
+    throw new Error('source-finding mutation kernel requires one closed write/refresh request');
+  }
+  const options: CliOptions = { mode: rawOptions.mode, scope: rawOptions.scope };
   assertExecutionSafety(
     options,
     options.scope === 'full' && options.mode !== 'refresh'
       ? captureFullExecutionSafetyEvidence()
       : undefined,
   );
-  if (options.mode === 'check') {
-    await executeWithSnapshot(options, null);
-    return;
-  }
-  const manifestAbsolutePath = join(REPO_ROOT, MANIFEST_PATH);
+  await executeWithSnapshot(options, lease, writerFence);
+}
+
+/** Closed production facade: it owns snapshot, lease, source-profile redemption, and release. */
+async function runGovernedSourceFindingInventoryMutation(options: unknown): Promise<void> {
+  const authority = resolveGitFindingAllocationAuthority(REPO_ROOT);
+  const manifestPath = join(REPO_ROOT, MANIFEST_PATH);
   await withRegistryFileLockAsync(
-    manifestAbsolutePath,
-    async (lease) => executeWithSnapshot(options, lease),
+    manifestPath,
+    async (lease) => {
+      const snapshot = authority.assertCompatibleWriters();
+      const capability = authority.consumeCompatibleWriters(snapshot);
+      const writerFence = openSourceFindingWriterFenceSession(authority, capability, lease);
+      try {
+        await executeSourceInventoryMutationUnderAuthority(options, lease, writerFence);
+      } finally {
+        closeSourceFindingWriterFenceSession(authority, writerFence);
+      }
+    },
     {
-      lockPath: sourceInventoryLockPath(),
+      lockPath: authority.lockPath,
       timeoutMs: 30_000,
-      staleAfterMs: 5 * 60_000,
       pollIntervalMs: 50,
     },
   );
+}
+
+export interface StaticSourceFindingValidationResult {
+  readonly sourceCount: number;
+  readonly occurrenceCount: number;
+  readonly artifactPath: string;
+  readonly artifactSha256: string;
+}
+
+/**
+ * Validates only commit-addressed repository inputs. Live refs, worktrees, clocks, and GitHub
+ * event identity belong exclusively to the governed generation lane and cannot make generic PR
+ * validation nondeterministic.
+ */
+export function validateCommittedSourceFindingInventory(): StaticSourceFindingValidationResult {
+  const manifestText = readBoundedText(join(REPO_ROOT, MANIFEST_PATH));
+  const manifestRaw: unknown = JSON.parse(manifestText);
+  const manifest = parseManifest(manifestRaw, true);
+  const inputSnapshot = captureInputSnapshot(manifestText, manifest, false);
+  const inventory = manifest.findingInventory;
+  if (
+    inventory === undefined ||
+    inputSnapshot.artifactPath === null ||
+    inputSnapshot.artifactText === null
+  ) {
+    throw new Error('static source-finding validation requires one committed attested artifact');
+  }
+  const occurrences = parseArtifact(inputSnapshot.artifactText, inputSnapshot.artifactPath);
+  validateInternalContract(manifest, inputSnapshot.artifactText, occurrences, null);
+  assertExclusiveArtifactAuthority(inputSnapshot.artifactPath);
+  validateStoredRegistryAuthority(manifest, 'COMMITTED_BLOB');
+  assertInputSnapshotStable(inputSnapshot);
+  return Object.freeze({
+    sourceCount: manifest.sources.length,
+    occurrenceCount: occurrences.length,
+    artifactPath: inputSnapshot.artifactPath,
+    artifactSha256: inventory.artifact_sha256,
+  });
+}
+
+async function execute(options: CliOptions): Promise<void> {
+  if (options.mode === 'static') {
+    const result = validateCommittedSourceFindingInventory();
+    process.stdout.write(
+      `Source finding committed contract verified (${result.sourceCount} sources, ${result.occurrenceCount} rows, ${result.artifactPath}@${result.artifactSha256}).\n`,
+    );
+    return;
+  }
+  if (options.mode === 'check') {
+    assertExecutionSafety(
+      options,
+      options.scope === 'full' ? captureFullExecutionSafetyEvidence() : undefined,
+    );
+    await executeWithSnapshot(options, null, null);
+    return;
+  }
+  await runGovernedSourceFindingInventoryMutation(options);
 }
 
 if (require.main === module) {

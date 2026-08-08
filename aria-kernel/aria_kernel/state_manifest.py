@@ -368,6 +368,21 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("cycles", "cycles.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),
     StateSurface("tools_governance", "governance.jsonl", "ledger", "governance", "tools", True, "append_fsync", True),
     StateSurface("tool_registry", "registry.json", "index", "registry", "tools", True, "rewrite_fsync", True),
+    # `repo_identity.json` is deliberately ABSENT from this list, and the
+    # reason is worth stating where someone would next think to add it (PLAN
+    # Wave 1 PR 2.6b nearly did). It is the file that makes a tools root
+    # resolvable — `_has_valid_tools_identity` refuses the root without it, and
+    # `state_store` commits exactly the paths this manifest names — so a
+    # restored store genuinely cannot be read until it exists. But it records
+    # `bound_repo_root`, an ABSOLUTE PATH on the host that wrote it, and the
+    # state branch is shared by every runner. Declaring it would publish
+    # machine-local state that means nothing on the next host and rewrites on
+    # every one.
+    #
+    # It is DERIVED state, re-established per runner. The restore action runs
+    # `integrity migrate-tools-bootstrap` immediately after the checkout, so
+    # every lane gets a bound root from one definition rather than each
+    # remembering to bootstrap. See .github/actions/restore-aria-state.
     StateSurface("runtime_profile_state", "runtime-profile.json", "runtime_state", "runtime_profile", "tools", True, "rewrite_fsync", True),
     StateSurface("runtime_profile_history", "runtime-profile-history.jsonl", "ledger", "runtime_profile", "tools", True, "append_fsync", True),
     StateSurface("raw_findings", "raw-findings.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),
@@ -432,6 +447,10 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("triage_decisions", "triage/decisions.jsonl", "ledger", "triage", "runtime", True, "append_fsync", True),
     StateSurface("impact_graphs", "impact/impact-graphs.jsonl", "ledger", "impact", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
     StateSurface("impact_plans", "impact/impact-plans.jsonl", "ledger", "impact", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="observation"),
+    # Wave 3 Twin-lite — the repository map (twin.py). DERIVED data: every
+    # byte recomputable from the repo at indexed_sha, hence index-class and
+    # write_driving=False; it informs reads, it never authorises an action.
+    StateSurface("twin_map", "twin/map.json", "index", "impact", "runtime", True, "rewrite_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("executor_registry", "executor/registry.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("executor_packets", "executor/packets.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("executor_diff_reviews", "executor/diff-reviews.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
@@ -520,6 +539,22 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
 
 def iter_surfaces() -> tuple[StateSurface, ...]:
     return STATE_SURFACES
+
+
+def surface_key_name(key: str) -> str:
+    """Manifest surface NAME behind a coverage/snapshot key.
+
+    Glob surfaces fan out to one key per file, spelled ``name:relative/path``
+    (the ``covered_tool_ledgers`` vocabulary, mirrored by the snapshot
+    builder). Everything that receives such a key and needs the SURFACE — a
+    declared-surface assertion, a manifest lookup — must strip the fan-out
+    part here, in the module that owns the vocabulary. ORPHAN-HIGH-555 is
+    what a private ``split(":")`` at one callsite and none at another looks
+    like: the replay staged suffix files at ``f"{key}.jsonl"`` (a PATH once
+    the key carries ``/``) and asserted ``expected_surface=<key>``, so every
+    contention or recovery involving a glob ledger refused.
+    """
+    return key.split(":", 1)[0]
 
 
 def surface_by_name(name: str) -> StateSurface:
@@ -674,6 +709,7 @@ __all__ = [
     "resolve_surface_path",
     "surface_by_name",
     "surface_for_path",
+    "surface_key_name",
     "surface_for_relative_path",
     "surfaces_for_lock_group",
 ]

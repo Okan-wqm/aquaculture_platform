@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `4aab20a983a19776c9156ea3a6326d326c0b6a9ec1006b25cb1bbb662b626966`
+Registry tip: `cb87c32ae8382ab0400cba0efa31c832efec4ff2437db0bf2280816930e6c514`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -123,6 +123,15 @@ target-host Git authority. Both remain `real-open` until native fingerprinted
 transport, hermetic release material, the shared lock, and adversarial recovery
 tests merge.
 
+Updated 2026-08-06 (torn-ledger close ceremony): PR #1104 merged to main as
+`5cfdc81e`, and the post-merge ceremony recorded that main-reachable closing
+commit for `ORPHAN-CRITICAL-561` (one torn write bricked a governed ledger —
+`_verify_jsonl_from_text` treated an unparseable LAST line the same as a damaged
+line mid-file, so an interrupted process ended the mission layer until a human
+repaired the JSONL by hand). It is RESOLVED and leaves the active table (the
+table mirrors `active_critical_ids` exactly; the contract invariant enforces the
+bijection). 46 active CRITICALs remain.
+
 Allowed truth buckets:
 
 - `real-open`
@@ -179,6 +188,7 @@ Allowed truth buckets:
 | `ORPHAN-CRITICAL-513`   | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ORPHAN-CRITICAL-516`   | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ORPHAN-CRITICAL-517`   | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
+| `ORPHAN-CRITICAL-549`   | OPEN           | 2026-08-06   | aria-acceptance-gap-fixer  | real-open                 |
 
 ## Mutation Rules
 

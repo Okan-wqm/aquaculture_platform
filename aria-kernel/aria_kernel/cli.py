@@ -579,13 +579,15 @@ def main(argv: list[str] | None = None) -> int:
         raise
 
 
-def _main(argv: list[str] | None = None) -> int:
-    # Plan 024 §F — root parser inherits --tools-dir via parents=[_TOOLS_DIR_PARENT].
-    # The previous explicit add_argument("--tools-dir", default=None) was a
-    # second registration site that drifted the help text and required
-    # operators to type the flag BEFORE the subcommand. The parents-based
-    # approach delivers a single SSoT and accepts the flag at every nesting
-    # level. Required-validation moves to _TOOLS_DIR_REQUIRED_COMMANDS.
+def build_parser() -> argparse.ArgumentParser:
+    """Construct the full CLI parser without executing anything.
+
+    Extracted from _main so callers can verify an argv against the real
+    contract. tests/test_workflow_kernel_cli_contract.py uses it to prove
+    every `python3 -m aria_kernel ...` line in .github/workflows/ parses;
+    the lane cutover shipped `state publish` without --snapshot-id and
+    nothing could catch it while the parser was unreachable.
+    """
     parser = argparse.ArgumentParser(prog="aria-kernel", parents=[_TOOLS_DIR_PARENT])
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -716,6 +718,23 @@ def _main(argv: list[str] | None = None) -> int:
             # manufactures the exact state the re-checkout guard exists to
             # refuse — a local commit the remote does not have — and it had
             # no caller. Publishing is one indivisible act here.
+
+    # Wave 3 Twin-lite — the repository map (twin.py). `context` is the
+    # operator/agent consumer: a compact slice read INSTEAD of a repo walk.
+    twin_parser = add_subparser(sub, "twin")
+    twin_sub = twin_parser.add_subparsers(dest="twin_command", required=True)
+    for name, helptext in (
+        ("build", "Full build of the twin map at HEAD."),
+        ("refresh", "Incremental refresh since the map's indexed_sha."),
+        ("status", "Freshness + layer stats for the stored map."),
+        ("context", "Compact context slice for --files, read from the map."),
+    ):
+        twin_cmd = add_subparser(twin_sub, name, help=helptext)
+        twin_cmd.add_argument("--workspace-root", default=".")
+        if name in ("build", "refresh"):
+            twin_cmd.add_argument("--nx-graph-file", default=None)
+        if name == "context":
+            twin_cmd.add_argument("--files", nargs="+", required=True)
 
     integrity_parser = add_subparser(sub, "integrity")
     integrity_sub = integrity_parser.add_subparsers(dest="integrity_command", required=True)
@@ -894,6 +913,14 @@ def _main(argv: list[str] | None = None) -> int:
     eval_aggregate.add_argument("--target-agent", required=True)
     eval_aggregate.add_argument("--window-days", type=int, default=30)
     eval_aggregate.add_argument("--mock-mode", choices=["true", "false", "all"], default="all")
+    # F4.3 — the comparison the program's success test needs: window N+1
+    # against window N, with a verdict that refuses to speak on thin data.
+    eval_delta = add_subparser(eval_sub, "delta")
+    eval_delta.add_argument("--target-agent", required=True)
+    eval_delta.add_argument("--window-days", type=int, default=30)
+    eval_delta.add_argument("--mock-mode", choices=["true", "false", "all"], default="all")
+    eval_delta.add_argument("--min-runs", type=int, default=None,
+        help="Runs required in BOTH windows before a verdict is given.")
     eval_list = add_subparser(eval_sub, "list")
     eval_list.add_argument("--target-agent", default=None)
     eval_list.add_argument("--fixture-id", default=None)
@@ -992,6 +1019,38 @@ def _main(argv: list[str] | None = None) -> int:
     runtime_retention_apply.add_argument("--reason", required=True, type=_validate_reason)
     runtime_retention_apply.add_argument("--operator-approval-ref", required=True)
     runtime_retention_apply.add_argument("--acknowledge", action="store_true")
+    runtime_signal = add_subparser(runtime_sub, "signal")
+    runtime_signal_sub = runtime_signal.add_subparsers(dest="runtime_signal_command", required=True)
+    rs_ingest = add_subparser(runtime_signal_sub, "ingest")
+    rs_ingest.add_argument("--source", required=True)
+    rs_ingest.add_argument("--service", required=True)
+    rs_ingest.add_argument("--summary", required=True)
+    rs_ingest.add_argument("--code-ref", action="append", required=True, dest="code_refs")
+    rs_ingest.add_argument("--severity", default="high")
+    rs_resolve = add_subparser(runtime_signal_sub, "resolve")
+    rs_resolve.add_argument("--signal-id", required=True)
+    rs_resolve.add_argument("--resolution-note", required=True)
+    rs_list = add_subparser(runtime_signal_sub, "list")
+
+    # F4.2 of the ARIA intelligence program: the gold corpus ceremony. The
+    # proposal side is machine work (count labelled feedback), so the cycle
+    # mints proposals on its own; PROMOTION is an operator act and stays a
+    # named-curator verb here, never automatic.
+    goldset_parser = add_subparser(sub, "goldset")
+    goldset_sub = goldset_parser.add_subparsers(dest="goldset_command", required=True)
+    gs_propose = add_subparser(goldset_sub, "propose")
+    gs_propose.add_argument("--tool-id", required=True)
+    gs_propose.add_argument("--cycle-id")
+    gs_propose.add_argument("--target-true-positives", type=int, default=None)
+    gs_propose.add_argument("--target-known-false-positives", type=int, default=None)
+    gs_list = add_subparser(goldset_sub, "list")
+    gs_list.add_argument("--tool-id")
+    gs_promote = add_subparser(goldset_sub, "promote")
+    gs_promote.add_argument("--tool-id", required=True)
+    gs_promote.add_argument("--curator", required=True)
+    gs_show = add_subparser(goldset_sub, "show")
+    gs_show.add_argument("--tool-id", required=True)
+
     runtime_restore = add_subparser(runtime_sub, "restore-artifact")
     runtime_restore.add_argument("--artifact-ref", required=True)
     runtime_restore.add_argument("--workspace-root", required=True)
@@ -1042,6 +1101,15 @@ def _main(argv: list[str] | None = None) -> int:
     pressure_list.add_argument("--include-archived", action="store_true")
     pressure_list.add_argument("--include-closed", action="store_true")
     pressure_list.add_argument("--include-satisfied", action="store_true")
+    pressure_weights_cmd = add_subparser(pressure_sub, "weights")
+    add_workspace_args(pressure_weights_cmd)
+    pressure_override = add_subparser(pressure_sub, "weight-override")
+    add_workspace_args(pressure_override)
+    pressure_override.add_argument("--source", required=True)
+    pressure_override.add_argument("--weight", required=True, type=int)
+    pressure_override.add_argument("--acknowledge", action="store_true", required=True)
+    pressure_override.add_argument("--reason", required=True)
+    pressure_override.add_argument("--operator-approval-ref", required=True)
     pressure_explain = add_subparser(pressure_sub, "explain")
     add_workspace_args(pressure_explain)
     pressure_explain.add_argument("pressure_event_id", nargs="?")
@@ -1276,6 +1344,10 @@ def _main(argv: list[str] | None = None) -> int:
     plan_promote.add_argument("--impact-ref", required=True)
     plan_promote.add_argument("--validation-ref", required=True)
     plan_promote.add_argument("--target-agent", default=None)
+    # PLAN Wave 2 PR 1.5 — bind this dispatch to the mission that owns the
+    # work. Optional so promotions predating the mission layer keep working;
+    # an id naming no open mission is refused rather than written through.
+    plan_promote.add_argument("--mission-id", default=None)
     plan_promote.add_argument("--acknowledge", action="store_true")
     plan_force = add_subparser(plan_sub, "force-human-required")
     plan_force.add_argument("--plan-id", required=True)
@@ -1307,6 +1379,14 @@ def _main(argv: list[str] | None = None) -> int:
         help="Path to a JSON wake_condition object ({kind, key, not_before?}).",
     )
     mission_transition.add_argument("--evidence-ref", action="append", default=None)
+    # Wave 2 PR 1.6 — the scheduler. `--dry-run` reads the decision WITHOUT
+    # recording it, because an operator asking "what would you pick?" must not
+    # thereby write a decision into the governance ledger.
+    mission_next = add_subparser(
+        mission_sub, "next",
+        help="Select the mission that gets the WIP slot, and say why the others did not.",
+    )
+    mission_next.add_argument("--dry-run", action="store_true")
     mission_bind = add_subparser(mission_sub, "bind")
     mission_bind.add_argument("--mission-id", required=True)
     mission_bind.add_argument("--step-id", required=True)
@@ -2233,6 +2313,17 @@ def _main(argv: list[str] | None = None) -> int:
     curate_parser.add_argument("--reason", default=None)
     curate_parser.add_argument("--cycle-id", default=None)
 
+    return parser
+
+
+def _main(argv: list[str] | None = None) -> int:
+    # Plan 024 §F — root parser inherits --tools-dir via parents=[_TOOLS_DIR_PARENT].
+    # The previous explicit add_argument("--tools-dir", default=None) was a
+    # second registration site that drifted the help text and required
+    # operators to type the flag BEFORE the subcommand. The parents-based
+    # approach delivers a single SSoT and accepts the flag at every nesting
+    # level. Required-validation moves to _TOOLS_DIR_REQUIRED_COMMANDS.
+    parser = build_parser()
     args = parser.parse_args(argv)
 
     # Plan 024 §F + Plan ARIA-V3.3 §2a — post-parse path resolution +
@@ -2480,8 +2571,45 @@ def _main(argv: list[str] | None = None) -> int:
             return 1
         return 0
 
+    if args.command == "mission" and args.mission_command == "next":
+        from .mission_scheduler import select_next_mission
+
+        decision = select_next_mission(base_dir=args.tools_dir, record=not args.dry_run)
+        print(json.dumps(decision.as_event(), indent=2, sort_keys=True))
+        return 0
+
     if args.command == "state":
         return _handle_state_command(args)
+
+    if args.command == "twin":
+        from .twin import build_twin_map, read_twin_map, refresh_twin_map, twin_context_for_files, twin_status
+
+        if args.twin_command == "build":
+            result = build_twin_map(
+                workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
+                nx_graph_file=args.nx_graph_file,
+            )
+            print(json.dumps({"indexed_sha": result["indexed_sha"], "stats": result["stats"]}, indent=2, sort_keys=True))
+            return 0
+        if args.twin_command == "refresh":
+            result = refresh_twin_map(
+                workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
+                nx_graph_file=args.nx_graph_file,
+            )
+            print(json.dumps({"indexed_sha": result["indexed_sha"], "refresh": result.get("refresh"), "stats": result["stats"]}, indent=2, sort_keys=True))
+            return 0
+        if args.twin_command == "status":
+            print(json.dumps(twin_status(workspace_root=args.workspace_root, base_dir=args.tools_dir), indent=2, sort_keys=True))
+            return 0
+        if args.twin_command == "context":
+            twin = read_twin_map(base_dir=args.tools_dir)
+            if twin is None:
+                print(json.dumps({"error": "twin_map_absent", "hint": "run `twin build` first"}, sort_keys=True))
+                return 1
+            print(json.dumps(twin_context_for_files(twin, list(args.files)), indent=2, sort_keys=True))
+            return 0
 
     if args.command == "integrity" and args.integrity_command == "verify":
         result = verify_integrity(
@@ -2680,6 +2808,25 @@ def _main(argv: list[str] | None = None) -> int:
         )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+    if args.command == "agent-eval" and args.agent_eval_command == "delta":
+        from .agent_eval import MIN_RUNS_FOR_TREND, compare_eval_windows
+        delta_mock: Any = None
+        if args.mock_mode == "true":
+            delta_mock = True
+        elif args.mock_mode == "false":
+            delta_mock = False
+        result = compare_eval_windows(
+            target_agent=args.target_agent,
+            base_dir=args.tools_dir,
+            window_days=args.window_days,
+            mock_mode=delta_mock,
+            min_runs=args.min_runs if args.min_runs is not None else MIN_RUNS_FOR_TREND,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        # A regression is not a crash, but it must not read as success to a
+        # workflow that only checks the exit code.
+        return 1 if result["verdict"] == "regressed" else 0
+
     if args.command == "agent-eval" and args.agent_eval_command == "list":
         mock_filter = None
         if args.mock_mode == "true":
@@ -2774,6 +2921,69 @@ def _main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "profile" and args.profile_command == "history":
         print(json.dumps(list_profile_history(base_dir=args.tools_dir), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "runtime" and args.runtime_command == "signal":
+        # W-A of the dataflow-integrity watchdog: the bridge existed since
+        # Plan 029 but had NO CLI, so no probe or workflow could feed it
+        # without importing the kernel. These verbs are the missing mouth.
+        from .runtime_signal_bridge import (
+            ingest_runtime_signal,
+            load_open_runtime_signals,
+            resolve_runtime_signal,
+        )
+        if args.runtime_signal_command == "ingest":
+            row = ingest_runtime_signal(
+                source=args.source, service=args.service,
+                summary=args.summary, code_refs=args.code_refs,
+                severity=args.severity, base_dir=args.tools_dir,
+            )
+        elif args.runtime_signal_command == "resolve":
+            row = resolve_runtime_signal(
+                signal_id=args.signal_id,
+                resolution_note=args.resolution_note,
+                base_dir=args.tools_dir,
+            )
+        else:
+            row = load_open_runtime_signals(base_dir=args.tools_dir)
+        print(json.dumps(row, indent=2, sort_keys=True, default=str))
+        return 0
+
+    if args.command == "goldset":
+        from .goldset import (
+            DEFAULT_TARGET_KNOWN_FALSE_POSITIVES,
+            DEFAULT_TARGET_TRUE_POSITIVES,
+            list_goldset_proposals,
+            load_active_goldset,
+            promote_goldset_proposal,
+            propose_goldset,
+        )
+        if args.goldset_command == "propose":
+            result = propose_goldset(
+                tool_id=args.tool_id,
+                cycle_id=args.cycle_id,
+                target_true_positives=(
+                    args.target_true_positives
+                    if args.target_true_positives is not None
+                    else DEFAULT_TARGET_TRUE_POSITIVES
+                ),
+                target_known_false_positives=(
+                    args.target_known_false_positives
+                    if args.target_known_false_positives is not None
+                    else DEFAULT_TARGET_KNOWN_FALSE_POSITIVES
+                ),
+                base_dir=args.tools_dir,
+            )
+        elif args.goldset_command == "list":
+            rows = list_goldset_proposals(base_dir=args.tools_dir)
+            result = [r for r in rows if args.tool_id is None or r.get("tool_id") == args.tool_id]
+        elif args.goldset_command == "promote":
+            result = promote_goldset_proposal(
+                tool_id=args.tool_id, curator=args.curator, base_dir=args.tools_dir,
+            )
+        else:
+            result = load_active_goldset(tool_id=args.tool_id, base_dir=args.tools_dir)
+        print(json.dumps(result, indent=2, sort_keys=True, default=str))
         return 0
 
     if args.command == "runtime" and args.runtime_command == "verify-artifacts":
@@ -2880,6 +3090,29 @@ def _main(argv: list[str] | None = None) -> int:
             acknowledge=args.acknowledge,
         )
         print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "pressure" and args.pressure_command == "weights":
+        from .pressure import SOURCE_WEIGHTS, effective_source_weights, load_weight_overrides
+        eff = effective_source_weights(args.tools_dir)
+        ov = load_weight_overrides(args.tools_dir)
+        print(json.dumps({
+            "effective": eff,
+            "overridden_sources": sorted(ov),
+            "base": SOURCE_WEIGHTS,
+        }, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "pressure" and args.pressure_command == "weight-override":
+        from .pressure import record_weight_override
+        row = record_weight_override(
+            source=args.source,
+            weight=args.weight,
+            reason=args.reason,
+            operator_approval_ref=args.operator_approval_ref,
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(row, indent=2, sort_keys=True))
         return 0
 
     if args.command == "pressure" and args.pressure_command == "explain":
@@ -3250,6 +3483,7 @@ def _main(argv: list[str] | None = None) -> int:
                 impact_ref=args.impact_ref,
                 validation_ref=args.validation_ref,
                 acknowledge=args.acknowledge,
+                mission_id=args.mission_id,
             )
         elif args.plan_command == "force-human-required":
             result = force_plan_human_required(plan_id=args.plan_id, round_number=args.round_number, reason_codes=args.reason_code, base_dir=args.tools_dir)

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_declared_jsonl
-from .mission import assert_wip_available
+from .mission import assert_wip_available, bind_mission, fold_mission
 from .plan_convergence import plan_status
 from .runtime_artifacts import ARTIFACT_BEARING, classify_cycle_evidence, verify_runtime_artifacts
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding, utc_now
@@ -29,6 +29,7 @@ def promote_converged_plan_to_dispatch(
     allowed_scope: list[str] | None = None,
     forbidden_scope: list[str] | None = None,
     acknowledge: bool = False,
+    mission_id: str | None = None,
 ) -> dict[str, Any]:
     """Gate a converged plan before worker dispatch materialization."""
     from .runtime_profile import enforce_profile_for_write
@@ -59,6 +60,16 @@ def promote_converged_plan_to_dispatch(
     except GovernanceError as exc:
         mission_wip_error = str(exc)
         blockers.append("mission_wip_unavailable")
+
+    # PLAN Wave 2 PR 1.5 — the mission must EXIST before a dispatch row names
+    # it. A row bound to a mission_id nothing opened is an unresolvable
+    # binding: the reconciler would record `unknown_trailer` on its PR every
+    # night and no reader could ever follow the reference back.
+    if mission_id is not None:
+        try:
+            fold_mission(mission_id=mission_id, base_dir=root)
+        except GovernanceError:
+            blockers.append("unknown_mission")
 
     state = plan_status(plan_id=plan_id, base_dir=root)
     if state.get("state") != "CONVERGED":
@@ -124,6 +135,11 @@ def promote_converged_plan_to_dispatch(
         "state": "pending",
         "created_at": utc_now(),
         "plan_id": plan_id,
+        # PLAN Wave 2 PR 1.5 — the mission this dispatch belongs to. Additive
+        # and nullable: operator promotions predating the mission layer stay
+        # valid, and `mission_for_assignment` returns None for them rather
+        # than inventing one.
+        "mission_id": mission_id,
         "cycle_id": cycle_id,
         "converged_plan_hash": converged_plan_hash,
         "impact_ref": impact_ref,
@@ -140,6 +156,20 @@ def promote_converged_plan_to_dispatch(
         row,
         expected_surface="dispatch_requests",
     )
+    # PLAN Wave 2 PR 1.5 — the mission learns what it now owns. Without this
+    # the reference is one-way: a dispatch row names its mission, but the
+    # mission cannot name the plan or assignment working on it, and
+    # reconciliation has nothing to reconcile against.
+    #
+    # `bind_mission` is content-keyed and idempotent, so re-promoting the same
+    # plan does not accumulate duplicate bindings.
+    if mission_id is not None:
+        bind_mission(
+            mission_id=mission_id,
+            bindings={"plan_ids": [plan_id], "assignment_ids": [assignment_id]},
+            step_id="promotion",
+            base_dir=root,
+        )
     append_tools_governance(
         root,
         "plan_promoted_to_dispatch",
@@ -147,6 +177,7 @@ def promote_converged_plan_to_dispatch(
             "assignment_id": assignment_id,
             "pressure_event_id": pressure_event_id,
             "plan_id": plan_id,
+            "mission_id": mission_id,
             "cycle_id": cycle_id,
             "converged_plan_hash": converged_plan_hash,
             "base_sha": base_sha,

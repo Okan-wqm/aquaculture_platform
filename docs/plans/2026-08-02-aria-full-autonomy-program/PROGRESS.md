@@ -2,6 +2,116 @@
 
 Program plan: [`PLAN.md`](./PLAN.md). Newest entries first.
 
+## 2026-08-06 — the defect class the programme kept meeting, named twice
+
+Two shapes were closed this day, and they are worth recording together because
+each was first met as a single bug and only became tractable once it was asked
+mechanically.
+
+**"Correct, tested, exported — and called by nobody."** `ORPHAN-CRITICAL-498`,
+`ORPHAN-HIGH-569`, `ORPHAN-MEDIUM-571` and `ORPHAN-MEDIUM-572` are one defect
+wearing four names, and every instance was found by a human noticing. Measured:
+of 85 public control-verb callables in `aria_kernel`, **18 were referenced by no
+production module at all**. The worst was `verify_no_secret_in_envelope`, whose
+own docstring calls it a hard-fail check on the agent-response envelope —
+exported, tested, absent from `HARD_FAIL_CHECKS`, called by nothing, while its
+sibling scanning diffs _was_ wired. `ORPHAN-HIGH-573` makes it a test failure
+(#1110).
+
+**"Committing inside an unguarded loop."** `ORPHAN-HIGH-575` was found by reading
+a traceback: one `TypeError` on the repository's most ordinary commit shape —
+code plus its own review document — escaped the loop over every pending dispatch
+and disabled impact-graph computation for a whole cycle. Fixing the `TypeError`
+removed the instance. Asking mechanically removed the assumption: **12 of the 16
+cycle learning hooks, across 7 modules**, commit as they iterate, so item _k_
+raising leaves items 1.._k_-1 on disk, skips _k_+1.._n_, and collapses the report
+to one wholesale failure. `ORPHAN-HIGH-578` closes it (#1121).
+
+**What the two have in common is the lesson.** A green suite is no evidence
+against either, because the tests call the thing directly — that is precisely how
+it stays green while governing nothing. Both cures are the same mechanism reused
+rather than reinvented: enumerate what should hold, derive the roster instead of
+listing it, require a declared waiver with an expiry compared **to the clock**,
+and give the gate a positive control so "found nothing" can be told apart from
+"cannot see". Both gates were caught being wrong in exactly that way before they
+shipped — one counted an `import` as a use; the other stayed green when its scan
+was blinded.
+
+**Honest limits, recorded so a green gate is not read as more than it is.**
+`control_reachability` asks whether a control is _called_, not whether its
+refusal branch is _reachable_ — `ORPHAN-HIGH-577` is the live counter-example and
+stays OPEN pending an operator policy decision, because a check that cannot
+refuse is false assurance and both honest fixes need intent this session does not
+have. `batch_containment` makes containment the zero-effort default, not a
+structural impossibility, and its gate covers the 16 cycle learning hooks only;
+the same shape elsewhere in the kernel is unmeasured.
+
+**Also measured, correcting two of my own earlier claims.** ARIA does not
+autonomously merge today: the nightly runs `--profile standard`, which selects
+`NoOpAutoMergeRunner`; real merging needs `strict` or `autonomous`, which the
+scheduled lane never uses. And `evaluate_v9_implementation_merge`'s hardcoded
+`eligible=False` is not a defect but a deliberately demoted fail-closed surface,
+with `auto_merge.merge_if_green` as the only real executor.
+
+**Neither of those measurements says anything about `ORPHAN-MEDIUM-562`, and an
+earlier version of this entry claimed they did.** 562 is not about whether ARIA
+merges autonomously; it is that the external watchdog **notifies but cannot
+freeze** — it files an incident issue and fails its own run, while PLAN Wave 2
+specifies a `MERGE_FROZEN` breaker. The finding already records the correct
+shape, so this is tracked work with a known fix rather than a decision waiting on
+the operator: the freeze must be an alarm the MERGE side READS, not a write the
+watchdog performs, because freezing writes the breaker ledger, that requires
+importing the kernel, and every failure the watchdog exists to catch is a failure
+of that kernel — a watchman that dies of the illness it watches for is not a
+watchman. `aria-merge-authority` is already a required check and can refuse while
+a watchdog incident issue is open, which keeps the dependency pointing the safe
+way. Until it lands, a stalled ARIA memory is visible but not enforcing.
+
+## 2026-08-04 — Wave 1 PR 2.6b: the lane cutover (written, not yet exercised)
+
+Merged as `249a5e940` (#1073). Both scheduled lanes now restore from and publish
+to the `aria/state` branch. The 30-day `aria-tools-state` artifact is retired;
+what remains under that name is nothing — the forensic copy is run-scoped
+(`aria-state-cache-<run_id>`) and no code path restores from it, which is the
+point. Retires the transport ORPHAN-CRITICAL-484/488/513 describe.
+
+**The blocker I had been carrying was not the one I thought.** "The cutover is
+blocked on the self-hosted runner" went unchecked for a session. The runner
+blocks EXECUTION; it never blocked WRITING the cutover, and the cutover was
+neither written nor tracked — it lived in the parenthetical above this entry's
+predecessor.
+
+**Two defects the YAML-only cutover would have shipped**, both found by reading
+the round trip rather than the diff:
+
+- A restored store is not yet a usable tools root. `repo_identity.json` is what
+  makes one resolvable and the branch deliberately does not carry it, so a
+  checkout arrives as covered state with no identity — `ambiguous_tools_root`.
+  `aria-auto-cycle` had the binding migration; `aria-agent-executor` never did,
+  so its first restored run would have died at the lease check. The migration
+  moved INTO the restore action: one definition, both lanes.
+
+  My first fix here was wrong and PLAN §2.6 had already recorded why. I declared
+  `repo_identity.json` as a state surface so it would ride the publish; it
+  records `bound_repo_root`, an absolute path on the host that wrote it, and the
+  branch is shared by every runner. The test I wrote passed. It would have
+  passed for the wrong design — which is why the replacement asserts the
+  identity is NOT published, alongside the refusal and the migration that
+  resolves it.
+
+- `seed_drift_findings.py` wrote to `<checkout>/aria-findings` while the kernel
+  reads through `repo_state_root`, which the restore binds at the store. Every
+  night would have seeded a full pool where nothing looks. It imports the
+  kernel's resolver now.
+
+**Honest limit:** this lands reviewed, contract-verified and locally tested, and
+UNEXERCISED. The lanes run on `[self-hosted, linux, claude]`; until a real
+nightly runs, no line of it has executed. **Wave 1 is not complete until that run
+exists.** The operator has one-time setup first: the `aria/state` branch ruleset
+(block force-push + deletions) BEFORE any bootstrap, then
+`vars.ARIA_STATE_BOOTSTRAP_ACK` — see
+[`docs/runbooks/aria-state-branch-bootstrap.md`](../../runbooks/aria-state-branch-bootstrap.md).
+
 ## 2026-08-03 — Wave 1 COMPLETE (except the lane cutover)
 
 Durable state landed before missions, per Revision 2's reordering. Seven PRs,
@@ -57,11 +167,15 @@ each independently landable, each with its finding closed by the next:
 ### What Wave 1 did NOT deliver
 
 The **lane cutover** — pointing `aria-auto-cycle` and `aria-agent-executor` at
-the store instead of the 30-day artifact. It requires the self-hosted runner
-(`[self-hosted, linux, claude]`), which is offline: today's scheduled runs queue
-and auto-cancel. ORPHAN-CRITICAL-484/488/513 therefore stay OPEN against the
-artifact transport, which is the honest state — the store exists and is proven,
-and nothing is using it yet.
+the store instead of the 30-day artifact. ORPHAN-CRITICAL-484/488/513 therefore
+stay OPEN against the artifact transport, which is the honest state — the store
+exists and is proven, and nothing is using it yet.
+
+> **Corrected 2026-08-04.** This entry originally said the cutover "requires the
+> self-hosted runner, which is offline". That conflated two things and cost a
+> session: the runner blocks the cutover's first REAL RUN, not its writing. The
+> cutover landed on 2026-08-04 (see the entry above) with the runner still
+> offline, and found two defects that a live run would have hit on night two.
 
 ### Method note
 
@@ -158,8 +272,11 @@ Consequences, recorded rather than papered over:
 
 Verifiable from CI config at `main@fd963861`: both ARIA lanes install
 bubblewrap via `apt-get` and hard-verify `implementation_safety.sandbox_backend()`
-before any write-capable step (`aria-auto-cycle.yml` — ubuntu-latest;
-`aria-agent-executor.yml` — `[self-hosted, linux, claude]`). What CI config
+before any write-capable step. **Corrected 2026-08-04:** this line said
+`aria-auto-cycle.yml` runs on `ubuntu-latest`. It does not, and never did —
+both lanes target `[self-hosted, linux, claude]` (`aria-auto-cycle.yml:95`).
+The error mattered: it implied one lane could run without the operator's
+runner. What CI config
 cannot prove: whether `apt-get` succeeds and bwrap actually confines on the
 self-hosted executor host (user namespaces, kernel config). **Operator action
 item (PLAN.md §7.4):** run the capability probe once on the self-hosted

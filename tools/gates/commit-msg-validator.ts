@@ -261,6 +261,24 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   // concurrent development. The branch finding was renumbered to ORPHAN-HIGH-382
   // on merge; the pushed commit's trailer cannot be amended (force-push ban).
   '5334a47a', // feat(lora): sandboxed wasm custom payload decoders (Phase 3)
+  // ARIA-intelligence branches whose Closes: trailers referenced
+  // ORPHAN-MEDIUM-552/553 minted concurrently with the #1084 line, which
+  // claimed IDs 552-556 first. Both branch findings were renumbered
+  // (552 -> 557, 553 -> 558) in the registry + orphan doc; the pushed
+  // commits' trailers cannot be amended (force-push ban) — the identical
+  // situation as the feat(lora) 378 -> 382 entry above.
+  '4048a1cf', // feat(aria): let ARIA's own precision measurement change ARIA's behaviour (552 -> 557)
+  'abe53cbf', // feat(aria): give the runtime-signal bridge a mouth and the delivery metrics their first rules (553 -> 558)
+  // Second concurrent-allocation collision of this session. The sibling
+  // session's registry ceremony (#1092) claimed ORPHAN-559/560 through the
+  // finding-registry CLI - the authoritative allocator - while these commits
+  // were already pushed citing the same numbers from the orphan document,
+  // which allocates by hand. Mine moved (559 -> 564, 560 -> 565) because the
+  // CLI's claim is the one with a lease behind it; the pushed trailers cannot
+  // follow, because amending them needs a force-push.
+  '27f4549e', // feat(watchdog): hourly T1 probes with a live CRITICAL-to-ARIA bridge (559 -> 564)
+  '8f98a21f', // fix(watchdog): provision the kernel the CRITICAL branch needs (559 -> 564)
+  '94d4ef32', // feat(aria): mint the gold-corpus proposals nothing was minting (560 -> 565)
   // ORPHAN-MEDIUM-464 — added by OPERATOR DECISION, not by the author's own
   // judgement, and recorded that way on purpose.
   //

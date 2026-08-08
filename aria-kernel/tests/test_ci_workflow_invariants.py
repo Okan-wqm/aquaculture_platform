@@ -656,7 +656,7 @@ class CIWorkflowInvariants(unittest.TestCase):
         self.assertIn('echo "- Effective at: \\`${EFFECTIVE_AT}\\`"', publication_run)
         self.assertIn('echo "- Input SHA-256: \\`${INPUT_SHA256}\\`"', publication_run)
         self.assertNotIn(
-            'cat "${RUNNER_TEMP}/finding-registry-operation.txt"',
+            'cat "${RUNNER_TEMP}/finding-registry-request-receipt.json"',
             publication_run,
         )
 

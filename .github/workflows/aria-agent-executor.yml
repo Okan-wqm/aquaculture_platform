@@ -60,10 +60,14 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
-  # ORPHAN-CRITICAL-420 S1 — actions:read is required to locate and
-  # download the previous run's aria-tools-state artifact (the queue
-  # bridge between the 01:00 producer and this 02:00 consumer).
+  # PLAN Wave 1 PR 2.6b — contents:write is what the cutover costs. The store
+  # publishes by pushing `aria/state`; the branch ruleset bounds that on the
+  # SERVER (no force-push, no deletion), so the widest thing this token can do
+  # to the branch is append a commit descending from the tip.
+  contents: write
+  # ORPHAN-CRITICAL-420 S1 — actions:read remains for run/job introspection.
+  # The queue bridge between the 01:00 producer and this 02:00 consumer is the
+  # aria/state branch now, not an artifact.
   actions: read
 
 jobs:
@@ -125,10 +129,12 @@ jobs:
 
           from aria_kernel.preflight import verify_workflow_preflight
 
-          # The executor now restores and republishes the persistent
-          # aria-tools tree, so the declared write root is the tree itself
-          # rather than the four ledger files the pre-S1 executor touched.
-          allowed = ["aria-tools"]
+          # PLAN Wave 1 PR 2.6b — the executor restores and republishes the
+          # durable store, so the declared write root is the store worktree.
+          # It was `aria-tools` in the checkout; after the cutover nothing
+          # writes there, and a declared root nothing writes to is a claim
+          # that has stopped describing the run.
+          allowed = [".aria-state-store"]
           verdict = verify_workflow_preflight(
               workflow_id="aria-agent-executor",
               job_id="executor",
@@ -136,17 +142,23 @@ jobs:
               workspace_root=os.environ["GITHUB_WORKSPACE"],
               allowed_write_roots=allowed,
               path_allowlist=allowed,
-              network_policy=["github_artifact"],
+              # `github_git` is the reach the cutover added: fetch and push of
+              # the state branch over the repository remote. Kept separate from
+              # `github_artifact` because they are different credentials with
+              # different blast radii.
+              network_policy=["github_artifact", "github_git"],
               network_enforcement_evidence=(
-                  "artifact restore/upload limited to the aria-tools-state artifact, "
-                  "the run-scoped quarantine-evidence-<run_id> artifact and the exact "
-                  "response envelope path, all via the Actions artifact API"
+                  "state restore/publish limited to the aria/state branch over "
+                  "the repository remote; artifact upload limited to the "
+                  "run-scoped aria-state-cache-<run_id> and "
+                  "quarantine-evidence-<run_id> names and the exact response "
+                  "envelope path, all via the Actions artifact API"
               ),
               token_provenance="github_actions_artifact_token",
               require_github_app=False,
               dlp_mode="fail_closed",
               dlp_scan_clean=True,
-              audit_reason="restore, extend and republish the persistent aria-tools state tree around one bound-agent invocation",
+              audit_reason="restore, extend and republish the durable aria/state store around one bound-agent invocation",
               audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-agent-executor-preflight.json",
               external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
           )
@@ -155,24 +167,30 @@ jobs:
           PY
 
       # ORPHAN-CRITICAL-420 S1 — bridge the agent-invocation queue.
-      # The 01:00 aria-auto-cycle mints requests into aria-tools/, which
-      # .gitignore excludes; this 02:00 executor is the only consumer that
-      # claims them (agent next-pending filters on no role). Without this
-      # step the two lanes sat either side of an unbridged artifact
-      # boundary and next_pending_request always returned None.
-      # It runs BEFORE the lease check on purpose: lease_state('aria-tools')
-      # reads this same tree, so a bootstrap-empty tree made the cross-host
-      # lease unable to observe a held lease at all.
-      - name: Restore aria-tools state from previous run
+      # The 01:00 aria-auto-cycle mints requests into the state store; this
+      # 02:00 executor is the only consumer that claims them (agent
+      # next-pending filters on no role). Without this step the two lanes sat
+      # either side of an unbridged boundary and next_pending_request always
+      # returned None.
+      # It runs BEFORE the lease check on purpose: the lease ledger lives in
+      # the same tree, so an unrestored one made the cross-host lease unable
+      # to observe a held lease at all.
+      - name: Restore ARIA state from the aria/state branch
         id: restore_state
         # RC-6 — one definition, both lanes. The two hand-copied heredocs that
         # used to sit here had already drifted: only the executor's carried the
         # ORPHAN-CRITICAL-484/488 restore-proof outputs, so the producer lane
         # could publish a bootstrap-empty tree over the accumulated state. The
         # action's header records what that cost.
-        uses: ./.github/actions/restore-aria-tools-state
+        #
+        # PLAN Wave 1 PR 2.6b — the transport is the durable store now, not the
+        # 30-day artifact. The output contract is unchanged, deliberately: the
+        # publish gate below still reads `restored` / `bootstrap`. The action
+        # also EXPORTS the store binding into the job environment, which is why
+        # every `--tools-dir` below names "$ARIA_TOOLS_DIR" and never a literal.
+        uses: ./.github/actions/restore-aria-state
         with:
-          github-token: ${{ github.token }}
+          bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
       - name: Pre-flight — cross-host autonomous-loop lease check
         id: lease_check
         run: |
@@ -184,7 +202,11 @@ jobs:
 
           from aria_kernel.autonomous_host_lease import lease_state
 
-          state = lease_state('aria-tools')
+          # The store's tools root, from the binding the restore exported. A
+          # literal would read an empty lease ledger in the ephemeral checkout
+          # and report "no lease held" — a false clear, which is
+          # ORPHAN-CRITICAL-469 with the gate still green.
+          state = lease_state(os.environ['ARIA_TOOLS_DIR'])
           print(json.dumps(state))
           if state['state'] == 'fresh':
               host = state.get('host_id', '')
@@ -220,12 +242,14 @@ jobs:
       # `quarantine_breaker_evidence` moves the undecodable rows of
       # autonomous-failures.jsonl to a sidecar so the breaker can be judged on
       # the surviving evidence. It shipped with a CLI, and that CLI operates on
-      # a local `--tools-dir` — while the ledger travels between runs inside the
-      # aria-tools-state artifact. An operator running it on their laptop
-      # repairs a copy nothing reads. The only lever that reached the real
-      # ledger was deleting the artifact, which also destroys the agent queue
+      # a local `--tools-dir` — while the ledger travels between runs in the
+      # durable store. An operator running it on their laptop repairs a copy
+      # nothing reads. In the artifact era the only lever that reached the real
+      # ledger was deleting the artifact, which also destroyed the agent queue
       # ORPHAN-CRITICAL-469 exists to carry: the recovery path for one breaker
-      # was the destruction of an unrelated subsystem.
+      # was the destruction of an unrelated subsystem. On the branch that lever
+      # is gone entirely — history is append-only — which makes this in-band
+      # repair step the ONLY route, not merely the better one.
       #
       # WHY HERE AND NOT IN A NEW WORKFLOW. A recovery workflow would need its
       # own restore and its own publish -- a second transaction around a
@@ -272,7 +296,7 @@ jobs:
           # makes the state evaluable, it does not clear it. The publish below
           # runs under `always()`, so the repaired tree is still republished.
           PYTHONPATH=aria-kernel python3 -m aria_kernel breaker quarantine \
-            --tools-dir aria-tools \
+            --tools-dir "$ARIA_TOOLS_DIR" \
             --acknowledge \
             --reason "$QUARANTINE_REASON" \
             --operator-approval-ref "$QUARANTINE_APPROVAL_REF"
@@ -346,7 +370,7 @@ jobs:
             echo "request_id=${REQUEST_ID_INPUT}" >> "$GITHUB_OUTPUT"
           else
             REQ_ID=$(PYTHONPATH=aria-kernel python3 -m aria_kernel agent next-pending \
-              --tools-dir aria-tools | jq -r '.request_id // empty')
+              --tools-dir "$ARIA_TOOLS_DIR" | jq -r '.request_id // empty')
             echo "request_id=${REQ_ID}" >> "$GITHUB_OUTPUT"
           fi
 
@@ -367,7 +391,7 @@ jobs:
           PYTHONPATH=aria-kernel python3 -m aria_kernel handoff snapshot \
             --session-id "${SESSION_ID}" \
             --trigger session_start \
-            --tools-dir aria-tools \
+            --tools-dir "$ARIA_TOOLS_DIR" \
             --repo-root .
 
       - name: Skip if no pending request
@@ -393,6 +417,7 @@ jobs:
         uses: ./.github/actions/ensure-sandbox-backend
 
       - name: Run CI executor
+        id: executor
         if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
         env:
           CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
@@ -420,8 +445,15 @@ jobs:
           # protection per spike doc artefact policy).
           name: aria-response-${{ steps.pending.outputs.request_id }}
           path: |
-            aria-tools/agent-invocations/outputs/${{ steps.pending.outputs.request_id }}.json
-            aria-tools/agent-invocations/outputs/${{ steps.pending.outputs.request_id }}.transcript.jsonl
+            ${{ steps.executor.outputs.envelope_path }}
+            ${{ steps.executor.outputs.transcript_path }}
+          # The paths come from the executor step, which is the only thing
+          # that knows where it wrote. The previous spelling rebuilt them from
+          # the request id (`outputs/<id>.json`) while the request envelope
+          # names `outputs/<group>/<round>-<role>-<id>.md`, so every run that
+          # claimed a request died here with `if-no-files-found: error` AFTER
+          # the agent work had already succeeded and been submitted.
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
 
@@ -439,7 +471,7 @@ jobs:
           PYTHONPATH=aria-kernel python3 -m aria_kernel handoff snapshot \
             --session-id "${{ steps.handoff_start.outputs.session_id }}" \
             --trigger session_stop \
-            --tools-dir aria-tools \
+            --tools-dir "$ARIA_TOOLS_DIR" \
             --repo-root .
 
       # ORPHAN-CRITICAL-420 S1 — the return half of the queue bridge.
@@ -448,9 +480,17 @@ jobs:
       # would re-mint work this run already claimed. Verified BEFORE
       # publishing, mirroring aria-auto-cycle: only an integrity-clean tree
       # is allowed to become the next run's starting state.
-      - name: Verify aria-tools state integrity
+      - name: Verify ARIA state integrity
         id: integrity
-        if: always() && steps.lease_check.outputs.blocked != 'true'
+        # ALSO guarded on the restore having produced a store. `ARIA_TOOLS_DIR`
+        # is exported by the restore action on its SUCCESS path only, so when
+        # the checkout is refused this step ran anyway and died on
+        # `ARIA_TOOLS_DIR: unbound variable` — a second, louder failure five
+        # steps below the real one, which then became the job's headline while
+        # the refusal scrolled past. Verifying integrity without a restored tree
+        # was never meaningful; skipping leaves `state_valid` empty, which the
+        # fail step already reads as "not proven".
+        if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
         run: |
           set -uo pipefail
           # RUNNER_TEMP, not /tmp — the only external write root this job's
@@ -458,14 +498,14 @@ jobs:
           VERDICT="${RUNNER_TEMP}/aria-integrity-verdict.json"
           VERDICT_ERR="${RUNNER_TEMP}/aria-integrity-verdict.err"
           if PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify \
-               --tools-dir aria-tools \
+               --tools-dir "$ARIA_TOOLS_DIR" \
                --workspace-root "$GITHUB_WORKSPACE" > "$VERDICT" 2>"$VERDICT_ERR"; then
             echo "state_valid=true" >> "$GITHUB_OUTPUT"
           else
             echo "state_valid=false" >> "$GITHUB_OUTPUT"
           fi
           {
-            echo '### aria-tools state integrity'
+            echo '### ARIA state integrity'
             echo '```json'
             head -c 4000 "$VERDICT" 2>/dev/null || echo '{}'
             echo '```'
@@ -476,21 +516,67 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Persist aria-tools state (verified)
+      # PLAN Wave 1 PR 2.6b — publish to the durable store. The `if:` is
+      # unchanged from the artifact era: state_valid plus the restore proof is
+      # what stops a partial or bootstrap-empty tree publishing, and that did
+      # not depend on the transport. What the store adds is fast-forward-only
+      # push, so a tree that does not descend from the tip is rejected by the
+      # server rather than caught by a gate.
+      # The credential is minted here and consumed by the next step only. Kept
+      # out of `.git/config` so it cannot outlive the push.
+      - name: Mint the aria/state push credential
+        id: publish_credential
         if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true' && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
+        env:
+          PUBLISH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          HEADER="$(printf 'x-access-token:%s' "$PUBLISH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${HEADER}"
+          echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish ARIA state to the aria/state branch
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true' && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
+        env:
+          # persist-credentials stays FALSE on the checkout, deliberately: a
+          # persisted token is readable by every later step, including the
+          # Claude CLI subprocess this lane exists to run. So the credential
+          # lives in THIS STEP'S environment only.
+          #
+          # GIT_CONFIG_* is git's own env form of `-c`, so it reaches
+          # state_store's git calls without state_store knowing about tokens —
+          # `_run_git` passes no `env=`, so the subprocess inherits this and
+          # nothing else does. No token is written to .git/config, which is
+          # what would have leaked it forward.
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
+          GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.publish_credential.outputs.header }}'
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
+            --repo-root . \
+            --snapshot-id "executor-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --cycle-id "executor-${GITHUB_RUN_ID}"
+
+      # FORENSIC CACHE ONLY, under a run-scoped name nothing restores from, so
+      # it cannot become a second source of truth for one hash-chained ledger.
+      - name: Cache ARIA state tree (non-authoritative)
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: aria-tools-state
-          path: aria-tools/
+          name: aria-state-cache-${{ github.run_id }}
+          path: .aria-state-store/
           retention-days: 30
+          # The store root is a dot-directory and `.gitkeep` markers hold its
+          # empty subtrees; a forensic copy that dropped them would not
+          # reproduce the tree it claims to preserve.
+          include-hidden-files: true
           if-no-files-found: error
           overwrite: true
 
-      # Unverified state is preserved for forensics under a run-scoped name
-      # the restore step never selects — restore queries
-      # `name=aria-tools-state`, so a quarantined tree cannot be picked up
-      # as the next run's starting state.
-      - name: Quarantine unverified aria-tools state
+      # Unverified state is preserved for forensics under the same run-scoped
+      # naming discipline. Nothing restores from it.
+      - name: Quarantine unverified ARIA state
         # The blocked guard matches the sibling producer and the publish/fail
         # steps either side of it: when the lease check refused the run the
         # integrity step above is skipped, so state_valid is the empty string
@@ -501,23 +587,39 @@ jobs:
         with:
           name: quarantine-evidence-${{ github.run_id }}
           path: |
-            aria-tools/
+            .aria-state-store/
             ${{ runner.temp }}/aria-integrity-verdict.json
             ${{ runner.temp }}/aria-integrity-verdict.err
           retention-days: 30
+          include-hidden-files: true
           if-no-files-found: warn
           overwrite: true
 
-      - name: Fail when aria-tools state was not published
+      - name: Fail when ARIA state was not published
         # ORPHAN-CRITICAL-484 — mirrors the sibling producer
         # (aria-auto-cycle.yml). Without this the executor can do real work,
-        # publish NOTHING under the canonical name, and still report green —
-        # and the failure is absorbing: each such night buries the good
-        # artifact one run deeper until the 30-day retention window closes.
+        # publish NOTHING, and still report green. In the artifact era that
+        # failure was absorbing: each such night buried the good artifact one
+        # run deeper until the 30-day retention window closed. On the branch
+        # the history survives, so what is lost is only THIS run's work — the
+        # difference between a wasted night and a forgotten month.
         if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || (steps.restore_state.outputs.restored != 'true' && steps.restore_state.outputs.bootstrap != 'true'))
         run: |
           set -euo pipefail
-          echo "::error::aria-tools state was NOT published under the canonical name."
+          # NAME THE GATE THAT REFUSED, not just the consequence. "State was
+          # not published" is true of every failure here and identifies none of
+          # them; a run whose CHECKOUT was refused reported it, and the reason
+          # sat five steps above under a different error. The outputs below
+          # already distinguish the cases — this reads them instead of leaving
+          # the operator to.
+          if [ "${{ steps.restore_state.outputs.restored }}" != "true" ] \
+             && [ "${{ steps.restore_state.outputs.bootstrap }}" != "true" ]; then
+            echo "::error::ARIA state was NOT published: the aria/state CHECKOUT did not produce a store, so this run never had one. The refusal is reported by the restore step above."
+          elif [ "${{ steps.integrity.outputs.state_valid }}" != "true" ]; then
+            echo "::error::ARIA state was NOT published: the store was restored but failed integrity verification, so publishing it would persist a tree ARIA cannot read back."
+          else
+            echo "::error::ARIA state was NOT published to the aria/state branch."
+          fi
           echo "state_valid=${{ steps.integrity.outputs.state_valid }}"
           echo "restored=${{ steps.restore_state.outputs.restored }}"
           echo "bootstrap=${{ steps.restore_state.outputs.bootstrap }}"

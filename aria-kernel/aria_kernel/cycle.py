@@ -33,6 +33,7 @@ from .human_required import (
     sweep_lease_lifecycle_for_human_required,
 )
 from .human_required_adjudication import sweep_human_required_adjudications
+from .goldset import propose_goldsets_for_labelled_tools
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
 from .runtime_profile import ACTION_PERMISSIONS, get_profile
@@ -600,32 +601,49 @@ def run_enterprise_cycle(
     _run_phase_stage("preflight", context)
     continuity = context.result("state_continuity")
     if isinstance(continuity, dict) and continuity.get("blocks_action"):
-        from .memory_gap import ContinuityVerdict, freeze_autonomous_writes
+        from .memory_gap import ContinuityVerdict, freeze_autonomous_writes, restore_and_replay
 
-        freeze_autonomous_writes(
-            ContinuityVerdict(
-                status=str(continuity.get("status")),
-                reference_kind=continuity.get("reference_kind"),
-                reasons=tuple(continuity.get("reasons") or ()),
-                lost_surfaces=tuple(continuity.get("lost_surfaces") or ()),
-                current_manifest_root=continuity.get("current_manifest_root"),
-                reference_manifest_root=continuity.get("reference_manifest_root"),
-            ),
-            base_dir=root,
-            cycle_id=cycle_id,
+        diagnosed = ContinuityVerdict(
+            status=str(continuity.get("status")),
+            reference_kind=continuity.get("reference_kind"),
+            reasons=tuple(continuity.get("reasons") or ()),
+            lost_surfaces=tuple(continuity.get("lost_surfaces") or ()),
+            current_manifest_root=continuity.get("current_manifest_root"),
+            reference_manifest_root=continuity.get("reference_manifest_root"),
         )
-        emit_progress("cycle_aborted", cycle_id=cycle_id, reason="state_integrity_gap")
-        event = _aborted_event(cycle_id, git_head_sha_at_cycle=git_head_sha_at_cycle)
-        append_declared_jsonl(root / "cycles.jsonl", event, expected_surface="cycles")
-        return {
-            "schema_version": 2,
-            "cycle_id": cycle_id,
-            "git_head_sha_at_cycle": git_head_sha_at_cycle,
-            "status": "aborted",
-            "event": event,
-            "learning": learning,
-            "state_continuity": continuity,
-        }
+
+        # ATTEMPT THE REPAIR BEFORE THE FREEZE. `reset_breaker` requires an
+        # operator approval ref and truncates the failure ledger, so a freeze
+        # followed by a successful recovery would leave a row only a human
+        # could clear — the exact manual step recovery exists to remove. See
+        # `restore_and_replay` for the full argument; it deviates from PLAN
+        # §2.5's stated ordering deliberately and says so.
+        recovery = restore_and_replay(
+            Path(workspace_root), diagnosed, base_dir=root, cycle_id=cycle_id
+        )
+        # The verdict stays as the phase recorded it. A recovered gap is a gap
+        # that HAPPENED, and rewriting `blocks_action` to False would make the
+        # cycle row claim the tree was continuous all along — the run's own
+        # history edited to match its outcome. What the recovery changes is
+        # what this cycle DOES, not what it says it saw.
+        continuity = {**continuity, "recovery": recovery.as_event()}
+        context.results["state_continuity"] = continuity
+        if recovery.resolved:
+            emit_progress("state_gap_recovered", cycle_id=cycle_id, reason=recovery.reason)
+        else:
+            freeze_autonomous_writes(diagnosed, base_dir=root, cycle_id=cycle_id)
+            emit_progress("cycle_aborted", cycle_id=cycle_id, reason="state_integrity_gap")
+            event = _aborted_event(cycle_id, git_head_sha_at_cycle=git_head_sha_at_cycle)
+            append_declared_jsonl(root / "cycles.jsonl", event, expected_surface="cycles")
+            return {
+                "schema_version": 2,
+                "cycle_id": cycle_id,
+                "git_head_sha_at_cycle": git_head_sha_at_cycle,
+                "status": "aborted",
+                "event": event,
+                "learning": learning,
+                "state_continuity": continuity,
+            }
 
     _run_phase_stage("discovery", context)
     discovery = context.result("discovery")
@@ -842,14 +860,24 @@ def _phase_state_continuity(context: PhaseContext) -> dict[str, Any]:
     cycle-lifecycle integrity), and the freeze is `freeze_autonomous_writes`.
     Three responsibilities, three places, one rule each.
     """
-    from .memory_gap import assess_memory_continuity, resolve_continuity_reference
+    from .memory_gap import (
+        REFERENCE_STATE_BRANCH,
+        assess_memory_continuity,
+        continuity_probe_roots,
+        resolve_continuity_reference,
+        store_is_at_published_tip,
+    )
     from .state_snapshot import build_snapshot
 
+    # The probe must walk the roots the reference COVERS. Tools-only was right
+    # while every reference was an anchor stub with no surface map; against a
+    # published snapshot it reports sixteen healthy workspace and repo surfaces
+    # as lost, which is `critical`, which blocks the cycle (PR 2.6c).
     current = build_snapshot(
         snapshot_id=f"continuity-{context.cycle_id}",
         cycle_id=context.cycle_id,
         lane=context.mode,
-        roots={"tools": Path(context.base_dir)},
+        roots=continuity_probe_roots(Path(context.workspace_root), Path(context.base_dir)),
     )
 
     # Resolution lives in memory_gap, not here: which authority is strongest,
@@ -860,8 +888,22 @@ def _phase_state_continuity(context: PhaseContext) -> dict[str, Any]:
     # the "failed to look" outcome rather than a quietly weaker answer.
     reference, reference_kind = resolve_continuity_reference(Path(context.workspace_root))
 
+    # Descent is decided by the transport, not by chain linkage: a probe is
+    # built fresh and so has no `prev_manifest_root`, which makes the linkage
+    # test answer "broken" for a healthy tree every time. Only asked when the
+    # reference IS the branch — an anchor reference has no tip to compare to,
+    # and keeps the linkage test it was designed for.
+    descent = (
+        store_is_at_published_tip(Path(context.workspace_root))
+        if reference_kind == REFERENCE_STATE_BRANCH
+        else None
+    )
+
     verdict = assess_memory_continuity(
-        current=current, reference=reference, reference_kind=reference_kind
+        current=current,
+        reference=reference,
+        reference_kind=reference_kind,
+        descent=descent,
     )
     return {
         "schema_version": 1,
@@ -920,6 +962,23 @@ def _phase_discovery(context: PhaseContext) -> dict[str, Any]:
 
 def _phase_cycle_diff(context: PhaseContext) -> dict[str, Any]:
     return run_cycle_diff(cycle_id=context.cycle_id, base_dir=context.base_dir)
+
+
+def _phase_twin_refresh(context: PhaseContext) -> dict[str, Any]:
+    """Keep the repository map current, incrementally, once per cycle.
+
+    Twin-lite shipped as a CLI, so the map was only ever as fresh as the last
+    time a human ran `twin refresh`. A map ARIA consults about a tree it no
+    longer has is worse than no map: it answers confidently about the past.
+
+    The refresh re-parses only what changed since ``indexed_sha`` and falls
+    back to a full build when there is no prior map or its anchor commit is
+    unknown to this clone — and it SAYS WHICH in ``refresh.mode``, so "the
+    cycle did no full scan" is an observation rather than an assumption.
+    """
+    from .twin import refresh_twin_map
+
+    return refresh_twin_map(workspace_root=context.workspace_root, base_dir=context.base_dir)
 
 
 def _phase_tools(context: PhaseContext) -> dict[str, Any]:
@@ -1086,6 +1145,16 @@ def _phase_judge_calibration(context: PhaseContext) -> dict[str, Any]:
     # the cheap-tier judgment is measured, not assumed. Read-only join over
     # the feedback ledger (no LLM).
     return compute_judge_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir)
+
+
+def _phase_goldset_proposal(context: PhaseContext) -> dict[str, Any]:
+    # F4.2 of the intelligence program — the producer `propose_goldset` never
+    # had. Counting labelled feedback is machine work, so the cycle mints the
+    # proposal (and the distance-to-ready that comes with it); promotion stays
+    # an operator act behind `goldset promote --curator`.
+    return propose_goldsets_for_labelled_tools(
+        cycle_id=context.cycle_id, base_dir=context.base_dir,
+    )
 
 
 def _phase_proactive_priority(context: PhaseContext) -> dict[str, Any]:
@@ -1481,6 +1550,24 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         on_error="propagate",
         modes=frozenset({"standard", "burn_in"}),
     ),
+    # The repository map, kept current by the cycle that reads it.
+    #
+    # `record_and_continue`, not `propagate`: a refresh that CRASHED leaves a
+    # stale map, which is a degraded read for the one consumer that wants it
+    # — not a reason to end a cycle whose real work succeeded. The failure is
+    # still an outcome row, and `twin_status` reports `fresh: false`, so
+    # "the map is old" and "the map is current" stay distinguishable.
+    #
+    # In `burn_in` too. The map is a declared OBSERVATION surface and touches
+    # no claim, tool or PR surface, so it does not weaken the observe lane's
+    # no-action claim; and the observe lane's output is the acceptance
+    # evidence the ladder counts, which must not be judged against a map
+    # frozen at some past commit.
+    CyclePhase(
+        "twin_refresh", "discovery", _phase_twin_refresh,
+        on_error="record_and_continue", state_key="twin_refresh",
+        modes=frozenset({"standard", "burn_in"}),
+    ),
 
     # --- pre_tool: gates that must observe preconditions, not results ---
     CyclePhase(
@@ -1542,6 +1629,15 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     CyclePhase(
         "judge_calibration", "post_tool", _phase_judge_calibration,
         precondition=WRITES_PERMITTED, state_key="judge_calibration",
+    ),
+    # Directly after judge_calibration: both read the same feedback ledger,
+    # and the gold corpus this mints is what judge_replay scores judges
+    # against. `record_and_continue` — a proposal that CRASHED recorded no
+    # ground truth, but it must not fail a cycle whose real work succeeded.
+    CyclePhase(
+        "goldset_proposal", "post_tool", _phase_goldset_proposal,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="goldset_proposal",
     ),
     CyclePhase(
         "proactive_priority", "post_tool", _phase_proactive_priority,

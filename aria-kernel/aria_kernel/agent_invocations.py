@@ -135,6 +135,99 @@ def build_invocation_context(
     return payload
 
 
+def _repository_map_for_refs(
+    evidence_refs: list[str] | None, *, base_dir: Path
+) -> dict[str, Any] | None:
+    """The twin slice for the files an evidence ref points at, or None.
+
+    ``evidence_refs`` are ``path:line`` entries, so the path is everything
+    before the first colon. Returns None — rather than an empty projection —
+    when there is no map or no resolvable path, because a request carrying an
+    empty map asserts that the map knows nothing about these files, which is
+    a different and stronger claim than carrying no map at all.
+
+    Never raises into the mint path: a missing or unreadable map costs an
+    agent its orientation, and that must not cost the cycle its request.
+    """
+    paths = [
+        ref.split(":", 1)[0].strip()
+        for ref in (evidence_refs or [])
+        if isinstance(ref, str) and ref.split(":", 1)[0].strip()
+    ]
+    if not paths:
+        return None
+    try:
+        from .twin import read_twin_map, twin_context_for_files
+
+        twin = read_twin_map(base_dir=base_dir)
+        if twin is None:
+            return None
+        return twin_context_for_files(twin, sorted(dict.fromkeys(paths)))
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _render_repository_map(repository_map: Any) -> str:
+    """The Twin-lite slice for the files in scope — orientation, not evidence.
+
+    This is what an agent reads INSTEAD of walking directories: for each file,
+    its project, the tests that cover it, how often it churns, and what tends
+    to ship with it. The whole point is that the model does not have to spend
+    its context discovering the shape of the repository for itself.
+
+    The section is emitted ONLY when there is a map. An empty scaffold would
+    read as "the map knows nothing about these files", which is a different
+    claim from "no map was attached".
+
+    The header states the trust class in the model's own reading order,
+    directly against the evidence section's "the ONLY admissible evidence":
+    every value here is DERIVED from the repository at ``indexed_sha`` and
+    recomputable from it, so it orients and never proves.
+    """
+    if not isinstance(repository_map, dict):
+        return ""
+    files = repository_map.get("files")
+    if not isinstance(files, list) or not files:
+        return ""
+
+    lines = [
+        "## Repository map",
+        "",
+        "Derived from the repository at "
+        f"`{repository_map.get('indexed_sha') or 'unknown'}` — a projection, "
+        "**not evidence**. Use it to orient; cite only evidence_refs.",
+        "",
+    ]
+    for entry in files:
+        if not isinstance(entry, dict):
+            continue
+        lines.append(f"- `{entry.get('file')}`" + (f" — project `{entry.get('project')}`" if entry.get("project") else ""))
+        tests = entry.get("tests") or []
+        if tests:
+            lines.append(f"  - covered by: {', '.join(f'`{t}`' for t in tests)}")
+        churn = entry.get("churn_commits")
+        if churn:
+            lines.append(f"  - churn: {churn} commits in the indexed window")
+        partners = entry.get("co_changes_with") or []
+        if partners:
+            rendered = ", ".join(
+                f"`{p.get('file')}` ({p.get('count')}x)" for p in partners if isinstance(p, dict)
+            )
+            lines.append(f"  - usually ships with: {rendered}")
+
+    impacted = repository_map.get("impacted_projects") or []
+    if impacted:
+        lines.append("")
+        lines.append("Projects in the blast radius:")
+        for item in impacted:
+            # `twin_context_for_files` returns sorted (name, meta) pairs.
+            if isinstance(item, (list, tuple)) and len(item) == 2 and isinstance(item[1], dict):
+                dependents = item[1].get("dependents") or []
+                suffix = f" → dependents: {', '.join(f'`{d}`' for d in dependents)}" if dependents else ""
+                lines.append(f"- `{item[0]}` (layer {item[1].get('layer')}){suffix}")
+    return "\n".join(lines) + "\n\n"
+
+
 def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | None = None) -> str:
     """Render the exact model-visible prompt for an invocation request.
 
@@ -169,6 +262,8 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
             return "\n".join(f"  - `{item}`" for item in items)
         return "\n".join(f"  - {key_func(item)}" for item in items)
 
+    repository_map_block = _render_repository_map(request.get("repository_map"))
+
     return (
         f"# ARIA agent request {request_id}\n\n"
         f"**Role**: {request.get('role', 'unknown')}\n"
@@ -185,6 +280,7 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         f"## Allowed scope\n\n{_bullet_list(allowed_scope)}\n\n"
         f"## Forbidden scope\n\n{_bullet_list(forbidden_scope)}\n\n"
         f"## Impact graph refs\n\n{_bullet_list(impact_refs)}\n\n"
+        f"{repository_map_block}"
         f"## Validation commands\n\n"
         f"{_bullet_list(validation_cmds, lambda c: '`' + c.get('cmd', str(c)) + '`' if isinstance(c, dict) else '`' + str(c) + '`')}\n"
         f"{must_satisfy_block}\n"
@@ -519,6 +615,15 @@ def create_agent_invocation_request(
         "shadow_eval_proof": shadow_eval_proof,
         "target_sha": target_sha,
     }
+    # PLAN Wave 3 — the Twin-lite slice for the files this request points at.
+    # This is the map's ONE reader: what the agent gets instead of walking
+    # directories to work out which project a file belongs to, what covers it,
+    # and what tends to change with it. Absent when there is no map, so a
+    # request never carries an empty projection that reads as "the map knows
+    # nothing about these files".
+    repository_map = _repository_map_for_refs(evidence_refs, base_dir=root)
+    if repository_map is not None:
+        row["repository_map"] = repository_map
     # Plan 024 §B-2 — when the caller opted out of strict enforcement,
     # emit a governance event capturing target_agent + role + missing
     # fields so the operator audit trail records every legacy creation.
@@ -1192,6 +1297,7 @@ def accepted_result_for_request(
 # is daily and a request is meant to be consumed by the cycle that minted it,
 # so anything still unclaimed after this window was never picked up at all.
 DEFAULT_ANCHOR_MAX_AGE_SECONDS = 3 * 24 * 3600
+_GITDIR_POINTER_PREFIX = "gitdir: "
 
 
 def _anchor_max_age_seconds(root: Path) -> int:
@@ -1212,6 +1318,89 @@ def _anchor_max_age_seconds(root: Path) -> int:
         return DEFAULT_ANCHOR_MAX_AGE_SECONDS
 
 
+def _read_single_line(path: Path) -> str | None:
+    """Read one non-empty control-file line without accepting extensions."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError):
+        return None
+    if len(lines) != 1:
+        return None
+    value = lines[0].strip()
+    return value or None
+
+
+def _resolve_git_directory(marker: Path) -> Path | None:
+    """Resolve a worktree marker to its per-worktree git directory."""
+    try:
+        if marker.is_dir():
+            return marker.resolve()
+        if not marker.is_file():
+            return None
+    except OSError:
+        return None
+
+    pointer = _read_single_line(marker)
+    if pointer is None or not pointer.startswith(_GITDIR_POINTER_PREFIX):
+        return None
+    raw_git_dir = pointer.removeprefix(_GITDIR_POINTER_PREFIX).strip()
+    if not raw_git_dir:
+        return None
+    git_dir = Path(raw_git_dir)
+    if not git_dir.is_absolute():
+        git_dir = marker.parent / git_dir
+    try:
+        resolved = git_dir.resolve()
+        return resolved if resolved.is_dir() else None
+    except (OSError, RuntimeError):
+        return None
+
+
+def _resolve_git_common_directory(git_dir: Path) -> Path | None:
+    """Resolve the object/ref store shared by a normal or linked worktree."""
+    commondir_file = git_dir / "commondir"
+    if not commondir_file.exists():
+        return git_dir
+    if not commondir_file.is_file():
+        return None
+    raw_common_dir = _read_single_line(commondir_file)
+    if raw_common_dir is None:
+        return None
+    common_dir = Path(raw_common_dir)
+    if not common_dir.is_absolute():
+        common_dir = git_dir / common_dir
+    try:
+        resolved = common_dir.resolve()
+        return resolved if resolved.is_dir() else None
+    except (OSError, RuntimeError):
+        return None
+
+
+def _has_valid_git_head(git_dir: Path) -> bool:
+    """Validate symbolic and detached HEAD forms used by Git worktrees."""
+    head = _read_single_line(git_dir / "HEAD")
+    if head is None:
+        return False
+    if head.startswith("ref: "):
+        return head.removeprefix("ref: ").startswith("refs/")
+    return len(head) in {40, 64} and all(char in "0123456789abcdefABCDEF" for char in head)
+
+
+def _is_git_worktree_marker(marker: Path) -> bool:
+    """Whether marker names a structurally complete Git worktree."""
+    git_dir = _resolve_git_directory(marker)
+    if git_dir is None or not _has_valid_git_head(git_dir):
+        return False
+    common_dir = _resolve_git_common_directory(git_dir)
+    if common_dir is None or not (common_dir / "objects").is_dir():
+        return False
+    return (
+        (common_dir / "refs").is_dir()
+        or (common_dir / "packed-refs").is_file()
+        or (common_dir / "reftable").is_dir()
+    )
+
+
 def _anchor_repo_root(root: Path) -> Path | None:
     """The git work tree the queue's requests would execute against.
 
@@ -1227,16 +1416,17 @@ def _anchor_repo_root(root: Path) -> Path | None:
     this runs on the executor's poll path: forking git on every poll costs a
     process per tick to answer a question the directory layout already
     answers, and it makes the queue reader visible to any caller that patches
-    ``subprocess.run`` for unrelated reasons. ``.git`` is matched as a path,
-    not a directory, so a linked worktree (where ``.git`` is a file) resolves
-    too — ARIA runs its agents in worktrees.
+    ``subprocess.run`` for unrelated reasons. Both normal ``.git`` directories
+    and linked-worktree ``gitdir:`` files are resolved to their Git metadata
+    and structurally validated. A host-owned empty or broken ``.git`` path is
+    not repository authority and cannot activate destructive anchor expiry.
     """
     try:
         resolved = root.resolve()
     except OSError:
         return None
     for candidate in (resolved, *resolved.parents):
-        if (candidate / ".git").exists():
+        if _is_git_worktree_marker(candidate / ".git"):
             return candidate
     return None
 
@@ -2118,6 +2308,23 @@ def submit_claim_result(
             )
         except GovernanceError as exc:
             reasons.append(f"separation_of_duties: {exc}")
+        # ORPHAN-HIGH-573 — `verify_no_secret_in_envelope` describes itself as
+        # "Hard-fail check — scan agent response envelope before kernel
+        # persists", was exported, was tested, and was called by nothing. Its
+        # sibling `verify_no_secret_in_diff` IS wired, so diffs were scanned
+        # and the envelope carrying agent stdout, stderr and validation_results
+        # was not — the exact leak path its docstring names. This is that
+        # caller, at the moment the docstring specifies.
+        #
+        # The exception message is redacted by construction (pattern name +
+        # count, never the matched value), so appending it to `reasons` cannot
+        # move a secret into the rejection row.
+        try:
+            from .implementation_safety import SecretLeakDetected, verify_no_secret_in_envelope
+
+            verify_no_secret_in_envelope(envelope)
+        except SecretLeakDetected as exc:
+            reasons.append(f"secret_in_envelope: {exc}")
         revalidation = validate_agent_response_evidence(
             response=envelope,
             workspace_root=workspace_root,

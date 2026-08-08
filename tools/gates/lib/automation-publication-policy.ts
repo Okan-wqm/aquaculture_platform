@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { basename } from 'node:path';
 
+import { canonicalJson } from './canonical-json';
+import { FINDING_REGISTRY_REQUEST_RECEIPT_BASENAME } from './finding-registry-request-receipt';
 import {
   FINDING_WRITER_REGISTRY_MUTATION_OPERATIONS,
   isFindingWriterRegistryMutationOperation,
@@ -191,16 +193,6 @@ const RESULT_JSON_BASENAME_BY_POLICY: Readonly<Record<AutomationPublicationPolic
   'aria-daily-report': 'aria-daily-report-publication.json',
   'rule-health-report': 'rule-health-report-publication.json',
 };
-
-function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  const record = value as Readonly<Record<string, unknown>>;
-  return `{${Object.keys(record)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
-    .join(',')}}`;
-}
 
 function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
@@ -649,7 +641,7 @@ export function automationPublicationInputArtifact(
 ): AutomationPublicationInputArtifactContract {
   const exactFiles: readonly string[] =
     policy.key === 'registry-add' || policy.key === 'registry-close'
-      ? ['finding-registry-authority-preflight.json', 'finding-registry-operation.txt']
+      ? ['finding-registry-authority-preflight.json', FINDING_REGISTRY_REQUEST_RECEIPT_BASENAME]
       : policy.key === 'registry-sweep'
         ? ['finding-state-sweep-preflight.json', 'finding-state-sweep-plan.txt']
         : policy.key === 'aria-daily-report'

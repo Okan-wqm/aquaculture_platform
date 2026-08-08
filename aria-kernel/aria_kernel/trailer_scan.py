@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .feedback import add_feedback, normalize_feedback_event
+from .batch_containment import guard_item, with_item_failures
 from .ledger import read_jsonl
 from .pressure import append_pressure_state_event, effective_workspace_pressures
 from .workspace import WorkspacePaths
@@ -28,10 +29,29 @@ def git_trailer_scan(paths: WorkspacePaths, *, cycle_id: str, tools_root: str | 
     pressures = {str(row.get("event_id") or row.get("pressure_id")): row for row in effective_workspace_pressures(paths)}
     closed = 0
     addressed = 0
+    item_failures: list[dict[str, Any]] = []
     ignored = 0
     for sha in commits:
-        message = _git_output(paths.repo_root, ["git", "show", "-s", "--format=%B", sha])
-        changed_files = _changed_files(paths.repo_root, sha)
+        # Per commit: `git show` can fail on one commit, and a trailer's
+        # governance write can fail on one line. Either used to end the scan,
+        # so every LATER commit's `Closes-Pressure` trailer went unread and
+        # those pressures stayed open with nothing recording why.
+        ok, message = guard_item(
+            item_failures,
+            item_kind="commit",
+            item_id=sha,
+            work=lambda sha=sha: _git_output(paths.repo_root, ["git", "show", "-s", "--format=%B", sha]),
+        )
+        if not ok or message is None:
+            continue
+        ok, changed_files = guard_item(
+            item_failures,
+            item_kind="commit",
+            item_id=sha,
+            work=lambda sha=sha: _changed_files(paths.repo_root, sha),
+        )
+        if not ok or changed_files is None:
+            continue
         for line in message.splitlines():
             match = TRAILER_RE.match(line.strip())
             if not match:
@@ -39,31 +59,61 @@ def git_trailer_scan(paths: WorkspacePaths, *, cycle_id: str, tools_root: str | 
             kind, raw_value = match.groups()
             pressure_id = raw_value.strip()
             if "," in pressure_id or not PRESSURE_ID_RE.match(pressure_id):
-                _record_ignored(paths, cycle_id, sha, kind, raw_value, "malformed_trailer")
+                guard_item(
+                    item_failures,
+                    item_kind="trailer",
+                    item_id=f"{sha}:{raw_value}",
+                    work=lambda sha=sha, kind=kind, raw_value=raw_value: _record_ignored(
+                        paths, cycle_id, sha, kind, raw_value, "malformed_trailer",
+                    ),
+                )
                 ignored += 1
                 continue
             pressure = pressures.get(pressure_id)
             if pressure is None:
-                _record_ignored(paths, cycle_id, sha, kind, pressure_id, "unknown_pressure")
+                guard_item(
+                    item_failures,
+                    item_kind="trailer",
+                    item_id=f"{sha}:{pressure_id}",
+                    work=lambda sha=sha, kind=kind, pressure_id=pressure_id: _record_ignored(
+                        paths, cycle_id, sha, kind, pressure_id, "unknown_pressure",
+                    ),
+                )
                 ignored += 1
                 continue
             if kind == "Closes-Pressure":
-                if _close_pressure_from_trailer(paths, cycle_id, sha, pressure):
+                ok, did_close = guard_item(
+                    item_failures,
+                    item_kind="trailer",
+                    item_id=f"{sha}:{pressure_id}",
+                    work=lambda pressure=pressure, sha=sha: _close_pressure_from_trailer(
+                        paths, cycle_id, sha, pressure,
+                    ),
+                )
+                if ok and did_close:
                     closed += 1
                 continue
-            record_workspace_governance_once(
-                paths,
-                "pressure_addresses_recorded",
-                {
-                    "pressure_event_id": pressure_id,
-                    "commit_sha": sha,
-                    "trailer_kind": kind,
-                    "changed_files": changed_files,
-                    "cycle_id": cycle_id,
-                },
+            ok, _recorded = guard_item(
+                item_failures,
+                item_kind="trailer",
+                item_id=f"{sha}:{pressure_id}",
+                work=lambda pressure_id=pressure_id, sha=sha, kind=kind, changed_files=changed_files: (
+                    record_workspace_governance_once(
+                        paths,
+                        "pressure_addresses_recorded",
+                        {
+                            "pressure_event_id": pressure_id,
+                            "commit_sha": sha,
+                            "trailer_kind": kind,
+                            "changed_files": changed_files,
+                            "cycle_id": cycle_id,
+                        },
+                    )
+                ),
             )
-            addressed += 1
-    return {
+            if ok:
+                addressed += 1
+    return with_item_failures({
         "schema_version": 1,
         "cycle_id": cycle_id,
         "status": "ok",
@@ -72,7 +122,7 @@ def git_trailer_scan(paths: WorkspacePaths, *, cycle_id: str, tools_root: str | 
         "closed_count": closed,
         "addressed_count": addressed,
         "ignored_count": ignored,
-    }
+    }, item_failures)
 
 
 def _close_pressure_from_trailer(paths: WorkspacePaths, cycle_id: str, sha: str, pressure: dict[str, Any]) -> bool:

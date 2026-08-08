@@ -41,6 +41,23 @@ def collect_metrics(paths: WorkspacePaths, *, tools_root: str | Path | None = No
         details = row.get("details", {})
         if kind == "learning_hook_failed":
             metrics.append(_metric("aria_learning_hook_failures_total", 1, {"hook_name": details.get("hook_name", ""), "error_class": details.get("error_class", "")}))
+        elif kind == "learning_hook_items_failed":
+            # Per-item containment keeps a batch hook running past one bad
+            # item. Without its own metric the contained failures would be
+            # invisible here, and a quieter dashboard would read as a
+            # healthier one.
+            for failure in details.get("failures", []):
+                metrics.append(
+                    _metric(
+                        "aria_learning_hook_item_failures_total",
+                        1,
+                        {
+                            "hook_name": details.get("hook_name", ""),
+                            "item_kind": failure.get("item_kind", ""),
+                            "error_class": failure.get("error_class", ""),
+                        },
+                    ),
+                )
         elif kind == "pressure_decayed":
             for transition in details.get("transitions", []):
                 metrics.append(_metric("aria_pressure_decays_total", 1, {"to_state": transition.get("to_state", "")}))

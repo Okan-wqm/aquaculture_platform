@@ -973,6 +973,9 @@ class HardFailReport:
     results: tuple[HardFailResult, ...]
     _token: object = field(default=None, repr=False, compare=False)
 
+    def __post_init__(self) -> None:
+        _require_registry_token(self._token, "HardFailReport", "run_hard_fail_checks")
+
     @property
     def failures(self) -> tuple[HardFailResult, ...]:
         return tuple(r for r in self.results if not r.passed)
@@ -992,10 +995,37 @@ class HardFailBlocked(RuntimeError):
     """A hard-fail check refused the pending action."""
 
 
+class ForgedVerdict(RuntimeError):
+    """A perimeter verdict was constructed by something other than the registry.
+
+    Its own class rather than a ValueError so an audit can grep for it: a
+    forged verdict is not a programming slip, it is the perimeter being
+    bypassed without a single check being defeated.
+    """
+
+
 # Opaque construction token. A HardFailReport built without it is not one
 # the registry produced, which is what makes a hand-assembled "everything
 # passed" report impossible rather than merely discouraged.
+#
+# THAT CLAIM WAS FALSE UNTIL THE TOKEN WAS CHECKED. ORPHAN-CRITICAL-428
+# introduced this constant and both producers pass it, but nothing ever read
+# it back and the field defaults to None — so
+# `HardFailReport(results=(HardFailResult("no_force_push", True, "ok"),))`
+# built a report whose `passed` was True and whose `raise_if_blocked()`
+# returned silently. One line, and the seventeen-check perimeter was bypassed
+# without a single check being defeated. `_require_registry_token` is what
+# turns the docstring's "impossible" into the truth it always claimed to be.
 _REPORT_TOKEN: object = object()
+
+
+def _require_registry_token(token: object, type_name: str, producer: str) -> None:
+    if token is not _REPORT_TOKEN:
+        raise ForgedVerdict(
+            f"forged_perimeter_verdict:{type_name} may only be constructed by "
+            f"{producer}; a hand-assembled verdict is the perimeter bypassed "
+            f"without a check being run"
+        )
 
 
 @dataclass(frozen=True)
@@ -1483,6 +1513,14 @@ class PerimeterObservation:
     verdicts: tuple[PerimeterVerdict, ...]
     gate: str | None = None
     _token: object = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        # An observation authorises nothing, so a forged one cannot bypass a
+        # gate — but it CAN feed a fabricated telemetry record into the
+        # governance ledger the autonomy ladder reads. Evidence has to be
+        # produced by the thing that observed, for the same reason a verdict
+        # does.
+        _require_registry_token(self._token, "PerimeterObservation", "observe_perimeter")
 
     @property
     def refused(self) -> tuple[PerimeterVerdict, ...]:

@@ -16,7 +16,7 @@ Harness: `tools/aria-acceptance/harness.py`.
 1. Run the deterministic harness (the truth gate — no LLM):
 
 ```
-python3 tools/aria-acceptance/harness.py
+python3 tools/aria-acceptance/harness.py --json-out aria-tools/acceptance/latest-report.json
 ```
 
 Exit 0 = ACCEPT, exit 1 = REJECT. It reports: drift TP/FP/unverifiable, the

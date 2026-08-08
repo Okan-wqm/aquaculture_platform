@@ -532,10 +532,12 @@ def quarantine_breaker_evidence(
     that failed to decode, and the sliding window only ages ``rows`` — the lines
     that decoded. A corrupt line therefore never ages out. One truncated row in
     ``autonomous-failures.jsonl`` trips the breaker for every subsequent nightly
-    ``standard`` cycle, permanently, and the ledger travels between runs inside
-    the ``aria-tools-state`` artifact, so the only lever was deleting that
-    artifact — which also destroys the agent queue ORPHAN-CRITICAL-469 exists to
-    carry.
+    ``standard`` cycle, permanently. The ledger travels between runs with the
+    rest of ARIA's state, so at the time the only lever was deleting that
+    state — which also destroyed the agent queue ORPHAN-CRITICAL-469 exists to
+    carry. (Since the lane cutover the state is the append-only ``aria/state``
+    branch, so that lever no longer exists at all and the quarantine below is
+    the ONLY route, not merely the better one.)
 
     An unexitable safety state is an outage, not a safety property. Exiting it,
     though, must not mean discarding evidence — so this is deliberately NOT a

@@ -180,6 +180,44 @@ class PublishContentionTests(unittest.TestCase):
         report = verify_jsonl(tools_root(store_b) / "cycles.jsonl")
         self.assertTrue(report["valid"], report)
 
+    def test_a_glob_surface_survives_the_replay(self) -> None:
+        """ORPHAN-HIGH-555 — glob surfaces broke every replay that carried one.
+
+        Snapshot keys for glob surfaces are ``name:relative/path`` (the
+        ``covered_tool_ledgers`` vocabulary). The replay staged each suffix at
+        ``staging / f"{key}.jsonl"`` — a PATH once the key carries ``/`` — and
+        re-appended with ``expected_surface=<key>``, which the declared-surface
+        gate refuses. Found by running the recovery against the live branch,
+        whose tree carries glob-fanned ledgers the plain-surface tests do not.
+        """
+        glob_rel = Path("runs") / "by-cycle" / "cyc-glob.jsonl"
+
+        def _append_glob(store, marker: str) -> None:
+            append_declared_fixture(
+                tools_root(store) / glob_rel,
+                {"schema_version": 2, "marker": marker},
+                expected_surface="runs_by_cycle",
+            )
+
+        store_a = self._store(self.repo_a, "store-a")
+        self._append(store_a, "shared-1")
+        _append_glob(store_a, "shared-glob")
+        self._publish(store_a, "snap-base", "cycle-base")
+
+        store_b = self._store(self.repo_b, "store-b")
+        self._append(store_a, "lane-a-only")
+        self._append(store_b, "lane-b-only")
+        _append_glob(store_b, "lane-b-glob")
+
+        self._publish(store_a, "snap-a", "cycle-a")
+        result = self._publish(store_b, "snap-b", "cycle-b")
+
+        self.assertTrue(result["published"])
+        rows = read_jsonl(tools_root(store_b) / glob_rel)
+        self.assertEqual([r["marker"] for r in rows], ["shared-glob", "lane-b-glob"])
+        report = verify_jsonl(tools_root(store_b) / glob_rel)
+        self.assertTrue(report["valid"], report)
+
     def test_an_uncontended_publish_takes_one_attempt(self) -> None:
         """The orchestrator must not cost anything when there is no race."""
         store_a = self._store(self.repo_a, "store-a")

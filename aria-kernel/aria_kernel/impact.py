@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .impact_graph import plan_downstream_impact
+from .impact_graph import normalize_paths as _normalize_paths, plan_downstream_impact
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
@@ -19,7 +19,21 @@ def plan_impact(
 ) -> dict[str, Any]:
     if not changed_files or not all(isinstance(item, str) and item.strip() for item in changed_files):
         raise GovernanceError("changed_files must contain at least one path")
-    normalized = [item.replace("\\", "/").lstrip("./") for item in changed_files]
+    # ONE normalizer, not two (ORPHAN-HIGH-576).
+    #
+    # This used to be an inline `item.replace("\\", "/").lstrip("./")`, a second
+    # answer to "what is a normalized path" that disagreed with
+    # `impact_graph._normalize_paths`. `lstrip` strips CHARACTERS, not a
+    # prefix, so every dotfile directory was mangled: `.github/workflows/x.yml`
+    # became `github/workflows/x.yml` and `.claude/agents/x.md` became
+    # `claude/agents/x.md`. Those mangled paths were then written to the
+    # impact-plans ledger as the record of what a change touched, and no
+    # project root begins with `github/`, so the mangling also guaranteed the
+    # path could never be placed.
+    #
+    # Calling the graph's normalizer means there is no second normalizer left
+    # to drift from the first.
+    normalized = _normalize_paths(list(changed_files))
     graph = None
     if workspace_root is not None:
         graph = plan_downstream_impact(

@@ -25,6 +25,10 @@ import {
   type AutomationPublicationPolicyKey,
   type ResolvedAutomationPublicationPolicy,
 } from './lib/automation-publication-policy';
+import {
+  FINDING_REGISTRY_REQUEST_RECEIPT_BASENAME,
+  parseFindingRegistryRequestReceipt,
+} from './lib/finding-registry-request-receipt';
 import { verifyGitHubArtifactArchive } from './lib/github-artifact-archive';
 
 const API_ROOT = 'https://api.github.com';
@@ -1031,7 +1035,24 @@ async function verifyInputArtifact(
     apiDigest,
     contract.exactFiles,
   );
-  if (expectation.policy.inputDigestKind === 'content') {
+  if (expectation.policy.key === 'registry-add' || expectation.policy.key === 'registry-close') {
+    const receiptBytes = entries.get(FINDING_REGISTRY_REQUEST_RECEIPT_BASENAME);
+    if (!receiptBytes) throw new Error('Finding registry request receipt is absent');
+    const receipt = parseFindingRegistryRequestReceipt(receiptBytes);
+    if (
+      receipt.repository !== AUTOMATION_REPOSITORY ||
+      receipt.repository_id !== AUTOMATION_REPOSITORY_ID ||
+      receipt.workflow_ref !== expectation.policy.workflowRef ||
+      receipt.workflow_sha !== expectation.pullRequest.baseSha ||
+      receipt.workflow_run_id !== runId ||
+      receipt.workflow_run_attempt !== attempt ||
+      receipt.command_id !== expectation.provenance.commandId ||
+      receipt.operation !== expectation.provenance.operation ||
+      receipt.input_sha256 !== expectation.provenance.inputSha256
+    ) {
+      throw new Error('Finding registry request receipt differs from commit and workflow evidence');
+    }
+  } else if (expectation.policy.inputDigestKind === 'content') {
     const input = entries.get(basename(expectation.policy.changedPath));
     if (
       !input ||

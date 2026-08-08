@@ -13,6 +13,26 @@ from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 IMPORT_RE = re.compile(r"""from\s+['"]([^'"]+)['"]|import\s+[^'"]*['"]([^'"]+)['"]""")
 
+# A directory is a project when it carries one of these. ``project.json`` is
+# nx's own SSoT; the other three cover the deliverable roots nx does not model
+# (the Rust edge gateway, ARIA's Python kernel, the standalone PWA). The
+# vocabulary is closed on purpose — every additional marker nominates
+# directories, and a graph that names non-projects misroutes as badly as one
+# that misses projects.
+PROJECT_MARKERS = ("project.json", "package.json", "Cargo.toml", "pyproject.toml")
+
+# Directories that are not this repository's source: dependencies, build
+# output, and vendored third-party trees. They carry markers of their own and
+# would otherwise flood the graph with projects nobody here maintains.
+NOT_THE_REPOSITORY = frozenset(
+    {"node_modules", "dist", "build", "coverage", "target", "vendor", "tmp", "__pycache__"}
+)
+
+# The walk prunes at every project it finds, so depth is reached only inside
+# grouping directories (``web/apps/…``, ``tools/executors/…``). The bound is a
+# cost guard on pathological trees, not a statement about repository layout.
+_MARKER_SCAN_MAX_DEPTH = 6
+
 
 def plan_downstream_impact(
     *,
@@ -28,15 +48,28 @@ def plan_downstream_impact(
     if not root.exists():
         raise GovernanceError(f"workspace root does not exist: {workspace_root}")
     graph = _project_graph(root=root, nx_graph_file=Path(nx_graph_file) if nx_graph_file else None)
-    changed = sorted({_project_for_path(path, graph["projects"]) for path in _normalize_paths(changed_files)})
-    changed_projects = [project for project in changed if project]
-    unknown_files = [path for path in _normalize_paths(changed_files) if _project_for_path(path, graph["projects"]) is None]
+    # FILTER BEFORE SORTING, and the order is the whole bug (ORPHAN-HIGH-575).
+    #
+    # This read `sorted({...})` and filtered the Nones afterwards. But
+    # `_project_for_path` returns `str | None`, so a change touching one path
+    # the graph can place and one it cannot handed `sorted` a set of mixed
+    # types and it raised `TypeError: '<' not supported between instances of
+    # 'str' and 'NoneType'`.
+    #
+    # The trigger is the MIXTURE, which is why both halves of the obvious test
+    # matrix passed: all-code produces no None, and all-docs produces a
+    # one-element set that never needs a comparison. Code plus its own review
+    # document — this repository's most common commit — is what crashed.
+    normalized = normalize_paths(changed_files)
+    resolved = [(path, _project_for_path(path, graph["projects"])) for path in normalized]
+    changed_projects = sorted({project for _, project in resolved if project})
+    unknown_files = [path for path, project in resolved if project is None]
     downstream = _reverse_closure(changed_projects, graph["dependencies"])
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
         "cycle_id": cycle_id,
-        "changed_files": _normalize_paths(changed_files),
+        "changed_files": normalize_paths(changed_files),
         "changed_projects": changed_projects,
         "direct_projects": changed_projects,
         "downstream_projects": downstream,
@@ -141,7 +174,7 @@ def plan_service_analysis_order(
     plan["recorded_at"] = utc_now()
     if changed_files:
         counts: dict[str, int] = {}
-        for path in _normalize_paths([p for p in changed_files if isinstance(p, str) and p.strip()]):
+        for path in normalize_paths([p for p in changed_files if isinstance(p, str) and p.strip()]):
             project = _project_for_path(path, graph["projects"])
             if project:
                 counts[project] = counts.get(project, 0) + 1
@@ -233,7 +266,7 @@ def cycle_service_examination(
     )
     projects = {name: {"root": r} for name, r in cache["project_roots"].items()}
     counts: dict[str, int] = {}
-    for path in _normalize_paths([p for p in (changed_files or []) if isinstance(p, str) and p.strip()]):
+    for path in normalize_paths([p for p in (changed_files or []) if isinstance(p, str) and p.strip()]):
         project = _project_for_path(path, projects)
         if project:
             counts[project] = counts.get(project, 0) + 1
@@ -276,7 +309,7 @@ def cycle_service_examination(
             continue
         evidence = [p for p in (pressure.get("evidence") or []) if isinstance(p, str) and p.strip()]
         services = sorted(
-            {_project_for_path(path, projects) for path in _normalize_paths(evidence)} - {None}
+            {_project_for_path(path, projects) for path in normalize_paths(evidence)} - {None}
         )
         summary = {
             "pressure_id": pressure.get("pressure_id"),
@@ -376,6 +409,13 @@ def _read_nx_graph(*, root: Path, graph_file: Path) -> dict[str, Any]:
 
 
 def _discover_projects(root: Path) -> dict[str, dict[str, str]]:
+    """Every project in the repository, by convention first and marker second.
+
+    The conventional layout runs first because the names it produces are what
+    agent routing, the validation matrix and the twin already key on; the
+    marker sweep is strictly ADDITIVE on top of it, so no existing project can
+    be renamed or re-rooted by a marker appearing next to it.
+    """
     projects: dict[str, dict[str, str]] = {}
     for parent in ("apps", "libs"):
         for child in _children(root / parent):
@@ -390,7 +430,72 @@ def _discover_projects(root: Path) -> dict[str, dict[str, str]]:
     shell = root / "web" / "shell"
     if shell.exists():
         projects["web-shell"] = {"root": shell.relative_to(root).as_posix()}
+    _add_marker_projects(root, projects)
     return projects
+
+
+def _add_marker_projects(root: Path, projects: dict[str, dict[str, str]]) -> None:
+    """Add the marker-bearing directories the conventional layout does not name.
+
+    The conventional list was accurate for the repository it was written
+    against and then stopped growing with it: ``crates/``, ``mcp/``,
+    ``tests/``, ``tools/executors/``, ``e2e/``, ``scripts/``, the Rust edge
+    gateway and ARIA's own Python kernel were all invisible to it, which made
+    every path under them ``unknown_files`` and every plan touching them
+    ``blocked_unknown_graph``. Discovering by marker means a project joins the
+    graph when it acquires its marker, with no list to remember to edit.
+
+    Walk order is shallow-first, which is what makes containment come out
+    right: ``sens-api-gateway`` is a project and ``sens-api-gateway/fuzz`` is
+    part of it, not a sibling. Two guards below enforce that, and each is
+    sufficient alone (measured: removing either leaves the suite green,
+    removing both turns it red) — the prune catches a nested marker reached by
+    another route, the ``continue`` means it is not reached at all. The
+    ``continue`` earns its place on cost, not on correctness: without it the
+    walk lists the children of every project it finds.
+    """
+    queue: list[tuple[Path, int]] = [(root, 0)]
+    while queue:
+        directory, depth = queue.pop(0)
+        if directory != root:
+            rel = directory.relative_to(root).as_posix()
+            # Already inside a known project: there is nothing nested to find.
+            if _project_for_path(rel, projects) is not None:
+                continue
+            if any((directory / marker).is_file() for marker in PROJECT_MARKERS):
+                name = _marker_project_name(directory, rel)
+                # A name already taken is never reassigned — moving a project's
+                # root under a consumer's feet is worse than not adding one.
+                if name and name not in projects:
+                    projects[name] = {"root": rel}
+                continue
+        if depth >= _MARKER_SCAN_MAX_DEPTH:
+            continue
+        for child in _children(directory):
+            if child.name in NOT_THE_REPOSITORY or child.name.startswith("."):
+                continue
+            queue.append((child, depth + 1))
+
+
+def _marker_project_name(directory: Path, rel: str) -> str:
+    """The project's in-graph identity.
+
+    ``project.json``'s ``name`` wins because nx owns that identity and enforces
+    its uniqueness — inventing a second name would file one project under two
+    identities in two consumers. The other markers declare PUBLISH identities
+    (this repository's root crate publishes as ``suderra-agent``), which are
+    not the repository's name for the directory, so those fall back to the
+    repo-relative path.
+    """
+    manifest = directory / "project.json"
+    if manifest.is_file():
+        try:
+            declared = json.loads(manifest.read_text(encoding="utf-8")).get("name")
+        except (OSError, ValueError):
+            declared = None
+        if isinstance(declared, str) and declared.strip():
+            return declared.strip()
+    return rel.replace("/", "-")
 
 
 def _scan_project_dependencies(
@@ -480,7 +585,15 @@ def _validation_scope(changed: list[str], downstream: list[str], unknown: list[s
     return "blocked_unknown_graph"
 
 
-def _normalize_paths(paths: list[str]) -> list[str]:
+def normalize_paths(paths: list[str]) -> list[str]:
+    """THE normalizer for changed-file paths — there is deliberately only one.
+
+    Exported rather than private because `impact.py` used to carry a second,
+    subtly different one (ORPHAN-HIGH-576): an inline `lstrip("./")` that
+    strips CHARACTERS rather than a prefix, so `.github/...` became
+    `github/...`. Two normalizers is one more than the number of correct
+    answers to "what is a normalized path".
+    """
     return [_normalize_path(path) for path in paths]
 
 

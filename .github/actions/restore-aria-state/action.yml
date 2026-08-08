@@ -1,0 +1,200 @@
+name: Restore ARIA state
+description: >-
+  Restore the persistent ARIA state tree from the `aria/state` branch, and
+  report whether the tree descends from a published one or from an
+  operator-acknowledged first bootstrap.
+
+# PLAN Wave 1 PR 2.6b — THE LANE CUTOVER. This action used to download the
+# newest `aria-tools-state` artifact. It now checks out the durable store.
+#
+# WHY THE TRANSPORT HAD TO CHANGE, not just be guarded better.
+#
+# ORPHAN-CRITICAL-484/488/513 are three guards around one structural fact: an
+# artifact upload CANNOT enforce ancestry. `overwrite: true` will bury the
+# accumulated state under a bootstrap-empty tree, and an empty tree passes
+# `integrity verify` because it is trivially consistent. So the artifact era
+# had to compensate procedurally — the `restored` / `bootstrap` outputs below
+# ARE that compensation, and 513 is what it cost when only one of the two lanes
+# carried it.
+#
+# `aria/state` moves the guarantee into the transport. `publish_state` pushes
+# fast-forward-only, so a tree that does not descend from the tip is rejected
+# by the SERVER. The compensation stays as defence in depth — it answers a
+# different question ("did this job start from real state?") than the push does
+# ("does this commit descend from the tip?") — but it is no longer the only
+# thing standing between a failed restore and an erased history.
+#
+# THE OUTPUT CONTRACT IS UNCHANGED ON PURPOSE. Both lanes gate their publish on
+# `restored || bootstrap`, and `tests/invariants/aria-single-restore-path.spec.ts`
+# asserts the outputs exist and that no negative form (`restored=false`) is ever
+# written. Absence is still the signal: a refusal, a transport failure, a
+# skipped step and a crash all leave both unset, and all block the publish.
+#
+# The three states map onto exit codes the kernel already separates
+# (`cli.py` state command): 0 with `bootstrapped=false` is a restore, 0 with
+# `bootstrapped=true` is an acknowledged first bootstrap, 3 is a REFUSAL (an
+# unacknowledged bootstrap, or an ancestry that cannot be proven) and 1 is a
+# transport failure. The artifact implementation had to hand-code that split;
+# here it is read off the command.
+#
+# ONE RESTORE PATH, STILL. RC-6 extracted this from two hand-copied heredocs
+# that had already drifted. A second implementation around a hash-chained
+# ledger is two transactions around one ledger, which is how a ledger diverges;
+# the invariant spec above pins that there is exactly one, and its detector was
+# re-aimed at this transport in the same commit so it cannot pass vacuously.
+
+inputs:
+  bootstrap-ack:
+    description: >-
+      Operator acknowledgement authorising creation of the `aria/state` branch
+      on a genuine first run, as `owner/repo`. Empty on every normal run: the
+      store REFUSES to create the branch without it, because a process that can
+      create the branch when it cannot SEE it is a process that replaces
+      history with emptiness on a network blip. See
+      docs/runbooks/aria-state-branch-bootstrap.md.
+    required: false
+    default: ''
+
+outputs:
+  restored:
+    description: >-
+      'true' only when the store was checked out at a published tip. Never
+      'false' — absence is the signal, so a refusal, a transport failure, a
+      skipped step and a crash all read the same as a failed restore.
+    value: ${{ steps.restore.outputs.restored }}
+  bootstrap:
+    description: >-
+      'true' only on an operator-acknowledged first bootstrap. Distinct from
+      `restored` so a newborn ARIA can publish its first snapshot while a
+      broken restore still cannot.
+    value: ${{ steps.restore.outputs.bootstrap }}
+  tools-root:
+    description: >-
+      The store-resident aria-tools root the lane must bind to. Emitted rather
+      than restated by each caller: a second copy of the path convention is how
+      two roots drift. Also EXPORTED as `ARIA_TOOLS_DIR` — see the binding step.
+    value: ${{ steps.restore.outputs.tools-root }}
+  workspace-root:
+    description: The store-resident workspace root for this repository.
+    value: ${{ steps.restore.outputs.workspace-root }}
+  findings-root:
+    description: The store-resident findings root.
+    value: ${{ steps.restore.outputs.findings-root }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check out the aria/state store
+      id: restore
+      shell: bash
+      env:
+        ARIA_STATE_BOOTSTRAP_ACK: ${{ inputs.bootstrap-ack }}
+      run: |
+        set -uo pipefail
+        # NOT `set -e`. A refusal (exit 3) and a transport failure (exit 1) are
+        # different verdicts and both must be REPORTED before the step ends;
+        # aborting on the command would lose the kernel's structured reason.
+        # The step still fails at the end for both — what changes is that the
+        # operator sees which one it was.
+        VERDICT="${RUNNER_TEMP}/aria-state-checkout.json"
+        if PYTHONPATH=aria-kernel python3 -m aria_kernel state checkout \
+             --repo-root . > "$VERDICT" 2>"${VERDICT}.err"; then
+          python3 - <<'PY'
+        import json
+        import os
+
+        with open(os.environ["RUNNER_TEMP"] + "/aria-state-checkout.json", encoding="utf-8") as fh:
+            verdict = json.load(fh)
+
+        # ORPHAN-CRITICAL-484 — positive proof, written on the success path
+        # only. There is no negative form to get wrong.
+        signal = "bootstrap" if verdict["bootstrapped"] else "restored"
+        with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+            fh.write(f"{signal}=true\n")
+            fh.write(f"tools-root={verdict['tools_root']}\n")
+            fh.write(f"workspace-root={verdict['workspace_root']}\n")
+            fh.write(f"findings-root={verdict['findings_root']}\n")
+
+        # THE BINDING, exported rather than described. Three roots have to
+        # agree; a lane that got two right would look like it was working
+        # while a third of ARIA's memory kept dying with the runner. The
+        # kernel emits the whole mapping from `store_environment`, so the
+        # workflow never restates the path convention — and cannot restate
+        # two thirds of it.
+        #
+        # Exporting is load-bearing, not convenience. `aria-tools/` in the
+        # CHECKOUT carries a tracked `repo_identity.json`, so `tools_dir()`'s
+        # walk-up would find it and every ledger would be written to the tree
+        # that dies with the runner — a silent success, which is the failure
+        # mode this whole PR exists to end. With the binding in the job
+        # environment and `set -u` at every callsite, an absent binding is a
+        # failed step instead.
+        with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
+            for key, value in sorted(verdict["environment"].items()):
+                fh.write(f"{key}={value}\n")
+        print(f"aria/state checked out ({signal}); tools root {verdict['tools_root']}")
+        PY
+          # A CHECKED-OUT STORE IS NOT YET A USABLE TOOLS ROOT, and this is the
+          # one definition of making it one.
+          #
+          # `repo_identity.json` records an absolute `bound_repo_root`, so it is
+          # machine-local binding state and the shared branch deliberately does
+          # not carry it (see state_manifest.py, where declaring it would have
+          # been the tempting wrong fix). What arrives from the branch is
+          # therefore a tools root full of covered state with NO identity —
+          # exactly the shape `ensure_tools_dir` rejects as
+          # `ambiguous_tools_root`. The migration is idempotent and re-derives
+          # the binding from the repository's canonical identity, which is
+          # path-independent, so it is a no-op on a root already at v3.
+          #
+          # HERE rather than in each lane, because only one lane had it. The
+          # producer ran `migrate-tools-bootstrap`; the executor never did, so
+          # the first executor run against a restored store would have died on
+          # `ambiguous_tools_root` at the lease check — the RC-6 drift shape
+          # exactly, one lane carrying a step the other needed just as much.
+          PYTHONPATH=aria-kernel python3 -m aria_kernel \
+            integrity migrate-tools-bootstrap \
+            --tools-dir "$(python3 -c 'import json,os,sys; print(json.load(open(sys.argv[1]))["tools_root"])' "$VERDICT")" \
+            --workspace-root "$PWD" \
+            --acknowledge \
+            --reason "bind the restored aria/state store to this checkout"
+        else
+          STATUS=$?
+          # 3 is the kernel's REFUSAL code — an unacknowledged bootstrap or an
+          # ancestry it could not prove. Distinguished from a transport failure
+          # so an operator does not retry a refusal into a success.
+          if [ "$STATUS" -eq 3 ]; then
+            echo "::error::aria/state refused the checkout (verdict, not a transport failure). See docs/runbooks/aria-state-branch-bootstrap.md." >&2
+          else
+            echo "::error::aria/state checkout failed to reach the remote (exit ${STATUS})." >&2
+          fi
+          # THE REASON THE KERNEL GAVE, read from the stream it actually uses.
+          #
+          # `cli.py` prints a refusal as JSON on STDOUT and returns 3, and this
+          # step redirects stdout into $VERDICT. So the line below used to print
+          # `${VERDICT}.err` — stderr — and on every refusal that file is EMPTY.
+          # The structured reason this step exists to preserve was captured and
+          # then discarded: the comment above promises not to lose it, and the
+          # code lost it by naming the wrong stream. Measured on run
+          # 30977606839, where the operator was told the checkout was refused,
+          # was pointed at a runbook, and was never told which refusal it was.
+          python3 - "$VERDICT" >&2 <<'PY' || true
+        import json
+        import sys
+
+        try:
+            with open(sys.argv[1], encoding="utf-8") as fh:
+                verdict = json.load(fh)
+        except (OSError, ValueError):
+            verdict = {}
+        reason = verdict.get("refusal") if isinstance(verdict, dict) else None
+        if reason:
+            print(f"aria/state refusal: {reason}")
+        elif verdict:
+            print(f"aria/state verdict: {json.dumps(verdict, sort_keys=True)[:2000]}")
+        else:
+            print("aria/state wrote no verdict — the command failed before judging.")
+        PY
+          head -c 4000 "${VERDICT}.err" >&2 || true
+          exit "$STATUS"
+        fi

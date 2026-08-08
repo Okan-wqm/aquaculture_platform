@@ -9,7 +9,11 @@
   "include": [
     "publish-automation-pr.ts",
     "publish-automation-pr.spec.ts",
+    "write-finding-registry-request-receipt.ts",
+    "write-finding-registry-request-receipt.spec.ts",
     "../../gates/lib/automation-publication-policy.ts",
-    "../../gates/lib/automation-publication-policy.spec.ts"
+    "../../gates/lib/automation-publication-policy.spec.ts",
+    "../../gates/lib/canonical-json.ts",
+    "../../gates/lib/finding-registry-request-receipt.ts"
   ]
 }

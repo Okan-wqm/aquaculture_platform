@@ -1,5 +1,16 @@
 # Orphan Findings — Plan-Independent Real Problems
 
+<!-- markdownlint-disable -->
+<!-- WHY: append-only machine-written evidence ledger; entries carry verbatim
+     evidence (file:line quotes, SHAs, JSON, bare fences, repeated headings)
+     recorded long before any style rule existed and never rewritten after
+     the fact. The docs-check whole-file lint would otherwise go red on
+     historical evidence every time a future finding ceremony appends here
+     (MD013 x ~2,864 lines, plus MD024/MD031/MD037/MD040 across the ledger),
+     so markdownlint is disabled for this one file. Structure is enforced by
+     the real parsers instead: ORPHAN_HEADING_REGEX in
+     tools/gates/commit-msg-validator.ts and the registry invariants. -->
+
 **Purpose:** Problems spotted while reading code for planned work (ADRs / Faz implementation) that are **NOT** part of the current plan. Discovery → test → document here.
 
 **Policy:** Append-only. Findings RESOLVED via commits carry closure note + commit SHA. Never silently dropped.
@@ -7671,3 +7682,469 @@ Severity: HIGH (recurrence enabler for the 2026-07-07 messaging outage class). #
 ## INFRA-HIGH-079 — Production node is heavily swapped while production/dev/test workloads co-locate — IN-PROGRESS
 
 **Discovered and reproduced:** 2026-07-18 read-only host inventory measured 8,326,946,816 bytes RAM with 3,567,439,872 available, and 7,275,569,152 of 8,589,926,400 swap bytes in use. The second swap file alone carries 5,137,809,408 used bytes. Production containers share the node with long-lived WAL-G integration containers and active engineering agents; this does not authorize killing those owners or deleting their state. **Fix in progress:** establish workload ownership and bounded cleanup, prove post-cleanup RAM/swap headroom, then either retain both swap files under an explicit capacity budget or obtain an operator-approved paid resize before any swap lifecycle change. **Owner:** performance-expert. **Deadline:** 2026-07-22. **Status:** IN-PROGRESS. **Canonical registry:** `INFRA-HIGH-079`.
+
+## ORPHAN-HIGH-417 — the deploy capacity guard cannot see the two disk consumers that actually filled the droplet, and the fill took production down for two days — OPEN
+
+**Discovered:** 2026-08-04, whole-disk audit on the production droplet after `/` hit 100% (1.1 GB free of 154 GB).
+
+`scripts/deploy/droplet-capacity.sh` reclaims docker images (`safe_image_gc`, scheduled 6-hourly by `deploy-capacity-maintenance.yml` since #702). On this fill it had nothing to give: images were 34.5 GB but **38 of 40 were bound to running containers**, so only ~65 MB was reclaimable. The disk was consumed by two classes the guard does not model:
+
+1. **`/tmp` session leftovers — 15.9k top-level directories.** ~6.2k `plan-coverage-spec-*` (ARIA test temp, 6.05 GB), ~1.4k `suderra-*-test-*` / `license-cache-*`, and ~258 full repo clones created via `mktemp -d -t aqua-<topic>-XXXXXX` at roughly 13/day, never removed.
+2. **Rust `target/` caches — 33.7 GB across 10 directories**, 4.6–5.3 GB each.
+
+**Impact — this is not hypothetical.** On 2026-08-03 at 02:07 UTC six containers exited(1) simultaneously (`aqua-auth`, `aqua-ai`, `aqua-sensor`, `aqua-admin-api`, `aqua-event-store`, `aqua-observability`); the daemon log at 02:22 shows `OCI runtime exec failed: write /tmp/runc-process…: no space left on device`. With auth-service gone the gateway could not resolve it and **login was broken until 2026-08-04 ~14:50**. 34.3 GB was reclaimed manually and the six restarted healthy.
+
+**Fix:** extend the capacity guard to sweep both classes, reusing the deletion protocol proven in that cleanup — protect a `/tmp` entry if it is a registered `git worktree`, is touched by a live process via **cwd OR exe OR any open fd**, is a docker bind-mount source (`docker ps -aq`, including stopped), is `/tmp/claude-0`, has any file modified inside the age window, or its git repo has uncommitted changes or unpushed commits. The live-process scan alone is insufficient: an idle agent leaves NO process between tool calls, and only the age guard saved an actively-running codex session during the manual sweep. Report reclaim as `total - keepset` in ONE `du` pass; summing per-directory sizes double-counts hardlinks (overstated 30.0 vs the real 16.3 GB here).
+**Owner:** infra-expert. **Deadline:** 2026-08-19.
+
+## ORPHAN-HIGH-418 — `docker ps` reported six dead containers as "Up 2 weeks" for the entire two-day outage — OPEN
+
+**Discovered:** 2026-08-04, while diagnosing the login failure in ORPHAN-HIGH-417.
+
+Throughout the outage `docker ps` listed all six exited containers as `Up 2 weeks (unhealthy)`. Only `docker inspect --format '{{.State.Running}}'` told the truth — `false`, `Status=exited`, `ExitCode=1`, `Pid=0` — and their `NetworkSettings` IP read `invalid IP`. `docker exec aqua-auth …` returned "container is not running" while `docker ps` still showed it up.
+
+**Impact:** every human and agent check of the form "how many containers are running?" reported 38 when the real number was 32, for two days. This session repeated that error before catching it. Any runbook, health probe, or capacity script reading `docker ps` text inherits the same blind spot.
+
+**Fix:** make container-health verification read `State.Running` rather than `docker ps` output, in runbooks and in any script that counts containers. Consider a probe that flags the inconsistency itself (ps says up, inspect says exited) — that divergence is a reliable signal the daemon's state is corrupted, which on this box means disk exhaustion.
+**Owner:** infra-expert. **Deadline:** 2026-08-19.
+
+## ORPHAN-HIGH-419 — the ARIA self-hosted runner has been OOM-dead since 2026-07-18, so the nightly autonomy cycle has not run for two and a half weeks — OPEN
+
+**Discovered:** 2026-08-04, investigating why "the nightly" would not produce results.
+
+```
+actions.runner.Okan-wqm-aquaculture_platform.suderra-droplet-claude.service
+Active: failed (Result: oom-kill) since Sat 2026-07-18 04:26:02 UTC
+Main PID: 3894501 (code=killed, signal=KILL)
+```
+
+`aria-auto-cycle.yml` (cron `0 1 * * *`) declares `runs-on: [self-hosted, linux, claude]`. The runner is registered but `offline`. The cycle has therefore produced nothing since 2026-07-18, which is the real reason the autonomy program's Wave 1 cannot close — not a missing code path.
+
+**This is the missed consequence of `INFRA-HIGH-079`, and that finding's own numbers have gone backwards.** INFRA-HIGH-079 ("Production node is heavily swapped") was opened on **2026-07-18** — the same day, hours after the 04:26 kill — with **3.57 GB available RAM** and 7.28 GB of 8.59 GB swap in use, owner performance-expert, deadline **2026-07-22**, status IN-PROGRESS. That deadline is two weeks past. Measured 2026-08-04: **2.5 GB available** (down ~1 GB), 249 MB free, swap 6.4 GB of 8 GB, and **485 OOM events since 2026-07-25** — ongoing, not a one-off. No single fat process; the load is the sum of concurrent agent sessions (13 `claude` ≈ 1.2 GB, 4 `codex` ≈ 0.45 GB, 36 `node` ≈ 1.7 GB). Containers sit well inside their 512 MB limits.
+
+Nobody had connected the swap finding to a concrete casualty. This is it: the autonomy program's nightly has produced nothing for two and a half weeks, and Wave 1 cannot close, because the box could not hold the runner.
+
+**Restarting the runner as-is would repeat the kill.** **Fix:** treat this as the forcing function on INFRA-HIGH-079 rather than a separate capacity effort — establish agent-session ownership and reclaim the abandoned ones (the `/tmp` audit in ORPHAN-HIGH-417 found 258 dead clones from exactly this population, so the same census is likely to pay in RAM), prove post-cleanup headroom, then give the runner service a memory ceiling through its existing `limits.conf` drop-in before re-enabling, then trigger one cycle via `workflow_dispatch` and watch it.
+**Owner:** Okan / performance-expert (with INFRA-HIGH-079). **Deadline:** 2026-08-19. **Related:** `INFRA-HIGH-079`.
+
+## ORPHAN-HIGH-420 — `_anchor_repo_root` treats any directory containing a `.git` entry as a repo root, so stray filesystem state changes kernel selection behaviour — OPEN
+
+**Discovered:** 2026-08-04, root-causing 7 aria-kernel test failures that CI could not see.
+
+`/tmp/.git` existed as an **empty** directory (created 2026-05-05). `git -C /tmp rev-parse --show-toplevel` correctly says "not a git repository", but `aria_kernel.agent_invocations._anchor_repo_root` concluded `repo_root=/tmp` from the path's existence alone. That activated the ORPHAN-MEDIUM-492 anchor-staleness branch in `next_pending_request` for every fixture whose temp dir lives under `/tmp`.
+
+**Impact:** a zero-byte directory anyone can create makes the kernel refuse pending requests as `anchor_expired`, silently, with `dispatch_one_pending_planner_request` reporting `no_pending`.
+
+**Fix:** validate that the candidate is a real repository (e.g. `git rev-parse --show-toplevel` succeeding, or a `.git` that is a directory with `HEAD`/`objects`), not merely that a `.git` path exists.
+**Owner:** aria-kernel. **Deadline:** 2026-08-19.
+
+## ORPHAN-MEDIUM-421 — the aria-kernel suite leaks `/tmp/.git`, so it is green on a clean machine and red on its own second run — OPEN
+
+**Discovered:** 2026-08-04. Reproduced three times: remove `/tmp/.git`, run the full suite (3269 tests, `OK`), observe the directory recreated.
+
+Combined with ORPHAN-HIGH-420 this makes the suite self-poisoning: run one → pass and leak; run two → 6 failures + 1 error in `tests.test_planner_dispatch_hook` and `tests.test_breaker_producer_scheduled_lane`. **CI never sees it** because every runner starts with a clean `/tmp`, which is why the same 3269 tests report `OK (skipped=29)` in the `aria-kernel` job and `FAILED (failures=6, errors=1)` locally on the same commit.
+
+`aria-kernel/tests/test_suite_git_hermeticity.py` exists to catch exactly this class — its docstring cites a real incident where a fixture wrote into "the developer's own checkout" — and it does not catch this one.
+
+**Impact:** the pre-push hook (`scripts/ci/aria-suite-changed.mjs`) runs this suite, so every local developer is blocked by a false red after their first run. Immediate unblock: `rmdir /tmp/.git`.
+
+**Fix:** find the fixture that runs a git command with `cwd=/tmp` or an inherited `GIT_DIR` pointing there, and extend the hermeticity test to assert `/tmp/.git` does not exist after the suite.
+**Owner:** aria-kernel. **Deadline:** 2026-08-19.
+
+## ORPHAN-MEDIUM-422 — a planner-dispatch fixture hardcodes an absolute `created_at`, so the test expires three days after it was written — OPEN
+
+**Discovered:** 2026-08-04, same investigation as ORPHAN-MEDIUM-421.
+
+`aria-kernel/tests/test_planner_dispatch_hook.py::_seed_request` writes `created_at: "2026-05-10T00:00:00Z"`. The anchor window (`_anchor_max_age_seconds`) is 3 days. Once the anchor check is active the seeded request is always refused `anchor_expired`, so the test has been logically broken since roughly 2026-05-13 and was only invisible because ORPHAN-HIGH-420 had not yet been triggered on CI.
+
+**Fix:** derive `created_at` from now (e.g. `_utc_now_dt()` minus a small delta) rather than pinning a calendar date, in this fixture and any sibling that seeds anchored requests.
+**Owner:** aria-kernel. **Deadline:** 2026-08-19.
+
+## ORPHAN-MEDIUM-423 — the committed generated manifest `tools/quality/format-scope.json` makes every parallel branch conflict, and resolving it costs an 11-minute push — OPEN
+
+**Discovered:** 2026-08-04, landing a four-PR chain; the conflict recurred **four times** on one branch.
+
+`format-scope.json` is generated but committed, and the pre-commit hook rejects a stale copy. Every merged PR regenerates it, so every open branch conflicts. Resolving requires a push; a push that touches ARIA surface runs the full kernel suite (~11 min); in that window another PR lands and the branch is behind again.
+
+Two mitigations found and worth documenting rather than rediscovering: `mergeable_state=behind` (no conflict) can be fixed SERVER-SIDE with `gh api -X PUT repos/…/pulls/<N>/update-branch`, skipping the local cycle entirely — only `dirty` needs a local merge. And when resolving, `git add` the conflicted manifest FIRST, then regenerate, then `git add` again; generating mid-conflict computes it against a half-merged file set and the hook rejects it as stale.
+
+**Fix:** decide whether the manifest must be committed at all. If it must, make it merge-clean (a union/regenerate merge driver via `.gitattributes`) so the conflict stops being manual.
+**Owner:** infra-expert. **Deadline:** 2026-08-26.
+
+## ORPHAN-MEDIUM-424 — the AquaMobil tenant-query-key mirror never received the session-epoch fix, so it still serves stale cache after tenant re-entry — OPEN
+
+**Discovered:** 2026-08-04, drift audit of the nested steering files.
+
+```
+web/shared-ui/src/utils/tenant-query-keys.ts:106
+  ['tenant', tenantId, ...segments, sessionEpochSegment()]
+web/apps/aquamobil/src/utils/tenant-query-keys.ts:44
+  [TENANT_QUERY_KEY_ROOT, tenantId, ...segments]        ← no epoch
+```
+
+`sessionEpochSegment()` landed in shared-ui on 2026-06-28 (#687, ORPHAN-MEDIUM-200 — "fresh cache on tenant re-entry"). The aquamobil mirror has no epoch import and no `assertTenantQueryKey` epoch validation. **There is no cross-tenant leak** — the `['tenant', tenantId, …]` prefix contract holds in both, so FE-CRITICAL-014/015/016 is not reopened. What is missing is the stale-cache-on-re-entry fix.
+
+The steering file's "verbatim copy" claim and the source file's own "Mirrors … verbatim" header comment were both wrong and are corrected in the steering pass; the code gap is untouched.
+
+**Fix:** port the epoch segment, and add a parity invariant asserting the mirror carries an equivalent epoch mechanism. Importing shared-ui is NOT the fix — aquamobil's independence (standalone lockfile, offline-first PWA) is deliberate. The prose instruction "any change MUST be mirrored here" was Tier 4 and did not hold; this moves it to Tier 3.
+**Owner:** frontend-expert. **Deadline:** 2026-08-26.
+
+## ORPHAN-LOW-425 — `backup-production-secrets.spec.ts` cannot distinguish a signal-killed preflight from a real failure — OPEN
+
+**Discovered:** 2026-08-04, a CI red on PR #1071 that did not reproduce locally.
+
+The spec asserts `expect(result.status).toBe(1)` on a preflight script it spawns. The CI run returned **141** = 128 + 13 = SIGPIPE — a broken pipe inside the shell script, not the fail-closed exit it was checking for. Re-running the job passed, so the condition is load-dependent.
+
+**Impact:** a genuine preflight regression (exit 1) and a transient SIGPIPE are indistinguishable in the failure message, and the latter produces an unexplained red on unrelated PRs.
+
+**Fix:** assert on the specific expected exit code and treat `>128` as a distinct, named condition so the message says "killed by signal N" instead of comparing it to 1; and fix the pipe handling in the preflight script itself.
+**Owner:** infra-expert. **Deadline:** 2026-09-02.
+
+## ORPHAN-LOW-426 — duplicate identifiers: `ORPHAN-MEDIUM-112` names two unrelated findings and two ADR files both claim 022 — OPEN
+
+**Discovered:** 2026-08-04, verifying citations in the nested steering files.
+
+`ORPHAN-MEDIUM-112` appears twice in this file — at the farm final-harvest/CloseBatch finding and at the AquaMobil eslint-baseline finding. A citation by ID alone is therefore ambiguous, and `web/apps/aquamobil/CLAUDE.md` cites it for the eslint baseline.
+
+Separately, `docs/adr/022-edge-schema-placement.md` and `docs/adr/022-pseudonymisation-key-management.md` both claim ADR-022 (already flagged as a class in the root `CLAUDE.md` known-drift note). ADR-034 supersedes 022's placement decision without either file saying so.
+
+**Fix:** renumber one member of each collision and update citers. Cheap now; each duplicate silently breaks ID-based traceability, which is the mechanism `docs/reviews/` depends on.
+**Owner:** context-manager. **Deadline:** 2026-09-02.
+
+## ORPHAN-HIGH-550 — the ARIA acceptance harness cannot survive its own repository: worktree-bloated walk, no argparse, an isolation check that inverts on first real use, and a consistency metric that rewards flakiness — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, planning the ARIA training loop; every claim verified firsthand.
+
+Four compounding defects made the training loop's deterministic validator unusable:
+
+1. `tools/aria-poc/poc.py` imported `augmented_excluded_paths` (written exactly for nested-worktree exclusion) and never called it; `walk_repo` filtered with the static list, so 20,873 of 33,021 walked paths (63%) were two full checkouts under `.claude/worktrees/`. The harness outran every short timeout (~5 min healthy, killed at 60-90s → exit 143).
+2. `harness.py` `main()` never read `sys.argv` — `--help` ran the full multi-minute suite; the rich per-drift TP/FP `details[]` (the training loop's label source) was printed to stdout and persisted nowhere.
+3. Check (4) of `cycle_acceptance` asserted the PRODUCTION `aria-tools/cycles.jsonl` was EMPTY — conflating temp-cycle isolation with "ARIA has never run". The first legitimate cycle (2026-08-05, after 24 days) flipped it to a permanent REJECT. Third instance of the named pattern: a gate that has never had a real input proves nothing once it has one.
+4. `agent_eval.py` variance bound its conditional over the whole expression (`(1.0 if passed else 0.0 - mean) ** 2`), so an always-passing agent scored consistency 0.000 instead of 1.000 — latent only because `runs.jsonl` has never existed.
+
+**Fix (this PR):** walk uses the augmented set (12,154 paths, 0 under worktrees; full suite ACCEPT in 54s); argparse with `--json-out` (labels persist) and `--skip-poc`; isolation check snapshots before/after and asserts non-growth; eval formula parenthesised + stdev per its docstring, with regression tests red against the buggy expression.
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-CRITICAL-551 — both ARIA lanes call `state publish` without its required `--snapshot-id`, so every nightly runs a full cycle and then cannot publish the state it produced — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, by the first real nightly after the runner was restored (run 30989194597). Reproduced twice.
+
+The lane cutover (#1073) shipped `python3 -m aria_kernel state publish --repo-root . --cycle-id ...` in BOTH `aria-auto-cycle.yml` and `aria-agent-executor.yml`. The CLI requires `--snapshot-id`, so the step dies with `error: the following arguments are required: --snapshot-id` (exit 2) — **after** the cycle itself has completed normally (`exit_reason: max_cycles`). The run therefore produces state and then fails to persist it, which is precisely the amnesia Wave 1 exists to end. `docs/runbooks/aria-state-branch-bootstrap.md:64-67` shows the correct three-argument form, so the runbook and the lanes disagreed.
+
+**Why nothing caught it:** workflow YAML is not type-checked; `workflow_contract_registry.py` pins step NAMES and guard wiring rather than argv; and both lanes had never executed (no self-hosted runner since the 2026-07-18 OOM). The cutover's own review stated the limit plainly — _"Wave 1 is not complete until a real nightly runs, and the first one is the proof"_ — and this is what that proof returned.
+
+**Fix (this PR):** both lanes pass `--snapshot-id "<lane>-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"`, matching the repo's existing per-attempt uniqueness convention so a re-run cannot collide with the snapshot of the attempt it replaces. Tier-3 closure: `build_parser()` is extracted from `cli._main` (it was unreachable, which is why no test could verify argv), and `aria-kernel/tests/test_workflow_kernel_cli_contract.py` parses every `python3 -m aria_kernel …` invocation in `.github/workflows/` against the real parser. Missing-required, unknown-argument and invalid-choice are contract violations; type complaints on substituted shell variables are not.
+
+**A near-miss worth recording:** the first version of that test probed with `argv + ["--help"]`. argparse prints help and exits 0 _before_ validating required arguments, so the test passed with the defect deliberately re-introduced — a green gate measuring nothing, the same class as ORPHAN-HIGH-550 check (4) and the continuity probe. Caught only by running the negative case; the shipped version calls `parse_args(argv)` and fails naming `--snapshot-id`.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-557 — ARIA computed its own per-source precision and threw the number away: weight recommendations had no consumer, and their "current" values came from a table that had silently drifted from the one scoring uses — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, flywheel mapping for the training-loop plan; verified firsthand (zero consumers of `recommended_weight` across kernel+tools; `DEFAULT_PRESSURE_WEIGHTS` said `evidence_gone=65` while the live `pressure.SOURCE_WEIGHTS` says 80).
+
+`calibration.recommend_calibration` computes TP-precision per pressure source and proposes ±weight changes (`calibration.py:72-99`); the only reader was a status display. Separately, calibration kept a private copy of the defaults that had drifted from `SOURCE_WEIGHTS` — so even a future consumer would have adjusted numbers nothing reads. The cheapest genuine learning loop in the repo was severed at both ends.
+
+**Fix (this PR):** pressure.py owns the SSoT and gains an operator-approved override layer — append-only `aria-tools/calibration/weight-overrides.jsonl` with breaker-verb ceremony (reason ≥10 chars, operator-approval-ref, unknown source/out-of-range refused); `effective_source_weights()` overlays the live table; `run_pressure` resolves it once per compute so approved overrides change the very next cycle's scoring. Calibration's drifted table is deleted; its recommendations now reference the effective table. CLI: `pressure weights` / `pressure weight-override` (auto-covered by the workflow-CLI contract test). Proven by tests: override lowers the next `_pressure` score, ledger append-only last-write-wins, four ceremony refusals, and a regression pinning the drifted symbol's removal.
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-558 — the runtime-signal bridge had no CLI mouth and the delivery-integrity metrics had no rules: ARIA's highest-weight input (85) was structurally unfeedable and outbox stalls were invisible — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, Watchdog W-A design (plan tranquil-sniffing-pancake §F5); verified firsthand.
+
+Two halves of one severed sensor path. (1) `runtime_signal_bridge.ingest_runtime_signal` — the input `pressure.py` weights at 85, second only to tool_quarantine — was a Python-function-only API: no CLI subcommand existed, so no probe, workflow, or operator could feed it without importing the kernel. Designed since Plan 029 §D5; zero producers ever. (2) The platform already exported `outbox_oldest_pending_age_seconds`, `outbox_publish_failures_total`, `messaging_dlq_growth_total` — and no Prometheus rule read any of them, so a stalled relay was invisible while its metric sat green on the wire (the same "exists but not wired where it matters" class as the six back-test stamps and the dead pressure-weight recommendations).
+
+# **Fix (this PR):** `aria-kernel runtime signal ingest|resolve|list` verbs (auto-covered by the workflow-CLI contract test), and `rules/60-dataflow-integrity.yml` thresholding the existing metrics — the stall rule quotes the documented SLO (`OUTBOX_PENDING_AGE_ALARM_MS`, `platform/libs/outbox/src/constants.ts:60`) rather than inventing a number; every rule carries a `target_auditor` label routing to the owning Lane-B auditor. Probe exporter skeleton at `tools/watchdog/` (T1 set lands in W-B).
+
+## ORPHAN-HIGH-561 — three scheduled workflows referenced a secret that has never existed on this repository, so each one did a full day's work and died on its last step, every day — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, operator-reported scheduled-workflow sweep; verified firsthand against the GitHub API (`gh secret list` for the repository and for all five environments: `ARIA_GITHUB_APP_TOKEN` appears nowhere; 32 of the 37 secrets the workflows reference are unprovisioned).
+
+`finding-state-sweep`, `aria-daily-report` and `rule-health-report` all end by calling `tools/scripts/automation/open-report-pr.sh` with `GH_TOKEN: ${{ secrets.ARIA_GITHUB_APP_TOKEN }}`. GitHub does not error on an unknown secret — it substitutes the empty string. So each workflow computed its report or registry sweep, then failed with "GH_TOKEN or GITHUB_TOKEN is required", discarding the work. Three of the ten reds in the scheduled-workflow watchdog issue were this single missing secret, and a daily red that always fails the same way stops carrying information.
+
+**Fix (this PR):** the three call sites resolve `${{ secrets.ARIA_GITHUB_APP_TOKEN || github.token }}` and pass `PR_TOKEN_SOURCE`, so the automation PR opens under the Actions default identity when the App token is absent. Because GitHub deliberately does not trigger workflow runs for PRs authored by that token, `open-report-pr.sh` appends the reason to the PR body — a reviewer must not read absent checks as "nothing to run". Tier-3 closure: `.github/provisioned-secrets.json` declares every secret the workflows depend on with its scope and provisioning state, and `tests/invariants/workflow-secret-provisioning.spec.ts` pins the two directions (no undeclared reference, no orphaned declaration). Proven by the deliberate break: adding a reference to `secrets.NEVER_PROVISIONED_TOKEN` turns the invariant red naming the file.
+
+**Left to the operator, deliberately:** provisioning the App token itself (identity creation is not mine to do). The `automation-publication` environment already exists and is empty; that is where it belongs. Until then these three lanes run green under the default token with the limitation stated in every PR they open.
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-HIGH-562 — the ARIA executor uploaded an envelope path it invented, the request envelope named a different one, and the contract gate pinned the invented spelling — every claimed request ended red after its work succeeded — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, dispatched `aria-agent-executor` in mock mode after #1084 to test whether the state-restore failure was fixed; it was — and the run surfaced the next defect underneath.
+
+The upload step named `.aria-state-store/tools/agent-invocations/outputs/<request_id>.json`. `agent_invocations.py:925` builds the real path as `outputs/<group>/<round>-<role>-<request_id>.md`. Two spellings of one path that never agreed: with `if-no-files-found: error`, an executor run that claimed a request would run the agent, pass pre-submit validation, submit the result (`rc=0`) — and then fail, losing the artefact evidence and painting the whole lane red. Worse, `workflow_contract_registry.py:270-271` pinned the INVENTED spelling, so the contract test certified the mismatch: the same green-gate-measuring-nothing class as the `--help` probe in ORPHAN-CRITICAL-551.
+
+**Fix (this PR):** the executor publishes where it actually wrote (`_publish_artifact_paths` → `envelope_path` / `transcript_path` on `$GITHUB_OUTPUT`, workspace-relative because that is what `upload-artifact` resolves against), the workflow uploads those step outputs, and the registry pins THE DERIVATION rather than a literal path, so a future author cannot re-guess it in YAML. `aria-kernel/tests/test_executor_artifact_path_contract.py` proves both directions; restoring the old spelling turns two of its tests red.
+
+## ORPHAN-MEDIUM-563 — two alert-engine "performance" tests asserted wall-clock milliseconds on a shared CI runner, so they measured the runner's load and went red on unrelated PRs — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, `nx run alert-engine:test` went red on an ARIA-only PR (#1088, which touches nothing outside `aria-kernel/` and docs). Verified firsthand: the same spec passes 20/20 locally on the same commit, and the assertion that failed was `avgTime < 5` for `calculateStdDev`.
+
+`should calculate standard deviation efficiently` and `should calculate trend efficiently with large datasets` timed 100 iterations and asserted an average under 5 ms. On a shared runner that is a measurement of the neighbouring jobs, not of the algorithm — the failure mode is a red check on a PR that changed nothing related, whose remedy is "re-run", which is exactly the habit that lets a real regression through unread. The file already contained the better idiom two tests above: `should calculate trend with one allocation-free pass over the samples` counts indexed reads through a `Proxy`.
+
+**Fix (this PR):** both tests now count work instead of time. Trend must read each sample exactly once; standard deviation exactly twice (the mean pass, then the squared-deviation pass). That pins what the timing budget was reaching for — an accidental extra pass or an O(N²) rewrite — and gives the same answer on a laptop and on a loaded runner. Proven by the deliberate break: inserting a third pass into `calculateStdDev` turns the new assertion red.
+
+**Not changed, and why:** the two async assertions in the same describe (`risk score < 50ms`, `batch < 500ms`) exercise mocked repository paths where the count that matters is already asserted elsewhere (`toHaveBeenCalledTimes` in the caching tests). They keep their wall-clock budgets, which have 10-100x headroom rather than the 5 ms this defect lived in. If either ever flakes, it gets the same treatment rather than a bigger number.
+**Fix (this PR):** `aria-kernel runtime signal ingest|resolve|list` verbs (auto-covered by the workflow-CLI contract test), and `rules/60-dataflow-integrity.yml` thresholding the existing metrics — the stall rule quotes the documented SLO (`OUTBOX_PENDING_AGE_ALARM_MS`, `platform/libs/outbox/src/constants.ts:60`) rather than inventing a number; every rule carries a `target_auditor` label routing to the owning Lane-B auditor. Probe exporter skeleton at `tools/watchdog/` (T1 set lands in W-B).
+
+## ORPHAN-MEDIUM-564 — the platform's only live end-to-end probes ran once per deploy and never again: a container that died an hour later stayed "Up" in `docker ps` for two days, and no scheduled surface ever asked the questions `post-deploy-verify.sh` asks — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, Watchdog W-B implementation (plan tranquil-sniffing-pancake §F5); verified firsthand against production.
+
+`scripts/deploy/post-deploy-verify.sh:238-355` already contains the strongest runtime evidence the platform has: an anonymous `farms` query through the public edge that classifies returned data as a tenant-isolation breach rather than a flaky deploy, plus a Socket.IO handshake and a single-JSON evidence envelope. It is `workflow_dispatch`-only. Between deploys nothing asks those questions, and the 2026-08-03 outage is what that costs: six containers exited on a full disk at 02:07 and `docker ps` reported "Up 2 weeks" for two days, because the text listing reports the container record, not `State.Running`. The same blindness covers `aria/state` freshness — ARIA's never-forget property is only real while that branch advances, and nothing watched it.
+
+**Fix (this PR):** `tools/watchdog/probe-runner.mjs` runs four read-only, credential-free T1 probes (anonymous negative contract, Socket.IO handshake, `docker inspect` State.Running truth vs the listing, `aria/state` freshness) on an hourly workflow shaped like `scheduled-workflow-watchdog.yml`; evidence JSON follows the post-deploy-verify envelope and `probe_ok{probe_id,target_auditor}` lands in Prometheus textfile form so the existing rule files own the thresholds. On CRITICAL the run ingests ONE runtime signal — stable summary, variables carried in measurement fields, because `signal_id = hash(source|service|summary|code_refs)` would otherwise mint an unbounded signal stream — and dispatches an ARIA cycle, so investigation starts within the hour instead of at the next nightly. Proven against production before commit: exit 0, 38 containers listed with 0 listed-but-not-running, aria/state age 7.2h.
+
+**NOT in this slice** (tracked, not silently dropped): the SQL-backed T1 probes (outbox pending age, Stripe pending-webhook age, certificate expiry), W-C service instrumentation, and every write probe — those stay staging-only until the operator decides on a canary service account and canary tenant, because "never invent an identity" is a standing rule and a write probe needs one.
+
+## ORPHAN-MEDIUM-565 — the gold corpus had a reader, a promoter and a curator agent, and no producer: `propose_goldset` had zero callers, so `judge_replay` and `proactive_priority` gated on an active corpus that could never come into existence — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, F4.2 of the ARIA intelligence program; verified firsthand (zero call sites for `propose_goldset` across kernel + tools; `promote_goldset_proposal` raises `no ready goldset proposal` on an empty ledger; `judge_replay:45` and `proactive_priority:70` both short-circuit on `load_active_goldset(...) is None`).
+
+Plan 025 §B shipped the full ceremony except its first step. `aria-goldset-curator` drafts fixture candidates into a surface nothing minted; the operator had no verb to run; and the two consumers that gate on an active corpus therefore never activated. The same "read side live, write side unreachable" shape as the runtime-signal bridge (ORPHAN-MEDIUM-558) and the dead weight recommendations (ORPHAN-MEDIUM-557) — three instances of one class in one week, which is what makes it worth naming rather than patching quietly.
+
+**Fix (this PR):** the cycle mints proposals. `propose_goldsets_for_labelled_tools` walks the feedback ledger and proposes for every labelled tool, so the operator reads distance-to-ready ("2 more known false positives") instead of silence; a new `goldset_proposal` cycle phase runs it beside `judge_calibration`, which reads the same ledger. Counting labels is machine work and is now automatic; PROMOTION stays an operator act behind `goldset promote --tool-id X --curator NAME`. Append-only discipline: a proposal is written only when the picture changed against that tool's last one, because a nightly that appends an identical row every night buries the real transitions. CLI: `goldset propose|list|promote|show` (auto-covered by the workflow-CLI contract test). Proven by tests including the deliberate-break case: disabling the unchanged-skip turns the append-only test red.
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-566 — the eval harness could describe one window and never compare two, so "is round N+1 better than round N" — the intelligence program's own success test — had no answer a machine could give — RESOLVED (this PR)
+
+**Discovered:** 2026-08-05, F4.3 of the ARIA intelligence program, immediately after the first real eval baseline landed (#1080: 5 runs, pass_rate 1.0). Verified firsthand: `aggregate_eval_metrics` is the only reader of `runs.jsonl` metrics and takes a single `window_days`; nothing in kernel or tools compares two windows.
+
+The program's stated criterion is that each round must show measured improvement in at least one of three signals, and that a round which cannot show it stops the loop and becomes a finding. Two of those signals had readers; the eval one did not. "Did it improve" was answerable only by a human diffing two printouts, which is precisely the kind of judgement the plan says must be mechanical or it will quietly stop happening.
+
+**Fix (this PR):** `compare_eval_windows` reports the current window against the immediately preceding one — adjacent, non-overlapping, half-open at the seam so a run on the boundary counts once — with per-metric deltas and a verdict of improved / regressed / flat / insufficient_evidence. The refusal is the load-bearing part: below five runs in EITHER window the function declines to call a trend, because the first baseline is five runs and a delta computed from two is a coin toss wearing a trend's clothes. `agent-eval delta` exits non-zero on a regression so a workflow that only reads the exit code cannot mistake decline for success. The single-window and two-window paths now share one arithmetic body (`_metrics_for_rows`); a second copy of the consistency formula is exactly how the variance bug closed in ORPHAN-HIGH-550 would return on one path only.
+
+Proven by two deliberate breaks: removing the thin-data refusal reddens the refusal test, and making the windows overlap (`elif` → `if`) reddens four.
+
+## ORPHAN-HIGH-567 — the tenant isolation watchdog has scanned every ten minutes since it was written and told only the log file: a cross-tenant leak paged nobody, and a scanner that stopped running was indistinguishable from one finding nothing — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, W-C of the data-flow integrity design; verified firsthand (`apps/farm-service/src/infrastructure/watchdog-cron.service.ts` holds the report in a private field, `getLastReport()` has zero callers across the repo, and CRITICAL violations reach exactly one destination: `this.logger.error`).
+
+`WatchdogRunner` checks the three ways tenant isolation breaks — source-schema contamination, cross-tenant row visibility, tenant-clone schema drift — and it is the strongest runtime evidence the platform has about the invariant customers care most about. Its verdict was unreadable by anything except a human grepping logs. Two consequences, the second worse than the first: a CRITICAL breach raised no alert, and because absence of a log line is also what a dead scanner produces, "isolation is holding" and "nobody has checked since Tuesday" looked identical.
+
+**Fix (this PR):** the scan publishes three gauges — `farm_tenant_isolation_violations{severity,type}` (reset before each write, so a repaired violation falls to zero rather than reporting a fixed breach forever), `farm_tenant_isolation_scan_last_run_timestamp_seconds{outcome}` and `farm_tenant_isolation_scan_errors`. A scan that throws records `outcome="failed"` and no counts, which is what keeps a broken scanner from reading as a clean one. Three rules consume them: a CRITICAL leak alerts with no `for:` delay (a cross-tenant leak is not something to observe for ten minutes first), a scan older than 45 minutes — three missed turns — alerts as stale, and per-scanner failures alert as a half-blind all-clear. Runbook at `docs/runbooks/monitoring/tenant-isolation-watchdog.md` stops at establishing what is true and escalating; row-level repair stays an operator decision because leaked rows are incident evidence before they are a mess to clean.
+
+No tenant label on any series: the scrape surface is unauthenticated, and a tenant id there would enumerate customers for anyone who asks.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-HIGH-568 — 90 scheduled jobs and five last-run surfaces: a cron that stopped firing was indistinguishable from a cron with nothing to do — RESOLVED (this PR, partially by design)
+
+**Discovered:** 2026-08-06, W-C of the data-flow integrity design; counted firsthand (`grep -rn "@Cron(" apps libs --include=*.ts` excluding specs: 90 methods across 44 files and 9 services; the only last-run surfaces are `admin.background_jobs`, `report_definitions.lastRunAt`, the platform bootstrap record and five farm cron gauges).
+
+A `@Cron` method that stops firing produces no error and no log line. A scheduler module that never registered, a provider that threw during bootstrap, a container that came back without its timers — all three leave a job silently not running, and the platform had no way to tell that apart from a job that ran and found nothing to do. This is the same shape as the tenant isolation watchdog talking only to the log file (ORPHAN-HIGH-567) and as `docker ps` reporting "Up" for an exited container during the 2026-08-03 outage: absence of bad news read as good news.
+
+**Fix (this PR):** `CronHeartbeatService` in backend-common, exported from the metrics module every service already imports for `/metrics`, so adoption is a constructor parameter rather than new wiring. `track(job, body)` records attempt, success, failure, and duration, and **re-throws** — wrapping a job cannot change what the job does, only what is known about it. `declare(job)` seeds zeros in the constructor, because a job that has never run exports no series at all and `time() - last_success > X` matches nothing, making the alert for "this never ran" silent exactly when it is true. Two rules read it: never-ran and failing-every-run.
+
+**Coverage is deliberately partial and the alerts are honest about it.** Only `farm-tenant-isolation-watchdog` adopts the helper here. A rule that claimed to watch all 90 jobs while watching one would be a worse lie than the gap it replaced, so a job enters the series only when it adopts. Remaining adoption is per-service work: the outbox relays and the admin-api schedulers are the next highest value, since a stalled relay already has a metric but no proof the relay is alive to stall.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the mechanism and the first adopter; the remaining 89 adoptions are tracked here and belong to each owning service.
+
+## ORPHAN-HIGH-571 — a write probe needs a real account, and the platform had no way to keep that account's traffic out of billing — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, W-D preparation after the operator authorised a canary account for write probes (the standing "never invent an identity" rule had blocked write probes entirely until that decision).
+
+Proving a write reaches the database and comes back requires actually writing, which requires a real, authenticated account. Verified firsthand that `UsageMeteringService.recordUsage` (`apps/billing-service/src/modules/metering/usage-metering.service.ts:501`) buffers every event it is handed with no notion of a non-billable tenant — so a canary's synthetic traffic would land in the usage stream indistinguishable from a customer's. That is worse than a wrong number: it is a right-looking one, and it would surface as unexplained revenue drift rather than as an error.
+
+**Fix (this PR):** `isCanaryTenant` in backend-common reads `CANARY_TENANT_IDS`, and `recordUsage` refuses to buffer for a canary. The refusal sits at the single point where usage becomes billable rather than as a rule each caller must remember. Two deliberate properties: a malformed id throws at parse time instead of silently dropping out of the set (a typo'd canary looks exempt in config and gets billed in reality — the hardest billing bug to trace), and the skip is counted (`canaryEventsSkipped`) rather than silent, so a mis-set variable shows up as a number instead of a hole.
+
+Membership is read per call, not cached: the exemption must be as revocable as it is grantable, and a cached copy would keep exempting a tenant the operator just removed until the next restart.
+
+**Not in this slice:** the canary tenant itself is not created here, and no write probe uses it yet. Provisioning the account and running writes against production are separate acts that deserve their own review — this is the guard rail that has to exist first.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the exemption mechanism.
+
+## ORPHAN-CRITICAL-569 — Docker gives up restarting and tells nobody: the tenant-schema provisioner was dead for six days, and the platform had no layer that notices — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while building the T0 supervisor; found live on the production droplet, not in code review. `aqua-tenant-schema-provisioner` had `restart: unless-stopped`, exited on a DNS failure (`getaddrinfo EAI_AGAIN`, the same class as the 2026-08-05 auth outage) at 2026-07-31T11:51Z, and was still stopped six days later. `docker inspect -f '{{.State.Running}}'` said false; nothing asked.
+
+This is the second incident from one blind spot. On 2026-08-03 six containers exited on a full disk at 02:07 and the `docker ps` text listing kept printing "Up 2 weeks" for two days — the listing reports the container record, not `State.Running`. Docker's restart policy is a retry, not a supervisor: it gives up, and its giving up is silent.
+
+**Immediate action:** the provisioner was restarted and confirmed running in `--loop` mode.
+
+**Fix (this PR):** `tools/supervisor/runtime-supervisor.ts` plus a systemd timer that runs it every two minutes on the droplet. It compares each container's `State.Running` against the restart policy Docker itself was given, revives what should be running, and reports what it could not. Deliberate limits: a container with `restart: no` is never touched (`aqua-db-migrate` exits 0 when finished and is not a casualty); restarts are capped at three per container per hour, after which it stops trying and says a human is needed, because an uncapped restarter turns a crash-loop into a resource fire while hiding the crash; and it reclaims NOTHING on disk pressure — choosing what is safe to delete is a judgement this process is deliberately too dumb to make. No network, no repo state, no LLM: it has to work when the platform is down, which is the only time it matters.
+
+Two alert rules watch the supervisor itself, since a supervisor that stopped looks exactly like a healthy host.
+
+**Three install-time defects the first deploy exposed, all fixed here:** `/usr/bin/node` on this host is Node 18 and has no type stripping (`bad option`); systemd does not expand variables in the first token of `ExecStart` (`203/EXEC`); and `PrivateTmp=yes` — the unit's own hardening — makes a `/tmp` worktree path invisible, which is why the staging copy lives at `/opt/aqua-supervisor` instead.
+
+**Open follow-up (owner: claude, deadline: at merge of this PR):** the running unit points at `/opt/aqua-supervisor` because the deployed checkout does not carry `tools/supervisor/` yet. On merge, `AQUA_REPO` moves to `/var/aqua-saas` and the staging copy is deleted — code running from a hand-placed copy drifts from its reviewed source silently, which is the exact class this supervisor exists to catch.
+
+**Owner:** claude (this session). **Status:** RESOLVED (mechanism live on the droplet; pointer follow-up above).
+
+## ORPHAN-HIGH-570 — three tenants, one tenant schema: two provisioned tenants have no schema at all and the provisioning queue is empty — NEEDS INVESTIGATION
+
+**Discovered:** 2026-08-06, while verifying what the dead provisioner had missed. Read firsthand from the production database: `auth.tenants` holds three rows (Codex Test 2026-05-24, Oceanfarm 2026-05-27, Suderra AS 2026-06-02); `information_schema.schemata` holds exactly one `tenant_*` schema (`tenant_7f6b08ab90e246d3`, the Codex test tenant); `platform.tenant_schema_jobs` is empty, so nothing is queued to fix it.
+
+Per-tenant tables live only in tenant schemas, so a tenant without one cannot hold farm, sensor, HR or messaging data. Both affected tenants predate the provisioner's 2026-07-31 death by months, so this is NOT six-day fallout — it is a longer-standing gap in whatever was supposed to create those schemas at tenant creation.
+
+**Deliberately not fixed here.** Creating two tenant schemas on production is a data-shaping act with migration-ledger and RLS consequences, and the right first question is why they were never created rather than how fast they can be. That question needs the tenant-provisioning path read end to end (auth-service tenant creation → `tenant_schema_jobs` → provisioner claim) against these three rows.
+
+**Owner:** operator to route (candidate: multi-tenant-saas-expert). **Status:** OPEN.
+
+## ORPHAN-MEDIUM-568 — the wall-clock fix stopped at the two tests that were red, leaving thirteen more in the same file, and one of them went red on an unrelated PR three hours later — RESOLVED (this PR)
+
+**Discovered and reproduced:** 2026-08-06. `ORPHAN-MEDIUM-563` was closed by #1090 with the right diagnosis — "a check whose remedy is re-run is worse than no check" — but the fix converted only `calculateTrend` and `calculateStdDev`, the two assertions that happened to be failing. Thirteen wall-clock assertions remained in the same file. Three hours later `should render email template in under 2ms` went red on PR #1095, which touches two workflow files, a manifest and a shell script, and nothing in alert-engine. `build-status` is a required check, so an unrelated PR was blocked by a test measuring the runner's load.
+
+The tell is the budget size. #1090 explicitly reasoned that the async assertions it left alone "exercise mocked repository paths with 10-100x headroom" — that judgment was right, and it draws the line exactly where this defect lives: the **sub-10ms per-operation budgets on pure CPU paths** (1ms severity classification, 2ms email render, 5ms routing, 10ms six-channel render). Those four have no headroom on a loaded shared runner. The nine coarse budgets (50-500ms totals over mocked paths) keep theirs for the reason #1090 gave.
+
+**Fix (this PR):** the four tight budgets now count work instead of time, in the Proxy idiom this file already established. Severity classification reads each criterion exactly three times (the `!== undefined` guard, the weighted contribution, the justification string) — a fourth read is the rescan the budget was reaching for. Routing performs exactly one preference lookup regardless of how many users are registered, which is the property that actually degrades as a tenant grows and which a timing budget cannot distinguish from a busy neighbour. Email rendering reads its context the same number of times on the second call as the first, so nothing accumulates across renders. Rendering all six channels costs exactly the sum of rendering each, pinning per-channel additivity. Three tests whose titles still promised milliseconds they no longer measure were renamed to say what they now assert.
+
+Proven by deliberate breaks: an extra `criteria.impactScore` read reddens the classifier count (3→4), a linear scan over the preference map reddens the routing count (1→2), and memoizing `renderForEmail` reddens the render count (16→8). All 20 tests green before and after each break.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-MEDIUM-563`.
+
+## ORPHAN-CRITICAL-579 — 1,359 tests in the library every service depends on had never run in CI, and nobody could have noticed — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, auditing my own day's merges. An independent reviewer traced each new spec to the command that runs it and found three that no command reaches. Pulling that thread found the mechanism, and the mechanism is repo-wide.
+
+`libs/backend-common` ships a working `jest.config.ts` and **no `project.json`**. Nx therefore sees no project, so `nx affected --target=test` can never select it and `nx run-many --target=test --all` can never include it. Measured firsthand: 122 spec files, **1,359 tests**, none of which had ever executed in CI — in the library that every service imports. Running them by hand today: 1,340 pass, 19 fail (two `*.integration.spec.ts` files that need a live Postgres and report `Driver not Connected`).
+
+Worse than invisible. `nx.json`'s `sharedGlobals` includes `{workspaceRoot}/libs/*/src/**/*.ts`, so editing any file there marks **all 42** test projects affected. CI did maximum work and still ran none of that library's specs.
+
+The same shape holds for `platform/libs/outbox` (43 tests), `platform/libs/event-bus` (55), and `libs/storage` (26) — each a config with no runner. Three of my own merges landed in exactly this hole: the cron-heartbeat spec (#1098), the outbox relay-liveness spec (open PR), and the supervisor spec, which lives outside every Nx project so `affected` returns zero projects for it. All three were written, reviewed and merged green, and their greenness carried no information.
+
+**Fix (this PR):** `project.json` for backend-common, outbox, event-bus and storage — 1,473 previously-unreachable tests now run under `nx test`, and none is quarantined in `affected-target-policy.json`, so they gate. The two DB-dependent integration specs are excluded from the unit lane by an explicit `testPathIgnorePatterns` with the reason inline, rather than being left to redden a lane they do not belong to. `tools/` gets an npm script wired into `quality-gates`, because code with production intervention authority — the T0 supervisor restarts containers on the droplet — must not be the untested part.
+
+**The structural half:** `tests/invariants/spec-has-a-runner.spec.ts` walks every `*.spec.*` in the repo and fails if no declared runner claims it. A new spec in a new directory now fails at authoring time instead of passing silently forever. Today's remaining gaps start in a ratchet allowlist with reasons — `web/apps/aquamobil` (18 specs; it is an Nx project with lint/build/typecheck and no `test` target at all), `tools/lint-gates`, `tools/worktree-audit` — and a second assertion fails if an allowlist entry goes stale, so the list cannot be satisfied by fiction.
+
+**NOT done, stated rather than absorbed:** the 18 aquamobil specs still do not run; wiring them needs the PWA's test-runner story settled. `farm-service` is quarantined out of the affected lane's `test` target with a boilerplate reason and no expiry — that quarantine deserves its own review.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the mechanism and four libraries; the allowlist is the tracked remainder.
+
+## ORPHAN-HIGH-582 — eight of the ten CI gate test-suites were never invoked by CI — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, following the ORPHAN-CRITICAL-579 thread one link further. The invariant written for 579 declared that `tools/gates/*.spec.ts` was covered by "the `gates:*:test` npm scripts". That declaration was itself untrue, which is the same defect one level up.
+
+`tools/gates/` holds ten spec files. Six had an npm script. **Two** were invoked by a workflow (`closes-footer-check.yml` named `gates:commit-msg:test` and `gates:finding-registry:test`). The other eight — including `banned-construct`, which enforces the `as any` / `as unknown as` prohibition, and `migration-sql-lint` — ran nowhere. The pattern is the naming: a per-spec script must be remembered twice, once in `package.json` and once in the workflow, and the second one is what got forgotten.
+
+Ran all ten by hand before wiring them: **all pass** (37+19+11+6+6+5+3 and three more, ~50s wall clock dominated by `plan-coverage-witness` at 31s). So this was latent coverage, not hidden breakage — but it was coverage nobody could rely on.
+
+**Fix:** a single `gates:test` script that globs the directory, invoked by the workflow in place of the two by-name calls. A gate spec written tomorrow is covered the moment the file exists. The invariant now asserts both that the glob script exists and that a workflow invokes it — proven by deliberate break: pointing the workflow back at one by-name script turns it red.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-563 — the five-minute RPO alarm could not tell "production is losing data" apart from "this was never deployed", and had been crying wolf 288 times a day for three weeks — RESOLVED (this PR)
+
+**Discovered and reproduced:** 2026-08-05, tracing the `Database WAL Archive Freshness` red reported by the scheduled-workflow watchdog (issue #1005). Verified firsthand on the production droplet: `docker exec aqua-postgres /usr/local/bin/postgres-walg-healthcheck.sh` → `stat: no such file or directory`, exit **127**; `SHOW archive_mode` → `off`; `pg_stat_archiver` → all zeroes; the container runs the bare `timescale/timescaledb-ha:pg16` base image, created 2026-07-14, not the WAL-G derivative `docker-compose.droplet.yml` has declared since `b89c623e9` (2026-07-16).
+
+`database-wal-archive-freshness.yml` is the platform's only alarm for the five-minute PostgreSQL RPO. It asserted its _secret_ preconditions rigorously (`assert-backup-secrets.sh`, profile `archive-freshness` — all four resolve) and then invoked the healthcheck directly, with no _runtime_ precondition. So a subject that had never been deployed surfaced as a bare shell `exit 127`, byte-identical to the failure mode of a deployed-but-stalled archiver. Two opposite emergencies — **production is losing data right now** and **known backlog, plan phase BR-3** — rendered the same.
+
+It had been in the second state for three weeks at 288 runs a day (`cron: */5`). An alarm that fires 288 times a day for a non-event has stopped carrying information; had it ever entered the first state, nothing about the output would have looked different. The same shape applied to `backup-production.yml`, whose twelve Spaces/WAL-G/GPG secrets have never been provisioned (`.github/provisioned-secrets.json`) and which therefore failed its own preflight nightly.
+
+**Root cause:** activation state was implicit. Nothing declared whether a DR capability was supposed to exist yet, so each lane inferred it from whatever error its subject happened to throw.
+
+**Fix (this PR):** `.github/manifests/dr-activation.json` declares each production DR capability, its state, the evidence that proves it live, the plan phase that unlocks it, and the lanes that monitor it. `tools/scripts/database/resolve-dr-activation.sh` is the single place declared state meets observation, and it fails closed on drift in **both** directions: a stale `not-activated` whose runtime has gone live is an error (the monitor was blind), and a declared-`active` capability the runtime no longer proves is an error (protection regressed). The WAL lane's remote payload now reports a three-valued observation — `present` / `absent` / `indeterminate` — so an unreachable droplet can never be mistaken for an undeployed one. When BR-3 lands, both lanes begin enforcing automatically; nobody has to remember to re-enable them. An inactive lane stays green but annotates every run with `::warning::PRODUCTION HAS NO <capability>` plus a job summary, so a green tick cannot be misread as "backups are fine".
+
+Proven by deliberate breaks: all six declared/observed combinations exercised against the real manifest, the probe verified to return `present` (against a container that carries the script), `absent` (against live production) and `indeterminate` (against a missing container), and each of the five invariant assertions confirmed to fail on its own drift and restore green.
+
+**Not fixed here, and deliberately so:** production still has no WAL archiving and no off-box backup. That is a credential-minting and deploy-lock decision (`PRODUCTION_DEPLOY_ENABLED=false`), not a code change — this PR makes the gap impossible to misread, it does not close it. Tracked by plan phases BR-1 (secrets) and BR-3 (cutover).
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-HIGH-564 — three WAL-G integration containers have been running on the production droplet for three weeks, declared in no compose file, script, or workflow — OPEN
+
+**Discovered and reproduced:** 2026-08-05, while auditing disk pressure on the production droplet. `aqua-walg-it-source`, `aqua-walg-it-target` and `aqua-walg-it-minio` have been up since 2026-07-16 (the day `b89c623e9` landed the WAL-G DR control plane). They run `aqua-postgres-walg:enterprise-closure`, a locally-built image that was never pushed to GHCR and carries the placeholder revision label `aaaaaaaa…` — so it corresponds to no commit. `grep -rl 'aqua-walg-it-'` over the repository returns exactly one hit, and it is a prose mention in a review document, not a definition.
+
+The source container is not idle: it is actively archiving WAL to the co-located MinIO on a 5-second `archive_timeout` and has written 493 segments. Its PostgreSQL process is owned by `gharunner` — the self-hosted Actions runner account — as is a second stray instance on port 55432 under `/tmp/aqua-walg-pitr-final`. The image accounts for 7.76 GB on a host that is 89% full and whose capacity gate has been failing since 2026-07-17.
+
+The hazard is not the disk: it is that production carries undeclared, self-mutating state that no gate, inventory, or teardown owns. `INFRA-HIGH-079` already observed these containers and explicitly withheld authority to kill them ("this does not authorize killing those owners or deleting their state"), which is correct — and three weeks later nothing has classified them, so the note has not converted into either a teardown or a declaration.
+
+**Fix:** classify the rig — either give it a declared definition with an owning workflow and a teardown path, or remove it and reclaim the image. This is BR-0's "zero unknown asset / zero duplicate mutation authority" exit gate meeting a concrete instance, and it should close as part of BR-0 rather than as a one-off cleanup. **Not actioned in this PR:** removing live state on the production host is an operator decision, and the operator has asked to inspect it first.
+
+**Owner:** Okan / infra-expert (with `INFRA-HIGH-079`). **Deadline:** 2026-08-19. **Related:** `INFRA-HIGH-079`, `INFRA-MEDIUM-057`, `ORPHAN-HIGH-417`.
+
+## ORPHAN-HIGH-569 — container logs were the third unbounded disk consumer and nothing in the platform had ever set a ceiling — RESOLVED (this PR)
+
+**Discovered and reproduced:** 2026-08-06, tracing droplet disk pressure after the WAL-G rig was stopped and the disk kept climbing anyway. Docker's default `json-file` driver performs no rotation, no `/etc/docker/daemon.json` exists on the host, and `grep -l 'max-size\|logging:' docker-compose*.yml` returned nothing — no compose file had ever configured it. Measured on the production droplet: 2.0 GB of `*-json.log` across the running stack, `aqua-auth` alone at 658 MB and still being written to within the last 15 minutes, `aqua-postgres` 535 MB, `aqua-gateway` 464 MB — on a host at 94% with 11 GB free, whose capacity gate wants 37.6 GB.
+
+Nothing in the system would ever have stopped that growth except the disk filling, which it had already done on 2026-08-04, taking production down.
+
+This is the same shape as the DR-monitor defect in `ORPHAN-HIGH-563`: the protection exists but is blind to the class. `deploy-capacity-maintenance.yml` measures free space, so it can only react once the damage is done, and `ORPHAN-HIGH-417` already records that it could not see the two consumers that actually filled the droplet. Container logs were a third it never named. A gate that reacts to a full disk is not a substitute for a ceiling that makes filling it this way impossible.
+
+**Fix (this PR):** one `x-default-logging` anchor in `docker-compose.droplet.yml`, referenced by all 37 services — 20 MB × 3 files, so the whole stack holds at most ~2.2 GB however long it runs. The number is not the point; the point is that a number exists at all and is a property of the file rather than of whoever remembered. `tests/invariants/container-log-rotation.spec.ts` keeps it true: it refuses a service with no `logging`, refuses a half-bound one (`max-size` without `max-file` keeps unlimited rotated files; `max-file` without `max-size` keeps a fixed number of unlimited ones), and refuses a per-service ceiling that diverges from the shared anchor.
+
+Proven by deliberate breaks: a new service with no `logging` reddens all three assertions, dropping `max-size` reddens only the boundedness one, and giving `auth-service` its own 500m/9 ceiling reddens only the single-declaration one. `docker compose config` validates clean for both the droplet file and the droplet+staging overlay, with the anchor resolving to identical options on every service.
+
+**Not fixed here:** the ~2.0 GB already on disk is not reclaimed by this change — rotation applies to new writes after the containers are recreated, and production deploys are locked (`PRODUCTION_DEPLOY_ENABLED=false`). Truncating the existing logs is an operator action against live diagnostic state and is deliberately left out of a code change.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-417`, `ORPHAN-HIGH-563`, `INFRA-MEDIUM-057`.
+
+## ORPHAN-HIGH-588 — the same four libraries had never been linted either — OPEN (quarantined with counts)
+
+**Discovered:** 2026-08-06, by CI failing the PR that closed ORPHAN-CRITICAL-579.
+
+Declaring `project.json` for `backend-common`, `event-bus`, `outbox` and `storage` did not only expose 1,473 tests that had never run. It exposed the `lint` target too, because `@nx/eslint` infers one for any project with an eslint config. First CI run:
+
+| project          | eslint problems                   |
+| ---------------- | --------------------------------- |
+| `backend-common` | **891** (841 errors, 50 warnings) |
+| `event-bus`      | 60 errors                         |
+| `storage`        | 37 (36 errors, 1 warning)         |
+| `outbox`         | 13 errors                         |
+
+None of it is new. These projects were invisible to Nx, so `nx affected --target=lint` could never select them, exactly as it could never select their tests. The debt has been accruing for as long as the directories have existed — in the library every service imports.
+
+**Quarantined in BOTH lanes, which took two attempts and is worth recording.** The affected lane reads `scripts/ci/affected-target-policy.json`; adding the four there made that lane green and the PR still could not merge, because `build-status` — a REQUIRED context — depends on `ci-full`'s `lint-and-typecheck`, which ran `nx run-many --target=lint --all` and knew nothing about that file.
+
+The obvious consolidation — point `lint:all` at the affected lane's list — was written, run, and **thrown away**: that list quarantines roughly forty projects, most of which lint clean today, so reusing it would have collapsed full-lane coverage to almost nothing while looking like a tidy-up. The two lanes answer different questions and get different lists.
+
+So `lint:all` now goes through `scripts/ci/lint-all.mjs`, reading `scripts/ci/lint-all-exclusions.json` — four entries, each naming its error count and this finding. `tests/invariants/lint-quarantine-ssot.spec.ts` caps that list at six and requires a reason per entry, because without a ceiling "exclude the failing project" is always the cheapest way to make a red lane green. The test wiring — the actual point of the PR — is NOT quarantined and gates for real.
+
+**A pre-existing defect surfaced while writing the invariant:** four entries in the affected lane's quarantine (`@aquaculture/hr-module`, `@aquaculture/hydroponics-module`, `@aquaculture/sensor-module`, `@platform/aquaculture-engines`) name projects by scoped package name, but Nx's project names are the short forms. They have **never matched**, so those four projects have been linted strictly all along — and pass. Renaming them would have silently quarantined four healthy projects; they are deleted instead, which changes nothing operationally and makes the list honest about the size of the debt.
+
+**Owner:** claude. **Deadline:** the next CI-Green Program slice; `backend-common` first, since it is the widest blast radius. **Status:** OPEN.
+
+**Two smaller things the same CI run caught, both fixed in that PR:** the `gates:test` npm script began with a shell `for` loop, and `repo-hygiene-invariants` rejects any script whose leading token is not a resolvable binary — a rule written to catch Storybook-class rot, doing its job on the first run. It is now `node tools/gates/run-all.mjs`, which globs the directory (so a gate spec written tomorrow is still covered) and is a real binary invocation.
+
+## ORPHAN-HIGH-572 — two vulnerability scanners ran, found real CVEs, and threw every finding away on an upload nobody had granted — RESOLVED (this PR)
+
+**Discovered and reproduced:** 2026-08-06, working through the scheduled-workflow reds in issue #1005. `security-trivy.yml:trivy-image-scan` ends with `Resource not accessible by integration` on its `github/codeql-action/upload-sarif` step, annotated `This run of the CodeQL Action does not have permission to access the CodeQL Action API endpoints`. A sweep over every workflow found a second instance with the same defect: `security-snyk.yml:snyk-infrastructure`. Neither job declares a `permissions:` block, neither workflow declares one at the top level, and the repository default does not include `security-events: write`. The sibling job in the very same Trivy workflow — `trivy-fs-scan` — declares it explicitly, which is why one scanner's findings reach the Security tab and the other's never did.
+
+The failure mode is the dangerous one. Trivy is configured with `exit-code: '1'` so that HIGH/CRITICAL findings block the pipeline; that is correct and it means the job is red for a _legitimate_ reason. The discarded upload hides behind that red. Anyone glancing at the lane concludes "the scanner is noisy" rather than "the results are missing" — and with 139 open Dependabot alerts on the default branch (2 critical, 46 high), the results were worth having.
+
+**Fix (this PR):** both jobs now declare `contents: read` + `security-events: write`, keeping the grant per-job rather than widening the whole workflow. `tests/invariants/sarif-upload-permissions.spec.ts` makes the omission impossible to reintroduce: it resolves each job's effective grant (job-level block replaces workflow-level, `write-all` counts) and fails naming any job that uploads SARIF without it. A second assertion guards the guard — if the uploader action is ever renamed, the first assertion would pass vacuously while checking nothing, so the test also insists it still finds uploaders to check.
+
+Proven by deliberate breaks: removing the grant reddens the permission assertion only; renaming `upload-sarif` out of both workflows reddens the vacuity assertion only.
+
+**Not fixed here, and it should not be:** `security-trivy` will stay red after this change, because the CVEs it reports are real. This PR does not silence that red — it makes the findings reach the Security tab instead of the bin, which is the difference between a red that carries information and one that does not. Closing the CVEs themselves is the Dependabot backlog, owned separately.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-563`, `ORPHAN-HIGH-569`.
+
+## ORPHAN-HIGH-574 — Dependabot watched two ecosystems and not the one carrying almost every advisory, and nothing could tell — RESOLVED (this PR)
+
+**Discovered and reproduced:** 2026-08-06, tracing why the "139 vulnerabilities on the default branch" banner on every push never turned into a single fix PR. `.github/dependabot.yml` declares `github-actions` and `cargo`. It declares no `npm` entry, so the root `package-lock.json` — which resolves every member of the `workspaces` globs (`apps/*`, `libs/*`, `platform/libs/*`, `web/apps/*`, `web/shared-ui`, `web/shell`, `web/modules/*`, `mcp/*`, `tools/executors/cargo`) — has never received a version-update PR. Of the first 100 open alerts, **96 are npm and 4 are rust**.
+
+The gap was invisible by construction. A missing ecosystem produces no error, no warning and no PR; it looks exactly like an ecosystem with nothing to update. Every entry that _was_ in the file was correct, so the config read as deliberate. Nothing anywhere compared the ecosystems present in the repository against the ecosystems being watched.
+
+**Two adjacent facts found in the same pass, both fixed outside this file:**
+
+- `automated-security-fixes` was **disabled** (`{"enabled": false}`) while `vulnerability-alerts` was enabled — the platform knew about all 139 and was configured never to act on them. This is a repository setting, not a file; it is being enabled as an operator step after this config and the missing labels land, so the resulting PRs arrive into a pipeline that can accept them.
+- The three labels this config references — `dependencies`, `github-actions`, `rust` — **did not exist** among the repository's 16 labels, so Dependabot posted "The following labels could not be found" on every PR it opened. Created 2026-08-06.
+
+**Fix (this PR):** an `npm` entry at `directory: /`, deliberately conservative — `open-pull-requests-limit: 5`, minor+patch grouped into one PR so majors stay individually reviewable. `tests/invariants/dependabot-lockfile-coverage.spec.ts` is what stops the next gap: it enumerates every tracked lockfile via `git ls-files` and requires each to be either covered by an `updates` entry or listed in `DOCUMENTED_EXCLUSIONS` **with a reason**, so an ecosystem's absence becomes a decision someone wrote down rather than a silence nobody notices. Six lockfiles sit outside root coverage today (`e2e/`, `web/apps/aquamobil/`, two wasm crates, and the `sens-api-gateway` tree which manages its own cadence via `deny.toml` + `cargo-audit`); each now carries its reason.
+
+Proven by deliberate break, and the important one is the first: pointed at `origin/main`'s actual pre-fix config, the coverage assertion **fails** — this defect would have been caught the day the file was written. Also verified: a stale exclusion (naming a lockfile that no longer exists) and a reasonless exclusion each redden their own assertion.
+
+**Known limit, stated rather than hidden:** the spec verifies the config, not GitHub's side. It cannot see whether security updates are enabled or whether the referenced labels exist — both live behind the API and neither is checkable offline. Those remain operator responsibilities, which is why they are named here.
+
+**Not in scope:** the advisories themselves. `SUPPLY-HIGH-001` (OPEN, deadline 2026-08-09) owns the CVE backlog, and `INFRA-HIGH-104` records the unsolved part — `minimatch`'s nested `brace-expansion` resists `overrides` because npm matches override keys against the spec a **parent requests**, not the resolved version, and lockfile regeneration is not idempotent against the committed state. That is a separate, careful pass.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `SUPPLY-HIGH-001`, `INFRA-HIGH-104`, `ORPHAN-HIGH-572`.
+
+## ORPHAN-HIGH-573 — the CI hang detector had four minutes of margin, so it fired on runner load and reported the result as a test failure — RESOLVED (this PR)
+
+**Discovered and reproduced:** 2026-08-06. PR #1103 was blocked by `test` in `ci-full.yml` reporting failure; the log showed `##[error]The operation was canceled` after exactly 30m23s against `timeout-minutes: 30`. Nothing had failed — the job had run out of budget. Measured across 14 completed runs of that job: median 23m29s, p90 25m41s, max 29m03s. p90 sat at **86%** of the budget, and two Dependabot PRs in the same window had already died the same way.
+
+A timeout is a **hang detector, not a performance budget**. Four minutes above p90 it stops answering "did this process stop making progress" and starts answering "was the runner busy" — the same substitution as `ORPHAN-MEDIUM-563` (a test measuring the runner's load) and `ORPHAN-HIGH-563` (an alarm measuring deploy state instead of data loss).
+
+The second defect is what reached the reader. A job killed by its own budget reports `cancelled`, and `build-status` translated every non-success into a verdict about that job's subject — `cancelled` became **"Tests failed"**. A duration problem arrived as a test problem and sent the reader hunting a red test that does not exist. `build-status` cannot know the cause: `cancelled` is _either_ a budget overrun _or_ a run superseded by `concurrency.cancel-in-progress`. That job also had **no `timeout-minutes` at all**, so as a required context a wedged aggregate could have held every PR behind it for GitHub's default six hours.
+
+**Fix (this PR):** two-level budgets derived from measurement — job 45, step `Run all tests` 35, `build-status` 5. Each clears its **own** observed maximum by the smallest satisfying margin (35 ≥ 25m54s × 1.35; 45 ≥ 29m03s × 1.5 rounded to the next 5-minute mark). The step-level measurement is what made the design correct: an earlier draft derived the step budget from the _job's_ maximum, giving 40 and leaving worst-prologue + step = 44m18s against a 45m job budget — a 42-second gap that would let a slow prologue cancel the job before the step budget fired, reinstating the very misreport being fixed. With 35 the worst case is 39m18s, so the step budget always fires first and the failure names itself. `build-status` now prints each job's result and states plainly that it is reporting a result, not a cause; it also reports _all_ failures instead of exiting at the first, which previously hid a simultaneous second failure until the next round trip.
+
+`tests/invariants/ci-timeout-budget-ssot.spec.ts` owns the distribution, the derivation rule, the step<job gap, the cross-lane ordering (the unfiltered full lane can never be budgeted below the quarantine-aware affected lane) and the requirement that every job in the lane has a detector at all. Proven by six deliberate breaks, each reverted: reverting the job budget to 30, deleting the step budget, deleting `build-status`'s budget, shrinking the recorded maximum to silence the rule, changing the fan-out command, and re-introducing an invented cause — each reddens its own assertion and nothing else.
+
+**Also repaired:** the `lint-and-typecheck` comment from `ORPHAN-HIGH-501` asserted "test 30" as its consistency anchor and this change made that factually false. It now reads 45/35. That stale cross-reference is precisely why the numbers live in a spec rather than only in a comment.
+
+**Deliberately not done:** nothing here tries to make the suite _faster_ (`nx.json` parallelism, sharding, or making `ci-full` honour the test quarantine). Duration is a separate, separately-measured problem; conflating it with the detector is how the detector got mis-set. `NX_DAEMON: 'false'` / `NX_NO_CLOUD: 'true'` were considered for consistency with the sibling `build` job and rejected as provably no-ops under Actions (`nx/dist/src/daemon/client/client.js` disables the daemon whenever `CI` or `GITHUB_ACTIONS` is set; this workspace declares no Nx Cloud token) — attaching them to a duration fix would have been a false causal claim.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-501`, `ORPHAN-MEDIUM-563`, `ORPHAN-HIGH-563`.

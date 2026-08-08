@@ -251,6 +251,13 @@ jobs:
               raise SystemExit(";".join(verdict.reasons))
           PY
 
+      - name: Persist content-bound mutation request receipt
+        env:
+          OPERATION: ${{ steps.request.outputs.operation }}
+          COMMAND_ID: ${{ steps.request.outputs.command_id }}
+          INPUT_SHA256: ${{ steps.authority.outputs.input_sha256 }}
+        run: npm run automation:write-registry-request-receipt
+
       - name: Apply canonical mutation
         env:
           OPERATION: ${{ steps.request.outputs.operation }}
@@ -279,6 +286,7 @@ jobs:
           name: finding-registry-authority-input-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/finding-registry-authority-preflight.json
+            ${{ runner.temp }}/finding-registry-request-receipt.json
           if-no-files-found: error
           retention-days: 90
 

@@ -1,28 +1,36 @@
 {
   "$schema": "aria/agent-eval-fixture/v1",
-  "schema_version": 1,
-  "fixture_id": "F005_AUTH_CROSS_TENANT_JOIN",
-  "target_agent": "auth-security-expert",
-  "role": "auth_security_review",
-  "pinned_commit_sha": "c3cf7a2ebe5e547c9cd11230f780be6df548bd1c",
-  "input_envelope": {
-    "$schema": "aria/agent-request/v1",
-    "schema_version": 1,
-    "claim_summary": "PR diff joins auth.tenants × farm.batches without an explicit RLS or tenant-scoped guard; auth-security-expert must call out the cross-tenant leak vector",
-    "must_satisfy": [
-      {"id": "MS-1", "rule": "verdict_class is REJECTED"},
-      {"id": "MS-2", "rule": "evidence_refs include the offending join site + the schema-isolation rule"}
-    ],
-    "evidence_refs": [
-      "apps/farm-service/src/__tests__/integration/cross-tenant-join.spec.ts:42",
-      "docs/adr/011-schema-ownership-model.md:18"
-    ]
-  },
-  "expected_verdict_class": "REJECTED",
   "expected_evidence_refs": [
     "apps/farm-service/src/__tests__/integration/cross-tenant-join.spec.ts:42",
     "docs/adr/011-schema-ownership-model.md:18"
   ],
+  "expected_verdict_class": "REJECTED",
+  "fixture_hash": "752d2b393f456751",
+  "fixture_id": "F005_AUTH_CROSS_TENANT_JOIN",
+  "input_envelope": {
+    "$schema": "aria/agent-request/v1",
+    "claim_summary": "PR diff joins auth.tenants \u00d7 farm.batches without an explicit RLS or tenant-scoped guard; auth-security-expert must call out the cross-tenant leak vector",
+    "evidence_refs": [
+      "apps/farm-service/src/__tests__/integration/cross-tenant-join.spec.ts:42",
+      "docs/adr/011-schema-ownership-model.md:18"
+    ],
+    "must_satisfy": [
+      {
+        "id": "MS-1",
+        "rule": "verdict_class is REJECTED"
+      },
+      {
+        "id": "MS-2",
+        "rule": "evidence_refs include the offending join site + the schema-isolation rule"
+      }
+    ],
+    "schema_version": 1
+  },
   "max_rounds": 3,
-  "max_tokens": 32000
+  "max_tokens": 32000,
+  "pinned_commit_sha": "c3cf7a2ebe5e547c9cd11230f780be6df548bd1c",
+  "recorded_at": "2026-08-05T10:51:16+00:00",
+  "role": "auth_security_review",
+  "schema_version": 1,
+  "target_agent": "auth-security-expert"
 }

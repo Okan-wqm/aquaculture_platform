@@ -296,14 +296,31 @@ function buildFormatScope() {
     .map(classifyFormatFile)
     .filter(Boolean)
     .sort((a, b) => a.path.localeCompare(b.path));
-  const managedFiles = entries.filter((entry) => entry.prettier_managed).map((entry) => entry.path);
+  // NO DERIVED SUMMARY SCALARS HERE, DELIBERATELY.
+  //
+  // This manifest used to also carry `file_count`, `managed_count` and
+  // `managed_file_list_sha256`. All three were pure functions of `entries`,
+  // sitting in the same file as `entries`, and — measured — they had exactly
+  // one producer (this function) and ZERO readers: `getManagedFormatFiles`,
+  // the only consumer of the manifest, reads `.entries` alone.
+  //
+  // Their cost was not neutral. Any branch that adds or removes a single
+  // tracked file changes all three, so two branches conflict on those same
+  // lines REGARDLESS of which files each one touched. That made a merge
+  // conflict here structurally certain rather than occasional: five in one
+  // day once two sessions were working at once, each resolved identically
+  // and carrying no information, because `checkManifest` rebuilds the
+  // manifest from the tree and refuses anything that differs — so whichever
+  // side of the conflict is taken, the content is recomputed anyway.
+  //
+  // Removing them costs no detection power: `checkManifest` still compares
+  // all ~9,300 entries byte-for-byte, and a checksum of data present in the
+  // same file never added any. `format-scope-derived-scalars.spec.ts` keeps
+  // them from coming back.
   return {
     schema_version: 1,
     generated_by: 'tools/quality/quality.mjs format-scope generate',
     source: 'git ls-files --cached --others --exclude-standard',
-    file_count: entries.length,
-    managed_count: managedFiles.length,
-    managed_file_list_sha256: sha256(managedFiles.join('\n')),
     entries,
   };
 }

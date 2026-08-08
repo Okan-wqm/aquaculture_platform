@@ -178,18 +178,33 @@ _REPORT_DATE_EXPR = r"\$\{\{\s*steps\.target\.outputs\.date\s*\}\}"
 # silently weaken the contract into a no-op rather than fail loudly. Note the
 # two lease steps differ by an em-dash vs hyphen — the verifier matches the
 # YAML text exactly, so the difference is preserved rather than normalized.
-_EXECUTOR_RESTORE_STEP = "Restore aria-tools state from previous run"
+#
+# PLAN Wave 1 PR 2.6b — the restore/publish step names moved with the transport.
+# They are not cosmetic: "Restore aria-tools state from previous run" described
+# an artifact download, and a contract that keeps describing the old mechanism
+# is a contract a reader trusts about the wrong thing. The two lanes share ONE
+# restore name now because they share one action.
+_RESTORE_STEP = "Restore ARIA state from the aria/state branch"
+_PUBLISH_STEP = "Publish ARIA state to the aria/state branch"
+_EXECUTOR_RESTORE_STEP = _RESTORE_STEP
 _EXECUTOR_LEASE_STEP = "Pre-flight — cross-host autonomous-loop lease check"
 _EXECUTOR_PENDING_STEP = "Find next pending request"
 _EXECUTOR_WORK_STEP = "Run CI executor"
-# RC-6 — the operator's only route to the breaker ledger that actually lives in
-# the aria-tools-state artifact. Declared here so deleting it is a contract
-# failure rather than a quiet loss of the recovery lever, which is how
-# ORPHAN-HIGH-465 (a recovery function with no command surface) happened once.
+# RC-6 — the operator's only route to the breaker ledger that lives in the
+# durable store. Declared here so deleting it is a contract failure rather than
+# a quiet loss of the recovery lever, which is how ORPHAN-HIGH-465 (a recovery
+# function with no command surface) happened once. On the branch transport this
+# step is the ONLY route: deleting an artifact was a lever, deleting history is
+# not one.
 _EXECUTOR_BREAKER_QUARANTINE_STEP = "Quarantine damaged breaker evidence (recovery dispatch)"
-_CYCLE_RESTORE_STEP = "Restore aria-tools state from previous run"
+_CYCLE_RESTORE_STEP = _RESTORE_STEP
 _CYCLE_LEASE_STEP = "Pre-flight - cross-host autonomous-loop lease check"
 _CYCLE_WORK_STEP = "Run nightly standard-profile cycle"
+
+# The store worktree, as the workflow path allowlist spells it. One constant
+# because four contract fields and two YAMLs have to agree on it.
+_STORE_ROOT = r"\.aria-state-store"
+_RUN_ID = r"\$\{\{\s*github\.run_id\s*\}\}"
 
 
 # All contract VALUES below are re-derived from main's LIVE workflow YAMLs
@@ -231,9 +246,9 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
             WorkflowJobContract(
                 job_id="executor",
                 preflight_step="Persist enterprise workflow preflight",
-                first_governed_mutation_step="Restore aria-tools state from previous run",
+                first_governed_mutation_step=_EXECUTOR_RESTORE_STEP,
                 # ORPHAN-CRITICAL-420 S1 — the executor restores and
-                # republishes the whole aria-tools tree to bridge the
+                # republishes the whole state tree to bridge the
                 # agent-invocation queue across the 01:00/02:00 lane
                 # boundary, so its write root is the tree, as the producer
                 # cycle's already is. The pre-S1 six-file list could not
@@ -241,21 +256,40 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 # restore (workflow_contracts rejects a preflight after the
                 # first governed mutation), and before the restore there is
                 # no request_id with which to name request-scoped paths.
+                #
+                # PLAN Wave 1 PR 2.6b — that tree is the store worktree now.
+                # `aria-tools` in the checkout is no longer written at all, so
+                # leaving it declared would have been a write root nothing
+                # writes to, next to a real one nothing declared.
                 allowed_write_path_patterns=(
-                    r"^aria-tools(/.*)?$",
+                    rf"^{_STORE_ROOT}(/.*)?$",
                 ),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-agent-executor-preflight\.json$",
                 upload_artifact_name_pattern=rf"^aria-response-{_REQUEST_ID}$",
+                # These pins used to spell the envelope path themselves —
+                # `outputs/<request_id>.json` — while `agent_invocations.py`
+                # names it `outputs/<group>/<round>-<role>-<request_id>.md`.
+                # Two spellings of one path, and the contract test pinned the
+                # WRONG one, so the gate certified the mismatch instead of
+                # catching it and every executor run that claimed a request
+                # died on upload after its work had succeeded. The producer
+                # now publishes the real paths as step outputs, and what this
+                # pins is that derivation: the workflow may not re-guess.
                 upload_artifact_path_patterns=(
-                    rf"^aria-tools/agent-invocations/outputs/{_REQUEST_ID}\.json$",
-                    rf"^aria-tools/agent-invocations/outputs/{_REQUEST_ID}\.transcript\.jsonl$",
+                    r"^\$\{\{ steps\.executor\.outputs\.envelope_path \}\}$",
+                    r"^\$\{\{ steps\.executor\.outputs\.transcript_path \}\}$",
                 ),
                 retention_days=7,
-                # actions:read — locate + download the prior aria-tools-state
-                # artifact (ORPHAN-CRITICAL-420 S1 queue bridge).
-                required_permissions=(("contents", "read"), ("actions", "read")),
+                # contents:write is what the cutover costs: the lane publishes
+                # by pushing `aria/state`. The blast radius is bounded on the
+                # SERVER — the branch ruleset blocks force-pushes and deletions,
+                # so the widest thing this token can do to the state branch is
+                # append a commit that descends from the tip, which is exactly
+                # what publishing is. actions:read remains for run/job
+                # introspection; it no longer fetches state.
+                required_permissions=(("contents", "write"), ("actions", "read")),
                 token_source="github_actions_artifact_token",
-                network_policy=("github_artifact",),
+                network_policy=("github_artifact", "github_git"),
                 dlp_artifact="aria-agent-executor-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
@@ -266,9 +300,9 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     _EXECUTOR_BREAKER_QUARANTINE_STEP,
                     _EXECUTOR_PENDING_STEP,
                     _EXECUTOR_WORK_STEP,
-                    "Persist aria-tools state (verified)",
-                    "Quarantine unverified aria-tools state",
-                    "Fail when aria-tools state was not published",
+                    _PUBLISH_STEP,
+                    "Quarantine unverified ARIA state",
+                    "Fail when ARIA state was not published",
                 ),
                 step_order=(
                     # ORPHAN-CRITICAL-469 itself: the restore must precede the
@@ -285,13 +319,13 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     # no-op, and after the publish it would repair a tree
                     # nothing goes on to persist.
                     (_EXECUTOR_RESTORE_STEP, _EXECUTOR_BREAKER_QUARANTINE_STEP),
-                    (_EXECUTOR_BREAKER_QUARANTINE_STEP, "Persist aria-tools state (verified)"),
+                    (_EXECUTOR_BREAKER_QUARANTINE_STEP, _PUBLISH_STEP),
                     # The return half of the bridge: publish, quarantine and
                     # the not-published failure are the run's terminal
                     # accounting and must follow the work, never precede it.
-                    (_EXECUTOR_WORK_STEP, "Persist aria-tools state (verified)"),
-                    (_EXECUTOR_WORK_STEP, "Quarantine unverified aria-tools state"),
-                    (_EXECUTOR_WORK_STEP, "Fail when aria-tools state was not published"),
+                    (_EXECUTOR_WORK_STEP, _PUBLISH_STEP),
+                    (_EXECUTOR_WORK_STEP, "Quarantine unverified ARIA state"),
+                    (_EXECUTOR_WORK_STEP, "Fail when ARIA state was not published"),
                 ),
                 abort_gate=WorkflowAbortGate(
                     gate_step=_EXECUTOR_LEASE_STEP,
@@ -308,25 +342,36 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
             WorkflowJobContract(
                 job_id="cycle",
                 preflight_step="Persist enterprise workflow preflight",
-                first_governed_mutation_step="Restore aria-tools state from previous run",
-                # The producer cycle owns the whole aria-tools state tree
-                # (cycles, autonomy_state, pressure, budget shards,
-                # cost-attribution, governance, handoffs, locks, burn-in
-                # evidence, agent-invocations) — the state carries across
-                # nights via the aria-tools-state artifact round-trip —
-                # plus the gitignored aria-findings/ seed surface the
-                # nightly fresh-scan seeder re-derives from repo truth.
+                first_governed_mutation_step=_CYCLE_RESTORE_STEP,
+                # The producer cycle owns the whole state tree (cycles,
+                # autonomy_state, pressure, budget shards, cost-attribution,
+                # governance, handoffs, locks, burn-in evidence,
+                # agent-invocations) plus the findings seed surface the nightly
+                # fresh-scan seeder re-derives from repo truth.
+                #
+                # PLAN Wave 1 PR 2.6b — all of it lives under the store
+                # worktree now, so ONE pattern replaces two. `aria-findings/`
+                # in the checkout is not a write root any more: the seeder
+                # resolves through the kernel's `repo_state_root`, which the
+                # restore binds at the store.
                 allowed_write_path_patterns=(
-                    r"^aria-tools(/.*)?$",
-                    r"^aria-findings(/.*)?$",
+                    rf"^{_STORE_ROOT}(/.*)?$",
                 ),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-auto-cycle-preflight\.json$",
-                upload_artifact_name_pattern=r"^aria-tools-state$",
-                upload_artifact_path_patterns=(r"^aria-tools$",),
+                # The governed upload is the FORENSIC CACHE, and the run-scoped
+                # name is the contract's own statement that it is not
+                # authoritative. Under the old canonical name the artifact WAS
+                # the state, which is what made ORPHAN-CRITICAL-484 reachable:
+                # an upload cannot enforce ancestry, so `overwrite: true` could
+                # bury the accumulated tree under a bootstrap-empty one. Pinning
+                # `-<run_id>` here means a future edit back to a fixed name
+                # fails the contract rather than silently restoring the hazard.
+                upload_artifact_name_pattern=rf"^aria-state-cache-{_RUN_ID}$",
+                upload_artifact_path_patterns=(rf"^{_STORE_ROOT}$",),
                 retention_days=30,
-                required_permissions=(("contents", "read"), ("actions", "read")),
+                required_permissions=(("contents", "write"), ("actions", "read")),
                 token_source="github_actions_artifact_token",
-                network_policy=("github_artifact",),
+                network_policy=("github_artifact", "github_git"),
                 dlp_artifact="aria-auto-cycle-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
@@ -345,15 +390,15 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                     _CYCLE_RESTORE_STEP,
                     _CYCLE_LEASE_STEP,
                     _CYCLE_WORK_STEP,
-                    "Persist aria-tools state (verified)",
-                    "Quarantine unverified aria-tools state",
-                    "Fail on unverified aria-tools state",
+                    _PUBLISH_STEP,
+                    "Quarantine unverified ARIA state",
+                    "Fail on unverified ARIA state",
                 ),
                 step_order=(
                     (_CYCLE_RESTORE_STEP, _CYCLE_LEASE_STEP),
-                    (_CYCLE_WORK_STEP, "Persist aria-tools state (verified)"),
-                    (_CYCLE_WORK_STEP, "Quarantine unverified aria-tools state"),
-                    (_CYCLE_WORK_STEP, "Fail on unverified aria-tools state"),
+                    (_CYCLE_WORK_STEP, _PUBLISH_STEP),
+                    (_CYCLE_WORK_STEP, "Quarantine unverified ARIA state"),
+                    (_CYCLE_WORK_STEP, "Fail on unverified ARIA state"),
                 ),
                 abort_gate=WorkflowAbortGate(
                     gate_step=_CYCLE_LEASE_STEP,
@@ -476,7 +521,7 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 upload_artifact_name_pattern=rf"^finding-registry-authority-input-{_RUN_ID_ATTEMPT}$",
                 upload_artifact_path_patterns=(
                     rf"^{_RUNNER_TEMP}/finding-registry-authority-preflight\.json$",
-                    rf"^{_RUNNER_TEMP}/finding-registry-operation\.txt$",
+                    rf"^{_RUNNER_TEMP}/finding-registry-request-receipt\.json$",
                 ),
                 retention_days=90,
                 required_permissions=(
@@ -550,6 +595,19 @@ AUDITED_WORKFLOW_EXCLUSIONS: dict[str, AuditedWorkflowExclusion] = {
         workflow_id="aria-kernel-full",
         reason="test-only full kernel validation workflow; writes only ephemeral ./.aria-ci, "
         "verifies a clean worktree post-run, and uploads no governed ARIA artifact",
+        owner="aria-kernel",
+        expires_at=_NEVER_EXPIRES,
+    ),
+    "aria-external-watchdog": AuditedWorkflowExclusion(
+        workflow_id="aria-external-watchdog",
+        reason="external liveness watchdog; reads the aria/state branch tip and the watched "
+        "lanes' run history through the GitHub API only, writes no repository or governed "
+        "ARIA state, and uploads no artifact. EXCLUDED RATHER THAN CONTRACTED BY DESIGN: a "
+        "contract is asserted by a preflight step that imports this kernel, and every failure "
+        "this watchdog exists to catch is a failure of that kernel - a watchman that dies of "
+        "the illness it watches for is not a watchman. Its shape is pinned instead by "
+        "tests/invariants/aria-external-watchdog-contract.spec.ts, which scans the YAML from "
+        "outside and fails if a kernel import ever appears in it",
         owner="aria-kernel",
         expires_at=_NEVER_EXPIRES,
     ),

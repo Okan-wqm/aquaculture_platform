@@ -303,7 +303,10 @@ void describe('automation publication shared contract helpers', () => {
 
     assert.deepEqual(automationPublicationInputArtifact(registry, 91, 2), {
       name: 'finding-registry-authority-input-91-2',
-      exactFiles: ['finding-registry-authority-preflight.json', 'finding-registry-operation.txt'],
+      exactFiles: [
+        'finding-registry-authority-preflight.json',
+        'finding-registry-request-receipt.json',
+      ],
     });
     assert.deepEqual(automationPublicationInputArtifact(daily, 92, 3), {
       name: 'aria-daily-report-input-92-3',

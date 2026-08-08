@@ -16,10 +16,12 @@ from .state_manifest import surface_for_path
 
 __all__ = [
     "LedgerIntegrityError",
+    "ROW_FORMAT_VERSION",
     "StateTransaction",
     "append_declared_jsonl",
     "append_jsonl",
     "canonical_json",
+    "stamp_row_format",
     "file_hash",
     "load_index",
     "load_declared_jsonl",
@@ -39,6 +41,58 @@ __all__ = [
 
 class LedgerIntegrityError(RuntimeError):
     pass
+
+
+# ORPHAN-HIGH-552 — the row-format contract, defined ONCE.
+#
+# Two writers shared every governed ledger and disagreed about its format:
+# the appender wrote rows without `schema_version`, and the tools migration
+# restamped them to this version and re-chained from the first unstamped row
+# onward. The migration runs on every restore (`tools_contract_version` reads
+# `repo_identity.json`, which deliberately does not travel on `aria/state`),
+# so each night's bind rewrote the rows the previous night appended and moved
+# the surface's `tail_ledger_hash` — the one row `append_only_suffix` checks —
+# making every cross-restore replay refuse with `replay_prefix_diverged`.
+#
+# The appender therefore stamps the contract's version itself, from the same
+# definition the migration uses. An unstamped row on a declared surface stops
+# being possible, and the migration's restamp becomes the identity.
+ROW_FORMAT_VERSION = 2
+
+
+def stamp_row_format(row: dict[str, Any]) -> dict[str, Any]:
+    """Fill a SILENT row with the format version — never overwrite a spoken one.
+
+    ``schema_version`` belongs to the surface's own payload contract whenever
+    the writer states it: ``aria/cost-attribution/v1`` rows carry ``1``,
+    mission events carry their contract's number, governance events carry
+    ``2``. The ledger format only speaks when the writer said nothing — an
+    absent field becomes ``ROW_FORMAT_VERSION``.
+
+    The migration's old rule (``< 2 → 2``) could not tell "legacy row from
+    before versioning existed" from "current row whose contract IS v1", and
+    the live branch holds fifteen ledgers of the latter (measured 2026-08-05:
+    zero rows with the field absent, explicit ``1`` across mission-events,
+    plans/events, autonomy_state, agent-invocations, …). Bumping those on
+    every restore bind was ORPHAN-HIGH-552 itself for those surfaces — a
+    "normalisation" that rewrote correct rows nightly. Both the appender and
+    ``migrate_tools_v1_to_v2`` call this one function; a second copy is how
+    two formats came to share one file.
+    """
+    if "schema_version" in row:
+        return row
+    return {**row, "schema_version": ROW_FORMAT_VERSION}
+
+
+def _stamped_for_surface(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    """Stamp only rows bound for a manifest-declared surface.
+
+    The manifest is the boundary of the contract: an arbitrary JSONL path
+    (test fixtures, scratch ledgers) is not ARIA's format to rewrite.
+    """
+    if surface_for_path(path) is None:
+        return record
+    return stamp_row_format(record)
 
 
 # Plan 026R §A.1 — Module-level SSoT for indexed-ledger groups.
@@ -424,9 +478,43 @@ def _record_hash(record: dict[str, Any], previous_hash: str | None = None) -> st
     return "sha256:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def heal_torn_tail(path: Path) -> int:
+    """Physically remove an incomplete trailing record. Returns bytes removed.
+
+    ORPHAN-CRITICAL-561. Tolerating a torn tail on READ is not enough: the
+    append path calls `read_jsonl`, which refuses unparseable content, and the
+    chain would stay broken for every future writer. The tail has to go, once,
+    under the lock the appender already holds.
+
+    Truncation rather than rewrite: the verified prefix is left byte-identical,
+    so no hash is recomputed and no row is touched. `torn_tail_length` is the
+    single judge of what counts as torn — a complete-but-unparseable final
+    line, or damage anywhere earlier, is left exactly where it is for the
+    verifier to refuse.
+    """
+    if not path.exists():
+        return 0
+    content = path.read_text(encoding="utf-8")
+    torn_bytes = torn_tail_length(content)
+    if not torn_bytes:
+        return 0
+    fd = os.open(str(path), os.O_WRONLY)
+    try:
+        os.ftruncate(fd, len(content.encode("utf-8")) - len(content[-torn_bytes:].encode("utf-8")))
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    return torn_bytes
+
+
 def _append_jsonl_locked_body(path: Path, record: dict[str, Any]) -> dict[str, Any]:
+    record = _stamped_for_surface(path, record)
     path.parent.mkdir(parents=True, exist_ok=True)
     _verify_existing_declared_chain_before_append(path)
+    # After the verifier accepted the file, heal what it accepted AROUND: the
+    # verifier reads past a torn tail, `read_jsonl` below does not, and a
+    # writer that appended after one would chain onto a row that is not there.
+    heal_torn_tail(path)
     rows = read_jsonl(path)
     previous_hash = (
         str(rows[-1].get("ledger_hash"))
@@ -800,9 +888,48 @@ def _rewrite_jsonl_unlocked(path: Path, rows: list[dict[str, Any]]) -> None:
     _refresh_adjacent_index_grouped(path, held_file_lock_path=path)
 
 
+def torn_tail_length(content: str) -> int:
+    """Bytes of an INCOMPLETE trailing record, or 0 if the file ends cleanly.
+
+    ORPHAN-CRITICAL-561. `_append_jsonl_locked_body` writes ``json + "\n"`` in
+    ONE ``os.write``, so a record that reached disk is always newline
+    terminated. A crash between the write and the fsync can truncate that
+    buffer, and the newline is its LAST byte — therefore an unparseable final
+    line with no trailing newline is a torn write, and one WITH a trailing
+    newline is not: something else put garbage there, and that stays fatal.
+
+    The discriminator is the writer's physics rather than a heuristic about
+    where the damage looks like it is, which is what makes it safe to act on:
+    a torn record was never acknowledged to any caller (the append returns
+    only after the fsync), so discarding it loses nothing anyone was told
+    existed. Tampering, corruption mid-file, and a hash mismatch on a COMPLETE
+    row remain exactly as fatal as before.
+    """
+    if not content or content.endswith("\n"):
+        return 0
+    tail = content[content.rfind("\n") + 1 :]
+    if not tail.strip():
+        return 0
+    try:
+        json.loads(tail)
+    except json.JSONDecodeError:
+        return len(tail)
+    # A complete JSON object that merely lacks its newline is NOT torn: the
+    # writer emits the newline in the same call, so this file was written by
+    # something else and must not be silently trimmed.
+    return 0
+
+
 def _verify_jsonl_from_text(path: Path, content: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     rows: list[dict[str, Any]] = []
     previous_hash: str | None = None
+    # The torn tail is removed from the text BEFORE verification, so the walk
+    # below judges only records that actually completed. Reported, never
+    # silent: `torn_tail_bytes` travels on the verdict so `integrity verify`
+    # and its operators can see that a crash was healed here.
+    torn_bytes = torn_tail_length(content)
+    if torn_bytes:
+        content = content[: len(content) - torn_bytes]
     try:
         for line_no, line in enumerate(content.splitlines(), start=1):
             if not line.strip():
@@ -856,10 +983,15 @@ def _verify_jsonl_from_text(path: Path, content: str) -> tuple[dict[str, Any], l
         )
     except OSError as exc:
         return ({"path": path.as_posix(), "valid": False, "reason": str(exc)}, rows)
-    return (
-        {"path": path.as_posix(), "valid": True, "row_count": len(rows), "last_hash": previous_hash},
-        rows,
-    )
+    verdict: dict[str, Any] = {
+        "path": path.as_posix(),
+        "valid": True,
+        "row_count": len(rows),
+        "last_hash": previous_hash,
+    }
+    if torn_bytes:
+        verdict["torn_tail_bytes"] = torn_bytes
+    return (verdict, rows)
 
 
 def verify_jsonl(path: Path) -> dict[str, Any]:

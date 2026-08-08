@@ -28,6 +28,11 @@ import {
   type AutomationPublicationPolicyKey,
   type ResolvedAutomationPublicationPolicy,
 } from './lib/automation-publication-policy';
+import {
+  buildFindingRegistryRequestReceipt,
+  FINDING_REGISTRY_REQUEST_RECEIPT_BASENAME,
+  serializeFindingRegistryRequestReceipt,
+} from './lib/finding-registry-request-receipt';
 
 const BASE_SHA = '1'.repeat(40);
 const HEAD_SHA = '2'.repeat(40);
@@ -90,6 +95,7 @@ interface ScenarioOptions {
   readonly workflowAttemptOverride?: number;
   readonly inputDownloadMismatch?: boolean;
   readonly inputApiDigestMismatch?: boolean;
+  readonly inputReceiptCommandId?: string;
   readonly headRepositoryId?: number;
   readonly resultRepositoryId?: string;
   readonly resultChangedPathSha256?: string;
@@ -250,10 +256,39 @@ function artifactEntries(
   blob: Buffer,
   runId: number,
   attempt: number,
+  commandId: string,
+  inputSha256: string,
 ): readonly ZipEntry[] {
   return automationPublicationInputArtifact(policy, runId, attempt).exactFiles.map((name) => ({
     name,
-    content: name === basename(policy.changedPath) ? blob : Buffer.from('evidence\n'),
+    content:
+      name === basename(policy.changedPath)
+        ? blob
+        : name === FINDING_REGISTRY_REQUEST_RECEIPT_BASENAME
+          ? Buffer.from(
+              serializeFindingRegistryRequestReceipt(
+                buildFindingRegistryRequestReceipt({
+                  repository: AUTOMATION_REPOSITORY,
+                  repository_id: AUTOMATION_REPOSITORY_ID,
+                  workflow_ref: policy.workflowRef,
+                  workflow_sha: BASE_SHA,
+                  workflow_run_id: runId,
+                  workflow_run_attempt: attempt,
+                  command_id: commandId,
+                  operation:
+                    policy.key === 'registry-add'
+                      ? 'add'
+                      : policy.key === 'registry-close'
+                        ? 'close'
+                        : (() => {
+                            throw new Error('request receipt requested for a non-registry policy');
+                          })(),
+                  input_sha256: inputSha256,
+                }),
+              ),
+              'utf8',
+            )
+          : Buffer.from('evidence\n'),
   }));
 }
 
@@ -354,7 +389,16 @@ function buildScenario(
     ORIGIN_RUN_ID,
     ORIGIN_ATTEMPT,
   );
-  const originInputArchive = zip(artifactEntries(policy, blob, ORIGIN_RUN_ID, ORIGIN_ATTEMPT));
+  const originInputArchive = zip(
+    artifactEntries(
+      policy,
+      blob,
+      ORIGIN_RUN_ID,
+      ORIGIN_ATTEMPT,
+      options.inputReceiptCommandId ?? definition.commandId,
+      inputSha256,
+    ),
+  );
   const originInputDigest = digest(originInputArchive);
   const commitMessage = [
     definition.headline,
@@ -385,7 +429,16 @@ function buildScenario(
     resultAttempt,
   );
   const resultInputArchive = recovery
-    ? zip(artifactEntries(policy, blob, resultRunId, resultAttempt))
+    ? zip(
+        artifactEntries(
+          policy,
+          blob,
+          resultRunId,
+          resultAttempt,
+          options.inputReceiptCommandId ?? definition.commandId,
+          inputSha256,
+        ),
+      )
     : originInputArchive;
   const resultInputDigest = digest(resultInputArchive);
   const resultValue: Record<string, unknown> = {
@@ -812,6 +865,15 @@ void describe('automation publication merge-side admission', () => {
         verify(
           buildScenario('registry-close', {
             inputDownloadMismatch: true,
+          }),
+        ),
+      /No valid unexpired publication result/,
+    );
+    await assert.rejects(
+      () =>
+        verify(
+          buildScenario('registry-close', {
+            inputReceiptCommandId: 'finding-close:SEC-999',
           }),
         ),
       /No valid unexpired publication result/,

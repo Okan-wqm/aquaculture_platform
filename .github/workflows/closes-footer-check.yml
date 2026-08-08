@@ -66,8 +66,7 @@ jobs:
       # tests never execute is a gate whose behaviour is unpinned.
       - name: 'Gate self-tests (resolver + ID allocator)'
         run: |
-          npm run gates:commit-msg:test
-          npm run gates:finding-registry:test
+          npm run gates:test
 
       - name: 'Validate Closes trailers'
         run: npx ts-node --project tools/gates/tsconfig.json tools/gates/commit-msg-validator.ts --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"

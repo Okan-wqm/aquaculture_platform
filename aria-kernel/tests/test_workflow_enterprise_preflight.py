@@ -8,6 +8,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from aria_kernel.preflight import verify_workflow_preflight
+from aria_kernel.workflow_contract_registry import (
+    _EXECUTOR_LEASE_STEP,
+    _EXECUTOR_PENDING_STEP,
+    _EXECUTOR_WORK_STEP,
+    _PUBLISH_STEP,
+    _RESTORE_STEP,
+)
 from aria_kernel.workflow_contracts import (
     AUDITED_WORKFLOW_EXCLUSIONS,
     UPLOAD_ARTIFACT_ACTION,
@@ -579,8 +586,8 @@ jobs:
 class StepOrderingAndAbortGateContract(unittest.TestCase):
     """ORPHAN-CRITICAL-469 was reintroducible with the suite green.
 
-    Mutation testing against the pre-fix registry: moving "Restore aria-tools
-    state from previous run" to AFTER "Find next pending request" passed both
+    Mutation testing against the pre-fix registry: moving the restore step to
+    AFTER "Find next pending request" passed both
     ``verify_workflow_contract`` and ``verify_workflow_registry``, and so did
     deleting the publish and quarantine steps outright. Only renaming or
     deleting the restore step was caught, because
@@ -592,6 +599,15 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
     Every test below runs the mutation against the LIVE YAML rather than a
     synthetic fixture, so a contract that has quietly stopped applying to the
     real workflow cannot pass here.
+
+    Every step NAME comes from the registry constants rather than a literal
+    (PLAN Wave 1 PR 2.6b). The lane cutover renamed the restore and publish
+    steps, and this file failed on every hardcoded copy — which is the loud
+    failure, not the dangerous one. The dangerous one is a rename that leaves
+    a literal here matching nothing: `_index_of` would raise, but a
+    `[s for s in steps if s["name"] != name]` filter would delete nothing and
+    the mutation would "correctly" verify as valid. Importing the constants
+    makes the two unable to disagree.
     """
 
     _EXECUTOR = "aria-agent-executor"
@@ -709,9 +725,9 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
     def test_restore_moved_after_the_queue_read_is_rejected(self) -> None:
         """The verbatim ORPHAN-CRITICAL-469 reintroduction."""
         def mutate(steps):
-            restore = steps.pop(self._index_of(steps, "Restore aria-tools state from previous run"))
+            restore = steps.pop(self._index_of(steps, _RESTORE_STEP))
             steps.insert(
-                self._index_of(steps, "Find next pending request") + 1, restore,
+                self._index_of(steps, _EXECUTOR_PENDING_STEP) + 1, restore,
             )
             return steps
 
@@ -731,9 +747,9 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
         # The other half of 469: lease_state() reads the restored tree, so a
         # bootstrap-empty one cannot observe a lease another host holds.
         def mutate(steps):
-            restore = steps.pop(self._index_of(steps, "Restore aria-tools state from previous run"))
+            restore = steps.pop(self._index_of(steps, _RESTORE_STEP))
             steps.insert(
-                self._index_of(steps, "Pre-flight — cross-host autonomous-loop lease check") + 1,
+                self._index_of(steps, _EXECUTOR_LEASE_STEP) + 1,
                 restore,
             )
             return steps
@@ -743,11 +759,9 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
         self.assertIn("workflow_contract_ordering", verdict.failure_classes)
 
     def test_deleting_publish_or_quarantine_is_rejected(self) -> None:
-        for step_name in (
-            "Persist aria-tools state (verified)",
-            "Quarantine unverified aria-tools state",
-            "Fail when aria-tools state was not published",
-        ):
+        # Every required step, derived from the contract — a hardcoded trio
+        # would stop covering a step the day one is added.
+        for step_name in WORKFLOW_CONTRACTS[self._EXECUTOR].job_contracts[0].required_steps:
             with self.subTest(step=step_name):
                 verdict = self._mutated_verdict(
                     self._EXECUTOR,
@@ -767,8 +781,8 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
         # Terminal accounting that runs before the work reports on a tree the
         # run never wrote.
         def mutate(steps):
-            publish = steps.pop(self._index_of(steps, "Persist aria-tools state (verified)"))
-            steps.insert(self._index_of(steps, "Run CI executor"), publish)
+            publish = steps.pop(self._index_of(steps, _PUBLISH_STEP))
+            steps.insert(self._index_of(steps, _EXECUTOR_WORK_STEP), publish)
             return steps
 
         verdict = self._mutated_verdict(self._EXECUTOR, mutate)

@@ -15,16 +15,25 @@ name: aria-auto-cycle
 #                          observe_success acceptance events toward the
 #                          L1 autonomy unlock (Plan 031c ladder).
 #
-# State model: unlike the executor (per-run evidence artifacts only),
-# this lane carries `aria-tools/` runtime state ACROSS runs via the
-# aria-tools-state artifact (download-latest → run → upload). The
-# enterprise acceptance/unlock ledgers and monthly cost-attribution
-# shards must accumulate between nights; a missing artifact falls back
-# to a fresh bootstrap (fail-open on state, fail-closed on auth/policy).
+# State model (PLAN Wave 1 PR 2.6b — the lane cutover): ARIA's whole
+# runtime state travels between runs on the `aria/state` branch — checkout
+# the tip, run against it, fast-forward-push. The enterprise
+# acceptance/unlock ledgers and monthly cost-attribution shards must
+# accumulate between nights, and the 30-day artifact that used to carry
+# them could not enforce that: `overwrite: true` would bury the
+# accumulated tree under a bootstrap-empty one, and an empty tree passes
+# `integrity verify` because it is trivially consistent.
+#
+# There is NO fail-open on state any more. A restore that cannot reach a
+# published tip fails the run; it does not start over quietly. Fresh
+# bootstrap now requires `vars.ARIA_STATE_BOOTSTRAP_ACK` — an operator
+# naming the repository — because a process that can create the branch
+# when it cannot SEE it is a process that replaces history with emptiness
+# on a network blip. Auth/policy stay fail-closed as before.
 #
 # Brakes (all pre-existing kernel mechanisms):
 #   - vars.ARIA_MOCK_KILL_SWITCH (read AHEAD of dispatch input/default)
-#   - aria-tools/ARIA_STOP file → orchestrator exits cleanly
+#   - ARIA_STOP file in the store's tools root → orchestrator exits cleanly
 #   - cross-host autonomous-loop lease (refuses when a local daemon runs)
 #   - per-cycle wall-clock deadline (--cycle-deadline-seconds) + the
 #     executor's pre-dispatch wall-clock ceiling derived from this job's
@@ -69,9 +78,16 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
-  # actions:read is required to locate + download the previous run's
-  # aria-tools-state artifact (cross-run state carry-over).
+  # PLAN Wave 1 PR 2.6b — contents:write is what the cutover costs. The store
+  # publishes by pushing `aria/state`, so the lane needs write on this
+  # repository's refs. The blast radius is bounded on the SERVER, not here: the
+  # branch ruleset blocks force-pushes and deletions, so the widest thing this
+  # token can do to `aria/state` is append a commit that descends from the tip
+  # — which is exactly what publishing is. See
+  # docs/runbooks/aria-state-branch-bootstrap.md step 1.
+  contents: write
+  # actions:read remains for the run/job introspection the cycle reports on.
+  # It is no longer used to fetch state: that moved to the branch.
   actions: read
 
 jobs:
@@ -164,12 +180,15 @@ jobs:
 
           from aria_kernel.preflight import verify_workflow_preflight
 
-          # The producer cycle writes across the whole aria-tools state
-          # tree (cycles, autonomy_state, pressure, budget, cost
-          # attribution, governance, handoffs, locks, burn-in evidence,
-          # agent-invocations) — the allowed root is the tree itself;
-          # everything outside it stays read-only.
-          allowed = ["aria-tools", "aria-findings"]
+          # PLAN Wave 1 PR 2.6b — ONE declared write root, because after the
+          # cutover there is one. The cycle's three state roots (tools,
+          # workspace, findings) all live inside the store worktree, so the
+          # pair of checkout-relative roots this used to declare would now
+          # be write roots nothing writes to — a declaration that stopped
+          # describing the run. Everything outside the store stays read-only,
+          # which is a STRONGER claim than before: `aria-findings/` in the
+          # checkout is no longer written at all.
+          allowed = [".aria-state-store"]
           verdict = verify_workflow_preflight(
               workflow_id="aria-auto-cycle",
               job_id="cycle",
@@ -177,17 +196,24 @@ jobs:
               workspace_root=os.environ["GITHUB_WORKSPACE"],
               allowed_write_roots=allowed,
               path_allowlist=allowed,
-              network_policy=["github_artifact"],
+              # `github_git` is what the cutover added to this lane's reach:
+              # the state branch is fetched and pushed over the repository
+              # remote. Declared rather than folded into `github_artifact`,
+              # because they are different credentials with different blast
+              # radii and a reviewer must be able to see the git one.
+              network_policy=["github_artifact", "github_git"],
               network_enforcement_evidence=(
-                  "artifact restore/upload limited to the aria-tools-state artifact "
-                  "and the run-scoped quarantine-evidence-<run_id> artifact, both via "
-                  "the Actions artifact API"
+                  "state restore/publish limited to the aria/state branch over "
+                  "the repository remote; artifact upload limited to the "
+                  "run-scoped aria-state-cache-<run_id> and "
+                  "quarantine-evidence-<run_id> names, both via the Actions "
+                  "artifact API"
               ),
               token_provenance="github_actions_artifact_token",
               require_github_app=False,
               dlp_mode="fail_closed",
               dlp_scan_clean=True,
-              audit_reason="nightly standard-profile producer cycle over the persistent aria-tools state tree",
+              audit_reason="nightly standard-profile producer cycle over the durable aria/state store",
               audit_artifact_path=Path(os.environ["RUNNER_TEMP"]) / "aria-auto-cycle-preflight.json",
               external_root_allowlist=[str(Path(os.environ["RUNNER_TEMP"]).resolve())],
           )
@@ -195,16 +221,22 @@ jobs:
               raise SystemExit(";".join(verdict.reasons))
           PY
 
-      - name: Restore aria-tools state from previous run
+      - name: Restore ARIA state from the aria/state branch
         id: restore_state
         # RC-6 — one definition, both lanes. The two hand-copied heredocs that
         # used to sit here had already drifted: only the executor's carried the
         # ORPHAN-CRITICAL-484/488 restore-proof outputs, so the producer lane
         # could publish a bootstrap-empty tree over the accumulated state. The
         # action's header records what that cost.
-        uses: ./.github/actions/restore-aria-tools-state
+        #
+        # PLAN Wave 1 PR 2.6b — the transport is the durable store now, not the
+        # 30-day artifact. The output contract is unchanged, deliberately: both
+        # publish gates below still read `restored` / `bootstrap`. The action
+        # also EXPORTS the store binding into the job environment, which is why
+        # every `--tools-dir` below names "$ARIA_TOOLS_DIR" and never a literal.
+        uses: ./.github/actions/restore-aria-state
         with:
-          github-token: ${{ github.token }}
+          bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
       - name: Pre-flight - cross-host autonomous-loop lease check
         id: lease_check
         run: |
@@ -216,7 +248,12 @@ jobs:
 
           from aria_kernel.autonomous_host_lease import lease_state
 
-          state = lease_state('aria-tools')
+          # os.environ[...] rather than a literal: the lease ledger lives in
+          # the store, and a KeyError here is the correct outcome if the
+          # restore did not bind it. The literal would have read a DIFFERENT,
+          # empty lease ledger in the ephemeral checkout and reported "no
+          # lease held" — the exact false clear ORPHAN-CRITICAL-469 was.
+          state = lease_state(os.environ['ARIA_TOOLS_DIR'])
           print(json.dumps(state))
           if state['state'] == 'fresh':
               host = state.get('host_id', '')
@@ -236,36 +273,38 @@ jobs:
           echo "Local host holds autonomous-loop lease; exiting cleanly per Plan ARIA-V3 §2n."
           exit 0
 
-      - name: Bootstrap aria-tools contract (idempotent)
-        if: steps.lease_check.outputs.blocked != 'true'
-        run: |
-          set -euo pipefail
-          PYTHONPATH=aria-kernel python3 -m aria_kernel \
-            integrity migrate-tools-bootstrap \
-            --tools-dir aria-tools \
-            --workspace-root "$GITHUB_WORKSPACE" \
-            --acknowledge \
-            --reason "aria-auto-cycle scheduled bootstrap"
-
+      # Every `--tools-dir` below names "$ARIA_TOOLS_DIR", the binding the
+      # restore step exported, and never the literal `aria-tools`. The literal
+      # is not merely stale — `aria-tools/repo_identity.json` is TRACKED in the
+      # checkout, so it names a real, valid, and completely wrong tools root:
+      # the run would succeed while writing every ledger to a tree that dies
+      # with the runner. `set -u` turns an absent binding into a failed step,
+      # which is the only acceptable alternative to the right root.
+      #
+      # The `integrity migrate-tools-bootstrap` step that used to sit here moved
+      # INTO the restore action (PLAN Wave 1 PR 2.6b). It was this lane's alone,
+      # and the executor needed it just as much: a store checkout is not a
+      # usable tools root until it is bound. One definition, both lanes — the
+      # same correction RC-6 made to the restore itself.
       - name: Handoff snapshot - session_start
         if: steps.lease_check.outputs.blocked != 'true'
         run: |
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 -m aria_kernel handoff snapshot \
             --session-id "auto-cycle-${GITHUB_RUN_ID}" \
-            --tools-dir aria-tools \
+            --tools-dir "$ARIA_TOOLS_DIR" \
             --trigger session_start
 
       - name: Seed drift findings from fresh scan
         if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
         run: |
           set -euo pipefail
-          # aria-findings/ is gitignored BY DESIGN (runtime cycle writes
-          # must not dirty the discovery tree), so seeds cannot ride the
-          # repo — each night re-derives them from repo truth instead: a
-          # fresh PoC mechanical scan at HEAD feeds the empty-cycle
-          # guard and the pressure pipeline with real, never-stale drift
-          # findings (ORPHAN-MEDIUM-297).
+          # A fresh PoC mechanical scan at HEAD feeds the empty-cycle guard and
+          # the pressure pipeline with real, never-stale drift findings
+          # (ORPHAN-MEDIUM-297). The seeder resolves its output through the
+          # kernel's own `repo_state_root`, so the seeds land in the store the
+          # cycle_guard reads from — writing them to the checkout instead would
+          # be a producer that stays green feeding a consumer that stays empty.
           python3 tools/aria-poc/seed_drift_findings.py --repo-root "$GITHUB_WORKSPACE" | tail -12
 
       - name: Cycle guard (advisory)
@@ -275,7 +314,7 @@ jobs:
           PYTHONPATH=aria-kernel python3 -m aria_kernel cycle-guard evaluate \
             --cycle-id "auto-cycle-${GITHUB_RUN_ID}" \
             --workspace-root "$GITHUB_WORKSPACE" \
-            --tools-dir aria-tools | tee /tmp/cycle-guard.json || true
+            --tools-dir "$ARIA_TOOLS_DIR" | tee /tmp/cycle-guard.json || true
           {
             echo '### Cycle guard (advisory)'
             echo '```json'
@@ -323,7 +362,7 @@ jobs:
           fi
           PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy run \
             --workspace-root "$GITHUB_WORKSPACE" \
-            --tools-dir aria-tools \
+            --tools-dir "$ARIA_TOOLS_DIR" \
             --profile standard \
             --max-cycles "$MAX_CYCLES" \
             --cycle-deadline-seconds 1800 | tee /tmp/cycle-summary.txt
@@ -347,8 +386,8 @@ jobs:
           # observe_burn_in_tools_dir_must_be_outside_workspace_root
           # (ORPHAN-LOW-304): the burn-in gets its own RUNNER_TEMP tools
           # root, while the LADDER BRIDGE below writes acceptance events
-          # into the workspace aria-tools/ tree that the artifact
-          # round-trip persists across nights.
+          # into the STORE's tools tree, which the aria/state push persists
+          # across nights.
           # Visibility for the kernel's clean-tree guard: any dirty path
           # here is the exact refusal reason (ORPHAN-LOW-306).
           echo "pre-burn-in worktree status:"; git status --porcelain | head -10
@@ -368,11 +407,12 @@ jobs:
             --min-valid-cycles 20 \
             --output-dir "$BURN_IN_DIR"
           # Persist the burn-in evidence bundle alongside the ladder
-          # ledger so the artifact carries proof + events together.
-          mkdir -p "aria-tools/burn-in/run-${GITHUB_RUN_ID}"
-          cp "$BURN_IN_DIR"/autonomy-burn-in-report.json "aria-tools/burn-in/run-${GITHUB_RUN_ID}/"
+          # ledger so the published state carries proof + events together.
+          mkdir -p "${ARIA_TOOLS_DIR}/burn-in/run-${GITHUB_RUN_ID}"
+          cp "$BURN_IN_DIR"/autonomy-burn-in-report.json "${ARIA_TOOLS_DIR}/burn-in/run-${GITHUB_RUN_ID}/"
           PYTHONPATH=aria-kernel:. python3 - "$BURN_IN_DIR" <<'PY'
           import json
+          import os
           import sys
           from pathlib import Path
 
@@ -385,9 +425,14 @@ jobs:
           print(f"burn-in acceptance_verdict={verdict}")
           if verdict != "passed":
               raise SystemExit(f"burn-in did not pass ({verdict}); ladder bridge refused (fail-closed)")
-          bridged = record_burn_in_acceptance(report=report, mode="real", base_dir="aria-tools")
+          # The store's tools root, not a literal. Ladder acceptance events
+          # written to the ephemeral checkout would be evidence toward an
+          # unlock that no later run can ever see — the ladder counting to
+          # thirty and resetting to zero every night.
+          tools_root = os.environ["ARIA_TOOLS_DIR"]
+          bridged = record_burn_in_acceptance(report=report, mode="real", base_dir=tools_root)
           print(f"ladder bridge: recorded={bridged.get('recorded')} skipped={bridged.get('skipped')}")
-          unlock = evaluate_autonomy_unlock(lane="L1", base_dir="aria-tools")
+          unlock = evaluate_autonomy_unlock(lane="L1", base_dir=tools_root)
           print(f"L1 unlocked: {unlock.valid}")
           print(f"counts: {unlock.counts}")
           if not unlock.valid:
@@ -407,13 +452,13 @@ jobs:
           set -euo pipefail
           PYTHONPATH=aria-kernel python3 -m aria_kernel handoff snapshot \
             --session-id "auto-cycle-${GITHUB_RUN_ID}" \
-            --tools-dir aria-tools \
+            --tools-dir "$ARIA_TOOLS_DIR" \
             --trigger session_stop || true
 
       # ORPHAN-HIGH-424 — fail-closed publication gate. Pre-fix the upload
       # below ran under a bare `if: always()` with `overwrite: true`, so a
       # cycle killed mid-write republished its partial tree under the
-      # canonical `aria-tools-state` name and the NEXT run restored it as
+      # canonical artifact name and the NEXT run restored it as
       # authoritative. `integrity verify` already exits non-zero on drift
       # (cli.py returns 1 when status != "ok") and already reports
       # started-without-terminal cycles, so the gate needs no new verifier
@@ -426,8 +471,8 @@ jobs:
       # Suppression was never needed here — the `integrity verify` call sits
       # inside an `if`, so `set -e` cannot abort the job on it — and the
       # fail-closed verdict is published by the separate
-      # "Fail on unverified aria-tools state" step below.
-      - name: Verify aria-tools state integrity
+      # "Fail on unverified ARIA state" step below.
+      - name: Verify ARIA state integrity
         id: integrity
         if: always() && steps.lease_check.outputs.blocked != 'true'
         run: |
@@ -438,14 +483,14 @@ jobs:
           VERDICT="${RUNNER_TEMP}/aria-integrity-verdict.json"
           VERDICT_ERR="${RUNNER_TEMP}/aria-integrity-verdict.err"
           if PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify \
-               --tools-dir aria-tools \
+               --tools-dir "$ARIA_TOOLS_DIR" \
                --workspace-root "$GITHUB_WORKSPACE" > "$VERDICT" 2>"$VERDICT_ERR"; then
             echo "state_valid=true" >> "$GITHUB_OUTPUT"
           else
             echo "state_valid=false" >> "$GITHUB_OUTPUT"
           fi
           {
-            echo '### aria-tools state integrity'
+            echo '### ARIA state integrity'
             echo '```json'
             head -c 4000 "$VERDICT" 2>/dev/null || echo '{}'
             echo '```'
@@ -463,35 +508,96 @@ jobs:
       # consistent) and then overwrites the accumulated state under the
       # canonical name. The drift was invisible while the restore was two
       # hand-copied heredocs; it is one action now, so the outputs exist here.
-      - name: Persist aria-tools state (verified)
+      #
+      # PLAN Wave 1 PR 2.6b — publish to the durable store. The `if:` is
+      # UNCHANGED from the artifact era on purpose: `state_valid` plus the
+      # restore proof is what stops a partial or bootstrap-empty tree being
+      # published, and that reasoning did not depend on the transport.
+      #
+      # What the transport adds is the guarantee the artifact could never give.
+      # `publish_state` pushes fast-forward-only, so a tree that does not
+      # descend from the published tip is rejected by the SERVER — the failure
+      # mode ORPHAN-CRITICAL-484 describes stops being something a gate has to
+      # catch and becomes something the push cannot do.
+      #
+      # The credential is minted here and consumed by the next step only. Kept
+      # out of `.git/config` so it cannot outlive the push.
+      - name: Mint the aria/state push credential
+        id: publish_credential
         if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true' && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
+        env:
+          PUBLISH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          HEADER="$(printf 'x-access-token:%s' "$PUBLISH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${HEADER}"
+          echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish ARIA state to the aria/state branch
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true' && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
+        env:
+          # persist-credentials stays FALSE on the checkout, deliberately: a
+          # persisted token is readable by every later step, including the
+          # Claude CLI subprocess this lane exists to run. So the credential
+          # lives in THIS STEP'S environment only.
+          #
+          # GIT_CONFIG_* is git's own env form of `-c`, so it reaches
+          # state_store's git calls without state_store knowing about tokens —
+          # `_run_git` passes no `env=`, so the subprocess inherits this and
+          # nothing else does. No token is written to .git/config, which is
+          # what would have leaked it forward.
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
+          GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.publish_credential.outputs.header }}'
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
+            --repo-root . \
+            --snapshot-id "auto-cycle-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --cycle-id "auto-cycle-${GITHUB_RUN_ID}"
+
+      # FORENSIC CACHE ONLY — and the run-scoped name is the whole point.
+      # `aria/state` is authoritative; this exists so a run that publishes and
+      # then loses the remote still leaves its tree readable. It is deliberately
+      # NOT the canonical name the old restore selected: an artifact that
+      # anything restores from is a SECOND source of truth for one hash-chained
+      # ledger, and it is the one that cannot enforce ancestry, so it would win
+      # whenever it was newer. Nothing reads a `-<run_id>` name.
+      # `aria-single-restore-path.spec.ts` pins that no lane republishes under
+      # the canonical one.
+      - name: Cache ARIA state tree (non-authoritative)
+        if: always() && steps.lease_check.outputs.blocked != 'true' && steps.integrity.outputs.state_valid == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: aria-tools-state
-          path: aria-tools/
+          name: aria-state-cache-${{ github.run_id }}
+          path: .aria-state-store/
           retention-days: 30
+          # Hidden files included on purpose: the store root itself is a
+          # dot-directory and `.gitkeep` markers hold its empty subtrees. A
+          # forensic copy that silently dropped them would not reproduce the
+          # tree it claims to preserve.
+          include-hidden-files: true
           if-no-files-found: error
           overwrite: true
 
-      # Unverified state is still preserved for forensics, but under a
-      # run-scoped name the restore step never selects — the restore
-      # queries `name=aria-tools-state`, so quarantined trees cannot be
-      # picked up as the next run's starting state.
-      - name: Quarantine unverified aria-tools state
+      # Unverified state is still preserved for forensics, under the same
+      # run-scoped naming discipline. Nothing restores from it.
+      - name: Quarantine unverified ARIA state
         if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || (steps.restore_state.outputs.restored != 'true' && steps.restore_state.outputs.bootstrap != 'true'))
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: quarantine-evidence-${{ github.run_id }}
           path: |
-            aria-tools/
+            .aria-state-store/
             ${{ runner.temp }}/aria-integrity-verdict.json
             ${{ runner.temp }}/aria-integrity-verdict.err
           retention-days: 30
+          include-hidden-files: true
           if-no-files-found: warn
           overwrite: true
 
-      - name: Fail on unverified aria-tools state
+      - name: Fail on unverified ARIA state
         if: always() && steps.lease_check.outputs.blocked != 'true' && (steps.integrity.outputs.state_valid != 'true' || (steps.restore_state.outputs.restored != 'true' && steps.restore_state.outputs.bootstrap != 'true'))
         run: |
-          echo "::error::aria-tools state failed integrity verification; published as quarantine-evidence-${GITHUB_RUN_ID} instead of aria-tools-state." >&2
+          echo "::error::ARIA state failed integrity verification; captured as quarantine-evidence-${GITHUB_RUN_ID} and NOT published to the aria/state branch." >&2
           exit 1

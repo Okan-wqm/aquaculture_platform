@@ -68,9 +68,19 @@ describe('INVARIANT: farm tank fish-count reads the totalQuantity SSoT (DB-FARMP
     expect(read('apps/farm-service/src/equipment/equipment.resolver.ts')).toMatch(
       /pieces:\s*tankBatch\.totalQuantity/,
     );
+    // WHAT: accept the named-const (`fishCount = …`) and object-property
+    // (`fishCount: …`) spellings alike.
+    // WHY: the guarantee is that the count is sourced from the derived
+    // totalQuantity rather than the retired currentQuantity mirror — not that it
+    // passes through a local variable on the way. Pinning one spelling made a
+    // pure refactor (inlining the const into the returned object) read as a
+    // violation while the property under guard was never in question. The mirror
+    // stays covered by COUNT_MIRROR_PREFERENCE above and by the
+    // never-written-again test below, so widening the spelling costs this gate
+    // none of its teeth.
     expect(
       read('apps/farm-service/src/feeding/services/daily-feeding-execution.service.ts'),
-    ).toMatch(/fishCount\s*=\s*tankBatch\.totalQuantity/);
+    ).toMatch(/fishCount\s*[:=]\s*tankBatch\.totalQuantity/);
     expect(read('apps/farm-service/src/tank/handlers/get-tank-capacity.handler.ts')).toMatch(
       /currentQuantity\s*=\s*tankBatch\?\.totalQuantity/,
     );

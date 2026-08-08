@@ -29,7 +29,7 @@
     "test:e2e:water-chemistry": "npm --prefix e2e run test:water-chemistry",
     "test:e2e:mobile": "npm --prefix e2e run test:mobile",
     "lint": "node tools/toolchain/run.mjs nx affected --target=lint",
-    "lint:all": "node tools/toolchain/run.mjs nx run-many --target=lint --all",
+    "lint:all": "node scripts/ci/lint-all.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "type-check": "node tools/scripts/type-check-all.mjs",
@@ -134,6 +134,7 @@
     "gates:auth-db-ownership": "node scripts/ci/check-auth-db-ownership.mjs",
     "gates:migration-sql": "ts-node --project tools/gates/tsconfig.json tools/gates/migration-sql-lint.ts",
     "gates:clippy-affected": "ts-node --project tools/gates/tsconfig.json tools/gates/clippy-affected.ts",
+    "gates:test": "node tools/gates/run-all.mjs",
     "gates:clippy-affected:test": "ts-node --project tools/gates/tsconfig.json tools/gates/clippy-affected.spec.ts",
     "gates:commit-msg:test": "ts-node --project tools/gates/tsconfig.json tools/gates/commit-msg-validator.spec.ts",
     "gates:finding-registry:test": "ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry-store.spec.ts",
@@ -181,7 +182,8 @@
     "quality:format-scope:generate": "node tools/quality/quality.mjs format-scope generate",
     "quality:format-scope:check": "node tools/quality/quality.mjs format-scope check",
     "supervisor:test": "node --experimental-strip-types --test tools/supervisor/runtime-supervisor.spec.ts",
-    "supervisor:run": "node --experimental-strip-types tools/supervisor/runtime-supervisor.ts"
+    "supervisor:run": "node --experimental-strip-types tools/supervisor/runtime-supervisor.ts",
+    "tools:test": "node --experimental-strip-types --test \"tools/supervisor/*.spec.ts\" \"tools/watchdog/*.spec.mjs\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.93.0",
@@ -239,7 +241,7 @@
     "helmet": "^7.2.0",
     "immer": "^11.1.4",
     "ioredis": "^5.8.2",
-    "js-yaml": "^4.3.0",
+    "js-yaml": "^4.3.1",
     "minio": "^8.0.7",
     "modbus-serial": "^8.0.23",
     "motion": "^12.38.0",
@@ -313,11 +315,11 @@
     "concurrently": "^9.2.1",
     "eslint": "^9.39.4",
     "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-aquaculture": "file:tools/eslint-rules",
     "eslint-plugin-import": "2.31.0",
     "eslint-plugin-jsx-a11y": "6.10.1",
     "eslint-plugin-react": "^7.33.2",
     "eslint-plugin-react-hooks": "5.0.0",
-    "eslint-plugin-aquaculture": "file:tools/eslint-rules",
     "globals": "^17.6.0",
     "husky": "^8.0.3",
     "jest": "30.0.5",
@@ -361,6 +363,9 @@
     },
     "@nestjs/apollo": {
       "@apollo/server-plugin-landing-page-graphql-playground": "$@apollo/server-plugin-landing-page-graphql-playground"
+    },
+    "@nestjs/swagger": {
+      "js-yaml": "^4.3.1"
     },
     "typeorm": {
       "glob": "^13.0.6",

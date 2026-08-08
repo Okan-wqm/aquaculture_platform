@@ -8148,3 +8148,15 @@ The second defect is what reached the reader. A job killed by its own budget rep
 **Deliberately not done:** nothing here tries to make the suite _faster_ (`nx.json` parallelism, sharding, or making `ci-full` honour the test quarantine). Duration is a separate, separately-measured problem; conflating it with the detector is how the detector got mis-set. `NX_DAEMON: 'false'` / `NX_NO_CLOUD: 'true'` were considered for consistency with the sibling `build` job and rejected as provably no-ops under Actions (`nx/dist/src/daemon/client/client.js` disables the daemon whenever `CI` or `GITHUB_ACTIONS` is set; this workspace declares no Nx Cloud token) — attaching them to a duration fix would have been a false causal claim.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-501`, `ORPHAN-MEDIUM-563`, `ORPHAN-HIGH-563`.
+
+## ORPHAN-HIGH-613 — a high-severity advisory blocks every branch's security gate — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-08 while landing an unrelated feature branch.
+
+**Problem:** `nanoid` below 3.3.17 lets a custom generator loop indefinitely when the requested size is zero. The CI security gate runs `npm audit --audit-level=high --omit=dev`, so the advisory fails every branch, including ones that changed no dependency at all — the lockfile is byte-identical to main on those branches, which is how it was traced here rather than blamed on the feature work.
+
+**Fix:** the tree resolves to `nanoid` 3.3.18 and the high-severity finding is gone; three moderate findings remain, below the gate's threshold. `nanoid` is transitive, so the lockfile is the only place it can be pinned.
+
+**Why this is its own change:** the resulting lockfile churn is npm re-resolving nested `@module-federation` dependencies, which is far wider than the single patched package. Riding that into a feature branch would mix a dependency-tree change with domain work and make either one hard to revert alone.
+
+**Verification owed before merge:** a clean install and a full build must confirm the re-resolved tree, since the change is broader than the advisory it closes.

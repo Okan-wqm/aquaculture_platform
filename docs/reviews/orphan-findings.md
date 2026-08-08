@@ -8148,3 +8148,42 @@ The second defect is what reached the reader. A job killed by its own budget rep
 **Deliberately not done:** nothing here tries to make the suite _faster_ (`nx.json` parallelism, sharding, or making `ci-full` honour the test quarantine). Duration is a separate, separately-measured problem; conflating it with the detector is how the detector got mis-set. `NX_DAEMON: 'false'` / `NX_NO_CLOUD: 'true'` were considered for consistency with the sibling `build` job and rejected as provably no-ops under Actions (`nx/dist/src/daemon/client/client.js` disables the daemon whenever `CI` or `GITHUB_ACTIONS` is set; this workspace declares no Nx Cloud token) — attaching them to a duration fix would have been a false causal claim.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-501`, `ORPHAN-MEDIUM-563`, `ORPHAN-HIGH-563`.
+
+## ORPHAN-CRITICAL-591 — ARIA's autonomy died on 2026-08-04 and reported it as five ordinary agent failures — RESOLVED (detection); OPERATOR ACTION REQUIRED (the credential)
+
+**Discovered:** 2026-08-08, while wiring the feedback loop the operator asked for. Measured first-hand on the production runner:
+
+    $ sudo -u gharunner claude -p "say OK"
+    Failed to authenticate: OAuth session expired and could not be refreshed
+
+Every `aria-agent-executor` run from 2026-08-04 to 2026-08-08 failed. The pattern is identical each night: the executor claims a request, `invoke_claude_cli` returns 1, the claim is released with `reason="claude_cli_exit_1"`, exit 1. That reason is what a **crashed agent** produces. Nothing distinguished it from a runtime that never started.
+
+The consequence is the whole learning loop. ARIA kept minting agent-invocation requests — nine in the ledger, for `aria-challenger-planner` and `aria-autonomy-planner` — and exactly **one** result ever came back. With no judge verdicts, `generate_ai_consensus` has nothing to combine; with no consensus rows, `judge_calibration` reports `judged_judges: 0`; with no labelled feedback, `goldset_proposal` reports `labelled_tool_count: 0`; and `judge_replay` has no corpus to score against. Verified in the live state and in a live cycle run: every one of those phases completes successfully and reports zero, which reads exactly like a healthy system with nothing to do.
+
+**Why it was invisible, precisely:** the failure class did not exist. `claude_runtime` classified two recoverable classes — credit exhaustion (model-pool specific, a lower tier clears it) and content refusal (another model clears it) — and everything else was an opaque nonzero exit. An expired session clears on neither, because every tier authenticates through the same credential, so the fallback ladder spent a second attempt learning the same thing and then reported _that_ failure.
+
+**Fix (this PR):** `AUTH_FAILURE_MARKERS` + `extract_auth_failure` name it as a third class, gated on a nonzero exit so an agent _writing about_ authentication is never mistaken for a runtime that cannot start. `run_with_model_fallback` checks it first and raises `ClaudeAuthFailure` rather than retrying. `ci_executor` releases the claim under `claude_cli_auth_failure` and emits `::error::` naming the remedy, so the lane cannot spend another five nights dispatching into a runtime that cannot start.
+
+**NOT fixed, and not mine to fix:** the session itself. Re-authenticating is `claude` login as the runner user on the runner host — a credential act. Minting or forging one is out of bounds, and would be the wrong answer even if it were not.
+
+**Two things the repo's own gates caught in this change, worth recording:** a variable name that did not exist in that scope (`test_no_loaded_name_is_unbindable`), and my `assertIn` on source text — Plan 026R §H.1 forbids source-marker assertions because a string match passes on a handler that has been commented out. The test now parses the module and asserts the handler's node shape, which is what I should have written first.
+
+**Owner:** claude (detection); operator (credential). **Status:** RESOLVED for detectability; the loop stays dark until the session is renewed.
+
+## ORPHAN-CRITICAL-592 — the agent sandbox granted a network it could not use, and a HOME it could not write — RESOLVED (this PR)
+
+**Discovered:** 2026-08-08, reproducing the executor's exact bwrap argv after ORPHAN-CRITICAL-591 restored the credential and the dispatch STILL failed.
+
+Renewing the expired session was necessary and not sufficient. With a valid token the CLI answers in the runner's own shell — `loggedIn: true`, `authMethod: oauth_token`, prompt returns `OK` — and still exits 1 inside the executor. Running `wrap_bash_in_sandbox`'s real argv by hand found two independent causes, and **both** had to be true for an agent to run:
+
+**1. `$HOME` was resolvable but read-only.** It survived only as an implicit parent of the workspace bind, on the read-only root, so the runtime blocked trying to write its own state. Proven by giving the sandbox a writable home and watching the same command return `OK`.
+
+**2. `allow_network=True` bound no resolver.** The sandbox shared the host's network namespace and had no `/etc/resolv.conf`; measured inside it, `getent hosts api.anthropic.com` → `DNS_FAIL`, `ls /etc/resolv.conf` → _No such file_. The CLI then hung until its timeout, which the executor reported as `claude exec exited 1`.
+
+The second is the one worth remembering. A permission that is granted and unusable reads to every reviewer as granted: the flag says the network is allowed, the code says the network is allowed, and nothing that needs the network can work. That is harder to see than a denial.
+
+**Fix:** the sandbox now sets `HOME` to an **ephemeral** tmpfs directory it also creates — stronger containment than binding the real home, not weaker, because the agent can neither read the operator's `~/.claude.json` nor leave anything in it, and credentials arrive through the environment. And `allow_network=True` now ro-binds `/etc/resolv.conf`, `/etc/hosts`, `/etc/nsswitch.conf`, existence-guarded for the reason the system binds already are: bwrap aborts on a missing bind source, so an unconditional bind turns a slim container into a total failure. Denying the network still binds none of them — a resolver is a network capability and must not travel with a sandbox that was refused one.
+
+**End-to-end proof, not just flag assertions:** the executor's real argv, run as the runner user with the real credential, now returns `rc: 0` / `out: OK`. Six tests pin it, including two that execute inside a live sandbox rather than inspecting the argv — "was the flag passed" is exactly the assertion that would have missed this. Both fixes proven load-bearing by deliberate break.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

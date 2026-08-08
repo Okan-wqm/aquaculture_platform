@@ -256,6 +256,33 @@ def load_active_goldset(
         return None
 
 
+def list_active_goldset_tool_ids(*, base_dir: str | Path | None = None) -> list[str]:
+    """Tools that have a promoted gold corpus, read from the corpus records.
+
+    The tool id comes from each record's own ``tool_id`` field rather than from
+    its filename: `_safe_tool_id` sanitises the name on the way in, so parsing
+    it back would be a second, lossy copy of that mapping. This module owns the
+    layout; callers ask it rather than rebuilding the path.
+    """
+    root = ensure_tools_dir(base_dir)
+    active_dir = root / "goldsets" / "active"
+    if not active_dir.is_dir():
+        return []
+    tool_ids: set[str] = set()
+    for path in sorted(active_dir.glob("*.json")):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            # A corpus we cannot read is a corpus we cannot replay against.
+            # Skipping is right; failing the caller is not, because one broken
+            # file would take every other tool's replay with it.
+            continue
+        tool_id = record.get("tool_id")
+        if isinstance(tool_id, str) and tool_id.strip():
+            tool_ids.add(tool_id)
+    return sorted(tool_ids)
+
+
 def _gold_item(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "run_id": row.get("run_id"),

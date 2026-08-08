@@ -8148,3 +8148,25 @@ The second defect is what reached the reader. A job killed by its own budget rep
 **Deliberately not done:** nothing here tries to make the suite _faster_ (`nx.json` parallelism, sharding, or making `ci-full` honour the test quarantine). Duration is a separate, separately-measured problem; conflating it with the detector is how the detector got mis-set. `NX_DAEMON: 'false'` / `NX_NO_CLOUD: 'true'` were considered for consistency with the sibling `build` job and rejected as provably no-ops under Actions (`nx/dist/src/daemon/client/client.js` disables the daemon whenever `CI` or `GITHUB_ACTIONS` is set; this workspace declares no Nx Cloud token) — attaching them to a duration fix would have been a false causal claim.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-501`, `ORPHAN-MEDIUM-563`, `ORPHAN-HIGH-563`.
+
+## ORPHAN-MEDIUM-589 — the gold corpus had two declared consumers and one reachable one — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06 audit, closed 2026-08-08.
+
+`judge_replay.py` has existed since Plan 025 §C. Its two public functions — `replay_judges_on_goldset` and `compute_replay_recall` — were called by **nothing but their own unit tests**: no cycle phase, no CLI verb, no workflow. Verified against `origin/main` rather than assumed.
+
+What that module answers is not decorative. Calibration measures recall over findings a judge happened to see; replay asks the harder question — shown a finding it has never seen whose verdict is already known, does the judge get it right? That is the only honest form of "are the judges still any good", and nothing ever asked it.
+
+The intent was never in doubt. The comment on the `goldset_proposal` phase already reads: _"the gold corpus this mints is what judge_replay scores judges against."_ The corpus producer was wired in #1088. The scorer never was.
+
+**Fix:** a `judge_replay` cycle phase, registered immediately after `goldset_proposal` because it scores judges against exactly the corpus that phase mints. `precondition=WRITES_PERMITTED`, `on_error=record_and_continue` — a replay that crashed measured nothing, but it must not fail a cycle whose real work succeeded, which is the same reasoning `goldset_proposal` already carries.
+
+**What it must NOT do, and is tested for:** mint work on a platform where no corpus has been promoted. Promotion stays an operator act, so on today's platform the phase is a recorded no-op that never reaches the judge fan-out — not a surprise bill. Cost past that is bounded by idempotence rather than a cap: the ground-truth anchor is seeded once per (run, finding, replay-group) and envelope minting keys on `request_id`, so a nightly cycle re-running against an unchanged corpus mints nothing new.
+
+**One helper added, deliberately in `goldset.py`:** `list_active_goldset_tool_ids` reads each corpus record's own `tool_id` rather than parsing it back out of the filename — `_safe_tool_id` sanitises names on the way in, so filename parsing would be a second, lossy copy of that mapping. A corpus that cannot be read is skipped rather than fatal: one broken file must not take every other tool's replay with it.
+
+**Proof:** 8 new tests; the full kernel suite green (3,447 tests). Deliberate break — moving the phase to the `pre_tool` stage — was caught by the kernel's own `_assert_pipeline_is_well_formed`, which is a better guard than the one I wrote.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+**Still open from the same audit:** ORPHAN-HIGH-590 (eval delta persistence) and the weight-override feeder. Both are separate changes and are not silently folded in here.

@@ -33,7 +33,8 @@ from .human_required import (
     sweep_lease_lifecycle_for_human_required,
 )
 from .human_required_adjudication import sweep_human_required_adjudications
-from .goldset import propose_goldsets_for_labelled_tools
+from .goldset import list_active_goldset_tool_ids, propose_goldsets_for_labelled_tools
+from .judge_replay import compute_replay_recall, replay_judges_on_goldset
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
 from .runtime_profile import ACTION_PERMISSIONS, get_profile
@@ -1157,6 +1158,49 @@ def _phase_goldset_proposal(context: PhaseContext) -> dict[str, Any]:
     )
 
 
+def _phase_judge_replay(context: PhaseContext) -> dict[str, Any]:
+    # The gold corpus has had two declared consumers since Plan 025 and only
+    # one reachable one. `replay_judges_on_goldset` and `compute_replay_recall`
+    # were called by nothing but their own tests: the module measures whether a
+    # judge gets a verdict right on a finding it has never seen, which is the
+    # only honest answer to "are the judges still any good", and nothing ever
+    # asked it. The comment on goldset_proposal above already says the corpus
+    # it mints "is what judge_replay scores judges against" — the phase to do
+    # that scoring simply never existed.
+    #
+    # Runs directly after the corpus is proposed, for every tool that has one
+    # PROMOTED. Promotion stays an operator act, so on a platform with no
+    # promoted corpus this phase is a recorded no-op rather than a surprise
+    # bill: `replay_judges_on_goldset` returns `no_active_goldset` and mints
+    # nothing.
+    #
+    # Cost is bounded by idempotence, not by a cap: the ground-truth anchor is
+    # seeded once per (run, finding, replay-group) and envelope minting keys on
+    # request_id, so a nightly cycle re-running against an unchanged corpus
+    # mints no new work.
+    tool_ids = list_active_goldset_tool_ids(base_dir=context.base_dir)
+    replays: list[dict[str, Any]] = []
+    for tool_id in tool_ids:
+        result = replay_judges_on_goldset(tool_id=tool_id, base_dir=context.base_dir)
+        replays.append({
+            "tool_id": tool_id,
+            "status": result.get("status"),
+            "replayed_items": result.get("replayed_items", 0),
+            "minted": len(result.get("minted") or []),
+        })
+    # Recall over whatever the judges have already answered. Early cycles report
+    # insufficient samples because the envelopes minted above have not been
+    # answered yet — that is the honest reading, not a failure.
+    recall = compute_replay_recall(base_dir=context.base_dir)
+    return {
+        "schema_version": 1,
+        "active_goldset_tools": tool_ids,
+        "replays": replays,
+        "minted_total": sum(r["minted"] for r in replays),
+        "recall": recall,
+    }
+
+
 def _phase_proactive_priority(context: PhaseContext) -> dict[str, Any]:
     # Plan 027 §D3 — proactive Impact x Opportunity ranking, computed every
     # cycle regardless of reactive pressure, so ARIA always has a "where to
@@ -1638,6 +1682,15 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         "goldset_proposal", "post_tool", _phase_goldset_proposal,
         precondition=WRITES_PERMITTED, on_error="record_and_continue",
         state_key="goldset_proposal",
+    ),
+    # Immediately after the corpus is proposed, because it scores judges
+    # against exactly that corpus. `record_and_continue` for the same reason
+    # goldset_proposal has it: a replay that crashed measured nothing, but it
+    # must not fail a cycle whose real work succeeded.
+    CyclePhase(
+        "judge_replay", "post_tool", _phase_judge_replay,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="judge_replay",
     ),
     CyclePhase(
         "proactive_priority", "post_tool", _phase_proactive_priority,

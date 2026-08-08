@@ -968,7 +968,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "f9cac074ac50f21edbb5794bbed354a0eaca42dbb2e73f12290783346d57541b",
+      "content_sha256": "7a7cfb61a8c6cf27d47bd34112b9f7ced5979ac70a01cc79e2715682a23c4d69",
       "hash_policy": "sha256",
       "owner": "finding-registry-writer-authority-generator",
       "path": ".github/manifests/finding-registry-writer-authority.json",
@@ -40889,7 +40889,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "ee40817bf0514e036e6d941b06be1512b6f17dcb2f1cfca456b9d178d473aa21",
+      "content_sha256": "d252dfb69bf56ccdc060d123b926d3cabb3a24b4e0da737382cd8455969b74b1",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",

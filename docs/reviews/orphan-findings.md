@@ -8768,3 +8768,71 @@ The second defect is what reached the reader. A job killed by its own budget rep
 **Deliberately not done:** nothing here tries to make the suite _faster_ (`nx.json` parallelism, sharding, or making `ci-full` honour the test quarantine). Duration is a separate, separately-measured problem; conflating it with the detector is how the detector got mis-set. `NX_DAEMON: 'false'` / `NX_NO_CLOUD: 'true'` were considered for consistency with the sibling `build` job and rejected as provably no-ops under Actions (`nx/dist/src/daemon/client/client.js` disables the daemon whenever `CI` or `GITHUB_ACTIONS` is set; this workspace declares no Nx Cloud token) — attaching them to a duration fix would have been a false causal claim.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-501`, `ORPHAN-MEDIUM-563`, `ORPHAN-HIGH-563`.
+
+## ORPHAN-HIGH-613 — every contract-phase migration is armed to abort the production schema run, and nothing has fired it because production has not deployed since July
+
+**Discovered:** 2026-08-08, while deciding how to drop `vfd_devices.customRegisterMappings` during the VFD configuration-drift work.
+
+`assertExpandContractDependency` (`libs/backend-common/src/database/assert-expand-contract-dependency.ts:107-122`) is called by the schema runner before every migration (`apps/db-migrate/src/migration-orchestrator.ts:463`). For a `@ExpandContract({phase:'contract'})` class it queries `observability.migration_backfill_progress` for the `dependsOn` migration in the current environment and **throws** when the row is absent. It fails open only when the TABLE itself is missing.
+
+The table is never missing — observability's own Baseline creates it — and it is never written either. Rows come from exactly one place: `RecordMigrationEventHandler` (`apps/observability-service/src/migration-audit/handlers/record-migration-event.handler.ts:132`), consuming NATS events published by `NatsMigrationEventSink`, which is wired only into the per-service `MigrationRunnerService`. In production `DATABASE_MIGRATIONS_RUN=false`: the per-service runners apply nothing, and `apps/db-migrate` — the only schema writer — wires no `MigrationEventSink` at all (`grep -n "eventSink" apps/db-migrate/src/*.ts` returns nothing). So the gate's evidence store is populated by the path that does not run and empty for the path that does.
+
+One contract migration is already on main in this state: `DropVfdDeviceFreeTextUnitColumns1817100000000` (`dependsOn: 'CreateVfdDriveBindings1817000000000'`). It has not detonated because production deploys have been disabled since 2026-07-15, so it has never reached a droplet. The first production run applies it and aborts `db-migrate` before any service container starts — `scripts/deploy/droplet-up.sh:196-203` treats that as a hard release failure.
+
+Two adjacent facts, both load-bearing: the sink is fire-and-forget by design (`nats-migration-event-sink.ts` — "publish failure is logged but never thrown"), so even a wired sink would make a same-release `dependsOn` a race rather than a guarantee; and neither `tools/gates/expand-contract-ast.ts` nor `tools/gates/schema-snapshot-diff.ts` is referenced by any workflow or npm script, so no CI lane exercises this at all.
+
+**Not fixed here.** The repair belongs in the schema-writer's own evidence path — db-migrate recording its applies synchronously, in the same transaction that advances the migrations table, rather than depending on another service's asynchronous consumer. Doing that from a VFD change would put an untested write into the one component that owns production schema state.
+
+**Owner:** claude. **Deadline:** before `PRODUCTION_DEPLOY_ENABLED` is turned back on — this blocks the first production release, not a later one. **Status:** OPEN. **Related:** `ORPHAN-MEDIUM-614`.
+
+## ORPHAN-MEDIUM-614 — `vfd_devices.customRegisterMappings` survives in the database after its entity field was removed
+
+**Discovered:** 2026-08-08, VFD configuration-drift Phase A.
+
+The column was a per-device jsonb register override. Nothing ever wrote it — the registration wizard sent `undefined` — but `VfdEdgeProvisioningService.buildWriteRanges` READ it and folded any entry whose `functionCode` was 5/6/16 into the drive's `allowed_write_ranges`. An unvalidated blob on a row could therefore grant Modbus write authority on an actuator, with no risk level, no motor-stop interlock and no maker-checker approval. The field and its reader are gone as of the Phase A change; a first-class per-brand/per-model override already exists as rows in `vfd_register_mappings`, which `getMappingsForBrand` prefers over the built-in catalogue.
+
+The COLUMN remains. Dropping it is breaking DDL, and the repo's sanctioned wrapper for that — `@ExpandContract({phase:'contract'})` — currently aborts the production schema run for the reason recorded in `ORPHAN-HIGH-613`. Shipping the drop undecorated to route around that gate is the workaround this repo forbids, so the column stays until 613 is closed, at which point it drops in one migration. Until then it is an empty, unreferenced Class-E `orphan_column`; the drift validator reports it at cold start as a warning (`schema-drift-validator.service.ts:505-522`), so it is visible rather than silent.
+
+**Owner:** claude. **Deadline:** the first migration cycle after `ORPHAN-HIGH-613` closes. **Status:** OPEN. **Related:** `ORPHAN-HIGH-613`.
+
+## ORPHAN-MEDIUM-615 — three VFD brand catalogues describe registers the drive can never report correctly
+
+**Discovered:** 2026-08-08, while unioning the telemetry and configuration catalogues for VFD configuration-drift Phase A. All three are catalogue-authoring defects that predate that change; none is introduced by it.
+
+**Siemens telemetry claims address 25 twice.** `motor_voltage` and `dc_bus_voltage` both map to r0025 (`brand-configs/siemens.config.ts`). The edge answers `read_modbus` per address and `buildVfdReadResult` keys by address, so a Siemens drive reports its **output voltage as its DC bus voltage** — a plausible-looking number that is simply the wrong measurement. Address 26 is already taken by another parameter, so correcting it needs the SINAMICS parameter list, not a guess.
+
+**Mitsubishi's configuration catalogue claims Pr.9 twice** — `motor_nom_current` and `thermal_relay_function`. Provisioning now keeps the first and skips the second, so `thermal_relay_function` reads back `motor_nom_current`'s register.
+
+**Four ABB telemetry registers are silently dropped before they reach the edge.** 400001, 400002, 400051 and 400052 exceed the u16 Modbus address space, and `buildModbusDeviceConfig` filters `registerAddress > 0xffff` out of the register map. They are Modicon 4xxxxx-style references that were never translated to zero-based offsets, so those four ABB parameters have never been readable — the same class of defect as the configuration registers Phase A just fixed, in the opposite direction.
+
+**Detectable now:** `vfd-edge-provisioning.service.spec.ts` pins the exact set of intra-catalogue address collisions, so a fourth one fails at authoring time instead of shipping as wrong telemetry.
+
+**Owner:** claude. **Deadline:** with the VFD configuration-drift plan's catalogue pass; each needs the vendor parameter list to correct, not a code change. **Status:** OPEN.
+
+## ORPHAN-HIGH-614 — configuration registers were never provisioned to the edge, so no drive parameter could be read back — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-08 designing configuration-drift detection.
+
+**Problem:** `buildModbusDeviceConfig` provisioned the edge with the TELEMETRY catalogue only. `readRegister` does not send an address to the edge — it reads the drive's whole provisioned map and extracts one register client-side — so an address outside that map returns `found:false`. The telemetry and configuration address sets are disjoint (Siemens telemetry 21-53/947-952 versus config 1080/1082/304/305/307/311), which meant every configuration parameter was unreadable and the change-set writer's own read-before-write step could never succeed for one. The configuration catalogue existed and was rich — 12-14 entries across 8 brands — and was consulted by nothing on the read path.
+
+**Fix:** the provisioned read map is the union of both catalogues, deduplicated by address, assembled in one method because the edge answers with exactly the provisioned set and the reader extracts by address; splitting the union across callsites is how the two halves drifted apart. Real collisions exist (Delta 1537, Mitsubishi 1 and 2 appear in both catalogues) and telemetry wins them, because the decoder is written against the telemetry entry's name and scaling.
+
+**Read and write stayed separate, deliberately.** The edge expresses this natively: membership in `registers` grants read only, while writes are gated independently by `allowed_write_ranges`. That list was not widened. Configuration writes therefore remain denied at the edge — this change makes drift detectable, not correctable, and correcting it is a decision to take on its own terms rather than as a side effect.
+
+**`VfdDevice.customRegisterMappings` removed.** No service ever wrote it, but `buildWriteRanges` READ it and folded any entry with a write function code into `allowed_write_ranges` — an unvalidated jsonb blob on a row could grant Modbus write authority on a feeder drive with no risk level, no motor-stop interlock and no maker-checker approval. A first-class per-brand override already exists as rows in `vfd_register_mappings`.
+
+**Not proven:** there is no hardware in this session. The tests prove the cloud-side contract — that the address the provisioner writes is the address the reader extracts by, with a counter-proof that the same read returns `found:false` against a pre-change payload. They do not prove a physical drive answers, that scaling is right on real silicon, or the bus cost of a register count roughly 50% higher per drive. That verification is outstanding.
+
+## ORPHAN-MEDIUM-615 — three brand register catalogues carry duplicate or unrepresentable addresses — OPEN
+
+Severity: MEDIUM. Owner: sensor. Discovered 2026-08-08.
+
+Siemens telemetry claims r0025 twice, so a Siemens drive reports its output voltage as its DC bus voltage. Mitsubishi's configuration catalogue claims Pr.9 twice. Four ABB telemetry registers (400001, 400002, 400051, 400052) exceed u16 and have been silently filtered out of provisioning since they were written. All three are the same class as ORPHAN-HIGH-614 — a catalogue that does not say what someone believed it said. Correcting them needs vendor parameter lists, so they are pinned by a test that fails if a fourth appears rather than guessed at.
+
+## ORPHAN-MEDIUM-616 — a contract-phase migration may abort the first production schema run — OPEN
+
+Severity: MEDIUM. Owner: platform. Discovered 2026-08-08.
+
+`assertExpandContractDependency` fails OPEN when `observability.migration_backfill_progress` is absent, and throws only when the table EXISTS and holds no matching row. That table is written by observability-service consuming migration events; production runs with `DATABASE_MIGRATIONS_RUN=false` and the standalone `db-migrate` CLI wires no event sink. So whether a `phase: 'contract'` migration aborts the first production run depends on whether observability-service has already created the table — which was not verified in this session and must be before the next production deploy.
+
+This branch adds two such migrations (`DropVfdDeviceFreeTextUnitColumns`, and the pending drop of `customRegisterMappings`). Shipping a drop undecorated to route around the gate is the workaround this repo forbids, so the column drop is not in this change.

@@ -207,20 +207,17 @@ export class VfdDevice {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
-  @Field(() => GraphQLJSON, { nullable: true })
-  @Column({ type: 'jsonb', nullable: true })
-  customRegisterMappings?: Array<{
-    parameterName: string;
-    registerAddress: number;
-    registerCount: number;
-    functionCode: number;
-    dataType: string;
-    scalingFactor: number;
-    offset: number;
-    unit: string;
-    byteOrder: string;
-    wordOrder: string;
-  }>;
+  // `customRegisterMappings` was a per-device jsonb register override. Nothing
+  // ever wrote it — the registration wizard sent `undefined` — but edge
+  // provisioning READ it, folding any entry whose functionCode was 5/6/16 into
+  // the drive's `allowed_write_ranges`. An unvalidated blob on a row could
+  // therefore grant write authority on an actuator that moves feed into a tank,
+  // with no risk level, no motor-stop interlock and no maker-checker approval.
+  // A per-brand/per-model override already exists as first-class rows in
+  // `vfd_register_mappings` (VfdRegisterMappingService.createCustomMapping),
+  // which `getMappingsForBrand` prefers over the built-in catalogue, so the
+  // column was a second, weaker model of the same idea. Removed rather than
+  // wired: the escalation path is now structurally absent, not merely unused.
 
   @Field()
   @Column({ type: 'int', name: 'poll_interval_ms', default: 1000 })

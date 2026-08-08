@@ -80,7 +80,6 @@ const U16_MAX = 0xffff;
 // is the fine-grained SL-2 boundary, so the function-code set stays this broad
 // only to admit the write path at all.
 const VFD_ALLOWED_FUNCTION_CODES = [1, 2, 3, 4, 5, 6];
-const WRITE_FUNCTION_CODES = new Set([5, 6, 16]);
 
 /**
  * VFD → edge Modbus device bridge (SENSOR-CRITICAL-007, Faz 1 Slice 3.5).
@@ -94,9 +93,20 @@ const WRITE_FUNCTION_CODES = new Set([5, 6, 16]);
  * the write path is real end-to-end rather than aimed at a non-existent device.
  *
  * The Modbus device config is derived from the VFD's protocol configuration
- * (connection) + its brand register mappings (register map + `allowed_write_ranges`
- * from the WRITABLE registers only — deny-by-default write authority). Non-Modbus
- * VFDs (PROFIBUS, PROFINET, …) cannot be pushed as Modbus devices and are skipped.
+ * (connection) + its brand register mappings. READ and WRITE authority come from
+ * separate sources and must stay separate:
+ *   - `registers` — everything the edge may READ: the telemetry catalogue UNION
+ *     the configuration catalogue (`VfdRegisterMappingService.getEdgeReadableMappings`).
+ *     The edge answers `read_modbus` with exactly this set, so an address missing
+ *     here is unreadable in production; configuration-drift detection depends on
+ *     the configuration half being present.
+ *   - `allowed_write_ranges` — the WRITABLE TELEMETRY registers only, the SL-2
+ *     deny-by-default write whitelist the edge enforces per request. Making a
+ *     register readable never makes it writable: the edge's `ModbusRegisterConfig`
+ *     has no writability field, and `ModbusClient::validate_write_address` gates
+ *     writes on the ranges alone.
+ * Non-Modbus VFDs (PROFIBUS, PROFINET, …) cannot be pushed as Modbus devices and
+ * are skipped.
  *
  * Auth: like every cloud→edge command the envelope is UNSIGNED — the broker's
  * per-tenant mTLS ACL is the authority (see VfdEdgeWriteService for the note on
@@ -232,19 +242,26 @@ export class VfdEdgeProvisioningService {
       return null;
     }
 
-    const [allMappings, writableMappings] = await Promise.all([
-      this.registerMappingService.getMappingsForBrand(
+    // Read authority and write authority are provisioned from DIFFERENT sources
+    // on purpose. `registers` is the edge's READ map — the telemetry catalogue
+    // UNION the configuration catalogue, because the edge answers `read_modbus`
+    // with exactly this set and the cloud extracts by address out of it.
+    // `allowed_write_ranges` stays derived from the WRITABLE TELEMETRY mappings
+    // alone: the edge's ModbusRegisterConfig carries no writability field, so
+    // widening the read map cannot widen the write surface on an actuator.
+    const [readableMappings, writableMappings] = await Promise.all([
+      this.registerMappingService.getEdgeReadableMappings(
         device.brand,
         device.modelSeries ?? undefined,
       ),
       this.registerMappingService.getWritableMappings(device.brand),
     ]);
 
-    const registers = allMappings
+    const registers = readableMappings
       .filter((m) => m.registerAddress >= 0 && m.registerAddress <= U16_MAX)
       .map((m) => this.toEdgeRegister(m));
 
-    const writeRanges = this.buildWriteRanges(writableMappings, device);
+    const writeRanges = this.buildWriteRanges(writableMappings);
     const allowWrites = writeRanges.length > 0;
 
     return {
@@ -299,10 +316,15 @@ export class VfdEdgeProvisioningService {
     return null;
   }
 
-  private buildWriteRanges(
-    writableMappings: VfdRegisterMapping[],
-    device: VfdDevice,
-  ): Array<[number, number]> {
+  /**
+   * The drive's write whitelist, derived SOLELY from the brand catalogue's
+   * writable registers. There is deliberately no per-device override input: a
+   * per-device jsonb list used to be folded in here, which meant an unvalidated
+   * blob on a row could grant write authority on an actuator without passing
+   * the change-set maker-checker ceremony. Write authority now has exactly one
+   * source, and it is reviewed catalogue code.
+   */
+  private buildWriteRanges(writableMappings: VfdRegisterMapping[]): Array<[number, number]> {
     const ranges: Array<[number, number]> = [];
     const push = (address: number, count: number): void => {
       const start = address;
@@ -313,11 +335,6 @@ export class VfdEdgeProvisioningService {
     };
     for (const m of writableMappings) {
       push(m.registerAddress, m.registerCount);
-    }
-    for (const custom of device.customRegisterMappings ?? []) {
-      if (WRITE_FUNCTION_CODES.has(custom.functionCode)) {
-        push(custom.registerAddress, custom.registerCount);
-      }
     }
     return this.dedupeRanges(ranges);
   }

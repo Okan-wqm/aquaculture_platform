@@ -6,7 +6,7 @@ name: Security - Snyk
 #             Replaced with Node.js scan for the actual TypeScript/Node monorepo
 
 on:
-  workflow_dispatch:  # Manual only — no SNYK_TOKEN configured yet
+  workflow_dispatch: # Manual only — no SNYK_TOKEN configured yet
 
 jobs:
   # SEC-CI-014: Removed Python snyk-backend job entirely.
@@ -57,6 +57,10 @@ jobs:
 
   snyk-infrastructure:
     runs-on: ubuntu-latest
+    # Uploads SARIF; see the note on trivy-image-scan. Same silent discard.
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - name: Checkout repository
         # SEC-CI-002: pinned to SHA

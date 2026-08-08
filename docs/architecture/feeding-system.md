@@ -126,7 +126,7 @@ identity as `TankBatch.tankId` and the site-authorization sink `resolveTankSiteI
 At most one assignment per unit can be active, and that is structural, not a service
 rule:
 
-```
+```ts
 @Index(['tenantId', 'unitId'], { unique: true, where: `"status" = 'active'` })
 ```
 
@@ -206,7 +206,7 @@ each job.
 Generation itself is `MealPlanGeneratorService.computeDayPlan` — a pure function shared
 by the cron, the operator's regenerate action and the activation dry run:
 
-```
+```text
 plannedTotalKg = rationBasisKg x effectiveRatePercent / 100
 effectiveRatePercent = clamp(bandRate x tempMultiplier x (1 + rateAdj/100),
                              protocol min, protocol max)
@@ -506,7 +506,7 @@ speed lies inside the drive's band" can be a local CHECK.
 is volumetric: each screw revolution displaces a fixed volume, and an induction motor
 under a VFD turns at a speed proportional to drive frequency, so
 
-```
+```text
 gramsPerMinute(f) = gramsPerMinute(f_ref) x f / f_ref
 ```
 

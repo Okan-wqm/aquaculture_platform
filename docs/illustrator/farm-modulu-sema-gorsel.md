@@ -8,9 +8,12 @@
 > `docs/api/openapi/farm-service.yaml` ve
 > `docs/runbooks/monitoring/farm-environment-monitoring.md` kaynak alınır.
 
-Bu doküman farm modülünün tüm veri akışlarını, tablolarını ve alan eşleşmelerini görsel ve tablo formatında gösterir. Anlatımsal versiyon için bkz: [`farm-modulu-sema-anlatim.md`](./farm-modulu-sema-anlatim.md).
+Bu doküman farm modülünün tüm veri akışlarını, tablolarını ve alan eşleşmelerini görsel ve tablo
+formatında gösterir. Anlatımsal versiyon için bkz:
+[`farm-modulu-sema-anlatim.md`](./farm-modulu-sema-anlatim.md).
 
-**Kapsam:** 70 entity, 36 GraphQL resolver, 3 REST controller, 7 event handler, 21 frontend sayfa, 28+ form modal, 500+ form alanı.
+**Kapsam:** 70 entity, 36 GraphQL resolver, 3 REST controller, 7 event handler, 21 frontend sayfa,
+28+ form modal, 500+ form alanı.
 
 ---
 
@@ -24,7 +27,7 @@ Bu doküman farm modülünün tüm veri akışlarını, tablolarını ve alan e�
 6. [GraphQL Mutation ve Query Kataloğu](#6-graphql-mutation-ve-query-kataloğu)
 7. [REST Endpoint Kataloğu](#7-rest-endpoint-kataloğu)
 8. [Event Handler ve Outbox Akışı](#8-event-handler-ve-outbox-akışı)
-9. [Çok Tablolu İşlem Akışları](#9-çok-tablolu-işlem-akışları)
+9. [Çok Tablolu İşlem Akışları](#9-çok-tablolu-i̇şlem-akışları)
 10. [Orphan ve Stub Ekranlar](#10-orphan-ve-stub-ekranlar)
 11. [Güvenlik ve Tasarım Notları](#11-güvenlik-ve-tasarım-notları)
 
@@ -34,7 +37,7 @@ Bu doküman farm modülünün tüm veri akışlarını, tablolarını ve alan e�
 
 Farm modülü beş ana katmandan oluşur:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │ 1. Frontend — React modülü (21 sayfa, 28+ modal, 500+ alan)     │
 │    web/modules/farm-module/src/                                 │
@@ -324,19 +327,21 @@ Konum: `setup/components/SiteFormModal.tsx:13-30`
 | Durum                   | `status`             | enum     | hayır   | ACTIVE/INACTIVE/MAINTENANCE/CLOSED | `input.status`       | `sites.status`                         |
 | Açıklama                | `description`        | textarea | hayır   | —                                  | `input.description`  | `sites.description` (text)             |
 | Ülke                    | `country`            | text     | hayır   | —                                  | `input.country`      | `sites.country`                        |
-| Bölge/State             | `region`             | text     | hayır   | —                                  | `input.region`       | `sites.metadata` JSONB ⚠              |
+| Bölge/State             | `region`             | text     | hayır   | —                                  | `input.region`       | `sites.metadata` JSONB ⚠️              |
 | Sokak Adresi            | `address.street`     | text     | hayır   | —                                  | `input.address`      | `sites.address` (text)                 |
 | Şehir                   | `address.city`       | text     | hayır   | —                                  | `input.city`         | `sites.city`                           |
-| Posta Kodu              | `address.postalCode` | text     | hayır   | —                                  | `input.postalCode`   | `sites.metadata` JSONB ⚠              |
+| Posta Kodu              | `address.postalCode` | text     | hayır   | —                                  | `input.postalCode`   | `sites.metadata` JSONB ⚠️              |
 | Zaman Dilimi            | `timezone`           | text     | hayır   | —                                  | `input.timezone`     | `sites.timezone`                       |
 | Toplam Alan (m²)        | `totalArea`          | number   | hayır   | min 0                              | `input.totalAreaM2`  | `sites.total_area_m2` (decimal)        |
 | Enlem                   | `location.latitude`  | number   | hayır   | -90..90                            | `input.latitude`     | `sites.latitude`                       |
 | Boylam                  | `location.longitude` | number   | hayır   | -180..180                          | `input.longitude`    | `sites.longitude`                      |
-| Site Yöneticisi         | `siteManager`        | text     | hayır   | —                                  | `input.siteManager`  | `sites.metadata` JSONB ⚠              |
+| Site Yöneticisi         | `siteManager`        | text     | hayır   | —                                  | `input.siteManager`  | `sites.metadata` JSONB ⚠️              |
 | İletişim E-postası      | `contactEmail`       | email    | hayır   | regex                              | `input.contactEmail` | `sites.contact_email` (varchar 150) ✅ |
 | İletişim Telefonu       | `contactPhone`       | text     | hayır   | —                                  | `input.contactPhone` | `sites.contact_phone` (varchar 50) ✅  |
 
-> **⚠ Not:** `region`, `postalCode`, `siteManager` alanları tabloda ayrı sütun değil, `metadata` JSONB içine gömülür. Bu alanlar üzerinden SQL filtreleme yapılamaz (sadece JSONB path query ile erişilebilir).
+> **⚠ Not:** `region`, `postalCode`, `siteManager` alanları tabloda ayrı sütun değil, `metadata`
+> JSONB içine gömülür. Bu alanlar üzerinden SQL filtreleme yapılamaz (sadece JSONB path query ile
+> erişilebilir).
 
 ### 4.2 Batch (Parti) Yönetimi
 
@@ -388,7 +393,9 @@ Konum: `production/components/BatchFormModal.tsx`
 | Dosya (MinIO path)           | `.storagePath`         | text (auto) | evet           | `.storagePath`               | `batch_documents.storage_path`                        |
 | İthalat Belgeleri (max 5)    | `importDocuments[]`    | file[]      | hayır          | `input.importDocuments[]`    | aynı yapıda `batch_documents`, `document_type=IMPORT` |
 
-> Dosya yükleme iki aşamalı: önce `useUploadBatchDocument()` MinIO'ya POST eder, dönen `{documentId, storagePath, storageUrl}` mutation input'una eklenir. Mutation sadece metadata yazar.
+> Dosya yükleme iki aşamalı: önce `useUploadBatchDocument()` MinIO'ya POST eder, dönen
+> `{documentId, storagePath, storageUrl}` mutation input'una eklenir. Mutation sadece metadata
+> yazar.
 
 **Tab 3 — Tank Atamaları (array, min 1):**
 
@@ -466,7 +473,8 @@ Konum: `production/components/MortalityModal.tsx`
 | Notlar                | `notes`                  | textarea      | hayır   | —                          | `input.notes`                  | `feeding_records.notes`                     |
 | Atlandıysa Sebep      | `skipReason`             | text          | hayır   | —                          | `input.skipReason`             | `feeding_records.skip_reason`               |
 
-**Yan etki:** `createFeedingRecord` tetiklendikten sonra `FeedingRecordedEvent` yayınlanır. `FeedingStorageEventHandler` bunu dinleyip:
+**Yan etki:** `createFeedingRecord` tetiklendikten sonra `FeedingRecordedEvent` yayınlanır.
+`FeedingStorageEventHandler` bunu dinleyip:
 
 - `feed_inventory.quantity_kg` azaltır (FEFO sırasıyla)
 - `stock_movements`'a `OUT` hareketi yazar
@@ -527,30 +535,32 @@ Konum: `production/components/MortalityModal.tsx`
 | Ekipman                                                     | `equipmentId`            | `input.equipmentId`     | `water_quality_measurements.equipment_id`                |
 | Ölçen                                                       | `measuredBy`             | `input.measuredBy`      | `water_quality_measurements.measured_by`                 |
 | Notlar                                                      | `notes`                  | `input.notes`           | `water_quality_measurements.notes`                       |
-| **25+ parametre** (pH, DO, NH3, NO2, sıcaklık, tuzluluk...) | `parameterValues.{code}` | `input.parameterValues` | `water_quality_measurements.parameter_values` (JSONB) ⚠ |
+| **25+ parametre** (pH, DO, NH3, NO2, sıcaklık, tuzluluk...) | `parameterValues.{code}` | `input.parameterValues` | `water_quality_measurements.parameter_values` (JSONB) ⚠️ |
 
-> **⚠ JSONB notu:** Tüm parametre değerleri tek JSONB sütununa gömülür. SQL filtreleme `WHERE parameter_values->>'pH' > '8.0'` şeklinde JSONB path ile yapılır — standart indexli karşılaştırmalar uygulanmaz.
+> **⚠ JSONB notu:** Tüm parametre değerleri tek JSONB sütununa gömülür. SQL filtreleme
+> `WHERE parameter_values->>'pH' > '8.0'` şeklinde JSONB path ile yapılır — standart indexli
+> karşılaştırmalar uygulanmaz.
 
 #### ConfigFormModal — parametre tanımı
 
-| Form alanı   | Field            | Tip      | Zorunlu      | Mutation alanı        | Tablo sütunu                                  |
-| ------------ | ---------------- | -------- | ------------ | --------------------- | --------------------------------------------- | -------------------------------------------------- |
-| Kod          | `code`           | text     | evet, unique | `input.code`          | `water_quality_parameter_configs.code`        |
-| Ad           | `name`           | text     | evet         | `input.name`          | `water_quality_parameter_configs.name`        |
-| Birim        | `unit`           | text     | evet         | `input.unit`          | `water_quality_parameter_configs.unit`        |
-| Veri Tipi    | `dataType`       | enum     | evet         | NUMBER/TEXT/BOOLEAN   | `input.dataType`                              | `water_quality_parameter_configs.data_type`        |
-| Grup         | `group`          | enum     | evet         | BASIC/ADVANCED/CUSTOM | `input.group`                                 | `water_quality_parameter_configs.group`            |
-| Hassasiyet   | `precision`      | number   | hayır        | —                     | `input.precision`                             | `water_quality_parameter_configs.precision`        |
-| Optimum Min  | `optimalMin`     | number   | hayır        | —                     | `input.optimalMin`                            | `water_quality_parameter_configs.optimal_min`      |
-| Optimum Max  | `optimalMax`     | number   | hayır        | —                     | `input.optimalMax`                            | `water_quality_parameter_configs.optimal_max`      |
-| Uyarı Min    | `warningMin`     | number   | hayır        | —                     | `input.warningMin`                            | `water_quality_parameter_configs.warning_min`      |
-| Uyarı Max    | `warningMax`     | number   | hayır        | —                     | `input.warningMax`                            | `water_quality_parameter_configs.warning_max`      |
-| Kritik Min   | `criticalMin`    | number   | hayır        | —                     | `input.criticalMin`                           | `water_quality_parameter_configs.critical_min`     |
-| Kritik Max   | `criticalMax`    | number   | hayır        | —                     | `input.criticalMax`                           | `water_quality_parameter_configs.critical_max`     |
-| Grafik Rengi | `chartColor`     | color    | hayır        | default `#3B82F6`     | `input.chartColor`                            | `water_quality_parameter_configs.chart_color`      |
-| Eksen Grubu  | `chartAxisGroup` | enum     | hayır        | LEFT/RIGHT            | `input.chartAxisGroup`                        | `water_quality_parameter_configs.chart_axis_group` |
-| Görünür      | `isVisible`      | checkbox | —            | `input.isVisible`     | `water_quality_parameter_configs.is_visible`  |
-| Zorunlu      | `isRequired`     | checkbox | —            | `input.isRequired`    | `water_quality_parameter_configs.is_required` |
+| Form alanı   | Field            | Tip      | Zorunlu      | Doğrulama             | Mutation alanı         | Tablo sütunu                                       |
+| ------------ | ---------------- | -------- | ------------ | --------------------- | ---------------------- | -------------------------------------------------- |
+| Kod          | `code`           | text     | evet, unique | —                     | `input.code`           | `water_quality_parameter_configs.code`             |
+| Ad           | `name`           | text     | evet         | —                     | `input.name`           | `water_quality_parameter_configs.name`             |
+| Birim        | `unit`           | text     | evet         | —                     | `input.unit`           | `water_quality_parameter_configs.unit`             |
+| Veri Tipi    | `dataType`       | enum     | evet         | NUMBER/TEXT/BOOLEAN   | `input.dataType`       | `water_quality_parameter_configs.data_type`        |
+| Grup         | `group`          | enum     | evet         | BASIC/ADVANCED/CUSTOM | `input.group`          | `water_quality_parameter_configs.group`            |
+| Hassasiyet   | `precision`      | number   | hayır        | —                     | `input.precision`      | `water_quality_parameter_configs.precision`        |
+| Optimum Min  | `optimalMin`     | number   | hayır        | —                     | `input.optimalMin`     | `water_quality_parameter_configs.optimal_min`      |
+| Optimum Max  | `optimalMax`     | number   | hayır        | —                     | `input.optimalMax`     | `water_quality_parameter_configs.optimal_max`      |
+| Uyarı Min    | `warningMin`     | number   | hayır        | —                     | `input.warningMin`     | `water_quality_parameter_configs.warning_min`      |
+| Uyarı Max    | `warningMax`     | number   | hayır        | —                     | `input.warningMax`     | `water_quality_parameter_configs.warning_max`      |
+| Kritik Min   | `criticalMin`    | number   | hayır        | —                     | `input.criticalMin`    | `water_quality_parameter_configs.critical_min`     |
+| Kritik Max   | `criticalMax`    | number   | hayır        | —                     | `input.criticalMax`    | `water_quality_parameter_configs.critical_max`     |
+| Grafik Rengi | `chartColor`     | color    | hayır        | default `#3B82F6`     | `input.chartColor`     | `water_quality_parameter_configs.chart_color`      |
+| Eksen Grubu  | `chartAxisGroup` | enum     | hayır        | LEFT/RIGHT            | `input.chartAxisGroup` | `water_quality_parameter_configs.chart_axis_group` |
+| Görünür      | `isVisible`      | checkbox | —            | —                     | `input.isVisible`      | `water_quality_parameter_configs.is_visible`       |
+| Zorunlu      | `isRequired`     | checkbox | —            | —                     | `input.isRequired`     | `water_quality_parameter_configs.is_required`      |
 
 ### 4.6 Storage / Inventory (Depo ve Stok)
 
@@ -568,35 +578,35 @@ Konum: `production/components/MortalityModal.tsx`
 
 #### CreatePurchaseOrderModal
 
-| Form alanı           | Field                  | Tip         | Zorunlu  | Mutation alanı                      | Tablo sütunu                             |
-| -------------------- | ---------------------- | ----------- | -------- | ----------------------------------- | ---------------------------------------- | -------------------------- |
-| Kategori             | `category`             | enum        | evet     | FEED/CHEMICAL/CONSUMABLE/HEALTHCARE | `input.category`                         | `purchase_orders.category` |
-| Tedarikçi Adı        | `supplierName`         | text        | evet     | `input.supplierName`                | `purchase_orders.supplier_name`          |
-| Tedarikçi İletişim   | `supplierContact`      | text        | hayır    | `input.supplierContact`             | `purchase_orders.supplier_contact`       |
-| Beklenen Teslim      | `expectedDeliveryDate` | date        | hayır    | `input.expectedDeliveryDate`        | `purchase_orders.expected_delivery_date` |
-| Notlar               | `notes`                | textarea    | hayır    | `input.notes`                       | `purchase_orders.notes`                  |
-| Toplam Tutar (hesap) | auto                   | number      | —        | —                                   | `purchase_orders.total_amount`           |
-| Kalem Öğe ID         | `items[].itemId`       | UUID        | evet     | `input.items[].itemId`              | `purchase_order_items.item_id`           |
-| Kalem Adı            | `.itemName`            | text (auto) | —        | `.itemName`                         | `purchase_order_items.item_name`         |
-| Kalem Kodu           | `.itemCode`            | text (auto) | —        | `.itemCode`                         | `purchase_order_items.item_code`         |
-| Miktar               | `.quantity`            | number      | evet, >0 | `.quantity`                         | `purchase_order_items.quantity`          |
-| Birim                | `.unit`                | text (auto) | —        | `.unit`                             | `purchase_order_items.unit`              |
-| Birim Fiyat          | `.unitPrice`           | number      | hayır    | `.unitPrice`                        | `purchase_order_items.unit_price`        |
-| Kalem Toplamı        | auto                   | —           | —        | —                                   | `purchase_order_items.total_price`       |
+| Form alanı           | Field                  | Tip         | Zorunlu  | Doğrulama                           | Mutation alanı               | Tablo sütunu                             |
+| -------------------- | ---------------------- | ----------- | -------- | ----------------------------------- | ---------------------------- | ---------------------------------------- |
+| Kategori             | `category`             | enum        | evet     | FEED/CHEMICAL/CONSUMABLE/HEALTHCARE | `input.category`             | `purchase_orders.category`               |
+| Tedarikçi Adı        | `supplierName`         | text        | evet     | —                                   | `input.supplierName`         | `purchase_orders.supplier_name`          |
+| Tedarikçi İletişim   | `supplierContact`      | text        | hayır    | —                                   | `input.supplierContact`      | `purchase_orders.supplier_contact`       |
+| Beklenen Teslim      | `expectedDeliveryDate` | date        | hayır    | —                                   | `input.expectedDeliveryDate` | `purchase_orders.expected_delivery_date` |
+| Notlar               | `notes`                | textarea    | hayır    | —                                   | `input.notes`                | `purchase_orders.notes`                  |
+| Toplam Tutar (hesap) | auto                   | number      | —        | —                                   | —                            | `purchase_orders.total_amount`           |
+| Kalem Öğe ID         | `items[].itemId`       | UUID        | evet     | —                                   | `input.items[].itemId`       | `purchase_order_items.item_id`           |
+| Kalem Adı            | `.itemName`            | text (auto) | —        | —                                   | `.itemName`                  | `purchase_order_items.item_name`         |
+| Kalem Kodu           | `.itemCode`            | text (auto) | —        | —                                   | `.itemCode`                  | `purchase_order_items.item_code`         |
+| Miktar               | `.quantity`            | number      | evet, >0 | —                                   | `.quantity`                  | `purchase_order_items.quantity`          |
+| Birim                | `.unit`                | text (auto) | —        | —                                   | `.unit`                      | `purchase_order_items.unit`              |
+| Birim Fiyat          | `.unitPrice`           | number      | hayır    | —                                   | `.unitPrice`                 | `purchase_order_items.unit_price`        |
+| Kalem Toplamı        | auto                   | —           | —        | —                                   | —                            | `purchase_order_items.total_price`       |
 
 #### RecordStockMovementModal
 
-| Form alanı     | Field          | Zorunlu                | Mutation alanı                                                                                                                                    | Tablo sütunu                       |
-| -------------- | -------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ------------------------------- |
-| Hareket Tipi   | `movementType` | evet                   | IN / OUT / TRANSFER / WASTE / ADJUSTMENT / RETURN (6 değer — kod referansı: `apps/farm-service/src/storage/entities/stock-movement.entity.ts:14`) | `input.movementType`               | `stock_movements.movement_type` |
-| Kalem          | `itemId`       | evet                   | `input.itemId`                                                                                                                                    | `stock_movements.item_id`          |
-| Kaynak Konum   | `fromLocation` | koşullu (OUT/TRANSFER) | `input.fromLocationId`                                                                                                                            | `stock_movements.from_location_id` |
-| Hedef Konum    | `toLocation`   | koşullu (IN/TRANSFER)  | `input.toLocationId`                                                                                                                              | `stock_movements.to_location_id`   |
-| Miktar         | `quantity`     | evet, >0               | `input.quantity`                                                                                                                                  | `stock_movements.quantity`         |
-| Birim          | `unit`         | auto                   | `input.unit`                                                                                                                                      | `stock_movements.unit`             |
-| Sebep          | `reason`       | ADJUSTMENT için evet   | `input.reason`                                                                                                                                    | `stock_movements.reason`           |
-| Notlar         | `notes`        | hayır                  | `input.notes`                                                                                                                                     | `stock_movements.notes`            |
-| Hareket Tarihi | `movementDate` | evet                   | `input.movementDate`                                                                                                                              | `stock_movements.movement_date`    |
+| Form alanı     | Field          | Zorunlu                | Doğrulama                                                                                                                                         | Mutation alanı         | Tablo sütunu                       |
+| -------------- | -------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | ---------------------------------- |
+| Hareket Tipi   | `movementType` | evet                   | IN / OUT / TRANSFER / WASTE / ADJUSTMENT / RETURN (6 değer — kod referansı: `apps/farm-service/src/storage/entities/stock-movement.entity.ts:14`) | `input.movementType`   | `stock_movements.movement_type`    |
+| Kalem          | `itemId`       | evet                   | —                                                                                                                                                 | `input.itemId`         | `stock_movements.item_id`          |
+| Kaynak Konum   | `fromLocation` | koşullu (OUT/TRANSFER) | —                                                                                                                                                 | `input.fromLocationId` | `stock_movements.from_location_id` |
+| Hedef Konum    | `toLocation`   | koşullu (IN/TRANSFER)  | —                                                                                                                                                 | `input.toLocationId`   | `stock_movements.to_location_id`   |
+| Miktar         | `quantity`     | evet, >0               | —                                                                                                                                                 | `input.quantity`       | `stock_movements.quantity`         |
+| Birim          | `unit`         | auto                   | —                                                                                                                                                 | `input.unit`           | `stock_movements.unit`             |
+| Sebep          | `reason`       | ADJUSTMENT için evet   | —                                                                                                                                                 | `input.reason`         | `stock_movements.reason`           |
+| Notlar         | `notes`        | hayır                  | —                                                                                                                                                 | `input.notes`          | `stock_movements.notes`            |
+| Hareket Tarihi | `movementDate` | evet                   | —                                                                                                                                                 | `input.movementDate`   | `stock_movements.movement_date`    |
 
 ### 4.7 Supplier (Tedarikçi)
 
@@ -783,14 +793,14 @@ Hedef tablo: `farm.health_events` (ana tablo), opsiyonel `water_quality_measurem
 
 | Rapor                               | Modal                                                | Hedef Tablo(lar)                                                                                                                                                              | Mutation                                                                                                                                                                                            |
 | ----------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Disease Outbreak (Hastalık Salgını) | `reports/components/modals/DiseaseOutbreakModal.tsx` | `health_events` (detay) — ⚠ ~~regulatory_events~~ ⚠ _(tablo yok — health_events'e yazılır)_ tablosu yok (önceki iddia yanlıştı; sadece `regulatory_settings` entity'si var) | `createDiseaseOutbreak`                                                                                                                                                                             |
-| Escape Report (Kaçış)               | `reports/components/modals/EscapeReportModal.tsx`    | ~~regulatory_events~~ ⚠ _(tablo yok — health_events'e yazılır)_                                                                                                              | `createEscapeReport`                                                                                                                                                                                |
-| Welfare Event (Refah)               | `reports/components/modals/WelfareEventModal.tsx`    | ~~regulatory_events~~ ⚠ _(tablo yok — health_events'e yazılır)_                                                                                                              | `createWelfareEvent`                                                                                                                                                                                |
-| Biomass Report                      | `reports/tabs/BiomassReportTab.tsx`                  | ⚠ stub (setTimeout)                                                                                                                                                          | —                                                                                                                                                                                                   |
-| Slaughter Report                    | `reports/tabs/SlaughterReportTab.tsx`                | `harvest_records` view, ~~regulatory_events~~ ⚠ _(tablo yok — health_events'e yazılır)_                                                                                      | ilgili mutation'lar                                                                                                                                                                                 |
-| Sea Lice Report                     | `reports/tabs/SeaLiceReportTab.tsx`                  | ~~regulatory_events~~ ⚠ _(tablo yok — health_events'e yazılır)_, `health_events`                                                                                             | —                                                                                                                                                                                                   |
-| Smolt Report                        | `reports/tabs/SmoltReportTab.tsx`                    | ~~regulatory_events~~ ⚠ _(tablo yok — health_events'e yazılır)_                                                                                                              | —                                                                                                                                                                                                   |
-| Cleaner Fish Report                 | `reports/tabs/CleanerFishReportTab.tsx`              | `batches_v2` (filtered cleaner), `tank_batches`                                                                                                                               | ⚠ UI uses mock aggregates; `cleanerFishReport` backend query removed as a zero-returning stub. Mattilsynet submission goes through `submitCleanerFishReport` mutation in `regulatory.resolver.ts`. |
+| Disease Outbreak (Hastalık Salgını) | `reports/components/modals/DiseaseOutbreakModal.tsx` | `health_events` (detay) — ⚠️ ~~regulatory_events~~ ⚠️ _(tablo yok — health_events'e yazılır)_ tablosu yok (önceki iddia yanlıştı; sadece `regulatory_settings` entity'si var) | `createDiseaseOutbreak`                                                                                                                                                                             |
+| Escape Report (Kaçış)               | `reports/components/modals/EscapeReportModal.tsx`    | ~~regulatory_events~~ ⚠️ _(tablo yok — health_events'e yazılır)_                                                                                                              | `createEscapeReport`                                                                                                                                                                                |
+| Welfare Event (Refah)               | `reports/components/modals/WelfareEventModal.tsx`    | ~~regulatory_events~~ ⚠️ _(tablo yok — health_events'e yazılır)_                                                                                                              | `createWelfareEvent`                                                                                                                                                                                |
+| Biomass Report                      | `reports/tabs/BiomassReportTab.tsx`                  | ⚠️ stub (setTimeout)                                                                                                                                                          | —                                                                                                                                                                                                   |
+| Slaughter Report                    | `reports/tabs/SlaughterReportTab.tsx`                | `harvest_records` view, ~~regulatory_events~~ ⚠️ _(tablo yok — health_events'e yazılır)_                                                                                      | ilgili mutation'lar                                                                                                                                                                                 |
+| Sea Lice Report                     | `reports/tabs/SeaLiceReportTab.tsx`                  | ~~regulatory_events~~ ⚠️ _(tablo yok — health_events'e yazılır)_, `health_events`                                                                                             | —                                                                                                                                                                                                   |
+| Smolt Report                        | `reports/tabs/SmoltReportTab.tsx`                    | ~~regulatory_events~~ ⚠️ _(tablo yok — health_events'e yazılır)_                                                                                                              | —                                                                                                                                                                                                   |
+| Cleaner Fish Report                 | `reports/tabs/CleanerFishReportTab.tsx`              | `batches_v2` (filtered cleaner), `tank_batches`                                                                                                                               | ⚠️ UI uses mock aggregates; `cleanerFishReport` backend query removed as a zero-returning stub. Mattilsynet submission goes through `submitCleanerFishReport` mutation in `regulatory.resolver.ts`. |
 
 #### DiseaseOutbreakModal — Norveç FDIR regülasyonu (17+ alan)
 
@@ -817,7 +827,8 @@ Hedef tablo: `farm.health_events` (ana tablo), opsiyonel `water_quality_measurem
 | → Sonuç                   | `.result`              | evet         | —                                      |
 | → Sonuç Yorumu            | `.conclusion`          | evet         | —                                      |
 
-> Kategori A ve C için anında; F için 24 saat içinde FDIR'e bildirim zorunlu. `varsling.akva@mattilsynet.no` aracılığıyla.
+> Kategori A ve C için anında; F için 24 saat içinde FDIR'e bildirim zorunlu.
+> `varsling.akva@mattilsynet.no` aracılığıyla.
 
 ### 4.13 Weather / Marine / Sentinel Hub
 
@@ -830,7 +841,9 @@ Hedef tablo: `farm.health_events` (ana tablo), opsiyonel `water_quality_measurem
 | Weather Settings          | `weather_settings`                            | ayar kaydet                                                  |
 | Regulatory Settings       | `regulatory_settings`                         | ayar kaydet                                                  |
 
-> **Not:** `weather_observations`, `marine_observations`, `sentinel_hub_settings` tabloları çoğunlukla dış API besleyicileri tarafından yazılır. Frontend'de yalnızca ayar formları vardır, ölçüm verisi otomatik akar.
+> **Not:** `weather_observations`, `marine_observations`, `sentinel_hub_settings` tabloları
+> çoğunlukla dış API besleyicileri tarafından yazılır. Frontend'de yalnızca ayar formları vardır,
+> ölçüm verisi otomatik akar.
 
 #### SentinelHubSettingsPage — alanlar
 
@@ -866,7 +879,8 @@ Hedef tablo: `farm.health_events` (ana tablo), opsiyonel `water_quality_measurem
 
 Konum: `apps/farm-service/src/ai-insights/ai-insights.resolver.ts`
 
-Sadece **query** (mutation yok). MCP entegrasyonu ile sensör dataset özeti + öneri döner. Veritabanı yazmaz.
+Sadece **query** (mutation yok). MCP entegrasyonu ile sensör dataset özeti + öneri döner. Veritabanı
+yazmaz.
 
 ### 4.17 Sensor Dashboard / Analytics / Map
 
@@ -972,7 +986,8 @@ Dosya: `apps/farm-service/src/common/services/backdate-policy.service.ts`
 
 ## 5. Tüm Tablolar — Sütun Bazlı Referans
 
-Farm modülü **70 entity** içerir. Aşağıdaki tablolar alt sisteme göre gruplanmıştır. Her satır: sütun, tip, nullable, default, not.
+Farm modülü **70 entity** içerir. Aşağıdaki tablolar alt sisteme göre gruplanmıştır. Her satır:
+sütun, tip, nullable, default, not.
 
 ### 5.1 Core Hierarchy
 
@@ -1005,7 +1020,7 @@ Entity: `apps/farm-service/src/site/entities/site.entity.ts`
 | `settings`                                                        | jsonb        | evet  | —                 | esnek ayarlar                                 |
 | `metadata`                                                        | jsonb        | evet  | —                 | region, postalCode, siteManager burada gömülü |
 | `is_active`                                                       | boolean      | hayır | true              | —                                             |
-| `created_at`, `updated_at`, `created_by`, `updated_by`, `version` | standart     |
+| `created_at`, `updated_at`, `created_by`, `updated_by`, `version` | standart     | —     | —                 | —                                             |
 
 #### `farm.departments`
 
@@ -1094,11 +1109,13 @@ Entity: `apps/farm-service/src/equipment/entities/equipment.entity.ts`
 | `operating_hours`                                         | int         | —                  |
 | `is_tank`, `is_visible_in_sensor`                         | boolean     | flag               |
 | `volume`, `current_biomass`, `current_count`              | decimal/int | denormalize        |
-| `is_active`, `is_deleted`, `deleted_at`, `deleted_by`     | soft delete |
+| `is_active`, `is_deleted`, `deleted_at`, `deleted_by`     | soft delete | —                  |
 
 #### `farm.equipment_types`
 
-Non-tenant referans verisi. Sütunlar: `id`, `name`, `code UNIQUE`, `description`, `category`, `icon`, `specification_schema` (JSONB), `allowed_sub_equipment_types` (simple-array), `is_active`, `is_system`, `sort_order`, audit.
+Non-tenant referans verisi. Sütunlar: `id`, `name`, `code UNIQUE`, `description`, `category`,
+`icon`, `specification_schema` (JSONB), `allowed_sub_equipment_types` (simple-array), `is_active`,
+`is_system`, `sort_order`, audit.
 
 #### `farm.sub_equipment`
 
@@ -1110,11 +1127,14 @@ Non-tenant referans verisi. Sütunlar: `id`, `name`, `code UNIQUE`, `description
 
 #### `farm.sub_equipment_types`
 
-Non-tenant referans: `id`, `name`, `code UNIQUE`, `description`, `compatible_equipment_types` (simple-array), `specification_schema`, `is_active`, `is_system`, `sort_order`.
+Non-tenant referans: `id`, `name`, `code UNIQUE`, `description`, `compatible_equipment_types`
+(simple-array), `specification_schema`, `is_active`, `is_system`, `sort_order`.
 
 #### `farm.equipment_systems`
 
-Junction: `id`, `tenant_id`, `equipment_id` (FK CASCADE), `system_id` (FK CASCADE), `is_primary` (boolean), `role` (varchar 50), `criticality_level` (1–5), `notes`, audit. UNIQUE (equipment_id, system_id).
+Junction: `id`, `tenant_id`, `equipment_id` (FK CASCADE), `system_id` (FK CASCADE), `is_primary`
+(boolean), `role` (varchar 50), `criticality_level` (1–5), `notes`, audit. UNIQUE (equipment_id,
+system_id).
 
 #### `farm.feeder_capabilities`
 
@@ -1160,15 +1180,20 @@ GERÇEKTEN raporladığının kanıtı — `sensor_temperature_latest` emsali pr
 
 #### `farm.species`
 
-`id`, `tenant_id`, `common_name`, `scientific_name`, `category` (enum), `water_type`, `description`, `optimal_temp_min/max`, `optimal_ph_min/max`, `optimal_do_min`, `optimal_salinity_min/max`, `growth_rate_data` (JSONB), `metadata`, `is_active`.
+`id`, `tenant_id`, `common_name`, `scientific_name`, `category` (enum), `water_type`, `description`,
+`optimal_temp_min/max`, `optimal_ph_min/max`, `optimal_do_min`, `optimal_salinity_min/max`,
+`growth_rate_data` (JSONB), `metadata`, `is_active`.
 
 #### `farm.farms` (legacy)
 
-`id`, `tenant_id`, `name`, `location` (JSONB `{lat, lng}`), `address`, `contact_person`, `contact_phone`, `contact_email`, `description`, `total_area`, `is_active`, audit. **Yeni kayıtlar `sites`'a gider.**
+`id`, `tenant_id`, `name`, `location` (JSONB `{lat, lng}`), `address`, `contact_person`,
+`contact_phone`, `contact_email`, `description`, `total_area`, `is_active`, audit. **Yeni kayıtlar
+`sites`'a gider.**
 
 #### `farm.ponds` (legacy)
 
-`id`, `tenant_id`, `farm_id` (FK), `name`, `capacity`, `water_type`, `depth`, `surface_area`, `status`. **Yeni kayıtlar `tanks` (equipment)'a gider.**
+`id`, `tenant_id`, `farm_id` (FK), `name`, `capacity`, `water_type`, `depth`, `surface_area`,
+`status`. **Yeni kayıtlar `tanks` (equipment)'a gider.**
 
 ### 5.2 Batch & Tank Operations
 
@@ -1218,114 +1243,201 @@ Entity: `apps/farm-service/src/batch/entities/batch.entity.ts:76-444`
 | `arrival_method`                                                   | enum          | ✅ gerçek enum sütun                                                       |
 | `notes`                                                            | text          | —                                                                          |
 | `status`                                                           | enum          | QUARANTINE/ACTIVE/GROWING/HARVESTING/HARVESTED/CLOSED                      |
-| `is_active`, soft delete sütunları                                 | —             |
+| `is_active`, soft delete sütunları                                 | —             | —                                                                          |
 | `version`                                                          | int           | optimistic lock                                                            |
 
 #### `farm.batch_documents`
 
-`id`, `tenant_id`, `batch_id` (FK CASCADE), `document_type` (enum HEALTH/IMPORT/OTHER), `document_name`, `document_number`, `storage_path`, `storage_url`, `original_filename`, `mime_type`, `file_size`, `issue_date`, `expiry_date`, `issuing_authority`, `notes`, `is_active`, `created_at`, `created_by`.
+`id`, `tenant_id`, `batch_id` (FK CASCADE), `document_type` (enum HEALTH/IMPORT/OTHER),
+`document_name`, `document_number`, `storage_path`, `storage_url`, `original_filename`, `mime_type`,
+`file_size`, `issue_date`, `expiry_date`, `issuing_authority`, `notes`, `is_active`, `created_at`,
+`created_by`.
 
 #### `farm.batch_locations`
 
-`id`, `tenant_id`, `batch_id` (FK), `location_type` (TANK/POND), `tank_id` (FK SET NULL), `pond_id` (FK), `quantity`, `biomass`, `avg_weight`, `moved_at`, `moved_by`, `transfer_reason` (enum), `previous_location_id`, `is_current_location` (INDEX), `exited_at`, `notes`, audit.
+`id`, `tenant_id`, `batch_id` (FK), `location_type` (TANK/POND), `tank_id` (FK SET NULL), `pond_id`
+(FK), `quantity`, `biomass`, `avg_weight`, `moved_at`, `moved_by`, `transfer_reason` (enum),
+`previous_location_id`, `is_current_location` (INDEX), `exited_at`, `notes`, audit.
 
 #### `farm.batch_feed_assignments`
 
-`id`, `tenant_id`, `batch_id` (FK UNIQUE), `feed_assignments` (JSONB array: `[{feedId, feedCode, feedName, minWeightG, maxWeightG, priority}]`), `is_active`, `is_deleted`, `deleted_at`, `deleted_by`, `notes`, `version`, audit.
+`id`, `tenant_id`, `batch_id` (FK UNIQUE), `feed_assignments` (JSONB array:
+`[{feedId, feedCode, feedName, minWeightG, maxWeightG, priority}]`), `is_active`, `is_deleted`,
+`deleted_at`, `deleted_by`, `notes`, `version`, audit.
 
 #### `farm.tank_allocations`
 
-`id`, `tenant_id`, `batch_id` (FK), `tank_id` (FK), `allocation_type` (enum), `allocation_date`, `quantity`, `avg_weight_g`, `biomass_kg`, `source_tank_id`, `density_kg_m3`, `allocated_by`, `is_deleted`, `notes`, audit.
+`id`, `tenant_id`, `batch_id` (FK), `tank_id` (FK), `allocation_type` (enum), `allocation_date`,
+`quantity`, `avg_weight_g`, `biomass_kg`, `source_tank_id`, `density_kg_m3`, `allocated_by`,
+`is_deleted`, `notes`, audit.
 
 #### `farm.tank_batches`
 
 Denormalize tank→parti snapshot.
 
-`id`, `tenant_id`, `tank_id` (FK UNIQUE), `primary_batch_id` (FK), `is_mixed_batch`, `batch_details` (JSONB), `total_quantity`, `avg_weight_g`, `total_biomass_kg`, `density_kg_m3`, `cleaner_fish_quantity`, `cleaner_fish_biomass_kg`, `cleaner_fish_details` (JSONB), `last_feeding_at`, `last_sampling_at`, `last_mortality_at`, `capacity_used_percent`, `is_over_capacity`, audit.
+`id`, `tenant_id`, `tank_id` (FK UNIQUE), `primary_batch_id` (FK), `is_mixed_batch`, `batch_details`
+(JSONB), `total_quantity`, `avg_weight_g`, `total_biomass_kg`, `density_kg_m3`,
+`cleaner_fish_quantity`, `cleaner_fish_biomass_kg`, `cleaner_fish_details` (JSONB),
+`last_feeding_at`, `last_sampling_at`, `last_mortality_at`, `capacity_used_percent`,
+`is_over_capacity`, audit.
 
 #### `farm.tank_operations`
 
 Tüm tank işlemlerinin kayıt defteri.
 
-`id`, `tenant_id`, `tank_id` (FK), `batch_id` (FK), `operation_type` (enum: MORTALITY/CULL/TRANSFER/HARVEST/SAMPLING/ADJUSTMENT/CLEANER_DEPLOY/CLEANER_MORTALITY/CLEANER_TRANSFER/CLEANER_REMOVE), `operation_date`, `quantity`, `avg_weight_g`, `biomass_kg`, `mortality_reason`, `cull_reason`, `transfer_reason`, `destination_tank_id`, `harvest_total_weight_kg`, `harvest_price_per_kg`, `harvest_buyer`, `is_cleaner_fish_operation`, `cleaner_species_name`, `cleaner_batch_id`, `pre_operation_state` (JSONB), `post_operation_state` (JSONB), `is_deleted`, audit.
+`id`, `tenant_id`, `tank_id` (FK), `batch_id` (FK), `operation_type` (enum:
+MORTALITY/CULL/TRANSFER/HARVEST/SAMPLING/ADJUSTMENT/CLEANER_DEPLOY/CLEANER_MORTALITY/CLEANER_TRANSFER/CLEANER_REMOVE),
+`operation_date`, `quantity`, `avg_weight_g`, `biomass_kg`, `mortality_reason`, `cull_reason`,
+`transfer_reason`, `destination_tank_id`, `harvest_total_weight_kg`, `harvest_price_per_kg`,
+`harvest_buyer`, `is_cleaner_fish_operation`, `cleaner_species_name`, `cleaner_batch_id`,
+`pre_operation_state` (JSONB), `post_operation_state` (JSONB), `is_deleted`, audit.
 
 #### `farm.mortality_records`
 
-`id`, `tenant_id`, `batch_id` (FK CASCADE), `tank_id` (FK SET NULL), `record_date`, `count` (int), `estimated_biomass_loss`, `daily_mortality_rate`, `cause` (enum: DISEASE/WATER_QUALITY/PREDATION/STARVATION/...), `cause_detail`, `severity` (NORMAL/ELEVATED/HIGH/CRITICAL/MASS), `water_quality_snapshot` (JSONB), `symptoms`, `behavior_observations`, `physical_condition`, `actions_taken`, `recommendations`, `lab_sample_taken`, `lab_results`, `documents` (JSONB), `recorded_by`, `verified_by`, `verified_at`, `notes`, audit.
+`id`, `tenant_id`, `batch_id` (FK CASCADE), `tank_id` (FK SET NULL), `record_date`, `count` (int),
+`estimated_biomass_loss`, `daily_mortality_rate`, `cause` (enum:
+DISEASE/WATER_QUALITY/PREDATION/STARVATION/...), `cause_detail`, `severity`
+(NORMAL/ELEVATED/HIGH/CRITICAL/MASS), `water_quality_snapshot` (JSONB), `symptoms`,
+`behavior_observations`, `physical_condition`, `actions_taken`, `recommendations`,
+`lab_sample_taken`, `lab_results`, `documents` (JSONB), `recorded_by`, `verified_by`, `verified_at`,
+`notes`, audit.
 
 ### 5.3 Growth & Harvest
 
 #### `farm.growth_measurements`
 
-`id`, `tenant_id`, `batch_id` (FK), `tank_id`, `pond_id`, `measurement_date`, `measurement_type`, `measurement_method`, `sample_size`, `population_size`, `sample_percent`, `individual_measurements` (JSONB array), `statistics` (JSONB), `average_weight`, `average_length`, `weight_cv`, `condition_factor`, `growth_comparison` (JSONB), `performance` (enum), `fcr_analysis` (JSONB), `estimated_biomass`, `previous_biomass`, `biomass_gain`, `suggested_actions` (JSONB), `conditions` (JSONB), `is_verified`, `verified_by`, `verified_at`, `measured_by`, `update_batch_weight`, `is_processed`, audit.
+`id`, `tenant_id`, `batch_id` (FK), `tank_id`, `pond_id`, `measurement_date`, `measurement_type`,
+`measurement_method`, `sample_size`, `population_size`, `sample_percent`, `individual_measurements`
+(JSONB array), `statistics` (JSONB), `average_weight`, `average_length`, `weight_cv`,
+`condition_factor`, `growth_comparison` (JSONB), `performance` (enum), `fcr_analysis` (JSONB),
+`estimated_biomass`, `previous_biomass`, `biomass_gain`, `suggested_actions` (JSONB), `conditions`
+(JSONB), `is_verified`, `verified_by`, `verified_at`, `measured_by`, `update_batch_weight`,
+`is_processed`, audit.
 
 #### `farm.harvest_plans`
 
-`id`, `tenant_id`, `plan_code` (UNIQUE), `name`, `description`, `batch_id` (FK CASCADE), `status` (enum), `harvest_type`, `harvest_method`, `planned_date`, `confirmed_date`, `window_start_date`, `window_end_date`, `criteria` (JSONB), `estimates` (JSONB), `financial_projection` (JSONB), `logistics` (JSONB), `customer_order` (JSONB), `quality_requirements` (JSONB), `actual_quantity_harvested`, `actual_biomass_harvested`, `actual_avg_weight`, `approved_by`, `approved_at`, `created_by`, `notes`, `attachments`, audit.
+`id`, `tenant_id`, `plan_code` (UNIQUE), `name`, `description`, `batch_id` (FK CASCADE), `status`
+(enum), `harvest_type`, `harvest_method`, `planned_date`, `confirmed_date`, `window_start_date`,
+`window_end_date`, `criteria` (JSONB), `estimates` (JSONB), `financial_projection` (JSONB),
+`logistics` (JSONB), `customer_order` (JSONB), `quality_requirements` (JSONB),
+`actual_quantity_harvested`, `actual_biomass_harvested`, `actual_avg_weight`, `approved_by`,
+`approved_at`, `created_by`, `notes`, `attachments`, audit.
 
 #### `farm.harvest_records`
 
-`id`, `tenant_id`, `record_code` (UNIQUE), `lot_number` (UNIQUE), `batch_id` (FK), `harvest_plan_id` (FK SET NULL), `tank_id` (FK SET NULL), `status`, `harvest_date`, `method`, `operation` (JSONB), `quantity_harvested`, `total_biomass`, `average_weight`, `min_weight`, `max_weight`, `size_distribution` (JSONB), `product_form` (enum), `quality_grade` (enum), `quality_control` (JSONB), `quality_approved`, `lot_info` (JSONB), `yield_calculation` (JSONB), `shipment` (JSONB), `customer_deliveries` (JSONB array), `total_revenue`, `harvest_cost`, `currency`, `mortality_during_harvest`, `rejected_quantity`, `rejection_reason`, `supervisor_id`, `approved_by`, `approved_at`, `notes`, `attachments`, `updated_by`, audit.
+`id`, `tenant_id`, `record_code` (UNIQUE), `lot_number` (UNIQUE), `batch_id` (FK), `harvest_plan_id`
+(FK SET NULL), `tank_id` (FK SET NULL), `status`, `harvest_date`, `method`, `operation` (JSONB),
+`quantity_harvested`, `total_biomass`, `average_weight`, `min_weight`, `max_weight`,
+`size_distribution` (JSONB), `product_form` (enum), `quality_grade` (enum), `quality_control`
+(JSONB), `quality_approved`, `lot_info` (JSONB), `yield_calculation` (JSONB), `shipment` (JSONB),
+`customer_deliveries` (JSONB array), `total_revenue`, `harvest_cost`, `currency`,
+`mortality_during_harvest`, `rejected_quantity`, `rejection_reason`, `supervisor_id`, `approved_by`,
+`approved_at`, `notes`, `attachments`, `updated_by`, audit.
 
 ### 5.4 Feeding (Yemleme)
 
 #### `farm.feeds`
 
-`id`, `tenant_id`, `code` (UNIQUE), `name` (UNIQUE), `description`, `brand`, `manufacturer`, `supplier_id` (FK SET NULL), `type` (enum), `target_species`, `pellet_size`, `floating_type` (enum), `nutritional_content` (JSONB), `feeding_table` (JSONB), `status` (enum), `quantity`, `min_stock`, `unit`, `storage_requirements`, `storage_temp_min`, `storage_temp_max`, `storage_humidity_min`, `storage_humidity_max`, `shelf_life_months`, `expiry_date`, `price_per_kg`, `currency`, `documents` (JSONB), `unit_size`, `unit_price`, `environmental_impact` (JSONB), `feeding_curve` (JSONB array), `feeding_matrix_2d` (JSONB), `min_fish_weight_g`, `max_fish_weight_g`, `is_active`, soft delete, audit.
+`id`, `tenant_id`, `code` (UNIQUE), `name` (UNIQUE), `description`, `brand`, `manufacturer`,
+`supplier_id` (FK SET NULL), `type` (enum), `target_species`, `pellet_size`, `floating_type` (enum),
+`nutritional_content` (JSONB), `feeding_table` (JSONB), `status` (enum), `quantity`, `min_stock`,
+`unit`, `storage_requirements`, `storage_temp_min`, `storage_temp_max`, `storage_humidity_min`,
+`storage_humidity_max`, `shelf_life_months`, `expiry_date`, `price_per_kg`, `currency`, `documents`
+(JSONB), `unit_size`, `unit_price`, `environmental_impact` (JSONB), `feeding_curve` (JSONB array),
+`feeding_matrix_2d` (JSONB), `min_fish_weight_g`, `max_fish_weight_g`, `is_active`, soft delete,
+audit.
 
 #### `farm.feed_type_species`
 
-Junction: `id`, `tenant_id`, `feed_id` (FK CASCADE), `species_id` (FK CASCADE), `growth_stage` (enum), `recommended_weight_min_g`, `recommended_weight_max_g`, `feeding_rate_percent`, `feeding_frequency_per_day`, `feeding_rate_config` (JSONB), `recommendation` (enum), `priority`, `expected_performance` (JSONB), `is_active`, `notes`, `metadata`, soft delete, audit. UNIQUE (tenant_id, feed_id, species_id, growth_stage).
+Junction: `id`, `tenant_id`, `feed_id` (FK CASCADE), `species_id` (FK CASCADE), `growth_stage`
+(enum), `recommended_weight_min_g`, `recommended_weight_max_g`, `feeding_rate_percent`,
+`feeding_frequency_per_day`, `feeding_rate_config` (JSONB), `recommendation` (enum), `priority`,
+`expected_performance` (JSONB), `is_active`, `notes`, `metadata`, soft delete, audit. UNIQUE
+(tenant_id, feed_id, species_id, growth_stage).
 
 #### `farm.feed_sites`
 
-Junction: `id`, `tenant_id`, `feed_id` (FK CASCADE), `site_id` (FK CASCADE), `is_approved`, `approved_by`, `approved_at`, `created_at`, `created_by`. UNIQUE (feed_id, site_id).
+Junction: `id`, `tenant_id`, `feed_id` (FK CASCADE), `site_id` (FK CASCADE), `is_approved`,
+`approved_by`, `approved_at`, `created_at`, `created_by`. UNIQUE (feed_id, site_id).
 
 #### `farm.feeding_protocols`
 
-`id`, `tenant_id`, `name` (UNIQUE), `description`, `feed_id` (FK), `species`, `stage` (enum), `temperature_ranges` (JSONB), `growth_stage_protocols` (JSONB), `default_schedule` (JSONB), `target_fcr`, `min_dissolved_oxygen`, `optimal_temperature` (JSONB), `special_conditions` (JSONB), `notes`, `is_active`, `is_default`, audit, `version`.
+`id`, `tenant_id`, `name` (UNIQUE), `description`, `feed_id` (FK), `species`, `stage` (enum),
+`temperature_ranges` (JSONB), `growth_stage_protocols` (JSONB), `default_schedule` (JSONB),
+`target_fcr`, `min_dissolved_oxygen`, `optimal_temperature` (JSONB), `special_conditions` (JSONB),
+`notes`, `is_active`, `is_default`, audit, `version`.
 
 #### `farm.feeding_programs`
 
-`id`, `tenant_id`, `site_id` (FK), `code` (UNIQUE per tenant), `name`, `description`, `feed_assignments` (JSONB array, runtime validated), `fcr_table` (JSONB), `status` (enum DRAFT/ACTIVE/PAUSED/COMPLETED/CANCELLED), `start_date`, `end_date`, `paused_at`, `activated_at`, `completed_at`, `settings` (JSONB, default), `total_tanks`, `total_feed_transitions`, `total_feed_consumed`, `created_by`, `last_modified_by`, `deleted_at`, `is_deleted`, `deleted_by`, `version`, audit.
+`id`, `tenant_id`, `site_id` (FK), `code` (UNIQUE per tenant), `name`, `description`,
+`feed_assignments` (JSONB array, runtime validated), `fcr_table` (JSONB), `status` (enum
+DRAFT/ACTIVE/PAUSED/COMPLETED/CANCELLED), `start_date`, `end_date`, `paused_at`, `activated_at`,
+`completed_at`, `settings` (JSONB, default), `total_tanks`, `total_feed_transitions`,
+`total_feed_consumed`, `created_by`, `last_modified_by`, `deleted_at`, `is_deleted`, `deleted_by`,
+`version`, audit.
 
 #### `farm.feeding_program_tanks`
 
-`id`, `tenant_id`, `feeding_program_id` (FK CASCADE), `equipment_id` (FK CASCADE), `equipment_type` (enum), `equipment_name`, `equipment_code`, `current_feed_id` (FK SET NULL), `current_feed_code`, `current_weight_range_index`, `last_feed_transition_at`, `total_feed_transitions`, `temperature_sensor_id` (FK SET NULL), `temperature_sensor_code`, `is_active`, `added_at`, `removed_at`, `notes`, `created_by`, `last_modified_by`, audit. UNIQUE (feeding_program_id, equipment_id).
+`id`, `tenant_id`, `feeding_program_id` (FK CASCADE), `equipment_id` (FK CASCADE), `equipment_type`
+(enum), `equipment_name`, `equipment_code`, `current_feed_id` (FK SET NULL), `current_feed_code`,
+`current_weight_range_index`, `last_feed_transition_at`, `total_feed_transitions`,
+`temperature_sensor_id` (FK SET NULL), `temperature_sensor_code`, `is_active`, `added_at`,
+`removed_at`, `notes`, `created_by`, `last_modified_by`, audit. UNIQUE (feeding_program_id,
+equipment_id).
 
 #### `farm.feed_inventory`
 
-`id`, `tenant_id`, `feed_id` (FK RESTRICT), `site_id` (FK CASCADE), `department_id` (FK SET NULL), `quantity_kg`, `min_stock_kg`, `status` (enum), `lot_number`, `manufacturing_date`, `expiry_date`, `received_date`, `unit_price_per_kg`, `total_value`, `currency`, `storage_location`, `storage_temperature`, `notes`, audit.
+`id`, `tenant_id`, `feed_id` (FK RESTRICT), `site_id` (FK CASCADE), `department_id` (FK SET NULL),
+`quantity_kg`, `min_stock_kg`, `status` (enum), `lot_number`, `manufacturing_date`, `expiry_date`,
+`received_date`, `unit_price_per_kg`, `total_value`, `currency`, `storage_location`,
+`storage_temperature`, `notes`, audit.
 
 #### `farm.feeding_records`
 
-Alan listesi için bkz §4.3. Bunun yanında `ref` sütunları (batch_id, tank_id, feed_id, equipment_id) ve JSONB kümeleri (`environment`, `fish_behavior`) var.
+Alan listesi için bkz §4.3. Bunun yanında `ref` sütunları (batch_id, tank_id, feed_id, equipment_id)
+ve JSONB kümeleri (`environment`, `fish_behavior`) var.
 
 #### `farm.feeding_tables`
 
-`id`, `tenant_id`, `batch_id` (FK CASCADE), `feed_id` (FK RESTRICT), `version`, `previous_version_id`, `recalculation_reason`, `parameters` (JSONB), `schedule` (JSONB array), `summary` (JSONB), `target_fcr`, `actual_fcr`, `start_date`, `end_date`, `status` (enum), `is_active`, `notes`, `calculated_at`, `calculated_by`, audit, `entity_version`. UNIQUE (tenant_id, batch_id, version).
+`id`, `tenant_id`, `batch_id` (FK CASCADE), `feed_id` (FK RESTRICT), `version`,
+`previous_version_id`, `recalculation_reason`, `parameters` (JSONB), `schedule` (JSONB array),
+`summary` (JSONB), `target_fcr`, `actual_fcr`, `start_date`, `end_date`, `status` (enum),
+`is_active`, `notes`, `calculated_at`, `calculated_by`, audit, `entity_version`. UNIQUE (tenant_id,
+batch_id, version).
 
 #### `farm.daily_feeding_executions`
 
-`id`, `tenant_id`, `feeding_program_id` (FK CASCADE), `feeding_program_tank_id` (FK CASCADE), `execution_date`, `equipment_id`, `equipment_type` (enum), `equipment_name`, `equipment_code`, `calculations` (JSONB), `actual_results` (JSONB), `status` (enum PLANNED/IN_PROGRESS/COMPLETED/SKIPPED/PARTIAL), `completed_at`, `completed_by`, `feeder_equipment_id`, `feeder_name`, `feeding_method` (enum), `notes`, `skip_reason`, `created_by`, `last_modified_by`, audit. UNIQUE (feeding_program_tank_id, execution_date).
+`id`, `tenant_id`, `feeding_program_id` (FK CASCADE), `feeding_program_tank_id` (FK CASCADE),
+`execution_date`, `equipment_id`, `equipment_type` (enum), `equipment_name`, `equipment_code`,
+`calculations` (JSONB), `actual_results` (JSONB), `status` (enum
+PLANNED/IN_PROGRESS/COMPLETED/SKIPPED/PARTIAL), `completed_at`, `completed_by`,
+`feeder_equipment_id`, `feeder_name`, `feeding_method` (enum), `notes`, `skip_reason`, `created_by`,
+`last_modified_by`, audit. UNIQUE (feeding_program_tank_id, execution_date).
 
 ### 5.5 Storage / Inventory
 
 #### `farm.storage_locations`
 
-`id`, `tenant_id`, `site_id` (FK), `code` (UNIQUE), `name`, `description`, `location_type` (enum), `capacity`, `current_quantity`, `notes`, `is_active`, audit.
+`id`, `tenant_id`, `site_id` (FK), `code` (UNIQUE), `name`, `description`, `location_type` (enum),
+`capacity`, `current_quantity`, `notes`, `is_active`, audit.
 
 #### `farm.storage_inventory`
 
-`id`, `tenant_id`, `item_id`, `storage_location_id` (FK), `quantity_kg`, `last_count_date`, `notes`, audit.
+`id`, `tenant_id`, `item_id`, `storage_location_id` (FK), `quantity_kg`, `last_count_date`, `notes`,
+audit.
 
 #### `farm.stock_movements`
 
-`id`, `tenant_id`, `movement_type` (enum — gerçek kod `IN / OUT / TRANSFER / WASTE / ADJUSTMENT / RETURN`; önceki revizyonlar bunu yanlış listeliyordu), `item_id`, `item_type` (FEED/CHEMICAL/CONSUMABLE), `from_location_id`, `to_location_id`, `quantity`, `unit`, `reason`, `reference`, `lot_number`, `manufacturing_date`, `expiry_date`, `movement_date`, `performed_by`, `idempotency_key` (UNIQUE), `notes`, audit.
+`id`, `tenant_id`, `movement_type` (enum — gerçek kod
+`IN / OUT / TRANSFER / WASTE / ADJUSTMENT / RETURN`; önceki revizyonlar bunu yanlış listeliyordu),
+`item_id`, `item_type` (FEED/CHEMICAL/CONSUMABLE), `from_location_id`, `to_location_id`, `quantity`,
+`unit`, `reason`, `reference`, `lot_number`, `manufacturing_date`, `expiry_date`, `movement_date`,
+`performed_by`, `idempotency_key` (UNIQUE), `notes`, audit.
 
 #### `farm.inventory_counts`
 
-`id`, `tenant_id`, `count_date`, `storage_location_id` (FK), `counted_by`, `status` (enum DRAFT/SUBMITTED/APPROVED), `notes`, audit.
+`id`, `tenant_id`, `count_date`, `storage_location_id` (FK), `counted_by`, `status` (enum
+DRAFT/SUBMITTED/APPROVED), `notes`, audit.
 
 #### `farm.inventory_count_items`
 
@@ -1333,33 +1445,47 @@ Alan listesi için bkz §4.3. Bunun yanında `ref` sütunları (batch_id, tank_i
 
 #### `farm.purchase_orders`
 
-`id`, `tenant_id`, `po_code` (UNIQUE), `category` (enum), `supplier_id` (FK), `supplier_name`, `supplier_contact`, `order_date`, `expected_delivery_date`, `delivery_date`, `status` (enum DRAFT/PENDING/RECEIVED/CANCELLED), `total_amount`, `currency`, `notes`, audit.
+`id`, `tenant_id`, `po_code` (UNIQUE), `category` (enum), `supplier_id` (FK), `supplier_name`,
+`supplier_contact`, `order_date`, `expected_delivery_date`, `delivery_date`, `status` (enum
+DRAFT/PENDING/RECEIVED/CANCELLED), `total_amount`, `currency`, `notes`, audit.
 
 #### `farm.purchase_order_items`
 
-`id`, `po_id` (FK CASCADE), `item_id`, `item_name`, `item_code`, `quantity`, `unit`, `unit_price`, `total_price`, `received_quantity`, audit.
+`id`, `po_id` (FK CASCADE), `item_id`, `item_name`, `item_code`, `quantity`, `unit`, `unit_price`,
+`total_price`, `received_quantity`, audit.
 
 ### 5.6 Chemical / Consumable / Supplier
 
 #### `farm.chemicals`
 
-`id`, `tenant_id`, `code` (UNIQUE), `name` (UNIQUE), `description`, `type` (enum), `brand`, `active_ingredient`, `concentration`, `formulation`, `supplier_id`, `status`, `quantity`, `min_stock`, `unit`, `requires_approval`, `withdrawal_period_days`, `usage_protocol` (JSONB), `safety_info` (JSONB), `storage_requirements`, storage/humidity min/max, `shelf_life_months`, `expiry_date`, `usage_areas` (simple-array), `documents` (JSONB), `unit_price`, `currency`, `notes`, `is_active`, soft delete, audit.
+`id`, `tenant_id`, `code` (UNIQUE), `name` (UNIQUE), `description`, `type` (enum), `brand`,
+`active_ingredient`, `concentration`, `formulation`, `supplier_id`, `status`, `quantity`,
+`min_stock`, `unit`, `requires_approval`, `withdrawal_period_days`, `usage_protocol` (JSONB),
+`safety_info` (JSONB), `storage_requirements`, storage/humidity min/max, `shelf_life_months`,
+`expiry_date`, `usage_areas` (simple-array), `documents` (JSONB), `unit_price`, `currency`, `notes`,
+`is_active`, soft delete, audit.
 
 #### `farm.chemical_types`
 
-Referans: `id`, `name`, `code` (UNIQUE), `description`, `icon`, `is_active`, `is_system`, `sort_order`, audit.
+Referans: `id`, `name`, `code` (UNIQUE), `description`, `icon`, `is_active`, `is_system`,
+`sort_order`, audit.
 
 #### `farm.chemical_sites`
 
-Junction: `id`, `tenant_id`, `chemical_id` (FK CASCADE), `site_id` (FK CASCADE), `is_approved`, `approved_by`, `approved_at`, `created_by`. UNIQUE.
+Junction: `id`, `tenant_id`, `chemical_id` (FK CASCADE), `site_id` (FK CASCADE), `is_approved`,
+`approved_by`, `approved_at`, `created_by`. UNIQUE.
 
 #### `farm.consumables`
 
-`id`, `tenant_id`, `name`, `code` (UNIQUE), `category` (enum), `description`, `unit`, `brand`, `supplier_id`, `quantity`, `min_stock`, `status`, `unit_price`, `currency`, storage/humidity min/max, `storage_requirements`, `notes`, `is_active`, soft delete, audit.
+`id`, `tenant_id`, `name`, `code` (UNIQUE), `category` (enum), `description`, `unit`, `brand`,
+`supplier_id`, `quantity`, `min_stock`, `status`, `unit_price`, `currency`, storage/humidity
+min/max, `storage_requirements`, `notes`, `is_active`, soft delete, audit.
 
 #### `farm.suppliers`
 
-`id`, `tenant_id`, `code` (UNIQUE), `name` (UNIQUE), `supplier_type_id`, `contact_person`, `contact_email`, `contact_phone`, `address`, `city`, `country`, `payment_terms`, `notes`, `is_active`, audit.
+`id`, `tenant_id`, `code` (UNIQUE), `name` (UNIQUE), `supplier_type_id`, `contact_person`,
+`contact_email`, `contact_phone`, `address`, `city`, `country`, `payment_terms`, `notes`,
+`is_active`, audit.
 
 #### `farm.supplier_types`
 
@@ -1373,41 +1499,72 @@ Junction: `id`, `tenant_id`, `supplier_id` (FK CASCADE), `site_id` (FK CASCADE),
 
 #### `farm.maintenance_schedules`
 
-Bkz §4.8 tablosu — sütunlar: `schedule_code` (UNIQUE), `name`, `description`, `category` (enum), `status`, `asset_type` (enum), `asset_id`, `asset_name`, `recurrence_rule` (JSONB), `start_date`, `end_date`, `next_due_date`, `last_executed_date`, `current_meter_reading`, `last_maintenance_meter_reading`, `next_maintenance_meter_reading`, `estimated_duration_minutes`, `estimated_cost`, `currency`, `checklist_template` (JSONB), `required_materials` (JSONB), `instructions`, `default_assignee_id`, `default_team_id`, `alert_settings` (JSONB), `metrics` (JSONB), `auto_generate_work_order`, `generate_days_before`, `notes`, audit.
+Bkz §4.8 tablosu — sütunlar: `schedule_code` (UNIQUE), `name`, `description`, `category` (enum),
+`status`, `asset_type` (enum), `asset_id`, `asset_name`, `recurrence_rule` (JSONB), `start_date`,
+`end_date`, `next_due_date`, `last_executed_date`, `current_meter_reading`,
+`last_maintenance_meter_reading`, `next_maintenance_meter_reading`, `estimated_duration_minutes`,
+`estimated_cost`, `currency`, `checklist_template` (JSONB), `required_materials` (JSONB),
+`instructions`, `default_assignee_id`, `default_team_id`, `alert_settings` (JSONB), `metrics`
+(JSONB), `auto_generate_work_order`, `generate_days_before`, `notes`, audit.
 
 #### `farm.work_orders`
 
-`id`, `tenant_id`, `work_order_code` (UNIQUE), `title`, `description`, `type` (enum), `status`, `priority`, `asset_type`, `asset_id`, `related_asset` (JSONB), `planned_start_date`, `due_date`, `estimated_duration_minutes`, `actual_start_time`, `actual_end_time`, `actual_duration_minutes`, `assigned_to`, `assigned_team_id`, `created_by`, `approved_by`, `approved_at`, `checklist` (JSONB), `checklist_progress`, `used_materials` (JSONB), `labor_records` (JSONB), `estimated_cost`, `cost_summary` (JSONB), `currency`, `maintenance_schedule_id` (FK), `is_recurring`, `completion_notes`, `completed_by`, `completed_at`, `verified_by`, `verified_at`, `related_health_event_id`, `related_alert_incident_id`, `notes`, `attachments`, audit.
+`id`, `tenant_id`, `work_order_code` (UNIQUE), `title`, `description`, `type` (enum), `status`,
+`priority`, `asset_type`, `asset_id`, `related_asset` (JSONB), `planned_start_date`, `due_date`,
+`estimated_duration_minutes`, `actual_start_time`, `actual_end_time`, `actual_duration_minutes`,
+`assigned_to`, `assigned_team_id`, `created_by`, `approved_by`, `approved_at`, `checklist` (JSONB),
+`checklist_progress`, `used_materials` (JSONB), `labor_records` (JSONB), `estimated_cost`,
+`cost_summary` (JSONB), `currency`, `maintenance_schedule_id` (FK), `is_recurring`,
+`completion_notes`, `completed_by`, `completed_at`, `verified_by`, `verified_at`,
+`related_health_event_id`, `related_alert_incident_id`, `notes`, `attachments`, audit.
 
 #### `farm.spare_parts`
 
-`id`, `tenant_id`, `code` (UNIQUE), `name`, `description`, `supplier_id` (FK), `quantity`, `min_stock`, `unit_price`, `currency`, `is_active`, audit.
+`id`, `tenant_id`, `code` (UNIQUE), `name`, `description`, `supplier_id` (FK), `quantity`,
+`min_stock`, `unit_price`, `currency`, `is_active`, audit.
 
 ### 5.8 Health
 
 #### `farm.health_events`
 
-Bkz §4.9 tablosu — sütunlar: `id`, `tenant_id`, `batch_id` (FK CASCADE), `tank_id` (FK SET NULL), `title`, `description`, `event_type`, `event_date`, `event_time`, `disease_category`, `disease_name`, `severity`, `symptoms` (JSONB), `affected_population` (JSONB), `treatment` (JSONB), `is_under_treatment`, `treatment_end_date`, `withdrawal_period_days`, `earliest_harvest_date`, `is_quarantined`, `quarantine_start_date`, `quarantine_end_date`, `quarantine_tank_id`, `lab_results` (JSONB), `lab_confirmed`, `vet_consultation` (JSONB), `vet_notified`, `water_quality_snapshot` (JSONB), `related_water_quality_measurement_id`, `status`, `resolved_date`, `resolution_notes`, `parent_event_id`, `alert_incident_id`, `estimated_cost`, `currency`, `reported_by`, `follow_up_required`, `next_follow_up_date`, `notes`, `attachments`, audit.
+Bkz §4.9 tablosu — sütunlar: `id`, `tenant_id`, `batch_id` (FK CASCADE), `tank_id` (FK SET NULL),
+`title`, `description`, `event_type`, `event_date`, `event_time`, `disease_category`,
+`disease_name`, `severity`, `symptoms` (JSONB), `affected_population` (JSONB), `treatment` (JSONB),
+`is_under_treatment`, `treatment_end_date`, `withdrawal_period_days`, `earliest_harvest_date`,
+`is_quarantined`, `quarantine_start_date`, `quarantine_end_date`, `quarantine_tank_id`,
+`lab_results` (JSONB), `lab_confirmed`, `vet_consultation` (JSONB), `vet_notified`,
+`water_quality_snapshot` (JSONB), `related_water_quality_measurement_id`, `status`, `resolved_date`,
+`resolution_notes`, `parent_event_id`, `alert_incident_id`, `estimated_cost`, `currency`,
+`reported_by`, `follow_up_required`, `next_follow_up_date`, `notes`, `attachments`, audit.
 
 ### 5.9 Tasks
 
 #### `farm.tasks`
 
-`id`, `tenant_id`, `task_code` (UNIQUE), `title`, `description`, `category` (enum), `priority`, `status`, `assigned_to`, `assigned_team_id`, `due_date`, `due_time`, `location`, `estimated_minutes`, `checklist_items` (JSONB), `tags` (simple-array), `completed_at`, `completed_by`, `auto_rule_id` (FK nullable), `recurring_template_id` (FK nullable), `parent_task_id`, `notes`, audit.
+`id`, `tenant_id`, `task_code` (UNIQUE), `title`, `description`, `category` (enum), `priority`,
+`status`, `assigned_to`, `assigned_team_id`, `due_date`, `due_time`, `location`,
+`estimated_minutes`, `checklist_items` (JSONB), `tags` (simple-array), `completed_at`,
+`completed_by`, `auto_rule_id` (FK nullable), `recurring_template_id` (FK nullable),
+`parent_task_id`, `notes`, audit.
 
 #### `farm.auto_task_rules`
 
-`id`, `tenant_id`, `name`, `description`, `condition` (text/JSONB), `trigger` (JSONB), `action` (enum), `task_category`, `priority`, `assigned_to`, `enabled`, `notes`, audit.
+`id`, `tenant_id`, `name`, `description`, `condition` (text/JSONB), `trigger` (JSONB), `action`
+(enum), `task_category`, `priority`, `assigned_to`, `enabled`, `notes`, audit.
 
 #### `farm.recurring_task_templates`
 
-`id`, `tenant_id`, `template_name`, `task_title`, `task_description`, `category`, `priority`, `assigned_to`, `frequency` (enum DAILY/WEEKLY/MONTHLY/CUSTOM), `days_of_week` (simple-array), `day_of_month`, `start_date`, `end_date`, `is_active`, `last_generated_at`, audit.
+`id`, `tenant_id`, `template_name`, `task_title`, `task_description`, `category`, `priority`,
+`assigned_to`, `frequency` (enum DAILY/WEEKLY/MONTHLY/CUSTOM), `days_of_week` (simple-array),
+`day_of_month`, `start_date`, `end_date`, `is_active`, `last_generated_at`, audit.
 
 ### 5.10 Water Quality
 
 #### `farm.water_quality_measurements`
 
-Bkz §4.5 — sütunlar: `id`, `tenant_id`, `tank_id` (FK), `system_id` (FK), `batch_id` (FK nullable), `measurement_date`, `parameter_values` (JSONB ⚠ 25+ parametre), `equipment_id`, `measured_by`, `notes`, audit.
+Bkz §4.5 — sütunlar: `id`, `tenant_id`, `tank_id` (FK), `system_id` (FK), `batch_id` (FK nullable),
+`measurement_date`, `parameter_values` (JSONB ⚠ 25+ parametre), `equipment_id`, `measured_by`,
+`notes`, audit.
 
 #### `farm.water_quality_parameter_configs`
 
@@ -1415,35 +1572,43 @@ Bkz §4.5 config formu tablosu.
 
 #### `farm.water_quality_param_equipment`
 
-Junction: `id`, `tenant_id`, `param_config_id` (FK), `equipment_id` (FK), `calibration_date`, `notes`, audit.
+Junction: `id`, `tenant_id`, `param_config_id` (FK), `equipment_id` (FK), `calibration_date`,
+`notes`, audit.
 
 ### 5.11 Weather / Marine / Regulatory
 
 #### `farm.weather_observations`
 
-`id`, `tenant_id`, `site_id` (FK), `observation_date`, `temperature`, `humidity`, `wind_speed`, `wind_direction`, `precipitation`, `pressure`, `cloud_cover`, `uv_index`, `visibility`, `raw_data` (JSONB), `source`, `notes`, audit.
+`id`, `tenant_id`, `site_id` (FK), `observation_date`, `temperature`, `humidity`, `wind_speed`,
+`wind_direction`, `precipitation`, `pressure`, `cloud_cover`, `uv_index`, `visibility`, `raw_data`
+(JSONB), `source`, `notes`, audit.
 
 #### `farm.weather_settings`
 
-`id`, `tenant_id`, `site_id` (FK), `api_source` (enum), `api_key`, `alert_thresholds` (JSONB), `is_active`, audit.
+`id`, `tenant_id`, `site_id` (FK), `api_source` (enum), `api_key`, `alert_thresholds` (JSONB),
+`is_active`, audit.
 
 #### `farm.marine_observations`
 
-`id`, `tenant_id`, `site_id` (FK), `observation_date`, `wave_height`, `water_temp`, `salinity`, `current_speed`, `current_direction`, `tide_level`, `raw_data` (JSONB), `source`, audit.
+`id`, `tenant_id`, `site_id` (FK), `observation_date`, `wave_height`, `water_temp`, `salinity`,
+`current_speed`, `current_direction`, `tide_level`, `raw_data` (JSONB), `source`, audit.
 
 #### `farm.regulatory_settings`
 
-`id`, `tenant_id`, `site_id` (FK), `compliance_framework` (enum), `certifications` (JSONB array), `authority_contacts` (JSONB), `reporting_schedule` (JSONB), `notes`, audit.
+`id`, `tenant_id`, `site_id` (FK), `compliance_framework` (enum), `certifications` (JSONB array),
+`authority_contacts` (JSONB), `reporting_schedule` (JSONB), `notes`, audit.
 
 #### `farm.sentinel_hub_settings`
 
-Bkz §4.13 — sütunlar: `api_key` (şifreli), `aoi_geometry`, `cloud_cover_max`, `timerange`, `auth_config` (JSONB), `is_active`, `last_sync_date`, audit.
+Bkz §4.13 — sütunlar: `api_key` (şifreli), `aoi_geometry`, `cloud_cover_max`, `timerange`,
+`auth_config` (JSONB), `is_active`, `last_sync_date`, audit.
 
 ### 5.12 Worker / Site Contacts / Company
 
 #### `farm.workers`
 
-`id`, `tenant_id`, `user_id` (dış ref), `name`, `role`, `department`, `email`, `phone`, `notes`, `is_active`, audit.
+`id`, `tenant_id`, `user_id` (dış ref), `name`, `role`, `department`, `email`, `phone`, `notes`,
+`is_active`, audit.
 
 #### `farm.site_contacts`
 
@@ -1453,21 +1618,28 @@ Bkz §4.13 — sütunlar: `api_key` (şifreli), `aoi_geometry`, `cloud_cover_max
 
 #### `farm.farm_audit_logs`
 
-`id`, `tenant_id` (INDEX), `entity_type` (varchar 100), `entity_id` (uuid), `action` (enum CREATE/UPDATE/DELETE/SOFT_DELETE/RESTORE), `user_id`, `user_name`, `changes` (JSONB), `metadata` (JSONB), `entity_version`, `summary`, `created_at`. 90 gün saklanır.
+`id`, `tenant_id` (INDEX), `entity_type` (varchar 100), `entity_id` (uuid), `action` (enum
+CREATE/UPDATE/DELETE/SOFT_DELETE/RESTORE), `user_id`, `user_name`, `changes` (JSONB), `metadata`
+(JSONB), `entity_version`, `summary`, `created_at`. 90 gün saklanır.
 
 #### `farm.code_sequences`
 
-`id`, `tenant_id`, `entity_type` (varchar 50), `prefix` (varchar 10), `year`, `last_sequence`, `last_generated_at`, audit. UNIQUE (tenant_id, entity_type, year). Batch number (B-2024-00001) gibi kod üretiminde kullanılır.
+`id`, `tenant_id`, `entity_type` (varchar 50), `prefix` (varchar 10), `year`, `last_sequence`,
+`last_generated_at`, audit. UNIQUE (tenant_id, entity_type, year). Batch number (B-2024-00001) gibi
+kod üretiminde kullanılır.
 
 #### `farm.farm_outbox`
 
-`id`, `tenant_id`, `event_type`, `aggregate_id`, `aggregate_type`, `payload` (JSONB), `published` (boolean), `published_at`, `created_at`. INDEX (`created_at WHERE published_at IS NULL`). Outbox pattern için.
+`id`, `tenant_id`, `event_type`, `aggregate_id`, `aggregate_type`, `payload` (JSONB), `published`
+(boolean), `published_at`, `created_at`. INDEX (`created_at WHERE published_at IS NULL`). Outbox
+pattern için.
 
 ---
 
 ## 6. GraphQL Mutation ve Query Kataloğu
 
-Toplam **36 resolver**, **~80 mutation**, **~60 query**. Her resolver'ın dosya yolu, mutation listesi ve hedef tabloları.
+Toplam **36 resolver**, **~80 mutation**, **~60 query**. Her resolver'ın dosya yolu, mutation
+listesi ve hedef tabloları.
 
 ### 6.1 Resolver Tablosu
 
@@ -1505,14 +1677,15 @@ Toplam **36 resolver**, **~80 mutation**, **~60 query**. Her resolver'ın dosya 
 | WaterQualityResolver                | `water-quality/water-quality.resolver.ts`                  | recordReading, createWaterQualityMeasurement                                                                                                                                                                                                                                                | waterQualityMeasurements                                                                                                                                                          | `water_quality_measurements`                                                                                                                           |
 | WaterQualityParameterConfigResolver | `water-quality/water-quality-parameter-config.resolver.ts` | createParameterConfig, updateParameterConfig, deleteParameterConfig, bulkCreateFromTemplate, bulkMapParamsEquipment, reorderParameterConfigs                                                                                                                                                | parameterConfigs, parameterTemplates                                                                                                                                              | `water_quality_parameter_configs`, `water_quality_param_equipment`                                                                                     |
 | WeatherResolver                     | `weather/weather.resolver.ts`                              | setWeatherSettings                                                                                                                                                                                                                                                                          | weatherObservations, weatherSettings, marineObservations                                                                                                                          | `weather_settings`; okur `weather_observations`, `marine_observations`                                                                                 |
-| RegulatoryResolver                  | `regulatory/regulatory.resolver.ts`                        | recordComplianceEvent, recordInspection, recordAudit                                                                                                                                                                                                                                        | regulatoryEvents, inspections                                                                                                                                                     | ~~regulatory_events~~ ⚠ _(tablo yok — health_events'e yazılır)_, `inspections`                                                                        |
+| RegulatoryResolver                  | `regulatory/regulatory.resolver.ts`                        | recordComplianceEvent, recordInspection, recordAudit                                                                                                                                                                                                                                        | regulatoryEvents, inspections                                                                                                                                                     | ~~regulatory_events~~ ⚠️ _(tablo yok — health_events'e yazılır)_, `inspections`                                                                        |
 | SentinelHubResolver                 | `sentinel-hub/sentinel-hub.resolver.ts`                    | (ayar kaydet)                                                                                                                                                                                                                                                                               | sentinelHubTiles, sentinelHubStats                                                                                                                                                | `sentinel_hub_settings`                                                                                                                                |
 | WorkerResolver                      | `worker/worker.resolver.ts`                                | createWorker, updateWorker, deleteWorker                                                                                                                                                                                                                                                    | worker, workers                                                                                                                                                                   | `workers`                                                                                                                                              |
 | AIInsightsResolver                  | `ai-insights/ai-insights.resolver.ts`                      | — (query-only)                                                                                                                                                                                                                                                                              | aiInsight, aiRecommendations                                                                                                                                                      | — (MCP okuma)                                                                                                                                          |
 
 ### 6.2 Input DTO Örnekleri
 
-Her mutation'ın input'u sıkı doğrulanır (`class-validator` decorator'ları ile). Yer sınırından dolayı tüm input'lar yerine en karmaşık iki tanesi:
+Her mutation'ın input'u sıkı doğrulanır (`class-validator` decorator'ları ile). Yer sınırından
+dolayı tüm input'lar yerine en karmaşık iki tanesi:
 
 #### CreateBatchInput
 
@@ -1599,7 +1772,8 @@ Header: `x-tenant-id` (zorunlu), `x-user-id` (opsiyonel)
 
 ### 8.1 Outbox Tablosu
 
-`farm.farm_outbox` — her domain command handler transaction'ında bir event satırı ekler. `OutboxWorkerService` bunları NATS'e basar.
+`farm.farm_outbox` — her domain command handler transaction'ında bir event satırı ekler.
+`OutboxWorkerService` bunları NATS'e basar.
 
 **Outbox'a yazılan event'ler:**
 
@@ -1616,7 +1790,8 @@ Header: `x-tenant-id` (zorunlu), `x-user-id` (opsiyonel)
 
 ### 8.2 Event Subject Pattern
 
-`events.{tenantId}.{EventType}` — örnek: `events.550e8400-e29b-41d4-a716-446655440000.FeedingRecorded`.  
+`events.{tenantId}.{EventType}` — örnek:
+`events.550e8400-e29b-41d4-a716-446655440000.FeedingRecorded`.  
 Wildcard abonelik: `subscribeWildcard('FeedingRecorded', handler)` — tüm kiracılardan yakalar.
 
 ### 8.3 Event Listener'lar (7 dosya)
@@ -1635,7 +1810,7 @@ Wildcard abonelik: `subscribeWildcard('FeedingRecorded', handler)` — tüm kira
 
 Dosya: `apps/farm-service/src/storage/event-handlers/feeding-storage-event.handler.ts:42-187`
 
-```
+```text
 FeedingRecord kaydı atılır
        ↓ (outbox → NATS)
 FeedingRecordedEvent
@@ -1783,15 +1958,18 @@ Aşağıdaki alanlar ayrı sütun değil JSONB içindedir — SQL filtreleme sı
 
 ### 11.3 FK Constraint Durumu
 
-Çoğu entity'de `@ManyToOne` decorator'ı var ama tüm migration'lar fiziksel FK constraint'i kurmaz. TypeORM `synchronize()` ile oluşan tablolarda FK eksik olabilir.
+Çoğu entity'de `@ManyToOne` decorator'ı var ama tüm migration'lar fiziksel FK constraint'i kurmaz.
+TypeORM `synchronize()` ile oluşan tablolarda FK eksik olabilir.
 
-- CASCADE delete: batch, batch_documents, batch_locations, health_events, chemical_sites, feed_sites gibi tablolarda var
+- CASCADE delete: batch, batch_documents, batch_locations, health_events, chemical_sites, feed_sites
+  gibi tablolarda var
 - SET NULL: tank_id gibi opsiyonel bağlarda
 - RESTRICT: species_id, feed_id gibi kritik referanslarda
 
 ### 11.4 Soft Delete Pattern
 
-Kritik entity'lerde: `is_deleted BOOLEAN`, `deleted_at TIMESTAMPTZ`, `deleted_by UUID`. Fiziksel DELETE yapılmaz. `Soft-restore` endpoint'i expose edilmemiş (undelete mutation yok).
+Kritik entity'lerde: `is_deleted BOOLEAN`, `deleted_at TIMESTAMPTZ`, `deleted_by UUID`. Fiziksel
+DELETE yapılmaz. `Soft-restore` endpoint'i expose edilmemiş (undelete mutation yok).
 
 ### 11.5 Dosya Yükleme
 
@@ -1800,7 +1978,8 @@ Kritik entity'lerde: `is_deleted BOOLEAN`, `deleted_at TIMESTAMPTZ`, `deleted_by
 1. MinIO'ya multipart upload → signed URL + documentId
 2. GraphQL mutation metadata ile `batch_documents` / `chemical_documents` satırı yazar
 
-Bu desen **SQL injection / arbitrary upload** risklerini ayrıştırır. Ama MinIO URL TTL'i + tenant prefix doğrulaması yapılandırma seviyesinde kontrol edilmeli.
+Bu desen **SQL injection / arbitrary upload** risklerini ayrıştırır. Ama MinIO URL TTL'i + tenant
+prefix doğrulaması yapılandırma seviyesinde kontrol edilmeli.
 
 ### 11.6 Rate Limiting Eksikliği
 
@@ -1812,11 +1991,14 @@ Mutation'larda `@RateLimit` decorator'ı yok. Yüksek etkili işlemler koruması
 
 ### 11.7 Cascade Delete Onayı
 
-`deleteDepartment(id, cascade)` — `cascade: boolean` (default false). Preview query (`GetDepartmentDeletePreviewQuery`) silinecek related entity'leri gösterir. Rol: TENANT_ADMIN.
+`deleteDepartment(id, cascade)` — `cascade: boolean` (default false). Preview query
+(`GetDepartmentDeletePreviewQuery`) silinecek related entity'leri gösterir. Rol: TENANT_ADMIN.
 
 ### 11.8 Şema Seçim Güvenliği
 
-✅ Hiçbir mutation `schemaName` veya tenant selector'ü istemciden kabul etmez. Tüm şema adları JWT'deki tenant ID'den `getTenantSchemaName()` ile türetilir. Önceki audit'te (2026-03-16) flag'lenen SQL injection riski şu an mevcut değil.
+✅ Hiçbir mutation `schemaName` veya tenant selector'ü istemciden kabul etmez. Tüm şema adları
+JWT'deki tenant ID'den `getTenantSchemaName()` ile türetilir. Önceki audit'te (2026-03-16)
+flag'lenen SQL injection riski şu an mevcut değil.
 
 ### 11.9 Legacy Tablo Çifti
 
@@ -1828,7 +2010,8 @@ Mutation'larda `@RateLimit` decorator'ı yok. Yüksek etkili işlemler koruması
 
 ### 11.10 Public Şema Anomali
 
-`public.feeder_calibrations` — tek `public` şema tablosu. Muhtemelen cross-service paylaşım için bu şekilde. RLS politikası farklı olabilir.
+`public.feeder_calibrations` — tek `public` şema tablosu. Muhtemelen cross-service paylaşım için bu
+şekilde. RLS politikası farklı olabilir.
 
 ---
 

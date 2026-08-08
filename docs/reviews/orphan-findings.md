@@ -8187,3 +8187,14 @@ The second is the one worth remembering. A permission that is granted and unusab
 **End-to-end proof, not just flag assertions:** the executor's real argv, run as the runner user with the real credential, now returns `rc: 0` / `out: OK`. Six tests pin it, including two that execute inside a live sandbox rather than inspecting the argv — "was the flag passed" is exactly the assertion that would have missed this. Both fixes proven load-bearing by deliberate break.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+## ORPHAN-HIGH-613 — a high-severity advisory blocks every branch's security gate — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-08 while landing an unrelated feature branch.
+
+**Problem:** `nanoid` below 3.3.17 lets a custom generator loop indefinitely when the requested size is zero. The CI security gate runs `npm audit --audit-level=high --omit=dev`, so the advisory fails every branch, including ones that changed no dependency at all — the lockfile is byte-identical to main on those branches, which is how it was traced here rather than blamed on the feature work.
+
+**Fix:** the tree resolves to `nanoid` 3.3.18 and the high-severity finding is gone; three moderate findings remain, below the gate's threshold. `nanoid` is transitive, so the lockfile is the only place it can be pinned.
+
+**Why this is its own change:** the resulting lockfile churn is npm re-resolving nested `@module-federation` dependencies, which is far wider than the single patched package. Riding that into a feature branch would mix a dependency-tree change with domain work and make either one hard to revert alone.
+
+**Verification owed before merge:** a clean install and a full build must confirm the re-resolved tree, since the change is broader than the advisory it closes.

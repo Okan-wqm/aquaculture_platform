@@ -2500,6 +2500,20 @@ export type ContactInfoInput = {
   phone: Scalars['String']['input'];
 };
 
+export type ContinuousFeederCalibrationItemInput = {
+  feedId: Scalars['ID']['input'];
+  gramsPerMinute: Scalars['Float']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
+  referenceSpeedHz: Scalars['Float']['input'];
+};
+
+export type ContinuousFeederSetupInput = {
+  calibrations: Array<ContinuousFeederCalibrationItemInput>;
+  maxSpeedHz: Scalars['Float']['input'];
+  minSpeedHz: Scalars['Float']['input'];
+  siloCapacityKg?: InputMaybe<Scalars['Float']['input']>;
+};
+
 export type CorrectMealPourInput = {
   correctedKg: Scalars['Float']['input'];
   mealId: Scalars['ID']['input'];
@@ -4171,7 +4185,7 @@ export type DailyFeedingExecution = {
   executionDate: Scalars['DateTime']['output'];
   /** Whether feed was transitioned during this execution */
   feedTransitioned: Scalars['Boolean']['output'];
-  /** SubEquipment feeder ID (for automatic feeders) */
+  /** Equipment id of the feeder that delivered this feeding */
   feederEquipmentId?: Maybe<Scalars['String']['output']>;
   /** Denormalized feeder name for quick access */
   feederName?: Maybe<Scalars['String']['output']>;
@@ -4818,6 +4832,17 @@ export type DiscoverySource =
   | 'AUTO'
   | 'MANUAL'
   | 'TEMPLATE';
+
+export type DiscreteFeederCalibrationItemInput = {
+  feedId: Scalars['ID']['input'];
+  gramsPerDispensing: Scalars['Float']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
+};
+
+export type DiscreteFeederSetupInput = {
+  calibrations: Array<DiscreteFeederCalibrationItemInput>;
+  siloCapacityKg?: InputMaybe<Scalars['Float']['input']>;
+};
 
 /** Hastalık kategorisi */
 export type DiseaseCategory =
@@ -6254,24 +6279,84 @@ export type FeedTypeSummary = {
   totalKg: Scalars['Float']['output'];
 };
 
-export type FeederCalibrationItemInput = {
-  feedSizeLabel?: InputMaybe<Scalars['String']['input']>;
-  feedSizeMm: Scalars['Float']['input'];
-  gramsPerDispensing: Scalars['Float']['input'];
-  notes?: InputMaybe<Scalars['String']['input']>;
-  siloCapacityKg: Scalars['Float']['input'];
+export type FeederAssignment = {
+  createdAt: Scalars['DateTime']['output'];
+  createdBy?: Maybe<Scalars['ID']['output']>;
+  doseSharePercent: Scalars['Float']['output'];
+  effectiveFrom: Scalars['DateTime']['output'];
+  endedAt?: Maybe<Scalars['DateTime']['output']>;
+  feederCode: Scalars['String']['output'];
+  feederEquipmentId: Scalars['ID']['output'];
+  feederName: Scalars['String']['output'];
+  id: Scalars['ID']['output'];
+  siteId: Scalars['ID']['output'];
+  status: FeederAssignmentStatus;
+  tenantId: Scalars['ID']['output'];
+  unitCode: Scalars['String']['output'];
+  unitId: Scalars['ID']['output'];
+  unitName: Scalars['String']['output'];
+  unitType: FeedingUnitType;
+  updatedAt: Scalars['DateTime']['output'];
+  updatedBy?: Maybe<Scalars['ID']['output']>;
 };
+
+/** Ünite-yemleyici atamasının yaşam döngüsü durumu */
+export type FeederAssignmentStatus =
+  | 'ACTIVE'
+  | 'ENDED';
 
 export type FeederCalibrationResponse = {
   createdAt: Scalars['DateTime']['output'];
-  equipmentId: Scalars['String']['output'];
-  feedSizeLabel?: Maybe<Scalars['String']['output']>;
-  feedSizeMm: Scalars['Float']['output'];
-  gramsPerDispensing: Scalars['Float']['output'];
+  dosingMode: FeederDosingMode;
+  equipmentId: Scalars['ID']['output'];
+  feedId: Scalars['ID']['output'];
+  gramsPerDispensing?: Maybe<Scalars['Float']['output']>;
+  gramsPerMinute?: Maybe<Scalars['Float']['output']>;
   id: Scalars['ID']['output'];
   notes?: Maybe<Scalars['String']['output']>;
-  siloCapacityKg: Scalars['Float']['output'];
+  referenceSpeedHz?: Maybe<Scalars['Float']['output']>;
   updatedAt: Scalars['DateTime']['output'];
+};
+
+export type FeederCapabilityResponse = {
+  createdAt: Scalars['DateTime']['output'];
+  dispenseControl: FeederDispenseControl;
+  dosingMode: FeederDosingMode;
+  equipmentId: Scalars['ID']['output'];
+  maxSpeedHz?: Maybe<Scalars['Float']['output']>;
+  minSpeedHz?: Maybe<Scalars['Float']['output']>;
+  notes?: Maybe<Scalars['String']['output']>;
+  siloCapacityKg?: Maybe<Scalars['Float']['output']>;
+  updatedAt: Scalars['DateTime']['output'];
+  weightSensorId?: Maybe<Scalars['ID']['output']>;
+};
+
+/** Dozun tamamlandığını ne söyler — ölçülen ağırlık mı, geçen süre mi */
+export type FeederDispenseControl =
+  | 'TIME_BASED'
+  | 'WEIGHT_BASED';
+
+export type FeederDispenseControlInput = {
+  mode: FeederDispenseControl;
+  weightSensorId?: InputMaybe<Scalars['ID']['input']>;
+};
+
+export type FeederDoseAllocation = {
+  doseSharePercent: Scalars['Float']['output'];
+  feederCode: Scalars['String']['output'];
+  feederEquipmentId: Scalars['ID']['output'];
+  feederName: Scalars['String']['output'];
+  kg: Scalars['Float']['output'];
+};
+
+/** Yemleyicinin dozlama fiziği — atımlı (discrete) veya sürekli akış (continuous) */
+export type FeederDosingMode =
+  | 'CONTINUOUS'
+  | 'DISCRETE';
+
+export type FeederSetupResponse = {
+  calibrations: Array<FeederCalibrationResponse>;
+  capability?: Maybe<FeederCapabilityResponse>;
 };
 
 /** AI-driven feeding recommendation for a tank */
@@ -6325,6 +6410,7 @@ export type FeedingDayPlan = {
   planDate: Scalars['String']['output'];
   plannedTotalKg: Scalars['Float']['output'];
   protocolId: Scalars['ID']['output'];
+  rationBasisKg?: Maybe<Scalars['Float']['output']>;
   recalcLog: Scalars['JSON']['output'];
   rollupAppliedAt?: Maybe<Scalars['DateTime']['output']>;
   siteId: Scalars['ID']['output'];
@@ -9391,6 +9477,7 @@ export type Mutation = {
   batchDeactivateSensors: Scalars['Boolean']['output'];
   batchIngestReadings: Scalars['Int']['output'];
   batchUpdateSensors: Scalars['Boolean']['output'];
+  bindVfdDrivenEquipment: VfdDriveBinding;
   bulkAcknowledgePlcAlarms: Scalars['Int']['output'];
   bulkAddDeviceIoConfigs: BulkAddIoConfigResult;
   bulkAssignShifts: BulkAssignResultType;
@@ -9825,6 +9912,8 @@ export type Mutation = {
   /** Set or update a retention policy. */
   setRetentionPolicy: RetentionPolicy;
   setSupplierApprovedSites: Array<SupplierSiteResponse>;
+  /** Ünitenin yemleyici listesini TAM olarak ayarlar; payların toplamı %100 olmalıdır */
+  setUnitFeeders: Array<FeederAssignment>;
   setVfdFrequency: VfdCommandResult;
   setVfdSpeed: VfdCommandResult;
   /** Initiate MFA setup for the current user */
@@ -9892,6 +9981,7 @@ export type Mutation = {
   transitionUnitFeed: DayPlanAdminResult;
   unassignProtocolFromUnit: ProtocolAssignment;
   unassignUserFromSite: SiteAssignmentResult;
+  unbindVfdDrivenEquipment: Scalars['Boolean']['output'];
   unlockProgram: AutomationProgram;
   unlockTenantUser: User;
   unpinMessage: Scalars['Boolean']['output'];
@@ -10457,6 +10547,12 @@ export type MutationBatchIngestReadingsArgs = {
 export type MutationBatchUpdateSensorsArgs = {
   input: BatchUpdateSensorsInputType;
   sensorIds: Array<Scalars['ID']['input']>;
+};
+
+
+export type MutationBindVfdDrivenEquipmentArgs = {
+  drivenEquipmentId: Scalars['ID']['input'];
+  vfdDeviceId: Scalars['ID']['input'];
 };
 
 
@@ -12354,6 +12450,11 @@ export type MutationSetSupplierApprovedSitesArgs = {
 };
 
 
+export type MutationSetUnitFeedersArgs = {
+  input: SetUnitFeedersInput;
+};
+
+
 export type MutationSetVfdFrequencyArgs = {
   frequencyHz: Scalars['Float']['input'];
   vfdDeviceId: Scalars['ID']['input'];
@@ -12611,6 +12712,11 @@ export type MutationUnassignProtocolFromUnitArgs = {
 export type MutationUnassignUserFromSiteArgs = {
   siteId: Scalars['ID']['input'];
   userId: Scalars['ID']['input'];
+};
+
+
+export type MutationUnbindVfdDrivenEquipmentArgs = {
+  vfdDeviceId: Scalars['ID']['input'];
 };
 
 
@@ -15388,7 +15494,7 @@ export type Query = {
   feedConsumptionForecast: FeedForecastResponse;
   feedSuppliers: Array<SupplierResponse>;
   feedTypes: Array<FeedTypeResponse>;
-  feederCalibrations: Array<FeederCalibrationResponse>;
+  feederSetup: FeederSetupResponse;
   /** AI-driven feeding recommendation for a specific tank */
   feedingAdvice?: Maybe<FeedingAdvice>;
   feedingDayPlans: Array<FeedingDayPlan>;
@@ -15768,6 +15874,10 @@ export type Query = {
   unacknowledgedPlcAlarms: Array<PlcAlarm>;
   unifiedTag?: Maybe<UnifiedTagType>;
   unifiedTags: UnifiedTagListType;
+  /** Ünitenin yemleyicileri ve günlük dozdaki payları */
+  unitFeederAssignments: Array<FeederAssignment>;
+  /** Verilen günlük dozun ünitenin yemleyicilerine paya göre bölünmüş hâli */
+  unitFeederDoseSplit: Array<FeederDoseAllocation>;
   unpaidInvoices: Array<Invoice>;
   unreadNotificationCount: Scalars['Int']['output'];
   /** Get upcoming harvest plans within specified days */
@@ -16482,7 +16592,7 @@ export type QueryFeedConsumptionForecastArgs = {
 };
 
 
-export type QueryFeederCalibrationsArgs = {
+export type QueryFeederSetupArgs = {
   equipmentId: Scalars['ID']['input'];
 };
 
@@ -17873,6 +17983,18 @@ export type QueryUnifiedTagsArgs = {
 };
 
 
+export type QueryUnitFeederAssignmentsArgs = {
+  includeEnded?: InputMaybe<Scalars['Boolean']['input']>;
+  unitId: Scalars['ID']['input'];
+};
+
+
+export type QueryUnitFeederDoseSplitArgs = {
+  totalKg: Scalars['Float']['input'];
+  unitId: Scalars['ID']['input'];
+};
+
+
 export type QueryUpcomingHarvestPlansArgs = {
   days?: InputMaybe<Scalars['Int']['input']>;
 };
@@ -18294,7 +18416,7 @@ export type RecordDailyFeedingInput = {
   /** Stable per-installation device identifier */
   deviceId?: InputMaybe<Scalars['String']['input']>;
   executionId: Scalars['ID']['input'];
-  /** SubEquipment feeder ID (for automatic feeders) */
+  /** Equipment id of a feeder assigned to this execution's unit */
   feederEquipmentId?: InputMaybe<Scalars['ID']['input']>;
   /** Feeding method used */
   feedingMethod?: InputMaybe<FeedingMethod>;
@@ -18712,6 +18834,8 @@ export type RegisterSensorInput = {
 export type RegisterVfdInput = {
   brand: Scalars['String']['input'];
   description?: InputMaybe<Scalars['String']['input']>;
+  /** farm equipment.id this drive actuates (feeder, pump, blower, …) */
+  drivenEquipmentId?: InputMaybe<Scalars['ID']['input']>;
   edgeDeviceId?: InputMaybe<Scalars['ID']['input']>;
   edgeModbusDeviceName?: InputMaybe<Scalars['String']['input']>;
   farmId?: InputMaybe<Scalars['ID']['input']>;
@@ -18722,11 +18846,9 @@ export type RegisterVfdInput = {
   notes?: InputMaybe<Scalars['String']['input']>;
   protocol: Scalars['String']['input'];
   protocolConfiguration: ProtocolConfigurationInput;
-  pumpId?: InputMaybe<Scalars['ID']['input']>;
   serialNumber?: InputMaybe<Scalars['String']['input']>;
   skipConnectionTest?: InputMaybe<Scalars['Boolean']['input']>;
   tags?: InputMaybe<Array<Scalars['String']['input']>>;
-  tankId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type RegisteredSensorType = {
@@ -19356,8 +19478,11 @@ export type SaveDiscoveredChannelsInput = {
 };
 
 export type SaveFeederCalibrationsInput = {
-  calibrations: Array<FeederCalibrationItemInput>;
-  equipmentId: Scalars['String']['input'];
+  continuous?: InputMaybe<ContinuousFeederSetupInput>;
+  discrete?: InputMaybe<DiscreteFeederSetupInput>;
+  dispense: FeederDispenseControlInput;
+  equipmentId: Scalars['ID']['input'];
+  notes?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type SaveReportDraftOverridesInput = {
@@ -19755,6 +19880,7 @@ export type SensorReadingDataType = {
 export type SensorReadings = {
   ammonia?: Maybe<Scalars['Float']['output']>;
   dissolvedOxygen?: Maybe<Scalars['Float']['output']>;
+  mass?: Maybe<Scalars['Float']['output']>;
   nitrate?: Maybe<Scalars['Float']['output']>;
   nitrite?: Maybe<Scalars['Float']['output']>;
   ph?: Maybe<Scalars['Float']['output']>;
@@ -19832,6 +19958,7 @@ export type SensorType =
   | 'CONDUCTIVITY'
   | 'DISSOLVED_OXYGEN'
   | 'FLOW_RATE'
+  | 'MASS'
   | 'MULTI_PARAMETER'
   | 'NITRATE'
   | 'NITRITE'
@@ -19910,6 +20037,12 @@ export type SetRetentionPolicyInput = {
   channelId?: InputMaybe<Scalars['String']['input']>;
   /** Retention period in days: 90, 365, 1095, or -1 (indefinite). */
   retentionDays: Scalars['Int']['input'];
+};
+
+export type SetUnitFeedersInput = {
+  effectiveFrom?: InputMaybe<Scalars['DateTime']['input']>;
+  feeders: Array<UnitFeederShareInput>;
+  unitId: Scalars['ID']['input'];
 };
 
 export type SetupMfaResponse = {
@@ -22621,6 +22754,11 @@ export type UnifiedTagType = {
   updatedAt: Scalars['DateTime']['output'];
 };
 
+export type UnitFeederShareInput = {
+  doseSharePercent: Scalars['Float']['input'];
+  feederEquipmentId: Scalars['ID']['input'];
+};
+
 export type UnresolvedTagRefType = {
   reason: Scalars['String']['output'];
   ref: Scalars['String']['output'];
@@ -24117,7 +24255,6 @@ export type UpdateVfdInput = {
   serialNumber?: InputMaybe<Scalars['String']['input']>;
   status?: InputMaybe<Scalars['String']['input']>;
   tags?: InputMaybe<Array<Scalars['String']['input']>>;
-  tankId?: InputMaybe<Scalars['ID']['input']>;
 };
 
 export type UpdateWaterQualityInput = {
@@ -24614,6 +24751,8 @@ export type VfdDevice = {
   createdBy?: Maybe<Scalars['String']['output']>;
   customRegisterMappings?: Maybe<Scalars['JSON']['output']>;
   description?: Maybe<Scalars['String']['output']>;
+  driveBinding?: Maybe<VfdDriveBinding>;
+  drivenUnit: VfdDrivenUnitResolution;
   edgeDeviceId?: Maybe<Scalars['ID']['output']>;
   edgeModbusDeviceName?: Maybe<Scalars['String']['output']>;
   farmId?: Maybe<Scalars['String']['output']>;
@@ -24628,11 +24767,10 @@ export type VfdDevice = {
   pollIntervalMs: Scalars['Float']['output'];
   protocol: VfdProtocol;
   protocolConfiguration: Scalars['JSON']['output'];
-  pumpId?: Maybe<Scalars['String']['output']>;
   serialNumber?: Maybe<Scalars['String']['output']>;
   status: VfdDeviceStatus;
   tags?: Maybe<Array<Scalars['String']['output']>>;
-  tankId?: Maybe<Scalars['String']['output']>;
+  tankId?: Maybe<Scalars['ID']['output']>;
   tenantId: Scalars['String']['output'];
   updatedAt: Scalars['DateTime']['output'];
   updatedBy?: Maybe<Scalars['String']['output']>;
@@ -24646,6 +24784,7 @@ export type VfdDeviceFilterInput = {
   protocol?: InputMaybe<Scalars['String']['input']>;
   search?: InputMaybe<Scalars['String']['input']>;
   status?: InputMaybe<Scalars['String']['input']>;
+  /** Drives whose driven equipment currently serves this unit */
   tankId?: InputMaybe<Scalars['ID']['input']>;
 };
 
@@ -24670,7 +24809,6 @@ export type VfdDeviceOutput = {
   protocol: Scalars['String']['output'];
   serialNumber?: Maybe<Scalars['String']['output']>;
   status: Scalars['String']['output'];
-  tankId?: Maybe<Scalars['ID']['output']>;
   updatedAt: Scalars['DateTime']['output'];
 };
 
@@ -24691,6 +24829,58 @@ export type VfdDiagnostics = {
   packetsReceived: Scalars['Int']['output'];
   packetsSent: Scalars['Int']['output'];
   retries: Scalars['Int']['output'];
+};
+
+/** The equipment a VFD drives, as attested by the service that owns it */
+export type VfdDriveBinding = {
+  attestedAt?: Maybe<Scalars['DateTime']['output']>;
+  boundBy?: Maybe<Scalars['ID']['output']>;
+  createdAt: Scalars['DateTime']['output'];
+  drivenEquipmentId: Scalars['ID']['output'];
+  equipmentCategory?: Maybe<Scalars['String']['output']>;
+  equipmentCode?: Maybe<Scalars['String']['output']>;
+  equipmentName?: Maybe<Scalars['String']['output']>;
+  requestedAt: Scalars['DateTime']['output'];
+  siteId?: Maybe<Scalars['ID']['output']>;
+  state: VfdDriveBindingState;
+  tenantId: Scalars['ID']['output'];
+  updatedAt: Scalars['DateTime']['output'];
+  vfdDeviceId: Scalars['ID']['output'];
+};
+
+/** Sürücü–ekipman bağının, ekipman sahibi tarafından tasdik durumu */
+export type VfdDriveBindingState =
+  | 'ATTESTED'
+  | 'INACTIVE_EQUIPMENT'
+  | 'PENDING'
+  | 'UNKNOWN_EQUIPMENT';
+
+/** A unit (tank/pond/cage) the driven equipment currently serves */
+export type VfdDriveBindingUnit = {
+  doseSharePercent: Scalars['Float']['output'];
+  tenantId: Scalars['ID']['output'];
+  unitCode: Scalars['String']['output'];
+  unitId: Scalars['ID']['output'];
+  unitType: Scalars['String']['output'];
+  vfdDeviceId: Scalars['ID']['output'];
+};
+
+/** Sürücünün hizmet ettiği ünite sorusunun kapalı küme cevabı */
+export type VfdDrivenUnitOutcome =
+  | 'EXPIRED'
+  | 'FEEDER_AMBIGUOUS'
+  | 'FEEDER_UNIT'
+  | 'FEEDER_WITHOUT_UNIT'
+  | 'NOT_A_FEEDER'
+  | 'UNATTESTED'
+  | 'UNBOUND';
+
+/** What unit (if any) follows from the equipment this drive turns */
+export type VfdDrivenUnitResolution = {
+  drivenEquipmentId?: Maybe<Scalars['ID']['output']>;
+  equipmentCategory?: Maybe<Scalars['String']['output']>;
+  outcome: VfdDrivenUnitOutcome;
+  units: Array<VfdDriveBindingUnit>;
 };
 
 export type VfdPaginationInput = {

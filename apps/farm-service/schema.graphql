@@ -3037,6 +3037,7 @@ type FeedingDayPlan {
   planDate: String!
   snapshot: JSON!
   plannedTotalKg: Float!
+  rationBasisKg: Float
   unplannedActualKg: Float!
   mealsPlanned: Int!
   status: FeedingDayPlanStatus!

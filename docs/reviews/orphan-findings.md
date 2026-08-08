@@ -8148,3 +8148,23 @@ The second defect is what reached the reader. A job killed by its own budget rep
 **Deliberately not done:** nothing here tries to make the suite _faster_ (`nx.json` parallelism, sharding, or making `ci-full` honour the test quarantine). Duration is a separate, separately-measured problem; conflating it with the detector is how the detector got mis-set. `NX_DAEMON: 'false'` / `NX_NO_CLOUD: 'true'` were considered for consistency with the sibling `build` job and rejected as provably no-ops under Actions (`nx/dist/src/daemon/client/client.js` disables the daemon whenever `CI` or `GITHUB_ACTIONS` is set; this workspace declares no Nx Cloud token) — attaching them to a duration fix would have been a false causal claim.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-501`, `ORPHAN-MEDIUM-563`, `ORPHAN-HIGH-563`.
+
+## ORPHAN-HIGH-590 — the weekly eval measured five runs a week and threw every one of them away — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06 audit, closed 2026-08-08. Two PRs that were individually coherent and jointly inert.
+
+#1096 gave ARIA `compare_eval_windows`, which answers the program's own success test: is round N+1 better than round N? #1080 gave it a weekly CI harness. Between them nothing persisted: the workflow ran `agent-eval run` five times into `aria-tools/agent-evals/runs.jsonl` **inside an ephemeral checkout**, printed the numbers, and the runner was destroyed. `runs.jsonl` is in `.gitignore`, and `test_aria_tools_tracked_allowlist.py` forbids committing it — correctly, since a hash-chained ledger does not belong in a PR diff.
+
+`compare_eval_windows` requires five runs PER WINDOW before it will speak. With CI as the only producer, `agent-eval delta` was therefore condemned to `insufficient_evidence` forever. The one real baseline lived on a single operator's disk.
+
+**Fix — no new mechanism.** ARIA already has a durable store: the `aria/state` branch, with a `restore-aria-state` composite action and a `state publish` verb the nightly producer has used since Wave 1. The eval lane now uses the same two. Its `--tools-dir` arguments name `$ARIA_TOOLS_DIR` — the binding the restore exports — instead of the literal `aria-tools`, so the week's runs append to the accumulated ledger. A `delta` step reports window-over-window per agent, and the publish step runs under `always()`: a week where a fixture regressed is exactly the week whose rows the trend needs, and a ledger that only records good weeks is not a measurement.
+
+**The contract moved with it, not around it.** `contents: write` is what persistence costs, so `workflow_contract_registry` — the SSoT — was updated rather than the test that reads it: write root `.aria-state-store`, `network_policy` gains `github_git`, and the first governed mutation becomes the restore, because the restore is what decides WHICH ledger the eval appends to. The preflight declaration in the workflow was moved to match; a preflight describing the wrong lane proves nothing.
+
+**A gap this closed on the way:** removing the publish step entirely left the whole workflow-contract suite green. It governs permissions, preflight ordering and upload shape — not whether a lane keeps what it measured. So `test_agent_eval_persistence.py` pins the four things that decide survival: the restore runs, `state publish` runs, it runs under `always()`, and **no `--tools-dir` names a literal** — one literal would send that command's writes back into the ephemeral checkout while the rest of the job used the store, half-persisted and green. Both breaks proven red.
+
+**Honest limit:** the delta will keep answering `insufficient_evidence` for about ten weeks, because five runs per window is five weeks per window and the ledger starts now. That is the measurement being honest about its own youth, not a defect.
+
+**Proof:** full kernel suite green (3,439 tests).
+
+**Owner:** claude (this session). **Status:** RESOLVED.

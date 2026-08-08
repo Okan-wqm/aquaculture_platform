@@ -33,14 +33,26 @@ from aria_kernel.implementation_safety import (
 
 
 def _argv(allow_network: bool) -> list[str]:
+    """The argv the executor would run.
+
+    `wrap_bash_in_sandbox` RAISES when bwrap is missing rather than degrading —
+    that refusal is the containment guarantee and must not be softened for a
+    test. So every caller here skips on a host without bwrap; the
+    GitHub-hosted runner is one, and three of these tests originally forgot to,
+    which is how they went red on their first CI run.
+    """
     with TemporaryDirectory() as tmp:
         return list(wrap_bash_in_sandbox(["true"], workspace_root=tmp, allow_network=allow_network))
 
 
+def _skip_without_bwrap(case: unittest.TestCase) -> None:
+    if not _bwrap_available():
+        case.skipTest("bwrap not installed on this host; the sandbox refuses rather than degrading")
+
+
 class SandboxHomeTest(unittest.TestCase):
     def test_the_agent_gets_a_home_it_can_write(self) -> None:
-        if not _bwrap_available():
-            self.skipTest("bwrap not installed on this host")
+        _skip_without_bwrap(self)
         argv = _argv(allow_network=True)
 
         self.assertIn("--setenv", argv)
@@ -51,6 +63,7 @@ class SandboxHomeTest(unittest.TestCase):
         self.assertIn("--tmpfs", argv)
 
     def test_the_home_is_ephemeral_not_the_operators_own(self) -> None:
+        _skip_without_bwrap(self)
         # Stronger containment than binding the real home, not weaker: the
         # agent cannot read the operator's ~/.claude.json nor leave anything in
         # it. Credentials arrive through the environment.
@@ -60,8 +73,7 @@ class SandboxHomeTest(unittest.TestCase):
         self.assertNotIn(str(Path.home()), argv)
 
     def test_home_is_actually_writable_inside_the_sandbox(self) -> None:
-        if not _bwrap_available():
-            self.skipTest("bwrap not installed on this host")
+        _skip_without_bwrap(self)
         with TemporaryDirectory() as tmp:
             argv = wrap_bash_in_sandbox(
                 ["sh", "-c", 'touch "$HOME/probe" && echo WRITABLE'],
@@ -76,12 +88,14 @@ class SandboxHomeTest(unittest.TestCase):
 
 class SandboxNetworkTest(unittest.TestCase):
     def test_allowing_the_network_also_supplies_the_resolver(self) -> None:
+        _skip_without_bwrap(self)
         argv = _argv(allow_network=True)
 
         self.assertIn("/etc/resolv.conf", argv)
         self.assertNotIn("--unshare-net", argv)
 
     def test_denying_the_network_binds_no_resolver(self) -> None:
+        _skip_without_bwrap(self)
         # The resolver files are a network capability, so they must not travel
         # with a sandbox that was denied the network.
         argv = _argv(allow_network=False)

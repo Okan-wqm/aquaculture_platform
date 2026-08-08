@@ -8187,6 +8187,7 @@ The second is the one worth remembering. A permission that is granted and unusab
 **End-to-end proof, not just flag assertions:** the executor's real argv, run as the runner user with the real credential, now returns `rc: 0` / `out: OK`. Six tests pin it, including two that execute inside a live sandbox rather than inspecting the argv — "was the flag passed" is exactly the assertion that would have missed this. Both fixes proven load-bearing by deliberate break.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-HIGH-613 — a high-severity advisory blocks every branch's security gate — RESOLVED (this PR)
 
 Severity: HIGH. Discovered 2026-08-08 while landing an unrelated feature branch.

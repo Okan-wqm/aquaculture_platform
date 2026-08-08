@@ -8622,3 +8622,39 @@ An actuation command can no longer be enqueued for offline replay, and the ban i
 **Honesty preserved throughout:** drive state is not cached for offline, because a cached "Running" is a claim about a turning shaft; an unobserved drive renders "State unknown" rather than "Stopped"; an untested one renders "Never tested" rather than "Not reachable".
 
 **Not shown, because no query backs it:** drive percentage (`speedReference` is declared `%` by ABB, `Hz` by Danfoss and Rockwell, `RPM` by Siemens, and the wire carries no unit — so output frequency in Hz is shown instead, which all eight brand configs agree on); hopper contents (only silo capacity is stored, and it is labelled as capacity); fault meaning (the code is brand-specific and this client holds no fault tables, so it prints the code and names the manual); run state on the fleet index, because `vfdDevices` resolves to a projection without it.
+
+## ORPHAN-HIGH-609 — a stock increase never changed the ration, and the trigger was every caller's to remember — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-07.
+
+**Problem:** five paths mutated a unit's stock through `applyBatchDelta`, and four then called `recalcForUnit` so the day's remaining meals were repriced. `allocate-to-tank.handler.ts` did not. Stocking a tank raised biomass while the remaining meals kept feeding the old, smaller number — fish underfed on their first day, silently, until the next 06:00. The asymmetry was the tell: transfer even remembered its destination leg, so the rule was known and simply unapplied on one path. Two further paths — delete-harvest and tank-count-reconcile — had never recalculated at all.
+
+**Fix:** `applyBatchDelta` is private. The only public entry runs the caller's deltas and then settles each touched unit exactly once, with the accumulated signed delta, in ascending unit order, inside the same transaction. Adding a fifth call site was the alternative; this removes the call site. The recalculator is injected without `@Optional()`, so a deployment without one does not boot.
+
+## ORPHAN-HIGH-610 — per-meal growth compounded the day's ration — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-07.
+
+**Problem:** finalising a meal applied FCR growth, then recomputed the daily total from the now-higher biomass, so the morning meal enlarged the noon meal which enlarged the evening one. The day's total silently exceeded the rate the protocol prescribed at day start, once per meal, every day. It is also biologically wrong — a fish does not convert feed to flesh at the moment of eating. Every construction path defaults to `per_meal`, and no protocol carries `daily`, so the compounding path was the only reachable one.
+
+**Fix:** the ration basis is a branded type and the only function turning biomass into feed refuses anything else, so passing the live biomass does not type-check — the compounding is unsayable rather than merely undone. `per_meal` now means when growth is written to biomass, not that today's ration is repriced from the biomass today's feed produced. Growth reaches the ration tomorrow, when 06:00 re-anchors the basis, which is the protocol's own rule. The recalculation still runs after growth, because a band crossing must still change the feed type.
+
+## ORPHAN-HIGH-611 — the 06:00 generator performed no feed-type transition — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-07.
+
+**Problem:** the generator declared `assignment.currentFeedId` in its signature and never referenced it. The band came from weight alone: no hysteresis, no `FeedTypeTransitioned` event, and the assignment's band memory left stale. A fish crossing a boundary overnight silently got a new feed while the assignment still named yesterday's, after which the intra-day recalculation compared against that stale index and could emit a second, contradictory transition.
+
+**Fix:** one transition mechanism. Deciding is pure; applying is the sole writer of the assignment's transition state and the sole publisher of the event, and the generator, the intra-day recalculation and the operator's manual transition all write through it. The transition applies only when the plan INSERT actually created the row, so the existing idempotency structurally blocks a double transition. Adopting a band on an assignment with no memory writes state but publishes no event — nothing was replaced, so alert-engine gets no spurious feed change.
+
+## ORPHAN-MEDIUM-612 — VFD configuration drift is undetectable — OPEN
+
+Severity: MEDIUM. Owner: platform. Discovered 2026-08-07.
+
+**Problem:** command-time verification is solid — the edge reads back, the cloud waits for a real Modbus acknowledgement and never fabricates one, and every attempt is audited. None of that answers whether the value is still there. Nothing compares the parameters this platform intended against what the drive currently holds; the change-set scheduler applies approved sets and never re-reads them. Set a drive to 60 Hz, lose power, and it returns at 40: the poll stores 40 as telemetry and the UI shows it, with nothing re-sending or warning. Per-dose feeding speed is immune because the dose directive recomputes and re-sends it every dispense; the exposure is commissioning parameters — ramps, frequency limits, control mode, nameplate values.
+
+**Why it is not merely tidiness:** an actuator that silently disagrees with its commanded configuration is a safety surface. The platform already refuses to actuate a drive whose owner has not attested it, precisely so it never acts on a guess.
+
+**What it needs:** no new infrastructure. Intent is already recorded in `vfd-programming`; the device is already readable. Missing are a slower configuration read alongside the telemetry poll — today `VfdReading` carries only operational values, so drift is invisible by construction — a comparison against the recorded intent, and an alarm on divergence. It will report that a value changed, never who changed it: a drive's own log records faults, not parameter edits, and fault history is readable only for Rockwell and Mitsubishi today. Attribution comes from `vfd_command_audit_logs` instead — a drift with no matching entry did not originate here.
+
+Documented in `docs/architecture/feeding-system.md` §11.

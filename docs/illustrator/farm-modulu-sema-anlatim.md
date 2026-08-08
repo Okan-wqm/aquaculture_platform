@@ -450,6 +450,13 @@ Her iki kanal (GraphQL + REST) aynı command handler'ları çağırır. Aynı i�
 
 ## 6. Feeding — Yemleme Süreçleri
 
+> **Güncel mimari kayıt:** Bu bölüm ekran→tablo envanteridir. Zincirin uçtan uca
+> çalışma sözleşmesi — protokol bandı → gün planı → döküm → büyüme → tartım →
+> yemleyici payı → kalibrasyon → VFD komutu —
+> [`docs/architecture/feeding-system.md`](../architecture/feeding-system.md)
+> dosyasındadır; iki metin çelişirse o dosya esastır. Neyin HENÜZ KURULMADIĞI da
+> orada tek bölümde listelenir.
+
 ### 6.1 Ne İşe Yarar
 
 Su ürünlerinde en kritik operasyon yemlemedir. Yemleme miktarı, zamanlaması ve kalitesi balıkların büyüme hızını, FCR'ını (Feed Conversion Ratio) ve dolayısıyla üretim maliyetini doğrudan etkiler. Bu modül dört ana akışı kapsar:
@@ -457,7 +464,7 @@ Su ürünlerinde en kritik operasyon yemlemedir. Yemleme miktarı, zamanlaması 
 1. **Günlük yemleme kaydı** — tankta kaç kg yem verildi, balıklar nasıl tepki verdi
 2. **Yemleme programı** — bir tesiste hangi tanklara hangi yemlerle, hangi sıklıkla yemleme yapılacak plan
 3. **Yemleme protokolü** — tür/aşama bazlı genel kural (sıcaklığa göre rasyon vb.)
-4. **Yemleyici kalibrasyonu** — otomatik yemleyicinin her pellet boyutu için kaç g dağıttığı
+4. **Yemleyici kalibrasyonu** — otomatik yemleyicinin her YEM için ne debide yem taşıdığı (anahtar pellet çapı değil `feedId`'dir; bkz. 6.5)
 
 ### 6.2 Günlük Yemleme Kaydı
 

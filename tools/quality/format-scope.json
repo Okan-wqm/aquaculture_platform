@@ -28405,6 +28405,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/architecture/feeding-system.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/architecture/messaging-enterprise-tenant-isolation.md",
       "prettier_managed": true
     },
@@ -57414,10 +57420,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9418,
+  "file_count": 9419,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9237,
-  "managed_file_list_sha256": "6d60e6fc8188977a8601446bdbefa0f2b4c2c4fb1955b6c5744338b5ad109236",
+  "managed_count": 9238,
+  "managed_file_list_sha256": "1077d1a5506c52e5e5e4d00e8b5560668402a145d84e35f5ac342cace7167267",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

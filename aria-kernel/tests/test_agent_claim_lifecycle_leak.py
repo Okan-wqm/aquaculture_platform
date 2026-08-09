@@ -108,22 +108,28 @@ class EveryFailureExitReleasesTest(unittest.TestCase):
 
 
 class ClaimResponseCarriesWhatThePromptWasHashedOverTest(unittest.TestCase):
-    def test_the_fused_claim_response_includes_the_repository_map(self) -> None:
+    def test_the_fused_claim_response_carries_the_repository_map(self) -> None:
         # The binding check compares the recorded prompt hash against one the
         # executor recomputes from this response. The hash was taken over a
         # render that INCLUDED the Twin slice, so a response without it makes
         # the check unsatisfiable — deterministically, for every request whose
         # evidence resolves against the map.
-        source = inspect.getsource(agent_invocations.claim_request)
-        tree = ast.parse(inspect.cleandoc(source))
-        keys = {
-            node.value
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        #
+        # This asserted a string literal inside claim_request until the fusion
+        # moved into _fuse_prompt_envelope, and it went red on a change that
+        # made the property STRONGER. A test that pins where a value is written
+        # fails on refactors and passes on regressions; what matters is that
+        # the response carries it, so that is what is asserted now.
+        row = {
+            "request_id": "AIR-fusion-carries-map",
+            "repository_map": {"projects": ["aria-kernel"]},
+            "cycle_id": "cyc-1",
         }
 
-        self.assertIn("repository_map", keys)
-        self.assertIn("cycle_id", keys)
+        fused = agent_invocations._fuse_prompt_envelope(row)
+
+        self.assertEqual(fused["repository_map"], {"projects": ["aria-kernel"]})
+        self.assertEqual(fused["cycle_id"], "cyc-1")
 
 
 class ReaperRunsWithoutAHumanTest(unittest.TestCase):

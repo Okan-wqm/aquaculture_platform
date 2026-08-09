@@ -8168,6 +8168,7 @@ The second defect is what reached the reader. A job killed by its own budget rep
 **Proof:** full kernel suite green (3,439 tests).
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-CRITICAL-591 — ARIA's autonomy died on 2026-08-04 and reported it as five ordinary agent failures — RESOLVED (detection); OPERATOR ACTION REQUIRED (the credential)
 
 **Discovered:** 2026-08-08, while wiring the feedback loop the operator asked for. Measured first-hand on the production runner:

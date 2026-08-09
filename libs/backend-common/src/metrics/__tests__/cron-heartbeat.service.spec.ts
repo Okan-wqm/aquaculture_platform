@@ -39,7 +39,9 @@ describe('CronHeartbeatService', () => {
     // A job with no series at all cannot be matched by
     // `time() - cron_job_last_success_timestamp_seconds > X`, so the alert
     // for "this never ran" would be silent exactly when it is true.
-    expect(dump).toContain('cron_job_last_success_timestamp_seconds{job="nightly-reconcile"} 0');
+    expect(dump).toContain(
+      'cron_job_last_success_timestamp_seconds{cron_job="nightly-reconcile"} 0',
+    );
   });
 
   it('records a successful run with its completion time', async () => {
@@ -47,9 +49,9 @@ describe('CronHeartbeatService', () => {
 
     const dump = await heartbeat.getMetrics();
 
-    expect(dump).toContain('cron_job_runs_total{job="outbox-relay",outcome="success"} 1');
+    expect(dump).toContain('cron_job_runs_total{cron_job="outbox-relay",outcome="success"} 1');
     expect(dump).toMatch(
-      /cron_job_last_success_timestamp_seconds\{job="outbox-relay"\} 1[6-9]\d{8}/,
+      /cron_job_last_success_timestamp_seconds\{cron_job="outbox-relay"\} 1[6-9]\d{8}/,
     );
   });
 
@@ -61,9 +63,9 @@ describe('CronHeartbeatService', () => {
     );
 
     const dump = await heartbeat.getMetrics();
-    expect(dump).toContain('cron_job_runs_total{job="outbox-relay",outcome="failure"} 1');
+    expect(dump).toContain('cron_job_runs_total{cron_job="outbox-relay",outcome="failure"} 1');
     expect(dump).toMatch(
-      /cron_job_last_failure_timestamp_seconds\{job="outbox-relay"\} 1[6-9]\d{8}/,
+      /cron_job_last_failure_timestamp_seconds\{cron_job="outbox-relay"\} 1[6-9]\d{8}/,
     );
   });
 
@@ -82,7 +84,9 @@ describe('CronHeartbeatService', () => {
 
     // The attempt happened; the success did not. A job that runs and always
     // fails must not look like a job that is not scheduled at all.
-    expect(dump).toMatch(/cron_job_last_attempt_timestamp_seconds\{job="flaky-job"\} 1[6-9]\d{8}/);
-    expect(dump).not.toContain('cron_job_runs_total{job="flaky-job",outcome="success"}');
+    expect(dump).toMatch(
+      /cron_job_last_attempt_timestamp_seconds\{cron_job="flaky-job"\} 1[6-9]\d{8}/,
+    );
+    expect(dump).not.toContain('cron_job_runs_total{cron_job="flaky-job",outcome="success"}');
   });
 });

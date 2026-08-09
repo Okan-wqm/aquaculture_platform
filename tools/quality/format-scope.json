@@ -5675,6 +5675,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/services/__tests__/tenant-command-receipt-rls.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/services/__tests__/tenant-lifecycle-suspension.spec.ts",
       "prettier_managed": true
     },

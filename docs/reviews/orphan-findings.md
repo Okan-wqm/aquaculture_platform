@@ -8200,6 +8200,36 @@ Severity: HIGH. Discovered 2026-08-08 while landing an unrelated feature branch.
 
 **Verification owed before merge:** a clean install and a full build must confirm the re-resolved tree, since the change is broader than the advisory it closes.
 
+## ORPHAN-HIGH-598 — the daily report workflow could never open its PR, and built the body through a shell — RESOLVED (this PR)
+
+**Severity:** HIGH (one class is a command-substitution surface)
+**Owner:** platform-CI
+**Discovered:** 2026-08-09, while triaging the 7-of-16 red scheduled workflows.
+
+`aria-daily-report` has failed on every scheduled run with _Resource not
+accessible by integration_. Its `commit-report` job declares
+`permissions: contents: write`, and a `permissions:` block makes every scope it
+does not name `none` — so `gh pr create` had no `pull-requests: write`. The
+workflow prefers `secrets.ARIA_GITHUB_APP_TOKEN` and falls back to
+`github.token`, which carries exactly these permissions; since the secret has
+never been provisioned, the fallback is the only path that has ever run.
+
+Beside it, a second defect on the same step: the PR body was written with an
+UNQUOTED heredoc (`cat > "$BODY_FILE" <<EOF`). Markdown code spans use
+backticks, so the shell EXECUTED `${REPORT}` and
+`.github/workflows/aria-daily-report.yml` as commands — the source of the
+`Permission denied` lines in every run log, and a command-substitution surface
+on the one step that assembles text from variables.
+
+**Fix:** `pull-requests: write` on the job that opens the PR; the body rendered
+by `python3` from `os.environ` so no value is parsed by a shell. A second test
+in `tests/invariants/aria-workflow-input-injection.spec.ts` fails on an
+unquoted heredoc whose body performs command substitution, and spares one that
+only expands `${VAR}`.
+
+**Not fixed here:** `ARIA_GITHUB_APP_TOKEN` remains unprovisioned (operator).
+The workflow now works on the fallback token, so it is no longer a blocker.
+
 ## ORPHAN-HIGH-594 — the first agent run to survive was rejected for a baseline its own harness never supplied — RESOLVED (this PR)
 
 **Discovered:** 2026-08-09, watching the first `aria-agent-executor` run that got past the runtime fixes.

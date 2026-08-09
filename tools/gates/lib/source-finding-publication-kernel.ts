@@ -14,19 +14,21 @@ export interface SourceFindingPublicationFaultBoundary {
   checkpoint(point: SourceFindingPublicationFaultPoint): void;
 }
 
+export type SourceFindingOperationResult<T> = T | Promise<T>;
+
 export interface SourceFindingPublicationTransaction {
-  prepare(): Promise<void>;
-  publishArtifact(): Promise<void>;
-  verifyArtifact(): Promise<void>;
-  publishManifestCommitMarker(): Promise<void>;
-  cleanupSupersededArtifacts(checkpoint: () => void): Promise<void>;
-  verifyCommittedCut(): Promise<void>;
-  rollback(): Promise<void>;
+  prepare(): SourceFindingOperationResult<void>;
+  publishArtifact(): SourceFindingOperationResult<void>;
+  verifyArtifact(): SourceFindingOperationResult<void>;
+  publishManifestCommitMarker(): SourceFindingOperationResult<void>;
+  cleanupSupersededArtifacts(checkpoint: () => void): SourceFindingOperationResult<void>;
+  verifyCommittedCut(): SourceFindingOperationResult<void>;
+  rollback(): SourceFindingOperationResult<void>;
   release(): void;
 }
 
 const NO_PUBLICATION_FAULTS: SourceFindingPublicationFaultBoundary = Object.freeze({
-  checkpoint: () => {},
+  checkpoint: () => undefined,
 });
 
 function observedFailure(message: string, error: unknown): Error {
@@ -53,15 +55,17 @@ export async function executeSourceFindingPublicationTransaction(
   let mutationStarted = false;
   let outcome: { readonly status: 'SUCCESS' } | { readonly status: 'FAILURE'; error: unknown };
   try {
-    await transaction.prepare();
+    await Promise.resolve(transaction.prepare());
     mutationStarted = true;
-    await transaction.publishArtifact();
+    await Promise.resolve(transaction.publishArtifact());
     faults.checkpoint('ARTIFACT_DURABLE');
-    await transaction.verifyArtifact();
-    await transaction.publishManifestCommitMarker();
+    await Promise.resolve(transaction.verifyArtifact());
+    await Promise.resolve(transaction.publishManifestCommitMarker());
     faults.checkpoint('MANIFEST_COMMITTED');
-    await transaction.cleanupSupersededArtifacts(() => faults.checkpoint('CLEANUP_PROGRESS'));
-    await transaction.verifyCommittedCut();
+    await Promise.resolve(
+      transaction.cleanupSupersededArtifacts(() => faults.checkpoint('CLEANUP_PROGRESS')),
+    );
+    await Promise.resolve(transaction.verifyCommittedCut());
     outcome = { status: 'SUCCESS' };
   } catch (error) {
     outcome = { status: 'FAILURE', error };
@@ -74,7 +78,7 @@ export async function executeSourceFindingPublicationTransaction(
     !(outcome.error instanceof SourceFindingPublicationCrash)
   ) {
     try {
-      await transaction.rollback();
+      await Promise.resolve(transaction.rollback());
     } catch (error) {
       rollbackFailure = error;
     }
@@ -88,7 +92,8 @@ export async function executeSourceFindingPublicationTransaction(
   }
 
   if (outcome.status === 'FAILURE') {
-    const failures = [observedFailure('Source publication failed.', outcome.error)];
+    const primaryFailure = observedFailure('Source publication failed.', outcome.error);
+    const failures = [primaryFailure];
     if (rollbackFailure !== undefined) {
       failures.push(observedFailure('Source publication rollback failed.', rollbackFailure));
     }
@@ -98,7 +103,7 @@ export async function executeSourceFindingPublicationTransaction(
     if (failures.length > 1) {
       throw new AggregateError(failures, 'Source-finding publication transaction failed.');
     }
-    throw failures[0];
+    throw primaryFailure;
   }
   if (releaseFailure !== undefined) {
     throw observedFailure('Source publication release failed.', releaseFailure);
@@ -106,19 +111,19 @@ export async function executeSourceFindingPublicationTransaction(
 }
 
 export interface SourceFindingRestartRecovery {
-  readAndVerifyManifestCommitMarker(): Promise<void>;
-  verifySelectedArtifact(): Promise<void>;
-  removeOneSupersededArtifact(): Promise<boolean>;
-  syncRecoveredCut(): Promise<void>;
+  readAndVerifyManifestCommitMarker(): SourceFindingOperationResult<void>;
+  verifySelectedArtifact(): SourceFindingOperationResult<void>;
+  removeOneSupersededArtifact(): SourceFindingOperationResult<boolean>;
+  syncRecoveredCut(): SourceFindingOperationResult<void>;
 }
 
 /** Manifest-selected roll-forward; recovery never guesses which artifact should be authoritative. */
 export async function executeSourceFindingRestartRecovery(
   recovery: SourceFindingRestartRecovery,
 ): Promise<void> {
-  await recovery.readAndVerifyManifestCommitMarker();
-  await recovery.verifySelectedArtifact();
+  await Promise.resolve(recovery.readAndVerifyManifestCommitMarker());
+  await Promise.resolve(recovery.verifySelectedArtifact());
   let removed = false;
-  while (await recovery.removeOneSupersededArtifact()) removed = true;
-  if (removed) await recovery.syncRecoveredCut();
+  while (await Promise.resolve(recovery.removeOneSupersededArtifact())) removed = true;
+  if (removed) await Promise.resolve(recovery.syncRecoveredCut());
 }

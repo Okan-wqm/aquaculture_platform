@@ -2,7 +2,7 @@
 
 import { existsSync, writeFileSync } from 'node:fs';
 
-import { RegistryLockError, withRegistryFileLock } from '../finding-registry-store';
+import { RegistryLockError, testOnlyWithRegistryFileLock } from '../finding-registry-store';
 
 function requiredArgument(index: number, label: string): string {
   const value = process.argv[index];
@@ -16,7 +16,7 @@ function runKernelLockHolder(): never {
   const resourcePath = requiredArgument(3, 'resource path');
   const readyPath = requiredArgument(4, 'ready barrier path');
   const releasePath = requiredArgument(5, 'release barrier path');
-  withRegistryFileLock(
+  testOnlyWithRegistryFileLock(
     resourcePath,
     () => {
       writeFileSync(readyPath, 'ready\n', 'utf8');
@@ -33,7 +33,7 @@ function runKernelLockContender(): never {
   const blockedPath = requiredArgument(4, 'blocked barrier path');
   const enteredPath = requiredArgument(5, 'entered barrier path');
   try {
-    withRegistryFileLock(
+    testOnlyWithRegistryFileLock(
       resourcePath,
       () => {
         throw new Error('Kernel-lock contender entered while the owner barrier was closed');
@@ -45,22 +45,22 @@ function runKernelLockContender(): never {
     if (!(error instanceof RegistryLockError) || error.code !== 'LOCK_TIMEOUT') throw error;
   }
   writeFileSync(blockedPath, 'blocked\n', 'utf8');
-  withRegistryFileLock(resourcePath, () => writeFileSync(enteredPath, 'entered\n', 'utf8'), {
-    timeoutMs: 5_000,
-    pollIntervalMs: 10,
-  });
+  testOnlyWithRegistryFileLock(
+    resourcePath,
+    () => writeFileSync(enteredPath, 'entered\n', 'utf8'),
+    {
+      timeoutMs: 5_000,
+      pollIntervalMs: 10,
+    },
+  );
   process.exit(0);
 }
 
 try {
-  switch (process.argv[2]) {
-    case '--kernel-lock-holder':
-      runKernelLockHolder();
-    case '--kernel-lock-contender':
-      runKernelLockContender();
-    default:
-      throw new Error(`Unknown finding registry lock fixture mode: ${String(process.argv[2])}`);
-  }
+  const fixtureMode = process.argv[2];
+  if (fixtureMode === '--kernel-lock-holder') runKernelLockHolder();
+  if (fixtureMode === '--kernel-lock-contender') runKernelLockContender();
+  throw new Error(`Unknown finding registry lock fixture mode: ${String(fixtureMode)}`);
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
   process.exit(1);

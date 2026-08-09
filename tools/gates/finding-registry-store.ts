@@ -10,7 +10,6 @@ import {
   linkSync,
   openSync,
   readFileSync,
-  readSync,
   readdirSync,
   renameSync,
   statSync,
@@ -18,7 +17,27 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
+import { performance } from 'node:perf_hooks';
 
+import {
+  assertRepositoryMutationAuthority,
+  type RegistryMutationOperation,
+  type RepositoryMutationAuthority,
+} from './github-actions-oidc-authority';
+import {
+  assertAnchoredDirectoryChainIdentityCurrent,
+  assertStablePathKindCurrent,
+  closeAnchoredDirectoryChain,
+  decodeFatalUtf8,
+  defineHermeticExecutableExecutionPolicyV1,
+  HermeticExecutableExecutionTimeoutError,
+  openAnchoredDirectoryChain,
+  openHermeticExecutableAuthority,
+  observeStablePathKind,
+  observeStableRegularFile,
+  type AnchoredDirectoryChainV1,
+  type HermeticExecutableAuthorityV1,
+} from './lib/anchored-filesystem';
 import {
   classifyFindingAuthorityTarget,
   FINDING_AUTHORITY_TRANSACTION_MAX_BYTES,
@@ -27,36 +46,25 @@ import {
 } from './lib/finding-authority-target-catalog';
 import {
   assertFindingWriterFenceRegistryTransition,
+  assertFindingWriterFenceTargetAuthorized,
   assertFindingWriterFenceTargetCurrent,
+  assertPendingSourceFindingWriterFenceSessionTransitionBeforeCurrent,
   assertSourceFindingWriterFenceSessionTargetCurrent,
+  commitSourceFindingWriterFenceSessionTransition,
+  prepareSourceFindingWriterFenceSessionTransition,
+  rollbackPendingSourceFindingWriterFenceSessionTransition,
   type RedeemedFindingWriterFenceCapability,
   type SourceFindingWriterFenceSession,
 } from './lib/finding-writer-fence';
-import {
-  assertAnchoredDirectoryChainIdentityCurrent,
-  assertStablePathKindCurrent,
-  closeAnchoredDirectoryChain,
-  decodeFatalUtf8,
-  openAnchoredDirectoryChain,
-  openHermeticExecutableAuthority,
-  observeStablePathKind,
-  observeStableRegularFile,
-  type AnchoredDirectoryChainV1,
-  type HermeticExecutableAuthorityV1,
-} from './lib/anchored-filesystem';
-
-import {
-  assertRepositoryMutationAuthority,
-  type RegistryMutationOperation,
-  type RepositoryMutationAuthority,
-} from './github-actions-oidc-authority';
 
 export type FindingSeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
 
-export interface RegistryLockOptions {
+interface RegistryLockOptions {
   readonly timeoutMs: number;
   readonly pollIntervalMs: number;
   readonly lockPath?: string;
+  readonly testOnlyBeforeFlockChild?: () => void;
+  readonly testOnlyObserveFlockChildDeadline?: (remainingMs: number) => void;
 }
 
 export interface RegistryLockLease {
@@ -81,12 +89,60 @@ interface GovernedFindingCompensationState {
     string,
     { readonly target: FindingAuthorityTarget; readonly content: string | null }
   >;
+  readonly currentImages: Map<string, string | null>;
 }
 
 const governedFindingCompensations = new WeakMap<
   GovernedFindingCompensationAuthorization,
   GovernedFindingCompensationState
 >();
+
+function sha256Text(content: string): string {
+  return createHash('sha256').update(content, 'utf8').digest('hex');
+}
+
+function throwFailureSet(failures: readonly Error[], message: string): never {
+  const [onlyFailure] = failures;
+  if (failures.length === 1 && onlyFailure !== undefined) throw onlyFailure;
+  if (failures.length > 1) throw new AggregateError(failures, message);
+  throw new Error(`${message}: no failure was recorded`);
+}
+
+function runWithDescriptorCleanup<T>(descriptor: number, label: string, action: () => T): T {
+  let outcome:
+    | { readonly status: 'SUCCESS'; readonly value: T }
+    | {
+        readonly status: 'FAILURE';
+        readonly error: unknown;
+      };
+  try {
+    outcome = { status: 'SUCCESS', value: action() };
+  } catch (error) {
+    outcome = { status: 'FAILURE', error };
+  }
+  let cleanupFailure: unknown;
+  try {
+    closeSync(descriptor);
+  } catch (error) {
+    cleanupFailure = error;
+  }
+  if (outcome.status === 'FAILURE' && cleanupFailure !== undefined) {
+    throw new AggregateError(
+      [
+        observedFailure(`${label} action failed.`, outcome.error),
+        observedFailure(`${label} descriptor cleanup failed.`, cleanupFailure),
+      ],
+      `${label} action and descriptor cleanup both failed`,
+    );
+  }
+  if (outcome.status === 'FAILURE') {
+    throw observedFailure(`${label} action failed.`, outcome.error);
+  }
+  if (cleanupFailure !== undefined) {
+    throw observedFailure(`${label} descriptor cleanup failed.`, cleanupFailure);
+  }
+  return outcome.value;
+}
 
 interface AnchoredFindingMutationTarget {
   readonly parentPath: string;
@@ -114,8 +170,12 @@ function assertAnchoredFindingMutationParentCurrent(target: AnchoredFindingMutat
   assertAnchoredDirectoryChainIdentityCurrent(target.parentChain, 'Finding mutation target parent');
 }
 
-function unlinkFindingFileAnchored(filePath: string, beforeCommit: () => void = () => {}): void {
+function unlinkFindingFileAnchored(
+  filePath: string,
+  beforeCommit: () => void = () => undefined,
+): void {
   const anchored = openAnchoredFindingMutationTarget(filePath);
+  let mutationFailure: unknown;
   try {
     assertAnchoredFindingMutationParentCurrent(anchored);
     beforeCommit();
@@ -123,8 +183,29 @@ function unlinkFindingFileAnchored(filePath: string, beforeCommit: () => void = 
     unlinkSync(anchored.targetPath);
     fsyncSync(anchored.parentFd);
     assertAnchoredFindingMutationParentCurrent(anchored);
-  } finally {
+  } catch (error) {
+    mutationFailure = error;
+  }
+  let cleanupFailure: unknown;
+  try {
     closeAnchoredFindingMutationTarget(anchored);
+  } catch (error) {
+    cleanupFailure = error;
+  }
+  if (mutationFailure !== undefined && cleanupFailure !== undefined) {
+    throw new AggregateError(
+      [
+        observedFailure('Finding unlink mutation failed.', mutationFailure),
+        observedFailure('Finding unlink anchor cleanup failed.', cleanupFailure),
+      ],
+      'Finding unlink mutation and anchor cleanup both failed',
+    );
+  }
+  if (mutationFailure !== undefined) {
+    throw observedFailure('Finding unlink mutation failed.', mutationFailure);
+  }
+  if (cleanupFailure !== undefined) {
+    throw observedFailure('Finding unlink anchor cleanup failed.', cleanupFailure);
   }
 }
 
@@ -190,8 +271,26 @@ function captureGovernedFindingCompensation(
     leaseToken: lease.token,
     lockPath: lease.lockPath,
     beforeImages,
+    currentImages: new Map(
+      [...beforeImages].map(([path, beforeImage]) => [path, beforeImage.content] as const),
+    ),
   });
   return authorization;
+}
+
+function governedFindingCompensationState(
+  authorization: GovernedFindingCompensationAuthorization,
+  lease: RegistryLockLease,
+): GovernedFindingCompensationState {
+  const state = governedFindingCompensations.get(authorization);
+  if (
+    state === undefined ||
+    state.leaseToken !== lease.token ||
+    state.lockPath !== lease.lockPath
+  ) {
+    throw new Error('Governed finding compensation is foreign or bound to another lease');
+  }
+  return state;
 }
 
 function releaseGovernedFindingCompensation(
@@ -205,15 +304,9 @@ function releaseGovernedFindingCompensation(
 function restoreGovernedFindingCompensation(
   authorization: GovernedFindingCompensationAuthorization,
   lease: RegistryLockLease,
+  transitionToBeforeImage: (target: FindingAuthorityTarget, beforeContent: string | null) => void,
 ): void {
-  const state = governedFindingCompensations.get(authorization);
-  if (
-    state === undefined ||
-    state.leaseToken !== lease.token ||
-    state.lockPath !== lease.lockPath
-  ) {
-    throw new Error('Governed finding compensation is foreign or bound to another lease');
-  }
+  const state = governedFindingCompensationState(authorization, lease);
   assertRegistryLockOwned(lease);
   const restoreBeforeImage = (beforeImage: {
     readonly target: FindingAuthorityTarget;
@@ -225,14 +318,20 @@ function restoreGovernedFindingCompensation(
         `Governed finding compensation target identity changed: ${currentTarget.path}`,
       );
     }
-    if (beforeImage.content === null) {
-      if (readGovernedFindingBeforeImage(currentTarget) !== null) {
-        unlinkFindingFileAnchored(currentTarget.path);
-      }
-      return;
+    if (!state.currentImages.has(currentTarget.path)) {
+      throw new Error(`Governed finding compensation lost transition state: ${currentTarget.path}`);
     }
-    if (readGovernedFindingBeforeImage(currentTarget) !== beforeImage.content) {
-      atomicWriteFileWithRegistryLeaseUnchecked(currentTarget.path, beforeImage.content, lease);
+    const expectedImage = state.currentImages.get(currentTarget.path) ?? null;
+    const currentImage = readGovernedFindingBeforeImage(currentTarget);
+    if (currentImage !== expectedImage) {
+      throw new SourceFindingTransitionRollbackConflictError(
+        currentTarget.path,
+        expectedImage === null ? null : sha256Text(expectedImage),
+        currentImage === null ? null : sha256Text(currentImage),
+      );
+    }
+    if (currentImage !== beforeImage.content) {
+      transitionToBeforeImage(currentTarget, beforeImage.content);
     }
   };
   const beforeImages = [...state.beforeImages.values()];
@@ -256,20 +355,14 @@ function restoreGovernedFindingCompensation(
   const parentDirectories = new Set([...state.beforeImages.keys()].map((path) => dirname(path)));
   for (const parentDirectory of parentDirectories) {
     const parentFd = openSync(parentDirectory, 'r');
-    try {
-      fsyncSync(parentFd);
-    } finally {
-      closeSync(parentFd);
-    }
+    runWithDescriptorCleanup(parentFd, 'Source compensation parent sync', () =>
+      fsyncSync(parentFd),
+    );
   }
 }
 
 type RegistryLockErrorCode = 'LOCK_TIMEOUT' | 'LOCK_MALFORMED' | 'LOCK_OWNERSHIP_LOST';
 
-const DEFAULT_LOCK_OPTIONS: RegistryLockOptions = {
-  timeoutMs: 5_000,
-  pollIntervalMs: 25,
-};
 const FINDING_WRITER_FLOCK_PATH = '/usr/bin/flock';
 const FINDING_WRITER_FLOCK_VERSION_PATTERN = /^flock from util-linux (\d+)\.(\d+)(?:\.(\d+))?$/;
 const MIN_FINDING_WRITER_FLOCK_VERSION = Object.freeze([2, 37] as const);
@@ -277,6 +370,23 @@ const FINDING_WRITER_FLOCK_CONFLICT_EXIT_CODE = 73;
 const FINDING_WRITER_FLOCK_ENV = Object.freeze({ LC_ALL: 'C', LANG: 'C' });
 const FINDING_WRITER_FLOCK_MAX_BYTES = 16 * 1024 * 1024;
 const FINDING_WRITER_FLOCK_MAX_VERSION_BYTES = 4 * 1024;
+// One fail-closed upper bound governs both the overall lock attempt and every flock child.
+// The poll interval remains an independent scheduling cadence, not another deadline authority.
+const FINDING_WRITER_KERNEL_LOCK_DEADLINE_MS = 5_000;
+export const FINDING_WRITER_FLOCK_EXECUTION_POLICY_V1 = defineHermeticExecutableExecutionPolicyV1({
+  schemaVersion: 1,
+  commandDeadlineMs: FINDING_WRITER_KERNEL_LOCK_DEADLINE_MS,
+  timeoutSignal: 'SIGKILL',
+});
+export const FINDING_WRITER_REGISTRY_LOCK_POLICY_V1 = Object.freeze({
+  schemaVersion: 1 as const,
+  contentionDeadlineMs: FINDING_WRITER_KERNEL_LOCK_DEADLINE_MS,
+  pollIntervalMs: 25,
+});
+const DEFAULT_LOCK_OPTIONS: RegistryLockOptions = {
+  timeoutMs: FINDING_WRITER_REGISTRY_LOCK_POLICY_V1.contentionDeadlineMs,
+  pollIntervalMs: FINDING_WRITER_REGISTRY_LOCK_POLICY_V1.pollIntervalMs,
+};
 const ATOMIC_WRITE_STAGING_PATTERN =
   /^\.(?<basename>.+)\.(?<pid>[1-9]\d*)\.(?<token>[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.new$/;
 
@@ -289,18 +399,98 @@ interface AtomicWriteStagingFile {
 }
 
 export class RegistryLockError extends Error {
+  public static fromFlockExecutionFailure(
+    result: {
+      readonly error?: Error;
+      readonly signal: NodeJS.Signals | null;
+    },
+    commandDeadlineMs: number,
+  ): RegistryLockError {
+    if (isErrno(result.error, 'ETIMEDOUT')) {
+      const cause = new HermeticExecutableExecutionTimeoutError(
+        'Finding writer flock runtime',
+        'COMMAND',
+        commandDeadlineMs,
+        FINDING_WRITER_FLOCK_EXECUTION_POLICY_V1.timeoutSignal,
+      );
+      return new RegistryLockError(
+        'LOCK_MALFORMED',
+        `Finding writer kernel flock execution exceeded its ${String(commandDeadlineMs)}ms deadline`,
+        cause,
+      );
+    }
+    return new RegistryLockError(
+      'LOCK_MALFORMED',
+      `Finding writer kernel flock execution failed: ${String(result.error ?? result.signal)}`,
+      result.error,
+    );
+  }
+
   public constructor(
     public readonly code: RegistryLockErrorCode,
     message: string,
+    public readonly cause?: unknown,
   ) {
     super(message);
     this.name = 'RegistryLockError';
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export class RegistryTransitionRollbackConflictError extends Error {
+  public readonly code = 'REGISTRY_TRANSITION_ROLLBACK_CONFLICT' as const;
+
+  public constructor(
+    public readonly targetPath: string,
+    public readonly attemptedSha256: string,
+    public readonly observedSha256: string | null,
+  ) {
+    super(
+      `Registry rollback refused foreign content at ${targetPath}: attempted=${attemptedSha256} observed=${observedSha256 ?? 'MISSING'}`,
+    );
+    this.name = 'RegistryTransitionRollbackConflictError';
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+export class SourceFindingTransitionRollbackConflictError extends Error {
+  public readonly code = 'SOURCE_FINDING_TRANSITION_ROLLBACK_CONFLICT' as const;
+
+  public constructor(
+    public readonly targetPath: string,
+    public readonly expectedSha256: string | null,
+    public readonly observedSha256: string | null,
+  ) {
+    super(
+      `Source-finding rollback refused foreign content at ${targetPath}: expected=${expectedSha256 ?? 'MISSING'} observed=${observedSha256 ?? 'MISSING'}`,
+    );
+    this.name = 'SourceFindingTransitionRollbackConflictError';
+    Object.setPrototypeOf(this, new.target.prototype);
   }
 }
 
 function sleepSync(milliseconds: number): void {
   const buffer = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT);
   Atomics.wait(new Int32Array(buffer), 0, 0, milliseconds);
+}
+
+function registryLockContentionTimeout(
+  options: RegistryLockOptions,
+  lockPath: string,
+  cause?: unknown,
+): RegistryLockError {
+  return new RegistryLockError(
+    'LOCK_TIMEOUT',
+    `Timed out after ${String(options.timeoutMs)}ms waiting for registry lock: ${lockPath}`,
+    cause,
+  );
+}
+
+function isRegistryFlockExecutionTimeout(error: unknown): boolean {
+  return (
+    error instanceof RegistryLockError &&
+    error.cause instanceof HermeticExecutableExecutionTimeoutError
+  );
 }
 
 function isErrno(error: unknown, code: string): boolean {
@@ -329,43 +519,63 @@ interface RegistryKernelLockState {
 
 const registryKernelLockStates = new WeakMap<RegistryLockLease, RegistryKernelLockState>();
 
-function attestFlockRuntime(): HermeticExecutableAuthorityV1 {
+function attestFlockRuntime(operationDeadlineMs: number): HermeticExecutableAuthorityV1 {
+  if (!Number.isFinite(operationDeadlineMs)) {
+    throw new TypeError('Finding writer flock attestation deadline is not finite');
+  }
   let executable: HermeticExecutableAuthorityV1;
   try {
-    executable = openHermeticExecutableAuthority({
-      path: FINDING_WRITER_FLOCK_PATH,
-      label: 'Finding writer flock runtime',
-      versionArgs: ['--version'],
-      versionEnvironment: FINDING_WRITER_FLOCK_ENV,
-      maximumBytes: FINDING_WRITER_FLOCK_MAX_BYTES,
-      maximumVersionBytes: FINDING_WRITER_FLOCK_MAX_VERSION_BYTES,
-    });
+    executable = openHermeticExecutableAuthority(
+      {
+        path: FINDING_WRITER_FLOCK_PATH,
+        label: 'Finding writer flock runtime',
+        versionArgs: ['--version'],
+        versionEnvironment: FINDING_WRITER_FLOCK_ENV,
+        executionPolicy: FINDING_WRITER_FLOCK_EXECUTION_POLICY_V1,
+        maximumBytes: FINDING_WRITER_FLOCK_MAX_BYTES,
+        maximumVersionBytes: FINDING_WRITER_FLOCK_MAX_VERSION_BYTES,
+      },
+      operationDeadlineMs,
+    );
   } catch (error) {
     throw new RegistryLockError(
       'LOCK_MALFORMED',
       `Finding writer flock runtime attestation failed closed: ${
         error instanceof Error ? error.message : String(error)
       }`,
+      error,
     );
   }
   const versionRaw = executable.attestation.version;
   const version = versionRaw.match(FINDING_WRITER_FLOCK_VERSION_PATTERN);
   if (version === null) {
-    executable.close();
-    throw new RegistryLockError(
+    const failure = new RegistryLockError(
       'LOCK_MALFORMED',
       `Finding writer flock runtime/version probe failed closed: ${versionRaw}`,
     );
+    const failures: Error[] = [failure];
+    try {
+      executable.close();
+    } catch (error) {
+      failures.push(observedFailure('Finding writer flock attestation cleanup failed.', error));
+    }
+    throwFailureSet(failures, 'Finding writer flock attestation and cleanup failed.');
   }
   const major = Number(version[1]);
   const minor = Number(version[2]);
   const [minimumMajor, minimumMinor] = MIN_FINDING_WRITER_FLOCK_VERSION;
   if (major < minimumMajor || (major === minimumMajor && minor < minimumMinor)) {
-    executable.close();
-    throw new RegistryLockError(
+    const failure = new RegistryLockError(
       'LOCK_MALFORMED',
       `Finding writer flock runtime is too old: ${versionRaw}`,
     );
+    const failures: Error[] = [failure];
+    try {
+      executable.close();
+    } catch (error) {
+      failures.push(observedFailure('Finding writer flock attestation cleanup failed.', error));
+    }
+    throwFailureSet(failures, 'Finding writer flock attestation and cleanup failed.');
   }
   return executable;
 }
@@ -414,7 +624,8 @@ function openPersistentRegistryLock(
   flockRuntime: HermeticExecutableAuthorityV1,
 ): RegistryKernelLockState {
   const creationAnchor = openAnchoredFindingMutationTarget(lockPath);
-  let fd: number;
+  let fd: number | null = null;
+  const creationFailures: Error[] = [];
   try {
     fd = openSync(
       creationAnchor.targetPath,
@@ -422,10 +633,42 @@ function openPersistentRegistryLock(
       0o600,
     );
     fsyncSync(creationAnchor.parentFd);
-  } finally {
-    closeAnchoredFindingMutationTarget(creationAnchor);
+  } catch (error) {
+    creationFailures.push(observedFailure('Registry lock file creation failed.', error));
   }
-  const lockAnchor = openAnchoredFindingMutationTarget(lockPath);
+  try {
+    closeAnchoredFindingMutationTarget(creationAnchor);
+  } catch (error) {
+    creationFailures.push(observedFailure('Registry lock creation anchor cleanup failed.', error));
+  }
+  if (creationFailures.length > 0) {
+    if (fd !== null) {
+      try {
+        closeSync(fd);
+      } catch (error) {
+        creationFailures.push(
+          observedFailure('Registry lock construction descriptor cleanup failed.', error),
+        );
+      }
+    }
+    throwFailureSet(creationFailures, 'Registry lock creation and cleanup failed.');
+  }
+  if (fd === null) {
+    throw new Error('Registry lock creation returned no descriptor');
+  }
+
+  let lockAnchor: AnchoredFindingMutationTarget;
+  try {
+    lockAnchor = openAnchoredFindingMutationTarget(lockPath);
+  } catch (error) {
+    const failures = [observedFailure('Registry lock identity anchor open failed.', error)];
+    try {
+      closeSync(fd);
+    } catch (closeError) {
+      failures.push(observedFailure('Registry lock descriptor cleanup failed.', closeError));
+    }
+    throwFailureSet(failures, 'Registry lock identity anchor and cleanup failed.');
+  }
   try {
     const descriptor = fstatSync(fd);
     const state = {
@@ -439,14 +682,50 @@ function openPersistentRegistryLock(
     assertPersistentLockIdentity(lockPath, state);
     return state;
   } catch (error) {
-    closeSync(fd);
-    closeAnchoredFindingMutationTarget(lockAnchor);
-    throw error;
+    const failures = [observedFailure('Registry lock identity verification failed.', error)];
+    try {
+      closeSync(fd);
+    } catch (closeError) {
+      failures.push(observedFailure('Registry lock descriptor cleanup failed.', closeError));
+    }
+    try {
+      closeAnchoredFindingMutationTarget(lockAnchor);
+    } catch (closeError) {
+      failures.push(observedFailure('Registry lock identity anchor cleanup failed.', closeError));
+    }
+    throwFailureSet(failures, 'Registry lock verification and cleanup failed.');
   }
 }
 
-function tryAcquireKernelFlock(state: RegistryKernelLockState): boolean {
+function tryAcquireKernelFlock(
+  state: RegistryKernelLockState,
+  operationDeadlineMs = performance.now() +
+    FINDING_WRITER_FLOCK_EXECUTION_POLICY_V1.commandDeadlineMs,
+  beforeChild: () => void = () => undefined,
+  observeChildDeadline: (remainingMs: number) => void = () => undefined,
+): boolean {
+  if (!Number.isFinite(operationDeadlineMs)) {
+    throw new TypeError('Finding writer flock operation deadline is not finite');
+  }
   state.flockRuntime.assertCurrent();
+  beforeChild();
+  const commandDeadlineMs = Math.min(
+    FINDING_WRITER_FLOCK_EXECUTION_POLICY_V1.commandDeadlineMs,
+    Math.floor(operationDeadlineMs - performance.now()),
+  );
+  observeChildDeadline(commandDeadlineMs);
+  if (commandDeadlineMs < 1) {
+    throw new RegistryLockError(
+      'LOCK_MALFORMED',
+      'Finding writer kernel flock operation exhausted its absolute deadline',
+      new HermeticExecutableExecutionTimeoutError(
+        'Finding writer flock runtime',
+        'COMMAND',
+        1,
+        FINDING_WRITER_FLOCK_EXECUTION_POLICY_V1.timeoutSignal,
+      ),
+    );
+  }
   const result = spawnSync(
     state.flockRuntime.descriptorPath,
     ['--nonblock', '--conflict-exit-code', String(FINDING_WRITER_FLOCK_CONFLICT_EXIT_CODE), '3'],
@@ -455,15 +734,25 @@ function tryAcquireKernelFlock(state: RegistryKernelLockState): boolean {
       encoding: 'utf8',
       env: FINDING_WRITER_FLOCK_ENV,
       stdio: ['ignore', 'pipe', 'pipe', state.fd],
-      timeout: 5_000,
+      timeout: commandDeadlineMs,
+      killSignal: FINDING_WRITER_FLOCK_EXECUTION_POLICY_V1.timeoutSignal,
     },
   );
   state.flockRuntime.assertCurrent();
-  if (result.error !== undefined || result.signal !== null) {
+  if (Math.floor(operationDeadlineMs - performance.now()) < 1) {
     throw new RegistryLockError(
       'LOCK_MALFORMED',
-      `Finding writer kernel flock execution failed: ${String(result.error ?? result.signal)}`,
+      'Finding writer kernel flock operation crossed its absolute deadline',
+      new HermeticExecutableExecutionTimeoutError(
+        'Finding writer flock runtime',
+        'COMMAND',
+        commandDeadlineMs,
+        FINDING_WRITER_FLOCK_EXECUTION_POLICY_V1.timeoutSignal,
+      ),
     );
+  }
+  if (result.error !== undefined || result.signal !== null) {
+    throw RegistryLockError.fromFlockExecutionFailure(result, commandDeadlineMs);
   }
   if (result.status === 0) return true;
   if (result.status === FINDING_WRITER_FLOCK_CONFLICT_EXIT_CODE) return false;
@@ -473,8 +762,16 @@ function tryAcquireKernelFlock(state: RegistryKernelLockState): boolean {
   );
 }
 
-function assertKernelFlockHeld(lockPath: string, state: RegistryKernelLockState): void {
+function assertKernelFlockHeld(
+  lockPath: string,
+  state: RegistryKernelLockState,
+  operationDeadlineMs = performance.now() +
+    FINDING_WRITER_FLOCK_EXECUTION_POLICY_V1.commandDeadlineMs,
+  beforeChild: () => void = () => undefined,
+  observeChildDeadline: (remainingMs: number) => void = () => undefined,
+): void {
   let probeFd: number;
+  let probeFailure: unknown;
   try {
     assertAnchoredFindingMutationParentCurrent(state.lockAnchor);
     probeFd = openSync(state.lockAnchor.targetPath, fsConstants.O_RDWR | fsConstants.O_NOFOLLOW);
@@ -497,14 +794,66 @@ function assertKernelFlockHeld(lockPath: string, state: RegistryKernelLockState)
         `Registry kernel lock independent probe reached another inode: ${lockPath}`,
       );
     }
-    if (tryAcquireKernelFlock({ ...state, fd: probeFd })) {
+    if (
+      tryAcquireKernelFlock(
+        { ...state, fd: probeFd },
+        operationDeadlineMs,
+        beforeChild,
+        observeChildDeadline,
+      )
+    ) {
       throw new RegistryLockError(
         'LOCK_OWNERSHIP_LOST',
         `Registry kernel lock descriptor no longer owns the advisory lock: ${lockPath}`,
       );
     }
-  } finally {
+  } catch (error) {
+    probeFailure = error;
+  }
+  let closeFailure: unknown;
+  try {
     closeSync(probeFd);
+  } catch (error) {
+    closeFailure = error;
+  }
+  if (probeFailure !== undefined && closeFailure !== undefined) {
+    throw new AggregateError(
+      [
+        observedFailure('Registry lock ownership probe failed.', probeFailure),
+        observedFailure('Registry lock ownership probe cleanup failed.', closeFailure),
+      ],
+      'Registry lock ownership probe and cleanup both failed',
+    );
+  }
+  if (probeFailure !== undefined) {
+    throw observedFailure('Registry lock ownership probe failed.', probeFailure);
+  }
+  if (closeFailure !== undefined) {
+    throw observedFailure('Registry lock ownership probe cleanup failed.', closeFailure);
+  }
+}
+
+function closeRegistryKernelLockState(state: RegistryKernelLockState): void {
+  const failures: Error[] = [];
+  try {
+    closeSync(state.fd);
+  } catch (error) {
+    failures.push(observedFailure('Registry kernel lock descriptor close failed.', error));
+  }
+  try {
+    closeAnchoredFindingMutationTarget(state.lockAnchor);
+  } catch (error) {
+    failures.push(observedFailure('Registry kernel lock anchor close failed.', error));
+  }
+  try {
+    state.flockRuntime.close();
+  } catch (error) {
+    failures.push(observedFailure('Registry flock authority close failed.', error));
+  }
+  const [onlyFailure] = failures;
+  if (failures.length === 1 && onlyFailure !== undefined) throw onlyFailure;
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'Registry kernel lock cleanup failed.');
   }
 }
 
@@ -513,44 +862,103 @@ function acquireRegistryLock(
   lockPath: string,
   options: RegistryLockOptions,
 ): RegistryLockLease {
-  const deadlineMs = Date.now() + options.timeoutMs;
-  const flockRuntime = attestFlockRuntime();
+  const deadlineMs = performance.now() + options.timeoutMs;
+  if (Math.floor(deadlineMs - performance.now()) < 1) {
+    throw registryLockContentionTimeout(options, lockPath);
+  }
+  let flockRuntime: HermeticExecutableAuthorityV1;
+  try {
+    flockRuntime = attestFlockRuntime(deadlineMs);
+  } catch (error) {
+    if (isRegistryFlockExecutionTimeout(error)) {
+      throw registryLockContentionTimeout(options, lockPath, error);
+    }
+    throw error;
+  }
   let state: RegistryKernelLockState;
   try {
     state = openPersistentRegistryLock(lockPath, flockRuntime);
   } catch (error) {
-    flockRuntime.close();
-    throw error;
+    const failures = [observedFailure('Registry lock construction failed.', error)];
+    try {
+      flockRuntime.close();
+    } catch (closeError) {
+      failures.push(observedFailure('Registry flock authority cleanup failed.', closeError));
+    }
+    throwFailureSet(failures, 'Registry lock construction and flock cleanup failed.');
   }
 
   try {
     for (;;) {
+      const remainingBeforeAttemptMs = Math.floor(deadlineMs - performance.now());
+      if (remainingBeforeAttemptMs <= 0) {
+        throw registryLockContentionTimeout(options, lockPath);
+      }
       assertPersistentLockIdentity(lockPath, state);
-      if (tryAcquireKernelFlock(state)) {
+      let acquired = false;
+      try {
+        acquired = tryAcquireKernelFlock(
+          state,
+          deadlineMs,
+          options.testOnlyBeforeFlockChild,
+          options.testOnlyObserveFlockChildDeadline,
+        );
+      } catch (error) {
+        if (isRegistryFlockExecutionTimeout(error)) {
+          throw registryLockContentionTimeout(options, lockPath, error);
+        }
+        throw error;
+      }
+      if (acquired) {
         assertPersistentLockIdentity(lockPath, state);
+        const remainingForOwnershipProofMs = Math.floor(deadlineMs - performance.now());
+        if (remainingForOwnershipProofMs < 1) {
+          throw registryLockContentionTimeout(options, lockPath);
+        }
+        try {
+          assertKernelFlockHeld(
+            lockPath,
+            state,
+            deadlineMs,
+            options.testOnlyBeforeFlockChild,
+            options.testOnlyObserveFlockChildDeadline,
+          );
+        } catch (error) {
+          if (isRegistryFlockExecutionTimeout(error)) {
+            throw registryLockContentionTimeout(options, lockPath, error);
+          }
+          throw error;
+        }
+        if (Math.floor(deadlineMs - performance.now()) < 1) {
+          throw registryLockContentionTimeout(options, lockPath);
+        }
         const lease = Object.freeze({
           lockPath,
           resourcePath,
           token: randomUUID(),
         });
         registryKernelLockStates.set(lease, state);
-        assertRegistryLockOwned(lease);
         return lease;
       }
 
-      const remainingMs = deadlineMs - Date.now();
+      const remainingMs = Math.floor(deadlineMs - performance.now());
       if (remainingMs <= 0) {
-        throw new RegistryLockError(
-          'LOCK_TIMEOUT',
-          `Timed out after ${options.timeoutMs}ms waiting for registry lock: ${lockPath}`,
-        );
+        throw registryLockContentionTimeout(options, lockPath);
       }
       sleepSync(Math.min(options.pollIntervalMs, remainingMs));
     }
   } catch (error) {
-    closeSync(state.fd);
-    closeAnchoredFindingMutationTarget(state.lockAnchor);
-    state.flockRuntime.close();
+    try {
+      closeRegistryKernelLockState(state);
+    } catch (cleanupError) {
+      throw new AggregateError(
+        [
+          observedFailure('Registry kernel lock acquisition failed.', error),
+          observedFailure('Registry kernel lock acquisition cleanup failed.', cleanupError),
+        ],
+        'Registry kernel lock acquisition and cleanup both failed.',
+      );
+    }
     throw error;
   }
 }
@@ -575,17 +983,37 @@ function releaseRegistryLock(lease: RegistryLockLease): void {
       `Registry lock lease is foreign, fabricated, or already released: ${lease.lockPath}`,
     );
   }
+  let ownershipFailure: unknown;
   try {
     assertRegistryLockOwned(lease);
-  } finally {
-    registryKernelLockStates.delete(lease);
-    closeSync(state.fd);
-    closeAnchoredFindingMutationTarget(state.lockAnchor);
-    state.flockRuntime.close();
+  } catch (error) {
+    ownershipFailure = error;
+  }
+  registryKernelLockStates.delete(lease);
+  let cleanupFailure: unknown;
+  try {
+    closeRegistryKernelLockState(state);
+  } catch (error) {
+    cleanupFailure = error;
+  }
+  if (ownershipFailure !== undefined && cleanupFailure !== undefined) {
+    throw new AggregateError(
+      [
+        observedFailure('Registry lock ownership verification failed.', ownershipFailure),
+        observedFailure('Registry lock release cleanup failed.', cleanupFailure),
+      ],
+      'Registry lock verification and cleanup both failed.',
+    );
+  }
+  if (ownershipFailure !== undefined) {
+    throw observedFailure('Registry lock ownership verification failed.', ownershipFailure);
+  }
+  if (cleanupFailure !== undefined) {
+    throw observedFailure('Registry lock release cleanup failed.', cleanupFailure);
   }
 }
 
-export function withRegistryFileLock<T>(
+function withRegistryFileLock<T>(
   resourcePath: string,
   action: (lease: RegistryLockLease) => T,
   overrides: Partial<RegistryLockOptions> = {},
@@ -653,7 +1081,7 @@ function finalizeRegistryAction<T>(lease: RegistryLockLease, outcome: RegistryAc
   return outcome.value;
 }
 
-export async function withRegistryFileLockAsync<T>(
+async function withRegistryFileLockAsync<T>(
   resourcePath: string,
   action: (lease: RegistryLockLease) => Promise<T>,
   overrides: Partial<RegistryLockOptions> = {},
@@ -666,6 +1094,46 @@ export async function withRegistryFileLockAsync<T>(
     outcome = { status: 'FAILURE', error };
   }
   return finalizeRegistryAction(lease, outcome);
+}
+
+/** Test-fixture adapter. Production writers are limited to the canonical policy facade below. */
+export function testOnlyWithRegistryFileLock<T>(
+  resourcePath: string,
+  action: (lease: RegistryLockLease) => T,
+  overrides: Partial<RegistryLockOptions> = {},
+): T {
+  return withRegistryFileLock(resourcePath, action, overrides);
+}
+
+/** Test-fixture adapter. Production writers are limited to the canonical policy facade below. */
+export async function testOnlyWithRegistryFileLockAsync<T>(
+  resourcePath: string,
+  action: (lease: RegistryLockLease) => Promise<T>,
+  overrides: Partial<RegistryLockOptions> = {},
+): Promise<T> {
+  return withRegistryFileLockAsync(resourcePath, action, overrides);
+}
+
+export async function withFindingWriterKernelLockAsync<T>(
+  resourcePath: string,
+  lockPath: string,
+  timeoutMs: number,
+  action: (lease: RegistryLockLease) => Promise<T>,
+): Promise<T> {
+  if (
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs <= 0 ||
+    timeoutMs > FINDING_WRITER_REGISTRY_LOCK_POLICY_V1.contentionDeadlineMs
+  ) {
+    throw new TypeError(
+      `Finding writer kernel timeout must be within 1..${String(FINDING_WRITER_REGISTRY_LOCK_POLICY_V1.contentionDeadlineMs)}ms`,
+    );
+  }
+  return withRegistryFileLockAsync(resourcePath, action, {
+    lockPath,
+    timeoutMs,
+    pollIntervalMs: FINDING_WRITER_REGISTRY_LOCK_POLICY_V1.pollIntervalMs,
+  });
 }
 
 function requireFindingAuthorityTarget(filePath: string): FindingAuthorityTarget {
@@ -683,12 +1151,23 @@ function assertGovernedFindingWriteAuthorized(
   action: 'WRITE' | 'UNLINK' | 'RECOVER',
   repositoryAuthority?: RepositoryMutationAuthority,
   operation?: RegistryMutationOperation,
+  proofTier: 'LEASE_PROFILE_TARGET' | 'TRANSITION_FULL' = 'TRANSITION_FULL',
 ): void {
   if (writerFence.kind === 'SOURCE_FINDING_WRITER_FENCE_SESSION_V1') {
     if (repositoryAuthority !== undefined || operation !== undefined) {
       throw new Error('Finding writer source session cannot carry a registry mutation profile');
     }
+    // Source inventory sessions are long-lived; every source side effect retains full currentness.
     assertSourceFindingWriterFenceSessionTargetCurrent(writerFence, lease, target, action);
+  } else if (proofTier === 'LEASE_PROFILE_TARGET') {
+    assertFindingWriterFenceTargetAuthorized(
+      writerFence,
+      lease,
+      target,
+      action,
+      repositoryAuthority,
+      operation,
+    );
   } else {
     assertFindingWriterFenceTargetCurrent(
       writerFence,
@@ -706,7 +1185,7 @@ function atomicWriteFileWithRegistryLeaseUnchecked(
   filePath: string,
   content: string,
   lease: RegistryLockLease,
-  beforeCommit: () => void = () => {},
+  beforeCommit: () => void = () => undefined,
   commitMode: 'REPLACE' | 'CREATE_OR_VERIFY_IDENTICAL' = 'REPLACE',
 ): void {
   assertRegistryLockOwned(lease);
@@ -716,6 +1195,7 @@ function atomicWriteFileWithRegistryLeaseUnchecked(
   let stagingAnchor: AnchoredFindingMutationTarget | null = null;
   let stagingPath: string | null = null;
   let stagingExists = false;
+  let outcome: RegistryActionOutcome<undefined>;
   try {
     stagingAnchor = openAnchoredFindingMutationTarget(
       join(dirname(lease.lockPath), stagingBasename),
@@ -726,12 +1206,10 @@ function atomicWriteFileWithRegistryLeaseUnchecked(
     }
     const fd = openSync(stagingPath, 'wx', 0o644);
     stagingExists = true;
-    try {
+    runWithDescriptorCleanup(fd, 'Atomic staging write', () => {
       writeFileSync(fd, content, 'utf8');
       fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
+    });
 
     // A stale owner that resumes after a takeover cannot cross this fence.
     assertRegistryLockOwned(lease);
@@ -759,16 +1237,49 @@ function atomicWriteFileWithRegistryLeaseUnchecked(
     fsyncSync(stagingAnchor.parentFd);
     assertAnchoredFindingMutationParentCurrent(anchored);
     assertAnchoredFindingMutationParentCurrent(stagingAnchor);
-  } finally {
-    if (stagingExists && stagingPath !== null) {
-      try {
-        unlinkSync(stagingPath);
-      } catch (error) {
-        if (!isErrno(error, 'ENOENT')) throw error;
+    outcome = { status: 'SUCCESS', value: undefined };
+  } catch (error) {
+    outcome = { status: 'FAILURE', error };
+  }
+
+  const cleanupFailures: Error[] = [];
+  if (stagingExists && stagingPath !== null) {
+    try {
+      unlinkSync(stagingPath);
+    } catch (error) {
+      if (!isErrno(error, 'ENOENT')) {
+        cleanupFailures.push(observedFailure('Atomic staging cleanup failed.', error));
       }
     }
-    if (stagingAnchor !== null) closeAnchoredFindingMutationTarget(stagingAnchor);
+  }
+  if (stagingAnchor !== null) {
+    try {
+      closeAnchoredFindingMutationTarget(stagingAnchor);
+    } catch (error) {
+      cleanupFailures.push(observedFailure('Atomic staging anchor close failed.', error));
+    }
+  }
+  try {
     closeAnchoredFindingMutationTarget(anchored);
+  } catch (error) {
+    cleanupFailures.push(observedFailure('Atomic target anchor close failed.', error));
+  }
+
+  if (outcome.status === 'FAILURE' && cleanupFailures.length > 0) {
+    throw new AggregateError(
+      [observedFailure('Atomic finding write failed.', outcome.error), ...cleanupFailures],
+      'Atomic finding write and cleanup both failed.',
+    );
+  }
+  if (outcome.status === 'FAILURE') {
+    throw observedFailure('Atomic finding write failed.', outcome.error);
+  }
+  const [onlyCleanupFailure] = cleanupFailures;
+  if (cleanupFailures.length === 1 && onlyCleanupFailure !== undefined) {
+    throw onlyCleanupFailure;
+  }
+  if (cleanupFailures.length > 1) {
+    throw new AggregateError(cleanupFailures, 'Atomic finding write cleanup failed.');
   }
 }
 
@@ -789,9 +1300,19 @@ function atomicWriteGovernedFindingFile(
   content: string,
   lease: RegistryLockLease,
   writerFence: RedeemedFindingWriterFenceCapability | SourceFindingWriterFenceSession,
+  assertPendingBeforeCurrent: () => void = () => undefined,
 ): void {
   const target = requireFindingAuthorityTarget(filePath);
-  assertGovernedFindingWriteAuthorized(writerFence, lease, target, 'WRITE');
+  assertGovernedFindingWriteAuthorized(
+    writerFence,
+    lease,
+    target,
+    'WRITE',
+    undefined,
+    undefined,
+    target.kind === 'RESERVATION' ? 'LEASE_PROFILE_TARGET' : 'TRANSITION_FULL',
+  );
+  assertPendingBeforeCurrent();
   if (target.kind === 'SOURCE_ARTIFACT') {
     const contentId = createHash('sha256').update(content, 'utf8').digest('hex');
     if (contentId !== target.contentId) {
@@ -811,7 +1332,10 @@ function atomicWriteGovernedFindingFile(
     target.path,
     content,
     lease,
-    () => assertGovernedFindingWriteAuthorized(writerFence, lease, target, 'WRITE'),
+    () => {
+      assertGovernedFindingWriteAuthorized(writerFence, lease, target, 'WRITE');
+      assertPendingBeforeCurrent();
+    },
     target.kind === 'SOURCE_ARTIFACT' ? 'CREATE_OR_VERIFY_IDENTICAL' : 'REPLACE',
   );
 }
@@ -820,19 +1344,30 @@ function unlinkGovernedFindingFile(
   filePath: string,
   lease: RegistryLockLease,
   writerFence: RedeemedFindingWriterFenceCapability | SourceFindingWriterFenceSession,
+  assertPendingBeforeCurrent: () => void = () => undefined,
 ): void {
   const target = requireFindingAuthorityTarget(filePath);
   assertGovernedFindingWriteAuthorized(writerFence, lease, target, 'UNLINK');
-  unlinkFindingFileAnchored(target.path, () =>
-    assertGovernedFindingWriteAuthorized(writerFence, lease, target, 'UNLINK'),
-  );
+  assertPendingBeforeCurrent();
+  unlinkFindingFileAnchored(target.path, () => {
+    assertGovernedFindingWriteAuthorized(writerFence, lease, target, 'UNLINK');
+    assertPendingBeforeCurrent();
+  });
 }
 
 export interface SourceFindingPublicationStore {
   captureCompensation(paths: readonly string[]): GovernedFindingCompensationAuthorization;
-  publishImmutableArtifact(filePath: string, content: string): void;
-  commitManifest(filePath: string, content: string): void;
-  removeArtifact(filePath: string): void;
+  publishImmutableArtifact(
+    authorization: GovernedFindingCompensationAuthorization,
+    filePath: string,
+    content: string,
+  ): void;
+  commitManifest(
+    authorization: GovernedFindingCompensationAuthorization,
+    filePath: string,
+    content: string,
+  ): void;
+  removeArtifact(authorization: GovernedFindingCompensationAuthorization, filePath: string): void;
   restoreCompensation(authorization: GovernedFindingCompensationAuthorization): void;
   releaseCompensation(authorization: GovernedFindingCompensationAuthorization): void;
 }
@@ -846,36 +1381,170 @@ export function bindSourceFindingPublicationStore(
   lease: RegistryLockLease,
   writerFence: SourceFindingWriterFenceSession,
 ): SourceFindingPublicationStore {
+  const prepareMutation = (
+    authorization: GovernedFindingCompensationAuthorization,
+    target: FindingAuthorityTarget,
+    action: 'WRITE' | 'UNLINK',
+  ): {
+    readonly state: GovernedFindingCompensationState;
+    readonly beforeContent: string | null;
+  } => {
+    assertGovernedFindingWriteAuthorized(writerFence, lease, target, action);
+    const state = governedFindingCompensationState(authorization, lease);
+    if (!state.beforeImages.has(target.path) || !state.currentImages.has(target.path)) {
+      throw new Error(`Source publication target is outside its compensation cut: ${target.path}`);
+    }
+    const beforeContent = readGovernedFindingBeforeImage(target);
+    const expectedContent = state.currentImages.get(target.path) ?? null;
+    if (beforeContent !== expectedContent) {
+      throw new SourceFindingTransitionRollbackConflictError(
+        target.path,
+        expectedContent === null ? null : sha256Text(expectedContent),
+        beforeContent === null ? null : sha256Text(beforeContent),
+      );
+    }
+    return { state, beforeContent };
+  };
+
+  const executeMutation = (
+    authorization: GovernedFindingCompensationAuthorization,
+    target: FindingAuthorityTarget,
+    action: 'WRITE' | 'UNLINK',
+    afterContent: string | null,
+  ): void => {
+    const { state, beforeContent } = prepareMutation(authorization, target, action);
+    if (beforeContent === afterContent) return;
+    const pending = prepareSourceFindingWriterFenceSessionTransition(writerFence, lease, {
+      planDirectoryPath: dirname(target.path),
+      targetPath: target.path,
+      beforeSha256: beforeContent === null ? null : sha256Text(beforeContent),
+      afterSha256: afterContent === null ? null : sha256Text(afterContent),
+    });
+    const assertPendingBeforeCurrent = (): void =>
+      assertPendingSourceFindingWriterFenceSessionTransitionBeforeCurrent(
+        pending,
+        writerFence,
+        lease,
+      );
+    try {
+      if (afterContent === null) {
+        unlinkGovernedFindingFile(target.path, lease, writerFence, assertPendingBeforeCurrent);
+      } else {
+        atomicWriteGovernedFindingFile(
+          target.path,
+          afterContent,
+          lease,
+          writerFence,
+          assertPendingBeforeCurrent,
+        );
+      }
+      commitSourceFindingWriterFenceSessionTransition(pending, writerFence, lease);
+      state.currentImages.set(target.path, afterContent);
+    } catch (error) {
+      try {
+        rollbackPendingSourceFindingWriterFenceSessionTransition(
+          pending,
+          writerFence,
+          lease,
+          (assertAfterCurrent) => {
+            const assertRollbackCommitCurrent = (): void => {
+              assertAfterCurrent();
+              assertRegistryLockOwned(lease);
+            };
+            if (beforeContent === null) {
+              unlinkFindingFileAnchored(target.path, assertRollbackCommitCurrent);
+            } else {
+              atomicWriteFileWithRegistryLeaseUnchecked(
+                target.path,
+                beforeContent,
+                lease,
+                assertRollbackCommitCurrent,
+              );
+            }
+          },
+        );
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [
+            observedFailure('Source finding transition failed.', error),
+            observedFailure('Source finding transition rollback failed.', rollbackError),
+          ],
+          `Source finding transition and its exact-image rollback both failed: transition=${
+            error instanceof Error ? error.message : String(error)
+          }; rollback=${
+            rollbackError instanceof Error ? rollbackError.message : String(rollbackError)
+          }`,
+        );
+      }
+      throw error;
+    }
+  };
+
+  const restoreCompensationTarget = (
+    authorization: GovernedFindingCompensationAuthorization,
+    state: GovernedFindingCompensationState,
+    target: FindingAuthorityTarget,
+    beforeContent: string | null,
+  ): void => {
+    if (governedFindingCompensationState(authorization, lease) !== state) {
+      throw new Error('Source finding compensation state changed during rollback');
+    }
+    executeMutation(
+      authorization,
+      target,
+      beforeContent === null ? 'UNLINK' : 'WRITE',
+      beforeContent,
+    );
+  };
+
   return Object.freeze({
     captureCompensation: (paths: readonly string[]) =>
       captureGovernedFindingCompensation(lease, writerFence, paths),
-    publishImmutableArtifact: (filePath: string, content: string) => {
+    publishImmutableArtifact: (
+      authorization: GovernedFindingCompensationAuthorization,
+      filePath: string,
+      content: string,
+    ) => {
       const target = requireFindingAuthorityTarget(filePath);
       if (target.kind !== 'SOURCE_ARTIFACT') {
         throw new Error(
           `Source publication artifact operation refuses ${target.kind.toLowerCase()}`,
         );
       }
-      atomicWriteGovernedFindingFile(filePath, content, lease, writerFence);
+      const contentId = sha256Text(content);
+      if (contentId !== target.contentId) {
+        throw new Error(
+          `Source-finding artifact content id mismatch: expected ${target.contentId}, got ${contentId}`,
+        );
+      }
+      executeMutation(authorization, target, 'WRITE', content);
     },
-    commitManifest: (filePath: string, content: string) => {
+    commitManifest: (
+      authorization: GovernedFindingCompensationAuthorization,
+      filePath: string,
+      content: string,
+    ) => {
       const target = requireFindingAuthorityTarget(filePath);
       if (target.kind !== 'SOURCE_MANIFEST') {
         throw new Error(`Source publication commit operation refuses ${target.kind.toLowerCase()}`);
       }
-      atomicWriteGovernedFindingFile(filePath, content, lease, writerFence);
+      executeMutation(authorization, target, 'WRITE', content);
     },
-    removeArtifact: (filePath: string) => {
+    removeArtifact: (authorization: GovernedFindingCompensationAuthorization, filePath: string) => {
       const target = requireFindingAuthorityTarget(filePath);
       if (target.kind !== 'SOURCE_ARTIFACT' && target.kind !== 'SOURCE_LEGACY_ARTIFACT') {
         throw new Error(
           `Source publication cleanup operation refuses ${target.kind.toLowerCase()}`,
         );
       }
-      unlinkGovernedFindingFile(filePath, lease, writerFence);
+      executeMutation(authorization, target, 'UNLINK', null);
     },
-    restoreCompensation: (authorization: GovernedFindingCompensationAuthorization) =>
-      restoreGovernedFindingCompensation(authorization, lease),
+    restoreCompensation: (authorization: GovernedFindingCompensationAuthorization) => {
+      const state = governedFindingCompensationState(authorization, lease);
+      restoreGovernedFindingCompensation(authorization, lease, (target, beforeContent) =>
+        restoreCompensationTarget(authorization, state, target, beforeContent),
+      );
+    },
     releaseCompensation: (authorization: GovernedFindingCompensationAuthorization) =>
       releaseGovernedFindingCompensation(authorization),
   });
@@ -1000,11 +1669,7 @@ function recoverAtomicWriteStagingFilesWithAuthorization(
   }
   if (recovered.length > 0) {
     const parentFd = openSync(parentPath, 'r');
-    try {
-      fsyncSync(parentFd);
-    } finally {
-      closeSync(parentFd);
-    }
+    runWithDescriptorCleanup(parentFd, 'Recovered staging parent sync', () => fsyncSync(parentFd));
   }
   return recovered.sort();
 }
@@ -1075,6 +1740,7 @@ export function atomicWriteRegistryFile(
     'WRITE',
     repositoryAuthority,
     operation,
+    'LEASE_PROFILE_TARGET',
   );
   const beforeImage = readGovernedFindingBeforeImage(target);
   if (beforeImage === null) {
@@ -1100,9 +1766,24 @@ export function atomicWriteRegistryFile(
   } catch (error) {
     try {
       assertRegistryLockOwned(lease);
-      if (readGovernedFindingBeforeImage(target) !== beforeImage) {
-        atomicWriteFileWithRegistryLeaseUnchecked(target.path, beforeImage, lease, () =>
-          assertRegistryLockOwned(lease),
+      const currentImage = readGovernedFindingBeforeImage(target);
+      if (currentImage === content) {
+        atomicWriteFileWithRegistryLeaseUnchecked(target.path, beforeImage, lease, () => {
+          assertRegistryLockOwned(lease);
+          const commitImage = readGovernedFindingBeforeImage(target);
+          if (commitImage !== content) {
+            throw new RegistryTransitionRollbackConflictError(
+              target.path,
+              sha256Text(content),
+              commitImage === null ? null : sha256Text(commitImage),
+            );
+          }
+        });
+      } else if (currentImage !== beforeImage) {
+        throw new RegistryTransitionRollbackConflictError(
+          target.path,
+          sha256Text(content),
+          currentImage === null ? null : sha256Text(currentImage),
         );
       }
     } catch (rollbackError) {

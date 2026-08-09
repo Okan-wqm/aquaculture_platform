@@ -28,10 +28,16 @@
  * the runtime and recomputing a digest does not re-verify it.
  */
 
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { TextDecoder } from 'node:util';
+
+import {
+  HERMETIC_GIT_EXECUTION_POLICY_V1,
+  HERMETIC_GIT_RUNTIME,
+  runWithHermeticGitExecutionBudget,
+} from './lib/hermetic-git-runtime';
 
 export const CURRENT_STATE_PATH = 'docs/aria/CURRENT_STATE.md';
 
@@ -47,14 +53,73 @@ export const ARIA_AUTHORITY_HASH_SENTINEL =
 export const ARIA_AUTHORITY_HASH_LINE =
   /Last verified ARIA authority hash: `(?:[a-f0-9]{64}|ARIA_AUTHORITY_HASH_SENTINEL)`/;
 
-export function ariaRepoRoot(): string {
+const MAX_ARIA_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
+const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+
+export interface AriaAuthorityGitReaderV1 {
+  readonly schemaVersion: 1;
+  read(repoRoot: string, args: readonly string[], signal: AbortSignal): Promise<Buffer>;
+}
+
+/** The sole production Git read authority for ARIA inventory discovery. */
+export const HERMETIC_ARIA_AUTHORITY_GIT_READER_V1: AriaAuthorityGitReaderV1 = Object.freeze({
+  schemaVersion: 1,
+  read: (repoRoot: string, args: readonly string[], signal: AbortSignal) =>
+    runWithHermeticGitExecutionBudget(
+      HERMETIC_GIT_EXECUTION_POLICY_V1.commandDeadlineMs,
+      signal,
+      async () =>
+        (
+          await HERMETIC_GIT_RUNTIME.runBufferAsync(
+            repoRoot,
+            args,
+            [0],
+            undefined,
+            MAX_ARIA_GIT_OUTPUT_BYTES,
+          )
+        ).stdout,
+    ),
+});
+
+function assertAriaGitReadNotAborted(signal: AbortSignal): void {
+  if (!signal.aborted) return;
+  if (signal.reason instanceof Error) throw signal.reason;
+  const error = new Error('ARIA authority Git read was aborted');
+  Object.defineProperty(error, 'cause', {
+    configurable: true,
+    enumerable: false,
+    value: signal.reason,
+    writable: true,
+  });
+  throw error;
+}
+
+function decodeAriaGitText(raw: Buffer, label: string): string {
   try {
-    return execFileSync('git', ['rev-parse', '--show-toplevel'], {
-      encoding: 'utf8',
-    }).trim();
-  } catch {
-    return process.cwd();
+    return utf8Decoder.decode(raw);
+  } catch (error) {
+    throw new Error(`${label} is not valid UTF-8`, { cause: error });
   }
+}
+
+function splitAriaGitNulPaths(raw: Buffer, label: string): string[] {
+  if (raw.length === 0) return [];
+  if (raw.at(-1) !== 0) throw new Error(`${label} is not NUL terminated`);
+  return decodeAriaGitText(raw.subarray(0, -1), label).split('\0');
+}
+
+export async function ariaRepoRoot(
+  signal: AbortSignal,
+  gitReader: AriaAuthorityGitReaderV1 = HERMETIC_ARIA_AUTHORITY_GIT_READER_V1,
+): Promise<string> {
+  assertAriaGitReadNotAborted(signal);
+  const root = decodeAriaGitText(
+    await gitReader.read(resolve(process.cwd()), ['rev-parse', '--show-toplevel'], signal),
+    'ARIA repository root',
+  ).trim();
+  assertAriaGitReadNotAborted(signal);
+  if (root.length === 0) throw new Error('ARIA repository root is empty');
+  return resolve(root);
 }
 
 /**
@@ -74,18 +139,49 @@ function isAriaAuthorityPath(rel: string): boolean {
   );
 }
 
-function gitIn(repoRoot: string, args: string[]): string {
-  return execFileSync('git', ['-C', repoRoot, ...args], {
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  });
+export function selectAriaAuthorityFiles(paths: readonly string[]): string[] {
+  const selected = paths.filter(isAriaAuthorityPath).sort();
+  const duplicate = selected.find((path, index) => selected.indexOf(path) !== index);
+  if (duplicate !== undefined) {
+    throw new Error(`ARIA authority Git inventory contains a duplicate path: ${duplicate}`);
+  }
+  return selected;
 }
 
-export function ariaAuthorityFiles(repoRoot: string = ariaRepoRoot()): string[] {
-  return gitIn(repoRoot, ['ls-files', ...AUTHORITY_GIT_PATHS])
-    .split(/\r?\n/)
-    .filter(isAriaAuthorityPath)
-    .sort();
+export async function ariaAuthorityFiles(
+  repoRoot: string,
+  signal: AbortSignal,
+  gitReader: AriaAuthorityGitReaderV1 = HERMETIC_ARIA_AUTHORITY_GIT_READER_V1,
+): Promise<string[]> {
+  assertAriaGitReadNotAborted(signal);
+  const paths = splitAriaGitNulPaths(
+    await gitReader.read(repoRoot, ['ls-files', '-z', '--', ...AUTHORITY_GIT_PATHS], signal),
+    'ARIA index authority path stream',
+  );
+  assertAriaGitReadNotAborted(signal);
+  return selectAriaAuthorityFiles(paths);
+}
+
+export async function ariaAuthorityFilesAtRevision(
+  repoRoot: string,
+  revision: string,
+  signal: AbortSignal,
+  gitReader: AriaAuthorityGitReaderV1 = HERMETIC_ARIA_AUTHORITY_GIT_READER_V1,
+): Promise<string[]> {
+  if (!/^[0-9a-f]{40}$/.test(revision)) {
+    throw new Error(`ARIA authority revision is not one full SHA-1 object ID: ${revision}`);
+  }
+  assertAriaGitReadNotAborted(signal);
+  const paths = splitAriaGitNulPaths(
+    await gitReader.read(
+      repoRoot,
+      ['ls-tree', '-r', '--name-only', '-z', revision, '--', ...AUTHORITY_GIT_PATHS],
+      signal,
+    ),
+    'ARIA committed authority path stream',
+  );
+  assertAriaGitReadNotAborted(signal);
+  return selectAriaAuthorityFiles(paths);
 }
 
 /**
@@ -99,16 +195,27 @@ export function ariaAuthorityFiles(repoRoot: string = ariaRepoRoot()): string[] 
  * --exclude-standard` is the same expression `tools/quality/format-scope.json`
  * uses to answer "what will the commit contain".
  */
-export function unstagedAuthorityFiles(repoRoot: string = ariaRepoRoot()): string[] {
-  return gitIn(repoRoot, ['ls-files', '--others', '--exclude-standard', ...AUTHORITY_GIT_PATHS])
-    .split(/\r?\n/)
-    .filter(isAriaAuthorityPath)
-    .sort();
+export async function unstagedAuthorityFiles(
+  repoRoot: string,
+  signal: AbortSignal,
+  gitReader: AriaAuthorityGitReaderV1 = HERMETIC_ARIA_AUTHORITY_GIT_READER_V1,
+): Promise<string[]> {
+  assertAriaGitReadNotAborted(signal);
+  const paths = splitAriaGitNulPaths(
+    await gitReader.read(
+      repoRoot,
+      ['ls-files', '--others', '--exclude-standard', '-z', '--', ...AUTHORITY_GIT_PATHS],
+      signal,
+    ),
+    'ARIA untracked authority path stream',
+  );
+  assertAriaGitReadNotAborted(signal);
+  return selectAriaAuthorityFiles(paths);
 }
 
 export function normalizedAriaAuthorityContent(
   rel: string,
-  repoRoot: string = ariaRepoRoot(),
+  repoRoot: string,
   readText: (relativePath: string) => string = (relativePath) =>
     readFileSync(join(repoRoot, relativePath), 'utf8'),
 ): string {
@@ -118,9 +225,9 @@ export function normalizedAriaAuthorityContent(
 }
 
 export function ariaAuthorityHash(
-  repoRoot: string = ariaRepoRoot(),
-  readText?: (relativePath: string) => string,
-  authorityFiles: readonly string[] = ariaAuthorityFiles(repoRoot),
+  repoRoot: string,
+  readText: ((relativePath: string) => string) | undefined,
+  authorityFiles: readonly string[],
 ): string {
   const hash = createHash('sha256');
   for (const rel of authorityFiles) {
@@ -134,7 +241,7 @@ export function ariaAuthorityHash(
 
 /** Returns the hash recorded in CURRENT_STATE, or null if the line is absent. */
 export function recordedAriaAuthorityHash(
-  repoRoot: string = ariaRepoRoot(),
+  repoRoot: string,
   readText: (relativePath: string) => string = (relativePath) =>
     readFileSync(join(repoRoot, relativePath), 'utf8'),
 ): string | null {
@@ -148,9 +255,9 @@ export function recordedAriaAuthorityHash(
  * this assertion prevents a stale link from hiding any runtime change.
  */
 export function assertAriaAuthorityHashCurrent(
-  repoRoot: string = ariaRepoRoot(),
-  readText?: (relativePath: string) => string,
-  authorityFiles: readonly string[] = ariaAuthorityFiles(repoRoot),
+  repoRoot: string,
+  readText: ((relativePath: string) => string) | undefined,
+  authorityFiles: readonly string[],
 ): string {
   const recorded = recordedAriaAuthorityHash(repoRoot, readText);
   const current = ariaAuthorityHash(repoRoot, readText, authorityFiles);
@@ -162,7 +269,10 @@ export function assertAriaAuthorityHashCurrent(
   return current;
 }
 
-export function writeAriaAuthorityHash(repoRoot: string = ariaRepoRoot()): {
+export function writeAriaAuthorityHash(
+  repoRoot: string,
+  authorityFiles: readonly string[],
+): {
   from: string | null;
   to: string;
   changed: boolean;
@@ -173,7 +283,7 @@ export function writeAriaAuthorityHash(repoRoot: string = ariaRepoRoot()): {
     throw new Error(`${CURRENT_STATE_PATH} has no 'Last verified ARIA authority hash' line`);
   }
   const from = recordedAriaAuthorityHash(repoRoot);
-  const to = ariaAuthorityHash(repoRoot);
+  const to = ariaAuthorityHash(repoRoot, undefined, authorityFiles);
   if (from === to) return { from, to, changed: false };
   writeFileSync(
     path,
@@ -183,14 +293,16 @@ export function writeAriaAuthorityHash(repoRoot: string = ariaRepoRoot()): {
   return { from, to, changed: true };
 }
 
-function main(argv: string[]): number {
-  const repoRoot = ariaRepoRoot();
+async function main(argv: string[]): Promise<number> {
+  const signal = new AbortController().signal;
+  const repoRoot = await ariaRepoRoot(signal);
+  const authorityFiles = await ariaAuthorityFiles(repoRoot, signal);
   if (!argv.includes('--write')) {
-    process.stdout.write(`${ariaAuthorityHash(repoRoot)}\n`);
+    process.stdout.write(`${ariaAuthorityHash(repoRoot, undefined, authorityFiles)}\n`);
     return 0;
   }
   // PRECONDITION — refuse rather than write a digest the commit will not have.
-  const untracked = unstagedAuthorityFiles(repoRoot);
+  const untracked = await unstagedAuthorityFiles(repoRoot, signal);
   if (untracked.length > 0) {
     process.stderr.write(
       'aria authority hash: refusing — untracked files under the authority roots.\n' +
@@ -202,7 +314,11 @@ function main(argv: string[]): number {
     );
     return 1;
   }
-  const { from, to, changed } = writeAriaAuthorityHash(repoRoot);
+  const finalAuthorityFiles = await ariaAuthorityFiles(repoRoot, signal);
+  if (JSON.stringify(finalAuthorityFiles) !== JSON.stringify(authorityFiles)) {
+    throw new Error('ARIA authority index changed while preparing its hash');
+  }
+  const { from, to, changed } = writeAriaAuthorityHash(repoRoot, authorityFiles);
   process.stdout.write(
     changed
       ? `aria authority hash: ${from ?? '(none)'} -> ${to}\n`
@@ -212,5 +328,13 @@ function main(argv: string[]): number {
 }
 
 if (require.main === module) {
-  process.exit(main(process.argv.slice(2)));
+  void main(process.argv.slice(2)).then(
+    (exitCode) => {
+      process.exitCode = exitCode;
+    },
+    (error: unknown) => {
+      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+      process.exitCode = 1;
+    },
+  );
 }

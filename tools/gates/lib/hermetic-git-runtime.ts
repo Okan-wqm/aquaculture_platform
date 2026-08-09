@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, type Hash } from 'node:crypto';
 import {
@@ -9,8 +10,9 @@ import {
   realpathSync,
   type BigIntStats,
 } from 'node:fs';
-import { lstat, open, readlink } from 'node:fs/promises';
+import { lstat, open, readlink, type FileHandle } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { type Readable } from 'node:stream';
 import { TextDecoder } from 'node:util';
 
@@ -18,11 +20,13 @@ import {
   assertStableDirectoryCurrent,
   assertStableRegularFileCurrent,
   decodeFatalUtf8,
+  defineHermeticExecutableExecutionPolicyV1,
   openHermeticExecutableAuthority,
   observeStableDirectory,
   observeStableRegularFile,
   sameBigIntFileObservation,
   type HermeticExecutableAuthorityV1,
+  type HermeticExecutableExecutionPolicyV1,
   type StableDirectoryObservationV1,
   type StableRegularFileObservationV1,
 } from './anchored-filesystem';
@@ -43,6 +47,153 @@ const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const GIT_OBJECT_MODE_REGULAR = '100644';
 const GIT_OBJECT_MODE_EXECUTABLE = '100755';
 const GIT_OBJECT_MODE_SYMLINK = '120000';
+
+export const HERMETIC_GIT_EXECUTION_POLICY_V1 = defineHermeticExecutableExecutionPolicyV1({
+  schemaVersion: 1,
+  commandDeadlineMs: 60_000,
+  timeoutSignal: 'SIGKILL',
+});
+
+/**
+ * Machine-readable execution-mode authority. Synchronous child execution cannot observe an
+ * AbortSignal while JavaScript is blocked in spawnSync, so it is deliberately unavailable inside
+ * a contextual execution budget. Both asynchronous facades share the live-interruptible child
+ * kernel below and observe every inherited signal.
+ */
+export const HERMETIC_GIT_EXECUTION_MODES_V1 = Object.freeze({
+  schemaVersion: 1 as const,
+  synchronousBuffered: Object.freeze({
+    APIs: Object.freeze(['runBuffer', 'runText'] as const),
+    childPrimitive: 'spawnSync' as const,
+    contextualBudget: 'FORBIDDEN' as const,
+    interruptSemantics: 'CHILD_TIMEOUT_ONLY' as const,
+  }),
+  asynchronous: Object.freeze({
+    APIs: Object.freeze(['runBufferAsync', 'runTextAsync', 'consumeStdout'] as const),
+    childPrimitive: 'spawn' as const,
+    contextualBudget: 'SUPPORTED' as const,
+    interruptSemantics: 'LIVE_ALL_INHERITED_SIGNALS' as const,
+  }),
+});
+
+interface HermeticGitExecutionBudgetV1 {
+  readonly deadlineMs: number;
+  readonly deadlineAuthority: symbol | undefined;
+  readonly signals: readonly AbortSignal[];
+  readonly childDrains: Set<Promise<void>>;
+}
+
+const hermeticGitExecutionBudget = new AsyncLocalStorage<HermeticGitExecutionBudgetV1>();
+
+function runWithHermeticGitExecutionBudgetAuthority<T>(
+  durationMs: number,
+  signal: AbortSignal,
+  deadlineAuthority: symbol | undefined,
+  action: () => T,
+): T {
+  if (!Number.isSafeInteger(durationMs) || durationMs <= 0) {
+    throw new TypeError('Hermetic Git execution budget must be one positive safe integer');
+  }
+  const inherited = hermeticGitExecutionBudget.getStore();
+  const requestedDeadlineMs = performance.now() + durationMs;
+  const requestedDeadlineIsAuthoritative =
+    inherited === undefined || requestedDeadlineMs < inherited.deadlineMs;
+  const signals = Object.freeze(
+    inherited === undefined
+      ? [signal]
+      : [...inherited.signals, ...(inherited.signals.includes(signal) ? [] : [signal])],
+  );
+  return hermeticGitExecutionBudget.run(
+    Object.freeze({
+      deadlineMs: requestedDeadlineIsAuthoritative ? requestedDeadlineMs : inherited.deadlineMs,
+      deadlineAuthority: requestedDeadlineIsAuthoritative
+        ? deadlineAuthority
+        : inherited.deadlineAuthority,
+      signals,
+      childDrains: inherited?.childDrains ?? new Set<Promise<void>>(),
+    }),
+    action,
+  );
+}
+
+export function runWithHermeticGitExecutionBudget<T>(
+  durationMs: number,
+  signal: AbortSignal,
+  action: () => T,
+): T {
+  return runWithHermeticGitExecutionBudgetAuthority(durationMs, signal, undefined, action);
+}
+
+/**
+ * Deadline coordinator for abortable async Git phases. On expiry it aborts the shared signal,
+ * waits for every child registered by the budget to emit close, and only then rejects. An action
+ * that ignores cancellation cannot hold the coordinator open when it owns no running Git child.
+ */
+export function runWithHermeticGitExecutionDeadline<T>(
+  durationMs: number,
+  deadlineFailure: Error,
+  action: (signal: AbortSignal) => T | Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  const deadlineAuthority = Symbol('hermetic-git-execution-deadline-authority');
+  let budget: HermeticGitExecutionBudgetV1 | undefined;
+  const rawOperation = Promise.resolve().then(() =>
+    runWithHermeticGitExecutionBudgetAuthority(
+      durationMs,
+      controller.signal,
+      deadlineAuthority,
+      () => {
+        budget = hermeticGitExecutionBudget.getStore();
+        return action(controller.signal);
+      },
+    ),
+  );
+  const drainChildren = async (): Promise<void> => {
+    await Promise.all([...(budget?.childDrains ?? [])]);
+  };
+  const operation = rawOperation.then(
+    async (value) => {
+      if (!controller.signal.aborted) return value;
+      await drainChildren();
+      throw deadlineFailure;
+    },
+    async (error: unknown) => {
+      const ownedContextDeadline =
+        error instanceof HermeticGitExecutionTimeoutError &&
+        error.isContextDeadlineOwnedBy(deadlineAuthority);
+      if (!controller.signal.aborted && !ownedContextDeadline) {
+        throw error;
+      }
+      if (!controller.signal.aborted) controller.abort(deadlineFailure);
+      await drainChildren();
+      throw deadlineFailure;
+    },
+  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadlineReleased = Symbol('hermetic-git-deadline-released');
+  let resolveDeadline!: (value: typeof deadlineReleased) => void;
+  const deadline = new Promise<typeof deadlineReleased>((resolve, reject) => {
+    resolveDeadline = resolve;
+    timer = setTimeout(() => {
+      controller.abort(deadlineFailure);
+      void drainChildren().then(
+        () => reject(deadlineFailure),
+        () => reject(deadlineFailure),
+      );
+    }, durationMs);
+  });
+  return Promise.race([operation, deadline])
+    .then((result) => {
+      if (result === deadlineReleased) {
+        throw new Error('Hermetic Git execution deadline settled without an operation result');
+      }
+      return result;
+    })
+    .finally(() => {
+      if (timer !== undefined) clearTimeout(timer);
+      resolveDeadline(deadlineReleased);
+    });
+}
 
 const HERMETIC_GIT_ENV = Object.freeze<NodeJS.ProcessEnv>({
   GIT_ASKPASS: '/bin/false',
@@ -168,6 +319,47 @@ export interface HermeticGitBufferResult {
   readonly status: number;
 }
 
+export interface HermeticGitRuntimeV1 {
+  readonly attestation: HermeticGitAttestation;
+  readonly executionPolicy: Readonly<HermeticExecutableExecutionPolicyV1>;
+  readonly executionModes: typeof HERMETIC_GIT_EXECUTION_MODES_V1;
+  runBuffer(
+    worktreePath: string,
+    args: readonly string[],
+    acceptedStatuses?: readonly number[],
+    input?: string | Buffer,
+    maxBuffer?: number,
+  ): HermeticGitBufferResult;
+  runText(
+    worktreePath: string,
+    args: readonly string[],
+    acceptedStatuses?: readonly number[],
+    maxBuffer?: number,
+  ): HermeticGitTextResult;
+  runBufferAsync(
+    worktreePath: string,
+    args: readonly string[],
+    acceptedStatuses?: readonly number[],
+    input?: string | Buffer,
+    maxBuffer?: number,
+  ): Promise<HermeticGitBufferResult>;
+  runTextAsync(
+    worktreePath: string,
+    args: readonly string[],
+    acceptedStatuses?: readonly number[],
+    maxBuffer?: number,
+  ): Promise<HermeticGitTextResult>;
+  consumeStdout(
+    worktreePath: string,
+    args: readonly string[],
+    consumeChunk: (chunk: Buffer) => Promise<void> | void,
+    acceptedStatuses?: readonly number[],
+  ): Promise<number>;
+  close(): void;
+}
+
+export type HermeticGitProductionRuntimeV1 = Omit<HermeticGitRuntimeV1, 'close'>;
+
 export interface GitStreamFingerprint {
   readonly byteLength: bigint;
   readonly sha256: string;
@@ -217,6 +409,76 @@ export class InventoryInspectionError extends Error {
   }
 }
 
+export class HermeticGitExecutionTimeoutError extends Error {
+  public readonly code = 'HERMETIC_GIT_EXECUTION_TIMEOUT' as const;
+
+  public constructor(
+    public readonly executionMode: 'BUFFERED' | 'STREAMED',
+    public readonly worktreePath: string,
+    args: readonly string[],
+    public readonly commandDeadlineMs: number,
+    public readonly timeoutSignal: 'SIGKILL',
+    public readonly deadlineSource: 'EXECUTION_POLICY' | 'CONTEXT_BUDGET' = 'EXECUTION_POLICY',
+    private readonly contextDeadlineAuthority: symbol | undefined = undefined,
+  ) {
+    super(
+      `Hermetic Git ${executionMode} execution exceeded its ${String(commandDeadlineMs)}ms deadline in ${worktreePath}: git ${args.join(' ')}`,
+    );
+    this.name = 'HermeticGitExecutionTimeoutError';
+    this.args = Object.freeze([...args]);
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+
+  public readonly args: readonly string[];
+
+  public isContextDeadlineOwnedBy(deadlineAuthority: symbol): boolean {
+    return (
+      this.deadlineSource === 'CONTEXT_BUDGET' &&
+      this.contextDeadlineAuthority === deadlineAuthority
+    );
+  }
+}
+
+export class HermeticGitExecutionCleanupError extends Error {
+  public readonly code = 'HERMETIC_GIT_EXECUTION_CLEANUP_FAILED' as const;
+
+  public constructor(
+    public readonly executionMode: 'BUFFERED' | 'STREAMED',
+    public readonly worktreePath: string,
+    args: readonly string[],
+    public readonly cleanupDeadlineMs: number,
+    public readonly timeoutSignal: 'SIGKILL',
+    public readonly cause: unknown,
+  ) {
+    super(
+      `Hermetic Git ${executionMode} execution did not emit close within its ${String(cleanupDeadlineMs)}ms cleanup deadline in ${worktreePath}: git ${args.join(' ')}`,
+    );
+    this.name = 'HermeticGitExecutionCleanupError';
+    this.args = Object.freeze([...args]);
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+
+  public readonly args: readonly string[];
+}
+
+export class HermeticGitSynchronousBudgetError extends Error {
+  public readonly code = 'HERMETIC_GIT_SYNCHRONOUS_BUDGET_FORBIDDEN' as const;
+
+  public constructor(
+    public readonly worktreePath: string,
+    args: readonly string[],
+  ) {
+    super(
+      `Hermetic Git synchronous execution is forbidden inside a live execution budget in ${worktreePath}: git ${args.join(' ')}`,
+    );
+    this.name = 'HermeticGitSynchronousBudgetError';
+    this.args = Object.freeze([...args]);
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+
+  public readonly args: readonly string[];
+}
+
 function parseGitVersion(raw: string): readonly [number, number, number] {
   const match = /^git version (?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)(?:[.-].*)?\n?$/.exec(raw);
   if (!match?.groups) {
@@ -242,28 +504,51 @@ function parseGitVersion(raw: string): readonly [number, number, number] {
   return version;
 }
 
-function attestGitBinary(): {
+function attestGitBinary(executionPolicy: Readonly<HermeticExecutableExecutionPolicyV1>): {
   readonly executable: HermeticExecutableAuthorityV1;
   readonly attestation: HermeticGitAttestation;
 } {
-  const executable = openHermeticExecutableAuthority({
-    path: GIT_BINARY_PATH,
-    label: 'Hermetic Git binary',
-    versionArgs: ['--version'],
-    versionEnvironment: HERMETIC_GIT_ENV,
-    maximumBytes: MAX_GIT_BINARY_BYTES,
-    maximumVersionBytes: MAX_BOUNDED_TEXT_BYTES,
-  });
-  const semanticVersion = parseGitVersion(executable.attestation.version);
-  return Object.freeze({
-    executable,
-    attestation: Object.freeze({
-      binaryPath: GIT_BINARY_PATH,
-      binarySha256: executable.attestation.binarySha256,
-      version: executable.attestation.version,
-      semanticVersion: Object.freeze(semanticVersion),
-    }),
-  });
+  const executable = openHermeticExecutableAuthority(
+    {
+      path: GIT_BINARY_PATH,
+      label: 'Hermetic Git binary',
+      versionArgs: ['--version'],
+      versionEnvironment: HERMETIC_GIT_ENV,
+      executionPolicy,
+      maximumBytes: MAX_GIT_BINARY_BYTES,
+      maximumVersionBytes: MAX_BOUNDED_TEXT_BYTES,
+    },
+    performance.now() + executionPolicy.commandDeadlineMs,
+  );
+  try {
+    const semanticVersion = parseGitVersion(executable.attestation.version);
+    return Object.freeze({
+      executable,
+      attestation: Object.freeze({
+        binaryPath: GIT_BINARY_PATH,
+        binarySha256: executable.attestation.binarySha256,
+        version: executable.attestation.version,
+        semanticVersion: Object.freeze(semanticVersion),
+      }),
+    });
+  } catch (error) {
+    const parsingFailure =
+      error instanceof Error ? error : new Error('Hermetic Git version parsing failed');
+    try {
+      executable.close();
+    } catch (closeError) {
+      throw new AggregateError(
+        [
+          parsingFailure,
+          closeError instanceof Error
+            ? closeError
+            : new Error('Hermetic Git executable cleanup failed'),
+        ],
+        'Hermetic Git attestation and executable cleanup both failed',
+      );
+    }
+    throw parsingFailure;
+  }
 }
 
 function requireAbsoluteWorktreePath(worktreePath: string): string {
@@ -325,16 +610,44 @@ async function collectBoundedStderr(stream: Readable): Promise<string> {
   return `${captured.trim()}${truncated ? ' [stderr truncated]' : ''}`;
 }
 
-let gitBinaryAuthority: ReturnType<typeof attestGitBinary> | undefined;
-
-function resolveGitBinaryAuthority(): ReturnType<typeof attestGitBinary> {
-  gitBinaryAuthority ??= attestGitBinary();
-  return gitBinaryAuthority;
+async function collectBoundedBuffer(
+  stream: Readable,
+  maximumBytes: number,
+  label: string,
+): Promise<Buffer> {
+  if (!Number.isSafeInteger(maximumBytes) || maximumBytes < 1) {
+    throw new TypeError(`${label} maximum bytes must be one positive safe integer`);
+  }
+  const chunks: Buffer[] = [];
+  let byteLength = 0;
+  for await (const chunk of stream) {
+    const bytes = bufferFromUnknownChunk(chunk);
+    if (byteLength + bytes.length > maximumBytes) {
+      throw new Error(`${label} exceeds its ${String(maximumBytes)}-byte limit`);
+    }
+    chunks.push(Buffer.from(bytes));
+    byteLength += bytes.length;
+  }
+  return Buffer.concat(chunks, byteLength);
 }
 
-function assertGitBinaryCurrent(): void {
-  const authority = resolveGitBinaryAuthority();
-  authority.executable.assertCurrent();
+function writeHermeticGitInput(
+  child: ReturnType<typeof spawn>,
+  input: string | Buffer | undefined,
+): Promise<void> {
+  if (input === undefined) return Promise.resolve();
+  if (child.stdin === null) {
+    return Promise.reject(new Error('Hermetic Git child did not expose its stdin stream'));
+  }
+  const stdin = child.stdin;
+  return new Promise<void>((resolveInput, rejectInput) => {
+    const onError = (error: Error): void => rejectInput(error);
+    stdin.once('error', onError);
+    stdin.end(input, () => {
+      stdin.off('error', onError);
+      resolveInput();
+    });
+  });
 }
 
 function invocationArgs(worktreePath: string, args: readonly string[]): string[] {
@@ -342,113 +655,691 @@ function invocationArgs(worktreePath: string, args: readonly string[]): string[]
   return [...GIT_INVOCATION_PREFIX, '-C', requireAbsoluteWorktreePath(worktreePath), ...args];
 }
 
-export const HERMETIC_GIT_RUNTIME = Object.freeze({
-  get attestation(): HermeticGitAttestation {
-    return resolveGitBinaryAuthority().attestation;
-  },
+function requireGovernedGitExecutionPolicy(
+  policy: HermeticExecutableExecutionPolicyV1,
+): Readonly<HermeticExecutableExecutionPolicyV1> {
+  if (!Object.isFrozen(policy)) {
+    throw new Error('Hermetic Git execution policy must be immutable');
+  }
+  const validated = defineHermeticExecutableExecutionPolicyV1(policy);
+  if (validated.commandDeadlineMs > HERMETIC_GIT_EXECUTION_POLICY_V1.commandDeadlineMs) {
+    throw new Error('Hermetic Git runtime policy cannot relax the production command deadline');
+  }
+  return validated;
+}
 
-  runBuffer(
-    worktreePath: string,
-    args: readonly string[],
-    acceptedStatuses: readonly number[] = [0],
-    input?: string | Buffer,
-    maxBuffer = DEFAULT_MAX_OUTPUT_BYTES,
-  ): HermeticGitBufferResult {
-    assertGitBinaryCurrent();
-    const executable = resolveGitBinaryAuthority().executable;
-    const result = spawnSync(executable.descriptorPath, invocationArgs(worktreePath, args), {
-      argv0: executable.argv0,
-      env: HERMETIC_GIT_ENV,
-      input,
-      maxBuffer,
+interface BoundedHermeticGitCommandPolicyV1 extends HermeticExecutableExecutionPolicyV1 {
+  readonly deadlineSource: 'EXECUTION_POLICY' | 'CONTEXT_BUDGET';
+  readonly contextDeadlineAuthority: symbol | undefined;
+}
+
+function boundedHermeticGitCommandPolicy(
+  executionPolicy: Readonly<HermeticExecutableExecutionPolicyV1>,
+  executionMode: 'BUFFERED' | 'STREAMED',
+  worktreePath: string,
+  args: readonly string[],
+): Readonly<BoundedHermeticGitCommandPolicyV1> {
+  const budget = hermeticGitExecutionBudget.getStore();
+  if (budget === undefined) {
+    return Object.freeze({
+      ...executionPolicy,
+      deadlineSource: 'EXECUTION_POLICY' as const,
+      contextDeadlineAuthority: undefined,
     });
-    assertGitBinaryCurrent();
-    if (result.error) {
-      throw result.error;
-    }
-    if (result.status === null || !acceptedStatuses.includes(result.status)) {
-      throw new Error(
-        formatGitFailure(
-          args,
-          worktreePath,
-          result.status,
-          decodeFatalUtf8(result.stderr, 'Hermetic Git stderr'),
-        ),
+  }
+  const abortedSignal = budget.signals.find((signal) => signal.aborted);
+  if (abortedSignal !== undefined) {
+    if (abortedSignal.reason instanceof Error) throw abortedSignal.reason;
+    throw new Error('Hermetic Git execution budget was aborted');
+  }
+  const remainingMs = Math.floor(budget.deadlineMs - performance.now());
+  if (remainingMs <= 0) {
+    throw new HermeticGitExecutionTimeoutError(
+      executionMode,
+      worktreePath,
+      args,
+      1,
+      executionPolicy.timeoutSignal,
+      'CONTEXT_BUDGET',
+      budget.deadlineAuthority,
+    );
+  }
+  const contextBudgetIsAuthoritative = remainingMs <= executionPolicy.commandDeadlineMs;
+  const boundedPolicy = defineHermeticExecutableExecutionPolicyV1({
+    schemaVersion: executionPolicy.schemaVersion,
+    commandDeadlineMs: Math.min(executionPolicy.commandDeadlineMs, remainingMs),
+    timeoutSignal: executionPolicy.timeoutSignal,
+  });
+  return Object.freeze({
+    ...boundedPolicy,
+    deadlineSource: contextBudgetIsAuthoritative
+      ? ('CONTEXT_BUDGET' as const)
+      : ('EXECUTION_POLICY' as const),
+    contextDeadlineAuthority: contextBudgetIsAuthoritative ? budget.deadlineAuthority : undefined,
+  });
+}
+
+function requireSynchronousHermeticGitExecutionOutsideBudget(
+  worktreePath: string,
+  args: readonly string[],
+): void {
+  if (hermeticGitExecutionBudget.getStore() !== undefined) {
+    throw new HermeticGitSynchronousBudgetError(worktreePath, args);
+  }
+}
+
+function observedHermeticGitError(message: string, cause: unknown): Error {
+  if (cause instanceof Error) return cause;
+  const error = new Error(message);
+  Object.defineProperty(error, 'cause', {
+    configurable: true,
+    enumerable: false,
+    value: cause,
+    writable: true,
+  });
+  return error;
+}
+
+type HermeticGitAsyncOutcome<T> =
+  | Readonly<{ ok: true; value: T }>
+  | Readonly<{ ok: false; error: Error }>;
+
+function observeHermeticGitAsyncOutcome<T>(
+  promise: Promise<T>,
+): Promise<HermeticGitAsyncOutcome<T>> {
+  return promise.then(
+    (value) => Object.freeze({ ok: true as const, value }),
+    (error: unknown) =>
+      Object.freeze({
+        ok: false as const,
+        error: observedHermeticGitError('Hermetic Git asynchronous component failed', error),
+      }),
+  );
+}
+
+interface HermeticGitComponentFailureObservation {
+  readonly completion: Promise<void>;
+  close(): void;
+}
+
+/**
+ * One explicitly settleable failure authority for every asynchronous child component. A
+ * successful component cannot complete the command before the child closes, while closing the
+ * observer releases all Promise.race reactions after the command has settled.
+ */
+function observeHermeticGitComponentFailures(
+  outcomes: readonly Promise<HermeticGitAsyncOutcome<unknown>>[],
+): HermeticGitComponentFailureObservation {
+  let settled = false;
+  let resolveCompletion!: () => void;
+  let rejectCompletion!: (error: Error) => void;
+  const completion = new Promise<void>((resolve, reject) => {
+    resolveCompletion = resolve;
+    rejectCompletion = reject;
+  });
+  for (const outcome of outcomes) {
+    void outcome.then((observed) => {
+      if (settled || observed.ok) return;
+      settled = true;
+      rejectCompletion(observed.error);
+    });
+  }
+  return Object.freeze({
+    completion,
+    close(): void {
+      if (settled) return;
+      settled = true;
+      resolveCompletion();
+    },
+  });
+}
+
+function hermeticGitAbortError(signal: AbortSignal): Error {
+  return observedHermeticGitError('Hermetic Git execution budget was aborted', signal.reason);
+}
+
+function isChildActive(child: ReturnType<typeof spawn>): boolean {
+  return child.exitCode === null && child.signalCode === null;
+}
+
+interface HermeticGitChildCloseResult {
+  readonly status: number | null;
+  readonly signal: NodeJS.Signals | null;
+  readonly spawnError: Error | null;
+}
+
+interface HermeticGitChildCloseObservation {
+  readonly completion: Promise<HermeticGitChildCloseResult>;
+  abandon(error: Error): void;
+}
+
+interface HermeticGitChildInterruptionObservation {
+  readonly completion: Promise<void>;
+  readonly failure: () => Error | null;
+  close(): void;
+}
+
+function observeHermeticGitChildInterruption(
+  child: ReturnType<typeof spawn>,
+  worktreePath: string,
+  args: readonly string[],
+  commandPolicy: Readonly<BoundedHermeticGitCommandPolicyV1>,
+  commandCutMs: number,
+  executionMode: 'BUFFERED' | 'STREAMED',
+): HermeticGitChildInterruptionObservation {
+  const budget = hermeticGitExecutionBudget.getStore();
+  const signalListeners: Array<readonly [AbortSignal, () => void]> = [];
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let forcedFailure: Error | null = null;
+  let settled = false;
+  let resolveCompletion!: () => void;
+  let rejectCompletion!: (error: Error) => void;
+  const completion = new Promise<void>((resolve, reject) => {
+    resolveCompletion = resolve;
+    rejectCompletion = reject;
+  });
+  const interrupt = (requestedFailure: Error): void => {
+    if (settled) return;
+    let failure = requestedFailure;
+    try {
+      if (isChildActive(child)) child.kill(commandPolicy.timeoutSignal);
+    } catch (error) {
+      failure = new AggregateError(
+        [requestedFailure, observedHermeticGitError('Hermetic Git child interrupt failed', error)],
+        'Hermetic Git interruption and child termination both failed',
       );
     }
-    return Object.freeze({
-      stdout: Buffer.from(result.stdout),
-      stderr: Buffer.from(result.stderr),
-      status: result.status,
-    });
-  },
+    settled = true;
+    forcedFailure = failure;
+    rejectCompletion(failure);
+  };
+  for (const signal of budget?.signals ?? []) {
+    const listener = (): void => interrupt(hermeticGitAbortError(signal));
+    signalListeners.push([signal, listener]);
+    signal.addEventListener('abort', listener, { once: true });
+  }
+  const alreadyAborted = budget?.signals.find((signal) => signal.aborted);
+  if (alreadyAborted !== undefined) {
+    interrupt(hermeticGitAbortError(alreadyAborted));
+  } else {
+    const remainingCommandMs = Math.floor(commandCutMs - performance.now());
+    const timeoutError = new HermeticGitExecutionTimeoutError(
+      executionMode,
+      worktreePath,
+      args,
+      commandPolicy.commandDeadlineMs,
+      commandPolicy.timeoutSignal,
+      commandPolicy.deadlineSource,
+      commandPolicy.contextDeadlineAuthority,
+    );
+    if (remainingCommandMs < 1) {
+      interrupt(timeoutError);
+    } else {
+      timer = setTimeout(() => interrupt(timeoutError), remainingCommandMs);
+    }
+  }
+  return Object.freeze({
+    completion,
+    failure: () => forcedFailure,
+    close(): void {
+      if (timer !== undefined) clearTimeout(timer);
+      for (const [signal, listener] of signalListeners) {
+        signal.removeEventListener('abort', listener);
+      }
+      if (!settled) {
+        settled = true;
+        resolveCompletion();
+      }
+    },
+  });
+}
 
-  runText(
+function observeHermeticGitChildClose(
+  child: ReturnType<typeof spawn>,
+): HermeticGitChildCloseObservation {
+  let settled = false;
+  let spawnError: Error | null = null;
+  let resolveCompletion!: (result: HermeticGitChildCloseResult) => void;
+  let rejectCompletion!: (error: Error) => void;
+  const completion = new Promise<HermeticGitChildCloseResult>((resolve, reject) => {
+    resolveCompletion = resolve;
+    rejectCompletion = reject;
+  });
+  const onError = (error: Error): void => {
+    spawnError ??= error;
+  };
+  const onClose = (status: number | null, signal: NodeJS.Signals | null): void => {
+    child.off('error', onError);
+    if (settled) return;
+    settled = true;
+    resolveCompletion(Object.freeze({ status, signal, spawnError }));
+  };
+  child.on('error', onError);
+  child.once('close', onClose);
+  return Object.freeze({
+    completion,
+    abandon(error: Error): void {
+      if (settled) return;
+      settled = true;
+      // A process that missed the cleanup deadline is not claimed as reaped. Keep the error
+      // sink and late-close listener attached until the kernel eventually reports termination.
+      rejectCompletion(error);
+    },
+  });
+}
+
+function registerHermeticGitChildDrain(observation: HermeticGitChildCloseObservation): void {
+  const budget = hermeticGitExecutionBudget.getStore();
+  if (budget === undefined) return;
+  const drain = observation.completion.then(
+    () => undefined,
+    () => undefined,
+  );
+  budget.childDrains.add(drain);
+  void drain.then(() => budget.childDrains.delete(drain));
+}
+
+async function requireHermeticGitChildCloseAfterFailure(
+  child: ReturnType<typeof spawn>,
+  observation: HermeticGitChildCloseObservation,
+  executionPolicy: Readonly<HermeticExecutableExecutionPolicyV1>,
+  worktreePath: string,
+  args: readonly string[],
+  cause: unknown,
+  executionMode: 'BUFFERED' | 'STREAMED',
+): Promise<void> {
+  if (isChildActive(child)) child.kill(executionPolicy.timeoutSignal);
+  child.stdin?.destroy();
+  child.stdout?.destroy();
+  child.stderr?.destroy();
+
+  const cleanupError = new HermeticGitExecutionCleanupError(
+    executionMode,
+    worktreePath,
+    args,
+    executionPolicy.commandDeadlineMs,
+    executionPolicy.timeoutSignal,
+    cause,
+  );
+  let cleanupTimer: ReturnType<typeof setTimeout> | undefined;
+  let resolveCleanupDeadline!: () => void;
+  const cleanupDeadline = new Promise<void>((resolve, reject) => {
+    resolveCleanupDeadline = resolve;
+    cleanupTimer = setTimeout(() => reject(cleanupError), executionPolicy.commandDeadlineMs);
+  });
+  try {
+    await Promise.race([observation.completion, cleanupDeadline]);
+  } catch (error) {
+    if (error === cleanupError) observation.abandon(cleanupError);
+    throw error;
+  } finally {
+    if (cleanupTimer !== undefined) clearTimeout(cleanupTimer);
+    resolveCleanupDeadline();
+  }
+}
+
+export function createHermeticGitRuntime(
+  policy: HermeticExecutableExecutionPolicyV1,
+): HermeticGitRuntimeV1 {
+  const executionPolicy = requireGovernedGitExecutionPolicy(policy);
+  let binaryAuthority: ReturnType<typeof attestGitBinary> | undefined;
+  let closed = false;
+  const resolveBinaryAuthority = (
+    attestationPolicy: Readonly<HermeticExecutableExecutionPolicyV1> = executionPolicy,
+  ): ReturnType<typeof attestGitBinary> => {
+    if (closed) throw new Error('Hermetic Git runtime is closed');
+    binaryAuthority ??= attestGitBinary(attestationPolicy);
+    return binaryAuthority;
+  };
+  const assertBinaryCurrent = (
+    attestationPolicy: Readonly<HermeticExecutableExecutionPolicyV1> = executionPolicy,
+  ): void => {
+    resolveBinaryAuthority(attestationPolicy).executable.assertCurrent();
+  };
+
+  const executeAsync = async <TStderr>(
+    executionMode: 'BUFFERED' | 'STREAMED',
     worktreePath: string,
     args: readonly string[],
-    acceptedStatuses: readonly number[] = [0],
-    maxBuffer = DEFAULT_MAX_OUTPUT_BYTES,
-  ): HermeticGitTextResult {
-    const result = this.runBuffer(worktreePath, args, acceptedStatuses, undefined, maxBuffer);
-    return Object.freeze({
-      stdout: decodeFatalUtf8(result.stdout, 'Hermetic Git stdout'),
-      stderr: decodeFatalUtf8(result.stderr, 'Hermetic Git stderr'),
-      status: result.status,
-    });
-  },
-
-  async consumeStdout(
-    worktreePath: string,
-    args: readonly string[],
+    acceptedStatuses: readonly number[],
+    input: string | Buffer | undefined,
     consumeChunk: (chunk: Buffer) => Promise<void> | void,
-    acceptedStatuses: readonly number[] = [0],
-  ): Promise<number> {
-    assertGitBinaryCurrent();
-    const executable = resolveGitBinaryAuthority().executable;
-    const child = spawn(executable.descriptorPath, invocationArgs(worktreePath, args), {
+    readStderr: (stream: Readable) => Promise<TStderr>,
+    formatStderr: (stderr: TStderr) => string,
+  ): Promise<Readonly<{ status: number; stderr: TStderr }>> => {
+    let commandPolicy = boundedHermeticGitCommandPolicy(
+      executionPolicy,
+      executionMode,
+      worktreePath,
+      args,
+    );
+    assertBinaryCurrent(commandPolicy);
+    const executable = resolveBinaryAuthority(commandPolicy).executable;
+    const commandArgs = invocationArgs(worktreePath, args);
+    commandPolicy = boundedHermeticGitCommandPolicy(
+      executionPolicy,
+      executionMode,
+      worktreePath,
+      args,
+    );
+    assertBinaryCurrent(commandPolicy);
+    commandPolicy = boundedHermeticGitCommandPolicy(
+      executionPolicy,
+      executionMode,
+      worktreePath,
+      args,
+    );
+    const commandCutMs = performance.now() + commandPolicy.commandDeadlineMs;
+    const child = spawn(executable.descriptorPath, commandArgs, {
       argv0: executable.argv0,
       env: HERMETIC_GIT_ENV,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     });
-    const completion = new Promise<{
-      readonly status: number | null;
-      readonly signal: NodeJS.Signals | null;
-    }>((resolve, reject) => {
-      child.once('error', reject);
-      child.once('close', (status, signal) => resolve({ status, signal }));
-    });
-    if (child.stderr === null || child.stdout === null) {
-      child.kill('SIGTERM');
-      throw new Error('Hermetic Git child did not expose its stdout/stderr streams');
-    }
-    const stderrPromise = collectBoundedStderr(child.stderr).then(
-      (value) => Object.freeze({ ok: true as const, value }),
-      (error: unknown) => Object.freeze({ ok: false as const, error }),
+    const closeObservation = observeHermeticGitChildClose(child);
+    registerHermeticGitChildDrain(closeObservation);
+    const interruption = observeHermeticGitChildInterruption(
+      child,
+      worktreePath,
+      args,
+      commandPolicy,
+      commandCutMs,
+      executionMode,
     );
+    const componentFailures: {
+      stdout: Error | null;
+      stderr: Error | null;
+      input: Error | null;
+    } = { stdout: null, stderr: null, input: null };
+    let stderrOutcome: Promise<HermeticGitAsyncOutcome<TStderr>> | undefined;
+    let inputOutcome: Promise<HermeticGitAsyncOutcome<void>> | undefined;
+    let componentFailure: HermeticGitComponentFailureObservation | undefined;
     try {
-      for await (const chunk of child.stdout) {
-        await consumeChunk(bufferFromUnknownChunk(chunk));
+      if (child.stderr === null || child.stdout === null) {
+        throw new Error('Hermetic Git child did not expose its stdout/stderr streams');
       }
-      const [result, stderrResult] = await Promise.all([completion, stderrPromise]);
-      if (!stderrResult.ok) throw stderrResult.error;
-      const stderr = stderrResult.value;
-      assertGitBinaryCurrent();
-      if (result.status === null || !acceptedStatuses.includes(result.status)) {
-        throw new Error(
-          `${formatGitFailure(args, worktreePath, result.status, stderr)}${
-            result.signal ? ` (${result.signal})` : ''
-          }`,
+      const stdout = child.stdout;
+      const stdoutOutcome = observeHermeticGitAsyncOutcome(
+        (async (): Promise<void> => {
+          for await (const chunk of stdout) {
+            await consumeChunk(bufferFromUnknownChunk(chunk));
+          }
+        })(),
+      );
+      stderrOutcome = observeHermeticGitAsyncOutcome(readStderr(child.stderr));
+      inputOutcome = observeHermeticGitAsyncOutcome(writeHermeticGitInput(child, input));
+      void stdoutOutcome.then((outcome) => {
+        if (!outcome.ok) componentFailures.stdout = outcome.error;
+      });
+      void stderrOutcome.then((outcome) => {
+        if (!outcome.ok) componentFailures.stderr = outcome.error;
+      });
+      void inputOutcome.then((outcome) => {
+        if (!outcome.ok) componentFailures.input = outcome.error;
+      });
+      const operation = (async (): Promise<Readonly<{ status: number; stderr: TStderr }>> => {
+        const [stdoutResult, stderrResult, inputResult, result] = await Promise.all([
+          stdoutOutcome,
+          stderrOutcome,
+          inputOutcome,
+          closeObservation.completion,
+        ]);
+        if (!stdoutResult.ok) throw stdoutResult.error;
+        if (!stderrResult.ok) throw stderrResult.error;
+        if (!inputResult.ok) throw inputResult.error;
+        const stderr = stderrResult.value;
+        if (result.spawnError !== null) throw result.spawnError;
+        assertBinaryCurrent(commandPolicy);
+        boundedHermeticGitCommandPolicy(executionPolicy, executionMode, worktreePath, args);
+        if (result.status === null || !acceptedStatuses.includes(result.status)) {
+          throw new Error(
+            `${formatGitFailure(args, worktreePath, result.status, formatStderr(stderr))}${
+              result.signal ? ` (${result.signal})` : ''
+            }`,
+          );
+        }
+        return Object.freeze({ status: result.status, stderr });
+      })();
+      componentFailure = observeHermeticGitComponentFailures([
+        stdoutOutcome,
+        stderrOutcome,
+        inputOutcome,
+      ]);
+      return await Promise.race([
+        operation,
+        componentFailure.completion,
+        interruption.completion,
+      ]).then((result) => {
+        if (result === undefined) {
+          throw new Error('Hermetic Git execution observer settled without a command result');
+        }
+        return result;
+      });
+    } catch (error) {
+      const interruptionFailure = interruption.failure();
+      const primaryFailure =
+        interruptionFailure ??
+        observedHermeticGitError('Hermetic Git asynchronous execution failed', error);
+      const concurrentFailures = [
+        componentFailures.stdout,
+        componentFailures.stderr,
+        componentFailures.input,
+      ].filter((failure): failure is Error => failure !== null && failure !== primaryFailure);
+      await requireHermeticGitChildCloseAfterFailure(
+        child,
+        closeObservation,
+        executionPolicy,
+        worktreePath,
+        args,
+        primaryFailure,
+        executionMode,
+      );
+      if (interruptionFailure !== null) throw interruptionFailure;
+      await Promise.all([stderrOutcome, inputOutcome].filter((outcome) => outcome !== undefined));
+      const failures = [primaryFailure, ...concurrentFailures];
+      if (failures.length > 1) {
+        throw new AggregateError(failures, 'Hermetic Git asynchronous components failed');
+      }
+      throw primaryFailure;
+    } finally {
+      componentFailure?.close();
+      interruption.close();
+    }
+  };
+
+  const runtime: HermeticGitRuntimeV1 = {
+    get attestation(): HermeticGitAttestation {
+      return resolveBinaryAuthority().attestation;
+    },
+
+    executionPolicy,
+    executionModes: HERMETIC_GIT_EXECUTION_MODES_V1,
+
+    runBuffer(
+      worktreePath: string,
+      args: readonly string[],
+      acceptedStatuses: readonly number[] = [0],
+      input?: string | Buffer,
+      maxBuffer = DEFAULT_MAX_OUTPUT_BYTES,
+    ): HermeticGitBufferResult {
+      requireSynchronousHermeticGitExecutionOutsideBudget(worktreePath, args);
+      let commandPolicy = boundedHermeticGitCommandPolicy(
+        executionPolicy,
+        'BUFFERED',
+        worktreePath,
+        args,
+      );
+      assertBinaryCurrent(commandPolicy);
+      const executable = resolveBinaryAuthority(commandPolicy).executable;
+      const commandArgs = invocationArgs(worktreePath, args);
+      commandPolicy = boundedHermeticGitCommandPolicy(
+        executionPolicy,
+        'BUFFERED',
+        worktreePath,
+        args,
+      );
+      assertBinaryCurrent(commandPolicy);
+      commandPolicy = boundedHermeticGitCommandPolicy(
+        executionPolicy,
+        'BUFFERED',
+        worktreePath,
+        args,
+      );
+      const result = spawnSync(executable.descriptorPath, commandArgs, {
+        argv0: executable.argv0,
+        env: HERMETIC_GIT_ENV,
+        input,
+        maxBuffer,
+        timeout: commandPolicy.commandDeadlineMs,
+        killSignal: commandPolicy.timeoutSignal,
+      });
+      assertBinaryCurrent(commandPolicy);
+      if (errorCode(result.error) === 'ETIMEDOUT') {
+        throw new HermeticGitExecutionTimeoutError(
+          'BUFFERED',
+          worktreePath,
+          args,
+          commandPolicy.commandDeadlineMs,
+          commandPolicy.timeoutSignal,
+          commandPolicy.deadlineSource,
+          commandPolicy.contextDeadlineAuthority,
         );
       }
-      return result.status;
-    } catch (error) {
-      if (child.exitCode === null && child.signalCode === null) {
-        child.kill('SIGTERM');
+      if (result.error) {
+        throw result.error;
       }
-      await Promise.allSettled([completion, stderrPromise]);
-      throw error;
-    }
+      if (result.status === null || !acceptedStatuses.includes(result.status)) {
+        throw new Error(
+          formatGitFailure(
+            args,
+            worktreePath,
+            result.status,
+            decodeFatalUtf8(result.stderr, 'Hermetic Git stderr'),
+          ),
+        );
+      }
+      boundedHermeticGitCommandPolicy(executionPolicy, 'BUFFERED', worktreePath, args);
+      return Object.freeze({
+        stdout: Buffer.from(result.stdout),
+        stderr: Buffer.from(result.stderr),
+        status: result.status,
+      });
+    },
+
+    runText(
+      worktreePath: string,
+      args: readonly string[],
+      acceptedStatuses: readonly number[] = [0],
+      maxBuffer = DEFAULT_MAX_OUTPUT_BYTES,
+    ): HermeticGitTextResult {
+      const result = runtime.runBuffer(worktreePath, args, acceptedStatuses, undefined, maxBuffer);
+      return Object.freeze({
+        stdout: decodeFatalUtf8(result.stdout, 'Hermetic Git stdout'),
+        stderr: decodeFatalUtf8(result.stderr, 'Hermetic Git stderr'),
+        status: result.status,
+      });
+    },
+
+    async runBufferAsync(
+      worktreePath: string,
+      args: readonly string[],
+      acceptedStatuses: readonly number[] = [0],
+      input?: string | Buffer,
+      maxBuffer = DEFAULT_MAX_OUTPUT_BYTES,
+    ): Promise<HermeticGitBufferResult> {
+      if (!Number.isSafeInteger(maxBuffer) || maxBuffer < 1) {
+        throw new TypeError('Hermetic Git buffered output limit must be one positive safe integer');
+      }
+      const stdoutChunks: Buffer[] = [];
+      let stdoutBytes = 0;
+      const result = await executeAsync(
+        'BUFFERED',
+        worktreePath,
+        args,
+        acceptedStatuses,
+        input,
+        (chunk) => {
+          if (stdoutBytes + chunk.length > maxBuffer) {
+            throw new Error(`Hermetic Git stdout exceeds its ${String(maxBuffer)}-byte limit`);
+          }
+          stdoutChunks.push(Buffer.from(chunk));
+          stdoutBytes += chunk.length;
+        },
+        (stream) => collectBoundedBuffer(stream, maxBuffer, 'Hermetic Git stderr'),
+        (stderr) => decodeFatalUtf8(stderr, 'Hermetic Git stderr'),
+      );
+      return Object.freeze({
+        stdout: Buffer.concat(stdoutChunks, stdoutBytes),
+        stderr: Buffer.from(result.stderr),
+        status: result.status,
+      });
+    },
+
+    async runTextAsync(
+      worktreePath: string,
+      args: readonly string[],
+      acceptedStatuses: readonly number[] = [0],
+      maxBuffer = DEFAULT_MAX_OUTPUT_BYTES,
+    ): Promise<HermeticGitTextResult> {
+      const result = await runtime.runBufferAsync(
+        worktreePath,
+        args,
+        acceptedStatuses,
+        undefined,
+        maxBuffer,
+      );
+      return Object.freeze({
+        stdout: decodeFatalUtf8(result.stdout, 'Hermetic Git stdout'),
+        stderr: decodeFatalUtf8(result.stderr, 'Hermetic Git stderr'),
+        status: result.status,
+      });
+    },
+
+    async consumeStdout(
+      worktreePath: string,
+      args: readonly string[],
+      consumeChunk: (chunk: Buffer) => Promise<void> | void,
+      acceptedStatuses: readonly number[] = [0],
+    ): Promise<number> {
+      const result = await executeAsync(
+        'STREAMED',
+        worktreePath,
+        args,
+        acceptedStatuses,
+        undefined,
+        consumeChunk,
+        collectBoundedStderr,
+        (stderr) => stderr,
+      );
+      return result.status;
+    },
+
+    close(): void {
+      if (closed) throw new Error('Hermetic Git runtime is already closed');
+      closed = true;
+      binaryAuthority?.executable.close();
+      binaryAuthority = undefined;
+    },
+  };
+  return Object.freeze(runtime);
+}
+
+const productionGitRuntime = createHermeticGitRuntime(HERMETIC_GIT_EXECUTION_POLICY_V1);
+export const HERMETIC_GIT_RUNTIME: HermeticGitProductionRuntimeV1 = Object.freeze({
+  get attestation(): HermeticGitAttestation {
+    return productionGitRuntime.attestation;
   },
+  executionPolicy: productionGitRuntime.executionPolicy,
+  executionModes: productionGitRuntime.executionModes,
+  runBuffer: (worktreePath, args, acceptedStatuses, input, maxBuffer) =>
+    productionGitRuntime.runBuffer(worktreePath, args, acceptedStatuses, input, maxBuffer),
+  runText: (worktreePath, args, acceptedStatuses, maxBuffer) =>
+    productionGitRuntime.runText(worktreePath, args, acceptedStatuses, maxBuffer),
+  runBufferAsync: (worktreePath, args, acceptedStatuses, input, maxBuffer) =>
+    productionGitRuntime.runBufferAsync(worktreePath, args, acceptedStatuses, input, maxBuffer),
+  runTextAsync: (worktreePath, args, acceptedStatuses, maxBuffer) =>
+    productionGitRuntime.runTextAsync(worktreePath, args, acceptedStatuses, maxBuffer),
+  consumeStdout: (worktreePath, args, consumeChunk, acceptedStatuses) =>
+    productionGitRuntime.consumeStdout(worktreePath, args, consumeChunk, acceptedStatuses),
 });
 
 function updateDigestFrame(digest: Hash, label: string, payload: Buffer): void {
@@ -585,10 +1476,6 @@ function readStableRegularFileObservation(
   label: string,
 ): StableRegularFileObservation {
   return observeStableRegularFile(path, maximumBytes, label);
-}
-
-function readStableRegularFile(path: string, maximumBytes: number, label: string): Buffer {
-  return readStableRegularFileObservation(path, maximumBytes, label).content;
 }
 
 function assertStableRegularFileObservationCurrent(
@@ -796,26 +1683,17 @@ interface OptionalTopologyFileObservation {
 
 function observeOptionalTopologyFile(path: string, label: string): OptionalTopologyFileObservation {
   const parent = observeDirectory(dirname(path), `${label} parent`, true);
-  let file: StableRegularFileObservation | null;
-  try {
-    file = readStableRegularFileObservation(path, MAX_REPOSITORY_CONFIG_BYTES, label);
-  } catch (error) {
-    if (errorCode(error) !== 'ENOENT') throw error;
-    file = null;
-  }
-  assertDirectoryObservationCurrent(parent, `${label} parent`);
   const entry = parent.entries?.find(
     (candidate) => candidate.name === path.slice(dirname(path).length + 1),
   );
-  if ((file === null) !== (entry === undefined)) {
-    throw new InventoryInspectionError(
-      'DIRTY_SNAPSHOT_MOVED',
-      `${label} presence changed during its parent entry-generation observation: ${path}`,
-    );
-  }
   if (entry !== undefined && entry.kind !== 'FILE') {
     throw new Error(`${label} is not one regular file: ${path}`);
   }
+  const file =
+    entry === undefined
+      ? null
+      : readStableRegularFileObservation(path, MAX_REPOSITORY_CONFIG_BYTES, label);
+  assertDirectoryObservationCurrent(parent, `${label} parent`);
   return Object.freeze({ path, label, parent, file });
 }
 
@@ -968,12 +1846,14 @@ async function attestRepositoryConfiguration(
     MAX_REPOSITORY_CONFIG_BYTES,
     'repository config',
   );
-  const parsedConfig = HERMETIC_GIT_RUNTIME.runBuffer(
-    worktreePath,
-    ['config', '--file', configPath, '--no-includes', '--null', '--list'],
-    [0],
-    undefined,
-    MAX_REPOSITORY_CONFIG_BYTES,
+  const parsedConfig = (
+    await HERMETIC_GIT_RUNTIME.runBufferAsync(
+      worktreePath,
+      ['config', '--file', configPath, '--no-includes', '--null', '--list'],
+      [0],
+      undefined,
+      MAX_REPOSITORY_CONFIG_BYTES,
+    )
   ).stdout;
   assertHermeticRepositoryConfig(parsedConfig);
   assertStableRegularFileObservationCurrent(
@@ -1014,11 +1894,13 @@ async function attestRepositoryConfiguration(
   if (worktreeConfig !== null && worktreeConfig.length > 0) {
     throw new Error('Hermetic Git refuses per-worktree config authority');
   }
-  const replaceRefs = HERMETIC_GIT_RUNTIME.runText(worktreePath, [
-    'for-each-ref',
-    '--format=%(refname)',
-    'refs/replace',
-  ]).stdout.trim();
+  const replaceRefs = (
+    await HERMETIC_GIT_RUNTIME.runTextAsync(worktreePath, [
+      'for-each-ref',
+      '--format=%(refname)',
+      'refs/replace',
+    ])
+  ).stdout.trim();
   if (replaceRefs.length > 0) {
     throw new Error('Hermetic Git refuses replace refs');
   }
@@ -1302,21 +2184,23 @@ function gitObjectId(
     .digest('hex');
 }
 
-function loadGitBlobProofBatch(
+async function loadGitBlobProofBatch(
   worktreePath: string,
   objectFormat: GitObjectFormat,
   proofs: Map<string, GitBlobProof>,
   objectIds: readonly string[],
-): void {
+): Promise<void> {
   if (objectIds.length === 0) {
     return;
   }
-  const output = HERMETIC_GIT_RUNTIME.runBuffer(
-    worktreePath,
-    ['cat-file', '--batch'],
-    [0],
-    `${objectIds.join('\n')}\n`,
-    MAX_GIT_BLOB_BATCH_BYTES,
+  const output = (
+    await HERMETIC_GIT_RUNTIME.runBufferAsync(
+      worktreePath,
+      ['cat-file', '--batch'],
+      [0],
+      `${objectIds.join('\n')}\n`,
+      MAX_GIT_BLOB_BATCH_BYTES,
+    )
   ).stdout;
   let offset = 0;
   for (const expectedObjectId of objectIds) {
@@ -1361,15 +2245,15 @@ function loadGitBlobProofBatch(
   }
 }
 
-function loadGitBlobProofs(
+async function loadGitBlobProofs(
   worktreePath: string,
   configuration: RepositoryConfigurationEvidence,
   entries: readonly TrackedEntry[],
-): ReadonlyMap<string, GitBlobProof> {
+): Promise<ReadonlyMap<string, GitBlobProof>> {
   const objectIds = [...new Set(entries.map((entry) => entry.objectId))];
   const proofs = new Map<string, GitBlobProof>();
   for (let offset = 0; offset < objectIds.length; offset += GIT_BLOB_BATCH_SIZE) {
-    loadGitBlobProofBatch(
+    await loadGitBlobProofBatch(
       worktreePath,
       configuration.objectFormat,
       proofs,
@@ -1485,10 +2369,86 @@ interface PinnedWorktreeAbsence {
   readonly parentObservation: StableDirectoryObservationV1;
 }
 
-function closePinnedWorktreePath(path: PinnedWorktreePath): void {
-  for (const descriptor of [...path.directoryDescriptors].reverse()) {
-    closeSync(descriptor);
+function throwHermeticGitActionAndCleanupFailures(
+  label: string,
+  actionFailure: Error | null,
+  cleanupFailure: Error | null,
+): void {
+  if (actionFailure !== null && cleanupFailure !== null) {
+    throw new AggregateError(
+      [actionFailure, cleanupFailure],
+      `${label} action and cleanup both failed`,
+    );
   }
+  if (actionFailure !== null) throw actionFailure;
+  if (cleanupFailure !== null) throw cleanupFailure;
+}
+
+function runWithHermeticGitCleanup<T>(label: string, action: () => T, cleanup: () => void): T {
+  let result!: T;
+  let actionFailure: Error | null = null;
+  try {
+    result = action();
+  } catch (error) {
+    actionFailure = observedHermeticGitError(`${label} action failed`, error);
+  }
+  let cleanupFailure: Error | null = null;
+  try {
+    cleanup();
+  } catch (error) {
+    cleanupFailure = observedHermeticGitError(`${label} cleanup failed`, error);
+  }
+  throwHermeticGitActionAndCleanupFailures(label, actionFailure, cleanupFailure);
+  return result;
+}
+
+async function runWithHermeticGitCleanupAsync<T>(
+  label: string,
+  action: () => Promise<T>,
+  cleanup: () => Promise<void> | void,
+): Promise<T> {
+  let result!: T;
+  let actionFailure: Error | null = null;
+  try {
+    result = await action();
+  } catch (error) {
+    actionFailure = observedHermeticGitError(`${label} action failed`, error);
+  }
+  let cleanupFailure: Error | null = null;
+  try {
+    await cleanup();
+  } catch (error) {
+    cleanupFailure = observedHermeticGitError(`${label} cleanup failed`, error);
+  }
+  throwHermeticGitActionAndCleanupFailures(label, actionFailure, cleanupFailure);
+  return result;
+}
+
+function closeHermeticGitDescriptors(descriptors: readonly number[], label: string): void {
+  const failures: Error[] = [];
+  for (const descriptor of [...descriptors].reverse()) {
+    try {
+      closeSync(descriptor);
+    } catch (error) {
+      failures.push(
+        observedHermeticGitError(`${label} descriptor ${String(descriptor)} close failed`, error),
+      );
+    }
+  }
+  const singleFailure = failures[0];
+  if (failures.length === 1 && singleFailure !== undefined) throw singleFailure;
+  if (failures.length > 1) {
+    throw new AggregateError(failures, `${label} descriptor cleanup failed`);
+  }
+}
+
+/** Exact-import test adapter for the production all-descriptor cleanup kernel. */
+export function testOnlyCloseHermeticGitDescriptors(descriptors: readonly number[]): void {
+  closeHermeticGitDescriptors(descriptors, 'Hermetic Git test descriptor set');
+}
+
+function closePinnedWorktreePath(path: PinnedWorktreePath): void {
+  closeHermeticGitDescriptors(path.directoryDescriptors, 'Pinned Git worktree path');
 }
 
 function openPinnedWorktreePath(
@@ -1508,84 +2468,90 @@ function openPinnedWorktreePath(
   const descriptors: number[] = [];
   let currentLexicalPath = worktreePath;
   const rootBefore = lstatSync(worktreePath, { bigint: true });
-  let currentDescriptor = openSync(
+  const rootDescriptor = openSync(
     worktreePath,
     constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
   );
-  descriptors.push(currentDescriptor);
-  try {
-    const rootDescriptor = fstatSync(currentDescriptor, { bigint: true });
-    if (!rootDescriptor.isDirectory() || !sameBigIntFileObservation(rootBefore, rootDescriptor)) {
-      throw new InventoryInspectionError(
-        'DIRTY_SNAPSHOT_MOVED',
-        `${worktreePath} changed before its root directory descriptor opened`,
-      );
-    }
-    for (const [index, component] of components.slice(0, -1).entries()) {
-      const parentBefore = fstatSync(currentDescriptor, { bigint: true });
-      const candidate = Buffer.concat([
-        Buffer.from(`/proc/self/fd/${String(currentDescriptor)}/`, 'ascii'),
-        component,
-      ]);
-      let nextDescriptor: number;
-      try {
-        nextDescriptor = openSync(
-          candidate,
-          constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+  descriptors.push(rootDescriptor);
+  let retainDescriptors = false;
+  return runWithHermeticGitCleanup(
+    `Pinned Git worktree path ${worktreePath}/${decodedPath}`,
+    () => {
+      let currentDescriptor = rootDescriptor;
+      const openedRoot = fstatSync(currentDescriptor, { bigint: true });
+      if (!openedRoot.isDirectory() || !sameBigIntFileObservation(rootBefore, openedRoot)) {
+        throw new InventoryInspectionError(
+          'DIRTY_SNAPSHOT_MOVED',
+          `${worktreePath} changed before its root directory descriptor opened`,
         );
-      } catch (error) {
-        if (errorCode(error) === 'ENOENT') {
-          const parentObservation = observeStableDirectory(
-            currentLexicalPath,
-            `${worktreePath}/${decodedPath} missing parent`,
-            true,
+      }
+      for (const [index, component] of components.slice(0, -1).entries()) {
+        const parentBefore = fstatSync(currentDescriptor, { bigint: true });
+        const candidate = Buffer.concat([
+          Buffer.from(`/proc/self/fd/${String(currentDescriptor)}/`, 'ascii'),
+          component,
+        ]);
+        let nextDescriptor: number;
+        try {
+          nextDescriptor = openSync(
+            candidate,
+            constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
           );
-          if (!sameBigIntFileObservation(parentBefore, parentObservation.stat)) {
+        } catch (error) {
+          if (errorCode(error) === 'ENOENT') {
+            const parentObservation = observeStableDirectory(
+              currentLexicalPath,
+              `${worktreePath}/${decodedPath} missing parent`,
+              true,
+            );
+            if (!sameBigIntFileObservation(parentBefore, parentObservation.stat)) {
+              throw new InventoryInspectionError(
+                'DIRTY_SNAPSHOT_MOVED',
+                `${worktreePath}/${decodedPath} parent changed while absence was observed`,
+              );
+            }
+            return Object.freeze({ kind: 'MISSING' as const, parentObservation });
+          }
+          if (errorCode(error) === 'ELOOP' || errorCode(error) === 'ENOTDIR') {
             throw new InventoryInspectionError(
               'DIRTY_SNAPSHOT_MOVED',
-              `${worktreePath}/${decodedPath} parent changed while absence was observed`,
+              `${worktreePath}/${relativePath.toString('utf8')} parent changed into a symlink or non-directory`,
             );
           }
-          for (const descriptor of [...descriptors].reverse()) {
-            closeSync(descriptor);
-          }
-          return Object.freeze({ kind: 'MISSING', parentObservation });
+          throw error;
         }
-        if (errorCode(error) === 'ELOOP' || errorCode(error) === 'ENOTDIR') {
-          throw new InventoryInspectionError(
-            'DIRTY_SNAPSHOT_MOVED',
-            `${worktreePath}/${relativePath.toString('utf8')} parent changed into a symlink or non-directory`,
+        descriptors.push(nextDescriptor);
+        const parentStat = fstatSync(nextDescriptor, { bigint: true });
+        if (!parentStat.isDirectory()) {
+          throw new Error(
+            `${worktreePath}/${relativePath.toString('utf8')} traverses a non-directory parent`,
           );
         }
-        throw error;
+        currentDescriptor = nextDescriptor;
+        currentLexicalPath = join(currentLexicalPath, decodedPath.split('/')[index] ?? '');
       }
-      const parentStat = fstatSync(nextDescriptor, { bigint: true });
-      if (!parentStat.isDirectory()) {
-        closeSync(nextDescriptor);
-        throw new Error(
-          `${worktreePath}/${relativePath.toString('utf8')} traverses a non-directory parent`,
+      const target = Object.freeze({
+        kind: 'TARGET' as const,
+        descriptorPath: Buffer.concat([
+          Buffer.from(`/proc/self/fd/${String(currentDescriptor)}/`, 'ascii'),
+          finalComponent,
+        ]),
+        directoryDescriptors: Object.freeze(descriptors),
+        targetParentPath: currentLexicalPath,
+        targetParentGeneration: fstatSync(currentDescriptor, { bigint: true }),
+      });
+      retainDescriptors = true;
+      return target;
+    },
+    () => {
+      if (!retainDescriptors) {
+        closeHermeticGitDescriptors(
+          descriptors,
+          `Pinned Git worktree path ${worktreePath}/${decodedPath}`,
         );
       }
-      descriptors.push(nextDescriptor);
-      currentDescriptor = nextDescriptor;
-      currentLexicalPath = join(currentLexicalPath, decodedPath.split('/')[index] ?? '');
-    }
-    return Object.freeze({
-      kind: 'TARGET',
-      descriptorPath: Buffer.concat([
-        Buffer.from(`/proc/self/fd/${String(currentDescriptor)}/`, 'ascii'),
-        finalComponent,
-      ]),
-      directoryDescriptors: Object.freeze(descriptors),
-      targetParentPath: currentLexicalPath,
-      targetParentGeneration: fstatSync(currentDescriptor, { bigint: true }),
-    });
-  } catch (error) {
-    for (const descriptor of [...descriptors].reverse()) {
-      closeSync(descriptor);
-    }
-    throw error;
-  }
+    },
+  );
 }
 
 function observePinnedTargetAbsence(
@@ -1699,101 +2665,103 @@ async function scanTrackedWorktree(
       );
       continue;
     }
-    try {
-      const descriptorPath = pinnedPath.descriptorPath;
-      let before: BigIntStats;
-      try {
-        before = await lstat(descriptorPath, { bigint: true });
-      } catch (error) {
-        if (errorCode(error) === 'ENOENT') {
-          dirty = true;
-          substrateByteLength = updateCountedFrame(
-            substrateDigest,
-            substrateByteLength,
-            'WORKTREE_STATE',
-            Buffer.from('MISSING', 'ascii'),
-          );
-          canonicalByteLength = updateCountedFrame(
-            digest,
-            canonicalByteLength,
-            'WORKTREE_STATE',
-            Buffer.from('MISSING', 'ascii'),
-          );
-          substrateByteLength = updateDirectoryAbsenceSubstrate(
-            substrateDigest,
-            substrateByteLength,
-            observePinnedTargetAbsence(worktreePath, entry.path, pinnedPath),
-          );
-          continue;
-        }
-        throw error;
-      }
-      const actualMode = resolveGitObjectMode(before);
-      const rawContent =
-        actualMode === GIT_OBJECT_MODE_SYMLINK
-          ? fingerprintSymlinkContent(
-              await readlink(descriptorPath, { encoding: 'buffer' }),
-              objectFormat,
-            )
-          : await fingerprintRegularFile(
-              descriptorPath,
-              before,
-              worktreePath,
-              entry.path,
-              objectFormat,
+    await runWithHermeticGitCleanupAsync(
+      `Tracked Git worktree path ${worktreePath}/${entry.path.toString('hex')}`,
+      async () => {
+        const descriptorPath = pinnedPath.descriptorPath;
+        let before: BigIntStats;
+        try {
+          before = await lstat(descriptorPath, { bigint: true });
+        } catch (error) {
+          if (errorCode(error) === 'ENOENT') {
+            dirty = true;
+            substrateByteLength = updateCountedFrame(
+              substrateDigest,
+              substrateByteLength,
+              'WORKTREE_STATE',
+              Buffer.from('MISSING', 'ascii'),
             );
-      const after = await lstat(descriptorPath, { bigint: true });
-      if (!sameBigIntFileObservation(before, after) || rawContent.byteLength !== before.size) {
-        throw new InventoryInspectionError(
-          'DIRTY_SNAPSHOT_MOVED',
-          `${worktreePath}/${entry.path.toString('utf8')} changed during tracked-byte hashing`,
+            canonicalByteLength = updateCountedFrame(
+              digest,
+              canonicalByteLength,
+              'WORKTREE_STATE',
+              Buffer.from('MISSING', 'ascii'),
+            );
+            substrateByteLength = updateDirectoryAbsenceSubstrate(
+              substrateDigest,
+              substrateByteLength,
+              observePinnedTargetAbsence(worktreePath, entry.path, pinnedPath),
+            );
+            return;
+          }
+          throw error;
+        }
+        const actualMode = resolveGitObjectMode(before);
+        const rawContent =
+          actualMode === GIT_OBJECT_MODE_SYMLINK
+            ? fingerprintSymlinkContent(
+                await readlink(descriptorPath, { encoding: 'buffer' }),
+                objectFormat,
+              )
+            : await fingerprintRegularFile(
+                descriptorPath,
+                before,
+                worktreePath,
+                entry.path,
+                objectFormat,
+              );
+        const after = await lstat(descriptorPath, { bigint: true });
+        if (!sameBigIntFileObservation(before, after) || rawContent.byteLength !== before.size) {
+          throw new InventoryInspectionError(
+            'DIRTY_SNAPSHOT_MOVED',
+            `${worktreePath}/${entry.path.toString('utf8')} changed during tracked-byte hashing`,
+          );
+        }
+        substrateByteLength = updatePinnedDirectorySubstrate(
+          substrateDigest,
+          substrateByteLength,
+          pinnedPath,
         );
-      }
-      substrateByteLength = updatePinnedDirectorySubstrate(
-        substrateDigest,
-        substrateByteLength,
-        pinnedPath,
-      );
-      substrateByteLength = updateCountedFrame(
-        substrateDigest,
-        substrateByteLength,
-        'WORKTREE_GENERATION',
-        encodeBigIntStatGeneration(after),
-      );
-      canonicalByteLength = updateCountedFrame(
-        digest,
-        canonicalByteLength,
-        'WORKTREE_MODE',
-        Buffer.from(actualMode, 'ascii'),
-      );
-      canonicalByteLength = updateCountedFrame(
-        digest,
-        canonicalByteLength,
-        'WORKTREE_OBJECT_ID',
-        Buffer.from(rawContent.objectId, 'ascii'),
-      );
-      canonicalByteLength = updateCountedFrame(
-        digest,
-        canonicalByteLength,
-        'WORKTREE_SHA256',
-        Buffer.from(rawContent.sha256, 'ascii'),
-      );
-      const rawLength = Buffer.alloc(8);
-      rawLength.writeBigUInt64BE(rawContent.byteLength);
-      canonicalByteLength = updateCountedFrame(
-        digest,
-        canonicalByteLength,
-        'WORKTREE_BYTE_LENGTH',
-        rawLength,
-      );
-      dirty ||=
-        actualMode !== entry.mode ||
-        rawContent.objectId !== entry.objectId ||
-        rawContent.sha256 !== expectedBlob.sha256 ||
-        rawContent.byteLength !== expectedBlob.byteLength;
-    } finally {
-      closePinnedWorktreePath(pinnedPath);
-    }
+        substrateByteLength = updateCountedFrame(
+          substrateDigest,
+          substrateByteLength,
+          'WORKTREE_GENERATION',
+          encodeBigIntStatGeneration(after),
+        );
+        canonicalByteLength = updateCountedFrame(
+          digest,
+          canonicalByteLength,
+          'WORKTREE_MODE',
+          Buffer.from(actualMode, 'ascii'),
+        );
+        canonicalByteLength = updateCountedFrame(
+          digest,
+          canonicalByteLength,
+          'WORKTREE_OBJECT_ID',
+          Buffer.from(rawContent.objectId, 'ascii'),
+        );
+        canonicalByteLength = updateCountedFrame(
+          digest,
+          canonicalByteLength,
+          'WORKTREE_SHA256',
+          Buffer.from(rawContent.sha256, 'ascii'),
+        );
+        const rawLength = Buffer.alloc(8);
+        rawLength.writeBigUInt64BE(rawContent.byteLength);
+        canonicalByteLength = updateCountedFrame(
+          digest,
+          canonicalByteLength,
+          'WORKTREE_BYTE_LENGTH',
+          rawLength,
+        );
+        dirty ||=
+          actualMode !== entry.mode ||
+          rawContent.objectId !== entry.objectId ||
+          rawContent.sha256 !== expectedBlob.sha256 ||
+          rawContent.byteLength !== expectedBlob.byteLength;
+      },
+      () => closePinnedWorktreePath(pinnedPath),
+    );
   }
   return Object.freeze({
     dirty,
@@ -1864,17 +2832,17 @@ export async function captureCanonicalGitWorktreeStatus(
     throw new Error(`${absoluteWorktreePath}.HEAD is not one commit object ID`);
   }
   const configurationStart = await attestRepositoryConfiguration(absoluteWorktreePath, observer);
-  const headTreeRaw = HERMETIC_GIT_RUNTIME.runBuffer(
-    absoluteWorktreePath,
-    CANONICAL_GIT_HEAD_TREE_ARGS,
+  const headTreeRaw = (
+    await HERMETIC_GIT_RUNTIME.runBufferAsync(absoluteWorktreePath, CANONICAL_GIT_HEAD_TREE_ARGS)
   ).stdout;
-  const indexRaw = HERMETIC_GIT_RUNTIME.runBuffer(
-    absoluteWorktreePath,
-    CANONICAL_GIT_INDEX_ARGS,
+  const indexRaw = (
+    await HERMETIC_GIT_RUNTIME.runBufferAsync(absoluteWorktreePath, CANONICAL_GIT_INDEX_ARGS)
   ).stdout;
-  const fsmonitorIndexRaw = HERMETIC_GIT_RUNTIME.runBuffer(
-    absoluteWorktreePath,
-    CANONICAL_GIT_INDEX_FSMONITOR_ARGS,
+  const fsmonitorIndexRaw = (
+    await HERMETIC_GIT_RUNTIME.runBufferAsync(
+      absoluteWorktreePath,
+      CANONICAL_GIT_INDEX_FSMONITOR_ARGS,
+    )
   ).stdout;
   const headEntries = parseHeadTreeEntries(headTreeRaw, configurationStart.objectFormat);
   const indexEntries = parseIndexEntries(indexRaw, configurationStart.objectFormat);
@@ -1885,7 +2853,7 @@ export async function captureCanonicalGitWorktreeStatus(
   if (!sameTrackedEntries(indexEntries, fsmonitorIndexEntries)) {
     throw new Error('Git index flag observations disagree on stage-zero entry authority');
   }
-  const blobProofs = loadGitBlobProofs(absoluteWorktreePath, configurationStart, [
+  const blobProofs = await loadGitBlobProofs(absoluteWorktreePath, configurationStart, [
     ...headEntries,
     ...indexEntries,
   ]);
@@ -2014,52 +2982,71 @@ async function fingerprintRegularFile(
   worktreePath: string,
   relativePath: Buffer,
   objectFormat: GitObjectFormat = 'sha1',
+  closeHandle: (handle: FileHandle) => Promise<void> = (handle) => handle.close(),
 ): Promise<RawContentFingerprint> {
   const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    const descriptorBefore = await handle.stat({ bigint: true });
-    if (
-      !descriptorBefore.isFile() ||
-      !sameBigIntFileObservation(pathObservation, descriptorBefore)
-    ) {
-      throw new InventoryInspectionError(
-        'DIRTY_SNAPSHOT_MOVED',
-        `${worktreePath}/${relativePath.toString('utf8')} changed before hashing`,
+  return runWithHermeticGitCleanupAsync(
+    `Hermetic Git regular-file fingerprint ${worktreePath}/${relativePath.toString('hex')}`,
+    async () => {
+      const descriptorBefore = await handle.stat({ bigint: true });
+      if (
+        !descriptorBefore.isFile() ||
+        !sameBigIntFileObservation(pathObservation, descriptorBefore)
+      ) {
+        throw new InventoryInspectionError(
+          'DIRTY_SNAPSHOT_MOVED',
+          `${worktreePath}/${relativePath.toString('utf8')} changed before hashing`,
+        );
+      }
+      const sha256Digest = createHash('sha256');
+      const objectDigest = createHash(objectFormat).update(
+        `blob ${descriptorBefore.size.toString()}\0`,
+        'ascii',
       );
-    }
-    const sha256Digest = createHash('sha256');
-    const objectDigest = createHash(objectFormat).update(
-      `blob ${descriptorBefore.size.toString()}\0`,
-      'ascii',
-    );
-    let byteLength = 0n;
-    for await (const chunk of handle.createReadStream({
-      autoClose: false,
-      highWaterMark: 64 * 1024,
-    })) {
-      const bytes = bufferFromUnknownChunk(chunk);
-      byteLength += BigInt(bytes.length);
-      sha256Digest.update(bytes);
-      objectDigest.update(bytes);
-    }
-    const descriptorAfter = await handle.stat({ bigint: true });
-    if (
-      !sameBigIntFileObservation(descriptorBefore, descriptorAfter) ||
-      byteLength !== descriptorBefore.size
-    ) {
-      throw new InventoryInspectionError(
-        'DIRTY_SNAPSHOT_MOVED',
-        `${worktreePath}/${relativePath.toString('utf8')} changed during hashing`,
-      );
-    }
-    return Object.freeze({
-      objectId: objectDigest.digest('hex'),
-      byteLength,
-      sha256: sha256Digest.digest('hex'),
-    });
-  } finally {
-    await handle.close();
-  }
+      let byteLength = 0n;
+      for await (const chunk of handle.createReadStream({
+        autoClose: false,
+        highWaterMark: 64 * 1024,
+      })) {
+        const bytes = bufferFromUnknownChunk(chunk);
+        byteLength += BigInt(bytes.length);
+        sha256Digest.update(bytes);
+        objectDigest.update(bytes);
+      }
+      const descriptorAfter = await handle.stat({ bigint: true });
+      if (
+        !sameBigIntFileObservation(descriptorBefore, descriptorAfter) ||
+        byteLength !== descriptorBefore.size
+      ) {
+        throw new InventoryInspectionError(
+          'DIRTY_SNAPSHOT_MOVED',
+          `${worktreePath}/${relativePath.toString('utf8')} changed during hashing`,
+        );
+      }
+      return Object.freeze({
+        objectId: objectDigest.digest('hex'),
+        byteLength,
+        sha256: sha256Digest.digest('hex'),
+      });
+    },
+    () => closeHandle(handle),
+  );
+}
+
+/** Exact-import adapter for deterministic action-plus-close fault tests. */
+export function testOnlyFingerprintHermeticGitRegularFile(
+  path: string,
+  pathObservation: BigIntStats,
+  closeHandle: (handle: FileHandle) => Promise<void>,
+): Promise<void> {
+  return fingerprintRegularFile(
+    Buffer.from(path),
+    pathObservation,
+    dirname(path),
+    Buffer.from(path),
+    'sha1',
+    closeHandle,
+  ).then(() => undefined);
 }
 
 function validateRelativeGitPath(pathBytes: Buffer): void {
@@ -2116,9 +3103,8 @@ async function hashCanonicalWorktreeEvidence(
 
   let previousPath: Buffer | null = null;
   let untrackedCount = 0n;
-  const authorityRaw = HERMETIC_GIT_RUNTIME.runBuffer(
-    worktreePath,
-    CANONICAL_GIT_UNTRACKED_GITIGNORE_ARGS,
+  const authorityRaw = (
+    await HERMETIC_GIT_RUNTIME.runBufferAsync(worktreePath, CANONICAL_GIT_UNTRACKED_GITIGNORE_ARGS)
   ).stdout;
   if (!sameFingerprint(fingerprintBuffer(authorityRaw), status.untrackedGitignoreAuthorities)) {
     throw new InventoryInspectionError(
@@ -2157,51 +3143,53 @@ async function hashCanonicalWorktreeEvidence(
         `${worktreePath}/${decodeGitPath(untrackedPath, 'untracked worktree path')} disappeared before hashing`,
       );
     }
-    try {
-      const descriptorPath = pinnedPath.descriptorPath;
-      const before = await lstat(descriptorPath, { bigint: true });
-      let mode: string;
-      try {
-        mode = resolveGitObjectMode(before);
-      } catch (error) {
-        throw new Error(
-          `unsupported untracked filesystem object ${untrackedPath.toString('utf8')}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
+    await runWithHermeticGitCleanupAsync(
+      `Untracked Git worktree path ${worktreePath}/${untrackedPath.toString('hex')}`,
+      async () => {
+        const descriptorPath = pinnedPath.descriptorPath;
+        const before = await lstat(descriptorPath, { bigint: true });
+        let mode: string;
+        try {
+          mode = resolveGitObjectMode(before);
+        } catch (error) {
+          throw new Error(
+            `unsupported untracked filesystem object ${untrackedPath.toString('utf8')}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+        const content =
+          mode === GIT_OBJECT_MODE_SYMLINK
+            ? fingerprintSymlinkContent(
+                await readlink(descriptorPath, { encoding: 'buffer' }),
+                'sha1',
+              )
+            : await fingerprintRegularFile(descriptorPath, before, worktreePath, untrackedPath);
+        const after = await lstat(descriptorPath, { bigint: true });
+        if (!sameBigIntFileObservation(before, after) || content.byteLength !== before.size) {
+          throw new InventoryInspectionError(
+            'DIRTY_SNAPSHOT_MOVED',
+            `${worktreePath}/${untrackedPath.toString('utf8')} changed during hashing`,
+          );
+        }
+        substrateByteLength = updatePinnedDirectorySubstrate(
+          substrateDigest,
+          substrateByteLength,
+          pinnedPath,
         );
-      }
-      const content =
-        mode === GIT_OBJECT_MODE_SYMLINK
-          ? fingerprintSymlinkContent(
-              await readlink(descriptorPath, { encoding: 'buffer' }),
-              'sha1',
-            )
-          : await fingerprintRegularFile(descriptorPath, before, worktreePath, untrackedPath);
-      const after = await lstat(descriptorPath, { bigint: true });
-      if (!sameBigIntFileObservation(before, after) || content.byteLength !== before.size) {
-        throw new InventoryInspectionError(
-          'DIRTY_SNAPSHOT_MOVED',
-          `${worktreePath}/${untrackedPath.toString('utf8')} changed during hashing`,
+        substrateByteLength = updateCountedFrame(
+          substrateDigest,
+          substrateByteLength,
+          'UNTRACKED_GENERATION',
+          encodeBigIntStatGeneration(after),
         );
-      }
-      substrateByteLength = updatePinnedDirectorySubstrate(
-        substrateDigest,
-        substrateByteLength,
-        pinnedPath,
-      );
-      substrateByteLength = updateCountedFrame(
-        substrateDigest,
-        substrateByteLength,
-        'UNTRACKED_GENERATION',
-        encodeBigIntStatGeneration(after),
-      );
-      updateDigestFrame(digest, 'UNTRACKED_PATH', untrackedPath);
-      updateDigestFrame(digest, 'UNTRACKED_GIT_MODE', Buffer.from(mode, 'ascii'));
-      updateDigestFingerprintFrame(digest, 'UNTRACKED_CONTENT', content);
-      untrackedCount += 1n;
-    } finally {
-      closePinnedWorktreePath(pinnedPath);
-    }
+        updateDigestFrame(digest, 'UNTRACKED_PATH', untrackedPath);
+        updateDigestFrame(digest, 'UNTRACKED_GIT_MODE', Buffer.from(mode, 'ascii'));
+        updateDigestFingerprintFrame(digest, 'UNTRACKED_CONTENT', content);
+        untrackedCount += 1n;
+      },
+      () => closePinnedWorktreePath(pinnedPath),
+    );
   };
   await consumeGitNulRecords(
     CANONICAL_GIT_UNTRACKED_ARGS,
@@ -2217,7 +3205,9 @@ async function hashCanonicalWorktreeEvidence(
       await hashUntrackedPath(untrackedPath);
     },
   );
-  for (const authorityPath of [...remainingGitignoreAuthorities.values()].sort(Buffer.compare)) {
+  for (const authorityPath of [...remainingGitignoreAuthorities.values()].sort((left, right) =>
+    Buffer.compare(left, right),
+  )) {
     await hashUntrackedPath(authorityPath);
   }
   const countFrame = Buffer.alloc(8);

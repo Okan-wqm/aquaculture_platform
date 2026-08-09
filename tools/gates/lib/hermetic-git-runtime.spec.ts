@@ -3,22 +3,57 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   chmodSync,
+  closeSync,
+  constants,
   cpSync,
+  fstatSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   renameSync,
   rmSync,
   symlinkSync,
+  truncateSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, describe, it } from 'node:test';
 
-import { computeCanonicalGitWorktreeEvidence, HERMETIC_GIT_RUNTIME } from './hermetic-git-runtime';
+import { defineHermeticExecutableExecutionPolicyV1 } from './anchored-filesystem';
+import {
+  computeCanonicalGitWorktreeEvidence,
+  createHermeticGitRuntime,
+  HERMETIC_GIT_EXECUTION_MODES_V1,
+  HERMETIC_GIT_EXECUTION_POLICY_V1,
+  HERMETIC_GIT_RUNTIME,
+  HermeticGitExecutionTimeoutError,
+  HermeticGitSynchronousBudgetError,
+  InventoryInspectionError,
+  runWithHermeticGitExecutionBudget,
+  runWithHermeticGitExecutionDeadline,
+  testOnlyCloseHermeticGitDescriptors,
+  testOnlyFingerprintHermeticGitRegularFile,
+} from './hermetic-git-runtime';
 
 const fixtureRoots: string[] = [];
+
+async function openFifoWriterAfterReader(path: string): Promise<number> {
+  const deadline = Date.now() + 2_000;
+  for (;;) {
+    try {
+      return openSync(path, constants.O_WRONLY | constants.O_NONBLOCK);
+    } catch (error) {
+      if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENXIO') throw error;
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for the Hermetic Git FIFO reader: ${path}`);
+      }
+      await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
+    }
+  }
+}
 
 function git(root: string, ...args: string[]): string {
   return execFileSync('/usr/bin/git', ['-C', root, ...args], {
@@ -111,7 +146,7 @@ async function withProcessEnvironment(
   } finally {
     for (const [key, value] of previous) {
       if (value === undefined) {
-        delete process.env[key];
+        Reflect.deleteProperty(process.env, key);
       } else {
         process.env[key] = value;
       }
@@ -126,6 +161,349 @@ afterEach(() => {
 });
 
 void describe('HermeticGitRuntime', () => {
+  void it('enforces one non-relaxable deadline and reaps buffered and streamed children', async () => {
+    assert.equal('close' in HERMETIC_GIT_RUNTIME, false);
+    assert.equal(HERMETIC_GIT_RUNTIME.executionModes, HERMETIC_GIT_EXECUTION_MODES_V1);
+    assert.equal(HERMETIC_GIT_EXECUTION_MODES_V1.synchronousBuffered.contextualBudget, 'FORBIDDEN');
+    assert.equal(
+      HERMETIC_GIT_EXECUTION_MODES_V1.asynchronous.interruptSemantics,
+      'LIVE_ALL_INHERITED_SIGNALS',
+    );
+    const relaxedPolicy = defineHermeticExecutableExecutionPolicyV1({
+      schemaVersion: 1,
+      commandDeadlineMs: HERMETIC_GIT_EXECUTION_POLICY_V1.commandDeadlineMs + 1,
+      timeoutSignal: 'SIGKILL',
+    });
+    assert.throws(
+      () => createHermeticGitRuntime(relaxedPolicy),
+      /cannot relax the production command deadline/,
+    );
+
+    let deadlineReads = 0;
+    const accessorPolicy = Object.freeze({
+      schemaVersion: 1 as const,
+      get commandDeadlineMs(): number {
+        deadlineReads += 1;
+        return 250;
+      },
+      timeoutSignal: 'SIGKILL' as const,
+    });
+    const accessorRuntime = createHermeticGitRuntime(accessorPolicy);
+    assert.equal(deadlineReads, 1);
+    assert.equal(accessorRuntime.executionPolicy.commandDeadlineMs, 250);
+    assert.equal(deadlineReads, 1);
+    assert.equal(
+      Object.getOwnPropertyDescriptor(accessorRuntime.executionPolicy, 'commandDeadlineMs')?.get,
+      undefined,
+    );
+    assert.equal(accessorRuntime.attestation.binaryPath, '/usr/bin/git');
+    accessorRuntime.close();
+    assert.throws(() => accessorRuntime.runText('/', ['--version']), /runtime is closed/);
+
+    const root = fixture();
+    const blockedInput = join(root, 'blocked-input');
+    execFileSync('/usr/bin/mkfifo', [blockedInput]);
+    const executionPolicy = defineHermeticExecutableExecutionPolicyV1({
+      schemaVersion: 1,
+      commandDeadlineMs: 250,
+      timeoutSignal: 'SIGKILL',
+    });
+    const runtime = createHermeticGitRuntime(executionPolicy);
+    const blockedCommand = ['hash-object', '--', 'blocked-input'] as const;
+
+    assert.throws(
+      () => runtime.runBuffer(root, blockedCommand),
+      (error: unknown) =>
+        error instanceof HermeticGitExecutionTimeoutError &&
+        error.code === 'HERMETIC_GIT_EXECUTION_TIMEOUT' &&
+        error.executionMode === 'BUFFERED' &&
+        error.commandDeadlineMs === executionPolicy.commandDeadlineMs &&
+        error.timeoutSignal === executionPolicy.timeoutSignal &&
+        error.deadlineSource === 'EXECUTION_POLICY',
+    );
+    await assert.rejects(
+      runtime.consumeStdout(root, blockedCommand, () => undefined),
+      (error: unknown) =>
+        error instanceof HermeticGitExecutionTimeoutError &&
+        error.code === 'HERMETIC_GIT_EXECUTION_TIMEOUT' &&
+        error.executionMode === 'STREAMED' &&
+        error.commandDeadlineMs === executionPolicy.commandDeadlineMs &&
+        error.timeoutSignal === executionPolicy.timeoutSignal &&
+        error.deadlineSource === 'EXECUTION_POLICY',
+    );
+
+    const aggregateBudgetController = new AbortController();
+    assert.throws(
+      () =>
+        runWithHermeticGitExecutionBudget(100, aggregateBudgetController.signal, () => {
+          runtime.runBuffer(root, blockedCommand);
+        }),
+      (error: unknown) =>
+        error instanceof HermeticGitSynchronousBudgetError &&
+        error.code === 'HERMETIC_GIT_SYNCHRONOUS_BUDGET_FORBIDDEN',
+    );
+    assert.equal(runtime.runText(root, ['rev-parse', '--verify', 'HEAD']).status, 0);
+
+    const outerController = new AbortController();
+    const innerController = new AbortController();
+    await assert.rejects(
+      runWithHermeticGitExecutionBudget(100, outerController.signal, () =>
+        runWithHermeticGitExecutionBudget(1_000, innerController.signal, async () => {
+          await new Promise<void>((resolveDelay) => setTimeout(resolveDelay, 60));
+          await runtime.runBufferAsync(root, blockedCommand);
+        }),
+      ),
+      (error: unknown) =>
+        error instanceof HermeticGitExecutionTimeoutError &&
+        error.commandDeadlineMs <= 50 &&
+        error.deadlineSource === 'CONTEXT_BUDGET',
+    );
+    const outerAbort = new Error('outer budget aborted');
+    outerController.abort(outerAbort);
+    await assert.rejects(
+      runWithHermeticGitExecutionBudget(100, outerController.signal, () =>
+        runWithHermeticGitExecutionBudget(1_000, innerController.signal, () =>
+          runtime.runTextAsync(root, ['rev-parse', '--verify', 'HEAD']),
+        ),
+      ),
+      (error: unknown) => error === outerAbort,
+    );
+
+    let releaseConsumer = (): void => undefined;
+    const lateConsumerFailure = new Error('late consumer failure');
+    const consumerGate = new Promise<void>((_resolveConsumer, rejectConsumer) => {
+      releaseConsumer = () => rejectConsumer(lateConsumerFailure);
+    });
+    await assert.rejects(
+      runtime.consumeStdout(root, ['rev-parse', '--verify', 'HEAD'], () => consumerGate),
+      (error: unknown) =>
+        error instanceof HermeticGitExecutionTimeoutError && error.executionMode === 'STREAMED',
+    );
+    releaseConsumer();
+    await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
+
+    assert.equal(runtime.runText(root, ['rev-parse', '--verify', 'HEAD']).status, 0);
+    runtime.close();
+  });
+
+  void it('live-aborts a running FIFO child from every inherited signal and reaps it', async () => {
+    const root = fixture();
+    const runtime = createHermeticGitRuntime(
+      defineHermeticExecutableExecutionPolicyV1({
+        schemaVersion: 1,
+        commandDeadlineMs: 5_000,
+        timeoutSignal: 'SIGKILL',
+      }),
+    );
+    for (const abortScope of ['OUTER', 'INNER'] as const) {
+      const fifoName = `live-abort-${abortScope.toLowerCase()}`;
+      const fifoPath = join(root, fifoName);
+      execFileSync('/usr/bin/mkfifo', [fifoPath]);
+      const outer = new AbortController();
+      const inner = new AbortController();
+      const abortFailure = new Error(`${abortScope.toLowerCase()} live abort`);
+      const execution = runWithHermeticGitExecutionBudget(4_000, outer.signal, () =>
+        runWithHermeticGitExecutionBudget(4_000, inner.signal, () =>
+          runtime.consumeStdout(root, ['hash-object', '--', fifoName], () => undefined),
+        ),
+      );
+      const rejection = assert.rejects(execution, (error: unknown) => error === abortFailure);
+      const writer = await openFifoWriterAfterReader(fifoPath);
+      const interruptedAt = Date.now();
+      (abortScope === 'OUTER' ? outer : inner).abort(abortFailure);
+      await rejection;
+      assert.ok(Date.now() - interruptedAt < 1_000);
+      closeSync(writer);
+      assert.throws(
+        () => openSync(fifoPath, constants.O_WRONLY | constants.O_NONBLOCK),
+        (error: unknown) => error instanceof Error && 'code' in error && error.code === 'ENXIO',
+      );
+    }
+
+    const deadlineFifo = join(root, 'deadline-drain');
+    execFileSync('/usr/bin/mkfifo', [deadlineFifo]);
+    const deadlineFailure = new Error('coordinator deadline');
+    let deadlineSignal: AbortSignal | undefined;
+    const deadlineExecution = runWithHermeticGitExecutionDeadline(
+      250,
+      deadlineFailure,
+      (signal) => {
+        deadlineSignal = signal;
+        return runtime.consumeStdout(
+          root,
+          ['hash-object', '--', 'deadline-drain'],
+          () => undefined,
+        );
+      },
+    );
+    const deadlineRejection = assert.rejects(
+      deadlineExecution,
+      (error: unknown) => error === deadlineFailure,
+    );
+    const deadlineWriter = await openFifoWriterAfterReader(deadlineFifo);
+    await deadlineRejection;
+    assert.equal(deadlineSignal?.aborted, true);
+    assert.equal(deadlineSignal?.reason, deadlineFailure);
+    closeSync(deadlineWriter);
+    assert.throws(
+      () => openSync(deadlineFifo, constants.O_WRONLY | constants.O_NONBLOCK),
+      (error: unknown) => error instanceof Error && 'code' in error && error.code === 'ENXIO',
+    );
+
+    const nestedDeadlineFifo = join(root, 'nested-deadline-owner');
+    execFileSync('/usr/bin/mkfifo', [nestedDeadlineFifo]);
+    const outerDeadlineFailure = new Error('outer coordinator deadline');
+    const innerDeadlineFailure = new Error('inner coordinator deadline');
+    const nestedDeadlineExecution = runWithHermeticGitExecutionDeadline(
+      250,
+      outerDeadlineFailure,
+      () =>
+        runWithHermeticGitExecutionDeadline(2_000, innerDeadlineFailure, () =>
+          runtime.consumeStdout(
+            root,
+            ['hash-object', '--', 'nested-deadline-owner'],
+            () => undefined,
+          ),
+        ),
+    );
+    const nestedDeadlineRejection = assert.rejects(
+      nestedDeadlineExecution,
+      (error: unknown) => error === outerDeadlineFailure,
+    );
+    const nestedDeadlineWriter = await openFifoWriterAfterReader(nestedDeadlineFifo);
+    await nestedDeadlineRejection;
+    closeSync(nestedDeadlineWriter);
+    assert.throws(
+      () => openSync(nestedDeadlineFifo, constants.O_WRONLY | constants.O_NONBLOCK),
+      (error: unknown) => error instanceof Error && 'code' in error && error.code === 'ENXIO',
+    );
+
+    const executionPolicyFifo = join(root, 'execution-policy-deadline');
+    execFileSync('/usr/bin/mkfifo', [executionPolicyFifo]);
+    const shortPolicyRuntime = createHermeticGitRuntime(
+      defineHermeticExecutableExecutionPolicyV1({
+        schemaVersion: 1,
+        commandDeadlineMs: 75,
+        timeoutSignal: 'SIGKILL',
+      }),
+    );
+    const laterCoordinatorFailure = new Error('later coordinator deadline');
+    const executionPolicyExecution = runWithHermeticGitExecutionDeadline(
+      1_000,
+      laterCoordinatorFailure,
+      () =>
+        shortPolicyRuntime.consumeStdout(
+          root,
+          ['hash-object', '--', 'execution-policy-deadline'],
+          () => undefined,
+        ),
+    );
+    const executionPolicyRejection = assert.rejects(
+      executionPolicyExecution,
+      (error: unknown) =>
+        error instanceof HermeticGitExecutionTimeoutError &&
+        error.deadlineSource === 'EXECUTION_POLICY' &&
+        error !== laterCoordinatorFailure,
+    );
+    const executionPolicyWriter = await openFifoWriterAfterReader(executionPolicyFifo);
+    await executionPolicyRejection;
+    closeSync(executionPolicyWriter);
+    assert.throws(
+      () => openSync(executionPolicyFifo, constants.O_WRONLY | constants.O_NONBLOCK),
+      (error: unknown) => error instanceof Error && 'code' in error && error.code === 'ENXIO',
+    );
+    shortPolicyRuntime.close();
+    runtime.close();
+  });
+
+  void it('shares one async buffered kernel for stdin, limits, and live execution', async () => {
+    const root = fixture();
+    const runtime = createHermeticGitRuntime(
+      defineHermeticExecutableExecutionPolicyV1({
+        schemaVersion: 1,
+        commandDeadlineMs: 2_000,
+        timeoutSignal: 'SIGKILL',
+      }),
+    );
+    const unhandledRejections: unknown[] = [];
+    const observeUnhandled = (reason: unknown): void => {
+      unhandledRejections.push(reason);
+    };
+    process.on('unhandledRejection', observeUnhandled);
+    try {
+      const hashed = await runtime.runBufferAsync(
+        root,
+        ['hash-object', '--stdin'],
+        [0],
+        Buffer.from('async buffered input\n'),
+        1_024,
+      );
+      assert.match(hashed.stdout.toString('ascii').trim(), /^[0-9a-f]{40}$/);
+      await assert.rejects(
+        runtime.runBufferAsync(root, ['rev-parse', '--verify', 'HEAD'], [0], undefined, 1),
+        /stdout exceeds its 1-byte limit/,
+      );
+      const consumerFailure = new Error('injected streamed consumer failure');
+      await assert.rejects(
+        runtime.consumeStdout(root, ['rev-parse', '--verify', 'HEAD'], () => {
+          throw consumerFailure;
+        }),
+        (error: unknown) => error === consumerFailure,
+      );
+      await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
+      assert.deepEqual(unhandledRejections, []);
+    } finally {
+      process.off('unhandledRejection', observeUnhandled);
+    }
+    runtime.close();
+  });
+
+  void it('attempts every descriptor close and preserves action plus cleanup failures', async () => {
+    const root = fixture();
+    const descriptors = ['first', 'middle', 'last'].map((name) => {
+      const path = join(root, `${name}.fd`);
+      writeFileSync(path, name, 'utf8');
+      return openSync(path, constants.O_RDONLY);
+    });
+    const first = descriptors[0];
+    const middle = descriptors[1];
+    const last = descriptors[2];
+    assert.ok(first !== undefined && middle !== undefined && last !== undefined);
+    closeSync(first);
+    closeSync(last);
+    assert.throws(
+      () => testOnlyCloseHermeticGitDescriptors(descriptors),
+      (error: unknown) => error instanceof AggregateError && error.errors.length === 2,
+    );
+    for (const descriptor of descriptors) {
+      assert.throws(
+        () => fstatSync(descriptor),
+        (error: unknown) => error instanceof Error && 'code' in error && error.code === 'EBADF',
+      );
+    }
+
+    const fingerprintPath = join(root, 'fingerprint-cleanup-fault');
+    writeFileSync(fingerprintPath, 'before\n', 'utf8');
+    const staleObservation = lstatSync(fingerprintPath, { bigint: true });
+    writeFileSync(fingerprintPath, 'after generation with different bytes\n', 'utf8');
+    const cleanupFailure = new Error('injected fingerprint close failure');
+    await assert.rejects(
+      testOnlyFingerprintHermeticGitRegularFile(
+        fingerprintPath,
+        staleObservation,
+        async (handle) => {
+          await handle.close();
+          throw cleanupFailure;
+        },
+      ),
+      (error: unknown) =>
+        error instanceof AggregateError &&
+        error.errors.length === 2 &&
+        error.errors[0] instanceof InventoryInspectionError &&
+        error.errors[1] === cleanupFailure,
+    );
+  });
+
   void it('attests one absolute Git binary and ignores PATH/HOME/XDG/system/alternate env', async () => {
     const root = fixture();
     const maliciousRoot = mkdtempSync(join(tmpdir(), 'malicious-git-env-'));
@@ -181,6 +559,80 @@ void describe('HermeticGitRuntime', () => {
 
     writeFileSync(join(root, '.env'), 'ignored secret\n', 'utf8');
     assert.deepEqual(await computeCanonicalGitWorktreeEvidence(root), before);
+  });
+
+  void it('binds staged and unstaged tracked bytes without mutating repository state', async () => {
+    const root = fixture();
+    const trackedPath = join(root, 'tracked', 'payload.txt');
+    const clean = await computeCanonicalGitWorktreeEvidence(root);
+    writeFileSync(trackedPath, 'unstaged bytes\n', 'utf8');
+    const statusBefore = git(root, 'status', '--porcelain=v1', '-z');
+    const unstaged = await computeCanonicalGitWorktreeEvidence(root);
+    const statusAfter = git(root, 'status', '--porcelain=v1', '-z');
+    git(root, 'add', 'tracked/payload.txt');
+    const staged = await computeCanonicalGitWorktreeEvidence(root);
+
+    assert.notEqual(unstaged.contentSha256, clean.contentSha256);
+    assert.notEqual(staged.contentSha256, unstaged.contentSha256);
+    assert.equal(statusAfter, statusBefore);
+  });
+
+  void it('binds untracked bytes and executable mode to one canonical content identity', async () => {
+    const root = fixture();
+    const untrackedPath = join(root, 'untracked.bin');
+    writeFileSync(untrackedPath, Buffer.from([0x00, 0x10, 0x00]), { mode: 0o644 });
+    const first = await computeCanonicalGitWorktreeEvidence(root);
+    writeFileSync(untrackedPath, Buffer.from([0x00, 0x11, 0x00]));
+    const bytesChanged = await computeCanonicalGitWorktreeEvidence(root);
+    chmodSync(untrackedPath, 0o755);
+    const modeChanged = await computeCanonicalGitWorktreeEvidence(root);
+
+    assert.notEqual(bytesChanged.contentSha256, first.contentSha256);
+    assert.notEqual(modeChanged.contentSha256, bytesChanged.contentSha256);
+  });
+
+  void it('streams large untracked evidence and observes mutations without whole-file buffering', async () => {
+    const root = fixture();
+    const largeBinaryPath = join(root, 'large-binary-evidence.bin');
+    writeFileSync(largeBinaryPath, Buffer.alloc(0));
+    truncateSync(largeBinaryPath, 8 * 1024 * 1024);
+    const first = await computeCanonicalGitWorktreeEvidence(root);
+    writeFileSync(largeBinaryPath, Buffer.from([0x00, 0xff, 0x80, 0x00]), { flag: 'r+' });
+    const changed = await computeCanonicalGitWorktreeEvidence(root);
+
+    assert.notEqual(changed.contentSha256, first.contentSha256);
+  });
+
+  void it('binds an untracked symlink target and canonical 120000 mode', async () => {
+    const root = fixture();
+    const linkPath = join(root, 'evidence-link');
+    symlinkSync('first-target', linkPath);
+    const firstTarget = await computeCanonicalGitWorktreeEvidence(root);
+    rmSync(linkPath);
+    writeFileSync(linkPath, 'first-target', 'utf8');
+    const regularFile = await computeCanonicalGitWorktreeEvidence(root);
+    rmSync(linkPath);
+    symlinkSync('second-target', linkPath);
+    const secondTarget = await computeCanonicalGitWorktreeEvidence(root);
+
+    assert.notEqual(regularFile.contentSha256, firstTarget.contentSha256);
+    assert.notEqual(secondTarget.contentSha256, firstTarget.contentSha256);
+  });
+
+  void it('rejects a torn byte snapshot even when path-level dirty status is unchanged', async () => {
+    const root = fixture();
+    const trackedPath = join(root, 'tracked', 'payload.txt');
+    writeFileSync(trackedPath, 'first dirty generation\n', 'utf8');
+
+    await assert.rejects(
+      computeCanonicalGitWorktreeEvidence(root, {
+        beforeSnapshotVerification: () => {
+          writeFileSync(trackedPath, 'other dirty generation\n', 'utf8');
+        },
+      }),
+      (error: unknown) =>
+        error instanceof Error && 'code' in error && error.code === 'DIRTY_SNAPSHOT_MOVED',
+    );
   });
 
   void it('separates content identity from repository substrate identity', async () => {

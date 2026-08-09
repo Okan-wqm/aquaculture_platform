@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   closeSync,
   constants,
@@ -12,6 +12,7 @@ import {
   type BigIntStats,
 } from 'node:fs';
 import { basename, dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { TextDecoder } from 'node:util';
 
 const fatalUtf8Decoder = new TextDecoder('utf-8', { fatal: true });
@@ -86,9 +87,18 @@ export interface HermeticExecutableContractV1 {
   readonly label: string;
   readonly versionArgs: readonly string[];
   readonly versionEnvironment: Readonly<NodeJS.ProcessEnv>;
+  readonly executionPolicy: HermeticExecutableExecutionPolicyV1;
   readonly maximumBytes: number;
   readonly maximumVersionBytes: number;
 }
+
+export interface HermeticExecutableExecutionPolicyV1 {
+  readonly schemaVersion: 1;
+  readonly commandDeadlineMs: number;
+  readonly timeoutSignal: 'SIGKILL';
+}
+
+export type HermeticExecutableExecutionPhaseV1 = 'VERSION_PROBE' | 'COMMAND';
 
 export interface HermeticExecutableAttestationV1 {
   readonly binaryPath: string;
@@ -128,12 +138,202 @@ export class AnchoredFilesystemError extends Error {
   }
 }
 
+export class HermeticExecutableExecutionTimeoutError extends Error {
+  public readonly code = 'HERMETIC_EXECUTABLE_EXECUTION_TIMEOUT' as const;
+
+  public constructor(
+    public readonly executableLabel: string,
+    public readonly phase: HermeticExecutableExecutionPhaseV1,
+    public readonly commandDeadlineMs: number,
+    public readonly timeoutSignal: 'SIGKILL',
+  ) {
+    super(
+      `${executableLabel} ${phase} exceeded its ${String(commandDeadlineMs)}ms execution deadline`,
+    );
+    this.name = 'HermeticExecutableExecutionTimeoutError';
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+function assertHermeticExecutableExecutionPolicyV1(
+  policy: HermeticExecutableExecutionPolicyV1,
+): void {
+  if (policy.schemaVersion !== 1) {
+    throw new Error('Hermetic executable execution policy must use schemaVersion 1');
+  }
+  if (!Number.isSafeInteger(policy.commandDeadlineMs) || policy.commandDeadlineMs <= 0) {
+    throw new Error('Hermetic executable commandDeadlineMs must be one positive safe integer');
+  }
+  if (policy.timeoutSignal !== 'SIGKILL') {
+    throw new Error('Hermetic executable timeoutSignal must be SIGKILL');
+  }
+}
+
+export function defineHermeticExecutableExecutionPolicyV1(
+  policy: HermeticExecutableExecutionPolicyV1,
+): Readonly<HermeticExecutableExecutionPolicyV1> {
+  const canonicalPolicy: HermeticExecutableExecutionPolicyV1 = {
+    schemaVersion: policy.schemaVersion,
+    commandDeadlineMs: policy.commandDeadlineMs,
+    timeoutSignal: policy.timeoutSignal,
+  };
+  assertHermeticExecutableExecutionPolicyV1(canonicalPolicy);
+  return Object.freeze(canonicalPolicy);
+}
+
+function requireImmutableHermeticExecutableExecutionPolicyV1(
+  policy: HermeticExecutableExecutionPolicyV1,
+): Readonly<HermeticExecutableExecutionPolicyV1> {
+  if (!Object.isFrozen(policy)) {
+    throw new Error('Hermetic executable execution policy must be immutable');
+  }
+  return defineHermeticExecutableExecutionPolicyV1(policy);
+}
+
 function errorCode(error: unknown): string | undefined {
   if (typeof error === 'object' && error !== null && 'code' in error) {
     const code = error.code;
     return typeof code === 'string' ? code : undefined;
   }
   return undefined;
+}
+
+function isStableCurrentnessTopologyError(error: unknown): boolean {
+  const code = errorCode(error);
+  return code === 'ENOENT' || code === 'ENOTDIR' || code === 'ELOOP';
+}
+
+function stableCurrentnessError(
+  code: Extract<
+    AnchoredFilesystemErrorCode,
+    | 'STABLE_REGULAR_FILE_CHANGED'
+    | 'STABLE_DIRECTORY_CHANGED'
+    | 'STABLE_DIRECTORY_CONTENT_CHANGED'
+    | 'STABLE_PATH_KIND_CHANGED'
+  >,
+  path: string,
+  label: string,
+  cause: unknown,
+): AnchoredFilesystemError {
+  const failure = new AnchoredFilesystemError(
+    code,
+    `${label}: expected filesystem topology changed: ${path}`,
+    path,
+  );
+  Object.defineProperty(failure, 'cause', {
+    configurable: true,
+    enumerable: false,
+    value: cause,
+    writable: true,
+  });
+  return failure;
+}
+
+function runStableCurrentnessCheck<T>(
+  code: Extract<
+    AnchoredFilesystemErrorCode,
+    | 'STABLE_REGULAR_FILE_CHANGED'
+    | 'STABLE_DIRECTORY_CHANGED'
+    | 'STABLE_DIRECTORY_CONTENT_CHANGED'
+    | 'STABLE_PATH_KIND_CHANGED'
+  >,
+  path: string,
+  label: string,
+  action: () => T,
+): T {
+  try {
+    return action();
+  } catch (error) {
+    if (error instanceof AnchoredFilesystemError) throw error;
+    if (isStableCurrentnessTopologyError(error)) {
+      throw stableCurrentnessError(code, path, label, error);
+    }
+    throw error;
+  }
+}
+
+function assertCurrentLexicalKind(
+  path: string,
+  expectedKind: 'FILE' | 'DIRECTORY',
+  code:
+    | 'STABLE_REGULAR_FILE_CHANGED'
+    | 'STABLE_DIRECTORY_CHANGED'
+    | 'STABLE_DIRECTORY_CONTENT_CHANGED',
+  label: string,
+): void {
+  const lexical = lstatSync(path, { bigint: true });
+  const kindMatches = expectedKind === 'FILE' ? lexical.isFile() : lexical.isDirectory();
+  if (lexical.isSymbolicLink() || !kindMatches) {
+    throw stableCurrentnessError(code, path, label, new Error(`expected ${expectedKind}`));
+  }
+}
+
+function cleanupFailure(message: string, error: unknown): Error {
+  if (error instanceof Error) return error;
+  const wrapped = new Error(message);
+  Object.defineProperty(wrapped, 'cause', {
+    configurable: true,
+    enumerable: false,
+    value: error,
+    writable: true,
+  });
+  return wrapped;
+}
+
+function runWithAnchoredCleanup<T>(label: string, action: () => T, cleanup: () => void): T {
+  let outcome:
+    | { readonly status: 'SUCCESS'; readonly value: T }
+    | { readonly status: 'FAILURE'; readonly error: unknown };
+  try {
+    outcome = { status: 'SUCCESS', value: action() };
+  } catch (error) {
+    outcome = { status: 'FAILURE', error };
+  }
+  let cleanupError: unknown;
+  try {
+    cleanup();
+  } catch (error) {
+    cleanupError = error;
+  }
+  if (outcome.status === 'FAILURE' && cleanupError !== undefined) {
+    throw new AggregateError(
+      [
+        cleanupFailure(`${label} action failed`, outcome.error),
+        cleanupFailure(`${label} cleanup failed`, cleanupError),
+      ],
+      `${label} action and cleanup both failed`,
+    );
+  }
+  if (outcome.status === 'FAILURE') {
+    throw cleanupFailure(`${label} action failed`, outcome.error);
+  }
+  if (cleanupError !== undefined) {
+    throw cleanupFailure(`${label} cleanup failed`, cleanupError);
+  }
+  return outcome.value;
+}
+
+function closeAnchoredDirectoryComponents(
+  components: readonly AnchoredDirectoryComponentV1[],
+): void {
+  const failures: Error[] = [];
+  for (const component of [...components].reverse()) {
+    try {
+      closeSync(component.descriptor);
+    } catch (error) {
+      failures.push(
+        cleanupFailure(`Failed to close directory descriptor ${component.path}`, error),
+      );
+    }
+  }
+  const [onlyFailure] = failures;
+  if (failures.length === 1 && onlyFailure !== undefined) throw onlyFailure;
+  if (failures.length > 1) {
+    throw new AggregateError(
+      failures,
+      `Failed to close ${String(failures.length)} directory descriptors`,
+    );
+  }
 }
 
 function requireCanonicalAbsolutePath(path: string, label: string): string {
@@ -209,7 +409,15 @@ function assertDescriptorMatchesLexicalPath(
   expectedKind: 'FILE' | 'DIRECTORY',
   label: string,
 ): void {
-  const lexical = lstatSync(path, { bigint: true });
+  let lexical: BigIntStats;
+  try {
+    lexical = lstatSync(path, { bigint: true });
+  } catch (error) {
+    if (isStableCurrentnessTopologyError(error)) {
+      throw stableCurrentnessError('STABLE_PATH_KIND_CHANGED', path, label, error);
+    }
+    throw error;
+  }
   const kindMatches =
     expectedKind === 'FILE' ? descriptorStat.isFile() : descriptorStat.isDirectory();
   const lexicalKindMatches = expectedKind === 'FILE' ? lexical.isFile() : lexical.isDirectory();
@@ -226,14 +434,19 @@ function assertDescriptorMatchesLexicalPath(
     !lexicalKindMatches ||
     !sameIdentity
   ) {
-    throw new Error(`${label} changed while its descriptor chain opened: ${path}`);
+    throw stableCurrentnessError(
+      'STABLE_PATH_KIND_CHANGED',
+      path,
+      label,
+      new Error('descriptor and lexical path identities differ'),
+    );
   }
 }
 
 export function openAnchoredDirectoryChain(
   directoryPath: string,
   label: string,
-  afterComponentDescriptorOpen: (componentPath: string) => void = () => {},
+  afterComponentDescriptorOpen: (componentPath: string) => void = () => undefined,
 ): AnchoredDirectoryChainV1 {
   const canonicalPath = requireCanonicalAbsolutePath(directoryPath, label);
   const root = parse(canonicalPath).root;
@@ -241,19 +454,35 @@ export function openAnchoredDirectoryChain(
   const components: AnchoredDirectoryComponentV1[] = [];
   try {
     let componentPath = root;
-    let descriptor = openSync(
+    const rootDescriptor = openSync(
       root,
       constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
     );
-    let descriptorStat = fstatSync(descriptor, { bigint: true });
-    afterComponentDescriptorOpen(componentPath);
-    assertDescriptorMatchesLexicalPath(componentPath, descriptorStat, 'DIRECTORY', `${label} root`);
-    components.push(
-      Object.freeze({
-        path: componentPath,
-        descriptor,
-        generation: anchoredPathGeneration(descriptorStat),
-      }),
+    let descriptor = rootDescriptor;
+    let rootRetained = false;
+    runWithAnchoredCleanup(
+      `${label} root descriptor construction`,
+      () => {
+        const descriptorStat = fstatSync(rootDescriptor, { bigint: true });
+        afterComponentDescriptorOpen(componentPath);
+        assertDescriptorMatchesLexicalPath(
+          componentPath,
+          descriptorStat,
+          'DIRECTORY',
+          `${label} root`,
+        );
+        components.push(
+          Object.freeze({
+            path: componentPath,
+            descriptor: rootDescriptor,
+            generation: anchoredPathGeneration(descriptorStat),
+          }),
+        );
+        rootRetained = true;
+      },
+      () => {
+        if (!rootRetained) closeSync(rootDescriptor);
+      },
     );
     for (const segment of segments) {
       componentPath = join(componentPath, segment);
@@ -288,21 +517,25 @@ export function openAnchoredDirectoryChain(
         throw error;
       }
       let retained = false;
-      try {
-        descriptorStat = fstatSync(descriptor, { bigint: true });
-        afterComponentDescriptorOpen(componentPath);
-        assertDescriptorMatchesLexicalPath(componentPath, descriptorStat, 'DIRECTORY', label);
-        components.push(
-          Object.freeze({
-            path: componentPath,
-            descriptor,
-            generation: anchoredPathGeneration(descriptorStat),
-          }),
-        );
-        retained = true;
-      } finally {
-        if (!retained) closeSync(descriptor);
-      }
+      runWithAnchoredCleanup(
+        `${label} component descriptor construction`,
+        () => {
+          const descriptorStat = fstatSync(descriptor, { bigint: true });
+          afterComponentDescriptorOpen(componentPath);
+          assertDescriptorMatchesLexicalPath(componentPath, descriptorStat, 'DIRECTORY', label);
+          components.push(
+            Object.freeze({
+              path: componentPath,
+              descriptor,
+              generation: anchoredPathGeneration(descriptorStat),
+            }),
+          );
+          retained = true;
+        },
+        () => {
+          if (!retained) closeSync(descriptor);
+        },
+      );
     }
     const final = components.at(-1);
     if (final === undefined) {
@@ -314,7 +547,17 @@ export function openAnchoredDirectoryChain(
       components: Object.freeze(components),
     });
   } catch (error) {
-    for (const component of [...components].reverse()) closeSync(component.descriptor);
+    try {
+      closeAnchoredDirectoryComponents(components);
+    } catch (closeError) {
+      throw new AggregateError(
+        [
+          cleanupFailure(`${label} descriptor-chain construction failed`, error),
+          cleanupFailure(`${label} descriptor-chain cleanup failed`, closeError),
+        ],
+        `${label} descriptor-chain construction and cleanup both failed`,
+      );
+    }
     throw error;
   }
 }
@@ -332,7 +575,15 @@ export function assertAnchoredDirectoryChainIdentityCurrent(
 ): void {
   for (const component of chain.components) {
     const descriptorStat = fstatSync(component.descriptor, { bigint: true });
-    const lexical = lstatSync(component.path, { bigint: true });
+    let lexical: BigIntStats;
+    try {
+      lexical = lstatSync(component.path, { bigint: true });
+    } catch (error) {
+      if (isStableCurrentnessTopologyError(error)) {
+        throw stableCurrentnessError('STABLE_DIRECTORY_CHANGED', component.path, label, error);
+      }
+      throw error;
+    }
     const descriptorGeneration = anchoredPathGeneration(descriptorStat);
     const lexicalGeneration = anchoredPathGeneration(lexical);
     if (
@@ -343,13 +594,18 @@ export function assertAnchoredDirectoryChainIdentityCurrent(
       !sameAnchoredDirectoryIdentity(component.generation, descriptorGeneration) ||
       !sameAnchoredDirectoryIdentity(component.generation, lexicalGeneration)
     ) {
-      throw new Error(`${label} descriptor-chain identity changed: ${component.path}`);
+      throw stableCurrentnessError(
+        'STABLE_DIRECTORY_CHANGED',
+        component.path,
+        label,
+        new Error('descriptor-chain identity differs'),
+      );
     }
   }
 }
 
 export function closeAnchoredDirectoryChain(chain: AnchoredDirectoryChainV1): void {
-  for (const component of [...chain.components].reverse()) closeSync(component.descriptor);
+  closeAnchoredDirectoryComponents(chain.components);
 }
 
 function readDescriptorBytes(
@@ -385,41 +641,47 @@ export function observeStableRegularFile(
   filePath: string,
   maximumBytes: number,
   label: string,
-  afterDescriptorOpen: () => void = () => {},
+  afterDescriptorOpen: () => void = () => undefined,
 ): StableRegularFileObservationV1 {
   const canonicalPath = requireCanonicalAbsolutePath(filePath, label);
   const parent = openAnchoredDirectoryChain(dirname(canonicalPath), `${label} parent`);
-  try {
-    const descriptorPath = `/proc/self/fd/${String(parent.descriptor)}/${basename(canonicalPath)}`;
-    const descriptor = openSync(descriptorPath, constants.O_RDONLY | constants.O_NOFOLLOW);
-    try {
-      afterDescriptorOpen();
-      const before = fstatSync(descriptor, { bigint: true });
-      assertDescriptorMatchesLexicalPath(canonicalPath, before, 'FILE', label);
-      const content = readDescriptorBytes(descriptor, before.size, maximumBytes, label);
-      const after = fstatSync(descriptor, { bigint: true });
-      const lexicalAfter = lstatSync(canonicalPath, { bigint: true });
-      assertAnchoredDirectoryChainIdentityCurrent(parent, `${label} parent`);
-      if (
-        !sameBigIntFileObservation(before, after) ||
-        !sameBigIntFileObservation(before, lexicalAfter)
-      ) {
-        throw new Error(`${label} changed during its descriptor-anchored read: ${canonicalPath}`);
-      }
-      return Object.freeze({
-        path: canonicalPath,
-        content,
-        sha256: createHash('sha256').update(content).digest('hex'),
-        stat: after,
-        generation: anchoredPathGeneration(after),
-        parentGenerations: frozenParentGenerations(parent),
-      });
-    } finally {
-      closeSync(descriptor);
-    }
-  } finally {
-    closeAnchoredDirectoryChain(parent);
-  }
+  return runWithAnchoredCleanup(
+    `${label} regular-file observation`,
+    () => {
+      const descriptorPath = `/proc/self/fd/${String(parent.descriptor)}/${basename(canonicalPath)}`;
+      const descriptor = openSync(descriptorPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+      return runWithAnchoredCleanup(
+        `${label} regular-file descriptor`,
+        () => {
+          afterDescriptorOpen();
+          const before = fstatSync(descriptor, { bigint: true });
+          assertDescriptorMatchesLexicalPath(canonicalPath, before, 'FILE', label);
+          const content = readDescriptorBytes(descriptor, before.size, maximumBytes, label);
+          const after = fstatSync(descriptor, { bigint: true });
+          const lexicalAfter = lstatSync(canonicalPath, { bigint: true });
+          assertAnchoredDirectoryChainIdentityCurrent(parent, `${label} parent`);
+          if (
+            !sameBigIntFileObservation(before, after) ||
+            !sameBigIntFileObservation(before, lexicalAfter)
+          ) {
+            throw new Error(
+              `${label} changed during its descriptor-anchored read: ${canonicalPath}`,
+            );
+          }
+          return Object.freeze({
+            path: canonicalPath,
+            content,
+            sha256: createHash('sha256').update(content).digest('hex'),
+            stat: after,
+            generation: anchoredPathGeneration(after),
+            parentGenerations: frozenParentGenerations(parent),
+          });
+        },
+        () => closeSync(descriptor),
+      );
+    },
+    () => closeAnchoredDirectoryChain(parent),
+  );
 }
 
 export function sameStableParentIdentities(
@@ -444,19 +706,22 @@ export function assertStableRegularFileCurrent(
   maximumBytes: number,
   label: string,
 ): void {
-  const current = observeStableRegularFile(expected.path, maximumBytes, label);
-  if (
-    !sameAnchoredPathGeneration(expected.generation, current.generation) ||
-    !sameStableParentIdentities(expected.parentGenerations, current.parentGenerations) ||
-    expected.sha256 !== current.sha256 ||
-    !expected.content.equals(current.content)
-  ) {
-    throw new AnchoredFilesystemError(
-      'STABLE_REGULAR_FILE_CHANGED',
-      `${label} generation or bytes changed: ${expected.path}`,
-      expected.path,
-    );
-  }
+  runStableCurrentnessCheck('STABLE_REGULAR_FILE_CHANGED', expected.path, label, () => {
+    assertCurrentLexicalKind(expected.path, 'FILE', 'STABLE_REGULAR_FILE_CHANGED', label);
+    const current = observeStableRegularFile(expected.path, maximumBytes, label);
+    if (
+      !sameAnchoredPathGeneration(expected.generation, current.generation) ||
+      !sameStableParentIdentities(expected.parentGenerations, current.parentGenerations) ||
+      expected.sha256 !== current.sha256 ||
+      !expected.content.equals(current.content)
+    ) {
+      throw new AnchoredFilesystemError(
+        'STABLE_REGULAR_FILE_CHANGED',
+        `${label} generation or bytes changed: ${expected.path}`,
+        expected.path,
+      );
+    }
+  });
 }
 
 function decodeDirectoryEntryName(name: Buffer, label: string): string {
@@ -483,64 +748,69 @@ export function observeStableDirectory(
   includeEntries: boolean,
 ): StableDirectoryObservationV1 {
   const chain = openAnchoredDirectoryChain(directoryPath, label);
-  try {
-    const before = fstatSync(chain.descriptor, { bigint: true });
-    const entries = includeEntries
-      ? readdirSync(`/proc/self/fd/${String(chain.descriptor)}`, {
-          encoding: 'buffer',
-          withFileTypes: true,
-        })
-          .map((entry) =>
-            Object.freeze({
-              name: decodeDirectoryEntryName(entry.name, label),
-              kind: stableDirectoryEntryKind(entry),
-            }),
-          )
-          .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
-      : null;
-    const after = fstatSync(chain.descriptor, { bigint: true });
-    assertAnchoredDirectoryChainIdentityCurrent(chain, label);
-    const sameDirectory = includeEntries
-      ? sameBigIntFileObservation(before, after)
-      : sameAnchoredDirectoryIdentity(
-          anchoredPathGeneration(before),
-          anchoredPathGeneration(after),
-        );
-    if (!sameDirectory) {
-      throw new Error(`${label} changed while its directory entries were observed`);
-    }
-    return Object.freeze({
-      path: chain.path,
-      stat: after,
-      generation: anchoredPathGeneration(after),
-      parentGenerations: frozenParentGenerations(chain),
-      entries: entries === null ? null : Object.freeze(entries),
-    });
-  } finally {
-    closeAnchoredDirectoryChain(chain);
-  }
+  return runWithAnchoredCleanup(
+    `${label} directory observation`,
+    () => {
+      const before = fstatSync(chain.descriptor, { bigint: true });
+      const entries = includeEntries
+        ? readdirSync(`/proc/self/fd/${String(chain.descriptor)}`, {
+            encoding: 'buffer',
+            withFileTypes: true,
+          })
+            .map((entry) =>
+              Object.freeze({
+                name: decodeDirectoryEntryName(entry.name, label),
+                kind: stableDirectoryEntryKind(entry),
+              }),
+            )
+            .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
+        : null;
+      const after = fstatSync(chain.descriptor, { bigint: true });
+      assertAnchoredDirectoryChainIdentityCurrent(chain, label);
+      const sameDirectory = includeEntries
+        ? sameBigIntFileObservation(before, after)
+        : sameAnchoredDirectoryIdentity(
+            anchoredPathGeneration(before),
+            anchoredPathGeneration(after),
+          );
+      if (!sameDirectory) {
+        throw new Error(`${label} changed while its directory entries were observed`);
+      }
+      return Object.freeze({
+        path: chain.path,
+        stat: after,
+        generation: anchoredPathGeneration(after),
+        parentGenerations: frozenParentGenerations(chain),
+        entries: entries === null ? null : Object.freeze(entries),
+      });
+    },
+    () => closeAnchoredDirectoryChain(chain),
+  );
 }
 
 export function assertStableDirectoryCurrent(
   expected: StableDirectoryObservationV1,
   label: string,
 ): void {
-  const current = observeStableDirectory(expected.path, label, expected.entries !== null);
-  const sameDirectory =
-    expected.entries === null
-      ? sameAnchoredDirectoryIdentity(expected.generation, current.generation)
-      : sameAnchoredPathGeneration(expected.generation, current.generation);
-  if (
-    !sameDirectory ||
-    !sameStableParentIdentities(expected.parentGenerations, current.parentGenerations) ||
-    JSON.stringify(expected.entries) !== JSON.stringify(current.entries)
-  ) {
-    throw new AnchoredFilesystemError(
-      'STABLE_DIRECTORY_CHANGED',
-      `${label}: directory generation changed or entry set changed: ${expected.path}`,
-      expected.path,
-    );
-  }
+  runStableCurrentnessCheck('STABLE_DIRECTORY_CHANGED', expected.path, label, () => {
+    assertCurrentLexicalKind(expected.path, 'DIRECTORY', 'STABLE_DIRECTORY_CHANGED', label);
+    const current = observeStableDirectory(expected.path, label, expected.entries !== null);
+    const sameDirectory =
+      expected.entries === null
+        ? sameAnchoredDirectoryIdentity(expected.generation, current.generation)
+        : sameAnchoredPathGeneration(expected.generation, current.generation);
+    if (
+      !sameDirectory ||
+      !sameStableParentIdentities(expected.parentGenerations, current.parentGenerations) ||
+      JSON.stringify(expected.entries) !== JSON.stringify(current.entries)
+    ) {
+      throw new AnchoredFilesystemError(
+        'STABLE_DIRECTORY_CHANGED',
+        `${label}: directory generation changed or entry set changed: ${expected.path}`,
+        expected.path,
+      );
+    }
+  });
 }
 
 /**
@@ -552,17 +822,20 @@ export function assertStableDirectoryContentGenerationCurrent(
   expected: StableDirectoryObservationV1,
   label: string,
 ): void {
-  const current = observeStableDirectory(expected.path, label, false);
-  if (
-    !sameAnchoredPathGeneration(expected.generation, current.generation) ||
-    !sameStableParentIdentities(expected.parentGenerations, current.parentGenerations)
-  ) {
-    throw new AnchoredFilesystemError(
-      'STABLE_DIRECTORY_CONTENT_CHANGED',
-      `${label}: directory content generation changed: ${expected.path}`,
-      expected.path,
-    );
-  }
+  runStableCurrentnessCheck('STABLE_DIRECTORY_CONTENT_CHANGED', expected.path, label, () => {
+    assertCurrentLexicalKind(expected.path, 'DIRECTORY', 'STABLE_DIRECTORY_CONTENT_CHANGED', label);
+    const current = observeStableDirectory(expected.path, label, false);
+    if (
+      !sameAnchoredPathGeneration(expected.generation, current.generation) ||
+      !sameStableParentIdentities(expected.parentGenerations, current.parentGenerations)
+    ) {
+      throw new AnchoredFilesystemError(
+        'STABLE_DIRECTORY_CONTENT_CHANGED',
+        `${label}: directory content generation changed: ${expected.path}`,
+        expected.path,
+      );
+    }
+  });
 }
 
 export function observeAnchoredPathKind(path: string, label: string): AnchoredPathKindV1 {
@@ -574,31 +847,42 @@ export function observeAnchoredPathKind(path: string, label: string): AnchoredPa
     if (errorCode(error) === 'ENOENT' || errorCode(error) === 'ENOTDIR') return 'MISSING';
     throw error;
   }
-  try {
-    const descriptorPath = `/proc/self/fd/${String(parent.descriptor)}/${basename(canonicalPath)}`;
-    let descriptorStat: BigIntStats;
-    let lexicalStat: BigIntStats;
-    try {
-      descriptorStat = lstatSync(descriptorPath, { bigint: true });
-      lexicalStat = lstatSync(canonicalPath, { bigint: true });
-    } catch (error) {
-      if (errorCode(error) === 'ENOENT' || errorCode(error) === 'ENOTDIR') {
-        assertAnchoredDirectoryChainIdentityCurrent(parent, `${label} parent`);
-        return 'MISSING';
+  return runWithAnchoredCleanup(
+    `${label} path-kind observation`,
+    () => {
+      const descriptorPath = `/proc/self/fd/${String(parent.descriptor)}/${basename(canonicalPath)}`;
+      let descriptorStat: BigIntStats;
+      let lexicalStat: BigIntStats;
+      try {
+        descriptorStat = lstatSync(descriptorPath, { bigint: true });
+        lexicalStat = lstatSync(canonicalPath, { bigint: true });
+      } catch (error) {
+        if (errorCode(error) === 'ENOENT' || errorCode(error) === 'ENOTDIR') {
+          assertAnchoredDirectoryChainIdentityCurrent(parent, `${label} parent`);
+          return 'MISSING';
+        }
+        throw error;
       }
-      throw error;
-    }
-    assertAnchoredDirectoryChainIdentityCurrent(parent, `${label} parent`);
-    if (!sameBigIntFileObservation(descriptorStat, lexicalStat)) {
-      throw new Error(`${label} path generation differs from its parent anchor: ${canonicalPath}`);
-    }
-    if (descriptorStat.isSymbolicLink()) throw new Error(`${label} is symlinked: ${canonicalPath}`);
-    if (descriptorStat.isFile()) return 'FILE';
-    if (descriptorStat.isDirectory()) return 'DIRECTORY';
-    throw new Error(`${label} is an unsupported filesystem object: ${canonicalPath}`);
-  } finally {
-    closeAnchoredDirectoryChain(parent);
-  }
+      assertAnchoredDirectoryChainIdentityCurrent(parent, `${label} parent`);
+      if (!sameBigIntFileObservation(descriptorStat, lexicalStat)) {
+        throw new Error(
+          `${label} path generation differs from its parent anchor: ${canonicalPath}`,
+        );
+      }
+      if (descriptorStat.isSymbolicLink()) {
+        throw stableCurrentnessError(
+          'STABLE_PATH_KIND_CHANGED',
+          canonicalPath,
+          label,
+          new Error('path is symlinked'),
+        );
+      }
+      if (descriptorStat.isFile()) return 'FILE';
+      if (descriptorStat.isDirectory()) return 'DIRECTORY';
+      throw new Error(`${label} is an unsupported filesystem object: ${canonicalPath}`);
+    },
+    () => closeAnchoredDirectoryChain(parent),
+  );
 }
 
 export function observeStablePathKind(path: string, label: string): StablePathKindObservationV1 {
@@ -702,8 +986,15 @@ function assertTrustedExecutableParents(
 
 export function openHermeticExecutableAuthority(
   contract: HermeticExecutableContractV1,
+  operationDeadlineMs?: number,
 ): HermeticExecutableAuthorityV1 {
   const canonicalPath = requireCanonicalAbsolutePath(contract.path, `${contract.label} path`);
+  const executionPolicy = requireImmutableHermeticExecutableExecutionPolicyV1(
+    contract.executionPolicy,
+  );
+  if (operationDeadlineMs !== undefined && !Number.isFinite(operationDeadlineMs)) {
+    throw new TypeError('Hermetic executable operation deadline must be one finite timestamp');
+  }
   if (realpathSync(canonicalPath) !== canonicalPath) {
     throw new Error(`${contract.label} path is not canonical: ${canonicalPath}`);
   }
@@ -730,12 +1021,48 @@ export function openHermeticExecutableAuthority(
     }
     const executableDescriptorPath = `/proc/self/fd/${String(descriptor)}`;
     const argv0 = basename(canonicalPath);
+    const versionCommandDeadlineMs =
+      operationDeadlineMs === undefined
+        ? executionPolicy.commandDeadlineMs
+        : Math.min(
+            executionPolicy.commandDeadlineMs,
+            Math.floor(operationDeadlineMs - performance.now()),
+          );
+    if (versionCommandDeadlineMs < 1) {
+      throw new HermeticExecutableExecutionTimeoutError(
+        contract.label,
+        'VERSION_PROBE',
+        1,
+        executionPolicy.timeoutSignal,
+      );
+    }
     const versionResult = spawnSync(executableDescriptorPath, [...contract.versionArgs], {
       argv0,
       encoding: 'utf8',
       env: contract.versionEnvironment,
       maxBuffer: contract.maximumVersionBytes,
+      timeout: versionCommandDeadlineMs,
+      killSignal: executionPolicy.timeoutSignal,
     });
+    if (errorCode(versionResult.error) === 'ETIMEDOUT') {
+      throw new HermeticExecutableExecutionTimeoutError(
+        contract.label,
+        'VERSION_PROBE',
+        versionCommandDeadlineMs,
+        executionPolicy.timeoutSignal,
+      );
+    }
+    if (
+      operationDeadlineMs !== undefined &&
+      Math.floor(operationDeadlineMs - performance.now()) < 1
+    ) {
+      throw new HermeticExecutableExecutionTimeoutError(
+        contract.label,
+        'VERSION_PROBE',
+        versionCommandDeadlineMs,
+        executionPolicy.timeoutSignal,
+      );
+    }
     if (
       versionResult.error !== undefined ||
       versionResult.signal !== null ||
@@ -755,7 +1082,6 @@ export function openHermeticExecutableAuthority(
       generation,
     });
     const retainedDescriptor = descriptor;
-    descriptor = null;
     let closed = false;
     const assertCurrent = (): void => {
       if (closed) throw new Error(`${contract.label} authority is closed`);
@@ -773,8 +1099,7 @@ export function openHermeticExecutableAuthority(
         throw new Error(`${contract.label} differs from its descriptor-bound attestation`);
       }
     };
-    assertCurrent();
-    return Object.freeze({
+    const authority = Object.freeze({
       attestation,
       descriptorPath: `/proc/self/fd/${String(retainedDescriptor)}`,
       argv0,
@@ -782,13 +1107,52 @@ export function openHermeticExecutableAuthority(
       close: (): void => {
         if (closed) throw new Error(`${contract.label} authority is already closed`);
         closed = true;
-        closeSync(retainedDescriptor);
-        closeAnchoredDirectoryChain(parent);
+        const failures: Error[] = [];
+        try {
+          closeSync(retainedDescriptor);
+        } catch (error) {
+          failures.push(cleanupFailure(`${contract.label} descriptor close failed`, error));
+        }
+        try {
+          closeAnchoredDirectoryChain(parent);
+        } catch (error) {
+          failures.push(cleanupFailure(`${contract.label} parent close failed`, error));
+        }
+        const [onlyFailure] = failures;
+        if (failures.length === 1 && onlyFailure !== undefined) throw onlyFailure;
+        if (failures.length > 1) {
+          throw new AggregateError(failures, `${contract.label} authority cleanup failed`);
+        }
       },
     });
+    assertCurrent();
+    descriptor = null;
+    return authority;
   } catch (error) {
-    if (descriptor !== null) closeSync(descriptor);
-    closeAnchoredDirectoryChain(parent);
+    const cleanupFailures: Error[] = [];
+    if (descriptor !== null) {
+      try {
+        closeSync(descriptor);
+      } catch (closeError) {
+        cleanupFailures.push(
+          cleanupFailure(`${contract.label} descriptor cleanup failed`, closeError),
+        );
+      }
+    }
+    try {
+      closeAnchoredDirectoryChain(parent);
+    } catch (closeError) {
+      cleanupFailures.push(cleanupFailure(`${contract.label} parent cleanup failed`, closeError));
+    }
+    if (cleanupFailures.length > 0) {
+      throw new AggregateError(
+        [
+          cleanupFailure(`${contract.label} authority construction failed`, error),
+          ...cleanupFailures,
+        ],
+        `${contract.label} authority construction and cleanup both failed`,
+      );
+    }
     throw error;
   }
 }

@@ -55,8 +55,9 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
+import { performance } from 'node:perf_hooks';
 
 // The .js extension on the ajv specifier survives both module systems
 // (it is a real file in node_modules); ts-jest interop in the Jest
@@ -64,6 +65,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path';
 import Ajv2020, { type ValidateFunction } from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
 
+import { ariaAuthorityFilesAtRevision } from './aria-authority-hash';
 // PROC-HIGH-001 structural guard — close ceremony refuses branch-local
 // SHAs (see cmdClose). The shared SSOT helper is import-safe for
 // node:test specs, which use the same extensionless CJS specifier.
@@ -71,36 +73,43 @@ import { findNonCanonicalFindingEvidence } from './finding-evidence-shape';
 import {
   atomicWriteFindingReservationFile,
   atomicWriteRegistryFile,
+  FINDING_WRITER_REGISTRY_LOCK_POLICY_V1,
   listAtomicWriteStagingFiles,
   nextFindingId,
   orphanMarkdownReservedIdsFromText,
   recoverGovernedFindingStagingFiles,
   RegistryLockError,
+  withFindingWriterKernelLockAsync,
   type RegistryLockLease,
-  withRegistryFileLock,
 } from './finding-registry-store';
 import { commitHasFindingCloseTrailer } from './finding-traceability';
 import { commitReachableFrom } from './git-reachability';
 import {
   acquireRepositoryMutationAuthority,
-  assertRepositoryMutationAuthority,
   type RegistryMutationOperation,
   type RepositoryMutationAuthority,
 } from './github-actions-oidc-authority';
 import {
-  deriveRawFindingIdFloors,
-  parseFindingRegistrySchemaContract,
-} from './lib/finding-registry-schema-contract';
-import { HERMETIC_GIT_RUNTIME } from './lib/hermetic-git-runtime';
-import { parseWorktreeList } from './lib/registered-common-dir-discovery';
-import {
   assertStableRegularFileCurrent,
   decodeFatalUtf8,
+  observeStablePathKind,
   observeStableRegularFile,
   sameStableParentIdentities,
   type StableRegularFileObservationV1,
 } from './lib/anchored-filesystem';
 import { FINDING_REGISTRY_RELATIVE_PATH } from './lib/finding-authority-target-catalog';
+import {
+  deriveRawFindingIdFloors,
+  parseFindingRegistrySchemaContract,
+} from './lib/finding-registry-schema-contract';
+import {
+  createFindingWriterRepositorySnapshot,
+  FINDING_WRITER_AUTHORITY_PATH,
+  FINDING_WRITER_PROTOCOL_ID,
+  FINDING_WRITER_RETIRED_MUTATION_SURFACES,
+  type FindingWriterRepositorySnapshot,
+  verifyFindingWriterProtocolManifest,
+} from './lib/finding-registry-writer-authority';
 import {
   admitFindingWriterCliInvocation,
   findingWriterCliOperationNames,
@@ -108,9 +117,12 @@ import {
 } from './lib/finding-writer-cli-contract';
 import {
   assertFindingWriterFenceAuthority,
-  assertFindingWriterFenceCurrent,
   consumeFindingWriterFenceSnapshot,
   createFindingWriterFenceSnapshot,
+  defineFindingWriterWorktreeTopologyV1,
+  FindingWriterFenceGenerationMismatchError,
+  FindingWriterFenceStaleError,
+  isAuthenticFindingWriterFenceStaleError,
   prepareFindingWriterFenceSnapshot,
   readFindingWriterAllocationSnapshot,
   redeemRegistryFindingWriterFence,
@@ -120,17 +132,16 @@ import {
   type FindingWriterAllocationFence,
   type FindingWriterFenceSnapshot,
   type FindingWriterMutationProfile,
+  type FindingWriterSourceTransitionV1,
   type FindingWriterWorktreeGeneration,
+  type FindingWriterWorktreeTopologyV1,
   type RedeemedFindingWriterFenceCapability,
 } from './lib/finding-writer-fence';
 import {
-  createFindingWriterRepositorySnapshot,
-  FINDING_WRITER_AUTHORITY_PATH,
-  FINDING_WRITER_PROTOCOL_ID,
-  FINDING_WRITER_RETIRED_MUTATION_SURFACES,
-  type FindingWriterRepositorySnapshot,
-  verifyFindingWriterProtocolManifest,
-} from './lib/finding-registry-writer-authority';
+  HERMETIC_GIT_RUNTIME,
+  runWithHermeticGitExecutionDeadline,
+} from './lib/hermetic-git-runtime';
+import { parseWorktreeList } from './lib/registered-common-dir-discovery';
 
 export type {
   FindingWriterFenceCapability,
@@ -164,6 +175,49 @@ const ZERO_HASH = '0'.repeat(64);
 const REGISTRY_STAGING_STALE_MS = 5 * 60_000;
 const GIT_OUTPUT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
+function writeStdoutLine(message = ''): void {
+  process.stdout.write(`${message}\n`);
+}
+
+function writeStderrLine(message: string): void {
+  process.stderr.write(`${message}\n`);
+}
+
+function formatUnknownCliValue(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (value instanceof Error) return value.message;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  if (typeof value === 'symbol') return value.description ?? 'Symbol()';
+  if (typeof value === 'function') return `[function ${value.name || 'anonymous'}]`;
+  try {
+    return canonicalJson(value);
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
+}
+
+function assertFindingWriterObservationNotAborted(signal: AbortSignal): void {
+  if (!signal.aborted) return;
+  if (signal.reason instanceof Error) throw signal.reason;
+  const error = new Error('Finding writer observation was aborted');
+  Object.defineProperty(error, 'cause', {
+    configurable: true,
+    enumerable: false,
+    value: signal.reason,
+    writable: true,
+  });
+  throw error;
+}
+
+function formatCsvValue(value: unknown): string {
+  return Array.isArray(value)
+    ? value.map((item) => formatUnknownCliValue(item)).join('|')
+    : formatUnknownCliValue(value);
+}
+
 export interface RegistryPaths {
   readonly registryPath: string;
   readonly schemaPath: string;
@@ -190,39 +244,168 @@ export interface FindingAllocationAuthority {
   readonly repoRoot: string;
   readonly lockPath: string;
   readonly reservationPath: string;
-  readonly assertCompatibleWriters: () => FindingWriterFenceSnapshot;
+  readonly assertCompatibleWriters: (signal: AbortSignal) => Promise<FindingWriterFenceSnapshot>;
   readonly consumeCompatibleWriters: (
     snapshot: FindingWriterFenceSnapshot,
-  ) => FindingWriterFenceCapability;
+    signal: AbortSignal,
+  ) => Promise<FindingWriterFenceCapability>;
   readonly redeemCompatibleWriters: (
     capability: FindingWriterFenceCapability,
     lease: RegistryLockLease,
     profile: FindingWriterMutationProfile,
-  ) => RedeemedFindingWriterFenceCapability;
+    signal: AbortSignal,
+  ) => Promise<RedeemedFindingWriterFenceCapability>;
   readonly releaseCompatibleWriters: (capability: RedeemedFindingWriterFenceCapability) => void;
   readonly activeRegistryPaths: () => readonly string[];
 }
 
-function findingWriterHeadOid(worktreePath: string): string {
-  const raw = HERMETIC_GIT_RUNTIME.runText(
-    worktreePath,
-    ['rev-parse', '--verify', 'HEAD^{commit}'],
-    [0],
-    GIT_OUTPUT_MAX_BUFFER_BYTES,
-  ).stdout.trim();
-  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(raw)) {
-    throw new Error(`Finding writer worktree HEAD is not one exact commit: ${worktreePath}`);
+export const FINDING_WRITER_FENCE_ADMISSION_POLICY_V1 = Object.freeze({
+  schemaVersion: 1 as const,
+  admissionDeadlineMs: 120_000,
+});
+
+export class FindingWriterFenceAdmissionDeadlineError extends Error {
+  public readonly code = 'FINDING_WRITER_FENCE_ADMISSION_DEADLINE' as const;
+
+  public constructor(
+    public readonly admissionDeadlineMs: number,
+    public readonly cause: FindingWriterFenceStaleError | undefined,
+  ) {
+    super(`Finding writer fence admission exceeded its ${String(admissionDeadlineMs)}ms deadline`);
+    this.name = 'FindingWriterFenceAdmissionDeadlineError';
+    Object.setPrototypeOf(this, new.target.prototype);
   }
-  return raw;
 }
 
-function assertFindingWriterWorktreeGeneration(generation: FindingWriterWorktreeGeneration): void {
-  const currentHead = findingWriterHeadOid(generation.worktree_path);
-  if (currentHead !== generation.head_oid) {
-    throw new Error(
-      `Finding writer worktree HEAD changed: ${generation.worktree_path} expected=${generation.head_oid} current=${currentHead}`,
+export interface PreparedFindingWriterFenceAdmissionV1<TAdmission, TResult> {
+  readonly resourcePath: string;
+  readonly lockPath: string;
+  readonly prepareSnapshot: (
+    signal: AbortSignal,
+  ) => FindingWriterFenceSnapshot | Promise<FindingWriterFenceSnapshot>;
+  readonly admit: (
+    snapshot: FindingWriterFenceSnapshot,
+    lease: RegistryLockLease,
+    signal: AbortSignal,
+  ) => TAdmission | Promise<TAdmission>;
+  readonly run: (admission: TAdmission, lease: RegistryLockLease) => TResult | Promise<TResult>;
+}
+
+class RetryPreparedFindingWriterAdmissionError extends Error {
+  public constructor(public readonly staleError: FindingWriterFenceStaleError) {
+    super(staleError.message);
+    this.name = 'RetryPreparedFindingWriterAdmissionError';
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+/**
+ * The sole optimistic admission coordinator for finding mutations. Expensive immutable proof is
+ * prepared without the kernel lock. The single-use snapshot is consumed under the lock; only a
+ * typed pre-side-effect CONSUME/REDEEM CAS miss may release, rebuild, and retry.
+ */
+async function runWithPreparedFindingWriterFenceAdmissionDeadline<TAdmission, TResult>(
+  request: PreparedFindingWriterFenceAdmissionV1<TAdmission, TResult>,
+  admissionDeadlineMs: number,
+): Promise<TResult> {
+  const deadline = performance.now() + admissionDeadlineMs;
+  let lastStaleError: FindingWriterFenceStaleError | undefined;
+  const remainingAdmissionMs = (): number => {
+    const remaining = Math.floor(deadline - performance.now());
+    if (remaining < 1) {
+      throw new FindingWriterFenceAdmissionDeadlineError(admissionDeadlineMs, lastStaleError);
+    }
+    return remaining;
+  };
+
+  const prepareSnapshot = async (): Promise<FindingWriterFenceSnapshot> => {
+    const preparationDeadlineMs = remainingAdmissionMs();
+    const deadlineFailure = new FindingWriterFenceAdmissionDeadlineError(
+      admissionDeadlineMs,
+      lastStaleError,
+    );
+    try {
+      const snapshot = await runWithHermeticGitExecutionDeadline(
+        preparationDeadlineMs,
+        deadlineFailure,
+        request.prepareSnapshot,
+      );
+      remainingAdmissionMs();
+      return snapshot;
+    } catch (error) {
+      if (error === deadlineFailure) throw error;
+      remainingAdmissionMs();
+      throw error;
+    }
+  };
+
+  for (;;) {
+    remainingAdmissionMs();
+    const snapshot = await prepareSnapshot();
+    const lockTimeoutMs = Math.min(
+      FINDING_WRITER_REGISTRY_LOCK_POLICY_V1.contentionDeadlineMs,
+      remainingAdmissionMs(),
+    );
+    try {
+      return await withFindingWriterKernelLockAsync(
+        request.resourcePath,
+        request.lockPath,
+        lockTimeoutMs,
+        async (lease) => {
+          let admission: TAdmission;
+          try {
+            const admissionPhaseMs = remainingAdmissionMs();
+            const deadlineFailure = new FindingWriterFenceAdmissionDeadlineError(
+              admissionDeadlineMs,
+              lastStaleError,
+            );
+            admission = await runWithHermeticGitExecutionDeadline(
+              admissionPhaseMs,
+              deadlineFailure,
+              (signal) => request.admit(snapshot, lease, signal),
+            );
+            remainingAdmissionMs();
+          } catch (error) {
+            if (!isAuthenticFindingWriterFenceStaleError(error)) {
+              if (error instanceof Error) throw error;
+              throw new Error('Finding writer admission threw a non-Error value');
+            }
+            throw new RetryPreparedFindingWriterAdmissionError(error);
+          }
+          return request.run(admission, lease);
+        },
+      );
+    } catch (error) {
+      if (!(error instanceof RetryPreparedFindingWriterAdmissionError)) throw error;
+      lastStaleError = error.staleError;
+    }
+  }
+}
+
+export function runWithPreparedFindingWriterFenceAdmission<TAdmission, TResult>(
+  request: PreparedFindingWriterFenceAdmissionV1<TAdmission, TResult>,
+): Promise<TResult> {
+  return runWithPreparedFindingWriterFenceAdmissionDeadline(
+    request,
+    FINDING_WRITER_FENCE_ADMISSION_POLICY_V1.admissionDeadlineMs,
+  );
+}
+
+/** Exact-import test adapter; production callers cannot relax or replace the canonical policy. */
+export function testOnlyRunWithPreparedFindingWriterFenceAdmission<TAdmission, TResult>(
+  request: PreparedFindingWriterFenceAdmissionV1<TAdmission, TResult>,
+  admissionDeadlineMs: number,
+): Promise<TResult> {
+  if (
+    !Number.isSafeInteger(admissionDeadlineMs) ||
+    admissionDeadlineMs < 1 ||
+    admissionDeadlineMs > FINDING_WRITER_FENCE_ADMISSION_POLICY_V1.admissionDeadlineMs
+  ) {
+    throw new TypeError(
+      `Finding writer test admission deadline must be within 1..${String(FINDING_WRITER_FENCE_ADMISSION_POLICY_V1.admissionDeadlineMs)}ms`,
     );
   }
+  return runWithPreparedFindingWriterFenceAdmissionDeadline(request, admissionDeadlineMs);
 }
 
 type FindingWriterPinnedAllocationFile = StableRegularFileObservationV1;
@@ -263,26 +446,30 @@ function assertFindingWriterAllocationFileCurrent(
   );
 }
 
-function assertCommittedRegularFiles(
+async function assertCommittedRegularFiles(
   worktreePath: string,
   relativePaths: readonly string[],
   headOid: string,
   repositorySnapshot: FindingWriterRepositorySnapshot,
-): ReadonlyMap<string, Buffer> {
+  signal: AbortSignal,
+): Promise<ReadonlyMap<string, Buffer>> {
   const normalizedPaths = relativePaths.map((path) => path.replaceAll('\\', '/'));
   if (new Set(normalizedPaths).size !== normalizedPaths.length) {
     throw new Error('Finding writer governed file batch contains duplicate paths');
   }
   let treeOutput: Buffer;
   try {
-    treeOutput = HERMETIC_GIT_RUNTIME.runBuffer(
-      worktreePath,
-      ['ls-tree', '-rz', headOid, '--', ...normalizedPaths],
-      [0],
-      undefined,
-      GIT_OUTPUT_MAX_BUFFER_BYTES,
+    treeOutput = (
+      await HERMETIC_GIT_RUNTIME.runBufferAsync(
+        worktreePath,
+        ['ls-tree', '-rz', headOid, '--', ...normalizedPaths],
+        [0],
+        undefined,
+        GIT_OUTPUT_MAX_BUFFER_BYTES,
+      )
     ).stdout;
   } catch {
+    assertFindingWriterObservationNotAborted(signal);
     throw new Error(`Finding writer governed file batch cannot be read at HEAD: ${worktreePath}`);
   }
 
@@ -333,14 +520,17 @@ function assertCommittedRegularFiles(
   });
   let batchOutput: Buffer;
   try {
-    batchOutput = HERMETIC_GIT_RUNTIME.runBuffer(
-      worktreePath,
-      ['cat-file', '--batch'],
-      [0],
-      `${objectIds.join('\n')}\n`,
-      GIT_OUTPUT_MAX_BUFFER_BYTES,
+    batchOutput = (
+      await HERMETIC_GIT_RUNTIME.runBufferAsync(
+        worktreePath,
+        ['cat-file', '--batch'],
+        [0],
+        `${objectIds.join('\n')}\n`,
+        GIT_OUTPUT_MAX_BUFFER_BYTES,
+      )
     ).stdout;
   } catch {
+    assertFindingWriterObservationNotAborted(signal);
     throw new Error(`Finding writer governed blobs cannot be read at HEAD: ${worktreePath}`);
   }
 
@@ -390,19 +580,23 @@ function assertCommittedRegularFiles(
   return effectiveFiles;
 }
 
-export function assertActiveWorktreeFindingWritersFenced(
-  worktreePaths: readonly string[],
+export async function assertActiveWorktreeFindingWritersFenced(
+  topology: FindingWriterWorktreeTopologyV1,
   authorityWorktreePath: string,
-): FindingWriterFenceSnapshot {
+  signal: AbortSignal,
+): Promise<FindingWriterFenceSnapshot> {
+  assertFindingWriterObservationNotAborted(signal);
   const incompatibleWriters = new Map<string, string>();
   const markIncompatibleWriter = (path: string, reason: unknown): void => {
     if (!incompatibleWriters.has(path)) {
-      incompatibleWriters.set(path, reason instanceof Error ? reason.message : String(reason));
+      incompatibleWriters.set(path, formatUnknownCliValue(reason));
     }
   };
-  const activeWorktrees = [
-    ...new Set(worktreePaths.map((worktreePath) => resolve(worktreePath))),
-  ].sort();
+  const canonicalTopology = defineFindingWriterWorktreeTopologyV1(topology.worktrees);
+  const activeWorktrees = canonicalTopology.worktrees.map((worktree) => worktree.path);
+  const headOids = new Map(
+    canonicalTopology.worktrees.map((worktree) => [worktree.path, worktree.headOid] as const),
+  );
   const worktreeGenerations: FindingWriterWorktreeGeneration[] = [];
   const repositorySnapshots: FindingWriterRepositorySnapshot[] = [];
   const verifiedFilesByWorktree = new Map<string, Readonly<Record<string, string>>>();
@@ -418,7 +612,10 @@ export function assertActiveWorktreeFindingWritersFenced(
   for (const worktreePath of activeWorktrees) {
     const allocatorPath = resolve(worktreePath, ALLOCATOR_RELATIVE_PATH);
     try {
-      const headOid = findingWriterHeadOid(worktreePath);
+      const headOid = headOids.get(worktreePath);
+      if (headOid === undefined) {
+        throw new Error(`Finding writer topology lost its HEAD coordinate: ${worktreePath}`);
+      }
       const repositorySnapshot = createFindingWriterRepositorySnapshot(worktreePath);
       repositorySnapshots.push(repositorySnapshot);
       const generation: FindingWriterWorktreeGeneration = Object.freeze({
@@ -502,6 +699,7 @@ export function assertActiveWorktreeFindingWritersFenced(
         return repositorySnapshot.readText(relativePath);
       };
       const sourceManifestPath = resolve(worktreePath, CAPABILITY_MANIFEST_RELATIVE_PATH);
+      repositorySnapshot.directoryEntries(dirname(CAPABILITY_MANIFEST_RELATIVE_PATH));
       const floorAuthority = readSourceFindingFloorAuthority(
         sourceManifestPath,
         readSnapshotAuthorityText,
@@ -524,17 +722,24 @@ export function assertActiveWorktreeFindingWritersFenced(
       }
       const protocolPath = resolve(worktreePath, WRITER_PROTOCOL_MANIFEST_RELATIVE_PATH);
       const protocolRaw = repositorySnapshot.readFile(WRITER_PROTOCOL_MANIFEST_RELATIVE_PATH);
+      const ariaAuthorityPaths = await ariaAuthorityFilesAtRevision(
+        worktreePath,
+        generation.head_oid,
+        signal,
+      );
       const protocol = verifyFindingWriterProtocolManifest(
         decodeFatalUtf8(protocolRaw, 'Finding writer protocol manifest'),
         protocolPath,
         worktreePath,
+        ariaAuthorityPaths,
         repositorySnapshot,
       );
-      const effectiveFiles = assertCommittedRegularFiles(
+      const effectiveFiles = await assertCommittedRegularFiles(
         worktreePath,
         [WRITER_PROTOCOL_MANIFEST_RELATIVE_PATH, ...Object.keys(protocol.files)],
         generation.head_oid,
         repositorySnapshot,
+        signal,
       );
       const committedProtocol = effectiveFiles.get(WRITER_PROTOCOL_MANIFEST_RELATIVE_PATH);
       if (committedProtocol === undefined || !committedProtocol.equals(protocolRaw)) {
@@ -560,6 +765,7 @@ export function assertActiveWorktreeFindingWritersFenced(
       }
       verifiedFilesByWorktree.set(worktreePath, protocol.files);
     } catch (error) {
+      assertFindingWriterObservationNotAborted(signal);
       markIncompatibleWriter(allocatorPath, error);
     }
   }
@@ -590,20 +796,15 @@ export function assertActiveWorktreeFindingWritersFenced(
       }
     }
   }
-  for (const generation of worktreeGenerations) {
-    try {
-      assertFindingWriterWorktreeGeneration(generation);
-    } catch (error) {
-      markIncompatibleWriter(resolve(generation.worktree_path, ALLOCATOR_RELATIVE_PATH), error);
-    }
-  }
   for (const repositorySnapshot of repositorySnapshots) {
     try {
       repositorySnapshot.assertCurrent();
     } catch (error) {
+      assertFindingWriterObservationNotAborted(signal);
       markIncompatibleWriter(resolve(repositorySnapshot.repoRoot, ALLOCATOR_RELATIVE_PATH), error);
     }
   }
+  assertFindingWriterObservationNotAborted(signal);
   if (incompatibleWriters.size > 0) {
     throw new Error(
       `Active worktrees expose uncommitted or protocol-incompatible finding writers: ${[
@@ -621,6 +822,15 @@ export function assertActiveWorktreeFindingWritersFenced(
   }
   const frozenWorktrees = Object.freeze([...worktreeGenerations]);
   const frozenAllocationFiles = Object.freeze([...allocationFiles]);
+  let currentAllocationFiles = new Map(
+    frozenAllocationFiles.map((file) => [file.path, file] as const),
+  );
+  const authorityRepositorySnapshot = repositorySnapshots.find(
+    (snapshot) => snapshot.repoRoot === resolvedAuthorityWorktree,
+  );
+  if (authorityRepositorySnapshot === undefined) {
+    throw new Error('Finding writer source transition lost its authority repository snapshot');
+  }
   const allocationSnapshot = Object.freeze({
     registryPaths: Object.freeze([...registryPaths].sort()),
     claimedIds: Object.freeze([...claimedIds].sort()),
@@ -636,11 +846,13 @@ export function assertActiveWorktreeFindingWritersFenced(
   const allocationFence: FindingWriterAllocationFence = Object.freeze({
     snapshot: allocationSnapshot,
     assertCurrent: () => {
-      for (const file of frozenAllocationFiles) assertFindingWriterAllocationFileCurrent(file);
+      for (const file of currentAllocationFiles.values()) {
+        assertFindingWriterAllocationFileCurrent(file);
+      }
     },
     assertRegistryTransition: (registryPath: string, contentSha256: string) => {
       let matched = false;
-      for (const file of frozenAllocationFiles) {
+      for (const file of currentAllocationFiles.values()) {
         if (file.path === registryPath) {
           matched = true;
           assertFindingWriterAllocationFileCurrent(file, contentSha256);
@@ -653,6 +865,97 @@ export function assertActiveWorktreeFindingWritersFenced(
           `Finding writer registry transition target was not snapshotted: ${registryPath}`,
         );
       }
+    },
+    prepareSourceTransition: (transition: FindingWriterSourceTransitionV1) => {
+      const currentTarget = currentAllocationFiles.get(transition.targetPath);
+      if (
+        (transition.beforeSha256 === null && currentTarget !== undefined) ||
+        (transition.beforeSha256 !== null &&
+          currentTarget !== undefined &&
+          currentTarget.sha256 !== transition.beforeSha256)
+      ) {
+        throw new Error(
+          `Finding writer source transition before-image differs from its allocation fence: ${transition.targetPath}`,
+        );
+      }
+      const repositoryTransition = authorityRepositorySnapshot.prepareSourceMutation(transition);
+      let active = true;
+      return Object.freeze({
+        assertBeforeCurrent: () => {
+          if (!active) {
+            throw new Error('Finding writer allocation source transition is already consumed');
+          }
+          authorityRepositorySnapshot.assertSourceMutationBeforeCurrent(repositoryTransition);
+          for (const repositorySnapshot of repositorySnapshots) {
+            if (repositorySnapshot !== authorityRepositorySnapshot) {
+              repositorySnapshot.assertCurrent();
+            }
+          }
+          for (const file of currentAllocationFiles.values()) {
+            assertFindingWriterAllocationFileCurrent(file);
+          }
+        },
+        prepareAfterCurrent: () => {
+          if (!active) {
+            throw new Error('Finding writer allocation source transition is already consumed');
+          }
+          const preparedRepositoryTransition =
+            authorityRepositorySnapshot.prepareSourceMutationCommit(repositoryTransition);
+          for (const repositorySnapshot of repositorySnapshots) {
+            if (repositorySnapshot !== authorityRepositorySnapshot) {
+              repositorySnapshot.assertCurrent();
+            }
+          }
+          for (const [path, file] of currentAllocationFiles) {
+            if (path !== transition.targetPath) assertFindingWriterAllocationFileCurrent(file);
+          }
+          const nextAllocationFiles = new Map(currentAllocationFiles);
+          if (transition.afterSha256 === null) {
+            const pathKind = observeStablePathKind(
+              transition.targetPath,
+              'Finding writer transitioned allocation input',
+            );
+            if (pathKind.kind !== 'MISSING') {
+              throw new Error(
+                `Finding writer source transition expected a missing allocation input: ${transition.targetPath}`,
+              );
+            }
+            nextAllocationFiles.delete(transition.targetPath);
+          } else {
+            const nextFile = observeFindingWriterAllocationFile(transition.targetPath);
+            if (nextFile.sha256 !== transition.afterSha256) {
+              throw new Error(
+                `Finding writer source transition after-image differs from its allocation fence: ${transition.targetPath}`,
+              );
+            }
+            nextAllocationFiles.set(transition.targetPath, nextFile);
+          }
+          let preparedActive = true;
+          return Object.freeze({
+            commit: () => {
+              if (!active || !preparedActive) {
+                throw new Error(
+                  'Finding writer prepared allocation source transition is stale or consumed',
+                );
+              }
+              preparedActive = false;
+              authorityRepositorySnapshot.commitSourceMutation(
+                repositoryTransition,
+                preparedRepositoryTransition,
+              );
+              currentAllocationFiles = nextAllocationFiles;
+              active = false;
+            },
+          });
+        },
+        cancelBeforeCurrent: () => {
+          if (!active) {
+            throw new Error('Finding writer allocation source transition is already consumed');
+          }
+          authorityRepositorySnapshot.cancelSourceMutation(repositoryTransition);
+          active = false;
+        },
+      });
     },
   });
   const generation = sha256hex(
@@ -671,6 +974,7 @@ export function assertActiveWorktreeFindingWritersFenced(
     repositorySnapshots,
   );
   findingWriterAllocationFences.set(snapshot, allocationFence);
+  assertFindingWriterObservationNotAborted(signal);
   return snapshot;
 }
 
@@ -695,19 +999,41 @@ export function resolveGitFindingAllocationAuthority(
   if (!commonDir) {
     throw new Error(`Git common-dir resolution returned an empty path for ${repoRoot}`);
   }
-  const activeWorktreePaths = (): string[] => {
-    const protocolRaw = HERMETIC_GIT_RUNTIME.runBuffer(repoRoot, [
-      'worktree',
-      'list',
-      '--porcelain',
-      '-z',
-    ]).stdout;
-    return parseWorktreeList(
-      decodeFatalUtf8(protocolRaw, 'Finding writer worktree list protocol'),
-    ).map((worktree) => worktree.path);
+  const topologyFromProtocol = (protocolRaw: Buffer): FindingWriterWorktreeTopologyV1 =>
+    defineFindingWriterWorktreeTopologyV1(
+      parseWorktreeList(decodeFatalUtf8(protocolRaw, 'Finding writer worktree list protocol')).map(
+        (worktree) => ({ path: worktree.path, headOid: worktree.headSha }),
+      ),
+    );
+  const activeWorktreeTopology = (): FindingWriterWorktreeTopologyV1 =>
+    topologyFromProtocol(
+      HERMETIC_GIT_RUNTIME.runBuffer(repoRoot, ['worktree', 'list', '--porcelain', '-z']).stdout,
+    );
+  const activeWorktreeTopologyAsync = async (
+    signal: AbortSignal,
+  ): Promise<FindingWriterWorktreeTopologyV1> => {
+    if (signal.aborted) {
+      if (signal.reason instanceof Error) throw signal.reason;
+      throw new Error('Finding writer worktree topology observation was aborted');
+    }
+    const topology = topologyFromProtocol(
+      (
+        await HERMETIC_GIT_RUNTIME.runBufferAsync(repoRoot, [
+          'worktree',
+          'list',
+          '--porcelain',
+          '-z',
+        ])
+      ).stdout,
+    );
+    if (signal.aborted) {
+      if (signal.reason instanceof Error) throw signal.reason;
+      throw new Error('Finding writer worktree topology observation was aborted');
+    }
+    return topology;
   };
   const activeRegistryPaths = (): string[] => {
-    const worktreePaths = activeWorktreePaths();
+    const worktreePaths = activeWorktreeTopology().worktrees.map((worktree) => worktree.path);
     const registryPaths = worktreePaths.map((worktreePath) =>
       resolve(worktreePath, registryRelativePath),
     );
@@ -728,9 +1054,19 @@ export function resolveGitFindingAllocationAuthority(
     repoRoot: resolve(repoRoot),
     lockPath: join(commonDir, 'finding-registry-v1.lock'),
     reservationPath: join(commonDir, 'finding-id-reservations-v1.json'),
-    assertCompatibleWriters: () => {
-      const activePaths = activeWorktreePaths();
-      const snapshot = assertActiveWorktreeFindingWritersFenced(activePaths, repoRoot);
+    assertCompatibleWriters: async (signal) => {
+      const initialTopology = await activeWorktreeTopologyAsync(signal);
+      const snapshot = await assertActiveWorktreeFindingWritersFenced(
+        initialTopology,
+        repoRoot,
+        signal,
+      );
+      const finalTopology = await activeWorktreeTopologyAsync(signal);
+      if (JSON.stringify(finalTopology) !== JSON.stringify(initialTopology)) {
+        throw new FindingWriterFenceGenerationMismatchError(
+          'Finding writer worktree topology changed while preparing its snapshot',
+        );
+      }
       const allocationFence = findingWriterAllocationFences.get(snapshot);
       if (allocationFence === undefined) {
         throw new Error('Finding writer allocation fence was not bound to its snapshot');
@@ -739,19 +1075,19 @@ export function resolveGitFindingAllocationAuthority(
       prepareFindingWriterFenceSnapshot(
         authority,
         snapshot,
-        activePaths,
-        activeWorktreePaths,
-        assertFindingWriterWorktreeGeneration,
+        activeWorktreeTopology,
+        activeWorktreeTopologyAsync,
         allocationFence,
       );
       return snapshot;
     },
-    consumeCompatibleWriters: (snapshot) => consumeFindingWriterFenceSnapshot(authority, snapshot),
-    redeemCompatibleWriters: (capability, lease, profile) => {
+    consumeCompatibleWriters: (snapshot, signal) =>
+      consumeFindingWriterFenceSnapshot(authority, snapshot, signal),
+    redeemCompatibleWriters: (capability, lease, profile, signal) => {
       if (profile.kind !== 'REGISTRY_MUTATION') {
         throw new Error('Public finding writer redemption accepts registry mutation profiles only');
       }
-      return redeemRegistryFindingWriterFence(authority, capability, lease, profile);
+      return redeemRegistryFindingWriterFence(authority, capability, lease, profile, signal);
     },
     releaseCompatibleWriters: (capability) => releaseFindingWriterFence(authority, capability),
     activeRegistryPaths,
@@ -1423,7 +1759,6 @@ function writeRegistry(
   operation: RegistryMutationOperation,
   registryPath = REGISTRY_PATH,
 ): void {
-  assertFindingWriterFenceCurrent(writerFence, lease);
   const content = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
   atomicWriteRegistryFile(
     registryPath,
@@ -1505,9 +1840,7 @@ function cmdVerify(): number {
     }
   } catch (error) {
     process.stderr.write(
-      `FAIL: finding-registry staging inspection failed closed: ${
-        error instanceof Error ? error.message : String(error)
-      }\n`,
+      `FAIL: finding-registry staging inspection failed closed: ${formatUnknownCliValue(error)}\n`,
     );
     return 1;
   }
@@ -1523,11 +1856,23 @@ function cmdVerify(): number {
   return 0;
 }
 
-function cmdWriterPreflight(): number {
+async function cmdWriterPreflight(): Promise<number> {
   try {
     const authority = resolveGitFindingAllocationAuthority(REPO_ROOT);
-    const snapshot = authority.assertCompatibleWriters();
-    authority.consumeCompatibleWriters(snapshot);
+    const deadlineFailure = new FindingWriterFenceAdmissionDeadlineError(
+      FINDING_WRITER_FENCE_ADMISSION_POLICY_V1.admissionDeadlineMs,
+      undefined,
+    );
+    const snapshot = await runWithHermeticGitExecutionDeadline(
+      FINDING_WRITER_FENCE_ADMISSION_POLICY_V1.admissionDeadlineMs,
+      deadlineFailure,
+      (signal) => authority.assertCompatibleWriters(signal),
+    );
+    await runWithHermeticGitExecutionDeadline(
+      FINDING_WRITER_FENCE_ADMISSION_POLICY_V1.admissionDeadlineMs,
+      deadlineFailure,
+      (signal) => authority.consumeCompatibleWriters(snapshot, signal),
+    );
     const registryCount = snapshot.worktrees.length;
     const stagingFiles = registryMutationStagingFiles(authority);
     if (stagingFiles.length > 0) {
@@ -1539,9 +1884,7 @@ function cmdWriterPreflight(): number {
     return 0;
   } catch (error) {
     process.stderr.write(
-      `FAIL: finding writer preflight failed closed: ${
-        error instanceof Error ? error.message : String(error)
-      }\n`,
+      `FAIL: finding writer preflight failed closed: ${formatUnknownCliValue(error)}\n`,
     );
     return 1;
   }
@@ -1639,7 +1982,6 @@ function validateAndAppendFinding(
     return 1;
   }
 
-  assertFindingWriterFenceCurrent(writerFence, lease);
   beforeRegistryWrite?.();
   writeRegistry(entries, lease, repositoryAuthority, writerFence, 'add', paths.registryPath);
   process.stdout.write(`Added: ${newEntry.id} at position ${entries.length - 1}\n`);
@@ -1722,7 +2064,7 @@ export function appendAllocatedFinding(
   try {
     id = nextFindingId(domain, stub.severity, existingIds);
   } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    writeStderrLine(formatUnknownCliValue(error));
     return 2;
   }
   const newEntry = buildFinding(stub, id, repositoryAuthority.effectiveAt);
@@ -1757,7 +2099,7 @@ function cmdClose(
   writerFence: RedeemedFindingWriterFenceCapability,
 ): number {
   if (!/^[a-f0-9]{40}$/.test(shortSha)) {
-    console.error(`Invalid SHA: ${shortSha} (expected a full lowercase main SHA).`);
+    writeStderrLine(`Invalid SHA: ${shortSha} (expected a full lowercase main SHA).`);
     return 2;
   }
 
@@ -1774,9 +2116,7 @@ function cmdClose(
   // tier-1: runtime guard commitReachableFrom (git-reachability.ts) refuses branch-local closing SHAs at the only write path; CI invariant finding-registry-integrity.spec.ts enforces the stored chain
   const reachability = commitReachableFrom(REPO_ROOT, shortSha, 'origin/main');
   if (!reachability.ok) {
-    // process.stderr.write (not console.error): no-console is an
-    // error-level lint rule; the file's legacy console.* calls are
-    // baseline-grandfathered but new lines must use the stream API.
+    // Preserve the CLI's error channel while refusing non-main evidence.
     process.stderr.write(`close refused: ${reachability.reason}\n`);
     return 1;
   }
@@ -1784,13 +2124,13 @@ function cmdClose(
   const entries = loadRegistry();
   const index = entries.findIndex((e) => e.id === id);
   if (index === -1) {
-    console.error(`Finding not found: ${id}`);
+    writeStderrLine(`Finding not found: ${id}`);
     return 1;
   }
 
   const entry = entries[index];
   if (!entry) {
-    console.error(`Finding at index ${index} is undefined — registry corruption?`);
+    writeStderrLine(`Finding at index ${index} is undefined — registry corruption?`);
     return 1;
   }
 
@@ -1801,7 +2141,7 @@ function cmdClose(
   }
 
   if (entry.state === 'RESOLVED' && entry.closing_commits.includes(shortSha)) {
-    console.log(`No-op: ${id} is already RESOLVED with closing commit ${shortSha}.`);
+    writeStdoutLine(`No-op: ${id} is already RESOLVED with closing commit ${shortSha}.`);
     return 0;
   }
 
@@ -1816,14 +2156,14 @@ function cmdClose(
 
   const post = verify(entries);
   if (!post.ok) {
-    console.error(`Post-close integrity check FAILED: ${post.reason}`);
+    writeStderrLine(`Post-close integrity check FAILED: ${post.reason}`);
     return 1;
   }
 
   writeRegistry(entries, lease, repositoryAuthority, writerFence, 'close');
-  console.log(`Closed: ${id} at position ${index} → state=RESOLVED, +commit ${shortSha}`);
+  writeStdoutLine(`Closed: ${id} at position ${index} → state=RESOLVED, +commit ${shortSha}`);
   const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
-  console.log(`Chain tip: ${tip}`);
+  writeStdoutLine(`Chain tip: ${tip}`);
   return 0;
 }
 
@@ -1917,18 +2257,18 @@ function cmdSweep(
   });
 
   if (actions.length === 0) {
-    console.log(`Sweep clean: 0 transitions needed (${entries.length} entries scanned).`);
+    writeStdoutLine(`Sweep clean: 0 transitions needed (${entries.length} entries scanned).`);
     return 0;
   }
 
-  console.log(`Sweep plan (${actions.length} transitions):`);
+  writeStdoutLine(`Sweep plan (${actions.length} transitions):`);
   for (const a of actions) {
-    console.log(`  ${a.id}: ${a.fromState} → ${a.toState}  (${a.reason})`);
+    writeStdoutLine(`  ${a.id}: ${a.fromState} → ${a.toState}  (${a.reason})`);
   }
 
   if (dryRun) {
-    console.log('');
-    console.log('--dry-run: no mutations written.');
+    writeStdoutLine();
+    writeStdoutLine('--dry-run: no mutations written.');
     return 0;
   }
   if (!lease || !repositoryAuthority || !writerFence) {
@@ -1951,21 +2291,21 @@ function cmdSweep(
 
   const post = verify(entries);
   if (!post.ok) {
-    console.error(`Post-sweep integrity check FAILED: ${post.reason}`);
+    writeStderrLine(`Post-sweep integrity check FAILED: ${post.reason}`);
     return 1;
   }
 
   writeRegistry(entries, lease, repositoryAuthority, writerFence, 'sweep');
   const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
-  console.log('');
-  console.log(`Applied ${actions.length} transitions. Chain tip: ${tip}`);
+  writeStdoutLine();
+  writeStdoutLine(`Applied ${actions.length} transitions. Chain tip: ${tip}`);
   return 0;
 }
 
 function cmdExport(format: string): number {
   const entries = loadRegistry();
   if (format === 'json-array') {
-    console.log(JSON.stringify(entries, null, 2));
+    writeStdoutLine(canonicalJson(entries));
     return 0;
   }
   if (format === 'csv') {
@@ -1979,20 +2319,20 @@ function cmdExport(format: string): number {
       'closed_at',
       'closing_commits',
     ];
-    console.log(cols.join(','));
+    writeStdoutLine(cols.join(','));
     for (const e of entries) {
       const row = cols.map((c) => {
         const v = (e as Record<string, unknown>)[c];
-        const s = Array.isArray(v) ? v.join('|') : String(v ?? '');
+        const s = formatCsvValue(v);
         // CSV-escape: wrap in quotes if contains comma/quote/newline
         if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
         return s;
       });
-      console.log(row.join(','));
+      writeStdoutLine(row.join(','));
     }
     return 0;
   }
-  console.error(`Unknown export format: ${format} (supported: json-array, csv).`);
+  writeStderrLine(`Unknown export format: ${format} (supported: json-array, csv).`);
   return 2;
 }
 
@@ -2051,11 +2391,11 @@ function cmdList(args: readonly string[]): number {
 
   const format = flags['format'] ?? 'table';
   if (format === 'id-only') {
-    for (const e of matched) console.log(e.id);
+    for (const e of matched) writeStdoutLine(e.id);
     return 0;
   }
   if (format === 'json') {
-    console.log(JSON.stringify(matched, null, 2));
+    writeStdoutLine(canonicalJson(matched));
     return 0;
   }
   // table (default)
@@ -2068,7 +2408,7 @@ function cmdList(args: readonly string[]): number {
       ]
         .filter(Boolean)
         .join(' ') || 'all';
-    console.log(`(no findings matched: ${criteria})`);
+    writeStdoutLine(`(no findings matched: ${criteria})`);
     return 0;
   }
   const header = ['ID', 'SEV', 'STATE', 'OWNER', 'TITLE'];
@@ -2082,10 +2422,10 @@ function cmdList(args: readonly string[]): number {
   const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => (r[i] ?? '').length)));
   const fmtRow = (r: readonly string[]): string =>
     r.map((c, i) => c.padEnd(widths[i] ?? 0)).join('  ');
-  console.log(fmtRow(header));
-  console.log(widths.map((w) => '-'.repeat(w)).join('  '));
-  for (const r of rows) console.log(fmtRow(r));
-  console.log(`\n${matched.length} / ${entries.length} entries matched.`);
+  writeStdoutLine(fmtRow(header));
+  writeStdoutLine(widths.map((w) => '-'.repeat(w)).join('  '));
+  for (const r of rows) writeStdoutLine(fmtRow(r));
+  writeStdoutLine(`\n${matched.length} / ${entries.length} entries matched.`);
   return 0;
 }
 
@@ -2095,15 +2435,15 @@ async function main(): Promise<void> {
   const args = commandArguments.slice(1);
   if (!requestedOperation) {
     const operations = findingWriterCliOperationNames('tools/gates/finding-registry.ts');
-    console.error(`Usage: finding-registry <${operations.join('|')}> [args]`);
-    console.error('  verify');
-    console.error('  writer-preflight');
-    console.error('  request-digest <add|close|sweep> [operation args]');
-    console.error('  add <domain> <stub.json>  — atomically allocate id + append');
-    console.error('  close <finding-id> <full-main-sha>');
-    console.error('  sweep [--dry-run] [--stale-after=<days>]');
-    console.error('  export <json-array|csv>');
-    console.error(
+    writeStderrLine(`Usage: finding-registry <${operations.join('|')}> [args]`);
+    writeStderrLine('  verify');
+    writeStderrLine('  writer-preflight');
+    writeStderrLine('  request-digest <add|close|sweep> [operation args]');
+    writeStderrLine('  add <domain> <stub.json>  — atomically allocate id + append');
+    writeStderrLine('  close <finding-id> <full-main-sha>');
+    writeStderrLine('  sweep [--dry-run] [--stale-after=<days>]');
+    writeStderrLine('  export <json-array|csv>');
+    writeStderrLine(
       '  list [--state <CSV>] [--severity <CSV>] [--owner <name>] [--format table|id-only|json]',
     );
     process.exit(2);
@@ -2117,11 +2457,11 @@ async function main(): Promise<void> {
   if (sub === 'verify') {
     exitCode = cmdVerify();
   } else if (sub === 'writer-preflight') {
-    exitCode = cmdWriterPreflight();
+    exitCode = await cmdWriterPreflight();
   } else if (sub === 'request-digest') {
     const operation = args[0];
     if (!isFindingWriterRegistryMutationOperation(operation)) {
-      console.error('request-digest requires one of: add, close, sweep');
+      writeStderrLine('request-digest requires one of: add, close, sweep');
       process.exit(2);
     }
     process.stdout.write(`${mutationInputSha256(operation, args.slice(1))}\n`);
@@ -2130,7 +2470,7 @@ async function main(): Promise<void> {
     const domain = args[0];
     const stubPath = args[1];
     if (!domain || !stubPath) {
-      console.error('add requires domain and stub: finding-registry add <DOMAIN> <stub.json>');
+      writeStderrLine('add requires domain and stub: finding-registry add <DOMAIN> <stub.json>');
       process.exit(2);
     }
     const inputSha256 = mutationInputSha256('add', [domain, stubPath]);
@@ -2152,7 +2492,7 @@ async function main(): Promise<void> {
     const id = args[0];
     const sha = args[1];
     if (!id || !sha) {
-      console.error('close requires id and sha: finding-registry close <id> <sha>');
+      writeStderrLine('close requires id and sha: finding-registry close <id> <sha>');
       process.exit(2);
     }
     const inputSha256 = mutationInputSha256('close', [id, sha]);
@@ -2165,7 +2505,7 @@ async function main(): Promise<void> {
   } else if (sub === 'export') {
     const format = args[0];
     if (!format) {
-      console.error('export requires a format: finding-registry export <json-array|csv>');
+      writeStderrLine('export requires a format: finding-registry export <json-array|csv>');
       process.exit(2);
     }
     exitCode = cmdExport(format);
@@ -2181,7 +2521,7 @@ async function main(): Promise<void> {
   } else if (sub === 'list') {
     exitCode = cmdList(args);
   } else {
-    console.error(`Unknown subcommand: ${sub}`);
+    writeStderrLine(`Unknown subcommand: ${sub}`);
     process.exit(2);
   }
 
@@ -2221,16 +2561,24 @@ async function runRegistryMutation(
       `Repository mutation authority: ${repositoryAuthority.workflowRef} run ${repositoryAuthority.runId}/${repositoryAuthority.runAttempt} at ${repositoryAuthority.workflowSha}\n`,
     );
     const authority = resolveGitFindingAllocationAuthority(REPO_ROOT);
-    return withRegistryFileLock(
-      REGISTRY_PATH,
-      (lease) => {
-        const snapshot = authority.assertCompatibleWriters();
-        const capability = authority.consumeCompatibleWriters(snapshot);
-        const writerFence = authority.redeemCompatibleWriters(capability, lease, {
-          kind: 'REGISTRY_MUTATION',
-          operation,
-          repositoryAuthority,
-        });
+    return runWithPreparedFindingWriterFenceAdmission({
+      resourcePath: REGISTRY_PATH,
+      lockPath: authority.lockPath,
+      prepareSnapshot: (signal) => authority.assertCompatibleWriters(signal),
+      admit: async (snapshot, lease, signal) => {
+        const capability = await authority.consumeCompatibleWriters(snapshot, signal);
+        return authority.redeemCompatibleWriters(
+          capability,
+          lease,
+          {
+            kind: 'REGISTRY_MUTATION',
+            operation,
+            repositoryAuthority,
+          },
+          signal,
+        );
+      },
+      run: (writerFence, lease) => {
         try {
           recoverRegistryMutationStaging(
             authority,
@@ -2244,17 +2592,14 @@ async function runRegistryMutation(
           authority.releaseCompatibleWriters(writerFence);
         }
       },
-      {
-        lockPath: authority.lockPath,
-      },
-    );
+    });
   } catch (error) {
     if (error instanceof RegistryLockError) {
       process.stderr.write(`Registry mutation refused [${error.code}]: ${error.message}\n`);
       return 1;
     }
     process.stderr.write(
-      `Registry mutation authority failed closed: ${error instanceof Error ? error.message : String(error)}\n`,
+      `Registry mutation authority failed closed: ${formatUnknownCliValue(error)}\n`,
     );
     return 1;
   }
@@ -2262,9 +2607,7 @@ async function runRegistryMutation(
 
 if (require.main === module) {
   main().catch((error: unknown) => {
-    process.stderr.write(
-      `Registry command failed closed: ${error instanceof Error ? error.message : String(error)}\n`,
-    );
+    process.stderr.write(`Registry command failed closed: ${formatUnknownCliValue(error)}\n`);
     process.exitCode = 1;
   });
 }

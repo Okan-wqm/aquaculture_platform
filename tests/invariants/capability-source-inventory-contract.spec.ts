@@ -1,14 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import {
-  chmodSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  truncateSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -37,19 +28,11 @@ import {
 import {
   computeCanonicalGitWorktreeEvidence,
   InventoryInspectionError,
-  type CanonicalGitWorktreeEvidenceObserver,
 } from '../../tools/gates/lib/hermetic-git-runtime';
 import {
   discoverRegisteredCommonDirs,
   parseWorktreeList,
 } from '../../tools/gates/lib/registered-common-dir-discovery';
-
-async function computeWorktreeContentSha256(
-  worktreePath: string,
-  observer: CanonicalGitWorktreeEvidenceObserver = {},
-): Promise<string> {
-  return (await computeCanonicalGitWorktreeEvidence(worktreePath, observer)).contentSha256;
-}
 
 const MAIN_SHA = '1111111111111111111111111111111111111111';
 const MERGED_SHA = '2222222222222222222222222222222222222222';
@@ -975,84 +958,6 @@ describe('dirty worktree content identity', () => {
       }),
     ).toThrow(/exactly one governed repository\/common-dir authority/);
   }, 20_000);
-
-  it('changes for staged and unstaged tracked bytes without mutating repository state', async () => {
-    const cleanDigest = await computeWorktreeContentSha256(repositoryPath);
-    writeFileSync(join(repositoryPath, 'tracked.bin'), Buffer.from([0x00, 0xff, 0x02]));
-    const statusBefore = git('status', '--porcelain=v1', '-z');
-    const unstagedDigest = await computeWorktreeContentSha256(repositoryPath);
-    const statusAfter = git('status', '--porcelain=v1', '-z');
-    git('add', 'tracked.bin');
-    const stagedDigest = await computeWorktreeContentSha256(repositoryPath);
-
-    expect(unstagedDigest).not.toBe(cleanDigest);
-    expect(stagedDigest).not.toBe(unstagedDigest);
-    expect(statusAfter).toBe(statusBefore);
-  });
-
-  it('changes for untracked path and byte mutations while excluded secrets stay outside evidence', async () => {
-    const baselineDigest = await computeWorktreeContentSha256(repositoryPath);
-    const untrackedPath = join(repositoryPath, 'evidence.bin');
-    writeFileSync(untrackedPath, Buffer.from([0x00, 0x10, 0x00]));
-    const firstDigest = await computeWorktreeContentSha256(repositoryPath);
-    writeFileSync(untrackedPath, Buffer.from([0x00, 0x11, 0x00]));
-    const mutatedDigest = await computeWorktreeContentSha256(repositoryPath);
-    writeFileSync(join(repositoryPath, '.env'), 'PRIVATE_TOKEN=must-not-enter-evidence\n');
-    writeFileSync(join(repositoryPath, 'private.key'), 'must-not-enter-evidence\n');
-    const ignoredSecretDigest = await computeWorktreeContentSha256(repositoryPath);
-
-    expect(firstDigest).not.toBe(baselineDigest);
-    expect(mutatedDigest).not.toBe(firstDigest);
-    expect(ignoredSecretDigest).toBe(mutatedDigest);
-  });
-
-  it('streams large binary evidence without whole-file buffering', async () => {
-    const largeBinaryPath = join(repositoryPath, 'large-binary-evidence.bin');
-    writeFileSync(largeBinaryPath, Buffer.alloc(0));
-    truncateSync(largeBinaryPath, 8 * 1024 * 1024);
-    const firstDigest = await computeWorktreeContentSha256(repositoryPath);
-    writeFileSync(largeBinaryPath, Buffer.from([0x00, 0xff, 0x80, 0x00]), {
-      flag: 'r+',
-    });
-
-    expect(await computeWorktreeContentSha256(repositoryPath)).not.toBe(firstDigest);
-  }, 15_000);
-
-  it('binds the canonical Git executable mode for untracked regular files', async () => {
-    const executablePath = join(repositoryPath, 'mode-sensitive-evidence');
-    writeFileSync(executablePath, Buffer.from([0x00, 0x01, 0x00]));
-    chmodSync(executablePath, 0o644);
-    const regularDigest = await computeWorktreeContentSha256(repositoryPath);
-    chmodSync(executablePath, 0o755);
-
-    expect(await computeWorktreeContentSha256(repositoryPath)).not.toBe(regularDigest);
-  });
-
-  it('hashes an untracked symlink target and canonical 120000 mode', async () => {
-    const linkPath = join(repositoryPath, 'evidence-link');
-    symlinkSync('first-target', linkPath);
-    const firstDigest = await computeWorktreeContentSha256(repositoryPath);
-    unlinkSync(linkPath);
-    symlinkSync('second-target', linkPath);
-
-    expect(await computeWorktreeContentSha256(repositoryPath)).not.toBe(firstDigest);
-  });
-
-  it('rejects a torn snapshot even when the path-level dirty status is unchanged', async () => {
-    writeFileSync(join(repositoryPath, 'tracked.bin'), Buffer.from([0x00, 0x10, 0x02]));
-
-    await expect(
-      computeWorktreeContentSha256(repositoryPath, {
-        beforeSnapshotVerification: () => {
-          writeFileSync(join(repositoryPath, 'tracked.bin'), Buffer.from([0x00, 0x11, 0x02]));
-        },
-      }),
-    ).rejects.toEqual(
-      expect.objectContaining<Partial<InventoryInspectionError>>({
-        code: 'DIRTY_SNAPSHOT_MOVED',
-      }),
-    );
-  });
 });
 
 describe('capability source manifest reconciliation', () => {

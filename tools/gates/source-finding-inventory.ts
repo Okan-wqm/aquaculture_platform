@@ -18,7 +18,10 @@ import { TextDecoder } from 'node:util';
 
 import type { Options as PrettierOptions } from 'prettier';
 
-import { resolveGitFindingAllocationAuthority } from './finding-registry';
+import {
+  resolveGitFindingAllocationAuthority,
+  runWithPreparedFindingWriterFenceAdmission,
+} from './finding-registry';
 import {
   assertRegistryLockOwned,
   bindSourceFindingPublicationStore,
@@ -27,24 +30,7 @@ import {
   type GovernedFindingCompensationAuthorization,
   type RegistryLockLease,
   type SourceFindingPublicationStore,
-  withRegistryFileLockAsync,
 } from './finding-registry-store';
-import {
-  deriveRawFindingIdFloors,
-  parseFindingRegistrySchemaContract,
-} from './lib/finding-registry-schema-contract';
-import { hasOwn } from './lib/json-contract';
-import {
-  computeCanonicalGitWorktreeEvidence,
-  HERMETIC_GIT_RUNTIME,
-} from './lib/hermetic-git-runtime';
-import {
-  assertSourceFindingWriterFenceSessionCurrent,
-  closeSourceFindingWriterFenceSession,
-  openSourceFindingWriterFenceSession,
-  type SourceFindingWriterFenceSession,
-} from './lib/finding-writer-fence';
-import { REPO_ROOT } from './lib/repo-root';
 import {
   SOURCE_INVENTORY_SCHEMA_V2,
   SOURCE_KINDS,
@@ -54,11 +40,6 @@ import {
   type SourceRole,
 } from './lib/capability-source-contract';
 import {
-  executeSourceFindingPublicationTransaction,
-  executeSourceFindingRestartRecovery,
-} from './lib/source-finding-publication-kernel';
-import { admitFindingWriterCliInvocation } from './lib/finding-writer-cli-contract';
-import {
   FINDING_REGISTRY_RELATIVE_PATH,
   FINDING_REGISTRY_SCHEMA_RELATIVE_PATH,
   SOURCE_FINDING_ARTIFACT_BASENAME,
@@ -66,6 +47,27 @@ import {
   SOURCE_FINDING_MANIFEST_BASENAME,
   SOURCE_FINDING_PLAN_RELATIVE_PATH,
 } from './lib/finding-authority-target-catalog';
+import {
+  deriveRawFindingIdFloors,
+  parseFindingRegistrySchemaContract,
+} from './lib/finding-registry-schema-contract';
+import { admitFindingWriterCliInvocation } from './lib/finding-writer-cli-contract';
+import {
+  assertSourceFindingWriterFenceSessionCurrent,
+  closeSourceFindingWriterFenceSession,
+  openSourceFindingWriterFenceSession,
+  type SourceFindingWriterFenceSession,
+} from './lib/finding-writer-fence';
+import {
+  computeCanonicalGitWorktreeEvidence,
+  HERMETIC_GIT_RUNTIME,
+} from './lib/hermetic-git-runtime';
+import { hasOwn } from './lib/json-contract';
+import { REPO_ROOT } from './lib/repo-root';
+import {
+  executeSourceFindingPublicationTransaction,
+  executeSourceFindingRestartRecovery,
+} from './lib/source-finding-publication-kernel';
 
 const PLAN_DIRECTORY = SOURCE_FINDING_PLAN_RELATIVE_PATH;
 const MANIFEST_PATH = `${PLAN_DIRECTORY}/${SOURCE_FINDING_MANIFEST_BASENAME}`;
@@ -3766,9 +3768,7 @@ function formatSourceFindingManifestWithConfig(
   return formatted;
 }
 
-export async function formatSourceFindingManifest(
-  manifest: Record<string, unknown>,
-): Promise<string> {
+export function formatSourceFindingManifest(manifest: Record<string, unknown>): string {
   const packageLockText = readPackageLockText();
   return formatSourceFindingManifestWithConfig(
     manifest,
@@ -3837,7 +3837,7 @@ async function publishGeneratedState(
       await assertPublicationFenceStable(fence);
       assertInputSnapshotStable(inputSnapshot);
     },
-    publishArtifact: async () => {
+    publishArtifact: () => {
       if (existsSync(nextArtifactAbsolutePath)) {
         if (readBoundedText(nextArtifactAbsolutePath, MAX_GIT_OUTPUT_BYTES) !== artifact) {
           throw new Error(
@@ -3847,7 +3847,7 @@ async function publishGeneratedState(
         return;
       }
       assertSourceFindingWriterFenceSessionCurrent(writerFence, lease);
-      publicationStore.publishImmutableArtifact(nextArtifactAbsolutePath, artifact);
+      publicationStore.publishImmutableArtifact(compensation, nextArtifactAbsolutePath, artifact);
     },
     verifyArtifact: async () => {
       assertInputSnapshotStable(inputSnapshot, allowedAdditionalArtifacts);
@@ -3855,7 +3855,7 @@ async function publishGeneratedState(
       assertInputSnapshotStable(inputSnapshot, allowedAdditionalArtifacts);
     },
     publishManifestCommitMarker: async () => {
-      const nextManifest = await formatSourceFindingManifestWithConfig(
+      const nextManifest = formatSourceFindingManifestWithConfig(
         manifest.raw,
         inputSnapshot.prettierConfigText,
         lockedPrettierVersion(inputSnapshot.packageLockText),
@@ -3864,12 +3864,12 @@ async function publishGeneratedState(
       assertPublicationIdentityStable(fence);
       assertFormattingContractSnapshotStable(inputSnapshot);
       assertSourceFindingWriterFenceSessionCurrent(writerFence, lease);
-      publicationStore.commitManifest(join(REPO_ROOT, MANIFEST_PATH), nextManifest);
+      publicationStore.commitManifest(compensation, join(REPO_ROOT, MANIFEST_PATH), nextManifest);
       assertFormattingContractSnapshotStable(inputSnapshot);
       await assertPublicationFenceStable(fence);
       assertFormattingContractSnapshotStable(inputSnapshot);
     },
-    cleanupSupersededArtifacts: async (checkpoint) => {
+    cleanupSupersededArtifacts: (checkpoint) => {
       let removedArtifact = false;
       for (const governedArtifact of inputSnapshot.governedArtifacts) {
         if (governedArtifact.path === nextArtifactPath) continue;
@@ -3883,7 +3883,7 @@ async function publishGeneratedState(
           );
         }
         assertSourceFindingWriterFenceSessionCurrent(writerFence, lease);
-        publicationStore.removeArtifact(governedAbsolutePath);
+        publicationStore.removeArtifact(compensation, governedAbsolutePath);
         removedArtifact = true;
         checkpoint();
       }
@@ -3899,7 +3899,7 @@ async function publishGeneratedState(
           throw new Error('legacy source-finding artifact changed before cleanup');
         }
         assertSourceFindingWriterFenceSessionCurrent(writerFence, lease);
-        publicationStore.removeArtifact(legacyAbsolutePath);
+        publicationStore.removeArtifact(compensation, legacyAbsolutePath);
         removedArtifact = true;
         checkpoint();
       }
@@ -3911,8 +3911,7 @@ async function publishGeneratedState(
       await assertPublicationFenceStable(fence);
       assertFormattingContractSnapshotStable(inputSnapshot);
     },
-    rollback: async () =>
-      rollbackPublishedState(inputSnapshot, lease, publicationStore, compensation),
+    rollback: () => rollbackPublishedState(inputSnapshot, lease, publicationStore, compensation),
     release: () => publicationStore.releaseCompensation(compensation),
   });
 }
@@ -4115,66 +4114,80 @@ async function recoverSourceInventoryPublication(
   let artifactSha256: string | null = null;
   let selectedArtifactPath: string | null = null;
   let supersededArtifactPaths: string[] = [];
-  await executeSourceFindingRestartRecovery({
-    readAndVerifyManifestCommitMarker: async () => {
-      let rawManifest: unknown;
-      try {
-        rawManifest = JSON.parse(readBoundedText(manifestPath, MAX_GIT_OUTPUT_BYTES)) as unknown;
-      } catch {
-        throw new Error('source-finding restart recovery requires a valid manifest commit marker');
-      }
-      const root = requireRecord(rawManifest, 'source-finding restart manifest');
-      const reconciliation = requireRecord(
-        root.capability_reconciliation,
-        'source-finding restart manifest.capability_reconciliation',
-      );
-      const inventory = requireRecord(
-        reconciliation.finding_inventory,
-        'source-finding restart manifest.finding_inventory',
-      );
-      const artifactPath = requireString(
-        inventory.artifact_path,
-        'source-finding restart manifest.finding_inventory.artifact_path',
-      );
-      artifactSha256 = requireSha256(
-        inventory.artifact_sha256,
-        'source-finding restart manifest.finding_inventory.artifact_sha256',
-      );
-      if (ARTIFACT_PATH_PATTERN.exec(artifactPath)?.groups?.sha256 !== artifactSha256) {
-        throw new Error('source-finding restart manifest pointer is not content-addressed');
-      }
-      selectedArtifactPath = artifactAbsolutePath(artifactPath);
-      supersededArtifactPaths = readdirSync(join(REPO_ROOT, PLAN_DIRECTORY), {
-        withFileTypes: true,
-      })
-        .filter(
-          (entry) =>
-            entry.isFile() &&
-            (entry.name === SOURCE_FINDING_LEGACY_ARTIFACT_BASENAME ||
-              ARTIFACT_FILENAME_PATTERN.test(entry.name)),
-        )
-        .map((entry) => join(REPO_ROOT, PLAN_DIRECTORY, entry.name))
-        .filter((candidatePath) => candidatePath !== selectedArtifactPath)
-        .sort(compareText);
-    },
-    verifySelectedArtifact: async () => {
-      if (selectedArtifactPath === null || artifactSha256 === null) {
-        throw new Error('source-finding restart recovery lost its manifest selection');
-      }
-      const selectedArtifact = readBoundedText(selectedArtifactPath, MAX_GIT_OUTPUT_BYTES);
-      if (sha256(selectedArtifact) !== artifactSha256) {
-        throw new Error('source-finding restart manifest points to a digest-mismatched artifact');
-      }
-    },
-    removeOneSupersededArtifact: async () => {
-      const candidatePath = supersededArtifactPaths.shift();
-      if (candidatePath === undefined) return false;
-      assertSourceFindingWriterFenceSessionCurrent(writerFence, lease);
-      publicationStore.removeArtifact(candidatePath);
-      return true;
-    },
-    syncRecoveredCut: async () => fsyncParentDirectory(join(REPO_ROOT, PLAN_DIRECTORY)),
-  });
+  let compensation: GovernedFindingCompensationAuthorization | null = null;
+  try {
+    await executeSourceFindingRestartRecovery({
+      readAndVerifyManifestCommitMarker: () => {
+        let rawManifest: unknown;
+        try {
+          rawManifest = JSON.parse(readBoundedText(manifestPath, MAX_GIT_OUTPUT_BYTES)) as unknown;
+        } catch {
+          throw new Error(
+            'source-finding restart recovery requires a valid manifest commit marker',
+          );
+        }
+        const root = requireRecord(rawManifest, 'source-finding restart manifest');
+        const reconciliation = requireRecord(
+          root.capability_reconciliation,
+          'source-finding restart manifest.capability_reconciliation',
+        );
+        const inventory = requireRecord(
+          reconciliation.finding_inventory,
+          'source-finding restart manifest.finding_inventory',
+        );
+        const artifactPath = requireString(
+          inventory.artifact_path,
+          'source-finding restart manifest.finding_inventory.artifact_path',
+        );
+        artifactSha256 = requireSha256(
+          inventory.artifact_sha256,
+          'source-finding restart manifest.finding_inventory.artifact_sha256',
+        );
+        if (ARTIFACT_PATH_PATTERN.exec(artifactPath)?.groups?.sha256 !== artifactSha256) {
+          throw new Error('source-finding restart manifest pointer is not content-addressed');
+        }
+        selectedArtifactPath = artifactAbsolutePath(artifactPath);
+        supersededArtifactPaths = readdirSync(join(REPO_ROOT, PLAN_DIRECTORY), {
+          withFileTypes: true,
+        })
+          .filter(
+            (entry) =>
+              entry.isFile() &&
+              (entry.name === SOURCE_FINDING_LEGACY_ARTIFACT_BASENAME ||
+                ARTIFACT_FILENAME_PATTERN.test(entry.name)),
+          )
+          .map((entry) => join(REPO_ROOT, PLAN_DIRECTORY, entry.name))
+          .filter((candidatePath) => candidatePath !== selectedArtifactPath)
+          .sort(compareText);
+        compensation = publicationStore.captureCompensation([
+          manifestPath,
+          ...supersededArtifactPaths,
+        ]);
+      },
+      verifySelectedArtifact: () => {
+        if (selectedArtifactPath === null || artifactSha256 === null) {
+          throw new Error('source-finding restart recovery lost its manifest selection');
+        }
+        const selectedArtifact = readBoundedText(selectedArtifactPath, MAX_GIT_OUTPUT_BYTES);
+        if (sha256(selectedArtifact) !== artifactSha256) {
+          throw new Error('source-finding restart manifest points to a digest-mismatched artifact');
+        }
+      },
+      removeOneSupersededArtifact: () => {
+        const candidatePath = supersededArtifactPaths.shift();
+        if (candidatePath === undefined) return false;
+        if (compensation === null) {
+          throw new Error('source-finding restart recovery lost its transition journal');
+        }
+        assertSourceFindingWriterFenceSessionCurrent(writerFence, lease);
+        publicationStore.removeArtifact(compensation, candidatePath);
+        return true;
+      },
+      syncRecoveredCut: () => fsyncParentDirectory(join(REPO_ROOT, PLAN_DIRECTORY)),
+    });
+  } finally {
+    if (compensation !== null) publicationStore.releaseCompensation(compensation);
+  }
 }
 
 async function executeWithSnapshot(
@@ -4477,24 +4490,22 @@ async function executeSourceInventoryMutationUnderAuthority(
 async function runGovernedSourceFindingInventoryMutation(options: unknown): Promise<void> {
   const authority = resolveGitFindingAllocationAuthority(REPO_ROOT);
   const manifestPath = join(REPO_ROOT, MANIFEST_PATH);
-  await withRegistryFileLockAsync(
-    manifestPath,
-    async (lease) => {
-      const snapshot = authority.assertCompatibleWriters();
-      const capability = authority.consumeCompatibleWriters(snapshot);
-      const writerFence = openSourceFindingWriterFenceSession(authority, capability, lease);
+  await runWithPreparedFindingWriterFenceAdmission({
+    resourcePath: manifestPath,
+    lockPath: authority.lockPath,
+    prepareSnapshot: (signal) => authority.assertCompatibleWriters(signal),
+    admit: async (snapshot, lease, signal) => {
+      const capability = await authority.consumeCompatibleWriters(snapshot, signal);
+      return openSourceFindingWriterFenceSession(authority, capability, lease, signal);
+    },
+    run: async (writerFence, lease) => {
       try {
         await executeSourceInventoryMutationUnderAuthority(options, lease, writerFence);
       } finally {
         closeSourceFindingWriterFenceSession(authority, writerFence);
       }
     },
-    {
-      lockPath: authority.lockPath,
-      timeoutMs: 30_000,
-      pollIntervalMs: 50,
-    },
-  );
+  });
 }
 
 export interface StaticSourceFindingValidationResult {

@@ -16,8 +16,10 @@ import { afterEach, describe, it } from 'node:test';
 import {
   ARIA_AUTHORITY_HASH_SENTINEL,
   CURRENT_STATE_PATH,
-  writeAriaAuthorityHash,
+  selectAriaAuthorityFiles,
+  writeAriaAuthorityHash as writeAriaAuthorityHashWithFiles,
 } from '../aria-authority-hash';
+
 import {
   FINDING_WRITER_AUTHORITY_PATH,
   FINDING_WRITER_DECLARED_ASSET_EDGES,
@@ -25,23 +27,25 @@ import {
   FINDING_WRITER_RETIRED_MUTATION_SURFACES,
   FINDING_WRITER_SENSITIVE_IMPORT_AUTHORITY,
   FINDING_WRITER_SENSITIVE_READ_ONLY_EXPORTS,
-  checkFindingWriterProtocolManifest,
+  checkFindingWriterProtocolManifest as checkFindingWriterProtocolManifestWithFiles,
   createFindingWriterRepositorySnapshot,
-  parseFindingWriterProtocolManifest,
-  renderFindingWriterProtocolManifest,
-  resolveFindingWriterGovernedPaths,
-  writeFindingWriterProtocolManifest,
+  parseFindingWriterProtocolManifest as parseFindingWriterProtocolManifestWithFiles,
+  renderFindingWriterProtocolManifest as renderFindingWriterProtocolManifestWithFiles,
+  resolveFindingWriterGovernedPaths as resolveFindingWriterGovernedPathsWithFiles,
+  writeFindingWriterProtocolManifest as writeFindingWriterProtocolManifestWithFiles,
+  type FindingWriterProtocolManifest,
+  type FindingWriterRepositorySnapshot,
 } from './finding-registry-writer-authority';
+import {
+  writeFindingWriterSensitiveAuthorityFixture,
+  writeFindingWriterSensitiveFixtureModule,
+} from './finding-registry-writer-authority.fixture';
 import {
   admitFindingWriterCliInvocation,
   FINDING_WRITER_CLI_COMMAND_CONTRACT,
   FINDING_WRITER_REGISTRY_MUTATION_OPERATIONS,
   findingWriterCliOperationNames,
 } from './finding-writer-cli-contract';
-import {
-  writeFindingWriterSensitiveAuthorityFixture,
-  writeFindingWriterSensitiveFixtureModule,
-} from './finding-registry-writer-authority.fixture';
 
 const fixtureRoots: string[] = [];
 const repositoryRoot = resolve(__dirname, '..', '..', '..');
@@ -57,6 +61,65 @@ function writeFixtureFile(root: string, path: string): void {
   if (existsSync(absolute)) return;
   mkdirSync(dirname(absolute), { recursive: true });
   writeFileSync(absolute, fixtureFileContent(path), 'utf8');
+}
+
+function fixtureAriaAuthorityFiles(root: string): string[] {
+  const raw = execFileSync(
+    'git',
+    [
+      '-C',
+      root,
+      'ls-files',
+      '-z',
+      '--',
+      'docs/aria',
+      'aria-kernel',
+      'tools/aria-poc',
+      '.github/workflows',
+    ],
+    { encoding: 'utf8' },
+  );
+  return selectAriaAuthorityFiles(raw.length === 0 ? [] : raw.slice(0, -1).split('\0'));
+}
+
+function writeAriaAuthorityHash(root: string): ReturnType<typeof writeAriaAuthorityHashWithFiles> {
+  return writeAriaAuthorityHashWithFiles(root, fixtureAriaAuthorityFiles(root));
+}
+
+function resolveFindingWriterGovernedPaths(
+  root: string = repositoryRoot,
+  snapshot: FindingWriterRepositorySnapshot = createFindingWriterRepositorySnapshot(root),
+): string[] {
+  return resolveFindingWriterGovernedPathsWithFiles(
+    root,
+    fixtureAriaAuthorityFiles(root),
+    snapshot,
+  );
+}
+
+function renderFindingWriterProtocolManifest(root: string): string {
+  return renderFindingWriterProtocolManifestWithFiles(root, fixtureAriaAuthorityFiles(root));
+}
+
+function parseFindingWriterProtocolManifest(
+  raw: string,
+  path: string,
+  root: string,
+): FindingWriterProtocolManifest {
+  return parseFindingWriterProtocolManifestWithFiles(
+    raw,
+    path,
+    root,
+    fixtureAriaAuthorityFiles(root),
+  );
+}
+
+function checkFindingWriterProtocolManifest(root: string): void {
+  checkFindingWriterProtocolManifestWithFiles(root, fixtureAriaAuthorityFiles(root));
+}
+
+function writeFindingWriterProtocolManifest(root: string): boolean {
+  return writeFindingWriterProtocolManifestWithFiles(root, fixtureAriaAuthorityFiles(root));
 }
 
 function fixture(): string {

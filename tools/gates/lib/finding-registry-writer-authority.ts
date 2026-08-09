@@ -5,19 +5,16 @@ import {
   constants as fsConstants,
   existsSync,
   fchmodSync,
-  fstatSync,
   fsyncSync,
   lstatSync,
   openSync,
   readFileSync,
-  readSync,
-  readdirSync,
   realpathSync,
   renameSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, extname, relative, resolve } from 'node:path';
+import { basename, dirname, extname, relative, resolve } from 'node:path';
 
 import * as ts from 'typescript';
 import * as YAML from 'yaml';
@@ -27,7 +24,26 @@ import {
   ariaAuthorityFiles,
   assertAriaAuthorityHashCurrent,
   CURRENT_STATE_PATH,
+  selectAriaAuthorityFiles,
 } from '../aria-authority-hash';
+
+import {
+  assertStableDirectoryCurrent,
+  assertStableDirectoryContentGenerationCurrent,
+  assertStablePathKindCurrent,
+  assertStableRegularFileCurrent,
+  decodeFatalUtf8,
+  observeStableDirectory,
+  observeStablePathKind,
+  observeStableRegularFile,
+  sameAnchoredDirectoryIdentity,
+  sameAnchoredPathGeneration,
+  sameStableParentIdentities,
+  type AnchoredPathKindV1,
+  type StableDirectoryObservationV1,
+  type StablePathKindObservationV1,
+  type StableRegularFileObservationV1,
+} from './anchored-filesystem';
 import {
   AUTOMATION_BASE_REF,
   AUTOMATION_PUBLICATION_BRANCH_LIFECYCLE,
@@ -45,21 +61,6 @@ import {
   isFindingWriterCliExecutablePath,
 } from './finding-writer-cli-contract';
 import { hasOwn } from './json-contract';
-import {
-  assertStableDirectoryCurrent,
-  assertStableDirectoryContentGenerationCurrent,
-  assertStablePathKindCurrent,
-  assertStableRegularFileCurrent,
-  decodeFatalUtf8,
-  observeStableDirectory,
-  observeStablePathKind,
-  observeStableRegularFile,
-  sameAnchoredPathGeneration,
-  type AnchoredPathKindV1,
-  type StableDirectoryObservationV1,
-  type StableRegularFileObservationV1,
-  type StablePathKindObservationV1,
-} from './anchored-filesystem';
 import { REPO_ROOT } from './repo-root';
 
 const FINDING_WRITER_AUTOMATION_WORKFLOW_PATHS = Object.freeze(
@@ -166,6 +167,23 @@ export interface FindingWriterDirectoryEntry {
   readonly kind: 'FILE' | 'DIRECTORY';
 }
 
+const FINDING_WRITER_REPOSITORY_SOURCE_TRANSITION_BRAND: unique symbol = Symbol(
+  'FINDING_WRITER_REPOSITORY_SOURCE_TRANSITION_V1',
+);
+const FINDING_WRITER_REPOSITORY_PREPARED_SOURCE_TRANSITION_BRAND: unique symbol = Symbol(
+  'FINDING_WRITER_REPOSITORY_PREPARED_SOURCE_TRANSITION_V1',
+);
+
+export interface FindingWriterRepositorySourceTransition {
+  readonly kind: 'FINDING_WRITER_REPOSITORY_SOURCE_TRANSITION_V1';
+  readonly [FINDING_WRITER_REPOSITORY_SOURCE_TRANSITION_BRAND]: true;
+}
+
+export interface FindingWriterRepositoryPreparedSourceTransition {
+  readonly kind: 'FINDING_WRITER_REPOSITORY_PREPARED_SOURCE_TRANSITION_V1';
+  readonly [FINDING_WRITER_REPOSITORY_PREPARED_SOURCE_TRANSITION_BRAND]: true;
+}
+
 export interface FindingWriterRepositorySnapshot {
   readonly repoRoot: string;
   readFile(relativePath: string): Buffer;
@@ -176,12 +194,57 @@ export interface FindingWriterRepositorySnapshot {
   getDirectories(absolutePath: string): string[];
   directoryEntries(relativePath: string): readonly FindingWriterDirectoryEntry[];
   recordPathSet(identity: string, paths: readonly string[], readCurrent: () => string[]): void;
+  prepareSourceMutation(transition: {
+    readonly planDirectoryPath: string;
+    readonly targetPath: string;
+    readonly beforeSha256: string | null;
+    readonly afterSha256: string | null;
+  }): FindingWriterRepositorySourceTransition;
+  prepareSourceMutationCommit(
+    transition: FindingWriterRepositorySourceTransition,
+  ): FindingWriterRepositoryPreparedSourceTransition;
+  assertSourceMutationBeforeCurrent(transition: FindingWriterRepositorySourceTransition): void;
+  commitSourceMutation(
+    transition: FindingWriterRepositorySourceTransition,
+    prepared: FindingWriterRepositoryPreparedSourceTransition,
+  ): void;
+  cancelSourceMutation(transition: FindingWriterRepositorySourceTransition): void;
   assertCurrent(): void;
+}
+
+export class FindingWriterRepositorySnapshotMismatchError extends Error {
+  public readonly code = 'FINDING_WRITER_REPOSITORY_SNAPSHOT_MISMATCH' as const;
+
+  public constructor(public readonly identity: string) {
+    super(`Finding writer snapshot path set changed: ${identity}`);
+    this.name = 'FindingWriterRepositorySnapshotMismatchError';
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
 }
 
 export interface FindingWriterSnapshotReadObserver {
   onFileRead(relativePath: string): void;
   onDirectoryRead(relativePath: string): void;
+}
+
+interface FindingWriterSourceMutationEpochV1 {
+  readonly planDirectories: ReadonlyMap<string, StableDirectoryObservationV1>;
+  readonly targetFiles: ReadonlyMap<string, StableRegularFileObservationV1 | null>;
+}
+
+interface PendingFindingWriterRepositorySourceTransitionV1 {
+  readonly transition: FindingWriterRepositorySourceTransition;
+  readonly planDirectory: string;
+  readonly target: string;
+  readonly beforeSha256: string | null;
+  readonly afterSha256: string | null;
+  readonly expectedEntries: readonly FindingWriterDirectoryEntry[];
+  prepared:
+    | {
+        readonly capability: FindingWriterRepositoryPreparedSourceTransition;
+        readonly epoch: FindingWriterSourceMutationEpochV1;
+      }
+    | undefined;
 }
 
 class CachedFindingWriterRepositorySnapshot implements FindingWriterRepositorySnapshot {
@@ -196,6 +259,11 @@ class CachedFindingWriterRepositorySnapshot implements FindingWriterRepositorySn
     string,
     { readonly paths: readonly string[]; readonly readCurrent: () => string[] }
   >();
+  private sourceMutationEpoch: FindingWriterSourceMutationEpochV1 = Object.freeze({
+    planDirectories: new Map(),
+    targetFiles: new Map(),
+  });
+  private pendingSourceMutation: PendingFindingWriterRepositorySourceTransitionV1 | undefined;
 
   public constructor(
     repoRoot: string,
@@ -371,34 +439,307 @@ class CachedFindingWriterRepositorySnapshot implements FindingWriterRepositorySn
     this.pathSets.set(identity, { paths: Object.freeze([...paths]), readCurrent });
   }
 
-  public assertCurrent(): void {
+  private assertCurrentExcludingSourceMutation(planDirectory?: string, target?: string): void {
     for (const [identity, expected] of this.pathSets) {
       if (JSON.stringify(expected.readCurrent()) !== JSON.stringify(expected.paths)) {
-        throw new Error(`Finding writer snapshot path set changed: ${identity}`);
+        throw new FindingWriterRepositorySnapshotMismatchError(identity);
       }
     }
     for (const [absolutePath, expected] of this.pathKinds) {
-      if (expected.kind !== 'MISSING') {
-        assertStablePathKindCurrent(expected, `Finding writer resolver path ${absolutePath}`);
+      if (
+        absolutePath === target ||
+        absolutePath === planDirectory ||
+        this.sourceMutationEpoch.targetFiles.has(absolutePath) ||
+        this.sourceMutationEpoch.planDirectories.has(absolutePath) ||
+        expected.kind === 'MISSING'
+      ) {
+        continue;
       }
+      assertStablePathKindCurrent(expected, `Finding writer resolver path ${absolutePath}`);
     }
     for (const [absolutePath, expected] of this.pathKindParentGenerations) {
+      if (
+        absolutePath === planDirectory ||
+        this.sourceMutationEpoch.planDirectories.has(absolutePath)
+      ) {
+        continue;
+      }
       assertStableDirectoryContentGenerationCurrent(
         expected,
         `Finding writer resolver parent ${absolutePath}`,
       );
     }
     for (const [relativePath, expected] of this.fileGenerations) {
-      const absolutePath = this.assertComponents(relativePath);
+      const absolutePath = resolve(this.repoRoot, relativePath);
+      if (absolutePath === target || this.sourceMutationEpoch.targetFiles.has(absolutePath)) {
+        continue;
+      }
+      const currentPath = this.assertComponents(relativePath);
       assertStableRegularFileCurrent(
         expected,
         FINDING_WRITER_MAX_FILE_BYTES,
-        `Finding writer snapshot file ${absolutePath}`,
+        `Finding writer snapshot file ${currentPath}`,
       );
     }
     for (const [absolutePath, expected] of this.directoryGenerations) {
+      if (
+        absolutePath === planDirectory ||
+        this.sourceMutationEpoch.planDirectories.has(absolutePath)
+      ) {
+        continue;
+      }
       assertStableDirectoryCurrent(expected, `Finding writer snapshot directory ${absolutePath}`);
     }
+    for (const [absolutePath, expected] of this.sourceMutationEpoch.planDirectories) {
+      if (absolutePath === planDirectory) continue;
+      assertStableDirectoryCurrent(
+        expected,
+        `Finding writer transitioned source directory ${absolutePath}`,
+      );
+    }
+    for (const [absolutePath, expected] of this.sourceMutationEpoch.targetFiles) {
+      if (absolutePath === target || expected === null) continue;
+      assertStableRegularFileCurrent(
+        expected,
+        FINDING_WRITER_MAX_FILE_BYTES,
+        `Finding writer transitioned source file ${absolutePath}`,
+      );
+    }
+  }
+
+  private sourcePlanDirectoryObservation(planDirectory: string): StableDirectoryObservationV1 {
+    const transitioned = this.sourceMutationEpoch.planDirectories.get(planDirectory);
+    if (transitioned !== undefined) return transitioned;
+    const captured = this.directoryGenerations.get(planDirectory);
+    if (captured === undefined || captured.entries === null) {
+      throw new Error(`Finding writer source plan directory was not snapshotted: ${planDirectory}`);
+    }
+    return captured;
+  }
+
+  private pendingSourceTransition(
+    transition: FindingWriterRepositorySourceTransition,
+  ): PendingFindingWriterRepositorySourceTransitionV1 {
+    const pending = this.pendingSourceMutation;
+    if (pending === undefined || pending.transition !== transition) {
+      throw new Error(
+        'Finding writer repository source transition is foreign, stale, or already consumed',
+      );
+    }
+    return pending;
+  }
+
+  public prepareSourceMutation(transition: {
+    readonly planDirectoryPath: string;
+    readonly targetPath: string;
+    readonly beforeSha256: string | null;
+    readonly afterSha256: string | null;
+  }): FindingWriterRepositorySourceTransition {
+    if (this.pendingSourceMutation !== undefined) {
+      throw new Error('Finding writer repository already has one pending source transition');
+    }
+    const planDirectory = this.normalize(transition.planDirectoryPath, true).absolutePath;
+    const target = this.normalize(transition.targetPath).absolutePath;
+    if (dirname(target) !== planDirectory) {
+      throw new Error(`Finding writer source transition escapes its plan directory: ${target}`);
+    }
+    for (const [label, value] of [
+      ['before', transition.beforeSha256],
+      ['after', transition.afterSha256],
+    ] as const) {
+      if (value !== null && !/^[0-9a-f]{64}$/.test(value)) {
+        throw new Error(`Finding writer source transition ${label} digest is invalid`);
+      }
+    }
+    this.assertCurrent();
+    const priorDirectory = this.sourcePlanDirectoryObservation(planDirectory);
+    const priorEntries = priorDirectory.entries;
+    if (priorEntries === null) throw new Error('Finding writer source plan directory lost entries');
+    const targetName = basename(target);
+    const priorTarget = priorEntries.find((entry) => entry.name === targetName);
+    if ((transition.beforeSha256 === null) !== (priorTarget === undefined)) {
+      throw new Error(`Finding writer source transition before-image presence changed: ${target}`);
+    }
+    if (priorTarget !== undefined && priorTarget.kind !== 'FILE') {
+      throw new Error(`Finding writer source transition target was not a file: ${target}`);
+    }
+    const currentPathKind = observeStablePathKind(target, 'Finding writer source before-image');
+    if (transition.beforeSha256 === null) {
+      if (currentPathKind.kind !== 'MISSING') {
+        throw new FindingWriterRepositorySnapshotMismatchError(
+          `SOURCE_TRANSITION_BEFORE_EXPECTED_MISSING:${target}`,
+        );
+      }
+    } else {
+      if (currentPathKind.kind !== 'FILE') {
+        throw new FindingWriterRepositorySnapshotMismatchError(
+          `SOURCE_TRANSITION_BEFORE_EXPECTED_FILE:${target}`,
+        );
+      }
+      const currentFile = observeStableRegularFile(
+        target,
+        FINDING_WRITER_MAX_FILE_BYTES,
+        'Finding writer source before-image',
+      );
+      if (currentFile.sha256 !== transition.beforeSha256) {
+        throw new FindingWriterRepositorySnapshotMismatchError(
+          `SOURCE_TRANSITION_BEFORE_DIGEST:${target}`,
+        );
+      }
+    }
+    const expectedEntries = [
+      ...priorEntries.filter((entry) => entry.name !== targetName),
+      ...(transition.afterSha256 === null
+        ? []
+        : [Object.freeze({ name: targetName, kind: 'FILE' as const })]),
+    ].sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+    const capability = Object.freeze({
+      kind: 'FINDING_WRITER_REPOSITORY_SOURCE_TRANSITION_V1' as const,
+      [FINDING_WRITER_REPOSITORY_SOURCE_TRANSITION_BRAND]: true as const,
+    });
+    this.pendingSourceMutation = {
+      transition: capability,
+      planDirectory,
+      target,
+      beforeSha256: transition.beforeSha256,
+      afterSha256: transition.afterSha256,
+      expectedEntries: Object.freeze(expectedEntries.map((entry) => Object.freeze({ ...entry }))),
+      prepared: undefined,
+    };
+    return capability;
+  }
+
+  public prepareSourceMutationCommit(
+    transition: FindingWriterRepositorySourceTransition,
+  ): FindingWriterRepositoryPreparedSourceTransition {
+    const pending = this.pendingSourceTransition(transition);
+    const currentDirectory = observeStableDirectory(
+      pending.planDirectory,
+      'Finding writer source transition directory',
+      true,
+    );
+    const currentEntries = currentDirectory.entries;
+    if (
+      currentEntries === null ||
+      JSON.stringify(currentEntries) !== JSON.stringify(pending.expectedEntries)
+    ) {
+      throw new FindingWriterRepositorySnapshotMismatchError(
+        `SOURCE_TRANSITION_DIRECTORY:${pending.planDirectory}`,
+      );
+    }
+    const priorDirectory = this.sourcePlanDirectoryObservation(pending.planDirectory);
+    if (
+      !sameAnchoredDirectoryIdentity(priorDirectory.generation, currentDirectory.generation) ||
+      !sameStableParentIdentities(
+        priorDirectory.parentGenerations,
+        currentDirectory.parentGenerations,
+      )
+    ) {
+      throw new FindingWriterRepositorySnapshotMismatchError(
+        `SOURCE_TRANSITION_DIRECTORY_IDENTITY:${pending.planDirectory}`,
+      );
+    }
+    const currentPathKind = observeStablePathKind(
+      pending.target,
+      'Finding writer source transition target',
+    );
+    let currentFile: StableRegularFileObservationV1 | null = null;
+    if (pending.afterSha256 === null) {
+      if (currentPathKind.kind !== 'MISSING') {
+        throw new FindingWriterRepositorySnapshotMismatchError(
+          `SOURCE_TRANSITION_EXPECTED_MISSING:${pending.target}`,
+        );
+      }
+    } else {
+      if (currentPathKind.kind !== 'FILE') {
+        throw new FindingWriterRepositorySnapshotMismatchError(
+          `SOURCE_TRANSITION_EXPECTED_FILE:${pending.target}`,
+        );
+      }
+      currentFile = observeStableRegularFile(
+        pending.target,
+        FINDING_WRITER_MAX_FILE_BYTES,
+        'Finding writer source transition file',
+      );
+      if (currentFile.sha256 !== pending.afterSha256) {
+        throw new FindingWriterRepositorySnapshotMismatchError(
+          `SOURCE_TRANSITION_DIGEST:${pending.target}`,
+        );
+      }
+    }
+    this.assertCurrentExcludingSourceMutation(pending.planDirectory, pending.target);
+    const nextPlanDirectories = new Map(this.sourceMutationEpoch.planDirectories);
+    nextPlanDirectories.set(pending.planDirectory, currentDirectory);
+    const nextTargetFiles = new Map(this.sourceMutationEpoch.targetFiles);
+    nextTargetFiles.set(pending.target, currentFile);
+    const capability = Object.freeze({
+      kind: 'FINDING_WRITER_REPOSITORY_PREPARED_SOURCE_TRANSITION_V1' as const,
+      [FINDING_WRITER_REPOSITORY_PREPARED_SOURCE_TRANSITION_BRAND]: true as const,
+    });
+    pending.prepared = {
+      capability,
+      epoch: Object.freeze({
+        planDirectories: nextPlanDirectories,
+        targetFiles: nextTargetFiles,
+      }),
+    };
+    return capability;
+  }
+
+  public assertSourceMutationBeforeCurrent(
+    transition: FindingWriterRepositorySourceTransition,
+  ): void {
+    const pending = this.pendingSourceTransition(transition);
+    this.assertCurrent();
+    const currentPathKind = observeStablePathKind(
+      pending.target,
+      'Finding writer pending source before-image',
+    );
+    if (pending.beforeSha256 === null) {
+      if (currentPathKind.kind !== 'MISSING') {
+        throw new FindingWriterRepositorySnapshotMismatchError(
+          `SOURCE_TRANSITION_PENDING_BEFORE_EXPECTED_MISSING:${pending.target}`,
+        );
+      }
+      return;
+    }
+    if (currentPathKind.kind !== 'FILE') {
+      throw new FindingWriterRepositorySnapshotMismatchError(
+        `SOURCE_TRANSITION_PENDING_BEFORE_EXPECTED_FILE:${pending.target}`,
+      );
+    }
+    const currentFile = observeStableRegularFile(
+      pending.target,
+      FINDING_WRITER_MAX_FILE_BYTES,
+      'Finding writer pending source before-image',
+    );
+    if (currentFile.sha256 !== pending.beforeSha256) {
+      throw new FindingWriterRepositorySnapshotMismatchError(
+        `SOURCE_TRANSITION_PENDING_BEFORE_DIGEST:${pending.target}`,
+      );
+    }
+  }
+
+  public commitSourceMutation(
+    transition: FindingWriterRepositorySourceTransition,
+    prepared: FindingWriterRepositoryPreparedSourceTransition,
+  ): void {
+    const pending = this.pendingSourceTransition(transition);
+    if (pending.prepared === undefined || pending.prepared.capability !== prepared) {
+      throw new Error('Finding writer prepared source transition is foreign or stale');
+    }
+    const nextEpoch = pending.prepared.epoch;
+    this.sourceMutationEpoch = nextEpoch;
+    this.pendingSourceMutation = undefined;
+  }
+
+  public cancelSourceMutation(transition: FindingWriterRepositorySourceTransition): void {
+    this.assertSourceMutationBeforeCurrent(transition);
+    this.pendingSourceMutation = undefined;
+  }
+
+  public assertCurrent(): void {
+    this.assertCurrentExcludingSourceMutation();
   }
 }
 
@@ -525,27 +866,27 @@ export const FINDING_WRITER_SENSITIVE_IMPORT_AUTHORITY =
     {
       target: 'tools/gates/lib/finding-writer-fence.ts',
       symbol: 'createFindingWriterFenceSnapshot',
-      importers: ['tools/gates/finding-registry.ts'],
+      importers: ['tools/gates/finding-registry-store.spec.ts', 'tools/gates/finding-registry.ts'],
     },
     {
       target: 'tools/gates/lib/finding-writer-fence.ts',
       symbol: 'prepareFindingWriterFenceSnapshot',
-      importers: ['tools/gates/finding-registry.ts'],
+      importers: ['tools/gates/finding-registry-store.spec.ts', 'tools/gates/finding-registry.ts'],
     },
     {
       target: 'tools/gates/lib/finding-writer-fence.ts',
       symbol: 'consumeFindingWriterFenceSnapshot',
-      importers: ['tools/gates/finding-registry.ts'],
+      importers: ['tools/gates/finding-registry-store.spec.ts', 'tools/gates/finding-registry.ts'],
     },
     {
       target: 'tools/gates/lib/finding-writer-fence.ts',
       symbol: 'redeemRegistryFindingWriterFence',
-      importers: ['tools/gates/finding-registry.ts'],
+      importers: ['tools/gates/finding-registry-store.spec.ts', 'tools/gates/finding-registry.ts'],
     },
     {
       target: 'tools/gates/lib/finding-writer-fence.ts',
       symbol: 'releaseFindingWriterFence',
-      importers: ['tools/gates/finding-registry.ts'],
+      importers: ['tools/gates/finding-registry-store.spec.ts', 'tools/gates/finding-registry.ts'],
     },
     {
       target: 'tools/gates/lib/finding-writer-fence.ts',
@@ -555,7 +896,12 @@ export const FINDING_WRITER_SENSITIVE_IMPORT_AUTHORITY =
     {
       target: 'tools/gates/lib/finding-writer-fence.ts',
       symbol: 'assertFindingWriterFenceCurrent',
-      importers: ['tools/gates/finding-registry-store.spec.ts', 'tools/gates/finding-registry.ts'],
+      importers: ['tools/gates/finding-registry-store.spec.ts'],
+    },
+    {
+      target: 'tools/gates/lib/finding-writer-fence.ts',
+      symbol: 'assertFindingWriterFenceTargetAuthorized',
+      importers: ['tools/gates/finding-registry-store.ts'],
     },
     {
       target: 'tools/gates/lib/finding-writer-fence.ts',
@@ -570,17 +916,52 @@ export const FINDING_WRITER_SENSITIVE_IMPORT_AUTHORITY =
     {
       target: 'tools/gates/lib/finding-writer-fence.ts',
       symbol: 'openSourceFindingWriterFenceSession',
-      importers: ['tools/gates/source-finding-inventory.ts'],
+      importers: [
+        'tools/gates/finding-registry-store.spec.ts',
+        'tools/gates/source-finding-inventory.ts',
+      ],
     },
     {
       target: 'tools/gates/lib/finding-writer-fence.ts',
       symbol: 'closeSourceFindingWriterFenceSession',
-      importers: ['tools/gates/source-finding-inventory.ts'],
+      importers: [
+        'tools/gates/finding-registry-store.spec.ts',
+        'tools/gates/source-finding-inventory.ts',
+      ],
     },
     {
       target: 'tools/gates/lib/finding-writer-fence.ts',
       symbol: 'assertSourceFindingWriterFenceSessionCurrent',
-      importers: ['tools/gates/source-finding-inventory.ts'],
+      importers: [
+        'tools/gates/finding-registry-store.spec.ts',
+        'tools/gates/source-finding-inventory.ts',
+      ],
+    },
+    {
+      target: 'tools/gates/lib/finding-writer-fence.ts',
+      symbol: 'prepareSourceFindingWriterFenceSessionTransition',
+      importers: [
+        'tools/gates/finding-registry-store.spec.ts',
+        'tools/gates/finding-registry-store.ts',
+      ],
+    },
+    {
+      target: 'tools/gates/lib/finding-writer-fence.ts',
+      symbol: 'assertPendingSourceFindingWriterFenceSessionTransitionBeforeCurrent',
+      importers: [
+        'tools/gates/finding-registry-store.spec.ts',
+        'tools/gates/finding-registry-store.ts',
+      ],
+    },
+    {
+      target: 'tools/gates/lib/finding-writer-fence.ts',
+      symbol: 'commitSourceFindingWriterFenceSessionTransition',
+      importers: ['tools/gates/finding-registry-store.ts'],
+    },
+    {
+      target: 'tools/gates/lib/finding-writer-fence.ts',
+      symbol: 'rollbackPendingSourceFindingWriterFenceSessionTransition',
+      importers: ['tools/gates/finding-registry-store.ts'],
     },
     {
       target: 'tools/gates/lib/finding-writer-fence.ts',
@@ -589,20 +970,21 @@ export const FINDING_WRITER_SENSITIVE_IMPORT_AUTHORITY =
     },
     {
       target: 'tools/gates/finding-registry-store.ts',
-      symbol: 'withRegistryFileLock',
+      symbol: 'testOnlyWithRegistryFileLock',
       importers: [
         'tools/gates/finding-registry-store.spec.ts',
-        'tools/gates/finding-registry.ts',
         'tools/gates/lib/finding-registry-lock.fixture.ts',
       ],
     },
     {
       target: 'tools/gates/finding-registry-store.ts',
-      symbol: 'withRegistryFileLockAsync',
-      importers: [
-        'tools/gates/finding-registry-store.spec.ts',
-        'tools/gates/source-finding-inventory.ts',
-      ],
+      symbol: 'withFindingWriterKernelLockAsync',
+      importers: ['tools/gates/finding-registry.ts'],
+    },
+    {
+      target: 'tools/gates/finding-registry-store.ts',
+      symbol: 'testOnlyWithRegistryFileLockAsync',
+      importers: ['tools/gates/finding-registry-store.spec.ts'],
     },
     {
       target: 'tools/gates/finding-registry-store.ts',
@@ -620,7 +1002,7 @@ export const FINDING_WRITER_SENSITIVE_IMPORT_AUTHORITY =
     {
       target: 'tools/gates/finding-registry-store.ts',
       symbol: 'atomicWriteFindingReservationFile',
-      importers: ['tools/gates/finding-registry.ts'],
+      importers: ['tools/gates/finding-registry-store.spec.ts', 'tools/gates/finding-registry.ts'],
     },
     {
       target: 'tools/gates/finding-registry-store.ts',
@@ -677,6 +1059,19 @@ export const FINDING_WRITER_SENSITIVE_IMPORT_AUTHORITY =
       importers: ['tools/gates/finding-registry-store.spec.ts'],
     },
     {
+      target: 'tools/gates/finding-registry.ts',
+      symbol: 'runWithPreparedFindingWriterFenceAdmission',
+      importers: [
+        'tools/gates/finding-registry-store.spec.ts',
+        'tools/gates/source-finding-inventory.ts',
+      ],
+    },
+    {
+      target: 'tools/gates/finding-registry.ts',
+      symbol: 'testOnlyRunWithPreparedFindingWriterFenceAdmission',
+      importers: ['tools/gates/finding-registry-store.spec.ts'],
+    },
+    {
       target: 'tools/gates/lib/finding-registry-writer-authority.ts',
       symbol: 'writeFindingWriterProtocolManifest',
       importers: [
@@ -689,7 +1084,23 @@ export const FINDING_WRITER_SENSITIVE_IMPORT_AUTHORITY =
 /** Explicitly harmless runtime exports from modules that also own mutation authority. */
 export const FINDING_WRITER_SENSITIVE_READ_ONLY_EXPORTS =
   freezeFindingWriterSensitiveReadOnlyExports([
+    {
+      target: 'tools/gates/finding-registry-store.ts',
+      symbol: 'FINDING_WRITER_FLOCK_EXECUTION_POLICY_V1',
+    },
+    {
+      target: 'tools/gates/finding-registry-store.ts',
+      symbol: 'FINDING_WRITER_REGISTRY_LOCK_POLICY_V1',
+    },
     { target: 'tools/gates/finding-registry-store.ts', symbol: 'RegistryLockError' },
+    {
+      target: 'tools/gates/finding-registry-store.ts',
+      symbol: 'RegistryTransitionRollbackConflictError',
+    },
+    {
+      target: 'tools/gates/finding-registry-store.ts',
+      symbol: 'SourceFindingTransitionRollbackConflictError',
+    },
     { target: 'tools/gates/finding-registry-store.ts', symbol: 'assertRegistryLockOwned' },
     { target: 'tools/gates/finding-registry-store.ts', symbol: 'listAtomicWriteStagingFiles' },
     { target: 'tools/gates/finding-registry-store.ts', symbol: 'ORPHAN_MD_HEADING_REGEX' },
@@ -706,7 +1117,31 @@ export const FINDING_WRITER_SENSITIVE_READ_ONLY_EXPORTS =
       target: 'tools/gates/lib/finding-writer-fence.ts',
       symbol: 'readFindingWriterAllocationSnapshot',
     },
+    {
+      target: 'tools/gates/lib/finding-writer-fence.ts',
+      symbol: 'defineFindingWriterWorktreeTopologyV1',
+    },
+    {
+      target: 'tools/gates/lib/finding-writer-fence.ts',
+      symbol: 'FindingWriterFenceGenerationMismatchError',
+    },
+    {
+      target: 'tools/gates/lib/finding-writer-fence.ts',
+      symbol: 'FindingWriterFenceStaleError',
+    },
+    {
+      target: 'tools/gates/lib/finding-writer-fence.ts',
+      symbol: 'isAuthenticFindingWriterFenceStaleError',
+    },
     { target: 'tools/gates/finding-registry.ts', symbol: 'registryMutationStagingFiles' },
+    {
+      target: 'tools/gates/finding-registry.ts',
+      symbol: 'FINDING_WRITER_FENCE_ADMISSION_POLICY_V1',
+    },
+    {
+      target: 'tools/gates/finding-registry.ts',
+      symbol: 'FindingWriterFenceAdmissionDeadlineError',
+    },
     { target: 'tools/gates/finding-registry.ts', symbol: 'reservedDomainFloorsFromManifest' },
     { target: 'tools/gates/finding-registry.ts', symbol: 'allocationFloorForDomain' },
     { target: 'tools/gates/finding-registry.ts', symbol: 'claimedIdsForDomain' },
@@ -826,6 +1261,10 @@ export const FINDING_WRITER_SENSITIVE_READ_ONLY_EXPORTS =
     {
       target: 'tools/gates/lib/finding-registry-writer-authority.ts',
       symbol: 'FINDING_WRITER_SENSITIVE_READ_ONLY_EXPORTS',
+    },
+    {
+      target: 'tools/gates/lib/finding-registry-writer-authority.ts',
+      symbol: 'FindingWriterRepositorySnapshotMismatchError',
     },
     {
       target: 'tools/gates/lib/finding-registry-writer-authority.ts',
@@ -2259,7 +2698,8 @@ function assertFindingWriterSensitiveReverseImports(
         `Finding writer ${authority.target}#${authority.symbol} importer declaration is duplicated or non-canonical`,
       );
     }
-    const symbols = authoritiesByTarget.get(authority.target) ?? new Map();
+    const symbols =
+      authoritiesByTarget.get(authority.target) ?? new Map<string, readonly string[]>();
     symbols.set(authority.symbol, authority.importers);
     authoritiesByTarget.set(authority.target, symbols);
   }
@@ -2361,7 +2801,8 @@ function assertFindingWriterSensitiveReverseImports(
  * execute outside the content-digest protocol.
  */
 export function resolveFindingWriterGovernedPaths(
-  repoRoot: string = REPO_ROOT,
+  repoRoot: string,
+  ariaAuthorityPaths: readonly string[],
   snapshot: FindingWriterRepositorySnapshot = createFindingWriterRepositorySnapshot(repoRoot),
 ): string[] {
   assertFindingWriterParserAuthorities(snapshot);
@@ -2472,11 +2913,15 @@ export function resolveFindingWriterGovernedPaths(
   }
   for (const verifier of linkedAuthorityVerifiers) {
     if (verifier === 'ARIA_AUTHORITY_HASH_V1') {
-      const authorityFiles = ariaAuthorityFiles(repoRoot);
-      snapshot.recordPathSet('ARIA_AUTHORITY_HASH_V1', authorityFiles, () =>
-        ariaAuthorityFiles(repoRoot),
+      const canonicalAuthorityPaths = selectAriaAuthorityFiles(ariaAuthorityPaths);
+      if (JSON.stringify(canonicalAuthorityPaths) !== JSON.stringify(ariaAuthorityPaths)) {
+        throw new Error('Finding writer ARIA authority path injection is not canonical');
+      }
+      assertAriaAuthorityHashCurrent(
+        repoRoot,
+        (path) => snapshot.readText(path),
+        canonicalAuthorityPaths,
       );
-      assertAriaAuthorityHashCurrent(repoRoot, (path) => snapshot.readText(path), authorityFiles);
     }
   }
   return [...governed].sort(compareText);
@@ -2489,10 +2934,11 @@ function assertRegularFile(path: string): void {
 }
 
 export function buildFindingWriterProtocolManifest(
-  repoRoot: string = REPO_ROOT,
+  repoRoot: string,
+  ariaAuthorityPaths: readonly string[],
   snapshot: FindingWriterRepositorySnapshot = createFindingWriterRepositorySnapshot(repoRoot),
 ): FindingWriterProtocolManifest {
-  const governedPaths = resolveFindingWriterGovernedPaths(repoRoot, snapshot);
+  const governedPaths = resolveFindingWriterGovernedPaths(repoRoot, ariaAuthorityPaths, snapshot);
   const files = Object.fromEntries(
     governedPaths.map((path) => [
       path,
@@ -2555,8 +3001,13 @@ function renderFindingWriterProtocolManifestValue(manifest: FindingWriterProtoco
   return `${prettyGeneratedJson(manifest)}\n`;
 }
 
-export function renderFindingWriterProtocolManifest(repoRoot: string = REPO_ROOT): string {
-  return renderFindingWriterProtocolManifestValue(buildFindingWriterProtocolManifest(repoRoot));
+export function renderFindingWriterProtocolManifest(
+  repoRoot: string,
+  ariaAuthorityPaths: readonly string[],
+): string {
+  return renderFindingWriterProtocolManifestValue(
+    buildFindingWriterProtocolManifest(repoRoot, ariaAuthorityPaths),
+  );
 }
 
 function parseFindingWriterProtocolManifestAgainstPaths(
@@ -2669,11 +3120,12 @@ export function parseFindingWriterProtocolManifest(
   raw: string,
   path: string,
   repoRoot: string,
+  ariaAuthorityPaths: readonly string[],
 ): FindingWriterProtocolManifest {
   return parseFindingWriterProtocolManifestAgainstPaths(
     raw,
     path,
-    resolveFindingWriterGovernedPaths(repoRoot),
+    resolveFindingWriterGovernedPaths(repoRoot, ariaAuthorityPaths),
   );
 }
 
@@ -2682,9 +3134,10 @@ export function verifyFindingWriterProtocolManifest(
   raw: string,
   path: string,
   repoRoot: string,
+  ariaAuthorityPaths: readonly string[],
   snapshot: FindingWriterRepositorySnapshot = createFindingWriterRepositorySnapshot(repoRoot),
 ): FindingWriterProtocolManifest {
-  const expected = buildFindingWriterProtocolManifest(repoRoot, snapshot);
+  const expected = buildFindingWriterProtocolManifest(repoRoot, ariaAuthorityPaths, snapshot);
   const parsed = parseFindingWriterProtocolManifestAgainstPaths(
     raw,
     path,
@@ -2699,17 +3152,23 @@ export function verifyFindingWriterProtocolManifest(
   return parsed;
 }
 
-export function checkFindingWriterProtocolManifest(repoRoot: string = REPO_ROOT): void {
+export function checkFindingWriterProtocolManifest(
+  repoRoot: string,
+  ariaAuthorityPaths: readonly string[],
+): void {
   const path = resolve(repoRoot, FINDING_WRITER_AUTHORITY_PATH);
   assertRegularFile(path);
   const actual = readFileSync(path, 'utf8');
-  verifyFindingWriterProtocolManifest(actual, path, repoRoot);
+  verifyFindingWriterProtocolManifest(actual, path, repoRoot, ariaAuthorityPaths);
 }
 
-export function writeFindingWriterProtocolManifest(repoRoot: string = REPO_ROOT): boolean {
+export function writeFindingWriterProtocolManifest(
+  repoRoot: string,
+  ariaAuthorityPaths: readonly string[],
+): boolean {
   const target = resolve(repoRoot, FINDING_WRITER_AUTHORITY_PATH);
   if (existsSync(target)) assertRegularFile(target);
-  const expected = renderFindingWriterProtocolManifest(repoRoot);
+  const expected = renderFindingWriterProtocolManifest(repoRoot, ariaAuthorityPaths);
   if (existsSync(target) && readFileSync(target, 'utf8') === expected) return false;
 
   const temporary = `${target}.${String(process.pid)}.${randomUUID()}.new`;
@@ -2742,28 +3201,32 @@ export function writeFindingWriterProtocolManifest(repoRoot: string = REPO_ROOT)
   return true;
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const args = process.argv.slice(2);
   if (args.length !== 1) {
     throw new Error('expected exactly one of --check or --write');
   }
   const [mode] = args;
+  const signal = new AbortController().signal;
+  const authorityPaths = await ariaAuthorityFiles(REPO_ROOT, signal);
   if (mode === '--check') {
-    checkFindingWriterProtocolManifest();
+    checkFindingWriterProtocolManifest(REPO_ROOT, authorityPaths);
     return;
   }
   if (mode === '--write') {
-    writeFindingWriterProtocolManifest();
+    writeFindingWriterProtocolManifest(REPO_ROOT, authorityPaths);
+    const finalAuthorityPaths = await ariaAuthorityFiles(REPO_ROOT, signal);
+    if (JSON.stringify(finalAuthorityPaths) !== JSON.stringify(authorityPaths)) {
+      throw new Error('Finding writer ARIA authority index changed while writing its protocol');
+    }
     return;
   }
   throw new Error('expected exactly one of --check or --write');
 }
 
 if (require.main === module) {
-  try {
-    main();
-  } catch (error) {
+  void main().catch((error: unknown) => {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
-  }
+  });
 }

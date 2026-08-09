@@ -5,13 +5,19 @@ import {
   type RegistryMutationOperation,
   type RepositoryMutationAuthority,
 } from '../github-actions-oidc-authority';
+
+import { AnchoredFilesystemError } from './anchored-filesystem';
 import {
+  classifyFindingAuthorityTarget,
   FINDING_REGISTRY_RELATIVE_PATH,
   SOURCE_FINDING_MANIFEST_BASENAME,
   SOURCE_FINDING_PLAN_RELATIVE_PATH,
   type FindingAuthorityTarget,
 } from './finding-authority-target-catalog';
-import type { FindingWriterRepositorySnapshot } from './finding-registry-writer-authority';
+import {
+  FindingWriterRepositorySnapshotMismatchError,
+  type FindingWriterRepositorySnapshot,
+} from './finding-registry-writer-authority';
 
 const FINDING_WRITER_FENCE_SNAPSHOT_BRAND: unique symbol = Symbol(
   'FINDING_WRITER_FENCE_SNAPSHOT_V1',
@@ -25,11 +31,42 @@ const REDEEMED_FINDING_WRITER_FENCE_CAPABILITY_BRAND: unique symbol = Symbol(
 const SOURCE_FINDING_WRITER_FENCE_SESSION_BRAND: unique symbol = Symbol(
   'SOURCE_FINDING_WRITER_FENCE_SESSION_V1',
 );
+const SOURCE_FINDING_WRITER_FENCE_TRANSITION_BRAND: unique symbol = Symbol(
+  'SOURCE_FINDING_WRITER_FENCE_TRANSITION_V1',
+);
 
 export interface FindingWriterWorktreeGeneration {
   readonly worktree_path: string;
   readonly head_oid: string;
   readonly allocator_present: boolean;
+}
+
+export interface FindingWriterWorktreeTopologyEntryV1 {
+  readonly path: string;
+  readonly headOid: string;
+}
+
+export interface FindingWriterWorktreeTopologyV1 {
+  readonly schemaVersion: 1;
+  readonly worktrees: readonly FindingWriterWorktreeTopologyEntryV1[];
+}
+
+export function defineFindingWriterWorktreeTopologyV1(
+  worktrees: readonly FindingWriterWorktreeTopologyEntryV1[],
+): FindingWriterWorktreeTopologyV1 {
+  const canonical = [...worktrees]
+    .map((worktree) => {
+      const path = resolve(worktree.path);
+      if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(worktree.headOid)) {
+        throw new Error(`Finding writer worktree HEAD is not one exact object ID: ${path}`);
+      }
+      return Object.freeze({ path, headOid: worktree.headOid });
+    })
+    .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+  if (new Set(canonical.map((worktree) => worktree.path)).size !== canonical.length) {
+    throw new Error('Finding writer worktree topology contains duplicate paths');
+  }
+  return Object.freeze({ schemaVersion: 1, worktrees: Object.freeze(canonical) });
 }
 
 export interface FindingWriterFenceSnapshot {
@@ -61,6 +98,11 @@ export interface SourceFindingWriterFenceSession {
   readonly [SOURCE_FINDING_WRITER_FENCE_SESSION_BRAND]: true;
 }
 
+export interface SourceFindingWriterFenceTransition {
+  readonly kind: 'SOURCE_FINDING_WRITER_FENCE_TRANSITION_V1';
+  readonly [SOURCE_FINDING_WRITER_FENCE_TRANSITION_BRAND]: true;
+}
+
 export interface FindingWriterMutationProfile {
   readonly kind: 'REGISTRY_MUTATION';
   readonly operation: RegistryMutationOperation;
@@ -90,6 +132,102 @@ export interface FindingWriterAllocationFence {
   readonly snapshot: FindingWriterAllocationSnapshot;
   readonly assertCurrent: () => void;
   readonly assertRegistryTransition: (registryPath: string, contentSha256: string) => void;
+  readonly prepareSourceTransition: (
+    transition: FindingWriterSourceTransitionV1,
+  ) => FindingWriterAllocationSourceTransition;
+}
+
+export interface FindingWriterPreparedAllocationSourceTransition {
+  readonly commit: () => void;
+}
+
+export interface FindingWriterAllocationSourceTransition {
+  readonly assertBeforeCurrent: () => void;
+  readonly prepareAfterCurrent: () => FindingWriterPreparedAllocationSourceTransition;
+  readonly cancelBeforeCurrent: () => void;
+}
+
+export interface FindingWriterSourceTransitionV1 {
+  readonly planDirectoryPath: string;
+  readonly targetPath: string;
+  readonly beforeSha256: string | null;
+  readonly afterSha256: string | null;
+}
+
+export class FindingWriterFenceGenerationMismatchError extends Error {
+  public readonly code = 'FINDING_WRITER_FENCE_GENERATION_MISMATCH' as const;
+
+  public constructor(message: string) {
+    super(message);
+    this.name = 'FindingWriterFenceGenerationMismatchError';
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+const FINDING_WRITER_FENCE_STALE_ERROR_TOKEN: unique symbol = Symbol(
+  'FINDING_WRITER_FENCE_STALE_ERROR_TOKEN',
+);
+const authenticFindingWriterFenceStaleErrors = new WeakSet<FindingWriterFenceStaleError>();
+
+export class FindingWriterFenceStaleError extends Error {
+  public readonly code = 'FINDING_WRITER_FENCE_STALE' as const;
+
+  public constructor(
+    public readonly admissionPhase: 'CONSUME' | 'REDEEM',
+    public readonly cause: unknown,
+    token: typeof FINDING_WRITER_FENCE_STALE_ERROR_TOKEN,
+  ) {
+    if (token !== FINDING_WRITER_FENCE_STALE_ERROR_TOKEN) {
+      throw new Error('Finding writer stale errors can only be minted by the fence kernel');
+    }
+    super(
+      `Finding writer prepared snapshot became stale during ${admissionPhase.toLowerCase()}: ${
+        cause instanceof Error ? cause.message : String(cause)
+      }`,
+    );
+    this.name = 'FindingWriterFenceStaleError';
+    Object.setPrototypeOf(this, new.target.prototype);
+    authenticFindingWriterFenceStaleErrors.add(this);
+  }
+}
+
+export function isAuthenticFindingWriterFenceStaleError(
+  error: unknown,
+): error is FindingWriterFenceStaleError {
+  return (
+    error instanceof FindingWriterFenceStaleError &&
+    authenticFindingWriterFenceStaleErrors.has(error)
+  );
+}
+
+function isFindingWriterFenceGenerationMismatch(error: unknown): boolean {
+  return (
+    error instanceof FindingWriterFenceGenerationMismatchError ||
+    error instanceof FindingWriterRepositorySnapshotMismatchError ||
+    error instanceof AnchoredFilesystemError
+  );
+}
+
+function findingWriterFenceStaleError(
+  admissionPhase: 'CONSUME' | 'REDEEM',
+  cause: unknown,
+): FindingWriterFenceStaleError {
+  if (!isFindingWriterFenceGenerationMismatch(cause)) {
+    if (cause instanceof Error) throw cause;
+    const error = new Error('Finding writer currentness check threw a non-Error value');
+    Object.defineProperty(error, 'cause', {
+      configurable: true,
+      enumerable: false,
+      value: cause,
+      writable: true,
+    });
+    throw error;
+  }
+  return new FindingWriterFenceStaleError(
+    admissionPhase,
+    cause,
+    FINDING_WRITER_FENCE_STALE_ERROR_TOKEN,
+  );
 }
 
 type InternalFindingWriterMutationProfile =
@@ -98,12 +236,13 @@ type InternalFindingWriterMutationProfile =
 
 interface PendingFindingWriterFenceState {
   readonly authority: FindingWriterFenceAuthority;
-  readonly activeWorktreePaths: readonly string[];
   readonly worktrees: readonly FindingWriterWorktreeGeneration[];
   readonly repositorySnapshots: readonly FindingWriterRepositorySnapshot[];
   readonly allocationFence: FindingWriterAllocationFence;
-  readonly readActiveWorktreePaths: () => readonly string[];
-  readonly assertWorktreeGeneration: (generation: FindingWriterWorktreeGeneration) => void;
+  readonly readWorktreeTopology: () => FindingWriterWorktreeTopologyV1;
+  readonly readWorktreeTopologyAsync: (
+    signal: AbortSignal,
+  ) => Promise<FindingWriterWorktreeTopologyV1>;
 }
 
 interface ConsumedFindingWriterFenceState extends PendingFindingWriterFenceState {
@@ -131,6 +270,22 @@ const redeemedFindingWriterFences = new WeakMap<
 const sourceFindingWriterFenceSessions = new WeakMap<
   SourceFindingWriterFenceSession,
   RedeemedFindingWriterFenceCapability
+>();
+interface PendingSourceFindingWriterFenceTransitionStateV1 {
+  readonly session: SourceFindingWriterFenceSession;
+  readonly capability: RedeemedFindingWriterFenceCapability;
+  readonly leaseToken: string;
+  readonly lockPath: string;
+  readonly allocationTransition: FindingWriterAllocationSourceTransition;
+}
+
+const pendingSourceFindingWriterFenceTransitions = new WeakMap<
+  SourceFindingWriterFenceTransition,
+  PendingSourceFindingWriterFenceTransitionStateV1
+>();
+const activeSourceFindingWriterFenceTransitions = new WeakMap<
+  SourceFindingWriterFenceSession,
+  SourceFindingWriterFenceTransition
 >();
 const findingWriterFenceRepositorySnapshots = new WeakMap<
   FindingWriterFenceSnapshot,
@@ -179,19 +334,53 @@ function canonicalFindingWriterMutationProfile(
 }
 
 function assertFindingWriterFenceStateCurrent(state: ConsumedFindingWriterFenceState): void {
-  assertFindingWriterFenceTopologyCurrent(state);
+  assertFindingWriterFenceTopologyCurrent(state, state.readWorktreeTopology());
   state.allocationFence.assertCurrent();
   for (const repositorySnapshot of state.repositorySnapshots) repositorySnapshot.assertCurrent();
 }
 
-function assertFindingWriterFenceTopologyCurrent(state: ConsumedFindingWriterFenceState): void {
-  const currentActivePaths = [...state.readActiveWorktreePaths()];
-  if (JSON.stringify(currentActivePaths) !== JSON.stringify(state.activeWorktreePaths)) {
-    throw new Error(
-      `Finding writer active worktree set changed: expected=${state.activeWorktreePaths.join(',')} current=${currentActivePaths.join(',')}`,
+function expectedFindingWriterWorktreeTopology(
+  state: ConsumedFindingWriterFenceState,
+): FindingWriterWorktreeTopologyV1 {
+  return defineFindingWriterWorktreeTopologyV1(
+    state.worktrees.map((worktree) => ({
+      path: worktree.worktree_path,
+      headOid: worktree.head_oid,
+    })),
+  );
+}
+
+function topologyDescription(topology: FindingWriterWorktreeTopologyV1): string {
+  return topology.worktrees.map((worktree) => `${worktree.path}@${worktree.headOid}`).join(',');
+}
+
+function assertFindingWriterFenceTopologyCurrent(
+  state: ConsumedFindingWriterFenceState,
+  current: FindingWriterWorktreeTopologyV1,
+): void {
+  const expected = expectedFindingWriterWorktreeTopology(state);
+  if (JSON.stringify(current) !== JSON.stringify(expected)) {
+    throw new FindingWriterFenceGenerationMismatchError(
+      `Finding writer worktree topology changed: expected=${topologyDescription(expected)} current=${topologyDescription(current)}`,
     );
   }
-  for (const generation of state.worktrees) state.assertWorktreeGeneration(generation);
+}
+
+async function assertFindingWriterFenceTopologyCurrentAsync(
+  state: ConsumedFindingWriterFenceState,
+  signal: AbortSignal,
+): Promise<void> {
+  assertFindingWriterFenceTopologyCurrent(state, await state.readWorktreeTopologyAsync(signal));
+}
+
+async function assertFindingWriterFenceStateCurrentAsync(
+  state: ConsumedFindingWriterFenceState,
+  signal: AbortSignal,
+): Promise<void> {
+  await assertFindingWriterFenceTopologyCurrentAsync(state, signal);
+  state.allocationFence.assertCurrent();
+  for (const repositorySnapshot of state.repositorySnapshots) repositorySnapshot.assertCurrent();
+  await assertFindingWriterFenceTopologyCurrentAsync(state, signal);
 }
 
 function redeemedFindingWriterFenceState(
@@ -238,9 +427,8 @@ export function createFindingWriterFenceSnapshot(
 export function prepareFindingWriterFenceSnapshot(
   authority: FindingWriterFenceAuthority,
   snapshot: FindingWriterFenceSnapshot,
-  activeWorktreePaths: readonly string[],
-  readActiveWorktreePaths: () => readonly string[],
-  assertWorktreeGeneration: (generation: FindingWriterWorktreeGeneration) => void,
+  readWorktreeTopology: () => FindingWriterWorktreeTopologyV1,
+  readWorktreeTopologyAsync: (signal: AbortSignal) => Promise<FindingWriterWorktreeTopologyV1>,
   allocationFence: FindingWriterAllocationFence,
 ): void {
   const repositorySnapshots = findingWriterFenceRepositorySnapshots.get(snapshot);
@@ -249,7 +437,6 @@ export function prepareFindingWriterFenceSnapshot(
   }
   pendingFindingWriterFences.set(snapshot, {
     authority,
-    activeWorktreePaths: Object.freeze([...activeWorktreePaths]),
     worktrees: snapshot.worktrees,
     repositorySnapshots,
     allocationFence: Object.freeze({
@@ -263,23 +450,29 @@ export function prepareFindingWriterFenceSnapshot(
       }),
       assertCurrent: allocationFence.assertCurrent,
       assertRegistryTransition: allocationFence.assertRegistryTransition,
+      prepareSourceTransition: allocationFence.prepareSourceTransition,
     }),
-    readActiveWorktreePaths,
-    assertWorktreeGeneration,
+    readWorktreeTopology,
+    readWorktreeTopologyAsync,
   });
 }
 
-export function consumeFindingWriterFenceSnapshot(
+export async function consumeFindingWriterFenceSnapshot(
   authority: FindingWriterFenceAuthority,
   snapshot: FindingWriterFenceSnapshot,
-): FindingWriterFenceCapability {
+  signal: AbortSignal,
+): Promise<FindingWriterFenceCapability> {
   const state = pendingFindingWriterFences.get(snapshot);
   pendingFindingWriterFences.delete(snapshot);
   if (state === undefined || state.authority !== authority) {
     throw new Error('Finding writer fence snapshot is foreign, fabricated, or already consumed');
   }
   const consumed = { ...state, generation: snapshot.generation };
-  assertFindingWriterFenceStateCurrent(consumed);
+  try {
+    await assertFindingWriterFenceStateCurrentAsync(consumed, signal);
+  } catch (error) {
+    throw findingWriterFenceStaleError('CONSUME', error);
+  }
   const capability = Object.freeze({
     kind: 'FINDING_WRITER_FENCE_CAPABILITY_V1' as const,
     generation: snapshot.generation,
@@ -289,12 +482,13 @@ export function consumeFindingWriterFenceSnapshot(
   return capability;
 }
 
-function redeemFindingWriterFenceCapability(
+async function redeemFindingWriterFenceCapability(
   authority: FindingWriterFenceAuthority,
   capability: FindingWriterFenceCapability,
   lease: FindingWriterFenceLease,
   profile: InternalFindingWriterMutationProfile,
-): RedeemedFindingWriterFenceCapability {
+  signal: AbortSignal,
+): Promise<RedeemedFindingWriterFenceCapability> {
   const state = consumedFindingWriterFences.get(capability);
   consumedFindingWriterFences.delete(capability);
   if (
@@ -306,7 +500,13 @@ function redeemFindingWriterFenceCapability(
       'Finding writer fence capability is foreign, fabricated, already redeemed, or bound to another lease',
     );
   }
-  assertFindingWriterFenceStateCurrent(state);
+  try {
+    // Consume owns the full admission proof. Redemption only closes the synchronous gap by
+    // rechecking the exact active-worktree/HEAD topology before a mutation profile is attached.
+    await assertFindingWriterFenceTopologyCurrentAsync(state, signal);
+  } catch (error) {
+    throw findingWriterFenceStaleError('REDEEM', error);
+  }
   const canonicalProfile = canonicalFindingWriterMutationProfile(profile, authority, lease);
   const redeemed = Object.freeze({
     kind: 'REDEEMED_FINDING_WRITER_FENCE_CAPABILITY_V1' as const,
@@ -327,22 +527,30 @@ export function redeemRegistryFindingWriterFence(
   capability: FindingWriterFenceCapability,
   lease: FindingWriterFenceLease,
   profile: FindingWriterMutationProfile,
-): RedeemedFindingWriterFenceCapability {
-  return redeemFindingWriterFenceCapability(authority, capability, lease, profile);
+  signal: AbortSignal,
+): Promise<RedeemedFindingWriterFenceCapability> {
+  return redeemFindingWriterFenceCapability(authority, capability, lease, profile, signal);
 }
 
 /**
  * Open the opaque session consumed by the closed source-inventory facade. No callback or redeemed
  * capability is returned, so a caller cannot become a generic mutation issuer.
  */
-export function openSourceFindingWriterFenceSession(
+export async function openSourceFindingWriterFenceSession(
   authority: FindingWriterFenceAuthority,
   capability: FindingWriterFenceCapability,
   lease: FindingWriterFenceLease,
-): SourceFindingWriterFenceSession {
-  const writerFence = redeemFindingWriterFenceCapability(authority, capability, lease, {
-    kind: 'SOURCE_INVENTORY',
-  });
+  signal: AbortSignal,
+): Promise<SourceFindingWriterFenceSession> {
+  const writerFence = await redeemFindingWriterFenceCapability(
+    authority,
+    capability,
+    lease,
+    {
+      kind: 'SOURCE_INVENTORY',
+    },
+    signal,
+  );
   const session = Object.freeze({
     kind: 'SOURCE_FINDING_WRITER_FENCE_SESSION_V1' as const,
     generation: writerFence.generation,
@@ -367,6 +575,15 @@ export function closeSourceFindingWriterFenceSession(
   session: SourceFindingWriterFenceSession,
 ): void {
   const capability = sourceFindingWriterFenceCapability(session);
+  const state = redeemedFindingWriterFences.get(capability);
+  if (state === undefined || state.authority !== authority) {
+    throw new Error('Finding writer fence capability is foreign, fabricated, or already released');
+  }
+  const pendingTransition = activeSourceFindingWriterFenceTransitions.get(session);
+  if (pendingTransition !== undefined) {
+    pendingSourceFindingWriterFenceTransitions.delete(pendingTransition);
+    activeSourceFindingWriterFenceTransitions.delete(session);
+  }
   releaseFindingWriterFence(authority, capability);
   sourceFindingWriterFenceSessions.delete(session);
 }
@@ -391,7 +608,6 @@ export function assertFindingWriterFenceAuthority(
   if (state.authority !== authority) {
     throw new Error('Finding writer operation received a foreign finding writer fence');
   }
-  assertFindingWriterFenceStateCurrent(state);
 }
 
 export function assertFindingWriterFenceCurrent(
@@ -406,7 +622,6 @@ export function readFindingWriterAllocationSnapshot(
   lease: FindingWriterFenceLease,
 ): FindingWriterAllocationSnapshot {
   const state = redeemedFindingWriterFenceState(capability, lease);
-  assertFindingWriterFenceStateCurrent(state);
   return state.allocationFence.snapshot;
 }
 
@@ -420,7 +635,7 @@ export function assertFindingWriterFenceRegistryTransition(
   if (state.profile.kind !== 'REGISTRY_MUTATION' || registryPath !== lease.resourcePath) {
     throw new Error('Finding writer registry transition is outside its redeemed profile');
   }
-  assertFindingWriterFenceTopologyCurrent(state);
+  assertFindingWriterFenceTopologyCurrent(state, state.readWorktreeTopology());
   state.allocationFence.assertRegistryTransition(registryPath, contentSha256);
 }
 
@@ -431,16 +646,195 @@ export function assertSourceFindingWriterFenceSessionCurrent(
   assertFindingWriterFenceCurrent(sourceFindingWriterFenceCapability(session), lease);
 }
 
-export function assertFindingWriterFenceTargetCurrent(
-  capability: RedeemedFindingWriterFenceCapability,
+function pendingSourceFindingWriterFenceTransitionState(
+  transition: SourceFindingWriterFenceTransition,
+  session: SourceFindingWriterFenceSession,
+  lease: FindingWriterFenceLease,
+): PendingSourceFindingWriterFenceTransitionStateV1 {
+  const pending = pendingSourceFindingWriterFenceTransitions.get(transition);
+  const capability = sourceFindingWriterFenceCapability(session);
+  if (
+    pending === undefined ||
+    pending.session !== session ||
+    pending.capability !== capability ||
+    pending.leaseToken !== lease.token ||
+    pending.lockPath !== lease.lockPath ||
+    activeSourceFindingWriterFenceTransitions.get(session) !== transition
+  ) {
+    throw new Error('Finding writer source transition is foreign, stale, or already consumed');
+  }
+  return pending;
+}
+
+function consumeSourceFindingWriterFenceTransition(
+  transition: SourceFindingWriterFenceTransition,
+  pending: PendingSourceFindingWriterFenceTransitionStateV1,
+): void {
+  pendingSourceFindingWriterFenceTransitions.delete(transition);
+  activeSourceFindingWriterFenceTransitions.delete(pending.session);
+}
+
+function sourceTransitionFailure(label: string, error: unknown): Error {
+  if (error instanceof Error) return error;
+  const wrapped = new Error(label);
+  Object.defineProperty(wrapped, 'cause', {
+    configurable: true,
+    enumerable: false,
+    value: error,
+    writable: true,
+  });
+  return wrapped;
+}
+
+export function prepareSourceFindingWriterFenceSessionTransition(
+  session: SourceFindingWriterFenceSession,
+  lease: FindingWriterFenceLease,
+  transition: FindingWriterSourceTransitionV1,
+): SourceFindingWriterFenceTransition {
+  if (activeSourceFindingWriterFenceTransitions.has(session)) {
+    throw new Error('Finding writer source session already has one pending transition');
+  }
+  const capability = sourceFindingWriterFenceCapability(session);
+  const state = redeemedFindingWriterFenceState(capability, lease);
+  if (state.profile.kind !== 'SOURCE_INVENTORY') {
+    throw new Error('Finding writer source transition requires the source-inventory profile');
+  }
+  const target = classifyFindingAuthorityTarget(transition.targetPath);
+  if (
+    target === null ||
+    (target.kind !== 'SOURCE_MANIFEST' &&
+      target.kind !== 'SOURCE_ARTIFACT' &&
+      target.kind !== 'SOURCE_LEGACY_ARTIFACT')
+  ) {
+    throw new Error(
+      `Finding writer source transition target is not governed: ${transition.targetPath}`,
+    );
+  }
+  assertFindingWriterFenceTargetProfileAuthorized(
+    state,
+    lease,
+    target,
+    transition.afterSha256 === null ? 'UNLINK' : 'WRITE',
+  );
+  assertFindingWriterFenceStateCurrent(state);
+  const allocationTransition = state.allocationFence.prepareSourceTransition(transition);
+  const pending = Object.freeze({
+    kind: 'SOURCE_FINDING_WRITER_FENCE_TRANSITION_V1' as const,
+    [SOURCE_FINDING_WRITER_FENCE_TRANSITION_BRAND]: true as const,
+  });
+  pendingSourceFindingWriterFenceTransitions.set(pending, {
+    session,
+    capability,
+    leaseToken: lease.token,
+    lockPath: lease.lockPath,
+    allocationTransition,
+  });
+  activeSourceFindingWriterFenceTransitions.set(session, pending);
+  return pending;
+}
+
+function prepareSourceFindingWriterFenceTransitionAfterCurrent(
+  pending: PendingSourceFindingWriterFenceTransitionStateV1,
+  lease: FindingWriterFenceLease,
+): FindingWriterPreparedAllocationSourceTransition {
+  const state = redeemedFindingWriterFenceState(pending.capability, lease);
+  assertFindingWriterFenceTopologyCurrent(state, state.readWorktreeTopology());
+  const prepared = pending.allocationTransition.prepareAfterCurrent();
+  assertFindingWriterFenceTopologyCurrent(state, state.readWorktreeTopology());
+  return prepared;
+}
+
+export function assertPendingSourceFindingWriterFenceSessionTransitionBeforeCurrent(
+  transition: SourceFindingWriterFenceTransition,
+  session: SourceFindingWriterFenceSession,
+  lease: FindingWriterFenceLease,
+): void {
+  const pending = pendingSourceFindingWriterFenceTransitionState(transition, session, lease);
+  const state = redeemedFindingWriterFenceState(pending.capability, lease);
+  assertFindingWriterFenceTopologyCurrent(state, state.readWorktreeTopology());
+  pending.allocationTransition.assertBeforeCurrent();
+  assertFindingWriterFenceTopologyCurrent(state, state.readWorktreeTopology());
+}
+
+export function commitSourceFindingWriterFenceSessionTransition(
+  transition: SourceFindingWriterFenceTransition,
+  session: SourceFindingWriterFenceSession,
+  lease: FindingWriterFenceLease,
+): void {
+  const pending = pendingSourceFindingWriterFenceTransitionState(transition, session, lease);
+  const prepared = prepareSourceFindingWriterFenceTransitionAfterCurrent(pending, lease);
+  prepared.commit();
+  consumeSourceFindingWriterFenceTransition(transition, pending);
+}
+
+export function rollbackPendingSourceFindingWriterFenceSessionTransition(
+  transition: SourceFindingWriterFenceTransition,
+  session: SourceFindingWriterFenceSession,
+  lease: FindingWriterFenceLease,
+  restoreRawBeforeImage: (assertAfterCurrent: () => void) => void,
+): void {
+  const pending = pendingSourceFindingWriterFenceTransitionState(transition, session, lease);
+  const state = redeemedFindingWriterFenceState(pending.capability, lease);
+  let beforeFailure: unknown;
+  try {
+    assertFindingWriterFenceStateCurrent(state);
+    pending.allocationTransition.cancelBeforeCurrent();
+    consumeSourceFindingWriterFenceTransition(transition, pending);
+    return;
+  } catch (error) {
+    beforeFailure = error;
+  }
+
+  const assertAfterCurrent = (): void => {
+    prepareSourceFindingWriterFenceTransitionAfterCurrent(pending, lease);
+  };
+  try {
+    assertAfterCurrent();
+  } catch (afterError) {
+    throw new AggregateError(
+      [
+        sourceTransitionFailure('Source transition before-image check failed.', beforeFailure),
+        sourceTransitionFailure('Source transition after-image check failed.', afterError),
+      ],
+      'Pending source transition is neither its exact before-image nor its exact after-image',
+    );
+  }
+
+  try {
+    restoreRawBeforeImage(assertAfterCurrent);
+  } catch (restoreError) {
+    try {
+      assertFindingWriterFenceStateCurrent(state);
+      pending.allocationTransition.cancelBeforeCurrent();
+      consumeSourceFindingWriterFenceTransition(transition, pending);
+    } catch (currentnessError) {
+      throw new AggregateError(
+        [
+          sourceTransitionFailure('Source transition raw rollback failed.', restoreError),
+          sourceTransitionFailure(
+            'Source transition rollback currentness failed.',
+            currentnessError,
+          ),
+        ],
+        'Source transition rollback failed and did not recover its exact before-image',
+      );
+    }
+    throw restoreError;
+  }
+
+  assertFindingWriterFenceStateCurrent(state);
+  pending.allocationTransition.cancelBeforeCurrent();
+  consumeSourceFindingWriterFenceTransition(transition, pending);
+}
+
+function assertFindingWriterFenceTargetProfileAuthorized(
+  state: RedeemedFindingWriterFenceState,
   lease: FindingWriterFenceLease,
   target: FindingAuthorityTarget,
   action: 'WRITE' | 'UNLINK' | 'RECOVER',
   repositoryAuthority?: RepositoryMutationAuthority,
   operation?: RegistryMutationOperation,
 ): void {
-  const state = redeemedFindingWriterFenceState(capability, lease);
-  assertFindingWriterFenceStateCurrent(state);
   if (target.kind === 'REGISTRY' || target.kind === 'RESERVATION') {
     if (state.profile.kind !== 'REGISTRY_MUTATION') {
       throw new Error(`Finding writer source profile cannot mutate ${target.kind.toLowerCase()}`);
@@ -485,6 +879,44 @@ export function assertFindingWriterFenceTargetCurrent(
   if (target.kind === 'SOURCE_MANIFEST' && action === 'UNLINK') {
     throw new Error('Finding writer source manifest is a non-deletable commit marker');
   }
+}
+
+export function assertFindingWriterFenceTargetAuthorized(
+  capability: RedeemedFindingWriterFenceCapability,
+  lease: FindingWriterFenceLease,
+  target: FindingAuthorityTarget,
+  action: 'WRITE' | 'UNLINK' | 'RECOVER',
+  repositoryAuthority?: RepositoryMutationAuthority,
+  operation?: RegistryMutationOperation,
+): void {
+  assertFindingWriterFenceTargetProfileAuthorized(
+    redeemedFindingWriterFenceState(capability, lease),
+    lease,
+    target,
+    action,
+    repositoryAuthority,
+    operation,
+  );
+}
+
+export function assertFindingWriterFenceTargetCurrent(
+  capability: RedeemedFindingWriterFenceCapability,
+  lease: FindingWriterFenceLease,
+  target: FindingAuthorityTarget,
+  action: 'WRITE' | 'UNLINK' | 'RECOVER',
+  repositoryAuthority?: RepositoryMutationAuthority,
+  operation?: RegistryMutationOperation,
+): void {
+  const state = redeemedFindingWriterFenceState(capability, lease);
+  assertFindingWriterFenceStateCurrent(state);
+  assertFindingWriterFenceTargetProfileAuthorized(
+    state,
+    lease,
+    target,
+    action,
+    repositoryAuthority,
+    operation,
+  );
 }
 
 export function assertSourceFindingWriterFenceSessionTargetCurrent(

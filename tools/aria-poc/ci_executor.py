@@ -48,6 +48,7 @@ if str(_THIS_DIR) not in sys.path:
 
 from claude_runtime import (
     CLAUDE_MOCK_ENV_VAR,
+    ClaudeAuthFailure,
     ClaudeCreditExhausted,
     CREDIT_FALLBACK_EFFORT,
     MODEL_FALLBACK_TIER,
@@ -2012,6 +2013,24 @@ def main(argv: list[str] | None = None) -> int:
             request_envelope=request_envelope,
             tools_dir=tools_dir,
         )
+    except ClaudeAuthFailure as exc:
+        # An expired session is not "the agent ran and failed" — nothing ran.
+        # It was released as a generic `claude_cli_exit_1` for five consecutive
+        # nights (2026-08-04 → 08) while the whole judgment → consensus →
+        # calibration → gold-corpus chain stayed empty, because no signal named
+        # the cause. The `::error::` is deliberate: this is the one failure a
+        # human must clear, and the remedy travels with it.
+        sys.stderr.write(
+            "::error::aria executor cannot authenticate the agent runtime: "
+            + _redact_lease_in_message(str(exc), lease_token)
+            + ". No agent ran, so no result was submitted.\n"
+        )
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason="claude_cli_auth_failure",
+        )
+        return 1
     except (ClaudeCliUnavailable, ClaudeCreditExhausted) as exc:
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
         # ORPHAN-HIGH-489 — ClaudeCreditExhausted belongs here too. I added that

@@ -74,16 +74,18 @@ import { ConfigService } from '@nestjs/config';
 import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers';
 import { DataSource, type MigrationInterface } from 'typeorm';
 
+import { loadRepositoryApplicationModule } from '../../../../tools/gates/lib/repository-application-module-loader';
+import {
+  runPlatformBootstrap,
+  resolvePlatformBootstrapSqlDir,
+} from '../platform-bootstrap.service';
+
 // ADR-031 Platform Bootstrap Atom — runs the schema/role/extension/function/
 // shared-table DDL contract that init-scripts USED to own pre-cutover. The
 // init-scripts directory copied below now contains only `01-init-databases.sql`
 // (initdb-only DB GRANTs). Schemas, roles, functions, and shared.* tables
 // are created by the call to runPlatformBootstrap() below before any
 // per-service migration loop runs.
-import {
-  runPlatformBootstrap,
-  resolvePlatformBootstrapSqlDir,
-} from '../platform-bootstrap.service';
 
 // Constructor type for the @Entity / migration classes this spec loads
 // dynamically. TypeORM's DataSource `entities`/`migrations` options accept
@@ -93,14 +95,10 @@ import {
 // typed as classes rather than arbitrary callables.
 type EntityClass = new (...args: never[]) => object;
 
-// Synchronous module loader bound to this spec's location. `import`/`await
-// import()` cannot be used here: loadMigrationClassesFromDir is invoked inside
-// `it.each(...)` arguments that Jest evaluates synchronously at collection
-// time, so the load must be synchronous. `createRequire(__filename)` resolves
-// migration classes and the cross-package schema-drift-validator through
-// ts-jest at runtime, so the static type-check graph never reaches across
-// project rootDirs — the same dynamic-load pattern the db-migrate
-// platform-bootstrap.integration.spec.ts relies on.
+// One synchronous, literal cross-project edge for the schema-drift validator.
+// Migration/entity discovery uses the governed repository application loader;
+// keeping this argument literal lets the writer-authority compiler close the
+// remaining createRequire edge without granting a computed path capability.
 const requireModule = createRequire(__filename);
 
 // Structured logger for the (rare) entity-load skip path — `console.*` is
@@ -473,11 +471,10 @@ function loadMigrationClassesFromDir(absDir: string): Array<new () => MigrationI
     const fullPath = join(absDir, file);
     if (!statSync(fullPath).isFile()) continue;
 
-    // ts-jest transforms .ts files when loaded through requireModule here
-    // because this spec runs under the ts-jest transform configured in
-    // e2e/jest.config.ts. Each migration's `export class <Name>` becomes
-    // a property on the loaded module object.
-    const mod = requireModule(fullPath) as Record<string, unknown>;
+    // The governed loader evaluates one bounded, generation-pinned snapshot
+    // through the active TypeScript extension handler while retaining the
+    // canonical filename for relative imports and class export discovery.
+    const mod = loadRepositoryApplicationModule(fullPath) as Record<string, unknown>;
     const candidate = Object.values(mod).find(
       (v): v is new () => MigrationInterface =>
         typeof v === 'function' && /^[A-Z]/.test(v.name) && /\d{13}$/.test(v.name),
@@ -558,7 +555,7 @@ function loadEntityClasses(absRoot: string): EntityClass[] {
   for (const file of files) {
     let mod: Record<string, unknown>;
     try {
-      mod = requireModule(file) as Record<string, unknown>;
+      mod = loadRepositoryApplicationModule(file) as Record<string, unknown>;
     } catch (err) {
       // A .entity.ts that fails to load is NEVER safe to skip. Because the
       // require throws, the module body never executes — so its @Entity

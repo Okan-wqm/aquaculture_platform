@@ -29,7 +29,6 @@ import {
 
 import {
   assertStableDirectoryCurrent,
-  assertStableDirectoryContentGenerationCurrent,
   assertStablePathKindCurrent,
   assertStableRegularFileCurrent,
   decodeFatalUtf8,
@@ -457,18 +456,6 @@ class CachedFindingWriterRepositorySnapshot implements FindingWriterRepositorySn
       }
       assertStablePathKindCurrent(expected, `Finding writer resolver path ${absolutePath}`);
     }
-    for (const [absolutePath, expected] of this.pathKindParentGenerations) {
-      if (
-        absolutePath === planDirectory ||
-        this.sourceMutationEpoch.planDirectories.has(absolutePath)
-      ) {
-        continue;
-      }
-      assertStableDirectoryContentGenerationCurrent(
-        expected,
-        `Finding writer resolver parent ${absolutePath}`,
-      );
-    }
     for (const [relativePath, expected] of this.fileGenerations) {
       const absolutePath = resolve(this.repoRoot, relativePath);
       if (absolutePath === target || this.sourceMutationEpoch.targetFiles.has(absolutePath)) {
@@ -832,13 +819,19 @@ interface FindingWriterSensitiveImportAuthority {
   readonly importers: readonly string[];
 }
 
+type FindingWriterSensitiveImportDeclaration = FindingWriterSensitiveImportAuthority;
+
 interface FindingWriterSensitiveReadOnlyExport {
   readonly target: string;
   readonly symbol: string;
+  readonly reexport?: {
+    readonly specifier: string;
+    readonly symbol: string;
+  };
 }
 
 function freezeFindingWriterSensitiveImportAuthority(
-  authorities: readonly FindingWriterSensitiveImportAuthority[],
+  authorities: readonly FindingWriterSensitiveImportDeclaration[],
 ): readonly FindingWriterSensitiveImportAuthority[] {
   return Object.freeze(
     authorities.map((authority) =>
@@ -853,8 +846,193 @@ function freezeFindingWriterSensitiveImportAuthority(
 function freezeFindingWriterSensitiveReadOnlyExports(
   exports_: readonly FindingWriterSensitiveReadOnlyExport[],
 ): readonly FindingWriterSensitiveReadOnlyExport[] {
-  return Object.freeze(exports_.map((entry) => Object.freeze({ ...entry })));
+  return Object.freeze(
+    exports_.map((entry) =>
+      Object.freeze({
+        ...entry,
+        ...(entry.reexport === undefined ? {} : { reexport: Object.freeze({ ...entry.reexport }) }),
+      }),
+    ),
+  );
 }
+
+const ANCHORED_FILESYSTEM_PRODUCTION_RUNTIME_EXPORTS = Object.freeze([
+  'AnchoredFilesystemError',
+  'HermeticExecutableExecutionTimeoutError',
+  'anchoredPathGeneration',
+  'assertAnchoredDirectoryChainCurrent',
+  'assertAnchoredDirectoryChainIdentityCurrent',
+  'assertStableDirectoryContentGenerationCurrent',
+  'assertStableDirectoryCurrent',
+  'assertStablePathKindCurrent',
+  'assertStableRegularFileCurrent',
+  'closeAnchoredDirectoryChain',
+  'decodeFatalUtf8',
+  'defineHermeticExecutableExecutionPolicyV1',
+  'observeAnchoredPathKind',
+  'observeStableDirectory',
+  'observeStablePathKind',
+  'observeStableRegularFile',
+  'openAnchoredDirectoryChain',
+  'openHermeticExecutableAuthority',
+  'sameAnchoredDirectoryIdentity',
+  'sameAnchoredPathGeneration',
+  'sameBigIntFileObservation',
+  'sameStableParentIdentities',
+] as const);
+
+const HERMETIC_GIT_PRODUCTION_RUNTIME_EXPORTS = Object.freeze([
+  'CANONICAL_GIT_HEAD_TREE_ARGS',
+  'CANONICAL_GIT_INDEX_ARGS',
+  'CANONICAL_GIT_INDEX_FSMONITOR_ARGS',
+  'CANONICAL_GIT_UNTRACKED_ARGS',
+  'CANONICAL_GIT_UNTRACKED_GITIGNORE_ARGS',
+  'HERMETIC_GIT_EXECUTION_MODES_V1',
+  'HERMETIC_GIT_EXECUTION_POLICY_V1',
+  'HERMETIC_GIT_RUNTIME',
+  'HermeticGitExecutionCleanupError',
+  'HermeticGitExecutionTimeoutError',
+  'HermeticGitSynchronousBudgetError',
+  'InventoryInspectionError',
+  'REPOSITORY_CHILD_FD_COORDINATES_V1',
+  'captureCanonicalGitWorktreeStatus',
+  'computeCanonicalGitWorktreeEvidence',
+  'runWithHermeticGitExecutionBudget',
+  'runWithHermeticGitExecutionDeadline',
+] as const);
+
+type FindingWriterDynamicModuleLoaderTargetPolicy = Readonly<{
+  kind: 'DESCRIPTOR_BOUND_REPOSITORY_APPLICATION_SOURCE';
+  enclosingFunction: 'evaluateDescriptorBoundRepositoryApplicationModule';
+  guardFunction: 'openRepositoryApplicationModule';
+  compilerExecutionCount: 1;
+  dependencyResolverExecutionCount: 1;
+  executionPackageLoadCount: 2;
+  loaderExecutionCount: 1;
+  moduleConstructorCount: 2;
+  moduleCacheDeleteCount: 1;
+  moduleCacheReadCount: 1;
+  moduleCacheWriteCount: 1;
+  privateCompileReadCount: 2;
+  privateCompileWriteCount: 1;
+  privateExtensionRegistryReadCount: 1;
+  privateLoaderReadCount: 1;
+  privateLoaderWriteCount: 3;
+  privateModuleCacheReadCount: 1;
+  privateResolverReadCount: 1;
+  privateResolverWriteCount: 1;
+  pathRegistrationCount: 1;
+  pathUnregistrationCount: 2;
+  registryHandlerDeleteCount: 1;
+  registryHandlerReadCount: 5;
+  registryHandlerWriteCount: 2;
+  requireCacheAccessCount: 0;
+  requireExtensionsJavaScriptAccessCount: 0;
+  requireExtensionsTypeScriptAccessCount: 0;
+  requireResolveAliasCount: 0;
+  requireResolvePackageCoordinateCount: 2;
+  resolverExecutionCount: 1;
+}>;
+
+interface FindingWriterDynamicModuleLoaderAuthorityV1 {
+  readonly path: string;
+  readonly loaderKind:
+    | 'DYNAMIC_IMPORT'
+    | 'GLOBAL_REQUIRE'
+    | 'GLOBAL_REQUIRE_RESOLVE'
+    | 'MODULE_REQUIRE'
+    | 'CREATE_REQUIRE_BINDING'
+    | 'CREATE_REQUIRE_RESOLVE'
+    | 'COMMONJS_EXTENSION_HANDLER';
+  readonly loaderBinding: string;
+  readonly argumentExpression: string;
+  readonly targetPolicy: FindingWriterDynamicModuleLoaderTargetPolicy;
+  readonly reason: string;
+}
+
+function dynamicModuleLoaderIdentity(
+  authority: Pick<
+    FindingWriterDynamicModuleLoaderAuthorityV1,
+    'path' | 'loaderKind' | 'loaderBinding' | 'argumentExpression'
+  >,
+): string {
+  return [
+    authority.path,
+    authority.loaderKind,
+    authority.loaderBinding,
+    authority.argumentExpression,
+  ].join('\0');
+}
+
+function freezeFindingWriterDynamicModuleLoaderAuthority(
+  entries: readonly FindingWriterDynamicModuleLoaderAuthorityV1[],
+): readonly FindingWriterDynamicModuleLoaderAuthorityV1[] {
+  const identities = new Set<string>();
+  const frozen = entries.map((entry) => {
+    const identity = dynamicModuleLoaderIdentity(entry);
+    if (identities.has(identity)) {
+      throw new Error(`Finding writer dynamic module loader authority is duplicated: ${identity}`);
+    }
+    identities.add(identity);
+    if (entry.reason.trim().length === 0) {
+      throw new Error(`Finding writer dynamic module loader authority has no reason: ${identity}`);
+    }
+    return Object.freeze({
+      ...entry,
+      targetPolicy: Object.freeze({ ...entry.targetPolicy }),
+    });
+  });
+  return Object.freeze(
+    frozen.sort((left, right) =>
+      compareText(dynamicModuleLoaderIdentity(left), dynamicModuleLoaderIdentity(right)),
+    ),
+  );
+}
+
+/** Exact census of computed loaders reachable from the finding-writer execution closure. */
+export const FINDING_WRITER_DYNAMIC_MODULE_LOADER_AUTHORITY =
+  freezeFindingWriterDynamicModuleLoaderAuthority([
+    {
+      path: 'tools/gates/lib/repository-application-module-loader.ts',
+      loaderKind: 'COMMONJS_EXTENSION_HANDLER',
+      loaderBinding: 'extensionHandler.handler',
+      argumentExpression: 'handlerCoordinate',
+      targetPolicy: {
+        kind: 'DESCRIPTOR_BOUND_REPOSITORY_APPLICATION_SOURCE',
+        compilerExecutionCount: 1,
+        dependencyResolverExecutionCount: 1,
+        enclosingFunction: 'evaluateDescriptorBoundRepositoryApplicationModule',
+        executionPackageLoadCount: 2,
+        guardFunction: 'openRepositoryApplicationModule',
+        loaderExecutionCount: 1,
+        moduleConstructorCount: 2,
+        moduleCacheDeleteCount: 1,
+        moduleCacheReadCount: 1,
+        moduleCacheWriteCount: 1,
+        privateCompileReadCount: 2,
+        privateCompileWriteCount: 1,
+        privateExtensionRegistryReadCount: 1,
+        privateLoaderReadCount: 1,
+        privateLoaderWriteCount: 3,
+        privateModuleCacheReadCount: 1,
+        privateResolverReadCount: 1,
+        privateResolverWriteCount: 1,
+        pathRegistrationCount: 1,
+        pathUnregistrationCount: 2,
+        registryHandlerDeleteCount: 1,
+        registryHandlerReadCount: 5,
+        registryHandlerWriteCount: 2,
+        requireCacheAccessCount: 0,
+        requireExtensionsJavaScriptAccessCount: 0,
+        requireExtensionsTypeScriptAccessCount: 0,
+        requireResolveAliasCount: 0,
+        requireResolvePackageCoordinateCount: 2,
+        resolverExecutionCount: 1,
+      },
+      reason:
+        'The sole CommonJS evaluation kernel executes one bounded descriptor snapshot below canonical apps/.',
+    },
+  ]);
 
 /**
  * Reverse-edge SSOT for every export that can mint, redeem, bind, or execute a governed finding
@@ -863,6 +1041,65 @@ function freezeFindingWriterSensitiveReadOnlyExports(
  */
 export const FINDING_WRITER_SENSITIVE_IMPORT_AUTHORITY =
   freezeFindingWriterSensitiveImportAuthority([
+    {
+      target: 'tools/gates/lib/anchored-filesystem.kernel.ts',
+      symbol: 'openHermeticExecutableAuthorityAtOwnedFixtureBoundary',
+      importers: ['tools/gates/lib/anchored-filesystem.fixture.ts'],
+    },
+    {
+      target: 'tools/gates/lib/anchored-filesystem.fixture.ts',
+      symbol: 'testOnlyOpenHermeticExecutableAuthorityForOwnedFixture',
+      importers: ['tools/gates/lib/anchored-filesystem.spec.ts'],
+    },
+    {
+      target: 'tools/gates/lib/hermetic-git-runtime.kernel.ts',
+      symbol: 'testOnlyCreateHermeticGitRuntime',
+      importers: ['tools/gates/lib/hermetic-git-runtime.fixture.ts'],
+    },
+    {
+      target: 'tools/gates/lib/hermetic-git-runtime.kernel.ts',
+      symbol: 'testOnlyCloseHermeticGitDescriptors',
+      importers: ['tools/gates/lib/hermetic-git-runtime.fixture.ts'],
+    },
+    {
+      target: 'tools/gates/lib/hermetic-git-runtime.kernel.ts',
+      symbol: 'testOnlyFingerprintHermeticGitRegularFile',
+      importers: ['tools/gates/lib/hermetic-git-runtime.fixture.ts'],
+    },
+    {
+      target: 'tools/gates/lib/hermetic-git-runtime.fixture.ts',
+      symbol: 'testOnlyCreateHermeticGitRuntime',
+      importers: ['tools/gates/lib/hermetic-git-runtime.spec.ts'],
+    },
+    {
+      target: 'tools/gates/lib/hermetic-git-runtime.fixture.ts',
+      symbol: 'testOnlyCloseHermeticGitDescriptors',
+      importers: ['tools/gates/lib/hermetic-git-runtime.spec.ts'],
+    },
+    {
+      target: 'tools/gates/lib/hermetic-git-runtime.fixture.ts',
+      symbol: 'testOnlyFingerprintHermeticGitRegularFile',
+      importers: ['tools/gates/lib/hermetic-git-runtime.spec.ts'],
+    },
+    {
+      target: 'tools/gates/lib/repository-application-module-loader.ts',
+      symbol: 'loadRepositoryApplicationModule',
+      importers: [
+        'apps/db-migrate/src/__tests__/bootstrap-from-scratch.spec.ts',
+        'e2e/tests/integration/schema-invariants.spec.ts',
+        'tools/scripts/emit-subgraph-sdl.ts',
+      ],
+    },
+    {
+      target: 'tools/gates/lib/repository-application-module-loader.ts',
+      symbol: 'testOnlyLoadRepositoryApplicationModuleFromRoot',
+      importers: ['tools/gates/lib/repository-application-module-loader.spec.ts'],
+    },
+    {
+      target: 'tools/gates/lib/repository-application-module-loader.ts',
+      symbol: 'testOnlyReleaseRepositoryApplicationModulesBelowRoot',
+      importers: ['tools/gates/lib/repository-application-module-loader.spec.ts'],
+    },
     {
       target: 'tools/gates/lib/finding-writer-fence.ts',
       symbol: 'createFindingWriterFenceSnapshot',
@@ -1079,11 +1316,45 @@ export const FINDING_WRITER_SENSITIVE_IMPORT_AUTHORITY =
         'tools/gates/lib/finding-registry-writer-authority.spec.ts',
       ],
     },
-  ] as const satisfies readonly FindingWriterSensitiveImportAuthority[]);
+  ] as const satisfies readonly FindingWriterSensitiveImportDeclaration[]);
 
 /** Explicitly harmless runtime exports from modules that also own mutation authority. */
 export const FINDING_WRITER_SENSITIVE_READ_ONLY_EXPORTS =
   freezeFindingWriterSensitiveReadOnlyExports([
+    ...[
+      'tools/gates/lib/anchored-filesystem.kernel.ts',
+      'tools/gates/lib/anchored-filesystem.ts',
+    ].flatMap((target) =>
+      ANCHORED_FILESYSTEM_PRODUCTION_RUNTIME_EXPORTS.map((symbol) => ({
+        target,
+        symbol,
+        ...(target.endsWith('.kernel.ts')
+          ? {}
+          : {
+              reexport: {
+                specifier: './anchored-filesystem.kernel',
+                symbol,
+              },
+            }),
+      })),
+    ),
+    ...[
+      'tools/gates/lib/hermetic-git-runtime.kernel.ts',
+      'tools/gates/lib/hermetic-git-runtime.ts',
+    ].flatMap((target) =>
+      HERMETIC_GIT_PRODUCTION_RUNTIME_EXPORTS.map((symbol) => ({
+        target,
+        symbol,
+        ...(target.endsWith('.kernel.ts')
+          ? {}
+          : {
+              reexport: {
+                specifier: './hermetic-git-runtime.kernel',
+                symbol,
+              },
+            }),
+      })),
+    ),
     {
       target: 'tools/gates/finding-registry-store.ts',
       symbol: 'FINDING_WRITER_FLOCK_EXECUTION_POLICY_V1',
@@ -1253,6 +1524,10 @@ export const FINDING_WRITER_SENSITIVE_READ_ONLY_EXPORTS =
     {
       target: 'tools/gates/lib/finding-registry-writer-authority.ts',
       symbol: 'FINDING_WRITER_DECLARED_ASSET_EDGES',
+    },
+    {
+      target: 'tools/gates/lib/finding-registry-writer-authority.ts',
+      symbol: 'FINDING_WRITER_DYNAMIC_MODULE_LOADER_AUTHORITY',
     },
     {
       target: 'tools/gates/lib/finding-registry-writer-authority.ts',
@@ -1823,6 +2098,7 @@ function literalModuleSpecifiers(raw: string, path: string): string[] {
           ? ts.ScriptKind.JS
           : ts.ScriptKind.TS;
   const source = ts.createSourceFile(path, raw, ts.ScriptTarget.Latest, true, scriptKind);
+  const loaderBindings = findingWriterModuleLoaderBindings(source);
   const syntaxCheckPath = path.endsWith('.d.ts') ? `${path.slice(0, -5)}.ts` : path;
   const parseDiagnostics = ts.transpileModule(raw, {
     compilerOptions: { allowJs: true },
@@ -1833,9 +2109,29 @@ function literalModuleSpecifiers(raw: string, path: string): string[] {
     throw new Error(`Finding writer module dependency source is not parseable: ${path}`);
   }
   const specifiers = new Set<string>();
-  const addLoader = (value: ts.Expression | undefined, loader: string): void => {
+  const addLoader = (
+    value: ts.Expression | undefined,
+    loader: FindingWriterClassifiedModuleLoaderCall | 'import-equals',
+  ): void => {
     if (value === undefined || !ts.isStringLiteralLike(value)) {
-      throw new Error(`Finding writer ${loader} edge must use one literal module in ${path}`);
+      if (loader !== 'import-equals' && value !== undefined) {
+        const identity = dynamicModuleLoaderIdentity({
+          path,
+          loaderKind: loader.kind,
+          loaderBinding: loader.binding,
+          argumentExpression: value.getText(source),
+        });
+        if (
+          FINDING_WRITER_DYNAMIC_MODULE_LOADER_AUTHORITY.some(
+            (authority) => dynamicModuleLoaderIdentity(authority) === identity,
+          )
+        ) {
+          return;
+        }
+      }
+      throw new Error(
+        `Finding writer ${typeof loader === 'string' ? loader : loader.kind} edge must use one literal module in ${path}`,
+      );
     }
     specifiers.add(value.text);
   };
@@ -1851,20 +2147,9 @@ function literalModuleSpecifiers(raw: string, path: string): string[] {
       ts.isExternalModuleReference(node.moduleReference)
     ) {
       addLoader(node.moduleReference.expression, 'import-equals');
-    } else if (
-      ts.isCallExpression(node) &&
-      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-        (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
-    ) {
-      addLoader(node.arguments[0], 'dynamic loader');
-    } else if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      ts.isIdentifier(node.expression.expression) &&
-      node.expression.expression.text === 'require' &&
-      node.expression.name.text === 'resolve'
-    ) {
-      addLoader(node.arguments[0], 'require.resolve');
+    } else if (ts.isCallExpression(node)) {
+      const loader = classifyFindingWriterModuleLoaderCall(node, loaderBindings);
+      if (loader !== null) addLoader(node.arguments[0], loader);
     }
     ts.forEachChild(node, visit);
   };
@@ -2420,14 +2705,1162 @@ function staticLoaderBindingSymbols(node: ts.CallExpression): string[] {
   return ['*'];
 }
 
-function expressionStringFragments(expression: ts.Expression): string[] {
-  const fragments: string[] = [];
+type FindingWriterModuleLoaderKind =
+  | 'DYNAMIC_IMPORT'
+  | 'GLOBAL_REQUIRE'
+  | 'GLOBAL_REQUIRE_RESOLVE'
+  | 'MODULE_REQUIRE'
+  | 'CREATE_REQUIRE_BINDING'
+  | 'CREATE_REQUIRE_RESOLVE';
+
+interface FindingWriterModuleLoaderBindings {
+  readonly createRequireFactories: ReadonlySet<string>;
+  readonly moduleNamespaces: ReadonlySet<string>;
+  readonly loaderBindings: ReadonlySet<string>;
+}
+
+interface FindingWriterClassifiedModuleLoaderCall {
+  readonly kind: FindingWriterModuleLoaderKind;
+  readonly binding: string;
+}
+
+function findingWriterModuleLoaderBindings(
+  source: ts.SourceFile,
+): FindingWriterModuleLoaderBindings {
+  const createRequireFactories = new Set<string>();
+  const moduleNamespaces = new Set<string>();
+  for (const statement of source.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteralLike(statement.moduleSpecifier) ||
+      (statement.moduleSpecifier.text !== 'module' &&
+        statement.moduleSpecifier.text !== 'node:module')
+    ) {
+      continue;
+    }
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings === undefined) continue;
+    if (ts.isNamespaceImport(bindings)) {
+      moduleNamespaces.add(bindings.name.text);
+      continue;
+    }
+    for (const element of bindings.elements) {
+      if ((element.propertyName?.text ?? element.name.text) === 'createRequire') {
+        createRequireFactories.add(element.name.text);
+      }
+    }
+  }
+
+  const loaderBindings = new Set<string>();
+  const isCreateRequireCall = (expression: ts.Expression): boolean => {
+    if (!ts.isCallExpression(expression)) return false;
+    if (
+      ts.isIdentifier(expression.expression) &&
+      createRequireFactories.has(expression.expression.text)
+    ) {
+      return true;
+    }
+    return (
+      ts.isPropertyAccessExpression(expression.expression) &&
+      ts.isIdentifier(expression.expression.expression) &&
+      moduleNamespaces.has(expression.expression.expression.text) &&
+      expression.expression.name.text === 'createRequire'
+    );
+  };
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const visit = (node: ts.Node): void => {
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isIdentifier(node.name) &&
+        node.initializer !== undefined
+      ) {
+        const initializer = node.initializer;
+        const aliasesLoader =
+          (ts.isIdentifier(initializer) &&
+            (initializer.text === 'require' || loaderBindings.has(initializer.text))) ||
+          (ts.isPropertyAccessExpression(initializer) &&
+            ts.isIdentifier(initializer.expression) &&
+            initializer.expression.text === 'module' &&
+            initializer.name.text === 'require');
+        if (
+          (isCreateRequireCall(initializer) || aliasesLoader) &&
+          !loaderBindings.has(node.name.text)
+        ) {
+          loaderBindings.add(node.name.text);
+          changed = true;
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  return Object.freeze({ createRequireFactories, moduleNamespaces, loaderBindings });
+}
+
+function classifyFindingWriterModuleLoaderCall(
+  node: ts.CallExpression,
+  bindings: FindingWriterModuleLoaderBindings,
+): FindingWriterClassifiedModuleLoaderCall | null {
+  const expression = node.expression;
+  if (expression.kind === ts.SyntaxKind.ImportKeyword) {
+    return Object.freeze({ kind: 'DYNAMIC_IMPORT', binding: 'import' });
+  }
+  if (ts.isIdentifier(expression)) {
+    if (expression.text === 'require') {
+      return Object.freeze({ kind: 'GLOBAL_REQUIRE', binding: 'require' });
+    }
+    if (bindings.loaderBindings.has(expression.text)) {
+      return Object.freeze({ kind: 'CREATE_REQUIRE_BINDING', binding: expression.text });
+    }
+    return null;
+  }
+  if (!ts.isPropertyAccessExpression(expression)) return null;
+  if (
+    ts.isIdentifier(expression.expression) &&
+    expression.expression.text === 'module' &&
+    expression.name.text === 'require'
+  ) {
+    return Object.freeze({ kind: 'MODULE_REQUIRE', binding: 'module.require' });
+  }
+  if (expression.name.text !== 'resolve' || !ts.isIdentifier(expression.expression)) return null;
+  if (expression.expression.text === 'require') {
+    return Object.freeze({ kind: 'GLOBAL_REQUIRE_RESOLVE', binding: 'require.resolve' });
+  }
+  if (bindings.loaderBindings.has(expression.expression.text)) {
+    return Object.freeze({
+      kind: 'CREATE_REQUIRE_RESOLVE',
+      binding: `${expression.expression.text}.resolve`,
+    });
+  }
+  return null;
+}
+
+interface FindingWriterObservedDynamicModuleLoader
+  extends Pick<
+    FindingWriterDynamicModuleLoaderAuthorityV1,
+    'path' | 'loaderKind' | 'loaderBinding' | 'argumentExpression'
+  > {
+  readonly enclosingFunction: string | null;
+}
+
+function enclosingFindingWriterFunctionName(node: ts.Node): string | null {
+  let cursor: ts.Node | undefined = node.parent;
+  while (cursor !== undefined) {
+    if (ts.isFunctionDeclaration(cursor)) return cursor.name?.text ?? null;
+    if (ts.isMethodDeclaration(cursor) || ts.isFunctionExpression(cursor)) {
+      if (cursor.name !== undefined && ts.isIdentifier(cursor.name)) return cursor.name.text;
+      const parent = cursor.parent;
+      if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
+        return parent.name.text;
+      }
+    }
+    if (ts.isArrowFunction(cursor)) {
+      const parent = cursor.parent;
+      if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
+        return parent.name.text;
+      }
+    }
+    cursor = cursor.parent;
+  }
+  return null;
+}
+
+function assertNoFindingWriterLoaderEscape(source: ts.SourceFile, path: string): void {
+  const commonJsKernelPath = 'tools/gates/lib/repository-application-module-loader.ts';
+  const isNodeModuleSpecifier = (value: string): boolean =>
+    value === 'module' || value === 'node:module';
+  const staticPropertyName = (
+    node: ts.PropertyAccessExpression | ts.ElementAccessExpression,
+  ): string | null => {
+    if (ts.isPropertyAccessExpression(node)) return node.name.text;
+    const argument = node.argumentExpression;
+    return argument !== undefined && ts.isStringLiteralLike(argument) ? argument.text : null;
+  };
+  const isNamedExpression = (node: ts.Expression, name: string): boolean =>
+    ts.isIdentifier(node) && node.text === name;
+  const isProcessMainModule = (node: ts.Expression): boolean =>
+    (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
+    isNamedExpression(node.expression, 'process') &&
+    staticPropertyName(node) === 'mainModule';
+  const isProcessCapabilityExpression = (node: ts.Expression): boolean =>
+    isNamedExpression(node, 'process') ||
+    ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
+      isNamedExpression(node.expression, 'globalThis') &&
+      staticPropertyName(node) === 'process');
+  const isSensitiveValueEscape = (node: ts.Expression): boolean => {
+    let expression: ts.Expression = node;
+    let parent = expression.parent;
+    while (
+      ts.isParenthesizedExpression(parent) ||
+      ts.isAsExpression(parent) ||
+      ts.isNonNullExpression(parent)
+    ) {
+      expression = parent;
+      parent = expression.parent;
+    }
+    return (
+      (ts.isVariableDeclaration(parent) && parent.initializer === expression) ||
+      (ts.isReturnStatement(parent) && parent.expression === expression) ||
+      (ts.isArrayLiteralExpression(parent) && parent.elements.includes(expression)) ||
+      (ts.isPropertyAssignment(parent) && parent.initializer === expression) ||
+      ts.isShorthandPropertyAssignment(parent) ||
+      (ts.isCallExpression(parent) && parent.arguments.includes(expression)) ||
+      (ts.isNewExpression(parent) && parent.arguments?.includes(expression) === true) ||
+      (ts.isBinaryExpression(parent) &&
+        parent.right === expression &&
+        parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+        parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment) ||
+      (ts.isConditionalExpression(parent) &&
+        (parent.whenTrue === expression || parent.whenFalse === expression))
+    );
+  };
+  const bindingDeclares = (name: ts.BindingName, expected: string): boolean => {
+    if (ts.isIdentifier(name)) return name.text === expected;
+    return name.elements.some(
+      (element) => ts.isBindingElement(element) && bindingDeclares(element.name, expected),
+    );
+  };
+  const declarationListDeclares = (
+    declarationList: ts.VariableDeclarationList,
+    expected: string,
+  ): boolean =>
+    declarationList.declarations.some((declaration) => bindingDeclares(declaration.name, expected));
+  const statementDeclares = (statement: ts.Statement, expected: string): boolean => {
+    if (ts.isVariableStatement(statement)) {
+      return declarationListDeclares(statement.declarationList, expected);
+    }
+    if (
+      (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) &&
+      statement.name?.text === expected
+    ) {
+      return true;
+    }
+    if (!ts.isImportDeclaration(statement) || statement.importClause === undefined) return false;
+    if (statement.importClause.name?.text === expected) return true;
+    const bindings = statement.importClause.namedBindings;
+    if (bindings === undefined) return false;
+    if (ts.isNamespaceImport(bindings)) return bindings.name.text === expected;
+    return bindings.elements.some((element) => element.name.text === expected);
+  };
+  const scopeDeclares = (scope: ts.Node, expected: string): boolean => {
+    if (
+      ts.isFunctionDeclaration(scope) ||
+      ts.isFunctionExpression(scope) ||
+      ts.isArrowFunction(scope) ||
+      ts.isMethodDeclaration(scope) ||
+      ts.isGetAccessorDeclaration(scope) ||
+      ts.isSetAccessorDeclaration(scope) ||
+      ts.isConstructorDeclaration(scope)
+    ) {
+      if (scope.parameters.some((parameter) => bindingDeclares(parameter.name, expected))) {
+        return true;
+      }
+      if (
+        (ts.isFunctionDeclaration(scope) || ts.isFunctionExpression(scope)) &&
+        scope.name?.text === expected
+      ) {
+        return true;
+      }
+    }
+    if (ts.isCatchClause(scope) && scope.variableDeclaration !== undefined) {
+      return bindingDeclares(scope.variableDeclaration.name, expected);
+    }
+    if (ts.isBlock(scope) || ts.isSourceFile(scope) || ts.isModuleBlock(scope)) {
+      return scope.statements.some((statement) => statementDeclares(statement, expected));
+    }
+    if (
+      (ts.isForStatement(scope) || ts.isForInStatement(scope) || ts.isForOfStatement(scope)) &&
+      scope.initializer !== undefined &&
+      ts.isVariableDeclarationList(scope.initializer)
+    ) {
+      return declarationListDeclares(scope.initializer, expected);
+    }
+    return false;
+  };
+  const isUnshadowedRuntimeRoot = (node: ts.Identifier): boolean => {
+    let scope: ts.Node | undefined = node.parent;
+    while (scope !== undefined) {
+      if (scopeDeclares(scope, node.text)) return false;
+      scope = scope.parent;
+    }
+    return true;
+  };
+  const isNonValuePropertyName = (node: ts.Identifier): boolean => {
+    const parent = node.parent;
+    return (
+      ((ts.isPropertyAccessExpression(parent) ||
+        ts.isPropertyAssignment(parent) ||
+        ts.isMethodDeclaration(parent) ||
+        ts.isPropertyDeclaration(parent) ||
+        ts.isPropertySignature(parent) ||
+        ts.isMethodSignature(parent) ||
+        ts.isGetAccessorDeclaration(parent) ||
+        ts.isSetAccessorDeclaration(parent) ||
+        ts.isEnumMember(parent)) &&
+        parent.name === node) ||
+      (ts.isBindingElement(parent) && parent.propertyName === node)
+    );
+  };
   const visit = (node: ts.Node): void => {
-    if (ts.isStringLiteralLike(node)) fragments.push(node.text);
+    if (
+      ts.isImportDeclaration(node) &&
+      ts.isStringLiteralLike(node.moduleSpecifier) &&
+      isNodeModuleSpecifier(node.moduleSpecifier.text)
+    ) {
+      const bindings = node.importClause?.namedBindings;
+      const expectedNames =
+        path === commonJsKernelPath ? ['Module', 'createRequire'] : ['createRequire'];
+      const observedNames =
+        bindings !== undefined && ts.isNamedImports(bindings)
+          ? bindings.elements
+              .map((element) => {
+                const imported = element.propertyName?.text ?? element.name.text;
+                return imported === element.name.text
+                  ? imported
+                  : `${imported} as ${element.name.text}`;
+              })
+              .sort()
+          : [];
+      if (
+        node.importClause === undefined ||
+        node.importClause.isTypeOnly ||
+        node.importClause.name !== undefined ||
+        observedNames.length !== expectedNames.length ||
+        observedNames.some((name, index) => name !== expectedNames[index])
+      ) {
+        throw new Error(
+          `Finding writer source forbids ungoverned Node module import authority: ${path}`,
+        );
+      }
+    }
+    if (
+      ts.isExportDeclaration(node) &&
+      node.moduleSpecifier !== undefined &&
+      ts.isStringLiteralLike(node.moduleSpecifier) &&
+      isNodeModuleSpecifier(node.moduleSpecifier.text)
+    ) {
+      throw new Error(`Finding writer source forbids Node module capability re-exports: ${path}`);
+    }
+    if (
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      node.arguments[0] !== undefined &&
+      ts.isStringLiteralLike(node.arguments[0]) &&
+      isNodeModuleSpecifier(node.arguments[0].text)
+    ) {
+      throw new Error(`Finding writer source forbids dynamic Node module acquisition: ${path}`);
+    }
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier !== undefined &&
+      ts.isStringLiteralLike(node.moduleSpecifier) &&
+      (node.moduleSpecifier.text === 'vm' || node.moduleSpecifier.text === 'node:vm')
+    ) {
+      throw new Error(`Finding writer source forbids Node vm loader authority: ${path}`);
+    }
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'require' &&
+      node.arguments[0] !== undefined &&
+      ts.isStringLiteralLike(node.arguments[0]) &&
+      (node.arguments[0].text === 'vm' ||
+        node.arguments[0].text === 'node:vm' ||
+        node.arguments[0].text === 'module' ||
+        node.arguments[0].text === 'node:module')
+    ) {
+      throw new Error(`Finding writer source forbids ungoverned Node loader acquisition: ${path}`);
+    }
+    if (
+      (ts.isCallExpression(node) || ts.isNewExpression(node)) &&
+      ((ts.isIdentifier(node.expression) &&
+        (node.expression.text === 'eval' || node.expression.text === 'Function')) ||
+        ((ts.isPropertyAccessExpression(node.expression) ||
+          ts.isElementAccessExpression(node.expression)) &&
+          isNamedExpression(node.expression.expression, 'globalThis') &&
+          (staticPropertyName(node.expression) === 'eval' ||
+            staticPropertyName(node.expression) === 'Function')))
+    ) {
+      throw new Error(`Finding writer source forbids dynamic code generation: ${path}`);
+    }
+    if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+      const propertyName = staticPropertyName(node);
+      const base = node.expression;
+      if (
+        (isNamedExpression(base, 'module') ||
+          isNamedExpression(base, 'globalThis') ||
+          isProcessMainModule(base)) &&
+        (propertyName === 'require' || propertyName === null)
+      ) {
+        throw new Error(
+          `Finding writer source forbids indirect CommonJS loader acquisition: ${path}`,
+        );
+      }
+      if (
+        propertyName === 'Module' &&
+        ts.isCallExpression(base) &&
+        ts.isIdentifier(base.expression) &&
+        base.expression.text === 'require' &&
+        base.arguments[0] !== undefined &&
+        ts.isStringLiteralLike(base.arguments[0]) &&
+        (base.arguments[0].text === 'module' || base.arguments[0].text === 'node:module')
+      ) {
+        throw new Error(`Finding writer source forbids private CommonJS Module authority: ${path}`);
+      }
+      if (
+        isNamedExpression(base, 'require') &&
+        (propertyName === 'call' || propertyName === 'apply' || propertyName === 'bind')
+      ) {
+        throw new Error(`Finding writer source forbids rebound CommonJS loader calls: ${path}`);
+      }
+      if (
+        path !== commonJsKernelPath &&
+        (propertyName === '_load' ||
+          propertyName === '_extensions' ||
+          propertyName === '_compile' ||
+          ((propertyName === 'cache' || propertyName === 'extensions') &&
+            ts.isIdentifier(base) &&
+            /require/i.test(base.text)))
+      ) {
+        throw new Error(
+          `Finding writer source forbids private CommonJS evaluation authority: ${path}`,
+        );
+      }
+      if (
+        isNamedExpression(base, 'process') &&
+        (propertyName === 'getBuiltinModule' || propertyName === null)
+      ) {
+        throw new Error(`Finding writer source forbids process loader acquisition: ${path}`);
+      }
+    }
+    if (
+      ts.isVariableDeclaration(node) &&
+      node.initializer !== undefined &&
+      isNamedExpression(node.initializer, 'module') &&
+      ts.isObjectBindingPattern(node.name) &&
+      node.name.elements.some(
+        (element) =>
+          (element.propertyName !== undefined && ts.isIdentifier(element.propertyName)
+            ? element.propertyName.text
+            : ts.isIdentifier(element.name)
+              ? element.name.text
+              : null) === 'require',
+      )
+    ) {
+      throw new Error(
+        `Finding writer source forbids destructured CommonJS loader authority: ${path}`,
+      );
+    }
+    if (
+      ts.isIdentifier(node) &&
+      node.text === 'require' &&
+      !(
+        (ts.isCallExpression(node.parent) && node.parent.expression === node) ||
+        ((ts.isPropertyAccessExpression(node.parent) ||
+          ts.isElementAccessExpression(node.parent)) &&
+          node.parent.expression === node &&
+          (staticPropertyName(node.parent) === 'main' ||
+            staticPropertyName(node.parent) === 'resolve')) ||
+        ts.isTypeOfExpression(node.parent) ||
+        isNonValuePropertyName(node)
+      )
+    ) {
+      throw new Error(`Finding writer source forbids escaped CommonJS loader values: ${path}`);
+    }
+    if (
+      ts.isIdentifier(node) &&
+      node.text === 'Reflect' &&
+      !(
+        (ts.isPropertyAccessExpression(node.parent) || ts.isElementAccessExpression(node.parent)) &&
+        node.parent.expression === node &&
+        ts.isCallExpression(node.parent.parent) &&
+        node.parent.parent.expression === node.parent
+      )
+    ) {
+      throw new Error(`Finding writer source forbids escaped reflection authority: ${path}`);
+    }
+    if (
+      ts.isIdentifier(node) &&
+      node.text === 'globalThis' &&
+      !(
+        ((ts.isPropertyAccessExpression(node.parent) ||
+          ts.isElementAccessExpression(node.parent)) &&
+          node.parent.expression === node) ||
+        (ts.isQualifiedName(node.parent) && node.parent.left === node) ||
+        ts.isTypeOfExpression(node.parent)
+      )
+    ) {
+      throw new Error(`Finding writer source forbids escaped global authority: ${path}`);
+    }
+    if (
+      ts.isIdentifier(node) &&
+      (node.text === 'module' || node.text === 'process') &&
+      isUnshadowedRuntimeRoot(node) &&
+      isSensitiveValueEscape(node)
+    ) {
+      throw new Error(`Finding writer source forbids escaped runtime capability roots: ${path}`);
+    }
+    if (
+      ts.isIdentifier(node) &&
+      (node.text === 'eval' || node.text === 'Function') &&
+      isSensitiveValueEscape(node) &&
+      !(
+        (ts.isCallExpression(node.parent) || ts.isNewExpression(node.parent)) &&
+        node.parent.expression === node
+      )
+    ) {
+      throw new Error(`Finding writer source forbids escaped code-generation authority: ${path}`);
+    }
+    if (
+      ts.isCallExpression(node) &&
+      (ts.isPropertyAccessExpression(node.expression) ||
+        ts.isElementAccessExpression(node.expression)) &&
+      isNamedExpression(node.expression.expression, 'Reflect') &&
+      staticPropertyName(node.expression) === 'get' &&
+      node.arguments[0] !== undefined &&
+      (isNamedExpression(node.arguments[0], 'module') ||
+        isNamedExpression(node.arguments[0], 'globalThis') ||
+        isProcessCapabilityExpression(node.arguments[0]) ||
+        isProcessMainModule(node.arguments[0]))
+    ) {
+      throw new Error(
+        `Finding writer source forbids reflected CommonJS loader acquisition: ${path}`,
+      );
+    }
+    if (
+      ts.isCallExpression(node) &&
+      (ts.isPropertyAccessExpression(node.expression) ||
+        ts.isElementAccessExpression(node.expression)) &&
+      (staticPropertyName(node.expression) === '_load' ||
+        (ts.isIdentifier(node.expression.expression) &&
+          node.expression.expression.text === 'process' &&
+          staticPropertyName(node.expression) === 'getBuiltinModule'))
+    ) {
+      throw new Error(`Finding writer source forbids private/dynamic loader escape: ${path}`);
+    }
+    if (
+      (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
+      isProcessCapabilityExpression(node.expression) &&
+      (staticPropertyName(node) === 'getBuiltinModule' || staticPropertyName(node) === null)
+    ) {
+      throw new Error(`Finding writer source forbids process loader capability chains: ${path}`);
+    }
     ts.forEachChild(node, visit);
   };
-  visit(expression);
-  return fragments;
+  visit(source);
+}
+
+function assertDescriptorBoundLoaderPolicy(
+  source: ts.SourceFile,
+  authority: FindingWriterDynamicModuleLoaderAuthorityV1,
+  observation: FindingWriterObservedDynamicModuleLoader,
+): void {
+  const policy = authority.targetPolicy;
+  if (observation.enclosingFunction !== policy.enclosingFunction) {
+    throw new Error(
+      `Finding writer descriptor-bound loader escaped its owning function: ${authority.path}`,
+    );
+  }
+  let guardCalls = 0;
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === policy.guardFunction
+    ) {
+      guardCalls += 1;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  if (guardCalls !== 1) {
+    throw new Error(
+      `Finding writer descriptor-bound loader requires one ${policy.guardFunction} guard: ${authority.path}`,
+    );
+  }
+
+  let moduleImports = 0;
+  let compilerExecutions = 0;
+  let dependencyResolverExecutions = 0;
+  let executionPackageLoads = 0;
+  let loaderExecutions = 0;
+  let moduleConstructors = 0;
+  let moduleCacheDeletes = 0;
+  let moduleCacheReads = 0;
+  let moduleCacheWrites = 0;
+  let privateCompileReads = 0;
+  let privateCompileWrites = 0;
+  let privateExtensionRegistryReads = 0;
+  let privateLoaderInstalls = 0;
+  let privateLoaderReads = 0;
+  let privateLoaderRestores = 0;
+  let privateLoaderWrites = 0;
+  let privateModuleCacheReads = 0;
+  let privateResolverReads = 0;
+  let privateResolverWrites = 0;
+  let pathRegistrations = 0;
+  let pathUnregistrations = 0;
+  let registryHandlerDeletes = 0;
+  let registryHandlerInstalls = 0;
+  let registryHandlerReads = 0;
+  let registryHandlerRestores = 0;
+  let registryHandlerWrites = 0;
+  let requireCacheAccesses = 0;
+  let requireExtensionsJavaScriptAccesses = 0;
+  let requireExtensionsTypeScriptAccesses = 0;
+  let requireResolveAliases = 0;
+  let requireResolvePackageCoordinates = 0;
+  let resolverExecutions = 0;
+  const assertExactCapability = (
+    node: ts.Node,
+    expectedFunction: string,
+    expectedExpression: string,
+  ): void => {
+    if (
+      enclosingFindingWriterFunctionName(node) !== expectedFunction ||
+      node.getText(source) !== expectedExpression
+    ) {
+      throw new Error(
+        `Finding writer CommonJS evaluation capability escaped its exact AST authority: ${authority.path}:${node.getText(source)}`,
+      );
+    }
+  };
+  const hasExactArrayElements = (
+    argument: ts.Expression | undefined,
+    expected: readonly string[],
+  ): boolean =>
+    argument !== undefined &&
+    ts.isArrayLiteralExpression(argument) &&
+    argument.elements.length === expected.length &&
+    argument.elements.every((element, index) => element.getText(source) === expected[index]);
+  const inspectCapability = (node: ts.Node): void => {
+    if (
+      ts.isImportDeclaration(node) &&
+      ts.isStringLiteralLike(node.moduleSpecifier) &&
+      node.moduleSpecifier.text === 'node:module' &&
+      node.importClause?.namedBindings !== undefined &&
+      ts.isNamedImports(node.importClause.namedBindings) &&
+      node.importClause.namedBindings.elements.some(
+        (element) => (element.propertyName?.text ?? element.name.text) === 'Module',
+      )
+    ) {
+      moduleImports += 1;
+    }
+    if (
+      ts.isNewExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'Module'
+    ) {
+      moduleConstructors += 1;
+      const enclosingFunction = enclosingFindingWriterFunctionName(node);
+      if (enclosingFunction === 'createRepositoryApplicationModule') {
+        assertExactCapability(node, enclosingFunction, 'new Module(identity)');
+      } else if (enclosingFunction === 'createCommonJsResolverProbe') {
+        assertExactCapability(
+          node,
+          enclosingFunction,
+          "new Module('repository-application-execution-resolver-probe')",
+        );
+      } else {
+        throw new Error(
+          `Finding writer CommonJS Module constructor escaped its exact authority: ${authority.path}:${node.getText(source)}`,
+        );
+      }
+    }
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === 'Reflect' &&
+      (node.expression.name.text === 'get' || node.expression.name.text === 'set') &&
+      node.arguments[1] !== undefined &&
+      ts.isStringLiteralLike(node.arguments[1]) &&
+      (node.arguments[1].text === '_compile' ||
+        node.arguments[1].text === '_extensions' ||
+        node.arguments[1].text === '_load' ||
+        node.arguments[1].text === '_cache' ||
+        node.arguments[1].text === '_resolveFilename')
+    ) {
+      const privateCapability = node.arguments[1].text;
+      const operation = node.expression.name.text;
+      if (privateCapability === '_compile') {
+        if (operation === 'get') {
+          privateCompileReads += 1;
+          const enclosingFunction = enclosingFindingWriterFunctionName(node);
+          if (
+            node.getText(source) !== "Reflect.get(loadedModule, '_compile')" ||
+            (enclosingFunction !== policy.enclosingFunction &&
+              enclosingFunction !== 'compileRepositoryApplicationCommonJs')
+          ) {
+            throw new Error(
+              `Finding writer CommonJS compiler read escaped its exact AST authority: ${authority.path}:${node.getText(source)}`,
+            );
+          }
+        } else {
+          privateCompileWrites += 1;
+          assertExactCapability(
+            node,
+            policy.enclosingFunction,
+            "Reflect.set(loadedModule, '_compile', compileWithCanonicalIdentity)",
+          );
+        }
+      } else if (privateCapability === '_extensions') {
+        if (operation !== 'get') {
+          throw new Error(
+            `Finding writer CommonJS extension registry write is ungoverned: ${authority.path}:${node.getText(source)}`,
+          );
+        }
+        privateExtensionRegistryReads += 1;
+        assertExactCapability(
+          node,
+          'currentCommonJsExtensionRegistry',
+          "Reflect.get(Module, '_extensions')",
+        );
+      } else if (privateCapability === '_cache') {
+        if (operation !== 'get') {
+          throw new Error(
+            `Finding writer CommonJS module cache root write is ungoverned: ${authority.path}:${node.getText(source)}`,
+          );
+        }
+        privateModuleCacheReads += 1;
+        assertExactCapability(node, 'currentCommonJsModuleCache', "Reflect.get(Module, '_cache')");
+      } else if (privateCapability === '_load') {
+        if (operation === 'get') {
+          privateLoaderReads += 1;
+          assertExactCapability(node, 'currentCommonJsLoader', "Reflect.get(Module, '_load')");
+        } else {
+          privateLoaderWrites += 1;
+          const expression = node.getText(source);
+          if (expression === "Reflect.set(Module, '_load', governedLoader)") {
+            privateLoaderInstalls += 1;
+          } else if (expression === "Reflect.set(Module, '_load', previousLoader)") {
+            privateLoaderRestores += 1;
+          } else {
+            throw new Error(
+              `Finding writer CommonJS loader write escaped its exact AST authority: ${authority.path}:${expression}`,
+            );
+          }
+          if (
+            enclosingFindingWriterFunctionName(node) !==
+            'ensureRepositoryApplicationExecutionAuthority'
+          ) {
+            throw new Error(
+              `Finding writer CommonJS loader write escaped its exact function: ${authority.path}:${expression}`,
+            );
+          }
+        }
+      } else if (operation === 'get') {
+        privateResolverReads += 1;
+        assertExactCapability(
+          node,
+          'currentCommonJsResolver',
+          "Reflect.get(Module, '_resolveFilename')",
+        );
+      } else {
+        privateResolverWrites += 1;
+        assertExactCapability(
+          node,
+          'ensureRepositoryApplicationExecutionAuthority',
+          "Reflect.set(Module, '_resolveFilename', previousResolver)",
+        );
+      }
+    }
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'repositoryRequire' &&
+      node.arguments.length === 1 &&
+      node.arguments[0] !== undefined &&
+      ts.isStringLiteralLike(node.arguments[0]) &&
+      (node.arguments[0].text === 'ts-node' || node.arguments[0].text === 'tsconfig-paths')
+    ) {
+      executionPackageLoads += 1;
+      if (
+        enclosingFindingWriterFunctionName(node) !== 'ensureRepositoryApplicationExecutionAuthority'
+      ) {
+        throw new Error(
+          `Finding writer execution package load escaped its exact authority: ${authority.path}`,
+        );
+      }
+    }
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === 'Reflect' &&
+      (node.expression.name.text === 'get' ||
+        node.expression.name.text === 'set' ||
+        node.expression.name.text === 'deleteProperty') &&
+      node.arguments[0] !== undefined &&
+      node.arguments[0].getText(source) === 'cache'
+    ) {
+      const operation = node.expression.name.text;
+      if (operation === 'get') {
+        moduleCacheReads += 1;
+        assertExactCapability(node, 'readCommonJsModuleCache', 'Reflect.get(cache, targetPath)');
+      } else if (operation === 'set') {
+        moduleCacheWrites += 1;
+        assertExactCapability(
+          node,
+          'writeCommonJsModuleCache',
+          'Reflect.set(cache, targetPath, loadedModule)',
+        );
+      } else {
+        moduleCacheDeletes += 1;
+        assertExactCapability(
+          node,
+          'deleteCommonJsModuleCache',
+          'Reflect.deleteProperty(cache, targetPath)',
+        );
+      }
+    }
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === 'Reflect' &&
+      (node.expression.name.text === 'get' ||
+        node.expression.name.text === 'set' ||
+        node.expression.name.text === 'deleteProperty') &&
+      node.arguments[1] !== undefined &&
+      ts.isStringLiteralLike(node.arguments[1]) &&
+      node.arguments[1].text === '.ts'
+    ) {
+      const registryRoot = node.arguments[0]?.getText(source);
+      const operation = node.expression.name.text;
+      const enclosingFunction = enclosingFindingWriterFunctionName(node);
+      if (operation === 'get') {
+        registryHandlerReads += 1;
+        if (
+          (registryRoot !== 'authority.extensionRegistry' ||
+            enclosingFunction !== 'assertRepositoryApplicationExecutionRuntimeCurrent') &&
+          (registryRoot !== 'extensionRegistry' ||
+            enclosingFunction !== 'ensureRepositoryApplicationExecutionAuthority')
+        ) {
+          throw new Error(
+            `Finding writer TypeScript handler read escaped its exact authority: ${authority.path}:${node.getText(source)}`,
+          );
+        }
+      } else if (operation === 'set') {
+        registryHandlerWrites += 1;
+        if (
+          registryRoot !== 'extensionRegistry' ||
+          enclosingFunction !== 'ensureRepositoryApplicationExecutionAuthority'
+        ) {
+          throw new Error(
+            `Finding writer TypeScript handler write escaped its exact authority: ${authority.path}:${node.getText(source)}`,
+          );
+        }
+        const expression = node.getText(source);
+        if (expression === "Reflect.set(extensionRegistry, '.ts', typescriptHandler)") {
+          registryHandlerInstalls += 1;
+        } else if (
+          expression === "Reflect.set(extensionRegistry, '.ts', previousTypeScriptHandler)"
+        ) {
+          registryHandlerRestores += 1;
+        } else {
+          throw new Error(
+            `Finding writer TypeScript handler write has an ungoverned value: ${authority.path}:${expression}`,
+          );
+        }
+      } else {
+        registryHandlerDeletes += 1;
+        assertExactCapability(
+          node,
+          'ensureRepositoryApplicationExecutionAuthority',
+          "Reflect.deleteProperty(extensionRegistry, '.ts')",
+        );
+      }
+    }
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === 'repositoryRequire' &&
+      node.expression.name.text === 'resolve'
+    ) {
+      const coordinate = node.arguments[0];
+      if (
+        node.arguments.length !== 1 ||
+        coordinate === undefined ||
+        !ts.isStringLiteralLike(coordinate)
+      ) {
+        throw new Error(
+          `Finding writer repository execution coordinate is not one literal: ${authority.path}`,
+        );
+      }
+      if (coordinate.text === '@aquaculture/backend-common/constants') {
+        requireResolveAliases += 1;
+        const enclosingFunction = enclosingFindingWriterFunctionName(node);
+        if (
+          enclosingFunction !== 'assertRepositoryApplicationExecutionAuthorityCurrent' &&
+          enclosingFunction !== 'ensureRepositoryApplicationExecutionAuthority'
+        ) {
+          throw new Error(
+            `Finding writer alias probe escaped its exact execution authority: ${authority.path}`,
+          );
+        }
+      } else if (
+        coordinate.text === 'ts-node/package.json' ||
+        coordinate.text === 'tsconfig-paths/package.json'
+      ) {
+        requireResolvePackageCoordinates += 1;
+        if (
+          enclosingFindingWriterFunctionName(node) !==
+          'ensureRepositoryApplicationExecutionAuthority'
+        ) {
+          throw new Error(
+            `Finding writer execution package coordinate escaped its exact authority: ${authority.path}`,
+          );
+        }
+      } else {
+        throw new Error(
+          `Finding writer repository execution coordinate is ungoverned: ${authority.path}:${coordinate.text}`,
+        );
+      }
+    }
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === 'Reflect' &&
+      node.expression.name.text === 'apply' &&
+      node.arguments[0] !== undefined &&
+      ts.isIdentifier(node.arguments[0])
+    ) {
+      const capability = node.arguments[0].text;
+      const enclosingFunction = enclosingFindingWriterFunctionName(node);
+      if (capability === 'compileTypeScript') {
+        compilerExecutions += 1;
+        if (enclosingFunction !== 'typescriptHandler') {
+          throw new Error(
+            `Finding writer TypeScript compiler execution escaped its exact authority: ${authority.path}`,
+          );
+        }
+      } else if (capability === 'registerPaths') {
+        pathRegistrations += 1;
+        if (enclosingFunction !== 'ensureRepositoryApplicationExecutionAuthority') {
+          throw new Error(
+            `Finding writer path registration escaped its exact authority: ${authority.path}`,
+          );
+        }
+      } else if (
+        capability === 'unregisterPathsValue' ||
+        capability === 'installedUnregisterPaths'
+      ) {
+        pathUnregistrations += 1;
+        if (
+          enclosingFunction !== 'unregisterPaths' &&
+          enclosingFunction !== 'ensureRepositoryApplicationExecutionAuthority'
+        ) {
+          throw new Error(
+            `Finding writer path cleanup escaped its exact authority: ${authority.path}`,
+          );
+        }
+      } else if (capability === 'resolver') {
+        resolverExecutions += 1;
+        if (
+          enclosingFunction !== 'resolveRepositoryAliasCoordinate' ||
+          node.arguments[1]?.getText(source) !== 'Module' ||
+          !hasExactArrayElements(node.arguments[2], ['request', 'resolverProbe', 'false'])
+        ) {
+          throw new Error(
+            `Finding writer repository alias resolver execution escaped its exact authority: ${authority.path}`,
+          );
+        }
+      } else if (capability === 'installedResolver') {
+        dependencyResolverExecutions += 1;
+        if (
+          enclosingFunction !== 'governedLoader' ||
+          node.arguments[1]?.getText(source) !== 'Module' ||
+          !hasExactArrayElements(node.arguments[2], ['request', 'parent', 'isMain'])
+        ) {
+          throw new Error(
+            `Finding writer dependency resolver execution escaped its exact authority: ${authority.path}`,
+          );
+        }
+      } else if (capability === 'previousLoader') {
+        loaderExecutions += 1;
+        if (
+          enclosingFunction !== 'governedLoader' ||
+          node.arguments[1]?.kind !== ts.SyntaxKind.ThisKeyword ||
+          !hasExactArrayElements(node.arguments[2], ['request', 'parent', 'isMain'])
+        ) {
+          throw new Error(
+            `Finding writer dependency loader execution escaped its exact authority: ${authority.path}`,
+          );
+        }
+      }
+    }
+    if (
+      ts.isPropertyAccessExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === 'repositoryRequire' &&
+      (node.name.text === 'cache' || node.name.text === 'extensions')
+    ) {
+      if (node.name.text === 'cache') {
+        requireCacheAccesses += 1;
+        const expression = node.parent.getText(source);
+        if (
+          enclosingFindingWriterFunctionName(node) !==
+            (expression.includes('targetPath')
+              ? 'assertLoaderOwnsCanonicalModuleCache'
+              : 'loadOpenedRepositoryApplicationModule') &&
+          enclosingFindingWriterFunctionName(node) !== 'loadOpenedRepositoryApplicationModule'
+        ) {
+          throw new Error(
+            `Finding writer CommonJS cache capability escaped its exact function: ${authority.path}`,
+          );
+        }
+      } else {
+        const access = node.parent;
+        const extension =
+          ts.isElementAccessExpression(access) &&
+          access.argumentExpression !== undefined &&
+          ts.isStringLiteralLike(access.argumentExpression)
+            ? access.argumentExpression.text
+            : null;
+        if (extension === '.js') requireExtensionsJavaScriptAccesses += 1;
+        else if (extension === '.ts') requireExtensionsTypeScriptAccesses += 1;
+        else {
+          throw new Error(
+            `Finding writer CommonJS extension capability has an ungoverned key: ${authority.path}`,
+          );
+        }
+        if (
+          enclosingFindingWriterFunctionName(node) !==
+            'assertRepositoryApplicationExecutionAuthorityCurrent' &&
+          enclosingFindingWriterFunctionName(node) !==
+            'ensureRepositoryApplicationExecutionAuthority'
+        ) {
+          throw new Error(
+            `Finding writer CommonJS extension capability escaped its exact function: ${authority.path}`,
+          );
+        }
+      }
+    }
+    ts.forEachChild(node, inspectCapability);
+  };
+  inspectCapability(source);
+  if (
+    moduleImports !== 1 ||
+    compilerExecutions !== policy.compilerExecutionCount ||
+    dependencyResolverExecutions !== policy.dependencyResolverExecutionCount ||
+    executionPackageLoads !== policy.executionPackageLoadCount ||
+    loaderExecutions !== policy.loaderExecutionCount ||
+    moduleConstructors !== policy.moduleConstructorCount ||
+    moduleCacheDeletes !== policy.moduleCacheDeleteCount ||
+    moduleCacheReads !== policy.moduleCacheReadCount ||
+    moduleCacheWrites !== policy.moduleCacheWriteCount ||
+    privateCompileReads !== policy.privateCompileReadCount ||
+    privateCompileWrites !== policy.privateCompileWriteCount ||
+    privateExtensionRegistryReads !== policy.privateExtensionRegistryReadCount ||
+    privateLoaderInstalls !== 1 ||
+    privateLoaderReads !== policy.privateLoaderReadCount ||
+    privateLoaderRestores !== 2 ||
+    privateLoaderWrites !== policy.privateLoaderWriteCount ||
+    privateModuleCacheReads !== policy.privateModuleCacheReadCount ||
+    privateResolverReads !== policy.privateResolverReadCount ||
+    privateResolverWrites !== policy.privateResolverWriteCount ||
+    pathRegistrations !== policy.pathRegistrationCount ||
+    pathUnregistrations !== policy.pathUnregistrationCount ||
+    registryHandlerDeletes !== policy.registryHandlerDeleteCount ||
+    registryHandlerInstalls !== 1 ||
+    registryHandlerReads !== policy.registryHandlerReadCount ||
+    registryHandlerRestores !== 1 ||
+    registryHandlerWrites !== policy.registryHandlerWriteCount ||
+    requireCacheAccesses !== policy.requireCacheAccessCount ||
+    requireExtensionsJavaScriptAccesses !== policy.requireExtensionsJavaScriptAccessCount ||
+    requireExtensionsTypeScriptAccesses !== policy.requireExtensionsTypeScriptAccessCount ||
+    requireResolveAliases !== policy.requireResolveAliasCount ||
+    requireResolvePackageCoordinates !== policy.requireResolvePackageCoordinateCount ||
+    resolverExecutions !== policy.resolverExecutionCount
+  ) {
+    throw new Error(
+      `Finding writer CommonJS evaluation capability cardinality drifted: ${authority.path}`,
+    );
+  }
+}
+
+function assertFindingWriterDynamicModuleLoaderAuthority(
+  snapshot: FindingWriterRepositorySnapshot,
+  executablePaths: readonly string[],
+): void {
+  const observed = new Map<string, FindingWriterObservedDynamicModuleLoader>();
+  const sources = new Map<string, ts.SourceFile>();
+  for (const path of executablePaths) {
+    if (!FINDING_WRITER_SOURCE_EXTENSIONS.has(extname(path))) continue;
+    const raw = snapshot.readText(path);
+    const source = ts.createSourceFile(
+      path,
+      raw,
+      ts.ScriptTarget.Latest,
+      true,
+      findingWriterScriptKind(path),
+    );
+    sources.set(path, source);
+    assertNoFindingWriterLoaderEscape(source, path);
+    const bindings = findingWriterModuleLoaderBindings(source);
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node)) {
+        if (
+          ts.isPropertyAccessExpression(node.expression) &&
+          ts.isIdentifier(node.expression.expression) &&
+          node.expression.expression.text === 'extensionHandler' &&
+          node.expression.name.text === 'handler'
+        ) {
+          const target = node.arguments[1];
+          const observation: FindingWriterObservedDynamicModuleLoader = Object.freeze({
+            path,
+            loaderKind: 'COMMONJS_EXTENSION_HANDLER',
+            loaderBinding: 'extensionHandler.handler',
+            argumentExpression: target?.getText(source) ?? '<missing>',
+            enclosingFunction: enclosingFindingWriterFunctionName(node),
+          });
+          const identity = dynamicModuleLoaderIdentity(observation);
+          if (observed.has(identity)) {
+            throw new Error(`Finding writer dynamic module loader call is duplicated: ${identity}`);
+          }
+          observed.set(identity, observation);
+        }
+        const loader = classifyFindingWriterModuleLoaderCall(node, bindings);
+        const argument = node.arguments[0];
+        if (loader !== null && (argument === undefined || !ts.isStringLiteralLike(argument))) {
+          const observation: FindingWriterObservedDynamicModuleLoader = Object.freeze({
+            path,
+            loaderKind: loader.kind,
+            loaderBinding: loader.binding,
+            argumentExpression: argument?.getText(source) ?? '<missing>',
+            enclosingFunction: enclosingFindingWriterFunctionName(node),
+          });
+          const identity = dynamicModuleLoaderIdentity(observation);
+          if (observed.has(identity)) {
+            throw new Error(`Finding writer dynamic module loader call is duplicated: ${identity}`);
+          }
+          observed.set(identity, observation);
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+
+  assertExactStringSet(
+    'Finding writer dynamic module loader authority',
+    FINDING_WRITER_DYNAMIC_MODULE_LOADER_AUTHORITY.map(dynamicModuleLoaderIdentity),
+    observed.keys(),
+  );
+  for (const authority of FINDING_WRITER_DYNAMIC_MODULE_LOADER_AUTHORITY) {
+    const identity = dynamicModuleLoaderIdentity(authority);
+    const observation = observed.get(identity);
+    const source = sources.get(authority.path);
+    if (observation === undefined || source === undefined) {
+      throw new Error(`Finding writer dynamic module loader authority disappeared: ${identity}`);
+    }
+    assertDescriptorBoundLoaderPolicy(source, authority, observation);
+  }
 }
 
 interface FindingWriterObservedImport {
@@ -2435,7 +3868,18 @@ interface FindingWriterObservedImport {
   readonly symbols: readonly string[];
 }
 
-function exportedFindingWriterRuntimeSymbols(raw: string, path: string): string[] {
+interface FindingWriterObservedRuntimeExport {
+  readonly symbol: string;
+  readonly reexport?: {
+    readonly specifier: string;
+    readonly symbol: string;
+  };
+}
+
+function exportedFindingWriterRuntimeSymbols(
+  raw: string,
+  path: string,
+): FindingWriterObservedRuntimeExport[] {
   const source = ts.createSourceFile(
     path,
     raw,
@@ -2443,7 +3887,18 @@ function exportedFindingWriterRuntimeSymbols(raw: string, path: string): string[
     true,
     findingWriterScriptKind(path),
   );
-  const symbols = new Set<string>();
+  const symbols = new Map<string, FindingWriterObservedRuntimeExport>();
+  const addSymbol = (
+    symbol: string,
+    reexport?: FindingWriterObservedRuntimeExport['reexport'],
+  ): void => {
+    if (symbols.has(symbol)) {
+      throw new Error(
+        `Finding writer sensitive module has duplicate runtime export ${symbol}: ${path}`,
+      );
+    }
+    symbols.set(symbol, Object.freeze({ symbol, ...(reexport === undefined ? {} : { reexport }) }));
+  };
   const hasModifier = (node: ts.Node, kind: ts.SyntaxKind): boolean =>
     ts.canHaveModifiers(node) &&
     ts.getModifiers(node)?.some((modifier) => modifier.kind === kind) === true;
@@ -2452,7 +3907,7 @@ function exportedFindingWriterRuntimeSymbols(raw: string, path: string): string[
   const isDeclared = (node: ts.Node): boolean => hasModifier(node, ts.SyntaxKind.DeclareKeyword);
   const addBindingName = (name: ts.BindingName): void => {
     if (ts.isIdentifier(name)) {
-      symbols.add(name.text);
+      addSymbol(name.text);
       return;
     }
     for (const element of name.elements) {
@@ -2506,13 +3961,23 @@ function exportedFindingWriterRuntimeSymbols(raw: string, path: string): string[
       if (statement.isTypeOnly) continue;
       const clause = statement.exportClause;
       if (statement.moduleSpecifier !== undefined) {
-        const hasRuntimeExport =
+        if (
           clause === undefined ||
           ts.isNamespaceExport(clause) ||
-          clause.elements.some((element) => !element.isTypeOnly);
-        if (hasRuntimeExport) {
+          !ts.isStringLiteralLike(statement.moduleSpecifier)
+        ) {
           throw new Error(
-            `Finding writer sensitive module forbids runtime re-export edges: ${path}`,
+            `Finding writer sensitive module forbids unbounded runtime re-export edges: ${path}`,
+          );
+        }
+        for (const element of clause.elements) {
+          if (element.isTypeOnly) continue;
+          addSymbol(
+            element.name.text,
+            Object.freeze({
+              specifier: statement.moduleSpecifier.text,
+              symbol: element.propertyName?.text ?? element.name.text,
+            }),
           );
         }
         continue;
@@ -2521,18 +3986,18 @@ function exportedFindingWriterRuntimeSymbols(raw: string, path: string): string[
         throw new Error(`Finding writer sensitive module has an unbounded export: ${path}`);
       }
       for (const element of clause.elements) {
-        if (!element.isTypeOnly) symbols.add(element.name.text);
+        if (!element.isTypeOnly) addSymbol(element.name.text);
       }
       continue;
     }
     if (ts.isExportAssignment(statement)) {
-      symbols.add('default');
+      addSymbol('default');
       continue;
     }
     if (!isExported(statement) || isDeclared(statement)) continue;
     if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) {
-      if (isDefault(statement)) symbols.add('default');
-      else if (statement.name !== undefined) symbols.add(statement.name.text);
+      if (isDefault(statement)) addSymbol('default');
+      else if (statement.name !== undefined) addSymbol(statement.name.text);
       continue;
     }
     if (ts.isVariableStatement(statement)) {
@@ -2542,10 +4007,10 @@ function exportedFindingWriterRuntimeSymbols(raw: string, path: string): string[
       continue;
     }
     if (ts.isEnumDeclaration(statement) || ts.isModuleDeclaration(statement)) {
-      symbols.add(statement.name.getText(source));
+      addSymbol(statement.name.getText(source));
     }
   }
-  return [...symbols].sort(compareText);
+  return [...symbols.values()].sort((left, right) => compareText(left.symbol, right.symbol));
 }
 
 function observedFindingWriterImports(
@@ -2559,9 +4024,7 @@ function observedFindingWriterImports(
     [...sensitiveBasenames].some((basename) => raw.includes(basename)) ||
     [...sensitiveAliases].some((alias) => raw.includes(alias)) ||
     [...sensitiveSymbols].some((symbol) => raw.includes(symbol));
-  const mayContainUnknownRelativeLoader =
-    /\b(?:require|import)\s*\(/.test(raw) && /['"`]\.\.?\//.test(raw);
-  if (!namesSensitiveSurface && !mayContainUnknownRelativeLoader) return [];
+  if (!namesSensitiveSurface) return [];
   const source = ts.createSourceFile(
     path,
     raw,
@@ -2569,6 +4032,7 @@ function observedFindingWriterImports(
     true,
     findingWriterScriptKind(path),
   );
+  const loaderBindings = findingWriterModuleLoaderBindings(source);
   const imports: FindingWriterObservedImport[] = [];
   const addStatic = (specifier: string, symbols: readonly string[]): void => {
     const normalizedSpecifier = specifier.replace(/\.[cm]?[jt]sx?$/, '');
@@ -2587,25 +4051,6 @@ function observedFindingWriterImports(
       );
     }
     imports.push({ specifier, symbols: Object.freeze([...symbols]) });
-  };
-  const rejectUnknownLoader = (expression: ts.Expression | undefined, loader: string): void => {
-    if (expression === undefined) {
-      throw new Error(`Finding writer ${loader} has no module expression in ${path}`);
-    }
-    const fragments = expressionStringFragments(expression);
-    if (
-      fragments.some(
-        (fragment) =>
-          fragment.startsWith('.') ||
-          [...sensitiveBasenames].some((basename) => fragment.includes(basename)),
-      ) ||
-      [...sensitiveBasenames].some((basename) => raw.includes(basename)) ||
-      [...sensitiveSymbols].some((symbol) => raw.includes(symbol))
-    ) {
-      throw new Error(
-        `Finding writer dynamic relative/sensitive-module edge must use one literal module in ${path}`,
-      );
-    }
   };
   const visit = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node)) {
@@ -2646,28 +4091,18 @@ function observedFindingWriterImports(
       const expression = node.moduleReference.expression;
       if (expression !== undefined && ts.isStringLiteralLike(expression)) {
         addStatic(expression.text, ['*']);
-      } else {
-        rejectUnknownLoader(expression, 'import-equals edge');
       }
     } else if (ts.isCallExpression(node)) {
-      const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
-      const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require';
-      const isRequireResolve =
-        ts.isPropertyAccessExpression(node.expression) &&
-        ts.isIdentifier(node.expression.expression) &&
-        node.expression.expression.text === 'require' &&
-        node.expression.name.text === 'resolve';
-      if (isDynamicImport || isRequire || isRequireResolve) {
+      const loader = classifyFindingWriterModuleLoaderCall(node, loaderBindings);
+      if (loader !== null) {
         const expression = node.arguments[0];
         if (expression !== undefined && ts.isStringLiteralLike(expression)) {
           addStatic(
             expression.text,
-            isRequire && !isDynamicImport && !isRequireResolve
+            loader.kind === 'GLOBAL_REQUIRE' || loader.kind === 'CREATE_REQUIRE_BINDING'
               ? staticLoaderBindingSymbols(node)
               : ['*'],
           );
-        } else {
-          rejectUnknownLoader(expression, 'dynamic loader edge');
         }
       }
     }
@@ -2704,10 +4139,15 @@ function assertFindingWriterSensitiveReverseImports(
     authoritiesByTarget.set(authority.target, symbols);
   }
   const classifiedExportsByTarget = new Map<string, Set<string>>();
+  const expectedRuntimeReexports = new Map<
+    string,
+    FindingWriterSensitiveReadOnlyExport['reexport']
+  >();
   for (const authority of authorities) {
     const symbols = classifiedExportsByTarget.get(authority.target) ?? new Set<string>();
     symbols.add(authority.symbol);
     classifiedExportsByTarget.set(authority.target, symbols);
+    expectedRuntimeReexports.set(`${authority.target}\0${authority.symbol}`, undefined);
   }
   for (const readOnlyExport of FINDING_WRITER_SENSITIVE_READ_ONLY_EXPORTS) {
     const identity = `${readOnlyExport.target}\0${readOnlyExport.symbol}`;
@@ -2720,13 +4160,27 @@ function assertFindingWriterSensitiveReverseImports(
     const symbols = classifiedExportsByTarget.get(readOnlyExport.target) ?? new Set<string>();
     symbols.add(readOnlyExport.symbol);
     classifiedExportsByTarget.set(readOnlyExport.target, symbols);
+    expectedRuntimeReexports.set(
+      `${readOnlyExport.target}\0${readOnlyExport.symbol}`,
+      readOnlyExport.reexport,
+    );
   }
   for (const [target, classifiedSymbols] of classifiedExportsByTarget) {
+    const raw = snapshot.readText(target);
+    const runtimeExports = exportedFindingWriterRuntimeSymbols(raw, target);
     assertExactStringSet(
       `${target} runtime export classification`,
       classifiedSymbols,
-      exportedFindingWriterRuntimeSymbols(snapshot.readText(target), target),
+      runtimeExports.map((runtimeExport) => runtimeExport.symbol),
     );
+    for (const runtimeExport of runtimeExports) {
+      const expected = expectedRuntimeReexports.get(`${target}\0${runtimeExport.symbol}`);
+      if (JSON.stringify(runtimeExport.reexport) !== JSON.stringify(expected)) {
+        throw new Error(
+          `${target}#${runtimeExport.symbol} runtime re-export authority mismatch: expected=${JSON.stringify(expected)} actual=${JSON.stringify(runtimeExport.reexport)}`,
+        );
+      }
+    }
   }
   const sensitiveBasenames = new Set(
     [...classifiedExportsByTarget.keys()]
@@ -2924,7 +4378,9 @@ export function resolveFindingWriterGovernedPaths(
       );
     }
   }
-  return [...governed].sort(compareText);
+  const governedPaths = [...governed].sort(compareText);
+  assertFindingWriterDynamicModuleLoaderAuthority(snapshot, governedPaths);
+  return governedPaths;
 }
 
 function assertRegularFile(path: string): void {
@@ -3171,11 +4627,11 @@ export function writeFindingWriterProtocolManifest(
   const expected = renderFindingWriterProtocolManifest(repoRoot, ariaAuthorityPaths);
   if (existsSync(target) && readFileSync(target, 'utf8') === expected) return false;
 
-  const temporary = `${target}.${String(process.pid)}.${randomUUID()}.new`;
+  const stagedReplacement = `${target}.${String(process.pid)}.${randomUUID()}.new`;
   let descriptor: number | null = null;
   try {
     descriptor = openSync(
-      temporary,
+      stagedReplacement,
       fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW,
       0o644,
     );
@@ -3184,7 +4640,7 @@ export function writeFindingWriterProtocolManifest(
     fsyncSync(descriptor);
     closeSync(descriptor);
     descriptor = null;
-    renameSync(temporary, target);
+    renameSync(stagedReplacement, target);
     const directoryDescriptor = openSync(
       dirname(target),
       fsConstants.O_RDONLY | fsConstants.O_DIRECTORY,
@@ -3196,7 +4652,7 @@ export function writeFindingWriterProtocolManifest(
     }
   } finally {
     if (descriptor !== null) closeSync(descriptor);
-    if (existsSync(temporary)) unlinkSync(temporary);
+    if (existsSync(stagedReplacement)) unlinkSync(stagedReplacement);
   }
   return true;
 }

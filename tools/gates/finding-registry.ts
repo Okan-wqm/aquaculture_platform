@@ -97,6 +97,7 @@ import {
   sameStableParentIdentities,
   type StableRegularFileObservationV1,
 } from './lib/anchored-filesystem';
+import { errorWithCause } from './lib/error-cause';
 import { FINDING_REGISTRY_RELATIVE_PATH } from './lib/finding-authority-target-catalog';
 import {
   deriveRawFindingIdFloors,
@@ -140,6 +141,7 @@ import {
 import {
   HERMETIC_GIT_RUNTIME,
   runWithHermeticGitExecutionDeadline,
+  type HermeticGitReadQueryV1,
 } from './lib/hermetic-git-runtime';
 import { parseWorktreeList } from './lib/registered-common-dir-discovery';
 
@@ -202,14 +204,7 @@ function formatUnknownCliValue(value: unknown): string {
 function assertFindingWriterObservationNotAborted(signal: AbortSignal): void {
   if (!signal.aborted) return;
   if (signal.reason instanceof Error) throw signal.reason;
-  const error = new Error('Finding writer observation was aborted');
-  Object.defineProperty(error, 'cause', {
-    configurable: true,
-    enumerable: false,
-    value: signal.reason,
-    writable: true,
-  });
-  throw error;
+  throw errorWithCause('Finding writer observation was aborted', signal.reason);
 }
 
 function formatCsvValue(value: unknown): string {
@@ -457,127 +452,123 @@ async function assertCommittedRegularFiles(
   if (new Set(normalizedPaths).size !== normalizedPaths.length) {
     throw new Error('Finding writer governed file batch contains duplicate paths');
   }
-  let treeOutput: Buffer;
-  try {
-    treeOutput = (
-      await HERMETIC_GIT_RUNTIME.runBufferAsync(
-        worktreePath,
-        ['ls-tree', '-rz', headOid, '--', ...normalizedPaths],
-        [0],
-        undefined,
-        GIT_OUTPUT_MAX_BUFFER_BYTES,
-      )
-    ).stdout;
-  } catch {
-    assertFindingWriterObservationNotAborted(signal);
-    throw new Error(`Finding writer governed file batch cannot be read at HEAD: ${worktreePath}`);
-  }
+  return HERMETIC_GIT_RUNTIME.withRepository(worktreePath, async (session) => {
+    let treeOutput: Buffer;
+    try {
+      treeOutput = (
+        await session.readAsync({
+          kind: 'LIST_TREE',
+          revision: headOid,
+          projection: 'ENTRIES',
+          recursive: true,
+          paths: normalizedPaths,
+        })
+      ).stdout;
+    } catch {
+      assertFindingWriterObservationNotAborted(signal);
+      throw new Error(`Finding writer governed file batch cannot be read at HEAD: ${worktreePath}`);
+    }
 
-  const treeObjects = new Map<string, string>();
-  let treeOffset = 0;
-  while (treeOffset < treeOutput.length) {
-    const terminator = treeOutput.indexOf(0, treeOffset);
-    if (terminator === -1) {
-      throw new Error('Finding writer HEAD tree batch has a truncated record');
+    const treeObjects = new Map<string, string>();
+    let treeOffset = 0;
+    while (treeOffset < treeOutput.length) {
+      const terminator = treeOutput.indexOf(0, treeOffset);
+      if (terminator === -1) {
+        throw new Error('Finding writer HEAD tree batch has a truncated record');
+      }
+      const record = treeOutput.subarray(treeOffset, terminator);
+      const separator = record.indexOf(0x09);
+      const metadataBytes = separator === -1 ? Buffer.alloc(0) : record.subarray(0, separator);
+      if ([...metadataBytes].some((byte) => byte > 0x7f)) {
+        throw new Error('Finding writer HEAD tree batch metadata is not ASCII');
+      }
+      const metadata = metadataBytes.toString('ascii').split(' ');
+      const relativePath =
+        separator === -1
+          ? ''
+          : decodeFatalUtf8(record.subarray(separator + 1), 'Finding writer HEAD tree path');
+      const [mode, type, objectId] = metadata;
+      if (
+        (mode !== '100644' && mode !== '100755') ||
+        type !== 'blob' ||
+        objectId === undefined ||
+        !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(objectId) ||
+        !normalizedPaths.includes(relativePath) ||
+        treeObjects.has(relativePath)
+      ) {
+        throw new Error(
+          `Finding writer HEAD tree batch has an invalid record: ${record.toString('hex')}`,
+        );
+      }
+      treeObjects.set(relativePath, objectId);
+      treeOffset = terminator + 1;
     }
-    const record = treeOutput.subarray(treeOffset, terminator);
-    const separator = record.indexOf(0x09);
-    const metadataBytes = separator === -1 ? Buffer.alloc(0) : record.subarray(0, separator);
-    if ([...metadataBytes].some((byte) => byte > 0x7f)) {
-      throw new Error('Finding writer HEAD tree batch metadata is not ASCII');
+    if (treeObjects.size !== normalizedPaths.length) {
+      throw new Error(`Finding writer governed file batch is incomplete at HEAD: ${worktreePath}`);
     }
-    const metadata = metadataBytes.toString('ascii').split(' ');
-    const relativePath =
-      separator === -1
-        ? ''
-        : decodeFatalUtf8(record.subarray(separator + 1), 'Finding writer HEAD tree path');
-    const [mode, type, objectId] = metadata;
-    if (
-      (mode !== '100644' && mode !== '100755') ||
-      type !== 'blob' ||
-      objectId === undefined ||
-      !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(objectId) ||
-      !normalizedPaths.includes(relativePath) ||
-      treeObjects.has(relativePath)
-    ) {
-      throw new Error(
-        `Finding writer HEAD tree batch has an invalid record: ${record.toString('hex')}`,
-      );
-    }
-    treeObjects.set(relativePath, objectId);
-    treeOffset = terminator + 1;
-  }
-  if (treeObjects.size !== normalizedPaths.length) {
-    throw new Error(`Finding writer governed file batch is incomplete at HEAD: ${worktreePath}`);
-  }
 
-  const objectIds = normalizedPaths.map((path) => {
-    const objectId = treeObjects.get(path);
-    if (objectId === undefined) {
-      throw new Error(`Finding writer governed file is absent from the HEAD tree: ${path}`);
+    const objectIds = normalizedPaths.map((path) => {
+      const objectId = treeObjects.get(path);
+      if (objectId === undefined) {
+        throw new Error(`Finding writer governed file is absent from the HEAD tree: ${path}`);
+      }
+      return objectId;
+    });
+    let batchOutput: Buffer;
+    try {
+      batchOutput = (await session.readAsync({ kind: 'READ_BLOB_BATCH', oids: objectIds })).stdout;
+    } catch {
+      assertFindingWriterObservationNotAborted(signal);
+      throw new Error(`Finding writer governed blobs cannot be read at HEAD: ${worktreePath}`);
     }
-    return objectId;
+
+    const effectiveFiles = new Map<string, Buffer>();
+    let batchOffset = 0;
+    for (let index = 0; index < normalizedPaths.length; index += 1) {
+      const relativePath = normalizedPaths[index];
+      const expectedObjectId = objectIds[index];
+      if (relativePath === undefined || expectedObjectId === undefined) {
+        throw new Error('Finding writer governed blob batch lost its requested order');
+      }
+      const headerEnd = batchOutput.indexOf(10, batchOffset);
+      if (headerEnd === -1) {
+        throw new Error('Finding writer governed blob batch has a truncated header');
+      }
+      const header = batchOutput.subarray(batchOffset, headerEnd).toString('ascii');
+      const [objectId, type, rawSize, ...unexpected] = header.split(' ');
+      const size = Number.parseInt(rawSize ?? '', 10);
+      if (
+        objectId !== expectedObjectId ||
+        type !== 'blob' ||
+        unexpected.length > 0 ||
+        !/^(?:0|[1-9]\d*)$/.test(rawSize ?? '') ||
+        !Number.isSafeInteger(size) ||
+        size < 0
+      ) {
+        throw new Error(`Finding writer governed blob batch has an invalid header: ${header}`);
+      }
+      const contentStart = headerEnd + 1;
+      const contentEnd = contentStart + size;
+      if (contentEnd >= batchOutput.length || batchOutput[contentEnd] !== 10) {
+        throw new Error(
+          `Finding writer governed blob batch has truncated content: ${relativePath}`,
+        );
+      }
+      const committed = batchOutput.subarray(contentStart, contentEnd);
+      const effective = repositorySnapshot.readFile(relativePath);
+      if (!effective.equals(committed)) {
+        throw new Error(
+          `Finding writer governed file differs from committed HEAD: ${resolve(worktreePath, relativePath)}`,
+        );
+      }
+      effectiveFiles.set(relativePath, effective);
+      batchOffset = contentEnd + 1;
+    }
+    if (batchOffset !== batchOutput.length) {
+      throw new Error('Finding writer governed blob batch contains trailing records');
+    }
+    return effectiveFiles;
   });
-  let batchOutput: Buffer;
-  try {
-    batchOutput = (
-      await HERMETIC_GIT_RUNTIME.runBufferAsync(
-        worktreePath,
-        ['cat-file', '--batch'],
-        [0],
-        `${objectIds.join('\n')}\n`,
-        GIT_OUTPUT_MAX_BUFFER_BYTES,
-      )
-    ).stdout;
-  } catch {
-    assertFindingWriterObservationNotAborted(signal);
-    throw new Error(`Finding writer governed blobs cannot be read at HEAD: ${worktreePath}`);
-  }
-
-  const effectiveFiles = new Map<string, Buffer>();
-  let batchOffset = 0;
-  for (let index = 0; index < normalizedPaths.length; index += 1) {
-    const relativePath = normalizedPaths[index];
-    const expectedObjectId = objectIds[index];
-    if (relativePath === undefined || expectedObjectId === undefined) {
-      throw new Error('Finding writer governed blob batch lost its requested order');
-    }
-    const headerEnd = batchOutput.indexOf(10, batchOffset);
-    if (headerEnd === -1) {
-      throw new Error('Finding writer governed blob batch has a truncated header');
-    }
-    const header = batchOutput.subarray(batchOffset, headerEnd).toString('ascii');
-    const [objectId, type, rawSize, ...unexpected] = header.split(' ');
-    const size = Number.parseInt(rawSize ?? '', 10);
-    if (
-      objectId !== expectedObjectId ||
-      type !== 'blob' ||
-      unexpected.length > 0 ||
-      !/^(?:0|[1-9]\d*)$/.test(rawSize ?? '') ||
-      !Number.isSafeInteger(size) ||
-      size < 0
-    ) {
-      throw new Error(`Finding writer governed blob batch has an invalid header: ${header}`);
-    }
-    const contentStart = headerEnd + 1;
-    const contentEnd = contentStart + size;
-    if (contentEnd >= batchOutput.length || batchOutput[contentEnd] !== 10) {
-      throw new Error(`Finding writer governed blob batch has truncated content: ${relativePath}`);
-    }
-    const committed = batchOutput.subarray(contentStart, contentEnd);
-    const effective = repositorySnapshot.readFile(relativePath);
-    if (!effective.equals(committed)) {
-      throw new Error(
-        `Finding writer governed file differs from committed HEAD: ${resolve(worktreePath, relativePath)}`,
-      );
-    }
-    effectiveFiles.set(relativePath, effective);
-    batchOffset = contentEnd + 1;
-  }
-  if (batchOffset !== batchOutput.length) {
-    throw new Error('Finding writer governed blob batch contains trailing records');
-  }
-  return effectiveFiles;
 }
 
 export async function assertActiveWorktreeFindingWritersFenced(
@@ -978,24 +969,20 @@ export async function assertActiveWorktreeFindingWritersFenced(
   return snapshot;
 }
 
-function gitOutput(repoRoot: string, args: readonly string[]): string {
-  return HERMETIC_GIT_RUNTIME.runText(
-    repoRoot,
-    args,
-    [0],
-    GIT_OUTPUT_MAX_BUFFER_BYTES,
-  ).stdout.trim();
+function gitOutput(repoRoot: string, query: HermeticGitReadQueryV1): string {
+  return HERMETIC_GIT_RUNTIME.withRepositorySync(repoRoot, (session) =>
+    session.readText(query).stdout.trim(),
+  );
 }
 
 export function resolveGitFindingAllocationAuthority(
   repoRoot: string,
   registryRelativePath = REGISTRY_RELATIVE_PATH,
 ): FindingAllocationAuthority {
-  const commonDir = gitOutput(repoRoot, [
-    'rev-parse',
-    '--path-format=absolute',
-    '--git-common-dir',
-  ]);
+  const commonDir = gitOutput(repoRoot, {
+    kind: 'REPOSITORY_COORDINATE',
+    coordinate: 'COMMON_DIR',
+  });
   if (!commonDir) {
     throw new Error(`Git common-dir resolution returned an empty path for ${repoRoot}`);
   }
@@ -1007,7 +994,10 @@ export function resolveGitFindingAllocationAuthority(
     );
   const activeWorktreeTopology = (): FindingWriterWorktreeTopologyV1 =>
     topologyFromProtocol(
-      HERMETIC_GIT_RUNTIME.runBuffer(repoRoot, ['worktree', 'list', '--porcelain', '-z']).stdout,
+      HERMETIC_GIT_RUNTIME.withRepositorySync(
+        repoRoot,
+        (session) => session.read({ kind: 'LIST_WORKTREES' }).stdout,
+      ),
     );
   const activeWorktreeTopologyAsync = async (
     signal: AbortSignal,
@@ -1017,14 +1007,10 @@ export function resolveGitFindingAllocationAuthority(
       throw new Error('Finding writer worktree topology observation was aborted');
     }
     const topology = topologyFromProtocol(
-      (
-        await HERMETIC_GIT_RUNTIME.runBufferAsync(repoRoot, [
-          'worktree',
-          'list',
-          '--porcelain',
-          '-z',
-        ])
-      ).stdout,
+      await HERMETIC_GIT_RUNTIME.withRepository(
+        repoRoot,
+        async (session) => (await session.readAsync({ kind: 'LIST_WORKTREES' })).stdout,
+      ),
     );
     if (signal.aborted) {
       if (signal.reason instanceof Error) throw signal.reason;
@@ -1115,7 +1101,7 @@ function compileFindingValidator(schemaRaw: string, schemaAuthority: string): Va
   try {
     schema = JSON.parse(schemaRaw) as unknown;
   } catch (error) {
-    throw new Error(`Finding registry schema is not JSON: ${schemaAuthority}`, { cause: error });
+    throw errorWithCause(`Finding registry schema is not JSON: ${schemaAuthority}`, error);
   }
   if (!isJsonRecord(schema)) {
     throw new Error(`Finding registry schema is not an object: ${schemaAuthority}`);
@@ -1312,43 +1298,43 @@ interface CommittedMutationCommand {
 }
 
 function committedMutationCommand(commandId: string): CommittedMutationCommand | null {
-  const matchingCommits = gitOutput(REPO_ROOT, [
-    'log',
-    'HEAD',
-    '--fixed-strings',
-    '--grep',
-    `Automation-Command-ID: ${commandId}`,
-    '--format=%H',
-  ])
-    .split(/\r?\n/)
-    .filter(Boolean);
-  if (matchingCommits.length === 0) return null;
-  if (matchingCommits.length !== 1) {
-    throw new Error(
-      `Automation command ${commandId} appears in ${matchingCommits.length} protected-main commits`,
-    );
-  }
-  const commitSha = matchingCommits[0] as string;
-  const message = gitOutput(REPO_ROOT, ['show', '-s', '--format=%B', commitSha]);
-  const trailerValue = (name: string): string => {
-    const matches = message
+  return HERMETIC_GIT_RUNTIME.withRepositorySync(REPO_ROOT, (session) => {
+    const matchingCommits = session
+      .readText({
+        kind: 'FIND_AUTOMATION_COMMAND',
+        commandId,
+      })
+      .stdout.trim()
       .split(/\r?\n/)
-      .filter((line) => line.startsWith(`${name}: `))
-      .map((line) => line.slice(name.length + 2));
-    if (matches.length !== 1 || !matches[0]) {
-      throw new Error(`Automation command commit ${commitSha} has an invalid ${name} trailer`);
+      .filter(Boolean);
+    if (matchingCommits.length === 0) return null;
+    if (matchingCommits.length !== 1) {
+      throw new Error(
+        `Automation command ${commandId} appears in ${matchingCommits.length} protected-main commits`,
+      );
     }
-    return matches[0];
-  };
-  const operation = trailerValue('Automation-Operation');
-  if (operation !== 'add' && operation !== 'close' && operation !== 'sweep') {
-    throw new Error(`Automation command commit ${commitSha} has an invalid operation`);
-  }
-  const inputSha256 = trailerValue('Automation-Input-SHA256');
-  if (!/^[0-9a-f]{64}$/.test(inputSha256)) {
-    throw new Error(`Automation command commit ${commitSha} has an invalid input digest`);
-  }
-  return { commitSha, operation, inputSha256 };
+    const commitSha = matchingCommits[0] as string;
+    const message = session.readText({ kind: 'SHOW_COMMIT_MESSAGE', oid: commitSha }).stdout.trim();
+    const trailerValue = (name: string): string => {
+      const matches = message
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith(`${name}: `))
+        .map((line) => line.slice(name.length + 2));
+      if (matches.length !== 1 || !matches[0]) {
+        throw new Error(`Automation command commit ${commitSha} has an invalid ${name} trailer`);
+      }
+      return matches[0];
+    };
+    const operation = trailerValue('Automation-Operation');
+    if (operation !== 'add' && operation !== 'close' && operation !== 'sweep') {
+      throw new Error(`Automation command commit ${commitSha} has an invalid operation`);
+    }
+    const inputSha256 = trailerValue('Automation-Input-SHA256');
+    if (!/^[0-9a-f]{64}$/.test(inputSha256)) {
+      throw new Error(`Automation command commit ${commitSha} has an invalid input digest`);
+    }
+    return { commitSha, operation, inputSha256 };
+  });
 }
 
 function parseRegistryRaw(
@@ -1370,9 +1356,10 @@ function parseRegistryRaw(
     try {
       value = JSON.parse(line) as unknown;
     } catch (error) {
-      throw new Error(`Finding registry JSON is invalid: ${registryPath}:${lineNumber}`, {
-        cause: error,
-      });
+      throw errorWithCause(
+        `Finding registry JSON is invalid: ${registryPath}:${lineNumber}`,
+        error,
+      );
     }
     if (!validate(value)) {
       const diagnostics = (validate.errors ?? [])
@@ -2114,7 +2101,7 @@ function cmdClose(
   // origin/main (stale fetch, shallow clone) refuses with instructions
   // rather than certifying blind.
   // tier-1: runtime guard commitReachableFrom (git-reachability.ts) refuses branch-local closing SHAs at the only write path; CI invariant finding-registry-integrity.spec.ts enforces the stored chain
-  const reachability = commitReachableFrom(REPO_ROOT, shortSha, 'origin/main');
+  const reachability = commitReachableFrom(REPO_ROOT, shortSha, 'refs/remotes/origin/main');
   if (!reachability.ok) {
     // Preserve the CLI's error channel while refusing non-main evidence.
     process.stderr.write(`close refused: ${reachability.reason}\n`);

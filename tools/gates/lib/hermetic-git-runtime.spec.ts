@@ -12,6 +12,7 @@ import {
   mkdtempSync,
   openSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -25,20 +26,32 @@ import { afterEach, describe, it } from 'node:test';
 import { defineHermeticExecutableExecutionPolicyV1 } from './anchored-filesystem';
 import {
   computeCanonicalGitWorktreeEvidence,
-  createHermeticGitRuntime,
   HERMETIC_GIT_EXECUTION_MODES_V1,
   HERMETIC_GIT_EXECUTION_POLICY_V1,
   HERMETIC_GIT_RUNTIME,
   HermeticGitExecutionTimeoutError,
   HermeticGitSynchronousBudgetError,
   InventoryInspectionError,
+  REPOSITORY_CHILD_FD_COORDINATES_V1,
   runWithHermeticGitExecutionBudget,
   runWithHermeticGitExecutionDeadline,
-  testOnlyCloseHermeticGitDescriptors,
-  testOnlyFingerprintHermeticGitRegularFile,
 } from './hermetic-git-runtime';
+import {
+  testOnlyCloseHermeticGitDescriptors,
+  testOnlyCreateHermeticGitRuntime,
+  testOnlyFingerprintHermeticGitRegularFile,
+} from './hermetic-git-runtime.fixture';
 
 const fixtureRoots: string[] = [];
+
+function errorTreeContains(error: unknown, pattern: RegExp): boolean {
+  if (!(error instanceof Error)) return false;
+  if (pattern.test(error.message)) return true;
+  return (
+    error instanceof AggregateError &&
+    error.errors.some((nested) => errorTreeContains(nested, pattern))
+  );
+}
 
 async function openFifoWriterAfterReader(path: string): Promise<number> {
   const deadline = Date.now() + 2_000;
@@ -175,7 +188,7 @@ void describe('HermeticGitRuntime', () => {
       timeoutSignal: 'SIGKILL',
     });
     assert.throws(
-      () => createHermeticGitRuntime(relaxedPolicy),
+      () => testOnlyCreateHermeticGitRuntime(relaxedPolicy),
       /cannot relax the production command deadline/,
     );
 
@@ -188,7 +201,7 @@ void describe('HermeticGitRuntime', () => {
       },
       timeoutSignal: 'SIGKILL' as const,
     });
-    const accessorRuntime = createHermeticGitRuntime(accessorPolicy);
+    const accessorRuntime = testOnlyCreateHermeticGitRuntime(accessorPolicy);
     assert.equal(deadlineReads, 1);
     assert.equal(accessorRuntime.executionPolicy.commandDeadlineMs, 250);
     assert.equal(deadlineReads, 1);
@@ -208,7 +221,7 @@ void describe('HermeticGitRuntime', () => {
       commandDeadlineMs: 250,
       timeoutSignal: 'SIGKILL',
     });
-    const runtime = createHermeticGitRuntime(executionPolicy);
+    const runtime = testOnlyCreateHermeticGitRuntime(executionPolicy);
     const blockedCommand = ['hash-object', '--', 'blocked-input'] as const;
 
     assert.throws(
@@ -288,7 +301,7 @@ void describe('HermeticGitRuntime', () => {
 
   void it('live-aborts a running FIFO child from every inherited signal and reaps it', async () => {
     const root = fixture();
-    const runtime = createHermeticGitRuntime(
+    const runtime = testOnlyCreateHermeticGitRuntime(
       defineHermeticExecutableExecutionPolicyV1({
         schemaVersion: 1,
         commandDeadlineMs: 5_000,
@@ -380,7 +393,7 @@ void describe('HermeticGitRuntime', () => {
 
     const executionPolicyFifo = join(root, 'execution-policy-deadline');
     execFileSync('/usr/bin/mkfifo', [executionPolicyFifo]);
-    const shortPolicyRuntime = createHermeticGitRuntime(
+    const shortPolicyRuntime = testOnlyCreateHermeticGitRuntime(
       defineHermeticExecutableExecutionPolicyV1({
         schemaVersion: 1,
         commandDeadlineMs: 75,
@@ -416,9 +429,217 @@ void describe('HermeticGitRuntime', () => {
     runtime.close();
   });
 
+  void it('seals detached continuations before they can spawn a post-settlement child', async () => {
+    const root = fixture();
+    const fifoName = 'detached-after-settlement';
+    const fifoPath = join(root, fifoName);
+    execFileSync('/usr/bin/mkfifo', [fifoPath]);
+    const runtime = testOnlyCreateHermeticGitRuntime(
+      defineHermeticExecutableExecutionPolicyV1({
+        schemaVersion: 1,
+        commandDeadlineMs: 2_000,
+        timeoutSignal: 'SIGKILL',
+      }),
+    );
+    let resolveDetached!: (outcome: unknown) => void;
+    const detachedOutcome = new Promise<unknown>((resolve) => {
+      resolveDetached = resolve;
+    });
+    const result = await runWithHermeticGitExecutionDeadline(
+      1_000,
+      new Error('unexpected detached deadline'),
+      () => {
+        setImmediate(() => {
+          void runtime.runBufferAsync(root, ['hash-object', '--', fifoName]).then(
+            () => resolveDetached(new Error('detached child unexpectedly completed')),
+            (error: unknown) => resolveDetached(error),
+          );
+        });
+        return 'settled';
+      },
+    );
+    assert.equal(result, 'settled');
+    assert.match(String(await detachedOutcome), /scope is already settled/);
+    assert.throws(
+      () => openSync(fifoPath, constants.O_WRONLY | constants.O_NONBLOCK),
+      (error: unknown) => error instanceof Error && 'code' in error && error.code === 'ENXIO',
+    );
+    runtime.close();
+  });
+
+  void it('kills and reaps every unawaited child owned by an expired scope', async () => {
+    const root = fixture();
+    const fifoNames = ['unawaited-first', 'unawaited-second'] as const;
+    for (const fifoName of fifoNames) execFileSync('/usr/bin/mkfifo', [join(root, fifoName)]);
+    const runtime = testOnlyCreateHermeticGitRuntime(
+      defineHermeticExecutableExecutionPolicyV1({
+        schemaVersion: 1,
+        commandDeadlineMs: 5_000,
+        timeoutSignal: 'SIGKILL',
+      }),
+    );
+    const ownedChildren: Promise<unknown>[] = [];
+    const deadlineFailure = new Error('multi-child scope deadline');
+    const execution = runWithHermeticGitExecutionDeadline(1_000, deadlineFailure, () => {
+      for (const fifoName of fifoNames) {
+        ownedChildren.push(
+          runtime
+            .runBufferAsync(root, ['hash-object', '--', fifoName])
+            .catch((error: unknown) => error),
+        );
+      }
+      return new Promise<never>(() => undefined);
+    });
+    const rejection = assert.rejects(execution, (error: unknown) => error === deadlineFailure);
+    const writers = await Promise.all(
+      fifoNames.map((fifoName) => openFifoWriterAfterReader(join(root, fifoName))),
+    );
+    await rejection;
+    await Promise.allSettled(ownedChildren);
+    for (const writer of writers) closeSync(writer);
+    for (const fifoName of fifoNames) {
+      assert.throws(
+        () => openSync(join(root, fifoName), constants.O_WRONLY | constants.O_NONBLOCK),
+        (error: unknown) => error instanceof Error && 'code' in error && error.code === 'ENXIO',
+      );
+    }
+    runtime.close();
+  });
+
+  void it('drains on real close and terminates the complete owned process group', async () => {
+    const root = fixture();
+    const runtime = testOnlyCreateHermeticGitRuntime(
+      defineHermeticExecutableExecutionPolicyV1({
+        schemaVersion: 1,
+        commandDeadlineMs: 5_000,
+        timeoutSignal: 'SIGKILL',
+      }),
+    );
+    let closeBoundChild: Promise<unknown> | undefined;
+    const closeStartedAt = performance.now();
+    const settled = await runWithHermeticGitExecutionDeadline(
+      2_000,
+      new Error('close-bound child exceeded its coordinator deadline'),
+      () => {
+        closeBoundChild = runtime
+          .runTextAsync(root, ['-c', 'alias.hold=!/bin/sh -c "sleep 0.4 &"', 'hold'])
+          .catch((error: unknown) => error);
+        return 'settled';
+      },
+    );
+    const closeElapsedMs = performance.now() - closeStartedAt;
+    assert.equal(settled, 'settled');
+    assert.ok(
+      closeElapsedMs >= 300,
+      `coordinator settled before close: ${String(closeElapsedMs)}ms`,
+    );
+    await closeBoundChild;
+
+    const detachedPidPath = join(root, 'detached-descendant.pid');
+    const detachedSpawnerPath = join(root, 'spawn-detached-descendant.sh');
+    writeFileSync(
+      detachedSpawnerPath,
+      `#!/bin/sh\nsleep 30 </dev/null >/dev/null 2>&1 &\nprintf '%s\\n' "$!" > "$1"\n`,
+      'utf8',
+    );
+    chmodSync(detachedSpawnerPath, 0o700);
+    await runtime.runTextAsync(root, [
+      '-c',
+      `alias.spawn-detached=!${detachedSpawnerPath} ${detachedPidPath}`,
+      'spawn-detached',
+    ]);
+    const detachedPid = Number.parseInt(readFileSync(detachedPidPath, 'utf8').trim(), 10);
+    assert.ok(Number.isSafeInteger(detachedPid) && detachedPid > 1);
+    let descendantCleanupError: Error | undefined;
+    try {
+      const descendantDeadline = performance.now() + 1_000;
+      for (;;) {
+        try {
+          process.kill(detachedPid, 0);
+        } catch (error) {
+          if (error instanceof Error && 'code' in error && error.code === 'ESRCH') break;
+          throw error;
+        }
+        if (performance.now() >= descendantDeadline) {
+          assert.fail(`successful Git child left process-group descendant ${String(detachedPid)}`);
+        }
+        await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
+      }
+    } finally {
+      try {
+        process.kill(detachedPid, 'SIGKILL');
+      } catch (error) {
+        if (!(error instanceof Error) || !('code' in error) || error.code !== 'ESRCH') {
+          descendantCleanupError =
+            error instanceof Error
+              ? error
+              : new Error('Detached Git descendant cleanup failed', { cause: error });
+        }
+      }
+    }
+    if (descendantCleanupError !== undefined) throw descendantCleanupError;
+
+    const groupDeadline = new Error('owned process-group deadline');
+    const groupStartedAt = performance.now();
+    await assert.rejects(
+      runWithHermeticGitExecutionDeadline(300, groupDeadline, () =>
+        runtime.runTextAsync(root, ['-c', 'alias.hold=!/bin/sh -c "sleep 30 &"', 'hold']),
+      ),
+      (error: unknown) => error === groupDeadline,
+    );
+    assert.ok(performance.now() - groupStartedAt < 1_500);
+    runtime.close();
+  });
+
+  void it('lets an outer scope continue only after its shorter inner scope has reaped', async () => {
+    const root = fixture();
+    const fifoName = 'inner-deadline-owner';
+    const fifoPath = join(root, fifoName);
+    execFileSync('/usr/bin/mkfifo', [fifoPath]);
+    const runtime = testOnlyCreateHermeticGitRuntime(
+      defineHermeticExecutableExecutionPolicyV1({
+        schemaVersion: 1,
+        commandDeadlineMs: 5_000,
+        timeoutSignal: 'SIGKILL',
+      }),
+    );
+    const outerFailure = new Error('unexpected outer deadline');
+    const innerFailure = new Error('expected inner deadline');
+    let resolveDetachedInner!: (outcome: unknown) => void;
+    const detachedInnerOutcome = new Promise<unknown>((resolve) => {
+      resolveDetachedInner = resolve;
+    });
+    const head = await runWithHermeticGitExecutionDeadline(3_000, outerFailure, async () => {
+      const innerExecution = runWithHermeticGitExecutionDeadline(500, innerFailure, () => {
+        setTimeout(() => {
+          void runtime.runTextAsync(root, ['rev-parse', '--verify', 'HEAD']).then(
+            () => resolveDetachedInner(new Error('sealed inner continuation unexpectedly ran')),
+            (error: unknown) => resolveDetachedInner(error),
+          );
+        }, 700);
+        return runtime.runBufferAsync(root, ['hash-object', '--', fifoName]);
+      });
+      const innerRejection = assert.rejects(
+        innerExecution,
+        (error: unknown) => error === innerFailure,
+      );
+      const writer = await openFifoWriterAfterReader(fifoPath);
+      await innerRejection;
+      closeSync(writer);
+      assert.throws(
+        () => openSync(fifoPath, constants.O_WRONLY | constants.O_NONBLOCK),
+        (error: unknown) => error instanceof Error && 'code' in error && error.code === 'ENXIO',
+      );
+      assert.equal(await detachedInnerOutcome, innerFailure);
+      return (await runtime.runTextAsync(root, ['rev-parse', '--verify', 'HEAD'])).stdout.trim();
+    });
+    assert.equal(head, git(root, 'rev-parse', '--verify', 'HEAD'));
+    runtime.close();
+  });
+
   void it('shares one async buffered kernel for stdin, limits, and live execution', async () => {
     const root = fixture();
-    const runtime = createHermeticGitRuntime(
+    const runtime = testOnlyCreateHermeticGitRuntime(
       defineHermeticExecutableExecutionPolicyV1({
         schemaVersion: 1,
         commandDeadlineMs: 2_000,
@@ -547,6 +768,337 @@ void describe('HermeticGitRuntime', () => {
     );
     assert.equal(readFileSync(join(root, 'visible.txt'), 'utf8'), 'must remain visible\n');
     assert.throws(() => readFileSync(invocationSentinel), /ENOENT/);
+  });
+
+  void it('exposes one pathless repository session and derives every child FD coordinate', async () => {
+    const root = fixture();
+    assert.equal('runText' in HERMETIC_GIT_RUNTIME, false);
+    assert.equal('parseConfig' in HERMETIC_GIT_RUNTIME, false);
+    assert.deepEqual(REPOSITORY_CHILD_FD_COORDINATES_V1, [
+      { role: 'WORKTREE', childFd: 3, environmentKey: 'GIT_WORK_TREE', useAsCwd: true },
+      { role: 'GIT_DIR', childFd: 4, environmentKey: 'GIT_DIR', useAsCwd: false },
+      { role: 'COMMON_DIR', childFd: 5, environmentKey: 'GIT_COMMON_DIR', useAsCwd: false },
+    ]);
+    const coordinates = await HERMETIC_GIT_RUNTIME.withRepository(root, async (session) => ({
+      commonDir: (
+        await session.readTextAsync({
+          kind: 'REPOSITORY_COORDINATE',
+          coordinate: 'COMMON_DIR',
+        })
+      ).stdout.trim(),
+      gitDir: (
+        await session.readTextAsync({ kind: 'REPOSITORY_COORDINATE', coordinate: 'GIT_DIR' })
+      ).stdout.trim(),
+      sessionKeys: Object.keys(session).sort(),
+      worktree: (
+        await session.readTextAsync({ kind: 'REPOSITORY_COORDINATE', coordinate: 'TOP_LEVEL' })
+      ).stdout.trim(),
+    }));
+    assert.deepEqual(coordinates.sessionKeys, ['readAsync', 'readTextAsync']);
+    assert.equal(realpathSync(coordinates.worktree), root);
+    assert.equal(realpathSync(coordinates.gitDir), join(root, '.git'));
+    assert.equal(realpathSync(coordinates.commonDir), join(root, '.git'));
+    const sync = HERMETIC_GIT_RUNTIME.withRepositorySync(root, (session) => ({
+      head: session
+        .readText({ kind: 'RESOLVE_OBJECT', revision: 'HEAD', peel: 'COMMIT' })
+        .stdout.trim(),
+      sessionKeys: Object.keys(session).sort(),
+    }));
+    assert.equal(sync.head, git(root, 'rev-parse', '--verify', 'HEAD'));
+    assert.deepEqual(sync.sessionKeys, ['read', 'readText']);
+
+    const escaped = await HERMETIC_GIT_RUNTIME.withRepository(root, (session) => session);
+    await assert.rejects(
+      escaped.readTextAsync({ kind: 'RESOLVE_OBJECT', revision: 'HEAD', peel: 'COMMIT' }),
+      /session is already settled|session escaped its descriptor authority/,
+    );
+    assert.throws(
+      () =>
+        Reflect.apply(HERMETIC_GIT_RUNTIME.withRepositorySync, HERMETIC_GIT_RUNTIME, [
+          root,
+          () => Promise.resolve('escaped'),
+        ]),
+      /synchronous repository action returned a Promise\/thenable/,
+    );
+  });
+
+  void it('compiles every public path field as one literal top-level pathspec', async () => {
+    const root = fixture();
+    const magicPath = ':(glob)magic*.txt';
+    const globPath = 'literal[ab]?*.txt';
+    const decoyPath = 'magic-decoy.txt';
+    for (const path of [magicPath, globPath, decoyPath]) {
+      writeFileSync(join(root, path), `base ${path}\n`, 'utf8');
+    }
+    git(root, 'add', '--all');
+    git(
+      root,
+      '-c',
+      'user.name=Hermetic Fixture',
+      '-c',
+      'user.email=fixture@example.invalid',
+      'commit',
+      '--quiet',
+      '-m',
+      'literal pathspec fixture',
+    );
+    const revision = git(root, 'rev-parse', 'HEAD');
+    for (const path of [magicPath, globPath, decoyPath]) {
+      writeFileSync(join(root, path), `changed ${path}\n`, 'utf8');
+    }
+
+    const selected = await HERMETIC_GIT_RUNTIME.withRepository(root, async (session) => {
+      const paths = [magicPath, globPath] as const;
+      const [index, tree, diff] = await Promise.all([
+        session.readAsync({ kind: 'LIST_INDEX_PATHS', selection: 'TRACKED', roots: paths }),
+        session.readAsync({
+          kind: 'LIST_TREE',
+          revision,
+          projection: 'PATHS',
+          recursive: true,
+          paths,
+        }),
+        session.readAsync({
+          kind: 'DIFF',
+          projection: 'NAME_ONLY',
+          base: revision,
+          paths,
+        }),
+      ]);
+      const decode = (raw: Buffer): string[] =>
+        raw
+          .toString('utf8')
+          .split('\0')
+          .filter((path) => path.length > 0)
+          .sort();
+      return {
+        diff: decode(diff.stdout),
+        index: decode(index.stdout),
+        tree: decode(tree.stdout),
+      };
+    });
+    const expected = [globPath, magicPath].sort();
+    assert.deepEqual(selected.index, expected);
+    assert.deepEqual(selected.tree, expected);
+    assert.deepEqual(selected.diff, expected);
+  });
+
+  void it('seals, interrupts, and reaps an unawaited async-session operation', async () => {
+    const root = fixture();
+    const refPath = join(root, '.git', 'refs', 'heads', 'main');
+
+    const operationOutcomes: Promise<unknown>[] = [];
+    const deadlineFailure = new Error('unawaited repository session deadline');
+    const execution = runWithHermeticGitExecutionDeadline(500, deadlineFailure, () =>
+      HERMETIC_GIT_RUNTIME.withRepository(root, (session) => {
+        renameSync(refPath, `${refPath}.original`);
+        execFileSync('/usr/bin/mkfifo', [refPath]);
+        operationOutcomes.push(
+          session
+            .readTextAsync({ kind: 'RESOLVE_OBJECT', revision: 'HEAD', peel: 'COMMIT' })
+            .catch((error: unknown) => error),
+        );
+        return 'action-settled';
+      }),
+    );
+    const rejection = assert.rejects(execution, (error: unknown) => error === deadlineFailure);
+    const writer = await openFifoWriterAfterReader(refPath);
+    await rejection;
+    await Promise.all(operationOutcomes);
+    closeSync(writer);
+    assert.throws(
+      () => openSync(refPath, constants.O_WRONLY | constants.O_NONBLOCK),
+      (error: unknown) => error instanceof Error && 'code' in error && error.code === 'ENXIO',
+    );
+  });
+
+  void it('preserves simultaneous async-session action and operation failures', async () => {
+    const root = fixture();
+    const actionFailure = new Error('repository action sentinel');
+    await assert.rejects(
+      HERMETIC_GIT_RUNTIME.withRepository(root, (session) => {
+        void session.readTextAsync({ kind: 'RAW', args: ['status'] } as never);
+        throw actionFailure;
+      }),
+      (error: unknown) =>
+        error instanceof AggregateError &&
+        errorTreeContains(error, /repository action sentinel/) &&
+        errorTreeContains(error, /query kind is not governed/),
+    );
+  });
+
+  void it('rejects raw command-shaped queries and retains config topology across every read', async () => {
+    const rawRoot = fixture();
+    await assert.rejects(
+      HERMETIC_GIT_RUNTIME.withRepository(rawRoot, (session) =>
+        session.readTextAsync({ kind: 'RAW', args: ['status'] } as never),
+      ),
+      /query kind is not governed/,
+    );
+
+    const changedRoot = fixture();
+    const configPath = join(changedRoot, '.git', 'config');
+    await assert.rejects(
+      HERMETIC_GIT_RUNTIME.withRepository(changedRoot, async (session) => {
+        await session.readTextAsync({
+          kind: 'RESOLVE_OBJECT',
+          revision: 'HEAD',
+          peel: 'COMMIT',
+        });
+        writeFileSync(configPath, `${readFileSync(configPath, 'utf8')}# changed\n`, 'utf8');
+        await session.readTextAsync({
+          kind: 'RESOLVE_OBJECT',
+          revision: 'HEAD',
+          peel: 'COMMIT',
+        });
+      }),
+      (error: unknown) => errorTreeContains(error, /config|generation|changed/i),
+    );
+
+    const finalRoot = fixture();
+    const finalConfigPath = join(finalRoot, '.git', 'config');
+    await assert.rejects(
+      HERMETIC_GIT_RUNTIME.withRepository(finalRoot, async (session) => {
+        await session.readTextAsync({
+          kind: 'RESOLVE_OBJECT',
+          revision: 'HEAD',
+          peel: 'COMMIT',
+        });
+        writeFileSync(
+          finalConfigPath,
+          `${readFileSync(finalConfigPath, 'utf8')}# final drift\n`,
+          'utf8',
+        );
+      }),
+      (error: unknown) => errorTreeContains(error, /config|generation|changed/i),
+    );
+  });
+
+  void it('rejects A-B-A config replacement and absent topology authorities', async () => {
+    const replacementRoot = fixture();
+    const configPath = join(replacementRoot, '.git', 'config');
+    const originalConfig = readFileSync(configPath);
+    await assert.rejects(
+      HERMETIC_GIT_RUNTIME.withRepository(replacementRoot, async (session) => {
+        await session.readTextAsync({
+          kind: 'RESOLVE_OBJECT',
+          revision: 'HEAD',
+          peel: 'COMMIT',
+        });
+        const priorPath = `${configPath}.prior`;
+        renameSync(configPath, priorPath);
+        writeFileSync(configPath, originalConfig);
+        rmSync(priorPath);
+        await session.readTextAsync({
+          kind: 'RESOLVE_OBJECT',
+          revision: 'HEAD',
+          peel: 'COMMIT',
+        });
+      }),
+      (error: unknown) => errorTreeContains(error, /config|generation|changed/i),
+    );
+
+    for (const relativePath of [
+      '.git/objects/info/alternates',
+      '.git/shallow',
+      '.git/info/grafts',
+    ]) {
+      const root = fixture();
+      await assert.rejects(
+        HERMETIC_GIT_RUNTIME.withRepository(root, async (session) => {
+          await session.readTextAsync({
+            kind: 'RESOLVE_OBJECT',
+            revision: 'HEAD',
+            peel: 'COMMIT',
+          });
+          writeFileSync(join(root, relativePath), '', 'utf8');
+          await session.readTextAsync({
+            kind: 'RESOLVE_OBJECT',
+            revision: 'HEAD',
+            peel: 'COMMIT',
+          });
+        }),
+        (error: unknown) => errorTreeContains(error, /parent|generation|changed/i),
+      );
+    }
+
+    const replaceRefRoot = fixture();
+    await assert.rejects(
+      HERMETIC_GIT_RUNTIME.withRepository(replaceRefRoot, async (session) => {
+        await session.readTextAsync({
+          kind: 'RESOLVE_OBJECT',
+          revision: 'HEAD',
+          peel: 'COMMIT',
+        });
+        mkdirSync(join(replaceRefRoot, '.git', 'refs', 'replace'));
+        await session.readTextAsync({
+          kind: 'RESOLVE_OBJECT',
+          revision: 'HEAD',
+          peel: 'COMMIT',
+        });
+      }),
+      (error: unknown) => errorTreeContains(error, /replace refs|parent|generation|changed/i),
+    );
+  });
+
+  void it('shares the outer topology baseline with nested sessions and preserves dual failures', async () => {
+    const nestedRoot = fixture();
+    const nestedConfig = join(nestedRoot, '.git', 'config');
+    await assert.rejects(
+      HERMETIC_GIT_RUNTIME.withRepository(nestedRoot, async (outer) => {
+        await outer.readTextAsync({
+          kind: 'RESOLVE_OBJECT',
+          revision: 'HEAD',
+          peel: 'COMMIT',
+        });
+        writeFileSync(nestedConfig, `${readFileSync(nestedConfig, 'utf8')}# nested drift\n`);
+        await HERMETIC_GIT_RUNTIME.withRepository(nestedRoot, async (inner) =>
+          inner.readTextAsync({
+            kind: 'RESOLVE_OBJECT',
+            revision: 'HEAD',
+            peel: 'COMMIT',
+          }),
+        );
+      }),
+      (error: unknown) => errorTreeContains(error, /config|generation|changed/i),
+    );
+
+    const nestedEvidenceRoot = fixture();
+    const nestedEvidenceConfig = join(nestedEvidenceRoot, '.git', 'config');
+    await assert.rejects(
+      HERMETIC_GIT_RUNTIME.withRepository(nestedEvidenceRoot, async (outer) => {
+        await outer.readTextAsync({
+          kind: 'RESOLVE_OBJECT',
+          revision: 'HEAD',
+          peel: 'COMMIT',
+        });
+        writeFileSync(
+          nestedEvidenceConfig,
+          `${readFileSync(nestedEvidenceConfig, 'utf8')}# nested evidence drift\n`,
+        );
+        await computeCanonicalGitWorktreeEvidence(nestedEvidenceRoot);
+      }),
+      (error: unknown) => errorTreeContains(error, /config|generation|changed/i),
+    );
+
+    const failureRoot = fixture();
+    const failureConfig = join(failureRoot, '.git', 'config');
+    const sentinel = new Error('sentinel repository action failure');
+    await assert.rejects(
+      HERMETIC_GIT_RUNTIME.withRepository(failureRoot, async (session) => {
+        await session.readTextAsync({
+          kind: 'RESOLVE_OBJECT',
+          revision: 'HEAD',
+          peel: 'COMMIT',
+        });
+        writeFileSync(failureConfig, `${readFileSync(failureConfig, 'utf8')}# failure drift\n`);
+        throw sentinel;
+      }),
+      (error: unknown) =>
+        error instanceof AggregateError &&
+        errorTreeContains(error, /sentinel repository action failure/) &&
+        errorTreeContains(error, /config|generation|changed/i),
+    );
   });
 
   void it('makes mutable info/exclude ineffective while preserving .gitignore semantics', async () => {
@@ -715,6 +1267,7 @@ void describe('HermeticGitRuntime', () => {
     const objectId = git(root, 'rev-parse', 'HEAD:tracked/payload.txt');
     git(root, 'rm', '--quiet', 'tracked/payload.txt');
     const looseObject = join(root, '.git', 'objects', objectId.slice(0, 2), objectId.slice(2));
+    chmodSync(looseObject, 0o600);
     writeFileSync(looseObject, 'corrupted HEAD-only object authority\n', 'utf8');
     await assert.rejects(
       computeCanonicalGitWorktreeEvidence(root),
@@ -803,7 +1356,11 @@ void describe('HermeticGitRuntime', () => {
           rmSync(alternatesPath);
         },
       }),
-      /parent.*changed|entry-generation|repository-topology observation/,
+      (error: unknown) =>
+        errorTreeContains(
+          error,
+          /parent.*changed|entry-generation|repository-topology observation/,
+        ),
     );
   });
 
@@ -812,6 +1369,7 @@ void describe('HermeticGitRuntime', () => {
     await computeCanonicalGitWorktreeEvidence(root);
     const objectId = git(root, 'rev-parse', 'HEAD:tracked/payload.txt');
     const looseObject = join(root, '.git', 'objects', objectId.slice(0, 2), objectId.slice(2));
+    chmodSync(looseObject, 0o600);
     writeFileSync(looseObject, 'corrupted object authority\n', 'utf8');
     await assert.rejects(computeCanonicalGitWorktreeEvidence(root), /git .* failed|blob proof/i);
   });
@@ -846,11 +1404,31 @@ void describe('HermeticGitRuntime', () => {
           symlinkSync(outside, join(root, 'tracked'));
         },
       }),
-      /symlink|ELOOP|changed/,
+      (error: unknown) => errorTreeContains(error, /symlink|ELOOP|changed/),
     );
   });
 
-  void it('atomically attests linked-worktree redirect, commondir, and backlink bytes', async () => {
+  void it('rejects an A-B-A worktree locator swap against the retained descriptor authority', async () => {
+    const original = fixture();
+    const replacement = fixture();
+    const held = `${original}-held`;
+    let swapped = false;
+    await assert.rejects(
+      computeCanonicalGitWorktreeEvidence(original, {
+        beforeSnapshotVerification: () => {
+          renameSync(original, held);
+          renameSync(replacement, original);
+          renameSync(original, replacement);
+          renameSync(held, original);
+          swapped = true;
+        },
+      }),
+      (error: unknown) => errorTreeContains(error, /retained descriptor|topology|changed/),
+    );
+    assert.equal(swapped, true);
+  });
+
+  void it('sandwich-attests linked-worktree redirect, commondir, and backlink bytes', async () => {
     const fixture = linkedFixture();
     const clean = await computeCanonicalGitWorktreeEvidence(fixture.linked);
     assert.equal(clean.dirty, false);
@@ -877,7 +1455,8 @@ void describe('HermeticGitRuntime', () => {
           writeFileSync(redirectPath, redirectBytes);
         },
       }),
-      /repository-topology observation|generation|changed/,
+      (error: unknown) =>
+        errorTreeContains(error, /repository-topology observation|generation|changed/),
     );
 
     const invalid = linkedFixture();

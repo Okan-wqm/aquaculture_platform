@@ -41,18 +41,17 @@
  *     revert the migration.
  */
 
-import { readdirSync, statSync, existsSync } from 'fs';
-import { createRequire } from 'module';
+import { readdirSync, statSync } from 'fs';
 import { join, resolve } from 'path';
 
 import { PROTECTED_TABLES } from '@aquaculture/backend-common/constants';
 import { MODULE_SCHEMAS } from '@aquaculture/backend-common/database';
+import { loadRepositoryApplicationModule } from '@aquaculture/repository-application-loader';
 import { getMetadataArgsStorage } from 'typeorm';
 
 import { TestDatabase } from '../../helpers/db.helper';
 
 const REPO_ROOT = resolve(__dirname, '..', '..', '..');
-const requireEntity = createRequire(__filename);
 
 /**
  * Wave 4-A.2 Dalga 5 — TENANT_SCOPED vs PLATFORM_LEVEL audit lists.
@@ -99,10 +98,7 @@ const PLATFORM_LEVEL_SCHEMAS: ReadonlyArray<string> = [
 ];
 
 const TENANT_FANOUT_TABLES_BY_SCHEMA: ReadonlyMap<string, ReadonlyArray<string>> = new Map(
-  MODULE_SCHEMAS.map((moduleSchema) => [
-    moduleSchema.sourceSchema,
-    moduleSchema.tables,
-  ]),
+  MODULE_SCHEMAS.map((moduleSchema) => [moduleSchema.sourceSchema, moduleSchema.tables]),
 );
 
 // The TENANT_SCOPED set is also the allow-list for entities legitimately
@@ -128,10 +124,14 @@ const TENANT_SCOPED_SERVICES: ReadonlySet<string> = new Set([
 function discoverEntityFiles(): Array<{ service: string; file: string }> {
   const out: Array<{ service: string; file: string }> = [];
   const appsRoot = join(REPO_ROOT, 'apps');
-  if (!existsSync(appsRoot)) return out;
-  for (const svc of readdirSync(appsRoot)) {
+  let services: string[];
+  try {
+    services = readdirSync(appsRoot);
+  } catch (error) {
+    throw new AggregateError([error], `Entity discovery cannot read application root ${appsRoot}`);
+  }
+  for (const svc of services) {
     const svcRoot = join(appsRoot, svc, 'src');
-    if (!existsSync(svcRoot)) continue;
     const stack: string[] = [svcRoot];
     while (stack.length > 0) {
       const cur = stack.pop();
@@ -139,8 +139,8 @@ function discoverEntityFiles(): Array<{ service: string; file: string }> {
       let entries: string[];
       try {
         entries = readdirSync(cur);
-      } catch {
-        continue;
+      } catch (error) {
+        throw new AggregateError([error], `Entity discovery cannot read directory ${cur}`);
       }
       for (const name of entries) {
         if (name === 'migrations' || name === '__tests__' || name === 'node_modules') continue;
@@ -148,8 +148,8 @@ function discoverEntityFiles(): Array<{ service: string; file: string }> {
         let st;
         try {
           st = statSync(full);
-        } catch {
-          continue;
+        } catch (error) {
+          throw new AggregateError([error], `Entity discovery cannot inspect path ${full}`);
         }
         if (st.isDirectory()) stack.push(full);
         else if (st.isFile() && /\.entity\.ts$/.test(name)) {
@@ -166,14 +166,16 @@ function discoverEntityFiles(): Array<{ service: string; file: string }> {
  * file. Duplicates protection: getMetadataArgsStorage() is a global
  * singleton; we read its `tables` array AFTER all requires complete.
  */
-function loadAllEntityTableArgs(): Array<{
+function loadAllEntityTableArgs(
+  files = discoverEntityFiles(),
+  loadModule: (file: string) => unknown = loadRepositoryApplicationModule,
+): Array<{
   serviceName: string;
   filePath: string;
   schema: string | undefined;
   tableName: string | undefined;
   targetName: string;
 }> {
-  const files = discoverEntityFiles();
   // Map target class -> the service+file that registered it. We
   // populate this BEFORE require() to attribute drift back to the
   // owning service when getMetadataArgsStorage() reports a target.
@@ -181,9 +183,9 @@ function loadAllEntityTableArgs(): Array<{
   for (const { service, file } of files) {
     let mod: Record<string, unknown>;
     try {
-      mod = requireEntity(file) as Record<string, unknown>;
-    } catch {
-      continue;
+      mod = loadModule(file) as Record<string, unknown>;
+    } catch (error) {
+      throw new AggregateError([error], `Entity invariant cannot load governed source ${file}`);
     }
     for (const v of Object.values(mod)) {
       if (typeof v === 'function' && /^[A-Z]/.test(v.name) && !ownership.has(v)) {
@@ -194,7 +196,7 @@ function loadAllEntityTableArgs(): Array<{
 
   const storage = getMetadataArgsStorage();
   return storage.tables.map((t) => {
-    const target = typeof t.target === 'function' ? (t.target) : null;
+    const target = typeof t.target === 'function' ? t.target : null;
     const own = target ? ownership.get(target) : undefined;
     return {
       serviceName: own?.service ?? 'unknown',
@@ -205,6 +207,26 @@ function loadAllEntityTableArgs(): Array<{
     };
   });
 }
+
+describe('Schema entity source authority', () => {
+  it('fails closed when a governed entity module cannot be evaluated', () => {
+    const failure = new Error('entity evaluation sentinel');
+    const file = join(REPO_ROOT, 'apps', 'fixture-service', 'src', 'broken.entity.ts');
+    let observed: unknown;
+    try {
+      loadAllEntityTableArgs([{ service: 'fixture-service', file }], () => {
+        throw failure;
+      });
+    } catch (error) {
+      observed = error;
+    }
+    if (!(observed instanceof Error)) {
+      throw new Error('Entity loader failure did not preserve an Error result');
+    }
+    expect(observed.message).toContain(file);
+    expect(Reflect.get(observed, 'cause')).toBe(failure);
+  });
+});
 
 const ALLOWED_PUBLIC_TABLES = new Set<string>([
   // TypeORM migration ledger — system table, not application data.
@@ -219,9 +241,7 @@ const ALLOWED_PUBLIC_TABLES = new Set<string>([
 // tenant deletion for forensics). One list, no drift.
 // user_permissions retired 2026-07-12 (ADR-042, ORPHAN-HIGH-378).
 const SHARED_SCHEMA_TABLES = new Set<string>(
-  PROTECTED_TABLES.filter((t) => t.startsWith('shared.')).map((t) =>
-    t.slice('shared.'.length),
-  ),
+  PROTECTED_TABLES.filter((t) => t.startsWith('shared.')).map((t) => t.slice('shared.'.length)),
 );
 
 /**
@@ -463,7 +483,7 @@ describe('Schema Invariants (2026-04-14 public-schema teardown)', () => {
   // entities that pin the wrong schema (e.g. typo "shared" → "share")
   // — TypeORM accepts the typo silently and routes the table to
   // public if the schema does not yet exist.
-  it('B.2 — declared schema matches the table\'s physical schema', async () => {
+  it("B.2 — declared schema matches the table's physical schema", async () => {
     const tables = loadAllEntityTableArgs();
     const drifts: string[] = [];
     for (const t of tables) {
@@ -496,8 +516,7 @@ describe('Schema Invariants (2026-04-14 public-schema teardown)', () => {
     }
     if (drifts.length > 0) {
       throw new Error(
-        `B.2 declared-vs-physical schema drift (${drifts.length}):\n  ` +
-          drifts.join('\n  '),
+        `B.2 declared-vs-physical schema drift (${drifts.length}):\n  ` + drifts.join('\n  '),
       );
     }
   }, 30_000);

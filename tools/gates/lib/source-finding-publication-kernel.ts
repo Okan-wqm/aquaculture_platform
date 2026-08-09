@@ -1,3 +1,5 @@
+import { errorFromUnknown } from './error-cause';
+
 export type SourceFindingPublicationFaultPoint =
   | 'ARTIFACT_DURABLE'
   | 'MANIFEST_COMMITTED'
@@ -30,18 +32,6 @@ export interface SourceFindingPublicationTransaction {
 const NO_PUBLICATION_FAULTS: SourceFindingPublicationFaultBoundary = Object.freeze({
   checkpoint: () => undefined,
 });
-
-function observedFailure(message: string, error: unknown): Error {
-  if (error instanceof Error) return error;
-  const wrapped = new Error(message);
-  Object.defineProperty(wrapped, 'cause', {
-    configurable: true,
-    enumerable: false,
-    value: error,
-    writable: true,
-  });
-  return wrapped;
-}
 
 /**
  * One typed publication state machine. The artifact becomes durable before the manifest pointer;
@@ -92,13 +82,13 @@ export async function executeSourceFindingPublicationTransaction(
   }
 
   if (outcome.status === 'FAILURE') {
-    const primaryFailure = observedFailure('Source publication failed.', outcome.error);
+    const primaryFailure = errorFromUnknown('Source publication failed.', outcome.error);
     const failures = [primaryFailure];
     if (rollbackFailure !== undefined) {
-      failures.push(observedFailure('Source publication rollback failed.', rollbackFailure));
+      failures.push(errorFromUnknown('Source publication rollback failed.', rollbackFailure));
     }
     if (releaseFailure !== undefined) {
-      failures.push(observedFailure('Source publication release failed.', releaseFailure));
+      failures.push(errorFromUnknown('Source publication release failed.', releaseFailure));
     }
     if (failures.length > 1) {
       throw new AggregateError(failures, 'Source-finding publication transaction failed.');
@@ -106,7 +96,7 @@ export async function executeSourceFindingPublicationTransaction(
     throw primaryFailure;
   }
   if (releaseFailure !== undefined) {
-    throw observedFailure('Source publication release failed.', releaseFailure);
+    throw errorFromUnknown('Source publication release failed.', releaseFailure);
   }
 }
 

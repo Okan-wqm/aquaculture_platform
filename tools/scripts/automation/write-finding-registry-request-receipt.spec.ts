@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -34,7 +34,7 @@ function environment(runnerTemp: string): NodeJS.ProcessEnv {
   };
 }
 
-function run(env: NodeJS.ProcessEnv) {
+function run(env: NodeJS.ProcessEnv): SpawnSyncReturns<string> {
   return spawnSync(tsNode, ['--project', 'tools/scripts/automation/tsconfig.json', writer], {
     cwd: repoRoot,
     encoding: 'utf8',
@@ -42,7 +42,7 @@ function run(env: NodeJS.ProcessEnv) {
   });
 }
 
-describe('finding registry request receipt writer', () => {
+void describe('finding registry request receipt writer', () => {
   void it('creates one canonical receipt and refuses replacement', () => {
     const directory = mkdtempSync(join(tmpdir(), 'aqua-registry-receipt-'));
     try {

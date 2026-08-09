@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs, {
   chmodSync,
   closeSync,
@@ -16,7 +16,7 @@ import fs, {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { afterEach, describe, it } from 'node:test';
 
@@ -35,6 +35,8 @@ import {
   openAnchoredDirectoryChain,
   openHermeticExecutableAuthority,
 } from './anchored-filesystem';
+import { testOnlyOpenHermeticExecutableAuthorityForOwnedFixture } from './anchored-filesystem.fixture';
+import { errorFromUnknown } from './error-cause';
 
 const fixtureRoots: string[] = [];
 const EXECUTABLE_TEST_POLICY_V1 = defineHermeticExecutableExecutionPolicyV1({
@@ -184,6 +186,91 @@ void describe('descriptor-anchored filesystem authority', () => {
     );
   });
 
+  void it('rejects a FIFO regular-file candidate without blocking the observer process', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'anchored-fifo-'));
+    fixtureRoots.push(root);
+    const fifoPath = join(root, 'candidate');
+    const mkfifo = spawnSync('/usr/bin/mkfifo', [fifoPath], { encoding: 'utf8' });
+    assert.equal(mkfifo.status, 0, mkfifo.stderr);
+    const authorityPath = resolve(__dirname, 'anchored-filesystem.ts');
+    const worker = [
+      `const { observeStableRegularFile } = require(${JSON.stringify(authorityPath)});`,
+      `process.stdout.write('READY\\n');`,
+      `process.stdin.once('data', () => {`,
+      `  try { observeStableRegularFile(${JSON.stringify(fifoPath)}, 1024, 'FIFO fixture'); process.exitCode = 2; }`,
+      `  catch (error) { if (!(error instanceof Error) || !/expected filesystem topology changed/.test(error.message)) process.exitCode = 3; }`,
+      `});`,
+    ].join('\n');
+    const observation = spawn(
+      process.execPath,
+      ['--require', 'ts-node/register/transpile-only', '--eval', worker],
+      {
+        cwd: __dirname,
+        env: { ...process.env, TS_NODE_PROJECT: resolve(__dirname, '..', 'tsconfig.json') },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    );
+    assert.ok(
+      observation.stdin !== null && observation.stdout !== null && observation.stderr !== null,
+    );
+    let stdout = '';
+    let stderr = '';
+    let resolveReady!: () => void;
+    let rejectReady!: (error: Error) => void;
+    const ready = new Promise<void>((resolveReadyPromise, rejectReadyPromise) => {
+      resolveReady = resolveReadyPromise;
+      rejectReady = rejectReadyPromise;
+    });
+    observation.stdout.setEncoding('utf8');
+    observation.stderr.setEncoding('utf8');
+    observation.stdout.on('data', (chunk: string) => {
+      stdout += chunk;
+      if (stdout.includes('READY\n')) resolveReady();
+    });
+    observation.stderr.on('data', (chunk: string) => {
+      stderr += chunk;
+    });
+    let spawnError: Error | undefined;
+    observation.once('error', (error) => {
+      spawnError = error;
+      rejectReady(error);
+    });
+    const completion = new Promise<readonly [number | null, NodeJS.Signals | null]>((resolve) => {
+      observation.once('close', (status, signal) => resolve([status, signal]));
+    });
+    const bounded = <T>(promise: Promise<T>, durationMs: number, label: string): Promise<T> =>
+      new Promise<T>((resolvePromise, rejectPromise) => {
+        const timer = setTimeout(() => rejectPromise(new Error(label)), durationMs);
+        void promise.then(
+          (value) => {
+            clearTimeout(timer);
+            resolvePromise(value);
+          },
+          (error: unknown) => {
+            clearTimeout(timer);
+            rejectPromise(errorFromUnknown(label, error));
+          },
+        );
+      });
+    try {
+      await bounded(ready, 10_000, 'FIFO observer child did not reach its loaded-module barrier');
+      observation.stdin.end('\n');
+      const [status, signal] = await bounded(
+        completion,
+        2_000,
+        'FIFO regular-file observation blocked after its loaded-module barrier',
+      );
+      assert.equal(spawnError, undefined);
+      assert.equal(signal, null);
+      assert.equal(status, 0, stderr);
+    } finally {
+      if (observation.exitCode === null && observation.signalCode === null) {
+        observation.kill('SIGKILL');
+      }
+      await completion;
+    }
+  });
+
   void it('normalizes expected file deletion and type swap as typed currentness drift', () => {
     const root = mkdtempSync(join(tmpdir(), 'anchored-file-currentness-'));
     fixtureRoots.push(root);
@@ -330,20 +417,23 @@ void describe('descriptor-anchored filesystem authority', () => {
   });
 
   void it('descriptor-binds executable bytes and rejects writable parent authorities', () => {
-    const trustedRoot = mkdtempSync('/root/hermetic-executable-');
+    const trustedRoot = mkdtempSync(join(realpathSync(tmpdir()), 'hermetic-executable-'));
     fixtureRoots.push(trustedRoot);
     const executablePath = join(trustedRoot, 'true');
     copyFileSync('/usr/bin/true', executablePath);
     chmodSync(executablePath, 0o755);
-    const authority = openHermeticExecutableAuthority({
-      path: executablePath,
-      label: 'fixture executable',
-      versionArgs: ['--version'],
-      versionEnvironment: { LANG: 'C', LC_ALL: 'C' },
-      executionPolicy: EXECUTABLE_TEST_POLICY_V1,
-      maximumBytes: 1024 * 1024,
-      maximumVersionBytes: 4096,
-    });
+    const authority = testOnlyOpenHermeticExecutableAuthorityForOwnedFixture(
+      {
+        path: executablePath,
+        label: 'fixture executable',
+        versionArgs: ['--version'],
+        versionEnvironment: { LANG: 'C', LC_ALL: 'C' },
+        executionPolicy: EXECUTABLE_TEST_POLICY_V1,
+        maximumBytes: 1024 * 1024,
+        maximumVersionBytes: 4096,
+      },
+      trustedRoot,
+    );
     assert.match(authority.attestation.binarySha256, /^[0-9a-f]{64}$/);
     const invocation = spawnSync(authority.descriptorPath, ['--version'], {
       argv0: authority.argv0,
@@ -358,28 +448,32 @@ void describe('descriptor-anchored filesystem authority', () => {
     assert.throws(() => authority.assertCurrent(), /descriptor-bound attestation/);
     authority.close();
 
-    const writableRoot = mkdtempSync(join(tmpdir(), 'writable-executable-'));
+    const writableRoot = mkdtempSync(join(realpathSync(tmpdir()), 'writable-executable-'));
     fixtureRoots.push(writableRoot);
     const writableExecutable = join(writableRoot, 'true');
     copyFileSync('/usr/bin/true', writableExecutable);
     chmodSync(writableExecutable, 0o755);
+    chmodSync(writableRoot, 0o777);
     assert.throws(
       () =>
-        openHermeticExecutableAuthority({
-          path: writableExecutable,
-          label: 'writable fixture executable',
-          versionArgs: ['--version'],
-          versionEnvironment: { LANG: 'C', LC_ALL: 'C' },
-          executionPolicy: EXECUTABLE_TEST_POLICY_V1,
-          maximumBytes: 1024 * 1024,
-          maximumVersionBytes: 4096,
-        }),
-      /parent is not root-owned and group\/world non-writable/,
+        testOnlyOpenHermeticExecutableAuthorityForOwnedFixture(
+          {
+            path: writableExecutable,
+            label: 'writable fixture executable',
+            versionArgs: ['--version'],
+            versionEnvironment: { LANG: 'C', LC_ALL: 'C' },
+            executionPolicy: EXECUTABLE_TEST_POLICY_V1,
+            maximumBytes: 1024 * 1024,
+            maximumVersionBytes: 4096,
+          },
+          writableRoot,
+        ),
+      /mode-0700 OS-temp child/,
     );
   });
 
   void it('closes every retained descriptor when final executable currentness fails', () => {
-    const trustedRoot = mkdtempSync('/root/hermetic-construction-failure-');
+    const trustedRoot = mkdtempSync(join(realpathSync(tmpdir()), 'hermetic-construction-failure-'));
     fixtureRoots.push(trustedRoot);
     const executablePath = join(trustedRoot, 'mutable-version-probe');
     const replacementPath = join(trustedRoot, 'replacement-version-probe');
@@ -391,15 +485,18 @@ void describe('descriptor-anchored filesystem authority', () => {
 
     assert.throws(
       () =>
-        openHermeticExecutableAuthority({
-          path: executablePath,
-          label: 'self-replacing fixture executable',
-          versionArgs: ['/usr/bin/mv', replacementPath, executablePath],
-          versionEnvironment: { LANG: 'C', LC_ALL: 'C' },
-          executionPolicy: EXECUTABLE_TEST_POLICY_V1,
-          maximumBytes: 1024 * 1024,
-          maximumVersionBytes: 4096,
-        }),
+        testOnlyOpenHermeticExecutableAuthorityForOwnedFixture(
+          {
+            path: executablePath,
+            label: 'self-replacing fixture executable',
+            versionArgs: ['/usr/bin/mv', replacementPath, executablePath],
+            versionEnvironment: { LANG: 'C', LC_ALL: 'C' },
+            executionPolicy: EXECUTABLE_TEST_POLICY_V1,
+            maximumBytes: 1024 * 1024,
+            maximumVersionBytes: 4096,
+          },
+          trustedRoot,
+        ),
       /descriptor-bound attestation/,
     );
     assert.equal(readdirSync('/proc/self/fd').length, descriptorsBefore);
@@ -502,7 +599,7 @@ void describe('descriptor-anchored filesystem authority', () => {
   });
 
   void it('propagates one absolute operation deadline into a real version-probe child', () => {
-    const trustedRoot = mkdtempSync('/root/hermetic-absolute-deadline-');
+    const trustedRoot = mkdtempSync(join(realpathSync(tmpdir()), 'hermetic-absolute-deadline-'));
     fixtureRoots.push(trustedRoot);
     const executablePath = join(trustedRoot, 'sleep');
     copyFileSync('/usr/bin/sleep', executablePath);
@@ -510,7 +607,7 @@ void describe('descriptor-anchored filesystem authority', () => {
     const startedAt = performance.now();
     assert.throws(
       () =>
-        openHermeticExecutableAuthority(
+        testOnlyOpenHermeticExecutableAuthorityForOwnedFixture(
           {
             path: executablePath,
             label: 'absolute-deadline fixture executable',
@@ -520,6 +617,7 @@ void describe('descriptor-anchored filesystem authority', () => {
             maximumBytes: 1024 * 1024,
             maximumVersionBytes: 4096,
           },
+          trustedRoot,
           startedAt + 50,
         ),
       (error: unknown) =>

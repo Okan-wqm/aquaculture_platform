@@ -3,11 +3,16 @@ import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 
-import { hasOwn } from './lib/json-contract';
-import { HERMETIC_GIT_RUNTIME } from './lib/hermetic-git-runtime';
-import { REPO_ROOT } from './lib/repo-root';
-import { type SourceKind, type SourceRole } from './lib/capability-source-contract';
 import { parseInventoryManifest } from './capability-source-inventory';
+import { type SourceKind, type SourceRole } from './lib/capability-source-contract';
+import {
+  HERMETIC_GIT_RUNTIME,
+  type HermeticGitRepositoryAsyncSessionV1,
+  type HermeticGitReadQueryV1,
+  type HermeticGitTextResult,
+} from './lib/hermetic-git-runtime';
+import { hasOwn } from './lib/json-contract';
+import { REPO_ROOT } from './lib/repo-root';
 
 const DEFAULT_MANIFEST_PATH = 'docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest.json';
 const ORIGIN_MAIN_REF = 'refs/remotes/origin/main';
@@ -17,11 +22,6 @@ const ATTEMPT_ID_PATTERN = /^attempt-sha256:[0-9a-f]{64}$/;
 const ISO_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:/-]*$/;
-const MAX_GIT_STDOUT_BYTES = 16 * 1024;
-const MAX_GIT_STDERR_BYTES = 16 * 1024;
-const ALL_GIT_EXIT_STATUSES = Object.freeze(
-  Array.from({ length: 256 }, (_unused, status) => status),
-);
 const MAX_GITHUB_API_RESPONSE_BYTES = 1024 * 1024;
 const GITHUB_API_TIMEOUT_MS = 15_000;
 const MAX_SOURCE_SELECTOR_ITEMS = 512;
@@ -3694,99 +3694,69 @@ export async function validateIntegrationEvidenceLive(
   return issues;
 }
 
-interface GitResult {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
+class ValidationOperationGitEvidenceReader implements GitEvidenceReader {
+  public constructor(private readonly session: HermeticGitRepositoryAsyncSessionV1) {}
 
-function runBoundedGit(args: readonly string[]): Promise<GitResult> {
-  const result = HERMETIC_GIT_RUNTIME.runBuffer(
-    REPO_ROOT,
-    args,
-    ALL_GIT_EXIT_STATUSES,
-    undefined,
-    MAX_GIT_STDOUT_BYTES + MAX_GIT_STDERR_BYTES,
-  );
-  if (result.stdout.length > MAX_GIT_STDOUT_BYTES) {
-    throw new Error(
-      `bounded git stdout exceeded ${String(MAX_GIT_STDOUT_BYTES)} bytes: git ${args.join(' ')}`,
-    );
+  private readGitText(query: HermeticGitReadQueryV1): Promise<HermeticGitTextResult> {
+    return this.session.readTextAsync(query);
   }
-  if (result.stderr.length > MAX_GIT_STDERR_BYTES) {
-    throw new Error(
-      `bounded git stderr exceeded ${String(MAX_GIT_STDERR_BYTES)} bytes: git ${args.join(' ')}`,
-    );
-  }
-  return Promise.resolve({
-    code: result.status,
-    stdout: result.stdout.toString('utf8').trim(),
-    stderr: result.stderr.toString('utf8').trim(),
-  });
-}
 
-async function runGitValue(args: readonly string[], description: string): Promise<string> {
-  const result = await runBoundedGit(args);
-  if (result.code !== 0) {
-    throw new Error(`${description} failed (${String(result.code)}): ${result.stderr}`);
-  }
-  return result.stdout;
-}
-
-export class BoundedGitEvidenceReader implements GitEvidenceReader {
   public async resolveRef(ref: string): Promise<string> {
-    const value = await runGitValue(['rev-parse', '--verify', `${ref}^{commit}`], `resolve ${ref}`);
-    return requireSha(value, ref);
+    const result = await this.readGitText({
+      kind: 'RESOLVE_OBJECT',
+      revision: ref,
+      peel: 'COMMIT',
+    });
+    return requireSha(result.stdout.trim(), ref);
   }
 
   public async objectExists(oid: string, kind: 'commit' | 'tree' | 'blob'): Promise<boolean> {
     requireSha(oid, 'Git object ID');
-    const result = await runBoundedGit(['cat-file', '-e', `${oid}^{${kind}}`]);
-    if (result.code === 0) {
-      return true;
-    }
-    if (result.code === 1 || result.code === 128) {
-      return false;
-    }
-    throw new Error(`git cat-file failed (${String(result.code)}): ${result.stderr}`);
+    const objectKind = kind === 'blob' ? 'BLOB' : kind === 'commit' ? 'COMMIT' : 'TREE';
+    const result = await this.readGitText({
+      kind: 'OBJECT_EXISTS',
+      oid,
+      objectKind,
+    });
+    return result.status === 0;
   }
 
   public async isAncestor(ancestorSha: string, descendantSha: string): Promise<boolean> {
     requireSha(ancestorSha, 'ancestor SHA');
     requireSha(descendantSha, 'descendant SHA');
-    const result = await runBoundedGit(['merge-base', '--is-ancestor', ancestorSha, descendantSha]);
-    if (result.code === 0) {
-      return true;
-    }
-    if (result.code === 1) {
-      return false;
-    }
-    throw new Error(`git merge-base failed (${String(result.code)}): ${result.stderr}`);
+    const result = await this.readGitText({
+      kind: 'IS_ANCESTOR',
+      ancestor: ancestorSha,
+      descendant: descendantSha,
+    });
+    return result.status === 0;
   }
 
   public async commitTree(commitSha: string): Promise<string | null> {
     requireSha(commitSha, 'commit SHA');
-    const result = await runBoundedGit(['rev-parse', '--verify', `${commitSha}^{tree}`]);
-    if (result.code === 0) {
-      return requireSha(result.stdout, `${commitSha} tree`);
-    }
-    if (result.code === 1 || result.code === 128) {
-      return null;
-    }
-    throw new Error(`git rev-parse tree failed (${String(result.code)}): ${result.stderr}`);
+    const result = await this.readGitText({
+      kind: 'RESOLVE_OBJECT',
+      revision: commitSha,
+      peel: 'TREE',
+      quiet: true,
+    });
+    return result.status === 0 ? requireSha(result.stdout.trim(), `${commitSha} tree`) : null;
   }
 
   public async pathBlob(commitSha: string, path: string): Promise<string | null> {
     requireSha(commitSha, 'commit SHA');
     requireRepoPath(path, 'Git path');
-    const result = await runBoundedGit(['rev-parse', '--verify', `${commitSha}:${path}`]);
-    if (result.code === 1 || result.code === 128) {
+    const result = await this.readGitText({
+      kind: 'RESOLVE_OBJECT',
+      revision: commitSha,
+      peel: 'PATH',
+      path,
+      quiet: true,
+    });
+    if (result.status !== 0) {
       return null;
     }
-    if (result.code !== 0) {
-      throw new Error(`git rev-parse path failed (${String(result.code)}): ${result.stderr}`);
-    }
-    const oid = requireSha(result.stdout, `${commitSha}:${path} object`);
+    const oid = requireSha(result.stdout.trim(), `${commitSha}:${path} object`);
     return (await this.objectExists(oid, 'blob')) ? oid : null;
   }
 
@@ -3798,14 +3768,22 @@ export class BoundedGitEvidenceReader implements GitEvidenceReader {
     requireSha(baseSha, 'base SHA');
     requireSha(headSha, 'head SHA');
     requireRepoPath(path, 'Git path');
-    const result = await runBoundedGit(['diff', '--quiet', baseSha, headSha, '--', path]);
-    if (result.code === 1) {
-      return true;
-    }
-    if (result.code === 0) {
-      return false;
-    }
-    throw new Error(`git diff --quiet failed (${String(result.code)}): ${result.stderr}`);
+    const result = await this.readGitText({
+      kind: 'DIFF',
+      projection: 'QUIET',
+      base: baseSha,
+      head: headSha,
+      paths: [path],
+    });
+    return result.status === 1;
+  }
+}
+
+export class BoundedGitEvidenceReader {
+  public withValidationOperation<T>(action: (git: GitEvidenceReader) => Promise<T>): Promise<T> {
+    return HERMETIC_GIT_RUNTIME.withRepository(REPO_ROOT, (session) =>
+      action(new ValidationOperationGitEvidenceReader(session)),
+    );
   }
 }
 
@@ -4147,19 +4125,20 @@ export async function runIntegrationEvidenceGate(
   if (mode === 'static') {
     return [...validateIntegrationEvidenceStatic(manifest, requiredStatus), ...identityIssues];
   }
-  const git = new BoundedGitEvidenceReader();
-  const startMainSha = await git.resolveRef(ORIGIN_MAIN_REF);
-  const issues = await validateIntegrationEvidenceLive(
-    manifest,
-    requiredStatus,
-    startMainSha,
-    git,
-    {
-      github: new BoundedGitHubActionsEvidenceReader(requiredStatus.repository),
-    },
-  );
-  const endMainSha = await git.resolveRef(ORIGIN_MAIN_REF);
-  return [...issues, ...identityIssues, ...assertOriginMainStable(startMainSha, endMainSha)];
+  return new BoundedGitEvidenceReader().withValidationOperation(async (git) => {
+    const startMainSha = await git.resolveRef(ORIGIN_MAIN_REF);
+    const issues = await validateIntegrationEvidenceLive(
+      manifest,
+      requiredStatus,
+      startMainSha,
+      git,
+      {
+        github: new BoundedGitHubActionsEvidenceReader(requiredStatus.repository),
+      },
+    );
+    const endMainSha = await git.resolveRef(ORIGIN_MAIN_REF);
+    return [...issues, ...identityIssues, ...assertOriginMainStable(startMainSha, endMainSha)];
+  });
 }
 
 function parseCliMode(args: readonly string[]): 'static' | 'live' {

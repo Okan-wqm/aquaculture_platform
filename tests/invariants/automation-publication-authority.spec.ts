@@ -123,7 +123,7 @@ interface WorkflowJob {
 }
 
 interface WorkflowDocument {
-  on?: Record<string, unknown>;
+  on?: Record<string, { types?: string[] } | null>;
   jobs?: Record<string, WorkflowJob>;
 }
 

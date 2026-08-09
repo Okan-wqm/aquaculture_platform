@@ -4,11 +4,6 @@ import { createHash } from 'node:crypto';
 import { describe, it } from 'node:test';
 
 import {
-  AUTOMATION_PUBLICATION_AUTHORITY_SCHEMA,
-  AUTOMATION_PUBLICATION_AUTHORITY_SCHEMA_VERSION,
-  EXPECTED_AUTOMATION_PUBLICATION_BRANCH_POLICY,
-} from './lib/automation-publication-authority';
-import {
   activeAuthorityFromManifest,
   type AutomationPublicationAdmissionContext,
   type AutomationPublicationAuthority,
@@ -16,6 +11,11 @@ import {
   type AutomationPublicationReader,
   verifyAutomationPublicationAdmission,
 } from './finding-registry-publication';
+import {
+  AUTOMATION_PUBLICATION_AUTHORITY_SCHEMA,
+  AUTOMATION_PUBLICATION_AUTHORITY_SCHEMA_VERSION,
+  EXPECTED_AUTOMATION_PUBLICATION_BRANCH_POLICY,
+} from './lib/automation-publication-authority';
 import {
   AUTOMATION_REPOSITORY,
   AUTOMATION_REPOSITORY_ID,

@@ -38,6 +38,11 @@ import {
   type AutomationPublicationOperation,
   type ResolvedAutomationPublicationPolicy,
 } from '../../gates/lib/automation-publication-policy';
+import {
+  applyErrorCauseOptions,
+  errorWithCause,
+  type ErrorCauseOptionsV1,
+} from '../../gates/lib/error-cause';
 
 const API_ROOT = 'https://api.github.com';
 export const AUTOMATION_PUBLICATION_NETWORK_BUDGET = {
@@ -223,9 +228,10 @@ export class PublicationFailure extends Error {
   public constructor(
     message: string,
     public readonly progress: PublicationFailureProgress,
-    options?: ErrorOptions,
+    options?: ErrorCauseOptionsV1,
   ) {
-    super(message, options);
+    super(message);
+    applyErrorCauseOptions(this, options);
     this.name = 'PublicationFailure';
   }
 }
@@ -241,8 +247,9 @@ export class GitHubApiError extends Error {
 }
 
 class StablePublicationMismatch extends Error {
-  public constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
+  public constructor(message: string, options?: ErrorCauseOptionsV1) {
+    super(message);
+    applyErrorCauseOptions(this, options);
     this.name = 'StablePublicationMismatch';
   }
 }
@@ -414,9 +421,10 @@ export function readImmutableFileSnapshot(
           fsConstants.O_RDONLY | fsConstants.O_DIRECTORY | fsConstants.O_NOFOLLOW,
         );
       } catch (error) {
-        throw new Error(`Publication path component is not a non-symlink directory: ${segment}`, {
-          cause: error,
-        });
+        throw errorWithCause(
+          `Publication path component is not a non-symlink directory: ${segment}`,
+          error,
+        );
       }
       directoryDescriptors.push(parentDescriptor);
       if (!fstatSync(parentDescriptor).isDirectory()) {
@@ -2319,14 +2327,7 @@ export function rethrowPublicationWriteErrors(
 
 function publicationThrowable(value: unknown, message: string): Error {
   if (value instanceof Error) return value;
-  const error = new Error(`${message}: ${String(value)}`);
-  Object.defineProperty(error, 'cause', {
-    configurable: false,
-    enumerable: false,
-    value,
-    writable: false,
-  });
-  return error;
+  return errorWithCause(`${message}: ${String(value)}`, value);
 }
 
 export function writeGitHubOutputs(

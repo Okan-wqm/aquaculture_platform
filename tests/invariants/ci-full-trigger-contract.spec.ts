@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -98,6 +99,23 @@ describe('CI Full protected-main and PR contract', () => {
     }
   });
 
+  it('removes checkout credentials from every full-CI job', () => {
+    const jobs = readWorkflow().jobs ?? {};
+    const checkouts = Object.entries(jobs).flatMap(([job, definition]) =>
+      (definition.steps ?? [])
+        .filter((step) => step.uses?.startsWith('actions/checkout@'))
+        .map((step) => ({ job, step })),
+    );
+
+    expect(checkouts.length).toBeGreaterThan(0);
+    for (const { job, step } of checkouts) {
+      expect({ job, persistCredentials: step.with?.['persist-credentials'] }).toEqual({
+        job,
+        persistCredentials: false,
+      });
+    }
+  });
+
   it('installs the pinned Rust toolchain before every parallel full-surface command', () => {
     const jobsAndCommands = {
       'lint-and-typecheck': 'npm run lint:all -- --max-warnings=0',
@@ -159,6 +177,26 @@ describe('CI Full protected-main and PR contract', () => {
     const guard = fs.readFileSync(CHANGED_TYPE_CHECK_PATH, 'utf8');
 
     expect(guard).toContain('/(?:^|\\/)test-utils\\//.test(file)');
+  });
+
+  it('rejects a changed-typecheck scratch root contained by the repository', () => {
+    const result = spawnSync(
+      process.execPath,
+      [CHANGED_TYPE_CHECK_PATH, '--base', 'HEAD', '--head', 'HEAD'],
+      {
+        cwd: REPO_ROOT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          TEMP: REPO_ROOT,
+          TMP: REPO_ROOT,
+          TMPDIR: REPO_ROOT,
+        },
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('refusing scratch root inside repository');
   });
 
   it('ratchets every previously dormant Jest coverage floor from its first full-CI baseline', () => {

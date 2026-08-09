@@ -38,6 +38,7 @@ import {
   type AnchoredDirectoryChainV1,
   type HermeticExecutableAuthorityV1,
 } from './lib/anchored-filesystem';
+import { errorFromUnknown } from './lib/error-cause';
 import {
   classifyFindingAuthorityTarget,
   FINDING_AUTHORITY_TRANSACTION_MAX_BYTES,
@@ -129,17 +130,17 @@ function runWithDescriptorCleanup<T>(descriptor: number, label: string, action: 
   if (outcome.status === 'FAILURE' && cleanupFailure !== undefined) {
     throw new AggregateError(
       [
-        observedFailure(`${label} action failed.`, outcome.error),
-        observedFailure(`${label} descriptor cleanup failed.`, cleanupFailure),
+        errorFromUnknown(`${label} action failed.`, outcome.error),
+        errorFromUnknown(`${label} descriptor cleanup failed.`, cleanupFailure),
       ],
       `${label} action and descriptor cleanup both failed`,
     );
   }
   if (outcome.status === 'FAILURE') {
-    throw observedFailure(`${label} action failed.`, outcome.error);
+    throw errorFromUnknown(`${label} action failed.`, outcome.error);
   }
   if (cleanupFailure !== undefined) {
-    throw observedFailure(`${label} descriptor cleanup failed.`, cleanupFailure);
+    throw errorFromUnknown(`${label} descriptor cleanup failed.`, cleanupFailure);
   }
   return outcome.value;
 }
@@ -195,17 +196,17 @@ function unlinkFindingFileAnchored(
   if (mutationFailure !== undefined && cleanupFailure !== undefined) {
     throw new AggregateError(
       [
-        observedFailure('Finding unlink mutation failed.', mutationFailure),
-        observedFailure('Finding unlink anchor cleanup failed.', cleanupFailure),
+        errorFromUnknown('Finding unlink mutation failed.', mutationFailure),
+        errorFromUnknown('Finding unlink anchor cleanup failed.', cleanupFailure),
       ],
       'Finding unlink mutation and anchor cleanup both failed',
     );
   }
   if (mutationFailure !== undefined) {
-    throw observedFailure('Finding unlink mutation failed.', mutationFailure);
+    throw errorFromUnknown('Finding unlink mutation failed.', mutationFailure);
   }
   if (cleanupFailure !== undefined) {
-    throw observedFailure('Finding unlink anchor cleanup failed.', cleanupFailure);
+    throw errorFromUnknown('Finding unlink anchor cleanup failed.', cleanupFailure);
   }
 }
 
@@ -497,17 +498,6 @@ function isErrno(error: unknown, code: string): boolean {
   return error instanceof Error && 'code' in error && error.code === code;
 }
 
-function errorWithCause(message: string, cause: unknown): Error & { cause: unknown } {
-  const error = new Error(message) as Error & { cause: unknown };
-  Object.defineProperty(error, 'cause', {
-    configurable: true,
-    enumerable: false,
-    value: cause,
-    writable: true,
-  });
-  return error;
-}
-
 interface RegistryKernelLockState {
   readonly fd: number;
   readonly device: number;
@@ -557,7 +547,7 @@ function attestFlockRuntime(operationDeadlineMs: number): HermeticExecutableAuth
     try {
       executable.close();
     } catch (error) {
-      failures.push(observedFailure('Finding writer flock attestation cleanup failed.', error));
+      failures.push(errorFromUnknown('Finding writer flock attestation cleanup failed.', error));
     }
     throwFailureSet(failures, 'Finding writer flock attestation and cleanup failed.');
   }
@@ -573,7 +563,7 @@ function attestFlockRuntime(operationDeadlineMs: number): HermeticExecutableAuth
     try {
       executable.close();
     } catch (error) {
-      failures.push(observedFailure('Finding writer flock attestation cleanup failed.', error));
+      failures.push(errorFromUnknown('Finding writer flock attestation cleanup failed.', error));
     }
     throwFailureSet(failures, 'Finding writer flock attestation and cleanup failed.');
   }
@@ -634,12 +624,12 @@ function openPersistentRegistryLock(
     );
     fsyncSync(creationAnchor.parentFd);
   } catch (error) {
-    creationFailures.push(observedFailure('Registry lock file creation failed.', error));
+    creationFailures.push(errorFromUnknown('Registry lock file creation failed.', error));
   }
   try {
     closeAnchoredFindingMutationTarget(creationAnchor);
   } catch (error) {
-    creationFailures.push(observedFailure('Registry lock creation anchor cleanup failed.', error));
+    creationFailures.push(errorFromUnknown('Registry lock creation anchor cleanup failed.', error));
   }
   if (creationFailures.length > 0) {
     if (fd !== null) {
@@ -647,7 +637,7 @@ function openPersistentRegistryLock(
         closeSync(fd);
       } catch (error) {
         creationFailures.push(
-          observedFailure('Registry lock construction descriptor cleanup failed.', error),
+          errorFromUnknown('Registry lock construction descriptor cleanup failed.', error),
         );
       }
     }
@@ -661,11 +651,11 @@ function openPersistentRegistryLock(
   try {
     lockAnchor = openAnchoredFindingMutationTarget(lockPath);
   } catch (error) {
-    const failures = [observedFailure('Registry lock identity anchor open failed.', error)];
+    const failures = [errorFromUnknown('Registry lock identity anchor open failed.', error)];
     try {
       closeSync(fd);
     } catch (closeError) {
-      failures.push(observedFailure('Registry lock descriptor cleanup failed.', closeError));
+      failures.push(errorFromUnknown('Registry lock descriptor cleanup failed.', closeError));
     }
     throwFailureSet(failures, 'Registry lock identity anchor and cleanup failed.');
   }
@@ -682,16 +672,16 @@ function openPersistentRegistryLock(
     assertPersistentLockIdentity(lockPath, state);
     return state;
   } catch (error) {
-    const failures = [observedFailure('Registry lock identity verification failed.', error)];
+    const failures = [errorFromUnknown('Registry lock identity verification failed.', error)];
     try {
       closeSync(fd);
     } catch (closeError) {
-      failures.push(observedFailure('Registry lock descriptor cleanup failed.', closeError));
+      failures.push(errorFromUnknown('Registry lock descriptor cleanup failed.', closeError));
     }
     try {
       closeAnchoredFindingMutationTarget(lockAnchor);
     } catch (closeError) {
-      failures.push(observedFailure('Registry lock identity anchor cleanup failed.', closeError));
+      failures.push(errorFromUnknown('Registry lock identity anchor cleanup failed.', closeError));
     }
     throwFailureSet(failures, 'Registry lock verification and cleanup failed.');
   }
@@ -819,17 +809,17 @@ function assertKernelFlockHeld(
   if (probeFailure !== undefined && closeFailure !== undefined) {
     throw new AggregateError(
       [
-        observedFailure('Registry lock ownership probe failed.', probeFailure),
-        observedFailure('Registry lock ownership probe cleanup failed.', closeFailure),
+        errorFromUnknown('Registry lock ownership probe failed.', probeFailure),
+        errorFromUnknown('Registry lock ownership probe cleanup failed.', closeFailure),
       ],
       'Registry lock ownership probe and cleanup both failed',
     );
   }
   if (probeFailure !== undefined) {
-    throw observedFailure('Registry lock ownership probe failed.', probeFailure);
+    throw errorFromUnknown('Registry lock ownership probe failed.', probeFailure);
   }
   if (closeFailure !== undefined) {
-    throw observedFailure('Registry lock ownership probe cleanup failed.', closeFailure);
+    throw errorFromUnknown('Registry lock ownership probe cleanup failed.', closeFailure);
   }
 }
 
@@ -838,17 +828,17 @@ function closeRegistryKernelLockState(state: RegistryKernelLockState): void {
   try {
     closeSync(state.fd);
   } catch (error) {
-    failures.push(observedFailure('Registry kernel lock descriptor close failed.', error));
+    failures.push(errorFromUnknown('Registry kernel lock descriptor close failed.', error));
   }
   try {
     closeAnchoredFindingMutationTarget(state.lockAnchor);
   } catch (error) {
-    failures.push(observedFailure('Registry kernel lock anchor close failed.', error));
+    failures.push(errorFromUnknown('Registry kernel lock anchor close failed.', error));
   }
   try {
     state.flockRuntime.close();
   } catch (error) {
-    failures.push(observedFailure('Registry flock authority close failed.', error));
+    failures.push(errorFromUnknown('Registry flock authority close failed.', error));
   }
   const [onlyFailure] = failures;
   if (failures.length === 1 && onlyFailure !== undefined) throw onlyFailure;
@@ -879,11 +869,11 @@ function acquireRegistryLock(
   try {
     state = openPersistentRegistryLock(lockPath, flockRuntime);
   } catch (error) {
-    const failures = [observedFailure('Registry lock construction failed.', error)];
+    const failures = [errorFromUnknown('Registry lock construction failed.', error)];
     try {
       flockRuntime.close();
     } catch (closeError) {
-      failures.push(observedFailure('Registry flock authority cleanup failed.', closeError));
+      failures.push(errorFromUnknown('Registry flock authority cleanup failed.', closeError));
     }
     throwFailureSet(failures, 'Registry lock construction and flock cleanup failed.');
   }
@@ -953,8 +943,8 @@ function acquireRegistryLock(
     } catch (cleanupError) {
       throw new AggregateError(
         [
-          observedFailure('Registry kernel lock acquisition failed.', error),
-          observedFailure('Registry kernel lock acquisition cleanup failed.', cleanupError),
+          errorFromUnknown('Registry kernel lock acquisition failed.', error),
+          errorFromUnknown('Registry kernel lock acquisition cleanup failed.', cleanupError),
         ],
         'Registry kernel lock acquisition and cleanup both failed.',
       );
@@ -999,17 +989,17 @@ function releaseRegistryLock(lease: RegistryLockLease): void {
   if (ownershipFailure !== undefined && cleanupFailure !== undefined) {
     throw new AggregateError(
       [
-        observedFailure('Registry lock ownership verification failed.', ownershipFailure),
-        observedFailure('Registry lock release cleanup failed.', cleanupFailure),
+        errorFromUnknown('Registry lock ownership verification failed.', ownershipFailure),
+        errorFromUnknown('Registry lock release cleanup failed.', cleanupFailure),
       ],
       'Registry lock verification and cleanup both failed.',
     );
   }
   if (ownershipFailure !== undefined) {
-    throw observedFailure('Registry lock ownership verification failed.', ownershipFailure);
+    throw errorFromUnknown('Registry lock ownership verification failed.', ownershipFailure);
   }
   if (cleanupFailure !== undefined) {
-    throw observedFailure('Registry lock release cleanup failed.', cleanupFailure);
+    throw errorFromUnknown('Registry lock release cleanup failed.', cleanupFailure);
   }
 }
 
@@ -1050,10 +1040,6 @@ function acquireConfiguredRegistryLock(
   return acquireRegistryLock(resourcePath, lockPath, options);
 }
 
-function observedFailure(message: string, error: unknown): Error {
-  return error instanceof Error ? error : errorWithCause(message, error);
-}
-
 function finalizeRegistryAction<T>(lease: RegistryLockLease, outcome: RegistryActionOutcome<T>): T {
   let releaseOutcome: RegistryActionOutcome<undefined>;
   try {
@@ -1066,17 +1052,17 @@ function finalizeRegistryAction<T>(lease: RegistryLockLease, outcome: RegistryAc
   if (outcome.status === 'FAILURE' && releaseOutcome.status === 'FAILURE') {
     throw new AggregateError(
       [
-        observedFailure('Registry action threw a non-Error value.', outcome.error),
-        observedFailure('Registry lock release threw a non-Error value.', releaseOutcome.error),
+        errorFromUnknown('Registry action threw a non-Error value.', outcome.error),
+        errorFromUnknown('Registry lock release threw a non-Error value.', releaseOutcome.error),
       ],
       'Registry action and lock release both failed.',
     );
   }
   if (outcome.status === 'FAILURE') {
-    throw observedFailure('Registry action threw a non-Error value.', outcome.error);
+    throw errorFromUnknown('Registry action threw a non-Error value.', outcome.error);
   }
   if (releaseOutcome.status === 'FAILURE') {
-    throw observedFailure('Registry lock release threw a non-Error value.', releaseOutcome.error);
+    throw errorFromUnknown('Registry lock release threw a non-Error value.', releaseOutcome.error);
   }
   return outcome.value;
 }
@@ -1248,7 +1234,7 @@ function atomicWriteFileWithRegistryLeaseUnchecked(
       unlinkSync(stagingPath);
     } catch (error) {
       if (!isErrno(error, 'ENOENT')) {
-        cleanupFailures.push(observedFailure('Atomic staging cleanup failed.', error));
+        cleanupFailures.push(errorFromUnknown('Atomic staging cleanup failed.', error));
       }
     }
   }
@@ -1256,23 +1242,23 @@ function atomicWriteFileWithRegistryLeaseUnchecked(
     try {
       closeAnchoredFindingMutationTarget(stagingAnchor);
     } catch (error) {
-      cleanupFailures.push(observedFailure('Atomic staging anchor close failed.', error));
+      cleanupFailures.push(errorFromUnknown('Atomic staging anchor close failed.', error));
     }
   }
   try {
     closeAnchoredFindingMutationTarget(anchored);
   } catch (error) {
-    cleanupFailures.push(observedFailure('Atomic target anchor close failed.', error));
+    cleanupFailures.push(errorFromUnknown('Atomic target anchor close failed.', error));
   }
 
   if (outcome.status === 'FAILURE' && cleanupFailures.length > 0) {
     throw new AggregateError(
-      [observedFailure('Atomic finding write failed.', outcome.error), ...cleanupFailures],
+      [errorFromUnknown('Atomic finding write failed.', outcome.error), ...cleanupFailures],
       'Atomic finding write and cleanup both failed.',
     );
   }
   if (outcome.status === 'FAILURE') {
-    throw observedFailure('Atomic finding write failed.', outcome.error);
+    throw errorFromUnknown('Atomic finding write failed.', outcome.error);
   }
   const [onlyCleanupFailure] = cleanupFailures;
   if (cleanupFailures.length === 1 && onlyCleanupFailure !== undefined) {
@@ -1466,8 +1452,8 @@ export function bindSourceFindingPublicationStore(
       } catch (rollbackError) {
         throw new AggregateError(
           [
-            observedFailure('Source finding transition failed.', error),
-            observedFailure('Source finding transition rollback failed.', rollbackError),
+            errorFromUnknown('Source finding transition failed.', error),
+            errorFromUnknown('Source finding transition rollback failed.', rollbackError),
           ],
           `Source finding transition and its exact-image rollback both failed: transition=${
             error instanceof Error ? error.message : String(error)
@@ -1789,8 +1775,8 @@ export function atomicWriteRegistryFile(
     } catch (rollbackError) {
       throw new AggregateError(
         [
-          observedFailure('Registry transition failed.', error),
-          observedFailure('Registry transition rollback failed.', rollbackError),
+          errorFromUnknown('Registry transition failed.', error),
+          errorFromUnknown('Registry transition rollback failed.', rollbackError),
         ],
         'Registry transition and rollback both failed.',
       );

@@ -58,12 +58,15 @@ import {
   openSourceFindingWriterFenceSession,
   type SourceFindingWriterFenceSession,
 } from './lib/finding-writer-fence';
-import {
-  computeCanonicalGitWorktreeEvidence,
-  HERMETIC_GIT_RUNTIME,
-} from './lib/hermetic-git-runtime';
+import { computeCanonicalGitWorktreeEvidence } from './lib/hermetic-git-runtime';
 import { hasOwn } from './lib/json-contract';
 import { REPO_ROOT } from './lib/repo-root';
+import {
+  assertRepositoryGitGlobalCoordinatesStable,
+  withPinnedRepositoryGitReadPhase,
+  type RepositoryGitGlobalCoordinatesV1,
+  type RepositoryGitTextReaderV1,
+} from './lib/repository-git-read-phase';
 import {
   executeSourceFindingPublicationTransaction,
   executeSourceFindingRestartRecovery,
@@ -647,20 +650,6 @@ export function sourceRefDigest(sourceRefs: readonly string[]): string {
   return sha256(`${[...sourceRefs].sort().join('\n')}\n`);
 }
 
-function runGit(
-  args: readonly string[],
-  worktreePath: string = REPO_ROOT,
-  acceptedStatuses: readonly number[] = [0],
-): { stdout: string; status: number } {
-  const result = HERMETIC_GIT_RUNTIME.runText(
-    worktreePath,
-    args,
-    acceptedStatuses,
-    MAX_GIT_OUTPUT_BYTES,
-  );
-  return { stdout: result.stdout, status: result.status };
-}
-
 function parseRegistry(raw: string, coordinate: string): RegistrySnapshot {
   const byId = new Map<string, RegistryRecord>();
   let rowCount = 0;
@@ -680,22 +669,25 @@ function parseRegistry(raw: string, coordinate: string): RegistrySnapshot {
   return { byId, rowCount };
 }
 
-function registryAtCommit(commitSha: string): RegistrySnapshot {
-  runGit(['rev-parse', '--verify', `${commitSha}^{commit}`]);
-  const treeEntry = runGit([
-    'ls-tree',
-    '--name-only',
-    commitSha,
-    '--',
-    REGISTRY_PATH,
-  ]).stdout.trim();
+function registryAtCommit(readGit: RepositoryGitTextReaderV1, commitSha: string): RegistrySnapshot {
+  readGit({ kind: 'RESOLVE_OBJECT', revision: commitSha, peel: 'COMMIT' });
+  const treeEntry = readGit({
+    kind: 'LIST_TREE',
+    revision: commitSha,
+    projection: 'PATHS',
+    recursive: false,
+    paths: [REGISTRY_PATH],
+  }).stdout;
   if (treeEntry.length === 0) {
     return { byId: new Map(), rowCount: 0 };
   }
-  return registryAtBlob(registryBlobAtCommit(commitSha)).snapshot;
+  if (treeEntry !== `${REGISTRY_PATH}\0`) {
+    throw new Error(`registry tree query returned an invalid path stream for ${commitSha}`);
+  }
+  return registryAtBlob(readGit, registryBlobAtCommit(readGit, commitSha)).snapshot;
 }
 
-function registryAtBlob(blobSha: string): RegistryBlobSnapshot {
+function registryAtBlob(readGit: RepositoryGitTextReaderV1, blobSha: string): RegistryBlobSnapshot {
   const checkedBlobSha = requireSha(blobSha, 'registry blob SHA');
   const cached = registryBlobCache.get(checkedBlobSha);
   if (cached) {
@@ -704,11 +696,11 @@ function registryAtBlob(blobSha: string): RegistryBlobSnapshot {
     return cached;
   }
 
-  const objectType = runGit(['cat-file', '-t', checkedBlobSha]).stdout.trim();
+  const objectType = readGit({ kind: 'OBJECT_TYPE', oid: checkedBlobSha }).stdout.trim();
   if (objectType !== 'blob') {
     throw new Error(`registry authority ${checkedBlobSha} is ${objectType}, not a Git blob`);
   }
-  const raw = runGit(['cat-file', 'blob', checkedBlobSha]).stdout;
+  const raw = readGit({ kind: 'READ_BLOB', oid: checkedBlobSha }).stdout;
   const result = {
     raw,
     snapshot: parseRegistry(raw, `registry-blob:${checkedBlobSha}`),
@@ -863,22 +855,17 @@ function requireReviewPath(path: string): string {
 }
 
 function changedReviewPaths(
-  revisionArgs: readonly string[],
-  worktreePath: string = REPO_ROOT,
+  readGit: RepositoryGitTextReaderV1,
+  baseSha: string,
+  headSha: string | undefined,
 ): string[] {
-  return runGit(
-    [
-      'diff',
-      '--no-ext-diff',
-      '--no-color',
-      '--name-only',
-      '-z',
-      ...revisionArgs,
-      '--',
-      'docs/reviews',
-    ],
-    worktreePath,
-  )
+  return readGit({
+    kind: 'DIFF',
+    projection: 'NAME_ONLY',
+    base: baseSha,
+    ...(headSha === undefined ? {} : { head: headSha }),
+    paths: ['docs/reviews'],
+  })
     .stdout.split('\0')
     .filter(Boolean)
     .map(requireReviewPath)
@@ -887,15 +874,19 @@ function changedReviewPaths(
 }
 
 function reviewEvidenceFromPaths(
-  revisionArgs: readonly string[],
-  worktreePath: string = REPO_ROOT,
+  readGit: RepositoryGitTextReaderV1,
+  baseSha: string,
+  headSha: string | undefined,
 ): Map<string, ReviewEvidence> {
   const findings = new Map<string, ReviewEvidence>();
-  for (const path of changedReviewPaths(revisionArgs, worktreePath)) {
-    const diff = runGit(
-      ['diff', '--no-ext-diff', '--no-color', '--unified=0', ...revisionArgs, '--', path],
-      worktreePath,
-    ).stdout;
+  for (const path of changedReviewPaths(readGit, baseSha, headSha)) {
+    const diff = readGit({
+      kind: 'DIFF',
+      projection: 'PATCH_ZERO_CONTEXT',
+      base: baseSha,
+      ...(headSha === undefined ? {} : { head: headSha }),
+      paths: [path],
+    }).stdout;
     mergeReviewEvidence(findings, extractAddedReviewEvidence(diff, path));
   }
   return findings;
@@ -915,19 +906,25 @@ function registryReferenceEvidence(
   return findings;
 }
 
-function reviewEvidenceBetween(baseSha: string, headSha: string): Map<string, ReviewEvidence> {
-  return reviewEvidenceFromPaths([baseSha, headSha]);
+function reviewEvidenceBetween(
+  readGit: RepositoryGitTextReaderV1,
+  baseSha: string,
+  headSha: string,
+): Map<string, ReviewEvidence> {
+  return reviewEvidenceFromPaths(readGit, baseSha, headSha);
 }
 
 function dirtyReviewEvidence(
+  readGit: RepositoryGitTextReaderV1,
   baselineSha: string,
   worktreePath: string,
 ): Map<string, ReviewEvidence> {
-  const findings = reviewEvidenceFromPaths([baselineSha], worktreePath);
-  const untracked = runGit(
-    ['ls-files', '--others', '--exclude-standard', '-z', '--', 'docs/reviews'],
-    worktreePath,
-  ).stdout;
+  const findings = reviewEvidenceFromPaths(readGit, baselineSha, undefined);
+  const untracked = readGit({
+    kind: 'LIST_INDEX_PATHS',
+    selection: 'UNTRACKED_STANDARD',
+    roots: ['docs/reviews'],
+  }).stdout;
   for (const relativePath of untracked.split('\0').filter(Boolean).sort()) {
     const absolutePath = join(worktreePath, relativePath);
     if (!existsSync(absolutePath)) {
@@ -956,22 +953,34 @@ function reviewSemanticSha256(rawId: string, evidence: ReviewEvidence): string {
   return sha256(stableJson({ raw_id: rawId, evidence: normalizedFrames }));
 }
 
-function mergeBase(sourceHeadSha: string, reconciledBaseSha: string): string {
+function mergeBase(
+  readGit: RepositoryGitTextReaderV1,
+  sourceHeadSha: string,
+  reconciledBaseSha: string,
+): string {
   return requireSha(
-    runGit(['merge-base', sourceHeadSha, reconciledBaseSha]).stdout.trim(),
+    readGit({
+      kind: 'MERGE_BASE',
+      left: sourceHeadSha,
+      right: reconciledBaseSha,
+    }).stdout.trim(),
     `merge-base(${sourceHeadSha}, ${reconciledBaseSha})`,
   );
 }
 
-function assertSourceHeadPin(source: SourceRecord): void {
+function assertSourceHeadPin(readGit: RepositoryGitTextReaderV1, source: SourceRecord): void {
   const resolvedHead =
     source.kind === 'DIRTY_WORKTREE'
       ? requireSha(
-          runGit(['rev-parse', '--verify', 'HEAD^{commit}'], source.locator).stdout.trim(),
+          readGit({ kind: 'RESOLVE_OBJECT', revision: 'HEAD', peel: 'COMMIT' }).stdout.trim(),
           `${source.id} dirty worktree HEAD`,
         )
       : requireSha(
-          runGit(['rev-parse', '--verify', `${source.locator}^{commit}`]).stdout.trim(),
+          readGit({
+            kind: 'RESOLVE_OBJECT',
+            revision: source.locator,
+            peel: 'COMMIT',
+          }).stdout.trim(),
           `${source.id} source ref`,
         );
   if (resolvedHead !== source.headSha) {
@@ -981,15 +990,19 @@ function assertSourceHeadPin(source: SourceRecord): void {
   }
 }
 
-function captureLiveMainPin(): LiveMainPin {
+function captureLiveMainPin(readGit: RepositoryGitTextReaderV1): LiveMainPin {
   const commitSha = requireSha(
-    runGit(['rev-parse', '--verify', 'refs/remotes/origin/main^{commit}']).stdout.trim(),
+    readGit({
+      kind: 'RESOLVE_OBJECT',
+      revision: 'refs/remotes/origin/main',
+      peel: 'COMMIT',
+    }).stdout.trim(),
     'live origin/main commit',
   );
   return {
     commitSha,
-    registryBlobSha: registryBlobAtCommit(commitSha),
-    registrySchemaBlobSha: registrySchemaBlobAtCommit(commitSha),
+    registryBlobSha: registryBlobAtCommit(readGit, commitSha),
+    registrySchemaBlobSha: registrySchemaBlobAtCommit(readGit, commitSha),
   };
 }
 
@@ -1188,71 +1201,67 @@ function assertLiveMainStable(start: LiveMainPin, end: LiveMainPin): void {
   }
 }
 
-function gitIsAncestor(ancestorSha: string, descendantSha: string): boolean {
+function gitIsAncestor(
+  readGit: RepositoryGitTextReaderV1,
+  ancestorSha: string,
+  descendantSha: string,
+): boolean {
   return (
-    runGit(['merge-base', '--is-ancestor', ancestorSha, descendantSha], REPO_ROOT, [0, 1])
-      .status === 0
+    readGit({ kind: 'IS_ANCESTOR', ancestor: ancestorSha, descendant: descendantSha }).status === 0
   );
 }
 
-function registryBlobAtCommit(commitSha: string): string {
-  return blobAtCommit(commitSha, REGISTRY_PATH, 'registry');
+function registryBlobAtCommit(readGit: RepositoryGitTextReaderV1, commitSha: string): string {
+  return blobAtCommit(readGit, commitSha, REGISTRY_PATH, 'registry');
 }
 
-function registrySchemaBlobAtCommit(commitSha: string): string {
-  return blobAtCommit(commitSha, REGISTRY_SCHEMA_PATH, 'registry schema');
+function registrySchemaBlobAtCommit(readGit: RepositoryGitTextReaderV1, commitSha: string): string {
+  return blobAtCommit(readGit, commitSha, REGISTRY_SCHEMA_PATH, 'registry schema');
 }
 
-function blobAtCommit(commitSha: string, path: string, label: string): string {
+function blobAtCommit(
+  readGit: RepositoryGitTextReaderV1,
+  commitSha: string,
+  path: string,
+  label: string,
+): string {
   return requireSha(
-    runGit(['rev-parse', `${commitSha}:${path}`]).stdout.trim(),
+    readGit({ kind: 'RESOLVE_OBJECT', revision: commitSha, peel: 'PATH', path }).stdout.trim(),
     `${commitSha} ${label} blob`,
   );
 }
 
-function effectiveRegistrySchemaBlobSha(): string {
+function effectiveRegistrySchemaBlobSha(readGit: RepositoryGitTextReaderV1): string {
   const headSha = requireSha(
-    runGit(['rev-parse', '--verify', 'HEAD^{commit}']).stdout.trim(),
+    readGit({ kind: 'RESOLVE_OBJECT', revision: 'HEAD', peel: 'COMMIT' }).stdout.trim(),
     'source-finding schema authority HEAD',
   );
-  return registrySchemaBlobAtCommit(headSha);
+  return registrySchemaBlobAtCommit(readGit, headSha);
 }
 
-async function discoverForSource(
+function discoverForSourceInPhase(
+  readGit: RepositoryGitTextReaderV1,
   source: SourceRecord,
   reconciledBaseSha: string,
   mainRegistry: RegistrySnapshot,
-): Promise<DiscoveredFinding[]> {
-  assertSourceHeadPin(source);
-  const sourceMergeBase = mergeBase(source.headSha, reconciledBaseSha);
-  const baselineRegistry = registryAtCommit(sourceMergeBase);
-  const sourceHeadRegistry = registryAtCommit(source.headSha);
+): DiscoveredFinding[] {
+  assertSourceHeadPin(readGit, source);
+  const sourceMergeBase = mergeBase(readGit, source.headSha, reconciledBaseSha);
+  const baselineRegistry = registryAtCommit(readGit, sourceMergeBase);
+  const sourceHeadRegistry = registryAtCommit(readGit, source.headSha);
   let effectiveRegistry = sourceHeadRegistry;
   let registryIds: Set<string>;
   let registryReferences: Map<string, ReviewEvidence>;
   let reviews: Map<string, ReviewEvidence>;
-  let dirtyContentBefore: string | null = null;
-
   if (source.kind === 'DIRTY_WORKTREE') {
-    if (!isAbsolute(source.locator)) {
-      throw new Error(`${source.id} dirty worktree locator must be absolute`);
-    }
-    const dirtyEvidenceBefore = await computeCanonicalGitWorktreeEvidence(source.locator);
-    if (!dirtyEvidenceBefore.dirty) {
-      throw new Error(`${source.id} is registered as dirty but its canonical status is clean`);
-    }
-    dirtyContentBefore = dirtyEvidenceBefore.contentSha256;
-    if (source.contentSha256 === null || dirtyContentBefore !== source.contentSha256) {
-      throw new Error(`${source.id} dirty content differs from its capability source attestation`);
-    }
     effectiveRegistry = registryAtWorktree(source.locator);
     registryIds = changedRegistryIds(baselineRegistry, effectiveRegistry);
     registryReferences = registryReferenceEvidence(effectiveRegistry, registryIds);
-    reviews = dirtyReviewEvidence(sourceMergeBase, source.locator);
+    reviews = dirtyReviewEvidence(readGit, sourceMergeBase, source.locator);
   } else {
     registryIds = changedRegistryIds(baselineRegistry, sourceHeadRegistry);
     registryReferences = registryReferenceEvidence(sourceHeadRegistry, registryIds);
-    reviews = reviewEvidenceBetween(sourceMergeBase, source.headSha);
+    reviews = reviewEvidenceBetween(readGit, sourceMergeBase, source.headSha);
   }
 
   const rawIds = new Set([...registryIds, ...registryReferences.keys(), ...reviews.keys()]);
@@ -1312,15 +1321,57 @@ async function discoverForSource(
       mainRecordSha256: null,
     });
   }
+  assertSourceHeadPin(readGit, source);
+  return findings;
+}
+
+async function discoverForSource(
+  source: SourceRecord,
+  reconciledBaseSha: string,
+  mainRegistry: RegistrySnapshot,
+): Promise<DiscoveredFinding[]> {
+  if (source.kind === 'DIRTY_WORKTREE' && !isAbsolute(source.locator)) {
+    throw new Error(`${source.id} dirty worktree locator must be absolute`);
+  }
+  const worktreePath = source.kind === 'DIRTY_WORKTREE' ? source.locator : REPO_ROOT;
+  let dirtyContentBefore: string | null = null;
   if (source.kind === 'DIRTY_WORKTREE') {
-    const dirtyContentAfter = (await computeCanonicalGitWorktreeEvidence(source.locator))
-      .contentSha256;
-    if (dirtyContentAfter !== dirtyContentBefore) {
-      throw new Error(`${source.id} dirty content moved during finding discovery`);
+    const dirtyEvidenceBefore = await computeCanonicalGitWorktreeEvidence(source.locator);
+    if (!dirtyEvidenceBefore.dirty) {
+      throw new Error(`${source.id} is registered as dirty but its canonical status is clean`);
+    }
+    dirtyContentBefore = dirtyEvidenceBefore.contentSha256;
+    if (source.contentSha256 === null || dirtyContentBefore !== source.contentSha256) {
+      throw new Error(`${source.id} dirty content differs from its capability source attestation`);
     }
   }
-  assertSourceHeadPin(source);
-  return findings;
+  const phase = withPinnedRepositoryGitReadPhase(
+    worktreePath,
+    `source-finding discovery ${source.id}`,
+    (readGit, coordinates) => ({
+      coordinates,
+      findings: discoverForSourceInPhase(readGit, source, reconciledBaseSha, mainRegistry),
+    }),
+  );
+  if (source.kind !== 'DIRTY_WORKTREE') return phase.findings;
+  const dirtyContentAfter = (await computeCanonicalGitWorktreeEvidence(source.locator))
+    .contentSha256;
+  if (dirtyContentAfter !== dirtyContentBefore) {
+    throw new Error(`${source.id} dirty content moved during finding discovery`);
+  }
+  withPinnedRepositoryGitReadPhase(
+    worktreePath,
+    `source-finding final pin ${source.id}`,
+    (readGit, coordinates) => {
+      assertRepositoryGitGlobalCoordinatesStable(
+        `source-finding cross-phase ${source.id}`,
+        phase.coordinates,
+        coordinates,
+      );
+      assertSourceHeadPin(readGit, source);
+    },
+  );
+  return phase.findings;
 }
 
 export function parseCliOptions(args: readonly string[]): CliOptions {
@@ -1516,12 +1567,13 @@ function captureFullExecutionSafetyEvidence(): FullExecutionSafetyEvidence {
 }
 
 function assertExecutionMainCompatibility(
+  readGit: RepositoryGitTextReaderV1,
   manifest: ParsedManifest,
   options: CliOptions,
   liveMain: LiveMainPin,
 ): void {
   const headSha = requireSha(
-    runGit(['rev-parse', '--verify', 'HEAD^{commit}']).stdout.trim(),
+    readGit({ kind: 'RESOLVE_OBJECT', revision: 'HEAD', peel: 'COMMIT' }).stdout.trim(),
     'checked-out HEAD',
   );
   if (
@@ -1529,7 +1581,12 @@ function assertExecutionMainCompatibility(
     options.scope !== 'remote' ||
     process.env.GITHUB_ACTIONS !== 'true'
   ) {
-    assertLiveMainCompatible(liveMain, manifest.reconciledBaseSha, headSha, gitIsAncestor);
+    assertLiveMainCompatible(
+      liveMain,
+      manifest.reconciledBaseSha,
+      headSha,
+      (ancestor, descendant) => gitIsAncestor(readGit, ancestor, descendant),
+    );
     return;
   }
   const inventory = manifest.findingInventory;
@@ -1557,9 +1614,9 @@ function assertExecutionMainCompatibility(
         inventory.registry_authority.discovery_candidate.schema_blob_sha,
     },
     {
-      isAncestor: gitIsAncestor,
-      registryBlobAt: registryBlobAtCommit,
-      registrySchemaBlobAt: registrySchemaBlobAtCommit,
+      isAncestor: (ancestor, descendant) => gitIsAncestor(readGit, ancestor, descendant),
+      registryBlobAt: (commitSha) => registryBlobAtCommit(readGit, commitSha),
+      registrySchemaBlobAt: (commitSha) => registrySchemaBlobAtCommit(readGit, commitSha),
     },
   );
 }
@@ -2602,8 +2659,7 @@ function buildSourceAttestations(
   sourceAdjudications: readonly SourceAdjudication[],
   occurrences: readonly SourceFindingOccurrence[],
   reconciledBaseSha: string,
-  resolveMergeBase: (source: SourceRecord, reconciledBaseSha: string) => string = (source, base) =>
-    mergeBase(source.headSha, base),
+  resolveMergeBase: (source: SourceRecord, reconciledBaseSha: string) => string,
 ): SourceAttestation[] {
   const adjudicationsBySource = sourceAdjudicationsBySource(sourceAdjudications);
   return [...sources]
@@ -2653,8 +2709,11 @@ function buildUnitAttestations(
     }));
 }
 
-function registryBlobAttestation(blobSha: string): RegistryBlobAttestation {
-  const registry = registryAtBlob(blobSha);
+function registryBlobAttestation(
+  readGit: RepositoryGitTextReaderV1,
+  blobSha: string,
+): RegistryBlobAttestation {
+  const registry = registryAtBlob(readGit, blobSha);
   return {
     blob_sha: requireSha(blobSha, 'registry authority blob SHA'),
     sha256: sha256(registry.raw),
@@ -2663,6 +2722,7 @@ function registryBlobAttestation(blobSha: string): RegistryBlobAttestation {
 }
 
 function registrySchemaBlobAttestation(
+  readGit: RepositoryGitTextReaderV1,
   blobSha: string,
   discoverySchemaBlobSha: string,
   discoveryAuthority: 'EFFECTIVE_HEAD' | 'COMMITTED_BLOB' = 'EFFECTIVE_HEAD',
@@ -2670,18 +2730,18 @@ function registrySchemaBlobAttestation(
   const checkedBlobSha = requireSha(blobSha, 'registry schema authority blob SHA');
   let raw: string;
   if (discoveryAuthority === 'EFFECTIVE_HEAD' && checkedBlobSha === discoverySchemaBlobSha) {
-    if (effectiveRegistrySchemaBlobSha() !== discoverySchemaBlobSha) {
+    if (effectiveRegistrySchemaBlobSha(readGit) !== discoverySchemaBlobSha) {
       throw new Error('effective registry schema differs from its discovery Git blob');
     }
     raw = REGISTRY_SCHEMA_RAW;
   } else {
-    const objectType = runGit(['cat-file', '-t', checkedBlobSha]).stdout.trim();
+    const objectType = readGit({ kind: 'OBJECT_TYPE', oid: checkedBlobSha }).stdout.trim();
     if (objectType !== 'blob') {
       throw new Error(
         `registry schema authority ${checkedBlobSha} is ${objectType}, not a Git blob`,
       );
     }
-    raw = runGit(['cat-file', 'blob', checkedBlobSha]).stdout;
+    raw = readGit({ kind: 'READ_BLOB', oid: checkedBlobSha }).stdout;
   }
   return {
     blob_sha: checkedBlobSha,
@@ -2690,13 +2750,14 @@ function registrySchemaBlobAttestation(
 }
 
 function registryAuthorityAttestation(
+  readGit: RepositoryGitTextReaderV1,
   reconciledBaseSha: string,
   discoveryRegistryBlobSha: string,
   discoverySchemaBlobSha: string,
   discoveryAuthority: 'EFFECTIVE_HEAD' | 'COMMITTED_BLOB' = 'EFFECTIVE_HEAD',
 ): RegistryAuthority {
-  const reconciledRegistryBlobSha = registryBlobAtCommit(reconciledBaseSha);
-  const reconciledSchemaBlobSha = registrySchemaBlobAtCommit(reconciledBaseSha);
+  const reconciledRegistryBlobSha = registryBlobAtCommit(readGit, reconciledBaseSha);
+  const reconciledSchemaBlobSha = registrySchemaBlobAtCommit(readGit, reconciledBaseSha);
   const uniqueRegistryBlobShas = [
     ...new Set([reconciledRegistryBlobSha, discoveryRegistryBlobSha]),
   ].sort(compareText);
@@ -2712,9 +2773,11 @@ function registryAuthorityAttestation(
       registry_blob_sha: requireSha(discoveryRegistryBlobSha, 'discovery registry blob SHA'),
       schema_blob_sha: requireSha(discoverySchemaBlobSha, 'discovery registry schema blob SHA'),
     },
-    registry_snapshots: uniqueRegistryBlobShas.map(registryBlobAttestation),
+    registry_snapshots: uniqueRegistryBlobShas.map((blobSha) =>
+      registryBlobAttestation(readGit, blobSha),
+    ),
     schema_snapshots: uniqueSchemaBlobShas.map((blobSha) =>
-      registrySchemaBlobAttestation(blobSha, discoverySchemaBlobSha, discoveryAuthority),
+      registrySchemaBlobAttestation(readGit, blobSha, discoverySchemaBlobSha, discoveryAuthority),
     ),
   };
 }
@@ -2747,6 +2810,7 @@ function generationAttestation(
 }
 
 function buildFindingInventoryManifest(
+  readGit: RepositoryGitTextReaderV1,
   manifest: ParsedManifest,
   occurrences: readonly SourceFindingOccurrence[],
   artifact: string,
@@ -2765,6 +2829,7 @@ function buildFindingInventoryManifest(
     audit_lineage: auditLineage(),
     discovery_contract: discoveryContract(),
     registry_authority: registryAuthorityAttestation(
+      readGit,
       manifest.reconciledBaseSha,
       discoveryRegistryBlobSha,
       discoverySchemaBlobSha,
@@ -2785,30 +2850,52 @@ async function discover(
   discoveryRegistryBlobSha: string;
   discoveryRegistrySchemaBlobSha: string;
 }> {
-  const discoveryHeadSha = requireSha(
-    runGit(['rev-parse', '--verify', 'HEAD^{commit}']).stdout.trim(),
-    'source-finding discovery HEAD',
+  const initial = withPinnedRepositoryGitReadPhase(
+    REPO_ROOT,
+    'source-finding candidate snapshot',
+    (readGit, coordinates) => {
+      const discoveryHeadSha = requireSha(
+        readGit({ kind: 'RESOLVE_OBJECT', revision: 'HEAD', peel: 'COMMIT' }).stdout.trim(),
+        'source-finding discovery HEAD',
+      );
+      const discoveryRegistryBlobSha = registryBlobAtCommit(readGit, discoveryHeadSha);
+      const discoveryRegistrySchemaBlobSha = effectiveRegistrySchemaBlobSha(readGit);
+      if (
+        readBoundedText(join(REPO_ROOT, REGISTRY_SCHEMA_PATH), MAX_REGISTRY_SCHEMA_BYTES) !==
+        REGISTRY_SCHEMA_RAW
+      ) {
+        throw new Error('registry schema changed after source-finding tool initialization');
+      }
+      return {
+        coordinates,
+        discoveryHeadSha,
+        discoveryRegistryBlobSha,
+        discoveryRegistrySchemaBlobSha,
+        discoveryRegistry: registryAtBlob(readGit, discoveryRegistryBlobSha).snapshot,
+      };
+    },
   );
-  const discoveryRegistryBlobSha = registryBlobAtCommit(discoveryHeadSha);
-  const discoveryRegistrySchemaBlobSha = effectiveRegistrySchemaBlobSha();
-  if (
-    readBoundedText(join(REPO_ROOT, REGISTRY_SCHEMA_PATH), MAX_REGISTRY_SCHEMA_BYTES) !==
-    REGISTRY_SCHEMA_RAW
-  ) {
-    throw new Error('registry schema changed after source-finding tool initialization');
-  }
-  const discoveryRegistry = registryAtBlob(discoveryRegistryBlobSha).snapshot;
   const findings: DiscoveredFinding[] = [];
   for (const source of sourcesForFindingLane(manifest.sources, scope)) {
     findings.push(
-      ...(await discoverForSource(source, manifest.reconciledBaseSha, discoveryRegistry)),
+      ...(await discoverForSource(source, manifest.reconciledBaseSha, initial.discoveryRegistry)),
     );
   }
+  withPinnedRepositoryGitReadPhase(
+    REPO_ROOT,
+    'source-finding candidate final pin',
+    (_readGit, coordinates) =>
+      assertRepositoryGitGlobalCoordinatesStable(
+        'source-finding candidate cross-phase',
+        initial.coordinates,
+        coordinates,
+      ),
+  );
   return {
     findings,
-    discoveryHeadSha,
-    discoveryRegistryBlobSha,
-    discoveryRegistrySchemaBlobSha,
+    discoveryHeadSha: initial.discoveryHeadSha,
+    discoveryRegistryBlobSha: initial.discoveryRegistryBlobSha,
+    discoveryRegistrySchemaBlobSha: initial.discoveryRegistrySchemaBlobSha,
   };
 }
 
@@ -3023,6 +3110,7 @@ function validateInternalContract(
   artifactRaw: string,
   occurrences: readonly SourceFindingOccurrence[],
   scope: InventoryScope | null,
+  resolveLiveMergeBase?: (source: SourceRecord, reconciledBaseSha: string) => string,
 ): void {
   const inventory = manifest.findingInventory;
   if (!inventory) {
@@ -3115,6 +3203,9 @@ function validateInternalContract(
     'finding_inventory static source_attestations',
   );
   if (scope !== null) {
+    if (resolveLiveMergeBase === undefined) {
+      throw new Error('live source-finding validation has no session-bound merge-base authority');
+    }
     const liveSources = sourcesForFindingLane(manifest.sources, scope);
     const liveSourceIds = new Set(liveSources.map((source) => source.id));
     assertJsonEqual(
@@ -3126,6 +3217,7 @@ function validateInternalContract(
         manifest.sourceAdjudications,
         occurrences,
         manifest.reconciledBaseSha,
+        resolveLiveMergeBase,
       ),
       `finding_inventory ${scope} live source_attestations`,
     );
@@ -3307,12 +3399,14 @@ export function assertStoredFindingInventoryIntegrity(
 }
 
 function validateRegistryAuthority(
+  readGit: RepositoryGitTextReaderV1,
   manifest: ParsedManifest,
   discoveryRegistryBlobSha: string,
   discoveryRegistrySchemaBlobSha: string,
   discoveryAuthority: 'EFFECTIVE_HEAD' | 'COMMITTED_BLOB' = 'EFFECTIVE_HEAD',
 ): void {
   const expected = registryAuthorityAttestation(
+    readGit,
     manifest.reconciledBaseSha,
     discoveryRegistryBlobSha,
     discoveryRegistrySchemaBlobSha,
@@ -3326,6 +3420,7 @@ function validateRegistryAuthority(
 }
 
 function validateStoredRegistryAuthority(
+  readGit: RepositoryGitTextReaderV1,
   manifest: ParsedManifest,
   discoveryAuthority: 'EFFECTIVE_HEAD' | 'COMMITTED_BLOB' = 'EFFECTIVE_HEAD',
 ): void {
@@ -3334,6 +3429,7 @@ function validateStoredRegistryAuthority(
     throw new Error('stored registry authority requires a finding inventory');
   }
   validateRegistryAuthority(
+    readGit,
     manifest,
     inventory.registry_authority.discovery_candidate.registry_blob_sha,
     inventory.registry_authority.discovery_candidate.schema_blob_sha,
@@ -3436,6 +3532,7 @@ function assertExclusiveArtifactAuthority(authoritativePath: string): void {
 }
 
 function captureInputSnapshot(
+  readGit: RepositoryGitTextReaderV1 | undefined,
   manifestText: string,
   manifest: ParsedManifest,
   requireCommittedFormattingContract: boolean,
@@ -3464,10 +3561,20 @@ function captureInputSnapshot(
   return {
     manifestText,
     prettierConfigText: requireCommittedFormattingContract
-      ? readCommittedPrettierConfigText()
+      ? readCommittedPrettierConfigText(
+          readGit ??
+            (() => {
+              throw new Error('committed formatting snapshot has no Git reader');
+            }),
+        )
       : readPrettierConfigText(),
     packageLockText: requireCommittedFormattingContract
-      ? readCommittedPackageLockText()
+      ? readCommittedPackageLockText(
+          readGit ??
+            (() => {
+              throw new Error('committed formatting snapshot has no Git reader');
+            }),
+        )
       : readPackageLockText(),
     artifactPath,
     artifactText,
@@ -3538,21 +3645,44 @@ async function assertIncludedSourcesStable(
       throw new Error(`${source.id} dirty content differs from its capability source attestation`);
     }
   };
-  for (const source of includedSources) {
-    assertSourceHeadPin(source);
-  }
+  const assertHeadPhase = (
+    label: string,
+    prior?: ReadonlyMap<string, RepositoryGitGlobalCoordinatesV1>,
+  ): ReadonlyMap<string, RepositoryGitGlobalCoordinatesV1> =>
+    new Map(
+      includedSources.map((source) => {
+        const worktreePath = source.kind === 'DIRTY_WORKTREE' ? source.locator : REPO_ROOT;
+        const coordinates = withPinnedRepositoryGitReadPhase(
+          worktreePath,
+          `${label} ${source.id}`,
+          (readGit, current) => {
+            const initial = prior?.get(source.id);
+            if (prior !== undefined && initial === undefined) {
+              throw new Error(`${source.id} lost its prior repository coordinate pin`);
+            }
+            if (initial !== undefined) {
+              assertRepositoryGitGlobalCoordinatesStable(
+                `${label} cross-phase ${source.id}`,
+                initial,
+                current,
+              );
+            }
+            assertSourceHeadPin(readGit, source);
+            return current;
+          },
+        );
+        return [source.id, coordinates] as const;
+      }),
+    );
+  const initialCoordinates = assertHeadPhase('source-finding included-source initial pin');
   for (const source of dirtySources) {
     await assertDirtyContentPin(source);
   }
-  for (const source of includedSources) {
-    assertSourceHeadPin(source);
-  }
+  assertHeadPhase('source-finding included-source middle pin', initialCoordinates);
   for (const source of [...dirtySources].reverse()) {
     await assertDirtyContentPin(source);
   }
-  for (const source of includedSources) {
-    assertSourceHeadPin(source);
-  }
+  assertHeadPhase('source-finding included-source final pin', initialCoordinates);
 }
 
 export function assertDiscoveryCandidateStable(
@@ -3577,17 +3707,18 @@ export function assertDiscoveryCandidateStable(
 }
 
 function assertDiscoveryCandidateUnchanged(
+  readGit: RepositoryGitTextReaderV1,
   discoveryHeadSha: string,
   discoveryRegistryBlobSha: string,
   discoveryRegistrySchemaBlobSha: string,
   requireCommittedRegistry: boolean,
 ): void {
   const currentHeadSha = requireSha(
-    runGit(['rev-parse', '--verify', 'HEAD^{commit}']).stdout.trim(),
+    readGit({ kind: 'RESOLVE_OBJECT', revision: 'HEAD', peel: 'COMMIT' }).stdout.trim(),
     'current source-finding HEAD',
   );
-  const currentRegistryBlobSha = registryBlobAtCommit(currentHeadSha);
-  const currentRegistrySchemaBlobSha = effectiveRegistrySchemaBlobSha();
+  const currentRegistryBlobSha = registryBlobAtCommit(readGit, currentHeadSha);
+  const currentRegistrySchemaBlobSha = effectiveRegistrySchemaBlobSha(readGit);
   assertDiscoveryCandidateStable(
     {
       headSha: discoveryHeadSha,
@@ -3601,7 +3732,7 @@ function assertDiscoveryCandidateUnchanged(
     },
   );
   if (requireCommittedRegistry) {
-    assertFindingAuthorityCommitted();
+    assertFindingAuthorityCommitted(readGit);
   }
 }
 
@@ -3614,17 +3745,27 @@ function fsyncParentDirectory(path: string): void {
   }
 }
 
-function readHeadIdenticalText(relativePath: string, maxBytes: number, label: string): string {
+function readHeadIdenticalText(
+  readGit: RepositoryGitTextReaderV1,
+  relativePath: string,
+  maxBytes: number,
+  label: string,
+): string {
   const worktreeText = readBoundedText(join(REPO_ROOT, relativePath), maxBytes);
-  const committedText = runGit(['show', `HEAD:${relativePath}`]).stdout;
+  const committedText = readGit({
+    kind: 'SHOW_PATH',
+    revision: 'HEAD',
+    path: relativePath,
+  }).stdout;
   if (worktreeText !== committedText) {
     throw new Error(`source-finding publication requires ${label} to be byte-identical to HEAD`);
   }
   return worktreeText;
 }
 
-function readCommittedPrettierConfigText(): string {
+function readCommittedPrettierConfigText(readGit: RepositoryGitTextReaderV1): string {
   return readHeadIdenticalText(
+    readGit,
     PRETTIER_CONFIG_PATH,
     MAX_PRETTIER_CONFIG_BYTES,
     PRETTIER_CONFIG_PATH,
@@ -3635,8 +3776,13 @@ function readPrettierConfigText(): string {
   return readBoundedText(join(REPO_ROOT, PRETTIER_CONFIG_PATH), MAX_PRETTIER_CONFIG_BYTES);
 }
 
-function readCommittedPackageLockText(): string {
-  return readHeadIdenticalText(PACKAGE_LOCK_PATH, MAX_PACKAGE_LOCK_BYTES, PACKAGE_LOCK_PATH);
+function readCommittedPackageLockText(readGit: RepositoryGitTextReaderV1): string {
+  return readHeadIdenticalText(
+    readGit,
+    PACKAGE_LOCK_PATH,
+    MAX_PACKAGE_LOCK_BYTES,
+    PACKAGE_LOCK_PATH,
+  );
 }
 
 function readPackageLockText(): string {
@@ -3778,13 +3924,16 @@ export function formatSourceFindingManifest(manifest: Record<string, unknown>): 
 }
 
 function assertPublicationIdentityStable(fence: PublicationFence): void {
-  assertDiscoveryCandidateUnchanged(
-    fence.candidate.headSha,
-    fence.candidate.registryBlobSha,
-    fence.candidate.registrySchemaBlobSha,
-    true,
-  );
-  assertLiveMainStable(fence.liveMain, captureLiveMainPin());
+  withPinnedRepositoryGitReadPhase(REPO_ROOT, 'source-finding publication identity', (readGit) => {
+    assertDiscoveryCandidateUnchanged(
+      readGit,
+      fence.candidate.headSha,
+      fence.candidate.registryBlobSha,
+      fence.candidate.registrySchemaBlobSha,
+      true,
+    );
+    assertLiveMainStable(fence.liveMain, captureLiveMainPin(readGit));
+  });
 }
 
 async function assertPublicationFenceStable(fence: PublicationFence): Promise<void> {
@@ -3945,30 +4094,45 @@ async function writeGeneratedState(
     reparsed.units,
   );
   const finalArtifact = artifactText(rematerialized);
-  const generatedInventory = buildFindingInventoryManifest(
-    reparsed,
-    rematerialized,
-    finalArtifact,
-    fence.candidate.registryBlobSha,
-    fence.candidate.registrySchemaBlobSha,
-    'ISOLATED_FULL_REDISCOVERED',
-    buildSourceAttestations(
-      reparsed.sources,
-      reparsed.sourceAdjudications,
-      rematerialized,
-      reparsed.reconciledBaseSha,
-    ),
+  const generatedInventory = withPinnedRepositoryGitReadPhase(
+    REPO_ROOT,
+    'source-finding full publication projection',
+    (readGit) => {
+      const generated = buildFindingInventoryManifest(
+        readGit,
+        reparsed,
+        rematerialized,
+        finalArtifact,
+        fence.candidate.registryBlobSha,
+        fence.candidate.registrySchemaBlobSha,
+        'ISOLATED_FULL_REDISCOVERED',
+        buildSourceAttestations(
+          reparsed.sources,
+          reparsed.sourceAdjudications,
+          rematerialized,
+          reparsed.reconciledBaseSha,
+          (source, base) => mergeBase(readGit, source.headSha, base),
+        ),
+      );
+      reparsed.reconciliation.finding_inventory = generated;
+      reparsed.findingInventory = generated;
+      const allocationPolicy = requireRecord(
+        reparsed.reconciliation.finding_allocation_policy,
+        'capability_reconciliation.finding_allocation_policy',
+      );
+      allocationPolicy.reserved_domain_floors = deriveReservedDomainFloors(rematerialized);
+      const publishedOccurrences = parseArtifact(finalArtifact, generated.artifact_path);
+      validateInternalContract(
+        reparsed,
+        finalArtifact,
+        publishedOccurrences,
+        'full',
+        (source, base) => mergeBase(readGit, source.headSha, base),
+      );
+      validateStoredRegistryAuthority(readGit, reparsed);
+      return generated;
+    },
   );
-  reparsed.reconciliation.finding_inventory = generatedInventory;
-  reparsed.findingInventory = generatedInventory;
-  const allocationPolicy = requireRecord(
-    reparsed.reconciliation.finding_allocation_policy,
-    'capability_reconciliation.finding_allocation_policy',
-  );
-  allocationPolicy.reserved_domain_floors = deriveReservedDomainFloors(rematerialized);
-  const publishedOccurrences = parseArtifact(finalArtifact, generatedInventory.artifact_path);
-  validateInternalContract(reparsed, finalArtifact, publishedOccurrences, 'full');
-  validateStoredRegistryAuthority(reparsed);
 
   await publishGeneratedState(
     reparsed,
@@ -4028,52 +4192,68 @@ async function refreshAttestedState(
     inventory.source_attestations,
     manifest.sources,
   );
-  const refreshedSourceAttestations = buildSourceAttestations(
-    manifest.sources,
-    manifest.sourceAdjudications,
-    refreshed,
-    manifest.reconciledBaseSha,
-    (source, reconciledBaseSha) => {
-      if (source.kind === 'REMOTE_BRANCH') {
-        return mergeBase(source.headSha, reconciledBaseSha);
-      }
-      const prior = priorSourceAttestations.get(source.id);
-      if (!prior) {
-        throw new Error(`${source.id} lost its prior host-source attestation`);
-      }
-      return prior.merge_base_sha;
+  const generatedInventory = withPinnedRepositoryGitReadPhase(
+    REPO_ROOT,
+    'source-finding refresh publication projection',
+    (readGit) => {
+      const resolveRefreshMergeBase = (source: SourceRecord, reconciledBaseSha: string): string => {
+        if (source.kind === 'REMOTE_BRANCH') {
+          return mergeBase(readGit, source.headSha, reconciledBaseSha);
+        }
+        const prior = priorSourceAttestations.get(source.id);
+        if (!prior) {
+          throw new Error(`${source.id} lost its prior host-source attestation`);
+        }
+        return prior.merge_base_sha;
+      };
+      const refreshedSourceAttestations = buildSourceAttestations(
+        manifest.sources,
+        manifest.sourceAdjudications,
+        refreshed,
+        manifest.reconciledBaseSha,
+        resolveRefreshMergeBase,
+      );
+      const generated = buildFindingInventoryManifest(
+        readGit,
+        manifest,
+        refreshed,
+        artifact,
+        fence.candidate.registryBlobSha,
+        fence.candidate.registrySchemaBlobSha,
+        'RETAINED_PENDING_ISOLATED_REDISCOVERY',
+        refreshedSourceAttestations,
+      );
+      manifest.reconciliation.finding_inventory = generated;
+      manifest.findingInventory = generated;
+      const allocationPolicy = requireRecord(
+        manifest.reconciliation.finding_allocation_policy,
+        'capability_reconciliation.finding_allocation_policy',
+      );
+      allocationPolicy.reserved_domain_floors = deriveReservedDomainFloors(refreshed);
+      const publishedOccurrences = parseArtifact(artifact, generated.artifact_path);
+      validateInternalContract(
+        manifest,
+        artifact,
+        publishedOccurrences,
+        'remote',
+        resolveRefreshMergeBase,
+      );
+      validateStoredRegistryAuthority(readGit, manifest);
+      return generated;
     },
   );
-  const generatedInventory = buildFindingInventoryManifest(
-    manifest,
-    refreshed,
-    artifact,
-    fence.candidate.registryBlobSha,
-    fence.candidate.registrySchemaBlobSha,
-    'RETAINED_PENDING_ISOLATED_REDISCOVERY',
-    refreshedSourceAttestations,
-  );
-  manifest.reconciliation.finding_inventory = generatedInventory;
-  manifest.findingInventory = generatedInventory;
-  const allocationPolicy = requireRecord(
-    manifest.reconciliation.finding_allocation_policy,
-    'capability_reconciliation.finding_allocation_policy',
-  );
-  allocationPolicy.reserved_domain_floors = deriveReservedDomainFloors(refreshed);
-  const publishedOccurrences = parseArtifact(artifact, generatedInventory.artifact_path);
-  validateInternalContract(manifest, artifact, publishedOccurrences, 'remote');
-  validateStoredRegistryAuthority(manifest);
   await publishGeneratedState(manifest, artifact, inputSnapshot, fence, lease, writerFence);
   return generatedInventory.artifact_path;
 }
 
-function assertFindingAuthorityCommitted(): void {
+function assertFindingAuthorityCommitted(readGit: RepositoryGitTextReaderV1): void {
   const mutableAuthorityPaths = [REGISTRY_PATH, REGISTRY_SCHEMA_PATH];
-  const status = runGit(
-    ['diff', '--quiet', 'HEAD', '--', ...mutableAuthorityPaths],
-    REPO_ROOT,
-    [0, 1],
-  ).status;
+  const status = readGit({
+    kind: 'DIFF',
+    projection: 'QUIET',
+    base: 'HEAD',
+    paths: mutableAuthorityPaths,
+  }).status;
   if (status !== 0) {
     throw new Error(
       `${mutableAuthorityPaths.join(
@@ -4235,34 +4415,56 @@ async function executeWithSnapshot(
   const manifestText = readBoundedText(join(REPO_ROOT, MANIFEST_PATH));
   const manifestRaw: unknown = JSON.parse(manifestText);
   const manifest = parseManifest(manifestRaw, true);
-  const inputSnapshot = captureInputSnapshot(manifestText, manifest, options.mode !== 'check');
-  let priorOccurrences: SourceFindingOccurrence[] | null = null;
-  let priorInventory: FindingInventoryManifest | null = null;
-  if (options.mode !== 'check') {
-    if (!lease) {
-      throw new Error('source-finding writers require the repository-common publication lease');
-    }
-    assertFindingAuthorityCommitted();
-    if (
-      manifest.findingInventory !== undefined &&
-      inputSnapshot.artifactPath !== null &&
-      inputSnapshot.artifactText !== null
-    ) {
-      if (options.mode === 'refresh') {
-        priorInventory = manifest.findingInventory;
-        priorOccurrences = assertStoredFindingInventoryIntegrity(
-          inputSnapshot.artifactText,
-          manifest.reconciliation.finding_inventory,
-        );
-      } else {
-        priorOccurrences = parseArtifact(inputSnapshot.artifactText, inputSnapshot.artifactPath);
-        validateInternalContract(manifest, inputSnapshot.artifactText, priorOccurrences, null);
+  const initial = withPinnedRepositoryGitReadPhase(
+    REPO_ROOT,
+    'source-finding top-level initial authority',
+    (readGit, coordinates) => {
+      const inputSnapshot = captureInputSnapshot(
+        readGit,
+        manifestText,
+        manifest,
+        options.mode !== 'check',
+      );
+      let priorOccurrences: SourceFindingOccurrence[] | null = null;
+      let priorInventory: FindingInventoryManifest | null = null;
+      if (options.mode !== 'check') {
+        if (!lease) {
+          throw new Error('source-finding writers require the repository-common publication lease');
+        }
+        assertFindingAuthorityCommitted(readGit);
+        if (
+          manifest.findingInventory !== undefined &&
+          inputSnapshot.artifactPath !== null &&
+          inputSnapshot.artifactText !== null
+        ) {
+          if (options.mode === 'refresh') {
+            priorInventory = manifest.findingInventory;
+            priorOccurrences = assertStoredFindingInventoryIntegrity(
+              inputSnapshot.artifactText,
+              manifest.reconciliation.finding_inventory,
+            );
+          } else {
+            priorOccurrences = parseArtifact(
+              inputSnapshot.artifactText,
+              inputSnapshot.artifactPath,
+            );
+            validateInternalContract(manifest, inputSnapshot.artifactText, priorOccurrences, null);
+          }
+          validateStoredRegistryAuthority(readGit, manifest);
+        }
       }
-      validateStoredRegistryAuthority(manifest);
-    }
-  }
-  const liveMainStart = captureLiveMainPin();
-  assertExecutionMainCompatibility(manifest, options, liveMainStart);
+      const liveMainStart = captureLiveMainPin(readGit);
+      assertExecutionMainCompatibility(readGit, manifest, options, liveMainStart);
+      return {
+        coordinates,
+        inputSnapshot,
+        liveMainStart,
+        priorInventory,
+        priorOccurrences,
+      };
+    },
+  );
+  const { inputSnapshot, liveMainStart, priorInventory, priorOccurrences } = initial;
 
   if (options.mode === 'refresh') {
     if (
@@ -4276,28 +4478,43 @@ async function executeWithSnapshot(
       throw new Error('host-safe refresh requires a locked prior source-finding artifact');
     }
     const remoteDiscovery = await discover(manifest, 'remote');
-    assertDiscoveryCandidateUnchanged(
-      remoteDiscovery.discoveryHeadSha,
-      remoteDiscovery.discoveryRegistryBlobSha,
-      remoteDiscovery.discoveryRegistrySchemaBlobSha,
-      true,
-    );
-    assertLiveMainStable(liveMainStart, captureLiveMainPin());
     const remoteOccurrences = materializeOccurrences(
       remoteDiscovery.findings,
       manifest.sourceAdjudications,
       manifest.units,
     );
-    const canonicalEvidenceById = new Map(
-      [...registryAtBlob(remoteDiscovery.discoveryRegistryBlobSha).snapshot.byId.entries()].map(
-        ([findingId, record]) => [
-          findingId,
-          {
-            semanticSha256: registrySemanticSha256(record),
-            state: requireString(record.value.state, `${findingId} canonical finding state`),
-          },
-        ],
-      ),
+    const canonicalEvidenceById = withPinnedRepositoryGitReadPhase(
+      REPO_ROOT,
+      'source-finding refresh post-discovery authority',
+      (readGit, coordinates) => {
+        assertRepositoryGitGlobalCoordinatesStable(
+          'source-finding refresh top-level cross-phase',
+          initial.coordinates,
+          coordinates,
+        );
+        assertDiscoveryCandidateUnchanged(
+          readGit,
+          remoteDiscovery.discoveryHeadSha,
+          remoteDiscovery.discoveryRegistryBlobSha,
+          remoteDiscovery.discoveryRegistrySchemaBlobSha,
+          true,
+        );
+        assertLiveMainStable(liveMainStart, captureLiveMainPin(readGit));
+        return new Map(
+          [
+            ...registryAtBlob(
+              readGit,
+              remoteDiscovery.discoveryRegistryBlobSha,
+            ).snapshot.byId.entries(),
+          ].map(([findingId, record]) => [
+            findingId,
+            {
+              semanticSha256: registrySemanticSha256(record),
+              state: requireString(record.value.state, `${findingId} canonical finding state`),
+            },
+          ]),
+        );
+      },
     );
     const canonicalRebinds = assertRefreshAssignmentTransition(
       priorOccurrences,
@@ -4342,22 +4559,34 @@ async function executeWithSnapshot(
   }
 
   const discovery = await discover(manifest, options.scope);
-  assertDiscoveryCandidateUnchanged(
-    discovery.discoveryHeadSha,
-    discovery.discoveryRegistryBlobSha,
-    discovery.discoveryRegistrySchemaBlobSha,
-    options.mode === 'write',
+  withPinnedRepositoryGitReadPhase(
+    REPO_ROOT,
+    'source-finding post-discovery authority',
+    (readGit, coordinates) => {
+      assertRepositoryGitGlobalCoordinatesStable(
+        'source-finding top-level cross-phase',
+        initial.coordinates,
+        coordinates,
+      );
+      assertDiscoveryCandidateUnchanged(
+        readGit,
+        discovery.discoveryHeadSha,
+        discovery.discoveryRegistryBlobSha,
+        discovery.discoveryRegistrySchemaBlobSha,
+        options.mode === 'write',
+      );
+      const liveMainEnd = captureLiveMainPin(readGit);
+      if (
+        options.mode === 'check' &&
+        options.scope === 'remote' &&
+        process.env.GITHUB_ACTIONS === 'true'
+      ) {
+        assertExecutionMainCompatibility(readGit, manifest, options, liveMainEnd);
+      } else {
+        assertLiveMainStable(liveMainStart, liveMainEnd);
+      }
+    },
   );
-  const liveMainEnd = captureLiveMainPin();
-  if (
-    options.mode === 'check' &&
-    options.scope === 'remote' &&
-    process.env.GITHUB_ACTIONS === 'true'
-  ) {
-    assertExecutionMainCompatibility(manifest, options, liveMainEnd);
-  } else {
-    assertLiveMainStable(liveMainStart, liveMainEnd);
-  }
 
   if (options.mode === 'write') {
     const occurrences = materializeOccurrences(
@@ -4396,7 +4625,30 @@ async function executeWithSnapshot(
   }
   const artifactRaw = inputSnapshot.artifactText;
   const artifactOccurrences = parseArtifact(artifactRaw, inputSnapshot.artifactPath);
-  validateInternalContract(manifest, artifactRaw, artifactOccurrences, options.scope);
+  withPinnedRepositoryGitReadPhase(
+    REPO_ROOT,
+    'source-finding live contract validation',
+    (readGit, coordinates) => {
+      assertRepositoryGitGlobalCoordinatesStable(
+        'source-finding live validation cross-phase',
+        initial.coordinates,
+        coordinates,
+      );
+      validateInternalContract(
+        manifest,
+        artifactRaw,
+        artifactOccurrences,
+        options.scope,
+        (source, base) => mergeBase(readGit, source.headSha, base),
+      );
+      validateRegistryAuthority(
+        readGit,
+        manifest,
+        discovery.discoveryRegistryBlobSha,
+        discovery.discoveryRegistrySchemaBlobSha,
+      );
+    },
+  );
   assertExclusiveArtifactAuthority(inputSnapshot.artifactPath);
   if (
     options.scope === 'full' &&
@@ -4407,11 +4659,6 @@ async function executeWithSnapshot(
       'full validation requires an ISOLATED_FULL_REDISCOVERED host-source attestation',
     );
   }
-  validateRegistryAuthority(
-    manifest,
-    discovery.discoveryRegistryBlobSha,
-    discovery.discoveryRegistrySchemaBlobSha,
-  );
   const includedSourceIds = new Set(
     sourcesForFindingLane(manifest.sources, options.scope).map((source) => source.id),
   );
@@ -4446,18 +4693,30 @@ async function executeWithSnapshot(
     );
   }
   await assertIncludedSourcesStable(manifest, options.scope);
-  assertDiscoveryCandidateUnchanged(
-    discovery.discoveryHeadSha,
-    discovery.discoveryRegistryBlobSha,
-    discovery.discoveryRegistrySchemaBlobSha,
-    false,
+  withPinnedRepositoryGitReadPhase(
+    REPO_ROOT,
+    'source-finding final authority pin',
+    (readGit, coordinates) => {
+      assertRepositoryGitGlobalCoordinatesStable(
+        'source-finding final top-level cross-phase',
+        initial.coordinates,
+        coordinates,
+      );
+      assertDiscoveryCandidateUnchanged(
+        readGit,
+        discovery.discoveryHeadSha,
+        discovery.discoveryRegistryBlobSha,
+        discovery.discoveryRegistrySchemaBlobSha,
+        false,
+      );
+      const finalLiveMain = captureLiveMainPin(readGit);
+      if (options.scope === 'remote' && process.env.GITHUB_ACTIONS === 'true') {
+        assertExecutionMainCompatibility(readGit, manifest, options, finalLiveMain);
+      } else {
+        assertLiveMainStable(liveMainStart, finalLiveMain);
+      }
+    },
   );
-  const finalLiveMain = captureLiveMainPin();
-  if (options.scope === 'remote' && process.env.GITHUB_ACTIONS === 'true') {
-    assertExecutionMainCompatibility(manifest, options, finalLiveMain);
-  } else {
-    assertLiveMainStable(liveMainStart, finalLiveMain);
-  }
   process.stdout.write(
     `Source finding inventory verified (${options.scope}, ${actual.length} live-attested rows, ${artifactOccurrences.length} total rows).\n`,
   );
@@ -4524,7 +4783,7 @@ export function validateCommittedSourceFindingInventory(): StaticSourceFindingVa
   const manifestText = readBoundedText(join(REPO_ROOT, MANIFEST_PATH));
   const manifestRaw: unknown = JSON.parse(manifestText);
   const manifest = parseManifest(manifestRaw, true);
-  const inputSnapshot = captureInputSnapshot(manifestText, manifest, false);
+  const inputSnapshot = captureInputSnapshot(undefined, manifestText, manifest, false);
   const inventory = manifest.findingInventory;
   if (
     inventory === undefined ||
@@ -4534,9 +4793,15 @@ export function validateCommittedSourceFindingInventory(): StaticSourceFindingVa
     throw new Error('static source-finding validation requires one committed attested artifact');
   }
   const occurrences = parseArtifact(inputSnapshot.artifactText, inputSnapshot.artifactPath);
-  validateInternalContract(manifest, inputSnapshot.artifactText, occurrences, null);
+  withPinnedRepositoryGitReadPhase(
+    REPO_ROOT,
+    'source-finding committed contract validation',
+    (readGit) => {
+      validateInternalContract(manifest, inputSnapshot.artifactText as string, occurrences, null);
+      validateStoredRegistryAuthority(readGit, manifest, 'COMMITTED_BLOB');
+    },
+  );
   assertExclusiveArtifactAuthority(inputSnapshot.artifactPath);
-  validateStoredRegistryAuthority(manifest, 'COMMITTED_BLOB');
   assertInputSnapshotStable(inputSnapshot);
   return Object.freeze({
     sourceCount: manifest.sources.length,

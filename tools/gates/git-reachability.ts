@@ -16,7 +16,11 @@
  * No top-level execution — import-safe for node:test specs.
  */
 
-import { HERMETIC_GIT_RUNTIME } from './lib/hermetic-git-runtime';
+import {
+  HERMETIC_GIT_RUNTIME,
+  type HermeticGitReadQueryV1,
+  type HermeticGitRepositorySyncSessionV1,
+} from './lib/hermetic-git-runtime';
 
 export interface ReachabilityResult {
   readonly ok: boolean;
@@ -24,12 +28,19 @@ export interface ReachabilityResult {
   readonly reason?: string;
 }
 
-function gitStatus(repoRoot: string, args: readonly string[]): number {
+function gitStatus(
+  session: HermeticGitRepositorySyncSessionV1,
+  query: HermeticGitReadQueryV1,
+): number {
   try {
-    return HERMETIC_GIT_RUNTIME.runText(repoRoot, args, [0, 1, 128]).status;
+    return session.readText(query).status;
   } catch {
     return 128;
   }
+}
+
+function canonicalReachabilityRef(ref: string): string {
+  return ref.startsWith('origin/') ? `refs/remotes/${ref}` : ref;
 }
 
 /**
@@ -43,39 +54,60 @@ export function commitReachableFrom(
   sha: string,
   ref: string,
 ): ReachabilityResult {
-  if (gitStatus(repoRoot, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]) !== 0) {
-    return {
-      ok: false,
-      reason:
-        `ref "${ref}" does not resolve to a commit in this checkout. ` +
-        `Run \`git fetch origin main\` (or fetch the relevant ref) and retry — ` +
-        `the reachability guard refuses to certify against an invisible ref.`,
-    };
-  }
+  return HERMETIC_GIT_RUNTIME.withRepositorySync(repoRoot, (session) => {
+    const canonicalRef = canonicalReachabilityRef(ref);
+    if (
+      gitStatus(session, {
+        kind: 'RESOLVE_OBJECT',
+        revision: canonicalRef,
+        peel: 'COMMIT',
+        quiet: true,
+      }) !== 0
+    ) {
+      return {
+        ok: false,
+        reason:
+          `ref "${ref}" does not resolve to a commit in this checkout. ` +
+          `Run \`git fetch origin main\` (or fetch the relevant ref) and retry — ` +
+          `the reachability guard refuses to certify against an invisible ref.`,
+      };
+    }
 
-  if (gitStatus(repoRoot, ['rev-parse', '--verify', '--quiet', `${sha}^{commit}`]) !== 0) {
-    return {
-      ok: false,
-      reason: `commit "${sha}" is unknown to this repository — fetch it or check the SHA.`,
-    };
-  }
+    if (
+      gitStatus(session, {
+        kind: 'RESOLVE_OBJECT',
+        revision: sha,
+        peel: 'COMMIT',
+        quiet: true,
+      }) !== 0
+    ) {
+      return {
+        ok: false,
+        reason: `commit "${sha}" is unknown to this repository — fetch it or check the SHA.`,
+      };
+    }
 
-  const ancestorStatus = gitStatus(repoRoot, ['merge-base', '--is-ancestor', sha, ref]);
-  if (ancestorStatus === 0) {
-    return { ok: true };
-  }
-  if (ancestorStatus === 1) {
+    const ancestorStatus = gitStatus(session, {
+      kind: 'IS_ANCESTOR',
+      ancestor: sha,
+      descendant: canonicalRef,
+    });
+    if (ancestorStatus === 0) {
+      return { ok: true };
+    }
+    if (ancestorStatus === 1) {
+      return {
+        ok: false,
+        reason:
+          `commit ${sha} is NOT reachable from ${ref}. The close ceremony must run ` +
+          `after the fix PR merges, with a main-reachable commit whose own message ` +
+          `carries the matching Closes: trailer — branch-local SHAs die with the ` +
+          `branch (PROC-HIGH-001).`,
+      };
+    }
     return {
       ok: false,
-      reason:
-        `commit ${sha} is NOT reachable from ${ref}. The close ceremony must run ` +
-        `after the fix PR merges, with a main-reachable commit whose own message ` +
-        `carries the matching Closes: trailer — branch-local SHAs die with the ` +
-        `branch (PROC-HIGH-001).`,
+      reason: `git merge-base --is-ancestor failed with status ${ancestorStatus} — repository state is unreadable; refusing to certify.`,
     };
-  }
-  return {
-    ok: false,
-    reason: `git merge-base --is-ancestor failed with status ${ancestorStatus} — repository state is unreadable; refusing to certify.`,
-  };
+  });
 }

@@ -43,6 +43,9 @@
       "@aquaculture/shared-ui/*": ["web/shared-ui/src/*"],
       "@aquaculture/shared-contracts": ["libs/shared-contracts/src/index.ts"],
       "@aquaculture/shared-contracts/*": ["libs/shared-contracts/src/*"],
+      "@aquaculture/repository-application-loader": [
+        "tools/gates/lib/repository-application-module-loader.ts"
+      ],
       "@platform/backend-common": ["libs/backend-common/src/index.ts"],
       "@aquaculture/backend-common": ["libs/backend-common/src/index.ts"],
       "@aquaculture/backend-common/auth": ["libs/backend-common/src/auth/index.ts"],

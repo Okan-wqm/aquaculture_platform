@@ -16,8 +16,10 @@ import { afterEach, describe, it } from 'node:test';
 import {
   REGISTERED_COMMON_DIR_LOCATOR_SCHEMA,
   RegisteredWorktreeSetMismatchError,
+  WORKTREE_OWNER_CLASSES,
   compareRegisteredWorktreeSet,
   discoverRegisteredCommonDirs,
+  isWorktreeOwnerClass,
   parseWorktreeList,
   type RegisteredCommonDirLocatorV1,
 } from './registered-common-dir-discovery';
@@ -88,6 +90,16 @@ afterEach(() => {
 });
 
 void describe('registered common-dir discovery', () => {
+  void it('uses one immutable owner-class authority for runtime admission and TypeScript identity', () => {
+    assert.equal(Object.isFrozen(WORKTREE_OWNER_CLASSES), true);
+    assert.equal(Reflect.set(WORKTREE_OWNER_CLASSES, 0, 'INTRUDER'), false);
+    for (const ownerClass of WORKTREE_OWNER_CLASSES) {
+      assert.equal(isWorktreeOwnerClass(ownerClass), true);
+    }
+    assert.equal(isWorktreeOwnerClass('INTRUDER'), false);
+    assert.equal(isWorktreeOwnerClass(null), false);
+  });
+
   void it('preserves one locked-state reason and rejects duplicate protocol authority', () => {
     const head = '1'.repeat(40);
     assert.deepEqual(
@@ -262,12 +274,10 @@ void describe('registered common-dir discovery', () => {
   void it('requires explicit owner classes and unique repository/common-dir authorities', async () => {
     const fixture = repository('authority');
     const valid = locator('authority', fixture);
-    const unknownOwner = {
-      ...valid,
-      worktrees: valid.worktrees.map((binding, index) =>
-        index === 0 ? { ...binding, ownerClass: 'UNKNOWN' } : binding,
-      ),
-    } as unknown as RegisteredCommonDirLocatorV1;
+    const unknownOwner = structuredClone(valid);
+    const firstBinding = unknownOwner.worktrees[0];
+    assert.ok(firstBinding);
+    assert.equal(Reflect.set(firstBinding, 'ownerClass', 'UNKNOWN'), true);
     await assert.rejects(discoverRegisteredCommonDirs([unknownOwner]), /closed owner class/);
     await assert.rejects(
       discoverRegisteredCommonDirs([valid, { ...valid, locatorId: 'duplicate' }]),

@@ -23,6 +23,7 @@ import {
 import {
   FINDING_WRITER_AUTHORITY_PATH,
   FINDING_WRITER_DECLARED_ASSET_EDGES,
+  FINDING_WRITER_DYNAMIC_MODULE_LOADER_AUTHORITY,
   FINDING_WRITER_ENTRYPOINT_PATHS,
   FINDING_WRITER_RETIRED_MUTATION_SURFACES,
   FINDING_WRITER_SENSITIVE_IMPORT_AUTHORITY,
@@ -203,6 +204,7 @@ void describe('finding writer authority generator', () => {
       FINDING_WRITER_ENTRYPOINT_PATHS,
       FINDING_WRITER_RETIRED_MUTATION_SURFACES,
       FINDING_WRITER_DECLARED_ASSET_EDGES,
+      FINDING_WRITER_DYNAMIC_MODULE_LOADER_AUTHORITY,
       FINDING_WRITER_SENSITIVE_IMPORT_AUTHORITY,
       FINDING_WRITER_SENSITIVE_READ_ONLY_EXPORTS,
       FINDING_WRITER_CLI_COMMAND_CONTRACT,
@@ -215,6 +217,11 @@ void describe('finding writer authority generator', () => {
       );
     }
     assert.equal(Object.isFrozen(FINDING_WRITER_DECLARED_ASSET_EDGES[0]), true);
+    for (const authority of FINDING_WRITER_DYNAMIC_MODULE_LOADER_AUTHORITY) {
+      assert.equal(Object.isFrozen(authority), true);
+      assert.equal(Object.isFrozen(authority.targetPolicy), true);
+      assert.ok(authority.reason.length > 0);
+    }
     for (const executable of FINDING_WRITER_CLI_COMMAND_CONTRACT) {
       assert.equal(Object.isFrozen(executable), true);
       assert.equal(Object.isFrozen(executable.operations), true);
@@ -228,6 +235,12 @@ void describe('finding writer authority generator', () => {
     assert.equal(Object.isFrozen(sensitiveAuthority), true);
     assert.equal(Object.isFrozen(sensitiveAuthority.importers), true);
     assert.equal(Reflect.set(sensitiveAuthority.importers, 0, 'tools/gates/evil-writer.ts'), false);
+    for (const runtimeExport of FINDING_WRITER_SENSITIVE_READ_ONLY_EXPORTS) {
+      assert.equal(Object.isFrozen(runtimeExport), true);
+      if (runtimeExport.reexport !== undefined) {
+        assert.equal(Object.isFrozen(runtimeExport.reexport), true);
+      }
+    }
 
     const root = fixture();
     const snapshot = createFindingWriterRepositorySnapshot(root);
@@ -360,7 +373,7 @@ void describe('finding writer authority generator', () => {
     );
     assert.throws(
       () => resolveFindingWriterGovernedPaths(nonliteralRoot),
-      /dynamic (?:relative\/sensitive-module )?edge must use one literal module/,
+      /DYNAMIC_IMPORT edge must use one literal module/,
     );
 
     const symlinkRoot = fixture();
@@ -377,6 +390,164 @@ void describe('finding writer authority generator', () => {
     );
   });
 
+  void it('rejects obfuscated import, require, createRequire, and code-generation escapes', () => {
+    for (const [, body] of [
+      [
+        'obfuscated-require',
+        "void require(String.fromCharCode(46, 47) + 'tools/gates/lib/finding-writer-fence');\n",
+      ],
+      [
+        'obfuscated-import',
+        "void import(String.fromCharCode(46, 47) + 'tools/gates/lib/finding-writer-fence');\n",
+      ],
+      [
+        'unknown-create-require',
+        "import { createRequire } from 'node:module';\nconst load = createRequire(__filename);\nvoid load(String.fromCharCode(46, 47) + 'tools/gates/lib/finding-writer-fence');\n",
+      ],
+    ] as const) {
+      const root = fixture();
+      writeFindingWriterSensitiveFixtureModule(root, 'tools/gates/finding-registry.ts', body);
+      assert.throws(
+        () => resolveFindingWriterGovernedPaths(root),
+        /edge must use one literal module/,
+      );
+    }
+
+    for (const [, body] of [
+      ['eval', "void eval('require');\n"],
+      ['global-eval', "void globalThis.eval('require');\n"],
+      ['function-constructor', "void new Function('return require');\n"],
+      ['global-function-constructor', "void new globalThis['Function']('return require');\n"],
+      ['vm', "import * as vm from 'node:vm';\nvoid vm;\n"],
+      ['required-vm', "const vm = require('node:vm');\nvoid vm;\n"],
+      [
+        'namespace-node-module',
+        "import * as nm from 'node:module';\nvoid new nm.Module('escape');\n",
+      ],
+      ['default-node-module', "import nm from 'node:module';\nvoid nm;\n"],
+      ['dynamic-node-module', "void import('node:module');\n"],
+      ['module-private-load', "void Module._load('./local');\n"],
+      ['builtin-module', "void process.getBuiltinModule('module');\n"],
+      ['element-builtin-module', "void process['getBuiltinModule']('module');\n"],
+      [
+        'reflected-builtin-module',
+        "void Reflect.get(process, 'getBuiltinModule')('node:module');\n",
+      ],
+      [
+        'global-process-builtin-module',
+        "void globalThis.process.getBuiltinModule('node:module');\n",
+      ],
+      ['module-element-require', "void module['require']('./local');\n"],
+      ['require-call', "void require.call(undefined, './local');\n"],
+      ['reflected-require', "void Reflect.get(module, 'require');\n"],
+      ['element-reflected-require', "void Reflect['get'](module, 'require');\n"],
+      ['main-module-require', "void process.mainModule?.require('./local');\n"],
+      ['destructured-require', 'const { require: load } = module;\nvoid load;\n'],
+      ['global-require', "void globalThis.require('./local');\n"],
+      ['escaped-require', 'const load = require;\nvoid load;\n'],
+      [
+        'aliased-process-root',
+        "const runtimeProcess = process;\nvoid runtimeProcess.getBuiltinModule('node:module');\n",
+      ],
+      [
+        'aliased-module-root',
+        "const runtimeModule = module;\nvoid runtimeModule.require('./local');\n",
+      ],
+      ['private-compile', "void Reflect.get(module, '_compile');\n"],
+      ['external-require-cache', 'void runtimeRequire.cache;\n'],
+      [
+        'required-private-module',
+        "const PrivateModule = require('node:module').Module;\nvoid PrivateModule;\n",
+      ],
+      [
+        'destructured-private-module',
+        "const { Module: PrivateModule } = require('node:module');\nvoid PrivateModule;\n",
+      ],
+      [
+        'required-create-require',
+        "const create = require('node:module').createRequire;\nvoid create;\n",
+      ],
+      ['object-require', 'const loaders = { load: require };\nvoid loaders;\n'],
+      ['array-require', 'const loaders = [require];\nvoid loaders;\n'],
+      [
+        'aliased-builtin-module',
+        "const getBuiltin = process.getBuiltinModule;\nvoid getBuiltin('module');\n",
+      ],
+      [
+        'aliased-reflect',
+        "const RuntimeReflect = Reflect;\nvoid RuntimeReflect.get(module, 'require');\n",
+      ],
+      [
+        'aliased-global',
+        "const runtimeGlobal = globalThis;\nvoid runtimeGlobal.eval('require');\n",
+      ],
+    ] as const) {
+      const root = fixture();
+      writeFindingWriterSensitiveFixtureModule(root, 'tools/gates/finding-registry.ts', body);
+      assert.throws(() => resolveFindingWriterGovernedPaths(root), /forbids/);
+    }
+  });
+
+  void it('does not couple writer authority to loaders outside its executable closure', () => {
+    const root = fixture();
+    writeFileSync(
+      join(root, 'unrelated-runtime.ts'),
+      "declare function runtimeCoordinate(): string;\nconst load = require;\nconst runtimeGlobal = globalThis;\nconst runtimeProcess = process;\nconst runtimeModule = module;\nvoid import(runtimeCoordinate());\nvoid new Function('return require');\nvoid [load, runtimeGlobal, runtimeProcess, runtimeModule];\n",
+      'utf8',
+    );
+    assert.doesNotThrow(() => resolveFindingWriterGovernedPaths(root));
+  });
+
+  void it('requires exact dynamic-loader authority presence and cardinality', () => {
+    const missingRoot = fixture();
+    const loaderPath = join(missingRoot, 'tools/gates/lib/repository-application-module-loader.ts');
+    writeFileSync(
+      loaderPath,
+      readFileSync(loaderPath, 'utf8').replace(
+        'return withFixtureEvaluationRoot(() => extensionHandler.handler(loadedModule, handlerCoordinate));',
+        'return undefined;',
+      ),
+      'utf8',
+    );
+    assert.throws(
+      () => resolveFindingWriterGovernedPaths(missingRoot),
+      /dynamic module loader authority.*missing=/,
+    );
+
+    const duplicateRoot = fixture();
+    const duplicateLoaderPath = join(
+      duplicateRoot,
+      'tools/gates/lib/repository-application-module-loader.ts',
+    );
+    writeFileSync(
+      duplicateLoaderPath,
+      readFileSync(duplicateLoaderPath, 'utf8').replace(
+        'return withFixtureEvaluationRoot(() => extensionHandler.handler(loadedModule, handlerCoordinate));',
+        'void extensionHandler.handler(loadedModule, handlerCoordinate);\n  return withFixtureEvaluationRoot(() => extensionHandler.handler(loadedModule, handlerCoordinate));',
+      ),
+      'utf8',
+    );
+    assert.throws(
+      () => resolveFindingWriterGovernedPaths(duplicateRoot),
+      /dynamic module loader call is duplicated/,
+    );
+
+    const unknownLoaderRoot = fixture();
+    const unknownLoaderPath = join(
+      unknownLoaderRoot,
+      'tools/gates/lib/repository-application-module-loader.ts',
+    );
+    writeFileSync(
+      unknownLoaderPath,
+      `${readFileSync(unknownLoaderPath, 'utf8')}\ndeclare const extensionHandler: { readonly handler: (target: NodeJS.Module, path: string) => unknown };\ndeclare const loadedModule: NodeJS.Module;\ndeclare const computedCoordinate: string;\nvoid extensionHandler.handler(loadedModule, computedCoordinate);\n`,
+      'utf8',
+    );
+    assert.throws(
+      () => resolveFindingWriterGovernedPaths(unknownLoaderRoot),
+      /dynamic module loader authority.*unknown=/,
+    );
+  });
+
   void it('enforces exact reverse importers across relative, dynamic, and path-alias edges', () => {
     const relativeRoot = fixture();
     writeFileSync(
@@ -390,14 +561,14 @@ void describe('finding writer authority generator', () => {
     );
 
     const dynamicRoot = fixture();
-    writeFileSync(
-      join(dynamicRoot, 'tools/gates/unknown-dynamic-writer.ts'),
+    writeFindingWriterSensitiveFixtureModule(
+      dynamicRoot,
+      'tools/gates/finding-registry.ts',
       "const target = './lib/' + 'finding-writer-fence';\nvoid import(target);\n",
-      'utf8',
     );
     assert.throws(
       () => resolveFindingWriterGovernedPaths(dynamicRoot),
-      /dynamic relative\/sensitive-module edge must use one literal module/,
+      /DYNAMIC_IMPORT edge must use one literal module/,
     );
 
     const aliasRoot = fixture();
@@ -513,6 +684,80 @@ void describe('finding writer authority generator', () => {
     );
   });
 
+  void it('isolates privileged kernels and test fixtures behind exact closed modules', () => {
+    const testCapabilityAuthorities = FINDING_WRITER_SENSITIVE_IMPORT_AUTHORITY.filter(
+      (authority) =>
+        authority.target.includes('anchored-filesystem') ||
+        authority.target.includes('hermetic-git-runtime'),
+    );
+    assert.deepEqual(
+      testCapabilityAuthorities.map((authority) => `${authority.target}#${authority.symbol}`),
+      [
+        'tools/gates/lib/anchored-filesystem.kernel.ts#openHermeticExecutableAuthorityAtOwnedFixtureBoundary',
+        'tools/gates/lib/anchored-filesystem.fixture.ts#testOnlyOpenHermeticExecutableAuthorityForOwnedFixture',
+        'tools/gates/lib/hermetic-git-runtime.kernel.ts#testOnlyCreateHermeticGitRuntime',
+        'tools/gates/lib/hermetic-git-runtime.kernel.ts#testOnlyCloseHermeticGitDescriptors',
+        'tools/gates/lib/hermetic-git-runtime.kernel.ts#testOnlyFingerprintHermeticGitRegularFile',
+        'tools/gates/lib/hermetic-git-runtime.fixture.ts#testOnlyCreateHermeticGitRuntime',
+        'tools/gates/lib/hermetic-git-runtime.fixture.ts#testOnlyCloseHermeticGitDescriptors',
+        'tools/gates/lib/hermetic-git-runtime.fixture.ts#testOnlyFingerprintHermeticGitRegularFile',
+      ],
+    );
+
+    const unrelatedExportRoot = fixture();
+    const runtimeTarget = join(
+      unrelatedExportRoot,
+      'tools/gates/lib/hermetic-git-runtime.kernel.ts',
+    );
+    writeFileSync(
+      runtimeTarget,
+      `${readFileSync(runtimeTarget, 'utf8')}\nexport const unrelatedReadOnlyProjection = true;\n`,
+      'utf8',
+    );
+    assert.throws(
+      () => resolveFindingWriterGovernedPaths(unrelatedExportRoot),
+      /hermetic-git-runtime\.kernel\.ts runtime export classification.*unknown=unrelatedReadOnlyProjection/,
+    );
+
+    const missingExportRoot = fixture();
+    const missingTarget = join(missingExportRoot, 'tools/gates/lib/hermetic-git-runtime.kernel.ts');
+    writeFileSync(
+      missingTarget,
+      readFileSync(missingTarget, 'utf8').replace(
+        'testOnlyCreateHermeticGitRuntime',
+        'renamedTestOnlyCreateHermeticGitRuntime',
+      ),
+      'utf8',
+    );
+    assert.throws(
+      () => resolveFindingWriterGovernedPaths(missingExportRoot),
+      /hermetic-git-runtime\.kernel\.ts runtime export classification.*missing=testOnlyCreateHermeticGitRuntime/,
+    );
+
+    const unknownImporterRoot = fixture();
+    writeFileSync(
+      join(unknownImporterRoot, 'tools/gates/unknown-hermetic-test-runtime.ts'),
+      "import { testOnlyCreateHermeticGitRuntime } from './lib/hermetic-git-runtime.kernel';\nvoid testOnlyCreateHermeticGitRuntime;\n",
+      'utf8',
+    );
+    assert.throws(
+      () => resolveFindingWriterGovernedPaths(unknownImporterRoot),
+      /testOnlyCreateHermeticGitRuntime reverse importer set.*unknown=tools\/gates\/unknown-hermetic-test-runtime\.ts/,
+    );
+
+    const aliasedFacadeRoot = fixture();
+    const productionFacade = join(aliasedFacadeRoot, 'tools/gates/lib/hermetic-git-runtime.ts');
+    writeFileSync(
+      productionFacade,
+      `${readFileSync(productionFacade, 'utf8')}\nexport { testOnlyCreateHermeticGitRuntime as escapedTestRuntime } from './hermetic-git-runtime.kernel';\n`,
+      'utf8',
+    );
+    assert.throws(
+      () => resolveFindingWriterGovernedPaths(aliasedFacadeRoot),
+      /hermetic-git-runtime\.ts runtime export classification.*unknown=escapedTestRuntime/,
+    );
+  });
+
   void it('fails closed on parser-version drift and stale hash-linked ARIA runtime authority', () => {
     const parserRoot = fixture();
     const packagePath = join(parserRoot, 'package.json');
@@ -548,10 +793,13 @@ void describe('finding writer authority generator', () => {
       root,
       'tools/gates/finding-registry.ts',
       [
+        "import { createRequire } from 'node:module';",
         "import type { Contract } from './module-chain/types';",
         "import { token } from './module-chain';",
         "void import('./module-chain/lazy.mjs');",
         "void require('./module-chain/required.cjs');",
+        'const loadFixture = createRequire(__filename);',
+        "void loadFixture('./module-chain/custom.cjs');",
         'export type WriterContract = Contract;',
         'void token;',
       ].join('\n'),
@@ -561,6 +809,7 @@ void describe('finding writer authority generator', () => {
     writeFileSync(join(chainRoot, 'types.d.ts'), 'export interface Contract {}\n', 'utf8');
     writeFileSync(join(chainRoot, 'lazy.mts'), 'export const lazy = true;\n', 'utf8');
     writeFileSync(join(chainRoot, 'required.cts'), 'export const required = true;\n', 'utf8');
+    writeFileSync(join(chainRoot, 'custom.cts'), 'export const custom = true;\n', 'utf8');
 
     const governedPaths = resolveFindingWriterGovernedPaths(root);
     for (const path of [
@@ -569,6 +818,7 @@ void describe('finding writer authority generator', () => {
       'tools/gates/module-chain/types.d.ts',
       'tools/gates/module-chain/lazy.mts',
       'tools/gates/module-chain/required.cts',
+      'tools/gates/module-chain/custom.cts',
     ]) {
       assert.ok(governedPaths.includes(path), `missing module dependency: ${path}`);
     }

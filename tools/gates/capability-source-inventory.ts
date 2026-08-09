@@ -3,19 +3,6 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 
 import {
-  computeCanonicalGitWorktreeEvidence,
-  HERMETIC_GIT_RUNTIME,
-  InventoryInspectionError,
-} from './lib/hermetic-git-runtime';
-import {
-  REGISTERED_COMMON_DIR_LOCATOR_SCHEMA,
-  WORKTREE_OWNER_CLASSES,
-  discoverRegisteredCommonDirs,
-  type RegisteredCommonDirLocatorV1,
-  type WorktreeOwnerClassV1,
-  type WorktreeCoordinate,
-} from './lib/registered-common-dir-discovery';
-import {
   SOURCE_INVENTORY_SCHEMA_V2,
   SOURCE_DISPOSITIONS,
   SOURCE_KINDS,
@@ -29,7 +16,24 @@ import {
   type SourceRole,
   type SourceState,
 } from './lib/capability-source-contract';
+import {
+  computeCanonicalGitWorktreeEvidence,
+  InventoryInspectionError,
+} from './lib/hermetic-git-runtime';
+import {
+  REGISTERED_COMMON_DIR_LOCATOR_SCHEMA,
+  discoverRegisteredCommonDirs,
+  isWorktreeOwnerClass,
+  type RegisteredCommonDirLocatorV1,
+  type WorktreeOwnerClassV1,
+  type WorktreeCoordinate,
+} from './lib/registered-common-dir-discovery';
 import { REPO_ROOT } from './lib/repo-root';
+import {
+  assertRepositoryGitGlobalCoordinatesStable,
+  withPinnedRepositoryGitReadPhase,
+  type RepositoryGitTextReaderV1,
+} from './lib/repository-git-read-phase';
 
 export { InventoryInspectionError } from './lib/hermetic-git-runtime';
 export {
@@ -390,10 +394,10 @@ function requireRepositoryId(value: unknown, field: string): string {
 }
 
 function requireWorktreeOwnerClass(value: unknown, field: string): WorktreeOwnerClassV1 {
-  if (!WORKTREE_OWNER_CLASSES.includes(value as WorktreeOwnerClassV1)) {
+  if (!isWorktreeOwnerClass(value)) {
     throw new Error(`${field} must be one closed worktree owner class`);
   }
-  return value as WorktreeOwnerClassV1;
+  return value;
 }
 
 function isWorktreeKind(kind: SourceKind): kind is WorktreeSourceCoordinate['kind'] {
@@ -404,7 +408,7 @@ function isWorktreeSource(source: SourceCoordinate): source is WorktreeSourceCoo
   return isWorktreeKind(source.kind);
 }
 
-function isManifestWorktreeSource(
+export function isManifestWorktreeSource(
   source: ManifestSourceCoordinate,
 ): source is ManifestWorktreeSourceCoordinate {
   return isWorktreeKind(source.kind);
@@ -1104,63 +1108,33 @@ export function validateMainProofs(
   return drifts;
 }
 
-interface GitTextResult {
-  stdout: string;
-  status: number;
-}
-
-function runGit(
-  args: readonly string[],
-  acceptedStatuses: readonly number[] = [0],
-  worktreePath: string = REPO_ROOT,
-): GitTextResult {
-  const result = HERMETIC_GIT_RUNTIME.runText(worktreePath, args, acceptedStatuses);
-  return { stdout: result.stdout, status: result.status };
-}
-
-function gitIsAncestor(ancestorSha: string, descendantSha: string): boolean {
-  return runGit(['merge-base', '--is-ancestor', ancestorSha, descendantSha], [0, 1]).status === 0;
-}
-
-function gitMergeBase(leftSha: string, rightSha: string): string {
-  return requireSha(
-    runGit(['merge-base', leftSha, rightSha]).stdout.trim(),
-    `merge-base(${leftSha}, ${rightSha})`,
+function gitIsAncestor(
+  readGit: RepositoryGitTextReaderV1,
+  ancestorSha: string,
+  descendantSha: string,
+): boolean {
+  return (
+    readGit({ kind: 'IS_ANCESTOR', ancestor: ancestorSha, descendant: descendantSha }).status === 0
   );
 }
 
-function gitChangedPaths(baseSha: string, headSha: string): string[] {
-  const raw = runGit(['diff', '--name-only', '--no-renames', '-z', baseSha, headSha, '--']).stdout;
-  if (raw.length === 0) {
-    return [];
-  }
-  if (!raw.endsWith('\0')) {
-    throw new Error(`git diff path stream for ${baseSha}..${headSha} is not NUL-terminated`);
-  }
-  return raw.slice(0, -1).split('\0');
-}
-
-function gitResolveCommitTreeSha(commitSha: string): string | null {
-  const commit = runGit(['rev-parse', '--verify', '--quiet', `${commitSha}^{commit}`], [0, 1]);
+function gitResolveCommitTreeSha(
+  readGit: RepositoryGitTextReaderV1,
+  commitSha: string,
+): string | null {
+  const commit = readGit({
+    kind: 'RESOLVE_OBJECT',
+    revision: commitSha,
+    peel: 'COMMIT',
+    quiet: true,
+  });
   if (commit.status === 1) {
     return null;
   }
   return requireSha(
-    runGit(['rev-parse', '--verify', `${commitSha}^{tree}`]).stdout.trim(),
+    readGit({ kind: 'RESOLVE_OBJECT', revision: commitSha, peel: 'TREE' }).stdout.trim(),
     `${commitSha} tree`,
   );
-}
-
-function gitRemoteContains(headSha: string): boolean {
-  const refs = parseRefList(
-    runGit([
-      'for-each-ref',
-      `--contains=${headSha}`,
-      '--format=%(refname)%09%(objectname)',
-      'refs/remotes/origin',
-    ]).stdout,
-  );
-  return refs.length > 0;
 }
 
 export function resolveGitHubActionsExecutionIdentity(
@@ -1316,22 +1290,17 @@ export function assertOriginMainStable(startSha: string, endSha: string): void {
   }
 }
 
-function resolveOriginMain(): string {
-  return requireSha(
-    runGit(['rev-parse', '--verify', `${MAIN_REF}^{commit}`]).stdout.trim(),
-    MAIN_REF,
-  );
-}
-
-function gitIsValidHeadRef(headRef: string): boolean {
+function gitIsValidHeadRef(readGit: RepositoryGitTextReaderV1, headRef: string): boolean {
   if (headRef.startsWith('-')) {
     return false;
   }
-  return runGit(['check-ref-format', `refs/heads/${headRef}`], [0, 1]).status === 0;
+  return readGit({ kind: 'CHECK_BRANCH_REF', shortName: headRef }).status === 0;
 }
 
-function resolveLocalExecutionIdentity(): ExecutionIdentity | null {
-  const branch = runGit(['symbolic-ref', '-q', 'HEAD'], [0, 1]);
+function resolveLocalExecutionIdentity(
+  readGit: RepositoryGitTextReaderV1,
+): ExecutionIdentity | null {
+  const branch = readGit({ kind: 'SYMBOLIC_HEAD' });
   if (branch.status === 1) {
     return null;
   }
@@ -1344,10 +1313,12 @@ function resolveLocalExecutionIdentity(): ExecutionIdentity | null {
   }
 
   const headSha = requireSha(
-    runGit(['rev-parse', '--verify', 'HEAD^{commit}']).stdout.trim(),
+    readGit({ kind: 'RESOLVE_OBJECT', revision: 'HEAD', peel: 'COMMIT' }).stdout.trim(),
     'current HEAD',
   );
-  const currentWorktreePath = realpathSync(runGit(['rev-parse', '--show-toplevel']).stdout.trim());
+  const currentWorktreePath = realpathSync(
+    readGit({ kind: 'REPOSITORY_COORDINATE', coordinate: 'TOP_LEVEL' }).stdout.trim(),
+  );
 
   return {
     worktreePath: currentWorktreePath,
@@ -1358,7 +1329,10 @@ function resolveLocalExecutionIdentity(): ExecutionIdentity | null {
   };
 }
 
-function resolveExecutionIdentity(remoteRefs: readonly RefCoordinate[]): ExecutionIdentity | null {
+function resolveExecutionIdentity(
+  readGit: RepositoryGitTextReaderV1,
+  remoteRefs: readonly RefCoordinate[],
+): ExecutionIdentity | null {
   return selectExecutionIdentity(
     process.env.GITHUB_ACTIONS,
     () =>
@@ -1369,10 +1343,12 @@ function resolveExecutionIdentity(remoteRefs: readonly RefCoordinate[]): Executi
         currentRef: process.env.CAPABILITY_INVENTORY_CURRENT_REF,
         currentSha: process.env.CAPABILITY_INVENTORY_CURRENT_SHA,
         remoteRefs,
-        worktreePath: realpathSync(runGit(['rev-parse', '--show-toplevel']).stdout.trim()),
-        isValidHeadRef: gitIsValidHeadRef,
+        worktreePath: realpathSync(
+          readGit({ kind: 'REPOSITORY_COORDINATE', coordinate: 'TOP_LEVEL' }).stdout.trim(),
+        ),
+        isValidHeadRef: (headRef) => gitIsValidHeadRef(readGit, headRef),
       }),
-    resolveLocalExecutionIdentity,
+    () => resolveLocalExecutionIdentity(readGit),
   );
 }
 
@@ -1424,12 +1400,13 @@ export function compileRegisteredCommonDirLocators(
         if (queryWorktreePath !== querySource.locator) {
           throw new Error(`${querySource.locator} is not one canonical governed worktree path`);
         }
-        const commonDirPath = realpathSync(
-          runGit(
-            ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-            [0],
-            queryWorktreePath,
-          ).stdout.trim(),
+        const commonDirPath = withPinnedRepositoryGitReadPhase(
+          queryWorktreePath,
+          `registered common-dir ${repositoryId}`,
+          (readGit) =>
+            realpathSync(
+              readGit({ kind: 'REPOSITORY_COORDINATE', coordinate: 'COMMON_DIR' }).stdout.trim(),
+            ),
         );
         return Object.freeze({
           schema: REGISTERED_COMMON_DIR_LOCATOR_SCHEMA,
@@ -1460,34 +1437,51 @@ async function inspectLiveRepository(
     throw new Error('full inventory lost its single governed repository authority');
   }
   const authorityWorktreePath = fullAuthority?.queryWorktreePath ?? REPO_ROOT;
-  const resolveAuthorityOriginMain = (): string =>
-    requireSha(
-      runGit(
-        ['rev-parse', '--verify', `${MAIN_REF}^{commit}`],
-        [0],
-        authorityWorktreePath,
-      ).stdout.trim(),
-      MAIN_REF,
-    );
-  const mainSha = resolveAuthorityOriginMain();
-  const remoteRefs = parseRefList(
-    runGit(
-      ['for-each-ref', '--format=%(refname)%09%(objectname)', 'refs/remotes/origin'],
-      [0],
-      authorityWorktreePath,
-    ).stdout,
+  const initialAuthority = withPinnedRepositoryGitReadPhase(
+    authorityWorktreePath,
+    'capability source inventory authority snapshot',
+    (readGit, coordinates) => ({
+      coordinates,
+      mainSha: requireSha(
+        readGit({ kind: 'RESOLVE_OBJECT', revision: MAIN_REF, peel: 'COMMIT' }).stdout.trim(),
+        MAIN_REF,
+      ),
+      remoteRefs: parseRefList(
+        readGit({
+          kind: 'LIST_REFS',
+          namespace: 'ORIGIN_REMOTES',
+          projection: 'NAMES_AND_OBJECT_IDS',
+        }).stdout,
+      ),
+      localRefs:
+        scope === 'full'
+          ? parseRefList(
+              readGit({
+                kind: 'LIST_REFS',
+                namespace: 'LOCAL_HEADS',
+                projection: 'NAMES_AND_OBJECT_IDS',
+              }).stdout,
+            )
+          : [],
+    }),
   );
-  let executionIdentity = resolveExecutionIdentity(remoteRefs);
+  const { mainSha, remoteRefs, localRefs } = initialAuthority;
+  let executionIdentity = withPinnedRepositoryGitReadPhase(
+    REPO_ROOT,
+    'capability source inventory execution identity',
+    (readGit) => resolveExecutionIdentity(readGit, remoteRefs),
+  );
   const shouldAttestExecutionRunner = scope === 'full' || executionIdentity !== null;
   if (shouldAttestExecutionRunner) {
     const executionWorktreePath = executionIdentity?.worktreePath ?? REPO_ROOT;
     const executionEvidence = await computeCanonicalGitWorktreeEvidence(executionWorktreePath);
-    const executionCommonDir = realpathSync(
-      runGit(
-        ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-        [0],
-        executionWorktreePath,
-      ).stdout.trim(),
+    const executionCommonDir = withPinnedRepositoryGitReadPhase(
+      executionWorktreePath,
+      'capability source inventory execution repository',
+      (readGit) =>
+        realpathSync(
+          readGit({ kind: 'REPOSITORY_COORDINATE', coordinate: 'COMMON_DIR' }).stdout.trim(),
+        ),
     );
     const governedCommonDirs = locators.map((locator) => locator.commonDirPath);
     if (
@@ -1517,16 +1511,6 @@ async function inspectLiveRepository(
       });
     }
   }
-  const localRefs =
-    scope === 'full'
-      ? parseRefList(
-          runGit(
-            ['for-each-ref', '--format=%(refname)%09%(objectname)', 'refs/heads'],
-            [0],
-            authorityWorktreePath,
-          ).stdout,
-        )
-      : [];
   const worktrees: InspectedWorktree[] = [];
   if (scope === 'full') {
     const observations = await discoverRegisteredCommonDirs(locators);
@@ -1546,67 +1530,77 @@ async function inspectLiveRepository(
       }
     }
   }
-
-  const isAncestorAtAuthority = (ancestorSha: string, descendantSha: string): boolean =>
-    runGit(
-      ['merge-base', '--is-ancestor', ancestorSha, descendantSha],
-      [0, 1],
-      authorityWorktreePath,
-    ).status === 0;
-  const mergeBaseAtAuthority = (leftSha: string, rightSha: string): string =>
-    requireSha(
-      runGit(['merge-base', leftSha, rightSha], [0], authorityWorktreePath).stdout.trim(),
-      `merge-base(${leftSha}, ${rightSha})`,
-    );
-  const changedPathsAtAuthority = (baseSha: string, headSha: string): string[] => {
-    const raw = runGit(
-      ['diff', '--name-only', '--no-renames', '-z', baseSha, headSha, '--'],
-      [0],
-      authorityWorktreePath,
-    ).stdout;
-    if (raw.length === 0) return [];
-    if (!raw.endsWith('\0')) {
-      throw new Error(`git diff path stream for ${baseSha}..${headSha} is not NUL-terminated`);
-    }
-    return raw.slice(0, -1).split('\0');
-  };
-  const remoteContainsAtAuthority = (headSha: string): boolean =>
-    parseRefList(
-      runGit(
-        [
-          'for-each-ref',
-          `--contains=${headSha}`,
-          '--format=%(refname)%09%(objectname)',
-          'refs/remotes/origin',
-        ],
-        [0],
-        authorityWorktreePath,
-      ).stdout,
-    ).length > 0;
-
-  const inventory = discoverInventory(
-    {
-      mainSha,
-      remoteRefs,
-      localRefs,
-      worktrees,
-      executionIdentity,
-      isAncestor: isAncestorAtAuthority,
-      classifyBranchSourceRole: (source) =>
-        classifySourceRole({
+  return withPinnedRepositoryGitReadPhase(
+    authorityWorktreePath,
+    'capability source inventory semantic discovery',
+    (readGit, coordinates) => {
+      assertRepositoryGitGlobalCoordinatesStable(
+        'capability source inventory cross-phase',
+        initialAuthority.coordinates,
+        coordinates,
+      );
+      const resolveAuthorityOriginMain = (): string =>
+        requireSha(
+          readGit({ kind: 'RESOLVE_OBJECT', revision: MAIN_REF, peel: 'COMMIT' }).stdout.trim(),
+          MAIN_REF,
+        );
+      assertOriginMainStable(mainSha, resolveAuthorityOriginMain());
+      const isAncestorAtAuthority = (ancestorSha: string, descendantSha: string): boolean =>
+        gitIsAncestor(readGit, ancestorSha, descendantSha);
+      const mergeBaseAtAuthority = (leftSha: string, rightSha: string): string =>
+        requireSha(
+          readGit({ kind: 'MERGE_BASE', left: leftSha, right: rightSha }).stdout.trim(),
+          `merge-base(${leftSha}, ${rightSha})`,
+        );
+      const changedPathsAtAuthority = (baseSha: string, headSha: string): string[] => {
+        const raw = readGit({
+          kind: 'DIFF',
+          projection: 'NAME_ONLY',
+          base: baseSha,
+          head: headSha,
+          paths: [],
+          noRenames: true,
+        }).stdout;
+        if (raw.length === 0) return [];
+        if (!raw.endsWith('\0')) {
+          throw new Error(`git diff path stream for ${baseSha}..${headSha} is not NUL-terminated`);
+        }
+        return raw.slice(0, -1).split('\0');
+      };
+      const remoteContainsAtAuthority = (headSha: string): boolean =>
+        parseRefList(
+          readGit({
+            kind: 'LIST_REFS',
+            namespace: 'ORIGIN_REMOTES',
+            projection: 'NAMES_AND_OBJECT_IDS',
+            contains: headSha,
+          }).stdout,
+        ).length > 0;
+      const inventory = discoverInventory(
+        {
           mainSha,
-          sourceHeadSha: source.headSha,
-          executionHeadSha: executionIdentity?.headSha ?? null,
+          remoteRefs,
+          localRefs,
+          worktrees,
+          executionIdentity,
           isAncestor: isAncestorAtAuthority,
-          mergeBase: mergeBaseAtAuthority,
-          changedPaths: changedPathsAtAuthority,
-        }),
-      isReachableFromRemote: remoteContainsAtAuthority,
+          classifyBranchSourceRole: (source) =>
+            classifySourceRole({
+              mainSha,
+              sourceHeadSha: source.headSha,
+              executionHeadSha: executionIdentity?.headSha ?? null,
+              isAncestor: isAncestorAtAuthority,
+              mergeBase: mergeBaseAtAuthority,
+              changedPaths: changedPathsAtAuthority,
+            }),
+          isReachableFromRemote: remoteContainsAtAuthority,
+        },
+        scope,
+      );
+      assertOriginMainStable(mainSha, resolveAuthorityOriginMain());
+      return inventory;
     },
-    scope,
   );
-  assertOriginMainStable(mainSha, resolveAuthorityOriginMain());
-  return inventory;
 }
 
 function readManifest(): InventoryManifest {
@@ -1661,12 +1655,17 @@ export async function runCapabilitySourceInventoryCli(args: readonly string[]): 
   try {
     const manifest = readManifest();
     if (options.mode === 'static') {
-      const proofDrifts = validateMainProofs(
-        manifest,
-        manifest.reconciledBaseSha,
-        gitIsAncestor,
-        gitResolveCommitTreeSha,
-        'COMMITTED_OBJECTS',
+      const proofDrifts = withPinnedRepositoryGitReadPhase(
+        REPO_ROOT,
+        'capability source inventory static proof validation',
+        (readGit) =>
+          validateMainProofs(
+            manifest,
+            manifest.reconciledBaseSha,
+            (ancestorSha, descendantSha) => gitIsAncestor(readGit, ancestorSha, descendantSha),
+            (commitSha) => gitResolveCommitTreeSha(readGit, commitSha),
+            'COMMITTED_OBJECTS',
+          ),
       );
       if (proofDrifts.length > 0) {
         throw new Error(
@@ -1681,10 +1680,20 @@ export async function runCapabilitySourceInventoryCli(args: readonly string[]): 
       return;
     }
     const live = await inspectLiveRepository(manifest, options.scope);
-    const drifts = [
-      ...compareInventoryForCli(manifest, live, gitIsAncestor, options),
-      ...validateMainProofs(manifest, live.mainSha, gitIsAncestor, gitResolveCommitTreeSha),
-    ];
+    const drifts = withPinnedRepositoryGitReadPhase(
+      REPO_ROOT,
+      'capability source inventory final proof validation',
+      (readGit) => {
+        const isAncestor = (ancestorSha: string, descendantSha: string): boolean =>
+          gitIsAncestor(readGit, ancestorSha, descendantSha);
+        return [
+          ...compareInventoryForCli(manifest, live, isAncestor, options),
+          ...validateMainProofs(manifest, live.mainSha, isAncestor, (commitSha) =>
+            gitResolveCommitTreeSha(readGit, commitSha),
+          ),
+        ];
+      },
+    );
 
     if (drifts.length > 0) {
       process.stderr.write(

@@ -324,6 +324,21 @@ function git(repoRoot: string, args: readonly string[]): string {
   }).trim();
 }
 
+function symbolicHeadRefPath(repoRoot: string): string {
+  const gitDirectory = join(repoRoot, '.git');
+  const head = readFileSync(join(gitDirectory, 'HEAD'), 'utf8');
+  const match = /^ref: (?<ref>refs\/heads\/[A-Za-z0-9._/-]+)\n$/.exec(head);
+  if (match === null || match.groups === undefined || match.groups.ref === undefined) {
+    throw new Error('Finding writer deadline fixture requires one symbolic local-branch HEAD');
+  }
+  const refPath = resolve(gitDirectory, match.groups.ref);
+  const localHeadRoot = `${resolve(gitDirectory, 'refs', 'heads')}/`;
+  if (!refPath.startsWith(localHeadRoot)) {
+    throw new Error('Finding writer deadline fixture HEAD escapes refs/heads');
+  }
+  return refPath;
+}
+
 function fixtureAriaAuthorityFiles(repoRoot: string): string[] {
   return selectAriaAuthorityFiles(
     git(repoRoot, [
@@ -453,6 +468,45 @@ async function openFindingWriterFifoAfterReader(path: string): Promise<number> {
       }
       await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
     }
+  }
+}
+
+type FindingWriterFifoPhase =
+  | 'EXECUTION_RESOLVED_BEFORE_FIFO_READY'
+  | 'EXECUTION_REJECTED_BEFORE_FIFO_READY'
+  | 'FIFO_READY_PATH_IS_NOT_FIFO';
+
+class FindingWriterFifoPhaseError extends Error {
+  public readonly code = 'FINDING_WRITER_FIFO_PHASE' as const;
+
+  public constructor(
+    public readonly phase: FindingWriterFifoPhase,
+    public readonly phaseCause?: unknown,
+  ) {
+    super(`Finding writer FIFO test failed in phase ${phase}`);
+    this.name = 'FindingWriterFifoPhaseError';
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+async function awaitFindingWriterFifoReady(
+  path: string,
+  ready: Promise<void>,
+  execution: Promise<unknown>,
+): Promise<void> {
+  await Promise.race([
+    ready,
+    execution.then(
+      () => {
+        throw new FindingWriterFifoPhaseError('EXECUTION_RESOLVED_BEFORE_FIFO_READY');
+      },
+      (error: unknown) => {
+        throw new FindingWriterFifoPhaseError('EXECUTION_REJECTED_BEFORE_FIFO_READY', error);
+      },
+    ),
+  ]);
+  if (!lstatSync(path).isFIFO()) {
+    throw new FindingWriterFifoPhaseError('FIFO_READY_PATH_IS_NOT_FIFO');
   }
 }
 
@@ -3336,17 +3390,15 @@ if (childMode === '--worktree-allocator-child') {
 
   void test('prepared admission preserves its exact deadline through a blocked governed Git proof and reaps before returning', async () => {
     const fixture = createFindingWriterFixture('prepared-admission-git-deadline');
-    const topology = findingWriterTopology([fixture.repoRoot]);
-    const configPath = join(fixture.repoRoot, '.git', 'config');
-    rmSync(configPath);
-    execFileSync('/usr/bin/mkfifo', [configPath]);
+    const headRefPath = symbolicHeadRefPath(fixture.repoRoot);
+    rmSync(headRefPath);
+    execFileSync('/usr/bin/mkfifo', [headRefPath]);
     const testDeadlineMs = 1_000;
     const execution = testOnlyRunWithPreparedFindingWriterFenceAdmission(
       {
         resourcePath: fixture.registryPath,
         lockPath: fixture.authority.lockPath,
-        prepareSnapshot: (signal) =>
-          assertActiveWorktreeFindingWritersFenced(topology, fixture.repoRoot, signal),
+        prepareSnapshot: (signal) => fixture.authority.assertCompatibleWriters(signal),
         admit: () => assert.fail('blocked Git proof reached admission'),
         run: () => assert.fail('blocked Git proof reached its action'),
       },
@@ -3358,56 +3410,66 @@ if (childMode === '--worktree-allocator-child') {
         error instanceof FindingWriterFenceAdmissionDeadlineError &&
         error.admissionDeadlineMs === testDeadlineMs,
     );
-    const writer = await openFindingWriterFifoAfterReader(configPath);
+    const writer = await openFindingWriterFifoAfterReader(headRefPath);
     await rejection;
     closeSync(writer);
     assert.throws(
-      () => openSync(configPath, constants.O_WRONLY | constants.O_NONBLOCK),
+      () => openSync(headRefPath, constants.O_WRONLY | constants.O_NONBLOCK),
       (error: unknown) => error instanceof Error && 'code' in error && error.code === 'ENXIO',
     );
     assert.equal(existsSync(fixture.authority.lockPath), false);
   });
 
-  void test('admission deadline kills and reaps blocked topology currentness before releasing its lock', async () => {
-    const fixture = createFindingWriterFixture('prepared-admission-topology-deadline');
-    const headPath = join(fixture.repoRoot, '.git', 'HEAD');
-    const testDeadlineMs = 1_500;
-    const execution = testOnlyRunWithPreparedFindingWriterFenceAdmission(
-      {
-        resourcePath: fixture.registryPath,
-        lockPath: fixture.authority.lockPath,
-        prepareSnapshot: async (signal) => {
-          const snapshot = await fixture.authority.assertCompatibleWriters(signal);
-          rmSync(headPath);
-          execFileSync('/usr/bin/mkfifo', [headPath]);
-          return snapshot;
+  void test(
+    'admission deadline kills and reaps blocked topology currentness before releasing its lock',
+    { timeout: 30_000 },
+    async () => {
+      const fixture = createFindingWriterFixture('prepared-admission-topology-deadline');
+      const headRefPath = symbolicHeadRefPath(fixture.repoRoot);
+      const testDeadlineMs = 10_000;
+      let resolveFifoReady!: () => void;
+      const fifoReady = new Promise<void>((resolveReady) => {
+        resolveFifoReady = resolveReady;
+      });
+      const execution = testOnlyRunWithPreparedFindingWriterFenceAdmission(
+        {
+          resourcePath: fixture.registryPath,
+          lockPath: fixture.authority.lockPath,
+          prepareSnapshot: async (signal) => {
+            const snapshot = await fixture.authority.assertCompatibleWriters(signal);
+            rmSync(headRefPath);
+            execFileSync('/usr/bin/mkfifo', [headRefPath]);
+            resolveFifoReady();
+            return snapshot;
+          },
+          admit: async (snapshot, _lease, signal) =>
+            fixture.authority.consumeCompatibleWriters(snapshot, signal),
+          run: () => assert.fail('blocked topology admission reached its action'),
         },
-        admit: async (snapshot, _lease, signal) =>
-          fixture.authority.consumeCompatibleWriters(snapshot, signal),
-        run: () => assert.fail('blocked topology admission reached its action'),
-      },
-      testDeadlineMs,
-    );
-    const rejection = assert.rejects(
-      execution,
-      (error: unknown) =>
-        error instanceof FindingWriterFenceAdmissionDeadlineError &&
-        error.admissionDeadlineMs === testDeadlineMs,
-    );
-    const writer = await openFindingWriterFifoAfterReader(headPath);
-    await rejection;
-    closeSync(writer);
-    assert.throws(
-      () => openSync(headPath, constants.O_WRONLY | constants.O_NONBLOCK),
-      (error: unknown) => error instanceof Error && 'code' in error && error.code === 'ENXIO',
-    );
-    assert.equal(existsSync(fixture.authority.lockPath), true);
-    await testOnlyWithRegistryFileLockAsync(
-      fixture.registryPath,
-      (lease) => Promise.resolve(assertRegistryLockOwned(lease)),
-      { lockPath: fixture.authority.lockPath, timeoutMs: 500 },
-    );
-  });
+        testDeadlineMs,
+      );
+      const rejection = assert.rejects(
+        execution,
+        (error: unknown) =>
+          error instanceof FindingWriterFenceAdmissionDeadlineError &&
+          error.admissionDeadlineMs === testDeadlineMs,
+      );
+      await awaitFindingWriterFifoReady(headRefPath, fifoReady, execution);
+      const writer = await openFindingWriterFifoAfterReader(headRefPath);
+      await rejection;
+      closeSync(writer);
+      assert.throws(
+        () => openSync(headRefPath, constants.O_WRONLY | constants.O_NONBLOCK),
+        (error: unknown) => error instanceof Error && 'code' in error && error.code === 'ENXIO',
+      );
+      assert.equal(existsSync(fixture.authority.lockPath), true);
+      await testOnlyWithRegistryFileLockAsync(
+        fixture.registryPath,
+        (lease) => Promise.resolve(assertRegistryLockOwned(lease)),
+        { lockPath: fixture.authority.lockPath, timeoutMs: 500 },
+      );
+    },
+  );
 
   void test('prepared admission runs proof before lock and never retries non-stale failures', async () => {
     const fixture = createFindingWriterFixture('prepared-admission-order');

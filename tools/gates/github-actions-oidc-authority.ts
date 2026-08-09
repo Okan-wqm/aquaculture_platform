@@ -1,10 +1,10 @@
 import { createPublicKey, verify as verifySignature, type JsonWebKey } from 'node:crypto';
 
+import { AUTOMATION_REGISTRY_WRITER_WORKFLOW_POLICY } from './lib/automation-publication-policy';
 import {
   FINDING_WRITER_REGISTRY_MUTATION_OPERATIONS,
   type FindingWriterRegistryMutationOperation,
 } from './lib/finding-writer-cli-contract';
-import { AUTOMATION_REGISTRY_WRITER_WORKFLOW_POLICY } from './lib/automation-publication-policy';
 
 const ISSUER = 'https://token.actions.githubusercontent.com';
 const OPENID_CONFIGURATION_URL = `${ISSUER}/.well-known/openid-configuration`;

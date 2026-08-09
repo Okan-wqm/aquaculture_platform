@@ -52,6 +52,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
@@ -176,6 +177,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
@@ -243,6 +245,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
@@ -291,6 +294,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
@@ -381,6 +385,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
@@ -446,6 +451,8 @@ jobs:
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
@@ -482,6 +489,8 @@ jobs:
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA

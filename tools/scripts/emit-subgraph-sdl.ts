@@ -18,7 +18,6 @@
  *   e.g. emit-subgraph-sdl.ts auth apps/auth-service
  */
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 
 import { buildSubgraphSchema, printSubgraphSchema } from '@apollo/subgraph';
@@ -26,6 +25,8 @@ import { printSchemaWithDirectives } from '@graphql-tools/utils';
 import { NestFactory } from '@nestjs/core';
 import { GraphQLSchemaBuilderModule, GraphQLSchemaFactory } from '@nestjs/graphql';
 import { gql } from 'graphql-tag';
+
+import { loadRepositoryApplicationModule } from '../gates/lib/repository-application-module-loader';
 
 // Federation v2 link — the directives a NestJS code-first subgraph can emit.
 const FEDERATION_V2_LINK =
@@ -60,15 +61,12 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // createRequire (not the global `require`) so the no-var-requires lint rule
-  // is satisfied while ts-node + tsconfig-paths still resolve the @aquaculture/*
-  // workspace aliases the resolver files import. Loading a class file never
-  // opens a DB/NATS connection (that happens at DI instantiation, which we never
-  // do — we only reflect decorator metadata into the global TypeMetadataStorage).
-  const requireTs = createRequire(__filename);
+  // The descriptor-bound loader constrains targets to canonical application
+  // source while ts-node + tsconfig-paths resolve workspace aliases. Loading a
+  // class file never opens DB/NATS connections (that happens at DI instantiation).
   const resolverCtors: unknown[] = [];
   for (const file of resolverFiles) {
-    const mod = requireTs(file) as Record<string, unknown>;
+    const mod = loadRepositoryApplicationModule(file) as Record<string, unknown>;
     for (const exported of Object.values(mod)) {
       if (typeof exported === 'function' && /Resolver$/.test((exported as { name: string }).name)) {
         resolverCtors.push(exported);

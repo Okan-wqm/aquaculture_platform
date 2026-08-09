@@ -20,7 +20,7 @@ const canonical = buildFindingRegistryRequestReceipt({
   input_sha256: '2'.repeat(64),
 });
 
-describe('finding registry request receipt', () => {
+void describe('finding registry request receipt', () => {
   void it('round-trips one byte-canonical, content-bound request identity', () => {
     const bytes = Buffer.from(serializeFindingRegistryRequestReceipt(canonical), 'utf8');
     assert.deepEqual(parseFindingRegistryRequestReceipt(bytes), canonical);
@@ -36,7 +36,7 @@ describe('finding registry request receipt', () => {
       unknown
     >;
     const variants = [
-      Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8'),
+      Buffer.from(`${JSON.stringify(value).replaceAll(',', ',\n')}\n`, 'utf8'),
       Buffer.from(
         `${JSON.stringify(Object.fromEntries(Object.entries(value).reverse()))}\n`,
         'utf8',
@@ -51,12 +51,12 @@ describe('finding registry request receipt', () => {
         ),
         'utf8',
       ),
-    ];
+    ] as const;
 
-    assert.throws(() => parseFindingRegistryRequestReceipt(variants[0]!), /canonical/i);
-    assert.throws(() => parseFindingRegistryRequestReceipt(variants[1]!), /canonical/i);
-    assert.throws(() => parseFindingRegistryRequestReceipt(variants[2]!), /canonical/i);
-    assert.notDeepEqual(parseFindingRegistryRequestReceipt(variants[3]!), canonical);
+    assert.throws(() => parseFindingRegistryRequestReceipt(variants[0]), /canonical/i);
+    assert.throws(() => parseFindingRegistryRequestReceipt(variants[1]), /canonical/i);
+    assert.throws(() => parseFindingRegistryRequestReceipt(variants[2]), /canonical/i);
+    assert.notDeepEqual(parseFindingRegistryRequestReceipt(variants[3]), canonical);
   });
 
   void it('rejects invalid UTF-8 and noncanonical scalar domains', () => {

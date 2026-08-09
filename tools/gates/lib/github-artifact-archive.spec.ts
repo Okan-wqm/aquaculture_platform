@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { describe, it } from 'node:test';
 
 import { verifyGitHubArtifactArchive } from './github-artifact-archive';
@@ -38,8 +38,8 @@ sys.stdout.buffer.write(output.getvalue())
   return result.stdout;
 }
 
-describe('GitHub artifact archive verifier', () => {
-  it('accepts one exact, digest-bound regular UTF-8 file set', () => {
+void describe('GitHub artifact archive verifier', () => {
+  void it('accepts one exact, digest-bound regular UTF-8 file set', () => {
     const archive = zipFixture({
       'preflight.json': '{"valid":true}\n',
       'operation.txt': 'Added: TEST-HIGH-001\n',
@@ -50,7 +50,7 @@ describe('GitHub artifact archive verifier', () => {
     assert.equal(files.get('operation.txt')?.toString('utf8'), 'Added: TEST-HIGH-001\n');
   });
 
-  it('rejects digest drift, extra paths, and symlink entries', () => {
+  void it('rejects digest drift, extra paths, and symlink entries', () => {
     const archive = zipFixture({ 'result.json': '{}\n' });
     assert.throws(
       () => verifyGitHubArtifactArchive(archive, '0'.repeat(64), ['result.json']),

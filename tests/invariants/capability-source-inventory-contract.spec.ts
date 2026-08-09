@@ -14,6 +14,7 @@ import {
   compareInventory,
   compileRegisteredCommonDirLocators,
   discoverInventory,
+  isManifestWorktreeSource,
   parseInventoryCliArgs,
   parseInventoryCliOptions,
   parseInventoryManifest,
@@ -717,6 +718,9 @@ describe('GitHub Actions detached execution identity', () => {
       originRef: ciRemoteRef.locator,
       exclusionProof: null,
     });
+    if (executionIdentity === null) {
+      throw new Error('trusted Actions fixture lost its execution identity');
+    }
 
     const live = discoverInventory(
       input({
@@ -937,11 +941,7 @@ describe('dirty worktree content identity', () => {
       }),
     ]);
     const declaredSource = manifest.sources[0];
-    if (
-      !declaredSource ||
-      declaredSource.kind === 'REMOTE_BRANCH' ||
-      declaredSource.kind === 'LOCAL_BRANCH'
-    ) {
+    if (!declaredSource || !isManifestWorktreeSource(declaredSource)) {
       throw new Error('strict worktree fixture lost its declared source');
     }
     expect(() =>
@@ -980,11 +980,8 @@ describe('capability source manifest reconciliation', () => {
     const remote = manifest.sources.find(
       (source) => source.locator === 'refs/remotes/origin/feature/remote',
     );
-    const dirty = manifest.sources.find(
-      (source): source is Extract<ManifestSourceCoordinate, { kind: 'DIRTY_WORKTREE' }> =>
-        source.locator === '/tmp/dirty' && source.kind === 'DIRTY_WORKTREE',
-    );
-    if (!remote || !dirty) {
+    const dirty = manifest.sources.find((source) => source.locator === '/tmp/dirty');
+    if (!remote || !dirty || !isManifestWorktreeSource(dirty) || dirty.kind !== 'DIRTY_WORKTREE') {
       throw new Error('fixture source missing');
     }
     remote.headSha = MERGED_SHA;
@@ -1181,6 +1178,15 @@ describe('capability source manifest reconciliation', () => {
         },
       }),
     ).toThrow('reconciled_base_sha');
+    expect(() =>
+      parseInventoryManifest({
+        capability_reconciliation: {
+          source_inventory_schema: SOURCE_INVENTORY_SCHEMA_V2,
+          reconciled_base_sha: BASE_SHA,
+          sources: [{ ...source, owner_class: 'INTRUDER' }],
+        },
+      }),
+    ).toThrow('closed worktree owner class');
     expect(() =>
       parseInventoryManifest({
         capability_reconciliation: {

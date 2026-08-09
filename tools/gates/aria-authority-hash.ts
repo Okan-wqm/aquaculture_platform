@@ -33,10 +33,12 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { TextDecoder } from 'node:util';
 
+import { errorWithCause } from './lib/error-cause';
 import {
   HERMETIC_GIT_EXECUTION_POLICY_V1,
   HERMETIC_GIT_RUNTIME,
   runWithHermeticGitExecutionBudget,
+  type HermeticGitReadQueryV1,
 } from './lib/hermetic-git-runtime';
 
 export const CURRENT_STATE_PATH = 'docs/aria/CURRENT_STATE.md';
@@ -53,52 +55,90 @@ export const ARIA_AUTHORITY_HASH_SENTINEL =
 export const ARIA_AUTHORITY_HASH_LINE =
   /Last verified ARIA authority hash: `(?:[a-f0-9]{64}|ARIA_AUTHORITY_HASH_SENTINEL)`/;
 
-const MAX_ARIA_GIT_OUTPUT_BYTES = 64 * 1024 * 1024;
 const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+
+type AriaAuthorityGitQueryV1 = Extract<
+  HermeticGitReadQueryV1,
+  {
+    readonly kind: 'REPOSITORY_COORDINATE' | 'LIST_INDEX_PATHS' | 'LIST_TREE';
+  }
+>;
 
 export interface AriaAuthorityGitReaderV1 {
   readonly schemaVersion: 1;
-  read(repoRoot: string, args: readonly string[], signal: AbortSignal): Promise<Buffer>;
+  read(repoRoot: string, query: AriaAuthorityGitQueryV1, signal: AbortSignal): Promise<Buffer>;
+}
+
+interface AriaAuthorityGitOperationAuthorityV1 extends AriaAuthorityGitReaderV1 {
+  withRepositoryOperation<T>(
+    repoRoot: string,
+    signal: AbortSignal,
+    action: (reader: AriaAuthorityGitReaderV1) => Promise<T>,
+  ): Promise<T>;
+}
+
+function readAriaAuthorityGitQuery(
+  repoRoot: string,
+  query: AriaAuthorityGitQueryV1,
+  signal: AbortSignal,
+): Promise<Buffer> {
+  return runWithHermeticGitExecutionBudget(
+    HERMETIC_GIT_EXECUTION_POLICY_V1.commandDeadlineMs,
+    signal,
+    async () =>
+      HERMETIC_GIT_RUNTIME.withRepository(
+        repoRoot,
+        async (session) => (await session.readAsync(query)).stdout,
+      ),
+  );
 }
 
 /** The sole production Git read authority for ARIA inventory discovery. */
-export const HERMETIC_ARIA_AUTHORITY_GIT_READER_V1: AriaAuthorityGitReaderV1 = Object.freeze({
-  schemaVersion: 1,
-  read: (repoRoot: string, args: readonly string[], signal: AbortSignal) =>
-    runWithHermeticGitExecutionBudget(
-      HERMETIC_GIT_EXECUTION_POLICY_V1.commandDeadlineMs,
-      signal,
-      async () =>
-        (
-          await HERMETIC_GIT_RUNTIME.runBufferAsync(
-            repoRoot,
-            args,
-            [0],
-            undefined,
-            MAX_ARIA_GIT_OUTPUT_BYTES,
-          )
-        ).stdout,
-    ),
-});
+export const HERMETIC_ARIA_AUTHORITY_GIT_READER_V1: AriaAuthorityGitOperationAuthorityV1 =
+  Object.freeze({
+    schemaVersion: 1,
+    read: readAriaAuthorityGitQuery,
+    withRepositoryOperation: <T>(
+      repoRoot: string,
+      signal: AbortSignal,
+      action: (reader: AriaAuthorityGitReaderV1) => Promise<T>,
+    ): Promise<T> =>
+      HERMETIC_GIT_RUNTIME.withRepository(repoRoot, (session) => {
+        const operationReader: AriaAuthorityGitReaderV1 = Object.freeze({
+          schemaVersion: 1,
+          read: (
+            requestedRoot: string,
+            query: AriaAuthorityGitQueryV1,
+            operationSignal: AbortSignal,
+          ): Promise<Buffer> => {
+            if (requestedRoot !== repoRoot) {
+              return Promise.reject(
+                new Error('ARIA Git operation reader cannot cross repository roots'),
+              );
+            }
+            return runWithHermeticGitExecutionBudget(
+              HERMETIC_GIT_EXECUTION_POLICY_V1.commandDeadlineMs,
+              operationSignal,
+              async () => (await session.readAsync(query)).stdout,
+            );
+          },
+        });
+        assertAriaGitReadNotAborted(signal);
+        return action(operationReader);
+      }),
+  });
 
 function assertAriaGitReadNotAborted(signal: AbortSignal): void {
   if (!signal.aborted) return;
   if (signal.reason instanceof Error) throw signal.reason;
-  const error = new Error('ARIA authority Git read was aborted');
-  Object.defineProperty(error, 'cause', {
-    configurable: true,
-    enumerable: false,
-    value: signal.reason,
-    writable: true,
-  });
-  throw error;
+  throw errorWithCause('ARIA authority Git read was aborted', signal.reason);
 }
 
 function decodeAriaGitText(raw: Buffer, label: string): string {
   try {
     return utf8Decoder.decode(raw);
   } catch (error) {
-    throw new Error(`${label} is not valid UTF-8`, { cause: error });
+    throw errorWithCause(`${label} is not valid UTF-8`, error);
   }
 }
 
@@ -114,7 +154,11 @@ export async function ariaRepoRoot(
 ): Promise<string> {
   assertAriaGitReadNotAborted(signal);
   const root = decodeAriaGitText(
-    await gitReader.read(resolve(process.cwd()), ['rev-parse', '--show-toplevel'], signal),
+    await gitReader.read(
+      resolve(process.cwd()),
+      { kind: 'REPOSITORY_COORDINATE', coordinate: 'TOP_LEVEL' },
+      signal,
+    ),
     'ARIA repository root',
   ).trim();
   assertAriaGitReadNotAborted(signal);
@@ -155,7 +199,11 @@ export async function ariaAuthorityFiles(
 ): Promise<string[]> {
   assertAriaGitReadNotAborted(signal);
   const paths = splitAriaGitNulPaths(
-    await gitReader.read(repoRoot, ['ls-files', '-z', '--', ...AUTHORITY_GIT_PATHS], signal),
+    await gitReader.read(
+      repoRoot,
+      { kind: 'LIST_INDEX_PATHS', selection: 'TRACKED', roots: AUTHORITY_GIT_PATHS },
+      signal,
+    ),
     'ARIA index authority path stream',
   );
   assertAriaGitReadNotAborted(signal);
@@ -175,7 +223,13 @@ export async function ariaAuthorityFilesAtRevision(
   const paths = splitAriaGitNulPaths(
     await gitReader.read(
       repoRoot,
-      ['ls-tree', '-r', '--name-only', '-z', revision, '--', ...AUTHORITY_GIT_PATHS],
+      {
+        kind: 'LIST_TREE',
+        revision,
+        projection: 'PATHS',
+        recursive: true,
+        paths: AUTHORITY_GIT_PATHS,
+      },
       signal,
     ),
     'ARIA committed authority path stream',
@@ -204,7 +258,11 @@ export async function unstagedAuthorityFiles(
   const paths = splitAriaGitNulPaths(
     await gitReader.read(
       repoRoot,
-      ['ls-files', '--others', '--exclude-standard', '-z', '--', ...AUTHORITY_GIT_PATHS],
+      {
+        kind: 'LIST_INDEX_PATHS',
+        selection: 'UNTRACKED_STANDARD',
+        roots: AUTHORITY_GIT_PATHS,
+      },
       signal,
     ),
     'ARIA untracked authority path stream',
@@ -296,35 +354,41 @@ export function writeAriaAuthorityHash(
 async function main(argv: string[]): Promise<number> {
   const signal = new AbortController().signal;
   const repoRoot = await ariaRepoRoot(signal);
-  const authorityFiles = await ariaAuthorityFiles(repoRoot, signal);
-  if (!argv.includes('--write')) {
-    process.stdout.write(`${ariaAuthorityHash(repoRoot, undefined, authorityFiles)}\n`);
-    return 0;
-  }
-  // PRECONDITION — refuse rather than write a digest the commit will not have.
-  const untracked = await unstagedAuthorityFiles(repoRoot, signal);
-  if (untracked.length > 0) {
-    process.stderr.write(
-      'aria authority hash: refusing — untracked files under the authority roots.\n' +
-        '  The digest is computed from `git ls-files`, so these are invisible to it now\n' +
-        '  and visible the moment they are staged. Writing the hash first produces a\n' +
-        '  value the committed tree does not match, and CI is where you find out.\n' +
-        '  `git add` them (or ignore them), then re-run.\n' +
-        untracked.map((rel) => `    ${rel}\n`).join(''),
-    );
-    return 1;
-  }
-  const finalAuthorityFiles = await ariaAuthorityFiles(repoRoot, signal);
-  if (JSON.stringify(finalAuthorityFiles) !== JSON.stringify(authorityFiles)) {
-    throw new Error('ARIA authority index changed while preparing its hash');
-  }
-  const { from, to, changed } = writeAriaAuthorityHash(repoRoot, authorityFiles);
-  process.stdout.write(
-    changed
-      ? `aria authority hash: ${from ?? '(none)'} -> ${to}\n`
-      : `aria authority hash: already current (${to})\n`,
+  return HERMETIC_ARIA_AUTHORITY_GIT_READER_V1.withRepositoryOperation(
+    repoRoot,
+    signal,
+    async (gitReader) => {
+      const authorityFiles = await ariaAuthorityFiles(repoRoot, signal, gitReader);
+      if (!argv.includes('--write')) {
+        process.stdout.write(`${ariaAuthorityHash(repoRoot, undefined, authorityFiles)}\n`);
+        return 0;
+      }
+      // PRECONDITION — refuse rather than write a digest the commit will not have.
+      const untracked = await unstagedAuthorityFiles(repoRoot, signal, gitReader);
+      if (untracked.length > 0) {
+        process.stderr.write(
+          'aria authority hash: refusing — untracked files under the authority roots.\n' +
+            '  The digest is computed from `git ls-files`, so these are invisible to it now\n' +
+            '  and visible the moment they are staged. Writing the hash first produces a\n' +
+            '  value the committed tree does not match, and CI is where you find out.\n' +
+            '  `git add` them (or ignore them), then re-run.\n' +
+            untracked.map((rel) => `    ${rel}\n`).join(''),
+        );
+        return 1;
+      }
+      const finalAuthorityFiles = await ariaAuthorityFiles(repoRoot, signal, gitReader);
+      if (JSON.stringify(finalAuthorityFiles) !== JSON.stringify(authorityFiles)) {
+        throw new Error('ARIA authority index changed while preparing its hash');
+      }
+      const { from, to, changed } = writeAriaAuthorityHash(repoRoot, authorityFiles);
+      process.stdout.write(
+        changed
+          ? `aria authority hash: ${from ?? '(none)'} -> ${to}\n`
+          : `aria authority hash: already current (${to})\n`,
+      );
+      return 0;
+    },
   );
-  return 0;
 }
 
 if (require.main === module) {

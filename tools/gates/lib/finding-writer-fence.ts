@@ -7,6 +7,7 @@ import {
 } from '../github-actions-oidc-authority';
 
 import { AnchoredFilesystemError } from './anchored-filesystem';
+import { errorFromUnknown, errorWithCause } from './error-cause';
 import {
   classifyFindingAuthorityTarget,
   FINDING_REGISTRY_RELATIVE_PATH,
@@ -214,14 +215,7 @@ function findingWriterFenceStaleError(
 ): FindingWriterFenceStaleError {
   if (!isFindingWriterFenceGenerationMismatch(cause)) {
     if (cause instanceof Error) throw cause;
-    const error = new Error('Finding writer currentness check threw a non-Error value');
-    Object.defineProperty(error, 'cause', {
-      configurable: true,
-      enumerable: false,
-      value: cause,
-      writable: true,
-    });
-    throw error;
+    throw errorWithCause('Finding writer currentness check threw a non-Error value', cause);
   }
   return new FindingWriterFenceStaleError(
     admissionPhase,
@@ -674,18 +668,6 @@ function consumeSourceFindingWriterFenceTransition(
   activeSourceFindingWriterFenceTransitions.delete(pending.session);
 }
 
-function sourceTransitionFailure(label: string, error: unknown): Error {
-  if (error instanceof Error) return error;
-  const wrapped = new Error(label);
-  Object.defineProperty(wrapped, 'cause', {
-    configurable: true,
-    enumerable: false,
-    value: error,
-    writable: true,
-  });
-  return wrapped;
-}
-
 export function prepareSourceFindingWriterFenceSessionTransition(
   session: SourceFindingWriterFenceSession,
   lease: FindingWriterFenceLease,
@@ -793,8 +775,8 @@ export function rollbackPendingSourceFindingWriterFenceSessionTransition(
   } catch (afterError) {
     throw new AggregateError(
       [
-        sourceTransitionFailure('Source transition before-image check failed.', beforeFailure),
-        sourceTransitionFailure('Source transition after-image check failed.', afterError),
+        errorFromUnknown('Source transition before-image check failed.', beforeFailure),
+        errorFromUnknown('Source transition after-image check failed.', afterError),
       ],
       'Pending source transition is neither its exact before-image nor its exact after-image',
     );
@@ -810,11 +792,8 @@ export function rollbackPendingSourceFindingWriterFenceSessionTransition(
     } catch (currentnessError) {
       throw new AggregateError(
         [
-          sourceTransitionFailure('Source transition raw rollback failed.', restoreError),
-          sourceTransitionFailure(
-            'Source transition rollback currentness failed.',
-            currentnessError,
-          ),
+          errorFromUnknown('Source transition raw rollback failed.', restoreError),
+          errorFromUnknown('Source transition rollback currentness failed.', currentnessError),
         ],
         'Source transition rollback failed and did not recover its exact before-image',
       );

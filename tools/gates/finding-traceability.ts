@@ -19,7 +19,10 @@ export function commitMessageClosesFinding(message: string, findingId: string): 
 }
 
 export function readCommitMessage(repoRoot: string, sha: string): string {
-  return HERMETIC_GIT_RUNTIME.runText(repoRoot, ['show', '-s', '--format=%B', sha]).stdout;
+  return HERMETIC_GIT_RUNTIME.withRepositorySync(
+    repoRoot,
+    (session) => session.readText({ kind: 'SHOW_COMMIT_MESSAGE', oid: sha }).stdout,
+  );
 }
 
 export function commitHasFindingCloseTrailer(

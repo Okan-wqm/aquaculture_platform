@@ -2,26 +2,26 @@ import { createHash, type Hash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 
-import { computeCanonicalGitWorktreeEvidence, HERMETIC_GIT_RUNTIME } from './hermetic-git-runtime';
 import {
   assertStableDirectoryCurrent,
   decodeFatalUtf8,
   observeStableDirectory,
   type StableDirectoryObservationV1,
 } from './anchored-filesystem';
+import { computeCanonicalGitWorktreeEvidence, HERMETIC_GIT_RUNTIME } from './hermetic-git-runtime';
 
 const LOCATOR_SCHEMA =
   'https://app.suderra.com/schemas/registered-git-common-dir-locator/v1' as const;
 const SHA1_PATTERN = /^[0-9a-f]{40}$/;
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,127}$/;
-export const WORKTREE_OWNER_CLASSES = [
+export const WORKTREE_OWNER_CLASSES = Object.freeze([
   'USER',
   'CLAUDE',
   'ARIA',
   'CODEX',
   'DEPLOY',
   'REPOSITORY_RUNNER',
-] as const;
+] as const);
 export type WorktreeOwnerClassV1 = (typeof WORKTREE_OWNER_CLASSES)[number];
 
 export interface WorktreeCoordinate {
@@ -147,13 +147,19 @@ function requireIdentifier(value: string, label: string): string {
   return value;
 }
 
+export function isWorktreeOwnerClass(value: unknown): value is WorktreeOwnerClassV1 {
+  return (
+    typeof value === 'string' && WORKTREE_OWNER_CLASSES.some((ownerClass) => ownerClass === value)
+  );
+}
+
 function requireOwnerClass(value: string, label: string): WorktreeOwnerClassV1 {
-  if (!WORKTREE_OWNER_CLASSES.includes(value as WorktreeOwnerClassV1)) {
+  if (!isWorktreeOwnerClass(value)) {
     throw new Error(
       `${label} must be one closed owner class (${WORKTREE_OWNER_CLASSES.join(', ')}): ${JSON.stringify(value)}`,
     );
   }
-  return value as WorktreeOwnerClassV1;
+  return value;
 }
 
 function updateFrame(digest: Hash, label: string, payload: string): void {
@@ -398,25 +404,58 @@ function commonDirIdentity(commonDirPath: string): CommonDirIdentityV1 {
   });
 }
 
+interface RegisteredRepositoryProtocolObservationV1 {
+  readonly resolvedCommonDir: string;
+  readonly objectFormat: string;
+  readonly objectDirectoryPath: string;
+  readonly liveWorktreeBytes: Buffer;
+}
+
+async function observeRegisteredRepositoryProtocol(
+  locator: RegisteredCommonDirLocatorV1,
+): Promise<RegisteredRepositoryProtocolObservationV1> {
+  return HERMETIC_GIT_RUNTIME.withRepository(locator.queryWorktreePath, async (session) => {
+    const resolvedCommonDir = realpathSync(
+      (
+        await session.readTextAsync({
+          kind: 'REPOSITORY_COORDINATE',
+          coordinate: 'COMMON_DIR',
+        })
+      ).stdout.trim(),
+    );
+    const objectFormat = (
+      await session.readTextAsync({
+        kind: 'REPOSITORY_COORDINATE',
+        coordinate: 'OBJECT_FORMAT',
+      })
+    ).stdout.trim();
+    const objectDirectoryPath = realpathSync(
+      (
+        await session.readTextAsync({
+          kind: 'REPOSITORY_COORDINATE',
+          coordinate: 'OBJECTS',
+        })
+      ).stdout.trim(),
+    );
+    const liveWorktreeBytes = (await session.readAsync({ kind: 'LIST_WORKTREES' })).stdout;
+    return Object.freeze({
+      resolvedCommonDir,
+      objectFormat,
+      objectDirectoryPath,
+      liveWorktreeBytes,
+    });
+  });
+}
+
 function repositoryIdentity(
   locator: RegisteredCommonDirLocatorV1,
   commonDir: CommonDirIdentityV1,
+  protocol: RegisteredRepositoryProtocolObservationV1,
 ): RepositoryIdentityV1 {
-  const objectFormat = HERMETIC_GIT_RUNTIME.runText(locator.queryWorktreePath, [
-    'rev-parse',
-    '--show-object-format',
-  ]).stdout.trim();
+  const { objectFormat, objectDirectoryPath } = protocol;
   if (objectFormat !== 'sha1') {
     throw new Error(`${locator.locatorId} repository object format is not governed SHA-1`);
   }
-  const objectDirectoryPath = realpathSync(
-    HERMETIC_GIT_RUNTIME.runText(locator.queryWorktreePath, [
-      'rev-parse',
-      '--path-format=absolute',
-      '--git-path',
-      'objects',
-    ]).stdout.trim(),
-  );
   const stat = observeStableDirectory(
     objectDirectoryPath,
     `${locator.locatorId} object directory`,
@@ -471,26 +510,15 @@ async function discoverOneCommonDir(
   if (realpathSync(locator.queryWorktreePath) !== locator.queryWorktreePath) {
     throw new Error(`${locator.locatorId} query worktree is not canonical`);
   }
-  const resolvedCommonDir = realpathSync(
-    HERMETIC_GIT_RUNTIME.runText(locator.queryWorktreePath, [
-      'rev-parse',
-      '--path-format=absolute',
-      '--git-common-dir',
-    ]).stdout.trim(),
-  );
+  const initialProtocol = await observeRegisteredRepositoryProtocol(locator);
+  const { resolvedCommonDir, liveWorktreeBytes } = initialProtocol;
   if (resolvedCommonDir !== locator.commonDirPath) {
     throw new Error(
       `${locator.locatorId} resolves common-dir ${resolvedCommonDir}, expected ${locator.commonDirPath}`,
     );
   }
   const commonDir = commonDirIdentity(locator.commonDirPath);
-  const repository = repositoryIdentity(locator, commonDir);
-  const liveWorktreeBytes = HERMETIC_GIT_RUNTIME.runBuffer(locator.queryWorktreePath, [
-    'worktree',
-    'list',
-    '--porcelain',
-    '-z',
-  ]).stdout;
+  const repository = repositoryIdentity(locator, commonDir, initialProtocol);
   const liveWorktrees = parseWorktreeList(
     decodeFatalUtf8(liveWorktreeBytes, `${locator.locatorId} worktree list`),
   );
@@ -513,12 +541,19 @@ async function discoverOneCommonDir(
       `${locator.locatorId} worktree`,
       false,
     );
-    const worktreeCommonDir = realpathSync(
-      HERMETIC_GIT_RUNTIME.runText(worktree.path, [
-        'rev-parse',
-        '--path-format=absolute',
-        '--git-common-dir',
-      ]).stdout.trim(),
+    const { worktreeCommonDir, evidence } = await HERMETIC_GIT_RUNTIME.withRepository(
+      worktree.path,
+      async (session) => ({
+        worktreeCommonDir: realpathSync(
+          (
+            await session.readTextAsync({
+              kind: 'REPOSITORY_COORDINATE',
+              coordinate: 'COMMON_DIR',
+            })
+          ).stdout.trim(),
+        ),
+        evidence: await computeCanonicalGitWorktreeEvidence(worktree.path),
+      }),
     );
     if (worktreeCommonDir !== commonDir.canonicalPath) {
       throw new Error(`${worktree.path} escaped registered common-dir ${commonDir.canonicalPath}`);
@@ -527,7 +562,6 @@ async function discoverOneCommonDir(
     if (ownerClass === undefined) {
       throw new Error(`${worktree.path} lost its registered owner class`);
     }
-    const evidence = await computeCanonicalGitWorktreeEvidence(worktree.path);
     if (observer.afterWorktreeEvidence) {
       await observer.afterWorktreeEvidence(locator.locatorId, worktree.path);
     }
@@ -582,27 +616,15 @@ async function discoverOneCommonDir(
       `${locator.locatorId} final worktree ${worktreePath}`,
     );
   }
-  const finalResolvedCommonDir = realpathSync(
-    HERMETIC_GIT_RUNTIME.runText(locator.queryWorktreePath, [
-      'rev-parse',
-      '--path-format=absolute',
-      '--git-common-dir',
-    ]).stdout.trim(),
-  );
+  const finalProtocol = await observeRegisteredRepositoryProtocol(locator);
   const finalCommonDir = commonDirIdentity(locator.commonDirPath);
-  const finalRepository = repositoryIdentity(locator, finalCommonDir);
-  const finalLiveWorktreeBytes = HERMETIC_GIT_RUNTIME.runBuffer(locator.queryWorktreePath, [
-    'worktree',
-    'list',
-    '--porcelain',
-    '-z',
-  ]).stdout;
+  const finalRepository = repositoryIdentity(locator, finalCommonDir, finalProtocol);
   if (
-    finalResolvedCommonDir !== resolvedCommonDir ||
+    finalProtocol.resolvedCommonDir !== resolvedCommonDir ||
     finalCommonDir.sha256 !== commonDir.sha256 ||
     finalRepository.sha256 !== repository.sha256 ||
     finalRepository.substrateAttestationSha256 !== repository.substrateAttestationSha256 ||
-    !finalLiveWorktreeBytes.equals(liveWorktreeBytes)
+    !finalProtocol.liveWorktreeBytes.equals(liveWorktreeBytes)
   ) {
     throw new Error(
       `${locator.locatorId} common-dir, object-dir, or exact registered worktree protocol changed during discovery`,

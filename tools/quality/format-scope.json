@@ -968,7 +968,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "12e2fe9e81b23640bae53dda8bd8165f5311084b8a83824e72ddc6716a5b05d8",
+      "content_sha256": "bf2c9486f93fe4a40b0de8c33dc05feaf2f1bd9b327766f7a9fbfb27edd625a2",
       "hash_policy": "sha256",
       "owner": "finding-registry-writer-authority-generator",
       "path": ".github/manifests/finding-registry-writer-authority.json",
@@ -40889,7 +40889,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "d252dfb69bf56ccdc060d123b926d3cabb3a24b4e0da737382cd8455969b74b1",
+      "content_sha256": "16017fece517ac4b5d2700a78f1915bd48ce6f463d0f9aa08fb9dea0fbba00e5",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -44621,6 +44621,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/lib/anchored-filesystem.fixture.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/anchored-filesystem.kernel.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/lib/anchored-filesystem.spec.ts",
       "prettier_managed": true
     },
@@ -44658,6 +44670,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/lib/capability-source-contract.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/error-cause.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/error-cause.ts",
       "prettier_managed": true
     },
     {
@@ -44735,6 +44759,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/lib/hermetic-git-runtime.fixture.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/hermetic-git-runtime.kernel.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/lib/hermetic-git-runtime.spec.ts",
       "prettier_managed": true
     },
@@ -44766,6 +44802,30 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/lib/repo-root.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/repository-application-module-loader.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/repository-application-module-loader.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/repository-git-read-phase.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/repository-git-read-phase.ts",
       "prettier_managed": true
     },
     {

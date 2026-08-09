@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import {
+import fs, {
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -10,8 +10,8 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, it } from 'node:test';
 
 import {
@@ -19,6 +19,7 @@ import {
   resolveAutomationPublicationPolicy,
   type ResolvedAutomationPublicationPolicy,
 } from '../../gates/lib/automation-publication-policy';
+
 import {
   AUTOMATION_PUBLICATION_NETWORK_BUDGET,
   AutomationPublisher,
@@ -191,72 +192,78 @@ class FakePublicationRemote implements AutomationPublicationRemote {
     });
   }
 
-  public async assertInstallationIdentity(
+  public assertInstallationIdentity(
     expectedAppSlug: string,
     expectedInstallationId: number,
   ): Promise<void> {
     assert.equal(expectedAppSlug, 'aqua-automation');
     assert.equal(expectedInstallationId, 1234);
     this.events.push('installation');
+    return Promise.resolve();
   }
 
-  public async getBranchOid(branch: string): Promise<string | null> {
+  public getBranchOid(branch: string): Promise<string | null> {
     this.events.push(`read-branch:${branch}`);
-    return this.branches.get(branch) ?? null;
+    return Promise.resolve(this.branches.get(branch) ?? null);
   }
 
-  public async getFileBlobOid(path: string, ref: string): Promise<string | null> {
+  public getFileBlobOid(path: string, ref: string): Promise<string | null> {
     assert.equal(path, REGISTRY_PATH);
     assert.equal(ref, BASE_SHA);
     this.events.push('read-base-blob');
-    return this.baseBlobOid;
+    return Promise.resolve(this.baseBlobOid);
   }
 
-  public async getCommit(sha: string, changedPath: string): Promise<RemoteCommitEvidence> {
+  public getCommit(sha: string, changedPath: string): Promise<RemoteCommitEvidence> {
     assert.equal(changedPath, REGISTRY_PATH);
     this.events.push(`read-commit:${sha}`);
     const commit = this.commits.get(sha);
     if (!commit) throw new Error(`Unknown fake commit: ${sha}`);
-    return commit;
+    return Promise.resolve(commit);
   }
 
-  public async listPullRequests(branch: string): Promise<readonly RemotePullRequestSummary[]> {
+  public listPullRequests(branch: string): Promise<readonly RemotePullRequestSummary[]> {
     this.events.push(`list-prs:${branch}`);
-    return [...this.pullRequests.values()]
-      .filter((pullRequest) => pullRequest.headRef === branch)
-      .map((pullRequest) => ({
-        number: pullRequest.number,
-        headSha: pullRequest.headSha,
-        title: pullRequest.title,
-        body: pullRequest.body,
-      }));
+    return Promise.resolve(
+      [...this.pullRequests.values()]
+        .filter((pullRequest) => pullRequest.headRef === branch)
+        .map((pullRequest) => ({
+          number: pullRequest.number,
+          headSha: pullRequest.headSha,
+          title: pullRequest.title,
+          body: pullRequest.body,
+        })),
+    );
   }
 
-  public async getPullRequest(number: number): Promise<RemotePullRequest> {
+  public getPullRequest(number: number): Promise<RemotePullRequest> {
     this.events.push(`read-pr:${String(number)}`);
     if (this.failPullRequestReads) {
       throw new Error('simulated post-create PR revalidation failure');
     }
     const pullRequest = this.pullRequests.get(number);
     if (!pullRequest) throw new Error(`Unknown fake pull request: ${String(number)}`);
-    return pullRequest;
+    return Promise.resolve(pullRequest);
   }
 
-  public async isCommitReachableFrom(commitSha: string, mainSha: string): Promise<boolean> {
+  public isCommitReachableFrom(commitSha: string, mainSha: string): Promise<boolean> {
     this.events.push(`reachable:${commitSha}:${mainSha}`);
-    return commitSha === MERGE_SHA && (mainSha === BASE_SHA || mainSha === ADVANCED_MAIN_SHA);
+    return Promise.resolve(
+      commitSha === MERGE_SHA && (mainSha === BASE_SHA || mainSha === ADVANCED_MAIN_SHA),
+    );
   }
 
-  public async createBranch(branch: string, sha: string): Promise<void> {
+  public createBranch(branch: string, sha: string): Promise<void> {
     this.events.push(`create-branch:${branch}:${sha}`);
     if (this.branches.has(branch)) throw new GitHubApiError(422, 'branch exists');
     this.branches.set(branch, sha);
     if (this.raceMode === 'branch-422') {
       throw new GitHubApiError(422, 'competing branch creator won');
     }
+    return Promise.resolve();
   }
 
-  public async createCommit(input: {
+  public createCommit(input: {
     readonly branch: string;
     readonly expectedHeadOid: string;
     readonly headline: string;
@@ -287,17 +294,17 @@ class FakePublicationRemote implements AutomationPublicationRemote {
     if (this.raceMode === 'commit-response-loss') {
       throw new Error('simulated GraphQL response loss');
     }
-    return {
+    return Promise.resolve({
       oid: CREATED_SHA,
       refOid: CREATED_SHA,
       clientMutationId: input.clientMutationId,
       signatureValid: true,
       wasSignedByGitHub: true,
       signatureState: 'VALID',
-    };
+    });
   }
 
-  public async createPullRequest(input: {
+  public createPullRequest(input: {
     readonly branch: string;
     readonly title: string;
     readonly body: string;
@@ -341,12 +348,12 @@ class FakePublicationRemote implements AutomationPublicationRemote {
     if (this.raceMode === 'pull-request-response-loss') {
       throw new Error('simulated pull request response loss');
     }
-    return pullRequest;
+    return Promise.resolve(pullRequest);
   }
 }
 
-describe('automation publication retry and remote reconciliation', () => {
-  it('rejects a forged request snapshot before any remote call', async () => {
+void describe('automation publication retry and remote reconciliation', () => {
+  void it('rejects a forged request snapshot before any remote call', async () => {
     const request = publicationRequest();
     const remote = new FakePublicationRemote();
 
@@ -363,7 +370,7 @@ describe('automation publication retry and remote reconciliation', () => {
     assert.deepEqual(remote.events, []);
   });
 
-  it('keeps one retry identity across run, attempt, and evidence provenance changes', async () => {
+  void it('keeps one retry identity across run, attempt, and evidence provenance changes', async () => {
     const firstRequest = publicationRequest();
     const retryRequest = publicationRequest({
       workflowRunId: 9100,
@@ -391,7 +398,7 @@ describe('automation publication retry and remote reconciliation', () => {
     assert.equal(recovered.retry_identity, first.retry_identity);
   });
 
-  it('fences one command to one branch and fails closed on cross-run semantic drift', async () => {
+  void it('fences one command to one branch and fails closed on cross-run semantic drift', async () => {
     const firstRequest = publicationRequest();
     const driftedBody = 'A reused command attempted different publication semantics.';
     const driftedRequest = publicationRequest({
@@ -436,7 +443,7 @@ describe('automation publication retry and remote reconciliation', () => {
     'pull-request-422',
     'pull-request-response-loss',
   ] as const) {
-    it(`recovers the stable publication after ${raceMode}`, async () => {
+    void it(`recovers the stable publication after ${raceMode}`, async () => {
       const remote = new FakePublicationRemote();
       remote.raceMode = raceMode;
       const result = await new AutomationPublisher(remote).publish(publicationRequest());
@@ -448,7 +455,7 @@ describe('automation publication retry and remote reconciliation', () => {
     });
   }
 
-  it('uses a command-identity immutable branch and leaves a legacy shared ref untouched', async () => {
+  void it('uses a command-identity immutable branch and leaves a legacy shared ref untouched', async () => {
     const request = publicationRequest();
     const remote = new FakePublicationRemote();
     remote.seedBranch(request.policy.branch, STALE_SHA);
@@ -463,7 +470,7 @@ describe('automation publication retry and remote reconciliation', () => {
     assert.ok(remote.events.includes(`create-branch:${branch}:${BASE_SHA}`));
   });
 
-  it('isolates distinct command identities instead of serializing them through one branch', async () => {
+  void it('isolates distinct command identities instead of serializing them through one branch', async () => {
     const firstRequest = publicationRequest();
     const secondRequest = publicationRequest({
       commandId: 'finding-request:TEST-HIGH-002',
@@ -482,7 +489,7 @@ describe('automation publication retry and remote reconciliation', () => {
     assert.equal(remote.peekBranch(second.branch ?? ''), CREATED_SHA);
   });
 
-  it('fails closed without deleting or replacing a noncanonical identity branch', async () => {
+  void it('fails closed without deleting or replacing a noncanonical identity branch', async () => {
     const request = publicationRequest();
     const remote = new FakePublicationRemote();
     remote.seedForeignPublicationBranch(request);
@@ -496,7 +503,7 @@ describe('automation publication retry and remote reconciliation', () => {
     assert.equal(remote.peekBranch(branch), STALE_SHA);
   });
 
-  it('rejects a created PR whose actor is not the authenticated App', async () => {
+  void it('rejects a created PR whose actor is not the authenticated App', async () => {
     const remote = new FakePublicationRemote();
     remote.pullRequestAuthorLogin = 'human-reviewer';
 
@@ -506,7 +513,7 @@ describe('automation publication retry and remote reconciliation', () => {
     );
   });
 
-  it('rejects a draft PR during cross-attempt recovery', async () => {
+  void it('rejects a draft PR during cross-attempt recovery', async () => {
     const remote = new FakePublicationRemote();
     const publisher = new AutomationPublisher(remote);
     const first = await publisher.publish(publicationRequest());
@@ -529,7 +536,7 @@ describe('automation publication retry and remote reconciliation', () => {
     );
   });
 
-  it('rejects a recovered PR whose stable body was edited', async () => {
+  void it('rejects a recovered PR whose stable body was edited', async () => {
     const remote = new FakePublicationRemote();
     const publisher = new AutomationPublisher(remote);
     const first = await publisher.publish(publicationRequest());
@@ -542,7 +549,7 @@ describe('automation publication retry and remote reconciliation', () => {
     await assert.rejects(publisher.publish(publicationRequest()), /pull request metadata differs/i);
   });
 
-  it('fails closed when an exact-head PR has its retry marker removed', async () => {
+  void it('fails closed when an exact-head PR has its retry marker removed', async () => {
     const remote = new FakePublicationRemote();
     const publisher = new AutomationPublisher(remote);
     const first = await publisher.publish(publicationRequest());
@@ -587,7 +594,7 @@ describe('automation publication retry and remote reconciliation', () => {
     );
   });
 
-  it('rejects a merged stable-branch PR that is not reachable from current main', async () => {
+  void it('rejects a merged stable-branch PR that is not reachable from current main', async () => {
     const remote = new FakePublicationRemote();
     const publisher = new AutomationPublisher(remote);
     const first = await publisher.publish(publicationRequest());
@@ -604,7 +611,7 @@ describe('automation publication retry and remote reconciliation', () => {
     );
   });
 
-  it('recovers a canonical merged publication after the live main base advances', async () => {
+  void it('recovers a canonical merged publication after the live main base advances', async () => {
     const remote = new FakePublicationRemote();
     const publisher = new AutomationPublisher(remote);
     const first = await publisher.publish(publicationRequest());
@@ -624,7 +631,7 @@ describe('automation publication retry and remote reconciliation', () => {
     assert.ok(remote.events.includes(`reachable:${MERGE_SHA}:${ADVANCED_MAIN_SHA}`));
   });
 
-  it('preserves commit and PR coordinates in one exclusive durable FAILED result', async () => {
+  void it('preserves commit and PR coordinates in one exclusive durable FAILED result', async () => {
     const request = publicationRequest();
     const remote = new FakePublicationRemote();
     remote.raceMode = 'pull-request-verification-failure';
@@ -672,10 +679,10 @@ describe('automation publication retry and remote reconciliation', () => {
     );
   });
 
-  it('preserves the primary failure and every cleanup failure in deterministic order', () => {
+  void it('preserves the primary failure and every cleanup failure in deterministic order', () => {
     const primary = new Error('primary write failure');
     const closeFailure = new Error('descriptor cleanup failure');
-    const unlinkFailure = new Error('temporary-file cleanup failure');
+    const unlinkFailure = new Error('staged-file cleanup failure');
     assert.throws(
       () => rethrowPublicationWriteErrors(primary, [closeFailure, null, unlinkFailure]),
       (error: unknown) => {
@@ -696,7 +703,7 @@ describe('automation publication retry and remote reconciliation', () => {
     );
   });
 
-  it('records output-sink finalization failure as the one durable FAILED result', async () => {
+  void it('records output-sink finalization failure as the one durable FAILED result', async () => {
     const request = publicationRequest();
     const published = await new AutomationPublisher(new FakePublicationRemote()).publish(request);
     const runnerTemp = mkdtempSync(join(tmpdir(), 'automation-finalization-'));
@@ -728,29 +735,31 @@ class PaginatedPullRequestTransport implements GitHubAutomationPublicationTransp
 
   public constructor(private readonly fillEveryPage = false) {}
 
-  public async get(path: string): Promise<unknown> {
+  public get(path: string): Promise<unknown> {
     const page = Number(new URL(`https://api.github.test${path}`).searchParams.get('page'));
     this.requestedPages.push(page);
     const count = this.fillEveryPage ? 100 : page === 1 ? 100 : page === 2 ? 1 : 0;
-    return Array.from({ length: count }, (_, index) => ({
-      number: (page - 1) * 100 + index + 1,
-      head: { sha: String(page).repeat(40) },
-      title: page === 2 ? 'old stable retry' : 'other publication',
-      body: page === 2 ? '<!-- aqua-automation-retry-identity:old -->' : 'other',
-    }));
+    return Promise.resolve(
+      Array.from({ length: count }, (_, index) => ({
+        number: (page - 1) * 100 + index + 1,
+        head: { sha: String(page).repeat(40) },
+        title: page === 2 ? 'old stable retry' : 'other publication',
+        body: page === 2 ? '<!-- aqua-automation-retry-identity:old -->' : 'other',
+      })),
+    );
   }
 
-  public async post(): Promise<unknown> {
+  public post(): Promise<never> {
     throw new Error('Unexpected POST in pagination test');
   }
 
-  public async graphql(): Promise<unknown> {
+  public graphql(): Promise<never> {
     throw new Error('Unexpected GraphQL call in pagination test');
   }
 }
 
-describe('bounded pull request history enumeration', () => {
-  it('bounds the worst sequential network wait below the workflow kill window', () => {
+void describe('bounded pull request history enumeration', () => {
+  void it('bounds the worst sequential network wait below the workflow kill window', () => {
     assert.equal(
       AUTOMATION_PUBLICATION_NETWORK_BUDGET.maximumSequentialWaitMs,
       AUTOMATION_PUBLICATION_NETWORK_BUDGET.perCallTimeoutMs *
@@ -759,7 +768,7 @@ describe('bounded pull request history enumeration', () => {
     assert.ok(AUTOMATION_PUBLICATION_NETWORK_BUDGET.maximumSequentialWaitMs <= 240_000);
   });
 
-  it('enumerates a stable retry beyond the first full page', async () => {
+  void it('enumerates a stable retry beyond the first full page', async () => {
     const transport = new PaginatedPullRequestTransport();
     const remote = new GitHubAutomationPublicationRemote(transport);
 
@@ -770,7 +779,7 @@ describe('bounded pull request history enumeration', () => {
     assert.deepEqual(transport.requestedPages, [1, 2]);
   });
 
-  it('fails closed instead of truncating history at the explicit page bound', async () => {
+  void it('fails closed instead of truncating history at the explicit page bound', async () => {
     const transport = new PaginatedPullRequestTransport(true);
     const remote = new GitHubAutomationPublicationRemote(transport);
 
@@ -783,9 +792,9 @@ describe('bounded pull request history enumeration', () => {
 });
 
 class InstallationIdentityTransport implements GitHubAutomationPublicationTransport {
-  public async get(path: string): Promise<unknown> {
+  public get(path: string): Promise<unknown> {
     if (path === '/installation/repositories?per_page=2') {
-      return {
+      return Promise.resolve({
         total_count: 1,
         repositories: [
           {
@@ -795,22 +804,22 @@ class InstallationIdentityTransport implements GitHubAutomationPublicationTransp
             owner: { login: 'Okan-wqm', id: 77401788 },
           },
         ],
-      };
+      });
     }
     throw new Error(`Unexpected GET: ${path}`);
   }
 
-  public async post(): Promise<unknown> {
+  public post(): Promise<never> {
     throw new Error('Unexpected POST in identity test');
   }
 
-  public async graphql(): Promise<unknown> {
-    return { data: { viewer: { login: 'aqua-automation[bot]' } } };
+  public graphql(): Promise<unknown> {
+    return Promise.resolve({ data: { viewer: { login: 'aqua-automation[bot]' } } });
   }
 }
 
-describe('GitHub App installation identity', () => {
-  it('binds the trusted installation output to the App principal and one repository', async () => {
+void describe('GitHub App installation identity', () => {
+  void it('binds the trusted installation output to the App principal and one repository', async () => {
     const remote = new GitHubAutomationPublicationRemote(new InstallationIdentityTransport());
 
     await remote.assertInstallationIdentity('aqua-automation', 1234);
@@ -829,36 +838,36 @@ class CommitIdentityTransport implements GitHubAutomationPublicationTransport {
     private readonly graphqlCommitSha = requestedSha,
   ) {}
 
-  public async get(path: string): Promise<unknown> {
+  public get(path: string): Promise<unknown> {
     if (path.includes('/git/commits/')) {
-      return {
+      return Promise.resolve({
         sha: this.gitCommitSha,
         message: 'canonical commit message',
         verification: { verified: true, reason: 'valid' },
         parents: [{ sha: BASE_SHA }],
-      };
+      });
     }
     if (path.includes('/commits/')) {
-      return {
+      return Promise.resolve({
         sha: this.commitViewSha,
         author: { login: 'aqua-automation[bot]' },
         files: [{ filename: REGISTRY_PATH }],
-      };
+      });
     }
     if (path.includes('/contents/')) {
-      return { sha: '8'.repeat(40) };
+      return Promise.resolve({ sha: '8'.repeat(40) });
     }
     throw new Error(`Unexpected GET: ${path}`);
   }
 
-  public async post(): Promise<unknown> {
+  public post(): Promise<never> {
     throw new Error('Unexpected POST in commit identity test');
   }
 
-  public async graphql(_query: string, variables: JsonRecord): Promise<unknown> {
+  public graphql(_query: string, variables: JsonRecord): Promise<unknown> {
     assert.equal(variables.name, 'aquaculture_platform');
     assert.equal(variables.oid, this.requestedSha);
-    return {
+    return Promise.resolve({
       data: {
         repository: {
           object: {
@@ -871,12 +880,12 @@ class CommitIdentityTransport implements GitHubAutomationPublicationTransport {
           },
         },
       },
-    };
+    });
   }
 }
 
-describe('cross-source commit identity', () => {
-  it('requires the requested SHA from both REST views and GraphQL', async () => {
+void describe('cross-source commit identity', () => {
+  void it('requires the requested SHA from both REST views and GraphQL', async () => {
     const requestedSha = '6'.repeat(40);
     const remote = new GitHubAutomationPublicationRemote(new CommitIdentityTransport(requestedSha));
     assert.equal((await remote.getCommit(requestedSha, REGISTRY_PATH)).sha, requestedSha);
@@ -891,9 +900,9 @@ describe('cross-source commit identity', () => {
 });
 
 class WrongPullRequestIdentityTransport implements GitHubAutomationPublicationTransport {
-  public async get(path: string): Promise<unknown> {
+  public get(path: string): Promise<unknown> {
     assert.match(path, /\/pulls\/42$/);
-    return {
+    return Promise.resolve({
       number: 41,
       html_url: 'https://github.com/Okan-wqm/aquaculture_platform/pull/41',
       state: 'open',
@@ -909,17 +918,17 @@ class WrongPullRequestIdentityTransport implements GitHubAutomationPublicationTr
       draft: false,
       title: 'canonical title',
       body: 'canonical body',
-    };
+    });
   }
 
-  public async post(): Promise<unknown> {
+  public post(): Promise<never> {
     throw new Error('Unexpected POST in pull request identity test');
   }
 
-  public async graphql(_query: string, variables: JsonRecord): Promise<unknown> {
+  public graphql(_query: string, variables: JsonRecord): Promise<unknown> {
     assert.equal(variables.name, 'aquaculture_platform');
     assert.equal(variables.number, 42);
-    return {
+    return Promise.resolve({
       data: {
         repository: {
           pullRequest: {
@@ -942,12 +951,12 @@ class WrongPullRequestIdentityTransport implements GitHubAutomationPublicationTr
           },
         },
       },
-    };
+    });
   }
 }
 
-describe('cross-source pull request identity', () => {
-  it('rejects mutually agreeing REST/GraphQL data for the wrong requested number', async () => {
+void describe('cross-source pull request identity', () => {
+  void it('rejects mutually agreeing REST/GraphQL data for the wrong requested number', async () => {
     const remote = new GitHubAutomationPublicationRemote(new WrongPullRequestIdentityTransport());
 
     await assert.rejects(
@@ -957,8 +966,8 @@ describe('cross-source pull request identity', () => {
   });
 });
 
-describe('GitHub output boundary', () => {
-  it('writes only canonical single-line values and rejects symlink/injection targets', () => {
+void describe('GitHub output boundary', () => {
+  void it('writes only canonical single-line values and rejects symlink/injection targets', () => {
     const request = publicationRequest();
     const result = automationPublicationFailureResult(
       new Error('publication\0failed\nwith\u007fcontrols\u0085'),
@@ -988,8 +997,8 @@ describe('GitHub output boundary', () => {
   });
 });
 
-describe('report content-digest authority', () => {
-  it('requires the report request digest to equal the immutable content digest', () => {
+void describe('report content-digest authority', () => {
+  void it('requires the report request digest to equal the immutable content digest', () => {
     const bytes = Buffer.from('daily report\n', 'utf8');
     const policy = resolveAutomationPublicationPolicy({
       operation: 'report',
@@ -1091,8 +1100,8 @@ function canonicalEnvironmentFixture(): {
   };
 }
 
-describe('workflow environment trust boundary', () => {
-  it('accepts only the exact repository, protected-main, workflow, event, and local HEAD', () => {
+void describe('workflow environment trust boundary', () => {
+  void it('accepts only the exact repository, protected-main, workflow, event, and local HEAD', () => {
     const fixture = canonicalEnvironmentFixture();
     const request = publicationRequestFromEnvironment(fixture.env, fixture.repositoryRoot);
     assert.equal(request.baseSha, fixture.env.EXPECTED_BASE_SHA);
@@ -1134,8 +1143,8 @@ describe('workflow environment trust boundary', () => {
   });
 });
 
-describe('immutable publication input snapshot', () => {
-  it('returns content-bound hashes for a regular file and rejects a symlink target', () => {
+void describe('immutable publication input snapshot', () => {
+  void it('returns content-bound hashes for a regular file and rejects a symlink target', () => {
     const repositoryRoot = mkdtempSync(join(tmpdir(), 'automation-publication-'));
     temporaryDirectories.push(repositoryRoot);
     mkdirSync(join(repositoryRoot, 'inputs'));
@@ -1154,7 +1163,7 @@ describe('immutable publication input snapshot', () => {
     );
   });
 
-  it('rejects a regular-file replacement between path stat and descriptor open', () => {
+  void it('rejects a regular-file replacement between path stat and descriptor open', (context) => {
     const repositoryRoot = mkdtempSync(join(tmpdir(), 'automation-publication-race-'));
     temporaryDirectories.push(repositoryRoot);
     const governedPath = join(repositoryRoot, 'report.md');
@@ -1163,39 +1172,24 @@ describe('immutable publication input snapshot', () => {
     writeFileSync(governedPath, 'governed bytes\n');
     writeFileSync(replacementPath, 'replacement bytes\n');
 
-    const fileSystem = require('node:fs') as typeof import('node:fs');
-    const originalOpenSync = fileSystem.openSync;
+    const originalOpenSync = fs.openSync;
     let replaced = false;
-    Object.defineProperty(fileSystem, 'openSync', {
-      configurable: true,
-      enumerable: true,
-      writable: true,
-      value: (...args: readonly unknown[]) => {
-        if (!replaced && String(args[0]).endsWith('/report.md')) {
-          replaced = true;
-          renameSync(governedPath, displacedPath);
-          renameSync(replacementPath, governedPath);
-        }
-        return Reflect.apply(originalOpenSync, fileSystem, args);
-      },
+    context.mock.method(fs, 'openSync', (...args: Parameters<typeof fs.openSync>): number => {
+      if (!replaced && String(args[0]).endsWith('/report.md')) {
+        replaced = true;
+        renameSync(governedPath, displacedPath);
+        renameSync(replacementPath, governedPath);
+      }
+      return originalOpenSync(...args);
     });
-    try {
-      assert.throws(
-        () => readImmutableFileSnapshot(repositoryRoot, 'report.md'),
-        /path identity changed/,
-      );
-      assert.equal(replaced, true);
-    } finally {
-      Object.defineProperty(fileSystem, 'openSync', {
-        configurable: true,
-        enumerable: true,
-        writable: true,
-        value: originalOpenSync,
-      });
-    }
+    assert.throws(
+      () => readImmutableFileSnapshot(repositoryRoot, 'report.md'),
+      /path identity changed/,
+    );
+    assert.equal(replaced, true);
   });
 
-  it('keeps traversal anchored when an intermediate directory path is replaced', () => {
+  void it('keeps traversal anchored when an intermediate directory path is replaced', (context) => {
     const parent = mkdtempSync(join(tmpdir(), 'automation-ancestor-race-'));
     temporaryDirectories.push(parent);
     const repositoryRoot = join(parent, 'repository');
@@ -1206,37 +1200,22 @@ describe('immutable publication input snapshot', () => {
     writeFileSync(join(repositoryRoot, 'inputs', 'report.md'), 'governed bytes\n');
     writeFileSync(join(outsideRoot, 'report.md'), 'outside bytes\n');
 
-    const fileSystem = require('node:fs') as typeof import('node:fs');
-    const originalOpenSync = fileSystem.openSync;
+    const originalOpenSync = fs.openSync;
     let replaced = false;
-    Object.defineProperty(fileSystem, 'openSync', {
-      configurable: true,
-      enumerable: true,
-      writable: true,
-      value: (...args: readonly unknown[]) => {
-        if (!replaced && /^\/proc\/self\/fd\/[0-9]+\/report\.md$/.test(String(args[0]))) {
-          replaced = true;
-          renameSync(join(repositoryRoot, 'inputs'), join(repositoryRoot, 'inputs.displaced'));
-          symlinkSync(outsideRoot, join(repositoryRoot, 'inputs'), 'dir');
-        }
-        return Reflect.apply(originalOpenSync, fileSystem, args);
-      },
+    context.mock.method(fs, 'openSync', (...args: Parameters<typeof fs.openSync>): number => {
+      if (!replaced && /^\/proc\/self\/fd\/[0-9]+\/report\.md$/.test(String(args[0]))) {
+        replaced = true;
+        renameSync(join(repositoryRoot, 'inputs'), join(repositoryRoot, 'inputs.displaced'));
+        symlinkSync(outsideRoot, join(repositoryRoot, 'inputs'), 'dir');
+      }
+      return originalOpenSync(...args);
     });
-    try {
-      const snapshot = readImmutableFileSnapshot(repositoryRoot, 'inputs/report.md');
-      assert.equal(snapshot.bytes.toString('utf8'), 'governed bytes\n');
-      assert.equal(replaced, true);
-    } finally {
-      Object.defineProperty(fileSystem, 'openSync', {
-        configurable: true,
-        enumerable: true,
-        writable: true,
-        value: originalOpenSync,
-      });
-    }
+    const snapshot = readImmutableFileSnapshot(repositoryRoot, 'inputs/report.md');
+    assert.equal(snapshot.bytes.toString('utf8'), 'governed bytes\n');
+    assert.equal(replaced, true);
   });
 
-  it('rejects replacement of the canonical repository root before fd anchoring', () => {
+  void it('rejects replacement of the canonical repository root before fd anchoring', (context) => {
     const parent = mkdtempSync(join(tmpdir(), 'automation-root-race-'));
     temporaryDirectories.push(parent);
     const repositoryRoot = join(parent, 'repository');
@@ -1246,35 +1225,20 @@ describe('immutable publication input snapshot', () => {
     writeFileSync(join(repositoryRoot, 'report.md'), 'governed bytes\n');
     writeFileSync(join(replacementRoot, 'report.md'), 'replacement bytes\n');
 
-    const fileSystem = require('node:fs') as typeof import('node:fs');
-    const originalOpenSync = fileSystem.openSync;
+    const originalOpenSync = fs.openSync;
     let replaced = false;
-    Object.defineProperty(fileSystem, 'openSync', {
-      configurable: true,
-      enumerable: true,
-      writable: true,
-      value: (...args: readonly unknown[]) => {
-        if (!replaced && args[0] === repositoryRoot) {
-          replaced = true;
-          renameSync(repositoryRoot, join(parent, 'repository.displaced'));
-          renameSync(replacementRoot, repositoryRoot);
-        }
-        return Reflect.apply(originalOpenSync, fileSystem, args);
-      },
+    context.mock.method(fs, 'openSync', (...args: Parameters<typeof fs.openSync>): number => {
+      if (!replaced && args[0] === repositoryRoot) {
+        replaced = true;
+        renameSync(repositoryRoot, join(parent, 'repository.displaced'));
+        renameSync(replacementRoot, repositoryRoot);
+      }
+      return originalOpenSync(...args);
     });
-    try {
-      assert.throws(
-        () => readImmutableFileSnapshot(repositoryRoot, 'report.md'),
-        /root identity changed/,
-      );
-      assert.equal(replaced, true);
-    } finally {
-      Object.defineProperty(fileSystem, 'openSync', {
-        configurable: true,
-        enumerable: true,
-        writable: true,
-        value: originalOpenSync,
-      });
-    }
+    assert.throws(
+      () => readImmutableFileSnapshot(repositoryRoot, 'report.md'),
+      /root identity changed/,
+    );
+    assert.equal(replaced, true);
   });
 });

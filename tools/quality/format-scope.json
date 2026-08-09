@@ -43416,6 +43416,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/monitoring-alert-delivery.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/monitoring-alert-runbook-url.spec.ts",
       "prettier_managed": true
     },

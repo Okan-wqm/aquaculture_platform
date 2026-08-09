@@ -642,6 +642,24 @@ _SANDBOX_SYSTEM_ROOTS: tuple[str, ...] = (
     "/bin",
 )
 
+# Name resolution. Bound ONLY when the caller asked for network, because these
+# are the files that make an allowed network usable rather than nominal.
+#
+# Measured 2026-08-08: with `allow_network=True` the sandbox shared the host's
+# network namespace and still had no `/etc/resolv.conf`, so `getent hosts
+# api.anthropic.com` failed inside it and the Claude CLI hung until its timeout
+# — surfacing to the executor as a bare `claude exec exited 1`. Every nightly
+# agent dispatch died there, and the log said only that the CLI had failed.
+#
+# A sandbox that grants the network and withholds the means to use it is not a
+# smaller permission; it is a permission that does not work, which is worse
+# because it reads as granted.
+_SANDBOX_NETWORK_FILES: tuple[str, ...] = (
+    "/etc/resolv.conf",
+    "/etc/hosts",
+    "/etc/nsswitch.conf",
+)
+
 
 def _system_ro_binds() -> list[str]:
     """`--ro-bind` flags for the system paths that exist on THIS host.
@@ -734,6 +752,11 @@ def sandbox_backend() -> str | None:
     return None
 
 
+# Ephemeral HOME handed to a sandboxed agent runtime. Under the sandbox's own
+# /tmp tmpfs, so it is created empty per run and discarded with the sandbox.
+SANDBOX_HOME = "/tmp/aria-agent-home"
+
+
 def wrap_bash_in_sandbox(
     argv: list[str],
     *,
@@ -775,6 +798,33 @@ def wrap_bash_in_sandbox(
             "--tmpfs", "/tmp",
             "--bind", str(workspace), str(workspace),
             "--chdir", str(workspace),
+            # The agent runtime needs a HOME it can WRITE.
+            #
+            # Without this the sandbox left $HOME resolvable but read-only — it
+            # survives only as an implicit parent of the workspace bind, on the
+            # read-only root — so the Claude CLI blocked trying to write its own
+            # state and the executor reported a bare `claude exec exited 1`.
+            # Every nightly agent dispatch died there; measured 2026-08-08 by
+            # reproducing the exact bwrap argv, where the CLI hung until the
+            # timeout and returned `OK` the moment HOME became writable.
+            #
+            # An EPHEMERAL home rather than a bind of the real one, and that is
+            # the stronger choice: the agent gets a fresh empty directory each
+            # run, so it can neither read the operator's real ~/.claude.json nor
+            # leave anything behind in it. Credentials arrive through
+            # CLAUDE_CODE_OAUTH_TOKEN in the environment, which is the
+            # documented mechanism and does not require the config file.
+            #
+            # It lives under the /tmp tmpfs mounted just above, so it costs no
+            # extra mount and cannot shadow the workspace bind the way a tmpfs
+            # over the real home directory could when the workspace sits
+            # beneath it.
+            # `--tmpfs` rather than only `--setenv`: bwrap creates the mount
+            # point, so the directory is guaranteed to EXIST. Setting HOME to a
+            # path that does not exist reproduces the same hang by a different
+            # route.
+            "--tmpfs", SANDBOX_HOME,
+            "--setenv", "HOME", SANDBOX_HOME,
         ]
         # READONLY_PATHS mounted ro-bind on top of the writable
         # workspace — ANY mutation under these paths gets EROFS.
@@ -782,7 +832,15 @@ def wrap_bash_in_sandbox(
             full = workspace / ro
             if full.exists():
                 wrap.extend(["--ro-bind", str(full), str(full)])
-        if not allow_network:
+        if allow_network:
+            # Existence-guarded for the same reason _system_ro_binds is: bwrap
+            # aborts on a bind source it cannot find, so an unconditional bind
+            # would turn a container without /etc/nsswitch.conf into a total
+            # failure rather than a smaller sandbox.
+            for network_file in _SANDBOX_NETWORK_FILES:
+                if Path(network_file).exists():
+                    wrap.extend(["--ro-bind", network_file, network_file])
+        else:
             wrap.append("--unshare-net")
         wrap.append("--")
         return wrap + list(argv)

@@ -8227,6 +8227,14 @@ in `tests/invariants/aria-workflow-input-injection.spec.ts` fails on an
 unquoted heredoc whose body performs command substitution, and spares one that
 only expands `${VAR}`.
 
+The contract registry (ADR-036) had the same omission: the `commit-report` job
+contract declared `contents: write` only, while its own
+`first_governed_mutation_step` is "Open or update daily report PR", and the
+sibling `finding-state-sweep` contract declares the `contents`+`pull-requests`
+pair for the identical action. Registry and YAML agreed, so the parity check
+was green throughout — parity proves the two match, not that either is
+sufficient for the step named in the contract.
+
 **Not fixed here:** `ARIA_GITHUB_APP_TOKEN` remains unprovisioned (operator).
 The workflow now works on the fallback token, so it is no longer a blocker.
 

@@ -1640,7 +1640,7 @@ _FUSED_ENVELOPE_KEYS: tuple[str, ...] = (
 )
 
 
-def _fuse_prompt_envelope(envelope: dict[str, Any]) -> dict[str, Any]:
+def fuse_prompt_envelope(envelope: dict[str, Any]) -> dict[str, Any]:
     """Copy the envelope fields into the claim response WITHOUT inventing any.
 
     `prompt_hash` is minted over the request row, and the executor verifies it
@@ -1659,6 +1659,12 @@ def _fuse_prompt_envelope(envelope: dict[str, Any]) -> dict[str, Any]:
     keeps the verification honest about which object the hash covers.
     """
     return {key: envelope[key] for key in _FUSED_ENVELOPE_KEYS if key in envelope}
+
+
+# ci_executor renders the same projection for its binding check, so the
+# fusion is public API: a second, hand-maintained copy in the executor is the
+# defect ORPHAN-CRITICAL-601 closes. The alias keeps in-module callers stable.
+_fuse_prompt_envelope = fuse_prompt_envelope
 
 
 def _assert_envelope_reproduces_binding(envelope: dict[str, Any]) -> None:

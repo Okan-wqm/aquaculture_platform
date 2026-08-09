@@ -33,6 +33,7 @@ from .human_required import (
     sweep_lease_lifecycle_for_human_required,
 )
 from .human_required_adjudication import sweep_human_required_adjudications
+from .agent_invocations import reap_stale_claims
 from .goldset import propose_goldsets_for_labelled_tools
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
@@ -1097,6 +1098,31 @@ def _phase_mission_ingest(context: PhaseContext) -> dict[str, Any]:
     )
 
 
+def _phase_agent_claim_reap(context: PhaseContext) -> dict[str, Any]:
+    """Give the queue back the requests a dead executor is still holding.
+
+    `reap_stale_claims` has existed since the lease work and was reachable only
+    from the operator CLI (`aria-kernel agent reap-stale`) — no cycle phase, no
+    workflow. Its sibling `dispatch_lease_reap` below runs every cycle, but it
+    reaps a DIFFERENT ledger (`dispatch/claims.jsonl`, worker assignments). The
+    agent-invocation ledger had no automatic reaper at all.
+
+    What that costs is not a delay, it is a permanent leak. `PENDING` is
+    reachable from `CLAIMED` only through an explicit released/requeued event;
+    once the 30-minute lease expires the state derives `STALE`, which
+    `next_pending_request` skips and `claim_request` refuses. Both exits are
+    closed and the request is dead. Measured on production state 2026-08-09:
+    ten of twelve requests sitting in exactly that shape, so every executor run
+    found nothing to do while nine baseline-carrying requests waited behind
+    them.
+
+    Requeue is still bounded — `DEFAULT_MAX_REQUEUES` caps it and the state
+    then derives HUMAN_REQUIRED, so a genuinely poisonous request escalates to
+    a human instead of cycling forever.
+    """
+    return reap_stale_claims(base_dir=context.base_dir)
+
+
 def _phase_dispatch_lease_reap(context: PhaseContext) -> dict[str, Any]:
     """Give back the WIP slot a dead worker is still holding.
 
@@ -1609,6 +1635,13 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     # bookkeeping — and `record_and_continue`, because a reaper that CRASHED
     # released nothing but must not be able to fail a cycle whose real work
     # succeeded. Standard lane only: releasing an assignment is an action.
+    # Beside dispatch_lease_reap because they are the same idea on two
+    # ledgers: hand back what a dead holder is still holding.
+    CyclePhase(
+        "agent_claim_reap", "post_tool", _phase_agent_claim_reap,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="agent_claim_reap",
+    ),
     CyclePhase(
         "dispatch_lease_reap", "post_tool", _phase_dispatch_lease_reap,
         precondition=WRITES_PERMITTED, on_error="record_and_continue",

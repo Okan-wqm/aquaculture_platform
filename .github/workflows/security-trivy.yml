@@ -6,10 +6,10 @@ name: Security - Trivy
 on:
   # Only run on main branch pushes (not every PR)
   push:
-    branches: [ main ]
+    branches: [main]
   # Weekly instead of daily (saves runner minutes)
   schedule:
-    - cron: '0 3 * * 0'  # Sunday at 3 AM
+    - cron: '0 3 * * 0' # Sunday at 3 AM
   workflow_dispatch:
 
 jobs:
@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: read
-      security-events: write  # Required for SARIF upload
+      security-events: write # Required for SARIF upload
     steps:
       - name: Checkout repository
         # SEC-CI-002: pinned to SHA
@@ -52,6 +52,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # This job uploads SARIF, so it needs the same grant its sibling
+    # trivy-fs-scan declares. Without it the scan still runs and still finds
+    # CVEs, and the upload is rejected with "Resource not accessible by
+    # integration" — the findings never reach the Security tab and the scan
+    # measures nothing.
+    permissions:
+      contents: read
+      security-events: write
     env:
       # OCI distribution-spec requires lowercase image references
       # (https://github.com/opencontainers/distribution-spec/blob/main/spec.md#pulling-manifests).

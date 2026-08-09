@@ -17,11 +17,11 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      time: "06:00"
+      time: '06:00'
       timezone: Europe/Istanbul
     open-pull-requests-limit: 5
     commit-message:
-      prefix: "chore(deps)"
+      prefix: 'chore(deps)'
       include: scope
     labels:
       - dependencies
@@ -51,11 +51,11 @@ updates:
     schedule:
       interval: weekly
       day: monday
-      time: "06:00"
+      time: '06:00'
       timezone: Europe/Istanbul
     open-pull-requests-limit: 5
     commit-message:
-      prefix: "chore(deps)"
+      prefix: 'chore(deps)'
       include: scope
     labels:
       - dependencies
@@ -67,6 +67,55 @@ updates:
     # risk, so review can triage per-major.
     groups:
       cargo-minor-patch:
+        update-types:
+          - minor
+          - patch
+
+  # ── npm (root workspace) ──────────────────────────────────────────
+  # Added 2026-08-06 (ORPHAN-HIGH-574). Until now this file covered only
+  # github-actions and cargo, so the entire JavaScript surface — the root
+  # package.json plus every member of the `workspaces` globs (apps/*, libs/*,
+  # platform/libs/*, web/apps/*, web/shared-ui, web/shell, web/modules/*,
+  # mcp/*, tools/executors/cargo) — received no version-update PR ever. The
+  # dependency tree that carries almost all of this repository's open
+  # advisories was the one tree Dependabot was not watching.
+  #
+  # `directory: /` is the whole workspace, not just the root manifest: npm
+  # workspaces resolve into the single root package-lock.json, and Dependabot
+  # follows that lockfile into every member. Two lockfiles sit outside it —
+  # e2e/package-lock.json and web/apps/aquamobil/package-lock.json — and are
+  # deliberately NOT added here; each needs its own entry and its own decision
+  # about review load, and widening coverage and raising volume in one change
+  # would make neither reviewable.
+  #
+  # Limit and grouping are deliberately conservative. This ecosystem is far
+  # larger than the other two, and the first run after enabling always lands
+  # the accumulated backlog at once: minor+patch collapse into one PR, majors
+  # stay individual so their blast radius is visible, and 5 open PRs caps what
+  # can be in flight. Raise it once the steady-state rate is known, not before.
+  #
+  # Note for review: the root package.json carries 25 `overrides`. Dependabot
+  # does not read them as constraints, so a bump it proposes may be neutralised
+  # by an override or conflict with one. `npm audit --omit=dev
+  # --audit-level=high` in ci-full's security-scan remains the gate that
+  # decides whether the tree is acceptable, not the presence of a PR.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Europe/Istanbul
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'chore(deps)'
+      include: scope
+    labels:
+      - dependencies
+    reviewers:
+      - Okan-wqm
+    groups:
+      npm-minor-patch:
         update-types:
           - minor
           - patch

@@ -261,8 +261,19 @@ def validate_evidence_path(
         })
         return envelope
     if require_repo_verified and envelope.get("trust_grade") != "repo_verified":
+        # Two different failures used to share one code, and only one of them
+        # is about the agent. `baseline_unavailable` means the CALLER threaded
+        # no target_sha, so no comparison was ever attempted; reporting that as
+        # "your evidence is not repo-verified" sends the reader hunting a
+        # fabricating agent that does not exist. Still rejected — nothing was
+        # verified — but under a name that says whose gap it is.
+        code = (
+            "tool_output_evidence_baseline_unavailable"
+            if envelope.get("trust_grade") == "baseline_unavailable"
+            else "tool_output_evidence_not_repo_verified"
+        )
         errors.append({
-            "code": "tool_output_evidence_not_repo_verified",
+            "code": code,
             "path": raw_path_str,
             "grade": envelope.get("trust_grade"),
         })

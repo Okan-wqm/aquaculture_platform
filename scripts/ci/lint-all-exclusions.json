@@ -1,0 +1,9 @@
+{
+  "_readme": "Projects excluded from the FULL lint lane (npm run lint:all), which is otherwise strict and green. This is deliberately NOT the affected lane's knownUnstableProjects list: that one quarantines ~40 projects for the affected lane, and pointing lint:all at it would collapse full-lane coverage to almost nothing. Only projects that actually fail strict lint today belong here, each with the finding that owns paying it down. tests/invariants/lint-quarantine-ssot.spec.ts caps the size so this cannot quietly become 'lint nothing'.",
+  "exclusions": {
+    "backend-common": "891 eslint problems (841 errors). Newly VISIBLE, not new: the project had no project.json, so Nx could not see it and lint has never run on it. ORPHAN-HIGH-588.",
+    "event-bus": "60 eslint errors, same cause and same finding: no project.json meant no lint target existed to run. ORPHAN-HIGH-588.",
+    "storage": "37 eslint problems (36 errors), same cause. ORPHAN-HIGH-588.",
+    "outbox": "13 eslint errors, same cause. ORPHAN-HIGH-588."
+  }
+}

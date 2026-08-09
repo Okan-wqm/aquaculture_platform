@@ -8170,6 +8170,7 @@ The intent was never in doubt. The comment on the `goldset_proposal` phase alrea
 **Owner:** claude (this session). **Status:** RESOLVED.
 
 **Still open from the same audit:** ORPHAN-HIGH-590 (eval delta persistence) and the weight-override feeder. Both are separate changes and are not silently folded in here.
+
 ## ORPHAN-CRITICAL-591 — ARIA's autonomy died on 2026-08-04 and reported it as five ordinary agent failures — RESOLVED (detection); OPERATOR ACTION REQUIRED (the credential)
 
 **Discovered:** 2026-08-08, while wiring the feedback loop the operator asked for. Measured first-hand on the production runner:

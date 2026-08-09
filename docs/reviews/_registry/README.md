@@ -1,12 +1,16 @@
 # Finding Registry — `findings.jsonl`
 
-**Purpose:** append-only, hash-chained state store for every CATCHER-produced finding in the enterprise-v2 agent review cycle. Closes the CLAUDE.md traceability loop: `Closes: docs/reviews/{agent}/{date}-{topic}.md#{finding-id}` commit trailers are meaningless without a persistent registry that records every finding ID and its lifecycle state.
+**Purpose:** append-only, hash-chained state store for every CATCHER-produced finding in the
+enterprise-v2 agent review cycle. It closes the CLAUDE.md traceability loop: a
+`Closes: docs/reviews/{agent}/{date}-{topic}.md#{finding-id}` commit trailer is meaningless
+without a persistent registry that records every finding ID and its lifecycle state.
 
 Landed 2026-04-16 as Phase 6 of `/root/.claude/plans/abstract-brewing-mochi.md`.
 
 ## Files
 
-- `findings.jsonl` — one JSON object per line; append-only; hash-chained (each entry's `prev_hash` = previous entry's `content_hash`).
+- `findings.jsonl` — one JSON object per line; append-only; hash-chained (each entry's
+  `prev_hash` equals the previous entry's `content_hash`).
 - `findings.jsonl.schema.json` — JSON Schema validating every entry structure.
 - `.github/workflows/finding-registry-authority.yml` — the only operator entry
   point for `add` and `close`; it binds each request to protected `main`, mints
@@ -20,7 +24,7 @@ Landed 2026-04-16 as Phase 6 of `/root/.claude/plans/abstract-brewing-mochi.md`.
 
 ## Lifecycle states
 
-```
+```text
   OPEN ──── implementation-planner package created ────► IN-PROGRESS
    │                                                        │
    │                                            merged commit with `Closes:` trailer
@@ -101,11 +105,13 @@ SHA. Short SHAs and branch-only commits are rejected.
 git fetch origin main
 PROTECTED_MAIN_SHA="$(git rev-parse origin/main)"
 test "${#PROTECTED_MAIN_SHA}" -eq 40
-FIX_COMMIT_REF='origin/main' # set to the protected-main fix commit when it is an ancestor
+# Set this to the protected-main fix commit when it is an ancestor.
+FIX_COMMIT_REF='origin/main'
 CLOSING_SHA="$(git rev-parse "${FIX_COMMIT_REF}^{commit}")"
 test "${#CLOSING_SHA}" -eq 40
 git merge-base --is-ancestor "${CLOSING_SHA}" origin/main
-COMMAND_EFFECTIVE_AT='2026-07-30T12:30:00.000Z' # record once in the external request
+# Record this once in the external request.
+COMMAND_EFFECTIVE_AT='2026-07-30T12:30:00.000Z'
 
 gh workflow run finding-registry-authority.yml --ref main \
   -f operation=close \
@@ -134,11 +140,15 @@ npm run findings:verify
 ## Hash chain integrity
 
 - First entry has `prev_hash: "0000...0000"` (64 zeros).
-- Every subsequent entry: `prev_hash = SHA-256-hex(prev_entry.content_hash)` — NO, simpler: `prev_hash = prev_entry.content_hash` directly. The chain is tamper-evident because any mid-chain modification changes the hash and every downstream entry.
-- `content_hash = SHA-256-hex( canonical JSON of this entry WITH content_hash field removed )`.
+- Every subsequent entry copies the previous entry's `content_hash` byte-for-byte into
+  `prev_hash`. Any mid-chain mutation therefore changes that entry's hash and every downstream
+  entry.
+- `content_hash` is the SHA-256 hex digest of the entry's canonical JSON with the `content_hash`
+  field removed.
 - Canonical JSON = key-sorted, no-whitespace serialization.
 
-**Verification:** CI job `.github/workflows/closes-footer-check.yml` (Phase 6 deliverable) re-computes the chain on every PR; drift fails the build.
+**Verification:** CI job `.github/workflows/closes-footer-check.yml` (Phase 6 deliverable)
+re-computes the chain on every PR; drift fails the build.
 
 ## Finding ID format
 
@@ -146,7 +156,7 @@ Per `_shared/output-format.md`: `{PREFIX}-{SEVERITY}-{NNN}`. The schema is the
 authoritative prefix list; the allocator validates its complete output against
 that schema before writing.
 
-```
+```text
 DATA SEC PLAT FE EDGE MT FARM SENSOR HR MSG ADMIN ANTI ADR AUDIT CTX INFRA PROC
 P0 COMPLIANCE PERF OBS SUPPLY CONTRACT CIRCUIT MEM CLAUDE BILLING ALERT LEGAL
 AUDITTRAIL TENANTCOST AISAFETY PRODUCT DEPLOY RUST ULTRA ORPHAN RBAC MOB
@@ -156,31 +166,41 @@ AUDITTRAIL TENANTCOST AISAFETY PRODUCT DEPLOY RUST ULTRA ORPHAN RBAC MOB
 
 Every fix commit closing a finding MUST include:
 
-```
+```text
 Closes: docs/reviews/<agent>/<YYYY-MM-DD>-<topic>.md#<FINDING-ID>
 ```
 
 `commit-msg-validator.ts` (Phase 2 deliverable) enforces:
 
-1. `Closes:` trailer exists on every commit under `fix()`, `security()`, or `refactor(...phase-*)` type.
+1. `Closes:` trailer exists on every commit under `fix()`, `security()`, or
+   `refactor(...phase-*)` type.
 2. The cited review file exists.
 3. The cited finding ID exists in this registry.
-4. Transitioning a BLOCKED override requires the commit to be signed by the override's `owner_user` per `.github/CODEOWNERS`.
+4. Transitioning a BLOCKED override requires the commit to be signed by the override's
+   `owner_user` per `.github/CODEOWNERS`.
 
 ## What lives here vs. what lives in `docs/reviews/<agent>/`
 
-- `docs/reviews/<agent>/<date>-<topic>.md` is the prose description: evidence, root-cause analysis, proposed fix direction, verification plan. **Narrative source.**
-- `docs/reviews/_registry/findings.jsonl` is the structured index: ID, state, deadlines, closing commits, hash chain. **State source.**
+- `docs/reviews/<agent>/<date>-<topic>.md` is the prose description: evidence, root-cause
+  analysis, proposed fix direction, verification plan. **Narrative source.**
+- `docs/reviews/_registry/findings.jsonl` is the structured index: ID, state, deadlines, closing
+  commits, hash chain. **State source.**
 
-Both are mandatory; one without the other is incomplete. The narrative file carries the `#<finding-id>` anchor; the registry carries the lifecycle state machine.
+Both are mandatory; one without the other is incomplete. The narrative file carries the
+`#<finding-id>` anchor; the registry carries the lifecycle state machine.
 
 ## Seed content
 
-The initial commit seeds Phase-0 audit findings (`P0-*`) from `docs/reviews/orchestrator/2026-04-16-v2-audit.md`. These represent the bootstrap state — they were RESOLVED (mostly) before Phase 6 registry existed, so their `closing_commits` reference the already-landed Phase 0 / 4 / 5 commits retroactively. Future findings enter the registry with `state: OPEN` as they are raised.
+The initial commit seeds Phase-0 audit findings (`P0-*`) from
+`docs/reviews/orchestrator/2026-04-16-v2-audit.md`. These represent the bootstrap state — they
+were RESOLVED (mostly) before Phase 6 registry existed, so their `closing_commits` reference the
+already-landed Phase 0 / 4 / 5 commits retroactively. Future findings enter the registry with
+`state: OPEN` as they are raised.
 
 ## References
 
-- `/root/.claude/plans/declarative-riding-shamir.md` D.6 (original registry design) + W10 lifecycle
+- `/root/.claude/plans/declarative-riding-shamir.md` D.6 (original registry design) + W10
+  lifecycle
 - `/root/.claude/plans/abstract-brewing-mochi.md#Phase-6`
 - `_shared/tier-claim-syntax.md` override protocol
 - `_shared/output-format.md` finding ID format

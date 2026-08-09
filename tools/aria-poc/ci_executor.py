@@ -70,6 +70,11 @@ try:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
     from aria_kernel.agent_surface import DISPATCHABLE_ROLES as _DISPATCHABLE_ROLES
     from aria_kernel.agent_invocations import render_invocation_prompt as _render_invocation_prompt
+    # The ONE projection of a claim response into a prompt envelope. The
+    # executor used to build its own — `claim.get("forbidden_scope") or []`,
+    # no repository_map — and that copy is where the prompt-hash binding
+    # died AFTER the kernel-side fusion was fixed: same defect, one layer up.
+    from aria_kernel.agent_invocations import fuse_prompt_envelope as _fuse_prompt_envelope
     # Plan ARIA WS1 — import the canonical plan_content required-field set
     # from the kernel SSoT (plan_convergence.PLAN_CONTENT_REQUIRED) instead
     # of re-declaring it here, so the fail-fast gate below can never drift
@@ -89,6 +94,7 @@ except Exception:  # pragma: no cover - fallback keeps standalone contract impor
         "implementation",
     })
     _render_invocation_prompt = None
+    _fuse_prompt_envelope = None
     # Standalone-mode fallback: identical value/order to the kernel SSoT.
     # Intentional duplication for kernel-less importability; WS2 adds a
     # drift guard asserting this equals plan_convergence.PLAN_CONTENT_REQUIRED.
@@ -1887,41 +1893,32 @@ def main(argv: list[str] | None = None) -> int:
     # would operate on a stale envelope. Reading from the fused
     # response closes the race AND eliminates one subprocess hop per
     # cycle (lower latency).
-    request_envelope = {
-        "request_id": request_id,
-        "expected_output_path": claim.get("expected_output_path"),
-        "role": claim.get("role"),
-        "must_satisfy": claim.get("must_satisfy") or [],
-        "allowed_scope": claim.get("allowed_scope") or [],
-        "evidence_refs": claim.get("evidence_refs") or [],
-        # Plan ARIA-V7 §2g v2 — additional fields surfaced into the
-        # envelope dict so the prompt template can render them for
-        # the agent. Pre-V7 the dict held only the 4 fields above;
-        # the agent contract requires target_agent / convergence_id
-        # / suggested_prompt to bind the request to the convergence
-        # loop and to read the operator's intent.
-        "target_agent": claim.get("target_agent") or subagent_type,
-        "convergence_id": claim.get("convergence_id"),
-        # ORPHAN-CRITICAL-495 — the request ROW carries cycle_id (written by
-        # create_agent_invocation_request) and this envelope did not copy it,
-        # so every consumer that keyed on it silently no-opped. The
-        # wall-clock ledger was one; it recorded nothing at all because
-        # _record_run_wall_clock returns early on a falsy cycle_id.
-        "cycle_id": claim.get("cycle_id"),
-        "suggested_prompt": claim.get("suggested_prompt"),
-        "forbidden_scope": claim.get("forbidden_scope") or [],
-        "impact_graph_refs": claim.get("impact_graph_refs") or [],
-        "validation_commands": claim.get("validation_commands") or [],
-        "context_hash": claim.get("context_hash"),
-        "prompt_hash": claim.get("prompt_hash"),
-        "context_ledger_hash": claim.get("context_ledger_hash"),
-        "prompt_ledger_hash": claim.get("prompt_ledger_hash"),
-        # Plan 026R §B.5 anchors — verified by ci_executor at envelope
-        # deserialise time when the planner-hook single-claim env-var
-        # contract delivers the metadata.
-        "claim_ledger_hash": claim.get("claim_ledger_hash"),
-        "request_ledger_hash": claim.get("request_ledger_hash"),
-    }
+    # The envelope is the kernel's OWN projection of the claim response, not a
+    # copy maintained here. This function used to hand-build the dict —
+    # `claim.get("forbidden_scope") or []`, no `repository_map` — which is the
+    # same defect the kernel-side fusion fix closed, one layer up: `or []`
+    # turns absence into an empty value, the renderer distinguishes the two,
+    # and the dropped map deleted the whole `## Repository map` section from
+    # the re-render. Net effect, measured on run 31330288849: the binding
+    # check compared the hash of the row against the hash of this copy and
+    # failed for every request that carried a map — after the kernel fix had
+    # already landed. One projection, owned by the kernel, ends the class.
+    if _fuse_prompt_envelope is None:
+        sys.stderr.write("kernel_prompt_renderer_unavailable\n")
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason="kernel_prompt_renderer_unavailable",
+        )
+        return 1
+    request_envelope = _fuse_prompt_envelope(claim)
+    request_envelope.setdefault("request_id", request_id)
+    # Operational anchors, NOT prompt material: the renderer never reads
+    # these, so carrying them cannot perturb the binding. claim/request
+    # ledger hashes feed the §B.5 metadata-tamper check.
+    for anchor in ("claim_ledger_hash", "request_ledger_hash"):
+        if claim.get(anchor) is not None:
+            request_envelope[anchor] = claim[anchor]
     if not request_envelope.get("expected_output_path"):
         sys.stderr.write(
             f"request_envelope_missing_expected_output_path: "

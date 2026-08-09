@@ -34,7 +34,7 @@
   "missing_in_ts": [
     "hr_expense"
   ],
-  "seeded_from_commit": "8d8d54365ada11d45b43374af76e9814c5958ff0",
+  "seeded_from_commit": "8f6307d9577f2d38f36379cdb9e04316c9ee2cbd",
   "source": "seed_drift_findings",
   "status": "OPEN",
   "title": "ui_option_drift: 'financescope' value sets diverge (jaccard 0.67, cross_service=True)"

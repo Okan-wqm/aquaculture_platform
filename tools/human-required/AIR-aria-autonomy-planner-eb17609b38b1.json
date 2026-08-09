@@ -1,0 +1,10 @@
+{
+  "$schema": "aria/human-required/v1",
+  "reason": "lease lifecycle exhausted requeues for request 'AIR-aria-autonomy-planner-eb17609b38b1' (requeue_count=2); operator follow-up required.",
+  "recorded_at": "2026-08-09T03:06:12Z",
+  "request_id": "AIR-aria-autonomy-planner-eb17609b38b1",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-08-12T03:06:12Z",
+  "status": "open"
+}

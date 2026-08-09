@@ -175,12 +175,12 @@ describe('FarmDomainMetricsService', () => {
 
     const dump = await service.getMetrics();
     expect(dump).toContain('farm_regulatory_cron_runs_total');
-    expect(dump).toContain('job="regulatory-retry-sweep",outcome="success"');
-    expect(dump).toContain('job="regulatory-deadline-sweep",outcome="skipped_locked"');
+    expect(dump).toContain('cron_job="regulatory-retry-sweep",outcome="success"');
+    expect(dump).toContain('cron_job="regulatory-deadline-sweep",outcome="skipped_locked"');
     // The heartbeat gauge carries a fresh unix timestamp per job.
     expect(dump).toContain('farm_regulatory_cron_last_run_timestamp_seconds');
     expect(dump).toMatch(
-      /farm_regulatory_cron_last_run_timestamp_seconds\{job="regulatory-retry-sweep"\}\s+\d/,
+      /farm_regulatory_cron_last_run_timestamp_seconds\{cron_job="regulatory-retry-sweep"\}\s+\d/,
     );
   });
 
@@ -200,16 +200,16 @@ describe('FarmDomainMetricsService', () => {
     const dump = await service.getMetrics();
     expect(dump).toContain('farm_environment_monitoring_enabled 1');
     expect(dump).toContain(
-      'farm_environment_cron_runs_total{job="provider_sync",outcome="success"} 1',
+      'farm_environment_cron_runs_total{cron_job="provider_sync",outcome="success"} 1',
     );
     expect(dump).toContain(
-      'farm_environment_cron_runs_total{job="retention",outcome="partial_failure"} 1',
+      'farm_environment_cron_runs_total{cron_job="retention",outcome="partial_failure"} 1',
     );
     expect(dump).toMatch(
-      /farm_environment_cron_last_success_timestamp_seconds\{job="provider_sync"\}\s+[1-9]/,
+      /farm_environment_cron_last_success_timestamp_seconds\{cron_job="provider_sync"\}\s+[1-9]/,
     );
     expect(dump).toMatch(
-      /farm_environment_cron_last_failure_timestamp_seconds\{job="retention"\}\s+[1-9]/,
+      /farm_environment_cron_last_failure_timestamp_seconds\{cron_job="retention"\}\s+[1-9]/,
     );
     expect(dump).toContain('farm_environment_cron_run_duration_seconds_count');
   });

@@ -159,6 +159,12 @@ jobs:
     permissions:
       # Plan 024 v3 §B-3 — write scope localized to this job only.
       contents: write
+      # This job's last step opens a pull request. A `permissions:` block makes
+      # every scope it does not name `none`, so with contents alone `gh pr
+      # create` fails with "Resource not accessible by integration" — which is
+      # what every scheduled run of this workflow has done. The report itself
+      # is committed with contents:write; this is the scope for publishing it.
+      pull-requests: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -220,13 +226,23 @@ jobs:
           set -euo pipefail
           REPORT="aria-tools/reports/daily/${REPORT_DATE}.md"
           BODY_FILE="$RUNNER_TEMP/aria-daily-report-body.md"
-          cat > "$BODY_FILE" <<EOF
-          Daily ARIA report for **${REPORT_DATE}**.
+          # The body is rendered by python from the environment, not by the
+          # shell. An UNQUOTED heredoc was here, and markdown code spans are
+          # written with backticks: the shell ran `${REPORT}` and
+          # `.github/workflows/aria-daily-report.yml` as commands, which is
+          # where the "Permission denied" lines in every run log came from.
+          # It also made the body a command-substitution surface on a path
+          # that is otherwise carefully sanitised. Values now reach the body
+          # as data through os.environ and are never parsed by a shell.
+          REPORT="$REPORT" REPORT_DATE="$REPORT_DATE" python3 - > "$BODY_FILE" <<'PY'
+          import os
 
-          Generated report: `${REPORT}`.
-
-          This PR is created by `.github/workflows/aria-daily-report.yml`.
-          EOF
+          print(f"Daily ARIA report for **{os.environ['REPORT_DATE']}**.")
+          print()
+          print(f"Generated report: `{os.environ['REPORT']}`.")
+          print()
+          print("This PR is created by `.github/workflows/aria-daily-report.yml`.")
+          PY
 
           export PR_BRANCH="automation/aria-daily-report-${REPORT_DATE}"
           export PR_TITLE="chore(aria-reports): daily ${REPORT_DATE}"

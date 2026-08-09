@@ -129,6 +129,14 @@ def _validate_fixture(fixture: dict[str, Any]) -> dict[str, Any]:
     return fixture
 
 
+# Keys a fixture's content hash must never cover. `recorded_at` is a timestamp,
+# so including it would make every re-add look like a mutation. `fixture_hash`
+# is the digest itself: a hash that covers its own output can be reproduced
+# only from an input that lacks it, which is precisely the round trip the
+# persisted file breaks — it comes back WITH the field.
+_HASH_EXCLUDED_KEYS = frozenset({"recorded_at", "fixture_hash"})
+
+
 def add_fixture(
     *,
     fixture: dict[str, Any],
@@ -139,6 +147,10 @@ def add_fixture(
     Idempotent on (fixture_id, sha256(canonical fixture JSON)) — re-adding
     the same fixture content returns the existing row; a content-changed
     re-add raises GovernanceError so accidental fixture mutation is caught.
+
+    The canonical form excludes `_HASH_EXCLUDED_KEYS`. Keeping the digest out
+    of its own input is what makes the idempotent path reachable at all for a
+    fixture read back off disk.
     """
     enforce_profile_for_write("agent_evals", base_dir=base_dir)
     fixture = _validate_fixture(dict(fixture))
@@ -152,7 +164,7 @@ def add_fixture(
     path = fixtures_dir / f"{fixture['fixture_id']}.json"
 
     canonical = json.dumps(
-        {k: v for k, v in fixture.items() if k != "recorded_at"},
+        {k: v for k, v in fixture.items() if k not in _HASH_EXCLUDED_KEYS},
         sort_keys=True, separators=(",", ":"),
     ).encode("utf-8")
     fixture_hash = hashlib.sha256(canonical).hexdigest()[:16]
@@ -162,7 +174,16 @@ def add_fixture(
         existing = json.loads(path.read_text(encoding="utf-8"))
         if existing.get("fixture_hash") == fixture_hash:
             ledger = _find_fixture_row(root, fixture_id=str(fixture["fixture_id"]))
-            return ledger or existing
+            if ledger is not None:
+                return ledger
+            # The ledger row is DERIVED from the persisted file, so a missing
+            # row is a gap to close, not a result to hand back. Returning
+            # `existing` here reads as success and leaves `run` to fail later
+            # with "ledger row not found" — the exact state the five committed
+            # fixtures are in today: files in git, no ledger beside them. The
+            # file is the authority for the reconstruction, not the argument,
+            # so a re-add cannot rewrite history through this path.
+            return _append_fixture_ledger_row(root, existing)
         raise GovernanceError(
             f"fixture {fixture['fixture_id']} already exists with different "
             f"content hash; refusing accidental fixture mutation"

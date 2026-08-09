@@ -176,9 +176,29 @@ def _drain_next_cycle_queue(
     base_dir: Path,
     daemon_agent_id: str,
     limit: int,
+    workspace_root: str | Path | None = None,
 ) -> int:
     # A queue item is consumed only after its agent request is appended.
     import json
+
+    from .convergence_drainer import _resolve_workspace_head_sha
+
+    # The commit the agent's evidence will be graded against.
+    #
+    # WHY IT IS HERE NOW: the convergence lane threads this and says why in its
+    # own helper — "without it EVERY real ref is worktree_candidate and
+    # convergence can never complete". The autonomy lane minted its requests
+    # with no target_sha at all, so `_resolve_target_sha` returned None, the
+    # `repo_verified` branch was never even attempted, and every single
+    # evidence ref an agent produced was downgraded.
+    #
+    # Observed live 2026-08-09: the first agent run to survive the runtime
+    # fixes worked for ten minutes, passed pre-submit validation, and had its
+    # result REJECTED with 44 `agent_evidence_not_repo_verified` reasons —
+    # every one of them a real file the agent had genuinely read. One lane
+    # carried the baseline and the other did not; the same helper now serves
+    # both.
+    target_sha = _resolve_workspace_head_sha(workspace_root)
 
     from .agent_invocations import (
         create_agent_invocation_request,
@@ -227,6 +247,7 @@ def _drain_next_cycle_queue(
                     "required": True,
                 }],
                 allowed_scope=["aria-kernel/**", "aria-tools/**", ".claude/**"],
+                target_sha=target_sha,
                 evidence_refs=[str(item.get("pressure_id") or qid)],
                 pressure_event_id=str(item.get("pressure_id") or "") or None,
                 base_dir=base_dir,
@@ -906,6 +927,7 @@ def run_autonomy_orchestrator(
                     base_dir=root,
                     daemon_agent_id=daemon_agent_id,
                     limit=max_iterations_per_phase,
+                    workspace_root=workspace_root,
                 )
                 AutonomyStateReducer.transition(
                     root,

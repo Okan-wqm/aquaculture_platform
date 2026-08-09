@@ -14,7 +14,11 @@ class EvidenceTrustTests(unittest.TestCase):
         self.assertIn("aria-debts/", SELF_OUTPUT_PREFIXES)
         self.assertIn("aria-tools/", SELF_OUTPUT_PREFIXES)
 
-    def test_non_git_repo_file_is_worktree_candidate(self) -> None:
+    def test_non_git_repo_file_reports_a_missing_baseline(self) -> None:
+        # A directory that is not a git repo has no baseline to verify
+        # against, which is a different fact from "verified and did not
+        # match". Both are refused by require_repo_verified; only one of them
+        # is a statement about the agent.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             path = root / "src" / "x.py"
@@ -23,7 +27,7 @@ class EvidenceTrustTests(unittest.TestCase):
             envelope = classify_evidence_ref("src/x.py:2", workspace_root=root, source_hint="repo_source")
             self.assertEqual(envelope.canonical_ref, "src/x.py")
             self.assertEqual(envelope.line, 2)
-            self.assertEqual(envelope.trust_grade, "worktree_candidate")
+            self.assertEqual(envelope.trust_grade, "baseline_unavailable")
             self.assertTrue(envelope.content_hash and envelope.content_hash.startswith("sha256:"))
             self.assertTrue(envelope.envelope_hash.startswith("sha256:"))
 

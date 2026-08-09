@@ -25,6 +25,12 @@ interface MockManager {
   save: jest.Mock;
 }
 
+// auth.tenants.id is a uuid column and the RLS predicate casts the GUC to
+// uuid, so a placeholder like 'tenant-1' was never a value this code could
+// receive in production. bindTenantRlsContext refuses it, which is how the
+// unrealistic fixture surfaced (ORPHAN-CRITICAL-573).
+const TENANT_ID = '33333333-3333-4333-8333-333333333333';
+
 describe('TenantProvisioningCommandService — suspension audit trio', () => {
   let service: TenantProvisioningCommandService;
   let manager: MockManager;
@@ -33,7 +39,7 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
   const seedTenant = (overrides: Partial<Tenant>): Tenant => {
     const tenant = new Tenant();
     Object.assign(tenant, {
-      id: 'tenant-1',
+      id: TENANT_ID,
       name: 'Test Tenant',
       slug: 'test-tenant',
       status: TenantStatus.ACTIVE,
@@ -43,14 +49,16 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
     return tenant;
   };
 
-  const command = (reason?: string): {
+  const command = (
+    reason?: string,
+  ): {
     operationId: string;
     tenantId: string;
     actor: { id: string; type: 'user' };
     reason: string;
   } => ({
     operationId: 'op-1',
-    tenantId: 'tenant-1',
+    tenantId: TENANT_ID,
     actor: { id: 'admin-1', type: 'user' },
     // SuspendTenantLifecycleCommand/DeprovisionTenantCommand require reason;
     // ActivateTenantCommand ignores the extra property (structural typing).
@@ -66,8 +74,8 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
       save: jest.fn().mockImplementation((_entity, tenant: Tenant) => Promise.resolve(tenant)),
     };
     const dataSource = {
-      transaction: jest.fn(
-        async (_isolation: string, work: (m: MockManager) => Promise<unknown>) => work(manager),
+      transaction: jest.fn(async (_isolation: string, work: (m: MockManager) => Promise<unknown>) =>
+        work(manager),
       ),
     };
     outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
@@ -102,7 +110,7 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
     const result = await service.suspendTenant(command('Payment overdue'));
 
     expect(result).toMatchObject({
-      tenantId: 'tenant-1',
+      tenantId: TENANT_ID,
       status: TenantStatus.SUSPENDED,
       previousStatus: TenantStatus.ACTIVE,
       reason: 'Payment overdue',
@@ -122,7 +130,7 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
         reason: 'Payment overdue',
       }),
       manager,
-      expect.objectContaining({ aggregateId: 'tenant-1' }),
+      expect.objectContaining({ aggregateId: TENANT_ID }),
     );
   });
 

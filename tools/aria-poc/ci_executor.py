@@ -1569,7 +1569,7 @@ def _release_claim(
     fix adds ``--agent-id`` to the argv + the matching CLI flag
     registration in §B.1's cli.py change.
     """
-    subprocess.run(
+    released = subprocess.run(
         [
             "python3", "-m", "aria_kernel", "agent", "release",
             "--claim-id", claim_id,
@@ -1583,7 +1583,31 @@ def _release_claim(
             "PYTHONPATH": str(repo / "aria-kernel"),
             LEASE_TOKEN_ENV_VAR: lease_token,
         },
+        capture_output=True,
+        text=True,
     )
+    if released.returncode != 0:
+        # A release that FAILED used to be indistinguishable from a release
+        # that happened: the return code was never read, so a governance
+        # refusal, an expired lease or an agent-id mismatch left the claim in
+        # CLAIMED while the executor walked away reporting only its original
+        # error.
+        #
+        # That is a permanent queue leak, not a transient one. `PENDING` is
+        # reachable from `CLAIMED` ONLY through an explicit released/requeued
+        # event (agent_invocations.derive_request_state), and once the 30-minute
+        # lease expires the state derives `STALE`, which `next_pending_request`
+        # skips and `claim_request` refuses. Both exits are closed; the row is
+        # dead. Measured 2026-08-09: ten of twelve requests in that state.
+        detail = "\n".join(
+            part for part in (released.stdout or "", released.stderr or "") if part.strip()
+        ) or "(the release produced no output)"
+        sys.stderr.write(
+            f"::error::aria executor could not release claim {claim_id} "
+            f"(reason={reason}): "
+            + _redact_lease_in_message(detail, lease_token)
+            + ". The request stays CLAIMED and no later run can pick it up.\n"
+        )
 
 
 def _deserialise_inherited_claim_metadata(
@@ -2272,8 +2296,35 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     _stage(f"submit_step_done rc={submit_proc.returncode}")
     if submit_proc.returncode != 0:
+        # STDOUT as well as stderr, and this is the whole point: the kernel CLI
+        # prints a refusal as JSON on STDOUT and returns nonzero, leaving
+        # stderr EMPTY. Forwarding only stderr produced a log that said
+        # `submit_step_done rc=1` and nothing else — on 2026-08-09 the actual
+        # reason (44 evidence refs rejected) was only readable by pulling the
+        # result row out of the aria/state branch afterwards.
+        #
+        # Same defect class as the swallowed CLI error one step earlier: a
+        # failure that reports its existence but not its cause costs a full
+        # round trip every time, and it cost days here.
+        detail = "\n".join(
+            part
+            for part in (submit_proc.stdout or "", submit_proc.stderr or "")
+            if part.strip()
+        ) or "(the submit step produced no output on either stream)"
         sys.stderr.write(
-            _redact_lease_in_message(submit_proc.stderr, lease_token) + "\n"
+            "::error::aria executor could not submit the agent result: "
+            + _redact_lease_in_message(detail, lease_token)
+            + "\n"
+        )
+        # Release, like every other failure path in this function does. This
+        # was the one exit that did not, and a rejected result therefore held
+        # its claim forever — the request could never be retried by anyone.
+        # Runaway retries are already bounded: DEFAULT_MAX_REQUEUES caps the
+        # requeue count and the state then derives HUMAN_REQUIRED.
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason="submit_rejected",
         )
         return 1
     return 0

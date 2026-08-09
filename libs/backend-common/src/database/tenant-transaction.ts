@@ -151,6 +151,67 @@ export interface TenantContextQueryExecutor {
   query(sql: string, parameters?: unknown[]): Promise<unknown>;
 }
 
+/**
+ * Bind the RLS controls transaction-locally and verify they took.
+ *
+ * ORPHAN-CRITICAL-573 — extracted from `assertTenantTransactionContext`
+ * because auth-service needs exactly this and NOT the schema half of it: its
+ * tenant lifecycle writes land in the SOURCE schema (`auth.*`), and during
+ * provisioning the tenant schema does not exist yet. Calling the full
+ * assertion there would trade one failure for another.
+ *
+ * What it guarantees: `app.current_tenant` is this tenant, `app.bypass_rls`
+ * is off, both transaction-locally so a pooled connection cannot carry either
+ * into the next caller — and both READ BACK, so a GUC that silently failed to
+ * apply becomes a named `TenantContextError` instead of an RLS refusal whose
+ * message names a table and not a cause. That distinction is the whole reason
+ * tenant onboarding stayed broken for months.
+ */
+export async function bindTenantRlsContext(
+  queryRunner: TenantContextQueryExecutor,
+  tenantId: string,
+  sourceSchema: string,
+): Promise<void> {
+  if (!SOURCE_SCHEMA_RE.test(sourceSchema)) {
+    throw new Error(`bindTenantRlsContext: invalid source schema "${sourceSchema}"`);
+  }
+  if (!isValidUUID(tenantId)) {
+    throw new Error(`bindTenantRlsContext: invalid tenantId "${tenantId}"`);
+  }
+
+  await queryRunner.query(`SELECT set_config($1, $2, true)`, [RLS_TENANT_GUC, tenantId]);
+  // A pooled connection may previously have served an audited system path;
+  // a stale `on` would expose every row the policy is supposed to hide.
+  await queryRunner.query(`SELECT set_config($1, 'off', true)`, [RLS_BYPASS_GUC]);
+
+  const rows = await queryRunner.query(
+    `SELECT current_setting($1, true) AS tenant,
+            current_setting($2, true) AS bypass`,
+    [RLS_TENANT_GUC, RLS_BYPASS_GUC],
+  );
+  const row = (Array.isArray(rows) ? rows[0] : rows) as
+    | { tenant?: string | null; bypass?: string | null }
+    | undefined
+    | null;
+  if (!row) {
+    return;
+  }
+
+  const resolvedTenant: string | null = row.tenant ?? null;
+  const resolvedBypass: string | null = row.bypass ?? null;
+  if (resolvedTenant !== tenantId || (resolvedBypass ?? 'off') !== 'off') {
+    throw new TenantContextError({
+      state: 'RLS_MISMATCH',
+      expectedSchema: getTenantSchemaName(tenantId),
+      // No schema claim is being made here: this binding is used by writers
+      // whose tables live in the source schema, so `resolvedSchema` stays
+      // null rather than asserting something the caller never asked for.
+      resolvedSchema: null,
+      sourceSchema,
+    });
+  }
+}
+
 export async function assertTenantTransactionContext(
   queryRunner: TenantContextQueryExecutor,
   sourceSchema: string,

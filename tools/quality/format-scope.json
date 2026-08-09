@@ -968,7 +968,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "bf2c9486f93fe4a40b0de8c33dc05feaf2f1bd9b327766f7a9fbfb27edd625a2",
+      "content_sha256": "a04d3f9b171bc3f0d9f72d0ecc1d7277acba6167066e0285be0ecda5d6083940",
       "hash_policy": "sha256",
       "owner": "finding-registry-writer-authority-generator",
       "path": ".github/manifests/finding-registry-writer-authority.json",
@@ -5687,6 +5687,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/services/__tests__/tenant-admin-deactivation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/services/__tests__/tenant-command-receipt-rls.spec.ts",
       "prettier_managed": true
     },
     {

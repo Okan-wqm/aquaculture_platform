@@ -8083,6 +8083,36 @@ The hazard is not the disk: it is that production carries undeclared, self-mutat
 
 **Owner:** Okan / infra-expert (with `INFRA-HIGH-079`). **Deadline:** 2026-08-19. **Related:** `INFRA-HIGH-079`, `INFRA-MEDIUM-057`, `ORPHAN-HIGH-417`.
 
+## ORPHAN-HIGH-580 — eight alerts fired into a route that discards them — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, adversarial audit of this session's alerting work.
+
+`alertmanager.yml` routes on the `severity` label and its default receiver is `null`. It defines exactly three routes: `critical` → page, `warning` → digest, `none` → the deadman heartbeat. Eight rules in `60-dataflow-integrity.yml` shipped `severity: high` or `severity: medium` — values with no route, so every one of them matched the default and was silently discarded.
+
+Nothing caught it. `promtool check rules` accepts any label value, Alertmanager does not warn about alerts it drops on purpose, and the `monitoring-alert-runbook-url` invariant checks that a runbook exists, not that anyone will ever read it. Two vocabularies, no translation layer, no gate.
+
+**Fix:** the rules now use only severities Alertmanager routes. Six degrade to `warning`; two are promoted to `critical` with the reasoning inline — `TenantIsolationWatchdogStale` and `RuntimeSupervisorStale` are each the deadman of a safety mechanism, and a stopped watcher reports all-clear, so waiting for a 12-hour digest to learn the cross-tenant guard has been off is the wrong trade.
+
+**Structural half:** `tests/invariants/monitoring-alert-delivery.spec.ts` parses the real route tree and fails on any rule severity that does not reach a receiver. It also asserts the default receiver is still `null`, because if that changed the first assertion would be theatre, and that every route names a receiver that exists.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-581 — every cron metric shipped a label Prometheus renames, so the alerts grouped by the wrong thing — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, same audit. Empirically confirmed on the production droplet.
+
+`job` is reserved: Prometheus attaches it to every scraped series to name the scrape target, and with `honor_labels: false` — the default, and what this platform runs — a metric carrying its own `job` has it renamed to `exported_job` on ingest.
+
+Three metric families did exactly that: the new `cron_job_*` heartbeat (#1098) and the pre-existing `farm_regulatory_cron_*` and `farm_environment_cron_*` families, which sit under `exported_job` on the droplet today. The consequence is not a dropped metric but a wrong one: `max by (job) (cron_job_last_success_timestamp_seconds)` groups by _service_, collapsing every scheduled job in that service into one series, and `{{ $labels.job }}` in the alert text names the service instead of the job that stopped. So "aqua-services has never run" was the message a single dead job would have produced.
+
+**Fix:** the exported label is `cron_job` in all three families; the rules group and template on it. The TypeScript API keeps the natural word (`track(job, …)`) — the collision is in the exposition format, not the call site.
+
+**Structural half:** the same invariant fails if any metric under `apps/`, `libs/` or `platform/` declares `job` or `instance` in `labelNames`, and separately if a cron rule groups `by (job)`. Both were proven by deliberate break before commit.
+
+**NOT done:** the rules still cannot reach a human — Alertmanager's three receivers are loopback placeholders that only `scripts/monitoring/render-configs.sh` replaces, and nothing in any deploy path calls it. That is tracked as part of the delivery-chain work and needs operator-supplied endpoints; minting them is not mine to do.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the label; delivery endpoints remain operator-owned.
+
 ## ORPHAN-HIGH-569 — container logs were the third unbounded disk consumer and nothing in the platform had ever set a ceiling — RESOLVED (this PR)
 
 **Discovered and reproduced:** 2026-08-06, tracing droplet disk pressure after the WAL-G rig was stopped and the disk kept climbing anyway. Docker's default `json-file` driver performs no rotation, no `/etc/docker/daemon.json` exists on the host, and `grep -l 'max-size\|logging:' docker-compose*.yml` returned nothing — no compose file had ever configured it. Measured on the production droplet: 2.0 GB of `*-json.log` across the running stack, `aqua-auth` alone at 658 MB and still being written to within the last 15 minutes, `aqua-postgres` 535 MB, `aqua-gateway` 464 MB — on a host at 94% with 11 GB free, whose capacity gate wants 37.6 GB.

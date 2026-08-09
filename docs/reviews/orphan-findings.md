@@ -8162,6 +8162,7 @@ The second defect is what reached the reader. A job killed by its own budget rep
 **Proof:** 8 tests including one asserting the renderer is actually _called_ by the report writer — deleting that call left every direct-render test green, which is this chain's own defect one level down. Asserted by parsing the writer rather than reproducing its dozen-field schema in a fixture, which would have been a second copy of it. Full kernel suite green.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-CRITICAL-591 — ARIA's autonomy died on 2026-08-04 and reported it as five ordinary agent failures — RESOLVED (detection); OPERATOR ACTION REQUIRED (the credential)
 
 **Discovered:** 2026-08-08, while wiring the feedback loop the operator asked for. Measured first-hand on the production runner:

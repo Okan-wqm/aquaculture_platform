@@ -5,6 +5,7 @@ import {
   AuditedOperationModule,
   type IAuditLogService,
 } from '@aquaculture/backend-common/audit';
+import { TenantExecutionContextModule } from '@aquaculture/backend-common/context';
 import {
   AUTH_RLS_EXCLUDE_TABLES,
   RlsModule,
@@ -371,6 +372,21 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
       // tables); kept in sync with db-migrate SCHEMA_REGISTRY['auth'].
       excludeTables: [...AUTH_RLS_EXCLUDE_TABLES],
     }),
+    /**
+     * ORPHAN-CRITICAL-573 — bind tenant context around every execution,
+     * including the NATS command path.
+     *
+     * auth-service was the one tenant-writing service that never registered
+     * this module, on the reasoning that pre-auth lookups read across tenants.
+     * That reasoning holds for the LOOKUP tables (which is why they are
+     * RLS-excluded above) and fails for everything else: the tenant lifecycle
+     * commands arrive over NATS with no request to seed AsyncLocalStorage
+     * from, so every write they made to an RLS-armed table was refused and
+     * tenant onboarding was broken in production for months. The interceptor
+     * no-ops when a payload carries no tenant, so the cross-tenant pre-auth
+     * paths are unaffected.
+     */
+    TenantExecutionContextModule,
     /** P11 of 2026-04-14 teardown — runtime schema-drift validator. */
     SchemaDriftModule.forRoot({ serviceName: 'auth' }),
   ],

@@ -1763,6 +1763,19 @@ def claim_request(
         "plan_revision_hash": envelope.get("plan_revision_hash"),
         "context_hash": envelope.get("context_hash"),
         "prompt_hash": envelope.get("prompt_hash"),
+        # The Twin slice the prompt was RENDERED from, and therefore the field
+        # `prompt_hash` was computed over (see create_agent_invocation_request:
+        # repository_map is attached to the row, then render_invocation_prompt
+        # reads it and the hash is taken of the result).
+        #
+        # Omitting it here made the binding check unsatisfiable: the executor
+        # rebuilds an envelope from this response and re-renders, so its prompt
+        # lost the entire `## Repository map` section and the hash could never
+        # match. Every request whose evidence_refs resolve against the Twin map
+        # failed `prompt_hash_binding_mismatch` on every claim, forever —
+        # deterministically, which is why the same request kept coming back.
+        "repository_map": envelope.get("repository_map"),
+        "cycle_id": envelope.get("cycle_id"),
         "context_ledger_hash": envelope.get("context_ledger_hash"),
         "prompt_ledger_hash": envelope.get("prompt_ledger_hash"),
         # Ledger-hash anchors (2 fields per plan §B.3 + §B.5):
@@ -2308,6 +2321,23 @@ def submit_claim_result(
             )
         except GovernanceError as exc:
             reasons.append(f"separation_of_duties: {exc}")
+        # ORPHAN-HIGH-573 — `verify_no_secret_in_envelope` describes itself as
+        # "Hard-fail check — scan agent response envelope before kernel
+        # persists", was exported, was tested, and was called by nothing. Its
+        # sibling `verify_no_secret_in_diff` IS wired, so diffs were scanned
+        # and the envelope carrying agent stdout, stderr and validation_results
+        # was not — the exact leak path its docstring names. This is that
+        # caller, at the moment the docstring specifies.
+        #
+        # The exception message is redacted by construction (pattern name +
+        # count, never the matched value), so appending it to `reasons` cannot
+        # move a secret into the rejection row.
+        try:
+            from .implementation_safety import SecretLeakDetected, verify_no_secret_in_envelope
+
+            verify_no_secret_in_envelope(envelope)
+        except SecretLeakDetected as exc:
+            reasons.append(f"secret_in_envelope: {exc}")
         revalidation = validate_agent_response_evidence(
             response=envelope,
             workspace_root=workspace_root,

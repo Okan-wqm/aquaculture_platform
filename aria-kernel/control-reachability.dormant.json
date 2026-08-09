@@ -1,0 +1,104 @@
+{
+  "assert_fix_dispatch_allowed": {
+    "owner": "okan",
+    "reason": "Oscillation guard: refuses a fix dispatch whose fingerprint keeps recurring. Written for the autonomous implementation lane, which is not yet dispatching fixes on the scheduled path, so there is no live caller to attach it to. Wire it at the mutation throat in promotion_controller when that lane goes live.",
+    "expires_on": "2026-09-06",
+    "finding_id": "ORPHAN-HIGH-573"
+  },
+  "guard_fix_dispatch": {
+    "owner": "okan",
+    "reason": "The non-raising sibling of assert_fix_dispatch_allowed; same lane, same blocker. Both are wired or neither is - shipping one alone would give the appearance of oscillation control without the refusal.",
+    "expires_on": "2026-09-06",
+    "finding_id": "ORPHAN-HIGH-573"
+  },
+  "assert_real_mode_env_safe": {
+    "owner": "okan",
+    "reason": "CORRECTED 2026-08-06. The first version of this waiver claimed the mode this guard protects is 'not reachable yet' because run_agent_eval defaults to mock_mode=True. That premise is FALSE and was disproved by reading cli.py: `eval-run --no-mock-mode` is a registered argument (cli.py:888) and reaching real mode needs only that flag plus --real-envelope-file (cli.py:2767). So real-mode eval is reachable today and this guard is not on that path. Blast radius is bounded because the flag is operator-typed rather than scheduled, which is why this stays MEDIUM rather than escalating - but it is an unguarded live path, not a dormant future one.",
+    "expires_on": "2026-09-06",
+    "finding_id": "ORPHAN-HIGH-573"
+  },
+  "assert_within_breaker": {
+    "owner": "okan",
+    "reason": "Circuit-breaker precondition assertion. The breaker IS consulted in production through _cycle_preflight's own read path, so the protection is not absent - this specific assertion helper is the redundant entry point. Decide deliberately whether to route the preflight through it or delete it; a second way to ask the same question is how two answers start to diverge.",
+    "expires_on": "2026-09-06",
+    "finding_id": "ORPHAN-HIGH-573"
+  },
+  "assert_within_budget": {
+    "owner": "okan",
+    "reason": "Cost-budget assertion. #1024 settled that the live runtime is subscription-based Claude CLI and the enforced budget is wall-clock, with USD kept as telemetry only, so this USD-shaped assertion has no live decision to make. Reconcile it with cycle_and_turn_budget_cap (PLAN Wave 8) rather than wiring both.",
+    "expires_on": "2026-09-06",
+    "finding_id": "ORPHAN-HIGH-573"
+  },
+  "check_remaining_budget": {
+    "owner": "okan",
+    "reason": "Same budget surface as assert_within_budget and the same decision; listed separately so wiring one does not silently leave the other dormant.",
+    "expires_on": "2026-09-06",
+    "finding_id": "ORPHAN-HIGH-573"
+  },
+  "require_capability_resolution": {
+    "owner": "okan",
+    "reason": "Refuses a mission step whose required capability is unresolved. The CAPABILITY_REQUIRED flow it belongs to is PLAN Wave 6 (parent mission blocks, genesis child mission produces the capability, parent resumes); until that flow exists there is no caller with a capability to resolve.",
+    "expires_on": "2026-09-20",
+    "finding_id": "ORPHAN-HIGH-573"
+  },
+  "require_lifecycle_state": {
+    "owner": "okan",
+    "reason": "Genesis lifecycle state precondition. The genesis machine runs today through its own transition table; this helper is the alternative entry point. PLAN Wave 6 merges the genesis and tool_registry lifecycles onto one vocabulary - route it or drop it there, not before.",
+    "expires_on": "2026-09-20",
+    "finding_id": "ORPHAN-HIGH-573"
+  },
+  "require_tools_v2": {
+    "owner": "okan",
+    "reason": "Asserts the v2 tools-directory layout. Every live path already resolves through ensure_tools_dir, which establishes the same layout, so this is a second assertion of an established invariant rather than an unguarded gap.",
+    "expires_on": "2026-09-06",
+    "finding_id": "ORPHAN-HIGH-573"
+  },
+  "validate_file": {
+    "owner": "okan",
+    "reason": "Narrative prompt validator, file-level entry point. The prompt content path is exercised through the string-level validator; this wrapper reads a path and calls it. Operator-facing CLI surface with no CLI verb attached - give it one or delete it.",
+    "expires_on": "2026-09-06",
+    "finding_id": "ORPHAN-HIGH-573"
+  },
+  "validate_generated_adapter": {
+    "owner": "okan",
+    "reason": "Skill-genesis adapter validation. The adapter authoring loop is dispatched through the convergent drafting agents, and the kernel-side validation of their output is not yet on that path - which is precisely the shape of defect this gate exists to surface, on a lane that is not live.",
+    "expires_on": "2026-09-20",
+    "finding_id": "ORPHAN-HIGH-573"
+  },
+  "verify_adapter_imports": {
+    "owner": "okan",
+    "reason": "Sandbox check for a generated adapter's import set. Same dormant skill-genesis lane as validate_generated_adapter; the three sandbox checks are one decision.",
+    "expires_on": "2026-09-20",
+    "finding_id": "ORPHAN-HIGH-573"
+  },
+  "verify_adapter_signature": {
+    "owner": "okan",
+    "reason": "Sandbox check for a generated adapter's entry-point signature. Same dormant skill-genesis lane; wire with its siblings or not at all.",
+    "expires_on": "2026-09-20",
+    "finding_id": "ORPHAN-HIGH-573"
+  },
+  "validate_request": {
+    "owner": "okan",
+    "reason": "The request half of the aria/agent-request/v1 contract. Its counterpart validate_response has 11 production callsites; this one has none, because no production code produces that envelope - the live dispatch path mints aria/agent-invocation-request/v1 instead. Tracked in full as ORPHAN-MEDIUM-572: the vocabulary must be reconciled against real producers before anything enforces it.",
+    "expires_on": "2026-09-06",
+    "finding_id": "ORPHAN-MEDIUM-572"
+  },
+  "verify_branch_tip": {
+    "owner": "okan",
+    "reason": "Auto-merge head-SHA freshness check. merge_pr_if_ready performs its own head-SHA freshness comparison inline, so the protection exists; this is the extracted helper that the inline code never adopted. PLAN Wave 8 implements branch_tip_lock_and_recheck as a real hard-fail check - that is where these two collapse into one.",
+    "expires_on": "2026-09-20",
+    "finding_id": "ORPHAN-HIGH-573"
+  },
+  "verify_claim_disjointness": {
+    "owner": "okan",
+    "reason": "CORRECTED 2026-08-06. The first version of this waiver called it 'a real missing consumer on a live lane' because the judge fan-out scores claims 'without an independence pass'. That is FALSE: verify_principal_disjointness in the same module IS the live independence pass, reached from human_required_adjudication.py:364. So this is a SECOND entry point no lane adopted, not an absent guarantee - the same duplicate-entry-point shape as assert_within_breaker and verify_branch_tip, and it was mis-ranked as the strongest wiring candidate on the strength of a claim nobody had checked. Decide whether it collapses into verify_principal_disjointness or is deleted; do not wire a second independence answer beside the first.",
+    "expires_on": "2026-09-06",
+    "finding_id": "ORPHAN-HIGH-573"
+  },
+  "verify_workflow_registry": {
+    "owner": "okan",
+    "reason": "Cross-checks the workflow contract registry against the workflows on disk. The equivalent assertion runs in CI as a TypeScript invariant, so the drift IS caught - by the other lane. Decide which lane owns it instead of maintaining two.",
+    "expires_on": "2026-09-06",
+    "finding_id": "ORPHAN-HIGH-573"
+  }
+}

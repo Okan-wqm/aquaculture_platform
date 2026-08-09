@@ -90,6 +90,23 @@ def classify_evidence_ref(
         trust_grade = "repo_verified"
     elif is_dir and resolved_target_sha and _git_tree_exists(root, canonical_ref, resolved_target_sha):
         trust_grade = "repo_verified"
+    elif exists and resolved_target_sha is None:
+        # NO BASELINE, so nothing could be verified — a different fact from
+        # "verified and did not match", and it must not wear the same name.
+        #
+        # `worktree_candidate` says the agent's evidence disagrees with the
+        # committed tree, which is a claim about the AGENT. When the caller
+        # threaded no `target_sha`, the validator never attempted the
+        # comparison at all, and reporting that as the agent's fault is how a
+        # harness gap reads as agent misbehaviour.
+        #
+        # Observed live 2026-08-09: an autonomy-lane result was rejected with
+        # 44 `agent_evidence_not_repo_verified` reasons, every ref a real file
+        # the agent had genuinely read. The lane minted its requests without a
+        # target_sha; the agent was blameless and the message said otherwise.
+        # A policy that requires repo-verified evidence still rejects this —
+        # correctly, because nothing was verified — but now it says WHY.
+        trust_grade = "baseline_unavailable"
     elif exists:
         trust_grade = "worktree_candidate"
     else:

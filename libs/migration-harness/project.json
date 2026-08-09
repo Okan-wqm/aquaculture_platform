@@ -5,7 +5,7 @@
   "projectType": "library",
   "tags": ["scope:devOnly"],
   "targets": {
-    "build": {
+    "typecheck": {
       "executor": "nx:run-commands",
       "outputs": [],
       "options": {

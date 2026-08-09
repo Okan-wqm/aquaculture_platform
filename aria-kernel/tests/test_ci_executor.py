@@ -154,8 +154,16 @@ class DispatchBudgetTests(unittest.TestCase):
     def test_cycle_id_reaches_the_envelope(self) -> None:
         # TEST-CRITICAL-002 — the wall-clock ledger recorded nothing because
         # the envelope main() builds never copied cycle_id off the request row.
-        src = (Path(_POC_DIR) / "ci_executor.py").read_text(encoding="utf-8")
-        self.assertIn('"cycle_id": claim.get("cycle_id"),', src)
+        #
+        # This pinned the hand-copy line as source text; the envelope now
+        # comes from the kernel's fuse_prompt_envelope (a second projection in
+        # the executor is how the prompt binding died twice), so the property
+        # is asserted on the projection itself.
+        from aria_kernel.agent_invocations import fuse_prompt_envelope
+
+        envelope = fuse_prompt_envelope({"cycle_id": "cyc-42", "claim_id": "c1"})
+
+        self.assertEqual(envelope.get("cycle_id"), "cyc-42")
 
     def test_workflow_id_is_parsed_from_the_github_ref(self) -> None:
         with patch.dict(

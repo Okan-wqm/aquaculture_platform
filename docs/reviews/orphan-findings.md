@@ -8268,6 +8268,30 @@ sufficient for the step named in the contract.
 **Not fixed here:** `ARIA_GITHUB_APP_TOKEN` remains unprovisioned (operator).
 The workflow now works on the fallback token, so it is no longer a blocker.
 
+## ORPHAN-CRITICAL-601 — the executor kept its own copy of the prompt projection, and the binding died a second time — RESOLVED (this PR)
+
+**Severity:** CRITICAL (agent invocations still could not start after ORPHAN-CRITICAL-600)
+**Owner:** ARIA
+**Discovered:** 2026-08-09, executor run 31330288849 — first run on a main that already carried the kernel-side fusion fix.
+
+Same mismatch, same `actual` digest as before the fix. The kernel's fused
+claim response was now faithful, but `ci_executor.main` rebuilt the envelope
+by hand from it: `claim.get("forbidden_scope") or []` for the optional lists,
+and no `repository_map` key at all. Absence became empty-presence again and
+the re-render lost the entire `## Repository map` section — the identical
+defect, one layer up.
+
+**Fix:** the executor now builds its envelope with the kernel's own
+`fuse_prompt_envelope` (made public API; the in-module alias keeps existing
+callers). Ledger anchors — which the renderer never reads — remain hand-copied
+beside it. A kernel test walks `ci_executor.main`'s AST and fails on any dict
+literal that re-projects a render field, so a third copy is a red test rather
+than a wedged queue; another round-trips a production-shaped row through the
+executor's exact comparison.
+
+One legacy test pinned the old hand-copy as source text ("cycle_id":
+claim.get(...)); it was rewritten to assert the property on the projection.
+
 ## ORPHAN-CRITICAL-600 — the prompt hash was minted over one object and verified against another — RESOLVED (this PR)
 
 **Severity:** CRITICAL (no agent invocation could ever start)

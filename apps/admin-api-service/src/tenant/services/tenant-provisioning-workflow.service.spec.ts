@@ -5,7 +5,7 @@ import { getDataSourceToken } from '@nestjs/typeorm';
 import { AuditLogService } from '../../audit/audit.service';
 import { BillingAdminCommandClientService } from '../../billing/services/billing-admin-command-client.service';
 import { ModuleAssignmentService } from '../../modules/tenant-management/services/module-assignment.service';
-import { CreateTenantDto } from '../dto/tenant.dto';
+import { CreateTenantDto, TenantProvisioningState } from '../dto/tenant.dto';
 
 import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
 import { TenantProvisioningMetricsService } from './tenant-provisioning-metrics.service';
@@ -231,5 +231,376 @@ describe('TenantProvisioningWorkflowService.reconcileTenantSubscription', () => 
 
     expect(result.subscriptionId).toBe('sub-1');
     expect(result.replayed).toBe(false);
+  });
+});
+
+/**
+ * ORPHAN-HIGH-575 — the provisioning saga verified its own bookkeeping, not the
+ * database.
+ *
+ * `assertDbMigrateProvisionedTenantSchema` joined admin.tenant_schemas to
+ * platform.tenant_schema_jobs and, if both rows agreed, declared the tenant
+ * schema provisioned. Two ledger rows agreeing with each other is not evidence
+ * that `tenant_<id>` exists. Production proved it: a tenant reached ACTIVE with
+ * no physical schema at all. These tests pin the physical reconciliation at both
+ * gates (verification AND activation) and the step detail the poll response must
+ * now carry.
+ */
+describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPHAN-HIGH-575)', () => {
+  const TENANT_ID = '22222222-2222-4222-8222-222222222222';
+  const OPERATION_ID = '33333333-3333-4333-8333-333333333333';
+  const LEASE_TOKEN = '44444444-4444-4444-8444-444444444444';
+  const MODULE_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const EXPECTED_SCHEMA = 'tenant_2222222222224222';
+  const LEDGER_TABLE_COUNT = 42;
+
+  interface PhysicalFacts {
+    schemaExists: boolean;
+    tableCount: number;
+  }
+
+  interface StepRow {
+    stepName: string;
+    state: TenantProvisioningState;
+    stepOrder: number;
+    attempts: number;
+    lastError: string | null;
+    startedAt: Date | null;
+    completedAt: Date | null;
+  }
+
+  interface Harness {
+    service: TenantProvisioningWorkflowService;
+    query: jest.Mock;
+    activateTenant: jest.Mock;
+    failProvisioning: jest.Mock;
+  }
+
+  const runRow = (state: TenantProvisioningState = TenantProvisioningState.RUNNING): object => ({
+    id: OPERATION_ID,
+    tenantId: TENANT_ID,
+    idempotencyKey: 'idem-key-0123456789abcdef',
+    requestHash: 'e3b0c44298fc1c149afbf4c8996fb924',
+    requestPayload: {
+      name: 'Acme Aqua',
+      slug: 'acme-aqua',
+      moduleIds: [MODULE_A],
+      billingCycle: 'monthly',
+    },
+    actorUserId: 'actor-1',
+    state,
+    currentStep: null,
+    lastError: null,
+    attempts: 1,
+    nextRetryAt: null,
+    leaseToken: LEASE_TOKEN,
+    leasedBy: 'admin-api:1',
+    heartbeatAt: new Date(),
+    leaseExpiresAt: new Date(Date.now() + 60_000),
+    startedAt: new Date(),
+    completedAt: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  /**
+   * Routes every SQL the saga issues to a canned result so `processOperation`
+   * can be driven end to end. `physicalFacts` is a queue: entry N answers the
+   * Nth pg_catalog probe, which is how "the schema vanished between the
+   * verification step and activation" is expressed.
+   */
+  const createHarness = async (options: {
+    physicalFacts: PhysicalFacts[];
+    stepRows?: StepRow[];
+    runState?: TenantProvisioningState;
+  }): Promise<Harness> => {
+    const physicalFacts = [...options.physicalFacts];
+    const stepRows = options.stepRows ?? [];
+    const lastPhysicalFacts = options.physicalFacts[options.physicalFacts.length - 1];
+
+    const query = jest.fn((sql: string, params: unknown[] = []): Promise<unknown[]> => {
+      if (sql.includes('pg_catalog.pg_namespace')) {
+        return Promise.resolve([physicalFacts.shift() ?? lastPhysicalFacts]);
+      }
+      if (sql.includes('platform.request_tenant_schema_provisioning')) {
+        return Promise.resolve([{ job_id: 'job-1' }]);
+      }
+      if (sql.includes('FROM platform.tenant_schema_jobs')) {
+        return Promise.resolve([{ status: 'COMMITTED', errorMessage: null }]);
+      }
+      if (sql.includes('ts."schemaName" AS "schemaName"')) {
+        return Promise.resolve([
+          {
+            schemaName: EXPECTED_SCHEMA,
+            tableCount: LEDGER_TABLE_COUNT,
+            evidenceOperationId: OPERATION_ID,
+            jobStatus: 'COMMITTED',
+          },
+        ]);
+      }
+      if (sql.includes('SELECT ts."tableCount" AS "tableCount"')) {
+        return Promise.resolve([{ tableCount: LEDGER_TABLE_COUNT }]);
+      }
+      if (sql.includes('admin.tenant_onboarding_acks')) {
+        return Promise.resolve([{ service: 'farm-service', status: 'ACK', error: null }]);
+      }
+      if (sql.includes('FROM auth.tenants')) {
+        return Promise.resolve([
+          {
+            id: TENANT_ID,
+            name: 'Acme Aqua',
+            slug: 'acme-aqua',
+            status: 'PROVISIONING',
+            plan: 'starter',
+            settings: null,
+            customDomain: null,
+            description: null,
+            contactEmail: null,
+            contactPhone: null,
+            createdBy: 'actor-1',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ]);
+      }
+      if (sql.includes('admin.tenant_provisioning_steps')) {
+        // A one-parameter SELECT is getRunSteps (whole run); the two-parameter
+        // one is runStep's "did this step already succeed?" probe, which must
+        // stay empty so every step actually executes.
+        if (sql.trimStart().startsWith('SELECT')) {
+          return Promise.resolve(params.length === 1 ? stepRows : []);
+        }
+        return Promise.resolve([
+          {
+            stepName: String(params[1]),
+            state: TenantProvisioningState.RUNNING,
+            stepOrder: 1,
+            attempts: 1,
+            lastError: null,
+            startedAt: new Date(),
+            completedAt: null,
+          },
+        ]);
+      }
+      if (sql.includes('admin.tenant_provisioning_runs')) {
+        return Promise.resolve([runRow(options.runState)]);
+      }
+      return Promise.resolve([]);
+    });
+
+    const eventQueryRunner = {
+      connect: jest.fn().mockResolvedValue(undefined),
+      startTransaction: jest.fn().mockResolvedValue(undefined),
+      commitTransaction: jest.fn().mockResolvedValue(undefined),
+      rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+      release: jest.fn().mockResolvedValue(undefined),
+      manager: { query: jest.fn().mockResolvedValue([]) },
+    };
+
+    const activateTenant = jest.fn().mockResolvedValue(undefined);
+    const failProvisioning = jest.fn().mockResolvedValue(undefined);
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        TenantProvisioningWorkflowService,
+        {
+          provide: getDataSourceToken(),
+          useValue: {
+            query,
+            createQueryRunner: jest.fn().mockReturnValue(eventQueryRunner),
+          },
+        },
+        { provide: OutboxPublisher, useValue: { enqueue: jest.fn().mockResolvedValue(undefined) } },
+        { provide: AuditLogService, useValue: { log: jest.fn().mockResolvedValue(undefined) } },
+        {
+          provide: TenantProvisioningService,
+          useValue: { provisionTenant: jest.fn().mockResolvedValue({ success: true }) },
+        },
+        {
+          provide: ModuleAssignmentService,
+          useValue: {
+            assignModulesToTenant: jest
+              .fn()
+              .mockResolvedValue({ success: true, failedModules: [] }),
+            resolveProvisioningModuleItems: jest.fn().mockResolvedValue([]),
+          },
+        },
+        {
+          provide: AuthTenantProvisioningClientService,
+          useValue: {
+            reserveTenant: jest.fn().mockResolvedValue(undefined),
+            beginProvisioning: jest.fn().mockResolvedValue(undefined),
+            activateTenant,
+            failProvisioning,
+          },
+        },
+        {
+          provide: BillingAdminCommandClientService,
+          useValue: {
+            provisionTenantSubscription: jest
+              .fn()
+              .mockResolvedValue({ subscriptionId: 'sub-1', receiptId: 'receipt-1' }),
+          },
+        },
+      ],
+    }).compile();
+
+    return {
+      service: moduleRef.get(TenantProvisioningWorkflowService),
+      query,
+      activateTenant,
+      failProvisioning,
+    };
+  };
+
+  /** Every terminal write to a provisioning step, in execution order. */
+  const stepOutcomes = (query: jest.Mock): Array<{ step: string; state: string; error?: string }> =>
+    query.mock.calls
+      .filter(
+        ([sql]) =>
+          typeof sql === 'string' &&
+          sql.includes('UPDATE admin.tenant_provisioning_steps') &&
+          sql.includes('SET state = $3'),
+      )
+      .map(([, params]) => {
+        const args = params as unknown[];
+        const state = String(args[2]);
+        return state === TenantProvisioningState.FAILED
+          ? { step: String(args[1]), state, error: String(args[3]) }
+          : { step: String(args[1]), state };
+      });
+
+  const probeCount = (query: jest.Mock): number =>
+    query.mock.calls.filter(
+      ([sql]) => typeof sql === 'string' && sql.includes('pg_catalog.pg_namespace'),
+    ).length;
+
+  beforeEach(() => {
+    jest.spyOn(Logger.prototype, 'log').mockImplementation();
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    jest.spyOn(Logger.prototype, 'error').mockImplementation();
+  });
+
+  afterEach(() => jest.restoreAllMocks());
+
+  it('fails the verification step when the ledger is complete but the physical schema is absent', async () => {
+    // The exact production shape: admin.tenant_schemas active + job COMMITTED +
+    // tableCount 42, and no such schema in the database.
+    const { service, query, activateTenant } = await createHarness({
+      physicalFacts: [{ schemaExists: false, tableCount: 0 }],
+    });
+
+    await service.processOperation(OPERATION_ID);
+
+    const failed = stepOutcomes(query).find((outcome) => outcome.state === 'FAILED');
+    expect(failed?.step).toBe('wait_for_db_migrate_provisioner');
+    expect(failed?.error).toContain(EXPECTED_SCHEMA);
+    expect(failed?.error).toContain('physical schema does not exist');
+    // The whole point: the saga must not walk past a missing schema to ACTIVE.
+    expect(activateTenant).not.toHaveBeenCalled();
+  });
+
+  it('fails the verification step when the schema exists but holds fewer tables than the ledger claims', async () => {
+    const { service, query, activateTenant } = await createHarness({
+      physicalFacts: [{ schemaExists: true, tableCount: LEDGER_TABLE_COUNT - 1 }],
+    });
+
+    await service.processOperation(OPERATION_ID);
+
+    const failed = stepOutcomes(query).find((outcome) => outcome.state === 'FAILED');
+    expect(failed?.step).toBe('wait_for_db_migrate_provisioner');
+    expect(failed?.error).toContain(`has ${LEDGER_TABLE_COUNT - 1} tables`);
+    expect(activateTenant).not.toHaveBeenCalled();
+  });
+
+  it('activates when the ledger and the physical schema agree', async () => {
+    const { service, query, activateTenant, failProvisioning } = await createHarness({
+      physicalFacts: [{ schemaExists: true, tableCount: LEDGER_TABLE_COUNT }],
+    });
+
+    await service.processOperation(OPERATION_ID);
+
+    expect(stepOutcomes(query).filter((outcome) => outcome.state === 'FAILED')).toEqual([]);
+    expect(activateTenant).toHaveBeenCalledTimes(1);
+    expect(failProvisioning).not.toHaveBeenCalled();
+  });
+
+  it('treats a table surplus as normal drift, not corruption', async () => {
+    // MIGRATE jobs legitimately add tables after the PROVISION job wrote its
+    // count, so only a SHORTFALL may fail the run.
+    const { service, activateTenant } = await createHarness({
+      physicalFacts: [{ schemaExists: true, tableCount: LEDGER_TABLE_COUNT + 5 }],
+    });
+
+    await service.processOperation(OPERATION_ID);
+
+    expect(activateTenant).toHaveBeenCalledTimes(1);
+  });
+
+  it('re-verifies immediately before activation, so a schema that disappears mid-run blocks ACTIVE', async () => {
+    // First probe: healthy (verification step passes). Second probe: the schema
+    // is gone. Without the activation-time re-check this run would flip the
+    // tenant ACTIVE over nothing — runStep skips SUCCEEDED steps on retry, so
+    // the earlier evidence can never be refreshed.
+    const { service, query, activateTenant } = await createHarness({
+      physicalFacts: [
+        { schemaExists: true, tableCount: LEDGER_TABLE_COUNT },
+        { schemaExists: false, tableCount: 0 },
+      ],
+    });
+
+    await service.processOperation(OPERATION_ID);
+
+    expect(probeCount(query)).toBe(2);
+    const failed = stepOutcomes(query).find((outcome) => outcome.state === 'FAILED');
+    expect(failed?.step).toBe('activate_tenant');
+    expect(failed?.error).toContain('physical schema does not exist');
+    expect(activateTenant).not.toHaveBeenCalled();
+  });
+
+  it('returns per-step detail with lastError from the polling endpoint', async () => {
+    const { service } = await createHarness({
+      physicalFacts: [{ schemaExists: true, tableCount: LEDGER_TABLE_COUNT }],
+      runState: TenantProvisioningState.FAILED,
+      stepRows: [
+        {
+          stepName: 'reserve_auth_tenant',
+          state: TenantProvisioningState.SUCCEEDED,
+          stepOrder: 1,
+          attempts: 1,
+          lastError: null,
+          startedAt: new Date(),
+          completedAt: new Date(),
+        },
+        {
+          stepName: 'wait_for_db_migrate_provisioner',
+          state: TenantProvisioningState.FAILED,
+          stepOrder: 6,
+          attempts: 3,
+          lastError: `tenant schema ledger claims ${EXPECTED_SCHEMA} is active for tenant ${TENANT_ID}, but the physical schema does not exist at wait_for_db_migrate_provisioner`,
+          startedAt: new Date(),
+          completedAt: new Date(),
+        },
+      ],
+    });
+
+    const response = await service.getOperation(OPERATION_ID);
+
+    expect(response.status).toBe(TenantProvisioningState.FAILED);
+    expect(response.steps).toHaveLength(2);
+    expect(response.steps[0]).toMatchObject({
+      name: 'reserve_auth_tenant',
+      state: TenantProvisioningState.SUCCEEDED,
+      attempts: 1,
+    });
+    // "FAILED" alone told the operator nothing; the step name, its attempts and
+    // its lastError are what make the outage diagnosable from the API.
+    const verificationStep = response.steps[1];
+    expect(verificationStep).toMatchObject({
+      name: 'wait_for_db_migrate_provisioner',
+      state: TenantProvisioningState.FAILED,
+      attempts: 3,
+    });
+    expect(verificationStep?.lastError).toContain('physical schema does not exist');
   });
 });

@@ -7981,6 +7981,34 @@ Per-tenant tables live only in tenant schemas, so a tenant without one cannot ho
 
 **Owner:** operator to route (candidate: multi-tenant-saas-expert). **Status:** OPEN.
 
+## ORPHAN-HIGH-575 — the tenant provisioning saga verified its own bookkeeping and called it a schema, so a tenant could reach ACTIVE owning nothing — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, reading the provisioning path end to end after ORPHAN-HIGH-570 recorded three production tenants and one `tenant_*` schema. This finding is the mechanism behind the "ACTIVE but schemaless" half of that observation.
+
+**Evidence.** `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.ts:1249` — `assertDbMigrateProvisionedTenantSchema` was the saga's only proof that a tenant schema existed, and every query it ran read a _row_: `platform.tenant_schema_jobs` for job status, then `admin.tenant_schemas` joined back to that same job table for `status = 'active'`, a matching `metadata->>'operationId'`, `jobStatus = 'COMMITTED'` and `tableCount > 0`. Two ledgers agreeing with each other is not evidence that `tenant_<id>` was ever created. If db-migrate wrote its receipts and the schema was later dropped, rolled back, or restored from a backup taken before it existed, the join still returns a row and the step still passes.
+
+Three further gaps sat on top of that:
+
+1. `activateTenantAfterVerification` (`:1384`) performed no verification at all — it sent `ActivateTenant` and nothing else. Its name described an ordering, not a check.
+2. `runStep` (`:1518`) returns early for any step already `SUCCEEDED`. On a retry or a lease handover the verification step is skipped entirely, so its evidence is however old the row is. A schema that existed on attempt 1 and was gone by attempt 2 was structurally unobservable.
+3. `toAcceptedResponse` (`:1859`) took `_steps` and ignored it. `getRunSteps` ran on **every** poll, fetched `stepName`/`state`/`attempts`/`lastError` for all twelve steps, and the result was discarded — an operator polling a failed run could read `FAILED` and nothing else, while the answer sat one dropped parameter away.
+
+**Why it stayed invisible.** The ledger checks look thorough — four conditions, a join, an operation-id match — and they are thorough about the wrong subject. Nothing in the code path ever addressed the database, so no test could catch the divergence by accident, and the failure mode is silent by construction: the saga's happy path and the corrupt path are byte-identical in the ledger.
+
+**Fix (this PR).** `assertTenantSchemaPhysicallyMatchesLedger` reconciles the ledger against the catalog: the schema must exist, it must hold at least one table, and it must hold at least as many tables as `admin.tenant_schemas."tableCount"` claims. Divergence throws a plain `Error` (terminal FAILED), not `DbMigrateProvisioningPendingError` (retry-and-wait) — retrying cannot conjure a schema the provisioner never committed, and the old code's instinct was to keep waiting. It is called from both gates: after the ledger checks in `assertDbMigrateProvisionedTenantSchema`, and again at the top of `activateTenantAfterVerification`, because the `SUCCEEDED`-skip above means the first result may be stale by the time ACTIVE is promised. Only a table **shortfall** fails; a surplus is the normal result of later MIGRATE jobs and must not fail healthy tenants.
+
+The probe reads `pg_catalog.pg_namespace` / `pg_class` (`relkind IN ('r','p')`), **not** `information_schema`. `information_schema.schemata` and `.tables` are privilege-filtered views that show only what the current role owns or holds a grant on; admin-api connects as the least-privilege `admin_service` role with no grants inside `tenant_*`, so an information_schema probe would report "schema missing, 0 tables" for every healthy tenant and fail every run. `platform.list_tenant_schema_mappings` (`apps/db-migrate/src/sql/platform-bootstrap/009-tenant-schema-provisioner.sql:555`) already derives its `schema_exists` proof from `pg_namespace` for the same reason. `relkind IN ('r','p')` is the exact catalog equivalent of `table_type = 'BASE TABLE'`, which is the predicate db-migrate used when it wrote the ledger count under its own privileged role, so the two numbers are comparable.
+
+`CreateTenantAcceptedResponse` now carries `steps` — always an array, populated on the create, replay, poll and retry paths — so the failing step name, its attempt count and its `lastError` reach the operator. The frontend mirror (`web/modules/admin-panel/src/services/types/tenant.ts`) already declared a `TenantProvisioningStep` interface that nothing referenced; it is now wired to the response it was written for.
+
+**Deliberate deviation:** the step DTO field stays `name` rather than being renamed to `stepName`. The field already exists under that name in both the backend DTO and the hand-maintained frontend mirror; renaming it would be a public API break bought for nothing, since the payload the operator needs is identical.
+
+**Proof.** `apps/admin-api-service/src/tenant/services/tenant-provisioning-workflow.service.spec.ts` drives `processOperation` end to end against a routed SQL mock: ledger complete + schema absent fails `wait_for_db_migrate_provisioner` and never calls `activateTenant`; a table shortfall fails the same step; ledger and reality agreeing activates; a surplus activates; and a schema present at verification but gone at activation fails `activate_tenant` with `activateTenant` uncalled, which is the case the `SUCCEEDED`-skip made unobservable. Verified adversarially — with the reconciliation short-circuited, exactly those three tests go red and the rest stay green.
+
+**Not done here.** Provisioning still emits zero metrics and has no alert rule, so a run that now fails correctly still fails quietly; that is a separate slice and is not claimed by this PR. The two schemaless production tenants from ORPHAN-HIGH-570 are untouched — this change stops the saga from _creating_ another one and makes an existing one visible on the next run, but repairing live tenants remains that finding's open work.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-CRITICAL-573 — tenant onboarding has been broken in production: the receipt transaction never bound an RLS tenant context, so every tenant creation failed at step zero — RESOLVED (this PR)
 
 **Discovered:** 2026-08-06, while creating the operator-authorised canary tenant through the platform's own provisioning API. Reproduced deliberately and read firsthand from production: `POST /api/v1/tenants` returned 202, the operation moved to `FAILED`, all eight provisioning steps were still `QUEUED` (none had started), and `admin.tenant_provisioning_runs.lastError` said:
@@ -8346,6 +8374,30 @@ sufficient for the step named in the contract.
 
 **Not fixed here:** `ARIA_GITHUB_APP_TOKEN` remains unprovisioned (operator).
 The workflow now works on the fallback token, so it is no longer a blocker.
+
+## ORPHAN-CRITICAL-601 — the executor kept its own copy of the prompt projection, and the binding died a second time — RESOLVED (this PR)
+
+**Severity:** CRITICAL (agent invocations still could not start after ORPHAN-CRITICAL-600)
+**Owner:** ARIA
+**Discovered:** 2026-08-09, executor run 31330288849 — first run on a main that already carried the kernel-side fusion fix.
+
+Same mismatch, same `actual` digest as before the fix. The kernel's fused
+claim response was now faithful, but `ci_executor.main` rebuilt the envelope
+by hand from it: `claim.get("forbidden_scope") or []` for the optional lists,
+and no `repository_map` key at all. Absence became empty-presence again and
+the re-render lost the entire `## Repository map` section — the identical
+defect, one layer up.
+
+**Fix:** the executor now builds its envelope with the kernel's own
+`fuse_prompt_envelope` (made public API; the in-module alias keeps existing
+callers). Ledger anchors — which the renderer never reads — remain hand-copied
+beside it. A kernel test walks `ci_executor.main`'s AST and fails on any dict
+literal that re-projects a render field, so a third copy is a red test rather
+than a wedged queue; another round-trips a production-shaped row through the
+executor's exact comparison.
+
+One legacy test pinned the old hand-copy as source text ("cycle_id":
+claim.get(...)); it was rewritten to assert the property on the projection.
 
 ## ORPHAN-CRITICAL-600 — the prompt hash was minted over one object and verified against another — RESOLVED (this PR)
 

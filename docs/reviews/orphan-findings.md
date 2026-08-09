@@ -8083,6 +8083,36 @@ The hazard is not the disk: it is that production carries undeclared, self-mutat
 
 **Owner:** Okan / infra-expert (with `INFRA-HIGH-079`). **Deadline:** 2026-08-19. **Related:** `INFRA-HIGH-079`, `INFRA-MEDIUM-057`, `ORPHAN-HIGH-417`.
 
+## ORPHAN-HIGH-580 — eight alerts fired into a route that discards them — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, adversarial audit of this session's alerting work.
+
+`alertmanager.yml` routes on the `severity` label and its default receiver is `null`. It defines exactly three routes: `critical` → page, `warning` → digest, `none` → the deadman heartbeat. Eight rules in `60-dataflow-integrity.yml` shipped `severity: high` or `severity: medium` — values with no route, so every one of them matched the default and was silently discarded.
+
+Nothing caught it. `promtool check rules` accepts any label value, Alertmanager does not warn about alerts it drops on purpose, and the `monitoring-alert-runbook-url` invariant checks that a runbook exists, not that anyone will ever read it. Two vocabularies, no translation layer, no gate.
+
+**Fix:** the rules now use only severities Alertmanager routes. Six degrade to `warning`; two are promoted to `critical` with the reasoning inline — `TenantIsolationWatchdogStale` and `RuntimeSupervisorStale` are each the deadman of a safety mechanism, and a stopped watcher reports all-clear, so waiting for a 12-hour digest to learn the cross-tenant guard has been off is the wrong trade.
+
+**Structural half:** `tests/invariants/monitoring-alert-delivery.spec.ts` parses the real route tree and fails on any rule severity that does not reach a receiver. It also asserts the default receiver is still `null`, because if that changed the first assertion would be theatre, and that every route names a receiver that exists.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-581 — every cron metric shipped a label Prometheus renames, so the alerts grouped by the wrong thing — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, same audit. Empirically confirmed on the production droplet.
+
+`job` is reserved: Prometheus attaches it to every scraped series to name the scrape target, and with `honor_labels: false` — the default, and what this platform runs — a metric carrying its own `job` has it renamed to `exported_job` on ingest.
+
+Three metric families did exactly that: the new `cron_job_*` heartbeat (#1098) and the pre-existing `farm_regulatory_cron_*` and `farm_environment_cron_*` families, which sit under `exported_job` on the droplet today. The consequence is not a dropped metric but a wrong one: `max by (job) (cron_job_last_success_timestamp_seconds)` groups by _service_, collapsing every scheduled job in that service into one series, and `{{ $labels.job }}` in the alert text names the service instead of the job that stopped. So "aqua-services has never run" was the message a single dead job would have produced.
+
+**Fix:** the exported label is `cron_job` in all three families; the rules group and template on it. The TypeScript API keeps the natural word (`track(job, …)`) — the collision is in the exposition format, not the call site.
+
+**Structural half:** the same invariant fails if any metric under `apps/`, `libs/` or `platform/` declares `job` or `instance` in `labelNames`, and separately if a cron rule groups `by (job)`. Both were proven by deliberate break before commit.
+
+**NOT done:** the rules still cannot reach a human — Alertmanager's three receivers are loopback placeholders that only `scripts/monitoring/render-configs.sh` replaces, and nothing in any deploy path calls it. That is tracked as part of the delivery-chain work and needs operator-supplied endpoints; minting them is not mine to do.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the label; delivery endpoints remain operator-owned.
+
 ## ORPHAN-HIGH-569 — container logs were the third unbounded disk consumer and nothing in the platform had ever set a ceiling — RESOLVED (this PR)
 
 **Discovered and reproduced:** 2026-08-06, tracing droplet disk pressure after the WAL-G rig was stopped and the disk kept climbing anyway. Docker's default `json-file` driver performs no rotation, no `/etc/docker/daemon.json` exists on the host, and `grep -l 'max-size\|logging:' docker-compose*.yml` returned nothing — no compose file had ever configured it. Measured on the production droplet: 2.0 GB of `*-json.log` across the running stack, `aqua-auth` alone at 658 MB and still being written to within the last 15 minutes, `aqua-postgres` 535 MB, `aqua-gateway` 464 MB — on a host at 94% with 11 GB free, whose capacity gate wants 37.6 GB.
@@ -8249,6 +8279,106 @@ Severity: HIGH. Discovered 2026-08-08 while landing an unrelated feature branch.
 **Why this is its own change:** the resulting lockfile churn is npm re-resolving nested `@module-federation` dependencies, which is far wider than the single patched package. Riding that into a feature branch would mix a dependency-tree change with domain work and make either one hard to revert alone.
 
 **Verification owed before merge:** a clean install and a full build must confirm the re-resolved tree, since the change is broader than the advisory it closes.
+
+## ORPHAN-HIGH-599 — the eval harness could never re-add a fixture it had written — RESOLVED (this PR)
+
+**Severity:** HIGH (the workflow has never completed a single run)
+**Owner:** ARIA
+**Discovered:** 2026-08-09, triaging the red scheduled workflows.
+
+`aria-agent-eval` dies on its FIRST fixture, every run:
+
+    F001 ... already exists with different content hash; refusing accidental
+    fixture mutation
+
+Nothing had mutated. `add_fixture` hashed every key except `recorded_at` and
+then wrote the digest back into the fixture as `fixture_hash`. Re-adding means
+handing the persisted file back, and that file carries the field — so the
+digest covered its own output and never matched. Measured on the shipped
+fixture: stored `4d2a364a...`, recomputed from the file as-is `b61db959...`,
+recomputed without `fixture_hash` `4d2a364a...` again. The idempotent branch
+was unreachable for every fixture that had ever been written.
+
+Behind it sat a second blocker with the same effect. The five fixtures are
+committed as JSON files with no `fixtures.jsonl` beside them, and the
+idempotent path returned the file whenever the derived ledger row was missing —
+so a fixed hash would still have left `run` failing with "ledger row not
+found". A missing derived row is a gap to close, not a result to hand back.
+
+**Fix:** the canonical form excludes `fixture_hash` as well as `recorded_at`;
+the idempotent path reconstructs the ledger row from the persisted file, which
+is the authority for the reconstruction, so a re-add cannot rewrite history
+through it. Six tests pin the round trip, the reconstruction, non-duplication,
+and — as firmly — that a genuine content change is still refused.
+
+## ORPHAN-HIGH-598 — the daily report workflow could never open its PR, and built the body through a shell — RESOLVED (this PR)
+
+**Severity:** HIGH (one class is a command-substitution surface)
+**Owner:** platform-CI
+**Discovered:** 2026-08-09, while triaging the 7-of-16 red scheduled workflows.
+
+`aria-daily-report` has failed on every scheduled run with _Resource not
+accessible by integration_. Its `commit-report` job declares
+`permissions: contents: write`, and a `permissions:` block makes every scope it
+does not name `none` — so `gh pr create` had no `pull-requests: write`. The
+workflow prefers `secrets.ARIA_GITHUB_APP_TOKEN` and falls back to
+`github.token`, which carries exactly these permissions; since the secret has
+never been provisioned, the fallback is the only path that has ever run.
+
+Beside it, a second defect on the same step: the PR body was written with an
+UNQUOTED heredoc (`cat > "$BODY_FILE" <<EOF`). Markdown code spans use
+backticks, so the shell EXECUTED `${REPORT}` and
+`.github/workflows/aria-daily-report.yml` as commands — the source of the
+`Permission denied` lines in every run log, and a command-substitution surface
+on the one step that assembles text from variables.
+
+**Fix:** `pull-requests: write` on the job that opens the PR; the body rendered
+by `python3` from `os.environ` so no value is parsed by a shell. A second test
+in `tests/invariants/aria-workflow-input-injection.spec.ts` fails on an
+unquoted heredoc whose body performs command substitution, and spares one that
+only expands `${VAR}`.
+
+The contract registry (ADR-036) had the same omission: the `commit-report` job
+contract declared `contents: write` only, while its own
+`first_governed_mutation_step` is "Open or update daily report PR", and the
+sibling `finding-state-sweep` contract declares the `contents`+`pull-requests`
+pair for the identical action. Registry and YAML agreed, so the parity check
+was green throughout — parity proves the two match, not that either is
+sufficient for the step named in the contract.
+
+**Not fixed here:** `ARIA_GITHUB_APP_TOKEN` remains unprovisioned (operator).
+The workflow now works on the fallback token, so it is no longer a blocker.
+
+## ORPHAN-CRITICAL-600 — the prompt hash was minted over one object and verified against another — RESOLVED (this PR)
+
+**Severity:** CRITICAL (no agent invocation could ever start)
+**Owner:** ARIA
+**Discovered:** 2026-08-09, after ORPHAN-CRITICAL-596 unblocked the queue.
+
+`prompt_hash` is taken over the request row. `ci_executor` verifies it by
+re-rendering the envelope `claim_request` hands back. Those must be the same
+object as far as the renderer is concerned, and they were not: the fused claim
+response defaulted the optional list fields — `envelope.get("forbidden_scope", [])`
+and two siblings — so a row that omits them came back carrying empty lists, and
+the renderer distinguishes an absent key from a present-and-empty one.
+
+Measured against production `aria/state`: **all 17** requests carrying a
+`prompt_hash` failed to reproduce it through the claim response; **all 17**
+reproduce it from the raw row. The executor was refusing its own kernel's
+envelope on every claim, deterministically — which is why the same request kept
+returning and the queue never drained.
+
+**Fix:** `_fuse_prompt_envelope` copies only the keys the row actually has, and
+`claim_request` refuses to issue a lease for an envelope that cannot reproduce
+its own binding — checked BEFORE the claim row is appended, so the refusal
+cannot leak a claim (the leak ORPHAN-CRITICAL-596 closed). A test derives the
+renderer's top-level key set from the renderer's own AST: a hand-maintained
+list of "the fields the prompt is made of" is exactly what went stale, and it
+went stale twice — `request_id` was missing from the first draft of the fix.
+
+**Also here:** merging main into a stale branch conflicts on
+`tools/quality/format-scope.json` and `docs/aria/CURRENT_STATE.md`. Both are
+generated; the resolution is to recompute them, not to choose a side.
 
 ## ORPHAN-HIGH-594 — the first agent run to survive was rejected for a baseline its own harness never supplied — RESOLVED (this PR)
 

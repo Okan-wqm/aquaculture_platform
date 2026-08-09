@@ -480,7 +480,13 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 upload_artifact_name_pattern=rf"^aria-daily-report-commit-preflight-{_RUN_ID_ATTEMPT}$",
                 upload_artifact_path_patterns=(rf"^{_RUNNER_TEMP}/aria-daily-report-preflight\.json$",),
                 retention_days=365,
-                required_permissions=(("contents", "write"),),
+                # This job's governed mutation IS opening a pull request, so it
+                # needs the same pair finding-state-sweep declares. The contract
+                # and the YAML both omitted it, which is why the parity check
+                # stayed green while every scheduled run died on "Resource not
+                # accessible by integration": parity proves the two agree, not
+                # that either is sufficient for the step named right above.
+                required_permissions=(("contents", "write"), ("pull-requests", "write")),
                 token_source="github_app:installation",
                 network_policy=("github_api",),
                 dlp_artifact="aria-daily-report-preflight.json",

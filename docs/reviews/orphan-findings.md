@@ -8221,3 +8221,40 @@ Severity: HIGH. Discovered 2026-08-08 while landing an unrelated feature branch.
 **Why this is its own change:** the resulting lockfile churn is npm re-resolving nested `@module-federation` dependencies, which is far wider than the single patched package. Riding that into a feature branch would mix a dependency-tree change with domain work and make either one hard to revert alone.
 
 **Verification owed before merge:** a clean install and a full build must confirm the re-resolved tree, since the change is broader than the advisory it closes.
+
+## ORPHAN-HIGH-594 — the first agent run to survive was rejected for a baseline its own harness never supplied — RESOLVED (this PR)
+
+**Discovered:** 2026-08-09, watching the first `aria-agent-executor` run that got past the runtime fixes.
+
+The run worked. `claude_returned_exit=0` after **613 seconds** of real work, `pre_submit_validation_passed` — after five nights of dying in ten seconds. Then the submit failed, and the result landed in `aria/state` as `status: rejected` with **44** `agent_evidence_not_repo_verified` reasons. Every ref named a real file the agent had genuinely read: `pressure.py:215`, `capability_gap.py:175`, `evidence_trust.py:18`, `.claude/agents/aria-autonomy-planner.md:39`.
+
+The agent was blameless. `classify_evidence_ref` grades a ref `repo_verified` only when its content matches the git blob at `target_sha`, and the request carried **`target_sha: None`**. `_resolve_target_sha` returns None for that, so the `repo_verified` branch is never attempted and every ref falls through to `worktree_candidate` — a grade whose meaning is _"the agent's evidence disagrees with the committed tree"_.
+
+**The repository already knew.** `convergence_drainer._resolve_workspace_head_sha` exists precisely for this and says so: _"without it, `EvidencePolicy.require_repo_verified` rejects EVERY real ref and convergence can never complete — the layer-4 blocker found live 2026-07-03."_ The convergence lane threaded the SHA. The autonomy lane, minting through `autonomy_orchestrator._drain_next_cycle_queue`, did not. One lane carried the baseline, the other did not, and the gap only became visible once agents could actually run.
+
+**Fix, in two layers because one is not enough:**
+
+1. **The autonomy lane threads the baseline**, using the same helper the convergence lane uses rather than a second implementation — a second implementation is how the two came to disagree.
+
+2. **A missing baseline stops impersonating unverified evidence.** A new `baseline_unavailable` grade, and a distinct rejection code `tool_output_evidence_baseline_unavailable`. Still a rejection under `require_repo_verified` — nothing was verified — but it now says whose gap it is, instead of sending the reader hunting a fabricating agent that does not exist. The carve-out is narrow and tested: with a baseline present, a genuinely modified file still grades `worktree_candidate`.
+
+**And the reason was unreadable, which is the third fix.** The executor forwarded only the submit subprocess's **stderr**, while the kernel CLI prints refusals as JSON on **stdout** — so the log said `submit_step_done rc=1` and nothing more. The 44 reasons were recoverable only by pulling the result row out of the `aria/state` branch afterwards. It now forwards both streams under an `::error::`. Same defect class as the swallowed CLI error one step earlier: a failure that reports its existence but not its cause costs a full round trip, every time.
+
+**Proof:** 6 tests, deliberate break red, full kernel suite green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-LOW-595 — two kernel test files fail when run in one order and pass in another — OPEN
+
+**Discovered:** 2026-08-09, while checking whether ORPHAN-HIGH-594's change had broken anything.
+
+`tests.test_tool_governance.test_fixture_runner_and_strict_promotion_gate` passes alone and fails in the full suite. Isolated to a pair:
+
+    python3 -m unittest tests.test_evidence_target_sha tests.test_tool_governance   → FAILED
+    python3 -m unittest tests.test_evidence_baseline_threading tests.test_tool_governance → OK
+
+The failing combination contains **none of my files**, so this is pre-existing order-dependence that my new test file merely re-shuffled into view. Recorded rather than absorbed: a suite whose verdict depends on collection order can go green on a real regression, and the next person to see it will reasonably suspect their own change first — as I did.
+
+**NOT fixed here.** Chasing shared state between two unrelated test modules is its own investigation, and folding it into an evidence-grading change would bury both.
+
+**Owner:** claude. **Status:** OPEN.

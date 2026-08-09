@@ -2272,8 +2272,25 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     _stage(f"submit_step_done rc={submit_proc.returncode}")
     if submit_proc.returncode != 0:
+        # STDOUT as well as stderr, and this is the whole point: the kernel CLI
+        # prints a refusal as JSON on STDOUT and returns nonzero, leaving
+        # stderr EMPTY. Forwarding only stderr produced a log that said
+        # `submit_step_done rc=1` and nothing else — on 2026-08-09 the actual
+        # reason (44 evidence refs rejected) was only readable by pulling the
+        # result row out of the aria/state branch afterwards.
+        #
+        # Same defect class as the swallowed CLI error one step earlier: a
+        # failure that reports its existence but not its cause costs a full
+        # round trip every time, and it cost days here.
+        detail = "\n".join(
+            part
+            for part in (submit_proc.stdout or "", submit_proc.stderr or "")
+            if part.strip()
+        ) or "(the submit step produced no output on either stream)"
         sys.stderr.write(
-            _redact_lease_in_message(submit_proc.stderr, lease_token) + "\n"
+            "::error::aria executor could not submit the agent result: "
+            + _redact_lease_in_message(detail, lease_token)
+            + "\n"
         )
         return 1
     return 0

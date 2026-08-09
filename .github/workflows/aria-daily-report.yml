@@ -185,6 +185,9 @@ jobs:
     if: github.ref == 'refs/heads/main'
     environment: automation-publication
     permissions:
+      # The workflow token is intentionally not the publisher. The governed
+      # mutation below uses the installation token minted by the protected
+      # automation-publication environment.
       contents: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -266,6 +269,8 @@ jobs:
           set -euo pipefail
           REPORT="aria-tools/reports/daily/${REPORT_DATE}.md"
           BODY_FILE="$RUNNER_TEMP/aria-daily-report-body.md"
+          # printf receives the validated values only as arguments; there is no
+          # heredoc body for the shell to parse as command substitution.
           {
             printf 'Daily ARIA report for **%s**.\n\n' "${REPORT_DATE}"
             printf 'Generated report: `%s`.\n\n' "${REPORT}"

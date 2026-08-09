@@ -8008,6 +8008,7 @@ The probe reads `pg_catalog.pg_namespace` / `pg_class` (`relkind IN ('r','p')`),
 **Not done here.** Provisioning still emits zero metrics and has no alert rule, so a run that now fails correctly still fails quietly; that is a separate slice and is not claimed by this PR. The two schemaless production tenants from ORPHAN-HIGH-570 are untouched — this change stops the saga from _creating_ another one and makes an existing one visible on the next run, but repairing live tenants remains that finding's open work.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-CRITICAL-573 — tenant onboarding has been broken in production: the receipt transaction never bound an RLS tenant context, so every tenant creation failed at step zero — RESOLVED (this PR)
 
 **Discovered:** 2026-08-06, while creating the operator-authorised canary tenant through the platform's own provisioning API. Reproduced deliberately and read firsthand from production: `POST /api/v1/tenants` returned 202, the operation moved to `FAILED`, all eight provisioning steps were still `QUEUED` (none had started), and `admin.tenant_provisioning_runs.lastError` said:

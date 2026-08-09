@@ -8286,3 +8286,27 @@ The failing combination contains **none of my files**, so this is pre-existing o
 **NOT fixed here.** Chasing shared state between two unrelated test modules is its own investigation, and folding it into an evidence-grading change would bury both.
 
 **Owner:** claude. **Status:** OPEN.
+
+## ORPHAN-CRITICAL-596 — ten of twelve agent requests were permanently unreachable, and the prompt-hash check could never pass — RESOLVED (this PR)
+
+**Discovered:** 2026-08-09, after the runtime and evidence fixes let agents run for the first time in five nights.
+
+Two independent defects, both permanent rather than transient.
+
+**1. The prompt-hash binding was unsatisfiable by construction.** `create_agent_invocation_request` attaches the Twin slice to the request row (`repository_map`), renders the prompt FROM that row, and hashes the result. The claim response then enumerates its envelope fields explicitly — and **omits `repository_map`** (and `cycle_id`). The executor rebuilds an envelope from that response and re-renders, so its prompt loses the entire `## Repository map` section and the hash cannot match. Every request whose `evidence_refs` resolve against the Twin map failed `prompt_hash_binding_mismatch` on **every** claim, forever. Two serialisers carried the same omission — `claim_request` and `planner_dispatch_hook` — which is why fixing one would have looked like a fix and changed nothing.
+
+**2. Claims leaked, and the leak had no exit.** Measured on production state: **10 of 12** requests had `claimed` as their latest event with no release. `derive_request_state` reaches `PENDING` from `CLAIMED` only through an explicit released/requeued event; once the 30-minute lease expires the state derives `STALE`, which `next_pending_request` skips and `claim_request` refuses. Both exits closed — the request is dead, and nine baseline-carrying requests sat behind the dead ones.
+
+Three holes fed it:
+
+- The submit-failure path was the **one** exit in `ci_executor.main` that did not release, so a rejected result held its claim forever.
+- `_release_claim` never read the subprocess return code: a release that FAILED was indistinguishable from one that happened, and the executor walked away reporting only its original error.
+- `reap_stale_claims` **existed** and was reachable only from the operator CLI — no cycle phase, no workflow. Its sibling `dispatch_lease_reap` runs every cycle but reaps `dispatch/claims.jsonl`, a different ledger. The agent-invocation ledger had no automatic reaper at all, which is how it looked covered.
+
+**Fix:** the claim response carries `repository_map` and `cycle_id` in both serialisers; the submit path releases under `submit_rejected`; `_release_claim` reads its return code and announces a failed release as an `::error::` saying the request stays CLAIMED; and `reap_stale_claims` becomes a cycle phase beside its sibling. Requeue stays bounded by `DEFAULT_MAX_REQUEUES`, so a poisonous request escalates to `HUMAN_REQUIRED` rather than cycling.
+
+**Two corrections to my own earlier reading, recorded because both were wrong in the same direction:** the executor does NOT resume in-flight work (the workflow picks the id via `agent next-pending`, which only returns PENDING/REQUEUED — the "resume in-flight work" line is an advisory string from the handoff snapshot); and the empty `actual=` in the mismatch message was a log artefact, not the defect — the real empty was the rendered repository-map section.
+
+**Proof:** 6 tests, AST node-shape rather than source text (Plan 026R §H.1). The strongest asserts that **every `return 1` branch after the claim is taken contains a `_release_claim`** — the invariant the submit path broke. All three fixes reverted individually, all three went red. Full kernel suite green (3,464 tests).
+
+**Owner:** claude (this session). **Status:** RESOLVED.

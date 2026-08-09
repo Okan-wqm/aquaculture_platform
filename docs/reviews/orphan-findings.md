@@ -8237,6 +8237,18 @@ The second defect is what reached the reader. A job killed by its own budget rep
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-501`, `ORPHAN-MEDIUM-563`, `ORPHAN-HIGH-563`.
 
+## ORPHAN-MEDIUM-593 — the weight-override approval had nothing to approve — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06 audit; verified against `origin/main` before fixing.
+
+`record_weight_override` (pressure.py) turns an approved recommendation into behaviour. Nothing fed it. The producer `recommend_calibration` was reachable only from `heartbeat_tick` — a superseded driver that calls `run_cycle` itself, so it has no production caller — and `list_calibration_recommendations` had **no caller at all**. Three dead links in one chain: nothing computed advice, nothing displayed it, so there was never anything for an operator to approve, and the "ARIA changes its own behaviour from its own measurements" loop could not close even with a human sitting in it.
+
+**Fix:** the producer becomes a cycle phase, beside `judge_calibration` and `goldset_proposal` which read the same feedback ledger, with `on_error=record_and_continue` for the reason `goldset_proposal` already carries. Wiring it by resurrecting `heartbeat_tick` was rejected: that driver calls the cycle, so the cycle would be invoking itself.
+
+**Where it stops, deliberately:** `recommendation_only`. Applying a weight is an operator act, because a system that silently reweights its own scoring can rationalise anything it later measures — the same line goldset promotion draws. The daily report gains the section that makes approval possible and names the command to act with; an unread recommendation is indistinguishable from one that was never computed.
+
+**Proof:** 8 tests including one asserting the renderer is actually _called_ by the report writer — deleting that call left every direct-render test green, which is this chain's own defect one level down. Asserted by parsing the writer rather than reproducing its dozen-field schema in a fixture, which would have been a second copy of it. Full kernel suite green.
+
 ## ORPHAN-HIGH-590 — the weekly eval measured five runs a week and threw every one of them away — RESOLVED (this PR)
 
 **Discovered:** 2026-08-06 audit, closed 2026-08-08. Two PRs that were individually coherent and jointly inert.

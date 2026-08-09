@@ -43,7 +43,7 @@
     "draft",
     "withdrawn"
   ],
-  "seeded_from_commit": "dfa0fc155769b52dd58af8efeccdb0c16d6105be",
+  "seeded_from_commit": "5384691216c707f7fef61440e7fb1f9e75acbe1e",
   "source": "seed_drift_findings",
   "status": "OPEN",
   "title": "ui_option_drift: 'leaverequest' value sets diverge (jaccard 0.80, cross_service=True)"

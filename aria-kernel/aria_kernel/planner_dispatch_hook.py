@@ -153,6 +153,13 @@ def _serialise_claim_metadata_for_env(
         "evidence_refs": claim.get("evidence_refs") or [],
         "impact_graph_refs": claim.get("impact_graph_refs") or [],
         "validation_commands": claim.get("validation_commands") or [],
+        # Same reason as the fused claim response in agent_invocations: the
+        # prompt hash was computed over a render that INCLUDED the Twin slice,
+        # so a serialiser that drops it hands the executor a prompt it can
+        # never hash back to the recorded value. Two serialisers, one
+        # contract — they must carry the same fields.
+        "repository_map": claim.get("repository_map"),
+        "cycle_id": claim.get("cycle_id"),
         "plan_revision_hash": claim.get("plan_revision_hash"),
         "context_hash": claim.get("context_hash"),
         "prompt_hash": claim.get("prompt_hash"),

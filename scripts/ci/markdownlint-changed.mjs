@@ -122,6 +122,12 @@ try {
       MD013: {
         line_length: prettierConfig.printWidth,
         tables: false,
+        // A JSON example whose string value is one 250-character sentence cannot
+        // be wrapped without becoming invalid JSON, and a shell line cannot be
+        // broken without changing what it runs. MD013 measures prose
+        // readability; inside a fenced block there is no prose to read and no
+        // legal way to comply, which is the same reason `tables` is already off.
+        code_blocks: false,
       },
     })}\n`,
     { encoding: 'utf8', mode: 0o600, flag: 'wx' },

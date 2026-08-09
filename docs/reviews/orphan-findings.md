@@ -8257,6 +8257,75 @@ Severity: HIGH. Discovered 2026-08-08 while landing an unrelated feature branch.
 
 **Verification owed before merge:** a clean install and a full build must confirm the re-resolved tree, since the change is broader than the advisory it closes.
 
+## ORPHAN-HIGH-599 — the eval harness could never re-add a fixture it had written — RESOLVED (this PR)
+
+**Severity:** HIGH (the workflow has never completed a single run)
+**Owner:** ARIA
+**Discovered:** 2026-08-09, triaging the red scheduled workflows.
+
+`aria-agent-eval` dies on its FIRST fixture, every run:
+
+    F001 ... already exists with different content hash; refusing accidental
+    fixture mutation
+
+Nothing had mutated. `add_fixture` hashed every key except `recorded_at` and
+then wrote the digest back into the fixture as `fixture_hash`. Re-adding means
+handing the persisted file back, and that file carries the field — so the
+digest covered its own output and never matched. Measured on the shipped
+fixture: stored `4d2a364a...`, recomputed from the file as-is `b61db959...`,
+recomputed without `fixture_hash` `4d2a364a...` again. The idempotent branch
+was unreachable for every fixture that had ever been written.
+
+Behind it sat a second blocker with the same effect. The five fixtures are
+committed as JSON files with no `fixtures.jsonl` beside them, and the
+idempotent path returned the file whenever the derived ledger row was missing —
+so a fixed hash would still have left `run` failing with "ledger row not
+found". A missing derived row is a gap to close, not a result to hand back.
+
+**Fix:** the canonical form excludes `fixture_hash` as well as `recorded_at`;
+the idempotent path reconstructs the ledger row from the persisted file, which
+is the authority for the reconstruction, so a re-add cannot rewrite history
+through it. Six tests pin the round trip, the reconstruction, non-duplication,
+and — as firmly — that a genuine content change is still refused.
+
+## ORPHAN-HIGH-598 — the daily report workflow could never open its PR, and built the body through a shell — RESOLVED (this PR)
+
+**Severity:** HIGH (one class is a command-substitution surface)
+**Owner:** platform-CI
+**Discovered:** 2026-08-09, while triaging the 7-of-16 red scheduled workflows.
+
+`aria-daily-report` has failed on every scheduled run with _Resource not
+accessible by integration_. Its `commit-report` job declares
+`permissions: contents: write`, and a `permissions:` block makes every scope it
+does not name `none` — so `gh pr create` had no `pull-requests: write`. The
+workflow prefers `secrets.ARIA_GITHUB_APP_TOKEN` and falls back to
+`github.token`, which carries exactly these permissions; since the secret has
+never been provisioned, the fallback is the only path that has ever run.
+
+Beside it, a second defect on the same step: the PR body was written with an
+UNQUOTED heredoc (`cat > "$BODY_FILE" <<EOF`). Markdown code spans use
+backticks, so the shell EXECUTED `${REPORT}` and
+`.github/workflows/aria-daily-report.yml` as commands — the source of the
+`Permission denied` lines in every run log, and a command-substitution surface
+on the one step that assembles text from variables.
+
+**Fix:** `pull-requests: write` on the job that opens the PR; the body rendered
+by `python3` from `os.environ` so no value is parsed by a shell. A second test
+in `tests/invariants/aria-workflow-input-injection.spec.ts` fails on an
+unquoted heredoc whose body performs command substitution, and spares one that
+only expands `${VAR}`.
+
+The contract registry (ADR-036) had the same omission: the `commit-report` job
+contract declared `contents: write` only, while its own
+`first_governed_mutation_step` is "Open or update daily report PR", and the
+sibling `finding-state-sweep` contract declares the `contents`+`pull-requests`
+pair for the identical action. Registry and YAML agreed, so the parity check
+was green throughout — parity proves the two match, not that either is
+sufficient for the step named in the contract.
+
+**Not fixed here:** `ARIA_GITHUB_APP_TOKEN` remains unprovisioned (operator).
+The workflow now works on the fallback token, so it is no longer a blocker.
+
 ## ORPHAN-CRITICAL-600 — the prompt hash was minted over one object and verified against another — RESOLVED (this PR)
 
 **Severity:** CRITICAL (no agent invocation could ever start)

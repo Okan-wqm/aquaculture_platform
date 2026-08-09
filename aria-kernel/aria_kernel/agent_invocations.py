@@ -1609,6 +1609,78 @@ def next_pending_request(
     return None
 
 
+# Every envelope field the fused claim response carries. `repository_map` is
+# the Twin slice the prompt was rendered from; the rest are the V8.12 set
+# `ci_executor` renders into the agent prompt.
+_FUSED_ENVELOPE_KEYS: tuple[str, ...] = (
+    # The renderer prints the request id in its heading, so a response that
+    # drops it renders a different prompt. `**row` happens to carry the same
+    # value, but the verification below renders this projection alone, and a
+    # check that verifies a different object than it hands out is the bug
+    # this function exists to close.
+    "request_id",
+    "expected_output_path",
+    "role",
+    "target_agent",
+    "convergence_id",
+    "suggested_prompt",
+    "must_satisfy",
+    "allowed_scope",
+    "forbidden_scope",
+    "evidence_refs",
+    "impact_graph_refs",
+    "validation_commands",
+    "plan_revision_hash",
+    "context_hash",
+    "prompt_hash",
+    "repository_map",
+    "cycle_id",
+    "context_ledger_hash",
+    "prompt_ledger_hash",
+)
+
+
+def _fuse_prompt_envelope(envelope: dict[str, Any]) -> dict[str, Any]:
+    """Copy the envelope fields into the claim response WITHOUT inventing any.
+
+    `prompt_hash` is minted over the request row, and the executor verifies it
+    by re-rendering whatever the claim hands back. The two therefore have to be
+    the same object as far as the renderer can tell.
+
+    They were not. The previous form defaulted the optional list fields
+    (``envelope.get("forbidden_scope", [])`` and two siblings), so a row that
+    simply omits them came back carrying empty lists. The renderer distinguishes
+    an absent key from a present-and-empty one, so the re-render produced
+    different text and the binding could never be satisfied — measured on
+    AIR-aria-autonomy-planner-228f33e15113, where the raw row renders to exactly
+    the stored digest and the defaulted projection does not.
+
+    A default is a value nobody minted. Copying only what the row actually has
+    keeps the verification honest about which object the hash covers.
+    """
+    return {key: envelope[key] for key in _FUSED_ENVELOPE_KEYS if key in envelope}
+
+
+def _assert_envelope_reproduces_binding(envelope: dict[str, Any]) -> None:
+    """Refuse to hand out an envelope that cannot reproduce its own prompt hash.
+
+    Checked BEFORE the claim row is appended: raising after the claim is
+    written would leak the claim, which is the leak ORPHAN-CRITICAL-596 closed.
+    A request with no recorded hash predates the binding and is left alone —
+    the executor's own check still covers it.
+    """
+    recorded = str(envelope.get("prompt_hash") or "")
+    if not recorded:
+        return
+    fused = _fuse_prompt_envelope(envelope)
+    rendered = _sha256_text(render_invocation_prompt(fused))
+    if rendered != recorded:
+        raise GovernanceError(
+            "claim_envelope_does_not_reproduce_prompt_binding: "
+            f"recorded={recorded} rendered={rendered}"
+        )
+
+
 def claim_request(
     *,
     request_id: str,
@@ -1658,6 +1730,11 @@ def claim_request(
                 f"shadow_agent_invocation_blocked: {request_for_check.get('target_agent')!r} is not an ACTIVE production target"
             )
         _strict_request_view(request_for_check)
+        # Before any lease is issued: can the envelope this claim is about to
+        # hand back still reproduce the prompt hash it was minted under? A
+        # response that cannot is one the executor is obliged to refuse, and
+        # refusing after the claim exists is how the queue wedged.
+        _assert_envelope_reproduces_binding(request_for_check)
         # Plan 024 §H-1 — defense-in-depth CAS recheck. After the lock
         # fires the state is re-derived; if it changed (e.g. another
         # worker released or stale-marked the request between our read
@@ -1748,36 +1825,11 @@ def claim_request(
         **row,
         "lease_token": lease_token,
         # Envelope metadata (V8.12 extended set — all fields ci_executor's
-        # `_build_prompt_payload` renders into the agent prompt):
-        "expected_output_path": envelope.get("expected_output_path"),
-        "role": envelope.get("role"),
-        "target_agent": envelope.get("target_agent"),
-        "convergence_id": envelope.get("convergence_id"),
-        "suggested_prompt": envelope.get("suggested_prompt"),
-        "must_satisfy": envelope.get("must_satisfy", []),
-        "allowed_scope": envelope.get("allowed_scope", []),
-        "forbidden_scope": envelope.get("forbidden_scope", []),
-        "evidence_refs": envelope.get("evidence_refs", []),
-        "impact_graph_refs": envelope.get("impact_graph_refs", []),
-        "validation_commands": envelope.get("validation_commands", []),
-        "plan_revision_hash": envelope.get("plan_revision_hash"),
-        "context_hash": envelope.get("context_hash"),
-        "prompt_hash": envelope.get("prompt_hash"),
+        # `_build_prompt_payload` renders into the agent prompt), copied by
+        # `_fuse_prompt_envelope` so an absent key stays absent.
+        **_fuse_prompt_envelope(envelope),
         # The Twin slice the prompt was RENDERED from, and therefore the field
         # `prompt_hash` was computed over (see create_agent_invocation_request:
-        # repository_map is attached to the row, then render_invocation_prompt
-        # reads it and the hash is taken of the result).
-        #
-        # Omitting it here made the binding check unsatisfiable: the executor
-        # rebuilds an envelope from this response and re-renders, so its prompt
-        # lost the entire `## Repository map` section and the hash could never
-        # match. Every request whose evidence_refs resolve against the Twin map
-        # failed `prompt_hash_binding_mismatch` on every claim, forever —
-        # deterministically, which is why the same request kept coming back.
-        "repository_map": envelope.get("repository_map"),
-        "cycle_id": envelope.get("cycle_id"),
-        "context_ledger_hash": envelope.get("context_ledger_hash"),
-        "prompt_ledger_hash": envelope.get("prompt_ledger_hash"),
         # Ledger-hash anchors (2 fields per plan §B.3 + §B.5):
         "claim_ledger_hash": claim_ledger_hash_value,
         "request_ledger_hash": request_ledger_hash_value,

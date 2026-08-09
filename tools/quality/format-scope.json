@@ -5687,6 +5687,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/services/__tests__/tenant-command-receipt-rls.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/services/__tests__/tenant-lifecycle-suspension.spec.ts",
       "prettier_managed": true
     },
@@ -27107,6 +27113,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "aria-kernel/control-reachability.dormant.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "aria-kernel/tests/fixtures/feedback_v2/feedback_event.json",
       "prettier_managed": true
     },
@@ -33385,6 +33397,24 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-06-batch-containment.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-06-control-reachability.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-06-js-yaml-advisory.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-08-06-project-graph-blind-spot.md",
       "prettier_managed": true
     },
@@ -33392,6 +33422,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/claude/2026-08-06-twin-cycle-wiring.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-07-contracts-doc-lint.md",
       "prettier_managed": true
     },
     {
@@ -36293,6 +36329,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/jest.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/project.json",
       "prettier_managed": true
     },
     {
@@ -40345,6 +40387,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/storage/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/storage/src/__tests__/file-upload-security.service.spec.ts",
       "prettier_managed": true
     },
@@ -40872,7 +40920,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "af18ff621a572319b326f89be6f72dcab2e761d6c48ce9fd6cd00a6249e63229",
+      "content_sha256": "3f6ec77ad67e1a0af5ea3ec950802711cf8288833fb6ec441ed0d4ded272c430",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -40945,6 +40993,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "platform/libs/event-bus/jest.config.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/event-bus/project.json",
       "prettier_managed": true
     },
     {
@@ -41041,6 +41095,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "platform/libs/outbox/jest.config.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "platform/libs/outbox/project.json",
       "prettier_managed": true
     },
     {
@@ -41347,6 +41407,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "scripts/ci/lib/compose-dummy-env.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/lint-all-exclusions.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/lint-all.mjs",
       "prettier_managed": true
     },
     {
@@ -42774,6 +42846,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/ci-timeout-budget-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/circuit-breaker-canonical-lib.spec.ts",
       "prettier_managed": true
     },
@@ -42835,6 +42913,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/dead-contract-fe-operations.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/dependabot-lockfile-coverage.spec.ts",
       "prettier_managed": true
     },
     {
@@ -43248,6 +43332,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/lint-quarantine-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/maintenance-isolation.spec.ts",
       "prettier_managed": true
     },
@@ -43566,6 +43656,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/sarif-upload-permissions.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/scada-storage-tenant-context.spec.ts",
       "prettier_managed": true
     },
@@ -43663,6 +43759,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/source-schema-write-guard-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/spec-has-a-runner.spec.ts",
       "prettier_managed": true
     },
     {
@@ -44490,6 +44592,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/format-scope-derived-scalars.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/gha-sha-pin.ts",
       "prettier_managed": true
     },
@@ -44593,6 +44701,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/required-status-checks.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/run-all.mjs",
       "prettier_managed": true
     },
     {
@@ -56604,10 +56718,7 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9283,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9102,
-  "managed_file_list_sha256": "5c61b96434db50d1aa8cee85aabc73dd753ff98277bc62a36841d1e2d139a9ac",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

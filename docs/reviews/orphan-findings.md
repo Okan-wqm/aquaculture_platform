@@ -8242,6 +8242,37 @@ Severity: HIGH. Discovered 2026-08-08 while landing an unrelated feature branch.
 
 **Verification owed before merge:** a clean install and a full build must confirm the re-resolved tree, since the change is broader than the advisory it closes.
 
+## ORPHAN-HIGH-599 — the eval harness could never re-add a fixture it had written — RESOLVED (this PR)
+
+**Severity:** HIGH (the workflow has never completed a single run)
+**Owner:** ARIA
+**Discovered:** 2026-08-09, triaging the red scheduled workflows.
+
+`aria-agent-eval` dies on its FIRST fixture, every run:
+
+    F001 ... already exists with different content hash; refusing accidental
+    fixture mutation
+
+Nothing had mutated. `add_fixture` hashed every key except `recorded_at` and
+then wrote the digest back into the fixture as `fixture_hash`. Re-adding means
+handing the persisted file back, and that file carries the field — so the
+digest covered its own output and never matched. Measured on the shipped
+fixture: stored `4d2a364a...`, recomputed from the file as-is `b61db959...`,
+recomputed without `fixture_hash` `4d2a364a...` again. The idempotent branch
+was unreachable for every fixture that had ever been written.
+
+Behind it sat a second blocker with the same effect. The five fixtures are
+committed as JSON files with no `fixtures.jsonl` beside them, and the
+idempotent path returned the file whenever the derived ledger row was missing —
+so a fixed hash would still have left `run` failing with "ledger row not
+found". A missing derived row is a gap to close, not a result to hand back.
+
+**Fix:** the canonical form excludes `fixture_hash` as well as `recorded_at`;
+the idempotent path reconstructs the ledger row from the persisted file, which
+is the authority for the reconstruction, so a re-add cannot rewrite history
+through it. Six tests pin the round trip, the reconstruction, non-duplication,
+and — as firmly — that a genuine content change is still refused.
+
 ## ORPHAN-HIGH-598 — the daily report workflow could never open its PR, and built the body through a shell — RESOLVED (this PR)
 
 **Severity:** HIGH (one class is a command-substitution surface)

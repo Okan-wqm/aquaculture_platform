@@ -101,7 +101,7 @@
     "apps/sensor-service/tsconfig.json": "2baa5ca6693ebc07da9da7856d97b01f53e55df81e5fc4ea36b4fd12aa2b64d7",
     "apps/sensor-service/tsconfig.spec.json": "3ad1490e8b137eb62f9e4750c1b0e14cd8797563a9e389a653b7111c3c7ab23e",
     "aria-kernel/pyproject.toml": "661a86ae4b11bf54a5d9c54e32026c2c6093f87b9989998348f9a6539184c314",
-    "docs/aria/CURRENT_STATE.md": "0915035ed80b88890f3513dbc8aaadb82727a733bcf2051279a1e3fb7b908ea1",
+    "docs/aria/CURRENT_STATE.md": "58a4c47c551730bb24da3c3205a34b03e3973e372fc07eea93d5af9dd416ba10",
     "docs/reviews/_registry/findings.jsonl.schema.json": "f370465c80718526117bea21d7e4272f8be57d09b3210e13df616d022bcff0ce",
     "e2e/helpers/db.helper.ts": "273a064b95ae3b765b4f2ab05b4ac9be023a1eb04b968825e4bdc4b300104ca7",
     "e2e/helpers/env.helper.ts": "0224e2ac2d075e50baad714d9f6e7c570e8937da800529fb9a805dd6351a91f5",

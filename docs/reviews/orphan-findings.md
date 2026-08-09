@@ -8230,6 +8230,37 @@ Severity: HIGH. Discovered 2026-08-08 while landing an unrelated feature branch.
 
 **Verification owed before merge:** a clean install and a full build must confirm the re-resolved tree, since the change is broader than the advisory it closes.
 
+## ORPHAN-CRITICAL-600 — the prompt hash was minted over one object and verified against another — RESOLVED (this PR)
+
+**Severity:** CRITICAL (no agent invocation could ever start)
+**Owner:** ARIA
+**Discovered:** 2026-08-09, after ORPHAN-CRITICAL-596 unblocked the queue.
+
+`prompt_hash` is taken over the request row. `ci_executor` verifies it by
+re-rendering the envelope `claim_request` hands back. Those must be the same
+object as far as the renderer is concerned, and they were not: the fused claim
+response defaulted the optional list fields — `envelope.get("forbidden_scope", [])`
+and two siblings — so a row that omits them came back carrying empty lists, and
+the renderer distinguishes an absent key from a present-and-empty one.
+
+Measured against production `aria/state`: **all 17** requests carrying a
+`prompt_hash` failed to reproduce it through the claim response; **all 17**
+reproduce it from the raw row. The executor was refusing its own kernel's
+envelope on every claim, deterministically — which is why the same request kept
+returning and the queue never drained.
+
+**Fix:** `_fuse_prompt_envelope` copies only the keys the row actually has, and
+`claim_request` refuses to issue a lease for an envelope that cannot reproduce
+its own binding — checked BEFORE the claim row is appended, so the refusal
+cannot leak a claim (the leak ORPHAN-CRITICAL-596 closed). A test derives the
+renderer's top-level key set from the renderer's own AST: a hand-maintained
+list of "the fields the prompt is made of" is exactly what went stale, and it
+went stale twice — `request_id` was missing from the first draft of the fix.
+
+**Also here:** merging main into a stale branch conflicts on
+`tools/quality/format-scope.json` and `docs/aria/CURRENT_STATE.md`. Both are
+generated; the resolution is to recompute them, not to choose a side.
+
 ## ORPHAN-HIGH-594 — the first agent run to survive was rejected for a baseline its own harness never supplied — RESOLVED (this PR)
 
 **Discovered:** 2026-08-09, watching the first `aria-agent-executor` run that got past the runtime fixes.

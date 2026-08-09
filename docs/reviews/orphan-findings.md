@@ -7981,6 +7981,36 @@ Per-tenant tables live only in tenant schemas, so a tenant without one cannot ho
 
 **Owner:** operator to route (candidate: multi-tenant-saas-expert). **Status:** OPEN.
 
+## ORPHAN-CRITICAL-573 — tenant onboarding has been broken in production: the receipt transaction never bound an RLS tenant context, so every tenant creation failed at step zero — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while creating the operator-authorised canary tenant through the platform's own provisioning API. Reproduced deliberately and read firsthand from production: `POST /api/v1/tenants` returned 202, the operation moved to `FAILED`, all eight provisioning steps were still `QUEUED` (none had started), and `admin.tenant_provisioning_runs.lastError` said:
+
+> `new row violates row-level security policy for table "tenant_command_receipts"`
+
+`auth.tenant_command_receipts` carries the standard isolation policy — a row is writable only under `app.bypass_rls=on` or when `app.current_tenant` equals its `tenantId`. `runWithReceipt` (`apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts:933`) opens a SERIALIZABLE transaction and immediately writes the receipt with NEITHER set, so the INSERT was refused every time. The receipt is written before any provisioning work runs, which is why nothing downstream ever executed: the failure is at step zero, and the eight QUEUED steps are the fingerprint.
+
+**This is the cause of ORPHAN-HIGH-570**, filed hours earlier as "three tenants, one schema, empty job queue". Oceanfarm and Suderra AS are not victims of a six-day provisioner outage — they are tenants whose provisioning failed on creation and left `auth.tenants` rows in `PENDING` with no schema and no queued job. The same file already contained the correct pattern for a different code path (`set_config('app.current_tenant', $1, true)` before a refresh-token update, with the comment _"tenant-SCOPED context, not a bypass"_), so the fix is the file's own idiom applied where it was missing.
+
+**Fix (this PR):** bind the tenant GUC as the first statement of the receipt transaction. Tenant-scoped rather than `bypass_rls`, because the receipt belongs to exactly that tenant and the policy should be satisfied honestly rather than switched off. Transaction-local (`set_config(..., true)`) because a session-wide setting on a pooled connection would carry this tenant into the next caller's query — a cross-tenant read strictly worse than the bug being fixed. Proven by the deliberate break: removing the binding reddens all three new tests.
+
+**Not fixed here, deliberately:** the two tenants already stuck in `PENDING` (ORPHAN-HIGH-570). With provisioning working again they can be retried through the documented `retryProvisioning` action rather than hand-built schemas, but that is a production data act for the operator to trigger and watch, not a side effect of a code fix.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-CRITICAL-574 — auth-service was the one tenant-writing service with no execution context, so every NATS lifecycle command ran with an empty RLS GUC — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, root-causing ORPHAN-CRITICAL-573 rather than stopping at its symptom. Verified firsthand: an exhaustive search of `apps/auth-service/src/modules/tenant/**` and `apps/admin-api-service/src/tenant/**` for `set_config` / `withTenantContext` / `runInTenant*` returns exactly ONE hit (`tenant-provisioning-command.service.ts:795`, a refresh-token update). Everything else depended on the pool-checkout patch (`rls-connection-bootstrap.service.ts:96`), which is fed from AsyncLocalStorage seeded ONLY by HTTP middleware (`auth-service/src/app.module.ts:445-462`).
+
+Every tenant lifecycle command arrives over NATS (`auth-admin-nats.handler.ts:507-695`). No HTTP frame means no context, means `app.current_tenant = ''`, means the RLS predicate fails closed on every RLS-armed `auth` table — `tenant_command_receipts`, `tenant_roles`, `tenant_modules`, `invitations`, `action_tokens`. ORPHAN-CRITICAL-573 fixed the first of those by binding the GUC inside one transaction; this finding is the reason that fix alone would have been a patch. auth-service also does not register `TenantExecutionContextModule`, and the invariant that would have caught it (`tenant-execution-context-registered.spec.ts:41-44`) exempts auth **by construction**.
+
+**Fix (this PR):** the shared `TenantExecutionContextInterceptor` gains an RPC arm that reads `tenantId` from the message payload, and auth-service registers `TenantExecutionContextModule`. A new message handler therefore cannot forget to bind context — which is the difference between this and wrapping twelve handlers by hand. Payload-sourced identity is acceptable at this boundary specifically because NATS identity is the mTLS certificate CN (ADR-015), so the sender is authenticated before the payload is read, and because the value only ever NARROWS access: absent or malformed leaves the context unset, which is fail-closed.
+
+The receipt binding now goes through `bindTenantRlsContext`, extracted from `assertTenantTransactionContext`. The full assertion was the wrong tool — it also demands `current_schema()` be the tenant schema, while auth writes land in the source schema and, during provisioning, the tenant schema does not exist yet. The extracted primitive sets both GUCs transaction-locally and **reads them back**, so a setting that silently failed to apply becomes a named `TenantContextError` instead of an RLS refusal that names a table and not a cause.
+
+**A fixture that was never real:** `tenant-lifecycle-suspension.spec.ts` passed `tenantId: 'tenant-1'`. `auth.tenants.id` is a uuid column and the policy casts the GUC to uuid, so that value could never have reached this code in production. The new validation refused it; the fixture was corrected rather than the guard relaxed.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
 ## ORPHAN-MEDIUM-568 — the wall-clock fix stopped at the two tests that were red, leaving thirteen more in the same file, and one of them went red on an unrelated PR three hours later — RESOLVED (this PR)
 
 **Discovered and reproduced:** 2026-08-06. `ORPHAN-MEDIUM-563` was closed by #1090 with the right diagnosis — "a check whose remedy is re-run is worse than no check" — but the fix converted only `calculateTrend` and `calculateStdDev`, the two assertions that happened to be failing. Thirteen wall-clock assertions remained in the same file. Three hours later `should render email template in under 2ms` went red on PR #1095, which touches two workflow files, a manifest and a shell script, and nothing in alert-engine. `build-status` is a required check, so an unrelated PR was blocked by a test measuring the runner's load.
@@ -8267,3 +8297,27 @@ The failing combination contains **none of my files**, so this is pre-existing o
 **NOT fixed here.** Chasing shared state between two unrelated test modules is its own investigation, and folding it into an evidence-grading change would bury both.
 
 **Owner:** claude. **Status:** OPEN.
+
+## ORPHAN-CRITICAL-596 — ten of twelve agent requests were permanently unreachable, and the prompt-hash check could never pass — RESOLVED (this PR)
+
+**Discovered:** 2026-08-09, after the runtime and evidence fixes let agents run for the first time in five nights.
+
+Two independent defects, both permanent rather than transient.
+
+**1. The prompt-hash binding was unsatisfiable by construction.** `create_agent_invocation_request` attaches the Twin slice to the request row (`repository_map`), renders the prompt FROM that row, and hashes the result. The claim response then enumerates its envelope fields explicitly — and **omits `repository_map`** (and `cycle_id`). The executor rebuilds an envelope from that response and re-renders, so its prompt loses the entire `## Repository map` section and the hash cannot match. Every request whose `evidence_refs` resolve against the Twin map failed `prompt_hash_binding_mismatch` on **every** claim, forever. Two serialisers carried the same omission — `claim_request` and `planner_dispatch_hook` — which is why fixing one would have looked like a fix and changed nothing.
+
+**2. Claims leaked, and the leak had no exit.** Measured on production state: **10 of 12** requests had `claimed` as their latest event with no release. `derive_request_state` reaches `PENDING` from `CLAIMED` only through an explicit released/requeued event; once the 30-minute lease expires the state derives `STALE`, which `next_pending_request` skips and `claim_request` refuses. Both exits closed — the request is dead, and nine baseline-carrying requests sat behind the dead ones.
+
+Three holes fed it:
+
+- The submit-failure path was the **one** exit in `ci_executor.main` that did not release, so a rejected result held its claim forever.
+- `_release_claim` never read the subprocess return code: a release that FAILED was indistinguishable from one that happened, and the executor walked away reporting only its original error.
+- `reap_stale_claims` **existed** and was reachable only from the operator CLI — no cycle phase, no workflow. Its sibling `dispatch_lease_reap` runs every cycle but reaps `dispatch/claims.jsonl`, a different ledger. The agent-invocation ledger had no automatic reaper at all, which is how it looked covered.
+
+**Fix:** the claim response carries `repository_map` and `cycle_id` in both serialisers; the submit path releases under `submit_rejected`; `_release_claim` reads its return code and announces a failed release as an `::error::` saying the request stays CLAIMED; and `reap_stale_claims` becomes a cycle phase beside its sibling. Requeue stays bounded by `DEFAULT_MAX_REQUEUES`, so a poisonous request escalates to `HUMAN_REQUIRED` rather than cycling.
+
+**Two corrections to my own earlier reading, recorded because both were wrong in the same direction:** the executor does NOT resume in-flight work (the workflow picks the id via `agent next-pending`, which only returns PENDING/REQUEUED — the "resume in-flight work" line is an advisory string from the handoff snapshot); and the empty `actual=` in the mismatch message was a log artefact, not the defect — the real empty was the rendered repository-map section.
+
+**Proof:** 6 tests, AST node-shape rather than source text (Plan 026R §H.1). The strongest asserts that **every `return 1` branch after the claim is taken contains a `_release_claim`** — the invariant the submit path broke. All three fixes reverted individually, all three went red. Full kernel suite green (3,464 tests).
+
+**Owner:** claude (this session). **Status:** RESOLVED.

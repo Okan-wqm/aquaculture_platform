@@ -968,7 +968,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "48e84b4b3b07d650f01eaaf18f14fee937581af3f6c7cbf79d434426df2ff615",
+      "content_sha256": "6312475c01c823c6462027022fc51cdc39604bb1686ee18ce4f0c1325bce7e35",
       "hash_policy": "sha256",
       "owner": "finding-registry-writer-authority-generator",
       "path": ".github/manifests/finding-registry-writer-authority.json",

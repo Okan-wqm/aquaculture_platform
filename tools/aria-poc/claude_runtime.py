@@ -110,6 +110,17 @@ class ClaudeUsageUnavailable(RuntimeError):
     """Claude stream-json did not include the required usage data."""
 
 
+class ClaudeAuthFailure(RuntimeError):
+    """The agent runtime could not authenticate, so no attempt ever ran.
+
+    Raised rather than returned, for the reason ClaudeCreditExhausted is: a
+    caller that reads only `returncode` would treat this as "the agent ran and
+    failed", which is what let five nights of dispatches die without anyone
+    learning that the session had expired. It is also NOT retried on another
+    tier — every tier authenticates through the same credential.
+    """
+
+
 class ClaudeCreditExhausted(RuntimeError):
     """A quota/credit exhaustion that no fallback tier can recover.
 
@@ -143,6 +154,10 @@ class ClaudeRunResult:
     # Credit/quota-exhaustion record (fable primary → opus fallback sibling of
     # the K2 refusal path), or None. Detection only; executors own the policy.
     credit_exhaustion: dict[str, Any] | None = None
+    # Authentication failure record, or None. Detection only; executors own the
+    # policy. Never recoverable by the fallback ladder — see
+    # AUTH_FAILURE_MARKERS.
+    auth_failure: dict[str, Any] | None = None
 
 
 def is_mock_mode() -> bool:
@@ -543,6 +558,12 @@ def run_claude_exec(
         usage=usage,
         events=events,
         refusal=extract_refusal(events),
+        auth_failure=extract_auth_failure(
+            returncode=proc.returncode,
+            stdout=proc.stdout,
+            stderr=proc.stderr,
+            final_message=final_message,
+        ),
         credit_exhaustion=extract_credit_exhaustion(
             returncode=proc.returncode, stderr=proc.stderr, events=events,
             final_message=final_message,
@@ -686,6 +707,56 @@ CREDIT_ERROR_MARKERS: tuple[str, ...] = (
 # carrying the real matched marker.
 CREDIT_EXHAUSTION_MARKERS: tuple[str, ...] = USAGE_LIMIT_MARKERS + CREDIT_ERROR_MARKERS
 
+# (3) AUTHENTICATION FAILURE — the runtime cannot start at all.
+#
+# Distinct from both sets above, and the distinction is not cosmetic. A credit
+# exhaustion is model-pool specific, so dropping a tier can clear it; a refusal
+# is content specific, so a different model can clear it. An expired session
+# clears on NEITHER — every tier authenticates through the same credential, so
+# the fallback ladder just burns two attempts and reports the second failure.
+#
+# This class cost five silent nights of autonomy (2026-08-04 → 08): the CI
+# executor claimed a request, the CLI exited 1 with
+# "OAuth session expired and could not be refreshed", the claim was released as
+# a generic `claude_cli_exit_1`, and the whole judgment → consensus →
+# calibration → gold-corpus chain stayed empty because nothing named the cause.
+AUTH_FAILURE_MARKERS: tuple[str, ...] = (
+    "oauth session expired",
+    "could not be refreshed",
+    "failed to authenticate",
+    "not authenticated",
+    "authentication_error",
+    "invalid api key",
+    "please run /login",
+    "please log in",
+)
+
+
+def extract_auth_failure(
+    *, returncode: int, stdout: str, stderr: str, final_message: str
+) -> dict[str, Any] | None:
+    """Name an authentication failure, or return None.
+
+    Matched on the union of the streams because the CLI reports this on stderr
+    with a nonzero exit, while some paths surface it as content. Requires a
+    NONZERO returncode: the phrase appearing inside an agent's answer about
+    authentication code must not be read as the runtime failing to start.
+    """
+    if returncode == 0:
+        return None
+    blob = f"{stdout}\n{stderr}\n{final_message}".lower()
+    marker = next((m for m in AUTH_FAILURE_MARKERS if m in blob), None)
+    if marker is None:
+        return None
+    return {
+        "kind": "auth_failure",
+        "marker": marker,
+        "returncode": returncode,
+        # The remedy is a human act on the runner host, so it travels with the
+        # detection rather than living only in a runbook nobody opens at 03:00.
+        "remedy": "re-authenticate the Claude CLI on the runner host (`claude` login as the runner user)",
+    }
+
 
 def run_with_model_fallback(
     *,
@@ -726,6 +797,15 @@ def run_with_model_fallback(
     so an unrecoverable exhaustion is still recorded.
     """
     completed = run(model, effort)
+    # Checked FIRST and never retried: a different tier authenticates through
+    # the same credential, so the ladder would burn a second attempt to learn
+    # the same thing, and then report the second failure as if it were the
+    # cause.
+    if completed.auth_failure is not None:
+        raise ClaudeAuthFailure(
+            f"claude_auth_failure: {completed.auth_failure.get('marker')} — "
+            f"{completed.auth_failure.get('remedy')}"
+        )
     fallback_model = MODEL_FALLBACK_TIER.get(model)
     if fallback_model is None:
         # No alternate credit pool. A credit exhaustion here is TERMINAL, and

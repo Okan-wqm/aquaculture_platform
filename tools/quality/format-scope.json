@@ -43422,6 +43422,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/non-http-entrypoint-tenant-context.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/orchestrator-routing-coverage.spec.ts",
       "prettier_managed": true
     },
@@ -56586,10 +56592,10 @@
       "prettier_managed": true
     }
   ],
-  "file_count": 9280,
+  "file_count": 9281,
   "generated_by": "tools/quality/quality.mjs format-scope generate",
-  "managed_count": 9099,
-  "managed_file_list_sha256": "3b87a3d34242d5e72db1272ac1dff103455022fb221053af7b163c189da27f5f",
+  "managed_count": 9100,
+  "managed_file_list_sha256": "9d1312d6d5842ec8973e6f92aa7758e9525f44139d1cfcb6507364a08bfaac6c",
   "schema_version": 1,
   "source": "git ls-files --cached --others --exclude-standard"
 }

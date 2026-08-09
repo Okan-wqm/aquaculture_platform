@@ -7993,6 +7993,34 @@ That is the same shape as the two incidents this week (`docker ps` reporting "Up
 
 Kept inside the outbox library's own metrics service rather than adopting the new cron heartbeat helper: `platform/libs/outbox` does not depend on backend-common, and reaching across that boundary for a gauge would trade a real architectural line for a small convenience.
 
+## ORPHAN-CRITICAL-573 — tenant onboarding has been broken in production: the receipt transaction never bound an RLS tenant context, so every tenant creation failed at step zero — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while creating the operator-authorised canary tenant through the platform's own provisioning API. Reproduced deliberately and read firsthand from production: `POST /api/v1/tenants` returned 202, the operation moved to `FAILED`, all eight provisioning steps were still `QUEUED` (none had started), and `admin.tenant_provisioning_runs.lastError` said:
+
+> `new row violates row-level security policy for table "tenant_command_receipts"`
+
+`auth.tenant_command_receipts` carries the standard isolation policy — a row is writable only under `app.bypass_rls=on` or when `app.current_tenant` equals its `tenantId`. `runWithReceipt` (`apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts:933`) opens a SERIALIZABLE transaction and immediately writes the receipt with NEITHER set, so the INSERT was refused every time. The receipt is written before any provisioning work runs, which is why nothing downstream ever executed: the failure is at step zero, and the eight QUEUED steps are the fingerprint.
+
+**This is the cause of ORPHAN-HIGH-570**, filed hours earlier as "three tenants, one schema, empty job queue". Oceanfarm and Suderra AS are not victims of a six-day provisioner outage — they are tenants whose provisioning failed on creation and left `auth.tenants` rows in `PENDING` with no schema and no queued job. The same file already contained the correct pattern for a different code path (`set_config('app.current_tenant', $1, true)` before a refresh-token update, with the comment _"tenant-SCOPED context, not a bypass"_), so the fix is the file's own idiom applied where it was missing.
+
+**Fix (this PR):** bind the tenant GUC as the first statement of the receipt transaction. Tenant-scoped rather than `bypass_rls`, because the receipt belongs to exactly that tenant and the policy should be satisfied honestly rather than switched off. Transaction-local (`set_config(..., true)`) because a session-wide setting on a pooled connection would carry this tenant into the next caller's query — a cross-tenant read strictly worse than the bug being fixed. Proven by the deliberate break: removing the binding reddens all three new tests.
+
+**Not fixed here, deliberately:** the two tenants already stuck in `PENDING` (ORPHAN-HIGH-570). With provisioning working again they can be retried through the documented `retryProvisioning` action rather than hand-built schemas, but that is a production data act for the operator to trigger and watch, not a side effect of a code fix.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-CRITICAL-574 — auth-service was the one tenant-writing service with no execution context, so every NATS lifecycle command ran with an empty RLS GUC — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, root-causing ORPHAN-CRITICAL-573 rather than stopping at its symptom. Verified firsthand: an exhaustive search of `apps/auth-service/src/modules/tenant/**` and `apps/admin-api-service/src/tenant/**` for `set_config` / `withTenantContext` / `runInTenant*` returns exactly ONE hit (`tenant-provisioning-command.service.ts:795`, a refresh-token update). Everything else depended on the pool-checkout patch (`rls-connection-bootstrap.service.ts:96`), which is fed from AsyncLocalStorage seeded ONLY by HTTP middleware (`auth-service/src/app.module.ts:445-462`).
+
+Every tenant lifecycle command arrives over NATS (`auth-admin-nats.handler.ts:507-695`). No HTTP frame means no context, means `app.current_tenant = ''`, means the RLS predicate fails closed on every RLS-armed `auth` table — `tenant_command_receipts`, `tenant_roles`, `tenant_modules`, `invitations`, `action_tokens`. ORPHAN-CRITICAL-573 fixed the first of those by binding the GUC inside one transaction; this finding is the reason that fix alone would have been a patch. auth-service also does not register `TenantExecutionContextModule`, and the invariant that would have caught it (`tenant-execution-context-registered.spec.ts:41-44`) exempts auth **by construction**.
+
+**Fix (this PR):** the shared `TenantExecutionContextInterceptor` gains an RPC arm that reads `tenantId` from the message payload, and auth-service registers `TenantExecutionContextModule`. A new message handler therefore cannot forget to bind context — which is the difference between this and wrapping twelve handlers by hand. Payload-sourced identity is acceptable at this boundary specifically because NATS identity is the mTLS certificate CN (ADR-015), so the sender is authenticated before the payload is read, and because the value only ever NARROWS access: absent or malformed leaves the context unset, which is fail-closed.
+
+The receipt binding now goes through `bindTenantRlsContext`, extracted from `assertTenantTransactionContext`. The full assertion was the wrong tool — it also demands `current_schema()` be the tenant schema, while auth writes land in the source schema and, during provisioning, the tenant schema does not exist yet. The extracted primitive sets both GUCs transaction-locally and **reads them back**, so a setting that silently failed to apply becomes a named `TenantContextError` instead of an RLS refusal that names a table and not a cause.
+
+**A fixture that was never real:** `tenant-lifecycle-suspension.spec.ts` passed `tenantId: 'tenant-1'`. `auth.tenants.id` is a uuid column and the policy casts the GUC to uuid, so that value could never have reached this code in production. The new validation refused it; the fixture was corrected rather than the guard relaxed.
+
 **Owner:** claude (this session). **Status:** RESOLVED (this PR).
 
 ## ORPHAN-MEDIUM-568 — the wall-clock fix stopped at the two tests that were red, leaving thirteen more in the same file, and one of them went red on an unrelated PR three hours later — RESOLVED (this PR)
@@ -8006,6 +8034,36 @@ The tell is the budget size. #1090 explicitly reasoned that the async assertions
 Proven by deliberate breaks: an extra `criteria.impactScore` read reddens the classifier count (3→4), a linear scan over the preference map reddens the routing count (1→2), and memoizing `renderForEmail` reddens the render count (16→8). All 20 tests green before and after each break.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-MEDIUM-563`.
+
+## ORPHAN-CRITICAL-579 — 1,359 tests in the library every service depends on had never run in CI, and nobody could have noticed — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, auditing my own day's merges. An independent reviewer traced each new spec to the command that runs it and found three that no command reaches. Pulling that thread found the mechanism, and the mechanism is repo-wide.
+
+`libs/backend-common` ships a working `jest.config.ts` and **no `project.json`**. Nx therefore sees no project, so `nx affected --target=test` can never select it and `nx run-many --target=test --all` can never include it. Measured firsthand: 122 spec files, **1,359 tests**, none of which had ever executed in CI — in the library that every service imports. Running them by hand today: 1,340 pass, 19 fail (two `*.integration.spec.ts` files that need a live Postgres and report `Driver not Connected`).
+
+Worse than invisible. `nx.json`'s `sharedGlobals` includes `{workspaceRoot}/libs/*/src/**/*.ts`, so editing any file there marks **all 42** test projects affected. CI did maximum work and still ran none of that library's specs.
+
+The same shape holds for `platform/libs/outbox` (43 tests), `platform/libs/event-bus` (55), and `libs/storage` (26) — each a config with no runner. Three of my own merges landed in exactly this hole: the cron-heartbeat spec (#1098), the outbox relay-liveness spec (open PR), and the supervisor spec, which lives outside every Nx project so `affected` returns zero projects for it. All three were written, reviewed and merged green, and their greenness carried no information.
+
+**Fix (this PR):** `project.json` for backend-common, outbox, event-bus and storage — 1,473 previously-unreachable tests now run under `nx test`, and none is quarantined in `affected-target-policy.json`, so they gate. The two DB-dependent integration specs are excluded from the unit lane by an explicit `testPathIgnorePatterns` with the reason inline, rather than being left to redden a lane they do not belong to. `tools/` gets an npm script wired into `quality-gates`, because code with production intervention authority — the T0 supervisor restarts containers on the droplet — must not be the untested part.
+
+**The structural half:** `tests/invariants/spec-has-a-runner.spec.ts` walks every `*.spec.*` in the repo and fails if no declared runner claims it. A new spec in a new directory now fails at authoring time instead of passing silently forever. Today's remaining gaps start in a ratchet allowlist with reasons — `web/apps/aquamobil` (18 specs; it is an Nx project with lint/build/typecheck and no `test` target at all), `tools/lint-gates`, `tools/worktree-audit` — and a second assertion fails if an allowlist entry goes stale, so the list cannot be satisfied by fiction.
+
+**NOT done, stated rather than absorbed:** the 18 aquamobil specs still do not run; wiring them needs the PWA's test-runner story settled. `farm-service` is quarantined out of the affected lane's `test` target with a boilerplate reason and no expiry — that quarantine deserves its own review.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the mechanism and four libraries; the allowlist is the tracked remainder.
+
+## ORPHAN-HIGH-582 — eight of the ten CI gate test-suites were never invoked by CI — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, following the ORPHAN-CRITICAL-579 thread one link further. The invariant written for 579 declared that `tools/gates/*.spec.ts` was covered by "the `gates:*:test` npm scripts". That declaration was itself untrue, which is the same defect one level up.
+
+`tools/gates/` holds ten spec files. Six had an npm script. **Two** were invoked by a workflow (`closes-footer-check.yml` named `gates:commit-msg:test` and `gates:finding-registry:test`). The other eight — including `banned-construct`, which enforces the `as any` / `as unknown as` prohibition, and `migration-sql-lint` — ran nowhere. The pattern is the naming: a per-spec script must be remembered twice, once in `package.json` and once in the workflow, and the second one is what got forgotten.
+
+Ran all ten by hand before wiring them: **all pass** (37+19+11+6+6+5+3 and three more, ~50s wall clock dominated by `plan-coverage-witness` at 31s). So this was latent coverage, not hidden breakage — but it was coverage nobody could rely on.
+
+**Fix:** a single `gates:test` script that globs the directory, invoked by the workflow in place of the two by-name calls. A gate spec written tomorrow is covered the moment the file exists. The invariant now asserts both that the glob script exists and that a workflow invokes it — proven by deliberate break: pointing the workflow back at one by-name script turns it red.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
 
 ## ORPHAN-HIGH-563 — the five-minute RPO alarm could not tell "production is losing data" apart from "this was never deployed", and had been crying wolf 288 times a day for three weeks — RESOLVED (this PR)
 
@@ -8052,3 +8110,195 @@ Proven by deliberate breaks: a new service with no `logging` reddens all three a
 **Not fixed here:** the ~2.0 GB already on disk is not reclaimed by this change — rotation applies to new writes after the containers are recreated, and production deploys are locked (`PRODUCTION_DEPLOY_ENABLED=false`). Truncating the existing logs is an operator action against live diagnostic state and is deliberately left out of a code change.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-417`, `ORPHAN-HIGH-563`, `INFRA-MEDIUM-057`.
+
+## ORPHAN-HIGH-588 — the same four libraries had never been linted either — OPEN (quarantined with counts)
+
+**Discovered:** 2026-08-06, by CI failing the PR that closed ORPHAN-CRITICAL-579.
+
+Declaring `project.json` for `backend-common`, `event-bus`, `outbox` and `storage` did not only expose 1,473 tests that had never run. It exposed the `lint` target too, because `@nx/eslint` infers one for any project with an eslint config. First CI run:
+
+| project          | eslint problems                   |
+| ---------------- | --------------------------------- |
+| `backend-common` | **891** (841 errors, 50 warnings) |
+| `event-bus`      | 60 errors                         |
+| `storage`        | 37 (36 errors, 1 warning)         |
+| `outbox`         | 13 errors                         |
+
+None of it is new. These projects were invisible to Nx, so `nx affected --target=lint` could never select them, exactly as it could never select their tests. The debt has been accruing for as long as the directories have existed — in the library every service imports.
+
+**Quarantined in BOTH lanes, which took two attempts and is worth recording.** The affected lane reads `scripts/ci/affected-target-policy.json`; adding the four there made that lane green and the PR still could not merge, because `build-status` — a REQUIRED context — depends on `ci-full`'s `lint-and-typecheck`, which ran `nx run-many --target=lint --all` and knew nothing about that file.
+
+The obvious consolidation — point `lint:all` at the affected lane's list — was written, run, and **thrown away**: that list quarantines roughly forty projects, most of which lint clean today, so reusing it would have collapsed full-lane coverage to almost nothing while looking like a tidy-up. The two lanes answer different questions and get different lists.
+
+So `lint:all` now goes through `scripts/ci/lint-all.mjs`, reading `scripts/ci/lint-all-exclusions.json` — four entries, each naming its error count and this finding. `tests/invariants/lint-quarantine-ssot.spec.ts` caps that list at six and requires a reason per entry, because without a ceiling "exclude the failing project" is always the cheapest way to make a red lane green. The test wiring — the actual point of the PR — is NOT quarantined and gates for real.
+
+**A pre-existing defect surfaced while writing the invariant:** four entries in the affected lane's quarantine (`@aquaculture/hr-module`, `@aquaculture/hydroponics-module`, `@aquaculture/sensor-module`, `@platform/aquaculture-engines`) name projects by scoped package name, but Nx's project names are the short forms. They have **never matched**, so those four projects have been linted strictly all along — and pass. Renaming them would have silently quarantined four healthy projects; they are deleted instead, which changes nothing operationally and makes the list honest about the size of the debt.
+
+**Owner:** claude. **Deadline:** the next CI-Green Program slice; `backend-common` first, since it is the widest blast radius. **Status:** OPEN.
+
+**Two smaller things the same CI run caught, both fixed in that PR:** the `gates:test` npm script began with a shell `for` loop, and `repo-hygiene-invariants` rejects any script whose leading token is not a resolvable binary — a rule written to catch Storybook-class rot, doing its job on the first run. It is now `node tools/gates/run-all.mjs`, which globs the directory (so a gate spec written tomorrow is still covered) and is a real binary invocation.
+
+## ORPHAN-HIGH-572 — two vulnerability scanners ran, found real CVEs, and threw every finding away on an upload nobody had granted — RESOLVED (this PR)
+
+**Discovered and reproduced:** 2026-08-06, working through the scheduled-workflow reds in issue #1005. `security-trivy.yml:trivy-image-scan` ends with `Resource not accessible by integration` on its `github/codeql-action/upload-sarif` step, annotated `This run of the CodeQL Action does not have permission to access the CodeQL Action API endpoints`. A sweep over every workflow found a second instance with the same defect: `security-snyk.yml:snyk-infrastructure`. Neither job declares a `permissions:` block, neither workflow declares one at the top level, and the repository default does not include `security-events: write`. The sibling job in the very same Trivy workflow — `trivy-fs-scan` — declares it explicitly, which is why one scanner's findings reach the Security tab and the other's never did.
+
+The failure mode is the dangerous one. Trivy is configured with `exit-code: '1'` so that HIGH/CRITICAL findings block the pipeline; that is correct and it means the job is red for a _legitimate_ reason. The discarded upload hides behind that red. Anyone glancing at the lane concludes "the scanner is noisy" rather than "the results are missing" — and with 139 open Dependabot alerts on the default branch (2 critical, 46 high), the results were worth having.
+
+**Fix (this PR):** both jobs now declare `contents: read` + `security-events: write`, keeping the grant per-job rather than widening the whole workflow. `tests/invariants/sarif-upload-permissions.spec.ts` makes the omission impossible to reintroduce: it resolves each job's effective grant (job-level block replaces workflow-level, `write-all` counts) and fails naming any job that uploads SARIF without it. A second assertion guards the guard — if the uploader action is ever renamed, the first assertion would pass vacuously while checking nothing, so the test also insists it still finds uploaders to check.
+
+Proven by deliberate breaks: removing the grant reddens the permission assertion only; renaming `upload-sarif` out of both workflows reddens the vacuity assertion only.
+
+**Not fixed here, and it should not be:** `security-trivy` will stay red after this change, because the CVEs it reports are real. This PR does not silence that red — it makes the findings reach the Security tab instead of the bin, which is the difference between a red that carries information and one that does not. Closing the CVEs themselves is the Dependabot backlog, owned separately.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-563`, `ORPHAN-HIGH-569`.
+
+## ORPHAN-HIGH-574 — Dependabot watched two ecosystems and not the one carrying almost every advisory, and nothing could tell — RESOLVED (this PR)
+
+**Discovered and reproduced:** 2026-08-06, tracing why the "139 vulnerabilities on the default branch" banner on every push never turned into a single fix PR. `.github/dependabot.yml` declares `github-actions` and `cargo`. It declares no `npm` entry, so the root `package-lock.json` — which resolves every member of the `workspaces` globs (`apps/*`, `libs/*`, `platform/libs/*`, `web/apps/*`, `web/shared-ui`, `web/shell`, `web/modules/*`, `mcp/*`, `tools/executors/cargo`) — has never received a version-update PR. Of the first 100 open alerts, **96 are npm and 4 are rust**.
+
+The gap was invisible by construction. A missing ecosystem produces no error, no warning and no PR; it looks exactly like an ecosystem with nothing to update. Every entry that _was_ in the file was correct, so the config read as deliberate. Nothing anywhere compared the ecosystems present in the repository against the ecosystems being watched.
+
+**Two adjacent facts found in the same pass, both fixed outside this file:**
+
+- `automated-security-fixes` was **disabled** (`{"enabled": false}`) while `vulnerability-alerts` was enabled — the platform knew about all 139 and was configured never to act on them. This is a repository setting, not a file; it is being enabled as an operator step after this config and the missing labels land, so the resulting PRs arrive into a pipeline that can accept them.
+- The three labels this config references — `dependencies`, `github-actions`, `rust` — **did not exist** among the repository's 16 labels, so Dependabot posted "The following labels could not be found" on every PR it opened. Created 2026-08-06.
+
+**Fix (this PR):** an `npm` entry at `directory: /`, deliberately conservative — `open-pull-requests-limit: 5`, minor+patch grouped into one PR so majors stay individually reviewable. `tests/invariants/dependabot-lockfile-coverage.spec.ts` is what stops the next gap: it enumerates every tracked lockfile via `git ls-files` and requires each to be either covered by an `updates` entry or listed in `DOCUMENTED_EXCLUSIONS` **with a reason**, so an ecosystem's absence becomes a decision someone wrote down rather than a silence nobody notices. Six lockfiles sit outside root coverage today (`e2e/`, `web/apps/aquamobil/`, two wasm crates, and the `sens-api-gateway` tree which manages its own cadence via `deny.toml` + `cargo-audit`); each now carries its reason.
+
+Proven by deliberate break, and the important one is the first: pointed at `origin/main`'s actual pre-fix config, the coverage assertion **fails** — this defect would have been caught the day the file was written. Also verified: a stale exclusion (naming a lockfile that no longer exists) and a reasonless exclusion each redden their own assertion.
+
+**Known limit, stated rather than hidden:** the spec verifies the config, not GitHub's side. It cannot see whether security updates are enabled or whether the referenced labels exist — both live behind the API and neither is checkable offline. Those remain operator responsibilities, which is why they are named here.
+
+**Not in scope:** the advisories themselves. `SUPPLY-HIGH-001` (OPEN, deadline 2026-08-09) owns the CVE backlog, and `INFRA-HIGH-104` records the unsolved part — `minimatch`'s nested `brace-expansion` resists `overrides` because npm matches override keys against the spec a **parent requests**, not the resolved version, and lockfile regeneration is not idempotent against the committed state. That is a separate, careful pass.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `SUPPLY-HIGH-001`, `INFRA-HIGH-104`, `ORPHAN-HIGH-572`.
+
+## ORPHAN-HIGH-573 — the CI hang detector had four minutes of margin, so it fired on runner load and reported the result as a test failure — RESOLVED (this PR)
+
+**Discovered and reproduced:** 2026-08-06. PR #1103 was blocked by `test` in `ci-full.yml` reporting failure; the log showed `##[error]The operation was canceled` after exactly 30m23s against `timeout-minutes: 30`. Nothing had failed — the job had run out of budget. Measured across 14 completed runs of that job: median 23m29s, p90 25m41s, max 29m03s. p90 sat at **86%** of the budget, and two Dependabot PRs in the same window had already died the same way.
+
+A timeout is a **hang detector, not a performance budget**. Four minutes above p90 it stops answering "did this process stop making progress" and starts answering "was the runner busy" — the same substitution as `ORPHAN-MEDIUM-563` (a test measuring the runner's load) and `ORPHAN-HIGH-563` (an alarm measuring deploy state instead of data loss).
+
+The second defect is what reached the reader. A job killed by its own budget reports `cancelled`, and `build-status` translated every non-success into a verdict about that job's subject — `cancelled` became **"Tests failed"**. A duration problem arrived as a test problem and sent the reader hunting a red test that does not exist. `build-status` cannot know the cause: `cancelled` is _either_ a budget overrun _or_ a run superseded by `concurrency.cancel-in-progress`. That job also had **no `timeout-minutes` at all**, so as a required context a wedged aggregate could have held every PR behind it for GitHub's default six hours.
+
+**Fix (this PR):** two-level budgets derived from measurement — job 45, step `Run all tests` 35, `build-status` 5. Each clears its **own** observed maximum by the smallest satisfying margin (35 ≥ 25m54s × 1.35; 45 ≥ 29m03s × 1.5 rounded to the next 5-minute mark). The step-level measurement is what made the design correct: an earlier draft derived the step budget from the _job's_ maximum, giving 40 and leaving worst-prologue + step = 44m18s against a 45m job budget — a 42-second gap that would let a slow prologue cancel the job before the step budget fired, reinstating the very misreport being fixed. With 35 the worst case is 39m18s, so the step budget always fires first and the failure names itself. `build-status` now prints each job's result and states plainly that it is reporting a result, not a cause; it also reports _all_ failures instead of exiting at the first, which previously hid a simultaneous second failure until the next round trip.
+
+`tests/invariants/ci-timeout-budget-ssot.spec.ts` owns the distribution, the derivation rule, the step<job gap, the cross-lane ordering (the unfiltered full lane can never be budgeted below the quarantine-aware affected lane) and the requirement that every job in the lane has a detector at all. Proven by six deliberate breaks, each reverted: reverting the job budget to 30, deleting the step budget, deleting `build-status`'s budget, shrinking the recorded maximum to silence the rule, changing the fan-out command, and re-introducing an invented cause — each reddens its own assertion and nothing else.
+
+**Also repaired:** the `lint-and-typecheck` comment from `ORPHAN-HIGH-501` asserted "test 30" as its consistency anchor and this change made that factually false. It now reads 45/35. That stale cross-reference is precisely why the numbers live in a spec rather than only in a comment.
+
+**Deliberately not done:** nothing here tries to make the suite _faster_ (`nx.json` parallelism, sharding, or making `ci-full` honour the test quarantine). Duration is a separate, separately-measured problem; conflating it with the detector is how the detector got mis-set. `NX_DAEMON: 'false'` / `NX_NO_CLOUD: 'true'` were considered for consistency with the sibling `build` job and rejected as provably no-ops under Actions (`nx/dist/src/daemon/client/client.js` disables the daemon whenever `CI` or `GITHUB_ACTIONS` is set; this workspace declares no Nx Cloud token) — attaching them to a duration fix would have been a false causal claim.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-501`, `ORPHAN-MEDIUM-563`, `ORPHAN-HIGH-563`.
+
+## ORPHAN-CRITICAL-591 — ARIA's autonomy died on 2026-08-04 and reported it as five ordinary agent failures — RESOLVED (detection); OPERATOR ACTION REQUIRED (the credential)
+
+**Discovered:** 2026-08-08, while wiring the feedback loop the operator asked for. Measured first-hand on the production runner:
+
+    $ sudo -u gharunner claude -p "say OK"
+    Failed to authenticate: OAuth session expired and could not be refreshed
+
+Every `aria-agent-executor` run from 2026-08-04 to 2026-08-08 failed. The pattern is identical each night: the executor claims a request, `invoke_claude_cli` returns 1, the claim is released with `reason="claude_cli_exit_1"`, exit 1. That reason is what a **crashed agent** produces. Nothing distinguished it from a runtime that never started.
+
+The consequence is the whole learning loop. ARIA kept minting agent-invocation requests — nine in the ledger, for `aria-challenger-planner` and `aria-autonomy-planner` — and exactly **one** result ever came back. With no judge verdicts, `generate_ai_consensus` has nothing to combine; with no consensus rows, `judge_calibration` reports `judged_judges: 0`; with no labelled feedback, `goldset_proposal` reports `labelled_tool_count: 0`; and `judge_replay` has no corpus to score against. Verified in the live state and in a live cycle run: every one of those phases completes successfully and reports zero, which reads exactly like a healthy system with nothing to do.
+
+**Why it was invisible, precisely:** the failure class did not exist. `claude_runtime` classified two recoverable classes — credit exhaustion (model-pool specific, a lower tier clears it) and content refusal (another model clears it) — and everything else was an opaque nonzero exit. An expired session clears on neither, because every tier authenticates through the same credential, so the fallback ladder spent a second attempt learning the same thing and then reported _that_ failure.
+
+**Fix (this PR):** `AUTH_FAILURE_MARKERS` + `extract_auth_failure` name it as a third class, gated on a nonzero exit so an agent _writing about_ authentication is never mistaken for a runtime that cannot start. `run_with_model_fallback` checks it first and raises `ClaudeAuthFailure` rather than retrying. `ci_executor` releases the claim under `claude_cli_auth_failure` and emits `::error::` naming the remedy, so the lane cannot spend another five nights dispatching into a runtime that cannot start.
+
+**NOT fixed, and not mine to fix:** the session itself. Re-authenticating is `claude` login as the runner user on the runner host — a credential act. Minting or forging one is out of bounds, and would be the wrong answer even if it were not.
+
+**Two things the repo's own gates caught in this change, worth recording:** a variable name that did not exist in that scope (`test_no_loaded_name_is_unbindable`), and my `assertIn` on source text — Plan 026R §H.1 forbids source-marker assertions because a string match passes on a handler that has been commented out. The test now parses the module and asserts the handler's node shape, which is what I should have written first.
+
+**Owner:** claude (detection); operator (credential). **Status:** RESOLVED for detectability; the loop stays dark until the session is renewed.
+
+## ORPHAN-CRITICAL-592 — the agent sandbox granted a network it could not use, and a HOME it could not write — RESOLVED (this PR)
+
+**Discovered:** 2026-08-08, reproducing the executor's exact bwrap argv after ORPHAN-CRITICAL-591 restored the credential and the dispatch STILL failed.
+
+Renewing the expired session was necessary and not sufficient. With a valid token the CLI answers in the runner's own shell — `loggedIn: true`, `authMethod: oauth_token`, prompt returns `OK` — and still exits 1 inside the executor. Running `wrap_bash_in_sandbox`'s real argv by hand found two independent causes, and **both** had to be true for an agent to run:
+
+**1. `$HOME` was resolvable but read-only.** It survived only as an implicit parent of the workspace bind, on the read-only root, so the runtime blocked trying to write its own state. Proven by giving the sandbox a writable home and watching the same command return `OK`.
+
+**2. `allow_network=True` bound no resolver.** The sandbox shared the host's network namespace and had no `/etc/resolv.conf`; measured inside it, `getent hosts api.anthropic.com` → `DNS_FAIL`, `ls /etc/resolv.conf` → _No such file_. The CLI then hung until its timeout, which the executor reported as `claude exec exited 1`.
+
+The second is the one worth remembering. A permission that is granted and unusable reads to every reviewer as granted: the flag says the network is allowed, the code says the network is allowed, and nothing that needs the network can work. That is harder to see than a denial.
+
+**Fix:** the sandbox now sets `HOME` to an **ephemeral** tmpfs directory it also creates — stronger containment than binding the real home, not weaker, because the agent can neither read the operator's `~/.claude.json` nor leave anything in it, and credentials arrive through the environment. And `allow_network=True` now ro-binds `/etc/resolv.conf`, `/etc/hosts`, `/etc/nsswitch.conf`, existence-guarded for the reason the system binds already are: bwrap aborts on a missing bind source, so an unconditional bind turns a slim container into a total failure. Denying the network still binds none of them — a resolver is a network capability and must not travel with a sandbox that was refused one.
+
+**End-to-end proof, not just flag assertions:** the executor's real argv, run as the runner user with the real credential, now returns `rc: 0` / `out: OK`. Six tests pin it, including two that execute inside a live sandbox rather than inspecting the argv — "was the flag passed" is exactly the assertion that would have missed this. Both fixes proven load-bearing by deliberate break.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-613 — a high-severity advisory blocks every branch's security gate — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-08 while landing an unrelated feature branch.
+
+**Problem:** `nanoid` below 3.3.17 lets a custom generator loop indefinitely when the requested size is zero. The CI security gate runs `npm audit --audit-level=high --omit=dev`, so the advisory fails every branch, including ones that changed no dependency at all — the lockfile is byte-identical to main on those branches, which is how it was traced here rather than blamed on the feature work.
+
+**Fix:** the tree resolves to `nanoid` 3.3.18 and the high-severity finding is gone; three moderate findings remain, below the gate's threshold. `nanoid` is transitive, so the lockfile is the only place it can be pinned.
+
+**Why this is its own change:** the resulting lockfile churn is npm re-resolving nested `@module-federation` dependencies, which is far wider than the single patched package. Riding that into a feature branch would mix a dependency-tree change with domain work and make either one hard to revert alone.
+
+**Verification owed before merge:** a clean install and a full build must confirm the re-resolved tree, since the change is broader than the advisory it closes.
+
+## ORPHAN-HIGH-594 — the first agent run to survive was rejected for a baseline its own harness never supplied — RESOLVED (this PR)
+
+**Discovered:** 2026-08-09, watching the first `aria-agent-executor` run that got past the runtime fixes.
+
+The run worked. `claude_returned_exit=0` after **613 seconds** of real work, `pre_submit_validation_passed` — after five nights of dying in ten seconds. Then the submit failed, and the result landed in `aria/state` as `status: rejected` with **44** `agent_evidence_not_repo_verified` reasons. Every ref named a real file the agent had genuinely read: `pressure.py:215`, `capability_gap.py:175`, `evidence_trust.py:18`, `.claude/agents/aria-autonomy-planner.md:39`.
+
+The agent was blameless. `classify_evidence_ref` grades a ref `repo_verified` only when its content matches the git blob at `target_sha`, and the request carried **`target_sha: None`**. `_resolve_target_sha` returns None for that, so the `repo_verified` branch is never attempted and every ref falls through to `worktree_candidate` — a grade whose meaning is _"the agent's evidence disagrees with the committed tree"_.
+
+**The repository already knew.** `convergence_drainer._resolve_workspace_head_sha` exists precisely for this and says so: _"without it, `EvidencePolicy.require_repo_verified` rejects EVERY real ref and convergence can never complete — the layer-4 blocker found live 2026-07-03."_ The convergence lane threaded the SHA. The autonomy lane, minting through `autonomy_orchestrator._drain_next_cycle_queue`, did not. One lane carried the baseline, the other did not, and the gap only became visible once agents could actually run.
+
+**Fix, in two layers because one is not enough:**
+
+1. **The autonomy lane threads the baseline**, using the same helper the convergence lane uses rather than a second implementation — a second implementation is how the two came to disagree.
+
+2. **A missing baseline stops impersonating unverified evidence.** A new `baseline_unavailable` grade, and a distinct rejection code `tool_output_evidence_baseline_unavailable`. Still a rejection under `require_repo_verified` — nothing was verified — but it now says whose gap it is, instead of sending the reader hunting a fabricating agent that does not exist. The carve-out is narrow and tested: with a baseline present, a genuinely modified file still grades `worktree_candidate`.
+
+**And the reason was unreadable, which is the third fix.** The executor forwarded only the submit subprocess's **stderr**, while the kernel CLI prints refusals as JSON on **stdout** — so the log said `submit_step_done rc=1` and nothing more. The 44 reasons were recoverable only by pulling the result row out of the `aria/state` branch afterwards. It now forwards both streams under an `::error::`. Same defect class as the swallowed CLI error one step earlier: a failure that reports its existence but not its cause costs a full round trip, every time.
+
+**Proof:** 6 tests, deliberate break red, full kernel suite green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-LOW-595 — two kernel test files fail when run in one order and pass in another — OPEN
+
+**Discovered:** 2026-08-09, while checking whether ORPHAN-HIGH-594's change had broken anything.
+
+`tests.test_tool_governance.test_fixture_runner_and_strict_promotion_gate` passes alone and fails in the full suite. Isolated to a pair:
+
+    python3 -m unittest tests.test_evidence_target_sha tests.test_tool_governance   → FAILED
+    python3 -m unittest tests.test_evidence_baseline_threading tests.test_tool_governance → OK
+
+The failing combination contains **none of my files**, so this is pre-existing order-dependence that my new test file merely re-shuffled into view. Recorded rather than absorbed: a suite whose verdict depends on collection order can go green on a real regression, and the next person to see it will reasonably suspect their own change first — as I did.
+
+**NOT fixed here.** Chasing shared state between two unrelated test modules is its own investigation, and folding it into an evidence-grading change would bury both.
+
+**Owner:** claude. **Status:** OPEN.
+
+## ORPHAN-CRITICAL-596 — ten of twelve agent requests were permanently unreachable, and the prompt-hash check could never pass — RESOLVED (this PR)
+
+**Discovered:** 2026-08-09, after the runtime and evidence fixes let agents run for the first time in five nights.
+
+Two independent defects, both permanent rather than transient.
+
+**1. The prompt-hash binding was unsatisfiable by construction.** `create_agent_invocation_request` attaches the Twin slice to the request row (`repository_map`), renders the prompt FROM that row, and hashes the result. The claim response then enumerates its envelope fields explicitly — and **omits `repository_map`** (and `cycle_id`). The executor rebuilds an envelope from that response and re-renders, so its prompt loses the entire `## Repository map` section and the hash cannot match. Every request whose `evidence_refs` resolve against the Twin map failed `prompt_hash_binding_mismatch` on **every** claim, forever. Two serialisers carried the same omission — `claim_request` and `planner_dispatch_hook` — which is why fixing one would have looked like a fix and changed nothing.
+
+**2. Claims leaked, and the leak had no exit.** Measured on production state: **10 of 12** requests had `claimed` as their latest event with no release. `derive_request_state` reaches `PENDING` from `CLAIMED` only through an explicit released/requeued event; once the 30-minute lease expires the state derives `STALE`, which `next_pending_request` skips and `claim_request` refuses. Both exits closed — the request is dead, and nine baseline-carrying requests sat behind the dead ones.
+
+Three holes fed it:
+
+- The submit-failure path was the **one** exit in `ci_executor.main` that did not release, so a rejected result held its claim forever.
+- `_release_claim` never read the subprocess return code: a release that FAILED was indistinguishable from one that happened, and the executor walked away reporting only its original error.
+- `reap_stale_claims` **existed** and was reachable only from the operator CLI — no cycle phase, no workflow. Its sibling `dispatch_lease_reap` runs every cycle but reaps `dispatch/claims.jsonl`, a different ledger. The agent-invocation ledger had no automatic reaper at all, which is how it looked covered.
+
+**Fix:** the claim response carries `repository_map` and `cycle_id` in both serialisers; the submit path releases under `submit_rejected`; `_release_claim` reads its return code and announces a failed release as an `::error::` saying the request stays CLAIMED; and `reap_stale_claims` becomes a cycle phase beside its sibling. Requeue stays bounded by `DEFAULT_MAX_REQUEUES`, so a poisonous request escalates to `HUMAN_REQUIRED` rather than cycling.
+
+**Two corrections to my own earlier reading, recorded because both were wrong in the same direction:** the executor does NOT resume in-flight work (the workflow picks the id via `agent next-pending`, which only returns PENDING/REQUEUED — the "resume in-flight work" line is an advisory string from the handoff snapshot); and the empty `actual=` in the mismatch message was a log artefact, not the defect — the real empty was the rendered repository-map section.
+
+**Proof:** 6 tests, AST node-shape rather than source text (Plan 026R §H.1). The strongest asserts that **every `return 1` branch after the claim is taken contains a `_release_claim`** — the invariant the submit path broke. All three fixes reverted individually, all three went red. Full kernel suite green (3,464 tests).
+
+**Owner:** claude (this session). **Status:** RESOLVED.

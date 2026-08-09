@@ -49,7 +49,9 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
     return tenant;
   };
 
-  const command = (reason?: string): {
+  const command = (
+    reason?: string,
+  ): {
     operationId: string;
     tenantId: string;
     actor: { id: string; type: 'user' };
@@ -72,8 +74,8 @@ describe('TenantProvisioningCommandService — suspension audit trio', () => {
       save: jest.fn().mockImplementation((_entity, tenant: Tenant) => Promise.resolve(tenant)),
     };
     const dataSource = {
-      transaction: jest.fn(
-        async (_isolation: string, work: (m: MockManager) => Promise<unknown>) => work(manager),
+      transaction: jest.fn(async (_isolation: string, work: (m: MockManager) => Promise<unknown>) =>
+        work(manager),
       ),
     };
     outboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };

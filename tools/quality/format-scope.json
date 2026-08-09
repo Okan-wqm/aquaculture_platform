@@ -945,6 +945,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": ".github/manifests/automation-publication-authority.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": ".github/manifests/backup-secrets.json",
       "prettier_managed": true
     },
@@ -959,6 +965,17 @@
       "owner": "source",
       "path": ".github/manifests/dr-activation.json",
       "prettier_managed": true
+    },
+    {
+      "class": "generated",
+      "content_sha256": "6312475c01c823c6462027022fc51cdc39604bb1686ee18ce4f0c1325bce7e35",
+      "hash_policy": "sha256",
+      "owner": "finding-registry-writer-authority-generator",
+      "path": ".github/manifests/finding-registry-writer-authority.json",
+      "prettier_managed": false,
+      "reason": "bytes are owned exclusively by the byte-idempotent finding writer authority generator",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
       "class": "canonical_source",
@@ -37738,30 +37755,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "libs/backend-common/src/finding-registry/finding-registry.module.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "libs/backend-common/src/finding-registry/finding-registry.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "libs/backend-common/src/finding-registry/finding.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "libs/backend-common/src/finding-registry/index.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "libs/backend-common/src/graphql/decimal.scalar.spec.ts",
       "prettier_managed": true
     },
@@ -40902,7 +40895,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "3f6ec77ad67e1a0af5ea3ec950802711cf8288833fb6ec441ed0d4ded272c430",
+      "content_sha256": "16017fece517ac4b5d2700a78f1915bd48ce6f463d0f9aa08fb9dea0fbba00e5",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -42780,6 +42773,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/automation-publication-authority.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/backup-production-secrets.spec.ts",
       "prettier_managed": true
     },
@@ -42817,6 +42816,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/cache-key-tenant-scope.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/capability-integration-evidence-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/capability-source-inventory-contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -43734,6 +43745,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/source-finding-inventory-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/source-schema-write-guard-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -44118,24 +44135,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "tools/audit/migrate-schema-violations.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "tools/audit/registry-rechain-after-squash.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "tools/audit/seed-audit-findings.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "tools/audit/tsconfig.json",
       "prettier_managed": true
     },
@@ -44454,6 +44453,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/capability-integration-evidence.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/capability-source-inventory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/check-pin.ts",
       "prettier_managed": true
     },
@@ -44515,6 +44526,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/finding-evidence-shape.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/finding-registry-publication.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/finding-registry-publication.ts",
       "prettier_managed": true
     },
     {
@@ -44598,7 +44621,223 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/github-actions-oidc-authority.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/anchored-filesystem.fixture.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/anchored-filesystem.kernel.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/anchored-filesystem.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/anchored-filesystem.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/automation-publication-authority.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/automation-publication-policy.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/automation-publication-policy.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/canonical-json.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/capability-source-contract.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/error-cause.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/error-cause.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-authority-target-catalog.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-registry-lock.fixture.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-registry-request-receipt.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-registry-request-receipt.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-registry-schema-contract.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-registry-writer-authority.fixture.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-registry-writer-authority.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-registry-writer-authority.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-writer-cli-contract.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/finding-writer-fence.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/github-artifact-archive.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/github-artifact-archive.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/hermetic-git-runtime.fixture.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/hermetic-git-runtime.kernel.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/hermetic-git-runtime.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/hermetic-git-runtime.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/json-contract.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/registered-common-dir-discovery.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/registered-common-dir-discovery.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/lib/repo-root.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/repository-application-module-loader.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/repository-application-module-loader.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/repository-git-read-phase.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/repository-git-read-phase.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/lib/source-finding-publication-kernel.ts",
       "prettier_managed": true
     },
     {
@@ -44719,6 +44958,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/sites-setup-ssot-guardrails.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/source-finding-inventory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/source-inventory-runner.ts",
       "prettier_managed": true
     },
     {
@@ -44886,6 +45137,48 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/scripts/automation/publish-automation-pr.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/automation/publish-automation-pr.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/automation/resolve-github-run-clock.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/automation/resolve-github-run-clock.spec.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/automation/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/automation/write-finding-registry-request-receipt.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/scripts/automation/write-finding-registry-request-receipt.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/scripts/backfill-schema-object-history.ts",
       "prettier_managed": true
     },
@@ -45018,25 +45311,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "tools/scripts/patch-registry-phase2b.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "tools/scripts/perf-baseline.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "tools/scripts/seed-claude-audit-findings.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "tools/scripts/seed-finding-registry.ts",
       "prettier_managed": true
     },
     {
@@ -45115,6 +45390,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/supervisor/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/test-runners/source-control-plane.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/test-runners/spec-discovery.mjs",
       "prettier_managed": true
     },
     {

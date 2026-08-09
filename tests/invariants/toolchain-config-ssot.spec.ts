@@ -2,6 +2,7 @@ import { execFileSync } from 'child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { resolve } from 'path';
+import { TextDecoder } from 'util';
 
 import * as YAML from 'yaml';
 
@@ -69,9 +70,7 @@ describe('Toolchain Config SSoT', () => {
     const eslintConfig = readRepoFile('eslint.config.mjs');
 
     expect(runtime).toContain('TOOLCHAIN_ESLINT_RUNTIME_ENV');
-    expect(runtime).toContain('TOOLCHAIN_NX_RUNTIME_ENV');
     expect(runtime).toContain("NX_PREFER_NODE_STRIP_TYPES: 'true'");
-    expect(runtime).toContain("NX_ISOLATE_PLUGINS: 'false'");
     expect(runtime).toContain('delete env.NX_PREFER_NODE_STRIP_TYPES;');
     expect(runtime).toContain('TOOLCHAIN_NODE_HEAP_FLOOR_MB = 4096');
     expect(runtime).toContain("NODE_HEAP_OPTION_PREFIX = '--max-old-space-size='");
@@ -85,6 +84,22 @@ describe('Toolchain Config SSoT', () => {
     expect(eslintConfig.indexOf('applyToolchainRuntimeEnv();')).toBeLessThan(
       eslintConfig.indexOf("import('@nx/eslint-plugin')"),
     );
+  });
+
+  it('forbids repository-owned Nx plugin-worker isolation bypasses', () => {
+    const forbidden = ['NX', 'ISOLATE', 'PLUGINS'].join('_');
+    const tracked = execFileSync('git', ['ls-files', '-z'], {
+      cwd: REPO_ROOT,
+      encoding: 'buffer',
+    });
+    const trackedPaths = new TextDecoder('utf-8', { fatal: true }).decode(
+      tracked.subarray(0, tracked.length - (tracked.at(-1) === 0 ? 1 : 0)),
+    );
+    const violations = trackedPaths
+      .split('\0')
+      .filter((path) => path.length > 0)
+      .filter((path) => readFileSync(resolve(REPO_ROOT, path)).includes(Buffer.from(forbidden)));
+    expect(violations).toEqual([]);
   });
 
   it('preserves caller-owned Node heap ceilings above the toolchain floor', () => {

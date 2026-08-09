@@ -64,19 +64,19 @@ jobs:
       # in no hook, so the resolver could disagree with the ID allocator
       # about which finding IDs exist and nothing said so. A gate whose
       # tests never execute is a gate whose behaviour is unpinned.
-      - name: "Gate self-tests (resolver + ID allocator)"
+      - name: 'Gate self-tests (resolver + ID allocator)'
         run: |
           npm run gates:test
 
-      - name: "Validate Closes trailers"
+      - name: 'Validate Closes trailers'
         run: npx ts-node --project tools/gates/tsconfig.json tools/gates/commit-msg-validator.ts --mode=range "${{ steps.range.outputs.base }}" "${{ steps.range.outputs.head }}"
 
       - name: Validate registry integrity (hash chain)
         run: |
           # Re-compute the hash chain to detect mid-chain tampering.
-          # Uses the same canonical-JSON + sha256hex algorithm as
-          # tools/scripts/seed-finding-registry.mjs so this is a
-          # self-contained check with no external deps.
+          # Uses the canonical registry verifier's JSON + sha256hex contract.
+          # This is read-only verification; all mutations remain owned by the
+          # Finding Registry Authority and Finding State Sweep workflows.
           node -e "
           const { createHash } = require('crypto');
           const { readFileSync, existsSync } = require('fs');

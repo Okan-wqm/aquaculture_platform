@@ -16,7 +16,11 @@
  * No top-level execution — import-safe for node:test specs.
  */
 
-import { execFileSync } from 'node:child_process';
+import {
+  HERMETIC_GIT_RUNTIME,
+  type HermeticGitReadQueryV1,
+  type HermeticGitRepositorySyncSessionV1,
+} from './lib/hermetic-git-runtime';
 
 export interface ReachabilityResult {
   readonly ok: boolean;
@@ -24,39 +28,19 @@ export interface ReachabilityResult {
   readonly reason?: string;
 }
 
-/**
- * Repo-location env vars are stripped before every query: the helper's
- * contract is "the repository at repoRoot", never the ambient git
- * context. When a caller runs inside a git hook, git exports GIT_DIR /
- * GIT_INDEX_FILE / GIT_WORK_TREE to the process — an inherited GIT_DIR
- * overrides `-C repoRoot` discovery and redirects the query at whatever
- * repository the hook belongs to (2026-06-10 fixture incident class).
- */
-const REPO_LOCATION_ENV_VARS = [
-  'GIT_DIR',
-  'GIT_WORK_TREE',
-  'GIT_INDEX_FILE',
-  'GIT_COMMON_DIR',
-  'GIT_OBJECT_DIRECTORY',
-  'GIT_NAMESPACE',
-] as const;
-
-export function repoPinnedEnv(): NodeJS.ProcessEnv {
-  return Object.fromEntries(
-    Object.entries(process.env).filter(
-      ([key]) => !(REPO_LOCATION_ENV_VARS as readonly string[]).includes(key),
-    ),
-  );
+function gitStatus(
+  session: HermeticGitRepositorySyncSessionV1,
+  query: HermeticGitReadQueryV1,
+): number {
+  try {
+    return session.readText(query).status;
+  } catch {
+    return 128;
+  }
 }
 
-function gitStatus(repoRoot: string, args: readonly string[]): number {
-  try {
-    execFileSync('git', ['-C', repoRoot, ...args], { stdio: 'ignore', env: repoPinnedEnv() });
-    return 0;
-  } catch (err) {
-    const e = err as { status?: number };
-    return typeof e.status === 'number' ? e.status : 128;
-  }
+function canonicalReachabilityRef(ref: string): string {
+  return ref.startsWith('origin/') ? `refs/remotes/${ref}` : ref;
 }
 
 /**
@@ -70,39 +54,60 @@ export function commitReachableFrom(
   sha: string,
   ref: string,
 ): ReachabilityResult {
-  if (gitStatus(repoRoot, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]) !== 0) {
-    return {
-      ok: false,
-      reason:
-        `ref "${ref}" does not resolve to a commit in this checkout. ` +
-        `Run \`git fetch origin main\` (or fetch the relevant ref) and retry — ` +
-        `the reachability guard refuses to certify against an invisible ref.`,
-    };
-  }
+  return HERMETIC_GIT_RUNTIME.withRepositorySync(repoRoot, (session) => {
+    const canonicalRef = canonicalReachabilityRef(ref);
+    if (
+      gitStatus(session, {
+        kind: 'RESOLVE_OBJECT',
+        revision: canonicalRef,
+        peel: 'COMMIT',
+        quiet: true,
+      }) !== 0
+    ) {
+      return {
+        ok: false,
+        reason:
+          `ref "${ref}" does not resolve to a commit in this checkout. ` +
+          `Run \`git fetch origin main\` (or fetch the relevant ref) and retry — ` +
+          `the reachability guard refuses to certify against an invisible ref.`,
+      };
+    }
 
-  if (gitStatus(repoRoot, ['rev-parse', '--verify', '--quiet', `${sha}^{commit}`]) !== 0) {
-    return {
-      ok: false,
-      reason: `commit "${sha}" is unknown to this repository — fetch it or check the SHA.`,
-    };
-  }
+    if (
+      gitStatus(session, {
+        kind: 'RESOLVE_OBJECT',
+        revision: sha,
+        peel: 'COMMIT',
+        quiet: true,
+      }) !== 0
+    ) {
+      return {
+        ok: false,
+        reason: `commit "${sha}" is unknown to this repository — fetch it or check the SHA.`,
+      };
+    }
 
-  const ancestorStatus = gitStatus(repoRoot, ['merge-base', '--is-ancestor', sha, ref]);
-  if (ancestorStatus === 0) {
-    return { ok: true };
-  }
-  if (ancestorStatus === 1) {
+    const ancestorStatus = gitStatus(session, {
+      kind: 'IS_ANCESTOR',
+      ancestor: sha,
+      descendant: canonicalRef,
+    });
+    if (ancestorStatus === 0) {
+      return { ok: true };
+    }
+    if (ancestorStatus === 1) {
+      return {
+        ok: false,
+        reason:
+          `commit ${sha} is NOT reachable from ${ref}. The close ceremony must run ` +
+          `after the fix PR merges, with a main-reachable commit whose own message ` +
+          `carries the matching Closes: trailer — branch-local SHAs die with the ` +
+          `branch (PROC-HIGH-001).`,
+      };
+    }
     return {
       ok: false,
-      reason:
-        `commit ${sha} is NOT reachable from ${ref}. The close ceremony must run ` +
-        `after the fix PR merges, with a main-reachable commit whose own message ` +
-        `carries the matching Closes: trailer — branch-local SHAs die with the ` +
-        `branch (PROC-HIGH-001).`,
+      reason: `git merge-base --is-ancestor failed with status ${ancestorStatus} — repository state is unreadable; refusing to certify.`,
     };
-  }
-  return {
-    ok: false,
-    reason: `git merge-base --is-ancestor failed with status ${ancestorStatus} — repository state is unreadable; refusing to certify.`,
-  };
+  });
 }

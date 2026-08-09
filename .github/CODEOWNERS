@@ -50,6 +50,15 @@ tools/gates/                     @Okan-wqm
 .github/manifests/               @Okan-wqm
 .github/CODEOWNERS               @Okan-wqm
 .github/dependabot.yml           @Okan-wqm
+# Explicit automation-publication trust chain. Keep these entries even though
+# broader directory ownership also applies: each path can mint, publish, or
+# admit repository mutations and must remain visible as one review boundary.
+.github/actions/mint-automation-app-token/action.yml                 @Okan-wqm
+.github/manifests/automation-publication-authority.json             @Okan-wqm
+.github/workflows/automation-publication-admission.yml              @Okan-wqm
+tools/gates/finding-registry-publication.ts                          @Okan-wqm
+tools/gates/lib/automation-publication-policy.ts                     @Okan-wqm
+tools/scripts/automation/publish-automation-pr.ts                    @Okan-wqm
 tools/scripts/ci/prepare-protected-runtime-bundle.sh @Okan-wqm
 tools/scripts/ci/run-protected-ssh.sh                 @Okan-wqm
 tools/scripts/ci/build-protected-ssh-broker.sh        @Okan-wqm
@@ -60,7 +69,6 @@ tools/scripts/database/                               @Okan-wqm
 
 # ── Tooling scripts (finding registry, closes-footer, gates) ─────────
 # Any change here can disable the traceability loop or registry integrity.
-tools/scripts/seed-finding-registry.mjs      @Okan-wqm
 tools/gates/commit-msg-validator.ts          @Okan-wqm
 tools/gates/banned-phrase.ts                 @Okan-wqm
 tools/gates/migration-sql-lint.ts            @Okan-wqm

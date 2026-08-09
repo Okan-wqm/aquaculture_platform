@@ -73,7 +73,7 @@ const BACKEND_COMMON_SRC = path.join(REPO, 'libs/backend-common/src');
 
 // Ordered list — the root barrel in index.ts currently does
 // `export *` from each of these sub-barrels. Deep-only paths (audit /
-// finding-registry / ai-safety / gdpr) are intentionally excluded
+// ai-safety / gdpr) are intentionally excluded
 // because they are NOT re-exported from the root barrel — consumers
 // that pulled them in got a TS error before, so no migration needed.
 const SUBTREES = [
@@ -196,7 +196,7 @@ function parseImports(sourceFile: ts.SourceFile): RootImport[] {
       node.moduleSpecifier.text === '@aquaculture/backend-common'
     ) {
       const raw = node.getFullText(sourceFile);
-      const isTypeOnly = !!(node.importClause?.isTypeOnly);
+      const isTypeOnly = !!node.importClause?.isTypeOnly;
       const entries: ImportEntry[] = [];
       let hasSideEffect = false;
 
@@ -305,9 +305,7 @@ function rewriteFile(
     const typeKw = imp.isTypeOnly ? 'type ' : '';
     const lines: string[] = [];
     for (const [tree, entries] of [...byTree.entries()].sort()) {
-      const names = entries
-        .map((e) => (e.alias ? `${e.name} as ${e.alias}` : e.name))
-        .join(', ');
+      const names = entries.map((e) => (e.alias ? `${e.name} as ${e.alias}` : e.name)).join(', ');
       const specifier = `'@aquaculture/backend-common/${tree}'`;
       const verb = imp.isExport ? `export ${typeKw}` : `import ${typeKw}`;
       void keyword;
@@ -360,7 +358,9 @@ function main(): void {
 
   console.log(`[migrate] building sub-barrel symbol map...`);
   const symbolMap = loadSymbolMap();
-  console.log(`[migrate] symbol map ready: ${symbolMap.size} symbols across ${SUBTREES.length} subtrees`);
+  console.log(
+    `[migrate] symbol map ready: ${symbolMap.size} symbols across ${SUBTREES.length} subtrees`,
+  );
 
   let changed = 0;
   let skipped = 0;

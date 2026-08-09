@@ -279,7 +279,7 @@ describe('INVARIANT: every .getRepository() callsite is annotated or in an exemp
           `tenant-scoped wrapper Phase B introduced.\n\n` +
           `For library-level implementations of the safe wrapper itself ` +
           `(TenantAwareRepository, TenantScopedRepository factory, ` +
-          `withTenantContext example, audit/finding-registry/outbox-worker), ` +
+          `withTenantContext example, audit/outbox-worker), ` +
           `(a) is correct — annotate with rationale "library-level ` +
           `implementation". For application-layer code (handlers / services), ` +
           `(b) is the architecturally correct fix.`,

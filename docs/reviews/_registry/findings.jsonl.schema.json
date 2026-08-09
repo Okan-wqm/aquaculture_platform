@@ -3,6 +3,17 @@
   "$id": "https://aquaculture-platform/docs/reviews/_registry/findings.schema.json",
   "title": "Finding Registry Entry",
   "description": "One JSON object per line in findings.jsonl. Hash-chained append-only state store for every CATCHER-produced finding in the enterprise-v2 review cycle. Consumed by tools/gates/finding-registry.ts CLI (Phase 2), commit-msg-validator.ts (Phase 2), finding-state-sweep.yml (Phase 6 cron), and root-cause-auditor (Phase 5).",
+  "x-source-finding-semantic-fields": [
+    "id",
+    "severity",
+    "title",
+    "layer",
+    "evidence",
+    "rule_violated",
+    "override_of",
+    "notes",
+    "narrative"
+  ],
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -55,7 +66,7 @@
         "minLength": 1,
         "pattern": "^\\S(.*\\S)?$"
       },
-      "description": "Evidence citation — non-empty string with no leading/trailing whitespace. Canonical shapes documented for CATCHER agents: 'file:line' (code reference), 'file:start-end' (line range), 'file:test_name' (test function ref), 'file (test_name)' (parenthesized test ref, used by sens-api-gateway Rust suite), 'file#anchor' (markdown plan / ADR anchor), or just 'file' (whole-file evidence). The schema remains relaxed for historical hash-chain compatibility; every new add/add-explicit write is fail-closed by tools/gates/finding-evidence-shape.ts, while tests/invariants/finding-evidence-shape.spec.ts checks post-cutover ledger content. At least one entry is required for CRITICAL/HIGH per the allOf rule below."
+      "description": "Evidence citation — non-empty string with no leading/trailing whitespace. Canonical shapes documented for CATCHER agents: 'file:line' (code reference), 'file:start-end' (line range), 'file:test_name' (test function ref), 'file (test_name)' (parenthesized test ref, used by sens-api-gateway Rust suite), 'file#anchor' (markdown plan / ADR anchor), or just 'file' (whole-file evidence). The schema remains relaxed for historical hash-chain compatibility; every new authority-owned add is fail-closed by tools/gates/finding-evidence-shape.ts, while tests/invariants/finding-evidence-shape.spec.ts checks post-cutover ledger content. At least one entry is required for CRITICAL/HIGH per the allOf rule below."
     },
     "rule_violated": {
       "type": "string",

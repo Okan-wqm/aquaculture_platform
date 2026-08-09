@@ -52,6 +52,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
@@ -176,6 +177,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
@@ -243,6 +245,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
@@ -291,6 +294,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
@@ -370,11 +374,18 @@ jobs:
   deploy-ssot-gates:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      pull-requests: read
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
@@ -385,6 +396,29 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --ignore-scripts --no-audit --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
+
+      - name: Verify finding registry mutation authority
+        run: npm run test:finding-registry-authority
+
+      - name: Verify automation publication authority contracts
+        run: |
+          npm run gates:automation-publication-publisher-typecheck
+          npm run test:automation-publication-admission
+          npm run test:source-control-plane
+
+      - name: Verify finding writer preflight
+        run: npm run findings:writer-preflight
+
+      - name: Verify committed capability source inventory
+        run: npm run gates:capability-source-inventory:static
+
+      - name: Verify committed source finding attestations
+        run: npm run gates:source-finding-inventory:static
+
+      - name: Verify capability integration evidence
+        run: npm run gates:capability-integration-evidence:live
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Service catalog artifacts are fresh
         run: npm run service-catalog:check
@@ -417,6 +451,8 @@ jobs:
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA
@@ -453,6 +489,8 @@ jobs:
     steps:
       # SEC-CI-002: pinned to SHA
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         # SEC-CI-002: pinned to SHA

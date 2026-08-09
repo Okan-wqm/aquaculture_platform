@@ -2,10 +2,28 @@
 // @ts-check
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 const repoRoot = resolve(process.cwd());
+const canonicalRepoRoot = realpathSync(repoRoot);
+
+const isWithin = (root, candidate) => {
+  const pathFromRoot = relative(root, candidate);
+  return (
+    pathFromRoot === '' ||
+    (pathFromRoot !== '..' && !pathFromRoot.startsWith(`..${sep}`) && !isAbsolute(pathFromRoot))
+  );
+};
+
+const canonicalTempRoot = realpathSync(tmpdir());
+if (isWithin(canonicalRepoRoot, canonicalTempRoot)) {
+  console.error(
+    `type-check-changed-files: refusing scratch root inside repository: ${canonicalTempRoot}`,
+  );
+  process.exit(1);
+}
 
 /** @type {{ base: string; head: string }} */
 const options = {
@@ -221,39 +239,59 @@ for (const [tsconfig, files] of tsconfigs.entries()) {
   for (const file of files) console.log(`    - ${file}`);
 }
 
-const tempRoot = join(repoRoot, '.aria-ci');
-mkdirSync(tempRoot, { recursive: true });
+const ownedTempDirectories = new Set();
+const removeOwnedTempDirectory = (directory) => {
+  if (!ownedTempDirectories.delete(directory)) return;
+  rmSync(directory, { recursive: true, force: true });
+};
+process.once('exit', () => {
+  for (const directory of [...ownedTempDirectories]) removeOwnedTempDirectory(directory);
+});
 
 for (const tsconfig of tsconfigs.keys()) {
-  const tempDir = mkdtempSync(join(tempRoot, 'aqua-changed-tsc-'));
+  const createdTempDir = mkdtempSync(join(canonicalTempRoot, 'aqua-changed-tsc-'));
+  const tempDir = realpathSync(createdTempDir);
+  if (dirname(tempDir) !== canonicalTempRoot || isWithin(canonicalRepoRoot, tempDir)) {
+    rmSync(createdTempDir, { recursive: true, force: true });
+    throw new Error(
+      `type-check-changed-files: scratch directory escaped its external authority: ${tempDir}`,
+    );
+  }
+  ownedTempDirectories.add(tempDir);
   const tempConfig = join(tempDir, 'tsconfig.json');
   const files = tsconfigs.get(tsconfig) ?? [];
-  writeFileSync(
-    tempConfig,
-    JSON.stringify(
-      {
-        extends: join(repoRoot, tsconfig),
-        compilerOptions: {
-          noEmit: true,
+  try {
+    writeFileSync(
+      tempConfig,
+      JSON.stringify(
+        {
+          extends: join(repoRoot, tsconfig),
+          compilerOptions: {
+            noEmit: true,
+            typeRoots: [join(repoRoot, 'node_modules', '@types')],
+          },
+          files: [...declarationFilesFor(tsconfig), ...files.map((file) => join(repoRoot, file))],
+          include: [],
         },
-        files: [...declarationFilesFor(tsconfig), ...files.map((file) => join(repoRoot, file))],
-        include: [],
-      },
-      null,
-      2,
-    ),
-  );
-  console.log(
-    `type-check-changed-files: tsc --noEmit -p ${tsconfig} ` + `(${files.length} changed file(s))`,
-  );
-  run(process.execPath, [
-    resolve(repoRoot, 'node_modules/typescript/bin/tsc'),
-    '--noEmit',
-    '--pretty',
-    'false',
-    '-p',
-    tempConfig,
-  ]);
+        null,
+        2,
+      ),
+    );
+    console.log(
+      `type-check-changed-files: tsc --noEmit -p ${tsconfig} ` +
+        `(${files.length} changed file(s))`,
+    );
+    run(process.execPath, [
+      resolve(repoRoot, 'node_modules/typescript/bin/tsc'),
+      '--noEmit',
+      '--pretty',
+      'false',
+      '-p',
+      tempConfig,
+    ]);
+  } finally {
+    removeOwnedTempDirectory(tempDir);
+  }
 }
 
 console.log(`type-check-changed-files: ${tsconfigs.size} project tsconfig(s) passed.`);

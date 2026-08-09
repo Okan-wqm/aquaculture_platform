@@ -72,6 +72,7 @@ Lane-B (product quality):
 ## Phase 3 — Result Collection
 
 Collect all agent reports. For each agent:
+
 1. Note their findings (CRITICAL / HIGH / MEDIUM / LOW counts).
 2. Note any cross-domain dependencies they flagged.
 3. Note any SYSTEMIC issues identified.
@@ -79,6 +80,7 @@ Collect all agent reports. For each agent:
 ## Phase 3.5 — Context Compression & Dependency Resolution (Cross-Lane)
 
 Trigger conditions (any ONE sufficient):
+
 - 3+ expert agents produced reports this cycle (counting both lanes — Lane-A + Lane-B combined).
 - Estimated total report corpus > ~50K tokens.
 - Multi-phase review is active (`.full-review/state.json` present).
@@ -86,6 +88,7 @@ Trigger conditions (any ONE sufficient):
 - Both lanes fired (any review that dispatched to both Lane-A AND Lane-B MUST pass through cross-lane compaction — see §"Cross-lane consolidation" below).
 
 Actions:
+
 1. Dispatch `Agent(context-manager)` with the list of agents that produced reports and the paths under both `docs/reviews/{agent}/` (Lane-A) and `docs/product-audits/{agent}/` (Lane-B).
 2. `context-manager` returns: a compacted finding set (CRITICAL/HIGH verbatim, MEDIUM grouped, LOW counted), a cross-domain dependency graph, a systemic pattern analysis, and a token budget status.
 3. Any SYSTEMIC pattern flagged by `context-manager` automatically escalates severity by +1 per the existing escalation policy.
@@ -101,6 +104,7 @@ When a code-quality finding (Lane-A) and a product-quality finding (Lane-B) refe
 - `workflow-state-auditor` `PRODUCT-WORKFLOW-HIGH-003` ("user can re-submit archived batch from detail page") + `farm-expert` `FARM-HIGH-005` ("create-batch handler lacks idempotency guard") → SAME root cause. Consolidated finding dispatches the fix to Lane-A agent (farm-expert), with Lane-B as the verification owner.
 
 The consolidated finding:
+
 - Preserves BOTH original IDs in `origin_findings: [LANE-A-ID, LANE-B-ID]`.
 - Adopts the higher severity of the two inputs.
 - Is owned by the Lane-A agent whose domain contains the root cause (product auditors surface symptoms; code experts own fixes).
@@ -126,13 +130,38 @@ Runs after Phase 4 cross-domain resolution and before Phase 5 unified report. Ro
 - **Within-cycle verification (current diff):** classify every author-authored `// tier-N:` claim against the 4-tier hierarchy and flag `OVER_CLAIMED` violations. Safe on the current diff because the author's inline claim exists before Phase 4 runs; no arbiter output needed. Consumes `tools/gates/tier-claim-lint.ts` output.
 - **Cross-cycle verification (cycle N−1):** verify that `architectural-arbiter` rulings issued in the PREVIOUS review cycle have been implemented in the current cycle's diff. Rulings from the CURRENT cycle's Phase 4 land in the finding state registry as `IN-PROGRESS`; verified in the next cycle's Phase 4.5. Auditor never attempts to verify same-cycle arbiter rulings — those cannot have been implemented yet.
 
-**Dispatch:** orchestrator invokes `Agent(root-cause-auditor, mode=review)` with the cycle's changed-file set + prior-cycle ruling list (from `docs/reviews/_registry/findings.jsonl`). Any `AUDIT-CRITICAL-*` blocks merge per the same severity contract as domain experts. Rulings transitioning `IN-PROGRESS → RESOLVED` trigger finding-registry state update via `tools/gates/finding-registry.ts close` in the Phase 6 pipeline.
+**Dispatch:** orchestrator invokes `Agent(root-cause-auditor, mode=review)` with
+the cycle's changed-file set + prior-cycle ruling list (from
+`docs/reviews/_registry/findings.jsonl`). Any `AUDIT-CRITICAL-*` blocks merge
+per the same severity contract as domain experts. After a ruling's closing
+commit is merged to protected `main`, its `IN-PROGRESS → RESOLVED` transition
+is requested through the Finding Registry Authority workflow with a
+retry-stable `command_id` and the full lowercase 40-character protected-main
+closing SHA.
 
 **Mechanical trigger (CLAUDE-MEDIUM-009):** Orchestrator MUST dispatch `root-cause-auditor` in Phase 4.5 when EITHER (a) the current diff contains at least one author-authored `// tier-N:` claim (detected by `tools/gates/tier-claim-lint.ts`), OR (b) the prior cycle's `architectural-arbiter` ruling transitioned to `IN-PROGRESS` state in the finding registry. Skipping dispatch when either condition is met is a `PROC-HIGH-*` self-finding against the orchestrator and halts the cycle. The `tests/invariants/orchestrator-routing-coverage.spec.ts` invariant asserts this "MUST dispatch" clause remains in this file (regex-anchored — silent prose removal fails CI).
 
 **Build-validator cross-cutting dispatch (CLAUDE-MEDIUM-010):** In parallel with Phase 4.5 root-cause-auditor, orchestrator dispatches `build-validator` whenever the cycle's diff touches `apps/**`, `libs/**`, `platform/**`, or `web/**`. Its `BUILD-CRITICAL-*` findings block merge under the same contract as domain CRITICAL. Build-validator carries `dispatch: cross-cutting` frontmatter so the routing-coverage reverse check treats it as roster-reachable without requiring a glob primary.
 
-**Registry is a hard dependency.** The finding-registry CLI (`tools/gates/finding-registry.ts`) and `docs/reviews/_registry/findings.jsonl` are LANDED infrastructure; orchestrator cycles run through them unconditionally. The previously-documented "fallback behaviour" (emit observations as a review-file-only artifact when the CLI is unreachable) was removed 2026-04-18 to eliminate the dual-mode ambiguity flagged as `CLAUDE-HIGH-003`. If the registry is genuinely unreachable (lost jsonl, broken chain), halt the cycle and run `npm run findings:verify` + the seeding scripts under `tools/scripts/seed-*.ts` to restore it before proceeding — a silent fallback path would desynchronise the three stores (registry ↔ commits ↔ review files) the invariant suite cross-checks.
+**Registry is a hard dependency.** `docs/reviews/_registry/findings.jsonl` and
+its read-only verifier are LANDED infrastructure; orchestrator cycles run
+through them unconditionally. The previously-documented "fallback behaviour"
+(emit observations as a review-file-only artifact when the registry is
+unreachable) was removed 2026-04-18 to eliminate the dual-mode ambiguity
+flagged as `CLAUDE-HIGH-003`. Every add or close uses `workflow_dispatch`
+through `.github/workflows/finding-registry-authority.yml` on protected `main`; each
+request uses a retry-stable `command_id`, and close supplies the full lowercase
+40-character protected-main SHA carrying the `Closes:` trailer. Lifecycle
+aging is owned exclusively by `.github/workflows/finding-state-sweep.yml`.
+Agents never edit the JSONL or invoke seed, explicit-ID, rechain, dedupe, or
+local mutating commands.
+
+If the registry is missing or its chain is broken, halt the cycle and run
+`npm run findings:verify` as a read-only diagnostic against a fresh
+protected-main checkout. Record an operational incident and reconcile the
+unauthorized delta against the last verified protected-main state; do not
+manufacture a replacement ledger. A silent fallback would desynchronise the
+registry, commits, and review files that the invariant suite cross-checks.
 
 ## Phase 5 — Unified Report (Two-Lane)
 
@@ -140,6 +169,7 @@ Produce a unified report combining all agent findings from both lanes. Save to `
 
 ```markdown
 # Unified Review Report
+
 **Date:** {YYYY-MM-DD}
 **Scope:** {PR number or description}
 **Lanes Fired:** {Lane-A | Lane-B | Both}
@@ -147,52 +177,66 @@ Produce a unified report combining all agent findings from both lanes. Save to `
 **Agents Invoked — Lane-B (product):** {list}
 
 ## Deployment Decision
+
 **{BLOCK / PASS WITH CONDITIONS / PASS}**
+
 - Blocking findings: {CRITICAL count and IDs, or "None"}
 
 ## Summary — Lane-A (code quality)
-| Agent | CRITICAL | HIGH | MEDIUM | LOW |
-|-------|----------|------|--------|-----|
-| {agent} | {n} | {n} | {n} | {n} |
-| **Lane-A Total** | **{n}** | **{n}** | **{n}** | **{n}** |
+
+| Agent            | CRITICAL | HIGH    | MEDIUM  | LOW     |
+| ---------------- | -------- | ------- | ------- | ------- |
+| {agent}          | {n}      | {n}     | {n}     | {n}     |
+| **Lane-A Total** | **{n}**  | **{n}** | **{n}** | **{n}** |
 
 ## Summary — Lane-B (product quality)
-| Agent | CRITICAL | HIGH | MEDIUM | LOW |
-|-------|----------|------|--------|-----|
-| {agent} | {n} | {n} | {n} | {n} |
-| **Lane-B Total** | **{n}** | **{n}** | **{n}** | **{n}** |
+
+| Agent            | CRITICAL | HIGH    | MEDIUM  | LOW     |
+| ---------------- | -------- | ------- | ------- | ------- |
+| {agent}          | {n}      | {n}     | {n}     | {n}     |
+| **Lane-B Total** | **{n}**  | **{n}** | **{n}** | **{n}** |
 
 ## Cross-Lane Consolidated Findings
-| Merged ID | Origin IDs | Severity | Root Cause | Owner |
-|---|---|---|---|---|
+
+| Merged ID           | Origin IDs                           | Severity | Root Cause                              | Owner           |
+| ------------------- | ------------------------------------ | -------- | --------------------------------------- | --------------- |
 | MERGED-CRITICAL-001 | FE-CRITICAL-001 + PRODUCT-MEDIUM-004 | CRITICAL | bare queryKey → cross-tenant cache leak | frontend-expert |
 
 ## Critical Findings (Deployment Blockers)
+
 {List all CRITICAL findings from both lanes + merged IDs with file paths}
 
 ## High Priority Findings
+
 {List all HIGH findings from both lanes}
 
 ## Cross-Domain Dependencies
-| From Agent | Lane | To Agent | Lane | Issue | Status |
-|-----------|------|----------|------|-------|--------|
-| {source} | {A/B} | {target} | {A/B} | {description} | {Resolved/Open} |
+
+| From Agent | Lane  | To Agent | Lane  | Issue         | Status          |
+| ---------- | ----- | -------- | ----- | ------------- | --------------- |
+| {source}   | {A/B} | {target} | {A/B} | {description} | {Resolved/Open} |
 
 ## Systemic Issues
+
 {Any recurring patterns flagged by multiple agents across either lane}
 
 ## Agent Reports
+
 ### Lane-A (code)
+
 - farm-expert: `docs/reviews/farm-expert/{date}-{topic}.md`
 - security-reviewer: `docs/reviews/security-reviewer/{date}-{topic}.md`
 - ...
+
 ### Lane-B (product)
+
 - form-write-auditor: `docs/product-audits/form-write-auditor/{date}-{topic}.md`
 - data-readback-auditor: `docs/product-audits/data-readback-auditor/{date}-{topic}.md`
 - ...
 ```
 
 **Finding ID propagation across phases:**
+
 - Phase 2 expert reports assign `{PREFIX}-{SEVERITY}-{NNN}` IDs to every finding (prompt-writer content rule).
 - Phase 3.5 context-manager preserves IDs verbatim during compaction and computes per-finding state (OPEN / IN-PROGRESS / RESOLVED / STALE / BLOCKED).
 - Phase 5 unified report lists every CRITICAL and HIGH finding with its ID, state, and source review file path.
@@ -205,6 +249,7 @@ Produce a unified report combining all agent findings from both lanes. Save to `
 This phase does NOT run during strict review-only operation. It runs only when a human explicitly asks for a separate planning session after the review is complete.
 
 Actions:
+
 1. Dispatch `Agent(implementation-planner)` with:
    - Path to the unified report from Phase 5.
    - Path to the context-manager compaction from Phase 3.5 (when present).

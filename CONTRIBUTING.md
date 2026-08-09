@@ -49,9 +49,43 @@ Or for orphan findings:
 Closes: docs/reviews/orphan-findings.md#<FINDING-ID>
 ```
 
-`<FINDING-ID>` matches the regex `[A-Z][A-Z0-9]+-(CRITICAL|HIGH|MEDIUM|LOW)-NNN` and MUST exist in `docs/reviews/_registry/findings.jsonl`. New findings need a registry seed in the same PR (or earlier).
+`<FINDING-ID>` matches the regex
+`[A-Z][A-Z0-9]+-(CRITICAL|HIGH|MEDIUM|LOW)-NNN` and MUST exist in
+`docs/reviews/_registry/findings.jsonl`. A new finding is allocated only by the
+Finding Registry Authority workflow; its automation PR must merge before a
+commit can cite the allocated ID.
 
-### Body explains *why*
+### Finding registry operations
+
+Never edit `docs/reviews/_registry/findings.jsonl` or run local add, close,
+explicit-ID, seed, rechain, dedupe, or sweep helpers. Add and close requests go
+through `.github/workflows/finding-registry-authority.yml` with `--ref main`.
+Record the full 40-character protected-main head before dispatch and accept only
+a workflow run bound to that SHA.
+
+Use one retry-stable `command_id` for each logical request. For an add, submit
+the domain plus caller-owned `finding_json`; the authority owns the ID, state,
+timestamps, closing commits, and hashes. For a close, the fix commit must
+already be reachable from protected `main` and `closing_sha` must be its full
+lowercase 40-character SHA carrying the matching `Closes:` trailer:
+
+```bash
+git fetch origin main
+CLOSING_SHA="$(git rev-parse origin/main)"
+test "${#CLOSING_SHA}" -eq 40
+
+gh workflow run finding-registry-authority.yml --ref main \
+  -f operation=close \
+  -f command_id='finding:INFRA-HIGH-046:close' \
+  -f finding_id=INFRA-HIGH-046 \
+  -f closing_sha="${CLOSING_SHA}"
+```
+
+State aging remains exclusively owned by
+`.github/workflows/finding-state-sweep.yml`. The generated automation PR is
+reviewed and merged only when required checks pass on its exact head.
+
+### Body explains _why_
 
 Subject = what; body = why. Diff already shows the what; the body anchors the architectural decision against an ADR or finding ID.
 

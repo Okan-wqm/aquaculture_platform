@@ -1,49 +1,15 @@
 {
+  "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "target": "ES2022",
     "module": "commonjs",
     "lib": ["ES2022", "DOM"],
     "outDir": "./dist",
     "rootDir": "..",
-    "baseUrl": "..",
-    "strict": true,
-    "noImplicitAny": true,
-    "strictNullChecks": true,
-    "esModuleInterop": true,
-    "resolveJsonModule": true,
     "declaration": false,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "moduleResolution": "node",
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
-    "types": ["jest", "node"],
-    "paths": {
-      "@aquaculture/backend-common": ["libs/backend-common/src/index.ts"],
-      "@aquaculture/backend-common/database": ["libs/backend-common/src/database/index.ts"],
-      "@aquaculture/backend-common/auth": ["libs/backend-common/src/auth/index.ts"],
-      "@aquaculture/backend-common/audit": ["libs/backend-common/src/audit/index.ts"],
-      "@aquaculture/backend-common/bootstrap": ["libs/backend-common/src/bootstrap/index.ts"],
-      "@aquaculture/backend-common/config": ["libs/backend-common/src/config/index.ts"],
-      "@aquaculture/backend-common/decorators": ["libs/backend-common/src/decorators/index.ts"],
-      "@aquaculture/backend-common/security": ["libs/backend-common/src/security/index.ts"],
-      "@aquaculture/backend-common/tenant": ["libs/backend-common/src/tenant/index.ts"],
-      "@aquaculture/backend-common/utils": ["libs/backend-common/src/utils/index.ts"],
-      "@aquaculture/backend-common/*": ["libs/backend-common/src/*"],
-      "@platform/backend-common": ["libs/backend-common/src/index.ts"],
-      "@platform/shared": ["libs/shared/src/index.ts"],
-      "@platform/event-contracts": ["libs/event-contracts/src/index.ts"],
-      "@platform/storage": ["libs/storage/src/index.ts"],
-      "@platform/testing": ["libs/testing/src/index.ts"],
-      "@platform/outbox": ["platform/libs/outbox/src/index.ts"],
-      "@platform/event-bus": ["platform/libs/event-bus/src/index.ts"],
-      "@platform/cqrs": ["platform/libs/cqrs/src/index.ts"],
-      "@platform/service-catalog": ["platform/libs/service-catalog/src/index.ts"]
-    }
+    "declarationMap": false,
+    "noUncheckedIndexedAccess": false,
+    "types": ["jest", "node"]
   },
-  "include": [
-    "**/*.ts",
-    "../apps/**/migrations/*.ts",
-    "../apps/**/database/migrations/*.ts"
-  ]
+  "include": ["**/*.ts", "../apps/**/migrations/*.ts", "../apps/**/database/migrations/*.ts"]
 }

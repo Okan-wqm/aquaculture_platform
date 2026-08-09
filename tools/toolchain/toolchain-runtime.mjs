@@ -2,10 +2,6 @@ const TOOLCHAIN_ESLINT_RUNTIME_ENV = Object.freeze({
   NX_PREFER_NODE_STRIP_TYPES: 'true',
 });
 
-const TOOLCHAIN_NX_RUNTIME_ENV = Object.freeze({
-  NX_ISOLATE_PLUGINS: 'false',
-});
-
 const TOOLCHAIN_NODE_HEAP_FLOOR_MB = 4096;
 const NODE_HEAP_OPTION_PREFIX = '--max-old-space-size=';
 
@@ -60,7 +56,6 @@ export function applyEslintRuntimeEnv(env = process.env) {
 }
 
 export function applyNxRuntimeEnv(env = process.env) {
-  applyRuntimeEnvValues(TOOLCHAIN_NX_RUNTIME_ENV, env);
   delete env.NX_PREFER_NODE_STRIP_TYPES;
   applySharedRuntimeEnv(env);
 }
@@ -71,10 +66,6 @@ export function applyToolchainRuntimeEnv(env = process.env) {
 
 export function getToolchainEslintRuntimeEnv() {
   return TOOLCHAIN_ESLINT_RUNTIME_ENV;
-}
-
-export function getToolchainNxRuntimeEnv() {
-  return TOOLCHAIN_NX_RUNTIME_ENV;
 }
 
 export function getForbiddenWarningSuppressionTokens() {

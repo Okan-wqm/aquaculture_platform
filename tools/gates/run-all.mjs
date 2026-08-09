@@ -9,24 +9,30 @@
  * after the tool it calls was uninstalled. It caught this on the first CI run,
  * which is the rule doing its job.
  *
- * WHY A GLOB: `tools/gates` had ten spec files, six with an npm script and TWO
+ * WHY DISCOVERY: `tools/gates` had spec files with ad-hoc npm scripts and only
  * invoked by a workflow. A per-spec script has to be remembered twice — once in
  * package.json and once in CI — and it was the second one that got forgotten
- * every time. Globbing the directory means a gate spec written tomorrow is
- * covered the moment the file exists.
+ * every time. Discovering the owned root means a gate spec written tomorrow is
+ * covered the moment the file exists. Nested source-control-plane contracts are
+ * deliberately owned by tools/test-runners/source-control-plane.mjs so this
+ * fast commit-message lane stays inside its five-minute budget.
  */
 
 import { spawnSync } from 'node:child_process';
-import { readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { discoverSpecFiles } from '../test-runners/spec-discovery.mjs';
 
 const gatesDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(gatesDir, '..', '..');
 
-const specs = readdirSync(gatesDir)
-  .filter((entry) => entry.endsWith('.spec.ts'))
-  .sort();
+const specs = discoverSpecFiles(gatesDir, ['.spec.ts'], { recursive: false });
+const listedSpecs = specs.map((spec) => `tools/gates/${spec}`);
+
+if (process.argv.includes('--list')) {
+  console.log(JSON.stringify(listedSpecs));
+  process.exit(0);
+}
 
 if (specs.length === 0) {
   console.error('run-all: no gate specs found — the glob or the directory moved.');

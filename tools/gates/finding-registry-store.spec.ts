@@ -2,41 +2,128 @@
 
 import { strict as assert } from 'node:assert';
 import { execFileSync, spawn } from 'node:child_process';
+import { createHash, generateKeyPairSync, sign, type JsonWebKey } from 'node:crypto';
 import {
+  closeSync,
+  constants,
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
+  unlinkSync,
 } from 'node:fs';
-import { hostname, tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join, resolve } from 'node:path';
 import { after, test } from 'node:test';
 
 import {
+  ARIA_AUTHORITY_HASH_SENTINEL,
+  CURRENT_STATE_PATH,
+  selectAriaAuthorityFiles,
+  writeAriaAuthorityHash,
+} from './aria-authority-hash';
+import {
+  allocationFloorForDomain,
   appendAllocatedFinding,
-  appendExplicitFinding,
-  checkCanonicalRegistryPrefix,
-  type Finding,
-  parseRechainStartIndex,
-  prepareRegistryRechain,
+  assertActiveWorktreeFindingWritersFenced,
+  FindingWriterFenceAdmissionDeadlineError,
+  recoverRegistryMutationStaging,
+  registryMutationStagingFiles,
+  reservedDomainFloorsFromManifest,
   resolveGitFindingAllocationAuthority,
-  validateRegistrySuffixForRechain,
+  runWithPreparedFindingWriterFenceAdmission,
+  testOnlyRunWithPreparedFindingWriterFenceAdmission,
+  type Finding,
+  type FindingAllocationAuthority,
+  type FindingWriterFenceCapability,
+  type RedeemedFindingWriterFenceCapability,
 } from './finding-registry';
 import {
+  atomicWriteFindingReservationFile,
   atomicWriteRegistryFile,
+  assertRegistryLockOwned,
+  bindSourceFindingPublicationStore,
   claimedSequences,
+  FINDING_WRITER_FLOCK_EXECUTION_POLICY_V1,
+  FINDING_WRITER_REGISTRY_LOCK_POLICY_V1,
+  listAtomicWriteStagingFiles,
   nextFindingId,
   orphanMarkdownReservedIds,
   readOrphanMarkdownStore,
+  recoverAtomicWriteStagingFiles,
   RegistryLockError,
+  RegistryTransitionRollbackConflictError,
+  SourceFindingTransitionRollbackConflictError,
+  testOnlyAtomicWriteFileWithRegistryLease,
   type FindingSeverity,
-  withRegistryFileLock,
+  type RegistryLockLease,
+  testOnlyWithRegistryFileLock,
+  testOnlyWithRegistryFileLockAsync,
 } from './finding-registry-store';
+import {
+  acquireRepositoryMutationAuthority,
+  FINDING_WRITER_TRUSTED_WORKFLOW_POLICY,
+  type RegistryMutationOperation,
+  type RepositoryMutationAuthority,
+} from './github-actions-oidc-authority';
+import {
+  AnchoredFilesystemError,
+  HermeticExecutableExecutionTimeoutError,
+  assertStableRegularFileCurrent,
+  observeStableRegularFile,
+} from './lib/anchored-filesystem';
+import {
+  FINDING_WRITER_AUTHORITY_PATH,
+  FINDING_WRITER_DECLARED_ASSET_EDGES,
+  FINDING_WRITER_ENTRYPOINT_PATHS,
+  FINDING_WRITER_RETIRED_MUTATION_SURFACES,
+  FINDING_WRITER_SENSITIVE_IMPORT_AUTHORITY,
+  buildFindingWriterProtocolManifest,
+  checkFindingWriterProtocolManifest,
+  renderFindingWriterProtocolManifest,
+  writeFindingWriterProtocolManifest,
+} from './lib/finding-registry-writer-authority';
+import { writeFindingWriterSensitiveAuthorityFixture } from './lib/finding-registry-writer-authority.fixture';
+import { FINDING_WRITER_REGISTRY_MUTATION_OPERATIONS } from './lib/finding-writer-cli-contract';
+import {
+  assertFindingWriterFenceCurrent,
+  assertPendingSourceFindingWriterFenceSessionTransitionBeforeCurrent,
+  assertSourceFindingWriterFenceSessionCurrent,
+  closeSourceFindingWriterFenceSession,
+  consumeFindingWriterFenceSnapshot,
+  createFindingWriterFenceSnapshot,
+  defineFindingWriterWorktreeTopologyV1,
+  FindingWriterFenceGenerationMismatchError,
+  FindingWriterFenceStaleError,
+  openSourceFindingWriterFenceSession,
+  prepareFindingWriterFenceSnapshot,
+  prepareSourceFindingWriterFenceSessionTransition,
+  redeemRegistryFindingWriterFence,
+  releaseFindingWriterFence,
+  type FindingWriterAllocationSourceTransition,
+  type FindingWriterFenceAuthority,
+  type FindingWriterFenceSnapshot,
+  type FindingWriterSourceTransitionV1,
+  type FindingWriterWorktreeGeneration,
+  type FindingWriterWorktreeTopologyV1,
+} from './lib/finding-writer-fence';
+import { HermeticGitExecutionTimeoutError } from './lib/hermetic-git-runtime';
+import {
+  executeSourceFindingPublicationTransaction,
+  executeSourceFindingRestartRecovery,
+  SourceFindingPublicationCrash,
+  type SourceFindingPublicationFaultPoint,
+  type SourceFindingPublicationTransaction,
+} from './lib/source-finding-publication-kernel';
 
 const childMode = process.argv[2];
 let fixtureRoot: string;
@@ -44,6 +131,191 @@ let fixtureRoot: string;
 const HERMETIC_GIT_ENV: NodeJS.ProcessEnv = Object.fromEntries(
   Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')),
 );
+const CAPABILITY_PLAN_RELATIVE_PATH = join(
+  'docs',
+  'plans',
+  '2026-06-18-enterprise-grade-debt-closure',
+);
+const OIDC_NOW_SECONDS = 1_785_283_200;
+const OIDC_WORKFLOW_REF =
+  'Okan-wqm/aquaculture_platform/.github/workflows/finding-registry-authority.yml@refs/heads/main';
+const OIDC_SWEEP_WORKFLOW_REF =
+  'Okan-wqm/aquaculture_platform/.github/workflows/finding-state-sweep.yml@refs/heads/main';
+const OIDC_REPOSITORY_ID = '1132698735';
+const OIDC_REPOSITORY_OWNER_ID = '77401788';
+const OIDC_INPUT_SHA256 = 'a'.repeat(64);
+const OIDC_EFFECTIVE_AT = '2026-07-29T00:00:00.000Z';
+
+function signedOidcFixture(
+  claimOverrides: Readonly<Record<string, unknown>> = {},
+  envOverrides: NodeJS.ProcessEnv = {},
+): {
+  jwt: string;
+  jwk: JsonWebKey;
+  env: NodeJS.ProcessEnv;
+} {
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const header = { alg: 'RS256', kid: 'fixture-key', typ: 'JWT' };
+  const claims = {
+    iss: 'https://token.actions.githubusercontent.com',
+    aud: 'aqua-finding-registry-authority-v1',
+    sub: 'repo:Okan-wqm/aquaculture_platform:ref:refs/heads/main',
+    repository: 'Okan-wqm/aquaculture_platform',
+    repository_id: OIDC_REPOSITORY_ID,
+    repository_owner_id: OIDC_REPOSITORY_OWNER_ID,
+    ref: 'refs/heads/main',
+    ref_protected: true,
+    sha: '1'.repeat(40),
+    workflow_ref: OIDC_WORKFLOW_REF,
+    workflow_sha: '1'.repeat(40),
+    event_name: 'workflow_dispatch',
+    runner_environment: 'github-hosted',
+    run_id: '8675309',
+    run_attempt: '1',
+    jti: 'oidc-fixture-token-id',
+    iat: OIDC_NOW_SECONDS - 30,
+    nbf: OIDC_NOW_SECONDS - 30,
+    exp: OIDC_NOW_SECONDS + 300,
+    ...claimOverrides,
+  };
+  const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+  const encodedClaims = Buffer.from(JSON.stringify(claims)).toString('base64url');
+  const signingInput = `${encodedHeader}.${encodedClaims}`;
+  const signature = sign('RSA-SHA256', Buffer.from(signingInput, 'ascii'), privateKey).toString(
+    'base64url',
+  );
+  return {
+    jwt: `${signingInput}.${signature}`,
+    jwk: { ...publicKey.export({ format: 'jwk' }), kid: 'fixture-key', use: 'sig', alg: 'RS256' },
+    env: {
+      GITHUB_ACTIONS: 'true',
+      GITHUB_REPOSITORY: 'Okan-wqm/aquaculture_platform',
+      GITHUB_REPOSITORY_ID: OIDC_REPOSITORY_ID,
+      GITHUB_REPOSITORY_OWNER_ID: OIDC_REPOSITORY_OWNER_ID,
+      GITHUB_REF: 'refs/heads/main',
+      GITHUB_REF_PROTECTED: 'true',
+      GITHUB_SHA: '1'.repeat(40),
+      GITHUB_RUN_ID: '8675309',
+      GITHUB_RUN_ATTEMPT: '1',
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      GITHUB_WORKFLOW_REF: OIDC_WORKFLOW_REF,
+      GITHUB_WORKFLOW_SHA: '1'.repeat(40),
+      RUNNER_ENVIRONMENT: 'github-hosted',
+      FINDING_COMMAND_ID: 'finding-add:8675309',
+      FINDING_INPUT_SHA256: OIDC_INPUT_SHA256,
+      FINDING_EFFECTIVE_AT: OIDC_EFFECTIVE_AT,
+      ACTIONS_ID_TOKEN_REQUEST_URL:
+        'https://pipelines.actions.githubusercontent.com/fixture/oidc?api-version=2.0',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'runner-scoped-request-token',
+      ...envOverrides,
+    },
+  };
+}
+
+function oidcFixtureFetch(jwt: string, jwk: JsonWebKey) {
+  return (
+    url: string,
+    init?: { readonly headers?: Readonly<Record<string, string>> },
+  ): Promise<unknown> => {
+    if (url.startsWith('https://pipelines.actions.githubusercontent.com/fixture/oidc')) {
+      assert.equal(init?.headers?.Authorization, 'bearer runner-scoped-request-token');
+      assert.match(url, /audience=aqua-finding-registry-authority-v1/);
+      return Promise.resolve({ value: jwt });
+    }
+    if (url.endsWith('/.well-known/openid-configuration')) {
+      return Promise.resolve({
+        issuer: 'https://token.actions.githubusercontent.com',
+        jwks_uri: 'https://token.actions.githubusercontent.com/.well-known/jwks',
+      });
+    }
+    if (url.endsWith('/.well-known/jwks')) {
+      return Promise.resolve({ keys: [jwk] });
+    }
+    return Promise.reject(new Error(`unexpected fixture URL: ${url}`));
+  };
+}
+
+function acquireFixtureAuthority(
+  operation: RegistryMutationOperation,
+  fixture: ReturnType<typeof signedOidcFixture>,
+): Promise<RepositoryMutationAuthority> {
+  return acquireRepositoryMutationAuthority(operation, {
+    env: fixture.env,
+    nowSeconds: () => OIDC_NOW_SECONDS,
+    fetchJson: oidcFixtureFetch(fixture.jwt, fixture.jwk),
+  });
+}
+
+async function issueRepositoryMutationAuthority(
+  operation: RegistryMutationOperation,
+  claimOverrides: Readonly<Record<string, unknown>> = {},
+  envOverrides: NodeJS.ProcessEnv = {},
+): Promise<RepositoryMutationAuthority> {
+  const workflowRef = operation === 'sweep' ? OIDC_SWEEP_WORKFLOW_REF : OIDC_WORKFLOW_REF;
+  const eventName = operation === 'sweep' ? 'schedule' : 'workflow_dispatch';
+  const fixture = signedOidcFixture(
+    { workflow_ref: workflowRef, event_name: eventName, ...claimOverrides },
+    {
+      GITHUB_WORKFLOW_REF: workflowRef,
+      GITHUB_EVENT_NAME: eventName,
+      FINDING_COMMAND_ID: `finding-${operation}:8675309`,
+      ...envOverrides,
+    },
+  );
+  return acquireFixtureAuthority(operation, fixture);
+}
+
+function writeFindingInventoryFloorAuthority(
+  repoRoot: string,
+  rawIds: readonly string[],
+  reservedDomainFloors: Readonly<Record<string, number>>,
+): string {
+  const planDirectory = join(repoRoot, CAPABILITY_PLAN_RELATIVE_PATH);
+  const schemaDirectory = join(repoRoot, 'docs', 'reviews', '_registry');
+  mkdirSync(planDirectory, { recursive: true });
+  mkdirSync(schemaDirectory, { recursive: true });
+  const schemaPath = join(schemaDirectory, 'findings.jsonl.schema.json');
+  if (!existsSync(schemaPath)) {
+    copyFileSync(
+      resolve(__dirname, '..', '..', 'docs', 'reviews', '_registry', 'findings.jsonl.schema.json'),
+      schemaPath,
+    );
+  }
+  const artifactRaw =
+    rawIds.length === 0
+      ? ''
+      : `${rawIds
+          .map((rawId, index) =>
+            JSON.stringify({
+              source_ref: `SRC-FIXTURE#${rawId}-${index}`,
+              raw_id: rawId,
+            }),
+          )
+          .join('\n')}\n`;
+  const artifactSha256 = createHash('sha256').update(artifactRaw).digest('hex');
+  const artifactBasename = `source-findings.${artifactSha256}.jsonl`;
+  writeFileSync(join(planDirectory, artifactBasename), artifactRaw, 'utf8');
+  const manifestPath = join(planDirectory, 'manifest.json');
+  writeFileSync(
+    manifestPath,
+    JSON.stringify({
+      capability_reconciliation: {
+        finding_allocation_policy: {
+          allocator: 'tools/gates/finding-registry.ts',
+          reserved_domain_floors: reservedDomainFloors,
+        },
+        finding_inventory: {
+          schema_version: 3,
+          artifact_path: `docs/plans/2026-06-18-enterprise-grade-debt-closure/${artifactBasename}`,
+          artifact_sha256: artifactSha256,
+          occurrence_count: rawIds.length,
+        },
+      },
+    }),
+    'utf8',
+  );
+  return manifestPath;
+}
 
 function git(repoRoot: string, args: readonly string[]): string {
   return execFileSync('git', ['-C', repoRoot, ...args], {
@@ -52,7 +324,545 @@ function git(repoRoot: string, args: readonly string[]): string {
   }).trim();
 }
 
-function runWorktreeAllocatorChild(): never {
+function symbolicHeadRefPath(repoRoot: string): string {
+  const gitDirectory = join(repoRoot, '.git');
+  const head = readFileSync(join(gitDirectory, 'HEAD'), 'utf8');
+  const match = /^ref: (?<ref>refs\/heads\/[A-Za-z0-9._/-]+)\n$/.exec(head);
+  if (match === null || match.groups === undefined || match.groups.ref === undefined) {
+    throw new Error('Finding writer deadline fixture requires one symbolic local-branch HEAD');
+  }
+  const refPath = resolve(gitDirectory, match.groups.ref);
+  const localHeadRoot = `${resolve(gitDirectory, 'refs', 'heads')}/`;
+  if (!refPath.startsWith(localHeadRoot)) {
+    throw new Error('Finding writer deadline fixture HEAD escapes refs/heads');
+  }
+  return refPath;
+}
+
+function fixtureAriaAuthorityFiles(repoRoot: string): string[] {
+  return selectAriaAuthorityFiles(
+    git(repoRoot, [
+      'ls-files',
+      'docs/aria',
+      'aria-kernel',
+      'tools/aria-poc',
+      '.github/workflows',
+    ]).split(/\r?\n/),
+  );
+}
+
+function writeFindingAllocationSubstrateFixture(repoRoot: string): {
+  readonly registryPath: string;
+  readonly schemaPath: string;
+} {
+  const registryPath = join(repoRoot, 'docs', 'reviews', '_registry', 'findings.jsonl');
+  const schemaPath = `${registryPath}.schema.json`;
+  mkdirSync(dirname(registryPath), { recursive: true });
+  if (!existsSync(registryPath)) writeFileSync(registryPath, '', 'utf8');
+  copyFileSync(
+    resolve(__dirname, '..', '..', 'docs', 'reviews', '_registry', 'findings.jsonl.schema.json'),
+    schemaPath,
+  );
+  const orphanPath = join(repoRoot, 'docs', 'reviews', 'orphan-findings.md');
+  mkdirSync(dirname(orphanPath), { recursive: true });
+  if (!existsSync(orphanPath)) writeFileSync(orphanPath, '# Orphan findings\n', 'utf8');
+  return { registryPath, schemaPath };
+}
+
+function writeWriterProtocolFixture(repoRoot: string): void {
+  const writeFixtureFile = (path: string): void => {
+    const absolutePath = join(repoRoot, path);
+    if (existsSync(absolutePath)) return;
+    mkdirSync(dirname(absolutePath), { recursive: true });
+    const content = path.endsWith('.json')
+      ? '{}\n'
+      : /\.(?:[cm]?[jt]sx?)$/.test(path)
+        ? 'export {};\n'
+        : `${path}\n`;
+    writeFileSync(absolutePath, content, 'utf8');
+  };
+
+  for (const path of FINDING_WRITER_ENTRYPOINT_PATHS) writeFixtureFile(path);
+  writeFindingAllocationSubstrateFixture(repoRoot);
+  for (const packageAuthorityPath of ['package.json', 'package-lock.json']) {
+    writeFileSync(
+      join(repoRoot, packageAuthorityPath),
+      readFileSync(resolve(__dirname, '..', '..', packageAuthorityPath)),
+    );
+  }
+  writeFileSync(
+    join(repoRoot, 'tools/scripts/automation/tsconfig.json'),
+    '{"extends":"../../../tsconfig.base.json"}\n',
+    'utf8',
+  );
+  writeFixtureFile('tsconfig.base.json');
+
+  const actionDirectories = new Set<string>();
+  for (const edge of FINDING_WRITER_DECLARED_ASSET_EDGES) {
+    writeFixtureFile(edge.from);
+    if ('to' in edge) writeFixtureFile(edge.to);
+    if (edge.from.startsWith('.github/actions/')) {
+      actionDirectories.add(edge.from.split('/').slice(0, 3).join('/'));
+    }
+  }
+  for (const actionDirectory of actionDirectories) {
+    const manifestPath = join(repoRoot, actionDirectory, 'action.yml');
+    mkdirSync(dirname(manifestPath), { recursive: true });
+    writeFileSync(
+      manifestPath,
+      'runs:\n  using: composite\n  steps:\n    - shell: bash\n      run: "true"\n',
+      'utf8',
+    );
+  }
+  writeFileSync(
+    join(repoRoot, '.github/workflows/ci-full.yml'),
+    `jobs:\n  authority:\n    steps:\n      - run: npm run gates:source-finding-inventory:remote\n${[
+      ...actionDirectories,
+    ]
+      .sort()
+      .map((path) => `      - uses: ./${path}`)
+      .join('\n')}\n`,
+    'utf8',
+  );
+  writeFileSync(
+    join(repoRoot, '.github/workflows/finding-registry-authority.yml'),
+    'jobs:\n  mutate:\n    steps:\n      - run: npm run findings:add\n      - run: npm run findings:close\n',
+    'utf8',
+  );
+  writeFileSync(
+    join(repoRoot, '.github/workflows/finding-state-sweep.yml'),
+    'jobs:\n  mutate:\n    steps:\n      - run: npm run findings:sweep\n',
+    'utf8',
+  );
+  writeFixtureFile('tools/gates/source-finding-inventory.ts');
+  writeFindingWriterSensitiveAuthorityFixture(repoRoot);
+  writeFixtureFile('aria-kernel/aria_kernel/preflight.py');
+  const currentStatePath = join(repoRoot, CURRENT_STATE_PATH);
+  mkdirSync(dirname(currentStatePath), { recursive: true });
+  writeFileSync(currentStatePath, `${ARIA_AUTHORITY_HASH_SENTINEL}\n`, 'utf8');
+  git(repoRoot, ['init', '--quiet', '--initial-branch=main']);
+  git(repoRoot, ['add', '.']);
+  writeAriaAuthorityHash(repoRoot, fixtureAriaAuthorityFiles(repoRoot));
+}
+
+interface FindingWriterFixture {
+  readonly repoRoot: string;
+  readonly registryPath: string;
+  readonly schemaPath: string;
+  readonly authority: FindingAllocationAuthority;
+}
+
+function findingWriterTestSignal(): AbortSignal {
+  return new AbortController().signal;
+}
+
+async function openFindingWriterFifoAfterReader(path: string): Promise<number> {
+  const deadline = Date.now() + 2_000;
+  for (;;) {
+    try {
+      return openSync(path, constants.O_WRONLY | constants.O_NONBLOCK);
+    } catch (error) {
+      if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENXIO') throw error;
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for the finding-writer Git FIFO reader: ${path}`);
+      }
+      await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
+    }
+  }
+}
+
+type FindingWriterFifoPhase =
+  | 'EXECUTION_RESOLVED_BEFORE_FIFO_READY'
+  | 'EXECUTION_REJECTED_BEFORE_FIFO_READY'
+  | 'FIFO_READY_PATH_IS_NOT_FIFO';
+
+class FindingWriterFifoPhaseError extends Error {
+  public readonly code = 'FINDING_WRITER_FIFO_PHASE' as const;
+
+  public constructor(
+    public readonly phase: FindingWriterFifoPhase,
+    public readonly phaseCause?: unknown,
+  ) {
+    super(`Finding writer FIFO test failed in phase ${phase}`);
+    this.name = 'FindingWriterFifoPhaseError';
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+async function awaitFindingWriterFifoReady(
+  path: string,
+  ready: Promise<void>,
+  execution: Promise<unknown>,
+): Promise<void> {
+  await Promise.race([
+    ready,
+    execution.then(
+      () => {
+        throw new FindingWriterFifoPhaseError('EXECUTION_RESOLVED_BEFORE_FIFO_READY');
+      },
+      (error: unknown) => {
+        throw new FindingWriterFifoPhaseError('EXECUTION_REJECTED_BEFORE_FIFO_READY', error);
+      },
+    ),
+  ]);
+  if (!lstatSync(path).isFIFO()) {
+    throw new FindingWriterFifoPhaseError('FIFO_READY_PATH_IS_NOT_FIFO');
+  }
+}
+
+function findingWriterTopology(worktreePaths: readonly string[]): FindingWriterWorktreeTopologyV1 {
+  return defineFindingWriterWorktreeTopologyV1(
+    worktreePaths.map((path) => ({
+      path,
+      headOid: git(path, ['rev-parse', 'HEAD']),
+    })),
+  );
+}
+
+function assertFindingWriterWorktreesFenced(
+  worktreePaths: readonly string[],
+  authorityWorktreePath: string,
+): Promise<FindingWriterFenceSnapshot> {
+  return assertActiveWorktreeFindingWritersFenced(
+    findingWriterTopology(worktreePaths),
+    authorityWorktreePath,
+    findingWriterTestSignal(),
+  );
+}
+
+function prepareCompatibleWriters(
+  authority: FindingAllocationAuthority,
+): Promise<FindingWriterFenceSnapshot> {
+  return authority.assertCompatibleWriters(findingWriterTestSignal());
+}
+
+function consumeSyntheticFindingWriterFence(
+  authority: FindingWriterFenceAuthority,
+  snapshot: FindingWriterFenceSnapshot,
+): Promise<FindingWriterFenceCapability> {
+  return consumeFindingWriterFenceSnapshot(authority, snapshot, findingWriterTestSignal());
+}
+
+function createFindingWriterFixture(
+  name: string,
+  reservedDomainFloors: Readonly<Record<string, number>> = {},
+  sourceRawIds: readonly string[] = [],
+): FindingWriterFixture {
+  const repoRoot = join(fixtureRoot, name);
+  writeWriterProtocolFixture(repoRoot);
+  const { registryPath, schemaPath } = writeFindingAllocationSubstrateFixture(repoRoot);
+  writeFindingInventoryFloorAuthority(repoRoot, sourceRawIds, reservedDomainFloors);
+  writeFindingWriterProtocolManifest(repoRoot, fixtureAriaAuthorityFiles(repoRoot));
+  git(repoRoot, ['config', 'user.email', 'finding-registry-spec@invalid.local']);
+  git(repoRoot, ['config', 'user.name', 'finding-registry-spec']);
+  git(repoRoot, ['config', 'commit.gpgsign', 'false']);
+  git(repoRoot, ['add', '.']);
+  git(repoRoot, ['commit', '--quiet', '-m', 'finding writer fixture']);
+  return {
+    repoRoot,
+    registryPath,
+    schemaPath,
+    authority: resolveGitFindingAllocationAuthority(repoRoot),
+  };
+}
+
+function canonicalFindingFixtureJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    const rendered = JSON.stringify(value);
+    if (rendered === undefined) throw new Error('Finding fixture contains undefined JSON');
+    return rendered;
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalFindingFixtureJson).join(',')}]`;
+  }
+  const record = value as Readonly<Record<string, unknown>>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalFindingFixtureJson(record[key])}`)
+    .join(',')}}`;
+}
+
+function findingFixture(overrides: Partial<Finding> = {}): Finding {
+  const entry: Finding = {
+    id: 'PROC-HIGH-015',
+    severity: 'HIGH',
+    state: 'OPEN',
+    title: 'Immutable allocation identity fixture',
+    layer: 1,
+    evidence: ['tools/gates/finding-registry-store.spec.ts:identity'],
+    rule_violated: 'Finding allocation identity authority',
+    owner_agent: 'context-manager',
+    raised_in_cycle: '2026-08-08-writer-authority',
+    review_file: 'docs/reviews/context-manager/2026-08-08-writer-authority.md',
+    created_at: '2026-08-08T00:00:00.000Z',
+    closed_at: null,
+    closing_commits: [],
+    deadline: null,
+    owner_user: null,
+    override_of: null,
+    notes: 'creation note',
+    narrative: ['creation narrative'],
+    prev_hash: '0'.repeat(64),
+    content_hash: '0'.repeat(64),
+    ...overrides,
+  };
+  return entry;
+}
+
+function writeFindingRegistryFixture(path: string, entries: readonly Finding[]): Finding[] {
+  let previousHash = '0'.repeat(64);
+  const chained = entries.map((entry): Finding => {
+    const candidate: Finding = {
+      ...entry,
+      prev_hash: previousHash,
+      content_hash: '0'.repeat(64),
+    };
+    const { content_hash: _contentHash, ...forHash } = candidate;
+    candidate.content_hash = createHash('sha256')
+      .update(canonicalFindingFixtureJson(forHash), 'utf8')
+      .digest('hex');
+    previousHash = candidate.content_hash;
+    return candidate;
+  });
+  writeFileSync(path, `${chained.map((entry) => JSON.stringify(entry)).join('\n')}\n`, 'utf8');
+  return chained;
+}
+
+async function withFindingWriterMutation<T>(
+  fixture: FindingWriterFixture,
+  repositoryAuthority: RepositoryMutationAuthority,
+  operation: RegistryMutationOperation,
+  action: (lease: RegistryLockLease, writerFence: RedeemedFindingWriterFenceCapability) => T,
+): Promise<T> {
+  const signal = new AbortController().signal;
+  const snapshot = await fixture.authority.assertCompatibleWriters(signal);
+  return testOnlyWithRegistryFileLockAsync(
+    fixture.registryPath,
+    async (lease) => {
+      const capability = await fixture.authority.consumeCompatibleWriters(snapshot, signal);
+      const writerFence = await fixture.authority.redeemCompatibleWriters(
+        capability,
+        lease,
+        {
+          kind: 'REGISTRY_MUTATION',
+          operation,
+          repositoryAuthority,
+        },
+        signal,
+      );
+      try {
+        return action(lease, writerFence);
+      } finally {
+        fixture.authority.releaseCompatibleWriters(writerFence);
+      }
+    },
+    { lockPath: fixture.authority.lockPath },
+  );
+}
+
+function prepareSyntheticFindingWriterFenceSnapshot(
+  authority: FindingWriterFenceAuthority,
+  worktrees: readonly FindingWriterWorktreeGeneration[],
+  callbacks: {
+    readonly assertWorktreeGeneration?: (generation: FindingWriterWorktreeGeneration) => void;
+    readonly assertCurrent?: () => void;
+    readonly assertRegistryTransition?: (registryPath: string, contentSha256: string) => void;
+    readonly prepareSourceTransition?: (
+      transition: FindingWriterSourceTransitionV1,
+    ) => FindingWriterAllocationSourceTransition;
+  } = {},
+): FindingWriterFenceSnapshot {
+  const topology = defineFindingWriterWorktreeTopologyV1(
+    worktrees.map((worktree) => ({
+      path: worktree.worktree_path,
+      headOid: worktree.head_oid,
+    })),
+  );
+  const snapshot = createFindingWriterFenceSnapshot(
+    'synthetic-finding-writer-generation',
+    worktrees,
+    [],
+  );
+  prepareFindingWriterFenceSnapshot(
+    authority,
+    snapshot,
+    () => {
+      for (const worktree of worktrees) callbacks.assertWorktreeGeneration?.(worktree);
+      return topology;
+    },
+    () => {
+      for (const worktree of worktrees) callbacks.assertWorktreeGeneration?.(worktree);
+      return Promise.resolve(topology);
+    },
+    {
+      snapshot: {
+        registryPaths: [],
+        claimedIds: [],
+        orphanReservedIds: [],
+        reservedDomainFloors: {},
+      },
+      assertCurrent: callbacks.assertCurrent ?? (() => undefined),
+      assertRegistryTransition: callbacks.assertRegistryTransition ?? (() => undefined),
+      prepareSourceTransition:
+        callbacks.prepareSourceTransition ??
+        (() => ({
+          assertBeforeCurrent: () => undefined,
+          prepareAfterCurrent: () => ({ commit: () => undefined }),
+          cancelBeforeCurrent: () => undefined,
+        })),
+    },
+  );
+  return snapshot;
+}
+
+function hasSourceCompensationCapture(value: unknown): value is {
+  readonly captureCompensation: (targetPaths: readonly string[]) => unknown;
+} {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'captureCompensation' in value &&
+    typeof value.captureCompensation === 'function'
+  );
+}
+
+interface PublicationKernelFixture {
+  readonly directory: string;
+  readonly manifestPath: string;
+  readonly oldArtifactPath: string;
+  readonly newArtifactPath: string;
+  readonly oldArtifact: string;
+  readonly newArtifact: string;
+  readonly transaction: SourceFindingPublicationTransaction;
+  readonly rollbackCount: () => number;
+  readonly recover: () => Promise<void>;
+}
+
+function sourceArtifactPath(directory: string, content: string): string {
+  const digest = createHash('sha256').update(content, 'utf8').digest('hex');
+  return join(directory, `source-findings.${digest}.jsonl`);
+}
+
+function sourceManifest(artifactPath: string): string {
+  return `${JSON.stringify({ artifact: basename(artifactPath) })}\n`;
+}
+
+function createPublicationKernelFixture(
+  name: string,
+  collidingNewArtifact?: string,
+): PublicationKernelFixture {
+  const directory = join(fixtureRoot, name);
+  mkdirSync(directory, { recursive: true });
+  const manifestPath = join(directory, 'manifest.json');
+  const oldArtifact = 'old-cut\n';
+  const newArtifact = 'new-cut\n';
+  const oldArtifactPath = sourceArtifactPath(directory, oldArtifact);
+  const newArtifactPath = sourceArtifactPath(directory, newArtifact);
+  writeFileSync(oldArtifactPath, oldArtifact, 'utf8');
+  writeFileSync(manifestPath, sourceManifest(oldArtifactPath), 'utf8');
+  if (collidingNewArtifact !== undefined) {
+    writeFileSync(newArtifactPath, collidingNewArtifact, 'utf8');
+  }
+  const beforeManifest = readFileSync(manifestPath, 'utf8');
+  const beforeNewArtifact = existsSync(newArtifactPath)
+    ? readFileSync(newArtifactPath, 'utf8')
+    : null;
+  let rollbacks = 0;
+  let released = false;
+  const transaction: SourceFindingPublicationTransaction = {
+    prepare: () => {
+      assert.equal(readFileSync(manifestPath, 'utf8'), beforeManifest);
+      assert.equal(readFileSync(oldArtifactPath, 'utf8'), oldArtifact);
+    },
+    publishArtifact: () => {
+      if (existsSync(newArtifactPath)) {
+        if (readFileSync(newArtifactPath, 'utf8') !== newArtifact) {
+          throw new Error('immutable artifact collision');
+        }
+        return;
+      }
+      writeFileSync(newArtifactPath, newArtifact, { encoding: 'utf8', flag: 'wx' });
+    },
+    verifyArtifact: () => {
+      assert.equal(readFileSync(newArtifactPath, 'utf8'), newArtifact);
+      assert.equal(readFileSync(manifestPath, 'utf8'), beforeManifest);
+    },
+    publishManifestCommitMarker: () => {
+      const stagingPath = join(directory, '.manifest.next');
+      writeFileSync(stagingPath, sourceManifest(newArtifactPath), {
+        encoding: 'utf8',
+        flag: 'wx',
+      });
+      renameSync(stagingPath, manifestPath);
+    },
+    cleanupSupersededArtifacts: (checkpoint) => {
+      if (existsSync(oldArtifactPath)) {
+        unlinkSync(oldArtifactPath);
+        checkpoint();
+      }
+    },
+    verifyCommittedCut: () => {
+      assert.equal(readFileSync(manifestPath, 'utf8'), sourceManifest(newArtifactPath));
+      assert.equal(readFileSync(newArtifactPath, 'utf8'), newArtifact);
+      assert.equal(existsSync(oldArtifactPath), false);
+    },
+    rollback: () => {
+      rollbacks += 1;
+      writeFileSync(oldArtifactPath, oldArtifact, 'utf8');
+      writeFileSync(manifestPath, beforeManifest, 'utf8');
+      if (beforeNewArtifact === null) {
+        if (existsSync(newArtifactPath)) unlinkSync(newArtifactPath);
+      } else {
+        writeFileSync(newArtifactPath, beforeNewArtifact, 'utf8');
+      }
+    },
+    release: () => {
+      if (released) throw new Error('publication transaction released twice');
+      released = true;
+    },
+  };
+  const recover = async (): Promise<void> => {
+    let selectedPath: string | null = null;
+    let superseded: string[] = [];
+    await executeSourceFindingRestartRecovery({
+      readAndVerifyManifestCommitMarker: () => {
+        const value = JSON.parse(readFileSync(manifestPath, 'utf8')) as { artifact?: unknown };
+        if (typeof value.artifact !== 'string') throw new Error('invalid commit marker');
+        selectedPath = join(directory, value.artifact);
+        superseded = readdirSync(directory)
+          .filter((entry) => /^source-findings\.[0-9a-f]{64}\.jsonl$/.test(entry))
+          .map((entry) => join(directory, entry))
+          .filter((entry) => entry !== selectedPath)
+          .sort();
+      },
+      verifySelectedArtifact: () => {
+        if (selectedPath === null) throw new Error('missing recovery selection');
+        const selected = readFileSync(selectedPath, 'utf8');
+        assert.equal(sourceArtifactPath(directory, selected), selectedPath);
+      },
+      removeOneSupersededArtifact: () => {
+        const candidate = superseded.shift();
+        if (candidate === undefined) return false;
+        unlinkSync(candidate);
+        return true;
+      },
+      syncRecoveredCut: () => undefined,
+    });
+  };
+  return {
+    directory,
+    manifestPath,
+    oldArtifactPath,
+    newArtifactPath,
+    oldArtifact,
+    newArtifact,
+    transaction,
+    rollbackCount: () => rollbacks,
+    recover,
+  };
+}
+
+async function runWorktreeAllocatorChild(): Promise<never> {
   const repoRoot = process.argv[3];
   const registryPath = process.argv[4];
   const schemaPath = process.argv[5];
@@ -60,24 +870,152 @@ function runWorktreeAllocatorChild(): never {
   if (!repoRoot || !registryPath || !schemaPath || !stubPath) process.exit(64);
 
   const authority = resolveGitFindingAllocationAuthority(repoRoot);
-  const exitCode = withRegistryFileLock(
-    registryPath,
-    (lease) =>
-      appendAllocatedFinding('PROC', stubPath, lease, { registryPath, schemaPath }, authority),
-    {
-      lockPath: authority.lockPath,
-      timeoutMs: 5_000,
-      staleAfterMs: 3_000,
-      pollIntervalMs: 10,
+  const repositoryAuthority = await issueRepositoryMutationAuthority('add');
+  let preparationAttempts = 0;
+  const exitCode = await runWithPreparedFindingWriterFenceAdmission({
+    resourcePath: registryPath,
+    lockPath: authority.lockPath,
+    prepareSnapshot: async (signal) => {
+      preparationAttempts += 1;
+      const snapshot = await authority.assertCompatibleWriters(signal);
+      if (preparationAttempts === 1 && process.send !== undefined) {
+        await new Promise<void>((resolveRelease, rejectRelease) => {
+          const cleanup = (): void => {
+            process.off('message', onMessage);
+            process.off('disconnect', onDisconnect);
+            signal.removeEventListener('abort', onAbort);
+          };
+          const onMessage = (message: unknown): void => {
+            if (
+              typeof message !== 'object' ||
+              message === null ||
+              !('kind' in message) ||
+              message.kind !== 'RELEASE_PREPARED_SNAPSHOT'
+            ) {
+              return;
+            }
+            cleanup();
+            resolveRelease();
+          };
+          const onDisconnect = (): void => {
+            cleanup();
+            rejectRelease(new Error('Allocator parent disconnected before snapshot release'));
+          };
+          const onAbort = (): void => {
+            cleanup();
+            rejectRelease(
+              signal.reason instanceof Error
+                ? signal.reason
+                : new Error('Allocator snapshot preparation was aborted'),
+            );
+          };
+          process.on('message', onMessage);
+          process.once('disconnect', onDisconnect);
+          signal.addEventListener('abort', onAbort, { once: true });
+          if (signal.aborted) {
+            onAbort();
+          } else {
+            process.send?.({ kind: 'PREPARED_SNAPSHOT' }, (error: Error | null) => {
+              if (error === null) return;
+              cleanup();
+              rejectRelease(error);
+            });
+          }
+        });
+      }
+      return snapshot;
     },
-  );
+    admit: async (snapshot, lease, signal) => {
+      const capability = await authority.consumeCompatibleWriters(snapshot, signal);
+      return authority.redeemCompatibleWriters(
+        capability,
+        lease,
+        {
+          kind: 'REGISTRY_MUTATION',
+          operation: 'add',
+          repositoryAuthority,
+        },
+        signal,
+      );
+    },
+    run: (writerFence, lease) => {
+      try {
+        return appendAllocatedFinding(
+          'PROC',
+          stubPath,
+          lease,
+          repositoryAuthority,
+          writerFence,
+          authority,
+          { registryPath, schemaPath },
+        );
+      } finally {
+        authority.releaseCompatibleWriters(writerFence);
+      }
+    },
+  });
   if (exitCode !== 0) process.exit(exitCode);
-  process.stdout.write('ok\n');
+  process.stdout.write(`admission-attempts=${String(preparationAttempts)}\n`);
   process.exit(0);
 }
 
+interface SpawnedStoreSpecChild {
+  readonly process: ReturnType<typeof spawn>;
+  readonly completion: Promise<{
+    readonly code: number | null;
+    readonly signal: NodeJS.Signals | null;
+    readonly stderr: string;
+  }>;
+}
+
+function spawnStoreSpecChild(mode: string, args: readonly string[]): SpawnedStoreSpecChild {
+  const entrypoint = mode.startsWith('--kernel-lock-')
+    ? resolve(__dirname, 'lib', 'finding-registry-lock.fixture.ts')
+    : __filename;
+  const child = spawn(
+    process.execPath,
+    ['-r', require.resolve('ts-node/register'), entrypoint, mode, ...args],
+    {
+      env: { ...process.env, TS_NODE_PROJECT: resolve(__dirname, 'tsconfig.json') },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    },
+  );
+  let stderr = '';
+  child.stderr?.setEncoding('utf8');
+  child.stderr?.on('data', (chunk: string) => {
+    stderr += chunk;
+  });
+  const completion = new Promise<{
+    readonly code: number | null;
+    readonly signal: NodeJS.Signals | null;
+    readonly stderr: string;
+  }>((resolveChild, rejectChild) => {
+    child.once('error', rejectChild);
+    child.once('exit', (code, signal) => resolveChild({ code, signal, stderr }));
+  });
+  return { process: child, completion };
+}
+
+async function terminateStoreSpecChild(child: SpawnedStoreSpecChild): Promise<void> {
+  if (child.process.exitCode === null && child.process.signalCode === null) {
+    child.process.kill('SIGKILL');
+  }
+  await Promise.allSettled([child.completion]);
+}
+
+async function waitForFile(path: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (!existsSync(path)) {
+    if (Date.now() >= deadline) throw new Error(`Timed out waiting for child barrier: ${path}`);
+    await new Promise<void>((resolveWait) => setTimeout(resolveWait, 10));
+  }
+}
+
 if (childMode === '--worktree-allocator-child') {
-  runWorktreeAllocatorChild();
+  void runWorktreeAllocatorChild().catch((error: unknown) => {
+    process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
+    process.exit(1);
+  });
 } else {
   fixtureRoot = mkdtempSync(join(tmpdir(), 'finding-registry-store-spec-'));
   void after(() => {
@@ -92,45 +1030,6 @@ if (childMode === '--worktree-allocator-child') {
       'SENSOR-HIGH-099',
     ]);
     assert.equal(id, 'FARM-HIGH-020');
-  });
-
-  void test('rechain authority preserves the canonical main prefix', () => {
-    const canonical = [{ id: 'FARM-HIGH-001' }, { id: 'FARM-HIGH-002' }];
-    const branch = [...canonical, { id: 'FARM-HIGH-003' }];
-
-    assert.deepEqual(checkCanonicalRegistryPrefix(branch, canonical, 2), {
-      branchSuffixStartIndex: 2,
-      violation: null,
-    });
-    assert.match(
-      checkCanonicalRegistryPrefix(branch, canonical, 1).violation ?? '',
-      /enters the canonical origin\/main prefix/,
-    );
-    assert.match(
-      checkCanonicalRegistryPrefix(
-        [{ id: 'FARM-HIGH-001' }, { id: 'FARM-HIGH-TAMPERED' }, branch[2]],
-        canonical,
-        2,
-      ).violation ?? '',
-      /entry 1 differs/,
-    );
-  });
-
-  void test('rechain index parser rejects partial, signed, padded, and unsafe numbers', () => {
-    assert.equal(parseRechainStartIndex('1296'), 1296);
-    assert.equal(parseRechainStartIndex('0'), 0);
-    for (const invalid of [
-      undefined,
-      '',
-      '01',
-      '+1',
-      '-1',
-      '1.0',
-      '1296junk',
-      '9007199254740992',
-    ]) {
-      assert.equal(parseRechainStartIndex(invalid), null);
-    }
   });
 
   void test('nextFindingId rejects malformed domains and exhausted sequences', () => {
@@ -229,12 +1128,1430 @@ if (childMode === '--worktree-allocator-child') {
     );
   });
 
+  void test('canonical mutation authority verifies a protected-main GitHub Actions OIDC signature', async () => {
+    const authority = await issueRepositoryMutationAuthority('add');
+
+    assert.deepEqual(authority, {
+      kind: 'GITHUB_ACTIONS_OIDC_V1',
+      repository: 'Okan-wqm/aquaculture_platform',
+      repositoryId: OIDC_REPOSITORY_ID,
+      operation: 'add',
+      commandId: 'finding-add:8675309',
+      inputSha256: OIDC_INPUT_SHA256,
+      effectiveAt: OIDC_EFFECTIVE_AT,
+      workflowRef: OIDC_WORKFLOW_REF,
+      workflowSha: '1'.repeat(40),
+      runId: '8675309',
+      runAttempt: '1',
+      tokenId: 'oidc-fixture-token-id',
+      expiresAt: new Date((OIDC_NOW_SECONDS + 300) * 1000).toISOString(),
+    });
+  });
+
+  void test('trusted workflow policy is deeply immutable and covers the CLI mutation universe', () => {
+    assert.equal(Object.isFrozen(FINDING_WRITER_TRUSTED_WORKFLOW_POLICY), true);
+    for (const policy of FINDING_WRITER_TRUSTED_WORKFLOW_POLICY) {
+      assert.equal(Object.isFrozen(policy), true);
+      assert.equal(Object.isFrozen(policy.events), true);
+      assert.equal(Object.isFrozen(policy.operations), true);
+      assert.throws(
+        () => Reflect.apply(Array.prototype.push, policy.operations, ['forged-operation']),
+        TypeError,
+      );
+    }
+    assert.deepEqual(
+      [
+        ...new Set(FINDING_WRITER_TRUSTED_WORKFLOW_POLICY.flatMap((policy) => policy.operations)),
+      ].sort(),
+      [...FINDING_WRITER_REGISTRY_MUTATION_OPERATIONS].sort(),
+    );
+  });
+
+  void test('canonical mutation authority accepts the immutable repository subject', async () => {
+    const authority = await issueRepositoryMutationAuthority('add', {
+      sub: `repo:Okan-wqm@${OIDC_REPOSITORY_OWNER_ID}/aquaculture_platform@${OIDC_REPOSITORY_ID}:ref:refs/heads/main`,
+    });
+    assert.equal(authority.repositoryId, OIDC_REPOSITORY_ID);
+    assert.equal(authority.operation, 'add');
+  });
+
+  void test('canonical mutation authority rejects local flags and mutable identity drift', async () => {
+    await assert.rejects(
+      acquireRepositoryMutationAuthority('add', { env: {} }),
+      /only to GitHub Actions OIDC authority/,
+    );
+
+    const unprotected = signedOidcFixture({ ref_protected: false });
+    await assert.rejects(acquireFixtureAuthority('add', unprotected), /ref_protected/);
+
+    const unprotectedRunner = signedOidcFixture({}, { GITHUB_REF_PROTECTED: 'false' });
+    await assert.rejects(
+      acquireFixtureAuthority('add', unprotectedRunner),
+      /must execute from protected main/,
+    );
+
+    for (const [claim, value] of [
+      ['repository_id', '9999999999'],
+      ['repository_owner_id', '88888888'],
+    ] as const) {
+      const wrongImmutableIdentity = signedOidcFixture({ [claim]: value });
+      await assert.rejects(
+        acquireFixtureAuthority('add', wrongImmutableIdentity),
+        new RegExp(`jwt\\.${claim}`),
+      );
+    }
+    for (const [field, value] of [
+      ['GITHUB_REPOSITORY_ID', '9999999999'],
+      ['GITHUB_REPOSITORY_OWNER_ID', '88888888'],
+    ] as const) {
+      const wrongRunnerIdentity = signedOidcFixture({}, { [field]: value });
+      await assert.rejects(
+        acquireFixtureAuthority('add', wrongRunnerIdentity),
+        /must execute from protected main/,
+      );
+    }
+
+    const wrongWorkflowSha = signedOidcFixture(
+      { workflow_sha: '2'.repeat(40) },
+      { GITHUB_WORKFLOW_SHA: '1'.repeat(40) },
+    );
+    await assert.rejects(acquireFixtureAuthority('add', wrongWorkflowSha), /jwt\.workflow_sha/);
+  });
+
+  void test('canonical mutation authority binds operation, command, digest, and effective time', async () => {
+    const sweepAuthority = await issueRepositoryMutationAuthority('sweep');
+    assert.equal(sweepAuthority.operation, 'sweep');
+    assert.equal(sweepAuthority.workflowRef, OIDC_SWEEP_WORKFLOW_REF);
+
+    const sweepFixture = signedOidcFixture(
+      { workflow_ref: OIDC_SWEEP_WORKFLOW_REF, event_name: 'schedule' },
+      {
+        GITHUB_WORKFLOW_REF: OIDC_SWEEP_WORKFLOW_REF,
+        GITHUB_EVENT_NAME: 'schedule',
+      },
+    );
+    await assert.rejects(
+      acquireFixtureAuthority('add', sweepFixture),
+      /not a trusted registry mutation authority/,
+    );
+
+    for (const [env, expected] of [
+      [{ FINDING_COMMAND_ID: 'short' }, /FINDING_COMMAND_ID/],
+      [{ FINDING_INPUT_SHA256: 'A'.repeat(64) }, /FINDING_INPUT_SHA256/],
+      [{ FINDING_EFFECTIVE_AT: '2026-07-29T00:00:00Z' }, /FINDING_EFFECTIVE_AT/],
+    ] as const) {
+      const invalidCommandEnvelope = signedOidcFixture({}, env);
+      await assert.rejects(acquireFixtureAuthority('add', invalidCommandEnvelope), expected);
+    }
+  });
+
+  void test('canonical mutation authority rejects a forged signed-claim envelope', async () => {
+    const forged = signedOidcFixture();
+    const segments = forged.jwt.split('.');
+    assert.equal(segments.length, 3);
+    const forgedClaims = Buffer.from(
+      JSON.stringify({
+        ...JSON.parse(Buffer.from(segments[1] as string, 'base64url').toString('utf8')),
+        run_id: '9999999',
+      }),
+    ).toString('base64url');
+    const forgedJwt = `${segments[0]}.${forgedClaims}.${segments[2]}`;
+    await assert.rejects(
+      acquireFixtureAuthority('add', { ...forged, jwt: forgedJwt }),
+      /signature verification failed/,
+    );
+  });
+
+  void test('registry write boundary rejects fabricated and operation-mismatched authority', async () => {
+    const fixture = createFindingWriterFixture('repository-authority-boundary');
+    const { registryPath } = fixture;
+    const addAuthority = await issueRepositoryMutationAuthority('add');
+    const sweepAuthority = await issueRepositoryMutationAuthority('sweep');
+    const authorizedFixturePath = join(fixtureRoot, 'repository-authority-boundary.jsonl');
+    writeFindingRegistryFixture(authorizedFixturePath, [findingFixture()]);
+    const authorizedRegistry = readFileSync(authorizedFixturePath, 'utf8');
+
+    await withFindingWriterMutation(fixture, addAuthority, 'add', (lease, writerFence) =>
+      atomicWriteRegistryFile(
+        registryPath,
+        authorizedRegistry,
+        lease,
+        addAuthority,
+        'add',
+        writerFence,
+      ),
+    );
+    assert.equal(readFileSync(registryPath, 'utf8'), authorizedRegistry);
+
+    const fabricatedAuthority: RepositoryMutationAuthority = { ...addAuthority };
+    await assert.rejects(
+      () =>
+        withFindingWriterMutation(fixture, fabricatedAuthority, 'add', (lease, writerFence) =>
+          atomicWriteRegistryFile(
+            registryPath,
+            authorizedRegistry,
+            lease,
+            fabricatedAuthority,
+            'add',
+            writerFence,
+          ),
+        ),
+      /does not authorize add/,
+    );
+    await assert.rejects(
+      () =>
+        withFindingWriterMutation(fixture, sweepAuthority, 'add', (lease, writerFence) =>
+          atomicWriteRegistryFile(
+            registryPath,
+            authorizedRegistry,
+            lease,
+            sweepAuthority,
+            'add',
+            writerFence,
+          ),
+        ),
+      /does not authorize add/,
+    );
+    assert.throws(
+      () =>
+        testOnlyWithRegistryFileLock(registryPath, (lease) =>
+          testOnlyAtomicWriteFileWithRegistryLease(registryPath, 'generic-bypass\n', lease),
+        ),
+      (error: unknown) =>
+        error instanceof Error &&
+        error.message === 'Test lock adapter refuses governed finding authority targets.',
+    );
+    assert.equal(readFileSync(registryPath, 'utf8'), authorizedRegistry);
+  });
+
+  void test('writer fence capabilities are one-shot, exact-HEAD bound, and profile confined', async () => {
+    const fixture = createFindingWriterFixture('writer-fence-lifecycle');
+    const repositoryAuthority = await issueRepositoryMutationAuthority('add');
+    const headDriftSnapshot = await prepareCompatibleWriters(fixture.authority);
+
+    await testOnlyWithRegistryFileLockAsync(
+      fixture.registryPath,
+      async (lease) => {
+        const signal = findingWriterTestSignal();
+        const capability = await fixture.authority.consumeCompatibleWriters(
+          headDriftSnapshot,
+          signal,
+        );
+        git(fixture.repoRoot, ['commit', '--quiet', '--allow-empty', '-m', 'advance exact head']);
+        await assert.rejects(
+          () =>
+            fixture.authority.redeemCompatibleWriters(
+              capability,
+              lease,
+              {
+                kind: 'REGISTRY_MUTATION',
+                operation: 'add',
+                repositoryAuthority,
+              },
+              signal,
+            ),
+          (error: unknown) =>
+            error instanceof FindingWriterFenceStaleError &&
+            error.admissionPhase === 'REDEEM' &&
+            error.cause instanceof FindingWriterFenceGenerationMismatchError &&
+            /worktree topology changed/.test(error.cause.message),
+        );
+      },
+      { lockPath: fixture.authority.lockPath },
+    );
+    assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
+
+    const lifecycleSnapshot = await prepareCompatibleWriters(fixture.authority);
+    await testOnlyWithRegistryFileLockAsync(
+      fixture.registryPath,
+      async (lease) => {
+        const signal = findingWriterTestSignal();
+        await assert.rejects(
+          () => fixture.authority.consumeCompatibleWriters({ ...lifecycleSnapshot }, signal),
+          /foreign, fabricated, or already consumed/,
+        );
+        const capability = await fixture.authority.consumeCompatibleWriters(
+          lifecycleSnapshot,
+          signal,
+        );
+        await assert.rejects(
+          () => fixture.authority.consumeCompatibleWriters(lifecycleSnapshot, signal),
+          /foreign, fabricated, or already consumed/,
+        );
+        const profile = {
+          kind: 'REGISTRY_MUTATION' as const,
+          operation: 'add' as const,
+          repositoryAuthority,
+        };
+        const writerFence = await fixture.authority.redeemCompatibleWriters(
+          capability,
+          lease,
+          profile,
+          signal,
+        );
+        Reflect.set(profile, 'kind', 'SOURCE_INVENTORY');
+        const sourceStore: unknown = Reflect.apply(bindSourceFindingPublicationStore, undefined, [
+          lease,
+          writerFence,
+        ]);
+        assert.ok(hasSourceCompensationCapture(sourceStore));
+        assert.throws(
+          () =>
+            sourceStore.captureCompensation([
+              join(fixture.repoRoot, CAPABILITY_PLAN_RELATIVE_PATH, 'manifest.json'),
+            ]),
+          /registry profile cannot mutate source_manifest/,
+        );
+        await assert.rejects(
+          () =>
+            fixture.authority.redeemCompatibleWriters(
+              capability,
+              lease,
+              {
+                kind: 'REGISTRY_MUTATION',
+                operation: 'add',
+                repositoryAuthority,
+              },
+              signal,
+            ),
+          /foreign, fabricated, already redeemed/,
+        );
+        fixture.authority.releaseCompatibleWriters(writerFence);
+        assert.throws(
+          () => fixture.authority.releaseCompatibleWriters(writerFence),
+          /foreign, fabricated, or already released/,
+        );
+        assert.throws(
+          () =>
+            atomicWriteRegistryFile(
+              fixture.registryPath,
+              'forbidden\n',
+              lease,
+              repositoryAuthority,
+              'add',
+              writerFence,
+            ),
+          /live redeemed capability/,
+        );
+      },
+      { lockPath: fixture.authority.lockPath },
+    );
+  });
+
+  void test('allocation authority and captured worktree generations are runtime immutable', async () => {
+    const fixture = createFindingWriterFixture('writer-runtime-immutability');
+    assert.equal(Object.isFrozen(fixture.authority), true);
+    assert.equal(Reflect.set(fixture.authority, 'lockPath', 'forged.lock'), false);
+    const snapshot = await prepareCompatibleWriters(fixture.authority);
+    assert.equal(Object.isFrozen(snapshot), true);
+    assert.equal(Object.isFrozen(snapshot.worktrees), true);
+    const worktree = snapshot.worktrees[0];
+    assert.ok(worktree);
+    assert.equal(Object.isFrozen(worktree), true);
+    assert.equal(Reflect.set(worktree, 'head_oid', 'f'.repeat(40)), false);
+    assert.equal(snapshot.worktrees[0]?.head_oid, git(fixture.repoRoot, ['rev-parse', 'HEAD']));
+  });
+
+  void test('writer final CAS rejects active-set add/remove, dirty bytes, topology drift, and wrong lease', async () => {
+    const repositoryAuthority = await issueRepositoryMutationAuthority('add');
+    const addedFixture = createFindingWriterFixture('writer-active-set-add');
+    const addedWorktree = join(fixtureRoot, 'writer-active-set-added-peer');
+    const addedSnapshot = await prepareCompatibleWriters(addedFixture.authority);
+    await testOnlyWithRegistryFileLockAsync(
+      addedFixture.registryPath,
+      async (_lease) => {
+        git(addedFixture.repoRoot, ['worktree', 'add', '--quiet', '--detach', addedWorktree]);
+        try {
+          await assert.rejects(
+            () =>
+              addedFixture.authority.consumeCompatibleWriters(
+                addedSnapshot,
+                findingWriterTestSignal(),
+              ),
+            (error: unknown) =>
+              error instanceof FindingWriterFenceStaleError &&
+              error.code === 'FINDING_WRITER_FENCE_STALE' &&
+              error.admissionPhase === 'CONSUME' &&
+              error.cause instanceof Error &&
+              /worktree topology changed/.test(error.cause.message),
+          );
+        } finally {
+          git(addedFixture.repoRoot, ['worktree', 'remove', '--force', addedWorktree]);
+        }
+      },
+      { lockPath: addedFixture.authority.lockPath },
+    );
+
+    const removedFixture = createFindingWriterFixture('writer-active-set-remove');
+    const removedWorktree = join(fixtureRoot, 'writer-active-set-removed-peer');
+    git(removedFixture.repoRoot, ['worktree', 'add', '--quiet', '--detach', removedWorktree]);
+    const removedSnapshot = await prepareCompatibleWriters(removedFixture.authority);
+    await testOnlyWithRegistryFileLockAsync(
+      removedFixture.registryPath,
+      async (lease) => {
+        const signal = findingWriterTestSignal();
+        const capability = await removedFixture.authority.consumeCompatibleWriters(
+          removedSnapshot,
+          signal,
+        );
+        const writerFence = await removedFixture.authority.redeemCompatibleWriters(
+          capability,
+          lease,
+          {
+            kind: 'REGISTRY_MUTATION',
+            operation: 'add',
+            repositoryAuthority,
+          },
+          signal,
+        );
+        git(removedFixture.repoRoot, ['worktree', 'remove', '--force', removedWorktree]);
+        try {
+          assert.throws(
+            () =>
+              atomicWriteRegistryFile(
+                removedFixture.registryPath,
+                'forbidden\n',
+                lease,
+                repositoryAuthority,
+                'add',
+                writerFence,
+              ),
+            /worktree topology changed/,
+          );
+          const wrongLease: RegistryLockLease = { ...lease, token: 'wrong-lease-token' };
+          assert.throws(
+            () => assertFindingWriterFenceCurrent(writerFence, wrongLease),
+            /live redeemed capability/,
+          );
+        } finally {
+          removedFixture.authority.releaseCompatibleWriters(writerFence);
+        }
+      },
+      { lockPath: removedFixture.authority.lockPath },
+    );
+
+    for (const drift of ['BYTES', 'TOPOLOGY'] as const) {
+      const fixture = createFindingWriterFixture(`writer-final-cas-${drift.toLowerCase()}`);
+      const snapshot = await prepareCompatibleWriters(fixture.authority);
+      await testOnlyWithRegistryFileLockAsync(
+        fixture.registryPath,
+        async (lease) => {
+          const signal = findingWriterTestSignal();
+          const capability = await fixture.authority.consumeCompatibleWriters(snapshot, signal);
+          const writerFence = await fixture.authority.redeemCompatibleWriters(
+            capability,
+            lease,
+            {
+              kind: 'REGISTRY_MUTATION',
+              operation: 'add',
+              repositoryAuthority,
+            },
+            signal,
+          );
+          const driftPath =
+            drift === 'BYTES'
+              ? join(fixture.repoRoot, 'package.json')
+              : join(fixture.repoRoot, '.github', 'workflows', 'late-mutator.yml');
+          const before = drift === 'BYTES' ? readFileSync(driftPath) : null;
+          writeFileSync(
+            driftPath,
+            drift === 'BYTES'
+              ? Buffer.concat([before ?? Buffer.alloc(0), Buffer.from('\n')])
+              : 'jobs: {}\n',
+          );
+          try {
+            assert.throws(
+              () =>
+                atomicWriteRegistryFile(
+                  fixture.registryPath,
+                  'forbidden\n',
+                  lease,
+                  repositoryAuthority,
+                  'add',
+                  writerFence,
+                ),
+              (error: unknown) => {
+                if (!(error instanceof AnchoredFilesystemError)) return false;
+                assert.equal(error.code, 'STABLE_PATH_KIND_CHANGED');
+                assert.equal(error.path, drift === 'BYTES' ? driftPath : dirname(driftPath));
+                return true;
+              },
+            );
+          } finally {
+            if (before === null) rmSync(driftPath);
+            else writeFileSync(driftPath, before);
+            fixture.authority.releaseCompatibleWriters(writerFence);
+          }
+        },
+        { lockPath: fixture.authority.lockPath },
+      );
+    }
+  });
+
+  void test('writer fence rejects a foreign allocation authority at the operation boundary', async () => {
+    const first = createFindingWriterFixture('writer-foreign-authority-a');
+    const second = createFindingWriterFixture('writer-foreign-authority-b');
+    const repositoryAuthority = await issueRepositoryMutationAuthority('add');
+    await withFindingWriterMutation(first, repositoryAuthority, 'add', (lease, writerFence) => {
+      assert.throws(
+        () =>
+          recoverRegistryMutationStaging(
+            second.authority,
+            lease,
+            writerFence,
+            repositoryAuthority,
+            'add',
+          ),
+        /foreign finding writer fence/,
+      );
+    });
+  });
+
+  void test('source profile requires the governed entrypoint and exact lease resource', async () => {
+    const fixture = createFindingWriterFixture('writer-profile-boundary');
+    const repositoryAuthority = await issueRepositoryMutationAuthority('add');
+    const manifestPath = join(fixture.repoRoot, CAPABILITY_PLAN_RELATIVE_PATH, 'manifest.json');
+    const sourceProfileSnapshot = await prepareCompatibleWriters(fixture.authority);
+
+    await testOnlyWithRegistryFileLockAsync(
+      manifestPath,
+      async (lease) => {
+        const signal = findingWriterTestSignal();
+        const capability = await fixture.authority.consumeCompatibleWriters(
+          sourceProfileSnapshot,
+          signal,
+        );
+        assert.throws(
+          () =>
+            Reflect.apply(fixture.authority.redeemCompatibleWriters, fixture.authority, [
+              capability,
+              lease,
+              { kind: 'SOURCE_INVENTORY' },
+              signal,
+            ]),
+          /accepts registry mutation profiles only/,
+        );
+      },
+      { lockPath: fixture.authority.lockPath },
+    );
+
+    const registryProfileSnapshot = await prepareCompatibleWriters(fixture.authority);
+    await testOnlyWithRegistryFileLockAsync(
+      manifestPath,
+      async (lease) => {
+        const signal = findingWriterTestSignal();
+        const capability = await fixture.authority.consumeCompatibleWriters(
+          registryProfileSnapshot,
+          signal,
+        );
+        await assert.rejects(
+          () =>
+            fixture.authority.redeemCompatibleWriters(
+              capability,
+              lease,
+              {
+                kind: 'REGISTRY_MUTATION',
+                operation: 'add',
+                repositoryAuthority,
+              },
+              signal,
+            ),
+          /registry profile is bound to/,
+        );
+      },
+      { lockPath: fixture.authority.lockPath },
+    );
+  });
+
+  void test('a source session revalidates repository generation before every publication side effect', async () => {
+    const fixture = createFindingWriterFixture('source-session-generation-drift');
+    const planDirectory = join(fixture.repoRoot, CAPABILITY_PLAN_RELATIVE_PATH);
+    const manifestPath = join(planDirectory, 'manifest.json');
+    const manifestBefore = readFileSync(manifestPath, 'utf8');
+    const artifactContent = 'new source cut\n';
+    const artifactPath = sourceArtifactPath(planDirectory, artifactContent);
+    const snapshot = await prepareCompatibleWriters(fixture.authority);
+
+    await testOnlyWithRegistryFileLockAsync(
+      manifestPath,
+      async (lease) => {
+        const signal = findingWriterTestSignal();
+        const capability = await fixture.authority.consumeCompatibleWriters(snapshot, signal);
+        const sourceSession = await openSourceFindingWriterFenceSession(
+          fixture.authority,
+          capability,
+          lease,
+          signal,
+        );
+        try {
+          const sourceStore = bindSourceFindingPublicationStore(lease, sourceSession);
+          const compensation = sourceStore.captureCompensation([manifestPath, artifactPath]);
+          try {
+            sourceStore.publishImmutableArtifact(compensation, artifactPath, artifactContent);
+            assert.equal(readFileSync(artifactPath, 'utf8'), artifactContent);
+            git(fixture.repoRoot, [
+              'commit',
+              '--quiet',
+              '--allow-empty',
+              '-m',
+              'advance after artifact publication',
+            ]);
+            assert.throws(
+              () =>
+                sourceStore.commitManifest(
+                  compensation,
+                  manifestPath,
+                  sourceManifest(artifactPath),
+                ),
+              (error: unknown) =>
+                error instanceof FindingWriterFenceGenerationMismatchError &&
+                /worktree topology changed/.test(error.message),
+            );
+            assert.equal(readFileSync(manifestPath, 'utf8'), manifestBefore);
+          } finally {
+            sourceStore.releaseCompensation(compensation);
+          }
+        } finally {
+          closeSourceFindingWriterFenceSession(fixture.authority, sourceSession);
+        }
+      },
+      { lockPath: fixture.authority.lockPath },
+    );
+  });
+
+  void test('foreign authority cannot close a source session or consume its pending transition', async () => {
+    const fixture = createFindingWriterFixture('source-session-foreign-close');
+    const foreignFixture = createFindingWriterFixture('source-session-foreign-close-authority');
+    const planDirectory = join(fixture.repoRoot, CAPABILITY_PLAN_RELATIVE_PATH);
+    const manifestPath = join(planDirectory, 'manifest.json');
+    const manifestSha256 = createHash('sha256').update(readFileSync(manifestPath)).digest('hex');
+    let beforeAssertions = 0;
+    const snapshot = prepareSyntheticFindingWriterFenceSnapshot(fixture.authority, [], {
+      prepareSourceTransition: () => ({
+        assertBeforeCurrent: () => {
+          beforeAssertions += 1;
+        },
+        prepareAfterCurrent: () => ({ commit: () => undefined }),
+        cancelBeforeCurrent: () => undefined,
+      }),
+    });
+
+    await testOnlyWithRegistryFileLockAsync(
+      manifestPath,
+      async (lease) => {
+        const signal = findingWriterTestSignal();
+        const capability = await consumeFindingWriterFenceSnapshot(
+          fixture.authority,
+          snapshot,
+          signal,
+        );
+        const sourceSession = await openSourceFindingWriterFenceSession(
+          fixture.authority,
+          capability,
+          lease,
+          signal,
+        );
+        const transition = prepareSourceFindingWriterFenceSessionTransition(sourceSession, lease, {
+          planDirectoryPath: planDirectory,
+          targetPath: manifestPath,
+          beforeSha256: manifestSha256,
+          afterSha256: manifestSha256,
+        });
+        assert.throws(
+          () => closeSourceFindingWriterFenceSession(foreignFixture.authority, sourceSession),
+          /foreign, fabricated, or already released/,
+        );
+        assertSourceFindingWriterFenceSessionCurrent(sourceSession, lease);
+        assertPendingSourceFindingWriterFenceSessionTransitionBeforeCurrent(
+          transition,
+          sourceSession,
+          lease,
+        );
+        assert.equal(beforeAssertions, 1);
+        closeSourceFindingWriterFenceSession(fixture.authority, sourceSession);
+      },
+      { lockPath: fixture.authority.lockPath },
+    );
+  });
+
+  void test('typed file deletion and symlink drift retry through the prepared admission coordinator', async () => {
+    const fixture = createFindingWriterFixture('source-session-typed-path-drift-retry');
+    for (const driftKind of ['DELETE', 'SYMLINK'] as const) {
+      const target = join(fixture.repoRoot, `admission-${driftKind.toLowerCase()}.txt`);
+      const symlinkTarget = join(
+        fixture.repoRoot,
+        `admission-${driftKind.toLowerCase()}-original.txt`,
+      );
+      writeFileSync(target, 'governed admission input\n', 'utf8');
+      if (driftKind === 'SYMLINK') {
+        writeFileSync(symlinkTarget, 'foreign symlink target\n', 'utf8');
+      }
+      let preparationAttempts = 0;
+
+      const completedAttempt = await testOnlyRunWithPreparedFindingWriterFenceAdmission(
+        {
+          resourcePath: join(fixture.repoRoot, CAPABILITY_PLAN_RELATIVE_PATH, 'manifest.json'),
+          lockPath: fixture.authority.lockPath,
+          prepareSnapshot: () => {
+            preparationAttempts += 1;
+            if (preparationAttempts > 1) {
+              rmSync(target, { force: true, recursive: true });
+              writeFileSync(target, 'governed admission input\n', 'utf8');
+            }
+            const observed = observeStableRegularFile(
+              target,
+              1024,
+              `${driftKind} admission fixture`,
+            );
+            const snapshot = prepareSyntheticFindingWriterFenceSnapshot(fixture.authority, [], {
+              assertCurrent: () =>
+                assertStableRegularFileCurrent(observed, 1024, `${driftKind} admission fixture`),
+            });
+            if (preparationAttempts === 1) {
+              rmSync(target);
+              if (driftKind === 'SYMLINK') symlinkSync(symlinkTarget, target);
+            }
+            return snapshot;
+          },
+          admit: async (snapshot, lease, signal) =>
+            openSourceFindingWriterFenceSession(
+              fixture.authority,
+              await consumeFindingWriterFenceSnapshot(fixture.authority, snapshot, signal),
+              lease,
+              signal,
+            ),
+          run: (session) => {
+            closeSourceFindingWriterFenceSession(fixture.authority, session);
+            return preparationAttempts;
+          },
+        },
+        2_000,
+      );
+      assert.equal(completedAttempt, 2);
+    }
+  });
+
+  void test('source precommit CAS preserves a foreign target introduced after staging', async () => {
+    const fixture = createFindingWriterFixture('source-session-precommit-foreign-target');
+    const planDirectory = join(fixture.repoRoot, CAPABILITY_PLAN_RELATIVE_PATH);
+    const manifestPath = join(planDirectory, 'manifest.json');
+    const artifact = 'candidate source artifact\n';
+    const artifactPath = sourceArtifactPath(planDirectory, artifact);
+    const foreignArtifact = 'foreign source artifact created during precommit\n';
+    let beforeChecks = 0;
+    const snapshot = prepareSyntheticFindingWriterFenceSnapshot(fixture.authority, [], {
+      assertCurrent: () => {
+        if (existsSync(artifactPath)) {
+          throw new FindingWriterFenceGenerationMismatchError(
+            'synthetic allocation currentness observed a foreign source target',
+          );
+        }
+      },
+      prepareSourceTransition: (transition) => {
+        assert.equal(transition.targetPath, artifactPath);
+        assert.equal(transition.beforeSha256, null);
+        return {
+          assertBeforeCurrent: () => {
+            beforeChecks += 1;
+            if (beforeChecks === 2) {
+              writeFileSync(artifactPath, foreignArtifact, 'utf8');
+              throw new FindingWriterFenceGenerationMismatchError(
+                'synthetic precommit CAS observed a foreign source target',
+              );
+            }
+            assert.equal(existsSync(artifactPath), false);
+          },
+          prepareAfterCurrent: () => {
+            throw new FindingWriterFenceGenerationMismatchError(
+              'foreign source target is not the candidate after-image',
+            );
+          },
+          cancelBeforeCurrent: () => assert.fail('foreign target cancelled as a before-image'),
+        };
+      },
+    });
+
+    await testOnlyWithRegistryFileLockAsync(
+      manifestPath,
+      async (lease) => {
+        const signal = findingWriterTestSignal();
+        const capability = await consumeFindingWriterFenceSnapshot(
+          fixture.authority,
+          snapshot,
+          signal,
+        );
+        const sourceSession = await openSourceFindingWriterFenceSession(
+          fixture.authority,
+          capability,
+          lease,
+          signal,
+        );
+        try {
+          const sourceStore = bindSourceFindingPublicationStore(lease, sourceSession);
+          const compensation = sourceStore.captureCompensation([manifestPath, artifactPath]);
+          try {
+            assert.throws(
+              () => sourceStore.publishImmutableArtifact(compensation, artifactPath, artifact),
+              (error: unknown) => error instanceof AggregateError,
+            );
+            assert.equal(beforeChecks, 2);
+            assert.equal(readFileSync(artifactPath, 'utf8'), foreignArtifact);
+            assert.deepEqual(
+              listAtomicWriteStagingFiles(
+                planDirectory,
+                (candidate) => candidate === basename(artifactPath),
+              ),
+              [],
+            );
+          } finally {
+            sourceStore.releaseCompensation(compensation);
+          }
+        } finally {
+          closeSourceFindingWriterFenceSession(fixture.authority, sourceSession);
+        }
+      },
+      { lockPath: fixture.authority.lockPath },
+    );
+  });
+
+  void test('source candidate validation failure rolls back bytes without committing allocation state', async () => {
+    const fixture = createFindingWriterFixture('source-session-candidate-validation-failure');
+    const planDirectory = join(fixture.repoRoot, CAPABILITY_PLAN_RELATIVE_PATH);
+    const manifestPath = join(planDirectory, 'manifest.json');
+    const artifact = 'candidate rejected after participant preparation\n';
+    const artifactPath = sourceArtifactPath(planDirectory, artifact);
+    const downstreamValidationFailure = new Error(
+      'synthetic downstream source participant validation failed',
+    );
+    let preparedCandidates = 0;
+    let candidateCommits = 0;
+    let cancellations = 0;
+    const snapshot = prepareSyntheticFindingWriterFenceSnapshot(fixture.authority, [], {
+      assertCurrent: () => {
+        if (existsSync(artifactPath)) {
+          throw new FindingWriterFenceGenerationMismatchError(
+            'synthetic allocation remains on its before-image until commit',
+          );
+        }
+      },
+      prepareSourceTransition: (transition) => {
+        assert.equal(transition.targetPath, artifactPath);
+        return {
+          assertBeforeCurrent: () => assert.equal(existsSync(artifactPath), false),
+          prepareAfterCurrent: () => {
+            preparedCandidates += 1;
+            assert.equal(readFileSync(artifactPath, 'utf8'), artifact);
+            if (preparedCandidates === 1) throw downstreamValidationFailure;
+            return {
+              commit: () => {
+                candidateCommits += 1;
+              },
+            };
+          },
+          cancelBeforeCurrent: () => {
+            assert.equal(existsSync(artifactPath), false);
+            cancellations += 1;
+          },
+        };
+      },
+    });
+
+    await testOnlyWithRegistryFileLockAsync(
+      manifestPath,
+      async (lease) => {
+        const signal = findingWriterTestSignal();
+        const capability = await consumeFindingWriterFenceSnapshot(
+          fixture.authority,
+          snapshot,
+          signal,
+        );
+        const sourceSession = await openSourceFindingWriterFenceSession(
+          fixture.authority,
+          capability,
+          lease,
+          signal,
+        );
+        try {
+          const sourceStore = bindSourceFindingPublicationStore(lease, sourceSession);
+          const compensation = sourceStore.captureCompensation([manifestPath, artifactPath]);
+          try {
+            assert.throws(
+              () => sourceStore.publishImmutableArtifact(compensation, artifactPath, artifact),
+              (error: unknown) => error === downstreamValidationFailure,
+            );
+            assert.equal(preparedCandidates, 3);
+            assert.equal(candidateCommits, 0);
+            assert.equal(cancellations, 1);
+            assert.equal(existsSync(artifactPath), false);
+            assertSourceFindingWriterFenceSessionCurrent(sourceSession, lease);
+          } finally {
+            sourceStore.releaseCompensation(compensation);
+          }
+        } finally {
+          closeSourceFindingWriterFenceSession(fixture.authority, sourceSession);
+        }
+      },
+      { lockPath: fixture.authority.lockPath },
+    );
+  });
+
+  void test('a source session advances artifact, manifest, cleanup, and reverse compensation as one exact cut', async () => {
+    const fixture = createFindingWriterFixture('source-session-transition-cut');
+    const planDirectory = join(fixture.repoRoot, CAPABILITY_PLAN_RELATIVE_PATH);
+    const manifestPath = join(planDirectory, 'manifest.json');
+    const manifestBefore = readFileSync(manifestPath, 'utf8');
+    const manifestDocument = JSON.parse(manifestBefore) as {
+      capability_reconciliation: {
+        finding_inventory: {
+          artifact_path: string;
+          artifact_sha256: string;
+          occurrence_count: number;
+        };
+      };
+    };
+    const oldArtifactPath = join(
+      fixture.repoRoot,
+      manifestDocument.capability_reconciliation.finding_inventory.artifact_path,
+    );
+    const oldArtifact = readFileSync(oldArtifactPath, 'utf8');
+    const nextArtifact = '{"source_ref":"SRC-TRANSITION","raw_id":"PROC-HIGH-900"}\n';
+    const nextArtifactPath = sourceArtifactPath(planDirectory, nextArtifact);
+    const nextArtifactSha256 = createHash('sha256').update(nextArtifact, 'utf8').digest('hex');
+    manifestDocument.capability_reconciliation.finding_inventory.artifact_path = join(
+      CAPABILITY_PLAN_RELATIVE_PATH,
+      basename(nextArtifactPath),
+    ).replaceAll('\\', '/');
+    manifestDocument.capability_reconciliation.finding_inventory.artifact_sha256 =
+      nextArtifactSha256;
+    manifestDocument.capability_reconciliation.finding_inventory.occurrence_count = 1;
+    const nextManifest = JSON.stringify(manifestDocument);
+    const snapshot = await prepareCompatibleWriters(fixture.authority);
+
+    await testOnlyWithRegistryFileLockAsync(
+      manifestPath,
+      async (lease) => {
+        const signal = findingWriterTestSignal();
+        const capability = await fixture.authority.consumeCompatibleWriters(snapshot, signal);
+        const sourceSession = await openSourceFindingWriterFenceSession(
+          fixture.authority,
+          capability,
+          lease,
+          signal,
+        );
+        try {
+          const sourceStore = bindSourceFindingPublicationStore(lease, sourceSession);
+          const compensation = sourceStore.captureCompensation([
+            manifestPath,
+            oldArtifactPath,
+            nextArtifactPath,
+          ]);
+          try {
+            sourceStore.publishImmutableArtifact(compensation, nextArtifactPath, nextArtifact);
+            assertSourceFindingWriterFenceSessionCurrent(sourceSession, lease);
+            sourceStore.commitManifest(compensation, manifestPath, nextManifest);
+            assertSourceFindingWriterFenceSessionCurrent(sourceSession, lease);
+            sourceStore.removeArtifact(compensation, oldArtifactPath);
+            assertSourceFindingWriterFenceSessionCurrent(sourceSession, lease);
+            assert.equal(readFileSync(manifestPath, 'utf8'), nextManifest);
+            assert.equal(readFileSync(nextArtifactPath, 'utf8'), nextArtifact);
+            assert.equal(existsSync(oldArtifactPath), false);
+
+            sourceStore.restoreCompensation(compensation);
+            assertSourceFindingWriterFenceSessionCurrent(sourceSession, lease);
+            assert.equal(readFileSync(manifestPath, 'utf8'), manifestBefore);
+            assert.equal(readFileSync(oldArtifactPath, 'utf8'), oldArtifact);
+            assert.equal(existsSync(nextArtifactPath), false);
+          } finally {
+            sourceStore.releaseCompensation(compensation);
+          }
+        } finally {
+          closeSourceFindingWriterFenceSession(fixture.authority, sourceSession);
+        }
+      },
+      { lockPath: fixture.authority.lockPath },
+    );
+  });
+
+  void test('source compensation preserves a foreign after-image and reports a typed conflict', async () => {
+    const fixture = createFindingWriterFixture('source-session-foreign-compensation');
+    const planDirectory = join(fixture.repoRoot, CAPABILITY_PLAN_RELATIVE_PATH);
+    const manifestPath = join(planDirectory, 'manifest.json');
+    const artifact = 'governed source artifact\n';
+    const artifactPath = sourceArtifactPath(planDirectory, artifact);
+    const foreignArtifact = 'foreign source artifact\n';
+    const snapshot = await prepareCompatibleWriters(fixture.authority);
+
+    await testOnlyWithRegistryFileLockAsync(
+      manifestPath,
+      async (lease) => {
+        const signal = findingWriterTestSignal();
+        const capability = await fixture.authority.consumeCompatibleWriters(snapshot, signal);
+        const sourceSession = await openSourceFindingWriterFenceSession(
+          fixture.authority,
+          capability,
+          lease,
+          signal,
+        );
+        try {
+          const sourceStore = bindSourceFindingPublicationStore(lease, sourceSession);
+          const compensation = sourceStore.captureCompensation([manifestPath, artifactPath]);
+          try {
+            sourceStore.publishImmutableArtifact(compensation, artifactPath, artifact);
+            writeFileSync(artifactPath, foreignArtifact, 'utf8');
+            assert.throws(
+              () => sourceStore.restoreCompensation(compensation),
+              (error: unknown) =>
+                error instanceof SourceFindingTransitionRollbackConflictError &&
+                error.targetPath === artifactPath,
+            );
+            assert.equal(readFileSync(artifactPath, 'utf8'), foreignArtifact);
+          } finally {
+            sourceStore.releaseCompensation(compensation);
+          }
+        } finally {
+          closeSourceFindingWriterFenceSession(fixture.authority, sourceSession);
+        }
+      },
+      { lockPath: fixture.authority.lockPath },
+    );
+  });
+
+  void test('registry rollback preserves a foreign concurrent image and emits a typed conflict', async () => {
+    const fixture = createFindingWriterFixture('registry-rollback-foreign-image');
+    const repositoryAuthority = await issueRepositoryMutationAuthority('add');
+    const foreignImage = 'foreign concurrent registry image\n';
+    const attemptedImage = 'attempted registry image\n';
+    const authority = Object.freeze({
+      repoRoot: fixture.repoRoot,
+      lockPath: fixture.authority.lockPath,
+      reservationPath: join(fixture.repoRoot, 'finding-id-reservations-v1.json'),
+    });
+    const snapshot = prepareSyntheticFindingWriterFenceSnapshot(authority, [], {
+      assertRegistryTransition: () => {
+        writeFileSync(fixture.registryPath, foreignImage, 'utf8');
+        throw new Error('forced final registry transition rejection');
+      },
+    });
+
+    await testOnlyWithRegistryFileLockAsync(
+      fixture.registryPath,
+      async (lease) => {
+        const signal = findingWriterTestSignal();
+        const capability = await consumeFindingWriterFenceSnapshot(authority, snapshot, signal);
+        const writerFence = await redeemRegistryFindingWriterFence(
+          authority,
+          capability,
+          lease,
+          {
+            kind: 'REGISTRY_MUTATION',
+            operation: 'add',
+            repositoryAuthority,
+          },
+          signal,
+        );
+        try {
+          assert.throws(
+            () =>
+              atomicWriteRegistryFile(
+                fixture.registryPath,
+                attemptedImage,
+                lease,
+                repositoryAuthority,
+                'add',
+                writerFence,
+              ),
+            (error: unknown) => {
+              if (!(error instanceof AggregateError)) return false;
+              const failures = error.errors as readonly unknown[];
+              const rollbackConflict = failures.find(
+                (failure) => failure instanceof RegistryTransitionRollbackConflictError,
+              );
+              return (
+                rollbackConflict instanceof RegistryTransitionRollbackConflictError &&
+                rollbackConflict.targetPath === fixture.registryPath &&
+                rollbackConflict.observedSha256 ===
+                  createHash('sha256').update(foreignImage, 'utf8').digest('hex')
+              );
+            },
+          );
+        } finally {
+          releaseFindingWriterFence(authority, writerFence);
+        }
+      },
+      { lockPath: authority.lockPath },
+    );
+    assert.equal(readFileSync(fixture.registryPath, 'utf8'), foreignImage);
+  });
+
+  void test('generic mutation rejects parent-symlink aliases before opening a staging path', () => {
+    const realParent = join(fixtureRoot, 'symlink-target', 'docs', 'reviews', '_registry');
+    const aliasParent = join(fixtureRoot, 'registry-alias');
+    mkdirSync(realParent, { recursive: true });
+    writeFileSync(join(realParent, 'findings.jsonl'), 'stable\n', 'utf8');
+    symlinkSync(realParent, aliasParent, 'dir');
+    const aliasPath = join(aliasParent, 'findings.jsonl');
+    assert.throws(
+      () =>
+        testOnlyWithRegistryFileLock(aliasPath, (lease) =>
+          testOnlyAtomicWriteFileWithRegistryLease(aliasPath, 'bypass\n', lease),
+        ),
+      (error: unknown) => {
+        if (!(error instanceof AnchoredFilesystemError)) return false;
+        assert.equal(error.code, 'SYMLINK_COMPONENT');
+        assert.equal(error.path, aliasParent);
+        return true;
+      },
+    );
+    assert.equal(readFileSync(join(realParent, 'findings.jsonl'), 'utf8'), 'stable\n');
+  });
+
+  void test('source publication crash points roll forward from the manifest commit marker', async () => {
+    for (const point of [
+      'ARTIFACT_DURABLE',
+      'MANIFEST_COMMITTED',
+      'CLEANUP_PROGRESS',
+    ] as const satisfies readonly SourceFindingPublicationFaultPoint[]) {
+      const fixture = createPublicationKernelFixture(`source-crash-${point.toLowerCase()}`);
+      await assert.rejects(
+        executeSourceFindingPublicationTransaction(fixture.transaction, {
+          checkpoint: (observed) => {
+            if (observed === point) throw new SourceFindingPublicationCrash(observed);
+          },
+        }),
+        (error: unknown) => error instanceof SourceFindingPublicationCrash && error.point === point,
+      );
+      assert.equal(fixture.rollbackCount(), 0);
+      await fixture.recover();
+      const selectedPath =
+        point === 'ARTIFACT_DURABLE' ? fixture.oldArtifactPath : fixture.newArtifactPath;
+      const supersededPath =
+        point === 'ARTIFACT_DURABLE' ? fixture.newArtifactPath : fixture.oldArtifactPath;
+      assert.equal(existsSync(selectedPath), true);
+      assert.equal(existsSync(supersededPath), false);
+      assert.equal(readFileSync(fixture.manifestPath, 'utf8'), sourceManifest(selectedPath));
+    }
+  });
+
+  void test('source publication ordinary phase failures restore the exact before-image', async () => {
+    for (const point of [
+      'ARTIFACT_DURABLE',
+      'MANIFEST_COMMITTED',
+      'CLEANUP_PROGRESS',
+    ] as const satisfies readonly SourceFindingPublicationFaultPoint[]) {
+      const fixture = createPublicationKernelFixture(`source-rollback-${point.toLowerCase()}`);
+      await assert.rejects(
+        executeSourceFindingPublicationTransaction(fixture.transaction, {
+          checkpoint: (observed) => {
+            if (observed === point) throw new Error(`forced failure at ${observed}`);
+          },
+        }),
+        new RegExp(`forced failure at ${point}`),
+      );
+      assert.equal(fixture.rollbackCount(), 1);
+      assert.equal(readFileSync(fixture.oldArtifactPath, 'utf8'), fixture.oldArtifact);
+      assert.equal(existsSync(fixture.newArtifactPath), false);
+      assert.equal(
+        readFileSync(fixture.manifestPath, 'utf8'),
+        sourceManifest(fixture.oldArtifactPath),
+      );
+    }
+  });
+
+  void test('source publication refuses immutable artifact collision without overwriting bytes', async () => {
+    const collision = 'attacker-controlled-collision\n';
+    const fixture = createPublicationKernelFixture('source-artifact-collision', collision);
+    await assert.rejects(
+      executeSourceFindingPublicationTransaction(fixture.transaction),
+      /immutable artifact collision/,
+    );
+    assert.equal(fixture.rollbackCount(), 1);
+    assert.equal(readFileSync(fixture.newArtifactPath, 'utf8'), collision);
+    assert.equal(readFileSync(fixture.oldArtifactPath, 'utf8'), fixture.oldArtifact);
+    assert.equal(
+      readFileSync(fixture.manifestPath, 'utf8'),
+      sourceManifest(fixture.oldArtifactPath),
+    );
+  });
+
+  void test('allocator-absent worktrees reject every retired mutation surface', async () => {
+    for (const [index, retiredSurface] of FINDING_WRITER_RETIRED_MUTATION_SURFACES.entries()) {
+      const repoRoot = join(fixtureRoot, `retired-writer-${index}`);
+      writeFindingAllocationSubstrateFixture(repoRoot);
+      mkdirSync(dirname(join(repoRoot, retiredSurface)), { recursive: true });
+      writeFileSync(join(repoRoot, retiredSurface), 'process.exitCode = 0;\n', 'utf8');
+      git(repoRoot, ['init', '--quiet', '--initial-branch=main']);
+      git(repoRoot, ['config', 'user.email', 'finding-registry-spec@invalid.local']);
+      git(repoRoot, ['config', 'user.name', 'finding-registry-spec']);
+      git(repoRoot, ['config', 'commit.gpgsign', 'false']);
+      git(repoRoot, ['add', '.']);
+      git(repoRoot, ['commit', '--quiet', '-m', 'retired writer fixture']);
+      await assert.rejects(
+        () => assertFindingWriterWorktreesFenced([repoRoot], repoRoot),
+        new RegExp(retiredSurface.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      );
+    }
+  });
+
+  void test('allocator-present worktrees reject committed and dirty retired-writer resurrection', async () => {
+    for (const resurrection of ['COMMITTED', 'DIRTY'] as const) {
+      const fixture = createFindingWriterFixture(
+        `retired-writer-resurrection-${resurrection.toLowerCase()}`,
+      );
+      const retiredSurface =
+        resurrection === 'COMMITTED'
+          ? FINDING_WRITER_RETIRED_MUTATION_SURFACES[0]
+          : FINDING_WRITER_RETIRED_MUTATION_SURFACES[1];
+      const retiredPath = join(fixture.repoRoot, retiredSurface);
+      mkdirSync(dirname(retiredPath), { recursive: true });
+      writeFileSync(retiredPath, 'process.exitCode = 0;\n', 'utf8');
+      if (resurrection === 'COMMITTED') {
+        git(fixture.repoRoot, ['add', retiredSurface]);
+        git(fixture.repoRoot, ['commit', '--quiet', '-m', 'resurrect retired writer']);
+      }
+      await assert.rejects(
+        () => assertFindingWriterWorktreesFenced([fixture.repoRoot], fixture.repoRoot),
+        new RegExp(retiredSurface.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      );
+    }
+  });
+
+  void test('writer compatibility is a committed content-digest protocol, not source-text heuristics', async () => {
+    const repoRoot = join(fixtureRoot, 'writer-protocol');
+    writeWriterProtocolFixture(repoRoot);
+    writeFindingInventoryFloorAuthority(repoRoot, [], {});
+    const protocolPath = join(repoRoot, FINDING_WRITER_AUTHORITY_PATH);
+    mkdirSync(resolve(protocolPath, '..'), { recursive: true });
+    const ariaAuthorityFiles = fixtureAriaAuthorityFiles(repoRoot);
+    const protocol = buildFindingWriterProtocolManifest(repoRoot, ariaAuthorityFiles);
+    assert.equal(writeFindingWriterProtocolManifest(repoRoot, ariaAuthorityFiles), true);
+    const firstGeneratedBytes = readFileSync(protocolPath, 'utf8');
+    assert.equal(
+      firstGeneratedBytes,
+      renderFindingWriterProtocolManifest(repoRoot, ariaAuthorityFiles),
+    );
+    assert.equal(writeFindingWriterProtocolManifest(repoRoot, ariaAuthorityFiles), false);
+    assert.equal(readFileSync(protocolPath, 'utf8'), firstGeneratedBytes);
+    assert.doesNotThrow(() => checkFindingWriterProtocolManifest(repoRoot, ariaAuthorityFiles));
+    git(repoRoot, ['config', 'user.email', 'finding-registry-spec@invalid.local']);
+    git(repoRoot, ['config', 'user.name', 'finding-registry-spec']);
+    git(repoRoot, ['config', 'commit.gpgsign', 'false']);
+    git(repoRoot, ['add', '.']);
+    git(repoRoot, ['commit', '--quiet', '-m', 'writer protocol fixture']);
+
+    await assert.doesNotReject(() => assertFindingWriterWorktreesFenced([repoRoot], repoRoot));
+
+    const allocatorPath = join(repoRoot, 'tools/gates/finding-registry.ts');
+    const committedAllocatorBytes = readFileSync(allocatorPath);
+    writeFileSync(
+      allocatorPath,
+      Buffer.concat([committedAllocatorBytes, Buffer.from('\n', 'utf8')]),
+    );
+    await assert.rejects(
+      () => assertFindingWriterWorktreesFenced([repoRoot], repoRoot),
+      /protocol-incompatible finding writers/,
+    );
+    writeFileSync(allocatorPath, committedAllocatorBytes);
+
+    const noncanonicalRoot = join(fixtureRoot, 'writer-protocol-noncanonical');
+    git(fixtureRoot, ['clone', '--quiet', repoRoot, noncanonicalRoot]);
+    git(noncanonicalRoot, ['config', 'user.email', 'finding-registry-spec@invalid.local']);
+    git(noncanonicalRoot, ['config', 'user.name', 'Finding Registry Spec']);
+    git(noncanonicalRoot, ['config', 'commit.gpgsign', 'false']);
+    writeFileSync(
+      join(noncanonicalRoot, FINDING_WRITER_AUTHORITY_PATH),
+      `${firstGeneratedBytes}\n`,
+      'utf8',
+    );
+    git(noncanonicalRoot, ['add', '.']);
+    git(noncanonicalRoot, ['commit', '--quiet', '-m', 'noncanonical writer manifest bytes']);
+    await assert.rejects(
+      () => assertFindingWriterWorktreesFenced([repoRoot, noncanonicalRoot], repoRoot),
+      /protocol-incompatible finding writers/,
+    );
+
+    const actionDivergentRoot = join(fixtureRoot, 'writer-protocol-action-divergent');
+    git(fixtureRoot, ['clone', '--quiet', repoRoot, actionDivergentRoot]);
+    git(actionDivergentRoot, ['config', 'user.email', 'finding-registry-spec@invalid.local']);
+    git(actionDivergentRoot, ['config', 'user.name', 'Finding Registry Spec']);
+    git(actionDivergentRoot, ['config', 'commit.gpgsign', 'false']);
+    writeFileSync(
+      join(actionDivergentRoot, '.github/actions/setup-rust-workspace/resolve-toolchain.mjs'),
+      'export const divergentActionHelper = true;\n',
+      'utf8',
+    );
+    assert.equal(
+      writeFindingWriterProtocolManifest(
+        actionDivergentRoot,
+        fixtureAriaAuthorityFiles(actionDivergentRoot),
+      ),
+      true,
+    );
+    git(actionDivergentRoot, ['add', '.']);
+    git(actionDivergentRoot, ['commit', '--quiet', '-m', 'divergent local action helper']);
+    await assert.rejects(
+      () => assertFindingWriterWorktreesFenced([repoRoot, actionDivergentRoot], repoRoot),
+      /protocol-incompatible finding writers/,
+    );
+
+    const divergentRoot = join(fixtureRoot, 'writer-protocol-divergent');
+    git(fixtureRoot, ['clone', '--quiet', repoRoot, divergentRoot]);
+    git(divergentRoot, ['config', 'user.email', 'finding-registry-spec@invalid.local']);
+    git(divergentRoot, ['config', 'user.name', 'Finding Registry Spec']);
+    git(divergentRoot, ['config', 'commit.gpgsign', 'false']);
+    const divergentWriterPath = join(divergentRoot, 'tools/gates/finding-registry.ts');
+    const canonicalWriterBytes = readFileSync(divergentWriterPath, 'utf8');
+    const divergentWriterBytes = canonicalWriterBytes.replace(
+      'export const allocationFloorForDomain = true;',
+      'export const allocationFloorForDomain = false;',
+    );
+    assert.notEqual(divergentWriterBytes, canonicalWriterBytes);
+    writeFileSync(divergentWriterPath, divergentWriterBytes, 'utf8');
+    assert.equal(
+      writeFindingWriterProtocolManifest(divergentRoot, fixtureAriaAuthorityFiles(divergentRoot)),
+      true,
+    );
+    git(divergentRoot, ['add', '.']);
+    git(divergentRoot, ['commit', '--quiet', '-m', 'divergent writer implementation']);
+    await assert.rejects(
+      () => assertFindingWriterWorktreesFenced([repoRoot, divergentRoot], repoRoot),
+      /protocol-incompatible finding writers/,
+    );
+
+    writeFileSync(
+      join(repoRoot, 'tools/gates/finding-registry.ts'),
+      'function cmdAdd() { return "uncommitted"; }\n',
+      'utf8',
+    );
+    await assert.rejects(
+      () => assertFindingWriterWorktreesFenced([repoRoot], repoRoot),
+      /protocol-incompatible finding writers/,
+    );
+
+    writeFileSync(
+      join(repoRoot, 'tools/gates/finding-registry.ts'),
+      'tools/gates/finding-registry.ts\n',
+      'utf8',
+    );
+    writeFileSync(
+      protocolPath,
+      `${JSON.stringify({
+        ...protocol,
+        $schema: 'aqua/finding-registry-writer-authority/v2',
+        schema_version: 2,
+        protocol_id: 'aqua.finding-registry-writer/v3',
+        repository_global_authority: {
+          ...protocol.repository_global_authority,
+          durable_branch_ref: 'refs/heads/automation/finding-registry-active',
+          compare_and_swap: 'GITHUB_SHA_EXPECTED_HEAD_V1',
+          idempotency: {
+            kind: 'PROTECTED_MAIN_COMMIT_TRAILERS_V1',
+            required_trailers: [
+              'Automation-Command-ID',
+              'Automation-Operation',
+              'Automation-Input-SHA256',
+              'Automation-Base-SHA',
+            ],
+          },
+        },
+      })}\n`,
+      'utf8',
+    );
+    git(repoRoot, ['add', '.']);
+    git(repoRoot, ['commit', '--quiet', '-m', 'stale fixed-branch authority']);
+    await assert.rejects(
+      () => assertFindingWriterWorktreesFenced([repoRoot], repoRoot),
+      /protocol-incompatible finding writers/,
+    );
+  });
+
+  void test('source-finding inventory floors are part of locked allocation authority', async () => {
+    const floorRepoRoot = join(fixtureRoot, 'source-floor-authority');
+    const sourceRawIds = [
+      'FE-HIGH-064',
+      'PLAT-LOW-902',
+      'MOB-MEDIUM-018',
+      'PROC-HIGH-016',
+      'RUST-CVE-002',
+      'DB-ADMIN-MEDIUM-007',
+    ];
+    const expectedFloors = {
+      FE: 64,
+      PLAT: 902,
+      MOB: 18,
+      PROC: 16,
+      RUST: 2,
+      'DB-ADMIN': 7,
+    };
+    const manifestPath = writeFindingInventoryFloorAuthority(
+      floorRepoRoot,
+      sourceRawIds,
+      expectedFloors,
+    );
+    const floors = reservedDomainFloorsFromManifest(manifestPath);
+    assert.equal(allocationFloorForDomain(floors, 'FE'), 64);
+    assert.equal(allocationFloorForDomain(floors, 'PLAT'), 902);
+    assert.equal(allocationFloorForDomain(floors, 'MOB'), 18);
+    assert.equal(allocationFloorForDomain(floors, 'PROC'), 16);
+    assert.equal(allocationFloorForDomain(floors, 'RUST'), 2);
+    assert.equal(allocationFloorForDomain(floors, 'DB'), 7);
+    assert.throws(
+      () =>
+        reservedDomainFloorsFromManifest(
+          join(floorRepoRoot, CAPABILITY_PLAN_RELATIVE_PATH, 'missing-manifest.json'),
+        ),
+      /capability manifest is missing/,
+    );
+    writeFindingInventoryFloorAuthority(floorRepoRoot, sourceRawIds, { ...expectedFloors, FE: 63 });
+    assert.throws(
+      () => reservedDomainFloorsFromManifest(manifestPath),
+      /differ from the content-addressed finding artifact/,
+    );
+    writeFindingInventoryFloorAuthority(floorRepoRoot, sourceRawIds, expectedFloors);
+
+    const writerFixture = createFindingWriterFixture(
+      'source-floor-registry',
+      expectedFloors,
+      sourceRawIds,
+    );
+    const { registryPath, schemaPath } = writerFixture;
+    const stubPath = join(fixtureRoot, 'source-floor-stub.json');
+    const repositoryAuthority = await issueRepositoryMutationAuthority('add');
+    writeFileSync(
+      stubPath,
+      JSON.stringify({
+        severity: 'HIGH',
+        title: 'Allocation above source inventory floor',
+        evidence: ['tools/gates/finding-registry-store.spec.ts:source-floor'],
+        owner_agent: 'context-manager',
+        raised_in_cycle: '2026-07-29-source-inventory',
+      }),
+      'utf8',
+    );
+    const allocated = await withFindingWriterMutation(
+      writerFixture,
+      repositoryAuthority,
+      'add',
+      (lease, writerFence) =>
+        appendAllocatedFinding(
+          'FE',
+          stubPath,
+          lease,
+          repositoryAuthority,
+          writerFence,
+          writerFixture.authority,
+          { registryPath, schemaPath },
+        ),
+    );
+    assert.equal(allocated, 0);
+    assert.match(readFileSync(registryPath, 'utf8'), /"id":"FE-HIGH-065"/);
+  });
+
   void test('non-Error action failures remain observable with native cause semantics', () => {
     const resourcePath = join(fixtureRoot, 'non-error-action.jsonl');
     const nonErrorFailure: unknown = undefined;
     let captured: unknown;
     try {
-      withRegistryFileLock(resourcePath, () => {
+      testOnlyWithRegistryFileLock(resourcePath, () => {
         throw nonErrorFailure;
       });
       assert.fail('throw undefined must not be treated as a successful action');
@@ -247,11 +2564,66 @@ if (childMode === '--worktree-allocator-child') {
     assert.ok('cause' in captured);
     assert.equal((captured as Error & { cause: unknown }).cause, undefined);
     assert.equal(Object.prototype.propertyIsEnumerable.call(captured, 'cause'), false);
-    assert.equal(existsSync(`${resourcePath}.lock`), false);
+    assert.equal(lstatSync(`${resourcePath}.lock`).size, 0);
+  });
+
+  void test('action and release failures are both preserved as fencing evidence', () => {
+    const resourcePath = join(fixtureRoot, 'dual-failure.jsonl');
+    const lockPath = `${resourcePath}.lock`;
+    assert.throws(
+      () =>
+        testOnlyWithRegistryFileLock(resourcePath, (lease) => {
+          writeFileSync(lease.lockPath, 'ownership-corrupted\n', 'utf8');
+          throw new Error('business mutation failed');
+        }),
+      (error: unknown) => {
+        if (!(error instanceof AggregateError)) return false;
+        assert.match(error.message, /action and lock release both failed/);
+        assert.equal(error.errors.length, 2);
+        assert.match(String(error.errors[0]), /business mutation failed/);
+        const releaseError: unknown = error.errors[1];
+        assert.ok(releaseError instanceof RegistryLockError);
+        assert.equal(releaseError.code, 'LOCK_OWNERSHIP_LOST');
+        return true;
+      },
+    );
+    rmSync(lockPath);
+  });
+
+  void test('async actions retain the lease until settlement and use the same failure contract', async () => {
+    const resourcePath = join(fixtureRoot, 'async-action.jsonl');
+    const result = await testOnlyWithRegistryFileLockAsync(resourcePath, async (lease) => {
+      await Promise.resolve();
+      testOnlyAtomicWriteFileWithRegistryLease(resourcePath, 'published\n', lease);
+      return 17;
+    });
+
+    assert.equal(result, 17);
+    assert.equal(readFileSync(resourcePath, 'utf8'), 'published\n');
+    assert.equal(lstatSync(`${resourcePath}.lock`).size, 0);
+
+    const nonErrorFailure: unknown = undefined;
+    let captured: unknown;
+    try {
+      await testOnlyWithRegistryFileLockAsync(resourcePath, async () => {
+        await Promise.resolve();
+        throw nonErrorFailure;
+      });
+      assert.fail('async throw undefined must not be treated as a successful action');
+    } catch (error) {
+      captured = error;
+    }
+
+    assert.ok(captured instanceof Error);
+    assert.match(captured.message, /action threw a non-Error value/);
+    assert.ok('cause' in captured);
+    assert.equal((captured as Error & { cause: unknown }).cause, undefined);
+    assert.equal(lstatSync(`${resourcePath}.lock`).size, 0);
   });
 
   void test('Git common-dir authority serializes and reserves across active worktrees', async () => {
-    const repoA = join(fixtureRoot, 'worktree-a');
+    const rootFixture = createFindingWriterFixture('worktree-a');
+    const repoA = rootFixture.repoRoot;
     const repoB = join(fixtureRoot, 'worktree-b');
     const registryRelativePath = join('docs', 'reviews', '_registry', 'findings.jsonl');
     const schemaRelativePath = join('docs', 'reviews', '_registry', 'findings.jsonl.schema.json');
@@ -259,41 +2631,25 @@ if (childMode === '--worktree-allocator-child') {
     const registryB = join(repoB, registryRelativePath);
     const schemaA = join(repoA, schemaRelativePath);
     const schemaB = join(repoB, schemaRelativePath);
-    mkdirSync(join(repoA, 'docs', 'reviews', '_registry'), { recursive: true });
-    copyFileSync(resolve(__dirname, '..', '..', schemaRelativePath), schemaA);
-    writeFileSync(registryA, '', 'utf8');
-
-    git(repoA, ['init', '--quiet', '--initial-branch=main']);
-    git(repoA, ['config', 'user.email', 'finding-registry-spec@invalid.local']);
-    git(repoA, ['config', 'user.name', 'finding-registry-spec']);
-    git(repoA, ['config', 'commit.gpgsign', 'false']);
-    git(repoA, ['add', '.']);
-    git(repoA, ['commit', '--quiet', '-m', 'fixture root']);
     git(repoA, ['worktree', 'add', '--quiet', '-b', 'worker-b', repoB]);
 
     const authorityA = resolveGitFindingAllocationAuthority(repoA);
     const authorityB = resolveGitFindingAllocationAuthority(repoB);
+    const repositoryAuthority = await issueRepositoryMutationAuthority('add');
     assert.equal(authorityA.lockPath, authorityB.lockPath);
     assert.equal(authorityA.reservationPath, authorityB.reservationPath);
     assert.deepEqual(authorityA.activeRegistryPaths(), [registryA, registryB].sort());
 
-    const makeStub = (
-      path: string,
-      severity: FindingSeverity,
-      title: string,
-      createdAt: string,
-    ): void => {
+    const makeStub = (path: string, severity: FindingSeverity, title: string): void => {
       writeFileSync(
         path,
         JSON.stringify({
           severity,
-          state: 'OPEN',
           title,
           layer: 1,
           evidence: ['tools/gates/finding-registry-store.spec.ts:worktree'],
           owner_agent: 'context-manager',
           raised_in_cycle: '2026-07-17-finding-id-allocator',
-          created_at: createdAt,
         }),
         'utf8',
       );
@@ -301,51 +2657,138 @@ if (childMode === '--worktree-allocator-child') {
 
     const stubA = join(fixtureRoot, 'worktree-a-stub.json');
     const stubB = join(fixtureRoot, 'worktree-b-stub.json');
-    makeStub(stubA, 'HIGH', 'Common-dir allocator finding from worktree A', '2026-07-17T01:00:00Z');
-    makeStub(stubB, 'LOW', 'Common-dir allocator finding from worktree B', '2026-07-17T01:00:01Z');
+    makeStub(stubA, 'HIGH', 'Common-dir allocator finding from worktree A');
+    makeStub(stubB, 'LOW', 'Common-dir allocator finding from worktree B');
 
     const registerPath = require.resolve('ts-node/register/transpile-only');
     const projectPath = resolve(__dirname, 'tsconfig.json');
+    interface PreparedAllocatorChild {
+      readonly process: ReturnType<typeof spawn>;
+      readonly ready: Promise<void>;
+      readonly completion: Promise<{
+        readonly code: number | null;
+        readonly signal: NodeJS.Signals | null;
+        readonly stdout: string;
+        readonly stderr: string;
+      }>;
+      release(): Promise<void>;
+    }
     const launch = (
       repoRoot: string,
       registryPath: string,
       schemaPath: string,
       stubPath: string,
-    ): Promise<void> =>
-      new Promise((resolveChild, rejectChild) => {
-        const child = spawn(
-          process.execPath,
-          [
-            '-r',
-            registerPath,
-            __filename,
-            '--worktree-allocator-child',
-            repoRoot,
-            registryPath,
-            schemaPath,
-            stubPath,
-          ],
-          {
-            env: { ...process.env, TS_NODE_PROJECT: projectPath },
-            stdio: ['ignore', 'pipe', 'pipe'],
-          },
-        );
-        let stderr = '';
-        child.stderr.setEncoding('utf8');
-        child.stderr.on('data', (chunk: string) => {
-          stderr += chunk;
+    ): PreparedAllocatorChild => {
+      const child = spawn(
+        process.execPath,
+        [
+          '-r',
+          registerPath,
+          __filename,
+          '--worktree-allocator-child',
+          repoRoot,
+          registryPath,
+          schemaPath,
+          stubPath,
+        ],
+        {
+          env: { ...process.env, TS_NODE_PROJECT: projectPath },
+          stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+        },
+      );
+      if (child.stdout === null || child.stderr === null) {
+        child.kill('SIGKILL');
+        throw new Error('Worktree allocator child did not expose stdout/stderr');
+      }
+      let stdout = '';
+      let stderr = '';
+      let readyObserved = false;
+      let resolveReady!: () => void;
+      let rejectReady!: (error: Error) => void;
+      const ready = new Promise<void>((resolveChild, rejectChild) => {
+        resolveReady = resolveChild;
+        rejectReady = rejectChild;
+      });
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (chunk: string) => {
+        stdout += chunk;
+      });
+      child.stderr.setEncoding('utf8');
+      child.stderr.on('data', (chunk: string) => {
+        stderr += chunk;
+      });
+      child.on('message', (message: unknown) => {
+        if (
+          typeof message === 'object' &&
+          message !== null &&
+          'kind' in message &&
+          message.kind === 'PREPARED_SNAPSHOT'
+        ) {
+          readyObserved = true;
+          resolveReady();
+        }
+      });
+      const completion = new Promise<{
+        readonly code: number | null;
+        readonly signal: NodeJS.Signals | null;
+        readonly stdout: string;
+        readonly stderr: string;
+      }>((resolveChild, rejectChild) => {
+        child.once('error', (error) => {
+          if (!readyObserved) rejectReady(error);
+          rejectChild(error);
         });
-        child.on('error', rejectChild);
-        child.on('exit', (code) => {
-          if (code === 0) resolveChild();
-          else rejectChild(new Error(`worktree allocator child exited ${code}: ${stderr}`));
+        child.once('close', (code, signal) => {
+          if (!readyObserved) {
+            rejectReady(
+              new Error(
+                `worktree allocator child closed before preparation: code=${String(code)} signal=${String(signal)} stderr=${stderr}`,
+              ),
+            );
+          }
+          resolveChild({ code, signal, stdout, stderr });
         });
       });
+      return {
+        process: child,
+        ready,
+        completion,
+        release: () =>
+          new Promise<void>((resolveRelease, rejectRelease) => {
+            child.send({ kind: 'RELEASE_PREPARED_SNAPSHOT' }, (error) => {
+              if (error === null) resolveRelease();
+              else rejectRelease(error);
+            });
+          }),
+      };
+    };
 
-    await Promise.all([
-      launch(repoA, registryA, schemaA, stubA),
-      launch(repoB, registryB, schemaB, stubB),
-    ]);
+    const allocatorA = launch(repoA, registryA, schemaA, stubA);
+    const allocatorB = launch(repoB, registryB, schemaB, stubB);
+    let allocatorResults: readonly Awaited<PreparedAllocatorChild['completion']>[] = [];
+    try {
+      await Promise.all([allocatorA.ready, allocatorB.ready]);
+      await Promise.all([allocatorA.release(), allocatorB.release()]);
+      allocatorResults = await Promise.all([allocatorA.completion, allocatorB.completion]);
+    } finally {
+      for (const allocator of [allocatorA, allocatorB]) {
+        if (allocator.process.exitCode === null && allocator.process.signalCode === null) {
+          allocator.process.kill('SIGKILL');
+        }
+      }
+      await Promise.allSettled([allocatorA.completion, allocatorB.completion]);
+    }
+    for (const result of allocatorResults) {
+      assert.deepEqual(
+        { code: result.code, signal: result.signal, stderr: result.stderr },
+        { code: 0, signal: null, stderr: '' },
+      );
+    }
+    const admissionAttempts = allocatorResults
+      .map((result) => /admission-attempts=(\d+)/.exec(result.stdout)?.[1])
+      .map((attempts) => Number.parseInt(attempts ?? '', 10))
+      .sort((left, right) => left - right);
+    assert.deepEqual(admissionAttempts, [1, 2]);
 
     const worktreeEntries = [registryA, registryB].flatMap((registryPath) =>
       readFileSync(registryPath, 'utf8')
@@ -366,377 +2809,400 @@ if (childMode === '--worktree-allocator-child') {
     // Prove active-worktree scanning independently of the reservation file:
     // allocate INFRA locally in B, then allocate via common authority in A.
     const localBStub = join(fixtureRoot, 'worktree-b-local-infra.json');
-    makeStub(localBStub, 'LOW', 'Active worktree high-water finding', '2026-07-17T01:00:02Z');
-    const localExit = withRegistryFileLock(registryB, (lease) =>
-      appendAllocatedFinding('INFRA', localBStub, lease, {
-        registryPath: registryB,
-        schemaPath: schemaB,
-      }),
+    makeStub(localBStub, 'LOW', 'Active worktree high-water finding');
+    const localExit = await withFindingWriterMutation(
+      { repoRoot: repoB, registryPath: registryB, schemaPath: schemaB, authority: authorityB },
+      repositoryAuthority,
+      'add',
+      (lease, writerFence) =>
+        appendAllocatedFinding(
+          'INFRA',
+          localBStub,
+          lease,
+          repositoryAuthority,
+          writerFence,
+          authorityB,
+          { registryPath: registryB, schemaPath: schemaB },
+        ),
     );
     assert.equal(localExit, 0);
 
     const authorityAStub = join(fixtureRoot, 'worktree-a-authority-infra.json');
-    makeStub(
-      authorityAStub,
-      'HIGH',
-      'Active worktree scanner advances the shared sequence',
-      '2026-07-17T01:00:03Z',
-    );
-    const authorityExit = withRegistryFileLock(
-      registryA,
-      (lease) =>
+    makeStub(authorityAStub, 'HIGH', 'Active worktree scanner advances the shared sequence');
+    const authorityExit = await withFindingWriterMutation(
+      { ...rootFixture, authority: authorityA },
+      repositoryAuthority,
+      'add',
+      (lease, writerFence) =>
         appendAllocatedFinding(
           'INFRA',
           authorityAStub,
           lease,
-          { registryPath: registryA, schemaPath: schemaA },
+          repositoryAuthority,
+          writerFence,
           authorityA,
+          { registryPath: registryA, schemaPath: schemaA },
         ),
-      { lockPath: authorityA.lockPath },
     );
     assert.equal(authorityExit, 0);
     assert.match(readFileSync(registryA, 'utf8'), /"id":"INFRA-HIGH-002"/);
 
-    const zeroStub = join(fixtureRoot, 'worktree-a-explicit-zero.json');
-    makeStub(
-      zeroStub,
-      'HIGH',
-      'Invalid zero suffix must not poison high water',
-      '2026-07-17T01:00:03.500Z',
+    const legacyWorktreeManifest = join(repoB, CAPABILITY_PLAN_RELATIVE_PATH, 'manifest.json');
+    const compatibleManifest = readFileSync(legacyWorktreeManifest, 'utf8');
+    writeFileSync(legacyWorktreeManifest, JSON.stringify({ legacy_plan: true }), 'utf8');
+    await assert.rejects(
+      () => prepareCompatibleWriters(authorityA),
+      /capability reconciliation is absent or invalid/i,
     );
-    const zeroValue = JSON.parse(readFileSync(zeroStub, 'utf8')) as Record<string, unknown>;
-    zeroValue['id'] = 'PROC-HIGH-000';
-    writeFileSync(zeroStub, JSON.stringify(zeroValue), 'utf8');
-    const registryBeforeZero = readFileSync(registryA, 'utf8');
-    const reservationsBeforeZero = readFileSync(authorityA.reservationPath, 'utf8');
-    const zeroExit = withRegistryFileLock(
-      registryA,
-      (lease) =>
-        appendExplicitFinding(
-          zeroStub,
-          lease,
-          { registryPath: registryA, schemaPath: schemaA },
-          authorityA,
-        ),
-      { lockPath: authorityA.lockPath },
-    );
-    assert.equal(zeroExit, 2);
-    assert.equal(readFileSync(registryA, 'utf8'), registryBeforeZero);
-    assert.equal(readFileSync(authorityA.reservationPath, 'utf8'), reservationsBeforeZero);
+    writeFileSync(legacyWorktreeManifest, compatibleManifest, 'utf8');
 
-    // The governed fixed-id path must not provide a cross-worktree bypass.
-    // Persist its high-water mark before the branch registry is replaced,
-    // reject the same explicit id in another active worktree, then prove the
-    // reservation survives removal of the worktree that carried the entry.
-    const explicitStub = join(fixtureRoot, 'worktree-b-explicit-proc.json');
-    makeStub(
-      explicitStub,
-      'MEDIUM',
-      'Governed explicit import advances shared high water',
-      '2026-07-17T01:00:04Z',
+    const legacyAllocatorPath = join(repoB, 'tools', 'gates', 'finding-registry.ts');
+    mkdirSync(join(repoB, 'tools', 'gates'), { recursive: true });
+    writeFileSync(
+      legacyAllocatorPath,
+      "function cmdAdd() { /* legacy direct writer */ }\nif (sub === 'add') cmdAdd();\n",
+      'utf8',
     );
-    const explicitValue = JSON.parse(readFileSync(explicitStub, 'utf8')) as Record<string, unknown>;
-    explicitValue['id'] = 'PROC-MEDIUM-010';
-    writeFileSync(explicitStub, JSON.stringify(explicitValue), 'utf8');
+    await assert.rejects(
+      () => prepareCompatibleWriters(authorityA),
+      /protocol-incompatible finding writers/,
+    );
 
-    const explicitExit = withRegistryFileLock(
-      registryB,
-      (lease) =>
-        appendExplicitFinding(
-          explicitStub,
-          lease,
-          { registryPath: registryB, schemaPath: schemaB },
-          authorityB,
-        ),
-      { lockPath: authorityB.lockPath },
-    );
-    assert.equal(explicitExit, 0);
-    const duplicateExit = withRegistryFileLock(
-      registryA,
-      (lease) =>
-        appendExplicitFinding(
-          explicitStub,
-          lease,
-          { registryPath: registryA, schemaPath: schemaA },
-          authorityA,
-        ),
-      { lockPath: authorityA.lockPath },
-    );
-    assert.equal(duplicateExit, 1);
-
-    const afterExplicit = JSON.parse(readFileSync(authorityA.reservationPath, 'utf8')) as {
-      domains: Record<string, { sequence: number }>;
-    };
-    assert.equal(afterExplicit.domains['PROC']?.sequence, 10);
     git(repoA, ['worktree', 'remove', '--force', repoB]);
 
     const afterRemovalStub = join(fixtureRoot, 'worktree-a-after-removal.json');
-    makeStub(
-      afterRemovalStub,
-      'LOW',
-      'Durable reservation survives worktree removal',
-      '2026-07-17T01:00:05Z',
-    );
-    const afterRemovalExit = withRegistryFileLock(
-      registryA,
-      (lease) =>
+    makeStub(afterRemovalStub, 'LOW', 'Durable reservation survives worktree removal');
+    const afterRemovalExit = await withFindingWriterMutation(
+      { ...rootFixture, authority: authorityA },
+      repositoryAuthority,
+      'add',
+      (lease, writerFence) =>
         appendAllocatedFinding(
           'PROC',
           afterRemovalStub,
           lease,
-          { registryPath: registryA, schemaPath: schemaA },
+          repositoryAuthority,
+          writerFence,
           authorityA,
+          { registryPath: registryA, schemaPath: schemaA },
         ),
-      { lockPath: authorityA.lockPath },
     );
     assert.equal(afterRemovalExit, 0);
-    assert.match(readFileSync(registryA, 'utf8'), /"id":"PROC-LOW-011"/);
-
-    const cveStub = join(fixtureRoot, 'worktree-a-explicit-cve.json');
-    makeStub(
-      cveStub,
-      'HIGH',
-      'CVE classifier advances the domain reservation',
-      '2026-07-17T01:00:06Z',
-    );
-    const cveValue = JSON.parse(readFileSync(cveStub, 'utf8')) as Record<string, unknown>;
-    cveValue['id'] = 'RUST-CVE-020';
-    writeFileSync(cveStub, JSON.stringify(cveValue), 'utf8');
-    const cveExit = withRegistryFileLock(
-      registryA,
-      (lease) =>
-        appendExplicitFinding(
-          cveStub,
-          lease,
-          { registryPath: registryA, schemaPath: schemaA },
-          authorityA,
-        ),
-      { lockPath: authorityA.lockPath },
-    );
-    assert.equal(cveExit, 0);
-
-    const afterCveStub = join(fixtureRoot, 'worktree-a-after-cve.json');
-    makeStub(
-      afterCveStub,
-      'LOW',
-      'Allocation follows an explicit CVE classifier',
-      '2026-07-17T01:00:07Z',
-    );
-    const afterCveExit = withRegistryFileLock(
-      registryA,
-      (lease) =>
-        appendAllocatedFinding(
-          'RUST',
-          afterCveStub,
-          lease,
-          { registryPath: registryA, schemaPath: schemaA },
-          authorityA,
-        ),
-      { lockPath: authorityA.lockPath },
-    );
-    assert.equal(afterCveExit, 0);
-    assert.match(readFileSync(registryA, 'utf8'), /"id":"RUST-LOW-021"/);
+    assert.match(readFileSync(registryA, 'utf8'), /"id":"PROC-LOW-003"/);
   });
 
-  void test('allocated append validates schema and writes under the held lease', () => {
-    const resourcePath = join(fixtureRoot, 'schema-validated.jsonl');
-    const schemaPath = resolve(
-      __dirname,
-      '..',
-      '..',
-      'docs',
-      'reviews',
-      '_registry',
-      'findings.jsonl.schema.json',
+  void test('active registries validate schema and bind every immutable creation field', async () => {
+    const fixture = createFindingWriterFixture('identity-worktree-a');
+    const repoB = join(fixtureRoot, 'identity-worktree-b');
+    git(fixture.repoRoot, ['worktree', 'add', '--quiet', '-b', 'identity-worker-b', repoB]);
+    const registryB = join(repoB, 'docs', 'reviews', '_registry', 'findings.jsonl');
+    const authority = resolveGitFindingAllocationAuthority(fixture.repoRoot);
+    const base = findingFixture();
+    writeFindingRegistryFixture(fixture.registryPath, [base]);
+    writeFindingRegistryFixture(registryB, [findingFixture({ state: 'IN-PROGRESS' })]);
+    await assert.doesNotReject(() => prepareCompatibleWriters(authority));
+
+    const immutableVariants: readonly (readonly [string, Partial<Finding>])[] = [
+      ['severity', { severity: 'LOW' }],
+      ['title', { title: 'Different immutable allocation title' }],
+      ['layer', { layer: 2 }],
+      ['evidence', { evidence: ['tools/gates/finding-registry.ts:identity'] }],
+      ['rule_violated', { rule_violated: 'Different immutable rule' }],
+      ['owner_agent', { owner_agent: 'architecture-arbiter' }],
+      ['raised_in_cycle', { raised_in_cycle: '2026-08-08-different-cycle' }],
+      ['review_file', { review_file: 'docs/reviews/architecture/2026-08-08-different-cycle.md' }],
+      ['created_at', { created_at: '2026-08-08T00:00:01.000Z' }],
+      ['deadline', { deadline: '2026-08-31' }],
+      ['owner_user', { owner_user: 'owner-handle' }],
+      ['override_of', { override_of: 'PROC-HIGH-014' }],
+      ['notes', { notes: 'different immutable note' }],
+      ['narrative', { narrative: ['different immutable narrative'] }],
+    ];
+    for (const [field, override] of immutableVariants) {
+      writeFindingRegistryFixture(registryB, [
+        findingFixture({ state: 'IN-PROGRESS', ...override }),
+      ]);
+      await assert.rejects(
+        () => prepareCompatibleWriters(authority),
+        new RegExp(
+          `assign PROC-HIGH-015 to different immutable finding identities.*${field}|different immutable finding identities`,
+        ),
+      );
+    }
+
+    writeFileSync(registryB, '{"id":\n', 'utf8');
+    await assert.rejects(
+      () => prepareCompatibleWriters(authority),
+      /Finding registry JSON is invalid: .*findings\.jsonl:1/,
     );
+
+    const invalidIdEntry: Record<string, unknown> = { ...findingFixture(), id: 15 };
+    const { content_hash: _invalidHash, ...invalidForHash } = invalidIdEntry;
+    invalidIdEntry['content_hash'] = createHash('sha256')
+      .update(canonicalFindingFixtureJson(invalidForHash), 'utf8')
+      .digest('hex');
+    writeFileSync(registryB, `${JSON.stringify(invalidIdEntry)}\n`, 'utf8');
+    await assert.rejects(
+      () => prepareCompatibleWriters(authority),
+      /row violates its canonical schema: .*findings\.jsonl:1/,
+    );
+
+    writeFindingRegistryFixture(registryB, [base, base]);
+    await assert.rejects(
+      () => prepareCompatibleWriters(authority),
+      /repeats id PROC-HIGH-015: .*findings\.jsonl:2/,
+    );
+    git(fixture.repoRoot, ['worktree', 'remove', '--force', repoB]);
+  });
+
+  void test('allocation snapshot unions sibling floors and orphan headings', async () => {
+    const fixture = createFindingWriterFixture('allocation-union-a');
+    const repoB = join(fixtureRoot, 'allocation-union-b');
+    git(fixture.repoRoot, ['worktree', 'add', '--quiet', '-b', 'allocation-union-worker-b', repoB]);
+    writeFindingInventoryFloorAuthority(fixture.repoRoot, ['FE-HIGH-064'], { FE: 64 });
+    writeFindingInventoryFloorAuthority(repoB, ['FE-HIGH-080'], { FE: 80 });
+    writeFileSync(
+      join(fixture.repoRoot, 'docs', 'reviews', 'orphan-findings.md'),
+      '# Orphan findings\n\n## ORPHAN-HIGH-416 — occupied\n',
+      'utf8',
+    );
+    writeFileSync(
+      join(repoB, 'docs', 'reviews', 'orphan-findings.md'),
+      '# Orphan findings\n\n## ORPHAN-LOW-450 — occupied\n',
+      'utf8',
+    );
+    const authority = resolveGitFindingAllocationAuthority(fixture.repoRoot);
+    const governedFixture = { ...fixture, authority };
+    const repositoryAuthority = await issueRepositoryMutationAuthority('add');
+    const feStub = join(fixtureRoot, 'allocation-union-fe.json');
+    const orphanStub = join(fixtureRoot, 'allocation-union-orphan.json');
+    for (const [path, title] of [
+      [feStub, 'Allocate beyond every active source inventory floor'],
+      [orphanStub, 'Allocate beyond every active orphan markdown heading'],
+    ] as const) {
+      writeFileSync(
+        path,
+        JSON.stringify({
+          severity: 'HIGH',
+          title,
+          evidence: ['tools/gates/finding-registry-store.spec.ts:allocation-union'],
+          owner_agent: 'context-manager',
+          raised_in_cycle: '2026-08-08-writer-authority',
+        }),
+        'utf8',
+      );
+    }
+    const append = (domain: string, stubPath: string): Promise<number> =>
+      withFindingWriterMutation(governedFixture, repositoryAuthority, 'add', (lease, writerFence) =>
+        appendAllocatedFinding(
+          domain,
+          stubPath,
+          lease,
+          repositoryAuthority,
+          writerFence,
+          authority,
+          { registryPath: fixture.registryPath, schemaPath: fixture.schemaPath },
+        ),
+      );
+    assert.equal(await append('FE', feStub), 0);
+    assert.equal(await append('ORPHAN', orphanStub), 0);
+    const registryRaw = readFileSync(fixture.registryPath, 'utf8');
+    assert.match(registryRaw, /"id":"FE-HIGH-081"/);
+    assert.match(registryRaw, /"id":"ORPHAN-HIGH-451"/);
+    git(fixture.repoRoot, ['worktree', 'remove', '--force', repoB]);
+  });
+
+  void test('allocation snapshot fences sibling registry and markdown mutations after capture', async () => {
+    const fixture = createFindingWriterFixture('allocation-barrier-a');
+    const repoB = join(fixtureRoot, 'allocation-barrier-b');
+    git(fixture.repoRoot, [
+      'worktree',
+      'add',
+      '--quiet',
+      '-b',
+      'allocation-barrier-worker-b',
+      repoB,
+    ]);
+    const registryB = join(repoB, 'docs', 'reviews', '_registry', 'findings.jsonl');
+    const orphanB = join(repoB, 'docs', 'reviews', 'orphan-findings.md');
+    const authority = resolveGitFindingAllocationAuthority(fixture.repoRoot);
+    const governedFixture = { ...fixture, authority };
+    const stubPath = join(fixtureRoot, 'allocation-barrier-stub.json');
+    writeFileSync(
+      stubPath,
+      JSON.stringify({
+        severity: 'HIGH',
+        title: 'Allocation snapshot race barrier fixture',
+        evidence: ['tools/gates/finding-registry-store.spec.ts:allocation-barrier'],
+        owner_agent: 'context-manager',
+        raised_in_cycle: '2026-08-08-writer-authority',
+      }),
+      'utf8',
+    );
+
+    for (const mutation of [
+      {
+        path: registryB,
+        apply: () => writeFindingRegistryFixture(registryB, [findingFixture()]),
+      },
+      {
+        path: orphanB,
+        apply: () =>
+          writeFileSync(orphanB, '# Orphan findings\n\n## ORPHAN-HIGH-500 — occupied\n', 'utf8'),
+      },
+    ]) {
+      const beforeRegistry = readFileSync(fixture.registryPath, 'utf8');
+      const repositoryAuthority = await issueRepositoryMutationAuthority('add');
+      await withFindingWriterMutation(
+        governedFixture,
+        repositoryAuthority,
+        'add',
+        (lease, writerFence) => {
+          mutation.apply();
+          assert.throws(
+            () =>
+              appendAllocatedFinding(
+                'PROC',
+                stubPath,
+                lease,
+                repositoryAuthority,
+                writerFence,
+                authority,
+                { registryPath: fixture.registryPath, schemaPath: fixture.schemaPath },
+              ),
+            (error: unknown) => {
+              if (!(error instanceof AnchoredFilesystemError)) return false;
+              assert.equal(error.code, 'STABLE_REGULAR_FILE_CHANGED');
+              assert.equal(error.path, mutation.path);
+              return true;
+            },
+          );
+          return 0;
+        },
+      );
+      assert.equal(readFileSync(fixture.registryPath, 'utf8'), beforeRegistry);
+      writeFileSync(registryB, '', 'utf8');
+      writeFileSync(orphanB, '# Orphan findings\n', 'utf8');
+    }
+    git(fixture.repoRoot, ['worktree', 'remove', '--force', repoB]);
+  });
+
+  void test('allocated append validates schema and writes under the held lease', async () => {
+    const writerFixture = createFindingWriterFixture('schema-validated');
+    const resourcePath = writerFixture.registryPath;
+    const { schemaPath } = writerFixture;
     const validStubPath = join(fixtureRoot, 'valid-stub.json');
-    writeFileSync(resourcePath, '', 'utf8');
+    const repositoryAuthority = await issueRepositoryMutationAuthority('add');
+    const runAppend = (stubPath: string): Promise<number> =>
+      withFindingWriterMutation(writerFixture, repositoryAuthority, 'add', (lease, writerFence) =>
+        appendAllocatedFinding(
+          'PROC',
+          stubPath,
+          lease,
+          repositoryAuthority,
+          writerFence,
+          writerFixture.authority,
+          { registryPath: resourcePath, schemaPath },
+        ),
+      );
     writeFileSync(
       validStubPath,
       JSON.stringify({
         severity: 'HIGH',
-        state: 'OPEN',
         title: 'Schema-valid allocator test finding',
         evidence: ['tools/gates/finding-registry-store.spec.ts:allocator'],
         owner_agent: 'context-manager',
         raised_in_cycle: '2026-07-17-finding-id-allocator',
-        created_at: '2026-07-17T00:00:00.000Z',
       }),
       'utf8',
     );
 
-    const exitCode = withRegistryFileLock(resourcePath, (lease) =>
-      appendAllocatedFinding('PROC', validStubPath, lease, {
-        registryPath: resourcePath,
-        schemaPath,
-      }),
-    );
+    const exitCode = await runAppend(validStubPath);
     assert.equal(exitCode, 0);
     const afterValid = readFileSync(resourcePath, 'utf8');
     assert.match(afterValid, /"id":"PROC-HIGH-001"/);
+    assert.match(afterValid, /"state":"OPEN"/);
+    assert.match(afterValid, new RegExp(`"created_at":"${OIDC_EFFECTIVE_AT}"`));
     assert.doesNotMatch(afterValid, /"layer":/);
-
-    const explicitWithoutLayerPath = join(fixtureRoot, 'explicit-without-layer.json');
-    writeFileSync(
-      explicitWithoutLayerPath,
-      JSON.stringify({
-        id: 'CLAUDE-LOW-001',
-        severity: 'LOW',
-        state: 'OPEN',
-        title: 'Schema-valid explicit finding without a layer',
-        evidence: ['tools/gates/finding-registry-store.spec.ts:explicit-no-layer'],
-        owner_agent: 'context-manager',
-        raised_in_cycle: '2026-07-17-finding-id-allocator',
-        created_at: '2026-07-17T00:00:00.500Z',
-      }),
-      'utf8',
-    );
-    const explicitWithoutLayerExit = withRegistryFileLock(resourcePath, (lease) =>
-      appendExplicitFinding(explicitWithoutLayerPath, lease, {
-        registryPath: resourcePath,
-        schemaPath,
-      }),
-    );
-    assert.equal(explicitWithoutLayerExit, 0);
-    const afterExplicitWithoutLayer = readFileSync(resourcePath, 'utf8');
-    assert.match(afterExplicitWithoutLayer, /"id":"CLAUDE-LOW-001"/);
-
-    const mismatchedClassifierPath = join(fixtureRoot, 'explicit-mismatched-classifier.json');
-    writeFileSync(
-      mismatchedClassifierPath,
-      JSON.stringify({
-        id: 'CLAUDE-HIGH-002',
-        severity: 'LOW',
-        state: 'OPEN',
-        title: 'Classifier and severity must remain consistent',
-        owner_agent: 'context-manager',
-        raised_in_cycle: '2026-07-17-finding-id-allocator',
-        created_at: '2026-07-17T00:00:00.750Z',
-      }),
-      'utf8',
-    );
-    const mismatchedClassifierExit = withRegistryFileLock(resourcePath, (lease) =>
-      appendExplicitFinding(mismatchedClassifierPath, lease, {
-        registryPath: resourcePath,
-        schemaPath,
-      }),
-    );
-    assert.equal(mismatchedClassifierExit, 2);
-    assert.equal(readFileSync(resourcePath, 'utf8'), afterExplicitWithoutLayer);
 
     const invalidStubPath = join(fixtureRoot, 'invalid-stub.json');
     writeFileSync(
       invalidStubPath,
       JSON.stringify({
         severity: 'LOW',
-        state: 'OPEN',
         title: 'short',
         layer: 1,
         owner_agent: 'context-manager',
         raised_in_cycle: '2026-07-17-finding-id-allocator',
-        created_at: '2026-07-17T00:00:01.000Z',
       }),
       'utf8',
     );
-    const invalidExitCode = withRegistryFileLock(resourcePath, (lease) =>
-      appendAllocatedFinding('PROC', invalidStubPath, lease, {
-        registryPath: resourcePath,
-        schemaPath,
-      }),
-    );
+    const invalidExitCode = await runAppend(invalidStubPath);
     assert.equal(invalidExitCode, 1);
-    assert.equal(readFileSync(resourcePath, 'utf8'), afterExplicitWithoutLayer);
+    assert.equal(readFileSync(resourcePath, 'utf8'), afterValid);
+
+    const callerOwnedAuditPath = join(fixtureRoot, 'caller-owned-audit-fields.json');
+    writeFileSync(
+      callerOwnedAuditPath,
+      JSON.stringify({
+        severity: 'HIGH',
+        state: 'OPEN',
+        title: 'Caller must not choose repository audit fields',
+        owner_agent: 'context-manager',
+        raised_in_cycle: '2026-07-29-repository-authority',
+      }),
+      'utf8',
+    );
+    await assert.rejects(
+      () => runAppend(callerOwnedAuditPath),
+      /authority-owned or unsupported fields: state/,
+    );
+    assert.equal(readFileSync(resourcePath, 'utf8'), afterValid);
 
     const invalidEvidenceStubPath = join(fixtureRoot, 'invalid-evidence-stub.json');
     writeFileSync(
       invalidEvidenceStubPath,
       JSON.stringify({
         severity: 'HIGH',
-        state: 'OPEN',
         title: 'Canonical evidence writer validation test finding',
         evidence: ['GitHub Actions run 123456'],
         narrative: ['GitHub Actions run 123456 exposed the defect.'],
         owner_agent: 'context-manager',
         raised_in_cycle: '2026-07-17-finding-id-allocator',
-        created_at: '2026-07-17T00:00:02.000Z',
       }),
       'utf8',
     );
-    const invalidEvidenceExit = withRegistryFileLock(resourcePath, (lease) =>
-      appendAllocatedFinding('PROC', invalidEvidenceStubPath, lease, {
-        registryPath: resourcePath,
-        schemaPath,
-      }),
-    );
+    const invalidEvidenceExit = await runAppend(invalidEvidenceStubPath);
     assert.equal(invalidEvidenceExit, 1);
-    assert.equal(readFileSync(resourcePath, 'utf8'), afterExplicitWithoutLayer);
-
-    const invalidExplicitEvidencePath = join(fixtureRoot, 'invalid-explicit-evidence.json');
-    writeFileSync(
-      invalidExplicitEvidencePath,
-      JSON.stringify({
-        id: 'CLAUDE-HIGH-003',
-        severity: 'HIGH',
-        state: 'OPEN',
-        title: 'Explicit imports share canonical evidence validation',
-        evidence: ['GitHub Actions run 123456'],
-        owner_agent: 'context-manager',
-        raised_in_cycle: '2026-07-17-finding-id-allocator',
-        created_at: '2026-07-17T00:00:02.250Z',
-      }),
-      'utf8',
-    );
-    const invalidExplicitEvidenceExit = withRegistryFileLock(resourcePath, (lease) =>
-      appendExplicitFinding(invalidExplicitEvidencePath, lease, {
-        registryPath: resourcePath,
-        schemaPath,
-      }),
-    );
-    assert.equal(invalidExplicitEvidenceExit, 1);
-    assert.equal(readFileSync(resourcePath, 'utf8'), afterExplicitWithoutLayer);
+    assert.equal(readFileSync(resourcePath, 'utf8'), afterValid);
 
     const emptyHighEvidenceStubPath = join(fixtureRoot, 'empty-high-evidence-stub.json');
     writeFileSync(
       emptyHighEvidenceStubPath,
       JSON.stringify({
         severity: 'HIGH',
-        state: 'OPEN',
         title: 'High-severity findings require resolvable evidence',
         evidence: [],
         owner_agent: 'context-manager',
         raised_in_cycle: '2026-07-17-finding-id-allocator',
-        created_at: '2026-07-17T00:00:02.500Z',
       }),
       'utf8',
     );
-    const emptyHighEvidenceExit = withRegistryFileLock(resourcePath, (lease) =>
-      appendAllocatedFinding('PROC', emptyHighEvidenceStubPath, lease, {
-        registryPath: resourcePath,
-        schemaPath,
-      }),
-    );
+    const emptyHighEvidenceExit = await runAppend(emptyHighEvidenceStubPath);
     assert.equal(emptyHighEvidenceExit, 1);
-    assert.equal(readFileSync(resourcePath, 'utf8'), afterExplicitWithoutLayer);
+    assert.equal(readFileSync(resourcePath, 'utf8'), afterValid);
   });
 
-  void test('canonical evidence SSOT accepts every supported path shape', () => {
-    const resourcePath = join(fixtureRoot, 'canonical-evidence.jsonl');
-    const schemaPath = resolve(
-      __dirname,
-      '..',
-      '..',
-      'docs',
-      'reviews',
-      '_registry',
-      'findings.jsonl.schema.json',
-    );
+  void test('canonical evidence SSOT accepts every supported path shape', async () => {
+    const writerFixture = createFindingWriterFixture('canonical-evidence');
+    const resourcePath = writerFixture.registryPath;
+    const { schemaPath } = writerFixture;
     const stubPath = join(fixtureRoot, 'canonical-evidence-stub.json');
-    writeFileSync(resourcePath, '', 'utf8');
+    const repositoryAuthority = await issueRepositoryMutationAuthority('add');
     writeFileSync(
       stubPath,
       JSON.stringify({
         severity: 'HIGH',
-        state: 'OPEN',
         title: 'Every canonical evidence path shape remains accepted',
         evidence: [
           'file.ts',
@@ -749,199 +3215,642 @@ if (childMode === '--worktree-allocator-child') {
         narrative: ['Free-form diagnostic prose remains valid here.'],
         owner_agent: 'context-manager',
         raised_in_cycle: '2026-07-17-finding-id-allocator',
-        created_at: '2026-07-17T00:00:03.000Z',
       }),
       'utf8',
     );
 
-    const exitCode = withRegistryFileLock(resourcePath, (lease) =>
-      appendAllocatedFinding('PROC', stubPath, lease, { registryPath: resourcePath, schemaPath }),
+    const exitCode = await withFindingWriterMutation(
+      writerFixture,
+      repositoryAuthority,
+      'add',
+      (lease, writerFence) =>
+        appendAllocatedFinding(
+          'PROC',
+          stubPath,
+          lease,
+          repositoryAuthority,
+          writerFence,
+          writerFixture.authority,
+          { registryPath: resourcePath, schemaPath },
+        ),
     );
     assert.equal(exitCode, 0);
     assert.match(
       readFileSync(resourcePath, 'utf8'),
       /"narrative":\["Free-form diagnostic prose remains valid here\."\]/,
     );
-
-    const validEntry = JSON.parse(readFileSync(resourcePath, 'utf8').trim()) as Finding;
-    const invalidRecentEntry = { ...validEntry, evidence: ['GitHub Actions run 123456'] };
-    assert.match(
-      validateRegistrySuffixForRechain([invalidRecentEntry], 0, schemaPath).join('\n'),
-      /refusing|evidence\[0\]|GitHub Actions run 123456/,
-    );
-    const validBranchTail = { ...validEntry, id: 'PROC-HIGH-999' };
-    assert.match(
-      validateRegistrySuffixForRechain(
-        [validEntry, invalidRecentEntry, validBranchTail],
-        1,
-        schemaPath,
-      ).join('\n'),
-      /entry 1.*evidence\[0\]/,
-      'semantic validation must start at the canonical boundary even when rehashing starts later',
-    );
-    const historicalEntry = {
-      ...invalidRecentEntry,
-      created_at: '2026-05-09T23:59:59.999Z',
-    };
-    assert.deepEqual(validateRegistrySuffixForRechain([historicalEntry], 0, schemaPath), []);
-
-    const unchained: Finding[] = [
-      { ...validEntry, id: 'PROC-HIGH-101' },
-      { ...validEntry, id: 'PROC-HIGH-102' },
-      { ...validEntry, id: 'PROC-HIGH-103' },
-    ];
-    const initialized = prepareRegistryRechain(unchained, 0, 0, schemaPath);
-    if (!initialized.ok) assert.fail(initialized.failures.join('\n'));
-    assert.equal(initialized.ok, true);
-
-    const brokenBeforeRequestedStart = structuredClone(initialized.entries);
-    const brokenEntry = brokenBeforeRequestedStart[1];
-    assert.ok(brokenEntry);
-    brokenEntry.title = 'Semantically valid but hash-stale branch finding';
-    const bytesBeforeWrongStart = JSON.stringify(brokenBeforeRequestedStart);
-    const wrongStart = prepareRegistryRechain(brokenBeforeRequestedStart, 0, 2, schemaPath);
-
-    assert.equal(wrongStart.ok, false);
-    if (wrongStart.ok) assert.fail('a later rechain start must not bless an earlier hash break');
-    assert.equal(wrongStart.stage, 'integrity');
-    assert.match(wrongStart.failures.join('\n'), /hash mismatch at entry 1/);
-    assert.equal(JSON.stringify(brokenBeforeRequestedStart), bytesBeforeWrongStart);
   });
 
-  void test('dead same-host stale lock is quarantined before takeover', () => {
-    const resourcePath = join(fixtureRoot, 'dead-owner.json');
-    const lockPath = `${resourcePath}.lock`;
-    writeFileSync(resourcePath, 'old\n', 'utf8');
-    writeFileSync(
-      lockPath,
-      `${JSON.stringify({
-        version: 1,
-        token: 'dead-owner',
-        pid: 2_147_483_647,
-        hostname: hostname(),
-        acquired_at: '2026-01-01T00:00:00.000Z',
-        resource_path: resourcePath,
-      })}\n`,
-      'utf8',
-    );
-    const old = new Date(Date.now() - 60_000);
-    utimesSync(lockPath, old, old);
+  void test('flock version and acquisition share one immutable execution policy', () => {
+    assert.equal(Object.isFrozen(FINDING_WRITER_FLOCK_EXECUTION_POLICY_V1), true);
+    assert.deepEqual(FINDING_WRITER_FLOCK_EXECUTION_POLICY_V1, {
+      schemaVersion: 1,
+      commandDeadlineMs: 5_000,
+      timeoutSignal: 'SIGKILL',
+    });
+    assert.deepEqual(FINDING_WRITER_REGISTRY_LOCK_POLICY_V1, {
+      schemaVersion: 1,
+      contentionDeadlineMs: FINDING_WRITER_FLOCK_EXECUTION_POLICY_V1.commandDeadlineMs,
+      pollIntervalMs: 25,
+    });
 
-    withRegistryFileLock(
-      resourcePath,
-      (lease) => atomicWriteRegistryFile(resourcePath, 'new\n', lease),
-      { timeoutMs: 200, staleAfterMs: 10, pollIntervalMs: 5 },
+    const remainingFlockDeadlineMs = 37;
+    const timeout = Object.assign(new Error('synthetic timeout'), { code: 'ETIMEDOUT' });
+    assert.throws(
+      () => {
+        throw RegistryLockError.fromFlockExecutionFailure(
+          {
+            error: timeout,
+            signal: FINDING_WRITER_FLOCK_EXECUTION_POLICY_V1.timeoutSignal,
+          },
+          remainingFlockDeadlineMs,
+        );
+      },
+      (error: unknown) =>
+        error instanceof RegistryLockError &&
+        error.code === 'LOCK_MALFORMED' &&
+        error.cause instanceof HermeticExecutableExecutionTimeoutError &&
+        error.cause.code === 'HERMETIC_EXECUTABLE_EXECUTION_TIMEOUT' &&
+        error.cause.executableLabel === 'Finding writer flock runtime' &&
+        error.cause.phase === 'COMMAND' &&
+        error.cause.commandDeadlineMs === remainingFlockDeadlineMs &&
+        error.cause.timeoutSignal === FINDING_WRITER_FLOCK_EXECUTION_POLICY_V1.timeoutSignal,
     );
 
-    assert.equal(readFileSync(resourcePath, 'utf8'), 'new\n');
-    assert.deepEqual(
-      readdirSync(fixtureRoot).filter((name) => name.includes('dead-owner.json.lock')),
-      [],
-    );
-  });
-
-  void test('live same-host stale lock waits only to the configured bound', () => {
-    const resourcePath = join(fixtureRoot, 'live-owner.json');
-    const lockPath = `${resourcePath}.lock`;
-    writeFileSync(resourcePath, 'unchanged\n', 'utf8');
-    writeFileSync(
-      lockPath,
-      `${JSON.stringify({
-        version: 1,
-        token: 'live-owner',
-        pid: process.pid,
-        hostname: hostname(),
-        acquired_at: '2026-01-01T00:00:00.000Z',
-        resource_path: resourcePath,
-      })}\n`,
-      'utf8',
-    );
-    const old = new Date(Date.now() - 60_000);
-    utimesSync(lockPath, old, old);
-
-    const startedAt = Date.now();
+    const resourcePath = join(fixtureRoot, 'absolute-flock-deadline.json');
+    writeFileSync(resourcePath, '{}\n', 'utf8');
+    const observedChildDeadlines: number[] = [];
     assert.throws(
       () =>
-        withRegistryFileLock(resourcePath, () => assert.fail('live lock must not be taken over'), {
-          timeoutMs: 80,
-          staleAfterMs: 10,
-          pollIntervalMs: 5,
-        }),
+        testOnlyWithRegistryFileLock(
+          resourcePath,
+          () => assert.fail('expired ownership proof admitted a registry lease'),
+          {
+            timeoutMs: 300,
+            pollIntervalMs: 25,
+            testOnlyBeforeFlockChild: () => {
+              Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 170);
+            },
+            testOnlyObserveFlockChildDeadline: (deadlineMs) => {
+              observedChildDeadlines.push(deadlineMs);
+            },
+          },
+        ),
       (error: unknown) => error instanceof RegistryLockError && error.code === 'LOCK_TIMEOUT',
     );
-    assert.ok(Date.now() - startedAt < 500);
-    assert.equal(readFileSync(resourcePath, 'utf8'), 'unchanged\n');
-    rmSync(lockPath);
+    assert.equal(observedChildDeadlines.length, 2);
+    assert.ok((observedChildDeadlines[0] ?? 0) > 0);
+    assert.ok((observedChildDeadlines[0] ?? 300) < 300);
+    assert.ok((observedChildDeadlines[1] ?? 1) < 1);
   });
 
-  void test('malformed and foreign-host stale locks fail closed', () => {
-    for (const fixture of [
-      { name: 'malformed', body: 'not-json\n', code: 'LOCK_MALFORMED' },
-      {
-        name: 'foreign',
-        body: `${JSON.stringify({
-          version: 1,
-          token: 'foreign-owner',
-          pid: 999_999,
-          hostname: 'different-host.invalid',
-          acquired_at: '2026-01-01T00:00:00.000Z',
-          resource_path: 'foreign-resource',
-        })}\n`,
-        code: 'LOCK_FOREIGN_HOST',
-      },
-    ] as const) {
-      const resourcePath = join(fixtureRoot, `${fixture.name}.json`);
-      const lockPath = `${resourcePath}.lock`;
-      writeFileSync(resourcePath, 'unchanged\n', 'utf8');
-      writeFileSync(lockPath, fixture.body, 'utf8');
-      const old = new Date(Date.now() - 60_000);
-      utimesSync(lockPath, old, old);
+  void test('Git timeout and permission failures remain operational errors, never stale admission', async () => {
+    const fixture = createFindingWriterFixture('operational-currentness-failure');
+    const authority = Object.freeze({
+      repoRoot: fixture.repoRoot,
+      lockPath: fixture.authority.lockPath,
+      reservationPath: join(fixture.repoRoot, 'finding-id-reservations-v1.json'),
+    });
+    const worktree = Object.freeze({
+      worktree_path: fixture.repoRoot,
+      head_oid: git(fixture.repoRoot, ['rev-parse', 'HEAD']),
+      allocator_present: true,
+    });
+    const operationalFailures = [
+      new HermeticGitExecutionTimeoutError(
+        'BUFFERED',
+        fixture.repoRoot,
+        ['rev-parse', '--verify', 'HEAD^{commit}'],
+        37,
+        'SIGKILL',
+      ),
+      Object.assign(new Error('Git repository access denied'), { code: 'EACCES' }),
+    ];
 
-      assert.throws(
-        () =>
-          withRegistryFileLock(
-            resourcePath,
-            () => assert.fail('unsafe stale lock must not be taken over'),
-            { timeoutMs: 100, staleAfterMs: 10, pollIntervalMs: 5 },
-          ),
-        (error: unknown) => error instanceof RegistryLockError && error.code === fixture.code,
+    for (const operationalFailure of operationalFailures) {
+      const snapshot = prepareSyntheticFindingWriterFenceSnapshot(authority, [worktree], {
+        assertWorktreeGeneration: () => {
+          throw operationalFailure;
+        },
+      });
+      await assert.rejects(
+        () => consumeSyntheticFindingWriterFence(authority, snapshot),
+        (error: unknown) =>
+          error === operationalFailure && !(error instanceof FindingWriterFenceStaleError),
       );
-      assert.equal(readFileSync(resourcePath, 'utf8'), 'unchanged\n');
-      rmSync(lockPath);
     }
   });
 
-  void test('ownership token fences a writer after lock replacement', () => {
+  void test('prepared admission aborts an unfinished proof at one exact deadline before lock acquisition', async () => {
+    const directory = join(fixtureRoot, 'prepared-admission-deadline');
+    mkdirSync(directory, { recursive: true });
+    const resourcePath = join(directory, 'manifest.json');
+    const lockPath = join(directory, 'finding-writer.lock');
+    const testDeadlineMs = 50;
+    let abortReason: unknown;
+    let admissionAttempts = 0;
+    let actionAttempts = 0;
+
+    await assert.rejects(
+      testOnlyRunWithPreparedFindingWriterFenceAdmission(
+        {
+          resourcePath,
+          lockPath,
+          prepareSnapshot: (signal) => {
+            signal.addEventListener(
+              'abort',
+              () => {
+                abortReason = signal.reason;
+              },
+              { once: true },
+            );
+            return new Promise<FindingWriterFenceSnapshot>(() => undefined);
+          },
+          admit: () => {
+            admissionAttempts += 1;
+            throw new Error('expired proof reached admission');
+          },
+          run: () => {
+            actionAttempts += 1;
+            throw new Error('expired proof reached its action');
+          },
+        },
+        testDeadlineMs,
+      ),
+      (error: unknown) =>
+        error instanceof FindingWriterFenceAdmissionDeadlineError &&
+        error.admissionDeadlineMs === testDeadlineMs,
+    );
+    assert.ok(abortReason instanceof FindingWriterFenceAdmissionDeadlineError);
+    assert.equal(abortReason.admissionDeadlineMs, testDeadlineMs);
+    assert.equal(admissionAttempts, 0);
+    assert.equal(actionAttempts, 0);
+    assert.equal(existsSync(lockPath), false);
+  });
+
+  void test('prepared admission preserves its exact deadline through a blocked governed Git proof and reaps before returning', async () => {
+    const fixture = createFindingWriterFixture('prepared-admission-git-deadline');
+    const headRefPath = symbolicHeadRefPath(fixture.repoRoot);
+    rmSync(headRefPath);
+    execFileSync('/usr/bin/mkfifo', [headRefPath]);
+    const testDeadlineMs = 1_000;
+    const execution = testOnlyRunWithPreparedFindingWriterFenceAdmission(
+      {
+        resourcePath: fixture.registryPath,
+        lockPath: fixture.authority.lockPath,
+        prepareSnapshot: (signal) => fixture.authority.assertCompatibleWriters(signal),
+        admit: () => assert.fail('blocked Git proof reached admission'),
+        run: () => assert.fail('blocked Git proof reached its action'),
+      },
+      testDeadlineMs,
+    );
+    const rejection = assert.rejects(
+      execution,
+      (error: unknown) =>
+        error instanceof FindingWriterFenceAdmissionDeadlineError &&
+        error.admissionDeadlineMs === testDeadlineMs,
+    );
+    const writer = await openFindingWriterFifoAfterReader(headRefPath);
+    await rejection;
+    closeSync(writer);
+    assert.throws(
+      () => openSync(headRefPath, constants.O_WRONLY | constants.O_NONBLOCK),
+      (error: unknown) => error instanceof Error && 'code' in error && error.code === 'ENXIO',
+    );
+    assert.equal(existsSync(fixture.authority.lockPath), false);
+  });
+
+  void test(
+    'admission deadline kills and reaps blocked topology currentness before releasing its lock',
+    { timeout: 30_000 },
+    async () => {
+      const fixture = createFindingWriterFixture('prepared-admission-topology-deadline');
+      const headRefPath = symbolicHeadRefPath(fixture.repoRoot);
+      const testDeadlineMs = 10_000;
+      let resolveFifoReady!: () => void;
+      const fifoReady = new Promise<void>((resolveReady) => {
+        resolveFifoReady = resolveReady;
+      });
+      const execution = testOnlyRunWithPreparedFindingWriterFenceAdmission(
+        {
+          resourcePath: fixture.registryPath,
+          lockPath: fixture.authority.lockPath,
+          prepareSnapshot: async (signal) => {
+            const snapshot = await fixture.authority.assertCompatibleWriters(signal);
+            rmSync(headRefPath);
+            execFileSync('/usr/bin/mkfifo', [headRefPath]);
+            resolveFifoReady();
+            return snapshot;
+          },
+          admit: async (snapshot, _lease, signal) =>
+            fixture.authority.consumeCompatibleWriters(snapshot, signal),
+          run: () => assert.fail('blocked topology admission reached its action'),
+        },
+        testDeadlineMs,
+      );
+      const rejection = assert.rejects(
+        execution,
+        (error: unknown) =>
+          error instanceof FindingWriterFenceAdmissionDeadlineError &&
+          error.admissionDeadlineMs === testDeadlineMs,
+      );
+      await awaitFindingWriterFifoReady(headRefPath, fifoReady, execution);
+      const writer = await openFindingWriterFifoAfterReader(headRefPath);
+      await rejection;
+      closeSync(writer);
+      assert.throws(
+        () => openSync(headRefPath, constants.O_WRONLY | constants.O_NONBLOCK),
+        (error: unknown) => error instanceof Error && 'code' in error && error.code === 'ENXIO',
+      );
+      assert.equal(existsSync(fixture.authority.lockPath), true);
+      await testOnlyWithRegistryFileLockAsync(
+        fixture.registryPath,
+        (lease) => Promise.resolve(assertRegistryLockOwned(lease)),
+        { lockPath: fixture.authority.lockPath, timeoutMs: 500 },
+      );
+    },
+  );
+
+  void test('prepared admission runs proof before lock and never retries non-stale failures', async () => {
+    const fixture = createFindingWriterFixture('prepared-admission-order');
+    const events: string[] = [];
+    const nonStaleFailure = new Error('non-stale admission failure');
+
+    await assert.rejects(
+      runWithPreparedFindingWriterFenceAdmission({
+        resourcePath: fixture.registryPath,
+        lockPath: fixture.authority.lockPath,
+        prepareSnapshot: (signal) => {
+          events.push('PREPARE_WITHOUT_LOCK');
+          return fixture.authority.assertCompatibleWriters(signal);
+        },
+        admit: (_snapshot, lease) => {
+          assertRegistryLockOwned(lease);
+          events.push('ADMIT_UNDER_LOCK');
+          throw nonStaleFailure;
+        },
+        run: () => assert.fail('non-stale admission failure reached the action phase'),
+      }),
+      (error: unknown) => error === nonStaleFailure,
+    );
+    assert.deepEqual(events, ['PREPARE_WITHOUT_LOCK', 'ADMIT_UNDER_LOCK']);
+  });
+
+  void test('an action-side forged stale failure cannot re-enter admission or repeat a side effect', async () => {
+    const fixture = createFindingWriterFixture('prepared-admission-action-failure');
+    const sideEffectPath = join(fixture.repoRoot, 'action-side-effect.marker');
+    const forgedStaleFailure = Object.assign(new Error('forged stale after side effect'), {
+      code: 'FINDING_WRITER_FENCE_STALE',
+      name: 'FindingWriterFenceStaleError',
+    });
+    let preparationAttempts = 0;
+    let sideEffectAttempts = 0;
+
+    await assert.rejects(
+      runWithPreparedFindingWriterFenceAdmission({
+        resourcePath: fixture.registryPath,
+        lockPath: fixture.authority.lockPath,
+        prepareSnapshot: (signal) => {
+          preparationAttempts += 1;
+          return fixture.authority.assertCompatibleWriters(signal);
+        },
+        admit: (snapshot) => snapshot,
+        run: () => {
+          sideEffectAttempts += 1;
+          writeFileSync(sideEffectPath, `${String(sideEffectAttempts)}\n`, 'utf8');
+          throw forgedStaleFailure;
+        },
+      }),
+      (error: unknown) => error === forgedStaleFailure,
+    );
+    assert.equal(preparationAttempts, 1);
+    assert.equal(sideEffectAttempts, 1);
+    assert.equal(readFileSync(sideEffectPath, 'utf8'), '1\n');
+  });
+
+  void test('an authentic action-side stale capability cannot retry or repeat a side effect', async () => {
+    const fixture = createFindingWriterFixture('prepared-admission-authentic-action-stale');
+    const worktree = Object.freeze({
+      worktree_path: fixture.repoRoot,
+      head_oid: git(fixture.repoRoot, ['rev-parse', 'HEAD']),
+      allocator_present: true,
+    });
+    const staleSnapshot = prepareSyntheticFindingWriterFenceSnapshot(
+      fixture.authority,
+      [worktree],
+      {
+        assertWorktreeGeneration: () => {
+          throw new FindingWriterFenceGenerationMismatchError('synthetic authentic drift');
+        },
+      },
+    );
+    let authenticStale: FindingWriterFenceStaleError | undefined;
+    try {
+      await consumeSyntheticFindingWriterFence(fixture.authority, staleSnapshot);
+      assert.fail('synthetic drift unexpectedly consumed its snapshot');
+    } catch (error) {
+      assert.ok(error instanceof FindingWriterFenceStaleError);
+      authenticStale = error;
+    }
+    assert.ok(authenticStale !== undefined);
+
+    let preparationAttempts = 0;
+    let sideEffectAttempts = 0;
+    await assert.rejects(
+      runWithPreparedFindingWriterFenceAdmission({
+        resourcePath: fixture.registryPath,
+        lockPath: fixture.authority.lockPath,
+        prepareSnapshot: (signal) => {
+          preparationAttempts += 1;
+          return fixture.authority.assertCompatibleWriters(signal);
+        },
+        admit: (snapshot) => snapshot,
+        run: () => {
+          sideEffectAttempts += 1;
+          throw authenticStale;
+        },
+      }),
+      (error: unknown) => error === authenticStale,
+    );
+    assert.equal(preparationAttempts, 1);
+    assert.equal(sideEffectAttempts, 1);
+  });
+
+  void test('a durable reservation gap remains a monotonic floor after registry failure', async () => {
+    const fixture = createFindingWriterFixture('durable-reservation-gap');
+    const repositoryAuthority = await issueRepositoryMutationAuthority('add');
+    const registryFailure = new Error('registry publication failed after durable reservation');
+
+    await assert.rejects(
+      () =>
+        withFindingWriterMutation(fixture, repositoryAuthority, 'add', (lease, writerFence) => {
+          atomicWriteFindingReservationFile(
+            fixture.authority.reservationPath,
+            `${JSON.stringify({
+              version: 1,
+              domains: {
+                PROC: {
+                  sequence: 1,
+                  finding_id: 'PROC-HIGH-001',
+                  reserved_at: repositoryAuthority.effectiveAt,
+                  registry_path: fixture.registryPath,
+                },
+              },
+            })}\n`,
+            lease,
+            writerFence,
+          );
+          throw registryFailure;
+        }),
+      (error: unknown) => error === registryFailure,
+    );
+    assert.equal(readFileSync(fixture.registryPath, 'utf8'), '');
+
+    const stubPath = join(fixtureRoot, 'durable-reservation-gap-stub.json');
+    writeFileSync(
+      stubPath,
+      JSON.stringify({
+        severity: 'HIGH',
+        title: 'Durable reservation gap advances the next allocation',
+        evidence: ['tools/gates/finding-registry-store.spec.ts:reservation-gap'],
+        owner_agent: 'context-manager',
+        raised_in_cycle: '2026-08-08-prepared-admission',
+      }),
+      'utf8',
+    );
+    const exitCode = await withFindingWriterMutation(
+      fixture,
+      repositoryAuthority,
+      'add',
+      (lease, writerFence) =>
+        appendAllocatedFinding(
+          'PROC',
+          stubPath,
+          lease,
+          repositoryAuthority,
+          writerFence,
+          fixture.authority,
+          { registryPath: fixture.registryPath, schemaPath: fixture.schemaPath },
+        ),
+    );
+    assert.equal(exitCode, 0);
+    assert.match(readFileSync(fixture.registryPath, 'utf8'), /"id":"PROC-HIGH-002"/);
+  });
+
+  void test('kernel lock inode persists and opaque leases cannot be fabricated', () => {
+    const resourcePath = join(fixtureRoot, 'persistent-lock.json');
+    const lockPath = `${resourcePath}.lock`;
+    writeFileSync(resourcePath, 'old\n', 'utf8');
+    let firstInode = 0;
+    testOnlyWithRegistryFileLock(resourcePath, (lease) => {
+      const lock = lstatSync(lockPath);
+      firstInode = lock.ino;
+      assert.equal(lock.size, 0);
+      assert.equal(lock.mode & 0o777, 0o600);
+      const forgedLease: RegistryLockLease = { ...lease };
+      assert.throws(
+        () => testOnlyAtomicWriteFileWithRegistryLease(resourcePath, 'forged\n', forgedLease),
+        (error: unknown) =>
+          error instanceof RegistryLockError && error.code === 'LOCK_OWNERSHIP_LOST',
+      );
+    });
+    assert.equal(existsSync(lockPath), true);
+    assert.equal(lstatSync(lockPath).ino, firstInode);
+    testOnlyWithRegistryFileLock(resourcePath, (lease) => {
+      assert.equal(lstatSync(lockPath).ino, firstInode);
+      testOnlyAtomicWriteFileWithRegistryLease(resourcePath, 'new\n', lease);
+    });
+
+    assert.equal(readFileSync(resourcePath, 'utf8'), 'new\n');
+    assert.equal(lstatSync(lockPath).ino, firstInode);
+    assert.equal(lstatSync(lockPath).size, 0);
+  });
+
+  void test('two processes cross a release barrier without sharing the critical section', async () => {
+    const resourcePath = join(fixtureRoot, 'release-barrier.json');
+    const readyPath = join(fixtureRoot, 'release-barrier.ready');
+    const releasePath = join(fixtureRoot, 'release-barrier.release');
+    const blockedPath = join(fixtureRoot, 'release-barrier.blocked');
+    const enteredPath = join(fixtureRoot, 'release-barrier.entered');
+    writeFileSync(resourcePath, 'stable\n', 'utf8');
+    const holder = spawnStoreSpecChild('--kernel-lock-holder', [
+      resourcePath,
+      readyPath,
+      releasePath,
+    ]);
+    let contender: SpawnedStoreSpecChild | undefined;
+    try {
+      await waitForFile(readyPath);
+      const lockInode = lstatSync(`${resourcePath}.lock`).ino;
+      contender = spawnStoreSpecChild('--kernel-lock-contender', [
+        resourcePath,
+        blockedPath,
+        enteredPath,
+      ]);
+      await waitForFile(blockedPath);
+      assert.equal(existsSync(enteredPath), false);
+      writeFileSync(releasePath, 'release\n', 'utf8');
+      const [holderExit, contenderExit] = await Promise.all([
+        holder.completion,
+        contender.completion,
+      ]);
+      assert.deepEqual(holderExit, { code: 0, signal: null, stderr: '' });
+      assert.deepEqual(contenderExit, { code: 0, signal: null, stderr: '' });
+      assert.equal(existsSync(enteredPath), true);
+      assert.equal(lstatSync(`${resourcePath}.lock`).ino, lockInode);
+    } finally {
+      await Promise.all([
+        terminateStoreSpecChild(holder),
+        ...(contender === undefined ? [] : [terminateStoreSpecChild(contender)]),
+      ]);
+    }
+  });
+
+  void test('proven dead-owner atomic staging files are recovered under the lease', () => {
+    const resourcePath = join(fixtureRoot, 'staging-recovery.json');
+    const stagingName =
+      '.staging-recovery.json.2147483647.123e4567-e89b-42d3-a456-426614174000.new';
+    const stagingPath = join(fixtureRoot, stagingName);
+    writeFileSync(resourcePath, 'stable\n', 'utf8');
+    writeFileSync(stagingPath, 'orphan\n', 'utf8');
+    const old = new Date(Date.now() - 10 * 60_000);
+    utimesSync(stagingPath, old, old);
+    assert.deepEqual(
+      listAtomicWriteStagingFiles(fixtureRoot, (basename) => basename === 'staging-recovery.json'),
+      [stagingName],
+    );
+
+    const recovered = testOnlyWithRegistryFileLock(resourcePath, (lease) =>
+      recoverAtomicWriteStagingFiles(
+        fixtureRoot,
+        (basename) => basename === 'staging-recovery.json',
+        lease,
+        5 * 60_000,
+      ),
+    );
+
+    assert.deepEqual(recovered, [stagingName]);
+    assert.deepEqual(
+      listAtomicWriteStagingFiles(fixtureRoot, (basename) => basename === 'staging-recovery.json'),
+      [],
+    );
+    assert.equal(existsSync(stagingPath), false);
+    assert.equal(readFileSync(resourcePath, 'utf8'), 'stable\n');
+  });
+
+  void test('canonical registry mutation recovers registry and reservation staging together', async () => {
+    const writerFixture = createFindingWriterFixture('staging-registry');
+    const { authority, registryPath } = writerFixture;
+    const reservationPath = authority.reservationPath;
+    const registryStagingName = `.${basename(registryPath)}.2147483647.123e4567-e89b-42d3-a456-426614174000.new`;
+    const reservationStagingName = `.${basename(reservationPath)}.2147483647.223e4567-e89b-42d3-a456-426614174000.new`;
+    const registryStagingPath = join(dirname(registryPath), registryStagingName);
+    const reservationStagingPath = join(dirname(reservationPath), reservationStagingName);
+    writeFileSync(registryStagingPath, 'orphan registry\n', 'utf8');
+    writeFileSync(reservationStagingPath, 'orphan reservation\n', 'utf8');
+    const old = new Date(Date.now() - 10 * 60_000);
+    utimesSync(registryStagingPath, old, old);
+    utimesSync(reservationStagingPath, old, old);
+    const repositoryAuthority = await issueRepositoryMutationAuthority('add');
+
+    assert.equal(registryMutationStagingFiles(authority).length, 2);
+    await withFindingWriterMutation(
+      writerFixture,
+      repositoryAuthority,
+      'add',
+      (lease, writerFence) =>
+        recoverRegistryMutationStaging(authority, lease, writerFence, repositoryAuthority, 'add'),
+    );
+    assert.deepEqual(registryMutationStagingFiles(authority), []);
+    assert.equal(readFileSync(registryPath, 'utf8'), '');
+  });
+
+  void test('kernel releases an abruptly killed owner without stale-time takeover', async () => {
+    const resourcePath = join(fixtureRoot, 'killed-owner.json');
+    const readyPath = join(fixtureRoot, 'killed-owner.ready');
+    const releasePath = join(fixtureRoot, 'killed-owner.never-release');
+    writeFileSync(resourcePath, 'unchanged\n', 'utf8');
+    const holder = spawnStoreSpecChild('--kernel-lock-holder', [
+      resourcePath,
+      readyPath,
+      releasePath,
+    ]);
+    try {
+      await waitForFile(readyPath);
+      const lockPath = `${resourcePath}.lock`;
+      const lockInode = lstatSync(lockPath).ino;
+      assert.throws(
+        () =>
+          testOnlyWithRegistryFileLock(
+            resourcePath,
+            () => assert.fail('live kernel lock must not be taken over'),
+            { timeoutMs: 100, pollIntervalMs: 5 },
+          ),
+        (error: unknown) => error instanceof RegistryLockError && error.code === 'LOCK_TIMEOUT',
+      );
+      assert.equal(holder.process.kill('SIGKILL'), true);
+      const holderExit = await holder.completion;
+      assert.equal(holderExit.code, null);
+      assert.equal(holderExit.signal, 'SIGKILL');
+
+      testOnlyWithRegistryFileLock(resourcePath, (lease) =>
+        testOnlyAtomicWriteFileWithRegistryLease(resourcePath, 'recovered\n', lease),
+      );
+      assert.equal(readFileSync(resourcePath, 'utf8'), 'recovered\n');
+      assert.equal(lstatSync(lockPath).ino, lockInode);
+    } finally {
+      await terminateStoreSpecChild(holder);
+    }
+  });
+
+  void test('non-empty forged lock records fail closed', () => {
+    const resourcePath = join(fixtureRoot, 'forged-lock-record.json');
+    const lockPath = `${resourcePath}.lock`;
+    writeFileSync(resourcePath, 'unchanged\n', 'utf8');
+    writeFileSync(lockPath, 'forged owner record\n', { encoding: 'utf8', mode: 0o600 });
+
+    assert.throws(
+      () =>
+        testOnlyWithRegistryFileLock(resourcePath, () => assert.fail('forged record was admitted')),
+      (error: unknown) =>
+        error instanceof RegistryLockError && error.code === 'LOCK_OWNERSHIP_LOST',
+    );
+    assert.equal(readFileSync(resourcePath, 'utf8'), 'unchanged\n');
+    assert.equal(readFileSync(lockPath, 'utf8'), 'forged owner record\n');
+  });
+
+  void test('inode replacement fences a writer before publication', () => {
     const resourcePath = join(fixtureRoot, 'fenced.jsonl');
     const lockPath = `${resourcePath}.lock`;
+    const displacedLockPath = `${lockPath}.displaced`;
     writeFileSync(resourcePath, 'before\n', 'utf8');
 
     assert.throws(
       () =>
-        withRegistryFileLock(resourcePath, (lease) => {
-          const successor = {
-            ...JSON.parse(readFileSync(lockPath, 'utf8')),
-            token: 'successor-token',
-          } as Record<string, unknown>;
-          writeFileSync(lockPath, `${JSON.stringify(successor)}\n`, 'utf8');
-          atomicWriteRegistryFile(resourcePath, 'must-not-land\n', lease);
+        testOnlyWithRegistryFileLock(resourcePath, (lease) => {
+          renameSync(lockPath, displacedLockPath);
+          writeFileSync(lockPath, '', { encoding: 'utf8', mode: 0o600 });
+          testOnlyAtomicWriteFileWithRegistryLease(resourcePath, 'must-not-land\n', lease);
         }),
-      (error: unknown) =>
-        error instanceof RegistryLockError && error.code === 'LOCK_OWNERSHIP_LOST',
+      (error: unknown) => {
+        if (!(error instanceof AggregateError) || error.errors.length !== 2) {
+          return false;
+        }
+        return error.errors.every(
+          (failure) =>
+            failure instanceof RegistryLockError && failure.code === 'LOCK_OWNERSHIP_LOST',
+        );
+      },
     );
     assert.equal(readFileSync(resourcePath, 'utf8'), 'before\n');
-    assert.equal(
-      (JSON.parse(readFileSync(lockPath, 'utf8')) as { token: string }).token,
-      'successor-token',
-    );
-    rmSync(lockPath);
+    assert.notEqual(lstatSync(lockPath).ino, lstatSync(displacedLockPath).ino);
   });
 
   void test('atomic writer leaves no staging file after a successful replace', () => {
     const resourcePath = join(fixtureRoot, 'atomic.jsonl');
     writeFileSync(resourcePath, 'before\n', 'utf8');
-    withRegistryFileLock(resourcePath, (lease) => {
-      atomicWriteRegistryFile(resourcePath, 'after\n', lease);
+    testOnlyWithRegistryFileLock(resourcePath, (lease) => {
+      testOnlyAtomicWriteFileWithRegistryLease(resourcePath, 'after\n', lease);
     });
     assert.equal(readFileSync(resourcePath, 'utf8'), 'after\n');
     assert.deepEqual(
@@ -950,31 +3859,58 @@ if (childMode === '--worktree-allocator-child') {
     );
   });
 
-  void test('historical registry scripts cannot directly rewrite the JSONL', () => {
+  void test('the repository has one finding-registry writer authority', () => {
     const repoRoot = resolve(__dirname, '..', '..');
-    const governedScripts = [
-      'tools/audit/migrate-schema-violations.ts',
-      'tools/audit/seed-audit-findings.ts',
-      'tools/scripts/patch-registry-phase2b.ts',
-      'tools/scripts/seed-claude-audit-findings.ts',
-      'tools/scripts/seed-finding-registry.ts',
-    ];
-    for (const relativePath of governedScripts) {
-      const source = readFileSync(resolve(repoRoot, relativePath), 'utf8');
-      assert.doesNotMatch(
-        source,
-        /\bwriteFileSync\s*\(\s*(?:REGISTRY|REGISTRY_PATH)\b/,
-        `${relativePath} must mutate only through the common authority`,
+    const retiredExecutables = FINDING_WRITER_RETIRED_MUTATION_SURFACES;
+    for (const relativePath of retiredExecutables) {
+      assert.equal(
+        existsSync(resolve(repoRoot, relativePath)),
+        false,
+        `${relativePath} is retired and must not be recreated`,
       );
     }
 
-    assert.match(
-      readFileSync(resolve(repoRoot, 'tools/audit/migrate-schema-violations.ts'), 'utf8'),
-      /mutating mode is retired/,
+    const retiredPostgresAuthority = resolve(
+      repoRoot,
+      'libs',
+      'backend-common',
+      'src',
+      'finding-registry',
+    );
+    assert.equal(
+      existsSync(retiredPostgresAuthority),
+      false,
+      'the unused PostgreSQL finding-registry authority must remain absent',
+    );
+
+    const tsconfig = JSON.parse(readFileSync(resolve(repoRoot, 'tsconfig.base.json'), 'utf8')) as {
+      compilerOptions?: { paths?: Record<string, readonly string[]> };
+    };
+    assert.equal(
+      tsconfig.compilerOptions?.paths?.['@aquaculture/backend-common/finding-registry'],
+      undefined,
+      'the retired PostgreSQL authority must not remain publicly importable',
+    );
+
+    const atomicWriterAuthorities = FINDING_WRITER_SENSITIVE_IMPORT_AUTHORITY.filter(
+      (authority) =>
+        authority.target === 'tools/gates/finding-registry-store.ts' &&
+        authority.symbol === 'atomicWriteRegistryFile',
+    );
+    assert.equal(atomicWriterAuthorities.length, 1);
+    assert.deepEqual(atomicWriterAuthorities[0]?.importers, [
+      'tools/gates/finding-registry-store.spec.ts',
+      'tools/gates/finding-registry.ts',
+    ]);
+
+    const canonicalWriter = readFileSync(
+      resolve(repoRoot, 'tools/gates/finding-registry.ts'),
+      'utf8',
     );
     assert.match(
-      readFileSync(resolve(repoRoot, 'tools/scripts/patch-registry-phase2b.ts'), 'utf8'),
-      /atomicWriteRegistryFile/,
+      canonicalWriter,
+      /import\s*\{[\s\S]*\batomicWriteRegistryFile\b[\s\S]*\}\s*from\s*['"]\.\/finding-registry-store['"]/,
     );
+    assert.match(canonicalWriter, /\batomicWriteRegistryFile\s*\(/);
   });
 }

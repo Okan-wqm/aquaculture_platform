@@ -41,7 +41,7 @@ const repoRoot = resolve(__dirname, '../..');
  * script that CI invokes. Adding a runner here is a deliberate act; the point
  * is that no spec may exist without one.
  */
-const DECLARED_NON_NX_RUNNERS: ReadonlyArray<{
+const DECLARED_STATIC_NON_NX_RUNNERS: ReadonlyArray<{
   readonly script: string;
   readonly owns: (relPath: string) => boolean;
 }> = [
@@ -49,12 +49,6 @@ const DECLARED_NON_NX_RUNNERS: ReadonlyArray<{
     // package.json `tools:test`, invoked by .github/workflows/quality-gates.yml
     script: 'tools:test',
     owns: (p) => /^tools\/(supervisor|watchdog)\/[^/]+\.spec\.(ts|mjs)$/.test(p),
-  },
-  {
-    // package.json `gates:test` (globs the directory), invoked by
-    // .github/workflows/closes-footer-check.yml
-    script: 'gates:test',
-    owns: (p) => /^tools\/gates\/[^/]+\.spec\.ts$/.test(p),
   },
   {
     // aria-kernel runs under python unittest in the aria-kernel workflows
@@ -67,6 +61,33 @@ const DECLARED_NON_NX_RUNNERS: ReadonlyArray<{
     owns: (p) => p.startsWith('e2e/') || p.startsWith('tests/e2e/'),
   },
 ];
+
+const LISTED_NON_NX_RUNNERS: ReadonlyArray<{
+  readonly script: string;
+  readonly runner: string;
+  readonly workflow: string;
+}> = [
+  {
+    script: 'gates:test',
+    runner: 'tools/gates/run-all.mjs',
+    workflow: '.github/workflows/closes-footer-check.yml',
+  },
+  {
+    script: 'test:source-control-plane',
+    runner: 'tools/test-runners/source-control-plane.mjs',
+    workflow: '.github/workflows/ci-full.yml',
+  },
+];
+
+function listedRunnerSpecs(): string[] {
+  return LISTED_NON_NX_RUNNERS.flatMap(({ runner }) => {
+    const output = execFileSync(process.execPath, [runner, '--list'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    });
+    return JSON.parse(output) as string[];
+  }).sort();
+}
 
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'coverage', '.git', '.nx', '.claude']);
 
@@ -117,29 +138,32 @@ function walkSpecs(dir: string, acc: string[] = []): string[] {
   return acc;
 }
 
-interface NxProject {
-  readonly root: string;
-  readonly targets?: Record<string, unknown>;
+interface NxGraphNode {
+  readonly data: {
+    readonly root?: string;
+    readonly targets?: Record<string, unknown>;
+  };
+}
+
+interface NxGraphDocument {
+  readonly graph: {
+    readonly nodes: Record<string, NxGraphNode>;
+  };
 }
 
 function nxProjectRootsWithTestTarget(): string[] {
-  const raw = execFileSync('npx', ['nx', 'show', 'projects', '--with-target=test', '--json'], {
+  const raw = execFileSync('npx', ['nx', 'graph', '--file=stdout'], {
     cwd: repoRoot,
     encoding: 'utf8',
     env: { ...process.env, NX_DAEMON: 'false' },
+    maxBuffer: 16 * 1024 * 1024,
   });
-  const names = JSON.parse(raw) as string[];
-  const roots: string[] = [];
-  for (const name of names) {
-    const detail = execFileSync('npx', ['nx', 'show', 'project', name, '--json'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      env: { ...process.env, NX_DAEMON: 'false' },
-    });
-    const parsed = JSON.parse(detail) as NxProject;
-    if (parsed.root) roots.push(parsed.root.replace(/\/$/, ''));
-  }
-  return roots;
+  const document = JSON.parse(raw) as NxGraphDocument;
+  return Object.values(document.graph.nodes)
+    .filter(({ data }) => data.targets?.['test'] !== undefined)
+    .map(({ data }) => data.root?.replace(/\/$/, ''))
+    .filter((root): root is string => root !== undefined)
+    .sort();
 }
 
 describe('every spec has a runner', () => {
@@ -148,8 +172,10 @@ describe('every spec has a runner', () => {
     expect(specs.length).toBeGreaterThan(100);
 
     const roots = nxProjectRootsWithTestTarget();
+    const listed = new Set(listedRunnerSpecs());
     const orphans = specs.filter((spec) => {
-      if (DECLARED_NON_NX_RUNNERS.some((runner) => runner.owns(spec))) return false;
+      if (listed.has(spec)) return false;
+      if (DECLARED_STATIC_NON_NX_RUNNERS.some((runner) => runner.owns(spec))) return false;
       if (isKnownUnrunnable(spec)) return false;
       return !roots.some((root) => spec === root || spec.startsWith(`${root}/`));
     });
@@ -180,17 +206,24 @@ describe('every spec has a runner', () => {
       'npm run tools:test',
     );
 
-    // `gates:test` globs tools/gates, which is what lets the runner entry
-    // above claim the whole directory. Naming specs one at a time is how
-    // eight of the ten came to have no CI invocation at all.
-    expect(pkg.scripts['gates:test']).toContain('tools/gates/run-all.mjs');
-    // The runner must GLOB the directory — naming specs one at a time is how
-    // eight of the ten came to have no CI invocation at all.
-    expect(readFileSync(join(repoRoot, 'tools/gates/run-all.mjs'), 'utf8')).toContain(
-      "endsWith('.spec.ts')",
-    );
-    expect(
-      readFileSync(join(repoRoot, '.github/workflows/closes-footer-check.yml'), 'utf8'),
-    ).toContain('npm run gates:test');
+    for (const { script, runner, workflow } of LISTED_NON_NX_RUNNERS) {
+      expect(pkg.scripts[script]).toContain(runner);
+      expect(readFileSync(join(repoRoot, workflow), 'utf8')).toContain(`npm run ${script}`);
+    }
+
+    const listed = listedRunnerSpecs();
+    expect(new Set(listed).size).toBe(listed.length);
+    expect(listed).toEqual([...listed].sort());
+    expect(listed.every((path) => existsSync(join(repoRoot, path)))).toBe(true);
+
+    const ownedSpecs = walkSpecs(repoRoot)
+      .filter(
+        (path) =>
+          /^tools\/gates\/[^/]+\.spec\.ts$/.test(path) ||
+          path.startsWith('tools/gates/lib/') ||
+          path.startsWith('tools/scripts/automation/'),
+      )
+      .sort();
+    expect(listed).toEqual(ownedSpecs);
   });
 });

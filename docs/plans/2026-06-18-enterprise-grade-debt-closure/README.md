@@ -1,6 +1,11 @@
 # Enterprise-Grade Debt Closure Program
 
 Created: 2026-06-18
+Control-plane status reviewed: 2026-07-30
+
+Program status is `ACTIVE`. This dated record is not a completion claim: the
+P1 control-plane blockers below must produce their listed machine evidence
+before the affected integration units can advance.
 
 This plan is the governed execution artifact for raising `/var/aqua-saas` to a
 more consistent enterprise-grade architecture. It is intentionally not a loose
@@ -50,6 +55,308 @@ reverse-engineering review lanes. The initial Wave 0 finding truth table is
   SENS required checks, RustSec, ADR-034 parity, and edge truth matrix are not
   final packaging tasks.
 
+## Capability Reconciliation Frontier — 2026-07-29, refreshed 2026-07-30
+
+`manifest.json.capability_reconciliation` is the sole execution record for the
+unmerged branches, unmerged local refs, and dirty worktrees observed at
+`2026-07-29T10:17:45Z` or discovered by a later live reconciliation. The refs
+are pinned as evidence sources; they are not the integration unit.
+
+The reconciled inventory contains 45 losslessly retained sources, 45
+source-adjudication queues, 14 typed source slices, and 127 atomic integration
+units. The exact base is read only from
+`manifest.json.capability_reconciliation.reconciled_base_sha`; the narrative
+does not duplicate it. Every source has exactly one adjudication queue, but a
+source never owns behavior and is never itself an integration unit. A source
+slice is typed, digest-bound provenance with `authority_role=PROVENANCE_ONLY`,
+and exactly one integration unit may reference it. `capability_groups` are
+reporting indexes only: they cannot own a source, finding, dependency, gate,
+strategy, or runtime authority.
+
+An `integration_unit` is one root-cause behavior with one globally unique
+`authority_key`. Its `strategy` is the only execution decision. Source
+`disposition` remains source-level forensic classification and cannot select
+an integration strategy. Each unit is evaluated against the reconciled base:
+
+1. If main already owns the behavior and its acceptance evidence, the source
+   contributes no code.
+2. If a source contains a unique, current, root-cause implementation, only the
+   minimal coherent commit set may be cherry-picked onto a fresh-main worktree.
+3. If the capability is absent from main but the source implementation is
+   stale, conflicted, duplicated, or structurally weaker, the capability is
+   implemented again from fresh main under the current SSoT.
+4. A merge commit is only a transport mechanism after every carried behavior
+   maps to an atomic unit and passes its own evidence contract; branch-level
+   approval cannot replace capability adjudication.
+5. Dirty worktrees remain read-only evidence until their changes are decomposed
+   into atomic capabilities. No cleanup, reset, checkout, or conflict
+   resolution may alter them during assessment.
+
+`ALREADY_ON_MAIN` is a typed proof, not a narrative claim. A remote source must
+carry either `ANCESTOR` or complete-tree `TREE_EQUIVALENT` evidence with
+full-length Git object IDs. A partial source uses a typed `SLICE_BLOB_EQ` or
+`CHAINED_TREE_EQUIVALENT` unit proof and the source itself is not classified as
+whole-tree main parity. This distinction preserves the four-file messaging
+slice, the PR #891 sensor stack, and all unproven paths without duplication or
+loss.
+
+`finding_binding` is the unit-level finding SSoT:
+
+- `BOUND` owns non-empty canonical IDs that exist in
+  `docs/reviews/_registry/findings.jsonl`.
+- `CREATE_REQUIRED` owns no canonical ID and records domain, severity, reason,
+  and source-qualified legacy references until the registry CLI allocates a
+  collision-free identity.
+- `NOT_REQUIRED` owns no closure finding and states why the unit is provenance
+  or control evidence. Reporting references are non-owning and remain inside
+  the same binding object.
+
+For every `BOUND` unit, each canonical registry row's `owner_agent` must equal
+`ownership.accountable_registry_owner`. Dispatch remains separately assigned
+through `ownership.execution_owner`, with independent
+`ownership.mandatory_reviewers`; historical non-dispatchable registry
+accountability is never rewritten merely to make an executor name match.
+
+Every `BOUND` unit derives `deadline_alignment` from the canonical registry.
+When a target exceeds a registry deadline, the manifest records each exact
+finding/deadline/target mismatch as `REGISTRY_RESCHEDULE_REQUIRED`; that unit
+cannot become ready, integrating, or verified until a registry event reconciles
+the schedule.
+
+`ATOMIC_PR_V1` defines five required gate IDs without mutable status. Every
+unit owns its own typed `gate_results`; an omitted result is pending, and a
+verified unit requires all five `PASS` results with evidence. The manifest
+also locks unique source coordinates, exactly one adjudication per source,
+exactly one unit per typed source slice, unique typed behavior targets, unique
+authority keys, and an acyclic dependency topology. `integration_order` is the
+sole ordering authority; integration-unit array position, `derived_from`, and
+branch ancestry cannot create execution order. Every unit uses
+`ownership.execution_owner`, `ownership.accountable_registry_owner`, and
+`ownership.mandatory_reviewers`; the executable identities resolve to unique
+`.claude/agents/**` frontmatter names. Legacy unit-level `owner`, `source_ids`,
+and `derived_from` fields are forbidden. The invariant in
+`tests/invariants/enterprise-grade-debt-plan-contract.spec.ts` rejects drift in
+that control plane.
+
+Source discovery is not a manually trusted count. Generic CI validates only
+committed source-manifest and content-addressed source-finding evidence through
+`gates:capability-source-inventory:static` and
+`gates:source-finding-inventory:static`; mutable remote refs and host worktrees
+cannot make an unrelated PR red.
+
+The governed generation lane runs `git fetch --prune origin` and then
+`npm run gates:capability-source-inventory:live`. Pruning makes deleted remote
+refs observable before comparison. This explicit lane uses a clean
+repository-owned runner with an independent Git common-dir, then adds locally
+unique branch tips and every registered clean or dirty worktree with exact
+status and content digest evidence. Discovery itself never fetches, prunes,
+checks out, resets, cleans, resolves, or deletes anything. Inspection failures
+and undeclared, moved-head, base-SHA, kind, digest, or duplicate drift fail
+closed.
+No remote branch, local branch, clean worktree, or dirty worktree record may
+disappear merely because it becomes integrated or superseded. The compiler has
+no retirement admission path: every nested `retirement` object is rejected and
+every missing terminal source remains `SOURCE_NO_LONGER_LIVE`. A future removal
+capability requires its own durable governed preservation authority before the
+source-inventory schema can expose it. The v1 manifest's
+`source_retirement_policy` block is verbatim-retained, non-executable historical
+metadata; the parser never consumes it or uses it to authorize removal. It is
+forbidden in v2 and its byte removal belongs to the signed #1064 full-generation
+manifest/artifact cut.
+
+The content-addressed `source-findings.<sha256>.jsonl` selected by
+`finding_inventory.artifact_path` is the occurrence-level finding provenance
+SSoT. It contains one deterministic row per unique `source_id#raw_id`,
+preserving noncanonical legacy variants such as `EDGE-CRITICAL-001-R1`
+verbatim. The manifest pins the artifact bytes, its source-ref set, normalized
+registry-and-schema authority, an exact set-equal attestation for every source
+including zero-result sources, and every integration-unit targeted-occurrence count. Finding
+authority is one joint coordinate: the registry JSONL blob and the schema blob
+that defines semantic projection and raw-ID grammar. Reconciled-base and
+discovery-candidate coordinates are attested independently; identical blobs
+are deduplicated while every unique registry blob records raw SHA-256 and row
+count and every unique schema blob records raw SHA-256. A finding-authority
+changing pull request therefore has one prospective candidate coordinate
+without pretending its older reconciliation base has the same content. Remote
+CI runs
+`npm run gates:source-finding-inventory:remote` immediately after the remote
+capability-source pin gate. Pull requests and protected-main pushes bind that
+validation to immutable event SHAs, require a fast-forward ancestry chain, and
+require the reconciled and tested-candidate blobs to match their respective
+attestations. The event frontier may carry an intervening legitimate authority
+version; its Git identity and ancestry are verified directly. Live
+`origin/main` must still expose the event frontier's registry/schema coordinate
+during pull-request validation and the candidate coordinate during
+protected-main validation. A later main commit with no finding-authority
+change may advance while an older exact-SHA run is executing, but a later
+registry or schema change forces a rerun. No future merge SHA is embedded in
+its own parent.
+
+Writers serialize through one repository-common lease shared by every
+worktree and by the canonical finding allocator. They validate the exact prior
+manifest, every governed artifact, any stale legacy artifact, and committed
+registry/schema authority before publication. The candidate HEAD, joint
+authority coordinate, live `origin/main`, every included source ref, and each
+included dirty-worktree content digest form one publication fence and are
+rechecked before and after the pointer switch. Writers fsync a
+content-addressed artifact first and atomically switch the manifest pointer
+second; the manifest is therefore always the single authority across a crash.
+After the pointer switch, only lease-snapshotted unreferenced artifacts are
+removed and the directory is fsynced. Any post-switch fence failure durably
+restores the prior artifacts and manifest under the same lease before
+reporting failure.
+Validation requires exactly one governed artifact and rejects or recovers,
+under the same lease, legacy, duplicate, non-regular, corrupted, orphaned
+staging, or mismatched entries; interrupted cleanup cannot silently accumulate
+disk usage. The canonical registry mutation entrypoint applies the same staging
+inspection/recovery contract to every active-worktree registry and the shared
+ID-reservation ledger.
+
+The governed count and source-ref digest are read only from
+`finding_inventory` after the schema-governed capability projection is
+executed; a
+historical count is never an input to discovery. A preliminary textual audit
+reported 1,030 with source-ref-set SHA-256
+`3426306d2cd36f6b74f84303030777de1c81613c4e554c8b75888448501676ac`.
+The first parsed pass reduced that set to 1,010 with source-ref-set SHA-256
+`8631e019aefbfe44e57c8a812a87923758ee99f5de5af4b642f927670e2e494a`
+after proving that 20 references on `SRC-R-011` and `SRC-R-012` existed only in
+JSONL lines rewritten by immutable-ledger re-chaining. The exact exclusions
+and intermediate digest remain lineage evidence, not execution authority. The
+current artifact is authoritative only when its manifest hash, algorithm
+contract, source attestations, and execution-scope attestation all agree.
+
+Structured registry records absent from main are `LEGACY_UNREGISTERED`.
+Unstructured registry/review references are `PENDING_ADJUDICATION`, never
+automatic implementation obligations. Reused raw IDs with different source
+and main identities are `ID_COLLISION`, keep `canonical_id: null`, and require
+fresh allocation. A collision cannot claim a capability target before that
+allocation. `finding_allocation_policy.reserved_domain_floors` is derived from
+every source occurrence and is consumed by the canonical allocator under the
+same repository-common lease. The allocator takes the maximum across all
+namespaces for a root domain from the invoking worktree's repository-global
+source-finding artifact. That worktree must carry valid v3 authority; its floor
+is re-derived through the schema SSoT from the content-addressed artifact and
+must match the artifact hash and row-count authority. Every active-worktree
+registry is still required and scanned under the common lock, while historical
+worktrees are not forced to duplicate the new manifest schema merely to let
+main allocate. Automatic allocation advances above the global high-water and
+explicit imports at or below it fail closed. A fresh worktree therefore cannot
+mint an ID still present in legacy provenance. Every source has one explicit
+`SA-SRC-*`
+`source_adjudications` queue with its execution owner, status, deadline, and
+plan. Occurrence rows reference that queue without copying its policy fields.
+`target_integration_unit_id` remains null unless an existing source-qualified
+binding proves a behavior-level target. Source adjudication is not semantic
+capability ownership: a pending row blocks only its source queue and a
+non-null target unit from becoming `READY`, `INTEGRATING`, or `VERIFIED`.
+Unrelated behavior units are never blocked merely because they once shared a
+branch.
+
+The common-lock claim has a machine-enforced backward-writer boundary.
+Canonical registry mutation and source-finding publication both execute the
+same active-worktree legacy-writer compatibility preflight. The publication
+writer calls `assertCompatibleWriters()` while resolving its
+repository-common lease and refuses publication before artifact generation
+when that check fails. A writable legacy `cmdAdd`/append implementation that
+does not use `finding-registry-v1.lock` blocks the operation with its exact
+path; policy text cannot make an uncooperative writer mutually exclusive. On
+2026-07-29 the shared development common-dir still contains 14 such
+historical worktrees. Until the P1 evidence below exists, allocation and
+source publication refuse rather than risk a duplicate.
+
+Discovery compares parsed registry records through the capability fields
+declared once by `findings.jsonl.schema.json`: `id`, `title`, `severity`,
+`layer`, `evidence`, `rule_violated`, `override_of`, `notes`, and `narrative`.
+Lifecycle, ownership, timestamps, close metadata, and ledger-chain hashes
+cannot create a finding delta or collision. The same schema authority supplies
+canonical classifiers, including `CVE`, and the exact `FARM-DATAMIG-001`
+grandfather rule; source-local suffixes and legacy namespaces remain verbatim
+provenance. Raw references inside changed registry records are extracted
+structurally; only
+added non-registry `docs/reviews/**` lines are scanned as text. Dirty sources
+are compared directly from merge base to the effective worktree, including
+untracked review files; merge-base-to-HEAD and HEAD-to-worktree deltas are
+never unioned, so a dirty revert cannot survive as a false finding. Dirty
+evidence is checked against the capability inventory digest before and after
+inspection, so a torn snapshot fails closed. Every source ref or worktree HEAD
+is likewise rechecked before and after its scan. Dirty registry and untracked
+review evidence must be regular files, and parsed registry snapshot caching is
+bounded. A disappeared legacy binding is a hard failure and can never be
+silently pruned by a writer. Full local/dirty rediscovery is forbidden on the
+production host. Its workflow-dispatch identity must be GitHub-owned and its
+actual cgroup v2 evidence must prove finite memory, swap, CPU, and PID bounds
+plus an exclusive isolated CPU partition; the environment label alone grants
+nothing. Git output is also bounded to 32 MiB and individual evidence files to
+16 MiB. Static artifact validation and remote-only rediscovery remain safe
+required-CI operations.
+`npm run gates:source-finding-inventory:refresh` is the sole host-safe writer:
+it re-discovers remote sources, retains host rows, and emits the explicit
+pending-isolation attestation; it never reads local/dirty evidence or requires
+their Git objects. Host merge-base attestations are preserved while their
+artifact-derived counts and digests are recomputed.
+When `generation_attestation.host_source_state` is
+`RETAINED_PENDING_ISOLATED_REDISCOVERY`, remote rows are live-validated but
+local/dirty rows are explicitly retained evidence, not a claimed v3 rescan.
+That dated blocker is owned by `infra-expert`, due 2026-07-30, with the
+manifest plan requiring the cgroup-backed isolated full run and matching
+content/start/end snapshot pins before replacement. Full validation rejects
+the retained state.
+
+### Open P1 Control-Plane Blockers — 2026-07-30
+
+These entries remain open and keep their affected units in `ASSESSING`.
+Passing static contracts proves fail-closed boundaries; it does not substitute
+for the missing operational evidence.
+
+| ID                              | State  | Owner               | Deadline   | Missing machine proof                                                                                                                                                                                                                                    | Execution plan                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------- | ------ | ------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `P1-WRITER-PROTOCOL-001`        | `OPEN` | `context-manager`   | 2026-07-30 | Fourteen registered historical worktrees still expose writers that do not prove the `finding-registry-v1.lock` protocol.                                                                                                                                 | Preserve every dirty-worktree digest and patch, add the fail-closed/common-lease guard to every registered writer, then run `npm run test:finding-registry-authority` and `npm run findings:writer-preflight`; both canonical mutation and source-finding publication must pass the shared preflight.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `P1-ALLOCATOR-OIDC-001`         | `OPEN` | `security-reviewer` | 2026-07-30 | The OIDC verifier and authority workflow exist, but there is no retained exact-run proof that a durable repository-global allocation transaction prevents two fresh clones from issuing the same ID while an earlier allocation PR is unmerged.          | Make the protected-main GitHub Actions OIDC workflow the only mutation authority; verify issuer discovery, JWKS key, RS256 signature, audience, repository, protected ref, workflow identity, workflow SHA, run ID/attempt, and token lifetime; bind allocation to a durable repository-global high-water transaction; run an adversarial two-clone allocation test and retain the signed run artifact.                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `P1-AUTOMATION-PUBLICATION-001` | `OPEN` | `security-reviewer` | 2026-07-30 | Live GitHub inspection at `2026-07-30T07:22:24Z` found no `ARIA_GITHUB_APP_*` variables or private-key secret, and the protected-base `automation-publication-admission` context cannot be required until its workflow first exists on protected `main`. | `Okan-wqm` creates or selects a GitHub App installed only on `Okan-wqm/aquaculture_platform`, with requested token permissions exactly Actions `read`, Contents `write`, and Pull requests `write` (no Administration or Workflows permission), then places `ARIA_GITHUB_APP_CLIENT_ID`, `ARIA_GITHUB_APP_INSTALLATION_ID`, `ARIA_GITHUB_APP_SLUG`, and `ARIA_GITHUB_APP_PRIVATE_KEY` only in the `automation-publication` environment. After this bootstrap control-plane PR merges, immediately promote the base-owned admission workflow in one configuration-only PR, add its exact context to `.github/manifests/main-required-status-checks.json` and live branch protection, then retain an exact-head add/close/report retry run proving App scope, GitHub signature, artifact digest, and PR provenance. |
+| `P1-HOST-SOURCE-TRANSFER-001`   | `OPEN` | `infra-expert`      | 2026-07-30 | Local-branch and dirty-worktree rows are retained, but no signed host-source snapshot and transfer artifact lets the isolated runner reproduce their bytes and Git coordinates.                                                                          | Capture each registered host source as an immutable manifest plus required patch/archive bytes without secrets; bind source ID, locator, HEAD, merge base, content SHA-256, and start/end observation pins; sign the manifest with the repository-owned GitHub OIDC/Sigstore identity, verify the bundle after transfer to the isolated runner, run bounded full rediscovery, and replace retained rows only when all digests agree.                                                                                                                                                                                                                                                                                                                                                                              |
+| `P1-RULE-HEALTH-TELEMETRY-001`  | `OPEN` | `infra-expert`      | 2026-08-01 | Integration unit `IU-CI-023` has `finding_binding.status=CREATE_REQUIRED`: no canonical finding ID or retained month-long `agent_dispatch_total` / `agent_finding_issued_total` and per-gate observation proof exists.                                   | Keep repository-derived report sections explicitly labelled, then dispatch the Finding Registry Authority `add` operation from protected `main` with retry-stable command ID `enterprise-debt:IU-CI-023:add`. After its registry PR merges, bind the allocated finding to `IU-CI-023`; `observability-expert` reviews bounded-cardinality metric wiring and a complete monthly artifact before this item can close.                                                                                                                                                                                                                                                                                                                                                                                               |
+
+The 2026-07-30 rule-health item is finding-linked through
+`manifest.json` integration unit `IU-CI-023`. Its `CREATE_REQUIRED` binding is
+an explicit absence of a canonical ID, not permission to invent one locally;
+the Finding Registry Authority workflow is the only allocation path.
+
+The GitHub-side private-key boundary is partially installed, not inferred from
+workflow YAML. Live API state at `2026-07-30T07:22:24Z` proves that environment
+`automation-publication` exists with exactly one custom deployment branch
+policy, `main`. It currently contains none of the four App credentials named
+above, so every publication workflow remains deliberately fail-closed. The
+App private key must be an environment secret, never a repository secret; the
+three identifiers are environment variables. The checked-in token contract
+downscopes each mint to exactly this repository with Actions `read`, Contents
+`write`, and Pull requests `write`; Administration and Workflows authority are
+outside the contract. Absence of those credentials and absence of the
+base-owned required admission context are the two explicit exit conditions of
+`P1-AUTOMATION-PUBLICATION-001`, not an undocumented follow-up.
+
+### Production Droplet Execution Boundary
+
+The production droplet is a deployment and runtime target, not a CI runner.
+On 2026-07-29 a broad Nx affected run exhausted available memory and was
+terminated at the OOM boundary. Production stability therefore enforces these
+rules:
+
+- Broad Nx/Jest/Vitest, coverage, lint, build, and dependency-audit workloads
+  run only on isolated GitHub Actions runners.
+- The droplet permits selective exact-digest deployment, health/readiness
+  checks, targeted read-only smoke checks, and an encrypted backup stream.
+- Restore proof runs only on an isolated runner container, never on the
+  production droplet.
+- No broad Docker garbage collection, swap mutation, full-stack restart, or
+  target-host image build is authorized by this programme.
+
+Ledger work preserves `JSONL_PRIMARY` as the production authority.
+PostgreSQL may be absent or `POSTGRES_SHADOW`; `POSTGRES_PRIMARY` is forbidden
+in production. The only cutover-labelled unit is explicitly
+`PRE_PRODUCTION_ONLY`, remains `production_cutover=false`, and requires restore
+proof plus two distinct protected-main parity cycles.
+
 ## Core Agents
 
 The execution program uses these core agents as owners or mandatory reviewers:
@@ -61,12 +368,23 @@ The execution program uses these core agents as owners or mandatory reviewers:
 - `multi-tenant-saas-expert`
 - `auth-security-expert`
 - `security-reviewer`
+- `compliance-expert`
+- `legal-hold-auditor`
 - `infra-expert`
 - `performance-expert`
+- `hr-expert`
 - `frontend-expert`
 - `messaging-expert`
 - `farm-expert`
 - `edge-expert`
+- `alert-engine-expert`
+- `supply-chain-auditor`
+- `test-runner`
+- `admin-expert`
+- `mcp-expert`
+- `build-validator`
+- `mobile-app-auditor`
+- `observability-expert`
 
 ## Reverse-Engineering Attack Lanes
 
@@ -164,6 +482,8 @@ and no active CRITICAL/HIGH without valid BLOCKED evidence.
 ## Required Commands
 
 Every sprint exit:
+
+These commands run on an isolated CI runner, never on the production droplet.
 
 ```bash
 npm run findings:verify

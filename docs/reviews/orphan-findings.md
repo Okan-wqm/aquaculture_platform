@@ -8282,11 +8282,16 @@ backticks, so the shell EXECUTED `${REPORT}` and
 `Permission denied` lines in every run log, and a command-substitution surface
 on the one step that assembles text from variables.
 
-**Fix:** `pull-requests: write` on the job that opens the PR; the body rendered
-by `python3` from `os.environ` so no value is parsed by a shell. A second test
-in `tests/invariants/aria-workflow-input-injection.spec.ts` fails on an
-unquoted heredoc whose body performs command substitution, and spares one that
-only expands `${VAR}`.
+**Fix:** the mainline repair granted the fallback workflow token the missing
+PR scope and rendered the body without shell command substitution. The source
+publication control plane supersedes that fallback: the job token remains
+read-only, a protected environment mints the exact GitHub App installation
+token, and the typed idempotent publisher emits durable input/result evidence.
+The body is rendered with argument-only `printf`, so no heredoc body is parsed
+by the shell. A second test in
+`tests/invariants/aria-workflow-input-injection.spec.ts` fails on an unquoted
+heredoc whose body performs command substitution, and spares one that only
+expands `${VAR}`.
 
 The contract registry (ADR-036) had the same omission: the `commit-report` job
 contract declared `contents: write` only, while its own
@@ -8296,8 +8301,9 @@ pair for the identical action. Registry and YAML agreed, so the parity check
 was green throughout — parity proves the two match, not that either is
 sufficient for the step named in the contract.
 
-**Not fixed here:** `ARIA_GITHUB_APP_TOKEN` remains unprovisioned (operator).
-The workflow now works on the fallback token, so it is no longer a blocker.
+The legacy `ARIA_GITHUB_APP_TOKEN`/workflow-token fallback is no longer a
+mutation authority. Publication now fails closed unless the protected
+environment can mint the catalogued installation token.
 
 ## ORPHAN-CRITICAL-600 — the prompt hash was minted over one object and verified against another — RESOLVED (this PR)
 

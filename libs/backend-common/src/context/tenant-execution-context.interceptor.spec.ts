@@ -23,7 +23,8 @@ function createExecutionContext(options: {
     getHandler: () => createExecutionContext,
     getArgs: <T extends unknown[] = unknown[]>(): T => args as unknown as T,
     getArgByIndex: <T = unknown>(index: number): T => args[index] as T,
-    getType: <TContext extends string = ReturnType<ExecutionContext['getType']>>(): TContext => 'graphql' as TContext,
+    getType: <TContext extends string = ReturnType<ExecutionContext['getType']>>(): TContext =>
+      'graphql' as TContext,
     switchToHttp: () => ({
       getRequest: <T = unknown>(): T => options.request as T,
       getResponse: <T = unknown>(): T => undefined as T,
@@ -40,7 +41,6 @@ function createExecutionContext(options: {
     }),
   };
 }
-
 
 /**
  * ORPHAN-CRITICAL-573 — a NATS command frame. No request, no guard chain:
@@ -105,9 +105,8 @@ describe('TenantExecutionContextInterceptor', () => {
       handle: () => of(getRequestContext()),
     };
 
-    const result = await requestContextStorage.run(
-      { correlationId: 'corr-2' },
-      () => lastValueFrom(interceptor.intercept(context, next)),
+    const result = await requestContextStorage.run({ correlationId: 'corr-2' }, () =>
+      lastValueFrom(interceptor.intercept(context, next)),
     );
 
     expect(result).toEqual({ correlationId: 'corr-2' });

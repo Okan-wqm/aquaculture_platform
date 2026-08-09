@@ -3,11 +3,10 @@ name: aria-daily-report
 # Plan 022 §M-4 — daily ARIA report automation.
 # Plan 023 v3 §D-2 — superseded by PR-based report publishing.
 # Plan 024 v3 §B-3 — input injection closure + iki-job split:
-#   * Workflow-level permissions defaults to contents:read; only the
-#     commit-report job overrides to contents:write so generated reports
-#     can be published through the shared automation PR upsert script.
-#     A workflow_dispatch input injection in the read-only generate
-#     job has no PR/push capability.
+#   * The default GitHub token remains contents:read in both jobs. The
+#     commit-report job publishes through a verified, current-repository-only
+#     GitHub App installation token. A workflow_dispatch input injection in
+#     the read-only generate job has no PR/push capability.
 #   * generate-report exports `date` as a job output via $GITHUB_OUTPUT;
 #     commit-report reads it via needs.generate-report.outputs.date.
 #     env: alone does NOT cross job boundaries in GHA.
@@ -19,7 +18,7 @@ name: aria-daily-report
 
 on:
   schedule:
-    - cron: '0 6 * * *'  # 06:00 UTC daily
+    - cron: '0 6 * * *' # 06:00 UTC daily
   workflow_dispatch:
     inputs:
       date:
@@ -28,13 +27,15 @@ on:
         type: string
 
 permissions:
-  # Plan 024 v3 §B-3 — workflow-level default contents:read.
-  # commit-report job overrides to contents:write at job scope.
+  # The default GitHub token is read-only. Repository mutation uses a
+  # separately minted, one-repository GitHub App installation token.
   contents: read
 
-concurrency:
-  group: aria-daily-report
-  cancel-in-progress: false
+# No workflow-level concurrency group is used. GitHub retains at most one
+# pending run per concurrency group, so a repository-global group can replace
+# one report date with another even when cancel-in-progress is false. The
+# date-scoped command ID and publication branch provide the durable collision
+# boundary without dropping queued dates.
 
 jobs:
   generate-report:
@@ -42,18 +43,31 @@ jobs:
     timeout-minutes: 15
     if: github.ref == 'refs/heads/main'
     permissions:
+      actions: read
       contents: read
     outputs:
+      artifact_id: ${{ steps.report-evidence.outputs.artifact-id }}
+      artifact_sha256: ${{ steps.report-evidence.outputs.artifact-digest }}
       date: ${{ steps.target.outputs.date }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
           # Plan ARIA-V2 §3.7 INFRA-HIGH-004 — generate-report is the
           # read-only job; PR credentials are only available in commit-report.
           persist-credentials: false
       - uses: ./.github/actions/setup-aria-kernel
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+
+      - name: Resolve immutable Actions run clock
+        id: run-clock
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: npm run automation:resolve-run-clock
 
       - name: Validate date input + compute target
         id: target
@@ -61,6 +75,7 @@ jobs:
           # Plan 024 v3 §B-3 — env-only interpolation; raw shell access
           # to ${{ github.event.inputs.date }} is closed.
           DATE_INPUT: ${{ github.event.inputs.date }}
+          RUN_DATE: ${{ steps.run-clock.outputs.date }}
         run: |
           set -euo pipefail
           if [ -n "${DATE_INPUT:-}" ]; then
@@ -68,9 +83,20 @@ jobs:
               echo "::error::invalid date format (expected YYYY-MM-DD): $DATE_INPUT" >&2
               exit 1
             fi
+            DATE_INPUT="${DATE_INPUT}" node -e "
+              const input = process.env.DATE_INPUT ?? '';
+              const parsed = new Date(input + 'T00:00:00Z');
+              if (
+                !Number.isFinite(parsed.valueOf()) ||
+                parsed.toISOString().slice(0, 10) !== input
+              ) process.exit(1);
+            " || {
+              echo "::error::date is not a real UTC calendar day: $DATE_INPUT" >&2
+              exit 1
+            }
             DATE="$DATE_INPUT"
           else
-            DATE="$(date -u +%F)"
+            DATE="${RUN_DATE}"
           fi
           REPORT="aria-tools/reports/daily/${DATE}.md"
           # Plan 024 v3 §B-3 — path containment.
@@ -107,9 +133,9 @@ jobs:
               workspace_root=os.environ["GITHUB_WORKSPACE"],
               allowed_write_roots=[report],
               path_allowlist=[report],
-              network_policy=["github_artifact"],
-              network_enforcement_evidence="actions/upload-artifact receives only the generated daily report",
-              token_provenance="github_actions_artifact_token",
+              network_policy=["github_api", "github_artifact"],
+              network_enforcement_evidence="read the exact Actions run clock with actions:read, then upload only the generated daily report",
+              token_provenance="github_actions:actions_read+artifact",
               require_github_app=False,
               dlp_mode="fail_closed",
               dlp_scan_clean=True,
@@ -143,36 +169,41 @@ jobs:
             --output-path "${REPORT}" \
             --workspace-root .
 
-      - name: Upload report as artifact
+      - name: Upload immutable report input evidence
+        id: report-evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: aria-daily-report-${{ steps.target.outputs.date }}
+          name: aria-daily-report-input-${{ github.run_id }}-${{ github.run_attempt }}
           path: aria-tools/reports/daily/${{ steps.target.outputs.date }}.md
           if-no-files-found: error
-          retention-days: 365
+          retention-days: 90
 
   commit-report:
     needs: generate-report
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: github.ref == 'refs/heads/main'
+    environment: automation-publication
     permissions:
-      # Plan 024 v3 §B-3 — write scope localized to this job only.
-      contents: write
-      # This job's last step opens a pull request. A `permissions:` block makes
-      # every scope it does not name `none`, so with contents alone `gh pr
-      # create` fails with "Resource not accessible by integration" — which is
-      # what every scheduled run of this workflow has done. The report itself
-      # is committed with contents:write; this is the scope for publishing it.
-      pull-requests: write
+      # The workflow token is intentionally not the publisher. The governed
+      # mutation below uses the installation token minted by the protected
+      # automation-publication environment.
+      contents: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
           fetch-depth: 0
 
       - uses: ./.github/actions/setup-aria-kernel
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '22'
+
+      - name: Install locked publisher dependencies
+        run: npm ci --ignore-scripts --no-audit --prefer-offline
 
       - name: Persist enterprise workflow preflight
         env:
@@ -195,9 +226,9 @@ jobs:
               workspace_root=os.environ["GITHUB_WORKSPACE"],
               allowed_write_roots=[report],
               path_allowlist=[report],
-              network_policy=["github_api"],
-              network_enforcement_evidence="GitHub PR API via automation/open-report-pr.sh",
-              token_provenance="github_app:installation",
+              network_policy=["github_api", "github_artifact"],
+              network_enforcement_evidence="download immutable report evidence, then use the typed GitHub App publication protocol",
+              token_provenance="github_actions:artifact+github_app:installation",
               dlp_mode="fail_closed",
               dlp_scan_clean=True,
               audit_reason="publish daily ARIA report through automation PR",
@@ -211,52 +242,73 @@ jobs:
       - name: Download report artifact
         uses: actions/download-artifact@65a9edc5881444af0b9093a5e628f2fe47ea3b2e # v4
         with:
-          name: aria-daily-report-${{ needs.generate-report.outputs.date }}
+          name: aria-daily-report-input-${{ github.run_id }}-${{ github.run_attempt }}
           path: aria-tools/reports/daily/
 
-      - name: Open or update daily report PR
+      - name: Mint scoped automation GitHub App token
+        id: automation-app
+        uses: ./.github/actions/mint-automation-app-token
+        with:
+          client-id: ${{ vars.ARIA_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ARIA_GITHUB_APP_PRIVATE_KEY }}
+          expected-app-slug: ${{ vars.ARIA_GITHUB_APP_SLUG }}
+          expected-installation-id: ${{ vars.ARIA_GITHUB_APP_INSTALLATION_ID }}
+
+      - name: Publish idempotent daily report PR
+        id: publication
         env:
           # Plan 024 v3 §B-3 — read date via needs.<job>.outputs.* (env
           # does not cross job boundaries; this is the canonical
           # GHA inter-job data transfer mechanism).
           REPORT_DATE: ${{ needs.generate-report.outputs.date }}
-          GH_TOKEN: ${{ secrets.ARIA_GITHUB_APP_TOKEN || github.token }}
-          PR_TOKEN_SOURCE: ${{ secrets.ARIA_GITHUB_APP_TOKEN && 'aria-github-app' || 'actions-default' }}
+          EXPECTED_BASE_SHA: ${{ github.sha }}
+          GH_APP_INSTALLATION_ID: ${{ steps.automation-app.outputs.installation-id }}
+          GH_APP_SLUG: ${{ steps.automation-app.outputs.app-slug }}
+          GH_TOKEN: ${{ steps.automation-app.outputs.token }}
         run: |
           set -euo pipefail
           REPORT="aria-tools/reports/daily/${REPORT_DATE}.md"
           BODY_FILE="$RUNNER_TEMP/aria-daily-report-body.md"
-          # The body is rendered by python from the environment, not by the
-          # shell. An UNQUOTED heredoc was here, and markdown code spans are
-          # written with backticks: the shell ran `${REPORT}` and
-          # `.github/workflows/aria-daily-report.yml` as commands, which is
-          # where the "Permission denied" lines in every run log came from.
-          # It also made the body a command-substitution surface on a path
-          # that is otherwise carefully sanitised. Values now reach the body
-          # as data through os.environ and are never parsed by a shell.
-          REPORT="$REPORT" REPORT_DATE="$REPORT_DATE" python3 - > "$BODY_FILE" <<'PY'
-          import os
-
-          print(f"Daily ARIA report for **{os.environ['REPORT_DATE']}**.")
-          print()
-          print(f"Generated report: `{os.environ['REPORT']}`.")
-          print()
-          print("This PR is created by `.github/workflows/aria-daily-report.yml`.")
-          PY
+          # printf receives the validated values only as arguments; there is no
+          # heredoc body for the shell to parse as command substitution.
+          {
+            printf 'Daily ARIA report for **%s**.\n\n' "${REPORT_DATE}"
+            printf 'Generated report: `%s`.\n\n' "${REPORT}"
+            printf '%s\n' 'This PR is created by `.github/workflows/aria-daily-report.yml`.'
+          } > "$BODY_FILE"
 
           export PR_BRANCH="automation/aria-daily-report-${REPORT_DATE}"
           export PR_TITLE="chore(aria-reports): daily ${REPORT_DATE}"
           export PR_BODY_FILE="$BODY_FILE"
           export COMMIT_MESSAGE="chore(aria-reports): daily ${REPORT_DATE}"
           export CHANGED_PATHS="$REPORT"
-          bash tools/scripts/automation/open-report-pr.sh
+          export AUTOMATION_COMMAND_ID="aria-daily-report:${REPORT_DATE}"
+          export AUTOMATION_OPERATION="report"
+          export AUTOMATION_INPUT_SHA256="$(sha256sum -- "$REPORT" | awk '{print $1}')"
+          export AUTOMATION_EVIDENCE_ARTIFACT_ID="${{ needs.generate-report.outputs.artifact_id }}"
+          export AUTOMATION_EVIDENCE_ARTIFACT="aria-daily-report-input-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export AUTOMATION_EVIDENCE_SHA256="${{ needs.generate-report.outputs.artifact_sha256 }}"
+          export AUTOMATION_RESULT_PATH="${RUNNER_TEMP}/aria-daily-report-publication.json"
+          npm run automation:publish
 
-      # ADR-036 — upload the enterprise-preflight audit proof so the
-      # commit-report job's governed-write decision is retained as CI evidence.
-      - name: Upload commit-report preflight proof
+      - name: Upload immutable daily publication result
+        if: always() && steps.publication.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: aria-daily-report-commit-preflight-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/aria-daily-report-preflight.json
+          name: automation-publication-result-${{ steps.publication.outputs.commit }}
+          path: |
+            ${{ runner.temp }}/aria-daily-report-preflight.json
+            ${{ runner.temp }}/aria-daily-report-publication.json
           if-no-files-found: error
-          retention-days: 365
+          retention-days: 90
+
+      - name: Upload durable daily publication failure
+        if: always() && steps.publication.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: automation-publication-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/aria-daily-report-preflight.json
+            ${{ runner.temp }}/aria-daily-report-publication.json
+          if-no-files-found: error
+          retention-days: 90

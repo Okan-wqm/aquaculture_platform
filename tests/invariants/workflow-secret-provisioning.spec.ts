@@ -5,14 +5,11 @@
  *
  * # Why this exists
  *
- * `ARIA_GITHUB_APP_TOKEN` was referenced by three scheduled workflows
- * (finding-state-sweep, aria-daily-report, rule-health-report) and had never
- * been provisioned on the repository or in any environment. GitHub does not
- * error on an unknown secret — it substitutes the empty string. So each of
- * those workflows ran its full body every day, did all the real work, and
- * died on the last step with "GH_TOKEN or GITHUB_TOKEN is required", producing
- * a daily red that no longer carried information. The reference was wrong from
- * the first commit and nothing could tell anyone until a human read the logs.
+ * Historically, `ARIA_GITHUB_APP_TOKEN` was referenced by scheduled workflows
+ * without ever being provisioned. GitHub substituted an empty string, so each
+ * workflow failed only after doing its real work. Publication now mints a
+ * repository-scoped installation token from the environment-owned
+ * `ARIA_GITHUB_APP_PRIVATE_KEY`; the long-lived token dependency is retired.
  *
  * A test cannot ask GitHub which secrets exist (no credentials at test time,
  * and secrets are write-only by design). What it CAN do is force the

@@ -8329,6 +8329,43 @@ sufficient for the step named in the contract.
 **Not fixed here:** `ARIA_GITHUB_APP_TOKEN` remains unprovisioned (operator).
 The workflow now works on the fallback token, so it is no longer a blocker.
 
+## ORPHAN-HIGH-602 — the autonomy lane scheduled work no tool could run and minted requests no agent could evidence — RESOLVED (this PR)
+
+**Severity:** HIGH (the lane's queue was self-sustaining garbage: one item re-enqueued every cycle since 2026-08-08)
+**Owner:** ARIA
+**Discovered:** 2026-08-09 — by ARIA itself. The first accepted agent response
+(AIR-aria-autonomy-planner-5636a540ccaa, 540s) traced queue item
+qi-1edfe1882f49 and delivered mechanism-level root causes with executed proof.
+
+Three mechanisms, closed together:
+
+1. **Stripped tool bindings stayed schedulable.** `_filter_candidate_tools`
+   intersects a pressure's tools against a registry holding zero entries; the
+   loss was recorded as an advisory uncertainty (9 identical rows, zero
+   escalation) while the pressure kept scoring 100.0, won a next_cycle_plan
+   slot, and re-enqueued forever. Now the strip writes `blocked_by` on the
+   pressure — the field existed and was minted empty on every pressure — and
+   the queue writer refuses items carrying it.
+
+2. **Requests could not carry evidence.** They were minted with
+   `evidence_refs=[pressure_id]`, and a pressure id cannot parse under the
+   evidence validator's grammar, so the only passable envelope was
+   empty-evidence + satisfied — a blocked verdict was structurally
+   unrepresentable. Refs now come from the pressure's own evidence paths
+   (concrete repo paths by construction); the identifier keeps its own
+   channel, `pressure_event_id`.
+
+3. **Daemon runs minted `target_sha=null`.** The drain call site passed
+   `workspace_root` through raw while its five siblings apply
+   `Path(workspace_root) if workspace_root else root`, so the head-SHA
+   resolve ran against the daemon's cwd. Every real ref graded
+   `baseline_unavailable`. The sibling fallback is applied.
+
+**Left for the operator (planner's step 4):** registering
+`typeorm-entity-schema-adapter` in the runtime tool registry — state-store
+work outside this change's surface; without it the pressure is now correctly
+BLOCKED rather than incorrectly scheduled.
+
 ## ORPHAN-CRITICAL-601 — the executor kept its own copy of the prompt projection, and the binding died a second time — RESOLVED (this PR)
 
 **Severity:** CRITICAL (agent invocations still could not start after ORPHAN-CRITICAL-600)

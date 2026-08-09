@@ -134,6 +134,10 @@ def run_reflection(
                 "pressure_id": item.get("pressure_id"),
                 "recommended_action": item.get("recommended_action"),
                 "candidate_tools": item.get("candidate_tools", []),
+                # Carried so the queue writer below can refuse a blocked
+                # pressure; without this key the projection silently
+                # laundered the blocked state back into schedulable work.
+                "blocked_by": item.get("blocked_by", []),
             }
             for item in top_pressures
         ],
@@ -153,6 +157,12 @@ def run_reflection(
     for item in reflection.get("next_cycle_plan", []):
         pressure_id = item.get("pressure_id")
         if not isinstance(pressure_id, str) or not pressure_id:
+            continue
+        # A blocked pressure is operator-facing work, not schedulable work.
+        # Enqueuing one mints an agent request that can never run — the
+        # planner's first accepted response traced a queue item that had been
+        # re-enqueued this way every cycle since 2026-08-08.
+        if item.get("blocked_by"):
             continue
         _enqueue_next_cycle(
             base_dir=root,

@@ -8541,6 +8541,52 @@ went stale twice — `request_id` was missing from the first draft of the fix.
 `tools/quality/format-scope.json` and `docs/aria/CURRENT_STATE.md`. Both are
 generated; the resolution is to recompute them, not to choose a side.
 
+## ORPHAN-HIGH-604 — a backup lane that has never taken a backup satisfied every consumer of its green — RESOLVED (this PR)
+
+**Severity:** HIGH (the reader of green assumes protection; none exists)
+**Owner:** platform-CI
+**Discovered:** 2026-08-09, reading the "successful" backup-production run: its
+only executed annotation says _"PRODUCTION HAS NO production-logical-backup …
+it is NOT asserting that production is protected"_ — and the run concludes
+success.
+
+The lane is honest in words and misleading in color. It resolves DR
+activation, skips the ceremony when the capability is not activated (correct:
+the credentials were never minted), and completes green. Any consumer keyed on
+"backup lane green" — the scheduled-workflow watchdog above all — reads
+protection where none was measured.
+
+**Fix (contract, not color):** the watchdog now requires EVIDENCE where the
+manifest names it. The backup ceremony's own artifact
+(`walg-evidence-v2-…`, uploaded with `if-no-files-found: error` only when the
+ceremony actually ran) is declared as `requiredArtifactPrefix` on the
+backup-production entry; a green run without it files an incident with
+conclusion `success-without-evidence`. The standing truth — production has no
+backup pending BR-1 — now lives where standing truths belong: an open
+incident that closes itself the day the ceremony first runs. No workflow goes
+red-by-design, so the signal cannot be trained away.
+
+**Not changed:** backup-production itself. Its skip is correct and its words
+are honest; the defect was in what its consumers inferred.
+
+## ORPHAN-MEDIUM-603 — the scheduled-workflow watchdog filed an incident every time it caught a workflow mid-run — RESOLVED (this PR)
+
+**Severity:** MEDIUM (false alarms train the reader to ignore the alarm)
+**Owner:** platform-CI
+**Discovered:** 2026-08-09, triaging the 7-of-16 red scheduled workflows.
+
+The watchdog fetched `per_page: 1` and judged `run.conclusion !== 'success'`.
+A run still in progress has `conclusion: null`, so every poll that landed
+while a watched workflow was running produced a "missing" incident.
+`database-wal-archive-freshness` (cron `*/5`, threshold 1h) tripped it every
+hour, on schedule.
+
+**Fix:** the watchdog now judges the newest **completed** run (fetch 10, take
+the first with `status === 'completed'`) — the question it answers is "has a
+scheduled run completed successfully within the age window", and an
+in-progress run is not evidence either way. The contract spec pins the
+completed filter and forbids the single-run fetch.
+
 ## ORPHAN-HIGH-594 — the first agent run to survive was rejected for a baseline its own harness never supplied — RESOLVED (this PR)
 
 **Discovered:** 2026-08-09, watching the first `aria-agent-executor` run that got past the runtime fixes.

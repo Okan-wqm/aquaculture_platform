@@ -44490,6 +44490,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/capacity-tmp-gc.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/check-pin.ts",
       "prettier_managed": true
     },

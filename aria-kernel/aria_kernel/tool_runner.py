@@ -100,8 +100,14 @@ def run_tool(
 
     try:
         if _runner_missing_node_deps(cwd, runner["argv"]):
+            # The WORKSPACE is missing the runner's dependency; the tool never
+            # executed and this run says nothing about the tool. Its own
+            # status keeps it out of the quarantine trigger — six adapters
+            # were quarantined on 2026-08-10 for exactly this, an environment
+            # fault priced as tool guilt (the requeue counter's defect, one
+            # layer up; MISSION_SPEC M-2.5).
             stderr = "missing repo-local node dependency: node_modules/ts-node/dist/bin.js"
-            status = "tool_unhealthy"
+            status = "environment_unavailable"
             exit_code = None
             output = {}
         else:

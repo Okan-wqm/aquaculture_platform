@@ -8489,6 +8489,24 @@ executor's exact comparison.
 One legacy test pinned the old hand-copy as source text ("cycle_id":
 claim.get(...)); it was rewritten to assert the property on the projection.
 
+## ORPHAN-MEDIUM-608 — a zero that means "severed" rendered exactly like a zero that means "not yet" — RESOLVED (this PR)
+
+**Severity:** MEDIUM (every starvation in this class was found by a human noticing)
+**Owner:** ARIA
+**Discovered:** 2026-08-10 code-review pass (madde 3 / öneri 3).
+
+`judged_judges` and `labelled_tool_count` sat at zero while three separate
+defects starved their producer chains — a wedged claim queue
+(ORPHAN-CRITICAL-596), a binding comparing two objects (600/601), an empty
+tool registry (602) — and the zero itself never said anything.
+
+**Fix (tier 3):** `dataflow_health` in every reflection row: watched signals
+(`judged_judges`, `labelled_tool_count`, `synced_tool_ids`) that are zero
+across the last 5 COMPLETED cycles are reported starved, with the producer
+chain a reader would walk, as a `SIGNAL STARVED` line in the daily report.
+Fewer cycles than the window is insufficient history, not an alarm; a
+nothing-starved day renders no heading at all.
+
 ## ORPHAN-CRITICAL-600 — the prompt hash was minted over one object and verified against another — RESOLVED (this PR)
 
 **Severity:** CRITICAL (no agent invocation could ever start)

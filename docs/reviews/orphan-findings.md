@@ -9018,6 +9018,7 @@ The adapter fleet covered D1-security and D4-testability; **D2-performance, D5-d
 **typeorm widening:** multi-service sweep over the 7 schema-per-tenant services (explicit `root` keeps the single-service call shape for fixtures). Widening exposed a latent FP class: the migration-registry check assumed farm's class-import registry, while sibling services legitimately register a GLOB in `data-source.ts` — every such service would have flooded `migration_registry_missing_entry`. The check now detects the registration style first; measured differential: farm-only findings **214 → 95** (the removed 119 were the glob-style false class), multi-service total 404 → 194.
 
 **Proof:** 4 self-asserting adapter test scripts green (fleet pattern); registry compiles 9 tools; real-repo smoke runs recorded above; fixture `real-repo-baseline` cases added per adapter.
+
 ## ORPHAN-HIGH-620 — the daily report had two writers and zero published readers: the lane committed an empty anchor stub while the real report and every dashboard ledger accumulated unread — RESOLVED (this PR)
 
 Severity: HIGH. Discovered 2026-08-10 during the end-to-end ARIA read (FAZ 6 of the "Sinir Sistemi" program).

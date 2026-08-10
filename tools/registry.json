@@ -457,6 +457,215 @@
       "tool_id": "typeorm-entity-schema-adapter",
       "updated_at": "2026-08-10T13:20:03+00:00",
       "version": "1.0.0"
+    },
+    {
+      "allowed_read_globs": [
+        "web/**/*.ts",
+        "web/**/*.tsx",
+        "web/**/*.js",
+        "web/**/*.json"
+      ],
+      "claim_types": [
+        "performance_budget"
+      ],
+      "created_at": "2026-08-10T22:17:10+00:00",
+      "declared_scope": [
+        "web/**/*.{ts,tsx,js,json}"
+      ],
+      "default_input": {
+        "roots": [
+          "web/shell",
+          "web/modules",
+          "web/apps"
+        ]
+      },
+      "fixture_set": "tools/aria-adapters/fixtures/bundle-budget-adapter",
+      "forbidden_read_globs": [
+        ".claude/**",
+        ".git/**",
+        "agent-workspace/**",
+        ".aria-poc/**",
+        "aria-tools/**",
+        "node_modules/**",
+        "dist/**",
+        "coverage/**",
+        "build/**",
+        "tmp/**"
+      ],
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "max_cost_units": 4000,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "runner": {
+        "argv": [
+          "node",
+          "./node_modules/ts-node/dist/bin.js",
+          "--project",
+          "tools/gates/tsconfig.json",
+          "tools/aria-adapters/bundle-budget-adapter.ts"
+        ],
+        "cwd": ".",
+        "stdin_json": true,
+        "timeout_ms": 180000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "SHADOW",
+      "tool_id": "bundle-budget-adapter",
+      "updated_at": "2026-08-10T22:17:10+00:00",
+      "version": "1.0.0"
+    },
+    {
+      "allowed_read_globs": [
+        "docs/**/*.md"
+      ],
+      "claim_types": [
+        "doc_staleness"
+      ],
+      "created_at": "2026-08-10T22:17:11+00:00",
+      "declared_scope": [
+        "docs/**/*.md"
+      ],
+      "default_input": {
+        "roots": [
+          "docs"
+        ]
+      },
+      "fixture_set": "tools/aria-adapters/fixtures/doc-staleness-adapter",
+      "forbidden_read_globs": [
+        ".claude/**",
+        ".git/**",
+        "agent-workspace/**",
+        ".aria-poc/**",
+        "aria-tools/**",
+        "node_modules/**",
+        "dist/**",
+        "coverage/**",
+        "build/**",
+        "tmp/**"
+      ],
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "max_cost_units": 4000,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "runner": {
+        "argv": [
+          "node",
+          "./node_modules/ts-node/dist/bin.js",
+          "--project",
+          "tools/gates/tsconfig.json",
+          "tools/aria-adapters/doc-staleness-adapter.ts"
+        ],
+        "cwd": ".",
+        "stdin_json": true,
+        "timeout_ms": 180000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "SHADOW",
+      "tool_id": "doc-staleness-adapter",
+      "updated_at": "2026-08-10T22:17:11+00:00",
+      "version": "1.0.0"
+    },
+    {
+      "allowed_read_globs": [
+        "apps/**/*.ts",
+        "web/**/*.ts",
+        "web/**/*.tsx"
+      ],
+      "claim_types": [
+        "contract_parity"
+      ],
+      "created_at": "2026-08-10T22:17:11+00:00",
+      "declared_scope": [
+        "apps/**/dto/**/*.ts",
+        "web/**/*.{ts,tsx}"
+      ],
+      "default_input": {
+        "backendRoots": [
+          "apps"
+        ],
+        "frontendRoots": [
+          "web"
+        ]
+      },
+      "fixture_set": "tools/aria-adapters/fixtures/fe-dto-parity-adapter",
+      "forbidden_read_globs": [
+        ".claude/**",
+        ".git/**",
+        "agent-workspace/**",
+        ".aria-poc/**",
+        "aria-tools/**",
+        "node_modules/**",
+        "dist/**",
+        "coverage/**",
+        "build/**",
+        "tmp/**"
+      ],
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "max_cost_units": 6000,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "runner": {
+        "argv": [
+          "node",
+          "./node_modules/ts-node/dist/bin.js",
+          "--project",
+          "tools/gates/tsconfig.json",
+          "tools/aria-adapters/fe-dto-parity-adapter.ts"
+        ],
+        "cwd": ".",
+        "stdin_json": true,
+        "timeout_ms": 240000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "SHADOW",
+      "tool_id": "fe-dto-parity-adapter",
+      "updated_at": "2026-08-10T22:17:11+00:00",
+      "version": "1.0.0"
     }
   ]
 }

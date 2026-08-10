@@ -1,21 +1,19 @@
 {
-  "tool_id": "typeorm-entity-schema-adapter",
+  "tool_id": "bundle-budget-adapter",
   "kind": "adapter",
   "version": "1.0.0",
   "status": "SHADOW",
-  "declared_scope": ["apps/**/*.ts", "libs/backend-common/src/database/schema-manager.service.ts"],
+  "declared_scope": ["web/**/*.{ts,tsx,js,json}"],
   "output_schema": {
     "type": "object",
     "required": ["observations", "findings", "read_paths", "evidence_sources"]
   },
-  "fixture_set": "tools/aria-adapters/fixtures/typeorm-entity-schema-adapter",
-  "health_thresholds": {
-    "max_cost_units": 2000
+  "fixture_set": "tools/aria-adapters/fixtures/bundle-budget-adapter",
+  "health_thresholds": { "max_cost_units": 4000 },
+  "default_input": {
+    "roots": ["web/shell", "web/modules", "web/apps"]
   },
-  "allowed_read_globs": [
-    "apps/**/*.ts",
-    "libs/backend-common/src/database/schema-manager.service.ts"
-  ],
+  "allowed_read_globs": ["web/**/*.ts", "web/**/*.tsx", "web/**/*.js", "web/**/*.json"],
   "forbidden_read_globs": [
     ".claude/**",
     ".git/**",
@@ -28,7 +26,7 @@
     "build/**",
     "tmp/**"
   ],
-  "claim_types": ["schema_drift"],
+  "claim_types": ["performance_budget"],
   "owner": "platform",
   "runner": {
     "type": "subprocess",
@@ -37,7 +35,7 @@
       "ts-node",
       "--project",
       "tools/gates/tsconfig.json",
-      "tools/aria-adapters/typeorm-entity-schema-adapter.ts"
+      "tools/aria-adapters/bundle-budget-adapter.ts"
     ],
     "cwd": ".",
     "timeout_ms": 180000,

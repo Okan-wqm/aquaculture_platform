@@ -331,7 +331,14 @@ function analyzeDangerousHtml(unit: SourceUnit, result: AnalysisResult, allowlis
 function dangerousHtmlSinks(unit: SourceUnit): Array<{ readonly line: number; readonly hasLocalSanitizer: boolean }> {
   const sinks: Array<{ readonly line: number; readonly hasLocalSanitizer: boolean }> = [];
   visit(unit.sourceFile, (node) => {
-    if (ts.isJsxAttribute(node) && node.name.text === 'dangerouslySetInnerHTML') {
+    // `JsxAttributeName` is Identifier | JsxNamespacedName since TS 5.1;
+    // only the identifier form can be this sink, and `.text` exists only
+    // on it — the narrowing is the type fix, not a behavioural change.
+    if (
+      ts.isJsxAttribute(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === 'dangerouslySetInnerHTML'
+    ) {
       sinks.push({
         line: lineOf(unit.sourceFile, node),
         hasLocalSanitizer: node.initializer ? hasRuntimeSanitizerCall(node.initializer) : false,

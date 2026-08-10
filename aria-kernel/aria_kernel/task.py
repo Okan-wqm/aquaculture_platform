@@ -29,8 +29,14 @@ def generate_task_candidates(
     for finding in list_findings(status="open", base_dir=base_dir):
         candidates.append(_candidate_from_finding(cycle_id, finding))
     for gap in latest_capability_gaps(base_dir=base_dir):
-        if gap.get("cycle_id") == cycle_id:
-            candidates.append(_candidate_from_capability_gap(cycle_id, gap))
+        # No cycle-id equality filter. Gap detection runs in
+        # learning_post_evidence_closure, AFTER mission_ingest — so at ingest
+        # time the newest batch always carries the PREVIOUS cycle's id and
+        # the filter made the coverage-gap -> mission path structurally
+        # unreachable in a standard cycle. latest_capability_gaps already
+        # returns only the most recent batch; recency is the guard, and
+        # adoption idempotency absorbs re-reads.
+        candidates.append(_candidate_from_capability_gap(cycle_id, gap))
     for run in list(read_runs_rows(runs_path(root), base_dir=root)):
         if run.get("cycle_id") != cycle_id or run.get("status") != "ok":
             continue

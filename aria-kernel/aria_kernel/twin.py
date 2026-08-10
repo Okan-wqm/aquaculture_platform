@@ -482,9 +482,86 @@ def _rev_list(root: Path, rev_range: str) -> list[str]:
     return [line for line in output.splitlines() if line.strip()]
 
 
+# --- Intent layer (Plan "ARIA Sinir Sistemi" FAZ 4b) ---------------------
+#
+# WHY: this repository's commit bodies are why-rich by convention (CLAUDE.md
+# mandates "body explaining WHY"), so the cheapest honest answer to "why is
+# this code the way it is" is the recent history of the exact files an agent
+# is about to touch. The layer is deterministic and git-derived: computed
+# once at envelope MINT time, sealed under the prompt hash, never
+# recomputed at claim.
+
+INTENT_COMMITS_PER_FILE = 3
+INTENT_MAX_FILES = 8
+
+# The reference shapes that carry intent in this repo's commit messages:
+# ADR ids, ADR/plan/review doc paths, and finding ids like FARM-HIGH-083.
+_INTENT_REF_RE = re.compile(
+    r"(ADR-\d{3}|docs/(?:adr|plans|reviews)/[\w./#-]+|[A-Z][A-Z0-9]+-(?:CRITICAL|HIGH|MEDIUM|LOW)-\d+)"
+)
+
+
+def intent_context_for_files(
+    workspace_root: str | Path,
+    files: list[str],
+    *,
+    per_file_commits: int = INTENT_COMMITS_PER_FILE,
+    max_files: int = INTENT_MAX_FILES,
+) -> dict[str, Any] | None:
+    """WHAT: per file, the last K commits' subject + first WHY line + the
+    ADR/plan/finding references those messages carry.
+
+    Returns None — not an empty scaffold — when nothing has history, for the
+    same reason ``twin_context_for_files`` does: "these files have no
+    recorded intent" is a stronger claim than "no intent layer was attached".
+    Never raises: a file outside git, an unborn repo, or a git failure costs
+    that entry, not the caller.
+    """
+    root = Path(workspace_root)
+    unique = list(dict.fromkeys(
+        f.replace("\\", "/").removeprefix("./").strip() for f in files if f and f.strip()
+    ))[: max(0, int(max_files))]
+    entries: list[dict[str, Any]] = []
+    for rel in unique:
+        try:
+            output = _git(
+                root,
+                "log",
+                "-n",
+                str(max(1, int(per_file_commits))),
+                "--format=%H%x1f%s%x1f%b%x1e",
+                "--",
+                rel,
+            )
+        except (subprocess.CalledProcessError, OSError):
+            continue
+        commits: list[dict[str, Any]] = []
+        for record in output.split("\x1e"):
+            parts = record.strip("\n").split("\x1f")
+            if len(parts) != 3 or not parts[0].strip():
+                continue
+            sha, subject, body = parts[0].strip(), parts[1].strip(), parts[2]
+            why = next(
+                (line.strip() for line in body.splitlines() if line.strip()), ""
+            )
+            refs = sorted(set(_INTENT_REF_RE.findall(f"{subject}\n{body}")))
+            commit: dict[str, Any] = {"sha": sha[:12], "subject": subject}
+            if why:
+                commit["why"] = why
+            if refs:
+                commit["refs"] = refs
+            commits.append(commit)
+        if commits:
+            entries.append({"file": rel, "commits": commits})
+    if not entries:
+        return None
+    return {"source": "git-log", "head_sha": _head_sha(root), "files": entries}
+
+
 __all__ = [
     "TWIN_MAP_RELPATH",
     "build_twin_map",
+    "intent_context_for_files",
     "read_twin_map",
     "refresh_twin_map",
     "twin_context_for_files",

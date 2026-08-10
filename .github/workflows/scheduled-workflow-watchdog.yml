@@ -37,16 +37,51 @@ jobs:
                 repo,
                 workflow_id: watched.workflow,
                 event: 'schedule',
-                per_page: 1,
+                // More than one: the newest run is often still IN PROGRESS,
+                // and its conclusion is null until it completes. Judging
+                // per_page:1 turned every mid-run poll into a "missing"
+                // incident — database-wal-archive-freshness (cron */5,
+                // threshold 1h) tripped this every hour. The question this
+                // watchdog answers is "has a scheduled run COMPLETED
+                // successfully within the age window", so it must judge the
+                // newest completed run, not the newest run.
+                per_page: 10,
               });
-              const run = response.data.workflow_runs[0];
+              const run = response.data.workflow_runs.find(
+                (candidate) => candidate.status === 'completed',
+              );
               const ageHours = run
                 ? (now - new Date(run.created_at).getTime()) / (60 * 60 * 1000)
                 : null;
-              if (!run || run.conclusion !== 'success' || ageHours > watched.maxAgeHours) {
+              // Some lanes can complete green while doing nothing. The backup
+              // lane resolves its DR activation and, when the capability is
+              // not activated, honestly skips the ceremony — and the run
+              // still concludes success. A watchdog that equates that green
+              // with "production is protected" is asserting something no one
+              // measured. Where the manifest names an evidence-artifact
+              // prefix, the newest completed run must also CARRY that
+              // artifact — the ceremony's own upload, which exists only when
+              // the work actually ran — or the lane is stale regardless of
+              // its color.
+              let evidenceOk = true;
+              if (run && run.conclusion === 'success' && watched.requiredArtifactPrefix) {
+                const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+                  owner,
+                  repo,
+                  run_id: run.id,
+                  per_page: 100,
+                });
+                evidenceOk = artifacts.data.artifacts.some((artifact) =>
+                  artifact.name.startsWith(watched.requiredArtifactPrefix),
+                );
+              }
+              if (!run || run.conclusion !== 'success' || ageHours > watched.maxAgeHours || !evidenceOk) {
                 incidents.push({
                   workflow: watched.workflow,
-                  conclusion: run?.conclusion ?? 'missing',
+                  conclusion:
+                    run?.conclusion === 'success' && !evidenceOk
+                      ? 'success-without-evidence'
+                      : run?.conclusion ?? 'missing',
                   ageHours: ageHours === null ? null : Math.round(ageHours * 10) / 10,
                   maxAgeHours: watched.maxAgeHours,
                   runUrl: run?.html_url ?? null,

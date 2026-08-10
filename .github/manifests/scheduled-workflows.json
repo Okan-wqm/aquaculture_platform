@@ -24,7 +24,8 @@
     },
     {
       "workflow": "backup-production.yml",
-      "maxAgeHours": 30
+      "maxAgeHours": 30,
+      "requiredArtifactPrefix": "walg-evidence-v2-"
     },
     {
       "workflow": "ci-full.yml",

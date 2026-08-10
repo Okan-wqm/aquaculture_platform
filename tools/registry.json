@@ -41,8 +41,8 @@
       },
       "kind": "adapter",
       "last_transition": {
-        "at": "2026-08-10T06:39:27+00:00",
-        "from": "SHADOW",
+        "at": "2026-08-10T13:25:37+00:00",
+        "from": "CALIBRATE",
         "reason": "self-output evidence or invalid evidence chain",
         "to": "QUARANTINED"
       },
@@ -69,7 +69,7 @@
       "schema_version": 1,
       "status": "QUARANTINED",
       "tool_id": "agent-harness-security-adapter",
-      "updated_at": "2026-08-10T06:39:27+00:00",
+      "updated_at": "2026-08-10T13:25:37+00:00",
       "version": "1.0.0"
     },
     {
@@ -105,10 +105,10 @@
       },
       "kind": "adapter",
       "last_transition": {
-        "at": "2026-08-10T06:39:31+00:00",
-        "from": "SHADOW",
-        "reason": "tool runner unhealthy",
-        "to": "QUARANTINED"
+        "at": "2026-08-10T13:19:53+00:00",
+        "from": "QUARANTINED",
+        "reason": "unquarantine: operator dispatch: environment-fault quarantine lifted (operator_approval_ref=operator:Okan 2026-08-10 oturum talimat\u0131 \u2014 ortam-ar\u0131zas\u0131 karantinas\u0131 (ORPHAN-HIGH-610); ara\u00e7lar hi\u00e7 \u00e7al\u0131\u015fmad\u0131)",
+        "to": "CALIBRATE"
       },
       "output_schema": {
         "required": [
@@ -134,9 +134,9 @@
         "type": "subprocess"
       },
       "schema_version": 1,
-      "status": "QUARANTINED",
+      "status": "CALIBRATE",
       "tool_id": "event-contracts-adapter",
-      "updated_at": "2026-08-10T06:39:31+00:00",
+      "updated_at": "2026-08-10T13:19:53+00:00",
       "version": "1.0.0"
     },
     {
@@ -190,10 +190,10 @@
       },
       "kind": "adapter",
       "last_transition": {
-        "at": "2026-08-10T06:39:36+00:00",
-        "from": "SHADOW",
-        "reason": "tool runner unhealthy",
-        "to": "QUARANTINED"
+        "at": "2026-08-10T13:19:56+00:00",
+        "from": "QUARANTINED",
+        "reason": "unquarantine: operator dispatch: environment-fault quarantine lifted (operator_approval_ref=operator:Okan 2026-08-10 oturum talimat\u0131 \u2014 ortam-ar\u0131zas\u0131 karantinas\u0131 (ORPHAN-HIGH-610); ara\u00e7lar hi\u00e7 \u00e7al\u0131\u015fmad\u0131)",
+        "to": "CALIBRATE"
       },
       "output_schema": {
         "required": [
@@ -219,9 +219,9 @@
         "type": "subprocess"
       },
       "schema_version": 1,
-      "status": "QUARANTINED",
+      "status": "CALIBRATE",
       "tool_id": "security-boundary-adapter",
-      "updated_at": "2026-08-10T06:39:36+00:00",
+      "updated_at": "2026-08-10T13:19:56+00:00",
       "version": "1.0.0"
     },
     {
@@ -269,10 +269,10 @@
       },
       "kind": "adapter",
       "last_transition": {
-        "at": "2026-08-10T06:39:40+00:00",
-        "from": "SHADOW",
-        "reason": "tool runner unhealthy",
-        "to": "QUARANTINED"
+        "at": "2026-08-10T13:19:57+00:00",
+        "from": "QUARANTINED",
+        "reason": "unquarantine: operator dispatch: environment-fault quarantine lifted (operator_approval_ref=operator:Okan 2026-08-10 oturum talimat\u0131 \u2014 ortam-ar\u0131zas\u0131 karantinas\u0131 (ORPHAN-HIGH-610); ara\u00e7lar hi\u00e7 \u00e7al\u0131\u015fmad\u0131)",
+        "to": "CALIBRATE"
       },
       "output_schema": {
         "required": [
@@ -298,9 +298,9 @@
         "type": "subprocess"
       },
       "schema_version": 1,
-      "status": "QUARANTINED",
+      "status": "CALIBRATE",
       "tool_id": "tenant-scoping-adapter",
-      "updated_at": "2026-08-10T06:39:40+00:00",
+      "updated_at": "2026-08-10T13:19:57+00:00",
       "version": "1.0.0"
     },
     {
@@ -355,10 +355,10 @@
       },
       "kind": "adapter",
       "last_transition": {
-        "at": "2026-08-10T06:39:45+00:00",
-        "from": "SHADOW",
-        "reason": "tool runner unhealthy",
-        "to": "QUARANTINED"
+        "at": "2026-08-10T13:19:59+00:00",
+        "from": "QUARANTINED",
+        "reason": "unquarantine: operator dispatch: environment-fault quarantine lifted (operator_approval_ref=operator:Okan 2026-08-10 oturum talimat\u0131 \u2014 ortam-ar\u0131zas\u0131 karantinas\u0131 (ORPHAN-HIGH-610); ara\u00e7lar hi\u00e7 \u00e7al\u0131\u015fmad\u0131)",
+        "to": "CALIBRATE"
       },
       "output_schema": {
         "required": [
@@ -384,9 +384,9 @@
         "type": "subprocess"
       },
       "schema_version": 1,
-      "status": "QUARANTINED",
+      "status": "CALIBRATE",
       "tool_id": "test-gap-adapter",
-      "updated_at": "2026-08-10T06:39:45+00:00",
+      "updated_at": "2026-08-10T13:19:59+00:00",
       "version": "1.0.0"
     },
     {
@@ -424,10 +424,10 @@
       },
       "kind": "adapter",
       "last_transition": {
-        "at": "2026-08-10T06:39:50+00:00",
-        "from": "SHADOW",
-        "reason": "tool runner unhealthy",
-        "to": "QUARANTINED"
+        "at": "2026-08-10T13:20:03+00:00",
+        "from": "QUARANTINED",
+        "reason": "unquarantine: operator dispatch: environment-fault quarantine lifted (operator_approval_ref=operator:Okan 2026-08-10 oturum talimat\u0131 \u2014 ortam-ar\u0131zas\u0131 karantinas\u0131 (ORPHAN-HIGH-610); ara\u00e7lar hi\u00e7 \u00e7al\u0131\u015fmad\u0131)",
+        "to": "CALIBRATE"
       },
       "output_schema": {
         "required": [
@@ -453,9 +453,9 @@
         "type": "subprocess"
       },
       "schema_version": 1,
-      "status": "QUARANTINED",
+      "status": "CALIBRATE",
       "tool_id": "typeorm-entity-schema-adapter",
-      "updated_at": "2026-08-10T06:39:50+00:00",
+      "updated_at": "2026-08-10T13:20:03+00:00",
       "version": "1.0.0"
     }
   ]

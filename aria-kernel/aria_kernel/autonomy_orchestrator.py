@@ -182,6 +182,7 @@ def _drain_next_cycle_queue(
     import json
 
     from .convergence_drainer import _resolve_workspace_head_sha
+    from .pressure import explain_pressure
 
     # The commit the agent's evidence will be graded against.
     #
@@ -236,6 +237,33 @@ def _drain_next_cycle_queue(
             "recommended_action": item.get("recommended_action"),
             "candidate_tools": item.get("candidate_tools", []),
         }
+        # Evidence refs come from the pressure's own evidence paths, not from
+        # the pressure identifier. A pressure id ("pressure:...:repetition")
+        # cannot parse under the evidence validator's _AGENT_REF_RE, so a
+        # request minted with it as its sole ref was a request no agent could
+        # ever answer with admissible evidence — only an empty-evidence
+        # satisfied verdict could pass, and a blocked/contradicted verdict was
+        # structurally unrepresentable (agent_contract requires refs on
+        # those). Diagnosed by the planner's first accepted response (RC-2).
+        # The identifier keeps its own channel: pressure_event_id below.
+        evidence_refs: list[str] = []
+        source_cycle = str(item.get("source_cycle_id") or "")
+        pressure_id = str(item.get("pressure_id") or "")
+        if source_cycle and pressure_id:
+            try:
+                pressure_record = explain_pressure(
+                    cycle_id=source_cycle, pressure_id=pressure_id, base_dir=base_dir,
+                )
+                evidence_refs = [
+                    str(path) for path in pressure_record.get("evidence") or []
+                    if isinstance(path, str) and path
+                ]
+            except (ValueError, OSError):
+                # No stored pressure payload for that cycle — fall through to
+                # the queue-item marker so the mint still traces to something.
+                evidence_refs = []
+        if not evidence_refs:
+            evidence_refs = [str(qid)]
         try:
             request = create_agent_invocation_request(
                 target_agent="aria-autonomy-planner",
@@ -248,8 +276,8 @@ def _drain_next_cycle_queue(
                 }],
                 allowed_scope=["aria-kernel/**", "aria-tools/**", ".claude/**"],
                 target_sha=target_sha,
-                evidence_refs=[str(item.get("pressure_id") or qid)],
-                pressure_event_id=str(item.get("pressure_id") or "") or None,
+                evidence_refs=evidence_refs,
+                pressure_event_id=pressure_id or None,
                 base_dir=base_dir,
             )
         except Exception as exc:
@@ -927,7 +955,15 @@ def run_autonomy_orchestrator(
                     base_dir=root,
                     daemon_agent_id=daemon_agent_id,
                     limit=max_iterations_per_phase,
-                    workspace_root=workspace_root,
+                    # The same fallback every sibling call site in this function
+                    # applies. This one passed the raw value through, and
+                    # workspace_root defaults to None — so the head-SHA resolve
+                    # ran against the daemon's cwd and minted requests with
+                    # target_sha=null, which grades every real evidence ref
+                    # baseline_unavailable. Diagnosed by the autonomy planner
+                    # itself in its first accepted response (RC-2,
+                    # AIR-aria-autonomy-planner-5636a540ccaa).
+                    workspace_root=Path(workspace_root) if workspace_root else root,
                 )
                 AutonomyStateReducer.transition(
                     root,

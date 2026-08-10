@@ -8675,6 +8675,7 @@ them protected nothing and blinded spend telemetry.
 **Fix:** a credential is a STRING, a counter is a NUMBER — token-ish keys
 mask string values only. The value-pattern layer (bare `sk-…` inside free
 text) is untouched. Deliberate break verified both directions.
+
 ## ORPHAN-HIGH-610 — an environment fault was priced as tool guilt, and quarantined all six adapters — RESOLVED (this PR)
 
 **Severity:** HIGH (the entire adapter fleet is quarantined; no schema/tenant/event scanning can run)

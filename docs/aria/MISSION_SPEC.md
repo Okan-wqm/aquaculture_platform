@@ -12,7 +12,7 @@ file; ARIA MUST NOT merge changes to it.
 
 ## 0. Objective function
 
-```
+```text
 GOAL := maximize  Σ_module  quality(module)
         subject to  safety_invariants (M-6*),
                     evidence_discipline (M-2*),
@@ -43,7 +43,7 @@ it.
 Each dimension is defined by predicates a gate or auditor can evaluate.
 "Professional" == all predicates hold AND are _kept held_ by a durable gate.
 
-**D1 Secure**
+### D1 Secure
 
 - D1.1 Every tenant-bearing table has RLS proven by test; tenant context is
   sourced per the trust-anchor rules (JWT claim primary; header/subdomain
@@ -57,7 +57,7 @@ transform})` at every controller; business-rule validation in handlers;
   guard; impersonation and cross-tenant admin paths are individually
   reviewed and fail closed.
 
-**D2 Performant**
+### D2 Performant
 
 - D2.1 Hot-path queries carry an `EXPLAIN ANALYZE`-verified plan; indexes
   exist only with a measured justification (an unmeasured index is a bet,
@@ -67,7 +67,7 @@ transform})` at every controller; business-rule validation in handlers;
 - D2.3 No unbounded growth: caches carry eviction, listeners are released,
   spawned tasks are tracked (Rust: TaskTracker/CancellationToken).
 
-**D3 Sustainable**
+### D3 Sustainable
 
 - D3.1 Layering: Controller → Service → Bus → Handler → Repository, no
   skips; repositories only via `getScopedRepository()`.
@@ -79,7 +79,7 @@ transform})` at every controller; business-rule validation in handlers;
   MUST be reachable from production code (`control_reachability`).
 - D3.4 Dependencies current and justified; supply-chain gates green.
 
-**D4 Testable**
+### D4 Testable
 
 - D4.1 Every spec file is reachable by a runner CI executes
   (`spec-has-a-runner` invariant); an unrunnable spec is not a test.
@@ -88,14 +88,14 @@ transform})` at every controller; business-rule validation in handlers;
 - D4.3 London-school unit discipline; integration tests own the seams
   (schema invariants, event round-trips).
 
-**D5 Documented**
+### D5 Documented
 
 - D5.1 Documentation describes what EXISTS, never what is intended; every
   normative doc is falsifiable by a pinned digest or an asserting spec
   (pattern: `aria-doc-runtime-ssot`).
 - D5.2 Staleness is a red gate, not a footnote.
 
-**D6 Correct (end-to-end)**
+### D6 Correct (end-to-end)
 
 - D6.1 Form field ↔ DTO ↔ column ↔ read-back ↔ screen parity per module;
   no UI field without persistence, no column without an intended surface
@@ -169,7 +169,7 @@ goldset recall, per-source precision. Zero across a window ⇒ M-2.6 applies.
 
 ## 4. Work decomposition (structural, enforced)
 
-```
+```text
 PROGRAM  →  MISSION/PHASE  →  SPRINT  →  MICRO-TASK
 (durable)   (mission.py:      (1..k     (single session,
              outlives cycles)  cycles)    single Closes:)

@@ -170,7 +170,7 @@ değil "besleme kopuk" demektir ve raporda SIGNAL STARVED olarak bağırır.
 Günlerce süren tek dev görev bu sistemde **yasaktır** ve yapısal olarak
 imkânsız kılınmıştır. Ayrışım hiyerarşisi:
 
-```
+```text
 PROGRAM   (kalıcı hedef: "17 mikroservisi profesyonelleştir")
  └─ MİSYON / FAZ   (döngüyü aşan iş kimliği: "farm-service güvenlik fazı")
      └─ SPRINT     (bir-birkaç döngüde biten hedef: "feeding modülü tenant kanıtı")

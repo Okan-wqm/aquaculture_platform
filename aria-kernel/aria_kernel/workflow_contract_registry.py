@@ -415,18 +415,34 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
             WorkflowJobContract(
                 job_id="eval",
                 preflight_step="Persist enterprise workflow preflight",
-                first_governed_mutation_step="Run all eval fixtures (mock mode)",
+                # The restore is now the first governed mutation, exactly as in
+                # the producer lane: it binds the durable store before anything
+                # writes a row. Naming the fixture run here would leave the
+                # restore ungoverned, which is the step that decides WHICH
+                # ledger the eval appends to.
+                first_governed_mutation_step=_RESTORE_STEP,
+                # The eval ledger moved into the durable store. It used to be
+                # written into the ephemeral checkout and thrown away with the
+                # runner, which is why `agent-eval delta` could never assemble
+                # two windows and answered `insufficient_evidence` forever.
                 allowed_write_path_patterns=(
-                    r"^aria-tools/agent-evals/runs\.jsonl$",
-                    r"^aria-tools/governance\.jsonl$",
+                    rf"^{_STORE_ROOT}(/.*)?$",
                 ),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-agent-eval-preflight\.json$",
                 upload_artifact_name_pattern=rf"^aria-agent-eval-proof-{_RUN_ID_ATTEMPT}$",
                 upload_artifact_path_patterns=(rf"^{_RUNNER_TEMP}/aria-agent-eval-preflight\.json$",),
                 retention_days=7,
-                required_permissions=(("contents", "read"),),
-                token_source="none",
-                network_policy=("none",),
+                # `contents: write` is what persistence costs. The token can
+                # only append a commit descending from the aria/state tip —
+                # which is what publishing is — and the branch is the only
+                # thing it may touch.
+                required_permissions=(("contents", "write"),),
+                token_source="github_actions_artifact_token",
+                # The eval still reaches no third-party network; the fixtures
+                # are local. `github_git` is the state branch fetch and push,
+                # declared separately from artifact access because they are
+                # different credentials with different blast radii.
+                network_policy=("github_artifact", "github_git"),
                 dlp_artifact="aria-agent-eval-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
@@ -464,7 +480,13 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 upload_artifact_name_pattern=rf"^aria-daily-report-commit-preflight-{_RUN_ID_ATTEMPT}$",
                 upload_artifact_path_patterns=(rf"^{_RUNNER_TEMP}/aria-daily-report-preflight\.json$",),
                 retention_days=365,
-                required_permissions=(("contents", "write"),),
+                # This job's governed mutation IS opening a pull request, so it
+                # needs the same pair finding-state-sweep declares. The contract
+                # and the YAML both omitted it, which is why the parity check
+                # stayed green while every scheduled run died on "Resource not
+                # accessible by integration": parity proves the two agree, not
+                # that either is sufficient for the step named right above.
+                required_permissions=(("contents", "write"), ("pull-requests", "write")),
                 token_source="github_app:installation",
                 network_policy=("github_api",),
                 dlp_artifact="aria-daily-report-preflight.json",

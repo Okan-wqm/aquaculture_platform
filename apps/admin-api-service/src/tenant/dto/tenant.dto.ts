@@ -392,6 +392,17 @@ export class CreateTenantAcceptedResponse {
 
   retryAfterMs!: number;
   availableActions!: string[];
+
+  /**
+   * Per-step provisioning detail, ordered by step order.
+   *
+   * WHY: `status` alone collapses a twelve-step saga into one word. An operator
+   * polling a FAILED run could see THAT it failed but never WHICH step failed or
+   * WHY — the workflow already read the step rows on every poll and discarded
+   * them. Always an array (never undefined) so clients render progress without
+   * a presence check.
+   */
+  steps!: TenantProvisioningStepDto[];
 }
 
 export class UpdateTenantDto {

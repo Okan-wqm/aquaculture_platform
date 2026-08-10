@@ -36,7 +36,7 @@
  *      use.
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -138,6 +138,66 @@ function collectInlineMatches(
 // prevent ARIA workflows from regressing on the same class.
 const ARIA_WORKFLOW_PREFIX = 'aria-';
 
+/**
+ * Second class, same surface: an UNQUOTED heredoc whose body performs command
+ * substitution.
+ *
+ * `cat > "$BODY_FILE" <<EOF` leaves the body under shell parsing, so backticks
+ * and `$(...)` inside it are EXECUTED, not written. aria-daily-report.yml built
+ * its PR body that way, and markdown code spans are written with backticks —
+ * the shell ran `${REPORT}` and `.github/workflows/aria-daily-report.yml` as
+ * commands on every scheduled run. It read as cosmetic "Permission denied"
+ * noise in the log; it was a command-substitution surface on the one path in
+ * the workflow that assembles text from variables.
+ *
+ * A quoted delimiter (`<<'EOF'`) makes the body literal. Bodies that only
+ * expand `${VAR}` are left alone: parameter expansion is the reason to leave a
+ * heredoc unquoted, and flagging it would train authors to quote and then
+ * silently ship an unexpanded `${VAR}` in their output.
+ */
+const COMMAND_SUBSTITUTION_RE = /`|\$\(/;
+
+function findHeredocViolations(yamlPath: string): Violation[] {
+  const lines = readFileSync(yamlPath, 'utf-8').split('\n');
+  const violations: Violation[] = [];
+
+  let openDelimiter: string | null = null;
+  let openLineNo = 0;
+  let openLine = '';
+  let body: string[] = [];
+
+  for (const [index, line] of lines.entries()) {
+    if (openDelimiter !== null) {
+      if (line.trim() === openDelimiter) {
+        const joined = body.join('\n');
+        if (COMMAND_SUBSTITUTION_RE.test(joined)) {
+          violations.push({
+            file: yamlPath,
+            lineNo: openLineNo,
+            line: openLine,
+            snippet: `<<${openDelimiter} body performs command substitution`,
+          });
+        }
+        openDelimiter = null;
+        body = [];
+      } else {
+        body.push(line);
+      }
+      continue;
+    }
+
+    // An unquoted delimiter: `<<EOF` / `<<-EOF`, but not `<<'EOF'` or `<<"EOF"`.
+    const opener = line.match(/<<-?\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/);
+    if (opener?.[1]) {
+      openDelimiter = opener[1];
+      openLineNo = index + 1;
+      openLine = line;
+      body = [];
+    }
+  }
+  return violations;
+}
+
 describe('aria-workflow-input-injection invariant (Plan 024 v3 §B-3)', () => {
   test('no aria-* workflow interpolates a dispatch input (${{ inputs.* }} or ${{ github.event.inputs.* }}) inside run: blocks', () => {
     const workflowFiles = readdirSync(WORKFLOWS_DIR)
@@ -171,5 +231,67 @@ describe('aria-workflow-input-injection invariant (Plan 024 v3 §B-3)', () => {
           `024 §B-3.`,
       );
     }
+  });
+
+  test('no aria-* workflow opens an unquoted heredoc whose body runs commands', () => {
+    const workflowFiles = readdirSync(WORKFLOWS_DIR)
+      .filter((f) => f.startsWith(ARIA_WORKFLOW_PREFIX))
+      .filter((f) => f.endsWith('.yml') || f.endsWith('.yaml'));
+    expect(workflowFiles.length).toBeGreaterThan(0);
+
+    const allViolations: Violation[] = [];
+    for (const file of workflowFiles) {
+      allViolations.push(...findHeredocViolations(join(WORKFLOWS_DIR, file)));
+    }
+
+    if (allViolations.length > 0) {
+      const summary = allViolations
+        .map(
+          (v) =>
+            `  ${v.file.replace(REPO_ROOT + '/', '')}:${v.lineNo}\n` +
+            `    ${v.line.trim()}\n` +
+            `    => ${v.snippet}`,
+        )
+        .join('\n');
+      throw new Error(
+        `Unquoted heredoc with command substitution in its body:\n${summary}\n\n` +
+          `Fix: quote the delimiter (<<'EOF') so the body is literal, and if ` +
+          `the body needs values, render it with python3 reading os.environ ` +
+          `instead of letting the shell interpolate. See the canonical ` +
+          `pattern in .github/workflows/aria-daily-report.yml.`,
+      );
+    }
+  });
+
+  test('the heredoc scanner fires on the shape that shipped, and spares plain expansion', () => {
+    // A gate nobody has seen fail is a gate nobody knows the direction of.
+    // These pin both directions against the real before/after text.
+    const tmp = join(REPO_ROOT, 'tmp-heredoc-fixture.yml');
+    const write = (body: string): Violation[] => {
+      writeFileSync(tmp, body, 'utf-8');
+      try {
+        return findHeredocViolations(tmp);
+      } finally {
+        rmSync(tmp, { force: true });
+      }
+    };
+
+    const shipped = [
+      'jobs:',
+      '  x:',
+      '    steps:',
+      '      - run: |',
+      '          cat > "$BODY_FILE" <<EOF',
+      '          Generated report: `${REPORT}`.',
+      '          EOF',
+      '',
+    ].join('\n');
+    expect(write(shipped)).toHaveLength(1);
+
+    const expansionOnly = shipped.replace('`${REPORT}`', '${REPORT}');
+    expect(write(expansionOnly)).toHaveLength(0);
+
+    const quoted = shipped.replace('<<EOF', "<<'EOF'");
+    expect(write(quoted)).toHaveLength(0);
   });
 });

@@ -8228,6 +8228,7 @@ The renderer was rewritten around what is required versus optional: SMTP setting
 **Tests:** 8 gate tests run the real script against a copy of the real config (full render, per-variable refusal, placeholder rejection, digest fallback, deadman both ways, idempotence). Two new invariant assertions: every routed receiver has a delivery integration, and nothing real is committed. Emptying a receiver turns the first red.
 
 **Owner:** claude (this session). **Status:** RESOLVED in the repo; the live switch-on is one `render-configs.sh` run on the droplet.
+
 ## ORPHAN-HIGH-585 — the messaging embedding cron reads a per-tenant table with no schema bound — OPEN
 
 **Discovered:** 2026-08-06, generalising the tenant-context rule platform-wide (Faz 8).

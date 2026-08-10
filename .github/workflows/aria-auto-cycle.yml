@@ -343,6 +343,23 @@ jobs:
         if: steps.lease_check.outputs.blocked != 'true' && steps.preflight.outputs.effective_mock == 'false'
         uses: ./.github/actions/ensure-sandbox-backend
 
+      # The adapter manifests declare `npx ts-node …` runners, and the tool
+      # runner refuses to execute them when the workspace has no repo-local
+      # ts-node — correctly: silently resolving a global one would run
+      # unpinned code. This lane never provisioned what the manifests
+      # declare, so the first cycle after the registry sync ran six adapters
+      # into six `tool_unhealthy` rows (missing node_modules/ts-node). The
+      # runner is self-hosted and the checkout persists, so the guard makes
+      # this a no-op on every run after the first.
+      - name: Provision the node dependencies the adapter manifests declare
+        if: steps.lease_check.outputs.blocked != 'true'
+        run: |
+          set -euo pipefail
+          if [ ! -x node_modules/ts-node/dist/bin.js ]; then
+            npm ci --ignore-scripts --no-audit --no-fund
+          fi
+          test -x node_modules/ts-node/dist/bin.js
+
       - name: Run nightly standard-profile cycle
         if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
         env:

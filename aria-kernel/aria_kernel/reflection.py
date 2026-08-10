@@ -135,6 +135,12 @@ def run_reflection(
         "calibration_recommendation": recommendation_result if recommendation_result else None,
         "proactive": proactive_result if proactive_result else None,
         "cycle_runner": cycle_runner_result if cycle_runner_result else None,
+        # Which of ARIA's learning inputs are actually receiving data. A
+        # counter that reads 0 for months does not distinguish "no data yet"
+        # from "the producer chain is severed" — judged_judges sat at zero
+        # while three separate defects starved it, and every one was found by
+        # a human noticing. This section is the machine noticing.
+        "dataflow_health": _compute_dataflow_health(root),
         "next_cycle_plan": [
             {
                 "pressure_id": item.get("pressure_id"),
@@ -618,6 +624,81 @@ def _render_label_queue_section(root: Path) -> list[str]:
     return lines
 
 
+# The learning inputs whose starvation must be announced, each with the
+# producer chain a reader would need to walk. Extraction is defensive-free:
+# a missing sub-object reads as 0, which is exactly the starved shape.
+SIGNAL_WINDOW_CYCLES = 5
+WATCHED_SIGNALS: dict[str, dict[str, Any]] = {
+    "judged_judges": {
+        "extract": lambda row: ((row.get("judge_calibration") or {}).get("judged_judges") or 0),
+        "producer_chain": "accepted results -> judge fan-out -> judge_calibration",
+    },
+    "labelled_tool_count": {
+        "extract": lambda row: ((row.get("goldset_proposal") or {}).get("labelled_tool_count") or 0),
+        "producer_chain": "operator feedback -> goldset_proposal",
+    },
+    "synced_tool_ids": {
+        "extract": lambda row: len((row.get("tool_manifest_sync") or {}).get("synced_tool_ids") or []),
+        "producer_chain": "tools/aria-adapters/*.tool.json -> tool_manifest_sync",
+    },
+}
+
+
+def _compute_dataflow_health(root: Path) -> dict[str, Any]:
+    """Report which watched signals stayed zero across the recent window.
+
+    Starvation requires a FULL window of zeros: fewer completed cycles than
+    the window is "insufficient history", not an alarm — a brand-new store
+    must not open with three starvation flags.
+    """
+    from .ledger import load_declared_jsonl
+
+    try:
+        rows = load_declared_jsonl(root / "cycles.jsonl", expected_surface="cycles")
+    except Exception:
+        rows = []
+    window = [row for row in rows if row.get("status") == "completed"][-SIGNAL_WINDOW_CYCLES:]
+    signals: dict[str, Any] = {}
+    starved: list[str] = []
+    for name, spec in WATCHED_SIGNALS.items():
+        values = [spec["extract"](row) for row in window]
+        is_starved = len(window) >= SIGNAL_WINDOW_CYCLES and all(v == 0 for v in values)
+        signals[name] = {
+            "window_values": values,
+            "starved": is_starved,
+            "producer_chain": spec["producer_chain"],
+        }
+        if is_starved:
+            starved.append(name)
+    return {
+        "window_cycles": len(window),
+        "signals": signals,
+        "starved": starved,
+    }
+
+
+def _render_dataflow_health_section(reflection: dict[str, Any]) -> list[str]:
+    """SIGNAL STARVED lines for the daily report — only when something is.
+
+    A section that renders an empty heading every day teaches the reader to
+    skip the heading (the calibration section learned this first).
+    """
+    health = reflection.get("dataflow_health") or {}
+    starved = health.get("starved") or []
+    if not starved:
+        return []
+    lines = ["", "## Signal starvation", ""]
+    for name in starved:
+        spec = (health.get("signals") or {}).get(name) or {}
+        lines.append(
+            f"- SIGNAL STARVED: `{name}` — zero across the last "
+            f"{health.get('window_cycles')} completed cycles. Producer chain: "
+            f"{spec.get('producer_chain', 'unknown')}. A zero this old is a "
+            "severed feed until proven otherwise."
+        )
+    return lines
+
+
 def _render_calibration_recommendation_section(reflection: dict[str, Any]) -> list[str]:
     """The weight changes ARIA would make to its own scoring, if approved.
 
@@ -788,6 +869,7 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         *_render_pedagogy_section(reflection),
         *_render_calibration_section(reflection),
         *_render_calibration_recommendation_section(reflection),
+        *_render_dataflow_health_section(reflection),
         *_render_label_queue_section(root),
         *_render_proactive_section(reflection),
         "## Committed Findings",

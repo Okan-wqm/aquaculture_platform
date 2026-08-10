@@ -8063,6 +8063,22 @@ Proven by deliberate breaks: an extra `criteria.impactScore` read reddens the cl
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-MEDIUM-563`.
 
+## ORPHAN-MEDIUM-577 — an RLS-protected auth table could be written from a NATS command with no tenant context, and nothing in the build could see it — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, tracing why tenant provisioning had been dead for months. `TenantProvisioningCommandService.runWithReceipt` (`apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts:930`) opens a `SERIALIZABLE` transaction and `INSERT`s the command receipt into `auth.tenant_command_receipts` (`:969`), then `UPDATE`s it on success (`:998`) and on failure (`:1027`). That table carries `tenantId` and is created by `apps/auth-service/src/migrations/1800100000000-TenantCommandReceiptLedger.ts:8`, so `applyTenantRlsToSchema` installs `tenant_isolation_policy` on it — auth's exclusion set is only `auth_outbox` / `users` / `tenants` (`libs/backend-common/src/database/schema-manager.service.ts:1085`). Nothing in that transaction set `app.current_tenant`. The commands arrive over NATS, outside the HTTP request lifecycle, so there was no `TenantContextMiddleware` and no pool-checkout GUC to inherit either: the predicate `"tenantId" = NULLIF(current_setting('app.current_tenant', true), '')::uuid` evaluated to UNKNOWN and the write was refused. All eight provisioning steps therefore never started — which is how production holds an ACTIVE tenant that owns no `tenant_<uuid>` schema. The write-path repair itself is on `fix/tenant-provisioning-receipt-rls` and is NOT part of this PR.
+
+**Why it stayed invisible:** the platform had two tenant-context guards and both are farm-specific — `tests/invariants/farm-read-boundary-ssot.spec.ts` and `tests/invariants/farm-event-handler-tenant-context-ssot.spec.ts`. Auth had none, so a write with no tenant context compiled, passed review, and passed CI exactly like one with it. The one bare `set_config('app.current_tenant', …)` auth does own (`tenant-provisioning-command.service.ts:796`, the suspend-time refresh-token revoke) sits inside that same unbound receipt transaction, which is a good measure of how little the pattern was load-bearing.
+
+**Fix (this PR, Tier 3 — make it detectable):** `tests/invariants/auth-tenant-context-ssot.spec.ts`. Every non-spec file under `apps/auth-service/src/modules/tenant/**` that writes an RLS-protected `auth` table — raw `INSERT`/`UPDATE`/`DELETE` on `auth.<table>`, or a TypeORM mutation in a file that binds an RLS-protected entity via `@InjectRepository(E)` / `Repository<E>` / `manager.save(E, …)` — must reference `withTenantContext`, `runInTenantTransaction`, `runInTenantRead`, `bindTenantRlsContext` or `assertTenantTransactionContext`. A bare `set_config` deliberately does not count: it writes the GUC without reading it back and without forcing `app.bypass_rls` off, so it cannot tell "context took effect" from "connection resolved elsewhere" — the exact distinction `assertTenantTransactionContext` exists to make.
+
+The protected table set is derived, never hand-listed: `auth`-schema tables carrying `tenantId`/`tenant_id`, read from both the `@Entity()` decorators and the raw `CREATE TABLE` migrations, minus the `AUTH_RLS_EXCLUDE_TABLES` SSoT **imported** from `schema-manager.service.ts` (a rename now breaks the compile rather than silently widening the set). Migrations are not optional input — `tenant_command_receipts`, the table the outage happened on, has no entity class, so an entity-only derivation would have been blind to precisely the write that broke. That mirrors `applyTenantRlsToSchema`'s own discovery semantics, so the invariant cannot drift from the policy actually installed. A vacuity test pins the derivation (≥10 tables, `tenant_command_receipts` present, every excluded table absent) so a broken regex fails loudly instead of passing by finding nothing.
+
+**Ratchet:** eight files violate today and are listed with per-entry reasons; a ninth fails the build. The honesty test fails on an entry that no longer exists, no longer writes a protected table, or has since been fixed — so `fix/tenant-provisioning-receipt-rls` must delete its own entry as part of landing, which is the ratchet working. Proven by deliberate break: an independent `INSERT INTO auth.tenant_command_receipts` added to the non-allowlisted `tenant-user-count-reconcile.service.ts` reddened the spec with `services/tenant-user-count-reconcile.service.ts (writes: tenant_command_receipts)`, then was reverted. Full suite: 214 files, 2336 green; the one unrelated red is `repo-hygiene-invariants.spec.ts`, which fails on this worktree because `node_modules/.bin` has no `vite`/`eslint`/`vitest` links — pre-existing and untouched by this change.
+
+**Deliberately NOT done here.** The check is file-level and sees DIRECT writes only. A non-HTTP entrypoint that establishes no context and delegates the write to a service in another module stays invisible: `handlers/auth-admin-nats.handler.ts` names its `DELETE FROM auth.refresh_tokens` only in comments and so does not register, even though it is a NATS entrypoint whose callees do write. Auth writes outside `modules/tenant` are not examined, and no per-write-site (as opposed to per-file) precision is attempted. All three close the same way — routing the auth write side through `runInTenantTransaction`, at which point the ratchet empties. That is write-path work, not invariant work, and it is not in this PR.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-570` (the ACTIVE-but-schemaless tenants this bug produced).
+
 ## ORPHAN-CRITICAL-579 — 1,359 tests in the library every service depends on had never run in CI, and nobody could have noticed — RESOLVED (this PR)
 
 **Discovered:** 2026-08-06, auditing my own day's merges. An independent reviewer traced each new spec to the command that runs it and found three that no command reaches. Pulling that thread found the mechanism, and the mechanism is repo-wide.
@@ -8190,6 +8206,47 @@ Proven by deliberate breaks: a new service with no `logging` reddens all three a
 **Not fixed here:** the ~2.0 GB already on disk is not reclaimed by this change — rotation applies to new writes after the containers are recreated, and production deploys are locked (`PRODUCTION_DEPLOY_ENABLED=false`). Truncating the existing logs is an operator action against live diagnostic state and is deliberately left out of a code change.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-417`, `ORPHAN-HIGH-563`, `INFRA-MEDIUM-057`.
+
+## ORPHAN-HIGH-585 — the messaging embedding cron reads a per-tenant table with no schema bound — OPEN
+
+**Discovered:** 2026-08-06, generalising the tenant-context rule platform-wide (Faz 8).
+
+`apps/messaging-service/src/ai/services/embedding.service.ts` runs every five minutes and starts with:
+
+    SELECT m."id", ..., m."tenantId"
+      FROM "messages" m
+     WHERE m."embedding" IS NULL ...
+     FOR UPDATE OF m SKIP LOCKED
+
+`messages` is a per-tenant table — messaging-service omits `schema:` so search*path routes it into `tenant*<uuid>`at runtime. A`@Cron`has no HTTP request behind it, so no middleware seeds the AsyncLocalStorage frame, so the pool-checkout patch sets nothing, and the unqualified table name resolves against whatever`search_path` the pooled connection happens to be carrying. Which tenant's messages this batch embeds is decided by whoever used that connection last.
+
+The file knows: its own comment cites `MSG-HIGH-040 (embedding writes to wrong schema)` and it carefully carries `m."tenantId"` through the consent gate afterwards. The row-level care is real; the binding underneath it is missing.
+
+This is the same class as ORPHAN-CRITICAL-573 — a non-HTTP entry point writing tenant data with no tenant established — reached from the opposite direction. There it was RLS refusing the write; here nothing refuses anything, which is worse.
+
+**Not fixed here, and the reason is not scheduling:** the fix is to give the embedding pipeline the tenant-schema iteration the rest of messaging-service already uses (`listTenantSchemas` + per-schema passes), which changes batching, locking and the consent gate's shape at once. That is the checkpointed Faz 3b work, and it deserves its own PR with its own proof rather than being appended to an invariant.
+
+**Detectable in the meantime:** `tests/invariants/non-http-entrypoint-tenant-context.spec.ts` carries it as the one allowlist entry marked DEFECT rather than exemption, and the list can only shrink.
+
+**FIXED in this PR, not deferred.** The sweep now enumerates `tenant_<16hex>` schemas and runs one transaction per schema with `pinTenantSchemaTransactionSearchPath` — the same shape `retention-policy.service.ts` already uses after it hit this first (MT-MEDIUM-054).
+
+A second defect surfaced while fixing the first: `FOR UPDATE OF m SKIP LOCKED` ran under `dataSource.query`, i.e. autocommit, so the row locks were released the instant the SELECT returned and two replicas could still claim the same rows and pay for the same embeddings twice. MSG-HIGH-039's protection had been void since it was written. The transaction is now held across the ai-service call, which is the only arrangement under which SKIP LOCKED means anything.
+
+That change would have broken MSG-MEDIUM-041 — one failed write must not take a whole batch of paid-for embeddings down with it — because a single error poisons a shared transaction. So each write-back sits between `SAVEPOINT` and `RELEASE SAVEPOINT`, with `ROLLBACK TO SAVEPOINT` on failure. Per-item independence kept; what changed is that it no longer costs the row lock.
+
+Seven tests pin all of it: pin-before-read ordering, every schema visited, the embedding call happening inside the transaction, savepoint isolation with the good row still landing, a tenant failure not stopping the sweep, and the consent gate still keyed by the row's own `tenantId`. Removing the pin turns five of them red.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-MEDIUM-586 — the tenant-context rule was auth-shaped; the platform half was missing — RESOLVED (this PR)
+
+`auth-tenant-context-ssot.spec.ts` (ORPHAN-CRITICAL-573) closed the auth tenant module and stated its own limits: entry points elsewhere, and entry points that delegate. Nothing covered the other seven tenant-scoped services, where the same shape — a NATS handler or a cron writing tenant data with nothing bound — was as compilable as it had been in auth.
+
+**Measured first, then written.** Across the eight tenant-scoped services there are 19 entry-point files that write. Thirteen already establish context; six do not, and each of the six was read individually rather than swept into a list: four write cross-tenant infrastructure tables (auth's audit ledger, `auth.tenants` which is on the RLS exclusion list by design, messaging's idempotency ledger, messaging's admin plane), one is the NATS handler that delegates to the now-bound receipt transaction, and one is a real defect (ORPHAN-HIGH-585).
+
+**The design decision that matters:** the spec recognises **two** sanctioned mechanisms, not one. AsyncLocalStorage binding (`withTenantContext` and friends) is the obvious one; explicit tenant-schema iteration (`listTenantSchemas` + `search_path`) is the other, and it is what a cron with no single tenant to bind must use — `hr-service`'s monthly leave accrual is the reference. A first draft that knew only the first mechanism judged forty files wrong. That draft was thrown away rather than shipped with a forty-entry allowlist, which would have been a rubber stamp wearing an invariant's clothes.
+
+Four assertions keep the list from rotting: nothing unexplained, no entry that has since gained a mechanism, no entry pointing at a vanished file, and no exemption without a stated reason. Proven by deliberate break in both directions.
 
 ## ORPHAN-HIGH-588 — the same four libraries had never been linted either — OPEN (quarantined with counts)
 

@@ -42780,6 +42780,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/auth-tenant-context-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/auth-users-tenant-fk.spec.ts",
       "prettier_managed": true
     },
@@ -43519,6 +43525,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/no-unguarded-drop-type-in-migration.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/non-http-entrypoint-tenant-context.spec.ts",
       "prettier_managed": true
     },
     {

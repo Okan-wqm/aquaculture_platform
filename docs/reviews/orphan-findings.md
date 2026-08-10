@@ -8807,9 +8807,25 @@ The agent was blameless. `classify_evidence_ref` grades a ref `repo_verified` on
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
-## ORPHAN-LOW-595 — two kernel test files fail when run in one order and pass in another — OPEN
+## ORPHAN-LOW-595 — two kernel test files fail when run in one order and pass in another — RESOLVED (verified 2026-08-10)
 
 **Discovered:** 2026-08-09, while checking whether ORPHAN-HIGH-594's change had broken anything.
+
+**Resolution (2026-08-10):** no longer reproduces. Both orders
+(`test_evidence_target_sha` → `test_tool_governance` and the reverse) run
+green in a single process on main, 41 tests each way, and the full kernel
+suite has run green repeatedly through the week's pre-push hooks. The exact
+healing commit was not isolated — the week rebuilt the claim/evidence
+surfaces both modules touch (596, 600, 601) — so this is closed by
+verification, not by attribution. If it recurs, reopen with the failing
+order captured.
+
+Also recorded here for the code-review pass (madde 4): `control_reachability`
+CI cadence is PROVEN — `tests/test_control_reachability.py` matches the
+`*test*.py` discover in `.github/workflows/aria-kernel.yml`, so the
+mechanism-without-a-caller scan itself runs on every ARIA-touching PR and in
+the pre-push hook. No wiring was needed; the check was to make sure the
+detector of unreachable controls was not itself unreachable.
 
 `tests.test_tool_governance.test_fixture_runner_and_strict_promotion_gate` passes alone and fails in the full suite. Isolated to a pair:
 

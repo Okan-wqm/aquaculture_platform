@@ -8568,6 +8568,70 @@ executor's exact comparison.
 One legacy test pinned the old hand-copy as source text ("cycle_id":
 claim.get(...)); it was rewritten to assert the property on the projection.
 
+## ORPHAN-MEDIUM-609 — repinning the authority hash was left to human memory, and human memory lost twice in one day — RESOLVED (this PR)
+
+**Severity:** MEDIUM (one forgotten repin reads as four unrelated required-check failures)
+**Owner:** platform-CI / ARIA
+**Discovered:** 2026-08-09/10, twice: #1139 and #1142 each went red on four
+required contexts from a single stale pin.
+
+The pin in `docs/aria/CURRENT_STATE.md` covers the whole ARIA runtime
+surface, so every commit touching that surface changes it. The writer
+existed (`aria:authority-hash:write`, sharing the digest definition with the
+spec); what was missing was the caller — the hook edition of this
+repository's recurring mechanism-without-a-caller class.
+
+**Fix (tier 2):** the pre-commit hook runs the writer automatically whenever
+an ARIA-surface path is staged, and stages the refreshed pin into the same
+commit. On non-ARIA commits the cost is one grep. Verified end to end: a
+throwaway ARIA-surface commit with a stale pin auto-repinned
+(`c27692a7… -> 1ba0c7ab…`), included `CURRENT_STATE.md` in the commit, and
+the doc-SSoT spec read 16/16 after.
+
+**Not solved here:** the merge-treadmill half (every main landing re-stales
+every open PR's pin) — that is inherent to a committed pin under strict
+mode; the refresh-train handles it operationally, and moving the pin out of
+the committed file is a design discussion, not a hook.
+
+## ORPHAN-MEDIUM-608 — a zero that means "severed" rendered exactly like a zero that means "not yet" — RESOLVED (this PR)
+
+**Severity:** MEDIUM (every starvation in this class was found by a human noticing)
+**Owner:** ARIA
+**Discovered:** 2026-08-10 code-review pass (madde 3 / öneri 3).
+
+`judged_judges` and `labelled_tool_count` sat at zero while three separate
+defects starved their producer chains — a wedged claim queue
+(ORPHAN-CRITICAL-596), a binding comparing two objects (600/601), an empty
+tool registry (602) — and the zero itself never said anything.
+
+**Fix (tier 3):** `dataflow_health` in every reflection row: watched signals
+(`judged_judges`, `labelled_tool_count`, `synced_tool_ids`) that are zero
+across the last 5 COMPLETED cycles are reported starved, with the producer
+chain a reader would walk, as a `SIGNAL STARVED` line in the daily report.
+Fewer cycles than the window is insufficient history, not an alarm; a
+nothing-starved day renders no heading at all.
+
+## ORPHAN-MEDIUM-606 — the uncertainty ledger recorded and nobody read it back — RESOLVED (this PR)
+
+**Severity:** MEDIUM (an advisory channel that cannot escalate trains its readers to ignore it)
+**Owner:** ARIA
+**Discovered:** 2026-08-10 code-review pass (madde 16), from the nine
+identical `pressure_candidate_tools_unreachable` rows that accompanied a
+failure re-scheduling unrunnable work every cycle.
+
+`memory/uncertainties.jsonl` is the kernel's "worth noting, not blocking"
+channel — and it was write-only. Same mechanism-without-a-caller class as
+the claim reaper and the registry compiler, one level down: recording
+existed, reading did not.
+
+**Fix (tier 2):** `run_pressure` now reads the ledger back. The same
+`(kind, subject)` recorded `UNCERTAINTY_REPEAT_THRESHOLD` (=3) times or more
+becomes an operator-facing `uncertainty_repeat` pressure (weight 55, no
+candidate tools) that self-extinguishes through ordinary decay when the rows
+stop. Subjectless rows group by kind alone — erring toward escalation. A
+test pins that `run_pressure` actually calls the reader, because a reader
+nobody invokes is this finding all over again.
+
 ## ORPHAN-HIGH-605 — the requeue budget charged the request for the harness's failures — RESOLVED (this PR)
 
 **Severity:** HIGH (three live requests were permanently escalated for defects that were never theirs)
@@ -8616,6 +8680,55 @@ every run after the first.
 
 **Not addressed here:** the sixth adapter's separate `evidence_error` — to be
 read after a cycle where the runners actually execute.
+
+## ORPHAN-LOW-612 — the artifact scrubber masked the numbers that happened to say "token" — RESOLVED (this PR)
+
+**Severity:** LOW (no leak; cost telemetry blinded)
+**Owner:** ARIA
+**Discovered:** 2026-08-10 code-review pass (madde 17), reading the first
+accepted agent response's usage block: every counter read
+`<secret-redacted>`.
+
+`scrub_json` masked any key containing "token" — which is every usage
+counter the Claude CLI reports (`input_tokens`, `output_tokens`,
+`cache_read_input_tokens`, …). An integer cannot leak a secret; masking
+them protected nothing and blinded spend telemetry.
+
+**Fix:** a credential is a STRING, a counter is a NUMBER — token-ish keys
+mask string values only. The value-pattern layer (bare `sk-…` inside free
+text) is untouched. Deliberate break verified both directions.
+
+## ORPHAN-HIGH-610 — an environment fault was priced as tool guilt, and quarantined all six adapters — RESOLVED (this PR)
+
+**Severity:** HIGH (the entire adapter fleet is quarantined; no schema/tenant/event scanning can run)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, reading why the first dependency-provisioned cycle
+still ran zero tools: `tools/registry.json` on `aria/state` shows all six
+adapters QUARANTINED, transitioned by the 06:37 cycle whose runner refused
+each with `missing repo-local node dependency` — `duration_ms: 0`, the tools
+never executed.
+
+Two defects, one class (the requeue counter's, one layer up):
+
+1. The runner recorded its environment refusal as `tool_unhealthy`, and
+   `immediate_quarantine_reason` quarantines on that status unconditionally.
+   Two different failures, one name (MISSION_SPEC M-2.5).
+2. `unquarantine_tool` has existed since Plan 022 and was API-only — when the
+   wrong quarantine happened, there was no operator-reachable path to lift
+   it. Mechanism without a caller, CLI edition.
+
+**Fix:** the refusal now mints `environment_unavailable` (own status, wired
+through the run vocabulary, the CLI exit map, and the spine fresh-pass
+exclusions); the quarantine trigger deliberately ignores it — repetition
+still escalates through the uncertainty ledger, which now has a reader. The
+audited way back exists twice over: a `tool unquarantine` CLI verb wrapping
+the Plan-022 API, and a dispatch-gated workflow step (approval ref required,
+recorded in governance, no-op on scheduled runs) so the lift happens on the
+state store and publishes with the same run.
+
+**Remediation to execute after merge:** dispatch `aria-auto-cycle` with the
+six adapter ids + an approval ref; the same run's tools phase then exercises
+the lifted tools against the provisioned workspace.
 
 ## ORPHAN-CRITICAL-600 — the prompt hash was minted over one object and verified against another — RESOLVED (this PR)
 
@@ -8716,9 +8829,25 @@ The agent was blameless. `classify_evidence_ref` grades a ref `repo_verified` on
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
-## ORPHAN-LOW-595 — two kernel test files fail when run in one order and pass in another — OPEN
+## ORPHAN-LOW-595 — two kernel test files fail when run in one order and pass in another — RESOLVED (verified 2026-08-10)
 
 **Discovered:** 2026-08-09, while checking whether ORPHAN-HIGH-594's change had broken anything.
+
+**Resolution (2026-08-10):** no longer reproduces. Both orders
+(`test_evidence_target_sha` → `test_tool_governance` and the reverse) run
+green in a single process on main, 41 tests each way, and the full kernel
+suite has run green repeatedly through the week's pre-push hooks. The exact
+healing commit was not isolated — the week rebuilt the claim/evidence
+surfaces both modules touch (596, 600, 601) — so this is closed by
+verification, not by attribution. If it recurs, reopen with the failing
+order captured.
+
+Also recorded here for the code-review pass (madde 4): `control_reachability`
+CI cadence is PROVEN — `tests/test_control_reachability.py` matches the
+`*test*.py` discover in `.github/workflows/aria-kernel.yml`, so the
+mechanism-without-a-caller scan itself runs on every ARIA-touching PR and in
+the pre-push hook. No wiring was needed; the check was to make sure the
+detector of unreachable controls was not itself unreachable.
 
 `tests.test_tool_governance.test_fixture_runner_and_strict_promotion_gate` passes alone and fails in the full suite. Isolated to a pair:
 

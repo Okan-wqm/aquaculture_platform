@@ -337,6 +337,7 @@ def _fold(events: list[dict[str, Any]], mission_id: str) -> dict[str, Any] | Non
                 "title": event.get("title"),
                 "capability": event.get("capability"),
                 "priority": event.get("priority"),
+                "target_project": event.get("target_project"),
                 "state": "DISCOVERED",
                 "opened_at": event.get("recorded_at"),
                 "updated_at": event.get("recorded_at"),
@@ -452,9 +453,14 @@ def open_mission(
     title: str,
     capability: str | None = None,
     priority: int | None = None,
+    target_project: str | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Open (or replay-open) the mission this source identifies.
+
+    ``target_project`` names the platform project the mission hardens
+    (charter §5): until now a service could only be smuggled inside
+    ``source_id`` or the title, which no scheduler or report could query.
 
     Idempotent by construction: the mission_id IS the identity, so a second
     open of the same source is a no-op returning the existing mission.
@@ -482,6 +488,7 @@ def open_mission(
                 "title": title,
                 "capability": capability,
                 "priority": priority,
+                "target_project": target_project,
             },
         )
         return _result(event, idempotent=False)

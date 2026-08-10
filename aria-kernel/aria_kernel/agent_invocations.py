@@ -1088,6 +1088,71 @@ def _request_event_count(rows: list[dict[str, Any]], request_id: str, kind: str)
     return sum(1 for row in rows if row.get("request_id") == request_id and row.get("event") == kind)
 
 
+# Release reasons that describe a HARNESS failure, not the request. The
+# requeue budget exists to stop a poisonous request from cycling forever and
+# to hand it to a human; a release whose reason names the harness — the CLI
+# session died, the renderer was missing, the binding check compared two
+# different objects — says nothing about the request at all. Counting those
+# burned the budget anyway: measured on production state 2026-08-10, three
+# requests sat in HUMAN_REQUIRED whose every requeue traced to the
+# deterministic prompt-binding defect (ORPHAN-CRITICAL-600/601). "The request
+# was poisonous" and "the harness was broken" had the same price.
+#
+# `dispatch_budget_refused` is here because its own release site says so:
+# "a budget signal, NOT a build failure".
+#
+# Kept beside the counter it feeds. The executor's release sites are the
+# source of these strings; a new harness-fault reason added there without a
+# row here fails test_every_executor_release_reason_is_classified.
+HARNESS_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
+    "claude_cli_auth_failure",
+    "claude_spawn_refused",
+    "dispatch_budget_refused",
+    "kernel_prompt_renderer_unavailable",
+    "prompt_hash_binding_mismatch",
+})
+
+# Reasons that DO burn the budget, listed so classification is exhaustive
+# rather than default-bucketed: a malformed request row is the request's
+# fault, a rejected submission is the work's, and an expired lease means the
+# agent hung — a request that repeatedly hangs its agent must escalate.
+REQUEST_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
+    "lease_expired",
+    "request_envelope_missing_expected_output_path",
+    "request_envelope_missing_role",
+    "submit_rejected",
+})
+
+
+def _is_harness_fault_reason(reason: str) -> bool:
+    """The dynamic executor reason ``claude_cli_exit_<code>`` is harness-class:
+    it is the wrapper's undifferentiated failure signal (five consecutive
+    nights of it were an expired OAuth session), and after ORPHAN-CRITICAL-591
+    the executor splits the causes that DO say something (auth) into their own
+    reasons. A residual exit-code release still says nothing about the
+    request; genuinely poisonous work is caught by lease expiry and rejected
+    submissions, which stay request-fault."""
+    return reason in HARNESS_FAULT_RELEASE_REASONS or reason.startswith("claude_cli_exit_")
+
+
+def _request_fault_requeue_count(rows: list[dict[str, Any]], request_id: str) -> int:
+    """Count the requeue-shaped events that say something about the REQUEST.
+
+    ``human_required`` rows are counted too: the escalation row IS the
+    requeue that crossed the line, and skipping it would let a genuinely
+    poisonous request derive back below the ceiling. An unclassified reason
+    counts as the request's fault — fail toward the human, never toward
+    silent infinite retry.
+    """
+    return sum(
+        1
+        for row in rows
+        if row.get("request_id") == request_id
+        and row.get("event") in ("requeued", "human_required")
+        and not _is_harness_fault_reason(str(row.get("reason") or ""))
+    )
+
+
 def _result_rows_for(rows: list[dict[str, Any]], request_id: str) -> list[dict[str, Any]]:
     return [row for row in rows if row.get("request_id") == request_id]
 
@@ -1211,8 +1276,10 @@ def derive_request_state(
         return "PENDING"
     event = latest.get("event")
     if event == "released":
-        # Released without result -> requeue counter consulted.
-        requeues = _request_event_count(claims, request_id, "requeued")
+        # Released without result -> requeue counter consulted. Only
+        # request-fault requeues count; a harness-fault release must not walk
+        # a healthy request toward HUMAN_REQUIRED.
+        requeues = _request_fault_requeue_count(claims, request_id)
         if requeues > DEFAULT_MAX_REQUEUES:
             return "HUMAN_REQUIRED"
         return "REQUEUED" if requeues > 0 else "PENDING"
@@ -1245,12 +1312,21 @@ def derive_request_state(
             return "STALE"
         return "RUNNING"
     if event == "requeued":
-        requeues = _request_event_count(claims, request_id, "requeued")
+        requeues = _request_fault_requeue_count(claims, request_id)
         if requeues > DEFAULT_MAX_REQUEUES:
             return "HUMAN_REQUIRED"
         return "REQUEUED"
     if event == "human_required":
-        return "HUMAN_REQUIRED"
+        # Materialized escalations are re-derived under the same
+        # fault-ownership rule, because the rows that produced them may all
+        # name the harness. Three production requests sat exactly there:
+        # every requeue traced to the deterministic binding defect, the
+        # ceiling was crossed by counting them, and the escalation row froze
+        # the wrong verdict. Same ledger, honest rule, healed derivation.
+        requeues = _request_fault_requeue_count(claims, request_id)
+        if requeues > DEFAULT_MAX_REQUEUES:
+            return "HUMAN_REQUIRED"
+        return "REQUEUED" if requeues > 0 else "PENDING"
     return "PENDING"
 
 
@@ -2020,8 +2096,15 @@ def release_claim(
         "released_at": _iso(now),
     }
     append_declared_jsonl(_claims_path(root), row, expected_surface="agent_invocation_claims")
-    requeue_count = _request_event_count(claims, request_id, "requeued") + 1
-    requeue_event_kind = "requeued" if requeue_count <= DEFAULT_MAX_REQUEUES else "human_required"
+    # Escalation at write time follows the same fault-ownership rule the
+    # derive side uses: a harness-fault release re-queues without burning the
+    # request's budget and can never be the release that escalates.
+    if _is_harness_fault_reason(reason):
+        requeue_count = _request_fault_requeue_count(claims, request_id)
+        requeue_event_kind = "requeued"
+    else:
+        requeue_count = _request_fault_requeue_count(claims, request_id) + 1
+        requeue_event_kind = "requeued" if requeue_count <= DEFAULT_MAX_REQUEUES else "human_required"
     append_declared_jsonl(
         _claims_path(root),
         {
@@ -2800,7 +2883,7 @@ def reap_stale_claims(
             _claims_path(root),
             expected_surface="agent_invocation_claims",
         )
-        requeue_count = _request_event_count(claims_after, request_id, "requeued") + 1
+        requeue_count = _request_fault_requeue_count(claims_after, request_id) + 1
         kind = "requeued" if requeue_count <= DEFAULT_MAX_REQUEUES else "human_required"
         followup = {
             "schema_version": 1,

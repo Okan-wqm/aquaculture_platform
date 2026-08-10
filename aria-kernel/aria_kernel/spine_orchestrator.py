@@ -269,6 +269,7 @@ def refresh_spine_adapters(
     _FRESH_EXCLUDE_STATUSES = frozenset({
         "fail", "failed", "crash", "schema_error", "tool_unhealthy",
         "output_unparseable", "budget_exceeded", "error",
+        "environment_unavailable",
     })
 
     for adapter_id, latest, fresh in decisions:

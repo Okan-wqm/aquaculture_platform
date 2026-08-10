@@ -1202,7 +1202,21 @@ def _phase_calibration_recommendation(context: PhaseContext) -> dict[str, Any]:
     # an operator act (`pressure weight-override`), because a system that
     # silently reweights its own scoring can rationalise anything it later
     # measures — the same line goldset promotion draws.
-    return recommend_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir)
+    result = recommend_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir)
+    # FAZ 4c — rank_pressure_sources' first caller. The effectiveness ledger
+    # (converged/minted per pressure source) is exactly the context an
+    # operator needs to judge a weight recommendation, and the ranking
+    # function had zero callers since V9.0-F. Advisory data: its absence or
+    # failure must not cost the recommendation.
+    try:
+        from .knowledge_graph import rank_pressure_sources
+
+        result["source_effectiveness"] = rank_pressure_sources(
+            workspace_root=context.workspace_root
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        result["source_effectiveness"] = []
+    return result
 
 
 def _phase_proactive_priority(context: PhaseContext) -> dict[str, Any]:

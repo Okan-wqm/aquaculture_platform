@@ -8872,3 +8872,23 @@ Three holes fed it:
 **Proof:** 6 tests, AST node-shape rather than source text (Plan 026R §H.1). The strongest asserts that **every `return 1` branch after the claim is taken contains a `_release_claim`** — the invariant the submit path broke. All three fixes reverted individually, all three went red. Full kernel suite green (3,464 tests).
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-617 — ARIA wrote what it learned every cycle and never read any of it back into a dispatch — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-10 during the end-to-end ARIA read that produced the "Sinir Sistemi" program (FAZ 4).
+
+Three organs of the learning loop's READ side were dead, so every agent dispatch rediscovered the repository from zero:
+
+**1. Conventions had a writer and no production reader.** `record_convention` has appended a row to `aria-tools/knowledge-graph/conventions.jsonl` on every converged cycle since V9.0-F. The only reader, `lookup_pattern` (`knowledge_graph.py:339`), was keyed by `pattern_id` and had **zero callers** — nothing anywhere resolved a pattern id, so no learned convention ever reached an agent.
+
+**2. Beliefs fed pressure ranking, never the agent about to edit the believed-about files.** `latest_beliefs` was consumed by the pressure path only; the envelope minted for an agent touching `apps/farm-service/**` carried no trace of what ARIA had already verified about that exact area.
+
+**3. `rank_pressure_sources` (`knowledge_graph.py:376`) had zero callers of any kind** — not even a test — while the calibration-recommendation section asked the operator to approve weight changes with no effectiveness data in view.
+
+**Why mint-time matters (the binding constraint):** the prompt hash is sealed over the rendered text at mint, and the claim path re-renders from the fused envelope (`fuse_prompt_envelope`). Knowledge injected at claim or dispatch would either break the binding or bypass it. So both new sections — `## Established knowledge` (beliefs + conventions intersecting the request's evidence/scope paths) and `## Recent intent` (per evidence file, the last commits' subject + first WHY line + ADR/plan/finding refs — this repo's commit bodies are WHY-rich by convention, so intent reading starts from cited history) — are computed inside `create_agent_invocation_request`, stored as envelope data, added to `_FUSED_ENVELOPE_KEYS`, and sealed under the minted hash. Both render with the repository map's trust framing: projection, **not evidence**.
+
+**Fix:** `conventions_for_paths` (first production read of the conventions ledger, same verified-chain discipline as `lookup_pattern`); `intent_context_for_files` in twin.py (deterministic, git-derived, never raises into the mint path); mint-time enrichment + renderer sections + fusion-set entries; `rank_pressure_sources` wired into the calibration-recommendation phase and rendered in its report section (first caller).
+
+**Proof:** 12 tests. The binding pair is the deliberate break: dropping `established_knowledge` from the fused envelope fails hash reproduction (the fusion-set addition is load-bearing), and because the binding alone cannot detect a mint that silently stops attaching the sections, the rendered text itself is content-pinned. The claim-envelope AST guard (`test_claim_envelope_binding`) derives the renderer's key set mechanically, so the two new renderer keys could not have shipped without joining the fusion set. Neighbour suites green (212 tests), invariants green (803).
+
+**Owner:** claude (this session). **Status:** RESOLVED.

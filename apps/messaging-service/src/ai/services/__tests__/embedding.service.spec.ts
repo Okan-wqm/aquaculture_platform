@@ -1,176 +1,214 @@
+/**
+ * The embedding sweep reads a PER-TENANT table from a cron.
+ *
+ * ORPHAN-HIGH-585: `messages` lives in `tenant_<uuid>` (messaging-service omits
+ * `schema:`), and a `@Cron` has no HTTP request behind it, so nothing seeds the
+ * tenant frame and an unqualified `FROM "messages"` resolved against whatever
+ * search_path the pooled connection happened to carry. Which tenant's rows got
+ * embedded was decided by whoever used that connection last.
+ *
+ * The second defect found with it: `FOR UPDATE SKIP LOCKED` ran under
+ * `dataSource.query`, i.e. autocommit, so the row locks were released the
+ * instant the SELECT returned. Two replicas could still claim the same rows —
+ * a lock that ends before the work it guards is not a lock.
+ *
+ * These tests pin both, plus the property that made the old shape defensible:
+ * one failed write must not take the batch down with it (MSG-MEDIUM-041).
+ */
 import { Test, TestingModule } from '@nestjs/testing';
 import { DataSource } from 'typeorm';
-import { REDIS_CLIENT } from '../../../shared/redis.provider';
-import { EmbeddingService } from '../embedding.service';
-import { AiEgressGateService } from '../ai-egress-gate.service';
-import {
-  createMockNatsClient,
-  createMockRedis,
-  createMockQueryRunner,
-  createMockDataSource,
-  fakeUuid,
-  resetUuidCounter,
-  MockNatsClient,
-  MockQueryRunner,
-} from '../../../__tests__/test-helpers';
 import { of } from 'rxjs';
 
-describe('EmbeddingService', () => {
-  let service: EmbeddingService;
-  let mockDataSource: ReturnType<typeof createMockDataSource>;
-  let queryRunner: MockQueryRunner;
+import { EmbeddingService } from '../embedding.service';
+import { AiEgressGateService } from '../ai-egress-gate.service';
+import { createMockNatsClient, fakeUuid, resetUuidCounter, MockNatsClient } from '../../../__tests__/test-helpers';
+
+const SCHEMA_A = 'tenant_aaaaaaaaaaaaaaaa';
+const SCHEMA_B = 'tenant_bbbbbbbbbbbbbbbb';
+
+interface RecordedQuery {
+  readonly sql: string;
+  readonly params?: unknown[];
+}
+
+/**
+ * A query runner that records every statement and answers the message SELECT
+ * from a per-schema script, so a test can say what each tenant holds.
+ */
+function createRunner(rowsBySchema: Map<string, unknown[]>, failUpdateForId?: string) {
+  const recorded: RecordedQuery[] = [];
+  let pinnedSchema = '';
+  const runner = {
+    connect: jest.fn().mockResolvedValue(undefined),
+    startTransaction: jest.fn().mockResolvedValue(undefined),
+    commitTransaction: jest.fn().mockResolvedValue(undefined),
+    rollbackTransaction: jest.fn().mockResolvedValue(undefined),
+    release: jest.fn().mockResolvedValue(undefined),
+    isTransactionActive: true,
+    query: jest.fn((sql: string, params?: unknown[]) => {
+      recorded.push({ sql, params });
+      if (sql.includes('set_config') && params) {
+        // The helper passes one string: `"tenant_x", "messaging", public`.
+        pinnedSchema = /"([^"]+)"/.exec(String(params[0]))?.[1] ?? '';
+        return Promise.resolve([]);
+      }
+      if (sql.includes('FROM "messages"')) {
+        return Promise.resolve(rowsBySchema.get(pinnedSchema) ?? []);
+      }
+      if (sql.startsWith('UPDATE "messages"') && failUpdateForId && params?.[1] === failUpdateForId) {
+        return Promise.reject(new Error('vector write refused'));
+      }
+      return Promise.resolve([]);
+    }),
+  };
+  return { runner, recorded, pinned: () => pinnedSchema };
+}
+
+function createDataSource(schemas: string[], runnerLike: object) {
+  return {
+    query: jest.fn().mockResolvedValue(schemas.map((schema_name) => ({ schema_name }))),
+    createQueryRunner: jest.fn().mockReturnValue(runnerLike),
+  };
+}
+
+async function buildService(dataSource: object, natsClient: MockNatsClient, allowed = true) {
+  const egressGate = { isAllowed: jest.fn().mockResolvedValue(allowed) };
+  const module: TestingModule = await Test.createTestingModule({
+    providers: [
+      EmbeddingService,
+      { provide: DataSource, useValue: dataSource },
+      { provide: 'NATS_SERVICE', useValue: natsClient },
+      { provide: AiEgressGateService, useValue: egressGate },
+    ],
+  }).compile();
+  return { service: module.get(EmbeddingService), egressGate };
+}
+
+function message(senderId: string, tenantId: string) {
+  return {
+    id: fakeUuid('msg'),
+    channelId: fakeUuid('ch'),
+    senderId,
+    content: 'hello',
+    createdAt: new Date('2026-08-06T00:00:00Z'),
+    tenantId,
+  };
+}
+
+describe('EmbeddingService — per-tenant schema binding', () => {
   let natsClient: MockNatsClient;
-  let egressGate: jest.Mocked<Pick<AiEgressGateService, 'isAllowed'>>;
 
-  const tenantId = 'tenant-0001-0001-0001-000000000001';
-  const userA = fakeUuid('usr');
-  const userB = fakeUuid('usr');
-
-  beforeEach(async () => {
+  beforeEach(() => {
     resetUuidCounter();
-
-    queryRunner = createMockQueryRunner();
-    mockDataSource = createMockDataSource(queryRunner);
     natsClient = createMockNatsClient();
-    egressGate = {
-      isAllowed: jest.fn().mockResolvedValue(true),
-    };
-
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        EmbeddingService,
-        { provide: DataSource, useValue: mockDataSource },
-        { provide: 'NATS_SERVICE', useValue: natsClient },
-        { provide: AiEgressGateService, useValue: egressGate },
-      ],
-    }).compile();
-
-    service = module.get(EmbeddingService);
-  });
-
-  afterEach(() => {
-    jest.clearAllMocks();
-  });
-
-  // -----------------------------------------------------------------------
-  // Processes only messages where embedding IS NULL
-  // -----------------------------------------------------------------------
-  it('fetches only messages where embedding IS NULL', async () => {
-    // runBatch is private; trigger via processUnembeddedMessages
-    mockDataSource.createQueryRunner().query = jest.fn();
-    // Simulate the raw SQL returning unembedded messages
-    (mockDataSource as unknown as { query: jest.Mock }).query = jest
-      .fn()
-      .mockResolvedValueOnce([]); // no messages to process
-
-    await service.processUnembeddedMessages();
-
-    // The DataSource.query should contain WHERE embedding IS NULL
-    const queryCalls = (mockDataSource as unknown as { query: jest.Mock }).query.mock.calls;
-    if (queryCalls.length > 0) {
-      const sql = queryCalls[0][0] as string;
-      expect(sql).toContain('embedding');
-      expect(sql).toContain('IS NULL');
-    }
-  });
-
-  // -----------------------------------------------------------------------
-  // Respects privacy gates
-  // -----------------------------------------------------------------------
-  it('skips messages from non-consented users', async () => {
-    const messages = [
-      { id: fakeUuid('msg'), channelId: fakeUuid('ch'), senderId: userA, content: 'Hello', createdAt: new Date() },
-      { id: fakeUuid('msg'), channelId: fakeUuid('ch'), senderId: userB, content: 'World', createdAt: new Date() },
-    ];
-
-    (mockDataSource as unknown as { query: jest.Mock }).query = jest
-      .fn()
-      .mockResolvedValueOnce(messages);
-
-    // userA consented, userB did NOT
-    egressGate.isAllowed
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce(false);
-
-    // ai-service returns embeddings for consented user
     natsClient.send.mockReturnValue(of({ embeddings: [[0.1, 0.2, 0.3]] }));
+  });
+
+  it('pins each tenant schema before reading messages', async () => {
+    // The defect: without this the table name resolves against the pooled
+    // connection's leftover search_path.
+    const { runner, recorded } = createRunner(new Map());
+    const { service } = await buildService(createDataSource([SCHEMA_A], runner), natsClient);
 
     await service.processUnembeddedMessages();
 
-    // Only 1 message should be sent for embedding (userA)
-    expect(egressGate.isAllowed).toHaveBeenCalledTimes(2);
+    const pin = recorded.findIndex((q) => q.sql.includes('set_config'));
+    const read = recorded.findIndex((q) => q.sql.includes('FROM "messages"'));
+    expect(pin).toBeGreaterThanOrEqual(0);
+    expect(recorded[pin]?.params).toEqual([`"${SCHEMA_A}", "messaging", public`]);
+    // Order is the whole point: a pin after the read is a read that never had it.
+    expect(pin).toBeLessThan(read);
   });
 
-  // -----------------------------------------------------------------------
-  // Batches messages correctly (max 100)
-  // -----------------------------------------------------------------------
-  it('limits batch size to 100 messages', async () => {
-    (mockDataSource as unknown as { query: jest.Mock }).query = jest
-      .fn()
-      .mockResolvedValueOnce([]); // returns empty
+  it('visits every tenant schema, not just whichever one the connection had', async () => {
+    const { runner, recorded } = createRunner(new Map());
+    const { service } = await buildService(createDataSource([SCHEMA_A, SCHEMA_B], runner), natsClient);
 
     await service.processUnembeddedMessages();
 
-    const queryCalls = (mockDataSource as unknown as { query: jest.Mock }).query.mock.calls;
-    if (queryCalls.length > 0) {
-      const params = queryCalls[0][1] as number[];
-      expect(params[0]).toBe(100);
-    }
+    const pinned = recorded
+      .filter((q) => q.sql.includes('set_config'))
+      .map((q) => /"([^"]+)"/.exec(String(q.params?.[0]))?.[1]);
+    expect(pinned).toEqual([SCHEMA_A, SCHEMA_B]);
   });
 
-  // -----------------------------------------------------------------------
-  // Writes embeddings back to messages table
-  // -----------------------------------------------------------------------
-  it('writes embeddings back via UPDATE query', async () => {
-    const msg = {
-      id: fakeUuid('msg'),
-      channelId: fakeUuid('ch'),
-      senderId: userA,
-      content: 'Test message',
-      createdAt: new Date('2026-03-10T12:00:00Z'),
-    };
-    // MSG-MEDIUM-041 moved the per-item embedding write off the batch
-    // queryRunner transaction onto DataSource.query (commit-per-item, no
-    // shared transaction). Capture the DataSource query mock so the UPDATE
-    // assertion targets where the write now actually lands. First call is the
-    // SELECT (returns the unembedded message); the per-item UPDATE follows.
-    const dsQuery: jest.Mock = jest.fn().mockResolvedValueOnce([msg]);
-    (mockDataSource as { query?: jest.Mock }).query = dsQuery;
-
-    egressGate.isAllowed.mockResolvedValue(true);
-    natsClient.send.mockReturnValue(of({ embeddings: [[0.1, 0.2, 0.3]] }));
+  it('holds the transaction across the embedding call so SKIP LOCKED means something', async () => {
+    const sender = fakeUuid('usr');
+    const rows = new Map([[SCHEMA_A, [message(sender, 'tenant-a')]]]);
+    const { runner, recorded } = createRunner(rows);
+    const { service } = await buildService(createDataSource([SCHEMA_A], runner), natsClient);
 
     await service.processUnembeddedMessages();
 
-    // The DataSource query mock carries both the SELECT and the per-item
-    // UPDATE calls; the UPDATE is the one writing embedding back.
-    const updateCall = dsQuery.mock.calls.find((call) => {
-      const sql = call[0] as string;
-      return sql.includes('UPDATE') && sql.includes('embedding');
-    });
-    expect(updateCall).toBeDefined();
+    expect(recorded.some((q) => q.sql.includes('FOR UPDATE OF m SKIP LOCKED'))).toBe(true);
+    // The write-back happens on the SAME runner, inside the same transaction
+    // that took the locks. Under the previous autocommit shape the locks were
+    // already gone by now.
+    expect(recorded.some((q) => q.sql.startsWith('UPDATE "messages"'))).toBe(true);
+    expect(runner.commitTransaction).toHaveBeenCalledTimes(1);
+    const commitOrder = runner.commitTransaction.mock.invocationCallOrder[0] ?? 0;
+    const sendOrder = natsClient.send.mock.invocationCallOrder[0] ?? 0;
+    expect(sendOrder).toBeLessThan(commitOrder);
   });
 
-  // -----------------------------------------------------------------------
-  // Graceful degradation when ai-service unavailable
-  // -----------------------------------------------------------------------
-  it('does not crash when ai-service is unavailable', async () => {
-    const msg = {
-      id: fakeUuid('msg'),
-      channelId: fakeUuid('ch'),
-      senderId: userA,
-      content: 'Test message',
-      createdAt: new Date('2026-03-10T12:00:00Z'),
-    };
-    (mockDataSource as unknown as { query: jest.Mock }).query = jest
-      .fn()
-      .mockResolvedValueOnce([msg]);
+  it('isolates a failed write with a savepoint instead of losing the batch', async () => {
+    // MSG-MEDIUM-041: one bad row used to be survivable because every write was
+    // its own autocommit statement. Now that the batch shares a transaction,
+    // the savepoint is what keeps that true.
+    const sender = fakeUuid('usr');
+    const first = message(sender, 'tenant-a');
+    const second = message(sender, 'tenant-a');
+    const rows = new Map([[SCHEMA_A, [first, second]]]);
+    const { runner, recorded } = createRunner(rows, first.id);
+    natsClient.send.mockReturnValue(of({ embeddings: [[0.1], [0.2]] }));
+    const { service } = await buildService(createDataSource([SCHEMA_A], runner), natsClient);
 
-    egressGate.isAllowed.mockResolvedValue(true);
-    // ai-service returns null (caught by catchError)
-    natsClient.send.mockReturnValue(of(null));
+    await service.processUnembeddedMessages();
 
-    // Should not throw
-    await expect(service.processUnembeddedMessages()).resolves.not.toThrow();
+    expect(recorded.some((q) => q.sql.startsWith('ROLLBACK TO SAVEPOINT'))).toBe(true);
+    expect(recorded.some((q) => q.sql.startsWith('RELEASE SAVEPOINT'))).toBe(true);
+    // The good row still landed, and the tenant's transaction still committed.
+    const updates = recorded.filter((q) => q.sql.startsWith('UPDATE "messages"'));
+    expect(updates).toHaveLength(2);
+    expect(runner.commitTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads no messages when the platform has no tenant schemas', async () => {
+    const { runner, recorded } = createRunner(new Map());
+    const { service } = await buildService(createDataSource([], runner), natsClient);
+
+    await service.processUnembeddedMessages();
+
+    expect(recorded).toEqual([]);
+    expect(runner.connect).not.toHaveBeenCalled();
+  });
+
+  it('still asks the consent gate per sender, with the tenant from the row', async () => {
+    const sender = fakeUuid('usr');
+    const rows = new Map([[SCHEMA_A, [message(sender, 'tenant-a')]]]);
+    const { runner } = createRunner(rows);
+    const { service, egressGate } = await buildService(
+      createDataSource([SCHEMA_A], runner),
+      natsClient,
+      false,
+    );
+
+    await service.processUnembeddedMessages();
+
+    expect(egressGate.isAllowed).toHaveBeenCalledWith('tenant-a', sender, 'embedding');
+    // Refused consent means nothing is sent to ai-service at all.
+    expect(natsClient.send).not.toHaveBeenCalled();
+  });
+
+  it('one tenant failure does not stop the sweep reaching the next', async () => {
+    const rows = new Map<string, unknown[]>();
+    const { runner, recorded } = createRunner(rows);
+    runner.query.mockImplementationOnce(() => Promise.reject(new Error('schema vanished')));
+    const { service } = await buildService(createDataSource([SCHEMA_A, SCHEMA_B], runner), natsClient);
+
+    await service.processUnembeddedMessages();
+
+    expect(runner.rollbackTransaction).toHaveBeenCalled();
+    expect(recorded.some((q) => String(q.params?.[0]).includes(SCHEMA_B))).toBe(true);
   });
 });

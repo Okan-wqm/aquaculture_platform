@@ -435,6 +435,17 @@ describe('TenantProvisioningWorkflowService — ledger vs physical reality (ORPH
           },
         },
         {
+          // The workflow now reports every step outcome to the metrics
+          // service (this branch's feature); the harness merged from main
+          // predates the dependency.
+          provide: TenantProvisioningMetricsService,
+          useValue: {
+            recordRunTerminal: jest.fn(),
+            recordStepOutcome: jest.fn(),
+            recordActiveRuns: jest.fn(),
+          },
+        },
+        {
           provide: BillingAdminCommandClientService,
           useValue: {
             provisionTenantSubscription: jest

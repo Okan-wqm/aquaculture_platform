@@ -8928,3 +8928,21 @@ Three holes fed it:
 **Proof:** 6 tests, AST node-shape rather than source text (Plan 026R §H.1). The strongest asserts that **every `return 1` branch after the claim is taken contains a `_release_claim`** — the invariant the submit path broke. All three fixes reverted individually, all three went red. Full kernel suite green (3,464 tests).
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-621 — three quality dimensions had zero adapters, and schema-drift was a farm-only property — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-10 during the end-to-end ARIA read (FAZ 7 of the "Sinir Sistemi" program; the fleet-coverage gap the mission charter's D1-D6 dimension model made visible).
+
+The adapter fleet covered D1-security and D4-testability; **D2-performance, D5-documentation and D6-correctness(parity) had no watcher at all**, and `typeorm-entity-schema-adapter` scanned only `apps/farm-service` while six sibling services carry the identical per-tenant schema discipline (ADR-011) unwatched.
+
+**Fix — three deterministic v1 adapters (manifest + TS, fleet pattern, SHADOW):**
+
+- `bundle-budget-adapter` (D2): flags an MFE with no declared bundle budget (no `chunkSizeWarningLimit`, no `bundle-budget.json`) and heavyweight libraries imported statically (welded into the initial chunk). Real-repo first run: **9 findings** — no MFE declares any budget.
+- `doc-staleness-adapter` (D5): resolves every backtick-quoted repo path in `docs/**/*.md` against the working tree; a reference to a deleted path is a finding (globs/placeholders/`:line` refs handled). Real-repo first run: **1,146 findings across 1,271 docs** — the documentation debt is now measured instead of suspected.
+- `fe-dto-parity-adapter` (D6): AST-collects backend `*Dto` classes and hand-written frontend `*Dto` types (generated files excluded — they are the fix, not suspects); same name + different field sets = drift finding naming missing/extra fields. Real-repo first run: **2 findings, both in `web/modules/admin-panel/src/services/types/` — exactly the hand-written-types disease the SSOT audit documented.**
+
+**typeorm widening:** multi-service sweep over the 7 schema-per-tenant services (explicit `root` keeps the single-service call shape for fixtures). Widening exposed a latent FP class: the migration-registry check assumed farm's class-import registry, while sibling services legitimately register a GLOB in `data-source.ts` — every such service would have flooded `migration_registry_missing_entry`. The check now detects the registration style first; measured differential: farm-only findings **214 → 95** (the removed 119 were the glob-style false class), multi-service total 404 → 194.
+
+**Proof:** 4 self-asserting adapter test scripts green (fleet pattern); registry compiles 9 tools; real-repo smoke runs recorded above; fixture `real-repo-baseline` cases added per adapter.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

@@ -26,6 +26,83 @@ ARIA'nın var oluş sebebi tektir:
 | **Dokümantasyonu tam** | Var olanı anlatan (olması isteneni değil), koddan doğrulanabilir, bayatlaması bir kapıyı kırmızıya boyayan       |
 | **Doğru**              | Olay sözleşmeleri iki uçta tutarlı, şema sahipliği ihlalsiz, veri akışı uçtan uca kanıtlı                        |
 
+### 1a. Kapsam — kullanımdaki her şey ARIA'nın alanıdır
+
+"Mikroservis" kısaltmadır; asıl kapsam **ürünün kullandığı her yüzeydir** ve
+hiçbir katman "başkasının alanı" diye dışarıda kalamaz:
+
+- **Backend servisleri** (`apps/*`): controller → service → bus → handler →
+  repository zincirinin tamamı.
+- **Web modülleri** (`web/shell`, `web/modules/*` federated remote'lar,
+  `web/shared-ui`, `web/apps/aquamobil`): her form, her buton, her tablo,
+  her canlı görünüm.
+- **Veritabanı**: her şema, her tablo, her kolon, her migration, her RLS
+  politikası, her indeks.
+- **Olay sözleşmeleri** (`libs/event-contracts`): her olayın iki ucu.
+- **Kenar** (`sens-api-gateway/`, Rust sidecar): protokoller, kalibrasyon,
+  saha güvenliği.
+- **Altyapı ve CI**: workflow'lar, kapılar, deploy zinciri — çünkü kırık bir
+  kapı, koruduğunu sandığı her yüzeyi korumasız bırakır.
+
+Bir modülün "profesyonel" sayılması **dikey dilim** ister: formdan kolona,
+kolondan geri ekrana. Yarım dilim (backend'i sağlam, formu yalancı) tam
+dilim sayılmaz.
+
+### 1b. Katman ölçütleri — nelere bakılır
+
+**Veritabanı bağlamında:**
+
+- Şema sahipliği ihlalsiz (ADR-011: per-tenant tablolar `schema:` OMİT eder,
+  cross-tenant altyapı tabloları `MODULE_SCHEMAS[].infrastructureTables`
+  SSoT'undadır; `public`'e tablo eklenmez).
+- Her kolonun bir sahibi ve bir tüketicisi vardır: hiçbir UI alanı karşılığı
+  olmayan kolon, hiçbir kolonu olmayan UI alanı kalmaz (şema-yüzey paritesi).
+- Migration'lar üretilir, elle düzenlenmez; blue-green güvenli (nullable →
+  backfill → NOT NULL); paylaşılan enum'a DROP TYPE atılamaz — bu sınıfın
+  prod kesintisi yaşandı ve tekrarı kapıyla imkânsızdır.
+- RLS her tenant-taşıyan tabloda kanıtlıdır; altyapı defterleri
+  `INFRASTRUCTURE_AUDIT_LEDGERS` SSoT'u üzerinden grant alır.
+- İndeksler sorgu planına karşı gerekçelidir: ölçülmemiş indeks, indeks
+  değil bahistir. Kısıtlar (FK, CHECK, UNIQUE) davranışın veritabanı
+  katmanındaki son savunmasıdır ve uygulamaya güvenilerek atlanamaz.
+
+**Backend bağlamında:**
+
+- Katman atlaması yok; `getScopedRepository()` dışında repo erişimi yok;
+  her async çağrı await'li; her public fonksiyon dönüş tipli.
+- Girdi doğrulama `ValidationPipe(whitelist+forbidNonWhitelisted)` ile
+  sınırda; iş kuralı doğrulaması handler'da — ikisi birbirinin yerine
+  geçmez.
+- Olaylar `createBaseEvent()` ile, düz nesne, iki uçta şema-doğrulamalı;
+  trust-boundary geçen her olay için JSON Schema, kıran her değişiklik için
+  upcaster.
+- Dış dünyaya her çağrı devre-kesicili; her tekrar denenebilir işlem
+  idempotent; outbox deseni canlılığını kanıtlar (yalnız "boş" değil).
+- Loglar yapısal ve PII-maskeli; `console.*` yok.
+
+**Frontend bağlamında:**
+
+- Her formun doğrulaması backend DTO'suyla paritelidir: FE'nin kabul edip
+  BE'nin reddettiği (ya da tersi) tek alan kalmaz.
+- Her buton gerçek bir davranışa bağlıdır ve sahte-başarı gösteremez;
+  yazma sonrası okuma-geri görünürlüğü kanıtlıdır (kaydettiğin listede
+  görünür).
+- Yükleme/boş/hata durumları tasarlanmıştır; canlı yüzeyler backend
+  gerçeğine yakınsar (bayat veri sessiz kalamaz).
+- Federasyon sözleşmeleri (shared-deps SSoT `web/shared-ui`) ihlalsiz;
+  erişilebilirlik (klavye, odak, canlı bölge) denetlenmiş; tenant sızıntısı
+  UI önbelleğinde de yoktur.
+- Mobil (aquamobil) çevrimdışı-öncelikli davranışını kanıtlar: kuyruğa
+  alınan işlem, bağlantı gelince aynen ve bir kez uygulanır.
+
+**Uçtan uca (dikey dilim) bağlamında:**
+
+- Form alanı → DTO → kolon → okuma-geri → ekran zinciri her modülde
+  kanıtlıdır; bu repo bunun için Lane-B ürün-denetim ajanlarını zaten
+  taşır (form-write, data-readback, schema-surface-parity, tenant-isolation
+  denetçileri) — ARIA'nın servis-misyonları bu denetçilerle AYNI gerçeği
+  paylaşır, paralel bir kopya üretmez.
+
 ARIA'nın kendi altyapısına yaptığı her iyileştirme bu amaca **araçtır**:
 kendi kuyruğunu onarması, kendi yargıçlarını kalibre etmesi, kendi
 defterlerini okuması — hepsi, mikroservislere daha iyi bakabilsin diyedir.

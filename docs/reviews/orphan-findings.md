@@ -8191,6 +8191,24 @@ Three metric families did exactly that: the new `cron_job_*` heartbeat (#1098) a
 
 **Owner:** claude (this session). **Status:** RESOLVED for the label; delivery endpoints remain operator-owned.
 
+## ORPHAN-HIGH-584 — tenant provisioning had zero metrics, so a three-month outage produced no signal — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, closing Faz 3b of the tenant root-cause plan.
+
+Every provisioning run failed on its first step from roughly 2026-05 to 2026-08. The saga behaved correctly: it recorded `FAILED`, wrote an accurate `lastError`, and rolled the attempt back leaving no half-tenant. And then nothing happened, because `admin-api-service` exported **not one counter or gauge** about provisioning. The failure was discoverable only by a human attempting to create a tenant, which is how it was eventually found — three months in.
+
+Two tenants still carry the marks: `Oceanfarm` is ACTIVE with no schema (healthy-looking in the admin panel, nowhere to put a row) and `Suderra AS` is PENDING. Two runs sit in `RUNNING` with `attempts=3` and no lease, and nothing counts them, so "the queue is wedged" and "nobody has created a tenant lately" produced identical telemetry: none.
+
+**Fix:** `TenantProvisioningMetricsService` joins the existing `/metrics` endpoint as a contributor and exports terminal run outcomes by state, step failures **by step**, step duration by outcome, and two gauges for the unfinished-run case. The step label is the diagnostic value: every failed run died on `reserve_auth_tenant`, so that one label would have named the culprit on day one instead of month three. The gauges are seeded at zero, because a gauge with no series makes `> 3600` match nothing — the alert for "a run is stuck" would otherwise be silent for exactly as long as the process had seen no runs, which is the state a restart after a wedge leaves behind.
+
+Gauge refresh rides the queue sweeper that already runs every ten seconds rather than a new scheduled job; a metric surface with its own scheduler is one more thing that can stop without anyone noticing.
+
+**Alerts:** `TenantProvisioningRunsFailing` (critical — no tenant can be onboarded) and `TenantProvisioningRunStuck` (warning), both with a runbook that says how to find the refusing step and how to tell the ledger apart from physical reality. Deliberate break proven: removing the step-failure increment turns the spec red.
+
+**NOT done:** this is code. Production runs an image 388 commits old, so none of it is real until the deploy freeze lifts — which waits on backup and restore proof, which waits on twelve operator-provisioned secrets. Stated so the PR is not mistaken for the outage ending.
+
+**Owner:** claude (this session). **Status:** RESOLVED in code; unobservable in production until deploy.
+
 ## ORPHAN-HIGH-569 — container logs were the third unbounded disk consumer and nothing in the platform had ever set a ceiling — RESOLVED (this PR)
 
 **Discovered and reproduced:** 2026-08-06, tracing droplet disk pressure after the WAL-G rig was stopped and the disk kept climbing anyway. Docker's default `json-file` driver performs no rotation, no `/etc/docker/daemon.json` exists on the host, and `grep -l 'max-size\|logging:' docker-compose*.yml` returned nothing — no compose file had ever configured it. Measured on the production droplet: 2.0 GB of `*-json.log` across the running stack, `aqua-auth` alone at 658 MB and still being written to within the last 15 minutes, `aqua-postgres` 535 MB, `aqua-gateway` 464 MB — on a host at 94% with 11 GB free, whose capacity gate wants 37.6 GB.
@@ -8206,6 +8224,28 @@ Proven by deliberate breaks: a new service with no `logging` reddens all three a
 **Not fixed here:** the ~2.0 GB already on disk is not reclaimed by this change — rotation applies to new writes after the containers are recreated, and production deploys are locked (`PRODUCTION_DEPLOY_ENABLED=false`). Truncating the existing logs is an operator action against live diagnostic state and is deliberately left out of a code change.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-417`, `ORPHAN-HIGH-563`, `INFRA-MEDIUM-057`.
+
+## ORPHAN-HIGH-587 — Alertmanager has run for weeks delivering every alert to nobody — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06. Corrects an earlier claim in this same session: I reported that the monitoring stack had never been brought up. It has — `aqua-alertmanager` and `aqua-prometheus` have both been up for three weeks. What does not exist is the thing they point at.
+
+All three receivers target `http://127.0.0.1:9099/{page,digest,heartbeat}`. Nothing serves that port, and nothing ever has. Every alert this platform raised went to `/dev/null` — including `TenantIsolationViolationDetected`, which fires on a potential cross-tenant read and carries no `for:` delay precisely because it is not something to observe for ten minutes first.
+
+**Why it stayed that way is the interesting part.** `render-configs.sh` was supposed to substitute real endpoints at activation, and it _hard-failed_ when `ALERTMANAGER_{PAGE,DIGEST,HEARTBEAT}_URL` were unset. Those were external paging endpoints that were never procured. So the script could not run, so no deploy path called it, so the placeholders stayed. A dependency that cannot be satisfied is indistinguishable from a step nobody performs.
+
+**Fix:** delivery is email, because email is what exists — the droplet already runs working SMTP credentials for notification-service, verified first-hand (`SMTP_HOST=smtp.gmail.com`, user and password both set). `page` and `digest` become `email_configs` carrying the summary, description and runbook link in the body, since the runbook is the first thing an operator needs at 03:00.
+
+The renderer was rewritten around what is required versus optional: SMTP settings and recipients are required (they are the delivery), webhook URLs are optional. It refuses to run without the delivery settings and refuses to finish if a placeholder survived — a half-rendered config with real SMTP and a placeholder recipient is worse than one that never started.
+
+**Placeholder discipline:** every committed address and credential is `.invalid`, reserved by RFC 2606 and unable to resolve, so a config reaching production unrendered fails loudly rather than quietly mailing a stranger. An invariant asserts the committed file contains no real recipient.
+
+**Role routing:** `page` and `digest` take separate recipient variables although both default to the same mailbox today. Splitting by role later is one export per route.
+
+**NOT done, and stated rather than absorbed:** the `none` deadman stays unwired. An external watcher is supposed to alarm when the heartbeat stops, and email cannot play that role — a mailbox receiving nothing looks exactly like a mailbox nobody sent to. Until an external endpoint exists, **a monitoring stack that dies will not announce it**. The renderer prints that on every run instead of leaving a loopback URL that reads like configuration.
+
+**Tests:** 8 gate tests run the real script against a copy of the real config (full render, per-variable refusal, placeholder rejection, digest fallback, deadman both ways, idempotence). Two new invariant assertions: every routed receiver has a delivery integration, and nothing real is committed. Emptying a receiver turns the first red.
+
+**Owner:** claude (this session). **Status:** RESOLVED in the repo; the live switch-on is one `render-configs.sh` run on the droplet.
 
 ## ORPHAN-HIGH-585 — the messaging embedding cron reads a per-tenant table with no schema bound — OPEN
 
@@ -8659,6 +8699,31 @@ every run after the first.
 **Not addressed here:** the sixth adapter's separate `evidence_error` — to be
 read after a cycle where the runners actually execute.
 
+## ORPHAN-CRITICAL-613 — the entire judgment supply chain had one driver, and the driver had zero importers — RESOLVED (this PR)
+
+**Severity:** CRITICAL (judged_judges read zero for months; calibration, goldset and FP-suppression starved together)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, end-to-end wiring sweep (Sinir Sistemi Programı, keşif ajanı B).
+
+`generate_judgment_sample`, `dispatch_judges_for_sample`,
+`generate_ai_consensus`, `replay_judges_on_goldset` and
+`refresh_fixture_suite` were all reachable from exactly one caller —
+`heartbeat_tick` — and `heartbeat.py` had **zero importers repo-wide**. No
+judgment sample was ever minted automatically, no judge fanned out, no
+consensus computed, no fixture suite refreshed, no replay scored. Three
+separate defects were blamed for `judged_judges=0` before the dead driver
+was found. The mechanism-without-a-caller class, at its largest.
+
+**Fix (extract-and-delete, no parallel copy):** three cycle phases —
+`fixture_refresh`, `judgment_pipeline` (sample → fan-out → consensus, with
+per-tool fault containment), `judge_replay` (gold-corpus re-examination +
+recall) — registered in dependency order around `judge_calibration`;
+`heartbeat.py` deleted. The extraction surfaced and repaired a latent
+defect: heartbeat passed `target_sha=None` into the fan-out, which would
+have graded every judge's real evidence `baseline_unavailable` (the exact
+class that rejected the autonomy planner's first surviving run); judges now
+anchor to the workspace head.
+
 ## ORPHAN-LOW-612 — the artifact scrubber masked the numbers that happened to say "token" — RESOLVED (this PR)
 
 **Severity:** LOW (no leak; cost telemetry blinded)
@@ -8707,6 +8772,55 @@ state store and publishes with the same run.
 **Remediation to execute after merge:** dispatch `aria-auto-cycle` with the
 six adapter ids + an approval ref; the same run's tools phase then exercises
 the lifted tools against the provisioned workspace.
+
+## ORPHAN-HIGH-614 — the widest adapters crashed at a memory ceiling nobody declared — RESOLVED (this PR)
+
+**Severity:** HIGH (2 of 6 adapters cannot complete their first real run)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, cyc-…132318Z — the first cycle in which the
+adapters ever executed: tenant-scoping and test-gap (scope apps/** +
+libs/**) died at Node's default ~1 GB old-space after 67s/51s of real work.
+
+A resource the manifest never declared, enforced by a runtime the manifest
+never chose. **Fix:** `runner.node_max_old_space_mb` — validated manifest
+field, default 2048 in the runner, 3072 declared by the two wide-scope
+adapters; composed into NODE_OPTIONS without clobbering operator flags.
+
+**Also observed, next in queue:** `agent-harness-security-adapter`
+`evidence_error` (2.6s, python lane) — separate defect, separate change.
+
+## ORPHAN-CRITICAL-616 — the per-service hardening program had every organ and no nervous system — RESOLVED (this PR)
+
+**Severity:** CRITICAL (the charter's single purpose had no producer)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, wiring sweep (keşif ajanı A). Five severed links,
+one line:
+
+1. `cycle_service_examination` computed per-service targeting — services,
+   dependency order, owning agents, scoped pressures — with ZERO consumers,
+   and ran AFTER `mission_ingest`.
+2. `SERVICE_MAP.json` inventoried every platform service each cycle; nobody
+   read it.
+3. `select_next_mission` had one caller: the operator CLI. Even a seeded
+   ledger would never move without a human.
+4. The coverage-gap → mission path was structurally unreachable: gap
+   detection runs after ingest, and ingest filtered gaps to the CURRENT
+   cycle id, so the newest batch (always the previous cycle's) was dropped
+   every night.
+5. A mission could not name a service except inside free text.
+
+**Fix (kablolama, sıfır duplicate):** examination moves before ingest and
+gains its first consumer — `service_mission_seed` mints durable
+`service_hardening` missions (core four risk-ordered per charter M-5.1 +
+every evidence-backed service; idempotent by mission identity;
+`target_project` is now a first-class mission field). `mission_selection`
+runs the scheduler in the cycle and hands the winner to the bounded queue as
+a `mission:<id>` item; the autonomy drain resolves that marker from the
+mission row itself. The ingest filter is corrected with the reason sealed in
+a test. `SOURCE_RANK` gains `service_hardening` below the reactive sources.
+
+10 tests; dismantling the seed phase and restoring the cycle-id filter each
+break their own test.
 
 ## ORPHAN-CRITICAL-600 — the prompt hash was minted over one object and verified against another — RESOLVED (this PR)
 
@@ -8807,9 +8921,25 @@ The agent was blameless. `classify_evidence_ref` grades a ref `repo_verified` on
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
-## ORPHAN-LOW-595 — two kernel test files fail when run in one order and pass in another — OPEN
+## ORPHAN-LOW-595 — two kernel test files fail when run in one order and pass in another — RESOLVED (verified 2026-08-10)
 
 **Discovered:** 2026-08-09, while checking whether ORPHAN-HIGH-594's change had broken anything.
+
+**Resolution (2026-08-10):** no longer reproduces. Both orders
+(`test_evidence_target_sha` → `test_tool_governance` and the reverse) run
+green in a single process on main, 41 tests each way, and the full kernel
+suite has run green repeatedly through the week's pre-push hooks. The exact
+healing commit was not isolated — the week rebuilt the claim/evidence
+surfaces both modules touch (596, 600, 601) — so this is closed by
+verification, not by attribution. If it recurs, reopen with the failing
+order captured.
+
+Also recorded here for the code-review pass (madde 4): `control_reachability`
+CI cadence is PROVEN — `tests/test_control_reachability.py` matches the
+`*test*.py` discover in `.github/workflows/aria-kernel.yml`, so the
+mechanism-without-a-caller scan itself runs on every ARIA-touching PR and in
+the pre-push hook. No wiring was needed; the check was to make sure the
+detector of unreachable controls was not itself unreachable.
 
 `tests.test_tool_governance.test_fixture_runner_and_strict_promotion_gate` passes alone and fails in the full suite. Isolated to a pair:
 

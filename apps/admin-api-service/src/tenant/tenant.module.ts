@@ -46,6 +46,7 @@ import { AuthTenantProvisioningClientService } from './services/auth-tenant-prov
 import { TenantActivityService } from './services/tenant-activity.service';
 import { TenantDetailService } from './services/tenant-detail.service';
 import { TenantProvisioningWorkflowService } from './services/tenant-provisioning-workflow.service';
+import { TenantProvisioningMetricsService } from './services/tenant-provisioning-metrics.service';
 import { TenantProvisioningService } from './services/tenant-provisioning.service';
 import { TenantAdminController, TenantPublicController } from './tenant.controller';
 
@@ -101,6 +102,7 @@ const QueryHandlers = [
     ...QueryHandlers,
     TenantProvisioningService,
     TenantProvisioningWorkflowService,
+    TenantProvisioningMetricsService,
     AuthTenantProvisioningClientService,
     TenantActivityService,
     TenantDetailService,

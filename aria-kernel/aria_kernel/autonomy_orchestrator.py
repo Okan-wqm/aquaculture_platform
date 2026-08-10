@@ -249,7 +249,25 @@ def _drain_next_cycle_queue(
         evidence_refs: list[str] = []
         source_cycle = str(item.get("source_cycle_id") or "")
         pressure_id = str(item.get("pressure_id") or "")
-        if source_cycle and pressure_id:
+        if pressure_id.startswith("mission:"):
+            # A mission-selection item: the queue key is the mission marker,
+            # and the mission row itself carries the evidence refs its work
+            # accumulated. Resolving here keeps the drain's rule uniform —
+            # refs come from the SOURCE record, never from the identifier.
+            from .mission import fold_mission
+
+            try:
+                mission_row = fold_mission(
+                    mission_id=pressure_id.split(":", 1)[1], base_dir=base_dir,
+                )
+            except GovernanceError:
+                mission_row = None
+            if mission_row:
+                evidence_refs = [
+                    str(ref) for ref in (mission_row.get("evidence_refs") or [])
+                    if isinstance(ref, str) and ref
+                ]
+        elif source_cycle and pressure_id:
             try:
                 pressure_record = explain_pressure(
                     cycle_id=source_cycle, pressure_id=pressure_id, base_dir=base_dir,

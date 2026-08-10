@@ -8510,6 +8510,38 @@ every run after the first.
 **Not addressed here:** the sixth adapter's separate `evidence_error` — to be
 read after a cycle where the runners actually execute.
 
+## ORPHAN-HIGH-610 — an environment fault was priced as tool guilt, and quarantined all six adapters — RESOLVED (this PR)
+
+**Severity:** HIGH (the entire adapter fleet is quarantined; no schema/tenant/event scanning can run)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, reading why the first dependency-provisioned cycle
+still ran zero tools: `tools/registry.json` on `aria/state` shows all six
+adapters QUARANTINED, transitioned by the 06:37 cycle whose runner refused
+each with `missing repo-local node dependency` — `duration_ms: 0`, the tools
+never executed.
+
+Two defects, one class (the requeue counter's, one layer up):
+
+1. The runner recorded its environment refusal as `tool_unhealthy`, and
+   `immediate_quarantine_reason` quarantines on that status unconditionally.
+   Two different failures, one name (MISSION_SPEC M-2.5).
+2. `unquarantine_tool` has existed since Plan 022 and was API-only — when the
+   wrong quarantine happened, there was no operator-reachable path to lift
+   it. Mechanism without a caller, CLI edition.
+
+**Fix:** the refusal now mints `environment_unavailable` (own status, wired
+through the run vocabulary, the CLI exit map, and the spine fresh-pass
+exclusions); the quarantine trigger deliberately ignores it — repetition
+still escalates through the uncertainty ledger, which now has a reader. The
+audited way back exists twice over: a `tool unquarantine` CLI verb wrapping
+the Plan-022 API, and a dispatch-gated workflow step (approval ref required,
+recorded in governance, no-op on scheduled runs) so the lift happens on the
+state store and publishes with the same run.
+
+**Remediation to execute after merge:** dispatch `aria-auto-cycle` with the
+six adapter ids + an approval ref; the same run's tools phase then exercises
+the lifted tools against the provisioned workspace.
+
 ## ORPHAN-CRITICAL-600 — the prompt hash was minted over one object and verified against another — RESOLVED (this PR)
 
 **Severity:** CRITICAL (no agent invocation could ever start)

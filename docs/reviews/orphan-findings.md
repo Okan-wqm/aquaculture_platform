@@ -8773,6 +8773,39 @@ state store and publishes with the same run.
 six adapter ids + an approval ref; the same run's tools phase then exercises
 the lifted tools against the provisioned workspace.
 
+## ORPHAN-HIGH-615 — the operator's path into ground truth was printed, promised, and never built — RESOLVED (this PR)
+
+**Severity:** HIGH (judge calibration and the goldset have zero human labels by construction)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, wiring sweep (keşif ajanı B), four defects, one theme:
+
+1. Every judgment sample embeds `aria-kernel feedback record …` in its
+   operator instructions — the verb did not exist (parser knew only
+   add/import/list/migrate).
+2. The ONE wired human-verdict path, `resolve_human_required(verdict=…)`
+   (Plan 024 §B ground-truth fan-out), had no CLI flag; dead from every
+   keyboard.
+3. `calibration_bootstrap.finalize_corpus` wrote `label`/`labeled_at` rows —
+   a schema no ground-truth reader reads. Every label an operator ever
+   finalized was invisible to judge_calibration, goldset and
+   FP-suppression.
+4. `record_seeding_finding` had zero producers; the labeling pool was
+   permanently empty.
+
+**Fix:** the promised verbs are real (`feedback record`, `record-batch`);
+`hr resolve --verdict tp|fp` reaches the fan-out; finalize writes the ONE
+vocabulary (`verdict`/`source_type=human`/`run_id`/`finding_id`, original
+spelling preserved as `legacy_label`); every live finding recorded by
+`record_findings_for_run` seeds the labeling pool (suppressed FPs excluded);
+and the daily report gains a "Labels wanted" section with the ready-made
+command per sample — the report is where the operator already looks.
+
+**En-route (repo-setting, fixed live):** `finding-state-sweep` and
+`aria-daily-report` were ALSO blocked by the repository-level Actions
+setting "allow GitHub Actions to create pull requests" being off — a wall
+behind the workflow-permissions wall #1140 removed. Enabled via the
+actions/permissions API; both lanes redispatched.
+
 ## ORPHAN-HIGH-614 — the widest adapters crashed at a memory ceiling nobody declared — RESOLVED (this PR)
 
 **Severity:** HIGH (2 of 6 adapters cannot complete their first real run)

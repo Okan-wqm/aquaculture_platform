@@ -8583,6 +8583,7 @@ Its policy is default-deny and every clause is load-bearing: an explicit allowli
 **NOT fixed, stated plainly:** this only reclaims. `TMPDIR` is what actually decides where Nx writes, so bounding the writer — pointing CI at a dedicated, size-capped temp filesystem — remains the stronger fix and is not done here. And 35 GB is still below the 37.5 GB floor: the gate will keep failing until the disk grows or a generation of images ages out.
 
 **Owner:** claude (this session). **Status:** RESOLVED for reclaim; bounding the writer is open.
+
 ## ORPHAN-CRITICAL-596 — ten of twelve agent requests were permanently unreachable, and the prompt-hash check could never pass — RESOLVED (this PR)
 
 **Discovered:** 2026-08-09, after the runtime and evidence fixes let agents run for the first time in five nights.

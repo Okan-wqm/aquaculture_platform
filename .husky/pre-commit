@@ -72,3 +72,22 @@ node tools/quality/quality.mjs format-scope check || {
 # Staged mod, HEAD^ yerine indeksi HEAD'e karşı yargılar — commit anında
 # doğru karşılaştırma budur (tier-3 make-it-detectable).
 node tools/quality/quality.mjs format check-staged || exit 1
+
+# ARIA yetki-hash'i — bayat pin'le commit atmayı imkânsızlaştır.
+#
+# Pin, docs/aria/CURRENT_STATE.md içinde ve ARIA runtime yüzeyinin tamamını
+# (aria-kernel/, tools/aria-poc/, aria-* workflow'ları, docs/aria/) kapsıyor.
+# Bu yüzeye dokunan her commit hash'i değiştirir; repin'i insan hafızasına
+# bırakmak, aynı pinin dört zorunlu CI kontrolünü iki ayrı PR'da kırmızıya
+# boyamasıyla sonuçlandı. Yazıcı zaten vardı (aria:authority-hash:write, spec
+# ile aynı digest tanımını paylaşır); eksik olan çağıran-otomasyondu — bu
+# repoda tekrar eden "mekanizma var, çağıran yok" sınıfının hook hali.
+#
+# Yalnız ARIA yüzeyi staged'ken koşar; diğer commit'lerde maliyet tek grep.
+if git diff --cached --name-only | grep -qE '^(aria-kernel/|tools/aria-poc/|docs/aria/|\.github/workflows/aria-)'; then
+  "$GATE_TS_NODE" $GATE_TSCONFIG tools/gates/aria-authority-hash.ts --write || exit 1
+  if ! git diff --quiet -- docs/aria/CURRENT_STATE.md; then
+    git add docs/aria/CURRENT_STATE.md
+    echo "aria-authority-hash: pin bayattı — yeniden üretildi ve commit'e eklendi." >&2
+  fi
+fi

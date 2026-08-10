@@ -39,7 +39,17 @@ def scrub_json(value: Any) -> Any:
         scrubbed: dict[str, Any] = {}
         for key, item in value.items():
             key_text = str(key)
-            if any(token in key_text.lower() for token in ("token", "secret", "api_key", "apikey")):
+            # A credential is a STRING; a counter is a number. The key
+            # substring "token" also matches every usage counter the Claude
+            # CLI reports (input_tokens, output_tokens, cache_read_...), and
+            # masking those blinded cost telemetry while protecting nothing —
+            # an integer cannot leak a secret. String values under token-ish
+            # keys stay masked (lease_token, oauth token, ...).
+            sensitive_key = any(
+                token in key_text.lower()
+                for token in ("token", "secret", "api_key", "apikey")
+            )
+            if sensitive_key and isinstance(item, str):
                 scrubbed[key_text] = "<secret-redacted>"
             else:
                 scrubbed[key_text] = scrub_json(item)

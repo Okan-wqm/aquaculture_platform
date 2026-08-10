@@ -34,6 +34,7 @@ from .human_required import (
 )
 from .human_required_adjudication import sweep_human_required_adjudications
 from .agent_invocations import reap_stale_claims
+from .calibration import recommend_calibration
 from .goldset import propose_goldsets_for_labelled_tools
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
@@ -1183,6 +1184,27 @@ def _phase_goldset_proposal(context: PhaseContext) -> dict[str, Any]:
     )
 
 
+def _phase_calibration_recommendation(context: PhaseContext) -> dict[str, Any]:
+    # The write side of ARIA's own scoring had no feeder. `record_weight_override`
+    # turns an approved recommendation into behaviour, and the only thing that
+    # could produce a recommendation was `heartbeat_tick` — a superseded driver
+    # that calls `run_cycle` itself and therefore has no production caller.
+    # `list_calibration_recommendations` had none at all. Three dead links in
+    # one chain: nothing computed a recommendation, nothing read one, so there
+    # was never anything for an operator to approve.
+    #
+    # Deliberately NOT wired by resurrecting heartbeat_tick: it would invoke the
+    # cycle from inside the cycle. The phase pipeline is the driver now, so the
+    # producer becomes a phase, next to judge_calibration and goldset_proposal
+    # which read the same feedback ledger.
+    #
+    # It stops at `recommendation_only` on purpose. Applying a weight change is
+    # an operator act (`pressure weight-override`), because a system that
+    # silently reweights its own scoring can rationalise anything it later
+    # measures — the same line goldset promotion draws.
+    return recommend_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir)
+
+
 def _phase_proactive_priority(context: PhaseContext) -> dict[str, Any]:
     # Plan 027 §D3 — proactive Impact x Opportunity ranking, computed every
     # cycle regardless of reactive pressure, so ARIA always has a "where to
@@ -1197,6 +1219,7 @@ def _phase_reflection(context: PhaseContext) -> dict[str, Any]:
         base_dir=context.base_dir,
         repo_root=context.workspace_root,
         calibration_result=context.result("judge_calibration") or None,
+        recommendation_result=context.result("calibration_recommendation") or None,
         proactive_result=context.result("proactive_priority") or None,
     )
 
@@ -1671,6 +1694,14 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         "goldset_proposal", "post_tool", _phase_goldset_proposal,
         precondition=WRITES_PERMITTED, on_error="record_and_continue",
         state_key="goldset_proposal",
+    ),
+    # After the corpus phases, because it reads the same feedback ledger they
+    # do. `record_and_continue`: a recommendation that crashed produced no
+    # advice, which must not fail a cycle whose real work succeeded.
+    CyclePhase(
+        "calibration_recommendation", "post_tool", _phase_calibration_recommendation,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="calibration_recommendation",
     ),
     CyclePhase(
         "proactive_priority", "post_tool", _phase_proactive_priority,

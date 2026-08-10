@@ -8489,6 +8489,27 @@ executor's exact comparison.
 One legacy test pinned the old hand-copy as source text ("cycle_id":
 claim.get(...)); it was rewritten to assert the property on the projection.
 
+## ORPHAN-HIGH-607 — the cycle lane never provisioned the dependencies its own manifests declare — RESOLVED (this PR)
+
+**Severity:** HIGH (the first registry-synced cycle ran six adapters into six `tool_unhealthy` rows)
+**Owner:** ARIA / platform-CI
+**Discovered:** 2026-08-10, first `aria-auto-cycle` run after `tool_manifest_sync` landed (#1145).
+
+The sync worked: six adapters registered, the tools phase invoked them for
+the first time. Every ts-node adapter then refused with `missing repo-local
+node dependency: node_modules/ts-node/dist/bin.js` — the tool runner
+correctly refuses to fall back to a global binary (unpinned code), and the
+cycle lane, being Python-shaped, had never installed node dependencies into
+the workspace it hands the runner.
+
+**Fix:** a guarded provisioning step before the cycle runs: `npm ci
+--ignore-scripts` only when `node_modules/ts-node/dist/bin.js` is absent.
+The runner is self-hosted and the checkout persists, so this is a no-op on
+every run after the first.
+
+**Not addressed here:** the sixth adapter's separate `evidence_error` — to be
+read after a cycle where the runners actually execute.
+
 ## ORPHAN-CRITICAL-600 — the prompt hash was minted over one object and verified against another — RESOLVED (this PR)
 
 **Severity:** CRITICAL (no agent invocation could ever start)

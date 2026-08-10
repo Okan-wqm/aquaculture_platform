@@ -8191,6 +8191,24 @@ Three metric families did exactly that: the new `cron_job_*` heartbeat (#1098) a
 
 **Owner:** claude (this session). **Status:** RESOLVED for the label; delivery endpoints remain operator-owned.
 
+## ORPHAN-HIGH-584 — tenant provisioning had zero metrics, so a three-month outage produced no signal — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, closing Faz 3b of the tenant root-cause plan.
+
+Every provisioning run failed on its first step from roughly 2026-05 to 2026-08. The saga behaved correctly: it recorded `FAILED`, wrote an accurate `lastError`, and rolled the attempt back leaving no half-tenant. And then nothing happened, because `admin-api-service` exported **not one counter or gauge** about provisioning. The failure was discoverable only by a human attempting to create a tenant, which is how it was eventually found — three months in.
+
+Two tenants still carry the marks: `Oceanfarm` is ACTIVE with no schema (healthy-looking in the admin panel, nowhere to put a row) and `Suderra AS` is PENDING. Two runs sit in `RUNNING` with `attempts=3` and no lease, and nothing counts them, so "the queue is wedged" and "nobody has created a tenant lately" produced identical telemetry: none.
+
+**Fix:** `TenantProvisioningMetricsService` joins the existing `/metrics` endpoint as a contributor and exports terminal run outcomes by state, step failures **by step**, step duration by outcome, and two gauges for the unfinished-run case. The step label is the diagnostic value: every failed run died on `reserve_auth_tenant`, so that one label would have named the culprit on day one instead of month three. The gauges are seeded at zero, because a gauge with no series makes `> 3600` match nothing — the alert for "a run is stuck" would otherwise be silent for exactly as long as the process had seen no runs, which is the state a restart after a wedge leaves behind.
+
+Gauge refresh rides the queue sweeper that already runs every ten seconds rather than a new scheduled job; a metric surface with its own scheduler is one more thing that can stop without anyone noticing.
+
+**Alerts:** `TenantProvisioningRunsFailing` (critical — no tenant can be onboarded) and `TenantProvisioningRunStuck` (warning), both with a runbook that says how to find the refusing step and how to tell the ledger apart from physical reality. Deliberate break proven: removing the step-failure increment turns the spec red.
+
+**NOT done:** this is code. Production runs an image 388 commits old, so none of it is real until the deploy freeze lifts — which waits on backup and restore proof, which waits on twelve operator-provisioned secrets. Stated so the PR is not mistaken for the outage ending.
+
+**Owner:** claude (this session). **Status:** RESOLVED in code; unobservable in production until deploy.
+
 ## ORPHAN-HIGH-569 — container logs were the third unbounded disk consumer and nothing in the platform had ever set a ceiling — RESOLVED (this PR)
 
 **Discovered and reproduced:** 2026-08-06, tracing droplet disk pressure after the WAL-G rig was stopped and the disk kept climbing anyway. Docker's default `json-file` driver performs no rotation, no `/etc/docker/daemon.json` exists on the host, and `grep -l 'max-size\|logging:' docker-compose*.yml` returned nothing — no compose file had ever configured it. Measured on the production droplet: 2.0 GB of `*-json.log` across the running stack, `aqua-auth` alone at 658 MB and still being written to within the last 15 minutes, `aqua-postgres` 535 MB, `aqua-gateway` 464 MB — on a host at 94% with 11 GB free, whose capacity gate wants 37.6 GB.

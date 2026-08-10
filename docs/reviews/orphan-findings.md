@@ -8546,6 +8546,31 @@ executor's exact comparison.
 One legacy test pinned the old hand-copy as source text ("cycle_id":
 claim.get(...)); it was rewritten to assert the property on the projection.
 
+## ORPHAN-MEDIUM-609 — repinning the authority hash was left to human memory, and human memory lost twice in one day — RESOLVED (this PR)
+
+**Severity:** MEDIUM (one forgotten repin reads as four unrelated required-check failures)
+**Owner:** platform-CI / ARIA
+**Discovered:** 2026-08-09/10, twice: #1139 and #1142 each went red on four
+required contexts from a single stale pin.
+
+The pin in `docs/aria/CURRENT_STATE.md` covers the whole ARIA runtime
+surface, so every commit touching that surface changes it. The writer
+existed (`aria:authority-hash:write`, sharing the digest definition with the
+spec); what was missing was the caller — the hook edition of this
+repository's recurring mechanism-without-a-caller class.
+
+**Fix (tier 2):** the pre-commit hook runs the writer automatically whenever
+an ARIA-surface path is staged, and stages the refreshed pin into the same
+commit. On non-ARIA commits the cost is one grep. Verified end to end: a
+throwaway ARIA-surface commit with a stale pin auto-repinned
+(`c27692a7… -> 1ba0c7ab…`), included `CURRENT_STATE.md` in the commit, and
+the doc-SSoT spec read 16/16 after.
+
+**Not solved here:** the merge-treadmill half (every main landing re-stales
+every open PR's pin) — that is inherent to a committed pin under strict
+mode; the refresh-train handles it operationally, and moving the pin out of
+the committed file is a design discussion, not a hook.
+
 ## ORPHAN-MEDIUM-608 — a zero that means "severed" rendered exactly like a zero that means "not yet" — RESOLVED (this PR)
 
 **Severity:** MEDIUM (every starvation in this class was found by a human noticing)

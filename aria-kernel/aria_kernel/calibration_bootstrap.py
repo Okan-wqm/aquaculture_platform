@@ -252,7 +252,11 @@ def list_corpus_status(
             "latest_label_age_days": None,
         })
         bucket["fixture_count"] += 1
-        label = str(row.get("label") or "").lower()
+        # Canonical vocabulary first (verdict), legacy spellings as fallback —
+        # the corpus now writes verdict/source_type and preserves the old
+        # label as legacy_label; a status reader that only spoke the old
+        # tongue reported tp_count=0 for every canonical row.
+        label = str(row.get("verdict") or row.get("label") or row.get("legacy_label") or "").lower()
         if label in ("tp", "true_positive"):
             bucket["tp_count"] += 1
         elif label in ("fp", "false_positive"):

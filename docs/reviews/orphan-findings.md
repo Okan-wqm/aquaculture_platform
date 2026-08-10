@@ -7981,6 +7981,18 @@ Per-tenant tables live only in tenant schemas, so a tenant without one cannot ho
 
 **Owner:** operator to route (candidate: multi-tenant-saas-expert). **Status:** OPEN.
 
+## ORPHAN-HIGH-572 — every outbox alarm watches the queue, so a relay that stopped reads as a queue with nothing in it — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, W-C slice 3; verified firsthand against `platform/libs/outbox/src/outbox-worker.service.ts` and `outbox-metrics.service.ts`.
+
+The outbox exports `outbox_pending`, `outbox_oldest_pending_age_seconds`, `outbox_dead_letter_count` and publish counters, and W-A put alarms on the first three. Every one of them is written BY the relay cycle and describes the QUEUE. When the relay process stops, those gauges stop being updated and hold their last scraped value — so a dispatcher that died with an empty queue reports zero pending forever, and the stall alarm that was supposed to catch a stalled relay never fires, because nothing is ageing in a queue nobody is reading.
+
+That is the same shape as the two incidents this week (`docker ps` reporting "Up" for an exited container; the tenant-schema provisioner dead six days): a healthy-looking signal produced by the absence of the thing that would report trouble.
+
+**Fix (this PR):** `outbox_relay_last_cycle_timestamp_seconds{service}`, set in the poll cycle's `finally` block, plus an alarm at five minutes — sixty missed cycles for a five-second poll. `finally` rather than the success path on purpose: a cycle that threw still proves the relay is alive, and "failing" is a different alarm from "absent". The gauge is written on idle cycles too, because an idle relay is exactly the case the queue gauges cannot tell apart from a dead one.
+
+Kept inside the outbox library's own metrics service rather than adopting the new cron heartbeat helper: `platform/libs/outbox` does not depend on backend-common, and reaching across that boundary for a gauge would trade a real architectural line for a small convenience.
+
 ## ORPHAN-HIGH-575 — the tenant provisioning saga verified its own bookkeeping and called it a schema, so a tenant could reach ACTIVE owning nothing — RESOLVED (this PR)
 
 **Discovered:** 2026-08-06, reading the provisioning path end to end after ORPHAN-HIGH-570 recorded three production tenants and one `tenant_*` schema. This finding is the mechanism behind the "ACTIVE but schemaless" half of that observation.
@@ -8411,6 +8423,48 @@ sufficient for the step named in the contract.
 **Not fixed here:** `ARIA_GITHUB_APP_TOKEN` remains unprovisioned (operator).
 The workflow now works on the fallback token, so it is no longer a blocker.
 
+## ORPHAN-HIGH-602 — the autonomy lane scheduled work no tool could run and minted requests no agent could evidence — RESOLVED (this PR)
+
+**Severity:** HIGH (the lane's queue was self-sustaining garbage: one item re-enqueued every cycle since 2026-08-08)
+**Owner:** ARIA
+**Discovered:** 2026-08-09 — by ARIA itself. The first accepted agent response
+(AIR-aria-autonomy-planner-5636a540ccaa, 540s) traced queue item
+qi-1edfe1882f49 and delivered mechanism-level root causes with executed proof.
+
+Three mechanisms, closed together:
+
+1. **Stripped tool bindings stayed schedulable.** `_filter_candidate_tools`
+   intersects a pressure's tools against a registry holding zero entries; the
+   loss was recorded as an advisory uncertainty (9 identical rows, zero
+   escalation) while the pressure kept scoring 100.0, won a next_cycle_plan
+   slot, and re-enqueued forever. Now the strip writes `blocked_by` on the
+   pressure — the field existed and was minted empty on every pressure — and
+   the queue writer refuses items carrying it.
+
+2. **Requests could not carry evidence.** They were minted with
+   `evidence_refs=[pressure_id]`, and a pressure id cannot parse under the
+   evidence validator's grammar, so the only passable envelope was
+   empty-evidence + satisfied — a blocked verdict was structurally
+   unrepresentable. Refs now come from the pressure's own evidence paths
+   (concrete repo paths by construction); the identifier keeps its own
+   channel, `pressure_event_id`.
+
+3. **Daemon runs minted `target_sha=null`.** The drain call site passed
+   `workspace_root` through raw while its five siblings apply
+   `Path(workspace_root) if workspace_root else root`, so the head-SHA
+   resolve ran against the daemon's cwd. Every real ref graded
+   `baseline_unavailable`. The sibling fallback is applied.
+
+**Planner's step 4, upgraded from operator-manual to architectural:** the
+runtime registry was empty because `registry_compiler` and the CLI `tool
+register` verb existed and nothing invoked them against the live state — the
+same mechanism-without-a-caller class as the claim reaper. A new
+`tool_manifest_sync` cycle phase registers `tools/aria-adapters/*.tool.json`
+into the runtime registry at cycle start, before anything reads it, through
+`register_tool` per manifest so the status transition matrix holds — a
+quarantined tool stays quarantined, and that refusal is reported, not
+escalated.
+
 ## ORPHAN-CRITICAL-601 — the executor kept its own copy of the prompt projection, and the binding died a second time — RESOLVED (this PR)
 
 **Severity:** CRITICAL (agent invocations still could not start after ORPHAN-CRITICAL-600)
@@ -8434,6 +8488,27 @@ executor's exact comparison.
 
 One legacy test pinned the old hand-copy as source text ("cycle_id":
 claim.get(...)); it was rewritten to assert the property on the projection.
+
+## ORPHAN-HIGH-607 — the cycle lane never provisioned the dependencies its own manifests declare — RESOLVED (this PR)
+
+**Severity:** HIGH (the first registry-synced cycle ran six adapters into six `tool_unhealthy` rows)
+**Owner:** ARIA / platform-CI
+**Discovered:** 2026-08-10, first `aria-auto-cycle` run after `tool_manifest_sync` landed (#1145).
+
+The sync worked: six adapters registered, the tools phase invoked them for
+the first time. Every ts-node adapter then refused with `missing repo-local
+node dependency: node_modules/ts-node/dist/bin.js` — the tool runner
+correctly refuses to fall back to a global binary (unpinned code), and the
+cycle lane, being Python-shaped, had never installed node dependencies into
+the workspace it hands the runner.
+
+**Fix:** a guarded provisioning step before the cycle runs: `npm ci
+--ignore-scripts` only when `node_modules/ts-node/dist/bin.js` is absent.
+The runner is self-hosted and the checkout persists, so this is a no-op on
+every run after the first.
+
+**Not addressed here:** the sixth adapter's separate `evidence_error` — to be
+read after a cycle where the runners actually execute.
 
 ## ORPHAN-CRITICAL-600 — the prompt hash was minted over one object and verified against another — RESOLVED (this PR)
 
@@ -8548,6 +8623,33 @@ The failing combination contains **none of my files**, so this is pre-existing o
 **NOT fixed here.** Chasing shared state between two unrelated test modules is its own investigation, and folding it into an evidence-grading change would bury both.
 
 **Owner:** claude. **Status:** OPEN.
+
+## ORPHAN-HIGH-597 — the capacity gate could only reclaim images, and the space was never in images — RESOLVED (this PR)
+
+**Discovered:** 2026-08-09, tracing why a disk freed the previous day was full again.
+
+`deploy-capacity-maintenance` blocked with **1.24 GB free against a 37.5 GB hard floor**, and `safe_image_gc` had nothing to take: all 37 images backed running containers, so `docker system df` honestly reported **0 B reclaimable**. An image-only response reports "nothing to reclaim" beside a disk that is 98% full — a true statement and a useless one.
+
+The space was in `TMPDIR`, and one pattern owned half the disk:
+
+| pattern                  | directories |        size |
+| ------------------------ | ----------: | ----------: |
+| `nx-native-file-cache-*` |   **1,421** | **29.3 GB** |
+| everything else in /tmp  |      ~8,500 |      ~34 GB |
+
+Nx's native module resolves its cache through `std::env::temp_dir()` — verified in the shipped binary, which references `TMPDIR` and `temp_dir` and carries **no** dedicated cache-directory variable (the only `NX_*CACHE*` strings belong to the remote cache). It creates a fresh directory per workspace-process and nothing removes them: the age histogram shows 100-400 new directories a day since 2026-08-04. A manual sweep reclaimed 12.9 GB on 2026-08-08 and the disk was full again within a day, which is what makes it a gate concern rather than an operator chore.
+
+**Fix:** `safe_tmp_gc`, a **separate** function beside `safe_image_gc`, invoked from the same "capacity is short" trigger. Separate on purpose: `safe_image_gc`'s banner promises "volumes/containers/networks/build-cache untouched", and widening it to sweep a filesystem would make that sentence false.
+
+Its policy is default-deny and every clause is load-bearing: an explicit allowlist of patterns that are **regenerable by construction**, an age floor so an in-flight build never loses its cache, a per-candidate open-handle check, and `-maxdepth 1` under an absolute root so a pattern can never match deeper than the temp directory. It touches no checkout, worktree, ARIA state or session scratchpad.
+
+**Proof:** 6 gate tests running the real function against a decoy TMPDIR — most of them assert what it must NOT delete, because a sweeper that reclaims space by removing someone's checkout is a worse outage than the full disk. Both breaks red: removing the invocation, and widening the allowlist to `aqua-*` (the checkout survives only because the allowlist is narrow).
+
+**Manual reclaim performed alongside, with evidence per class:** stale Nx caches (open-handle-checked), clones proven clean _and_ whose HEAD is reachable from a remote branch, and worktrees of already-merged PRs. **4.1 GB → 35 GB free.** Four trees holding uncommitted work were left untouched, including one whose HEAD exists on no remote branch.
+
+**NOT fixed, stated plainly:** this only reclaims. `TMPDIR` is what actually decides where Nx writes, so bounding the writer — pointing CI at a dedicated, size-capped temp filesystem — remains the stronger fix and is not done here. And 35 GB is still below the 37.5 GB floor: the gate will keep failing until the disk grows or a generation of images ages out.
+
+**Owner:** claude (this session). **Status:** RESOLVED for reclaim; bounding the writer is open.
 
 ## ORPHAN-CRITICAL-596 — ten of twelve agent requests were permanently unreachable, and the prompt-hash check could never pass — RESOLVED (this PR)
 

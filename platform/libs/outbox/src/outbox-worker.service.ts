@@ -261,6 +261,13 @@ export class OutboxWorkerService implements OnApplicationBootstrap {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`Outbox poll cycle failed: ${message}`);
     } finally {
+      // The relay completed a cycle - marked in `finally` so a cycle that
+      // threw still counts as "the relay is alive", which is the question
+      // this gauge answers. A failing relay is a different alarm from an
+      // absent one, and conflating them is how a dead dispatcher hides
+      // behind an empty queue: outbox_pending stops being written and
+      // holds zero, which reads exactly like nothing to do.
+      this.metrics.markRelayCycle(this.metricsLabel);
       this.processing = false;
     }
   }

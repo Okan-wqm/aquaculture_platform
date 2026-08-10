@@ -865,6 +865,17 @@ def build_parser() -> argparse.ArgumentParser:
     tool_run.add_argument("--cycle-id", required=True)
     tool_run.add_argument("--workspace-root", default=".")
 
+    # FAZ 5a — the merge gate's attestation ledger finally gets a producer
+    # verb. verify_runner_attestation was MANDATORY at merge and NOTHING
+    # wrote a row; mechanism without a caller, ledger edition.
+    attestation_parser = add_subparser(sub, "runner-attestation")
+    attestation_sub = attestation_parser.add_subparsers(
+        dest="attestation_command", required=True
+    )
+    attestation_probe = add_subparser(attestation_sub, "probe")
+    attestation_probe.add_argument("--repo", required=True)
+    attestation_probe.add_argument("--target-ref", required=True)
+
     registry_parser = add_subparser(sub, "registry")
     registry_sub = registry_parser.add_subparsers(dest="registry_command", required=True)
     registry_compile = add_subparser(registry_sub, "compile")
@@ -2753,6 +2764,20 @@ def _main(argv: list[str] | None = None) -> int:
         # can pattern-match exit code for failure detection.
         envelope_status = (result.get("envelope") or {}).get("status", "ok")
         return _TOOL_RUN_EXIT_CODES.get(envelope_status, 1)
+
+    if args.command == "runner-attestation" and args.attestation_command == "probe":
+        # FAZ 5a — lane-start producer: one probed attestation row per
+        # recorded readiness claim, keyed exactly as the merge gate reads.
+        from aria_kernel.runner_attestation import (
+            probe_runner_attestations_for_claims,
+        )
+        result = probe_runner_attestations_for_claims(
+            base_dir=args.tools_dir,
+            repo=args.repo,
+            target_ref=args.target_ref,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
 
     if args.command == "registry" and args.registry_command == "compile":
         try:

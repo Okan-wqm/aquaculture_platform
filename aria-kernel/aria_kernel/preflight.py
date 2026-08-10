@@ -71,6 +71,10 @@ class PreflightVerdict:
     immutable_paths_count: int
     bash_allowlist_count: int
     failure_classes: tuple[str, ...] = field(default_factory=tuple)
+    # FAZ 5d — the environment facts every RUN profile needs (additive,
+    # defaulted so pre-existing constructions stay valid).
+    sandbox_backend_present: bool = False
+    node_modules_present: bool = False
 
 
 @dataclass(frozen=True)
@@ -299,6 +303,31 @@ def verify_preflight(
         immutable_paths_count = 0
         bash_allowlist_count = 0
 
+    # FAZ 5d — environment facts, measured for EVERY run profile. The
+    # nightly producer runs `standard` and used to skip preflight entirely,
+    # so a host with no sandbox or no node deps produced a green-looking run
+    # whose every dispatch then failed downstream with the fault priced on
+    # the tools (M-2.5). Signature and branch-protection checks stay
+    # autonomous-only; the environment subset is universal.
+    try:
+        from .implementation_safety import sandbox_backend as _sandbox_backend
+
+        sandbox_backend_present = _sandbox_backend() is not None
+    except (ImportError, AttributeError):
+        sandbox_backend_present = False
+    node_modules_present = (Path(workspace_root) / "node_modules").is_dir()
+    if profile in ("autonomous", "strict", "standard"):
+        if not sandbox_backend_present:
+            reasons.append("sandbox_backend_absent")
+            if profile == "autonomous":
+                failure_classes.append("autonomous_profile_preconditions_not_met")
+            else:
+                failure_classes.append("environment_preconditions_not_met")
+        if not node_modules_present:
+            reasons.append("node_modules_absent")
+            if profile != "autonomous":
+                failure_classes.append("environment_preconditions_not_met")
+
     if profile == "autonomous":
         if not gh_token_present:
             reasons.append("gh_token_absent")
@@ -340,6 +369,8 @@ def verify_preflight(
         immutable_paths_count=immutable_paths_count,
         bash_allowlist_count=bash_allowlist_count,
         failure_classes=tuple(failure_classes),
+        sandbox_backend_present=sandbox_backend_present,
+        node_modules_present=node_modules_present,
     )
 
 

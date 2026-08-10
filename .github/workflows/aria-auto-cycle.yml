@@ -400,6 +400,17 @@ jobs:
           fi
           test -x node_modules/ts-node/dist/bin.js
 
+      # FAZ 5a — the merge gate's attestation producer, at lane start so the
+      # row describes the host that will run the merge. Refusals (no sandbox,
+      # no managed auth, API key present) are reported, not fatal here: the
+      # merge-time verify is the enforcement point and now fails with the
+      # refusal's named cause instead of a bare "attestation required".
+      - name: Probe and record runner attestation
+        if: steps.lease_check.outputs.blocked != 'true' && steps.preflight.outputs.effective_mock == 'false'
+        uses: ./.github/actions/probe-runner-attestation
+        with:
+          tools-dir: ${{ env.ARIA_TOOLS_DIR }}
+
       - name: Run nightly standard-profile cycle
         if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
         env:

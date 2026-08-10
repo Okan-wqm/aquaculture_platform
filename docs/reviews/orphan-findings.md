@@ -7981,6 +7981,18 @@ Per-tenant tables live only in tenant schemas, so a tenant without one cannot ho
 
 **Owner:** operator to route (candidate: multi-tenant-saas-expert). **Status:** OPEN.
 
+## ORPHAN-HIGH-572 — every outbox alarm watches the queue, so a relay that stopped reads as a queue with nothing in it — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, W-C slice 3; verified firsthand against `platform/libs/outbox/src/outbox-worker.service.ts` and `outbox-metrics.service.ts`.
+
+The outbox exports `outbox_pending`, `outbox_oldest_pending_age_seconds`, `outbox_dead_letter_count` and publish counters, and W-A put alarms on the first three. Every one of them is written BY the relay cycle and describes the QUEUE. When the relay process stops, those gauges stop being updated and hold their last scraped value — so a dispatcher that died with an empty queue reports zero pending forever, and the stall alarm that was supposed to catch a stalled relay never fires, because nothing is ageing in a queue nobody is reading.
+
+That is the same shape as the two incidents this week (`docker ps` reporting "Up" for an exited container; the tenant-schema provisioner dead six days): a healthy-looking signal produced by the absence of the thing that would report trouble.
+
+**Fix (this PR):** `outbox_relay_last_cycle_timestamp_seconds{service}`, set in the poll cycle's `finally` block, plus an alarm at five minutes — sixty missed cycles for a five-second poll. `finally` rather than the success path on purpose: a cycle that threw still proves the relay is alive, and "failing" is a different alarm from "absent". The gauge is written on idle cycles too, because an idle relay is exactly the case the queue gauges cannot tell apart from a dead one.
+
+Kept inside the outbox library's own metrics service rather than adopting the new cron heartbeat helper: `platform/libs/outbox` does not depend on backend-common, and reaching across that boundary for a gauge would trade a real architectural line for a small convenience.
+
 ## ORPHAN-HIGH-575 — the tenant provisioning saga verified its own bookkeeping and called it a schema, so a tenant could reach ACTIVE owning nothing — RESOLVED (this PR)
 
 **Discovered:** 2026-08-06, reading the provisioning path end to end after ORPHAN-HIGH-570 recorded three production tenants and one `tenant_*` schema. This finding is the mechanism behind the "ACTIVE but schemaless" half of that observation.

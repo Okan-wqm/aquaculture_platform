@@ -8566,6 +8566,7 @@ candidate tools) that self-extinguishes through ordinary decay when the rows
 stop. Subjectless rows group by kind alone — erring toward escalation. A
 test pins that `run_pressure` actually calls the reader, because a reader
 nobody invokes is this finding all over again.
+
 ## ORPHAN-HIGH-605 — the requeue budget charged the request for the harness's failures — RESOLVED (this PR)
 
 **Severity:** HIGH (three live requests were permanently escalated for defects that were never theirs)

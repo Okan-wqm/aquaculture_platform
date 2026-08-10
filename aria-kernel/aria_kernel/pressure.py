@@ -26,6 +26,11 @@ SOURCE_WEIGHTS = {
     # investigating promptly, below tool_quarantine (a confirmed in-repo
     # violation) but above evidence_gone.
     "runtime_signal": 85,
+    # A repeated advisory that nothing escalated — below shadow_raw_delta on
+    # weight because the advisory channel is by definition lower-signal, but
+    # present at all because nine identical rows producing zero escalation is
+    # this repository's recurring defect class.
+    "uncertainty_repeat": 55,
 }
 
 # ─── operator-approved weight overrides (Plan tranquil-sniffing-pancake F4.1) ──
@@ -341,6 +346,7 @@ def run_pressure(
                 ),
             )
 
+    pressures.extend(_uncertainty_repeat_pressures(root, weights=_weights, cycle_id=cycle_id))
     _apply_drift_class_weights(pressures, drift_class_weights)
     _filter_candidate_tools(root, pressures)
     pressures.sort(key=lambda item: (-float(item["score"]), str(item["pressure_id"])))
@@ -390,6 +396,69 @@ def _apply_drift_class_weights(
             continue
         pressure["drift_class_weight_applied"] = multiplier
         pressure["score"] = round(min(100.0, float(pressure["score"]) * multiplier), 3)
+
+
+# A repeated advisory is not advice, it is an unread alarm. The uncertainty
+# ledger is the kernel's "worth noting, not blocking" channel, and it held
+# NINE identical pressure_candidate_tools_unreachable rows while the failure
+# they described re-scheduled unrunnable work every cycle — zero escalation,
+# because nothing ever read the ledger back (the same
+# mechanism-without-a-caller class as the claim reaper and the registry
+# compiler). This threshold is the reader: the same (kind, subject) recorded
+# UNCERTAINTY_REPEAT_THRESHOLD times or more becomes an operator-facing
+# pressure, and it self-extinguishes through ordinary decay once the
+# underlying cause stops producing rows.
+UNCERTAINTY_REPEAT_THRESHOLD = 3
+
+# The identifying field per row, tried in order. Kept short deliberately:
+# a row with none of these still groups by kind alone, which errs toward
+# escalating, not toward silence.
+_UNCERTAINTY_SUBJECT_FIELDS: tuple[str, ...] = ("pressure_id", "tool_id", "belief_id")
+
+
+def _uncertainty_repeat_pressures(
+    root: Path,
+    *,
+    weights: dict[str, Any],
+    cycle_id: str,
+) -> list[dict[str, Any]]:
+    rows = load_jsonl(root / "memory" / "uncertainties.jsonl")
+    groups: dict[tuple[str, str], int] = {}
+    for row in rows:
+        kind = str(row.get("kind") or "")
+        if not kind:
+            continue
+        subject = next(
+            (str(row[f]) for f in _UNCERTAINTY_SUBJECT_FIELDS if row.get(f)), "",
+        )
+        groups[(kind, subject)] = groups.get((kind, subject), 0) + 1
+    escalations: list[dict[str, Any]] = []
+    for (kind, subject), count in sorted(groups.items()):
+        if count < UNCERTAINTY_REPEAT_THRESHOLD:
+            continue
+        subject_note = f" for {subject}" if subject else ""
+        escalations.append(
+            _pressure(
+                weights=weights,
+                cycle_id=cycle_id,
+                source="uncertainty_repeat",
+                discriminator=f"{kind}-{subject}" if subject else kind,
+                pressure_type="REPETITION",
+                severity="medium",
+                reason=(
+                    f"uncertainty '{kind}'{subject_note} recorded {count} times "
+                    "with no escalation — an advisory nobody reads is not advice"
+                ),
+                evidence=["aria-tools/memory/uncertainties.jsonl"],
+                occurrence_count=count,
+                candidate_tools=[],
+                recommended_action=(
+                    f"read the repeated '{kind}' rows{subject_note} and fix the "
+                    "producer or the condition; the pressure decays when the rows stop"
+                ),
+            ),
+        )
+    return escalations
 
 
 def _filter_candidate_tools(root: Path, pressures: list[dict[str, Any]]) -> None:
@@ -674,13 +743,17 @@ def _pressure(
     belief_id: str | None = None,
     tool_id: str | None = None,
     weights: dict[str, int] | None = None,
+    discriminator: str | None = None,
 ) -> dict[str, Any]:
     recency_decay = 1.0
     base_weight = (weights or SOURCE_WEIGHTS)[source]
     count = max(1, occurrence_count)
     raw_score = base_weight * recency_decay * (1 + math.log10(count))
     score = round(min(100.0, raw_score), 3)
-    pressure_id_parts = [source, belief_id or tool_id or pressure_type.lower()]
+    # `discriminator` exists for sources that fan out by subject (one
+    # uncertainty kind per pressure) without polluting belief_id/tool_id,
+    # whose fields carry semantics downstream.
+    pressure_id_parts = [source, discriminator or belief_id or tool_id or pressure_type.lower()]
     return {
         "schema_version": 1,
         "pressure_id": "pressure:" + ":".join(_slug(part) for part in pressure_id_parts if part),

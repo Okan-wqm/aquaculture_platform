@@ -179,6 +179,7 @@ _TOOL_RUN_EXIT_CODES: dict[str, int] = {
     "output_unparseable": 1,
     "budget_exceeded": 2,
     "tool_unhealthy": 3,
+    "environment_unavailable": 1,
 }
 
 
@@ -831,6 +832,16 @@ def build_parser() -> argparse.ArgumentParser:
     tool_quarantine = add_subparser(tool_sub, "quarantine")
     tool_quarantine.add_argument("--tool-id", required=True)
     tool_quarantine.add_argument("--reason", required=True, type=_validate_reason)
+    # The audited way back. unquarantine_tool has existed since Plan 022 and
+    # was API-only — so when six adapters were quarantined by an environment
+    # fault, there was no operator-reachable path to lift it. Mechanism
+    # without a caller, CLI edition.
+    tool_unquarantine = add_subparser(tool_sub, "unquarantine")
+    tool_unquarantine.add_argument("--tool-id", required=True)
+    tool_unquarantine.add_argument("--reason", required=True, type=_validate_reason)
+    tool_unquarantine.add_argument("--operator-approval-ref", required=True)
+    tool_unquarantine.add_argument("--root-cause-note", required=True)
+    tool_unquarantine.add_argument("--fixture-update-ref", required=True)
     tool_run = add_subparser(tool_sub, "run")
     tool_run.add_argument("--tool-id", required=True)
     tool_run.add_argument("--input", default="{}")
@@ -2670,6 +2681,18 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "tool" and args.tool_command == "quarantine":
         print(json.dumps(quarantine_tool(args.tool_id, args.reason, base_dir=args.tools_dir), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "tool" and args.tool_command == "unquarantine":
+        from aria_kernel.tool_registry import unquarantine_tool
+        print(json.dumps(unquarantine_tool(
+            args.tool_id,
+            operator_approval_ref=args.operator_approval_ref,
+            reason=args.reason,
+            root_cause_note=args.root_cause_note,
+            fixture_update_ref=args.fixture_update_ref,
+            base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
         return 0
 
     if args.command == "tool" and args.tool_command == "run":

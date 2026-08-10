@@ -8546,6 +8546,27 @@ executor's exact comparison.
 One legacy test pinned the old hand-copy as source text ("cycle_id":
 claim.get(...)); it was rewritten to assert the property on the projection.
 
+## ORPHAN-MEDIUM-606 — the uncertainty ledger recorded and nobody read it back — RESOLVED (this PR)
+
+**Severity:** MEDIUM (an advisory channel that cannot escalate trains its readers to ignore it)
+**Owner:** ARIA
+**Discovered:** 2026-08-10 code-review pass (madde 16), from the nine
+identical `pressure_candidate_tools_unreachable` rows that accompanied a
+failure re-scheduling unrunnable work every cycle.
+
+`memory/uncertainties.jsonl` is the kernel's "worth noting, not blocking"
+channel — and it was write-only. Same mechanism-without-a-caller class as
+the claim reaper and the registry compiler, one level down: recording
+existed, reading did not.
+
+**Fix (tier 2):** `run_pressure` now reads the ledger back. The same
+`(kind, subject)` recorded `UNCERTAINTY_REPEAT_THRESHOLD` (=3) times or more
+becomes an operator-facing `uncertainty_repeat` pressure (weight 55, no
+candidate tools) that self-extinguishes through ordinary decay when the rows
+stop. Subjectless rows group by kind alone — erring toward escalation. A
+test pins that `run_pressure` actually calls the reader, because a reader
+nobody invokes is this finding all over again.
+
 ## ORPHAN-HIGH-605 — the requeue budget charged the request for the harness's failures — RESOLVED (this PR)
 
 **Severity:** HIGH (three live requests were permanently escalated for defects that were never theirs)

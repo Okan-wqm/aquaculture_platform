@@ -30,7 +30,6 @@ _EXPORT_MODULES = (
     "fitness",
     "fixture_runner",
     "goldset",
-    "heartbeat",
     "impact",
     "impact_graph",
     "integrity",

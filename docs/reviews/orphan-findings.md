@@ -8595,6 +8595,31 @@ every run after the first.
 **Not addressed here:** the sixth adapter's separate `evidence_error` — to be
 read after a cycle where the runners actually execute.
 
+## ORPHAN-CRITICAL-613 — the entire judgment supply chain had one driver, and the driver had zero importers — RESOLVED (this PR)
+
+**Severity:** CRITICAL (judged_judges read zero for months; calibration, goldset and FP-suppression starved together)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, end-to-end wiring sweep (Sinir Sistemi Programı, keşif ajanı B).
+
+`generate_judgment_sample`, `dispatch_judges_for_sample`,
+`generate_ai_consensus`, `replay_judges_on_goldset` and
+`refresh_fixture_suite` were all reachable from exactly one caller —
+`heartbeat_tick` — and `heartbeat.py` had **zero importers repo-wide**. No
+judgment sample was ever minted automatically, no judge fanned out, no
+consensus computed, no fixture suite refreshed, no replay scored. Three
+separate defects were blamed for `judged_judges=0` before the dead driver
+was found. The mechanism-without-a-caller class, at its largest.
+
+**Fix (extract-and-delete, no parallel copy):** three cycle phases —
+`fixture_refresh`, `judgment_pipeline` (sample → fan-out → consensus, with
+per-tool fault containment), `judge_replay` (gold-corpus re-examination +
+recall) — registered in dependency order around `judge_calibration`;
+`heartbeat.py` deleted. The extraction surfaced and repaired a latent
+defect: heartbeat passed `target_sha=None` into the fan-out, which would
+have graded every judge's real evidence `baseline_unavailable` (the exact
+class that rejected the autonomy planner's first surviving run); judges now
+anchor to the workspace head.
+
 ## ORPHAN-CRITICAL-600 — the prompt hash was minted over one object and verified against another — RESOLVED (this PR)
 
 **Severity:** CRITICAL (no agent invocation could ever start)

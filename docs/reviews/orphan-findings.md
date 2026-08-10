@@ -8466,6 +8466,24 @@ went stale twice — `request_id` was missing from the first draft of the fix.
 `tools/quality/format-scope.json` and `docs/aria/CURRENT_STATE.md`. Both are
 generated; the resolution is to recompute them, not to choose a side.
 
+## ORPHAN-MEDIUM-603 — the scheduled-workflow watchdog filed an incident every time it caught a workflow mid-run — RESOLVED (this PR)
+
+**Severity:** MEDIUM (false alarms train the reader to ignore the alarm)
+**Owner:** platform-CI
+**Discovered:** 2026-08-09, triaging the 7-of-16 red scheduled workflows.
+
+The watchdog fetched `per_page: 1` and judged `run.conclusion !== 'success'`.
+A run still in progress has `conclusion: null`, so every poll that landed
+while a watched workflow was running produced a "missing" incident.
+`database-wal-archive-freshness` (cron `*/5`, threshold 1h) tripped it every
+hour, on schedule.
+
+**Fix:** the watchdog now judges the newest **completed** run (fetch 10, take
+the first with `status === 'completed'`) — the question it answers is "has a
+scheduled run completed successfully within the age window", and an
+in-progress run is not evidence either way. The contract spec pins the
+completed filter and forbids the single-run fetch.
+
 ## ORPHAN-HIGH-594 — the first agent run to survive was rejected for a baseline its own harness never supplied — RESOLVED (this PR)
 
 **Discovered:** 2026-08-09, watching the first `aria-agent-executor` run that got past the runtime fixes.

@@ -28,6 +28,14 @@ describe('production operations proof contract', () => {
     expect(workflow).toContain('assignees: [owner]');
     expect(workflow).toContain('core.setFailed');
     expect(manifest.incidentTitle).toContain('scheduled-workflow-watchdog');
+
+    // The watchdog judges the newest COMPLETED run. An in-progress run's
+    // conclusion is null, and judging per_page:1 turned every mid-run poll
+    // into a "missing" incident — a */5-cron workflow with a 1h threshold
+    // tripped it every hour. Pinned both ways: the completed filter must be
+    // present, and the single-run fetch must not come back.
+    expect(workflow).toContain("candidate.status === 'completed'");
+    expect(workflow).not.toContain('per_page: 1,');
   });
 
   it('has a GitHub-Actions-owned post-deploy verification workflow', () => {

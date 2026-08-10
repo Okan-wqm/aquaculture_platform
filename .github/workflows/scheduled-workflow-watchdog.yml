@@ -37,9 +37,19 @@ jobs:
                 repo,
                 workflow_id: watched.workflow,
                 event: 'schedule',
-                per_page: 1,
+                // More than one: the newest run is often still IN PROGRESS,
+                // and its conclusion is null until it completes. Judging
+                // per_page:1 turned every mid-run poll into a "missing"
+                // incident — database-wal-archive-freshness (cron */5,
+                // threshold 1h) tripped this every hour. The question this
+                // watchdog answers is "has a scheduled run COMPLETED
+                // successfully within the age window", so it must judge the
+                // newest completed run, not the newest run.
+                per_page: 10,
               });
-              const run = response.data.workflow_runs[0];
+              const run = response.data.workflow_runs.find(
+                (candidate) => candidate.status === 'completed',
+              );
               const ageHours = run
                 ? (now - new Date(run.created_at).getTime()) / (60 * 60 * 1000)
                 : null;

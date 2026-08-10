@@ -8191,6 +8191,24 @@ Three metric families did exactly that: the new `cron_job_*` heartbeat (#1098) a
 
 **Owner:** claude (this session). **Status:** RESOLVED for the label; delivery endpoints remain operator-owned.
 
+## ORPHAN-HIGH-584 — tenant provisioning had zero metrics, so a three-month outage produced no signal — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, closing Faz 3b of the tenant root-cause plan.
+
+Every provisioning run failed on its first step from roughly 2026-05 to 2026-08. The saga behaved correctly: it recorded `FAILED`, wrote an accurate `lastError`, and rolled the attempt back leaving no half-tenant. And then nothing happened, because `admin-api-service` exported **not one counter or gauge** about provisioning. The failure was discoverable only by a human attempting to create a tenant, which is how it was eventually found — three months in.
+
+Two tenants still carry the marks: `Oceanfarm` is ACTIVE with no schema (healthy-looking in the admin panel, nowhere to put a row) and `Suderra AS` is PENDING. Two runs sit in `RUNNING` with `attempts=3` and no lease, and nothing counts them, so "the queue is wedged" and "nobody has created a tenant lately" produced identical telemetry: none.
+
+**Fix:** `TenantProvisioningMetricsService` joins the existing `/metrics` endpoint as a contributor and exports terminal run outcomes by state, step failures **by step**, step duration by outcome, and two gauges for the unfinished-run case. The step label is the diagnostic value: every failed run died on `reserve_auth_tenant`, so that one label would have named the culprit on day one instead of month three. The gauges are seeded at zero, because a gauge with no series makes `> 3600` match nothing — the alert for "a run is stuck" would otherwise be silent for exactly as long as the process had seen no runs, which is the state a restart after a wedge leaves behind.
+
+Gauge refresh rides the queue sweeper that already runs every ten seconds rather than a new scheduled job; a metric surface with its own scheduler is one more thing that can stop without anyone noticing.
+
+**Alerts:** `TenantProvisioningRunsFailing` (critical — no tenant can be onboarded) and `TenantProvisioningRunStuck` (warning), both with a runbook that says how to find the refusing step and how to tell the ledger apart from physical reality. Deliberate break proven: removing the step-failure increment turns the spec red.
+
+**NOT done:** this is code. Production runs an image 388 commits old, so none of it is real until the deploy freeze lifts — which waits on backup and restore proof, which waits on twelve operator-provisioned secrets. Stated so the PR is not mistaken for the outage ending.
+
+**Owner:** claude (this session). **Status:** RESOLVED in code; unobservable in production until deploy.
+
 ## ORPHAN-HIGH-569 — container logs were the third unbounded disk consumer and nothing in the platform had ever set a ceiling — RESOLVED (this PR)
 
 **Discovered and reproduced:** 2026-08-06, tracing droplet disk pressure after the WAL-G rig was stopped and the disk kept climbing anyway. Docker's default `json-file` driver performs no rotation, no `/etc/docker/daemon.json` exists on the host, and `grep -l 'max-size\|logging:' docker-compose*.yml` returned nothing — no compose file had ever configured it. Measured on the production droplet: 2.0 GB of `*-json.log` across the running stack, `aqua-auth` alone at 658 MB and still being written to within the last 15 minutes, `aqua-postgres` 535 MB, `aqua-gateway` 464 MB — on a host at 94% with 11 GB free, whose capacity gate wants 37.6 GB.
@@ -8681,6 +8699,31 @@ every run after the first.
 **Not addressed here:** the sixth adapter's separate `evidence_error` — to be
 read after a cycle where the runners actually execute.
 
+## ORPHAN-CRITICAL-613 — the entire judgment supply chain had one driver, and the driver had zero importers — RESOLVED (this PR)
+
+**Severity:** CRITICAL (judged_judges read zero for months; calibration, goldset and FP-suppression starved together)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, end-to-end wiring sweep (Sinir Sistemi Programı, keşif ajanı B).
+
+`generate_judgment_sample`, `dispatch_judges_for_sample`,
+`generate_ai_consensus`, `replay_judges_on_goldset` and
+`refresh_fixture_suite` were all reachable from exactly one caller —
+`heartbeat_tick` — and `heartbeat.py` had **zero importers repo-wide**. No
+judgment sample was ever minted automatically, no judge fanned out, no
+consensus computed, no fixture suite refreshed, no replay scored. Three
+separate defects were blamed for `judged_judges=0` before the dead driver
+was found. The mechanism-without-a-caller class, at its largest.
+
+**Fix (extract-and-delete, no parallel copy):** three cycle phases —
+`fixture_refresh`, `judgment_pipeline` (sample → fan-out → consensus, with
+per-tool fault containment), `judge_replay` (gold-corpus re-examination +
+recall) — registered in dependency order around `judge_calibration`;
+`heartbeat.py` deleted. The extraction surfaced and repaired a latent
+defect: heartbeat passed `target_sha=None` into the fan-out, which would
+have graded every judge's real evidence `baseline_unavailable` (the exact
+class that rejected the autonomy planner's first surviving run); judges now
+anchor to the workspace head.
+
 ## ORPHAN-LOW-612 — the artifact scrubber masked the numbers that happened to say "token" — RESOLVED (this PR)
 
 **Severity:** LOW (no leak; cost telemetry blinded)
@@ -8729,6 +8772,55 @@ state store and publishes with the same run.
 **Remediation to execute after merge:** dispatch `aria-auto-cycle` with the
 six adapter ids + an approval ref; the same run's tools phase then exercises
 the lifted tools against the provisioned workspace.
+
+## ORPHAN-HIGH-614 — the widest adapters crashed at a memory ceiling nobody declared — RESOLVED (this PR)
+
+**Severity:** HIGH (2 of 6 adapters cannot complete their first real run)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, cyc-…132318Z — the first cycle in which the
+adapters ever executed: tenant-scoping and test-gap (scope apps/** +
+libs/**) died at Node's default ~1 GB old-space after 67s/51s of real work.
+
+A resource the manifest never declared, enforced by a runtime the manifest
+never chose. **Fix:** `runner.node_max_old_space_mb` — validated manifest
+field, default 2048 in the runner, 3072 declared by the two wide-scope
+adapters; composed into NODE_OPTIONS without clobbering operator flags.
+
+**Also observed, next in queue:** `agent-harness-security-adapter`
+`evidence_error` (2.6s, python lane) — separate defect, separate change.
+
+## ORPHAN-CRITICAL-616 — the per-service hardening program had every organ and no nervous system — RESOLVED (this PR)
+
+**Severity:** CRITICAL (the charter's single purpose had no producer)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, wiring sweep (keşif ajanı A). Five severed links,
+one line:
+
+1. `cycle_service_examination` computed per-service targeting — services,
+   dependency order, owning agents, scoped pressures — with ZERO consumers,
+   and ran AFTER `mission_ingest`.
+2. `SERVICE_MAP.json` inventoried every platform service each cycle; nobody
+   read it.
+3. `select_next_mission` had one caller: the operator CLI. Even a seeded
+   ledger would never move without a human.
+4. The coverage-gap → mission path was structurally unreachable: gap
+   detection runs after ingest, and ingest filtered gaps to the CURRENT
+   cycle id, so the newest batch (always the previous cycle's) was dropped
+   every night.
+5. A mission could not name a service except inside free text.
+
+**Fix (kablolama, sıfır duplicate):** examination moves before ingest and
+gains its first consumer — `service_mission_seed` mints durable
+`service_hardening` missions (core four risk-ordered per charter M-5.1 +
+every evidence-backed service; idempotent by mission identity;
+`target_project` is now a first-class mission field). `mission_selection`
+runs the scheduler in the cycle and hands the winner to the bounded queue as
+a `mission:<id>` item; the autonomy drain resolves that marker from the
+mission row itself. The ingest filter is corrected with the reason sealed in
+a test. `SOURCE_RANK` gains `service_hardening` below the reactive sources.
+
+10 tests; dismantling the seed phase and restoring the cycle-id filter each
+break their own test.
 
 ## ORPHAN-CRITICAL-600 — the prompt hash was minted over one object and verified against another — RESOLVED (this PR)
 
@@ -8938,5 +9030,23 @@ Severity: MEDIUM. Discovered 2026-08-10 while triaging the scheduled-workflow wa
 When the eval ledger moved into the durable aria/state store, the job contract was updated to `token_source="github_actions_artifact_token"` (the `github.token` that pushes the state branch) — but the workflow's own `verify_workflow_preflight` call still passed `token_provenance="none"` from the pre-move era. The kernel preflight did exactly its job: `token_provenance_mismatch:none!=github_actions_artifact_token`, exit 1, every scheduled and dispatched run since the contract tightened. The lane that measures agent quality never ran, and the failure read as "eval is broken" rather than "the workflow lies about its own credential".
 
 **Fix:** the workflow states the truthful provenance. One line + the comment that stops the next mover from repeating it.
+
+## ORPHAN-HIGH-617 — ARIA wrote what it learned every cycle and never read any of it back into a dispatch — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-10 during the end-to-end ARIA read that produced the "Sinir Sistemi" program (FAZ 4).
+
+Three organs of the learning loop's READ side were dead, so every agent dispatch rediscovered the repository from zero:
+
+**1. Conventions had a writer and no production reader.** `record_convention` has appended a row to `aria-tools/knowledge-graph/conventions.jsonl` on every converged cycle since V9.0-F. The only reader, `lookup_pattern` (`knowledge_graph.py:339`), was keyed by `pattern_id` and had **zero callers** — nothing anywhere resolved a pattern id, so no learned convention ever reached an agent.
+
+**2. Beliefs fed pressure ranking, never the agent about to edit the believed-about files.** `latest_beliefs` was consumed by the pressure path only; the envelope minted for an agent touching `apps/farm-service/**` carried no trace of what ARIA had already verified about that exact area.
+
+**3. `rank_pressure_sources` (`knowledge_graph.py:376`) had zero callers of any kind** — not even a test — while the calibration-recommendation section asked the operator to approve weight changes with no effectiveness data in view.
+
+**Why mint-time matters (the binding constraint):** the prompt hash is sealed over the rendered text at mint, and the claim path re-renders from the fused envelope (`fuse_prompt_envelope`). Knowledge injected at claim or dispatch would either break the binding or bypass it. So both new sections — `## Established knowledge` (beliefs + conventions intersecting the request's evidence/scope paths) and `## Recent intent` (per evidence file, the last commits' subject + first WHY line + ADR/plan/finding refs — this repo's commit bodies are WHY-rich by convention, so intent reading starts from cited history) — are computed inside `create_agent_invocation_request`, stored as envelope data, added to `_FUSED_ENVELOPE_KEYS`, and sealed under the minted hash. Both render with the repository map's trust framing: projection, **not evidence**.
+
+**Fix:** `conventions_for_paths` (first production read of the conventions ledger, same verified-chain discipline as `lookup_pattern`); `intent_context_for_files` in twin.py (deterministic, git-derived, never raises into the mint path); mint-time enrichment + renderer sections + fusion-set entries; `rank_pressure_sources` wired into the calibration-recommendation phase and rendered in its report section (first caller).
+
+**Proof:** 12 tests. The binding pair is the deliberate break: dropping `established_knowledge` from the fused envelope fails hash reproduction (the fusion-set addition is load-bearing), and because the binding alone cannot detect a mint that silently stops attaching the sections, the rendered text itself is content-pinned. The claim-envelope AST guard (`test_claim_envelope_binding`) derives the renderer's key set mechanically, so the two new renderer keys could not have shipped without joining the fusion set. Neighbour suites green (212 tests), invariants green (803).
 
 **Owner:** claude (this session). **Status:** RESOLVED.

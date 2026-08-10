@@ -38,6 +38,7 @@ import {
 import { Tenant, TenantPlan, TenantSettings, TenantStatus } from '../entities/tenant.entity';
 
 import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
+import { TenantProvisioningMetricsService } from './tenant-provisioning-metrics.service';
 import { TenantProvisioningService } from './tenant-provisioning.service';
 
 interface TenantProvisioningRunRow {
@@ -137,6 +138,7 @@ export class TenantProvisioningWorkflowService {
     private readonly moduleAssignmentService: ModuleAssignmentService,
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
     private readonly billingCommandClient: BillingAdminCommandClientService,
+    private readonly metrics: TenantProvisioningMetricsService,
   ) {}
 
   async createTenantOperation(
@@ -537,6 +539,7 @@ export class TenantProvisioningWorkflowService {
 
     try {
       await this.requeueStaleRuns();
+      await this.refreshActiveRunGauges();
       const rows = await this.queryRows<IdRow>(
         `SELECT id
            FROM admin.tenant_provisioning_runs
@@ -557,6 +560,32 @@ export class TenantProvisioningWorkflowService {
       );
     } finally {
       this.processingQueue = false;
+    }
+  }
+
+  /**
+   * Publish how many runs have not reached a terminal state and how old the
+   * oldest one is.
+   *
+   * Production holds two runs in RUNNING with `attempts=3` and no lease right
+   * now; before this, nothing counted them, so "provisioning is wedged" and
+   * "nobody has created a tenant lately" produced identical telemetry.
+   */
+  private async refreshActiveRunGauges(): Promise<void> {
+    try {
+      const rows = await this.queryRows<{ active: string; oldestAgeSeconds: string | null }>(
+        `SELECT count(*)::text AS active,
+                COALESCE(EXTRACT(EPOCH FROM (now() - min("createdAt"))), 0)::text AS "oldestAgeSeconds"
+           FROM admin.tenant_provisioning_runs
+          WHERE state IN ($1, $2)`,
+        [TenantProvisioningState.QUEUED, TenantProvisioningState.RUNNING],
+      );
+      const row = rows[0];
+      this.metrics.recordActiveRuns(Number(row?.active ?? 0), Number(row?.oldestAgeSeconds ?? 0));
+    } catch (error) {
+      // A failed gauge refresh must not stop the queue from being drained:
+      // the sweeper's job is to provision, and this is its narration.
+      this.logger.warn(`Provisioning gauge refresh failed: ${(error as Error).message}`);
     }
   }
 
@@ -1693,8 +1722,10 @@ export class TenantProvisioningWorkflowService {
       throw new Error(`Provisioning lease lost before step ${stepName}`);
     }
 
+    const stepStartedAt = Date.now();
     try {
       await work();
+      this.metrics.recordStepOutcome(stepName, 'success', (Date.now() - stepStartedAt) / 1000);
       await this.extendLease(runId, leaseToken);
       const rows = await this.queryRows<TenantProvisioningStepRow>(
         `UPDATE admin.tenant_provisioning_steps
@@ -1717,6 +1748,7 @@ export class TenantProvisioningWorkflowService {
         throw new Error(`Provisioning lease lost before completing step ${stepName}`);
       }
     } catch (error) {
+      this.metrics.recordStepOutcome(stepName, 'failure', (Date.now() - stepStartedAt) / 1000);
       try {
         await this.extendLease(runId, leaseToken);
         await this.queryRows<TenantProvisioningStepRow>(
@@ -1749,6 +1781,7 @@ export class TenantProvisioningWorkflowService {
     runId: string,
     leaseToken: string | null | undefined,
   ): Promise<void> {
+    this.metrics.recordRunTerminal(TenantProvisioningState.SUCCEEDED);
     const rows = await this.queryRows<TenantProvisioningRunRow>(
       `UPDATE admin.tenant_provisioning_runs
           SET state = $2,
@@ -1832,6 +1865,7 @@ export class TenantProvisioningWorkflowService {
     error: unknown,
     leaseToken?: string | null,
   ): Promise<boolean> {
+    this.metrics.recordRunTerminal(TenantProvisioningState.FAILED);
     const run = await this.getRun(runId);
     const rows = await this.queryRows<TenantProvisioningRunRow>(
       `UPDATE admin.tenant_provisioning_runs

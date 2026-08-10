@@ -678,7 +678,8 @@ def _render_calibration_recommendation_section(reflection: dict[str, Any]) -> li
         return []
     weights = recommendation.get("pressure_weight_recommendations") or []
     tools = recommendation.get("tool_recommendations") or []
-    if not weights and not tools:
+    sources = recommendation.get("source_effectiveness") or []
+    if not weights and not tools and not sources:
         return []
     lines = [
         "## Calibration Recommendations (advisory)",
@@ -701,6 +702,22 @@ def _render_calibration_recommendation_section(reflection: dict[str, Any]) -> li
         lines.append(f"Tool-level recommendations: {len(tools)}")
         for row in tools[:5]:
             lines.append(f"  - {row.get('tool_id')}: {row.get('recommendation', 'see ledger')}")
+    if sources:
+        # FAZ 4c — the effectiveness ranking that justifies (or indicts) a
+        # weight recommendation, from the same cycle's ledger. First render
+        # of rank_pressure_sources' output anywhere.
+        lines.append("")
+        lines.append("Pressure-source effectiveness (converged/minted):")
+        for row in sources[:8]:
+            minted = int(row.get("cycles_minted", 0) or 0)
+            converged = int(row.get("cycles_converged", 0) or 0)
+            rate = converged / minted if minted else 0.0
+            lines.append(
+                f"  - {row.get('source_type')}: {rate:.0%} "
+                f"(minted {minted}, converged {converged}, "
+                f"merged {int(row.get('cycles_merged', 0) or 0)}, "
+                f"avg ${float(row.get('avg_cost_usd', 0) or 0):.2f})"
+            )
     lines.append("")
     return lines
 

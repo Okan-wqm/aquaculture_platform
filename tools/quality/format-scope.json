@@ -41112,6 +41112,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "platform/libs/outbox/src/__tests__/outbox-relay-liveness.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "platform/libs/outbox/src/__tests__/outbox-worker.service.spec.ts",
       "prettier_managed": true
     },

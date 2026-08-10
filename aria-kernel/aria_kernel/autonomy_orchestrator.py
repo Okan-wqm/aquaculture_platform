@@ -522,6 +522,59 @@ def _cycle_preflight(
     return PreflightVerdict("ok")
 
 
+def _apply_preflight_verdict(root: Path, profile: str, verdict: Any) -> None:
+    """Turn a preflight verdict into the profile's contracted consequence.
+
+    * autonomous + invalid → governance refusal row, then GovernanceError
+      (the run never enters its cycle loop on a misconfigured host).
+    * strict / standard + any reasons → soft-warn governance row. Keyed on
+      REASONS, not on ``verdict.valid``: non-autonomous verdicts are always
+      valid by construction (``valid = profile != "autonomous" or …``), so
+      the previous ``not verdict.valid`` guard made the documented strict
+      soft-warn unreachable — it never once fired (found by FAZ 5d while
+      adding the standard environment subset). Extracted to a function so
+      the reachability is pinned by a direct test instead of prose.
+
+    The kind keeps the profile in its name (`preflight_strict_warnings` /
+    `preflight_standard_warnings`) so the starvation sentinel and the daily
+    anchor's blocked_reason reader can tell an operator dry-run warning from
+    a nightly-producer environment fault.
+    """
+    # Late import, same as every governance write in this module: the
+    # runtime_profile ↔ tool_registry cycle forbids a module-level one.
+    from .tool_registry import GovernanceError, append_tools_governance
+
+    failure_classes = tuple(getattr(verdict, "failure_classes", ()) or ())
+    reasons = tuple(getattr(verdict, "reasons", ()) or ())
+    if profile == "autonomous" and not getattr(verdict, "valid", True):
+        append_tools_governance(
+            root, "autonomy_orchestrator_refused",
+            {
+                "reason": "autonomous_profile_preconditions_not_met",
+                "failure_classes": list(failure_classes),
+                "reasons": list(reasons),
+            },
+            bypass_profile_gate=True,
+        )
+        raise GovernanceError(
+            "autonomous_profile_preconditions_not_met: " + "; ".join(reasons)
+        )
+    if profile in ("strict", "standard") and reasons:
+        append_tools_governance(
+            root,
+            (
+                "preflight_strict_warnings"
+                if profile == "strict"
+                else "preflight_standard_warnings"
+            ),
+            {
+                "failure_classes": list(failure_classes),
+                "reasons": list(reasons),
+            },
+            bypass_profile_gate=True,
+        )
+
+
 def run_autonomy_orchestrator(
     *,
     base_dir: str | Path,
@@ -688,23 +741,29 @@ def run_autonomy_orchestrator(
     #     `preflight_strict_warnings` governance event but the cycle
     #     proceeds. Operator-driven dry-run cycles should still run on
     #     hosts missing GH App config.
-    #   * standard / observe / frozen → preflight skipped (the actions
-    #     these profiles permit don't require the preflight surface).
+    #   * standard → environment subset (FAZ 5d). The nightly producer
+    #     runs standard and used to skip preflight entirely, so a host
+    #     with no sandbox backend or node deps produced a green cycle
+    #     whose dispatches all failed downstream with the fault priced
+    #     on the tools. Soft-warn like strict — the governance row is
+    #     the signal; read-only phases may still be worth running.
+    #   * observe / frozen → preflight skipped (the actions these
+    #     profiles permit don't require the preflight surface).
     #
     # `bypass_profile_gate=True` ensures the governance event reaches
     # the audit ledger even under frozen/observe (which would
     # otherwise block tool_governance writes via Plan 026R §A.4
     # surface enforcement).
-    if profile in ("autonomous", "strict"):
+    if profile in ("autonomous", "strict", "standard"):
         try:
             from . import preflight as _preflight_mod
             # skip_remote=True under autonomous when GH_TOKEN unset
             # would defeat the autonomous gate (the gh api call IS
-            # the verification surface). Under strict, skip_remote
-            # honors the token-presence signal so operator dry-runs
-            # do not require GitHub auth.
+            # the verification surface). Under strict/standard,
+            # skip_remote honors the token-presence signal so
+            # operator dry-runs do not require GitHub auth.
             _skip_remote = (
-                profile == "strict"
+                profile in ("strict", "standard")
                 and not bool(os.environ.get("GH_TOKEN"))
             )
             verdict = _preflight_mod.verify_preflight(
@@ -731,32 +790,8 @@ def run_autonomy_orchestrator(
                     "autonomous_profile_preconditions_not_met: "
                     "preflight module not importable"
                 )
-        if verdict is not None and not getattr(verdict, "valid", True):
-            failure_classes = tuple(getattr(verdict, "failure_classes", ()) or ())
-            reasons = tuple(getattr(verdict, "reasons", ()) or ())
-            if profile == "autonomous":
-                append_tools_governance(
-                    root, "autonomy_orchestrator_refused",
-                    {
-                        "reason": "autonomous_profile_preconditions_not_met",
-                        "failure_classes": list(failure_classes),
-                        "reasons": list(reasons),
-                    },
-                    bypass_profile_gate=True,
-                )
-                raise GovernanceError(
-                    "autonomous_profile_preconditions_not_met: "
-                    + "; ".join(reasons)
-                )
-            # strict — soft-warn.
-            append_tools_governance(
-                root, "preflight_strict_warnings",
-                {
-                    "failure_classes": list(failure_classes),
-                    "reasons": list(reasons),
-                },
-                bypass_profile_gate=True,
-            )
+        if verdict is not None:
+            _apply_preflight_verdict(root, profile, verdict)
 
     try:
         with with_exclusive_lock(

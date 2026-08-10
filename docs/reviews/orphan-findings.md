@@ -8570,6 +8570,7 @@ the doc-SSoT spec read 16/16 after.
 every open PR's pin) — that is inherent to a committed pin under strict
 mode; the refresh-train handles it operationally, and moving the pin out of
 the committed file is a design discussion, not a hook.
+
 ## ORPHAN-MEDIUM-608 — a zero that means "severed" rendered exactly like a zero that means "not yet" — RESOLVED (this PR)
 
 **Severity:** MEDIUM (every starvation in this class was found by a human noticing)

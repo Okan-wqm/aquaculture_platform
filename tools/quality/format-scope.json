@@ -28219,6 +28219,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/aria/MISSION_SPEC.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/MISSION.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/aria/PIPELINES.md",
       "prettier_managed": true
     },

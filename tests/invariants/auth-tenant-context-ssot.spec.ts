@@ -94,12 +94,10 @@ const TENANT_MODULE = resolve(AUTH_SRC, 'modules/tenant');
  * as part of the fix, which is the ratchet doing its job.
  */
 const UNBOUND_WRITE_ALLOWLIST = new Set<string>([
-  // The incident itself: SERIALIZABLE receipt transaction INSERT/UPDATEs
-  // `auth.tenant_command_receipts` and writes `tenant_modules` / `tenant_roles`
-  // / `invitations` / `action_tokens` / `refresh_tokens` from NATS-delivered
-  // lifecycle commands — no HTTP request context exists on that path.
-  // Repair in flight on fix/tenant-provisioning-receipt-rls.
-  'services/tenant-provisioning-command.service.ts',
+  // `tenant-provisioning-command.service.ts` left this list when the repair
+  // landed (#1112): the receipt transaction now establishes its own bound
+  // tenant context on the NATS path, and the ratchet's honesty check is what
+  // forced this removal the moment it became stale.
   // Tenant RBAC writes (`tenant_roles`, `tenant_role_permissions`). Reached
   // from the GraphQL resolvers, so it inherits the request-scoped checkout GUC
   // today — necessary but unverified: nothing asserts the connection it ends up

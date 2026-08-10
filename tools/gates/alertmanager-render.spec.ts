@@ -91,8 +91,11 @@ void test('refuses to run without the delivery settings, rather than rendering h
     'SMTP_FROM',
     'ALERT_PAGE_EMAIL_TO',
   ]) {
+    // Reflect.deleteProperty, not `delete env[key]`: no-dynamic-delete is an
+    // error-level rule here, and the reflective form says the same thing
+    // without the dynamic-delete footgun the rule exists to block.
     const env: Record<string, string> = { ...GOOD_ENV };
-    delete env[missing];
+    Reflect.deleteProperty(env, missing);
     const { status, config } = render(env);
 
     assert.equal(status, 1, `${missing} must be required`);

@@ -1250,6 +1250,107 @@ def _phase_service_examination(context: PhaseContext) -> dict[str, Any]:
     )
 
 
+# The four core services, in the risk order the service-audit program set
+# (charter M-5.1). These are seeded even on a quiet night; every other
+# service earns its mission from examination evidence (changed files or
+# scoped pressures), so the mission ledger grows with reality instead of
+# opening 17 parallel fronts on day one.
+SERVICE_HARDENING_CORE: tuple[str, ...] = (
+    "auth-service", "billing-service", "farm-service", "sensor-service",
+)
+
+
+def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
+    """Turn the examination's targeting into durable service-hardening missions.
+
+    `cycle_service_examination` computes which services changed, their
+    downstream ripple, the owning agents and the per-service pressures — and
+    had ZERO consumers. `SERVICE_MAP.json` inventories every platform service
+    each cycle — and nobody read it. This phase is the first consumer of the
+    first and, through the core list, the intent of the second: the charter's
+    per-service hardening program (§5) finally has a producer.
+
+    Idempotent by mission identity: re-seeding a service folds into the
+    mission it already opened.
+    """
+    from .mission import open_mission
+
+    exam = context.result("service_examination")
+    exam = exam if isinstance(exam, dict) else {}
+    per_service = exam.get("per_service_pressures") or {}
+    order = exam.get("examination_order") or []
+    evidence_backed = [
+        entry["project"] for entry in order
+        if entry.get("changed_files") or per_service.get(entry.get("project"))
+    ]
+    targets: list[str] = list(dict.fromkeys(list(SERVICE_HARDENING_CORE) + evidence_backed))
+    rh = repo_hash(context.workspace_root)
+    seeded: list[dict[str, Any]] = []
+    for rank, project in enumerate(targets):
+        pressures_here = per_service.get(project) or []
+        result = open_mission(
+            source_kind="service_hardening",
+            source_id=project,
+            repo_hash=rh,
+            title=(
+                f"Harden {project}: secure/performant/sustainable/testable/"
+                f"documented/correct (charter D1-D6)"
+            ),
+            capability="service_hardening",
+            priority=rank,
+            target_project=project,
+            base_dir=context.base_dir,
+        )
+        seeded.append({
+            "project": project,
+            "mission_id": result.get("mission_id"),
+            "idempotent": bool(result.get("idempotent")),
+            "scoped_pressures": len(pressures_here),
+        })
+    return {
+        "status": "completed",
+        "seeded": seeded,
+        "core": list(SERVICE_HARDENING_CORE),
+        "evidence_backed": evidence_backed,
+    }
+
+
+def _phase_mission_selection(context: PhaseContext) -> dict[str, Any]:
+    """Run the scheduler in the cycle, and hand the winner to the queue.
+
+    `select_next_mission` had exactly one caller — the operator CLI — so even
+    a fully seeded mission ledger would never move without a human. The
+    selected mission becomes a bounded-queue item (`mission:<id>` marker) the
+    autonomy drain resolves into an agent request; the non-selections stay
+    recorded by the scheduler itself, because "why not" is the half of the
+    decision an operator actually debugs.
+    """
+    from .mission_scheduler import select_next_mission
+    from .next_cycle_queue import append_pending
+
+    decision = select_next_mission(base_dir=context.base_dir)
+    selected = decision.selected if decision.selected else None
+    queued = None
+    if selected:
+        mission_id = str(selected.get("mission_id") or "")
+        queued_row = append_pending(
+            context.base_dir,
+            source_cycle_id=context.cycle_id,
+            pressure_id=f"mission:{mission_id}",
+            recommended_action=str(selected.get("next_action") or selected.get("title") or "advance the mission"),
+            candidate_tools=[],
+        )
+        queued = (queued_row or {}).get("queue_item_id")
+    return {
+        "status": "completed",
+        "outcome": decision.outcome,
+        "selected_mission": (selected or {}).get("mission_id"),
+        "selected_project": (selected or {}).get("target_project"),
+        "queue_item_id": queued,
+        "considered": decision.considered,
+    }
+
+
 def _phase_learning_post_evidence_closure(context: PhaseContext) -> dict[str, Any]:
     return run_learning_post_evidence_closure(
         context.workspace, cycle_id=context.cycle_id, tools_root=context.base_dir,
@@ -1698,9 +1799,33 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         "triage", "post_tool", _phase_triage, state_key="triage",
         modes=frozenset({"burn_in"}),
     ),
+    # BEFORE mission ingest, not after reflection where it used to sit
+    # unread: the examination's whole output — which services, in what
+    # order, which agent owns them, which pressures land in them — is the
+    # targeting a mission needs, and for months it was computed and then
+    # dropped on the floor (zero consumers). The seed phase right after it
+    # is its first consumer.
+    CyclePhase(
+        "service_examination", "post_tool", _phase_service_examination,
+        on_error="swallow", state_key="service_examination",
+    ),
+    CyclePhase(
+        "service_mission_seed", "post_tool", _phase_service_mission_seed,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="service_mission_seed",
+    ),
     CyclePhase(
         "mission_ingest", "post_tool", _phase_mission_ingest,
         precondition=WRITES_PERMITTED, state_key="mission_ingest",
+    ),
+    # The scheduler had exactly one caller: the operator CLI. Even seeded
+    # missions would never be picked up automatically. Selection now runs in
+    # the cycle, and the selected mission becomes a queue item the autonomy
+    # drain can mint an agent request from.
+    CyclePhase(
+        "mission_selection", "post_tool", _phase_mission_selection,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="mission_selection",
     ),
     # Bookkeeping over a ledger, so it sits with the other post-tool
     # bookkeeping — and `record_and_continue`, because a reaper that CRASHED
@@ -1764,13 +1889,6 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         # not {}: an empty dict would read as "reflection ran and found
         # nothing".
         absent=lambda: None,
-    ),
-    CyclePhase(
-        "service_examination", "post_tool", _phase_service_examination,
-        # Operator convenience: a per-service examination plan. It must
-        # never be able to fail a cycle whose real work succeeded, which
-        # is why it is the one phase with `swallow`.
-        on_error="swallow", state_key="service_examination",
     ),
     CyclePhase(
         "learning_post_evidence_closure", "post_tool", _phase_learning_post_evidence_closure,

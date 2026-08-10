@@ -123,8 +123,44 @@ for variable_name in "${REQUIRED_BACKUP_VARIABLES[@]}"; do
   fi
 done
 
+# The manifest already carries a plain-English `meaning` and a `safeExample`
+# for every secret and variable. Until now the failure printed a bare list of
+# names, so an operator reading "Missing ... WALG_LIBSODIUM_KEY_B64" had to go
+# find out what that is and what shape a valid value takes. Nothing about that
+# was undiscoverable — it was just three files away from the error, and this
+# workflow has failed every scheduled run for months without anyone acting on
+# it. Guidance printed where the failure happens costs one jq call.
+MANIFEST_PATH="${MANIFEST_PATH:-.github/manifests/backup-secrets.json}"
+RUNBOOK_PATH='docs/runbooks/secret-rotation.md'
+
+explain_missing() {
+  # $1 = manifest key (requiredSecrets|requiredVariables), rest = names
+  manifest_key="$1"
+  shift
+  if [ ! -r "${MANIFEST_PATH}" ] || ! command -v jq > /dev/null 2>&1; then
+    return 0
+  fi
+  for name in "$@"; do
+    meaning=$(jq -r --arg k "${manifest_key}" --arg n "${name}" \
+      '.[$k][] | select(.name == $n) | .meaning // empty' "${MANIFEST_PATH}")
+    example=$(jq -r --arg k "${manifest_key}" --arg n "${name}" \
+      '.[$k][] | select(.name == $n) | .safeExample // empty' "${MANIFEST_PATH}")
+    if [ -n "${meaning}" ]; then
+      printf '  %s — %s\n' "${name}" "${meaning}"
+      if [ -n "${example}" ]; then
+        printf '      shape: %s\n' "${example}"
+      fi
+    else
+      printf '  %s — not described in %s; that is itself a defect worth fixing.\n' \
+        "${name}" "${MANIFEST_PATH}"
+    fi
+  done
+  printf 'How each value is obtained and rotated: %s\n' "${RUNBOOK_PATH}"
+}
+
 if [ "${#missing[@]}" -gt 0 ]; then
   echo "::error::Missing required resolved Actions secrets for production-backup environment: ${missing[*]}"
+  explain_missing requiredSecrets "${missing[@]}"
   if [ -n "${GITHUB_REPOSITORY:-}" ]; then
     echo "Provision them at: https://github.com/${GITHUB_REPOSITORY}/settings/environments"
   else
@@ -135,6 +171,7 @@ fi
 
 if [ "${#missing_variables[@]}" -gt 0 ]; then
   echo "::error::Missing required resolved Actions variables for production-backup environment: ${missing_variables[*]}"
+  explain_missing requiredVariables "${missing_variables[@]}"
   if [ -n "${GITHUB_REPOSITORY:-}" ]; then
     echo "Provision them at: https://github.com/${GITHUB_REPOSITORY}/settings/environments"
   else

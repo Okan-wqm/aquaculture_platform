@@ -143,7 +143,9 @@ class RealAutoMergeRunner:
                 "profile": self.profile,
             }
         from .auto_merge import merge_if_green
+        from .batch_containment import guard_item, with_item_failures
         from .merge_authority import merge_pr_if_ready
+        from .watchdog_freeze import open_watchdog_incidents
 
         adapter = self.adapter_factory()
         candidate_prs = self.pr_enumerator(adapter)
@@ -153,6 +155,63 @@ class RealAutoMergeRunner:
         dry_run = self.profile != "autonomous"
         merges_completed = 0
         decisions: list[dict[str, Any]] = []
+        # Containment must not buy silence (ORPHAN-HIGH-578): a candidate
+        # lost to a refusal is reported, never absorbed.
+        item_failures: list[dict[str, Any]] = []
+
+        # ORPHAN-MEDIUM-562 — THE WATCHDOG FREEZE IS A PROPERTY OF THE RUN, NOT
+        # OF A PULL REQUEST, and asking it once here rather than N times inside
+        # the loop is the difference between a refusal and an outage.
+        #
+        # `merge_pr_if_ready` raises `GovernanceError` when the freeze is on,
+        # and this loop does not guard that call — the only `try` below covers
+        # `readiness_claim_resolver`. So a per-PR freeze check would abort
+        # `run_autonomy_orchestrator` on the FIRST candidate: PRs k+1..n never
+        # evaluated, no result dict returned, `auto_merge_completed`,
+        # calibration, reflection and the `autonomy_orchestrator_exit` row all
+        # skipped, and the remaining `--max-cycles` iterations lost. That is
+        # precisely the cycle-level stop `watchdog_freeze` promises never to
+        # cause, and it is worse than the disease: an unreadable issue list
+        # is deliberately fail-closed, so one transient `gh issue list` error
+        # would have taken the whole run down.
+        #
+        # Asked ONCE, the same fail-closed verdict becomes a `blocked` decision
+        # per candidate — the shape the loop already uses for a failed
+        # readiness claim, which `blocked_count` below already rolls up.
+        # `merge_pr_if_ready` keeps its own assertion as defence in depth: it is
+        # the single real-merge authority and must refuse when called directly.
+        if not dry_run:
+            frozen = open_watchdog_incidents(adapter=adapter)
+            if frozen["readable"] is not True or frozen["incidents"]:
+                reason = (
+                    f"merge_frozen_watchdog_unreadable: {frozen['reason']}"
+                    if frozen["readable"] is not True
+                    else "merge_frozen_watchdog_incident_open: "
+                    + ", ".join(f"#{item['number']}" for item in frozen["incidents"])
+                )
+                return {
+                    "schema_version": 1,
+                    "status": "blocked",
+                    "reason": "watchdog_merge_frozen",
+                    "watchdog": frozen,
+                    "merges_completed": 0,
+                    "candidates_evaluated": len(candidate_prs),
+                    # Same key set as the normal return below. A refusal that
+                    # answers with a different shape is a refusal every consumer
+                    # has to special-case.
+                    "dry_run": dry_run,
+                    "profile": self.profile,
+                    "decisions": [
+                        {
+                            "decision": "blocked",
+                            "eligible": False,
+                            "pr_number": pr_number,
+                            "reasons": [reason],
+                        }
+                        for pr_number in candidate_prs
+                    ],
+                }
+
         for pr_number in candidate_prs:
             try:
                 readiness_claim_id = self.readiness_claim_resolver(
@@ -169,20 +228,50 @@ class RealAutoMergeRunner:
                 }
                 decisions.append(decision)
                 continue
-            if dry_run:
-                decision = merge_if_green(
-                    adapter=adapter,
-                    pr_number=pr_number,
-                    base_dir=base_dir,
-                    dry_run=True,
-                )
-            else:
-                decision = merge_pr_if_ready(
-                    adapter=adapter,
-                    pr_number=pr_number,
-                    base_dir=base_dir,
-                    readiness_claim_id=readiness_claim_id,
-                )
+            # ONE CANDIDATE'S REFUSAL COSTS THAT CANDIDATE, NOT THE RUN.
+            #
+            # Every gate `merge_pr_if_ready` consults raises `GovernanceError`
+            # rather than returning a verdict — the profile gate, the readiness
+            # claim, risk policy, autonomy unlock, enterprise readiness, the
+            # runner attestation, the rollback bundle, and now the watchdog
+            # freeze. This call was bare, so ANY of them ended
+            # `run_autonomy_orchestrator` on the first candidate: PRs k+1..n
+            # never evaluated, no result dict returned, and the cycle's seal,
+            # calibration and reflection all skipped.
+            #
+            # That is ORPHAN-HIGH-578's shape exactly — a partial state
+            # indistinguishable from a total failure — so it uses 578's own
+            # primitive rather than a private try/except. `guard_item` re-raises
+            # `LedgerIntegrityError`, which is right: a corrupt ledger is not one
+            # candidate's problem and must still abort.
+            ok, decision = guard_item(
+                item_failures,
+                item_kind="auto_merge_candidate",
+                item_id=str(pr_number),
+                work=lambda: (
+                    merge_if_green(
+                        adapter=adapter,
+                        pr_number=pr_number,
+                        base_dir=base_dir,
+                        dry_run=True,
+                    )
+                    if dry_run
+                    else merge_pr_if_ready(
+                        adapter=adapter,
+                        pr_number=pr_number,
+                        base_dir=base_dir,
+                        readiness_claim_id=readiness_claim_id,
+                    )
+                ),
+            )
+            if not ok:
+                failure = item_failures[-1]
+                decision = {
+                    "decision": "blocked",
+                    "eligible": False,
+                    "pr_number": pr_number,
+                    "reasons": [f"{failure['error_class']}: {failure['error_message']}"],
+                }
             decisions.append(decision)
             if decision.get("decision") == "merged":
                 merges_completed += 1
@@ -192,15 +281,18 @@ class RealAutoMergeRunner:
             status = "blocked"
         elif blocked_count:
             status = "degraded"
-        return {
-            "schema_version": 1,
-            "status": status,
-            "merges_completed": merges_completed,
-            "candidates_evaluated": len(candidate_prs),
-            "decisions": decisions,
-            "dry_run": dry_run,
-            "profile": self.profile,
-        }
+        return with_item_failures(
+            {
+                "schema_version": 1,
+                "status": status,
+                "merges_completed": merges_completed,
+                "candidates_evaluated": len(candidate_prs),
+                "decisions": decisions,
+                "dry_run": dry_run,
+                "profile": self.profile,
+            },
+            item_failures,
+        )
 
 
 def select_auto_merge_runner(

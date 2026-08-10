@@ -8081,6 +8081,28 @@ Ran all ten by hand before wiring them: **all pass** (37+19+11+6+6+5+3 and three
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-MEDIUM-583 — the backup gate has failed every scheduled run for months and its message told nobody how to fix it — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, tracing why production has no backups.
+
+The chain is single-file: `PRODUCTION_DEPLOY_ENABLED=false` waits on an isolated-restore proof, the proof waits on a working backup, and `backup-production.yml` dies on its first step with twelve unprovisioned secrets. The step is correct — it fails closed, names every missing secret, and links the environment settings page. What it does not say is what any of them **are**. An operator reading `Missing ... WALG_LIBSODIUM_KEY_B64 LOGICAL_BACKUP_GPG_RECIPIENT` gets a list of names and a settings URL.
+
+The information was never missing, only distant: `.github/manifests/backup-secrets.json` carries a plain-English `meaning` and a `safeExample` for all 25 secrets and 4 variables, and `docs/runbooks/secret-rotation.md` explains how each principal is created and rotated. Three files from the error, which in practice is the same as absent — the run has been red for months and the list has not moved.
+
+**Fix:** the assertion reads the manifest it is already pinned against and prints, per missing item, its meaning and the shape of a valid value, ending with the runbook path. The gate's behaviour is unchanged: same exit code, same fail-closed semantics. Only the message got useful.
+
+    ::error::Missing required resolved Actions secrets ...
+      WALG_LIBSODIUM_KEY_B64 — Canonical base64 text encoding of the independently
+          escrowed 32-byte WAL-G client-encryption key.
+          shape: <base64-encoded 32-byte random key>
+    How each value is obtained and rotated: docs/runbooks/secret-rotation.md
+
+**Test:** `tools/gates/backup-secret-guidance.spec.ts` runs the real script under an incomplete environment and asserts both the guidance and the exit code — a helpful message on a gate that stopped failing would be worse than the silence. Removing the guidance call turns two of its four tests red. It needed no `package.json` entry: the glob runner from ORPHAN-HIGH-582 picked it up on creation, which is the first evidence that fix works.
+
+**NOT done:** the twelve values still do not exist. Minting Spaces keys, a libsodium key and a GPG recipient is the operator's, and this changes only how legibly the platform asks.
+
+**Owner:** claude (this session). **Status:** RESOLVED for legibility; provisioning remains operator-owned and still blocks the deploy chain.
+
 ## ORPHAN-HIGH-563 — the five-minute RPO alarm could not tell "production is losing data" apart from "this was never deployed", and had been crying wolf 288 times a day for three weeks — RESOLVED (this PR)
 
 **Discovered and reproduced:** 2026-08-05, tracing the `Database WAL Archive Freshness` red reported by the scheduled-workflow watchdog (issue #1005). Verified firsthand on the production droplet: `docker exec aqua-postgres /usr/local/bin/postgres-walg-healthcheck.sh` → `stat: no such file or directory`, exit **127**; `SHOW archive_mode` → `off`; `pg_stat_archiver` → all zeroes; the container runs the bare `timescale/timescaledb-ha:pg16` base image, created 2026-07-14, not the WAL-G derivative `docker-compose.droplet.yml` has declared since `b89c623e9` (2026-07-16).
@@ -8254,6 +8276,38 @@ The second defect is what reached the reader. A job killed by its own budget rep
 **Deliberately not done:** nothing here tries to make the suite _faster_ (`nx.json` parallelism, sharding, or making `ci-full` honour the test quarantine). Duration is a separate, separately-measured problem; conflating it with the detector is how the detector got mis-set. `NX_DAEMON: 'false'` / `NX_NO_CLOUD: 'true'` were considered for consistency with the sibling `build` job and rejected as provably no-ops under Actions (`nx/dist/src/daemon/client/client.js` disables the daemon whenever `CI` or `GITHUB_ACTIONS` is set; this workspace declares no Nx Cloud token) — attaching them to a duration fix would have been a false causal claim.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-501`, `ORPHAN-MEDIUM-563`, `ORPHAN-HIGH-563`.
+
+## ORPHAN-MEDIUM-593 — the weight-override approval had nothing to approve — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06 audit; verified against `origin/main` before fixing.
+
+`record_weight_override` (pressure.py) turns an approved recommendation into behaviour. Nothing fed it. The producer `recommend_calibration` was reachable only from `heartbeat_tick` — a superseded driver that calls `run_cycle` itself, so it has no production caller — and `list_calibration_recommendations` had **no caller at all**. Three dead links in one chain: nothing computed advice, nothing displayed it, so there was never anything for an operator to approve, and the "ARIA changes its own behaviour from its own measurements" loop could not close even with a human sitting in it.
+
+**Fix:** the producer becomes a cycle phase, beside `judge_calibration` and `goldset_proposal` which read the same feedback ledger, with `on_error=record_and_continue` for the reason `goldset_proposal` already carries. Wiring it by resurrecting `heartbeat_tick` was rejected: that driver calls the cycle, so the cycle would be invoking itself.
+
+**Where it stops, deliberately:** `recommendation_only`. Applying a weight is an operator act, because a system that silently reweights its own scoring can rationalise anything it later measures — the same line goldset promotion draws. The daily report gains the section that makes approval possible and names the command to act with; an unread recommendation is indistinguishable from one that was never computed.
+
+**Proof:** 8 tests including one asserting the renderer is actually _called_ by the report writer — deleting that call left every direct-render test green, which is this chain's own defect one level down. Asserted by parsing the writer rather than reproducing its dozen-field schema in a fixture, which would have been a second copy of it. Full kernel suite green.
+
+## ORPHAN-HIGH-590 — the weekly eval measured five runs a week and threw every one of them away — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06 audit, closed 2026-08-08. Two PRs that were individually coherent and jointly inert.
+
+#1096 gave ARIA `compare_eval_windows`, which answers the program's own success test: is round N+1 better than round N? #1080 gave it a weekly CI harness. Between them nothing persisted: the workflow ran `agent-eval run` five times into `aria-tools/agent-evals/runs.jsonl` **inside an ephemeral checkout**, printed the numbers, and the runner was destroyed. `runs.jsonl` is in `.gitignore`, and `test_aria_tools_tracked_allowlist.py` forbids committing it — correctly, since a hash-chained ledger does not belong in a PR diff.
+
+`compare_eval_windows` requires five runs PER WINDOW before it will speak. With CI as the only producer, `agent-eval delta` was therefore condemned to `insufficient_evidence` forever. The one real baseline lived on a single operator's disk.
+
+**Fix — no new mechanism.** ARIA already has a durable store: the `aria/state` branch, with a `restore-aria-state` composite action and a `state publish` verb the nightly producer has used since Wave 1. The eval lane now uses the same two. Its `--tools-dir` arguments name `$ARIA_TOOLS_DIR` — the binding the restore exports — instead of the literal `aria-tools`, so the week's runs append to the accumulated ledger. A `delta` step reports window-over-window per agent, and the publish step runs under `always()`: a week where a fixture regressed is exactly the week whose rows the trend needs, and a ledger that only records good weeks is not a measurement.
+
+**The contract moved with it, not around it.** `contents: write` is what persistence costs, so `workflow_contract_registry` — the SSoT — was updated rather than the test that reads it: write root `.aria-state-store`, `network_policy` gains `github_git`, and the first governed mutation becomes the restore, because the restore is what decides WHICH ledger the eval appends to. The preflight declaration in the workflow was moved to match; a preflight describing the wrong lane proves nothing.
+
+**A gap this closed on the way:** removing the publish step entirely left the whole workflow-contract suite green. It governs permissions, preflight ordering and upload shape — not whether a lane keeps what it measured. So `test_agent_eval_persistence.py` pins the four things that decide survival: the restore runs, `state publish` runs, it runs under `always()`, and **no `--tools-dir` names a literal** — one literal would send that command's writes back into the ephemeral checkout while the rest of the job used the store, half-persisted and green. Both breaks proven red.
+
+**Honest limit:** the delta will keep answering `insufficient_evidence` for about ten weeks, because five runs per window is five weeks per window and the ledger starts now. That is the measurement being honest about its own youth, not a defect.
+
+**Proof:** full kernel suite green (3,439 tests).
+
+**Owner:** claude (this session). **Status:** RESOLVED.
 
 ## ORPHAN-CRITICAL-591 — ARIA's autonomy died on 2026-08-04 and reported it as five ordinary agent failures — RESOLVED (detection); OPERATOR ACTION REQUIRED (the credential)
 

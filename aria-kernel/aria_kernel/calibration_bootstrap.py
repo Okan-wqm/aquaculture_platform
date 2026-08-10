@@ -187,15 +187,30 @@ def finalize_corpus(
     corpus = corpus_path(base_dir)
     migrated = 0
     for label_row in label_rows:
+        # The corpus row is written in the ONE vocabulary every ground-truth
+        # reader speaks. The previous shape carried `label`/`labeled_at` and
+        # nothing else — judge_calibration skipped it (source_type not in
+        # GROUND_TRUTH_SOURCES), goldset counted it as neither TP nor FP
+        # (no `verdict`), FP-suppression never matched it. Every label an
+        # operator ever finalized was invisible to every consumer. The
+        # original spelling survives as `legacy_label` (append-only history
+        # discipline, same as the result-status normalization).
+        label_value = str(label_row.get("label") or "").lower()
+        verdict = "true_positive" if label_value in ("tp", "true_positive") else "false_positive"
         fixture = {
             "schema_version": 1,
-            "labeled_at": label_row.get("labeled_at"),
+            "recorded_at": label_row.get("labeled_at"),
+            "source_type": "human",
+            "verdict": verdict,
             "tool_id": tool_id,
+            "run_id": label_row.get("run_id") or f"bootstrap:{tool_id}",
+            "finding_id": label_row.get("finding_id") or label_row.get("finding_fingerprint"),
             "finding_fingerprint": label_row.get("finding_fingerprint"),
-            "label": label_row.get("label"),
-            "severity": label_row.get("severity"),
-            "evidence": label_row.get("evidence", ""),
+            "severity": str(label_row.get("severity") or "medium").lower(),
             "note": label_row.get("note", ""),
+            "evidence_refs": [label_row["evidence"]] if label_row.get("evidence") else [],
+            "legacy_label": label_value,
+            "labeled_at": label_row.get("labeled_at"),
         }
         append_jsonl(corpus, fixture)
         migrated += 1
@@ -237,7 +252,11 @@ def list_corpus_status(
             "latest_label_age_days": None,
         })
         bucket["fixture_count"] += 1
-        label = str(row.get("label") or "").lower()
+        # Canonical vocabulary first (verdict), legacy spellings as fallback —
+        # the corpus now writes verdict/source_type and preserves the old
+        # label as legacy_label; a status reader that only spoke the old
+        # tongue reported tp_count=0 for every canonical row.
+        label = str(row.get("verdict") or row.get("label") or row.get("legacy_label") or "").lower()
         if label in ("tp", "true_positive"):
             bucket["tp_count"] += 1
         elif label in ("fp", "false_positive"):

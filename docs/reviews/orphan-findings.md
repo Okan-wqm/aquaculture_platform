@@ -7992,6 +7992,7 @@ That is the same shape as the two incidents this week (`docker ps` reporting "Up
 **Fix (this PR):** `outbox_relay_last_cycle_timestamp_seconds{service}`, set in the poll cycle's `finally` block, plus an alarm at five minutes — sixty missed cycles for a five-second poll. `finally` rather than the success path on purpose: a cycle that threw still proves the relay is alive, and "failing" is a different alarm from "absent". The gauge is written on idle cycles too, because an idle relay is exactly the case the queue gauges cannot tell apart from a dead one.
 
 Kept inside the outbox library's own metrics service rather than adopting the new cron heartbeat helper: `platform/libs/outbox` does not depend on backend-common, and reaching across that boundary for a gauge would trade a real architectural line for a small convenience.
+
 ## ORPHAN-HIGH-575 — the tenant provisioning saga verified its own bookkeeping and called it a schema, so a tenant could reach ACTIVE owning nothing — RESOLVED (this PR)
 
 **Discovered:** 2026-08-06, reading the provisioning path end to end after ORPHAN-HIGH-570 recorded three production tenants and one `tenant_*` schema. This finding is the mechanism behind the "ACTIVE but schemaless" half of that observation.

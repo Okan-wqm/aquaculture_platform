@@ -8510,6 +8510,24 @@ every run after the first.
 **Not addressed here:** the sixth adapter's separate `evidence_error` — to be
 read after a cycle where the runners actually execute.
 
+## ORPHAN-MEDIUM-611 — two generations of result statuses lived in one ledger, and every reader had to know both — RESOLVED (this PR)
+
+**Severity:** MEDIUM (a re-armed trap per new consumer)
+**Owner:** ARIA
+**Discovered:** 2026-08-10 code-review pass (madde 13).
+
+`results.jsonl` carries legacy `completed/rejected/partial` beside Plan-016
+`accepted/rejected`. `derive_request_state` held the union inline; the next
+reader would not, and would silently misread a legacy row.
+
+**Fix:** normalization at READ time in `_result_rows_for` — the append-only
+ledger stays byte-stable, rows come back canonical, the original spelling
+survives in `legacy_status` for audit, and `partial` conservatively reads as
+`rejected` (an incomplete delivery must not derive a COMPLETED request).
+The derivation now compares one vocabulary, pinned by a test that fails if
+the inline union ever returns. The legacy WRITE path keeps its Plan-024
+operator-migration gate.
+
 ## ORPHAN-CRITICAL-600 — the prompt hash was minted over one object and verified against another — RESOLVED (this PR)
 
 **Severity:** CRITICAL (no agent invocation could ever start)

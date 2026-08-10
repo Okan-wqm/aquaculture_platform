@@ -1,0 +1,76 @@
+name: Probe runner attestation
+description: >-
+  Measure this runner's environment and record a PROBED attestation row for
+  every recorded readiness claim — the producer the mandatory merge-time
+  verify_runner_attestation gate never had.
+
+# Plan "ARIA Sinir Sistemi" FAZ 5a. verify_runner_attestation has been
+# MANDATORY at merge since the enterprise gate landed, and the ledger it reads
+# (aria-tools/enterprise/runner-attestations.jsonl) had ZERO producers: the
+# gate could only ever raise runner_attestation_required_for_merge. This
+# action is the producer, placed at lane start so the attestation describes
+# the host that will actually run the merge.
+#
+# PROBED, NOT SELF-ASSERTED. The environment facts are measured through the
+# same accessors the runtime uses (sandbox_backend(), the auth env the CLI
+# authenticates with, the API-key env the policy forbids). The three identity
+# facts a process cannot measure about itself — runner group, ephemeral
+# registration, group approval — come from the workflow's registration
+# knowledge via env, and the row labels them as config-asserted so an auditor
+# reading it knows which class each field is.
+#
+# A REFUSAL IS THE CONTRACT WORKING. A host with no sandbox, no managed auth,
+# or an API key in the environment CANNOT attest — recording that row is
+# rejected by _validate_attestation. The step reports refusals and does not
+# fail the lane: the merge gate downstream is the enforcement point, and it
+# will now fail with the refusal's named cause instead of a bare
+# "attestation required".
+
+inputs:
+  tools-dir:
+    description: The ARIA tools directory (the restored state store).
+    required: true
+  runner-group:
+    description: The runner group this runner is registered in.
+    required: false
+    default: 'self-hosted'
+  ephemeral:
+    description: Whether this runner is registered as ephemeral.
+    required: false
+    default: 'true'
+  group-approved:
+    description: Whether the runner group is operator-approved for merges.
+    required: false
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - name: Probe and record runner attestations for open readiness claims
+      shell: bash
+      env:
+        ARIA_TOOLS: ${{ inputs.tools-dir }}
+        ARIA_RUNNER_GROUP: ${{ inputs.runner-group }}
+        ARIA_RUNNER_EPHEMERAL: ${{ inputs.ephemeral }}
+        ARIA_RUNNER_GROUP_APPROVED: ${{ inputs.group-approved }}
+      run: |
+        set -euo pipefail
+        PYTHONPATH=aria-kernel python3 -m aria_kernel runner-attestation probe \
+          --repo "${GITHUB_REPOSITORY}" \
+          --target-ref "${GITHUB_REF_NAME:-main}" \
+          --tools-dir "${ARIA_TOOLS}" | tee /tmp/runner-attestation.json
+        python3 - <<'PY'
+        import json
+
+        with open("/tmp/runner-attestation.json", encoding="utf-8") as handle:
+            result = json.load(handle)
+        attested = result.get("attested") or []
+        refused = result.get("refused") or []
+        print(f"claims seen: {result.get('claims_seen', 0)}")
+        print(f"attested: {len(attested)}, refused: {len(refused)}")
+        for row in refused:
+            # Named cause per refusal — this line is what the operator reads
+            # when the merge gate later fails on the same claim.
+            print(f"::warning::attestation refused for PR "
+                  f"#{row.get('pr_number')}: {row.get('reason')}")
+        PY

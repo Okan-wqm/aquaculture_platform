@@ -678,7 +678,8 @@ def _render_calibration_recommendation_section(reflection: dict[str, Any]) -> li
         return []
     weights = recommendation.get("pressure_weight_recommendations") or []
     tools = recommendation.get("tool_recommendations") or []
-    if not weights and not tools:
+    sources = recommendation.get("source_effectiveness") or []
+    if not weights and not tools and not sources:
         return []
     lines = [
         "## Calibration Recommendations (advisory)",
@@ -701,6 +702,22 @@ def _render_calibration_recommendation_section(reflection: dict[str, Any]) -> li
         lines.append(f"Tool-level recommendations: {len(tools)}")
         for row in tools[:5]:
             lines.append(f"  - {row.get('tool_id')}: {row.get('recommendation', 'see ledger')}")
+    if sources:
+        # FAZ 4c — the effectiveness ranking that justifies (or indicts) a
+        # weight recommendation, from the same cycle's ledger. First render
+        # of rank_pressure_sources' output anywhere.
+        lines.append("")
+        lines.append("Pressure-source effectiveness (converged/minted):")
+        for row in sources[:8]:
+            minted = int(row.get("cycles_minted", 0) or 0)
+            converged = int(row.get("cycles_converged", 0) or 0)
+            rate = converged / minted if minted else 0.0
+            lines.append(
+                f"  - {row.get('source_type')}: {rate:.0%} "
+                f"(minted {minted}, converged {converged}, "
+                f"merged {int(row.get('cycles_merged', 0) or 0)}, "
+                f"avg ${float(row.get('avg_cost_usd', 0) or 0):.2f})"
+            )
     lines.append("")
     return lines
 
@@ -725,6 +742,176 @@ def _render_proactive_section(reflection: dict[str, Any]) -> list[str]:
         lines.append(
             f"  - {t.get('tool_id')}: priority={t.get('priority')} "
             f"(impact={t.get('impact')} x opportunity={t.get('opportunity')}) [{reasons}]"
+        )
+    lines.append("")
+    return lines
+
+
+# --- FAZ 6b — the daily report becomes the ONE published dashboard. Each
+# section below is the FIRST reader of a ledger that was written every cycle
+# and read by nothing: plan_016 counters had no scheduled caller,
+# observability dashboards.jsonl had zero readers, mission events reached no
+# operator surface, and quarantine state was visible only via CLI. Report-time
+# reads over append-only ledgers; every section is silent (not broken) when
+# its ledger does not exist yet.
+
+
+def _render_plan016_section(root: Path) -> list[str]:
+    try:
+        from .plan_016_metrics import compute_plan_016_metrics
+
+        metrics = compute_plan_016_metrics(base_dir=root)
+    except Exception:
+        return []
+    if not metrics:
+        return []
+    return [
+        "## Plan-016 Counters",
+        "",
+        *[f"- {name}: {value}" for name, value in sorted(metrics.items())],
+        "",
+    ]
+
+
+def _render_observability_section(root: Path) -> list[str]:
+    try:
+        from .observability import list_observability_dashboards
+
+        dashboards = list_observability_dashboards(base_dir=root)
+    except Exception:
+        return []
+    if not dashboards:
+        return []
+    latest = dashboards[-1]
+    rolling = latest.get("rolling_slo") or {}
+    alerts = latest.get("alerts") or []
+    lines = [
+        "## SLO / Alerts",
+        "",
+        f"- SLO state: {rolling.get('slo_state', 'unknown')} "
+        f"(window {rolling.get('window', 0)}, "
+        f"p50 {rolling.get('duration_p50_ms', 0)}ms, "
+        f"p95 {rolling.get('duration_p95_ms', 0)}ms)",
+        f"- Alerts this cycle: {len(alerts)}",
+    ]
+    for alert in alerts[:5]:
+        if isinstance(alert, dict):
+            lines.append(
+                f"  - {alert.get('alert_kind') or alert.get('kind')}: "
+                f"{str(alert.get('message') or alert.get('detail') or '')[:100]}"
+            )
+    lines.append("")
+    return lines
+
+
+def _render_mission_section(root: Path) -> list[str]:
+    path = root / "missions" / "mission-events.jsonl"
+    if not path.exists():
+        return []
+    try:
+        from .ledger import load_declared_jsonl
+
+        rows = load_declared_jsonl(path, expected_surface="mission_events")
+    except Exception:
+        return []
+    if not rows:
+        return []
+    state: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        mission_id = str(row.get("mission_id") or "")
+        if not mission_id:
+            continue
+        entry = state.setdefault(mission_id, {"state": "opened"})
+        if row.get("event") == "opened":
+            entry.update({
+                "title": row.get("title"),
+                "source_kind": row.get("source_kind"),
+                "priority": row.get("priority"),
+            })
+        if row.get("to_state"):
+            entry["state"] = row.get("to_state")
+    by_state: dict[str, int] = {}
+    for entry in state.values():
+        by_state[str(entry["state"])] = by_state.get(str(entry["state"]), 0) + 1
+    active = [
+        (mid, entry) for mid, entry in state.items()
+        if entry.get("state") not in ("folded", "closed", "abandoned")
+    ]
+    lines = [
+        "## Missions",
+        "",
+        f"- Total: {len(state)} ("
+        + ", ".join(f"{name}: {count}" for name, count in sorted(by_state.items()))
+        + ")",
+    ]
+    for mid, entry in sorted(active, key=lambda kv: str(kv[1].get("priority")))[:8]:
+        lines.append(
+            f"- [{entry.get('state')}] {entry.get('title') or mid} "
+            f"({entry.get('source_kind')}, priority {entry.get('priority')})"
+        )
+    lines.append("")
+    return lines
+
+
+def _render_quarantine_section(root: Path) -> list[str]:
+    try:
+        from .tool_registry import list_tools
+
+        quarantined = list_tools(status="QUARANTINED", base_dir=root)
+    except Exception:
+        return []
+    if not quarantined:
+        return []
+    lines = [
+        "## Quarantined Tools",
+        "",
+    ]
+    for tool in quarantined:
+        lines.append(
+            f"- {tool.get('tool_id')}: "
+            f"{str(tool.get('quarantine_reason') or tool.get('status_reason') or 'no reason recorded')[:120]}"
+        )
+    lines.append("")
+    return lines
+
+
+def _render_replay_recall_section(root: Path) -> list[str]:
+    # FAZ 1d's judge_replay phase writes its per-tool recall into the sealed
+    # cycle row; this is that number's operator surface.
+    try:
+        from .ledger import load_declared_jsonl
+
+        rows = load_declared_jsonl(root / "cycles.jsonl", expected_surface="cycles")
+    except Exception:
+        return []
+    latest = next(
+        (
+            row for row in reversed(rows)
+            if row.get("status") == "completed" and row.get("judge_replay")
+        ),
+        None,
+    )
+    if latest is None:
+        return []
+    tools = (latest.get("judge_replay") or {}).get("tools") or []
+    if not tools:
+        return []
+    lines = [
+        "## Judge Replay Recall",
+        "",
+        f"- Cycle: `{latest.get('cycle_id')}`",
+    ]
+    for row in tools[:8]:
+        if not isinstance(row, dict):
+            continue
+        recall = row.get("recall") or {}
+        lines.append(
+            f"- {row.get('tool_id')}: {row.get('status')}"
+            + (
+                f" (judged {recall.get('judged_judges')}, recall {recall.get('recall')})"
+                if isinstance(recall, dict) and recall
+                else ""
+            )
         )
     lines.append("")
     return lines
@@ -833,6 +1020,13 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         *_render_calibration_recommendation_section(reflection),
         *_render_dataflow_health_section(reflection),
         *_render_proactive_section(reflection),
+        # FAZ 6b — the report is the one published dashboard: counters, SLO,
+        # missions, quarantine, replay recall (each ledger's first reader).
+        *_render_plan016_section(root),
+        *_render_observability_section(root),
+        *_render_mission_section(root),
+        *_render_quarantine_section(root),
+        *_render_replay_recall_section(root),
         "## Committed Findings",
         "",
         f"- Total: {reflection.get('committed_findings', {}).get('total', 0)}",

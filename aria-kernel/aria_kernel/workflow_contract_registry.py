@@ -456,8 +456,18 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
             WorkflowJobContract(
                 job_id="generate-report",
                 preflight_step="Persist enterprise workflow preflight",
-                first_governed_mutation_step="Generate daily chain-tip anchor (Plan ARIA-V2 §3.9)",
-                allowed_write_path_patterns=(rf"^aria-tools/reports/daily/{_REPORT_DATE}\.md$",),
+                # FAZ 6a — the restore is now the first governed mutation,
+                # exactly as in the producer + eval lanes: the anchor reads
+                # the reflection report and the durable ledger tails out of
+                # the restored store, so binding the store IS the step that
+                # decides what the published report contains. The anchor used
+                # to read the ephemeral checkout's empty aria-tools and
+                # publish a stub with null fields — two writers, one filename.
+                first_governed_mutation_step=_RESTORE_STEP,
+                allowed_write_path_patterns=(
+                    rf"^aria-tools/reports/daily/{_REPORT_DATE}\.md$",
+                    rf"^{_STORE_ROOT}(/.*)?$",
+                ),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-daily-report-generate-preflight\.json$",
                 upload_artifact_name_pattern=rf"^aria-daily-report-{_REPORT_DATE_EXPR}$",
                 upload_artifact_path_patterns=(
@@ -466,7 +476,9 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 retention_days=365,
                 required_permissions=(("contents", "read"),),
                 token_source="github_actions_artifact_token",
-                network_policy=("github_artifact",),
+                # `github_git` is the aria/state restore — a different
+                # credential and blast radius from artifact upload.
+                network_policy=("github_artifact", "github_git"),
                 dlp_artifact="aria-daily-report-generate-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),

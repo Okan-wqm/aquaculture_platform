@@ -10,12 +10,23 @@
   ],
   "output_schema": {
     "type": "object",
-    "required": ["observations", "findings", "read_paths", "evidence_sources"]
+    "required": [
+      "observations",
+      "findings",
+      "read_paths",
+      "evidence_sources"
+    ]
   },
   "fixture_set": "tools/aria-adapters/fixtures/tenant-scoping-adapter",
-  "health_thresholds": {"max_cost_units": 3500},
+  "health_thresholds": {
+    "max_cost_units": 3500
+  },
   "default_input": {
-    "roots": ["apps", "libs", "platform/libs"],
+    "roots": [
+      "apps",
+      "libs",
+      "platform/libs"
+    ],
     "includeRepositoryReadFindings": false
   },
   "allowed_read_globs": [
@@ -23,8 +34,21 @@
     "libs/**/*.ts",
     "platform/libs/**/*.ts"
   ],
-  "forbidden_read_globs": [".claude/**", ".git/**", "agent-workspace/**", ".aria-poc/**", "aria-tools/**", "node_modules/**", "dist/**", "coverage/**", "build/**", "tmp/**"],
-  "claim_types": ["tenant_scoping"],
+  "forbidden_read_globs": [
+    ".claude/**",
+    ".git/**",
+    "agent-workspace/**",
+    ".aria-poc/**",
+    "aria-tools/**",
+    "node_modules/**",
+    "dist/**",
+    "coverage/**",
+    "build/**",
+    "tmp/**"
+  ],
+  "claim_types": [
+    "tenant_scoping"
+  ],
   "owner": "platform",
   "runner": {
     "type": "subprocess",
@@ -37,7 +61,8 @@
     ],
     "cwd": ".",
     "timeout_ms": 180000,
-    "stdin_json": true
+    "stdin_json": true,
+    "node_max_old_space_mb": 3072
   },
   "schema_version": 1
 }

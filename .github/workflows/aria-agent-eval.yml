@@ -81,7 +81,15 @@ jobs:
                   "mock-mode eval uses local fixtures only; network reach is the "
                   "aria/state fetch+push over the repository remote"
               ),
-              token_provenance="none",
+              # The truthful provenance: the eval job persists its ledger to
+              # aria/state with `github.token` (PUBLISH_TOKEN below), and the
+              # job contract declares token_source="github_actions_artifact_token".
+              # This line still said "none" from before the durable-store move,
+              # so the kernel preflight refused every run at start
+              # (`token_provenance_mismatch:none!=github_actions_artifact_token`)
+              # — the weekly eval lane had been dead on arrival since the
+              # contract was tightened.
+              token_provenance="github_actions_artifact_token",
               require_github_app=False,
               dlp_mode="fail_closed",
               dlp_scan_clean=True,

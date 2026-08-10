@@ -8563,6 +8563,7 @@ across the last 5 COMPLETED cycles are reported starved, with the producer
 chain a reader would walk, as a `SIGNAL STARVED` line in the daily report.
 Fewer cycles than the window is insufficient history, not an alarm; a
 nothing-starved day renders no heading at all.
+
 ## ORPHAN-MEDIUM-606 — the uncertainty ledger recorded and nobody read it back — RESOLVED (this PR)
 
 **Severity:** MEDIUM (an advisory channel that cannot escalate trains its readers to ignore it)

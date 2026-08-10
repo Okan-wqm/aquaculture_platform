@@ -7981,6 +7981,18 @@ Per-tenant tables live only in tenant schemas, so a tenant without one cannot ho
 
 **Owner:** operator to route (candidate: multi-tenant-saas-expert). **Status:** OPEN.
 
+## ORPHAN-HIGH-572 — every outbox alarm watches the queue, so a relay that stopped reads as a queue with nothing in it — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, W-C slice 3; verified firsthand against `platform/libs/outbox/src/outbox-worker.service.ts` and `outbox-metrics.service.ts`.
+
+The outbox exports `outbox_pending`, `outbox_oldest_pending_age_seconds`, `outbox_dead_letter_count` and publish counters, and W-A put alarms on the first three. Every one of them is written BY the relay cycle and describes the QUEUE. When the relay process stops, those gauges stop being updated and hold their last scraped value — so a dispatcher that died with an empty queue reports zero pending forever, and the stall alarm that was supposed to catch a stalled relay never fires, because nothing is ageing in a queue nobody is reading.
+
+That is the same shape as the two incidents this week (`docker ps` reporting "Up" for an exited container; the tenant-schema provisioner dead six days): a healthy-looking signal produced by the absence of the thing that would report trouble.
+
+**Fix (this PR):** `outbox_relay_last_cycle_timestamp_seconds{service}`, set in the poll cycle's `finally` block, plus an alarm at five minutes — sixty missed cycles for a five-second poll. `finally` rather than the success path on purpose: a cycle that threw still proves the relay is alive, and "failing" is a different alarm from "absent". The gauge is written on idle cycles too, because an idle relay is exactly the case the queue gauges cannot tell apart from a dead one.
+
+Kept inside the outbox library's own metrics service rather than adopting the new cron heartbeat helper: `platform/libs/outbox` does not depend on backend-common, and reaching across that boundary for a gauge would trade a real architectural line for a small convenience.
+
 ## ORPHAN-HIGH-575 — the tenant provisioning saga verified its own bookkeeping and called it a schema, so a tenant could reach ACTIVE owning nothing — RESOLVED (this PR)
 
 **Discovered:** 2026-08-06, reading the provisioning path end to end after ORPHAN-HIGH-570 recorded three production tenants and one `tenant_*` schema. This finding is the mechanism behind the "ACTIVE but schemaless" half of that observation.
@@ -8428,6 +8440,48 @@ sufficient for the step named in the contract.
 
 **Not fixed here:** `ARIA_GITHUB_APP_TOKEN` remains unprovisioned (operator).
 The workflow now works on the fallback token, so it is no longer a blocker.
+
+## ORPHAN-HIGH-602 — the autonomy lane scheduled work no tool could run and minted requests no agent could evidence — RESOLVED (this PR)
+
+**Severity:** HIGH (the lane's queue was self-sustaining garbage: one item re-enqueued every cycle since 2026-08-08)
+**Owner:** ARIA
+**Discovered:** 2026-08-09 — by ARIA itself. The first accepted agent response
+(AIR-aria-autonomy-planner-5636a540ccaa, 540s) traced queue item
+qi-1edfe1882f49 and delivered mechanism-level root causes with executed proof.
+
+Three mechanisms, closed together:
+
+1. **Stripped tool bindings stayed schedulable.** `_filter_candidate_tools`
+   intersects a pressure's tools against a registry holding zero entries; the
+   loss was recorded as an advisory uncertainty (9 identical rows, zero
+   escalation) while the pressure kept scoring 100.0, won a next_cycle_plan
+   slot, and re-enqueued forever. Now the strip writes `blocked_by` on the
+   pressure — the field existed and was minted empty on every pressure — and
+   the queue writer refuses items carrying it.
+
+2. **Requests could not carry evidence.** They were minted with
+   `evidence_refs=[pressure_id]`, and a pressure id cannot parse under the
+   evidence validator's grammar, so the only passable envelope was
+   empty-evidence + satisfied — a blocked verdict was structurally
+   unrepresentable. Refs now come from the pressure's own evidence paths
+   (concrete repo paths by construction); the identifier keeps its own
+   channel, `pressure_event_id`.
+
+3. **Daemon runs minted `target_sha=null`.** The drain call site passed
+   `workspace_root` through raw while its five siblings apply
+   `Path(workspace_root) if workspace_root else root`, so the head-SHA
+   resolve ran against the daemon's cwd. Every real ref graded
+   `baseline_unavailable`. The sibling fallback is applied.
+
+**Planner's step 4, upgraded from operator-manual to architectural:** the
+runtime registry was empty because `registry_compiler` and the CLI `tool
+register` verb existed and nothing invoked them against the live state — the
+same mechanism-without-a-caller class as the claim reaper. A new
+`tool_manifest_sync` cycle phase registers `tools/aria-adapters/*.tool.json`
+into the runtime registry at cycle start, before anything reads it, through
+`register_tool` per manifest so the status transition matrix holds — a
+quarantined tool stays quarantined, and that refusal is reported, not
+escalated.
 
 ## ORPHAN-CRITICAL-601 — the executor kept its own copy of the prompt projection, and the binding died a second time — RESOLVED (this PR)
 

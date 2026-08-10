@@ -43,6 +43,7 @@ const METRIC_DEAD_LETTER = 'outbox_dead_letter_count';
 const METRIC_PUBLISH_LATENCY = 'outbox_publish_latency_seconds';
 const METRIC_PUBLISH_TOTAL = 'outbox_publish_total';
 const METRIC_PUBLISH_FAILURES = 'outbox_publish_failures_total';
+const METRIC_RELAY_LAST_CYCLE = 'outbox_relay_last_cycle_timestamp_seconds';
 
 /**
  * Histogram buckets cover the expected distribution:
@@ -61,6 +62,7 @@ export class OutboxMetricsService {
   private readonly publishLatency: client.Histogram<string>;
   private readonly publishTotal: client.Counter<string>;
   private readonly publishFailures: client.Counter<string>;
+  private readonly relayLastCycle: client.Gauge<string>;
 
   constructor() {
     const registry = client.register;
@@ -127,6 +129,34 @@ export class OutboxMetricsService {
         labelNames: ['service', 'event_type'],
         registers: [registry],
       });
+
+    this.relayLastCycle =
+      (registry.getSingleMetric(METRIC_RELAY_LAST_CYCLE) as client.Gauge<string>) ??
+      new client.Gauge({
+        name: METRIC_RELAY_LAST_CYCLE,
+        help: 'Unix timestamp of the last completed outbox relay cycle (liveness, not throughput)',
+        labelNames: ['service'],
+        registers: [registry],
+      });
+  }
+
+  /**
+   * The relay completed a cycle.
+   *
+   * WHY a separate signal from the pending gauges: `outbox_pending` and
+   * `outbox_oldest_pending_age_seconds` describe the QUEUE. If the relay
+   * process stops, those gauges stop being written and hold their last
+   * value - a stalled dispatcher with an empty queue reports zero pending
+   * forever and looks perfectly healthy. This gauge describes the RELAY,
+   * so "nothing to publish" and "nothing is publishing" stop being the
+   * same observation.
+   *
+   * Set on every cycle including the ones that found nothing: an idle
+   * relay is alive, and that is exactly the case the queue gauges cannot
+   * distinguish from a dead one.
+   */
+  markRelayCycle(service: string): void {
+    this.relayLastCycle.set({ service }, Date.now() / 1000);
   }
 
   /** Update the pending-count gauge for this service. */

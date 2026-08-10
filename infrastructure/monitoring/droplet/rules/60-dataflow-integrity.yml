@@ -107,6 +107,18 @@ groups:
           description: 'Individual scanners failed inside an otherwise completed scan, so the all-clear covers less ground than it appears to.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-isolation-watchdog.md'
 
+      - alert: OutboxRelayNotRunning
+        expr: |
+          time() - max by (service) (outbox_relay_last_cycle_timestamp_seconds) > 300
+        for: 5m
+        labels:
+          severity: critical
+          target_auditor: job-queue-auditor
+        annotations:
+          summary: '{{ $labels.service }} outbox relay has not completed a cycle in 5 minutes'
+          description: 'The relay polls every 5 seconds, so sixty missed cycles means the dispatcher is gone. This is the gap the queue gauges cannot show: when the relay stops, outbox_pending stops being written and holds its last value, so a dead dispatcher with an empty queue reads as perfectly healthy.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/dataflow-integrity.md'
+
   # W-C — scheduled jobs that stop running. Ninety @Cron methods exist and
   # five had a last-run surface, so "the job is fine" and "the job has not
   # fired since the last restart" were the same observation. These rules

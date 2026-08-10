@@ -406,6 +406,19 @@ def _filter_candidate_tools(root: Path, pressures: list[dict[str, Any]]) -> None
         pressure["candidate_tools"] = filtered
         missing = sorted(set(original) - set(filtered))
         if missing and not filtered:
+            # A stripped tool binding is a BLOCK, not an aside. This branch
+            # used to record only the advisory row below, so a pressure whose
+            # every candidate tool had vanished from the registry stayed
+            # fully schedulable: it scored, won a next_cycle_plan slot, was
+            # enqueued, and could never run — nine identical advisory rows
+            # and zero escalation, every cycle, self-sustaining. `blocked_by`
+            # is minted empty on every pressure precisely so states like
+            # this one have somewhere structural to live; the queue writer
+            # refuses items that carry it (see reflection.py), which makes
+            # the unrunnable state unschedulable rather than merely logged.
+            pressure["blocked_by"] = [
+                f"candidate_tool_unregistered:{tool_id}" for tool_id in missing
+            ]
             append_jsonl(
                 root / "memory" / "uncertainties.jsonl",
                 {

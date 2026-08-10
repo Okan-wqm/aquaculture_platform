@@ -22,6 +22,7 @@ def run_reflection(
     pedagogy_lint_result: dict[str, Any] | None = None,
     skill_genesis_result: dict[str, Any] | None = None,
     calibration_result: dict[str, Any] | None = None,
+    recommendation_result: dict[str, Any] | None = None,
     proactive_result: dict[str, Any] | None = None,
     cycle_runner_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -127,6 +128,11 @@ def run_reflection(
         # orchestrator path populates with real producer outputs.
         "skill_genesis": skill_genesis_result if skill_genesis_result else None,
         "calibration": calibration_result if calibration_result else None,
+        # What ARIA would change about its own scoring if an operator agreed.
+        # Produced every cycle by the calibration_recommendation phase and
+        # shown here, because a recommendation nobody sees is the same as one
+        # nobody makes.
+        "calibration_recommendation": recommendation_result if recommendation_result else None,
         "proactive": proactive_result if proactive_result else None,
         "cycle_runner": cycle_runner_result if cycle_runner_result else None,
         "next_cycle_plan": [
@@ -574,6 +580,50 @@ def _render_calibration_section(reflection: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _render_calibration_recommendation_section(reflection: dict[str, Any]) -> list[str]:
+    """The weight changes ARIA would make to its own scoring, if approved.
+
+    The write path (`pressure weight-override`) has always existed and had
+    nothing feeding it: the producer was reachable only from a superseded
+    driver, and the reader from nowhere at all. Rendering the recommendation
+    is the half that makes the operator's approval possible — an unread
+    recommendation is indistinguishable from one that was never computed.
+
+    Applying it stays a human act, deliberately. A system that silently
+    reweights its own scoring can rationalise anything it later measures.
+    """
+    recommendation = reflection.get("calibration_recommendation")
+    if not recommendation:
+        return []
+    weights = recommendation.get("pressure_weight_recommendations") or []
+    tools = recommendation.get("tool_recommendations") or []
+    if not weights and not tools:
+        return []
+    lines = [
+        "## Calibration Recommendations (advisory)",
+        "",
+    ]
+    if weights:
+        lines.append("Pressure-source weights ARIA would change:")
+        for row in weights:
+            lines.append(
+                f"  - {row.get('source')}: {row.get('current_weight')} -> "
+                f"{row.get('recommended_weight')} ({row.get('reason', 'no reason given')})"
+            )
+        lines.append("")
+        lines.append(
+            "  Apply with `aria-kernel pressure weight-override` — approval is an "
+            "operator act, not a cycle outcome."
+        )
+    if tools:
+        lines.append("")
+        lines.append(f"Tool-level recommendations: {len(tools)}")
+        for row in tools[:5]:
+            lines.append(f"  - {row.get('tool_id')}: {row.get('recommendation', 'see ledger')}")
+    lines.append("")
+    return lines
+
+
 def _render_proactive_section(reflection: dict[str, Any]) -> list[str]:
     """Plan 027 §D3 — render the daily report's Proactive Priorities section:
     the impact x opportunity ranking of where to invest next, shown even when
@@ -699,6 +749,7 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         *_render_convergence_section(reflection),
         *_render_pedagogy_section(reflection),
         *_render_calibration_section(reflection),
+        *_render_calibration_recommendation_section(reflection),
         *_render_proactive_section(reflection),
         "## Committed Findings",
         "",

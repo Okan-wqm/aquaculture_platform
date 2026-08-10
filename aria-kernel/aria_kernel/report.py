@@ -67,6 +67,53 @@ def _count_events(path: Path) -> int:
     return len(_safe_read_lines(path))
 
 
+# FAZ 5c — the governance kinds that mean "the night could not run for an
+# environment reason". The pre-claim gate (ci_executor) and the orchestrator
+# preflight are the producers; the anchor is where the operator reads the
+# WHY without opening the ledger.
+_BLOCKED_REASON_KINDS = frozenset({
+    "claude_auth_unavailable",
+    "sandbox_unavailable",
+    "env_deps_missing",
+    "autonomy_orchestrator_refused",
+    "preflight_standard_warnings",
+})
+
+
+def _blocked_reasons(governance_path: Path, date: str) -> list[dict[str, Any]]:
+    """The environment refusals recorded on ``date``, newest last.
+
+    Derived from the ledger rather than passed by the caller (tier 2:
+    automatic) — a night that could not run always leaves its governance
+    row, so the anchor carries the cause with zero caller cooperation.
+    """
+    reasons: list[dict[str, Any]] = []
+    for line in _safe_read_lines(governance_path):
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        kind = str(row.get("kind") or "")
+        if kind not in _BLOCKED_REASON_KINDS:
+            continue
+        # governance_event rows stamp `ts` (aria/governance-event/v2).
+        recorded_at = str(row.get("ts") or row.get("recorded_at") or "")
+        if not recorded_at.startswith(date):
+            continue
+        details = row.get("details") if isinstance(row.get("details"), dict) else {}
+        detail = details.get("detail") or details.get("reason")
+        if not detail and isinstance(details.get("reasons"), list):
+            detail = "; ".join(str(item) for item in details["reasons"])
+        reasons.append({
+            "kind": kind,
+            "detail": str(detail or ""),
+            "recorded_at": recorded_at,
+        })
+    return reasons
+
+
 def _read_sealed_cycle_ids(cycles_path: Path) -> list[str]:
     """Return cycle_ids whose latest row carries a terminal status."""
     terminal = {"completed", "failed", "stopped", "aborted"}
@@ -260,6 +307,11 @@ def build_daily_anchor(
         # continuity has a witness outside the state store itself.
         "state_snapshot_id": snapshot_id,
         "state_manifest_root": manifest_root,
+        # FAZ 5c — additive: when the night could not run, the anchor says
+        # WHY (environment refusals recorded on this date). Empty list on a
+        # healthy night; the I-26 invariant constrains only the
+        # pre-existing fields.
+        "blocked_reason": _blocked_reasons(governance_path, date),
     }
 
 

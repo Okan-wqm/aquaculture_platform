@@ -80,6 +80,10 @@ try:
     # of re-declaring it here, so the fail-fast gate below can never drift
     # from the kernel-side _validate_plan_content gate it mirrors.
     from aria_kernel.plan_convergence import PLAN_CONTENT_REQUIRED as _PLAN_CONTENT_REQUIRED
+    # FAZ 5b — the pre-claim environment gate writes governance rows through
+    # the kernel and probes the sandbox through the runtime's own accessor.
+    from aria_kernel.tool_registry import append_tools_governance as _append_tools_governance
+    from aria_kernel.implementation_safety import sandbox_backend as _sandbox_backend
 except Exception:  # pragma: no cover - fallback keeps standalone contract importable
     _DISPATCHABLE_ROLES = frozenset({
         "specialist_domain_review",
@@ -95,6 +99,8 @@ except Exception:  # pragma: no cover - fallback keeps standalone contract impor
     })
     _render_invocation_prompt = None
     _fuse_prompt_envelope = None
+    _append_tools_governance = None
+    _sandbox_backend = None
     # Standalone-mode fallback: identical value/order to the kernel SSoT.
     # Intentional duplication for kernel-less importability; WS2 adds a
     # drift guard asserting this equals plan_convergence.PLAN_CONTENT_REQUIRED.
@@ -1776,6 +1782,59 @@ def _record_mock_mode_audit(tools_dir: Path) -> None:
     )
 
 
+def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
+    """Refuse to CLAIM a request the environment cannot host (FAZ 5b).
+
+    The correct shape existed in the dead `--consume` loop: preflight the
+    Claude auth BEFORE touching the queue. The CI path claimed first and
+    discovered the broken environment after, so a night with no auth or no
+    sandbox burned a claim (and a requeue) per request — environment faults
+    priced as request failures, the same M-2.5 class as ORPHAN-HIGH-605/610.
+
+    Returns None when the dispatch can proceed, else the governance kind
+    recorded (`claude_auth_unavailable` / `sandbox_unavailable` /
+    `env_deps_missing`). On refusal the request is NEVER claimed: it stays
+    PENDING for a healthy host instead of consuming a lease + requeue here.
+    Mock mode skips the gate — a mock dispatch needs none of the surfaces.
+    """
+    if _MOCK_MODE_AT_ENTRY:
+        return None
+
+    kind: str | None = None
+    detail = ""
+    try:
+        preflight_claude_auth()
+    except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation) as exc:
+        kind, detail = "claude_auth_unavailable", str(exc)
+    if kind is None and _sandbox_backend is not None and _sandbox_backend() is None:
+        kind, detail = "sandbox_unavailable", (
+            "sandbox_backend() returned None; write-capable spawns would be refused"
+        )
+    if kind is None and not (Path.cwd() / "node_modules").is_dir():
+        kind, detail = "env_deps_missing", (
+            "workspace has no node_modules; agent validation commands cannot run"
+        )
+    if kind is None:
+        return None
+
+    sys.stderr.write(f"::error::pre_claim_environment_gate: {kind}: {detail}\n")
+    if _append_tools_governance is not None:
+        try:
+            _append_tools_governance(
+                tools_dir,
+                kind,
+                {
+                    "source": "ci_executor_pre_claim_gate",
+                    "detail": detail,
+                    "run_id": os.environ.get("GITHUB_RUN_ID", "local"),
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 — a governance-write failure
+            # must not mask the environment refusal it is trying to record.
+            sys.stderr.write(f"governance_write_failed: {exc}\n")
+    return kind
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point — runs one cycle. Designed to be called by GHA step."""
     args = argv if argv is not None else sys.argv[1:]
@@ -1853,6 +1912,13 @@ def main(argv: list[str] | None = None) -> int:
         claim_id = claim["claim_id"]
         agent_id = str(claim["agent_id"])
     else:
+        # FAZ 5b — environment gate BEFORE the claim. Single-claim mode skips
+        # it deliberately: the claim already exists there (the planner made
+        # it), so the request is already spent from the queue's perspective
+        # and refusing here would strand a held lease instead of saving one.
+        gate_kind = _pre_claim_environment_gate(tools_dir=tools_dir)
+        if gate_kind is not None:
+            return 1
         # Step 1 — claim the request through the kernel CLI.
         claim_proc = subprocess.run(
             [

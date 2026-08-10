@@ -688,6 +688,12 @@ def validate_runner_definition(runner: Any) -> dict[str, Any]:
     timeout_ms = candidate.get("timeout_ms")
     if not isinstance(timeout_ms, int) or timeout_ms <= 0:
         raise GovernanceError("runner.timeout_ms must be a positive integer")
+    # Optional memory budget for node runners; the tool_runner defaults to
+    # 2048 MB when absent. Declared here so a wide-scope adapter can raise
+    # its ceiling in the manifest instead of inheriting the host's accident.
+    node_heap = candidate.get("node_max_old_space_mb")
+    if node_heap is not None and (not isinstance(node_heap, int) or node_heap <= 0):
+        raise GovernanceError("runner.node_max_old_space_mb must be a positive integer")
     if not isinstance(candidate.get("stdin_json"), bool):
         raise GovernanceError("runner.stdin_json must be a boolean")
     return candidate

@@ -333,14 +333,18 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
     this.regulatoryCronRuns = new client.Counter({
       name: 'farm_regulatory_cron_runs_total',
       help: 'Regulatory scheduler job runs by job name and outcome',
-      labelNames: ['job', 'outcome'],
+      // `cron_job`, not `job`: Prometheus reserves `job` for the scrape
+      // target and renames a colliding metric label to `exported_job`, which
+      // is where this family sits on the droplet today. See the same note in
+      // libs/backend-common/src/metrics/cron-heartbeat.service.ts.
+      labelNames: ['cron_job', 'outcome'],
       registers: [this.registry],
     });
 
     this.regulatoryCronLastRun = new client.Gauge({
       name: 'farm_regulatory_cron_last_run_timestamp_seconds',
       help: 'Unix timestamp of the last run of each regulatory scheduler job (heartbeat)',
-      labelNames: ['job'],
+      labelNames: ['cron_job'],
       registers: [this.registry],
     });
 
@@ -381,45 +385,45 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
     this.environmentCronRuns = new client.Counter({
       name: 'farm_environment_cron_runs_total',
       help: 'Environmental monitoring scheduler runs by bounded job and terminal outcome',
-      labelNames: ['job', 'outcome'],
+      labelNames: ['cron_job', 'outcome'],
       registers: [this.registry],
     });
     this.environmentCronDuration = new client.Histogram({
       name: 'farm_environment_cron_run_duration_seconds',
       help: 'Environmental monitoring scheduler run duration by bounded job and terminal outcome',
-      labelNames: ['job', 'outcome'],
+      labelNames: ['cron_job', 'outcome'],
       buckets: [0.1, 0.5, 1, 5, 15, 30, 60, 300, 900, 1800, 3600, 5400],
       registers: [this.registry],
     });
     this.environmentCronLastRun = new client.Gauge({
       name: 'farm_environment_cron_last_run_timestamp_seconds',
       help: 'Unix timestamp of the last invocation of each environmental monitoring job',
-      labelNames: ['job'],
+      labelNames: ['cron_job'],
       registers: [this.registry],
     });
     this.environmentCronHeartbeat = new client.Gauge({
       name: 'farm_environment_cron_heartbeat_timestamp_seconds',
       help: 'Unix timestamp of the latest start or completed work item for each environmental job',
-      labelNames: ['job'],
+      labelNames: ['cron_job'],
       registers: [this.registry],
     });
     this.environmentCronLastSuccess = new client.Gauge({
       name: 'farm_environment_cron_last_success_timestamp_seconds',
       help: 'Unix timestamp of the last fully successful environmental monitoring job run',
-      labelNames: ['job'],
+      labelNames: ['cron_job'],
       registers: [this.registry],
     });
     this.environmentCronLastFailure = new client.Gauge({
       name: 'farm_environment_cron_last_failure_timestamp_seconds',
       help: 'Unix timestamp of the last partial or complete environmental monitoring job failure',
-      labelNames: ['job'],
+      labelNames: ['cron_job'],
       registers: [this.registry],
     });
     for (const job of ['provider_sync', 'retention'] as const) {
-      this.environmentCronLastRun.set({ job }, 0);
-      this.environmentCronHeartbeat.set({ job }, 0);
-      this.environmentCronLastSuccess.set({ job }, 0);
-      this.environmentCronLastFailure.set({ job }, 0);
+      this.environmentCronLastRun.set({ cron_job: job }, 0);
+      this.environmentCronHeartbeat.set({ cron_job: job }, 0);
+      this.environmentCronLastSuccess.set({ cron_job: job }, 0);
+      this.environmentCronLastFailure.set({ cron_job: job }, 0);
     }
 
     this.environmentProviderCompletions = new client.Counter({
@@ -523,8 +527,8 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
    * stops running entirely (heartbeat). `job` is a bounded set of job names.
    */
   recordRegulatoryCronRun(params: { job: string; outcome: RegulatoryCronOutcome }): void {
-    this.regulatoryCronRuns.inc({ job: params.job, outcome: params.outcome });
-    this.regulatoryCronLastRun.set({ job: params.job }, Date.now() / 1000);
+    this.regulatoryCronRuns.inc({ cron_job: params.job, outcome: params.outcome });
+    this.regulatoryCronLastRun.set({ cron_job: params.job }, Date.now() / 1000);
   }
 
   /**
@@ -570,21 +574,21 @@ export class FarmDomainMetricsService implements OnModuleInit, OnModuleDestroy {
     durationSeconds: number;
   }): void {
     const nowSeconds = Date.now() / 1000;
-    this.environmentCronRuns.inc({ job: params.job, outcome: params.outcome });
+    this.environmentCronRuns.inc({ cron_job: params.job, outcome: params.outcome });
     this.environmentCronDuration.observe(
-      { job: params.job, outcome: params.outcome },
+      { cron_job: params.job, outcome: params.outcome },
       params.durationSeconds,
     );
-    this.environmentCronLastRun.set({ job: params.job }, nowSeconds);
+    this.environmentCronLastRun.set({ cron_job: params.job }, nowSeconds);
     if (params.outcome === 'success') {
-      this.environmentCronLastSuccess.set({ job: params.job }, nowSeconds);
+      this.environmentCronLastSuccess.set({ cron_job: params.job }, nowSeconds);
     } else if (params.outcome !== 'disabled') {
-      this.environmentCronLastFailure.set({ job: params.job }, nowSeconds);
+      this.environmentCronLastFailure.set({ cron_job: params.job }, nowSeconds);
     }
   }
 
   recordEnvironmentCronHeartbeat(job: EnvironmentCronJob): void {
-    this.environmentCronHeartbeat.set({ job }, Date.now() / 1000);
+    this.environmentCronHeartbeat.set({ cron_job: job }, Date.now() / 1000);
   }
 
   recordEnvironmentProviderCompletion(params: {

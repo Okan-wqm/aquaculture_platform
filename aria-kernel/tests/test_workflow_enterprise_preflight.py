@@ -122,7 +122,10 @@ class WorkflowEnterprisePreflightTests(unittest.TestCase):
                 workspace_root=workspace,
                 allowed_write_roots=["aria-tools/reports/daily/2026-06-02.md"],
                 path_allowlist=["aria-tools/reports/daily/2026-06-02.md"],
-                network_policy=["github_artifact"],
+                # FAZ 6a — the lane restores aria/state before the anchor, so
+                # the contract (and therefore this fixture) declares the git
+                # reach alongside artifact upload.
+                network_policy=["github_artifact", "github_git"],
                 network_enforcement_evidence="checkout/setup actions and GitHub artifact upload",
                 token_provenance="github_actions_artifact_token",
                 audit_reason="unit test",

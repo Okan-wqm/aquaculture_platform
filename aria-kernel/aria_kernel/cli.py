@@ -180,6 +180,7 @@ _TOOL_RUN_EXIT_CODES: dict[str, int] = {
     "output_unparseable": 1,
     "budget_exceeded": 2,
     "tool_unhealthy": 3,
+    "environment_unavailable": 1,
 }
 
 
@@ -840,11 +841,32 @@ def build_parser() -> argparse.ArgumentParser:
     tool_quarantine = add_subparser(tool_sub, "quarantine")
     tool_quarantine.add_argument("--tool-id", required=True)
     tool_quarantine.add_argument("--reason", required=True, type=_validate_reason)
+    # The audited way back. unquarantine_tool has existed since Plan 022 and
+    # was API-only — so when six adapters were quarantined by an environment
+    # fault, there was no operator-reachable path to lift it. Mechanism
+    # without a caller, CLI edition.
+    tool_unquarantine = add_subparser(tool_sub, "unquarantine")
+    tool_unquarantine.add_argument("--tool-id", required=True)
+    tool_unquarantine.add_argument("--reason", required=True, type=_validate_reason)
+    tool_unquarantine.add_argument("--operator-approval-ref", required=True)
+    tool_unquarantine.add_argument("--root-cause-note", required=True)
+    tool_unquarantine.add_argument("--fixture-update-ref", required=True)
     tool_run = add_subparser(tool_sub, "run")
     tool_run.add_argument("--tool-id", required=True)
     tool_run.add_argument("--input", default="{}")
     tool_run.add_argument("--cycle-id", required=True)
     tool_run.add_argument("--workspace-root", default=".")
+
+    # FAZ 5a — the merge gate's attestation ledger finally gets a producer
+    # verb. verify_runner_attestation was MANDATORY at merge and NOTHING
+    # wrote a row; mechanism without a caller, ledger edition.
+    attestation_parser = add_subparser(sub, "runner-attestation")
+    attestation_sub = attestation_parser.add_subparsers(
+        dest="attestation_command", required=True
+    )
+    attestation_probe = add_subparser(attestation_sub, "probe")
+    attestation_probe.add_argument("--repo", required=True)
+    attestation_probe.add_argument("--target-ref", required=True)
 
     registry_parser = add_subparser(sub, "registry")
     registry_sub = registry_parser.add_subparsers(dest="registry_command", required=True)
@@ -2690,6 +2712,18 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(quarantine_tool(args.tool_id, args.reason, base_dir=args.tools_dir), indent=2, sort_keys=True))
         return 0
 
+    if args.command == "tool" and args.tool_command == "unquarantine":
+        from aria_kernel.tool_registry import unquarantine_tool
+        print(json.dumps(unquarantine_tool(
+            args.tool_id,
+            operator_approval_ref=args.operator_approval_ref,
+            reason=args.reason,
+            root_cause_note=args.root_cause_note,
+            fixture_update_ref=args.fixture_update_ref,
+            base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
+        return 0
+
     if args.command == "tool" and args.tool_command == "run":
         payload = json.loads(args.input)
         result = run_tool(
@@ -2703,6 +2737,20 @@ def _main(argv: list[str] | None = None) -> int:
         # can pattern-match exit code for failure detection.
         envelope_status = (result.get("envelope") or {}).get("status", "ok")
         return _TOOL_RUN_EXIT_CODES.get(envelope_status, 1)
+
+    if args.command == "runner-attestation" and args.attestation_command == "probe":
+        # FAZ 5a — lane-start producer: one probed attestation row per
+        # recorded readiness claim, keyed exactly as the merge gate reads.
+        from aria_kernel.runner_attestation import (
+            probe_runner_attestations_for_claims,
+        )
+        result = probe_runner_attestations_for_claims(
+            base_dir=args.tools_dir,
+            repo=args.repo,
+            target_ref=args.target_ref,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
 
     if args.command == "registry" and args.registry_command == "compile":
         try:

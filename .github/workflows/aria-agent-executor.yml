@@ -416,6 +416,15 @@ jobs:
         if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
         uses: ./.github/actions/ensure-sandbox-backend
 
+      # FAZ 5a — attestation producer on the executor lane too: the merge
+      # gate keys rows by readiness claim, and this lane's host is part of
+      # the environment those claims describe. Idempotent per claim triple.
+      - name: Probe and record runner attestation
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
+        uses: ./.github/actions/probe-runner-attestation
+        with:
+          tools-dir: ${{ env.ARIA_TOOLS_DIR }}
+
       - name: Run CI executor
         id: executor
         if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''

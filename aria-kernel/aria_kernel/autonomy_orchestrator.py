@@ -176,9 +176,30 @@ def _drain_next_cycle_queue(
     base_dir: Path,
     daemon_agent_id: str,
     limit: int,
+    workspace_root: str | Path | None = None,
 ) -> int:
     # A queue item is consumed only after its agent request is appended.
     import json
+
+    from .convergence_drainer import _resolve_workspace_head_sha
+    from .pressure import explain_pressure
+
+    # The commit the agent's evidence will be graded against.
+    #
+    # WHY IT IS HERE NOW: the convergence lane threads this and says why in its
+    # own helper — "without it EVERY real ref is worktree_candidate and
+    # convergence can never complete". The autonomy lane minted its requests
+    # with no target_sha at all, so `_resolve_target_sha` returned None, the
+    # `repo_verified` branch was never even attempted, and every single
+    # evidence ref an agent produced was downgraded.
+    #
+    # Observed live 2026-08-09: the first agent run to survive the runtime
+    # fixes worked for ten minutes, passed pre-submit validation, and had its
+    # result REJECTED with 44 `agent_evidence_not_repo_verified` reasons —
+    # every one of them a real file the agent had genuinely read. One lane
+    # carried the baseline and the other did not; the same helper now serves
+    # both.
+    target_sha = _resolve_workspace_head_sha(workspace_root)
 
     from .agent_invocations import (
         create_agent_invocation_request,
@@ -216,6 +237,51 @@ def _drain_next_cycle_queue(
             "recommended_action": item.get("recommended_action"),
             "candidate_tools": item.get("candidate_tools", []),
         }
+        # Evidence refs come from the pressure's own evidence paths, not from
+        # the pressure identifier. A pressure id ("pressure:...:repetition")
+        # cannot parse under the evidence validator's _AGENT_REF_RE, so a
+        # request minted with it as its sole ref was a request no agent could
+        # ever answer with admissible evidence — only an empty-evidence
+        # satisfied verdict could pass, and a blocked/contradicted verdict was
+        # structurally unrepresentable (agent_contract requires refs on
+        # those). Diagnosed by the planner's first accepted response (RC-2).
+        # The identifier keeps its own channel: pressure_event_id below.
+        evidence_refs: list[str] = []
+        source_cycle = str(item.get("source_cycle_id") or "")
+        pressure_id = str(item.get("pressure_id") or "")
+        if pressure_id.startswith("mission:"):
+            # A mission-selection item: the queue key is the mission marker,
+            # and the mission row itself carries the evidence refs its work
+            # accumulated. Resolving here keeps the drain's rule uniform —
+            # refs come from the SOURCE record, never from the identifier.
+            from .mission import fold_mission
+
+            try:
+                mission_row = fold_mission(
+                    mission_id=pressure_id.split(":", 1)[1], base_dir=base_dir,
+                )
+            except GovernanceError:
+                mission_row = None
+            if mission_row:
+                evidence_refs = [
+                    str(ref) for ref in (mission_row.get("evidence_refs") or [])
+                    if isinstance(ref, str) and ref
+                ]
+        elif source_cycle and pressure_id:
+            try:
+                pressure_record = explain_pressure(
+                    cycle_id=source_cycle, pressure_id=pressure_id, base_dir=base_dir,
+                )
+                evidence_refs = [
+                    str(path) for path in pressure_record.get("evidence") or []
+                    if isinstance(path, str) and path
+                ]
+            except (ValueError, OSError):
+                # No stored pressure payload for that cycle — fall through to
+                # the queue-item marker so the mint still traces to something.
+                evidence_refs = []
+        if not evidence_refs:
+            evidence_refs = [str(qid)]
         try:
             request = create_agent_invocation_request(
                 target_agent="aria-autonomy-planner",
@@ -227,8 +293,9 @@ def _drain_next_cycle_queue(
                     "required": True,
                 }],
                 allowed_scope=["aria-kernel/**", "aria-tools/**", ".claude/**"],
-                evidence_refs=[str(item.get("pressure_id") or qid)],
-                pressure_event_id=str(item.get("pressure_id") or "") or None,
+                target_sha=target_sha,
+                evidence_refs=evidence_refs,
+                pressure_event_id=pressure_id or None,
                 base_dir=base_dir,
             )
         except Exception as exc:
@@ -473,6 +540,59 @@ def _cycle_preflight(
     return PreflightVerdict("ok")
 
 
+def _apply_preflight_verdict(root: Path, profile: str, verdict: Any) -> None:
+    """Turn a preflight verdict into the profile's contracted consequence.
+
+    * autonomous + invalid → governance refusal row, then GovernanceError
+      (the run never enters its cycle loop on a misconfigured host).
+    * strict / standard + any reasons → soft-warn governance row. Keyed on
+      REASONS, not on ``verdict.valid``: non-autonomous verdicts are always
+      valid by construction (``valid = profile != "autonomous" or …``), so
+      the previous ``not verdict.valid`` guard made the documented strict
+      soft-warn unreachable — it never once fired (found by FAZ 5d while
+      adding the standard environment subset). Extracted to a function so
+      the reachability is pinned by a direct test instead of prose.
+
+    The kind keeps the profile in its name (`preflight_strict_warnings` /
+    `preflight_standard_warnings`) so the starvation sentinel and the daily
+    anchor's blocked_reason reader can tell an operator dry-run warning from
+    a nightly-producer environment fault.
+    """
+    # Late import, same as every governance write in this module: the
+    # runtime_profile ↔ tool_registry cycle forbids a module-level one.
+    from .tool_registry import GovernanceError, append_tools_governance
+
+    failure_classes = tuple(getattr(verdict, "failure_classes", ()) or ())
+    reasons = tuple(getattr(verdict, "reasons", ()) or ())
+    if profile == "autonomous" and not getattr(verdict, "valid", True):
+        append_tools_governance(
+            root, "autonomy_orchestrator_refused",
+            {
+                "reason": "autonomous_profile_preconditions_not_met",
+                "failure_classes": list(failure_classes),
+                "reasons": list(reasons),
+            },
+            bypass_profile_gate=True,
+        )
+        raise GovernanceError(
+            "autonomous_profile_preconditions_not_met: " + "; ".join(reasons)
+        )
+    if profile in ("strict", "standard") and reasons:
+        append_tools_governance(
+            root,
+            (
+                "preflight_strict_warnings"
+                if profile == "strict"
+                else "preflight_standard_warnings"
+            ),
+            {
+                "failure_classes": list(failure_classes),
+                "reasons": list(reasons),
+            },
+            bypass_profile_gate=True,
+        )
+
+
 def run_autonomy_orchestrator(
     *,
     base_dir: str | Path,
@@ -639,23 +759,29 @@ def run_autonomy_orchestrator(
     #     `preflight_strict_warnings` governance event but the cycle
     #     proceeds. Operator-driven dry-run cycles should still run on
     #     hosts missing GH App config.
-    #   * standard / observe / frozen → preflight skipped (the actions
-    #     these profiles permit don't require the preflight surface).
+    #   * standard → environment subset (FAZ 5d). The nightly producer
+    #     runs standard and used to skip preflight entirely, so a host
+    #     with no sandbox backend or node deps produced a green cycle
+    #     whose dispatches all failed downstream with the fault priced
+    #     on the tools. Soft-warn like strict — the governance row is
+    #     the signal; read-only phases may still be worth running.
+    #   * observe / frozen → preflight skipped (the actions these
+    #     profiles permit don't require the preflight surface).
     #
     # `bypass_profile_gate=True` ensures the governance event reaches
     # the audit ledger even under frozen/observe (which would
     # otherwise block tool_governance writes via Plan 026R §A.4
     # surface enforcement).
-    if profile in ("autonomous", "strict"):
+    if profile in ("autonomous", "strict", "standard"):
         try:
             from . import preflight as _preflight_mod
             # skip_remote=True under autonomous when GH_TOKEN unset
             # would defeat the autonomous gate (the gh api call IS
-            # the verification surface). Under strict, skip_remote
-            # honors the token-presence signal so operator dry-runs
-            # do not require GitHub auth.
+            # the verification surface). Under strict/standard,
+            # skip_remote honors the token-presence signal so
+            # operator dry-runs do not require GitHub auth.
             _skip_remote = (
-                profile == "strict"
+                profile in ("strict", "standard")
                 and not bool(os.environ.get("GH_TOKEN"))
             )
             verdict = _preflight_mod.verify_preflight(
@@ -682,32 +808,8 @@ def run_autonomy_orchestrator(
                     "autonomous_profile_preconditions_not_met: "
                     "preflight module not importable"
                 )
-        if verdict is not None and not getattr(verdict, "valid", True):
-            failure_classes = tuple(getattr(verdict, "failure_classes", ()) or ())
-            reasons = tuple(getattr(verdict, "reasons", ()) or ())
-            if profile == "autonomous":
-                append_tools_governance(
-                    root, "autonomy_orchestrator_refused",
-                    {
-                        "reason": "autonomous_profile_preconditions_not_met",
-                        "failure_classes": list(failure_classes),
-                        "reasons": list(reasons),
-                    },
-                    bypass_profile_gate=True,
-                )
-                raise GovernanceError(
-                    "autonomous_profile_preconditions_not_met: "
-                    + "; ".join(reasons)
-                )
-            # strict — soft-warn.
-            append_tools_governance(
-                root, "preflight_strict_warnings",
-                {
-                    "failure_classes": list(failure_classes),
-                    "reasons": list(reasons),
-                },
-                bypass_profile_gate=True,
-            )
+        if verdict is not None:
+            _apply_preflight_verdict(root, profile, verdict)
 
     try:
         with with_exclusive_lock(
@@ -906,6 +1008,15 @@ def run_autonomy_orchestrator(
                     base_dir=root,
                     daemon_agent_id=daemon_agent_id,
                     limit=max_iterations_per_phase,
+                    # The same fallback every sibling call site in this function
+                    # applies. This one passed the raw value through, and
+                    # workspace_root defaults to None — so the head-SHA resolve
+                    # ran against the daemon's cwd and minted requests with
+                    # target_sha=null, which grades every real evidence ref
+                    # baseline_unavailable. Diagnosed by the autonomy planner
+                    # itself in its first accepted response (RC-2,
+                    # AIR-aria-autonomy-planner-5636a540ccaa).
+                    workspace_root=Path(workspace_root) if workspace_root else root,
                 )
                 AutonomyStateReducer.transition(
                     root,

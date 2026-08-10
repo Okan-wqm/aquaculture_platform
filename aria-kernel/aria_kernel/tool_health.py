@@ -36,6 +36,11 @@ RUN_STATUSES = (
     "budget_exceeded",
     "tool_unhealthy",
     "integrity_failed",
+    # An environment fault: the workspace could not run the tool at all.
+    # Deliberately NOT in the quarantine trigger — it is the harness's
+    # failure, and repetition escalates through the uncertainty ledger
+    # instead (uncertainty_repeat).
+    "environment_unavailable",
 )
 REQUIRED_RUN_FIELDS = (
     "run_id",
@@ -340,6 +345,9 @@ def immediate_quarantine_reason(tool: dict[str, Any], run: dict[str, Any]) -> st
         return "crash corrupted ledger state"
     if run["status"] == "tool_unhealthy":
         return "tool runner unhealthy"
+    # environment_unavailable is intentionally absent from this trigger:
+    # quarantine prices the TOOL, and a workspace that cannot run any tool
+    # is not evidence about one.
     if run["status"] == "integrity_failed":
         return "runtime artifact integrity failed"
     if has_critical_false_positive(run):

@@ -8648,6 +8648,22 @@ state store and publishes with the same run.
 six adapter ids + an approval ref; the same run's tools phase then exercises
 the lifted tools against the provisioned workspace.
 
+## ORPHAN-HIGH-614 — the widest adapters crashed at a memory ceiling nobody declared — RESOLVED (this PR)
+
+**Severity:** HIGH (2 of 6 adapters cannot complete their first real run)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, cyc-…132318Z — the first cycle in which the
+adapters ever executed: tenant-scoping and test-gap (scope apps/** +
+libs/**) died at Node's default ~1 GB old-space after 67s/51s of real work.
+
+A resource the manifest never declared, enforced by a runtime the manifest
+never chose. **Fix:** `runner.node_max_old_space_mb` — validated manifest
+field, default 2048 in the runner, 3072 declared by the two wide-scope
+adapters; composed into NODE_OPTIONS without clobbering operator flags.
+
+**Also observed, next in queue:** `agent-harness-security-adapter`
+`evidence_error` (2.6s, python lane) — separate defect, separate change.
+
 ## ORPHAN-CRITICAL-600 — the prompt hash was minted over one object and verified against another — RESOLVED (this PR)
 
 **Severity:** CRITICAL (no agent invocation could ever start)

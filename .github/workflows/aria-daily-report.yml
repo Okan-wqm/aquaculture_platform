@@ -100,15 +100,22 @@ jobs:
           from aria_kernel.preflight import verify_workflow_preflight
 
           report = f"aria-tools/reports/daily/{os.environ['REPORT_DATE']}.md"
+          # FAZ 6a — the durable store joins the write roots: the anchor now
+          # reads the reflection report out of the restored aria/state store
+          # (and the restore materialises it), so declaring only the repo-
+          # local report path would describe the pre-FAZ-6 lane.
+          allowed = [report, ".aria-state-store"]
           verdict = verify_workflow_preflight(
               workflow_id="aria-daily-report",
               job_id="generate-report",
               profile="standard",
               workspace_root=os.environ["GITHUB_WORKSPACE"],
-              allowed_write_roots=[report],
-              path_allowlist=[report],
-              network_policy=["github_artifact"],
-              network_enforcement_evidence="actions/upload-artifact receives only the generated daily report",
+              allowed_write_roots=allowed,
+              path_allowlist=allowed,
+              # `github_git` is the aria/state fetch — a different credential
+              # and blast radius from artifact upload, declared separately.
+              network_policy=["github_artifact", "github_git"],
+              network_enforcement_evidence="actions/upload-artifact receives only the generated daily report; git reach is the aria/state restore",
               token_provenance="github_actions_artifact_token",
               require_github_app=False,
               dlp_mode="fail_closed",
@@ -120,6 +127,17 @@ jobs:
           if not verdict.valid:
               raise SystemExit(";".join(verdict.reasons))
           PY
+
+      # FAZ 6a — bind the durable store BEFORE the anchor is generated. The
+      # anchor used to read the ephemeral checkout's empty aria-tools, so the
+      # published PR carried a stub with null fields while the real report
+      # accumulated unread in aria/state: two writers, one filename. With the
+      # store restored, the anchor pins the DURABLE ledger tails and carries
+      # the reflection report for the same date as its body.
+      - name: Restore ARIA state from the aria/state branch
+        uses: ./.github/actions/restore-aria-state
+        with:
+          bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
 
       - name: Generate daily chain-tip anchor (Plan ARIA-V2 §3.9)
         env:
@@ -137,10 +155,13 @@ jobs:
           # kernel package is deliberately never installed (one import
           # source — the checkout on PYTHONPATH), so `-m` is the same entry
           # point every other ARIA workflow already uses.
+          # --tools-dir names the RESTORED store (the binding the restore
+          # action exported), never the ephemeral checkout's aria-tools.
           PYTHONPATH=aria-kernel python3 -m aria_kernel report daily \
             --emit-anchor \
             --date "${REPORT_DATE}" \
             --output-path "${REPORT}" \
+            --tools-dir "${ARIA_TOOLS_DIR}" \
             --workspace-root .
 
       - name: Upload report as artifact
@@ -241,6 +262,28 @@ jobs:
           print()
           print(f"Generated report: `{os.environ['REPORT']}`.")
           print()
+          # FAZ 6a — the body used to be three empty lines and a filename;
+          # the reviewer had to open the diff to learn anything. Carry the
+          # report's leading sections (past the anchor frontmatter, before
+          # the per-tool tables) so the PR reads as the day's summary.
+          try:
+              text = open(os.environ["REPORT"], encoding="utf-8").read()
+          except OSError:
+              text = ""
+          if text.startswith("---\n"):
+              end = text.find("\n---\n", 4)
+              if end != -1:
+                  text = text[end + 5:]
+          lines = text.strip().splitlines()
+          cut = next(
+              (i for i, line in enumerate(lines)
+               if line.startswith("### Raw Adapter Runtime")),
+              len(lines),
+          )
+          summary = lines[: min(cut, 80)]
+          if summary:
+              print("\n".join(summary))
+              print()
           print("This PR is created by `.github/workflows/aria-daily-report.yml`.")
           PY
 

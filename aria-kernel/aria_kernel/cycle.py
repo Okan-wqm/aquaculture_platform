@@ -38,7 +38,7 @@ from .goldset import propose_goldsets_for_labelled_tools
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
 from .runtime_profile import ACTION_PERMISSIONS, get_profile
-from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding, list_tools, utc_now, update_tools_index
+from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding, list_tools, register_tool, utc_now, update_tools_index
 from .tool_runner import run_tool
 from .ledger import append_declared_jsonl
 
@@ -1277,6 +1277,45 @@ def _observability_error_payload(context: PhaseContext, exc: Exception) -> dict[
     }
 
 
+def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
+    """Register the repo's adapter manifests into the runtime tool registry.
+
+    `tools/aria-adapters/*.tool.json` is the declared single source for
+    adapter registrations, `registry_compiler` exists to compile them, and the
+    CLI carries a `tool register` verb — and none of it was called against the
+    LIVE registry, which held zero tools. That empty registry is what made
+    `_filter_candidate_tools` strip the schema-drift pressure's only tool
+    every cycle, which is what ARIA's first accepted agent response traced
+    (AIR-aria-autonomy-planner-5636a540ccaa, RC-1). Same defect class as the
+    claim reaper above: the mechanism existed, nothing invoked it.
+
+    Registration goes through `register_tool` per manifest, NOT the compiler's
+    direct write, because the compiler bypasses the status transition matrix —
+    a quarantined tool must stay quarantined until the audited unquarantine
+    path clears it. A manifest that the matrix refuses is reported, not
+    escalated: the refusal IS the governance working.
+    """
+    manifest_dir = Path(context.workspace_root) / "tools" / "aria-adapters"
+    synced: list[str] = []
+    refused: list[dict[str, str]] = []
+    for manifest_path in sorted(manifest_dir.glob("*.tool.json")):
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            register_tool(manifest, base_dir=context.base_dir)
+            synced.append(str(manifest.get("tool_id") or manifest_path.stem))
+        except (GovernanceError, ValueError, OSError) as exc:
+            refused.append({
+                "manifest": manifest_path.name,
+                "reason": str(exc)[:200],
+            })
+    return {
+        "status": "synced",
+        "synced_tool_ids": synced,
+        "refused": refused,
+        "manifest_dir": str(manifest_dir),
+    }
+
+
 def _phase_architecture_baseline(context: PhaseContext) -> dict[str, Any]:
     from .architecture_spine_gate import take_baseline
 
@@ -1596,6 +1635,15 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     ),
 
     # --- pre_tool: gates that must observe preconditions, not results ---
+    # Before anything reads the tool registry: the repo's adapter manifests
+    # are its declared source, and a registry nobody fills strips every
+    # pressure's candidate tools (the defect ARIA's first accepted response
+    # traced). Standard lane only — registration is an action.
+    CyclePhase(
+        "tool_manifest_sync", "pre_tool", _phase_tool_manifest_sync,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="tool_manifest_sync",
+    ),
     CyclePhase(
         "architecture_baseline", "pre_tool", _phase_architecture_baseline,
         precondition=PLAN_ID_PRESENT, on_error="record_and_continue",

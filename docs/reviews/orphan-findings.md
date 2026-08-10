@@ -8361,10 +8361,15 @@ Three mechanisms, closed together:
    resolve ran against the daemon's cwd. Every real ref graded
    `baseline_unavailable`. The sibling fallback is applied.
 
-**Left for the operator (planner's step 4):** registering
-`typeorm-entity-schema-adapter` in the runtime tool registry — state-store
-work outside this change's surface; without it the pressure is now correctly
-BLOCKED rather than incorrectly scheduled.
+**Planner's step 4, upgraded from operator-manual to architectural:** the
+runtime registry was empty because `registry_compiler` and the CLI `tool
+register` verb existed and nothing invoked them against the live state — the
+same mechanism-without-a-caller class as the claim reaper. A new
+`tool_manifest_sync` cycle phase registers `tools/aria-adapters/*.tool.json`
+into the runtime registry at cycle start, before anything reads it, through
+`register_tool` per manifest so the status transition matrix holds — a
+quarantined tool stays quarantined, and that refusal is reported, not
+escalated.
 
 ## ORPHAN-CRITICAL-601 — the executor kept its own copy of the prompt projection, and the binding died a second time — RESOLVED (this PR)
 

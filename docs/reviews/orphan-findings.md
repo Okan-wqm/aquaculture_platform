@@ -8659,6 +8659,23 @@ every run after the first.
 **Not addressed here:** the sixth adapter's separate `evidence_error` — to be
 read after a cycle where the runners actually execute.
 
+## ORPHAN-LOW-612 — the artifact scrubber masked the numbers that happened to say "token" — RESOLVED (this PR)
+
+**Severity:** LOW (no leak; cost telemetry blinded)
+**Owner:** ARIA
+**Discovered:** 2026-08-10 code-review pass (madde 17), reading the first
+accepted agent response's usage block: every counter read
+`<secret-redacted>`.
+
+`scrub_json` masked any key containing "token" — which is every usage
+counter the Claude CLI reports (`input_tokens`, `output_tokens`,
+`cache_read_input_tokens`, …). An integer cannot leak a secret; masking
+them protected nothing and blinded spend telemetry.
+
+**Fix:** a credential is a STRING, a counter is a NUMBER — token-ish keys
+mask string values only. The value-pattern layer (bare `sk-…` inside free
+text) is untouched. Deliberate break verified both directions.
+
 ## ORPHAN-HIGH-610 — an environment fault was priced as tool guilt, and quarantined all six adapters — RESOLVED (this PR)
 
 **Severity:** HIGH (the entire adapter fleet is quarantined; no schema/tenant/event scanning can run)

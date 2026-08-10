@@ -8207,6 +8207,28 @@ Proven by deliberate breaks: a new service with no `logging` reddens all three a
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-417`, `ORPHAN-HIGH-563`, `INFRA-MEDIUM-057`.
 
+## ORPHAN-HIGH-587 — Alertmanager has run for weeks delivering every alert to nobody — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06. Corrects an earlier claim in this same session: I reported that the monitoring stack had never been brought up. It has — `aqua-alertmanager` and `aqua-prometheus` have both been up for three weeks. What does not exist is the thing they point at.
+
+All three receivers target `http://127.0.0.1:9099/{page,digest,heartbeat}`. Nothing serves that port, and nothing ever has. Every alert this platform raised went to `/dev/null` — including `TenantIsolationViolationDetected`, which fires on a potential cross-tenant read and carries no `for:` delay precisely because it is not something to observe for ten minutes first.
+
+**Why it stayed that way is the interesting part.** `render-configs.sh` was supposed to substitute real endpoints at activation, and it _hard-failed_ when `ALERTMANAGER_{PAGE,DIGEST,HEARTBEAT}_URL` were unset. Those were external paging endpoints that were never procured. So the script could not run, so no deploy path called it, so the placeholders stayed. A dependency that cannot be satisfied is indistinguishable from a step nobody performs.
+
+**Fix:** delivery is email, because email is what exists — the droplet already runs working SMTP credentials for notification-service, verified first-hand (`SMTP_HOST=smtp.gmail.com`, user and password both set). `page` and `digest` become `email_configs` carrying the summary, description and runbook link in the body, since the runbook is the first thing an operator needs at 03:00.
+
+The renderer was rewritten around what is required versus optional: SMTP settings and recipients are required (they are the delivery), webhook URLs are optional. It refuses to run without the delivery settings and refuses to finish if a placeholder survived — a half-rendered config with real SMTP and a placeholder recipient is worse than one that never started.
+
+**Placeholder discipline:** every committed address and credential is `.invalid`, reserved by RFC 2606 and unable to resolve, so a config reaching production unrendered fails loudly rather than quietly mailing a stranger. An invariant asserts the committed file contains no real recipient.
+
+**Role routing:** `page` and `digest` take separate recipient variables although both default to the same mailbox today. Splitting by role later is one export per route.
+
+**NOT done, and stated rather than absorbed:** the `none` deadman stays unwired. An external watcher is supposed to alarm when the heartbeat stops, and email cannot play that role — a mailbox receiving nothing looks exactly like a mailbox nobody sent to. Until an external endpoint exists, **a monitoring stack that dies will not announce it**. The renderer prints that on every run instead of leaving a loopback URL that reads like configuration.
+
+**Tests:** 8 gate tests run the real script against a copy of the real config (full render, per-variable refusal, placeholder rejection, digest fallback, deadman both ways, idempotence). Two new invariant assertions: every routed receiver has a delivery integration, and nothing real is committed. Emptying a receiver turns the first red.
+
+**Owner:** claude (this session). **Status:** RESOLVED in the repo; the live switch-on is one `render-configs.sh` run on the droplet.
+
 ## ORPHAN-HIGH-585 — the messaging embedding cron reads a per-tenant table with no schema bound — OPEN
 
 **Discovered:** 2026-08-06, generalising the tenant-context rule platform-wide (Faz 8).

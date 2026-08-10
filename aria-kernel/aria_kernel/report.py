@@ -315,13 +315,17 @@ def build_daily_anchor(
     }
 
 
-def render_anchor_markdown(anchor: dict[str, Any]) -> str:
+def render_anchor_markdown(
+    anchor: dict[str, Any], *, body_markdown: str | None = None
+) -> str:
     """Render the anchor as YAML frontmatter + markdown body.
 
-    The body is intentionally minimal — the load-bearing payload is the
-    frontmatter. Operators or downstream tooling can extend the body in
-    follow-up commits without breaking the I-26 parseability invariant
-    (which only reads frontmatter).
+    FAZ 6a — when ``body_markdown`` is supplied (the reflection daily
+    report from the durable store), the anchor becomes that report's
+    FRONTMATTER instead of a competing document: one path, one artifact,
+    the two-writers-one-filename class dies. Without a body the pre-FAZ-6
+    minimal stub renders unchanged, so the I-26 parseability invariant
+    (which only reads frontmatter) holds in both shapes.
     """
     import yaml  # type: ignore[import-untyped]
 
@@ -331,6 +335,8 @@ def render_anchor_markdown(anchor: dict[str, Any]) -> str:
         default_flow_style=False,
         allow_unicode=True,
     )
+    if body_markdown is not None:
+        return "---\n" + front + "---\n\n" + body_markdown.strip() + "\n"
     return (
         "---\n"
         + front
@@ -390,12 +396,29 @@ def emit_anchor_to_path(
             "path": output_path.as_posix(),
             "anchor": anchor,
         }
+    # FAZ 6a — the anchor was a SECOND writer of the daily-report filename:
+    # the lane committed this stub while reflection wrote the real report to
+    # the durable store, so the published PR carried three empty lines and
+    # the operator-facing report was never published anywhere. When the
+    # store holds the reflection report for this date, the anchor becomes
+    # its frontmatter and the published artifact IS the report.
+    reflection_report = tools_root / "reports" / "daily" / f"{date}.md"
+    body_markdown: str | None = None
+    if reflection_report.is_file() and reflection_report.resolve() != output_path.resolve():
+        try:
+            body_markdown = reflection_report.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            body_markdown = None
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(render_anchor_markdown(anchor), encoding="utf-8")
+    output_path.write_text(
+        render_anchor_markdown(anchor, body_markdown=body_markdown),
+        encoding="utf-8",
+    )
     return {
         "status": "written",
         "path": output_path.as_posix(),
         "anchor": anchor,
+        "report_body": "reflection" if body_markdown is not None else "stub",
     }
 
 

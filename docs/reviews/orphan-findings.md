@@ -9003,6 +9003,34 @@ Three holes fed it:
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-HIGH-621 — three quality dimensions had zero adapters, and schema-drift was a farm-only property — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-10 during the end-to-end ARIA read (FAZ 7 of the "Sinir Sistemi" program; the fleet-coverage gap the mission charter's D1-D6 dimension model made visible).
+
+The adapter fleet covered D1-security and D4-testability; **D2-performance, D5-documentation and D6-correctness(parity) had no watcher at all**, and `typeorm-entity-schema-adapter` scanned only `apps/farm-service` while six sibling services carry the identical per-tenant schema discipline (ADR-011) unwatched.
+
+**Fix — three deterministic v1 adapters (manifest + TS, fleet pattern, SHADOW):**
+
+- `bundle-budget-adapter` (D2): flags an MFE with no declared bundle budget (no `chunkSizeWarningLimit`, no `bundle-budget.json`) and heavyweight libraries imported statically (welded into the initial chunk). Real-repo first run: **9 findings** — no MFE declares any budget.
+- `doc-staleness-adapter` (D5): resolves every backtick-quoted repo path in `docs/**/*.md` against the working tree; a reference to a deleted path is a finding (globs/placeholders/`:line` refs handled). Real-repo first run: **1,146 findings across 1,271 docs** — the documentation debt is now measured instead of suspected.
+- `fe-dto-parity-adapter` (D6): AST-collects backend `*Dto` classes and hand-written frontend `*Dto` types (generated files excluded — they are the fix, not suspects); same name + different field sets = drift finding naming missing/extra fields. Real-repo first run: **2 findings, both in `web/modules/admin-panel/src/services/types/` — exactly the hand-written-types disease the SSOT audit documented.**
+
+**typeorm widening:** multi-service sweep over the 7 schema-per-tenant services (explicit `root` keeps the single-service call shape for fixtures). Widening exposed a latent FP class: the migration-registry check assumed farm's class-import registry, while sibling services legitimately register a GLOB in `data-source.ts` — every such service would have flooded `migration_registry_missing_entry`. The check now detects the registration style first; measured differential: farm-only findings **214 → 95** (the removed 119 were the glob-style false class), multi-service total 404 → 194.
+
+**Proof:** 4 self-asserting adapter test scripts green (fleet pattern); registry compiles 9 tools; real-repo smoke runs recorded above; fixture `real-repo-baseline` cases added per adapter.
+
+## ORPHAN-HIGH-620 — the daily report had two writers and zero published readers: the lane committed an empty anchor stub while the real report and every dashboard ledger accumulated unread — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-10 during the end-to-end ARIA read (FAZ 6 of the "Sinir Sistemi" program).
+
+**Two writers, one filename.** The daily-report lane generated its anchor from the EPHEMERAL checkout's empty `aria-tools` (no state restore in the generate job), committed the stub, and opened a PR whose body was three empty lines and a filename. Meanwhile reflection wrote the real operator report to the durable store's `reports/daily/<date>.md` every cycle — same filename class, never published, zero readers.
+
+**Ledgers written every cycle, read by nothing:** `compute_plan_016_metrics` had no scheduled caller; `observability`'s `dashboards.jsonl` (SLO state, alerts) had zero readers; mission events reached no operator surface; quarantine state was CLI-only; FAZ 1's replay recall landed in the sealed cycle row and stopped there.
+
+**Fix (one report):** the generate job restores aria/state first (contract: `first_governed_mutation_step=_RESTORE_STEP`, `github_git` declared, store write root allowed — mirroring the producer/eval lanes); `emit_anchor_to_path` composes the anchor frontmatter WITH the reflection report body from the store when present (`render_anchor_markdown(body_markdown=…)`) so the published artifact IS the report; the PR body carries the report's leading sections instead of three empty lines. Reflection gains five sections — Plan-016 counters, SLO/alerts, missions, quarantined tools, judge-replay recall — each the FIRST reader of its ledger, each silent (not scaffolded) on an empty store. `plan_016_metrics.write_dashboard` stays as the operator CLI verb; the data SSoT (`compute_plan_016_metrics`) is shared, not copied.
+
+**Proof:** 10 tests: content-pin (published artifact contains the report body, not the anchor stub), stub fallback, idempotency preserved, each section's first-read, silence-on-empty, and the lane contract pin (restore-first + github_git). Workflow parity gate green after the contract/YAML/fixture moved together.
+
 ## ORPHAN-HIGH-618 — the environment contract existed only as prose: a mandatory merge gate with zero producers, and a claim path that discovered the broken host after spending the claim — RESOLVED (this PR)
 
 Severity: HIGH. Discovered 2026-08-10 during the end-to-end ARIA read (FAZ 5 of the "Sinir Sistemi" program).

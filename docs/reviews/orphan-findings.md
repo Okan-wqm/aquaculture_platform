@@ -9003,6 +9003,18 @@ Three holes fed it:
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-HIGH-620 — the daily report had two writers and zero published readers: the lane committed an empty anchor stub while the real report and every dashboard ledger accumulated unread — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-10 during the end-to-end ARIA read (FAZ 6 of the "Sinir Sistemi" program).
+
+**Two writers, one filename.** The daily-report lane generated its anchor from the EPHEMERAL checkout's empty `aria-tools` (no state restore in the generate job), committed the stub, and opened a PR whose body was three empty lines and a filename. Meanwhile reflection wrote the real operator report to the durable store's `reports/daily/<date>.md` every cycle — same filename class, never published, zero readers.
+
+**Ledgers written every cycle, read by nothing:** `compute_plan_016_metrics` had no scheduled caller; `observability`'s `dashboards.jsonl` (SLO state, alerts) had zero readers; mission events reached no operator surface; quarantine state was CLI-only; FAZ 1's replay recall landed in the sealed cycle row and stopped there.
+
+**Fix (one report):** the generate job restores aria/state first (contract: `first_governed_mutation_step=_RESTORE_STEP`, `github_git` declared, store write root allowed — mirroring the producer/eval lanes); `emit_anchor_to_path` composes the anchor frontmatter WITH the reflection report body from the store when present (`render_anchor_markdown(body_markdown=…)`) so the published artifact IS the report; the PR body carries the report's leading sections instead of three empty lines. Reflection gains five sections — Plan-016 counters, SLO/alerts, missions, quarantined tools, judge-replay recall — each the FIRST reader of its ledger, each silent (not scaffolded) on an empty store. `plan_016_metrics.write_dashboard` stays as the operator CLI verb; the data SSoT (`compute_plan_016_metrics`) is shared, not copied.
+
+**Proof:** 10 tests: content-pin (published artifact contains the report body, not the anchor stub), stub fallback, idempotency preserved, each section's first-read, silence-on-empty, and the lane contract pin (restore-first + github_git). Workflow parity gate green after the contract/YAML/fixture moved together.
+
 ## ORPHAN-HIGH-618 — the environment contract existed only as prose: a mandatory merge gate with zero producers, and a claim path that discovered the broken host after spending the claim — RESOLVED (this PR)
 
 Severity: HIGH. Discovered 2026-08-10 during the end-to-end ARIA read (FAZ 5 of the "Sinir Sistemi" program).

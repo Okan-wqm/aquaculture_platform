@@ -106,6 +106,16 @@ class GitHubAdapter(Protocol):
         """
         ...
 
+    def get_open_issues(self, *, labels: list[str]) -> dict[str, Any]:
+        """Open issues carrying every one of ``labels``.
+
+        Returns ``{"readable": bool, "issues": [...]}``. `readable` is explicit
+        rather than inferred from an empty list, because "no incidents" and "I
+        could not ask" must not look alike to `watchdog_freeze`, which fails
+        closed on the second.
+        """
+        ...
+
     def merge_pr(self, number: int, *, method: str, expected_head_sha: str) -> dict[str, Any]:
         ...
 
@@ -637,6 +647,12 @@ class SnapshotGitHubAdapter:
             self.payload.get("github", {}).get("conversations", {"readable": True, "unresolved_count": 0}),
         )
 
+    def get_open_issues(self, *, labels: list[str]) -> dict[str, Any]:
+        _ = labels
+        return deepcopy(
+            self.payload.get("github", {}).get("open_issues", {"readable": True, "issues": []}),
+        )
+
     def get_pr_diff(self, number: int) -> str | None:
         """Plan 023 v3 §P-6 — read pre-seeded diff from the snapshot
         payload. Returns None when the fixture didn't supply a diff so
@@ -672,6 +688,27 @@ class GhCliGitHubAdapter:
     def clear_merge_authority(self, token: str) -> None:
         if self._merge_authority_token == token:
             self._merge_authority_token = None
+
+    def get_open_issues(self, *, labels: list[str]) -> dict[str, Any]:
+        """Open issues carrying every label, via `gh issue list`."""
+        args = ["issue", "list", "--state", "open", "--limit", "50",
+                "--json", "number,title,labels"]
+        for label in labels:
+            args.extend(["--label", label])
+        try:
+            payload = self._gh_json(args)
+        except Exception as exc:  # an unreadable alarm is not an absent alarm
+            return {"readable": False, "reason": f"{exc.__class__.__name__}: {exc}", "issues": []}
+        if not isinstance(payload, list):
+            return {"readable": False, "reason": "gh_issue_list_not_a_list", "issues": []}
+        return {
+            "readable": True,
+            "issues": [
+                {"number": row.get("number"), "title": row.get("title")}
+                for row in payload
+                if isinstance(row, dict)
+            ],
+        }
 
     def get_pr(self, number: int) -> dict[str, Any]:
         payload = self._gh_json(

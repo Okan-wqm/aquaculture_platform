@@ -147,6 +147,13 @@ class RecordingGitHubAdapter:
         self._record("get_unresolved_conversation_count", number=number)
         return {"count": 0}
 
+    def get_open_issues(self, *, labels: list[str]) -> dict[str, Any]:
+        self._record("get_open_issues", labels=list(labels))
+        # Minimal-shape stub that fails CLOSED, matching this adapter's other
+        # stubs: a recording profile never fetched the issue list, so it cannot
+        # claim there is no incident.
+        return {"readable": False, "reason": "recording_adapter_no_fetch", "issues": []}
+
     def get_pr_diff(self, number: int) -> str | None:
         self._record("get_pr_diff", number=number)
         # Empty diff → evaluate_auto_merge fails closed (Plan 023 v3

@@ -33,11 +33,13 @@ from .human_required import (
     sweep_lease_lifecycle_for_human_required,
 )
 from .human_required_adjudication import sweep_human_required_adjudications
+from .agent_invocations import reap_stale_claims
+from .calibration import recommend_calibration
 from .goldset import propose_goldsets_for_labelled_tools
 from .judge_calibration import compute_judge_calibration
 from .proactive_priority import compute_proactive_priorities
 from .runtime_profile import ACTION_PERMISSIONS, get_profile
-from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding, list_tools, utc_now, update_tools_index
+from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding, list_tools, register_tool, utc_now, update_tools_index
 from .tool_runner import run_tool
 from .ledger import append_declared_jsonl
 
@@ -1097,6 +1099,31 @@ def _phase_mission_ingest(context: PhaseContext) -> dict[str, Any]:
     )
 
 
+def _phase_agent_claim_reap(context: PhaseContext) -> dict[str, Any]:
+    """Give the queue back the requests a dead executor is still holding.
+
+    `reap_stale_claims` has existed since the lease work and was reachable only
+    from the operator CLI (`aria-kernel agent reap-stale`) — no cycle phase, no
+    workflow. Its sibling `dispatch_lease_reap` below runs every cycle, but it
+    reaps a DIFFERENT ledger (`dispatch/claims.jsonl`, worker assignments). The
+    agent-invocation ledger had no automatic reaper at all.
+
+    What that costs is not a delay, it is a permanent leak. `PENDING` is
+    reachable from `CLAIMED` only through an explicit released/requeued event;
+    once the 30-minute lease expires the state derives `STALE`, which
+    `next_pending_request` skips and `claim_request` refuses. Both exits are
+    closed and the request is dead. Measured on production state 2026-08-09:
+    ten of twelve requests sitting in exactly that shape, so every executor run
+    found nothing to do while nine baseline-carrying requests waited behind
+    them.
+
+    Requeue is still bounded — `DEFAULT_MAX_REQUEUES` caps it and the state
+    then derives HUMAN_REQUIRED, so a genuinely poisonous request escalates to
+    a human instead of cycling forever.
+    """
+    return reap_stale_claims(base_dir=context.base_dir)
+
+
 def _phase_dispatch_lease_reap(context: PhaseContext) -> dict[str, Any]:
     """Give back the WIP slot a dead worker is still holding.
 
@@ -1157,6 +1184,27 @@ def _phase_goldset_proposal(context: PhaseContext) -> dict[str, Any]:
     )
 
 
+def _phase_calibration_recommendation(context: PhaseContext) -> dict[str, Any]:
+    # The write side of ARIA's own scoring had no feeder. `record_weight_override`
+    # turns an approved recommendation into behaviour, and the only thing that
+    # could produce a recommendation was `heartbeat_tick` — a superseded driver
+    # that calls `run_cycle` itself and therefore has no production caller.
+    # `list_calibration_recommendations` had none at all. Three dead links in
+    # one chain: nothing computed a recommendation, nothing read one, so there
+    # was never anything for an operator to approve.
+    #
+    # Deliberately NOT wired by resurrecting heartbeat_tick: it would invoke the
+    # cycle from inside the cycle. The phase pipeline is the driver now, so the
+    # producer becomes a phase, next to judge_calibration and goldset_proposal
+    # which read the same feedback ledger.
+    #
+    # It stops at `recommendation_only` on purpose. Applying a weight change is
+    # an operator act (`pressure weight-override`), because a system that
+    # silently reweights its own scoring can rationalise anything it later
+    # measures — the same line goldset promotion draws.
+    return recommend_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir)
+
+
 def _phase_proactive_priority(context: PhaseContext) -> dict[str, Any]:
     # Plan 027 §D3 — proactive Impact x Opportunity ranking, computed every
     # cycle regardless of reactive pressure, so ARIA always has a "where to
@@ -1171,6 +1219,7 @@ def _phase_reflection(context: PhaseContext) -> dict[str, Any]:
         base_dir=context.base_dir,
         repo_root=context.workspace_root,
         calibration_result=context.result("judge_calibration") or None,
+        recommendation_result=context.result("calibration_recommendation") or None,
         proactive_result=context.result("proactive_priority") or None,
     )
 
@@ -1248,6 +1297,45 @@ def _observability_error_payload(context: PhaseContext, exc: Exception) -> dict[
         "cycle_id": context.cycle_id,
         "status": "failed",
         "error": str(exc),
+    }
+
+
+def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
+    """Register the repo's adapter manifests into the runtime tool registry.
+
+    `tools/aria-adapters/*.tool.json` is the declared single source for
+    adapter registrations, `registry_compiler` exists to compile them, and the
+    CLI carries a `tool register` verb — and none of it was called against the
+    LIVE registry, which held zero tools. That empty registry is what made
+    `_filter_candidate_tools` strip the schema-drift pressure's only tool
+    every cycle, which is what ARIA's first accepted agent response traced
+    (AIR-aria-autonomy-planner-5636a540ccaa, RC-1). Same defect class as the
+    claim reaper above: the mechanism existed, nothing invoked it.
+
+    Registration goes through `register_tool` per manifest, NOT the compiler's
+    direct write, because the compiler bypasses the status transition matrix —
+    a quarantined tool must stay quarantined until the audited unquarantine
+    path clears it. A manifest that the matrix refuses is reported, not
+    escalated: the refusal IS the governance working.
+    """
+    manifest_dir = Path(context.workspace_root) / "tools" / "aria-adapters"
+    synced: list[str] = []
+    refused: list[dict[str, str]] = []
+    for manifest_path in sorted(manifest_dir.glob("*.tool.json")):
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            register_tool(manifest, base_dir=context.base_dir)
+            synced.append(str(manifest.get("tool_id") or manifest_path.stem))
+        except (GovernanceError, ValueError, OSError) as exc:
+            refused.append({
+                "manifest": manifest_path.name,
+                "reason": str(exc)[:200],
+            })
+    return {
+        "status": "synced",
+        "synced_tool_ids": synced,
+        "refused": refused,
+        "manifest_dir": str(manifest_dir),
     }
 
 
@@ -1570,6 +1658,15 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     ),
 
     # --- pre_tool: gates that must observe preconditions, not results ---
+    # Before anything reads the tool registry: the repo's adapter manifests
+    # are its declared source, and a registry nobody fills strips every
+    # pressure's candidate tools (the defect ARIA's first accepted response
+    # traced). Standard lane only — registration is an action.
+    CyclePhase(
+        "tool_manifest_sync", "pre_tool", _phase_tool_manifest_sync,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="tool_manifest_sync",
+    ),
     CyclePhase(
         "architecture_baseline", "pre_tool", _phase_architecture_baseline,
         precondition=PLAN_ID_PRESENT, on_error="record_and_continue",
@@ -1609,6 +1706,13 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     # bookkeeping — and `record_and_continue`, because a reaper that CRASHED
     # released nothing but must not be able to fail a cycle whose real work
     # succeeded. Standard lane only: releasing an assignment is an action.
+    # Beside dispatch_lease_reap because they are the same idea on two
+    # ledgers: hand back what a dead holder is still holding.
+    CyclePhase(
+        "agent_claim_reap", "post_tool", _phase_agent_claim_reap,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="agent_claim_reap",
+    ),
     CyclePhase(
         "dispatch_lease_reap", "post_tool", _phase_dispatch_lease_reap,
         precondition=WRITES_PERMITTED, on_error="record_and_continue",
@@ -1638,6 +1742,14 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         "goldset_proposal", "post_tool", _phase_goldset_proposal,
         precondition=WRITES_PERMITTED, on_error="record_and_continue",
         state_key="goldset_proposal",
+    ),
+    # After the corpus phases, because it reads the same feedback ledger they
+    # do. `record_and_continue`: a recommendation that crashed produced no
+    # advice, which must not fail a cycle whose real work succeeded.
+    CyclePhase(
+        "calibration_recommendation", "post_tool", _phase_calibration_recommendation,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="calibration_recommendation",
     ),
     CyclePhase(
         "proactive_priority", "post_tool", _phase_proactive_priority,

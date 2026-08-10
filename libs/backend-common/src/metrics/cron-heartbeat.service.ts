@@ -61,45 +61,59 @@ export class CronHeartbeatService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CronHeartbeatService.name);
   private readonly registry: client.Registry;
 
-  private readonly runs: client.Counter<'job' | 'outcome'>;
-  private readonly lastAttempt: client.Gauge<'job'>;
-  private readonly lastSuccess: client.Gauge<'job'>;
-  private readonly lastFailure: client.Gauge<'job'>;
-  private readonly duration: client.Histogram<'job' | 'outcome'>;
+  private readonly runs: client.Counter<'cron_job' | 'outcome'>;
+  private readonly lastAttempt: client.Gauge<'cron_job'>;
+  private readonly lastSuccess: client.Gauge<'cron_job'>;
+  private readonly lastFailure: client.Gauge<'cron_job'>;
+  private readonly duration: client.Histogram<'cron_job' | 'outcome'>;
 
   constructor(
     @Inject(ServiceMetricsService)
     private readonly serviceMetrics: MetricsContributorRegistry,
   ) {
+    // WHY THE LABEL IS `cron_job` AND NOT `job`:
+    //
+    // `job` is reserved. Prometheus attaches it to every scraped series to
+    // name the scrape target, and with `honor_labels` off — the default, and
+    // what this platform runs — a metric that ships its own `job` has it
+    // renamed to `exported_job` on ingest. The rule would then read `job` as
+    // the scrape target name, `max by (job)` would collapse every scheduled
+    // job in a service into ONE series, and the alert text would name the
+    // service instead of the job that stopped.
+    //
+    // This is not hypothetical: the pre-existing `farm_regulatory_cron_*`
+    // family shipped a `job` label and is stored under `exported_job` on the
+    // production droplet today. The public `track(job, ...)` API keeps the
+    // natural word; only the exported label is disambiguated.
     this.registry = new client.Registry();
     this.runs = new client.Counter({
       name: 'cron_job_runs_total',
       help: 'Scheduled job attempts by outcome',
-      labelNames: ['job', 'outcome'],
+      labelNames: ['cron_job', 'outcome'],
       registers: [this.registry],
     });
     this.lastAttempt = new client.Gauge({
       name: 'cron_job_last_attempt_timestamp_seconds',
       help: 'Unix timestamp of the last attempt of each scheduled job',
-      labelNames: ['job'],
+      labelNames: ['cron_job'],
       registers: [this.registry],
     });
     this.lastSuccess = new client.Gauge({
       name: 'cron_job_last_success_timestamp_seconds',
       help: 'Unix timestamp of the last successful completion of each scheduled job',
-      labelNames: ['job'],
+      labelNames: ['cron_job'],
       registers: [this.registry],
     });
     this.lastFailure = new client.Gauge({
       name: 'cron_job_last_failure_timestamp_seconds',
       help: 'Unix timestamp of the last failure of each scheduled job',
-      labelNames: ['job'],
+      labelNames: ['cron_job'],
       registers: [this.registry],
     });
     this.duration = new client.Histogram({
       name: 'cron_job_duration_seconds',
       help: 'Wall-clock duration of scheduled job runs',
-      labelNames: ['job', 'outcome'],
+      labelNames: ['cron_job', 'outcome'],
       buckets: [0.1, 0.5, 1, 5, 15, 60, 300, 900],
       registers: [this.registry],
     });
@@ -123,9 +137,9 @@ export class CronHeartbeatService implements OnModuleInit, OnModuleDestroy {
    * Seeding zero makes the absence visible as a value.
    */
   declare(job: string): void {
-    this.lastAttempt.set({ job }, 0);
-    this.lastSuccess.set({ job }, 0);
-    this.lastFailure.set({ job }, 0);
+    this.lastAttempt.set({ cron_job: job }, 0);
+    this.lastSuccess.set({ cron_job: job }, 0);
+    this.lastFailure.set({ cron_job: job }, 0);
   }
 
   /**
@@ -136,19 +150,19 @@ export class CronHeartbeatService implements OnModuleInit, OnModuleDestroy {
    */
   async track<T>(job: string, body: () => Promise<T>): Promise<T> {
     const startedAt = Date.now();
-    this.lastAttempt.set({ job }, startedAt / 1000);
+    this.lastAttempt.set({ cron_job: job }, startedAt / 1000);
     try {
       const result = await body();
       const finishedAt = Date.now();
-      this.runs.inc({ job, outcome: 'success' });
-      this.lastSuccess.set({ job }, finishedAt / 1000);
-      this.duration.observe({ job, outcome: 'success' }, (finishedAt - startedAt) / 1000);
+      this.runs.inc({ cron_job: job, outcome: 'success' });
+      this.lastSuccess.set({ cron_job: job }, finishedAt / 1000);
+      this.duration.observe({ cron_job: job, outcome: 'success' }, (finishedAt - startedAt) / 1000);
       return result;
     } catch (error) {
       const finishedAt = Date.now();
-      this.runs.inc({ job, outcome: 'failure' });
-      this.lastFailure.set({ job }, finishedAt / 1000);
-      this.duration.observe({ job, outcome: 'failure' }, (finishedAt - startedAt) / 1000);
+      this.runs.inc({ cron_job: job, outcome: 'failure' });
+      this.lastFailure.set({ cron_job: job }, finishedAt / 1000);
+      this.duration.observe({ cron_job: job, outcome: 'failure' }, (finishedAt - startedAt) / 1000);
       throw error;
     }
   }

@@ -5675,6 +5675,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/tenant/services/__tests__/tenant-command-receipt-rls.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/tenant/services/__tests__/tenant-lifecycle-suspension.spec.ts",
       "prettier_managed": true
     },
@@ -33415,6 +33421,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-08-07-watchdog-merge-freeze.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -41094,6 +41106,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "platform/libs/outbox/src/__tests__/outbox-relay-liveness.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "platform/libs/outbox/src/__tests__/outbox-worker.service.spec.ts",
       "prettier_managed": true
     },
@@ -43404,6 +43422,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/monitoring-alert-delivery.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/monitoring-alert-runbook-url.spec.ts",
       "prettier_managed": true
     },
@@ -44419,6 +44443,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/aria-authority-hash.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/backup-secret-guidance.spec.ts",
       "prettier_managed": true
     },
     {

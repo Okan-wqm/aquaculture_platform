@@ -1,4 +1,462 @@
 {
   "schema_version": 3,
-  "tools": []
+  "tools": [
+    {
+      "allowed_read_globs": [
+        ".claude/agents/**/*.md",
+        ".github/workflows/*.yml",
+        ".github/workflows/*.yaml",
+        "tools/aria-poc/**/*.py",
+        "tools/aria-adapters/**/*.ts",
+        "aria-kernel/aria_kernel/**/*.py",
+        "aria-tools/registry.json"
+      ],
+      "claim_types": [
+        "harness_security"
+      ],
+      "created_at": "2026-08-10T06:39:12+00:00",
+      "declared_scope": [
+        ".claude/agents/**/*.md",
+        ".github/workflows/*.{yml,yaml}",
+        "tools/aria-poc/**/*.py",
+        "tools/aria-adapters/**/*.ts",
+        "aria-kernel/aria_kernel/**/*.py",
+        "aria-tools/registry.json"
+      ],
+      "default_input": {
+        "cycle_id": "harness-security-default"
+      },
+      "fixture_set": "tools/aria-adapters/fixtures/agent-harness-security-adapter",
+      "forbidden_read_globs": [
+        ".git/**",
+        "node_modules/**",
+        "dist/**"
+      ],
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "max_cost_units": 5500,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "last_transition": {
+        "at": "2026-08-10T06:39:27+00:00",
+        "from": "SHADOW",
+        "reason": "self-output evidence or invalid evidence chain",
+        "to": "QUARANTINED"
+      },
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform-security",
+      "runner": {
+        "argv": [
+          "python3",
+          "agent_harness_security_adapter.py"
+        ],
+        "cwd": "tools/aria-poc",
+        "stdin_json": true,
+        "timeout_ms": 90000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "QUARANTINED",
+      "tool_id": "agent-harness-security-adapter",
+      "updated_at": "2026-08-10T06:39:27+00:00",
+      "version": "1.0.0"
+    },
+    {
+      "allowed_read_globs": [
+        "libs/event-contracts/src/**/*.ts"
+      ],
+      "claim_types": [
+        "event_contract"
+      ],
+      "created_at": "2026-08-10T06:39:12+00:00",
+      "declared_scope": [
+        "libs/event-contracts/src/**/*.ts"
+      ],
+      "fixture_set": "tools/aria-adapters/fixtures/event-contracts-adapter",
+      "forbidden_read_globs": [
+        ".claude/**",
+        ".git/**",
+        "agent-workspace/**",
+        ".aria-poc/**",
+        "aria-tools/**",
+        "node_modules/**",
+        "dist/**",
+        "coverage/**",
+        "build/**",
+        "tmp/**"
+      ],
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "max_cost_units": 150,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "last_transition": {
+        "at": "2026-08-10T06:39:31+00:00",
+        "from": "SHADOW",
+        "reason": "tool runner unhealthy",
+        "to": "QUARANTINED"
+      },
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "runner": {
+        "argv": [
+          "node",
+          "./node_modules/ts-node/dist/bin.js",
+          "--project",
+          "tools/gates/tsconfig.json",
+          "tools/aria-adapters/event-contracts-adapter.ts"
+        ],
+        "cwd": ".",
+        "stdin_json": true,
+        "timeout_ms": 180000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "QUARANTINED",
+      "tool_id": "event-contracts-adapter",
+      "updated_at": "2026-08-10T06:39:31+00:00",
+      "version": "1.0.0"
+    },
+    {
+      "allowed_read_globs": [
+        "apps/**/*.ts",
+        "libs/backend-common/src/**/*.ts",
+        "platform/libs/**/*.ts",
+        "web/**/*.ts",
+        "web/**/*.tsx",
+        "tools/eslint-rules/**/*.ts"
+      ],
+      "claim_types": [
+        "security_boundary"
+      ],
+      "created_at": "2026-08-10T06:39:12+00:00",
+      "declared_scope": [
+        "apps/**/*.ts",
+        "libs/backend-common/src/**/*.ts",
+        "platform/libs/**/*.ts",
+        "web/**/*.{ts,tsx}",
+        "tools/eslint-rules/**/*.ts"
+      ],
+      "default_input": {
+        "roots": [
+          "apps",
+          "libs/backend-common/src",
+          "platform/libs",
+          "web",
+          "tools/eslint-rules"
+        ]
+      },
+      "fixture_set": "tools/aria-adapters/fixtures/security-boundary-adapter",
+      "forbidden_read_globs": [
+        ".claude/**",
+        ".git/**",
+        "agent-workspace/**",
+        ".aria-poc/**",
+        "aria-tools/**",
+        "node_modules/**",
+        "dist/**",
+        "coverage/**",
+        "build/**",
+        "tmp/**"
+      ],
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "max_cost_units": 5000,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "last_transition": {
+        "at": "2026-08-10T06:39:36+00:00",
+        "from": "SHADOW",
+        "reason": "tool runner unhealthy",
+        "to": "QUARANTINED"
+      },
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "runner": {
+        "argv": [
+          "node",
+          "./node_modules/ts-node/dist/bin.js",
+          "--project",
+          "tools/gates/tsconfig.json",
+          "tools/aria-adapters/security-boundary-adapter.ts"
+        ],
+        "cwd": ".",
+        "stdin_json": true,
+        "timeout_ms": 180000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "QUARANTINED",
+      "tool_id": "security-boundary-adapter",
+      "updated_at": "2026-08-10T06:39:36+00:00",
+      "version": "1.0.0"
+    },
+    {
+      "allowed_read_globs": [
+        "apps/**/*.ts",
+        "libs/**/*.ts",
+        "platform/libs/**/*.ts"
+      ],
+      "claim_types": [
+        "tenant_scoping"
+      ],
+      "created_at": "2026-08-10T06:39:13+00:00",
+      "declared_scope": [
+        "apps/**/*.ts",
+        "libs/**/*.ts",
+        "platform/libs/**/*.ts"
+      ],
+      "default_input": {
+        "includeRepositoryReadFindings": false,
+        "roots": [
+          "apps",
+          "libs",
+          "platform/libs"
+        ]
+      },
+      "fixture_set": "tools/aria-adapters/fixtures/tenant-scoping-adapter",
+      "forbidden_read_globs": [
+        ".claude/**",
+        ".git/**",
+        "agent-workspace/**",
+        ".aria-poc/**",
+        "aria-tools/**",
+        "node_modules/**",
+        "dist/**",
+        "coverage/**",
+        "build/**",
+        "tmp/**"
+      ],
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "max_cost_units": 3500,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "last_transition": {
+        "at": "2026-08-10T06:39:40+00:00",
+        "from": "SHADOW",
+        "reason": "tool runner unhealthy",
+        "to": "QUARANTINED"
+      },
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "runner": {
+        "argv": [
+          "node",
+          "./node_modules/ts-node/dist/bin.js",
+          "--project",
+          "tools/gates/tsconfig.json",
+          "tools/aria-adapters/tenant-scoping-adapter.ts"
+        ],
+        "cwd": ".",
+        "stdin_json": true,
+        "timeout_ms": 180000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "QUARANTINED",
+      "tool_id": "tenant-scoping-adapter",
+      "updated_at": "2026-08-10T06:39:40+00:00",
+      "version": "1.0.0"
+    },
+    {
+      "allowed_read_globs": [
+        "apps/**/*.ts",
+        "apps/**/*.tsx",
+        "libs/**/*.ts",
+        "libs/**/*.tsx",
+        "platform/libs/**/*.ts",
+        "platform/libs/**/*.tsx",
+        "web/**/*.ts",
+        "web/**/*.tsx"
+      ],
+      "claim_types": [
+        "test_gap"
+      ],
+      "created_at": "2026-08-10T06:39:13+00:00",
+      "declared_scope": [
+        "apps/**/*.{ts,tsx}",
+        "libs/**/*.{ts,tsx}",
+        "platform/libs/**/*.{ts,tsx}",
+        "web/**/*.{ts,tsx}"
+      ],
+      "default_input": {
+        "includeWriteBoundaryFindings": false,
+        "roots": [
+          "apps",
+          "libs",
+          "platform/libs",
+          "web"
+        ]
+      },
+      "fixture_set": "tools/aria-adapters/fixtures/test-gap-adapter",
+      "forbidden_read_globs": [
+        ".claude/**",
+        ".git/**",
+        "agent-workspace/**",
+        ".aria-poc/**",
+        "aria-tools/**",
+        "node_modules/**",
+        "dist/**",
+        "coverage/**",
+        "build/**",
+        "tmp/**"
+      ],
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "max_cost_units": 5500,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "last_transition": {
+        "at": "2026-08-10T06:39:45+00:00",
+        "from": "SHADOW",
+        "reason": "tool runner unhealthy",
+        "to": "QUARANTINED"
+      },
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "runner": {
+        "argv": [
+          "node",
+          "./node_modules/ts-node/dist/bin.js",
+          "--project",
+          "tools/gates/tsconfig.json",
+          "tools/aria-adapters/test-gap-adapter.ts"
+        ],
+        "cwd": ".",
+        "stdin_json": true,
+        "timeout_ms": 180000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "QUARANTINED",
+      "tool_id": "test-gap-adapter",
+      "updated_at": "2026-08-10T06:39:45+00:00",
+      "version": "1.0.0"
+    },
+    {
+      "allowed_read_globs": [
+        "apps/farm-service/src/**/*.ts",
+        "libs/backend-common/src/database/schema-manager.service.ts"
+      ],
+      "claim_types": [
+        "schema_drift"
+      ],
+      "created_at": "2026-08-10T06:39:13+00:00",
+      "declared_scope": [
+        "apps/farm-service/src/**/*.ts",
+        "libs/backend-common/src/database/schema-manager.service.ts"
+      ],
+      "fixture_set": "tools/aria-adapters/fixtures/typeorm-entity-schema-adapter",
+      "forbidden_read_globs": [
+        ".claude/**",
+        ".git/**",
+        "agent-workspace/**",
+        ".aria-poc/**",
+        "aria-tools/**",
+        "node_modules/**",
+        "dist/**",
+        "coverage/**",
+        "build/**",
+        "tmp/**"
+      ],
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "max_cost_units": 250,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "last_transition": {
+        "at": "2026-08-10T06:39:50+00:00",
+        "from": "SHADOW",
+        "reason": "tool runner unhealthy",
+        "to": "QUARANTINED"
+      },
+      "output_schema": {
+        "required": [
+          "observations",
+          "findings",
+          "read_paths",
+          "evidence_sources"
+        ],
+        "type": "object"
+      },
+      "owner": "platform",
+      "runner": {
+        "argv": [
+          "node",
+          "./node_modules/ts-node/dist/bin.js",
+          "--project",
+          "tools/gates/tsconfig.json",
+          "tools/aria-adapters/typeorm-entity-schema-adapter.ts"
+        ],
+        "cwd": ".",
+        "stdin_json": true,
+        "timeout_ms": 180000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "QUARANTINED",
+      "tool_id": "typeorm-entity-schema-adapter",
+      "updated_at": "2026-08-10T06:39:50+00:00",
+      "version": "1.0.0"
+    }
+  ]
 }

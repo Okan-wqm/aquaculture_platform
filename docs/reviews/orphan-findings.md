@@ -8466,6 +8466,34 @@ went stale twice — `request_id` was missing from the first draft of the fix.
 `tools/quality/format-scope.json` and `docs/aria/CURRENT_STATE.md`. Both are
 generated; the resolution is to recompute them, not to choose a side.
 
+## ORPHAN-HIGH-604 — a backup lane that has never taken a backup satisfied every consumer of its green — RESOLVED (this PR)
+
+**Severity:** HIGH (the reader of green assumes protection; none exists)
+**Owner:** platform-CI
+**Discovered:** 2026-08-09, reading the "successful" backup-production run: its
+only executed annotation says _"PRODUCTION HAS NO production-logical-backup …
+it is NOT asserting that production is protected"_ — and the run concludes
+success.
+
+The lane is honest in words and misleading in color. It resolves DR
+activation, skips the ceremony when the capability is not activated (correct:
+the credentials were never minted), and completes green. Any consumer keyed on
+"backup lane green" — the scheduled-workflow watchdog above all — reads
+protection where none was measured.
+
+**Fix (contract, not color):** the watchdog now requires EVIDENCE where the
+manifest names it. The backup ceremony's own artifact
+(`walg-evidence-v2-…`, uploaded with `if-no-files-found: error` only when the
+ceremony actually ran) is declared as `requiredArtifactPrefix` on the
+backup-production entry; a green run without it files an incident with
+conclusion `success-without-evidence`. The standing truth — production has no
+backup pending BR-1 — now lives where standing truths belong: an open
+incident that closes itself the day the ceremony first runs. No workflow goes
+red-by-design, so the signal cannot be trained away.
+
+**Not changed:** backup-production itself. Its skip is correct and its words
+are honest; the defect was in what its consumers inferred.
+
 ## ORPHAN-MEDIUM-603 — the scheduled-workflow watchdog filed an incident every time it caught a workflow mid-run — RESOLVED (this PR)
 
 **Severity:** MEDIUM (false alarms train the reader to ignore the alarm)

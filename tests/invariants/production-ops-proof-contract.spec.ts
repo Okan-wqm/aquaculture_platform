@@ -36,6 +36,21 @@ describe('production operations proof contract', () => {
     // present, and the single-run fetch must not come back.
     expect(workflow).toContain("candidate.status === 'completed'");
     expect(workflow).not.toContain('per_page: 1,');
+
+    // Green is not proof of work. The backup lane completes success while its
+    // DR capability is not activated — honestly, and doing nothing. Where the
+    // manifest names an evidence-artifact prefix, the watchdog must require
+    // the artifact on the newest completed run; the backup entry must name
+    // the ceremony's own upload so "green but no backup" files an incident
+    // instead of reading as protection.
+    expect(workflow).toContain('listWorkflowRunArtifacts');
+    expect(workflow).toContain('success-without-evidence');
+    const backupEntry = manifest.workflows.find(
+      (item) => item.workflow === 'backup-production.yml',
+    ) as { requiredArtifactPrefix?: string } | undefined;
+    expect(backupEntry?.requiredArtifactPrefix).toBe('walg-evidence-v2-');
+    const backupWorkflow = read('.github/workflows/backup-production.yml');
+    expect(backupWorkflow).toContain('name: walg-evidence-v2-');
   });
 
   it('has a GitHub-Actions-owned post-deploy verification workflow', () => {

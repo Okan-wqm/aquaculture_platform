@@ -8447,6 +8447,34 @@ executor's exact comparison.
 One legacy test pinned the old hand-copy as source text ("cycle_id":
 claim.get(...)); it was rewritten to assert the property on the projection.
 
+## ORPHAN-HIGH-605 — the requeue budget charged the request for the harness's failures — RESOLVED (this PR)
+
+**Severity:** HIGH (three live requests were permanently escalated for defects that were never theirs)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, from the code-review pass (madde 9).
+
+The requeue budget exists to stop a poisonous request from cycling forever
+and hand it to a human. A release whose reason names the HARNESS — expired
+CLI session, missing renderer, the binding check comparing two different
+objects — says nothing about the request, and counting it burned the budget
+anyway. Measured on `aria/state`: three requests in HUMAN_REQUIRED whose
+requeue history is `claude_cli_exit_1` ×2 (the five-nights-dead era) or
+`prompt_hash_binding_mismatch` ×3 (ORPHAN-CRITICAL-600/601). "The request
+was poisonous" and "the harness was broken" had the same price.
+
+**Fix (tier 1, no ledger mutation):** requeue counting is fault-owned.
+`HARNESS_FAULT_RELEASE_REASONS` (+ the dynamic `claude_cli_exit_*` class)
+do not count; unclassified reasons still count — the failure mode of a stale
+list is over-escalation to a person, never silent infinite retry. Both the
+derive side and the write-time escalation use the same counter, and a
+materialized `human_required` row is re-derived under the same rule instead
+of freezing the old verdict. A test scans the executor's release sites so a
+new reason without a classification is a red test.
+
+**Verified against the live ledger:** …eb17 → PENDING, …4459 → REQUEUED
+(one real lease-expiry fault, below the ceiling), …228f → PENDING. Same
+rows, honest rule, healed derivation.
+
 ## ORPHAN-CRITICAL-600 — the prompt hash was minted over one object and verified against another — RESOLVED (this PR)
 
 **Severity:** CRITICAL (no agent invocation could ever start)

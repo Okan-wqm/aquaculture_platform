@@ -1,0 +1,43 @@
+{
+  "cycle_id": "cyc-20260810T081257Z-auto",
+  "generated_at": "2026-08-10T08:15:44+00:00",
+  "pressures": [
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [
+        "typeorm-entity-schema-adapter"
+      ],
+      "cycle_id": "cyc-20260810T081257Z-auto",
+      "drift_class": "schema_drift",
+      "evidence": [
+        "apps/ai-service/src/database/migrations/1800000000000-Baseline.ts",
+        "apps/ai-service/src/database/migrations/1800100000000-CreateAiOutbox.ts",
+        "apps/ai-service/src/database/migrations/1801000000000-EnsureAiTenantErasureProofLedger.ts",
+        "apps/ai-service/src/database/migrations/1802000000000-AddByokTenantAiCredentials.ts",
+        "apps/ai-service/src/database/migrations/1802100000000-CreateConversationTurns.ts"
+      ],
+      "pressure_id": "pressure:migration-surface-repeat:repetition",
+      "reason": "repository has repeated TypeORM migration surfaces",
+      "recommended_action": "continue TypeORM schema drift checks",
+      "schema_version": 1,
+      "score": 100.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 253,
+        "recency_decay": 1.0,
+        "source_weight": 30
+      },
+      "severity": "medium",
+      "source": "migration_surface_repeat",
+      "tool_id": null,
+      "type": "REPETITION"
+    }
+  ],
+  "schema_version": 1,
+  "summary": {
+    "contradiction": 0,
+    "repetition": 1,
+    "unknown": 0
+  }
+}

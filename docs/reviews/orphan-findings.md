@@ -9078,3 +9078,15 @@ Three organs of the learning loop's READ side were dead, so every agent dispatch
 **Proof:** 12 tests. The binding pair is the deliberate break: dropping `established_knowledge` from the fused envelope fails hash reproduction (the fusion-set addition is load-bearing), and because the binding alone cannot detect a mint that silently stops attaching the sections, the rendered text itself is content-pinned. The claim-envelope AST guard (`test_claim_envelope_binding`) derives the renderer's key set mechanically, so the two new renderer keys could not have shipped without joining the fusion set. Neighbour suites green (212 tests), invariants green (803).
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-622 — the mission seeder validated itself against a shape its producer never emits, and the first live cycle failed on it — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-10 by the FIRST live auto-cycle over the neural-wiring pipeline (run 31437241716): phase `service_mission_seed` failed with `'list' object has no attribute 'get'` and the cycle sealed as failed.
+
+**Root cause:** `impact_graph.cycle_service_examination` emits `per_service_pressures` as a **list** of `{service, layer, pressures}` groups in topological order. The FAZ 3 seeder read it as a dict keyed by project (`per_service.get(project)`), and — the deeper defect — its unit test **invented the dict shape** in its fixture, so the suite validated the consumer against data the producer never produces. A green test over a fictional contract is worse than no test: it certifies the disagreement.
+
+**Fix:** boundary normalization in the seeder (accepts the producer's list shape AND a dict, so a future producer change cannot re-break it); the test fixture now carries the producer's real shape, plus a content-pin test asserting a non-empty producer-shaped list both survives and scopes pressures onto the right service.
+
+**Proof:** 11 seeder tests green including the new live-shape pin; 201 neighbour tests green. The live cycle that found this is the FAZ 8 harness doing its job — the failure was recorded, phase-contained (`record_and_continue` kept sibling phases running), and the state store persisted the evidence.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

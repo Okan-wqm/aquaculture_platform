@@ -91,7 +91,10 @@ describe('operation-registry (MOB-MEDIUM-002)', () => {
     const followUp = getLeaveSubmitFollowUp('createLeaveRequest', {
       createLeaveRequest: { id: 'leave-9' },
     });
-    expect(followUp).toEqual({ query: OPERATION_MUTATIONS.submitLeaveRequest, variables: { id: 'leave-9' } });
+    expect(followUp).toEqual({
+      query: OPERATION_MUTATIONS.submitLeaveRequest,
+      variables: { id: 'leave-9' },
+    });
   });
 
   it('returns null follow-up for non-leave ops and rejects a missing created id', () => {

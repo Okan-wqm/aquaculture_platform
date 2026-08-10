@@ -12,7 +12,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { gql } from 'graphql-tag';
 
-
 import type {
   MobileAlertHistoryQuery,
   MobileAlertHistoryQueryVariables,
@@ -49,7 +48,12 @@ export const MOBILE_ALERT_HISTORY: TypedDocumentNode<
   MobileAlertHistoryQuery,
   MobileAlertHistoryQueryVariables
 > = gql`
-  query MobileAlertHistory($page: Int, $limit: Int, $severity: AlertSeverity, $acknowledged: Boolean) {
+  query MobileAlertHistory(
+    $page: Int
+    $limit: Int
+    $severity: AlertSeverity
+    $acknowledged: Boolean
+  ) {
     alertHistory(page: $page, limit: $limit, severity: $severity, acknowledged: $acknowledged) {
       ...MobileAlertFields
     }

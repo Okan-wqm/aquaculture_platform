@@ -1,9 +1,19 @@
 import { clsx } from 'clsx';
-import { Navbar, Block, BlockTitle, Button, List, ListItem } from 'konsta/react';
-import { Cloud, CloudOff, RefreshCw, Trash2, CheckCircle, AlertCircle, Clock, RotateCcw } from 'lucide-react';
+import {
+  Cloud,
+  CloudOff,
+  RefreshCw,
+  Trash2,
+  CheckCircle,
+  AlertCircle,
+  Clock,
+  RotateCcw,
+} from 'lucide-react';
 import type { JSX } from 'react';
 
+import { AppHeader } from '@/components/AppHeader';
 import { DataFreshness } from '@/components/DataFreshness';
+import { Button, Card, EmptyState, IconButton } from '@/components/ui';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { MAX_RETRY_COUNT } from '@/pwa/offline-queue';
 import { getLastSyncAt } from '@/utils/last-sync';
@@ -53,167 +63,152 @@ export function SyncStatusPage(): JSX.Element {
   };
 
   return (
-    <>
-      <Navbar title="Sync Status" />
+    <div className="pb-32">
+      <AppHeader title="Sync Status" showAvatar={false} />
 
-      {/* MOB-LOW-011: the global last-synced clock — every drain (auto or
-          manual) updates the stamp; DataFreshness colors its age. */}
-      <div className="flex items-center justify-center gap-1.5 pt-2">
-        <span className="text-xs text-gray-500 dark:text-gray-400">Last synced:</span>
-        <DataFreshness timestamp={getLastSyncAt()} />
-      </div>
+      <div className="px-4 flex flex-col gap-4">
+        {/* MOB-LOW-011: the global last-synced clock — every drain (auto or
+            manual) updates the stamp; DataFreshness colors its age. */}
+        <div className="flex items-center justify-center gap-1.5">
+          <span className="text-meta text-ink-3">Last synced:</span>
+          <DataFreshness timestamp={getLastSyncAt()} />
+        </div>
 
-      {/* Connection Status */}
-      <Block className="!mt-0">
-        <div
+        {/* Connection Status */}
+        <Card
           className={clsx(
-            'flex items-center justify-center gap-3 p-4 rounded-xl',
-            isOnline
-              ? 'bg-green-50 dark:bg-green-900/20'
-              : 'bg-amber-50 dark:bg-amber-900/20'
+            'flex items-center justify-center gap-3 p-4',
+            isOnline ? 'border-line' : 'border-warn',
           )}
         >
           {isOnline ? (
             <>
-              <Cloud className="text-green-500" size={32} />
+              <Cloud className="text-ok" size={32} />
               <div>
-                <h3 className="font-semibold text-green-700 dark:text-green-300">Online</h3>
-                <p className="text-sm text-green-600 dark:text-green-400">
-                  Connected to server
-                </p>
+                <h3 className="text-title font-semibold text-ok">Online</h3>
+                <p className="text-body text-ink-2">Connected to server</p>
               </div>
             </>
           ) : (
             <>
-              <CloudOff className="text-amber-500 offline-pulse" size={32} />
+              <CloudOff className="text-warn offline-pulse" size={32} />
               <div>
-                <h3 className="font-semibold text-amber-700 dark:text-amber-300">Offline</h3>
-                <p className="text-sm text-amber-600 dark:text-amber-400">
-                  Changes will sync when connected
-                </p>
+                <h3 className="text-title font-semibold text-warn">Offline</h3>
+                <p className="text-body text-ink-2">Changes will sync when connected</p>
               </div>
             </>
           )}
-        </div>
-      </Block>
+        </Card>
 
-      {/* Pending Count */}
-      <Block>
+        {/* Pending Count */}
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{pendingCount}</h2>
-            <p className="text-gray-500">Pending Operations</p>
+            <h2 className="text-display font-mono font-bold text-ink-1 tabular-nums">
+              {pendingCount}
+            </h2>
+            <p className="text-body text-ink-3">Pending Operations</p>
           </div>
           <Button
-            onClick={() => { void syncNow(); }}
+            variant="primary"
+            onClick={() => {
+              void syncNow();
+            }}
             disabled={!isOnline || pendingCount === 0 || isSyncing}
-            className="!bg-aqua-500"
           >
             <RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} />
-            <span className="ml-2">{isSyncing ? 'Syncing...' : 'Sync Now'}</span>
+            {isSyncing ? 'Syncing...' : 'Sync Now'}
           </Button>
         </div>
-      </Block>
 
-      {/* Pending Operations List */}
-      {pendingOperations.length > 0 ? (
-        <>
-          <BlockTitle>Pending Operations</BlockTitle>
-          <List strongIos insetIos>
+        {/* Pending Operations List */}
+        {pendingOperations.length > 0 ? (
+          <section className="flex flex-col gap-2">
+            <h2 className="text-body font-semibold text-ink-3 px-1">Pending Operations</h2>
             {pendingOperations.map((op) => {
               const config = OPERATION_LABELS[op.type] || { label: op.type, icon: '📝' };
               // BUG-17: Distinguish between retryable failures (will auto-retry)
               // and permanently failed operations (exceeded MAX_RETRY_COUNT).
-              const isPermanentlyFailed = op.status === 'failed' && op.retryCount >= MAX_RETRY_COUNT;
-              const isRetrying = op.status === 'failed' && op.retryCount > 0 && op.retryCount < MAX_RETRY_COUNT;
+              const isPermanentlyFailed =
+                op.status === 'failed' && op.retryCount >= MAX_RETRY_COUNT;
+              const isRetrying =
+                op.status === 'failed' && op.retryCount > 0 && op.retryCount < MAX_RETRY_COUNT;
 
               const statusIcon =
                 op.status === 'syncing' ? (
-                  <RefreshCw size={16} className="animate-spin text-blue-500" />
+                  <RefreshCw size={16} className="animate-spin text-acc" />
                 ) : isPermanentlyFailed ? (
-                  <AlertCircle size={16} className="text-red-500" />
+                  <AlertCircle size={16} className="text-crit" />
                 ) : isRetrying ? (
-                  <RotateCcw size={16} className="text-amber-500" />
+                  <RotateCcw size={16} className="text-warn" />
                 ) : op.status === 'failed' ? (
-                  <AlertCircle size={16} className="text-red-500" />
+                  <AlertCircle size={16} className="text-crit" />
                 ) : (
-                  <Clock size={16} className="text-gray-400" />
+                  <Clock size={16} className="text-ink-3" />
                 );
 
               return (
-                <ListItem
-                  key={op.id}
-                  title={
-                    <span className="flex items-center gap-2">
-                      <span>{config.icon}</span>
-                      <span>{config.label}</span>
-                    </span>
-                  }
-                  subtitle={
-                    <span className="text-xs">
+                // NOT a <ListRow>: the subtitle here is a multi-line block —
+                // retry count, "Will auto-retry", "Permanently failed" and the
+                // server's error text. ListRow truncates its subtitle to one
+                // line, which would hide exactly the sentence a worker needs in
+                // order to know whether their entry is still going to land.
+                <Card key={op.id} className="p-3 flex items-center gap-3">
+                  <span aria-hidden className="text-title shrink-0">
+                    {config.icon}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-title font-medium text-ink-1">{config.label}</div>
+                    <div className="text-meta text-ink-3">
                       {formatDate(op.createdAt)}
                       {op.retryCount > 0 && ` • Retries: ${op.retryCount}/${MAX_RETRY_COUNT}`}
-                      {isRetrying && (
-                        <span className="text-amber-600 dark:text-amber-400 block">
-                          Will auto-retry
-                        </span>
-                      )}
+                      {isRetrying && <span className="text-warn block">Will auto-retry</span>}
                       {isPermanentlyFailed && (
-                        <span className="text-red-600 dark:text-red-400 block">
-                          Permanently failed — please remove
-                        </span>
+                        <span className="text-crit block">Permanently failed — please remove</span>
                       )}
                       {op.lastError && (
                         // SEC-07: Truncate error messages to limit social engineering
                         // potential from server-sourced text rendered in the UI.
-                        <span className="text-red-500 block">
+                        <span className="text-crit block break-words">
                           Error: {op.lastError.slice(0, 200)}
                         </span>
                       )}
-                    </span>
-                  }
-                  after={
-                    <div className="flex items-center gap-2">
-                      {statusIcon}
-                      <button
-                        onClick={() => { void removeFromQueue(op.id); }}
-                        aria-label="Remove queued operation"
-                        className="min-h-touch min-w-touch flex items-center justify-center text-red-500 touch-feedback"
-                      >
-                        <Trash2 size={18} />
-                      </button>
                     </div>
-                  }
-                />
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {statusIcon}
+                    <IconButton
+                      aria-label="Remove queued operation"
+                      onClick={() => {
+                        void removeFromQueue(op.id);
+                      }}
+                      className="text-crit"
+                    >
+                      <Trash2 size={18} />
+                    </IconButton>
+                  </div>
+                </Card>
               );
             })}
-          </List>
-        </>
-      ) : (
-        <Block>
-          <div className="text-center py-12">
-            <CheckCircle size={48} className="mx-auto text-green-500 mb-4" />
-            <h3 className="font-semibold text-gray-900 dark:text-white mb-1">All Synced!</h3>
-            <p className="text-gray-500 text-sm">No pending operations</p>
-          </div>
-        </Block>
-      )}
+          </section>
+        ) : (
+          <EmptyState
+            icon={<CheckCircle size={22} />}
+            title="All Synced!"
+            description="No pending operations"
+          />
+        )}
 
-      {/* Info */}
-      <Block>
-        <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4">
-          <h4 className="font-medium text-gray-900 dark:text-white mb-2">How it works</h4>
-          <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+        {/* Info */}
+        <Card tone={2} elevated={false} className="p-4">
+          <h4 className="text-title font-semibold text-ink-1 mb-2">How it works</h4>
+          <ul className="text-body text-ink-2 space-y-1">
             <li>• Data entries are saved locally first</li>
             <li>• Automatic sync when online</li>
             <li>• Failed syncs auto-retry up to {MAX_RETRY_COUNT} times with backoff</li>
             <li>• Permanently failed entries can be manually removed</li>
           </ul>
-        </div>
-      </Block>
-
-      {/* Spacer for bottom nav */}
-      <div className="h-20" />
-    </>
+        </Card>
+      </div>
+    </div>
   );
 }

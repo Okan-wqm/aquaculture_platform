@@ -1,6 +1,6 @@
 import { UseGuards, Logger } from '@nestjs/common';
 import { Resolver, Query, Mutation, Args, ID, ResolveField, Parent } from '@nestjs/graphql';
-import { Roles, Role, Tenant } from '@aquaculture/backend-common/decorators';
+import { Roles, Role, Tenant, CurrentUser } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 
 import {
@@ -13,12 +13,19 @@ import {
   TestVfdConnectionInputDto,
   VfdConnectionTestResultDto,
   VfdStatsDto,
+  VfdDrivenUnitOutcome,
+  VfdDrivenUnitResolutionDto,
 } from '../dto';
 import { VfdDevice } from '../entities/vfd-device.entity';
+import { VfdDriveBinding } from '../entities/vfd-drive-binding.entity';
 import { VfdReading } from '../entities/vfd-reading.entity';
 import { VfdConnectionTesterService } from '../services/vfd-connection-tester.service';
 import { VfdDataReaderService } from '../services/vfd-data-reader.service';
 import { VfdDeviceService, CreateVfdDeviceInput, UpdateVfdDeviceInput } from '../services/vfd-device.service';
+import {
+  DrivenUnitResolution,
+  VfdDriveBindingService,
+} from '../services/vfd-drive-binding.service';
 
 /**
  * VFD Device GraphQL Resolver
@@ -31,7 +38,8 @@ export class VfdDeviceResolver {
   constructor(
     private readonly vfdDeviceService: VfdDeviceService,
     private readonly connectionTesterService: VfdConnectionTesterService,
-    private readonly dataReaderService: VfdDataReaderService
+    private readonly dataReaderService: VfdDataReaderService,
+    private readonly driveBindingService: VfdDriveBindingService
   ) {}
 
   /**
@@ -251,6 +259,43 @@ export class VfdDeviceResolver {
   }
 
   /**
+   * Bind a drive to the equipment it turns — a feeder, a pump, a blower, anything
+   * motorised. The binding is recorded as PENDING and confirmed asynchronously by
+   * the service that owns equipment; until it is confirmed the drive will refuse
+   * commands.
+   *
+   * SECURITY: Requires elevated permissions — decides what an actuator moves.
+   */
+  @Mutation(() => VfdDriveBinding, { name: 'bindVfdDrivenEquipment' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async bindVfdDrivenEquipment(
+    @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
+    @Args('drivenEquipmentId', { type: () => ID }) drivenEquipmentId: string,
+    @Tenant() tenantId: string,
+    @CurrentUser('sub') userId: string
+  ): Promise<VfdDriveBinding> {
+    // Existence check first: binding a nonexistent drive would create a binding
+    // row nothing owns.
+    await this.vfdDeviceService.findById(vfdDeviceId, tenantId);
+    return this.driveBindingService.bind(vfdDeviceId, tenantId, drivenEquipmentId, userId);
+  }
+
+  /**
+   * Forget what a drive is wired to. The drive stops accepting commands.
+   *
+   * SECURITY: Requires elevated permissions — disables an actuator.
+   */
+  @Mutation(() => Boolean, { name: 'unbindVfdDrivenEquipment' })
+  @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER)
+  async unbindVfdDrivenEquipment(
+    @Args('vfdDeviceId', { type: () => ID }) vfdDeviceId: string,
+    @Tenant() tenantId: string
+  ): Promise<boolean> {
+    await this.vfdDeviceService.findById(vfdDeviceId, tenantId);
+    return this.driveBindingService.unbind(vfdDeviceId, tenantId);
+  }
+
+  /**
    * Resolve latest reading for a device
    */
   @ResolveField(() => VfdReading, { name: 'latestReading', nullable: true })
@@ -259,5 +304,98 @@ export class VfdDeviceResolver {
     @Tenant() tenantId: string
   ): Promise<VfdReading | null> {
     return this.dataReaderService.getLatestReading(device.id, tenantId);
+  }
+
+  /**
+   * What this drive turns, and what its owner last said about it. Null when the
+   * drive has never been bound — which is itself the operator-visible signal that
+   * the drive cannot be commanded.
+   */
+  @ResolveField(() => VfdDriveBinding, { name: 'driveBinding', nullable: true })
+  async getDriveBinding(
+    @Parent() device: VfdDevice,
+    @Tenant() tenantId: string
+  ): Promise<VfdDriveBinding | null> {
+    return this.driveBindingService.findBinding(device.id, tenantId);
+  }
+
+  /**
+   * Which unit this drive serves, as a named outcome rather than a nullable id.
+   */
+  @ResolveField(() => VfdDrivenUnitResolutionDto, { name: 'drivenUnit' })
+  async getDrivenUnit(
+    @Parent() device: VfdDevice,
+    @Tenant() tenantId: string
+  ): Promise<VfdDrivenUnitResolutionDto> {
+    const resolution = await this.driveBindingService.resolveDrivenUnit(device.id, tenantId);
+    return this.toResolutionDto(device.id, tenantId, resolution);
+  }
+
+  /**
+   * The unit id, and ONLY when exactly one unit follows from the driven equipment.
+   *
+   * The field name is unchanged from when this was a hand-typed column, but its
+   * meaning is not: it is now derived through the attested binding, so it is null
+   * for a pump (correctly — a pump serves no unit), null for an unconfirmed
+   * binding, and null when a feeder serves several units. Callers that need to
+   * know WHY it is null read `drivenUnit.outcome`.
+   */
+  @ResolveField(() => ID, { name: 'tankId', nullable: true })
+  async getTankId(
+    @Parent() device: VfdDevice,
+    @Tenant() tenantId: string
+  ): Promise<string | null> {
+    const resolution = await this.driveBindingService.resolveDrivenUnit(device.id, tenantId);
+    return resolution.kind === 'feeder_unit' ? resolution.unit.unitId : null;
+  }
+
+  /**
+   * Project the server-side discriminated union onto its GraphQL shape. Every
+   * branch is named; none of them collapses into a bare null.
+   */
+  private async toResolutionDto(
+    deviceId: string,
+    tenantId: string,
+    resolution: DrivenUnitResolution
+  ): Promise<VfdDrivenUnitResolutionDto> {
+    switch (resolution.kind) {
+      case 'unbound':
+        return { outcome: VfdDrivenUnitOutcome.UNBOUND, units: [] };
+      case 'unattested':
+        return {
+          outcome: VfdDrivenUnitOutcome.UNATTESTED,
+          drivenEquipmentId: resolution.drivenEquipmentId,
+          units: [],
+        };
+      case 'expired':
+        return {
+          outcome: VfdDrivenUnitOutcome.EXPIRED,
+          drivenEquipmentId: resolution.drivenEquipmentId,
+          units: [],
+        };
+      case 'not_a_feeder':
+        return {
+          outcome: VfdDrivenUnitOutcome.NOT_A_FEEDER,
+          drivenEquipmentId: resolution.drivenEquipmentId,
+          equipmentCategory: resolution.equipmentCategory,
+          units: [],
+        };
+      case 'feeder_without_unit':
+        return {
+          outcome: VfdDrivenUnitOutcome.FEEDER_WITHOUT_UNIT,
+          drivenEquipmentId: resolution.drivenEquipmentId,
+          units: [],
+        };
+      case 'feeder_ambiguous':
+      case 'feeder_unit':
+        return {
+          outcome:
+            resolution.kind === 'feeder_unit'
+              ? VfdDrivenUnitOutcome.FEEDER_UNIT
+              : VfdDrivenUnitOutcome.FEEDER_AMBIGUOUS,
+          drivenEquipmentId: resolution.drivenEquipmentId,
+          units: await this.driveBindingService.findUnits(deviceId, tenantId),
+        };
+    }
   }
 }

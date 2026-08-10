@@ -484,6 +484,13 @@ export interface BatchAllocatedToTankEvent extends BaseEvent {
 export interface GrowthSampleRecordedEvent extends BaseEvent {
   eventType: 'GrowthSampleRecorded';
   batchId: string;
+  /**
+   * Unit the sample re-based (additive, v1-compatible). A weighing moves the
+   * tank's avgWeightG / totalBiomassKg, so the farm-stock read model must
+   * refresh that container — without this field the consumer cannot tell which
+   * one changed. Absent when the batch is in no unit (pond-held/unallocated).
+   */
+  tankId?: string;
   measurementId: string;
   sampleSize: number;
   averageWeightG: number;
@@ -837,6 +844,94 @@ export interface FeedingProtocolAssignmentPausedEvent extends BaseEvent {
   reason: 'protocol_archived' | 'operator_paused' | 'unit_emptied';
 }
 
+/** Bir ünitenin AKTİF yemleyici atamasındaki tek bir satırın özeti. */
+export interface UnitFeederShareEntry {
+  assignmentId: string;
+  feederEquipmentId: string;
+  feederCode: string;
+  /** Günlük dozdaki pay (%); aktif girdilerin toplamı tam 100'dür. */
+  doseSharePercent: number;
+}
+
+/**
+ * Bir ünitenin yemleyici kümesi değiştiğinde (ekleme, çıkarma, pay değişimi).
+ *
+ * Event ÜNİTE düzeyindedir, satır düzeyinde değil: bir ünitenin payları ancak
+ * birlikte anlamlıdır (toplamları 100'dür), dolayısıyla tek bir satırın
+ * değiştiğini duyurmak tüketiciye eksik bilgi verir. `feeders` değişiklik
+ * sonrasındaki TAM aktif küme, `endedAssignmentIds` ise aynı işlemde tarihçeye
+ * inen satırlardır.
+ */
+export interface UnitFeederAssignmentsChangedEvent extends BaseEvent {
+  eventType: 'UnitFeederAssignmentsChanged';
+  userId?: string;
+  unitId: string;
+  unitType: 'tank' | 'pond' | 'cage';
+  unitCode: string;
+  siteId: string;
+  feeders: UnitFeederShareEntry[];
+  endedAssignmentIds: string[];
+}
+
+// ============ Driven-equipment attestation (VFD ↔ Equipment binding) ============
+
+/**
+ * Tasdik edilen ekipmanın hâlihazırda hizmet ettiği bir ünite.
+ *
+ * WHAT: one unit that the attested equipment currently serves, with the share of
+ * that unit's daily dose this equipment carries. Present ONLY for FEEDING-category
+ * equipment — a pump or a blower serves no unit, and the empty list is the correct
+ * answer rather than a missing one.
+ */
+export interface DrivenEquipmentUnitEntry {
+  unitId: string;
+  unitType: 'tank' | 'pond' | 'cage';
+  unitCode: string;
+  /** Günlük dozdaki pay (%) — yalnız FEEDING kategorisi için anlamlıdır. */
+  doseSharePercent: number;
+}
+
+/**
+ * Sürücü–ekipman bağının, ekipman kimliğinin SAHİBİ tarafından tasdiki.
+ *
+ * WHAT: farm-service — which owns equipment identity — answers a drive's question
+ * "what is the thing I am wired to?". The answer carries the equipment's category
+ * (so a feeder can be told from a pump or a blower) and, when and only when the
+ * equipment is a feeder, the units it currently serves.
+ *
+ * WHY the answer is an event and not a synchronous call: the drive is an actuator.
+ * Putting farm-service on its command path would turn a farm outage into "no fish
+ * are fed"; leaving an operator-typed uuid on it turns a renamed or deleted
+ * equipment row into "the wrong tank is fed". An attestation is neither — the
+ * drive holds the last answer its owner gave, refuses to act while it holds no
+ * answer, and re-asks when the answer ages out.
+ *
+ * `servedUnits` is the COMPLETE current set, never a delta. That is what makes
+ * "the assignment ended" (attested, empty set) distinguishable from "nobody has
+ * told us yet" (no attestation at all).
+ */
+export interface VfdDriveBindingAttestedEvent extends BaseEvent {
+  eventType: 'VfdDriveBindingAttested';
+  /** sensor-service `vfd_devices.id` — the drive whose question this answers. */
+  vfdDeviceId: string;
+  /** The `equipment.id` the drive claims to actuate. */
+  drivenEquipmentId: string;
+  /**
+   * `attested` — the row exists, is in service, and the fields below describe it.
+   * `unknown_equipment` — no such row for this tenant, or it was deleted.
+   * `inactive_equipment` — the row exists but is not in service.
+   * Only `attested` may actuate; the other two are refusals carrying a reason.
+   */
+  outcome: 'attested' | 'unknown_equipment' | 'inactive_equipment';
+  /** `equipment_types.category` value (e.g. `feeding`, `pump`, `aeration`). */
+  equipmentCategory?: string;
+  equipmentCode?: string;
+  equipmentName?: string;
+  siteId?: string;
+  /** Empty for every non-feeder, and for a feeder with no active assignment. */
+  servedUnits: DrivenEquipmentUnitEntry[];
+}
+
 // ==================== Meal Engine Events (Faz 5 — plan §7/§10) ====================
 
 /**
@@ -1007,11 +1102,31 @@ export interface FeedingDailySummaryEvent extends BaseEvent {
   missedMealCount: number;
 }
 
+/**
+ * A feeder's dosing physics and its per-feed calibrations were rewritten.
+ *
+ * BREAKING CHANGE (v2): `feedSizeMm: number[]` is replaced by `feedIds:
+ * string[]`. Pellet diameter was never an identity — two 4 mm feeds from
+ * different mills flow differently through the same auger, so a diameter list
+ * could not tell a consumer WHICH feeds were recalibrated. `feedId` is the axis
+ * the rest of the feeding system already turns on (`ProtocolBand.feedId`), so a
+ * consumer can now invalidate exactly the plans that depend on what changed.
+ *
+ * `dosingMode` and `dispenseControl` are carried because they decide the SHAPE
+ * of every derived command (a speed and a duration, or a shot count) and whether
+ * a weight source is in the loop. A consumer caching derived commands must drop
+ * them when either changes.
+ */
 export interface FeederCalibrationsSavedEvent extends BaseEvent {
   eventType: 'FeederCalibrationsSaved';
   equipmentId: string;
   calibrationCount: number;
-  feedSizeMm: number[];
+  /** `'discrete'` (grams per shot) or `'continuous'` (grams per minute at a speed). */
+  dosingMode: string;
+  /** `'time_based'` or `'weight_based'`. */
+  dispenseControl: string;
+  /** `feeds.id` of every calibrated feed, in the order persisted. */
+  feedIds: string[];
   changedBy: string;
 }
 
@@ -1689,6 +1804,8 @@ export type FarmEvent =
   | FeederCalibrationsSavedEvent
   | FeedingProtocolAssignedEvent
   | FeedingProtocolAssignmentPausedEvent
+  | UnitFeederAssignmentsChangedEvent
+  | VfdDriveBindingAttestedEvent
   | MealWindowUpcomingEvent
   | MealFedEvent
   | MealSkippedEvent

@@ -35,6 +35,7 @@ import { Equipment } from '../equipment/entities/equipment.entity';
 import { WaterQualityService } from './water-quality.service';
 import { WaterTemperatureService } from './services/water-temperature.service';
 import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.service';
+import { FeedTypeTransitionService } from '../feeding-protocol/services/feed-transition.service';
 import { DayPlanRecalcService } from '../feeding-protocol/services/day-plan-recalc.service';
 
 // Resolvers
@@ -112,6 +113,7 @@ const CommandHandlers = [
     WaterQualityService,
     // P-31 sıcaklık tetiklemesi — stateless recalc servisleri doğrudan sağlanır.
     ProtocolRateService,
+    FeedTypeTransitionService,
     DayPlanRecalcService,
     // Etkin sıcaklık zinciri (sensör→manuel→none) — effectiveUnitTemperatures sorgusu okur.
     WaterTemperatureService,

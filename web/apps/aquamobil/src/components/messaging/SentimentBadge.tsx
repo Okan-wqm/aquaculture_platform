@@ -30,10 +30,12 @@ interface SentimentBadgeProps {
 
 /** SentimentBadge renders a color-coded pill with trend icon. */
 export function SentimentBadge({ trend, label }: SentimentBadgeProps): ReactElement {
+  // `--ok` and `--type-harvest` are the same value in every theme, so the
+  // harvest tint is the green wash that `--ok` has no dim twin for.
   const config: Record<SentimentTrend, { bg: string; text: string; Icon: typeof TrendingUp }> = {
-    positive: { bg: 'bg-green-50 dark:bg-green-900/20', text: 'text-green-600 dark:text-green-400', Icon: TrendingUp },
-    neutral: { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-500 dark:text-gray-400', Icon: Minus },
-    negative: { bg: 'bg-red-50 dark:bg-red-900/20', text: 'text-red-600 dark:text-red-400', Icon: TrendingDown },
+    positive: { bg: 'bg-type-harvest-dim', text: 'text-ok', Icon: TrendingUp },
+    neutral: { bg: 'bg-surface-2', text: 'text-ink-2', Icon: Minus },
+    negative: { bg: 'bg-crit-dim', text: 'text-crit', Icon: TrendingDown },
   };
 
   const { bg, text, Icon } = config[trend];
@@ -42,7 +44,7 @@ export function SentimentBadge({ trend, label }: SentimentBadgeProps): ReactElem
   return (
     <span
       className={clsx(
-        'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold',
+        'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-meta font-semibold',
         bg,
         text,
       )}

@@ -1,22 +1,83 @@
 import { clsx } from 'clsx';
-import { ArrowLeft, ChevronLeft, ChevronRight, Clock, Coffee, Palmtree, GraduationCap, CalendarOff } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Coffee,
+  Palmtree,
+  GraduationCap,
+  CalendarOff,
+} from 'lucide-react';
 import type { JSX } from 'react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { AppHeader } from '@/components/AppHeader';
+import { Card, EmptyState, IconButton, Skeleton } from '@/components/ui';
 import { useMySchedule, formatMinutesAsHours } from '@/hooks/useMySchedule';
 import type { WeeklyPlanEntry } from '@/hooks/useMySchedule';
 
-
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const DAY_NAMES_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const DAY_NAMES_FULL = [
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+];
 
-const ENTRY_TYPE_CONFIG: Record<string, { icon: typeof Clock; label: string; bgColor: string; textColor: string }> = {
-  work: { icon: Clock, label: 'Work', bgColor: 'bg-ocean-50 dark:bg-ocean-900/20', textColor: 'text-ocean-600 dark:text-ocean-400' },
-  off: { icon: Coffee, label: 'Day Off', bgColor: 'bg-gray-50 dark:bg-gray-800', textColor: 'text-gray-500' },
-  leave: { icon: Palmtree, label: 'Leave', bgColor: 'bg-sea-50 dark:bg-sea-900/20', textColor: 'text-sea-600 dark:text-sea-400' },
-  holiday: { icon: CalendarOff, label: 'Holiday', bgColor: 'bg-coral-50 dark:bg-coral-900/20', textColor: 'text-coral-600' },
-  training: { icon: GraduationCap, label: 'Training', bgColor: 'bg-purple-50 dark:bg-purple-900/20', textColor: 'text-purple-600' },
+/**
+ * Entry type → its well and its ink.
+ *
+ * v4: the five hand-mixed palettes (ocean / gray / sea / coral / purple, each
+ * with a dark-mode twin) become semantic tokens. Work is the accent because it
+ * is the default state of a shift; leave confirms; a public holiday is the one
+ * the worker must not misread, so it takes the watch tone; training borrows the
+ * transfer hue, which exists precisely to be discriminable from the others. The
+ * label ("Work", "Day Off", "Leave", "Holiday", "Training") is always drawn, so
+ * none of this rests on colour alone.
+ */
+const ENTRY_TYPE_CONFIG: Record<
+  string,
+  { icon: typeof Clock; label: string; bgColor: string; textColor: string; barColor: string }
+> = {
+  work: {
+    icon: Clock,
+    label: 'Work',
+    bgColor: 'bg-acc-dim',
+    textColor: 'text-acc',
+    barColor: 'bg-acc',
+  },
+  off: {
+    icon: Coffee,
+    label: 'Day Off',
+    bgColor: 'bg-surface-2',
+    textColor: 'text-ink-3',
+    barColor: 'bg-surface-3',
+  },
+  leave: {
+    icon: Palmtree,
+    label: 'Leave',
+    bgColor: 'bg-surface-2',
+    textColor: 'text-ok',
+    barColor: 'bg-ok',
+  },
+  holiday: {
+    icon: CalendarOff,
+    label: 'Holiday',
+    bgColor: 'bg-warn-dim',
+    textColor: 'text-warn',
+    barColor: 'bg-warn',
+  },
+  training: {
+    icon: GraduationCap,
+    label: 'Training',
+    bgColor: 'bg-type-transfer-dim',
+    textColor: 'text-type-transfer',
+    barColor: 'bg-type-transfer',
+  },
 };
 
 function isToday(dateStr: string): boolean {
@@ -34,22 +95,15 @@ function DayCard({ entry }: { entry: WeeklyPlanEntry }): JSX.Element {
   const endTime = entry.plannedEndTime || entry.shift?.endTime;
 
   return (
-    <div
-      className={clsx(
-        'rounded-2xl p-4 border transition-all',
-        today
-          ? 'border-ocean-300 dark:border-ocean-600 bg-ocean-50/50 dark:bg-ocean-900/10 shadow-glow-ocean'
-          : 'border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900'
-      )}
-    >
+    <Card className={clsx('p-4', today && 'border-acc')}>
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          {today && <span className="w-2 h-2 rounded-full bg-ocean-500 animate-pulse" />}
-          <span className={clsx('text-sm font-bold', today ? 'text-ocean-600 dark:text-ocean-400' : 'text-gray-900 dark:text-white')}>
+          {today && <span aria-hidden className="w-2 h-2 rounded-full bg-acc animate-am-blip" />}
+          <span className={clsx('text-body font-bold', today ? 'text-acc' : 'text-ink-1')}>
             {DAY_NAMES_FULL[adjustedIndex]}
           </span>
         </div>
-        <span className="text-xs text-gray-400 font-medium">
+        <span className="text-meta text-ink-3 font-mono">
           {new Date(entry.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
         </span>
       </div>
@@ -57,23 +111,27 @@ function DayCard({ entry }: { entry: WeeklyPlanEntry }): JSX.Element {
       <div className={clsx('flex items-center gap-3 rounded-xl px-3 py-2.5', config.bgColor)}>
         <Icon size={18} className={config.textColor} />
         <div className="flex-1">
-          <div className={clsx('text-sm font-semibold', config.textColor)}>
+          <div className={clsx('text-body font-semibold', config.textColor)}>
             {entry.entryType === 'work' && entry.shift ? entry.shift.name : config.label}
           </div>
           {entry.entryType === 'work' && startTime && endTime && (
-            <div className="text-xs text-gray-500 mt-0.5">
+            <div className="text-meta text-ink-3 mt-0.5 font-mono">
               {startTime.slice(0, 5)} - {endTime.slice(0, 5)}
               {entry.plannedMinutes > 0 && (
-                <span className="ml-2 text-gray-400">({formatMinutesAsHours(entry.plannedMinutes)})</span>
+                <span className="ml-2">({formatMinutesAsHours(entry.plannedMinutes)})</span>
               )}
             </div>
           )}
         </div>
         {entry.shift?.colorCode && (
-          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: entry.shift.colorCode }} />
+          // The tenant's own shift colour — data, not a design token.
+          <div
+            className="w-3 h-3 rounded-full shrink-0"
+            style={{ backgroundColor: entry.shift.colorCode }}
+          />
         )}
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -100,126 +158,133 @@ export function MySchedulePage(): JSX.Element {
     : [];
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-ocean-700 to-ocean-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <Clock size={22} />
-            <h1 className="text-lg font-bold">My Schedule</h1>
-          </div>
-        </div>
+    <div className="pb-32">
+      <AppHeader title="My Schedule" onBack={() => navigate(-1)} showAvatar={false} />
 
+      <div className="px-4 flex flex-col gap-4">
         {/* Week navigation */}
-        <div className="flex items-center justify-between px-4 pb-4">
-          <button
+        <div className="flex items-center justify-between">
+          <IconButton
+            aria-label="Previous week"
             onClick={() => setWeekOffset((w) => w - 1)}
-            className="p-2 rounded-xl bg-white/10 hover:bg-white/20 touch-feedback"
+            className="bg-surface-2 rounded-xl"
           >
-            <ChevronLeft size={20} />
-          </button>
+            <ChevronLeft size={20} className="text-ink-2" />
+          </IconButton>
           <div className="text-center">
-            <div className="text-sm font-semibold">{formatWeekRange()}</div>
-            <div className="text-ocean-200 text-xs font-medium mt-0.5">
-              {weekOffset === 0 ? 'This Week' : weekOffset === 1 ? 'Next Week' : weekOffset === -1 ? 'Last Week' : ''}
+            <div className="text-title font-semibold text-ink-1">{formatWeekRange()}</div>
+            <div className="text-meta text-ink-3 font-medium mt-0.5">
+              {weekOffset === 0
+                ? 'This Week'
+                : weekOffset === 1
+                  ? 'Next Week'
+                  : weekOffset === -1
+                    ? 'Last Week'
+                    : ''}
             </div>
           </div>
-          <button
+          <IconButton
+            aria-label="Next week"
             onClick={() => setWeekOffset((w) => w + 1)}
-            className="p-2 rounded-xl bg-white/10 hover:bg-white/20 touch-feedback"
+            className="bg-surface-2 rounded-xl"
           >
-            <ChevronRight size={20} />
-          </button>
+            <ChevronRight size={20} className="text-ink-2" />
+          </IconButton>
         </div>
 
         {/* Summary stats */}
         {plan && (
-          <div className="grid grid-cols-3 gap-3 px-4 pb-4">
-            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-2.5 text-center">
-              <div className="text-lg font-bold">{plan.plannedWorkDays}</div>
-              <div className="text-ocean-200 text-[10px] font-medium">Work Days</div>
-            </div>
-            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-2.5 text-center">
-              <div className="text-lg font-bold">{formatMinutesAsHours(plan.plannedTotalMinutes)}</div>
-              <div className="text-ocean-200 text-[10px] font-medium">Total Hours</div>
-            </div>
-            <div className={clsx(
-              'rounded-xl p-2.5 text-center backdrop-blur-sm',
-              plan.plannedOvertimeMinutes > 0 ? 'bg-coral-500/30' : 'bg-white/10'
-            )}>
-              <div className="text-lg font-bold">
-                {plan.plannedOvertimeMinutes > 0 ? formatMinutesAsHours(plan.plannedOvertimeMinutes) : '--'}
+          <div className="grid grid-cols-3 gap-2">
+            <Card className="p-2.5 text-center">
+              <div className="text-head font-mono font-bold text-ink-1 tabular-nums">
+                {plan.plannedWorkDays}
               </div>
-              <div className={clsx('text-[10px] font-medium', plan.plannedOvertimeMinutes > 0 ? 'text-coral-200' : 'text-ocean-200')}>
-                Overtime
+              <div className="text-meta text-ink-3 font-medium">Work Days</div>
+            </Card>
+            <Card className="p-2.5 text-center">
+              <div className="text-head font-mono font-bold text-ink-1 tabular-nums">
+                {formatMinutesAsHours(plan.plannedTotalMinutes)}
               </div>
-            </div>
+              <div className="text-meta text-ink-3 font-medium">Total Hours</div>
+            </Card>
+            <Card
+              className={clsx(
+                'p-2.5 text-center',
+                plan.plannedOvertimeMinutes > 0 && 'border-warn',
+              )}
+            >
+              <div
+                className={clsx(
+                  'text-head font-mono font-bold tabular-nums',
+                  plan.plannedOvertimeMinutes > 0 ? 'text-warn' : 'text-ink-1',
+                )}
+              >
+                {plan.plannedOvertimeMinutes > 0
+                  ? formatMinutesAsHours(plan.plannedOvertimeMinutes)
+                  : '--'}
+              </div>
+              <div className="text-meta text-ink-3 font-medium">Overtime</div>
+            </Card>
           </div>
         )}
 
-        {/* BUG-12: Removed conflicting 'relative' — 'relative' overrides 'absolute'
-            as they are in the same CSS property group. Only 'absolute' is intended. */}
-        <div className="absolute -bottom-px left-0 right-0">
-          <svg viewBox="0 0 400 20" fill="none" className="w-full block" preserveAspectRatio="none">
-            <path d="M0 20V0c100 15 200 15 400 0v20z" className="fill-gray-50 dark:fill-gray-950" />
-          </svg>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="px-4 pt-2 pb-24">
+        {/* Content */}
         {isLoading ? (
-          <div className="space-y-3">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="h-20 rounded-2xl skeleton" />
-            ))}
-          </div>
+          <Skeleton variant="tile" count={5} />
         ) : isError ? (
-          <div className="text-center py-12 text-gray-400">
-            <Clock size={48} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">Could not load schedule</p>
-            <p className="text-sm mt-1">Please try again later</p>
-          </div>
+          // A failed fetch is not "no schedule published" — saying the second
+          // when the first happened sends a worker to a shift that may not be
+          // theirs, or away from one that is.
+          <EmptyState
+            tone="error"
+            icon={<Clock size={22} />}
+            title="Could not load schedule"
+            description="Please try again later"
+          />
         ) : !plan || sortedEntries.length === 0 ? (
-          <div className="text-center py-12 text-gray-400">
-            <CalendarOff size={48} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">No schedule published</p>
-            <p className="text-sm mt-1">Your schedule for this week has not been published yet</p>
-            <button
-              onClick={() => setWeekOffset(0)}
-              className="mt-4 text-ocean-500 text-sm font-semibold touch-feedback"
-            >
-              Go to this week
-            </button>
-          </div>
+          <EmptyState
+            icon={<CalendarOff size={22} />}
+            title="No schedule published"
+            description="Your schedule for this week has not been published yet"
+            action={
+              <button
+                type="button"
+                onClick={() => setWeekOffset(0)}
+                className="text-body font-semibold text-acc min-h-touch touch-feedback"
+              >
+                Go to this week
+              </button>
+            }
+          />
         ) : (
           <div className="space-y-3">
             {/* Mini day indicator bar */}
-            <div className="flex gap-1.5 mb-4">
+            <div className="flex gap-1.5 mb-1">
               {sortedEntries.map((entry) => {
                 const dayIndex = new Date(entry.date).getDay();
                 const adjustedIndex = dayIndex === 0 ? 6 : dayIndex - 1;
                 const today = isToday(entry.date);
+                const config = ENTRY_TYPE_CONFIG[entry.entryType] || ENTRY_TYPE_CONFIG.off;
                 return (
                   <div key={entry.id} className="flex-1 text-center">
-                    <div className={clsx(
-                      'text-[10px] font-bold mb-1',
-                      today ? 'text-ocean-600' : 'text-gray-400'
-                    )}>
+                    <div
+                      className={clsx(
+                        'text-meta font-bold mb-1',
+                        today ? 'text-acc' : 'text-ink-3',
+                      )}
+                    >
                       {DAY_NAMES[adjustedIndex]}
                     </div>
-                    <div className={clsx(
-                      'h-1.5 rounded-full',
-                      entry.entryType === 'work'
-                        ? today ? 'bg-ocean-500' : 'bg-ocean-300 dark:bg-ocean-700'
-                        : entry.entryType === 'off' ? 'bg-gray-200 dark:bg-gray-700'
-                        : entry.entryType === 'leave' ? 'bg-sea-400'
-                        : entry.entryType === 'holiday' ? 'bg-coral-400'
-                        : 'bg-purple-400'
-                    )} />
+                    {/* Today's bar sits at full strength; the rest of the week
+                        is dimmed, which is what the light/dark blue pair was
+                        doing before the legacy palette went. */}
+                    <div
+                      className={clsx(
+                        'h-1.5 rounded-full',
+                        config.barColor,
+                        !today && 'opacity-60',
+                      )}
+                    />
                   </div>
                 );
               })}

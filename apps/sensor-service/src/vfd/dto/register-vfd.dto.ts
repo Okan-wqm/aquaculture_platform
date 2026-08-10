@@ -78,15 +78,24 @@ export class RegisterVfdDto {
   @IsUUID()
   farmId?: string;
 
-  @Field(() => ID, { nullable: true })
+  /**
+   * The farm `equipment.id` this drive actuates — a feeder, a water pump, a
+   * blower, anything with a motor. Optional at registration (a drive can be
+   * catalogued before it is wired to anything), but a drive that has not been
+   * bound cannot be commanded.
+   *
+   * Replaces the former `tankId` and `pumpId`. Those asked the operator to type a
+   * uuid nothing ever checked, and `pumpId` could only express one of the several
+   * things a drive actually drives. This id is confirmed by the service that owns
+   * equipment before the drive will act on it.
+   */
+  @Field(() => ID, {
+    nullable: true,
+    description: 'farm equipment.id this drive actuates (feeder, pump, blower, …)',
+  })
   @IsOptional()
   @IsUUID()
-  tankId?: string;
-
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  pumpId?: string;
+  drivenEquipmentId?: string;
 
   // SENSOR-CRITICAL-007: edge-delegated write binding. Provide both together —
   // the owning edge gateway (edgeDeviceId) and the Modbus `device` name it

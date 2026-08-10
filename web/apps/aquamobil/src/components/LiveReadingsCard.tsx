@@ -1,8 +1,9 @@
-import { Waves } from 'lucide-react';
+import { Antenna, Waves, WifiOff } from 'lucide-react';
 import type { ReactElement } from 'react';
 
 import { DataFreshness } from './DataFreshness';
 
+import { Card, EmptyState, Skeleton } from '@/components/ui';
 import { useLatestReadings } from '@/hooks/useLatestReadings';
 
 /**
@@ -11,62 +12,74 @@ import { useLatestReadings } from '@/hooks/useLatestReadings';
  * the field. Renders an explicit "no sensors" state so a sensorless tank never
  * looks like a healthy one, and hides nothing behind spinners when offline
  * (the hook serves last-known values with their honest, old timestamps).
+ *
+ * v4 keeps all THREE non-value states apart, because they mean different
+ * things and a single grey shrug would flatten them:
+ *   - no sensors registered  — a configuration fact about this tank
+ *   - sensors but no readings — registered hardware that has never reported
+ *   - the fetch failed        — tone="error", so "we don't know" can never be
+ *     mistaken for "there is nothing to know"
  */
 export function LiveReadingsCard({ tankId }: { tankId: string }): ReactElement | null {
   const { metrics, hasSensors, isLoading, error } = useLatestReadings(tankId);
 
   if (isLoading) {
-    return <div className="h-24 rounded-2xl bg-gray-200 dark:bg-gray-800 animate-pulse" />;
+    return <Skeleton variant="tile" />;
   }
 
   return (
-    <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 p-4">
+    <Card className="p-4">
       <div className="flex items-center gap-2 mb-3">
-        <Waves size={16} className="text-ocean-500" />
-        <h3 className="text-sm font-bold text-gray-900 dark:text-gray-100">Live Water Values</h3>
+        <Waves size={16} className="text-acc" />
+        <h3 className="text-title font-semibold text-ink-1">Live Water Values</h3>
       </div>
 
       {!hasSensors && !error && (
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          No sensors are registered for this tank.
-        </p>
+        <EmptyState
+          icon={<Antenna size={22} />}
+          title="No sensors"
+          description="No sensors are registered for this tank."
+          className="py-4 px-0"
+        />
       )}
 
       {error && metrics.length === 0 && (
-        <p className="text-sm text-red-600 dark:text-red-400">
-          Live values unavailable: {error}
-        </p>
+        <EmptyState
+          tone="error"
+          icon={<WifiOff size={22} />}
+          title="Live values unavailable"
+          description={error}
+          className="py-4 px-0"
+        />
       )}
 
       {hasSensors && metrics.length === 0 && !error && (
-        <p className="text-sm text-gray-500 dark:text-gray-400">
-          Sensors registered, but no readings have arrived yet.
-        </p>
+        <EmptyState
+          icon={<Waves size={22} />}
+          title="No readings yet"
+          description="Sensors are registered, but no readings have arrived yet."
+          className="py-4 px-0"
+        />
       )}
 
       {metrics.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
           {metrics.map((metric) => (
-            <div
-              key={metric.key}
-              className="rounded-xl bg-gray-50 dark:bg-gray-800/60 p-2.5 text-center"
-            >
-              <div className="text-lg font-bold tabular-nums text-gray-900 dark:text-gray-100">
+            <div key={metric.key} className="rounded-xl bg-surface-2 p-2.5 text-center">
+              <div className="text-head font-mono font-bold tabular-nums text-ink-1">
                 {metric.value}
                 {metric.unit && (
-                  <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 ml-0.5">
-                    {metric.unit}
-                  </span>
+                  <span className="text-meta font-semibold text-ink-3 ml-0.5">{metric.unit}</span>
                 )}
               </div>
-              <div className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">
-                {metric.label}
-              </div>
+              <div className="text-meta font-semibold text-ink-2">{metric.label}</div>
+              {/* The per-value age stamp — this is what makes the number
+                  actionable, so it stays attached to the value it dates. */}
               <DataFreshness timestamp={metric.readingAt} />
             </div>
           ))}
         </div>
       )}
-    </div>
+    </Card>
   );
 }

@@ -34,6 +34,14 @@ interface ErrorBoundaryState {
  * are the most common cause of unexpected render errors. A full reload clears
  * the React tree and forces the SW to serve fresh assets, which resolves the
  * majority of field-reported crashes without user confusion.
+ *
+ * WHY this file imports NO UI kit (v4): it is the app's last line of defence and
+ * renders precisely when the rest of the tree has thrown. Every import it takes
+ * is code that must not itself throw while the fallback is being rendered, so
+ * the surface, the alarm well and the retry button are hand-written from the
+ * SAME semantic tokens the kit uses (bg-surface-1 / border-line / shadow-token,
+ * bg-crit-dim + text-crit, bg-acc + text-acc-on) rather than imported from it.
+ * Duplicating four class strings is the price of a fallback that cannot fail.
  */
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
@@ -63,30 +71,29 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     if (this.state.hasError) {
       const title = this.props.fallbackTitle ?? 'Something went wrong';
       const message =
-        this.props.fallbackMessage ??
-        'An unexpected error occurred. Please try again.';
+        this.props.fallbackMessage ?? 'An unexpected error occurred. Please try again.';
 
+      // No ground colour of its own: <body> paints `var(--bg)` from
+      // src/styles/main.css, which is plain CSS and therefore still correct on
+      // the render that this boundary is catching.
       return (
         <div
-          className="min-h-screen bg-gray-50 dark:bg-gray-950 flex items-center justify-center px-6"
+          className="min-h-screen flex items-center justify-center px-6"
           role="alert"
           aria-live="assertive"
         >
-          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-8 max-w-sm w-full text-center">
-            {/* WHY: Red icon + white card follows the existing alert pattern from
-                HomePage's over-capacity warning -- consistent visual language. */}
-            <div className="w-14 h-14 bg-red-50 dark:bg-red-900/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <AlertTriangle size={28} className="text-red-500" />
+          <div className="bg-surface-1 border border-line rounded-2xl shadow-token p-8 max-w-sm w-full text-center">
+            {/* WHY: the alarm well plus a raised card is the app's alert pattern
+                (HomePage's over-capacity warning) -- consistent visual language.
+                Coral is the alarm colour, and a crash is an alarm. */}
+            <div className="w-14 h-14 bg-crit-dim rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle size={28} className="text-crit" />
             </div>
-            <h1 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
-              {title}
-            </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 leading-relaxed">
-              {message}
-            </p>
+            <h1 className="text-head font-bold text-ink-1 mb-2">{title}</h1>
+            <p className="text-body text-ink-2 mb-6 leading-relaxed">{message}</p>
             <button
               onClick={this.handleRetry}
-              className="w-full min-h-[44px] bg-gradient-to-br from-ocean-600 to-ocean-500 text-white font-bold text-sm rounded-xl px-6 py-3 touch-feedback shadow-card transition-all motion-safe:active:scale-[0.97]"
+              className="w-full min-h-touch bg-acc text-acc-on font-bold text-body rounded-xl px-6 py-3 touch-feedback shadow-acc transition-all motion-safe:active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc"
             >
               Try Again
             </button>

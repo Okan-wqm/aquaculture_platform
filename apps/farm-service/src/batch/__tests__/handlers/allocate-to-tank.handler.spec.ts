@@ -9,14 +9,16 @@ import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
 import { AllocateToTankHandler } from '../../handlers/allocate-to-tank.handler';
-import { TankBatchService } from '../../services/tank-batch.service';
 import { AllocateToTankCommand, AllocationType } from '../../commands/allocate-to-tank.command';
 import { Batch, BatchStatus } from '../../entities/batch.entity';
 import { EquipmentStatus } from '../../../equipment/entities/equipment.entity';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
 
+import { createStockChangeDouble, type StockChangeDouble } from '../support/stock-change-double';
+
 describe('AllocateToTankHandler', () => {
   let handler: AllocateToTankHandler;
+  let stockChange: StockChangeDouble;
   const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
   const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
   const mockAuditLogService = { logWithManager: jest.fn().mockResolvedValue(undefined) };
@@ -57,6 +59,12 @@ describe('AllocateToTankHandler', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    stockChange = createStockChangeDouble({
+      id: 'tankbatch-1',
+      totalQuantity: 10,
+      totalBiomassKg: 100,
+      batchDetails: [],
+    });
     mockManager.create.mockImplementation(((_cls: unknown, data: unknown) => data) as never);
     mockManager.save.mockImplementation(
       ((_cls: unknown, data: { id?: string } | undefined): Promise<{ id: string }> =>
@@ -74,16 +82,12 @@ describe('AllocateToTankHandler', () => {
       // SEC-HIGH-051: the real fail-closed SSoT; the commands below pass
       // MODULE_MANAGER so site authz bypasses for these domain-logic tests.
       new SiteAuthorizationService(),
-      // SSoT tank-composition writer; returns the derived TankBatch row so the
-      // canonical-container update + capacity-flag write + audit can proceed.
-      ({
-        applyBatchDelta: jest.fn().mockResolvedValue({
-          id: 'tankbatch-1',
-          totalQuantity: 10,
-          totalBiomassKg: 100,
-          batchDetails: [],
-        }),
-      }) as Partial<TankBatchService> as TankBatchService,
+      // SSoT tank-composition writer, entered through the stock scope; returns
+      // the derived TankBatch row so the canonical-container update +
+      // capacity-flag write + audit can proceed. Stocking now ALSO reprices the
+      // day's remaining meals — that settlement belongs to the scope (proved in
+      // tank-batch.service.spec), and this handler cannot write stock outside it.
+      stockChange.tankBatchService,
       // Working no-op DI deps (the throwing direct-handler defaults are
       // test-only and would abort begin()/refreshContainers() before assertions).
       ({ refreshContainers: jest.fn().mockResolvedValue(undefined) }) as Partial<FarmStockProjectionService> as FarmStockProjectionService,
@@ -228,7 +232,7 @@ describe('AllocateToTankHandler', () => {
       .mockResolvedValueOnce(batch)
       .mockResolvedValueOnce(tank)
       // Only the existingTankBatch (capacity) lookup remains; the composition
-      // read+write now lives inside the mocked TankBatchService.applyBatchDelta.
+      // read+write now lives inside the mocked stock scope.
       .mockResolvedValueOnce(null);
     mockManager.save.mockImplementation(((entityOrClass: any, data?: any) =>
       saveEntity(entityOrClass, data, 'tank-batch-1')) as never);

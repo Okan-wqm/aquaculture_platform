@@ -34,8 +34,22 @@ vi.mock('@/pwa/offline-queue', () => ({
 function sensorsResponse(): unknown {
   return {
     sensorRawList: [
-      { id: 's-temp', name: 'Tank 1 Temp', type: 'TEMPERATURE', status: 'ACTIVE', unit: '°C', lastSeenAt: null },
-      { id: 's-do', name: 'Tank 1 DO', type: 'DISSOLVED_OXYGEN', status: 'ACTIVE', unit: 'mg/L', lastSeenAt: null },
+      {
+        id: 's-temp',
+        name: 'Tank 1 Temp',
+        type: 'TEMPERATURE',
+        status: 'ACTIVE',
+        unit: '°C',
+        lastSeenAt: null,
+      },
+      {
+        id: 's-do',
+        name: 'Tank 1 DO',
+        type: 'DISSOLVED_OXYGEN',
+        status: 'ACTIVE',
+        unit: 'mg/L',
+        lastSeenAt: null,
+      },
     ],
   };
 }
@@ -47,13 +61,33 @@ function readingsResponse(): unknown {
         id: 'r1',
         sensorId: 's-temp',
         timestamp: '2026-07-12T11:59:00.000Z',
-        readings: { temperature: 18.4, ph: null, dissolvedOxygen: null, salinity: null, ammonia: null, nitrite: null, nitrate: null, turbidity: null, waterLevel: null },
+        readings: {
+          temperature: 18.4,
+          ph: null,
+          dissolvedOxygen: null,
+          salinity: null,
+          ammonia: null,
+          nitrite: null,
+          nitrate: null,
+          turbidity: null,
+          waterLevel: null,
+        },
       },
       {
         id: 'r2',
         sensorId: 's-do',
         timestamp: '2026-07-12T11:58:00.000Z',
-        readings: { temperature: null, ph: 7.8, dissolvedOxygen: 6.9, salinity: null, ammonia: null, nitrite: null, nitrate: null, turbidity: null, waterLevel: null },
+        readings: {
+          temperature: null,
+          ph: 7.8,
+          dissolvedOxygen: 6.9,
+          salinity: null,
+          ammonia: null,
+          nitrite: null,
+          nitrate: null,
+          turbidity: null,
+          waterLevel: null,
+        },
       },
     ],
   };
@@ -90,14 +124,42 @@ describe('useLatestReadings (MOB-MEDIUM-008)', () => {
   });
 
   it('keeps the NEWEST value when two sensors report the same metric', async () => {
-    mockGraphqlRequest
-      .mockResolvedValueOnce(sensorsResponse())
-      .mockResolvedValueOnce({
-        latestReadingsBatch: [
-          { id: 'r1', sensorId: 's-temp', timestamp: '2026-07-12T11:00:00.000Z', readings: { temperature: 17.0, ph: null, dissolvedOxygen: null, salinity: null, ammonia: null, nitrite: null, nitrate: null, turbidity: null, waterLevel: null } },
-          { id: 'r2', sensorId: 's-do', timestamp: '2026-07-12T11:30:00.000Z', readings: { temperature: 18.1, ph: null, dissolvedOxygen: null, salinity: null, ammonia: null, nitrite: null, nitrate: null, turbidity: null, waterLevel: null } },
-        ],
-      });
+    mockGraphqlRequest.mockResolvedValueOnce(sensorsResponse()).mockResolvedValueOnce({
+      latestReadingsBatch: [
+        {
+          id: 'r1',
+          sensorId: 's-temp',
+          timestamp: '2026-07-12T11:00:00.000Z',
+          readings: {
+            temperature: 17.0,
+            ph: null,
+            dissolvedOxygen: null,
+            salinity: null,
+            ammonia: null,
+            nitrite: null,
+            nitrate: null,
+            turbidity: null,
+            waterLevel: null,
+          },
+        },
+        {
+          id: 'r2',
+          sensorId: 's-do',
+          timestamp: '2026-07-12T11:30:00.000Z',
+          readings: {
+            temperature: 18.1,
+            ph: null,
+            dissolvedOxygen: null,
+            salinity: null,
+            ammonia: null,
+            nitrite: null,
+            nitrate: null,
+            turbidity: null,
+            waterLevel: null,
+          },
+        },
+      ],
+    });
 
     const { result } = renderHook(() => useLatestReadings('tank-1'), { wrapper });
 
@@ -122,7 +184,13 @@ describe('useLatestReadings (MOB-MEDIUM-008)', () => {
     mockGraphqlRequest.mockRejectedValue(new Error('Failed to fetch'));
     mockGetCachedData.mockResolvedValue({
       metrics: [
-        { key: 'temperature', label: 'Temp', value: 17.2, unit: '°C', readingAt: '2026-07-12T09:00:00.000Z' },
+        {
+          key: 'temperature',
+          label: 'Temp',
+          value: 17.2,
+          unit: '°C',
+          readingAt: '2026-07-12T09:00:00.000Z',
+        },
       ],
       hasSensors: true,
     });
@@ -141,10 +209,15 @@ describe('useLatestReadings (MOB-MEDIUM-008)', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(mockGraphqlRequest).not.toHaveBeenCalled();
 
-    mockGraphqlRequest.mockResolvedValueOnce(sensorsResponse()).mockResolvedValueOnce(readingsResponse());
+    mockGraphqlRequest
+      .mockResolvedValueOnce(sensorsResponse())
+      .mockResolvedValueOnce(readingsResponse());
     const { result: withTank } = renderHook(() => useLatestReadings('tank-1'), { wrapper });
     await waitFor(() => expect(withTank.current.metrics.length).toBeGreaterThan(0));
-    for (const key of queryClient.getQueryCache().getAll().map((q) => q.queryKey)) {
+    for (const key of queryClient
+      .getQueryCache()
+      .getAll()
+      .map((q) => q.queryKey)) {
       expect(key.slice(0, 2)).toEqual(['tenant', 'tenant-1']);
     }
   });

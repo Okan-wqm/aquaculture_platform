@@ -89,6 +89,14 @@ import { AddEnvironmentMetricSyncOutcomes1807200000000 } from './1807200000000-A
 import { AddSuperAdminCrossTenantAuditAction1807900000000 } from './1807900000000-AddSuperAdminCrossTenantAuditAction';
 import { AddSatelliteCoverageProvenance1808000000000 } from './1808000000000-AddSatelliteCoverageProvenance';
 import { RestoreAuditImmutabilityContract1808500000000 } from './1808500000000-RestoreAuditImmutabilityContract';
+import { AddTankBatchWeightProvenance1808600000000 } from './1808600000000-AddTankBatchWeightProvenance';
+import { DropBatchProtocolId1808700000000 } from './1808700000000-DropBatchProtocolId';
+import { AlignSubEquipmentTypeCompatibilityArray1808800000000 } from './1808800000000-AlignSubEquipmentTypeCompatibilityArray';
+import { CreateFeederAssignments1808900000000 } from './1808900000000-CreateFeederAssignments';
+import { BindExecutionFeederToEquipment1809000000000 } from './1809000000000-BindExecutionFeederToEquipment';
+import { ReshapeFeederCalibrationForVfd1809100000000 } from './1809100000000-ReshapeFeederCalibrationForVfd';
+import { CreateFeederSiloMassProjection1809200000000 } from './1809200000000-CreateFeederSiloMassProjection';
+import { AddDayPlanRationBasis1809300000000 } from './1809300000000-AddDayPlanRationBasis';
 
 /**
  * Canonical farm-service migration class list.
@@ -175,4 +183,12 @@ export const FARM_MIGRATIONS = [
   AddSuperAdminCrossTenantAuditAction1807900000000,
   AddSatelliteCoverageProvenance1808000000000,
   RestoreAuditImmutabilityContract1808500000000,
+  AddTankBatchWeightProvenance1808600000000,
+  DropBatchProtocolId1808700000000,
+  AlignSubEquipmentTypeCompatibilityArray1808800000000,
+  CreateFeederAssignments1808900000000,
+  BindExecutionFeederToEquipment1809000000000,
+  ReshapeFeederCalibrationForVfd1809100000000,
+  CreateFeederSiloMassProjection1809200000000,
+  AddDayPlanRationBasis1809300000000,
 ] as const;

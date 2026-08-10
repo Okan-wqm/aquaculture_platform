@@ -1,3 +1,12 @@
+/**
+ * RecordCullPage — a thin consumer of the shared record scaffold.
+ *
+ * ORPHAN-MEDIUM-578: this path is superseded by the log sheet and scheduled for
+ * retirement, but it is still routed and still writes real records, so it is
+ * converted rather than left looking broken. Deleting a live record path means
+ * exercising the sheet against a running backend first — a separate, deliberate
+ * step, not a side effect of a restyle.
+ */
 import { ChevronRight, Scissors } from 'lucide-react';
 import { type JSX, useCallback, useState } from 'react';
 import { useParams } from 'react-router-dom';
@@ -27,18 +36,27 @@ const CULL_REASONS: ReadonlyArray<{ value: CullReason; label: string; emoji: str
   { value: 'OTHER', label: 'Other', emoji: '📝' },
 ];
 
+/**
+ * v4: the orange gradient chrome is gone. Culling is a planned grading
+ * decision, not an incident, so the amber `warn` token would misreport it — the
+ * screen takes the cull hue from the per-log-type token set instead (icon
+ * bubble, summary heading, the headline count). That set is the one place v4
+ * lets colour be decorative, because a worker reads an entry's type from its
+ * hue before reading a word. The CTA and the selected reason take the accent:
+ * in v4 teal carries every action and every active state, on every screen.
+ */
 const CULL_THEME: RecordEntityTheme = {
-  headerGradient: 'bg-gradient-to-r from-orange-600 to-cull',
-  accentText: 'text-cull',
-  summaryHeaderBg: 'bg-orange-50 dark:bg-orange-900/20 border-orange-100 dark:border-orange-800/50',
-  summaryHeaderText: 'text-orange-700 dark:text-orange-300',
-  iconBubbleBg: 'bg-orange-50 dark:bg-orange-900/20',
-  surfaceSoftBg: 'bg-orange-50 dark:bg-orange-900/20',
-  surfaceBorder: 'border-orange-100 dark:border-orange-800',
-  ctaGradient: 'bg-gradient-to-r from-orange-600 to-cull',
-  ctaShadow: 'shadow-orange-500/25',
-  selectionBorder: 'border-cull',
-  selectionGlow: 'shadow-glow-orange',
+  headerGradient: 'bg-surface-1 text-ink-1 border-b border-line',
+  accentText: 'text-type-cull',
+  summaryHeaderBg: 'bg-type-cull-dim border-line',
+  summaryHeaderText: 'text-type-cull',
+  iconBubbleBg: 'bg-type-cull-dim',
+  surfaceSoftBg: 'bg-type-cull-dim',
+  surfaceBorder: 'border-line',
+  ctaGradient: 'bg-acc text-acc-on',
+  ctaShadow: 'shadow-acc',
+  selectionBorder: 'border-acc',
+  selectionGlow: 'shadow-acc',
 };
 
 export function RecordCullPage(): JSX.Element {
@@ -115,10 +133,13 @@ export function RecordCullPage(): JSX.Element {
           <SummaryRow label="Tank" value={selectedTank?.name} />
           <SummaryRow label="Batch" value={metrics?.batchNumber ?? '--'} />
           <SummaryDivider />
+          {/* The count is the record's headline figure and a machine value, so
+              it is set in mono and carries the cull hue — the same hue the icon
+              bubble and the summary heading wear. */}
           <SummaryRow
             label="Culled Fish"
             value={quantity}
-            valueClass="text-2xl font-bold text-cull"
+            valueClass="text-head font-mono font-bold tabular-nums text-type-cull"
           />
           <SummaryRow
             label="Reason"

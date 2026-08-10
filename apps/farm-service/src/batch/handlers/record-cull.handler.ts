@@ -26,7 +26,6 @@ import type { CullRecordedEvent } from '@platform/event-contracts';
 import { toEventIso } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
-import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
 import { RemovalQuantityPolicyService } from '../services/removal-quantity-policy.service';
 import { Repository, DataSource } from 'typeorm';
 
@@ -62,7 +61,6 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
     @InjectRepository(Equipment)
     private readonly equipmentRepository: Repository<Equipment>,
     private readonly outboxPublisher: OutboxPublisher,
-    private readonly dayPlanRecalc: DayPlanRecalcService,
     private readonly removalQuantityPolicy: RemovalQuantityPolicyService,
     private readonly auditLogService: AuditLogService,
     // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
@@ -248,18 +246,24 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
       // batchDetails[], then re-derive totalQuantity/biomass/avg/density/current*.
       // The writer self-heals pre-SSoT single-batch rows (empty batchDetails) so
       // the negative cull delta is never a silent no-op on a pre-existing tank.
+      // P-31: cull sonrası bugünün beslenmemiş öğünleri, stok kapsamı kapanırken
+      // aynı tx'te yeniden fiyatlanır (artık ayrı hatırlanan bir çağrı değil).
       if (tankBatch) {
-        await this.tankBatchService.applyBatchDelta(
+        await this.tankBatchService.applyStockChange(
           queryRunner.manager,
           tenantId,
-          payload.tankId,
-          {
-            batchId,
-            batchNumber: batch.batchNumber,
-            quantityDelta: -payload.quantity,
-            biomassDelta: -biomassKg,
-          },
-          { volumeM3: Number(tank.volume) || 0 },
+          'cull',
+          (stock) =>
+            stock.applyDelta(
+              payload.tankId,
+              {
+                batchId,
+                batchNumber: batch.batchNumber,
+                quantityDelta: -payload.quantity,
+                biomassDelta: -biomassKg,
+              },
+              { volumeM3: Number(tank.volume) || 0 },
+            ),
         );
       }
 
@@ -291,9 +295,6 @@ export class RecordCullHandler implements ICommandHandler<RecordCullCommand, Bat
         tenantId,
         [payload.tankId],
       );
-
-      // P-31: cull sonrası bugünün beslenmemiş öğünleri aynı tx'te yeniden fiyatlanır.
-      await this.dayPlanRecalc.recalcForUnit(queryRunner.manager, tenantId, payload.tankId, 'cull');
 
       // Enqueue CullRecordedEvent into the transactional outbox BEFORE commit.
       // The outbox row is part of the same transaction as the domain writes —

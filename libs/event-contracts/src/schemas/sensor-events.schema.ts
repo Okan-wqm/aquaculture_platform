@@ -124,12 +124,51 @@ const SENSOR_METRIC_INGESTED_SCHEMA: JSONSchemaType<WireSensorMetricIngested> = 
 } as JSONSchemaType<WireSensorMetricIngested>;
 
 /**
- * Map of every sensor event type the validator knows about. Today
- * `SensorMetricIngested` is the only entry — the typed
- * `SensorReadingEvent` is published by the NestJS consumer AFTER it
- * has already passed the schema-equivalent shape check via
- * `createBaseEvent` + the typed interface, so it does not cross an
- * untrusted boundary the same way.
+ * Wire shape of a drive asking what it is wired to.
+ *
+ * WHY it is validated on the FARM side: this event makes another service go
+ * looking through a tenant's equipment on the strength of two ids that arrived
+ * over the bus. A malformed id has no business reaching that lookup, and an
+ * unexpected extra field has no business being carried into the answer.
+ */
+interface WireVfdDriveBindingAttestationRequested {
+  eventId: string;
+  eventType: 'VfdDriveBindingAttestationRequested';
+  timestamp: string;
+  tenantId: string;
+  version: number;
+  aggregateId?: string;
+  aggregateType?: string;
+  correlationId?: string;
+  causationId?: string;
+  userId?: string;
+  retryCount?: number;
+  vfdDeviceId: string;
+  drivenEquipmentId: string;
+}
+
+export const VFD_DRIVE_BINDING_ATTESTATION_REQUESTED_SCHEMA = {
+  type: 'object',
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'VfdDriveBindingAttestationRequested' } as const,
+    vfdDeviceId: { type: 'string', pattern: UUID_PATTERN } as const,
+    drivenEquipmentId: { type: 'string', pattern: UUID_PATTERN } as const,
+  },
+  required: [...BASE_EVENT_REQUIRED, 'vfdDeviceId', 'drivenEquipmentId'],
+  additionalProperties: false,
+} as JSONSchemaType<WireVfdDriveBindingAttestationRequested>;
+
+/**
+ * Map of every sensor event type the validator knows about: the Rust sidecar's
+ * `SensorMetricIngested`, and the drive's attestation request that farm-service
+ * answers. Both cross a service boundary and are believed only after this map's
+ * schema says so.
+ *
+ * The typed `SensorReadingEvent` is NOT here — it is published by the NestJS
+ * consumer AFTER it has already passed the schema-equivalent shape check via
+ * `createBaseEvent` + the typed interface, so it does not cross an untrusted
+ * boundary the same way.
  *
  * Adding a new sensor event to this map is the workflow that wires
  * it into runtime validation; the validator dispatcher (`validator.ts`)
@@ -137,6 +176,7 @@ const SENSOR_METRIC_INGESTED_SCHEMA: JSONSchemaType<WireSensorMetricIngested> = 
  */
 export const SENSOR_EVENT_SCHEMAS = {
   SensorMetricIngested: SENSOR_METRIC_INGESTED_SCHEMA,
+  VfdDriveBindingAttestationRequested: VFD_DRIVE_BINDING_ATTESTATION_REQUESTED_SCHEMA,
 } as const;
 
 export type SensorEventType = keyof typeof SENSOR_EVENT_SCHEMAS;

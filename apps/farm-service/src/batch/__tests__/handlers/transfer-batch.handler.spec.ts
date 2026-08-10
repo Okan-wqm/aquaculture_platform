@@ -15,6 +15,7 @@ import { TankBatch } from '../../entities/tank-batch.entity';
 import { Equipment, EquipmentStatus } from '../../../equipment/entities/equipment.entity';
 import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
+import { createStockChangeDouble, type StockChangeDouble } from '../support/stock-change-double';
 
 // FARM-HIGH-052: transfer is stock-mutating, so every command must carry the
 // idempotency envelope or the handler rejects it as legacy.
@@ -47,8 +48,11 @@ describe('TransferBatchHandler', () => {
     }),
   };
 
+  let stockChange: StockChangeDouble;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    stockChange = createStockChangeDouble();
     // The shared mock EntityManager lacks query() wired — MobileCommandReceiptService
     // needs it for begin()/complete(). EntityManager.query exists on the type.
     mockManager.query = jest.fn().mockResolvedValue([{ id: 'receipt-t' }]);
@@ -62,16 +66,14 @@ describe('TransferBatchHandler', () => {
       createMockRepository() as any,
       createMockRepository() as any,
       mockOutboxPublisher as any,
-      // P-31 recalc — mocked (day-plan-recalc.service.spec kapsıyor).
-      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
       // D-3 miktar çözümü — GERÇEK stateless politika (üretim davranışı).
       new RemovalQuantityPolicyService(),
       mockTankCapacityService as any,
       // SEC-HIGH-051: the real fail-closed SSoT; commands below pass
       // MODULE_MANAGER so site authz bypasses for these domain-logic tests.
       new SiteAuthorizationService(),
-      // TankBatchService SSoT writer — mocked (covered by tank-batch.service.spec).
-      { applyBatchDelta: jest.fn().mockImplementation(() => Promise.resolve({ totalBiomassKg: 0, cleanerFishBiomassKg: 0 })) } as never,
+      // TankBatchService stock scope — mocked (covered by tank-batch.service.spec).
+      stockChange.tankBatchService,
       ({ refreshContainers: jest.fn().mockResolvedValue(undefined) }) as Partial<FarmStockProjectionService> as FarmStockProjectionService,
       new MobileCommandReceiptService(),
     );

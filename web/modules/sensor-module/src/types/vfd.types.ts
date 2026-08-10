@@ -465,8 +465,13 @@ export interface RegisterVfdInput {
   location?: string;
   description?: string;
   farmId?: string;
-  tankId?: string;
-  pumpId?: string;
+  /**
+   * The farm `equipment.id` this drive turns — a feeder, a pump, a blower.
+   * Replaces the former `tankId` / `pumpId`: a unit is not something a drive is
+   * wired to, and `pumpId` could only name one of the several things a VFD drives.
+   * The backend confirms this id with farm-service before the drive will actuate.
+   */
+  drivenEquipmentId?: string;
   tags?: string[];
   notes?: string;
   skipConnectionTest?: boolean;
@@ -481,7 +486,8 @@ export interface UpdateVfdInput {
   location?: string;
   description?: string;
   farmId?: string;
-  tankId?: string;
+  // No `tankId`: what a drive serves follows from the equipment it turns, which is
+  // changed through `bindVfdDrivenEquipment`, not through a device update.
   tags?: string[];
   status?: VfdDeviceStatus;
   pollIntervalMs?: number;

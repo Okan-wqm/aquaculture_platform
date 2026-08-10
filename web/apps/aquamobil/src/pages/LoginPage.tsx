@@ -1,8 +1,27 @@
+/**
+ * LoginPage — the sign-in screen, converted to the v4 token layer.
+ *
+ * WHAT CHANGED: the page painted its own ocean-blue ground (a three-stop
+ * gradient, three blue/green blobs and a blue wave) and then dropped a light
+ * card on top of it. That card was written for the light theme, so on a
+ * device in Day mode the app's first screen was the only dark one, and in Colour
+ * mode it was the only screen that ignored the theme entirely.
+ *
+ * The glass treatment stays — it is what makes this screen feel like a door
+ * rather than a form — but `.glass` is now token-driven (src/styles/main.css),
+ * so it composes over whichever ground the active theme paints on <body>. The
+ * decorative blobs and the wave keep their shape and take the accent's own dim
+ * tint instead of a hardcoded blue, which is also what stops them from washing
+ * out the card in Day.
+ *
+ * The WebAuthn/biometric path and the isMobileDisabled handling are untouched.
+ */
 import { Fish, Eye, EyeOff, AlertCircle, Waves, Fingerprint } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useCallback, useEffect, type ChangeEvent, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { Button, IconButton } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import {
   isWebAuthnSupported,
@@ -116,22 +135,20 @@ export function LoginPage(): JSX.Element | null {
   }
 
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden bg-ocean-950">
-      {/* Animated background gradient */}
-      <div className="absolute inset-0 bg-gradient-to-br from-ocean-900 via-ocean-800 to-ocean-950" />
-
-      {/* Decorative circles */}
-      <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full bg-ocean-600/20 blur-3xl" />
-      <div className="absolute top-1/3 -left-16 w-48 h-48 rounded-full bg-sea-500/10 blur-3xl" />
-      <div className="absolute bottom-20 right-10 w-56 h-56 rounded-full bg-ocean-500/10 blur-3xl" />
+    <div className="min-h-screen flex flex-col relative overflow-hidden">
+      {/* Decorative haloes — shape unchanged, colour now the accent's own dim
+          tint so they read as depth in every theme instead of as blue paint. */}
+      <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full bg-acc-dim blur-3xl" />
+      <div className="absolute top-1/3 -left-16 w-48 h-48 rounded-full bg-acc-dim blur-3xl" />
+      <div className="absolute bottom-20 right-10 w-56 h-56 rounded-full bg-acc-dim blur-3xl" />
 
       {/* Wave pattern at bottom */}
       <div className="absolute bottom-0 left-0 right-0 opacity-10">
-        <svg viewBox="0 0 1440 200" fill="none" className="w-full">
+        <svg viewBox="0 0 1440 200" fill="none" className="w-full" aria-hidden>
           <path
             d="M0,128L48,122.7C96,117,192,107,288,112C384,117,480,139,576,149.3C672,160,768,160,864,144C960,128,1056,96,1152,90.7C1248,85,1344,107,1392,117.3L1440,128V200H0Z"
             fill="currentColor"
-            className="text-ocean-400"
+            className="text-acc"
           />
         </svg>
       </div>
@@ -140,39 +157,43 @@ export function LoginPage(): JSX.Element | null {
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 relative z-10">
         {/* Logo area */}
         <div className="mb-10 flex flex-col items-center">
-          <div className="w-20 h-20 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center mb-5 border border-white/20 shadow-glow-ocean">
-            <Fish size={40} className="text-white" />
+          <div className="w-20 h-20 bg-surface-2 backdrop-blur-md rounded-2xl flex items-center justify-center mb-5 border border-line-strong shadow-acc">
+            <Fish size={40} className="text-acc" aria-hidden />
           </div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">AquaMobil</h1>
+          <h1 className="text-display font-semibold text-ink-1">AquaMobil</h1>
           <div className="flex items-center gap-2 mt-2">
-            <Waves size={14} className="text-ocean-300" />
-            <p className="text-ocean-300 text-sm font-medium">Field Operations</p>
-            <Waves size={14} className="text-ocean-300" />
+            <Waves size={14} className="text-acc" aria-hidden />
+            <p className="text-body font-medium text-ink-2">Field Operations</p>
+            <Waves size={14} className="text-acc" aria-hidden />
           </div>
         </div>
 
         {/* Login card */}
-        <div className="w-full max-w-sm glass rounded-2xl shadow-elevated p-6">
+        <div className="w-full max-w-sm glass rounded-2xl shadow-token p-6">
           <div className="text-center mb-6">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white">Welcome back</h2>
-            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Sign in to continue</p>
+            <h2 className="text-head font-semibold text-ink-1">Welcome back</h2>
+            <p className="mt-1 text-body text-ink-2">Sign in to continue</p>
           </div>
 
           {/* Mobile disabled message */}
           {isMobileDisabled && (
-            <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl flex items-start gap-2">
-              <AlertCircle size={18} className="text-amber-500 flex-shrink-0 mt-0.5" />
-              <p className="text-amber-700 dark:text-amber-300 text-sm">
+            <div className="mb-4 p-3 bg-warn-dim border border-warn rounded-xl flex items-start gap-2">
+              <AlertCircle size={18} className="text-warn flex-shrink-0 mt-0.5" aria-hidden />
+              <p className="text-body text-warn">
                 Mobile access is not enabled for your account. Please contact your administrator.
               </p>
             </div>
           )}
 
-          {/* Error message */}
+          {/* Error message — announced, because a sighted user sees it appear
+              and a screen-reader user otherwise gets silence after Sign In. */}
           {error && !isMobileDisabled && (
-            <div className="mb-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl flex items-center gap-2">
-              <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
-              <p className="text-red-600 dark:text-red-300 text-sm">{error}</p>
+            <div
+              role="alert"
+              className="mb-4 p-3 bg-crit-dim border border-crit rounded-xl flex items-center gap-2"
+            >
+              <AlertCircle size={18} className="text-crit flex-shrink-0" aria-hidden />
+              <p className="text-body text-crit">{error}</p>
             </div>
           )}
 
@@ -188,10 +209,13 @@ export function LoginPage(): JSX.Element | null {
             <div>
               <label
                 htmlFor="login-email"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+                className="block text-body font-medium text-ink-2 mb-1.5"
               >
                 Email
               </label>
+              {/* The focus ring on both inputs is owned by the global
+                  `input:focus` rule in src/styles/main.css, which paints it with
+                  the accent token — hence no focus:* classes here. */}
               <input
                 id="login-email"
                 type="email"
@@ -201,14 +225,14 @@ export function LoginPage(): JSX.Element | null {
                 autoComplete="username"
                 autoCapitalize="none"
                 required
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 focus:border-ocean-500 focus:ring-2 focus:ring-ocean-500/20 outline-none transition-all bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400"
+                className="w-full px-4 py-3 rounded-xl border border-line bg-surface-2 text-ink-1 placeholder:text-ink-3 outline-none transition-all"
               />
             </div>
 
             <div>
               <label
                 htmlFor="login-password"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+                className="block text-body font-medium text-ink-2 mb-1.5"
               >
                 Password
               </label>
@@ -223,33 +247,36 @@ export function LoginPage(): JSX.Element | null {
                   minLength={8}
                   maxLength={128}
                   required
-                  className="w-full px-4 py-3 pr-12 rounded-xl border border-gray-200 dark:border-gray-700 focus:border-ocean-500 focus:ring-2 focus:ring-ocean-500/20 outline-none transition-all bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder:text-gray-400"
+                  className="w-full px-4 py-3 pr-12 rounded-xl border border-line bg-surface-2 text-ink-1 placeholder:text-ink-3 outline-none transition-all"
                 />
-                <button
-                  type="button"
+                {/* Was a ~28px icon-only <button> with no accessible name.
+                    IconButton bakes the 44px floor in and requires the label. */}
+                <IconButton
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
+                  className="absolute right-1 top-1/2 -translate-y-1/2 text-ink-3"
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-                </button>
+                </IconButton>
               </div>
             </div>
 
-
-            <button
+            <Button
               type="submit"
+              variant="primary"
+              size="save"
+              block
               disabled={isLoading || isBiometricLoading}
-              className="w-full py-3.5 px-4 bg-ocean-600 hover:bg-ocean-700 text-white font-semibold rounded-xl shadow-lg shadow-ocean-600/30 transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {isLoading ? (
                 <>
-                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent" />
                   Signing in...
                 </>
               ) : (
                 'Sign In'
               )}
-            </button>
+            </Button>
           </form>
 
           {/* Biometric Login Button */}
@@ -257,45 +284,46 @@ export function LoginPage(): JSX.Element | null {
             <div className="mt-4">
               <div className="relative flex items-center justify-center mb-4">
                 <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-200 dark:border-gray-700" />
+                  <div className="w-full border-t border-line" />
                 </div>
-                <span className="relative bg-white dark:bg-gray-900 px-3 text-xs text-gray-400 uppercase tracking-wider">
-                  or
-                </span>
+                <span className="relative bg-surface-1 px-3 text-meta text-ink-3">or</span>
               </div>
-              <button
-                type="button"
+              {/* The outlined accent treatment stays: biometric is a real
+                  alternative to the password, not the primary path. */}
+              <Button
+                variant="secondary"
+                size="save"
+                block
+                className="border border-acc text-acc"
                 onClick={() => {
                   void handleBiometricLogin();
                 }}
                 disabled={isLoading || isBiometricLoading}
-                className="w-full py-3.5 px-4 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-750 border-2 border-ocean-500 text-ocean-600 dark:text-ocean-400 font-semibold rounded-xl shadow-sm transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-3"
               >
                 {isBiometricLoading ? (
                   <>
-                    <span className="animate-spin rounded-full h-5 w-5 border-2 border-ocean-500 border-t-transparent" />
+                    <span className="animate-spin rounded-full h-5 w-5 border-2 border-current border-t-transparent" />
                     Verifying...
                   </>
                 ) : (
                   <>
-                    <Fingerprint size={22} />
+                    <Fingerprint size={22} aria-hidden />
                     Biometric Login
                   </>
                 )}
-              </button>
+              </Button>
             </div>
           )}
 
-          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-            <p className="text-center text-xs text-gray-400">
+          <div className="mt-4 pt-4 border-t border-line">
+            <p className="text-center text-meta text-ink-3">
               Contact your administrator if you need access.
             </p>
           </div>
         </div>
 
-        <p className="mt-8 text-ocean-400/60 text-xs font-medium tracking-wider uppercase">
-          v1.0.0
-        </p>
+        {/* The build's version string — a machine value, so it is set in mono. */}
+        <p className="mt-8 text-meta font-mono text-ink-3">v1.0.0</p>
       </div>
     </div>
   );

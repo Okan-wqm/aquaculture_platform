@@ -30,8 +30,20 @@ vi.mock('@/hooks/useAuth', () => ({
 }));
 
 const ACTIONS = [
-  { feature: 'cull' as MobileFeature, path: '/cull/record', icon: Scissors, label: 'Culling', gradient: 'from-amber-500 to-amber-600' },
-  { feature: 'harvest' as MobileFeature, path: '/harvest/record', icon: Package, label: 'Harvest', gradient: 'from-violet-500 to-violet-600' },
+  {
+    feature: 'cull' as MobileFeature,
+    path: '/cull/record',
+    icon: Scissors,
+    label: 'Culling',
+    gradient: 'from-amber-500 to-amber-600',
+  },
+  {
+    feature: 'harvest' as MobileFeature,
+    path: '/harvest/record',
+    icon: Package,
+    label: 'Harvest',
+    gradient: 'from-violet-500 to-violet-600',
+  },
 ];
 
 describe('QuickActionGrid harvest role floor (SEC-MEDIUM-050)', () => {

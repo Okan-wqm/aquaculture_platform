@@ -40,6 +40,9 @@ export interface UseUnreadCountReturn {
   unreadCount: number;
   /** True during the initial fetch. */
   isLoading: boolean;
+  /** ORPHAN-HIGH-595: a swallowed error makes the badge read "0 unread"
+   *  when it means "we could not ask". Carried out so callers can tell. */
+  isError: boolean;
 }
 
 export function useUnreadCount(): UseUnreadCountReturn {
@@ -69,5 +72,6 @@ export function useUnreadCount(): UseUnreadCountReturn {
   return {
     unreadCount: query.data ?? 0,
     isLoading: query.isLoading,
+    isError: query.isError,
   };
 }

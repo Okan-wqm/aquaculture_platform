@@ -90,9 +90,7 @@ function upsertMessageIntoChannelCache(
             i === 0
               ? {
                   ...page,
-                  items: page.items.map((m: Message) =>
-                    m.id === message.id ? message : m,
-                  ),
+                  items: page.items.map((m: Message) => (m.id === message.id ? message : m)),
                 }
               : page,
           ),
@@ -100,15 +98,11 @@ function upsertMessageIntoChannelCache(
       }
       return {
         ...old,
-        pages: [
-          { ...firstPage, items: [...firstPage.items, message] },
-          ...old.pages.slice(1),
-        ],
+        pages: [{ ...firstPage, items: [...firstPage.items, message] }, ...old.pages.slice(1)],
       };
     },
   );
 }
-
 
 /**
  * WHY (MSG-MEDIUM-052, WS-half): the live WS envelope carries `sender: { id }`
@@ -132,11 +126,7 @@ function enrichSenderFromMembers(
   channelId: string,
   message: Message,
 ): Message {
-  if (
-    message.sender?.firstName ||
-    message.sender?.lastName ||
-    message.sender?.displayName
-  ) {
+  if (message.sender?.firstName || message.sender?.lastName || message.sender?.displayName) {
     return message;
   }
   const members = qc.getQueryData<ChannelMember[]>(
@@ -179,9 +169,7 @@ interface UseMessageSocketResult {
   joinChannel: (channelId: string) => void;
   leaveChannel: (channelId: string) => void;
   emitTyping: (channelId: string, isTyping: boolean) => void;
-  resolveNotificationRef: (
-    notificationRef: string,
-  ) => Promise<ResolvedNotificationRef | null>;
+  resolveNotificationRef: (notificationRef: string) => Promise<ResolvedNotificationRef | null>;
   socketRef: MutableRefObject<SocketInstance | null>;
 }
 
@@ -312,11 +300,9 @@ export function useMessageSocket(): UseMessageSocketResult {
         // Drain the delta in pages so a long offline window can't silently
         // drop messages past a single page limit.
         for (;;) {
-          const response: { allMessagesSince: AllMessagesSincePage } =
-            await graphqlRequest<{ allMessagesSince: AllMessagesSincePage }>(
-              ALL_MESSAGES_SINCE,
-              { since, limit: RECONNECT_SYNC_PAGE_LIMIT, syncToken: cursor },
-            );
+          const response: { allMessagesSince: AllMessagesSincePage } = await graphqlRequest<{
+            allMessagesSince: AllMessagesSincePage;
+          }>(ALL_MESSAGES_SINCE, { since, limit: RECONNECT_SYNC_PAGE_LIMIT, syncToken: cursor });
           const page: AllMessagesSincePage = response.allMessagesSince;
           for (const message of page.messages) {
             touchedChannels.add(message.channelId);
@@ -416,7 +402,8 @@ export function useMessageSocket(): UseMessageSocketResult {
           // RECONNECT: reconcile the gap. Use the tracked watermark, or — if no
           // live message advanced it since first connect — derive it from server
           // truth (newest cached message createdAt).
-          const since = lastSyncAtRef.current ?? newestServerCreatedAt(queryClientRef.current, tenantId);
+          const since =
+            lastSyncAtRef.current ?? newestServerCreatedAt(queryClientRef.current, tenantId);
           if (since) {
             void reconcileRef.current(since);
           }
@@ -444,13 +431,19 @@ export function useMessageSocket(): UseMessageSocketResult {
         const incoming = enrichSenderFromMembers(qc, tenantId, event.channelId, event.message);
         upsertMessageIntoChannelCache(qc, tenantId, userIdRef.current, event.channelId, incoming);
         // Invalidate channel list to update lastMessage / unread counts
-        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+        void qc.invalidateQueries({
+          queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+        });
         // Increment unread count
-        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
+        void qc.invalidateQueries({
+          queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount'),
+        });
         // FE-MEDIUM-053: nudge the in-app notification bell in the SAME tick so the
         // bell and the message badge converge on one cadence instead of drifting
         // up to ~5 minutes apart.
-        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'notifications', 'unreadCount') });
+        void qc.invalidateQueries({
+          queryKey: createTenantQueryKey(tenantId, 'notifications', 'unreadCount'),
+        });
         // M3: advance the reconnect watermark to the newest message we've seen
         // so a later reconnect fetches a tight delta (ISO-8601 timestamps
         // compare chronologically as strings).
@@ -508,9 +501,13 @@ export function useMessageSocket(): UseMessageSocketResult {
         const event = data as ReadReceiptEvent;
         const qc = queryClientRef.current;
         // Invalidate unread count
-        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
+        void qc.invalidateQueries({
+          queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount'),
+        });
         // FE-MEDIUM-053: converge the in-app notification bell on the same tick.
-        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'notifications', 'unreadCount') });
+        void qc.invalidateQueries({
+          queryKey: createTenantQueryKey(tenantId, 'notifications', 'unreadCount'),
+        });
         // Update receipt in message cache
         qc.setQueryData(
           messagesQueryKey(tenantId, userIdRef.current, event.channelId),
@@ -557,8 +554,12 @@ export function useMessageSocket(): UseMessageSocketResult {
         void qc.invalidateQueries({
           queryKey: messagesQueryKey(tenantId, userIdRef.current, event.channelId),
         });
-        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
-        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
+        void qc.invalidateQueries({
+          queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+        });
+        void qc.invalidateQueries({
+          queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount'),
+        });
       });
 
       // MSG-HIGH-068: the current user was removed from (or left) this channel.
@@ -573,10 +574,18 @@ export function useMessageSocket(): UseMessageSocketResult {
         const qc = queryClientRef.current;
         joinedChannelsRef.current.delete(channelId);
         qc.removeQueries({ queryKey: messagesQueryKey(tenantId, userIdRef.current, channelId) });
-        qc.removeQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channelMembers', channelId) });
-        qc.removeQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channel', channelId) });
-        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
-        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount') });
+        qc.removeQueries({
+          queryKey: createTenantQueryKey(tenantId, 'messaging', 'channelMembers', channelId),
+        });
+        qc.removeQueries({
+          queryKey: createTenantQueryKey(tenantId, 'messaging', 'channel', channelId),
+        });
+        void qc.invalidateQueries({
+          queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+        });
+        void qc.invalidateQueries({
+          queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount'),
+        });
       });
 
       // MSG-MEDIUM-062: channel lifecycle (create / rename / member add-remove /
@@ -587,10 +596,21 @@ export function useMessageSocket(): UseMessageSocketResult {
       nextSocket.on('channelEvent', (data: unknown) => {
         const event = data as { channelId?: string };
         const qc = queryClientRef.current;
-        void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+        void qc.invalidateQueries({
+          queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+        });
         if (event.channelId) {
-          void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channelMembers', event.channelId) });
-          void qc.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channel', event.channelId) });
+          void qc.invalidateQueries({
+            queryKey: createTenantQueryKey(
+              tenantId,
+              'messaging',
+              'channelMembers',
+              event.channelId,
+            ),
+          });
+          void qc.invalidateQueries({
+            queryKey: createTenantQueryKey(tenantId, 'messaging', 'channel', event.channelId),
+          });
         }
       });
 
@@ -601,15 +621,18 @@ export function useMessageSocket(): UseMessageSocketResult {
       // new token from our accessTokenRef (updated on every render) and
       // also update socket.auth so reconnections use the fresh token.
       nextSocket.on('reAuth', () => {
-        void refreshAuthRef.current().then(() => {
-          const newToken = accessTokenRef.current;
-          if (socketRef.current && newToken) {
-            socketRef.current.auth = { token: newToken };
-            socketRef.current.emit('reAuthResponse', { token: newToken });
-          }
-        }).catch(() => {
-          // Auth refresh failed — socket will likely disconnect
-        });
+        void refreshAuthRef
+          .current()
+          .then(() => {
+            const newToken = accessTokenRef.current;
+            if (socketRef.current && newToken) {
+              socketRef.current.auth = { token: newToken };
+              socketRef.current.emit('reAuthResponse', { token: newToken });
+            }
+          })
+          .catch(() => {
+            // Auth refresh failed — socket will likely disconnect
+          });
       });
     };
 

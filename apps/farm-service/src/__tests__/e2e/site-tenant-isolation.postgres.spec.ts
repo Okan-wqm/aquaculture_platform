@@ -56,6 +56,7 @@ import { SaveFeederCalibrationsCommand } from '../../equipment/commands/save-fee
 import { UpdateEquipmentCommand } from '../../equipment/commands/update-equipment.command';
 import { EquipmentSystem } from '../../equipment/entities/equipment-system.entity';
 import { EquipmentType, EquipmentCategory } from '../../equipment/entities/equipment-type.entity';
+import { FeederDispenseControl } from '../../equipment/entities/feeder-capability.entity';
 import { Equipment, EquipmentStatus } from '../../equipment/entities/equipment.entity';
 import { FeederCalibration } from '../../equipment/entities/feeder-calibration.entity';
 import { SubEquipmentType } from '../../equipment/entities/sub-equipment-type.entity';
@@ -168,6 +169,10 @@ const MANAGER_CALLER = {
   roles: [Role.MODULE_MANAGER],
 };
 const PUMP_EQUIPMENT_TYPE_ID = '18d6e179-af77-45f3-b33b-9a2a5e61b751';
+// Feeder calibration belongs to FEEDING-category equipment. This fixture used to
+// calibrate a PUMP row, which the sink now refuses: a feeder is a specific kind
+// of machine, not any equipment that happens to be named "Feeder Pump".
+const FEEDER_EQUIPMENT_TYPE_ID = '2f0a1c65-9b3d-4a55-8f0e-1c4d7b2a6e39';
 const TANK_EQUIPMENT_TYPE_ID = 'eae12d34-514b-4d1a-87c9-6d8626547cae';
 const SETUP_TENANT_TABLES = [
   'sites',
@@ -955,40 +960,45 @@ describe('Site tenant isolation on real Postgres', () => {
       TENANT_A,
       departmentA.id,
       systemA.id,
-      PUMP_EQUIPMENT_TYPE_ID,
-      'Feeder Pump',
-      'FEEDER-PUMP-01',
+      FEEDER_EQUIPMENT_TYPE_ID,
+      'Automatic Feeder',
+      'FEEDER-AUTO-01',
       true,
     );
     const equipmentB = await createEquipmentForTenant(
       TENANT_B,
       departmentB.id,
       systemB.id,
-      PUMP_EQUIPMENT_TYPE_ID,
-      'Feeder Pump',
-      'FEEDER-PUMP-01',
+      FEEDER_EQUIPMENT_TYPE_ID,
+      'Automatic Feeder',
+      'FEEDER-AUTO-01',
       true,
     );
+
+    // Calibration is keyed on FEED IDENTITY now, so the feeds have to exist —
+    // the FK is what makes a pellet diameter or a typo unstorable in that column.
+    const feedSlowA = (await createFeedForTenant(TENANT_A, siteA.id, 'Slow Feed A', 'FC-SLOW-A'))
+      .id;
+    const feedFastA = (await createFeedForTenant(TENANT_A, siteA.id, 'Fast Feed A', 'FC-FAST-A'))
+      .id;
+    const feedSlowB = (await createFeedForTenant(TENANT_B, siteB.id, 'Slow Feed B', 'FC-SLOW-B'))
+      .id;
 
     const savedA = await withTenantContext(TENANT_A, () =>
       harness.saveFeederCalibrations.execute(
         new SaveFeederCalibrationsCommand(
           {
             equipmentId: equipmentA.id,
-            calibrations: [
-              {
-                feedSizeMm: 1.5,
-                feedSizeLabel: '1.5 mm',
-                gramsPerDispensing: 12,
-                siloCapacityKg: 50,
-              },
-              {
-                feedSizeMm: 2.5,
-                feedSizeLabel: '2.5 mm',
-                gramsPerDispensing: 18,
-                siloCapacityKg: 60,
-              },
-            ],
+            dispense: { mode: FeederDispenseControl.TIME_BASED },
+            continuous: {
+              siloCapacityKg: 50,
+              minSpeedHz: 10,
+              maxSpeedHz: 50,
+              calibrations: [
+                { feedId: feedSlowA, gramsPerMinute: 10, referenceSpeedHz: 25 },
+                { feedId: feedFastA, gramsPerMinute: 40, referenceSpeedHz: 25 },
+              ],
+            },
           },
           TENANT_A,
           USER_ID,
@@ -1000,14 +1010,11 @@ describe('Site tenant isolation on real Postgres', () => {
         new SaveFeederCalibrationsCommand(
           {
             equipmentId: equipmentB.id,
-            calibrations: [
-              {
-                feedSizeMm: 1.5,
-                feedSizeLabel: '1.5 mm',
-                gramsPerDispensing: 10,
-                siloCapacityKg: 45,
-              },
-            ],
+            dispense: { mode: FeederDispenseControl.TIME_BASED },
+            discrete: {
+              siloCapacityKg: 45,
+              calibrations: [{ feedId: feedSlowB, gramsPerDispensing: 10 }],
+            },
           },
           TENANT_B,
           USER_ID,
@@ -1015,8 +1022,10 @@ describe('Site tenant isolation on real Postgres', () => {
       ),
     );
 
-    expect(savedA.map((row) => Number(row.feedSizeMm)).sort()).toEqual([1.5, 2.5]);
-    expect(savedB.map((row) => Number(row.feedSizeMm))).toEqual([1.5]);
+    expect(savedA.map((row) => row.feedId).sort()).toEqual([feedFastA, feedSlowA].sort());
+    expect(savedA.map((row) => Number(row.gramsPerMinute)).sort((a, b) => a - b)).toEqual([10, 40]);
+    expect(savedB.map((row) => row.feedId)).toEqual([feedSlowB]);
+    expect(savedB.map((row) => Number(row.gramsPerDispensing))).toEqual([10]);
     expect(await feederCalibrationRowCount('farm', TENANT_A, equipmentA.id)).toBe(0);
     expect(
       await feederCalibrationRowCount(getTenantSchemaName(TENANT_A), TENANT_A, equipmentA.id),
@@ -1032,14 +1041,11 @@ describe('Site tenant isolation on real Postgres', () => {
           new SaveFeederCalibrationsCommand(
             {
               equipmentId: equipmentB.id,
-              calibrations: [
-                {
-                  feedSizeMm: 3.5,
-                  feedSizeLabel: '3.5 mm',
-                  gramsPerDispensing: 20,
-                  siloCapacityKg: 70,
-                },
-              ],
+              dispense: { mode: FeederDispenseControl.TIME_BASED },
+              discrete: {
+                siloCapacityKg: 70,
+                calibrations: [{ feedId: feedSlowA, gramsPerDispensing: 20 }],
+              },
             },
             TENANT_A,
             USER_ID,
@@ -1061,8 +1067,8 @@ describe('Site tenant isolation on real Postgres', () => {
       TENANT_A,
       departmentA.id,
       systemA.id,
-      PUMP_EQUIPMENT_TYPE_ID,
-      'Feeder Rollback Pump',
+      FEEDER_EQUIPMENT_TYPE_ID,
+      'Feeder Rollback Unit',
       'FEEDER-ROLLBACK-01',
       true,
     );
@@ -1073,14 +1079,11 @@ describe('Site tenant isolation on real Postgres', () => {
           new SaveFeederCalibrationsCommand(
             {
               equipmentId: rollbackEquipment.id,
-              calibrations: [
-                {
-                  feedSizeMm: 4.5,
-                  feedSizeLabel: '4.5 mm',
-                  gramsPerDispensing: 25,
-                  siloCapacityKg: 80,
-                },
-              ],
+              dispense: { mode: FeederDispenseControl.TIME_BASED },
+              discrete: {
+                siloCapacityKg: 80,
+                calibrations: [{ feedId: feedSlowA, gramsPerDispensing: 25 }],
+              },
             },
             TENANT_A,
             USER_ID,
@@ -1957,6 +1960,18 @@ describe('Site tenant isolation on real Postgres', () => {
         isActive: true,
         isSystem: true,
         sortOrder: 1,
+      }),
+      requireDataSource().manager.create(EquipmentType, {
+        id: FEEDER_EQUIPMENT_TYPE_ID,
+        name: 'Automatic Feeder',
+        code: 'feeder-automatic',
+        category: EquipmentCategory.FEEDING,
+        specificationSchema: {
+          fields: [{ name: 'siloVolume', label: 'Silo Volume', type: 'number' }],
+        },
+        isActive: true,
+        isSystem: true,
+        sortOrder: 3,
       }),
       requireDataSource().manager.create(EquipmentType, {
         id: TANK_EQUIPMENT_TYPE_ID,

@@ -32,7 +32,7 @@ import {
   useState,
 } from 'react';
 
-import { IconButton } from '@/components/ui/IconButton';
+import { Card, IconButton } from '@/components/ui';
 import { useIncidentMediaUpload, type IncidentMediaType } from '@/hooks/useIncidentMediaUpload';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 
@@ -139,26 +139,25 @@ export function PhotoCaptureField({
   return (
     <div className="px-4 mt-5">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+        <h3 className="text-meta font-bold text-ink-3 uppercase tracking-wider">
           Photos (Optional)
         </h3>
-        <span className="text-xs text-gray-400 tabular-nums">
+        <span className="text-meta text-ink-3 tabular-nums">
           {value.length}/{MAX_INCIDENT_PHOTOS}
         </span>
       </div>
 
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-4 border border-gray-100 dark:border-gray-800">
+      <Card className="p-4">
         <div className="grid grid-cols-3 gap-3">
           {items.map((it) => (
             <div
               key={it.key}
-              className="relative aspect-square rounded-xl overflow-hidden border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800"
+              className="relative aspect-square rounded-xl overflow-hidden border border-line bg-surface-2"
             >
-              <img
-                src={it.url}
-                alt="Incident evidence"
-                className="w-full h-full object-cover"
-              />
+              <img src={it.url} alt="Incident evidence" className="w-full h-full object-cover" />
+              {/* WHY this control keeps black/white instead of the tokens: it
+                  floats ON the photograph, whose colours no theme controls. A
+                  surface token here would be legible against some photos only. */}
               <IconButton
                 aria-label="Remove photo"
                 onClick={() => handleRemove(it.key)}
@@ -179,7 +178,9 @@ export function PhotoCaptureField({
                 'aspect-square min-h-touch min-w-touch rounded-xl border-2 border-dashed',
                 'flex flex-col items-center justify-center gap-1 touch-feedback transition-colors',
                 'disabled:opacity-40 disabled:cursor-not-allowed',
-                'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400',
+                // border-line-strong, not border-line: a 2px DASHED outline at
+                // the hairline's alpha is invisible in day theme.
+                'border-line-strong text-ink-2',
                 'active:scale-95',
               )}
             >
@@ -190,22 +191,27 @@ export function PhotoCaptureField({
               ) : (
                 <ImageOff size={24} />
               )}
-              <span className="text-xs font-semibold">
-                {isUploading ? 'Uploading' : 'Add'}
-              </span>
+              <span className="text-meta font-semibold">{isUploading ? 'Uploading' : 'Add'}</span>
             </button>
           )}
         </div>
 
-        {/* Offline honesty: capture needs connectivity for the presign + PUT. */}
+        {/* Offline honesty: capture needs connectivity for the presign + PUT.
+            Amber is the watch colour — the record still submits, so this is a
+            caveat, not an alarm. */}
         {!isOnline && (
-          <p className="text-xs text-amber-600 dark:text-amber-400 font-medium mt-3">
+          <p className="text-meta text-warn font-medium mt-3">
             Connect to add photos — the record still submits without them.
           </p>
         )}
 
+        {/* Coral IS the alarm here: this upload failed and the evidence is not
+            attached. role="alert" announces it — the message appears after the
+            worker has already looked away at the camera. */}
         {error && (
-          <p className="text-xs text-red-500 dark:text-red-400 font-medium mt-3">{error}</p>
+          <p className="text-meta text-crit font-medium mt-3" role="alert">
+            {error}
+          </p>
         )}
 
         {/* Hidden rear-camera capture input (reuses the AttachmentPicker approach). */}
@@ -218,7 +224,7 @@ export function PhotoCaptureField({
           className="hidden"
           aria-hidden="true"
         />
-      </div>
+      </Card>
     </div>
   );
 }

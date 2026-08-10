@@ -52,7 +52,11 @@ vi.mock('@/services/push-lifecycle', () => ({
 }));
 
 const getTokenSpy = vi.fn((..._args: unknown[]) => Promise.resolve('fcm-token-123'));
-const onMessageSpy = vi.fn((..._args: unknown[]) => () => undefined);
+const onMessageSpy = vi.fn(
+  (..._args: unknown[]) =>
+    () =>
+      undefined,
+);
 const deleteTokenSpy = vi.fn((..._args: unknown[]) => Promise.resolve(true));
 
 vi.mock('firebase/app', () => ({

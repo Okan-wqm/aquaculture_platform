@@ -263,6 +263,51 @@ interface WireFeedingProtocolAssignmentPaused extends WireBaseEvent {
   reason: 'protocol_archived' | 'operator_paused' | 'unit_emptied';
 }
 
+interface WireUnitFeederShareEntry {
+  assignmentId: string;
+  feederEquipmentId: string;
+  feederCode: string;
+  doseSharePercent: number;
+}
+
+interface WireUnitFeederAssignmentsChanged extends WireBaseEvent {
+  eventType: 'UnitFeederAssignmentsChanged';
+  userId?: string;
+  unitId: string;
+  unitType: 'tank' | 'pond' | 'cage';
+  unitCode: string;
+  siteId: string;
+  feeders: WireUnitFeederShareEntry[];
+  endedAssignmentIds: string[];
+}
+
+/**
+ * Sürücü–ekipman tasdiki (VfdDriveBindingAttested) tel şekli.
+ *
+ * WHY this one is validated at all: it is what a VFD — an actuator — acts on. A
+ * payload with a wrong-typed `outcome` or an over-long `equipmentCategory` would
+ * pass the consumer's static narrowing and could flip a drive from "refuses to
+ * move" to "moves", so the shape is judged before it is believed.
+ */
+interface WireDrivenEquipmentUnitEntry {
+  unitId: string;
+  unitType: 'tank' | 'pond' | 'cage';
+  unitCode: string;
+  doseSharePercent: number;
+}
+
+interface WireVfdDriveBindingAttested extends WireBaseEvent {
+  eventType: 'VfdDriveBindingAttested';
+  vfdDeviceId: string;
+  drivenEquipmentId: string;
+  outcome: 'attested' | 'unknown_equipment' | 'inactive_equipment';
+  equipmentCategory?: string;
+  equipmentCode?: string;
+  equipmentName?: string;
+  siteId?: string;
+  servedUnits: WireDrivenEquipmentUnitEntry[];
+}
+
 // ── Meal engine wire shapes (Faz 5 — plan §7/§10) ──────────────────────────
 
 interface WireMealWindowEntry {
@@ -657,7 +702,9 @@ interface WireFeederCalibrationsSaved extends WireSetupBaseEvent {
   eventType: 'FeederCalibrationsSaved';
   equipmentId: string;
   calibrationCount: number;
-  feedSizeMm: number[];
+  dosingMode: string;
+  dispenseControl: string;
+  feedIds: string[];
   changedBy: string;
 }
 
@@ -1077,6 +1124,103 @@ export const feedingProtocolAssignmentPausedSchema: JSONSchemaType<WireFeedingPr
     'unitCode',
     'protocolId',
     'reason',
+  ],
+};
+
+/**
+ * Ünitenin yemleyici kümesi değişimi. `maxItems` girdi tarafındaki
+ * MAX_FEEDERS_PER_UNIT ile aynı büyüklük sınıfındadır: bir ünitede onlarca
+ * yemleyici olmaz, cap kaza korumasıdır.
+ */
+const MAX_FEEDERS_PER_UNIT_WIRE = 12;
+
+export const unitFeederAssignmentsChangedSchema: JSONSchemaType<WireUnitFeederAssignmentsChanged> =
+  {
+    ...EVENT_OBJECT_OPTS,
+    properties: {
+      ...BASE_EVENT_PROPERTIES,
+      eventType: { type: 'string', const: 'UnitFeederAssignmentsChanged' },
+      userId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+      unitId: UUID_SCHEMA,
+      unitType: { type: 'string', enum: ['tank', 'pond', 'cage'] },
+      unitCode: SHORT_CODE,
+      siteId: UUID_SCHEMA,
+      feeders: {
+        type: 'array',
+        maxItems: MAX_FEEDERS_PER_UNIT_WIRE,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            assignmentId: UUID_SCHEMA,
+            feederEquipmentId: UUID_SCHEMA,
+            feederCode: SHORT_CODE,
+            doseSharePercent: { type: 'number', minimum: 0, maximum: 100 },
+          },
+          required: ['assignmentId', 'feederEquipmentId', 'feederCode', 'doseSharePercent'],
+        },
+      },
+      endedAssignmentIds: {
+        type: 'array',
+        maxItems: MAX_FEEDERS_PER_UNIT_WIRE,
+        items: UUID_SCHEMA,
+      },
+    },
+    required: [
+      ...BASE_EVENT_REQUIRED,
+      'unitId',
+      'unitType',
+      'unitCode',
+      'siteId',
+      'feeders',
+      'endedAssignmentIds',
+    ],
+  };
+
+/**
+ * A drive turns one machine, and a feeder serves few units — the cap is a shape
+ * decision, not a guess: an attestation naming hundreds of units would be a
+ * corrupt answer, and the drive must reject it rather than store it.
+ */
+const MAX_SERVED_UNITS_WIRE = 24;
+
+export const vfdDriveBindingAttestedSchema: JSONSchemaType<WireVfdDriveBindingAttested> = {
+  ...EVENT_OBJECT_OPTS,
+  properties: {
+    ...BASE_EVENT_PROPERTIES,
+    eventType: { type: 'string', const: 'VfdDriveBindingAttested' },
+    vfdDeviceId: UUID_SCHEMA,
+    drivenEquipmentId: UUID_SCHEMA,
+    outcome: {
+      type: 'string',
+      enum: ['attested', 'unknown_equipment', 'inactive_equipment'],
+    },
+    equipmentCategory: { ...SHORT_CODE, nullable: true },
+    equipmentCode: { ...SHORT_CODE, nullable: true },
+    equipmentName: { ...FREE_TEXT, nullable: true },
+    siteId: { ...OPTIONAL_UUID_SCHEMA, nullable: true },
+    servedUnits: {
+      type: 'array',
+      maxItems: MAX_SERVED_UNITS_WIRE,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          unitId: UUID_SCHEMA,
+          unitType: { type: 'string', enum: ['tank', 'pond', 'cage'] },
+          unitCode: SHORT_CODE,
+          doseSharePercent: { type: 'number', minimum: 0, maximum: 100 },
+        },
+        required: ['unitId', 'unitType', 'unitCode', 'doseSharePercent'],
+      },
+    },
+  },
+  required: [
+    ...BASE_EVENT_REQUIRED,
+    'vfdDeviceId',
+    'drivenEquipmentId',
+    'outcome',
+    'servedUnits',
   ],
 };
 
@@ -1843,14 +1987,27 @@ export const feederCalibrationsSavedSchema: JSONSchemaType<WireFeederCalibration
     eventType: { type: 'string', const: 'FeederCalibrationsSaved' },
     equipmentId: UUID_SCHEMA,
     calibrationCount: NON_NEGATIVE_INT,
-    feedSizeMm: {
+    // Closed enums on the wire: a consumer switches on these to decide the
+    // shape of the derived command, so an unrecognised value must be rejected
+    // at the boundary rather than silently defaulted to one of the branches.
+    dosingMode: { type: 'string', enum: ['discrete', 'continuous'] },
+    dispenseControl: { type: 'string', enum: ['time_based', 'weight_based'] },
+    feedIds: {
       type: 'array',
-      items: NON_NEGATIVE_NUMBER,
+      items: UUID_SCHEMA,
       maxItems: 100,
     },
     changedBy: UUID_SCHEMA,
   },
-  required: [...SETUP_EVENT_REQUIRED, 'equipmentId', 'calibrationCount', 'feedSizeMm', 'changedBy'],
+  required: [
+    ...SETUP_EVENT_REQUIRED,
+    'equipmentId',
+    'calibrationCount',
+    'dosingMode',
+    'dispenseControl',
+    'feedIds',
+    'changedBy',
+  ],
 };
 
 /**
@@ -1881,6 +2038,8 @@ export type FarmEventType =
   | 'LowStockDetected'
   | 'FeedingProtocolAssigned'
   | 'FeedingProtocolAssignmentPaused'
+  | 'UnitFeederAssignmentsChanged'
+  | 'VfdDriveBindingAttested'
   | 'MealWindowUpcoming'
   | 'MealFed'
   | 'MealSkipped'
@@ -1944,6 +2103,8 @@ export const FARM_EVENT_SCHEMAS: Record<FarmEventType, object> = {
   LowStockDetected: lowStockDetectedSchema,
   FeedingProtocolAssigned: feedingProtocolAssignedSchema,
   FeedingProtocolAssignmentPaused: feedingProtocolAssignmentPausedSchema,
+  UnitFeederAssignmentsChanged: unitFeederAssignmentsChangedSchema,
+  VfdDriveBindingAttested: vfdDriveBindingAttestedSchema,
   MealWindowUpcoming: mealWindowUpcomingSchema,
   MealFed: mealFedSchema,
   MealSkipped: mealSkippedSchema,

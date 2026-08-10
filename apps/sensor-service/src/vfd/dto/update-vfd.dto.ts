@@ -73,10 +73,9 @@ export class UpdateVfdDto {
   @IsUUID()
   farmId?: string;
 
-  @Field(() => ID, { nullable: true })
-  @IsOptional()
-  @IsUUID()
-  tankId?: string;
+  // `tankId` is gone from this input. The unit a drive serves is not something an
+  // operator sets on the drive — it follows from the equipment the drive turns.
+  // Use `bindVfdDrivenEquipment` to change what a drive is wired to.
 
   // SENSOR-CRITICAL-007: edge-delegated write binding (both-or-neither, enforced
   // on the resulting device state by the service).

@@ -8191,6 +8191,626 @@ Proven by deliberate breaks: a new service with no `logging` reddens all three a
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-417`, `ORPHAN-HIGH-563`, `INFRA-MEDIUM-057`.
 
+## ORPHAN-MEDIUM-594 — every route and auth spinner in AquaMobil renders colourless: `border-aqua-500` is used in four places and `aqua` is not a palette — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while building the v4 design-token layer for `web/apps/aquamobil`; found by grepping for palette usage before mapping the new tokens, not by anyone reporting it.
+
+`web/apps/aquamobil/tailwind.config.js` defines `ocean`, `sea`, `coral` and the three status triples. It has never defined `aqua`. Four files ask for it anyway:
+
+```
+src/App.tsx:152                     border-b-2 border-aqua-500   (ProtectedRoute auth spinner)
+src/App.tsx:163                     border-b-2 border-aqua-500   (FeatureRoute permission spinner)
+src/components/MultiFeatureRoute.tsx:23  border-b-2 border-aqua-500
+src/pages/sync/SyncStatusPage.tsx:110    !bg-aqua-500             (sync progress bar)
+```
+
+Tailwind emits no rule for an undefined palette, so `border-aqua-500` resolves to nothing and the spinner border falls back to `currentColor`/transparent. The three spinners are exactly what a worker stares at while the app decides whether they are allowed in — the least good place to render an invisible control. This is a silent class of bug: no build error, no runtime error, no test covers a spinner's colour.
+
+**Fix (this PR):** all four sites now use the semantic accent token (`border-acc` / `!bg-acc`), which resolves per theme. The class of bug is closed structurally rather than site-by-site: `src/__tests__/design-token.invariant.spec.ts` ratchets raw palette usage toward zero, so the remaining legacy palettes shrink and cannot be joined by a new invented one without the count growing.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-572 — AquaMobil's brand font has never loaded in production: the CSP forbids the CDN it is imported from — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while replacing DM Sans with the v4 typeface. Found by checking the CSP before adding a font origin, which surfaced that the existing origin was already blocked.
+
+`web/apps/aquamobil/src/styles/main.css:1` opened with
+
+```
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:...');
+```
+
+while `infrastructure/docker/nginx/snippets/security-headers.conf:22` sets
+
+```
+default-src 'self'; ... style-src 'self' 'unsafe-inline'; ... font-src 'self'; ...
+```
+
+`style-src` has no external host, so the stylesheet import is blocked; `font-src 'self'` would block the woff2 even if it were not. The app has therefore been rendering in the `-apple-system` / Roboto fallback for its entire production life, on every device, online and offline alike. Nothing failed loudly — a blocked font is a console warning and a different-looking screen, and the fallback stack is close enough that nobody filed it.
+
+Worth naming beyond the one font: an offline-first PWA that reaches for a CDN at all has a defect independent of the CSP. The asset is unavailable precisely when the worker is in the field with no signal, which is the operating condition the whole app exists for.
+
+**Fix (this PR):** Geist and Geist Mono are self-hosted under `web/apps/aquamobil/public/fonts/` (96 KB total; variable weight 400–700, latin + latin-ext so Turkish glyphs resolve, since the app's default locale is `tr`) and declared with `@font-face` in `src/styles/tokens.css`. They land in `dist/fonts/` and appear in the service worker's precache manifest, so the type survives offline. `design-token.invariant.spec.ts` now fails the build on any `@import url(https://…)` or `fonts.googleapis.com` / `fonts.gstatic.com` reference in the app's CSS or `index.html`, so the CDN cannot come back.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-573 — AquaMobil has no shared UI primitives, so every screen re-derives the same surface and occasionally gets it wrong — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while planning the v4 redesign; the audit of `web/apps/aquamobil/src/components/` found the gap rather than any single bug report.
+
+The app ships 91 `.tsx` files and ~23k lines of UI, and `src/components/ui/` contained exactly one primitive: `IconButton`. There was **no** shared Button, Card, Modal/Sheet, EmptyState or Skeleton. Consequences visible in the tree before this PR:
+
+- **Cards** were an inline six-class incantation — background, rounded corner, card shadow and hairline border, each with its own theme variant — repeated across dozens of files and drifting slightly in each.
+- **Buttons** were raw `<button>` elements carrying gradient class strings, each re-deciding its own height. That is the mechanism by which sub-44px tap targets entered: `IconButton`'s own header cites the 28px VoicePlayer speed toggle as the case that prompted it.
+- **Overlays** were hand-rolled three times (`InstallPrompt`, `AccountPage`'s inline confirm, `messaging/ConfirmDialog`) and **none of them trapped focus or restored it to the opener**, so a keyboard or screen-reader user was dropped at the top of the page after every dialog.
+- **Empty states and skeletons** were per-page (`ChannelListSkeleton`, `ChecklistSkeleton`, `MetricSkeleton`), and several lists rendered _nothing_ when empty — indistinguishable from a failed fetch, which on intermittent boat signal is the difference between "no alarms" and "we could not load alarms".
+
+This is a Tier-2 gap: the correct surface was available to anyone willing to copy it correctly, and nothing made it the default.
+
+**Fix (this PR):** thirteen primitives under `web/apps/aquamobil/src/components/ui/`, exported from one barrel — Button, Card, Chip, SegmentedControl, ListRow, StatTile, SparkBars, CapacityMeter, TypeTile, Sheet, NumPad, HoldToConfirm, EmptyState, Skeleton. All are token-only and density-aware. `Sheet` owns the modal contract the three hand-rolled overlays each got wrong (Escape, focus enter/return, Tab wrap, scroll lock, keyboard-operable scrim) and its spec pins all five. `EmptyState` carries a distinct `error` tone so "nothing here" and "could not load" can no longer render identically.
+
+**Owner:** claude (this session). **Status:** RESOLVED (primitives landed; adoption across pages is the following phases' work, tracked by the ratchets in `design-token.invariant.spec.ts`).
+
+## ORPHAN-LOW-574 — the v4 log-type palette misses two soft checks in the categorical validator — ACCEPTED AS DESIGNED
+
+**Discovered:** 2026-08-06, by running the six-check categorical palette validator over the six log-type hues in both themes, rather than eyeballing them.
+
+Results (adjacent-pair, OKLab ×100):
+
+| Check                     | Night (surface `#111c2e`)                              | Day (surface `#ffffff`)           |
+| ------------------------- | ------------------------------------------------------ | --------------------------------- |
+| CVD separation (floor 8)  | **PASS** 15.7 deutan · 12.1 tritan                     | **PASS** 14.7 protan · 7.9 tritan |
+| Normal-vision floor (15)  | **PASS** 25.4                                          | **PASS** 23.8                     |
+| Contrast vs surface (3:1) | **PASS** all six                                       | **PASS** all six                  |
+| Chroma floor (0.10)       | PASS                                                   | **FAIL** teal `#0e7c86` at 0.089  |
+| Lightness band            | **FAIL** span 0.691–0.803, amber `#e5b84e` the outlier | PASS                              |
+
+Every check that governs whether two types can be **told apart** passes in both themes. The two failures are uniformity preferences: the day teal reads very slightly grey, and the night amber is lighter than its neighbours.
+
+**Why this is accepted rather than repainted:** these are the approved design's own values, and the amber/coral/green hues are deliberately shared with the status vocabulary (amber watches, coral alarms) because in this domain a mortality _is_ the serious event and a cull _is_ the watch-level one — the overlap carries meaning. Repainting them to satisfy a lightness-band check would break that.
+
+**What was done instead:** the risk the checks are proxies for — identity conveyed by colour alone — is closed structurally. `TypeTile` requires a `label` and always renders it, and `StatTile` types `state` and `caption` as a discriminated union so a value cannot turn amber or coral without the text naming the threshold it crossed. A colourblind worker reads the word regardless of the hue.
+
+**Revisit if:** the palette is ever reused for a chart series where marks are not directly labelled (the reports charts in a later phase) — direct labels or texture become mandatory there.
+
+**Owner:** claude (this session). **Status:** ACCEPTED AS DESIGNED (mitigation is structural, above).
+
+## ORPHAN-MEDIUM-575 — AquaMobil's central noun had no route: reaching a unit meant scrolling past a greeting, a stats row and a nine-item grid — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while adapting the app to the v4 design; the gap is structural rather than a reported bug.
+
+Every entry AquaMobil exists to capture — mortality, feeding, water quality, cull, transfer, harvest — is made **against a unit**. The app had no unit list route. `TankCard` rows lived inside `HomePage`, below the greeting header, the aggregate stats and the nine-item quick-action grid, so selecting a pen on a phone meant scrolling past three unrelated sections. `/tank/:tankId` existed but was reachable only from that buried list.
+
+Meanwhile the bottom navigation spent a permanent slot on **Account** — theme, notifications, cache and biometric settings, none of which a worker touches during a shift — and two more on **Operations**, a hub whose only content is links to other hubs (two taps of pure navigation before any real screen), and **Tasks**, a list deliberately separated from the alarms it should be prioritised against.
+
+**Fix (this PR):** `/units` becomes a first-class dock destination backed by the real `farmStockInventory` query, grouped by site. Account moves to the header avatar; Operations stops being a destination (all routes and guards untouched — only the entry point moved); Tasks folds into Today in the following phase. The freed centre slot becomes the raised Scan button, so the fastest path to a unit is now standing in front of it and pointing the camera at its tag.
+
+**Deliberately not built:** the design's Feeders tab. The mobile client has no feeder query — no dose, hopper level, drive percentage or run/stop state — so the tab is absent rather than populated with mock values. Reinstating it requires a backend query first; see the phase notes for the redesign.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-576 — AquaMobil's home screen buried the shift's work under four sections of chrome, and split alarms from the tasks they compete with — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while adapting `HomePage.tsx` to the v4 design.
+
+Two separable problems, both about arrangement rather than correctness:
+
+**1. The work was below the fold.** The screen opened with a brand banner (ocean gradient, three decorative blob divs, an SVG wave edge), then a four-column stats row, then up to three banner cards, then a nine-item quick-action grid, then a farm-summary card, and only then the tank list. Nothing in the first two screens of scroll told a worker arriving on shift what needed doing. The layout was ordered by what the app knows, not by what the shift needs.
+
+**2. Alarms and tasks were on different tabs.** Alarms surfaced via `/alerts` and the bell; tasks had their own dock slot at `/tasks`. Since both are "things demanding the worker's attention today", keeping them apart forced the worker to hold the cross-list priority — is the oxygen alarm on U-07 more urgent than the 10:30 net inspection? — in their own head, on a boat, with gloves on. Neither list could show the other's items, so neither was ever a complete answer.
+
+A third, smaller issue rode along: the nine quick-action tiles each carried a distinct two-stop gradient (`from-green-600`, `from-red-500`, `from-cull`, `from-harvest`, `from-cyan-500`, …). Nine saturated tiles on one screen leave the genuine alarm colours nothing to be louder than — colour had stopped carrying meaning.
+
+**Fix (this PR):** Today is ordered Alarms → Tasks → Shortcuts → Snapshot, with alarms and tasks in one column so the priority order is visible instead of remembered. The tank list moved to its own dock destination (`/units`, ORPHAN-MEDIUM-575). Shortcut tiles lost their gradients and now carry only the log type's hue on the icon, so the accent and alarm colours mean something again. The fail-closed permissions banner (SEC-MEDIUM-050), the `canReach` role floor on the harvest shortcut, the over-capacity warning and `AiInsightsCard` are all preserved.
+
+**Deliberately not built:** the design's editable home (drag-to-reorder and hide sections). There is no persistence counterpart for a per-user section order, and inventing device-local-only ordering would silently diverge across a worker's devices.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-577 — the unit detail led with two configuration constants and gave the regulated density number no threshold context — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while adapting `TankDetailPage.tsx` to the v4 design.
+
+The page opened with a gradient banner carrying **volume** and **max capacity** — two values set once when the pen is configured and read approximately never — occupying the position a worker's eye lands on first. Below it, a six-tile grid gave every metric identical visual weight: fish count, average weight, biomass, density, capacity used, days since stocking.
+
+The consequence is that **density against consent**, the number that legally constrains what the farm may do next, was one tile of six reading `93` `%` with no thresholds anywhere on the screen. Ninety-three percent of what, and is that fine or nearly illegal? The page assumed the worker carries the watch (70) and consent (90) lines in their head. `isOverCapacity` did drive a red border, but only at the point the limit is already breached — there was no signal for "approaching it", which is the state a shift check exists to catch.
+
+**Fix (this PR):** the four numbers a shift check actually reads (standing biomass, average weight, density, capacity used) are promoted to hero numerals, and density gets its own `CapacityMeter` with the watch and limit lines **labelled under the track**. Being past the watch line is now legible without prior knowledge. The capacity tile can only take an alarm colour together with a caption naming the threshold it crossed — enforced by `StatTile`'s discriminated union, not by convention. Volume and max capacity are demoted to a "Unit configuration" card at the bottom, where read-rarely values belong.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-578 — logging an entry cost a full page navigation away from the unit the worker was standing at — RESOLVED (this PR, for four of six types)
+
+**Discovered:** 2026-08-06, while building the v4 log sheet.
+
+Recording a mortality meant leaving the unit screen for `/mortality/record`, re-selecting the unit from a dropdown, filling a page-sized form, stepping through a confirm screen, and landing on a success page — for a datum that is one number and one cause. The context the worker had (they are standing at U-07, they can see its oxygen trace) was discarded at the navigation and had to be re-established by hand.
+
+**Fix (this PR):** `LogSheet`, a bottom sheet that keeps the unit list or unit detail visible underneath. Unit chips, four type tiles, a numpad sized by the density tokens, cause pills, and hold-to-save. It is reached from the unit detail's primary CTA and from Today's shortcuts.
+
+**No new backend contract:** every type enqueues through the same `useOfflineQueue.addToQueue(operationType, payload)` path its page already used, so the command envelope, payload hash and at-most-once dedup against `farm_mobile_command_receipts` are untouched.
+
+**Four types, not the design's six — and why.** Mortality, cull, water quality and transfer all reduce to "a quantity (or a set of readings) against a unit", which is the shape this sheet is. The other two do not:
+
+- **Harvest** requires five fields (`quantityHarvested`, `averageWeight`, `totalBiomass`, `qualityClass`, `harvestDate`). It is a form, not a number.
+- **Feeding** is not a quantity flow at all: it is meal-centric off `feedingDayPlans`, with per-meal `SCHEDULED / FED / PARTIALLY_FED / SKIPPED / MISSED` state and a finalize step. Re-expressing it in the sheet would put day-plan logic in a second place and let the two drift.
+
+Forcing either in would have meant shaping irreversible farm records through a form that does not fit them. Both keep their full pages, restyled in a later phase. The operator approved this narrowing after the payload shapes were read.
+
+**The submit gate is a pure, tested function** (`submitBlocker`), not inline JSX conditionals: it is the only thing between a gloved thumb and a bad record, including the stock ceiling that rejects a mortality larger than the pen's population — a mistyped extra zero is a data-integrity event, not a validation nicety. Thirteen specs cover every branch.
+
+**Open follow-up (owner: claude, deadline: at merge of this PR):** the superseded `/mortality/record`, `/cull/record` and `/transfer/record` pages still exist and still work. Retiring them (and `_shared/RecordEntityPage.tsx`, once harvest is the only consumer left) is deliberately a separate step — deleting live record paths without first exercising the sheet against a running backend is the kind of change that should be verified visually first.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the four covered types; page retirement tracked above.
+
+## ORPHAN-HIGH-579 — self-review of the v4 redesign found four defects the green build did not: an unreachable feature, a mis-sized dock, a role-blind tab, and a duplicate shown as a fresh save — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, by reviewing the six v4 phases already committed rather than by any failing test. Every one of these shipped with a green build, a passing suite, a clean typecheck and a clean lint.
+
+**1. `/notifications` became unreachable (the most serious).** Rewriting `HomePage` for v4 replaced the old gradient header, and `AlertsBell` + `NotificationBell` lived inside it. The route, its guard and `NotificationsPage` all survived; nothing rendered a control that navigated there. Two components became dead code that still compiled. Nothing anywhere failed — the feature was simply gone.
+
+**2. The dock's column template was fixed at five while its child count varies.** `grid-cols-[1fr_1fr_1.1fr_1fr_1fr]` with `tabs.slice(0, 2)` / `tabs.slice(2)` assumed four tabs plus scan. Tabs are permission-filtered, so a user without `reports` gets three — four children in a five-column grid, leaving an empty column and pushing the dock off-centre. The scan slot could also vanish, taking the count to three.
+
+**3. The Reports tab was gated on the entitlement but not the role floor.** `MobileLayout` filtered on `canAccess('reports')`, while the route enforces `FeatureRoute` **plus** a `MODULE_MANAGER` floor (`FEATURE_ROLE_FLOOR`). A `MODULE_USER` holding the reports entitlement would see a tab that bounced them straight home. `HomePage` already used the role-aware `canReach` for exactly this reason (SEC-MEDIUM-050); the dock did not.
+
+**4. A deduplicated re-submit was reported as a fresh save.** `addToQueue` returns the discriminated `AddToQueueResult` — `{ status: 'queued' | 'duplicate'; id }` (FE-HIGH-050). The log sheet typed the result loosely enough that `{ id: string; queued?: boolean }` type-checked, then ignored `status` entirely and derived "queued" from `!isOnline`. A worker whose entry hit the at-most-once ledger saw "Record mortality saved", inviting them to log it again.
+
+**Fixes (this PR):** the bells move into `AppHeader`'s actions on Today; the dock derives its column template and its split point from the real slot count via a static lookup (a computed class name would be purged by Tailwind's JIT — the same PERF-09 reason the old action grid used a map); the dock filters on `canReach`; and the sheet reads `result.status`, showing `DUPLICATE` with copy that says nothing was added.
+
+A fifth issue was fixed in the same pass without ever shipping: the sheet's initial log type was computed from the permission list on first render, before permissions resolve, so it could sit on — and submit — a type the worker is not allowed to make.
+
+**Prevention (Tier 3):** `src/__tests__/route-reachability.invariant.spec.ts` asserts that every destination without a dock slot is still pointed at from somewhere, and that the two components which are a route's sole entry point are actually rendered. Proven by deliberate break: removing the bells again turns it red, restoring them turns it green. Its blind spot is documented in the file rather than papered over — the textual path check cannot tell that a route named only inside an orphaned component is unreachable, which is exactly how defect 1 hid.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-580 — the Reports tab redirected most of the people who tapped it, and the design's charts have no data behind them — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while adapting the Reports destination to the v4 design.
+
+**The tab was a dead end for most roles.** `/reports` was guarded by `FeatureRoute feature="reports"`, which folds in a `MODULE_MANAGER` floor (`FEATURE_ROLE_FLOOR`). The v4 dock gave Reports a permanent slot, so a `MODULE_USER` saw a tab that bounced them straight back to Today. The underlying content — the Mattilsynet draft queue — genuinely is manager-only, but it was the _whole_ screen, so the role floor had to be the whole screen's floor.
+
+**The design's analytics have no source.** The v4 Reports shows average weight over 7/30/90 days and mortality per bucket, driven by a period selector. The mobile client has no time-series query at all: `farmStockInventory` is a point-in-time snapshot, `GET_STOCK_EVENTS_SUMMARY` returns a this-week count plus a recent-event list, and `BATCH_GROWTH_PREDICTION_QUERY` is a single forward estimate (`predictedSGR`, `predictedAvgWeight30d`). Every one of those is a _now_ value; none carries history.
+
+**Fix (this PR):** the screen leads with a farm summary every field role may read — biomass-weighted average weight, standing biomass, and units past the watch/consent lines — with the regulatory draft queue as a section that self-gates on the role floor and stays online-only. The route is ungated; `/reports/:draftId` keeps its guard.
+
+**Deliberately not built:** both trend charts and the period selector. Drawing a series from snapshot queries means inventing the history, and a fabricated trend on a regulated metric is worse than no trend. The screen states in one line that trends need a history query rather than showing fiction.
+
+**Needed to close the gap (backend):** a per-site or per-batch time-series endpoint returning bucketed average weight and mortality over a requested window. Until it exists, the charts stay out.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the tab dead-end; charts blocked on the query above.
+
+## ORPHAN-CRITICAL-581 — every water-quality reading was rejected by the server after the worker was shown a green "Saved" — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, by a multi-lens audit of the v4 redesign that compared each queued payload against the real SDL rather than against the frontend's mirror of it.
+
+`apps/farm-service/schema.graphql:9551` `input CreateWaterQualityInput` requires **`equipmentId: ID!`** and **`dynamicParameters: JSON!`**, and declares **no `parameters` field**. The frontend mirror at `web/apps/aquamobil/src/types/index.ts` had drifted: `equipmentId` optional, `dynamicParameters` optional, `parameters` required. Two callers trusted it:
+
+- The new v4 log sheet sent `{ tankId, batchId, measuredAt, source, parameters }` — omitting both required fields and sending one the schema does not have.
+- **`WaterQualityRecordPage` — which predates this redesign — sent `parameters: {}` alongside correct values.** GraphQL rejects unknown input fields, so this page's readings have been invalid too.
+
+Nothing sanitised the payload between the UI and the wire (`src/pwa/operation-registry.ts` forwards it as `{ input: payload }`), and because these writes go through the offline queue, the rejection lands on replay — long after the receipt said the entry was saved. Water readings feed regulatory reporting.
+
+**Fix (this PR):** the mirror is realigned with the SDL, so `tsc` now refuses the wrong shape instead of the server refusing it silently — which is what surfaced the second, pre-existing caller. The stray `parameters: {}` is removed from `WaterQualityRecordPage`. Water is **removed from the log sheet's types**: its input requires an instrument, and the sheet has no equipment context standing at a pen. Inventing an `equipmentId` to satisfy the schema would have made the record worse than absent. Water quality keeps its full page with the equipment picker.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-HIGH-582 — the whole theme and touch-density layer was inert in production, and only in production — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, same audit, by reading the deployed CSP rather than trusting the dev server.
+
+`infrastructure/docker/nginx/snippets/security-headers.conf:22` serves `script-src 'self'` with no `'unsafe-inline'` — the header even carries the note "D14-SC-02: unsafe-inline removed; Vite production builds emit no inline scripts." The v4 pre-paint logic was an **inline `<script>`** in `index.html`, copied verbatim into `dist/index.html`. It was therefore blocked on every production load.
+
+The module-init fallback in `useTheme.ts` / `useDensity.ts` does not cover it: the only importer is `AccountPage`, which is `lazy()`. Until a worker opens Account, `data-theme` and `data-density` are unset — so every user is pinned to the night fallback regardless of their saved choice, and **gloved workers get standard-size controls instead of the enlarged ones the density layer exists to provide**. It worked perfectly in development, which is why nothing caught it.
+
+This is the second CSP-shaped defect in this work; the first was the brand font (ORPHAN-MEDIUM-572). Same root cause: an asset assumed permitted, verified only against the dev server.
+
+**Fix (this PR):** the logic moves to a same-origin `public/theme-init.js`, loaded with a blocking `<script src>` so it still runs before first paint. It lands in `dist/` and in the service-worker precache manifest. `design-token.invariant.spec.ts` now **bans any inline `<script>` in index.html outright** and requires the external file — the gate judges markup with HTML comments stripped, so prose explaining the rule cannot trip it.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-HIGH-583 — the unit detail crashed on any pen that was fallowing or being cleaned — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, same audit.
+
+The backend `TankStatus` enum has **eight** members (`apps/farm-service/src/tank/entities/tank.entity.ts:84`), including `CLEANING` and `FALLOW`. The frontend union in `web/apps/aquamobil/src/types/index.ts` had **six**, and `useTanks` casts the free-form wire string into it unchecked. The v4 unit detail looked the status up in a `Record` and dereferenced the result immediately, so a fallowing pen produced `undefined.tone` and took the screen down to the ErrorBoundary.
+
+This was a regression introduced by the redesign: the page it replaced ended its lookup with `|| STATUS_CONFIG.INACTIVE`. Fallowing is routine between production cycles, and this page is now the only route to the primary "Log entry" action.
+
+**Fix (this PR):** the union gains `CLEANING` and `FALLOW` (all eight now mirror the backend) and the lookup degrades with `?? STATUS_META.INACTIVE`.
+
+**Follow-up, now also done:** the blind cast is gone. `narrowTankStatus()` checks the wire value against the eight known members; an unrecognised one falls back to `INACTIVE` **and logs a warning**, because a new backend enum member is a real event that should be visible rather than silently defaulted. The fallback is deliberately not `ACTIVE` — that would state something about the pen the app does not know. Five specs pin it, including that a missing status still resolves to `ACTIVE` so this is a narrowing rather than a behaviour change.
+
+A cast asserts; a narrow checks. The union fixed the crash, this removed the mechanism that let wire drift reach the render tree at all.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-584 — a failed fetch rendered as an authoritative all-clear about the farm — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, same audit; the two worst outputs were reproduced under mocked error states rather than inferred.
+
+Four screens destructured only `data` and `isLoading` from `useTanks`, then defaulted with `?? []`. A network failure therefore rendered as positive claims:
+
+| Screen      | What a failed fetch showed                                                                            |
+| ----------- | ----------------------------------------------------------------------------------------------------- |
+| Today       | "0 alarms · 0 queued · 0 Fish · 0kg Biomass · Capacity **OK**"                                        |
+| Reports     | "Nothing stocked"                                                                                     |
+| Unit detail | "This unit is not in your current inventory"                                                          |
+| Scan        | "does not match a unit you have access to" — an authorisation claim manufactured from a network error |
+
+`useTanks` only throws after its IndexedDB fallback also misses, so this is precisely the cold-open-with-no-signal case the app exists for. A worker on a boat reading "Capacity OK" from a screen that in fact knows nothing is the worst available failure mode.
+
+**Fix (this PR):** all four branch on `isError` before rendering and say the figures are unavailable rather than zero. Scan distinguishes "the unit list never loaded" from "this tag matches nothing". The correct pattern already existed in this codebase (`UnitsPage`), which is what made the omission a slip rather than a gap in knowledge.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-HIGH-585 — every farm and unit total counted only each pen's primary batch, and the log sheet rejected valid entries because of it — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, by the v4 audit tracing each displayed number back to the query that produces it.
+
+`useTanks` selects the container's own `currentQuantity` and `currentBiomassKg` in its GraphQL document, then discards `currentQuantity` entirely and maps only the PRIMARY batch's `quantity` / `biomassKg` into `batchMetrics`. The backend confirms these differ — `tank-batch.service.ts` sums `batchDetails` and sets `isMixedBatch` when a pen holds more than one.
+
+Consequences, all from one root:
+
+- **Understated totals** on Today ("Fish", "Biomass"), Reports ("Standing biomass", presented as the _farm_ total), the unit list, and the unit detail.
+- **Three tiles disagreeing about one pen:** the unit detail showed primary-batch biomass beside whole-container density and capacity.
+- **A safety gate rejecting valid work:** the log sheet ceilinged quantity against the primary batch, so a 70 000 mortality on a mixed 92 400-fish pen failed with "Only 60,000 fish in this unit". Teaching a worker that a safety-critical check is wrong is worse than not having it.
+
+**Fix (this PR):** `currentQuantity` is mapped onto `Tank` alongside `currentBiomass`, and every unit- or farm-level figure — plus the sheet's stock ceiling — now reads those. `batchMetrics` keeps its legitimate job (batch id, number, species, density, capacity flag) and its doc comment now states plainly that it is the primary batch only and must not be used for totals.
+
+**Not done:** per-batch selection when a pen is mixed. `useTanks` already fetches the full `batches` array, so a picker is possible; until it exists, field capture still attributes to the primary batch. Tracked here.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the totals and the ceiling; mixed-pen batch attribution open.
+
+## ORPHAN-HIGH-586 — Today and Reports disagreed about which pens are over the consent limit — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, same audit.
+
+Today used the backend flag `batchMetrics.isOverCapacity`; Reports hardcoded `LIMIT_AT = 90` against density and labelled the result "Units at consent limit". Per `tank-capacity.service.ts` the backend flag fires at 100% density **or** on the status and biomass axes at any utilisation — so the two definitions genuinely diverge: a pen blocked on biomass at 60% counted on Today and not on Reports; a pen at 92% density counted on Reports and not on Today. On the unit detail a 95% pen got a coral meter captioned "90 limit" beside a neutral capacity tile.
+
+Compliance numbers that change depending on which screen you open are worse than a missing number, because they look authoritative.
+
+**Fix (this PR):** `isOverCapacity` is the single definition of at/over consent, on every screen. The 70/90 lines survive only as an **advisory density band**, relabelled as such — the meter's ticks now read "70% watch / 90% density" rather than "limit", and its prop docs say the farm service owns the consent verdict. `?? 0` no longer classifies an unknown capacity as safe.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-587 — the messaging surface was the last large block still on the pre-v4 palette — RESOLVED (this PR, components only)
+
+**Discovered:** 2026-08-06, while measuring which parts of AquaMobil the v4 redesign had actually reached.
+
+Chat is the densest surface in the app — 6 pages plus 21 components, roughly a thousand pre-v4 class usages between them, the largest single remaining block. `MessageBubble` (533 lines) and `MessageInput` (432) carry most of it. Own-versus-other message bubbles distinguished themselves with the ocean palette, so the distinction was one fixed blue that could not follow a theme change.
+
+**Fix (this PR):** every component under `src/components/messaging` is converted to the semantic tokens. Own bubbles take the accent pair (`bg-acc` / `text-acc-on`), the other side `bg-surface-2` / `text-ink-1`. Strictly a restyle — Socket.IO wiring, read receipts, typing indicators, attachment retry, voice recording and playback are untouched.
+
+Four ratchets fall with it: `dark:` 1254→1049, legacy palettes 285→185, stock grays 1431→1202, sub-12px text 74→55. The last is the one that matters beyond tidiness: 19 fewer sub-12px labels is 19 places a worker can read the screen at arm's length in sunlight.
+
+**Correction (2026-08-06):** this line said the messaging PAGES were still open. They were converted by ORPHAN-MEDIUM-591 in the very next wave, and `src/pages/messaging/` now holds zero pre-v4 classes. Corrected rather than left standing — a stale status is how a findings ledger becomes audit theatre.
+
+**Process note worth recording:** this work was produced by a parallel fan-out across six disjoint file groups. Five of the six were **lost** when another session moved this shared checkout to an unrelated detached commit mid-run; only the uncommitted messaging-component edits carried across and were recovered by patch. The branch ref and all pushed commits were never at risk. The lesson is mechanical: in a shared checkout, agent output must be committed per group as it lands, not batched at the end of the run.
+
+**Owner:** claude (this session). **Status:** RESOLVED for the components; pages open.
+
+## ORPHAN-MEDIUM-588 — the cards embedded inside the redesigned screens were still pre-v4, so Today and the unit detail showed v4 chrome around v3 content — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, by measuring which files the redesign had actually reached rather than trusting the phase list. The screens were reported done; the components they render were not.
+
+`AiInsightsCard`, `TankRiskBadge`, `GrowthPredictionCard`, `FeedingAdviceCard`, `LiveReadingsCard`, `TankCard`, `TaskCard`, both bells, `CriticalAlertBanner`, `DataFreshness`, `QueuedStatusBadge` and `ReportReviewPage` carried ~198 pre-v4 class usages between them — and they sit in the middle of the two screens a worker looks at most.
+
+**Fix (this PR):** all thirteen converted, plus the six messaging pages. Four things in it are more than a class swap and are recorded here because they change what a user sees:
+
+- **`QueuedStatusBadge`'s retry button was below the touch floor** (~36px). It now uses `<Button>`, which bakes in `min-h-touch`. Its colour moved red→accent: retry is a recovery action, not a destructive one.
+- **`TankCard`'s status colours disagreed with `TankDetailPage`'s.** MAINTENANCE was amber on the card and crit on the detail; PREPARING and HARVESTING likewise diverged. One status now means one colour on both.
+- **`AiInsightsCard` collapsed two different failures into one message.** "AI is switched off for this farm" and "we could not reach the advisory service" rendered identically; they are now distinguishable.
+- **`CriticalAlertBanner` was deliberately made LARGER** (14px→15px) rather than following the substitution table down to 13px. It is life-safety (MOB-HIGH-006) and must stay the loudest thing on any screen it appears on.
+
+**`AlertsBell` and `NotificationBell` repeat `min-h-touch min-w-touch` in their className despite using `IconButton`, which already provides them.** That duplication is deliberate: `field-ergonomics.invariant.spec.ts` greps those two files' _text_ for both strings, so adopting the primitive alone would fail the gate. This is a gate testing spelling rather than behaviour — worth revisiting, noted rather than worked around silently.
+
+**Two cards were deliberately NOT reduced to `<ListRow>`:** `TaskCard` carries a two-line title, a badge pair and a checklist progress bar that `ListRow` would silently drop, and `TankCard`'s four permission-gated action buttons (BUG-09 / SEC-MEDIUM-050) are the point of the card. Reducing either would be a capability change wearing a restyle's clothes. Both carry a comment recording the decision.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-589 — the AI cards' only "this is advisory" signal was their colour, and v4 has no colour to spare for it — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, during the v4 conversion of the four AI cards.
+
+The brief for the conversion said the advisory marker must stay legible. There was none to keep: no tilde, no "advisory" wording. The sole thing distinguishing these cards from measured data was **purple/indigo chrome** — a gradient header, purple fills, purple ink. v4 has no purple token (teal is reserved for actions, gradients were dropped for sunlight contrast), so the conversion necessarily removed it.
+
+What now carries the signal is wording that already existed: "AI Insights", "AI Risk Assessment", "AI Feeding Advice", "30-Day Growth Prediction", "Predicted (30d)", "Feeding Tip", "Rationale". Every one was preserved and each file carries a comment saying those strings are now load-bearing.
+
+**Why this is still open:** on `TankDetailPage` the three AI cards now sit directly beneath `LiveReadingsCard`'s **measured sensor values**, separated only by their headings. A predicted 30-day weight and a measured dissolved-oxygen reading should not be one glance apart with nothing but a title to tell them apart. An operator acting on a forecast believing it is a measurement is the failure mode.
+
+**What it needs:** one explicit, non-colour advisory marker applied consistently across all four cards — a `~` before predicted numerals, an "Advisory" chip, or both. That is a content decision affecting what the worker reads, so it is deliberately not being invented mid-conversion.
+
+**Fix (this PR):** the operator chose both markers, and both are applied to all four cards. `<AdvisoryChip/>` labels the card; `<Approx/>` puts the design's own `~` in front of every predicted numeral, so a number screenshotted or read aloud away from its card still carries its own caveat.
+
+Deliberately **not colour**: a colourblind worker must read the same thing everyone else does. The chip is a word on a neutral surface, and the invariant asserts it never leans on the accent or a status hue.
+
+`src/__tests__/advisory-marking.invariant.spec.ts` makes this a BAN rather than a ratchet — all four comply today, so a fifth AI card added without marking fails the build rather than shipping an estimate that looks like a measurement. It also fails loudly if the directory is restructured, so it cannot start guarding nothing. Proven by deliberate break: removing one chip turns it red.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-590 — the regulator-submission review page renders a blank screen when its query fails — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, while converting `ReportReviewPage` (FARM-HIGH-214 / RPT-019).
+
+The page branches on `isLoading` and on `isSuccess && !draft`. There is no `isError` branch, so a failed drafts query renders the header and **nothing else** — not "could not load", not "nothing here", just an empty page on the surface where a Mattilsynet submission is reviewed and approved.
+
+This is worse than the "empty list looks like a failed fetch" class already fixed elsewhere in this work: there is no list to misread, only absence.
+
+**Fix (this PR):** NOT the `isError` branch originally proposed — that would have been the sixth application of the same patch (see ORPHAN-HIGH-595). The page now routes its query through `toLoadable()` + `<DataState>`, so `data` sits on one arm of a discriminated union and the failure case cannot be dropped again without a compile error. It is the mechanism's first adopter.
+
+Proven by `src/pages/reports/__tests__/ReportReviewPage.outage.spec.tsx`, which renders under a genuinely rejected request. Three cases: the failure states that the draft could not be loaded and offers a retry; it does NOT claim "Draft not found", because a network error is not entitled to tell a manager a regulatory submission is gone; and a successful fetch returning no matching draft is still reported as missing rather than dressed up as an outage.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-591 — the remaining AquaMobil pages carried ~1,300 pre-v4 class usages, and three of them made claims the app could not support — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, completing the v4 conversion across the pages the earlier phases had not reached.
+
+Storage (4 pages incl. the 813-line movement wizard), lice, welfare, escape, the shared `RecordEntityPage` scaffold, Account, Login, and the secondary set (alerts, notifications, sync, attendance, leave, schedule, the four operations hubs, task detail, 404) plus the shared `hub/` components.
+
+Three findings inside the conversion are worth recording separately from the restyle:
+
+- **`StockViewPage` rendered a failed fetch as "No stock at this location".** Now split via `EmptyState tone="error"`, read off the two existing `useQuery` calls — the same class of defect as ORPHAN-HIGH-584, in a corner that pass missed.
+- **`RecordEntityPage` hardcoded `text-white`** on its header and both CTAs, which had forced an earlier conversion to use `!text-acc-on` to win the cascade. Removed, so the override can go.
+- **Write-off was grey and stock-out was red** in the storage flows, making the one destructive, audited operation the quietest thing on screen. Write-off is now `crit`, stock-out `warn`.
+
+**Colour decisions that were meaning decisions, not find-replace:** the escape page's varsling banner is the single `crit` thing on its screen and was made _louder_ (full-weight border, headline up a step) rather than following the substitution table down; lice (violet) and welfare (emerald) lost gradients that were page identity rather than meaning — and welfare's green was actively the wrong signal on a screen scoring 0-Healthy to 3-Severe.
+
+**Sub-12px text reached ZERO**, from 86 at the start of this work. The gate is promoted from a shrink-only ratchet to an outright ban — Tier 3 becomes Tier 1. There is no longer any text below 12px in the app and no longer a way to add some.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-592 — `useWarehouseSummary` swallows a failed fetch, so an outage renders as a clean, empty warehouse — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, during the v4 conversion of the storage pages.
+
+`web/apps/aquamobil/src/hooks/useWarehouseSummary.ts` returns `{ summary: data ?? DEFAULT_SUMMARY, isLoading }` — there is no `isError`. When the query fails and IndexedDB holds no cache, `StorageHubPage` renders "0 Items / 0 Low Stock / 0 Today" and "No recent movements" as though authoritative. A warehouse worker cannot tell an outage from an idle warehouse, and the zeros read as a clean bill of health.
+
+This is the same shape as ORPHAN-HIGH-584 (failed fetch presented as an all-clear), one layer lower: there the screens discarded `isError`, here the hook never exposes it, so the screen _cannot_ distinguish the two no matter how it is written. The conversion left a comment at the empty state saying exactly why it cannot use `tone="error"` yet.
+
+**Fix:** expose `isError` from the hook, then split the states on the hub.
+
+**Owner:** claude (this session). **Status:** RESOLVED — the hook now returns `isError` + `refetch`, and `StorageHubPage` splits the KPI row and the movement list into distinct outage states. Proven by `src/pages/storage/__tests__/StorageHubPage.outage.spec.tsx`, which renders the page under a FAILED query rather than inspecting the code — this defect class had survived five reviews precisely because reading the source shows a plausible empty state and only a mocked failure shows the lie.
+
+## ORPHAN-LOW-593 — `KpiStrip` is built for a header that no longer exists — RESOLVED (already fixed; record was stale)
+
+**Discovered:** 2026-08-06, same conversion pass.
+
+`web/apps/aquamobil/src/components/hub/KpiStrip.tsx` is styled `bg-white/10 backdrop-blur-sm` with `text-white` and `text-white/85` — a glass treatment that only reads over the ocean-gradient header v4 removes. `StorageHubPage` stopped using it during this conversion (its KPIs are now `StatTile`s), but `DailyOpsHubPage`, `StaffHubPage` and `StockEventsHubPage` still do, and on a flat surface it renders white-on-white in the day theme.
+
+**Fix:** already landed in the same conversion wave that filed this — `KpiStrip` is now ordinary surface cards on the tokens, and its 10px translucent-white label moved to `text-meta text-ink-3`. The file carries a comment explaining why it is NOT `StatTile` (that primitive is a full-width hero metric). Verified: zero `dark:`, `text-white`, `bg-white/` or sub-12px usages remain in it.
+
+The finding was filed against a state that the same wave had already corrected. Recording that here rather than silently closing it: **a finding whose status is wrong is worse than no finding**, because it sends the next person to fix something that is done and erodes trust in every other entry.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-595 — a failed fetch rendering as an authoritative claim was fixed five times in five files; the class was never closed — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, on being told to stop patching instances. Fixing `ReportReviewPage` would have been the sixth application of the same fix.
+
+The five prior instances, each filed and fixed separately:
+
+| Screen           | What a failed fetch rendered                                                             |
+| ---------------- | ---------------------------------------------------------------------------------------- |
+| `HomePage`       | "0 Fish · 0kg Biomass · Capacity **OK**"                                                 |
+| `ReportsPage`    | "Nothing stocked"                                                                        |
+| `TankDetailPage` | "This unit is not in your current inventory"                                             |
+| `ScanPage`       | "does not match a unit you have access to" — an authorisation claim from a network error |
+| `StorageHubPage` | "0 Items / 0 Low Stock / 0 Today"                                                        |
+
+Four were screens discarding `isError`. The fifth was worse and is why the fix belongs below the screens: `useWarehouseSummary` never _exposed_ `isError`, so the screen could not distinguish an outage from an idle warehouse **no matter how carefully it was written**. The information was destroyed a layer beneath the bug.
+
+The common root is not carelessness in five files. It is that `data` is **readable without the error arm having been considered** — `?? []`, `?? DEFAULT_SUMMARY` — so the correct code and the lying code look identical at the callsite.
+
+**Fix (this PR), in two layers:**
+
+- **Tier 1 — `src/utils/loadable.ts`.** `Loadable<T>` is a discriminated union with `data` on exactly one arm, so reaching it without handling `error` is a compile error rather than a screen that lies. `toLoadable()` checks error _before_ data deliberately: a query that failed but still holds a stale success is reported as an error, because a stale biomass figure presented as current is precisely what this is preventing.
+- **Tier 2 — `src/components/ui/DataState.tsx`.** Renders the three states so the correct path is also the shortest one. Its children render-prop can only ever receive real data, and `empty` is a separate branch from `error` — "nothing here" and "could not load" cannot be collapsed back together.
+- **Tier 3 — `src/__tests__/query-error-surface.invariant.spec.ts`.** Ratchets hooks that wrap `useQuery` and hand-shape a return without carrying the error arm out. Baseline 5, shrink-only.
+
+**The gate was wrong twice before it was right, and that is worth recording.** Its first baseline was a guess of 24 against a real count of 5 — nineteen slots of slack. The deliberate-break check (remove `isError` from `useWarehouseSummary`, expect red) stayed **green** through two baseline revisions before the count was measured with the spec's own logic rather than a lookalike script. A ratchet with slack is not a ratchet; it is a comment that runs. Every ratchet in this repo should be set from a measurement taken by the gate itself, and proven by breaking the thing it guards.
+
+**Owner:** claude (this session). **Status:** RESOLVED — and the ratchet is now a **BAN**. All ten hooks that swallowed their query error have been converted: `useWarehouseSummary`, `useTodaysDayPlans`, `useUnreadCount`, `useSentimentTrends`, `useStockEventsSummary`, `useDailyOpsStats`, `useAiConsent` and the rest now carry the error arm out. No hook in this app may destroy the difference between "no data" and "could not fetch data". Proven by deliberate break.
+
+Two of the conversions carry a decision worth reading: `useStockEventsSummary` ORs the error across BOTH its sources (tanks and the events aggregate), because either failing makes the summary's zeroes unknown rather than real; and `useAiConsent` surfaces it because an unreadable consent state is not the same as "not consented" — the caller still fails closed, but now knowing which it is.
+
+## ORPHAN-MEDIUM-596 — Konsta UI removed; the v4 migration bridge is gone and its three ratchets are now bans — RESOLVED (this PR)
+
+**Discovered:** planned work, closing the v4 conversion.
+
+Konsta wrapped the entire app (`KonstaApp` in `main.tsx`) and the entire Tailwind theme (`konstaConfig()` in `tailwind.config.js`), injecting its own `ios-`/`md-` colour classes and a second dark-mode mechanism through the `List`/`ListInput`/`BlockTitle` components in seven pages. **80% of the app's remaining pre-v4 classes sat in exactly those pages** — which is why they could not be converted earlier, and why removing Konsta and finishing the conversion was one job rather than two.
+
+Both are done. Every page is off Konsta, the root wrapper and the Tailwind preset are gone, and the hand-rolled konsta patch in `Dockerfile.aquamobil` (needed because `npm ci --ignore-scripts` skipped its postinstall) can follow.
+
+**The migration bridge is deleted.** `darkMode: 'class'` and the `ocean`/`sea`/`coral`/`mortality`/`cull`/`harvest` palettes existed only so unconverted pages would keep painting correctly. With nothing using them, they are removed from `tailwind.config.js`.
+
+**Three ratchets promoted to outright bans** — Tier 3 becomes Tier 1:
+
+| Gate                  | Start |                  Now |
+| --------------------- | ----: | -------------------: |
+| `dark:` variants      |  1312 |           **banned** |
+| legacy brand palettes |   332 |           **banned** |
+| stock gray ramps      |  1481 |           **banned** |
+| sub-12px text         |    86 | **banned** (earlier) |
+
+All four proven by deliberate break: one line reintroducing a `dark:` and an `ocean-*` class turns three red at once, and reverting turns them green. Nothing in this app can now paint itself outside the token system.
+
+**A seventh instance of the failed-fetch defect was found and fixed during this work** — `useTodaysDayPlans` destroyed its error arm, so the feeding page rendered "no plans today" on an outage. Fixed at the hook, the same layer as ORPHAN-MEDIUM-592. Notably the page deliberately does NOT route through `<DataState>`: FE-MEDIUM-054 requires the last-synced plan to render _while_ the query is failing, which is the exception `loadable.ts` documents in its own header. The error arm is split by hand and rendered with the same components `DataState` uses, so the two states still cannot be confused.
+
+**Also worth recording:** the build got faster without Konsta — 18.4s to 12.6s.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-LOW-597 — the Konsta dependency, its postinstall patch and its duplicate in the Dockerfile outlived the last import — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, immediately after the last page came off Konsta.
+
+Removing the components is not removing the dependency. Four things survived the last import:
+
+- `konsta` in `web/apps/aquamobil/package.json`
+- a `postinstall` running `scripts/patch-konsta.cjs`, which existed only to inject a root `"."` export into Konsta's own `package.json` so Vite could resolve it
+- a **hand-rolled duplicate of that same patch** in `infrastructure/docker/Dockerfile.aquamobil`, needed because the image builds with `npm ci --ignore-scripts` and therefore skipped the postinstall
+- `optimizeDeps.include: ['konsta/react']` in `vite.config.ts`
+
+The Dockerfile copy is the interesting one: a build step patching a third-party package's manifest at image-build time, duplicated from a script that ran at install time, kept in step by nothing. It worked, and it was one upstream change away from not working.
+
+All four are gone. `package.json` no longer has a `postinstall` at all, which also means the image no longer needs `--ignore-scripts` to be reasoned about for this app.
+
+**Measured side effect:** the production build went 18.4s → 14.2s, and the app dropped a runtime dependency that wrapped every screen.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-HIGH-598 — the SPA fallback answered a missing asset with HTTP 200 and HTML, and the two new same-origin assets had no cache policy — RESOLVED (this PR)
+
+**Discovered:** 2026-08-07, hardening the deploy surface for the two files the v4 work added (`public/theme-init.js` and the self-hosted Geist faces).
+
+**The silent failure.** `location / { try_files $uri $uri/ /index.html; }` answers a _missing_ `.js`, `.css` or `.woff2` with `index.html` and **HTTP 200**. The browser then executes HTML as JavaScript (parse error, theme layer silently dead — ORPHAN-HIGH-582's shape) or parses it as a font (silent fallback to system-ui — ORPHAN-MEDIUM-572's shape). Nothing 500s, nothing logs, and a status-code health check passes. That is the third member of a family that has already cost this app two production-only defects. Asset extensions now `try_files $uri =404` and 404 honestly; only real routes fall through.
+
+**The cache gap.** `/theme-init.js` and `/fonts/` matched none of the existing blocks and fell to `location /`, which sets no `Cache-Control` at all. `theme-init.js` is unhashed and must stay in step with `useTheme.ts`, so a heuristically-cached copy could drift a deploy behind the hashed bundle and reproduce ORPHAN-HIGH-582 by a different route. It is now `no-store`; the fonts get a day (not `immutable` — their filenames are stable rather than content-hashed, so an immutable year would pin a stale face until someone renamed it).
+
+**A regression this introduced and running it caught.** nginx evaluates **regex** locations before plain **prefix** ones, so adding the asset-extension regex silently stripped `/assets/` of its `immutable` year and `/fonts/` of its headers entirely. Everything still returned 200; only the response headers were wrong. Fixed with `^~` on all three prefix blocks, which makes the prefix win.
+
+Verified against a real nginx container serving the actual `dist/`: `/assets/*.css` immutable-1y, `/icons/` 30d, `/fonts/*.woff2` 86400, `/theme-init.js` `no-store` + `application/javascript`, a missing asset **404**, and `/units` still 200 + HTML. `tests/invariants/mobile-asset-serving.spec.ts` pins all of it, including the `^~` requirement — proven by deliberate break, since removing it breaks caching invisibly.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR).
+
+## ORPHAN-MEDIUM-599 — AquaMobil had no tablet layout at all: every wall-mounted screen ran the one-handed phone shell — RESOLVED (this PR)
+
+Severity: MEDIUM. Discovered 2026-08-06 while planning the v4 tablet control board.
+
+**Problem:** `src/` contained not one `sm:`/`md:`/`lg:` breakpoint and no layout branched on viewport. `MobileLayout` rendered full-width at every size, so a 12.9" tablet mounted at a feed station showed a single column of phone-sized cards with a thumb dock at the bottom — the two-handed, glanceable surface the hardware exists for was never built.
+
+**Fix:** `AppShell` is now the single viewport-aware seam, choosing between the handheld shell and a three-pane board. The breakpoint is two-dimensional — `(min-width:900px) and (min-height:600px)` — because the widest phone in landscape (932x430) clears any width-only threshold a tablet can also clear; height is the only reliable discriminator. Tailwind's default breakpoints are replaced rather than extended, so an accidental laptop case is structurally impossible. `board-breakpoint.spec.ts` fails the build if the Tailwind literal and the TS literal diverge or the height term is dropped.
+
+**Not done:** the feeders strip and the site/system scope picker. Both need backend this client cannot reach — see ORPHAN-MEDIUM-575 (corrected: the VFD surface DOES exist in `apps/sensor-service/src/vfd/`; it is the mobile client that has no VFD documents).
+
+## ORPHAN-CRITICAL-600 — weighing fish changed nothing: the biomass loop never read a measurement — RESOLVED (this PR)
+
+Severity: CRITICAL. Discovered 2026-08-06 auditing the feeding loop.
+
+**Problem:** `growth/handlers/record-growth-sample.handler.ts` wrote only `Batch.weight.actual`; it never touched `TankBatch`. Every plan, band, rate and forecast path reads `TankBatch.avgWeightG`. So weighing 200 fish and finding them 40% off the model changed no plan, no band, no feed type and no `plannedTotalKg`. Biomass evolved forever as `biomass += fedKg / assumedFCR` — a projection nothing could correct. `TankBatch.lastSamplingAt` had no writer anywhere in the repo.
+
+**Fix:** `BiomassGrowthApplierService.reconcileMeasuredWeight` shares one private writer with `applyGrowth` — same lock order, same proportional distribution across `batchDetails` (correct, because a mixed tank is one size-graded cohort and a sample represents the tank). The writer takes a REQUIRED discriminated `BiomassWriteProvenance`, so a growth write that does not declare whether it was measured or projected is inexpressible. `TankBatch.weightProvenance` stores the measured value, the projection it superseded, and the error between them — projected-vs-measured error is a stored fact for the first time. A sample asserts an average WEIGHT, never a population: `totalQuantity` is untouched and `TankBatchService.applyBatchDelta` stays the sole count owner.
+
+**Not done:** `RecordGrowthSamplePayload.tankId` stays optional (making it required is a breaking GraphQL input change); ambiguity is caught fail-closed instead — a batch in >1 tank with no `tankId` throws rather than guessing.
+
+## ORPHAN-CRITICAL-601 — the FCR alert sweep ran for months on a predicate that can never be true — RESOLVED (this PR)
+
+Severity: CRITICAL. Discovered 2026-08-06.
+
+**Problem:** the 18:00 sweep in `feeding-cron-v2.service.ts` selected `isActive = true AND (fcr->>'actual')::numeric > 0`. The only writer of `fcr.actual` is `close-batch.handler.ts`, which sets `isActive = false` and `status = CLOSED` in the same block. A live batch has `fcr.actual = 0`; a closed batch fails the other two terms. Unsatisfiable — zero `FCRAlertEvent` have ever been emitted, though the alert-engine consumer exists. The existing spec mocked `manager.query` to return rows, so it passed while the feature was dead.
+
+**Fix:** the running FCR is now maintained on live batches, and the sweep targets them. The new spec exercises the real predicate against real postgres and goes red if it regresses.
+
+## ORPHAN-HIGH-602 — `Batch.protocolId` was a dead column carrying an authoritative-sounding lie — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-06.
+
+**Problem:** the column was declared with a doc comment stating the protocol is bound to the batch and follows the fish. No code ever wrote it, and it pointed at the retired v1 `feeding_protocols` table. Authority is `ProtocolAssignment.unitId`, which enforces one active assignment per unit via a partial unique index. Three legacy readers still fell back to the dead column, one of them unconditionally.
+
+**Fix:** readers repointed at the v2 assignment through a single resolver; column and comment removed. Also corrected the mixed-tank band comment, which claimed the band is picked from the dominant-biomass batch while the code correctly uses the tank-wide blended weight.
+
+**BREAKING CHANGE:** `Batch.protocolId` removed from the GraphQL schema and the entity.
+
+## ORPHAN-HIGH-603 — nothing bound a feeder to the unit it feeds, and the dose had nowhere to split — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-07 designing the VFD feeding chain.
+
+**Problem:** feed is computed per unit (`plannedTotalKg = biomassKg × effectiveRate / 100`), but no relation carried that number to the feeders that deliver it. `Equipment` has no tank link at all — only `departmentId`. A tank can carry more than one feeder, and nothing could express how the daily dose divides between them. Grouping (`equipment_systems`) was considered and rejected for this: a membership row has nowhere to hold a share, and feeding is a directed, proportional relation rather than a peer group.
+
+**Fix:** `FeederAssignment`, mirroring the proven `ProtocolAssignment` discipline — keyed by unit, ending rows rather than deleting them so historical feeding records stay traceable. The dose share is enforced in the DATABASE, not the service layer: a derived `feeder_assignment_unit_totals` row carries `CHECK (total = 0 OR total = 100)`, kept honest by a DEFERRABLE INITIALLY DEFERRED constraint trigger. A sum cannot be a CHECK over the assignment table itself, but it can be a CHECK over a derived total — so a unit whose feeders cover 90% is uncommittable rather than silently underfeeding fish every day. The deferred timing is load-bearing: adding a second feeder necessarily passes through a moment where the shares do not yet sum to 100.
+
+**Also settled:** feeder identity. `FeederCalibration` keyed by a top-level `Equipment` row while `daily_feeding_executions.feederEquipmentId` documented itself as a SubEquipment id — calibration and records described different objects. Records are now bound to `Equipment`, matching calibration, and the alternative is no longer expressible.
+
+## ORPHAN-HIGH-604 — the sub-equipment tier shipped empty, so spare parts and components were unreachable — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-07.
+
+**Problem:** `SUB_EQUIPMENT_TYPES_SEED` declares 20 types including `feeder`, `hopper` and `spreading-disc`, but the identifier appeared exactly once in the whole repo — its own declaration. Nothing imported it, no SQL seed existed, and the Baseline migration only CREATEs the table. So `sub_equipment_types` shipped empty, `createSubEquipment` could never be given a valid type id, and the entire composition tier plus its CRUD and UI were unreachable on any fresh tenant. Two further drifts would have kept it broken after seeding: the seed used codes from the archived catalogue (`fish-tank`, `auto-feeder`) while the live catalogue uses `tank-circular`/`feeder-automatic`, so the compatibility check rejected every pairing; and the type filter used a raw `LIKE '%code%'` against a comma-joined array, matching codes that are substrings of other codes.
+
+**Fix:** the seed is wired into the seeder, the two catalogues are made structurally unable to disagree rather than hand-synchronised, and the substring collision is closed.
+
+## ORPHAN-HIGH-605 — a VFD's tank was hand-typed, unvalidated, and dereferenced by nothing — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-07.
+
+**Problem:** `VfdDevice` carried `tank_id`, `farm_id` and `pump_id` as bare uuids with no foreign key, no validation, no resolver and no dataloader. An operator typed a tank uuid into a form and nothing ever checked it. Meanwhile `grep -rn "equipmentId|Equipment"` across the VFD module returned zero, and `grep -rni "vfd"` across farm-service returned zero — two unrelated models in two schemas with no bridge. A drive pointed at the wrong tank overfeeds one container and starves another; this is an actuator, so that is a welfare incident rather than a bad row.
+
+**Fix:** a drive now binds to the farm `equipment.id` it actuates — feeder, pump, blower, anything motorised. The binding is generic on purpose: a VFD is not necessarily a feeder drive. Unit derivation is a narrower layer on top and returns a discriminated union rather than a nullable id, so `not_a_feeder` is a successful outcome carrying no unit, and `feeder_ambiguous` refuses rather than picking one when a feeder serves more than one unit. `tank_id` and `pump_id` are dropped rather than left beside the new binding, so the hand-typed path is gone rather than merely discouraged.
+
+**Cross-service integrity:** attestation. sensor-service publishes a request; farm-service, the owner of equipment identity, answers with the category and the served units. A binding is written PENDING and cannot actuate until the owner answers. What it cannot guarantee is stated plainly: the reference is soft and can be wrong for as long as the news takes to arrive. That risk is bounded rather than silent — a refresh window re-asks, and a maximum age refuses, so a drive whose owner has been unreachable for a day stops actuating instead of acting on day-old truth. `feeder_without_unit` is deliberately allowed to run: a feeder whose assignment lapsed still has to feed, and refusing would be the worse welfare outcome.
+
+**Not done:** `VfdDevice.farmId` remains a bare uuid — it is a location scope rather than an actuation target, and deriving it needs a site-hierarchy projection that does not exist. There is no equipment picker in sensor-module (the binding is reachable by mutation only); building one needs an `equipmentList` query that module does not have. The migrations passed the SQL linter and the expand-contract gate but were not exercised against a live Postgres in this session.
+
+## ORPHAN-LOW-606 — dead weight left behind by the v4 conversion — RESOLVED (this PR)
+
+Severity: LOW. Discovered 2026-08-07 auditing the finished v4 conversion.
+
+**Problem:** four spec files carried `vi.mock('konsta/react')` for a package that is neither installed nor imported — no-ops that read as live wiring. `tailwind.config.js` still declared `card`, `card-hover`, `elevated`, a family of coloured `glow-*` shadows and `inner-glow`, all with frozen `rgba()` that cannot follow a theme and all at zero usages. `tokens.css` documented a migration bridge whose stated precondition had already been met, so the comment asserted something false about the config. `ImagePreview.tsx` held the last two stock-hue classes in shipped code.
+
+**Fix:** all removed; the amber pair moved to the `warn` token. The shadow block now states why it is only two entries, so a hard-coded shadow is not reintroduced by someone assuming the set was merely incomplete.
+
+## ORPHAN-HIGH-607 — feeder calibration described a machine nobody owns, and nothing read it — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-07.
+
+**Problem:** `feeder_calibrations` stored `gramsPerDispensing` — grams per shot, a discrete pellet-feeder model. A VFD-driven auger is continuous: dose = rate x time, and the rate varies with drive speed, so grams-per-shot yields neither a speed nor a duration. The table was keyed on `feedSizeMm`, a physical diameter, while the protocol band carries `feedId`, so calibration sat on a different axis from the feeding system and could not follow a feed-type transition. `siloCapacityKg` sat on the per-feed row, so one silo's capacity was rewritten once per calibrated feed and could disagree with itself. There was no dispense-mode marker at all, and no weight concept anywhere on the platform — `SensorType` had no mass member and every hopper/silo reference was a SCADA drawing with no backing entity. On top of all that, nothing outside the equipment module read any of it: it was write-only data behind a working editor.
+
+**Fix:** continuous-flow calibration added beside the discrete one, with the machine's kind moved onto a per-feeder capability row. A calibration cannot choose its own physics — a foreign key targets the capability's dosing mode, so grams-per-shot on an auger is unstorable by any writer. The speed-to-rate relation is declared proportional and valid ONLY inside the drive's stated band; outside it the solver refuses and reports the durations that are reachable, because an auger under-fills at high frequency and bridges at low, and the error runs in the direction that underfeeds. Calibration is re-keyed on `feedId`, so a band change picks up the new feed's calibration with no human action. Silo capacity moved to the feeder and the per-feed column is dropped, so the second place to write it no longer exists. Weight-based dispensing requires a bound weight source in both directions, and the platform gained a real mass sensor type with a freshness check, because a non-null uuid cannot prove a load cell exists.
+
+**BREAKING CHANGE:** `FeederCalibrationsSavedEvent.feedSizeMm: number[]` becomes `feedIds: string[]`; the `feederCalibrations` query is replaced by `feederSetup`.
+
+**Not done:** `web/shared-ui/src/generated/graphql-types.ts` is stale until the next codegen run against a composed supergraph; nothing imports the stale symbols. `FeederDoseDirectiveService` has no production caller yet — issuing the command is the next phase.
+
+## ORPHAN-MEDIUM-608 — the mobile client had no VFD documents, and the finding that said so had it backwards — RESOLVED (this PR)
+
+Severity: MEDIUM. Discovered 2026-08-07.
+
+**Problem:** the string `vfd` did not appear anywhere in `web/apps/aquamobil/src/`. Two in-code notes stated that no feeder query existed, citing ORPHAN-MEDIUM-575. That premise was wrong: `apps/sensor-service/src/vfd/` carries a full surface — devices, readings, commands, eight brands, eight protocols. Only the client lacked documents for it.
+
+**Fix:** the client's first VFD documents, plus a fleet index, a drive detail screen, a unit card and the board's drive strip. Nothing on the server changed.
+
+An actuation command can no longer be enqueued for offline replay, and the ban is at the type level rather than by convention: adding a command to `OperationType` makes `Extract<OperationType, ActuationCommandRootField>` non-empty and the module stops compiling. Proven by deliberately adding one and watching the build go red. A second gate scans the registry's documents for the root fields directly, so a command smuggled in under an innocent operation name is caught too. A queued auger command spins a machine nobody is watching.
+
+**Honesty preserved throughout:** drive state is not cached for offline, because a cached "Running" is a claim about a turning shaft; an unobserved drive renders "State unknown" rather than "Stopped"; an untested one renders "Never tested" rather than "Not reachable".
+
+**Not shown, because no query backs it:** drive percentage (`speedReference` is declared `%` by ABB, `Hz` by Danfoss and Rockwell, `RPM` by Siemens, and the wire carries no unit — so output frequency in Hz is shown instead, which all eight brand configs agree on); hopper contents (only silo capacity is stored, and it is labelled as capacity); fault meaning (the code is brand-specific and this client holds no fault tables, so it prints the code and names the manual); run state on the fleet index, because `vfdDevices` resolves to a projection without it.
+
+## ORPHAN-HIGH-609 — a stock increase never changed the ration, and the trigger was every caller's to remember — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-07.
+
+**Problem:** five paths mutated a unit's stock through `applyBatchDelta`, and four then called `recalcForUnit` so the day's remaining meals were repriced. `allocate-to-tank.handler.ts` did not. Stocking a tank raised biomass while the remaining meals kept feeding the old, smaller number — fish underfed on their first day, silently, until the next 06:00. The asymmetry was the tell: transfer even remembered its destination leg, so the rule was known and simply unapplied on one path. Two further paths — delete-harvest and tank-count-reconcile — had never recalculated at all.
+
+**Fix:** `applyBatchDelta` is private. The only public entry runs the caller's deltas and then settles each touched unit exactly once, with the accumulated signed delta, in ascending unit order, inside the same transaction. Adding a fifth call site was the alternative; this removes the call site. The recalculator is injected without `@Optional()`, so a deployment without one does not boot.
+
+## ORPHAN-HIGH-610 — per-meal growth compounded the day's ration — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-07.
+
+**Problem:** finalising a meal applied FCR growth, then recomputed the daily total from the now-higher biomass, so the morning meal enlarged the noon meal which enlarged the evening one. The day's total silently exceeded the rate the protocol prescribed at day start, once per meal, every day. It is also biologically wrong — a fish does not convert feed to flesh at the moment of eating. Every construction path defaults to `per_meal`, and no protocol carries `daily`, so the compounding path was the only reachable one.
+
+**Fix:** the ration basis is a branded type and the only function turning biomass into feed refuses anything else, so passing the live biomass does not type-check — the compounding is unsayable rather than merely undone. `per_meal` now means when growth is written to biomass, not that today's ration is repriced from the biomass today's feed produced. Growth reaches the ration tomorrow, when 06:00 re-anchors the basis, which is the protocol's own rule. The recalculation still runs after growth, because a band crossing must still change the feed type.
+
+## ORPHAN-HIGH-611 — the 06:00 generator performed no feed-type transition — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-07.
+
+**Problem:** the generator declared `assignment.currentFeedId` in its signature and never referenced it. The band came from weight alone: no hysteresis, no `FeedTypeTransitioned` event, and the assignment's band memory left stale. A fish crossing a boundary overnight silently got a new feed while the assignment still named yesterday's, after which the intra-day recalculation compared against that stale index and could emit a second, contradictory transition.
+
+**Fix:** one transition mechanism. Deciding is pure; applying is the sole writer of the assignment's transition state and the sole publisher of the event, and the generator, the intra-day recalculation and the operator's manual transition all write through it. The transition applies only when the plan INSERT actually created the row, so the existing idempotency structurally blocks a double transition. Adopting a band on an assignment with no memory writes state but publishes no event — nothing was replaced, so alert-engine gets no spurious feed change.
+
+## ORPHAN-MEDIUM-612 — VFD configuration drift is undetectable — OPEN
+
+Severity: MEDIUM. Owner: platform. Discovered 2026-08-07.
+
+**Problem:** command-time verification is solid — the edge reads back, the cloud waits for a real Modbus acknowledgement and never fabricates one, and every attempt is audited. None of that answers whether the value is still there. Nothing compares the parameters this platform intended against what the drive currently holds; the change-set scheduler applies approved sets and never re-reads them. Set a drive to 60 Hz, lose power, and it returns at 40: the poll stores 40 as telemetry and the UI shows it, with nothing re-sending or warning. Per-dose feeding speed is immune because the dose directive recomputes and re-sends it every dispense; the exposure is commissioning parameters — ramps, frequency limits, control mode, nameplate values.
+
+**Why it is not merely tidiness:** an actuator that silently disagrees with its commanded configuration is a safety surface. The platform already refuses to actuate a drive whose owner has not attested it, precisely so it never acts on a guess.
+
+**What it needs:** no new infrastructure. Intent is already recorded in `vfd-programming`; the device is already readable. Missing are a slower configuration read alongside the telemetry poll — today `VfdReading` carries only operational values, so drift is invisible by construction — a comparison against the recorded intent, and an alarm on divergence. It will report that a value changed, never who changed it: a drive's own log records faults, not parameter edits, and fault history is readable only for Rockwell and Mitsubishi today. Attribution comes from `vfd_command_audit_logs` instead — a drift with no matching entry did not originate here.
+
+Documented in `docs/architecture/feeding-system.md` §11.
+
 ## ORPHAN-HIGH-588 — the same four libraries had never been linted either — OPEN (quarantined with counts)
 
 **Discovered:** 2026-08-06, by CI failing the PR that closed ORPHAN-CRITICAL-579.

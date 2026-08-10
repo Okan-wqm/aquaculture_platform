@@ -341,7 +341,7 @@ describe('MealExecutionService.recordMealFeeding', () => {
       expect.anything(),
       TENANT,
       UNIT,
-      'meal_growth',
+      { reason: 'meal_growth' },
     );
     expect(harness.dayPlan.status).toBe(FeedingDayPlanStatus.IN_PROGRESS);
     expect(harness.receiptComplete).toHaveBeenCalled();
@@ -420,7 +420,7 @@ describe('MealExecutionService.correctMealPour', () => {
       expect.anything(),
       TENANT,
       UNIT,
-      'pour_correction',
+      { reason: 'pour_correction' },
     );
     expect(harness.enqueued.map((event) => event.eventType)).toContain('FeedingRecordUpdated');
   });

@@ -27,7 +27,6 @@ import type { MortalityRecordedEvent } from '@platform/event-contracts';
 import { toEventIso } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
-import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
 import { RemovalQuantityPolicyService } from '../services/removal-quantity-policy.service';
 import { Repository, DataSource } from 'typeorm';
 
@@ -75,7 +74,6 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
     @InjectRepository(EquipmentType)
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
     private readonly outboxPublisher: OutboxPublisher,
-    private readonly dayPlanRecalc: DayPlanRecalcService,
     private readonly removalQuantityPolicy: RemovalQuantityPolicyService,
     private readonly backdatePolicy: BackdatePolicyService,
     private readonly auditLogService: AuditLogService,
@@ -302,19 +300,27 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
       // and stamp lastMortalityAt. assertBatchInTank above guarantees the batch
       // is held here, and the writer self-heals pre-SSoT single-batch rows that
       // carry empty batchDetails so the negative delta is never a silent no-op.
+      // P-31: kapsam kapanırken bugünkü planın beslenmemiş öğünleri yeni
+      // biyokütleden AYNI transaction'da yeniden fiyatlanır — ölen balık öğle
+      // öğününe yansır, yarını beklemez. Kilit sırası kanonik zincirle uyumlu
+      // (Batch → TankBatch buradan, DayPlan → Meals recalc içinden).
       if (tankBatch) {
-        await this.tankBatchService.applyBatchDelta(
+        await this.tankBatchService.applyStockChange(
           queryRunner.manager,
           tenantId,
-          payload.tankId,
-          {
-            batchId,
-            batchNumber: batch.batchNumber,
-            quantityDelta: -payload.quantity,
-            biomassDelta: -biomassKg,
-            lastMortalityAt: payload.observedAt,
-          },
-          { volumeM3: Number(tank.volume) || 0 },
+          'mortality',
+          (stock) =>
+            stock.applyDelta(
+              payload.tankId,
+              {
+                batchId,
+                batchNumber: batch.batchNumber,
+                quantityDelta: -payload.quantity,
+                biomassDelta: -biomassKg,
+                lastMortalityAt: payload.observedAt,
+              },
+              { volumeM3: Number(tank.volume) || 0 },
+            ),
         );
       }
 
@@ -345,17 +351,6 @@ export class RecordMortalityHandler implements ICommandHandler<RecordMortalityCo
         queryRunner.manager,
         tenantId,
         [payload.tankId],
-      );
-
-      // P-31: bugünkü planın beslenmemiş öğünleri yeni biyokütleden AYNI
-      // transaction'da yeniden fiyatlanır — ölen balık öğle öğününe yansır,
-      // yarını beklemez. Kilit sırası kanonik zincirle uyumlu (Batch →
-      // TankBatch buradan, DayPlan → Meals recalc içinden).
-      await this.dayPlanRecalc.recalcForUnit(
-        queryRunner.manager,
-        tenantId,
-        payload.tankId,
-        'mortality',
       );
 
       // Enqueue MortalityRecordedEvent into the transactional outbox BEFORE commit.

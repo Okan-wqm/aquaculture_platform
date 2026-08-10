@@ -803,7 +803,6 @@ type Batch
   description: String
   speciesId: String!
   strain: String
-  protocolId: ID
   inputType: BatchInputType!
   batchType: BatchType!
   sourceType: String
@@ -911,6 +910,34 @@ type BatchFeedAssignment {
   version: Int!
 }
 
+type FeedingProtocolV2 {
+  id: ID!
+  tenantId: ID!
+  name: String!
+  description: String
+  speciesId: ID
+  speciesName: String
+  status: FeedingProtocolStatus!
+  bands: JSON!
+  temperatureAdjustments: JSON
+  defaultMealSchedule: JSON!
+  fcrMatrix: JSON
+  settings: JSON!
+  isDefault: Boolean!
+  migrationNote: String
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  createdBy: ID
+  updatedBy: ID
+}
+
+"""Birleşik yemleme protokolü yaşam döngüsü durumu"""
+enum FeedingProtocolStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
 type EquipmentChildSummary {
   id: ID!
   name: String!
@@ -940,14 +967,47 @@ type EquipmentDeletePreviewResponse {
 
 type FeederCalibrationResponse {
   id: ID!
-  equipmentId: String!
-  feedSizeMm: Float!
-  feedSizeLabel: String
-  gramsPerDispensing: Float!
-  siloCapacityKg: Float!
+  equipmentId: ID!
+  feedId: ID!
+  dosingMode: FeederDosingMode!
+  gramsPerDispensing: Float
+  gramsPerMinute: Float
+  referenceSpeedHz: Float
   notes: String
   createdAt: DateTime!
   updatedAt: DateTime!
+}
+
+"""
+Yemleyicinin dozlama fiziği — atımlı (discrete) veya sürekli akış (continuous)
+"""
+enum FeederDosingMode {
+  DISCRETE
+  CONTINUOUS
+}
+
+type FeederCapabilityResponse {
+  equipmentId: ID!
+  dosingMode: FeederDosingMode!
+  siloCapacityKg: Float
+  minSpeedHz: Float
+  maxSpeedHz: Float
+  dispenseControl: FeederDispenseControl!
+  weightSensorId: ID
+  notes: String
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+"""Dozun tamamlandığını ne söyler — ölçülen ağırlık mı, geçen süre mi"""
+enum FeederDispenseControl {
+  TIME_BASED
+  WEIGHT_BASED
+}
+
+type FeederSetupResponse {
+  capability: FeederCapabilityResponse
+  calibrations: [FeederCalibrationResponse!]!
 }
 
 type SubEquipmentTypeResponse {
@@ -2891,34 +2951,6 @@ enum WaterQualityStatus {
   UNKNOWN
 }
 
-type FeedingProtocolV2 {
-  id: ID!
-  tenantId: ID!
-  name: String!
-  description: String
-  speciesId: ID
-  speciesName: String
-  status: FeedingProtocolStatus!
-  bands: JSON!
-  temperatureAdjustments: JSON
-  defaultMealSchedule: JSON!
-  fcrMatrix: JSON
-  settings: JSON!
-  isDefault: Boolean!
-  migrationNote: String
-  createdAt: DateTime!
-  updatedAt: DateTime!
-  createdBy: ID
-  updatedBy: ID
-}
-
-"""Birleşik yemleme protokolü yaşam döngüsü durumu"""
-enum FeedingProtocolStatus {
-  DRAFT
-  ACTIVE
-  ARCHIVED
-}
-
 type ProtocolAssignment {
   id: ID!
   tenantId: ID!
@@ -3005,6 +3037,7 @@ type FeedingDayPlan {
   planDate: String!
   snapshot: JSON!
   plannedTotalKg: Float!
+  rationBasisKg: Float
   unplannedActualKg: Float!
   mealsPlanned: Int!
   status: FeedingDayPlanStatus!
@@ -3730,6 +3763,33 @@ type Farm
   updatedBy: String
 }
 
+type FeederAssignment {
+  id: ID!
+  tenantId: ID!
+  unitId: ID!
+  unitType: FeedingUnitType!
+  unitName: String!
+  unitCode: String!
+  siteId: ID!
+  feederEquipmentId: ID!
+  feederName: String!
+  feederCode: String!
+  doseSharePercent: Float!
+  status: FeederAssignmentStatus!
+  effectiveFrom: DateTime!
+  endedAt: DateTime
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  createdBy: ID
+  updatedBy: ID
+}
+
+"""Ünite-yemleyici atamasının yaşam döngüsü durumu"""
+enum FeederAssignmentStatus {
+  ACTIVE
+  ENDED
+}
+
 type FeedingProgram {
   id: ID!
   tenantId: String!
@@ -3882,7 +3942,7 @@ type DailyFeedingExecution {
   growthAppliedAt: DateTime
   completedBy: String
 
-  """SubEquipment feeder ID (for automatic feeders)"""
+  """Equipment id of the feeder that delivered this feeding"""
   feederEquipmentId: String
 
   """Denormalized feeder name for quick access"""
@@ -4186,6 +4246,14 @@ type ProtocolFeedForecast {
   perUnit: [ProtocolFeedForecastPerUnit!]!
   alerts: [ProtocolFeedForecastAlert!]!
   mortalityAssumption: ProtocolFeedForecastMortalityAssumption!
+}
+
+type FeederDoseAllocation {
+  feederEquipmentId: ID!
+  feederName: String!
+  feederCode: String!
+  doseSharePercent: Float!
+  kg: Float!
 }
 
 type FeedingProtocolV2Connection {
@@ -5650,7 +5718,7 @@ type Query {
   equipmentByDepartment(departmentId: ID!): [EquipmentResponse!]!
   equipmentTypes(filter: EquipmentTypeFilterInput): [EquipmentTypeResponse!]!
   equipmentType(id: ID!): EquipmentTypeResponse
-  feederCalibrations(equipmentId: ID!): [FeederCalibrationResponse!]!
+  feederSetup(equipmentId: ID!): FeederSetupResponse!
   subEquipment(id: ID!, includeRelations: Boolean = false): SubEquipmentResponse
   subEquipmentList(filter: SubEquipmentFilterInput, pagination: FarmPaginationInput): PaginatedSubEquipmentResponse!
   subEquipmentByParent(parentEquipmentId: ID!, includeInactive: Boolean = false): [SubEquipmentResponse!]!
@@ -5839,6 +5907,12 @@ type Query {
   """Get all active tanks with fish for simulation"""
   activeTanks: [ActiveTankResponse!]!
   protocolFeedForecast(siteId: ID, horizonDays: Int, refresh: Boolean): ProtocolFeedForecast
+
+  """Ünitenin yemleyicileri ve günlük dozdaki payları"""
+  unitFeederAssignments(unitId: ID!, includeEnded: Boolean = false): [FeederAssignment!]!
+
+  """Verilen günlük dozun ünitenin yemleyicilerine paya göre bölünmüş hâli"""
+  unitFeederDoseSplit(unitId: ID!, totalKg: Float!): [FeederDoseAllocation!]!
 
   """Birleşik yemleme protokolleri (v2)"""
   feedingProtocolsV2(status: FeedingProtocolStatus, speciesId: ID, pagination: StandardPaginationInput): FeedingProtocolV2Connection!
@@ -7124,6 +7198,11 @@ type Mutation {
   updateProgramSettings(feedingProgramId: ID!, settings: ProgramSettingsInput!): FeedingProgram!
   createFeedingRecord(input: CreateFeedingRecordInput!): FeedingRecord!
   updateFeedingRecord(id: ID!, input: UpdateFeedingRecordInput!): FeedingRecord!
+
+  """
+  Ünitenin yemleyici listesini TAM olarak ayarlar; payların toplamı %100 olmalıdır
+  """
+  setUnitFeeders(input: SetUnitFeedersInput!): [FeederAssignment!]!
   createFeedingProtocolV2(input: CreateFeedingProtocolV2Input!): FeedingProtocolV2!
   updateFeedingProtocolV2(input: UpdateFeedingProtocolV2Input!): FeedingProtocolV2!
   archiveFeedingProtocolV2(id: ID!): FeedingProtocolV2!
@@ -7652,15 +7731,40 @@ input UpdateEquipmentInput {
 }
 
 input SaveFeederCalibrationsInput {
-  equipmentId: String!
-  calibrations: [FeederCalibrationItemInput!]!
+  equipmentId: ID!
+  dispense: FeederDispenseControlInput!
+  discrete: DiscreteFeederSetupInput
+  continuous: ContinuousFeederSetupInput
+  notes: String
 }
 
-input FeederCalibrationItemInput {
-  feedSizeMm: Float!
-  feedSizeLabel: String
+input FeederDispenseControlInput {
+  mode: FeederDispenseControl!
+  weightSensorId: ID
+}
+
+input DiscreteFeederSetupInput {
+  siloCapacityKg: Float
+  calibrations: [DiscreteFeederCalibrationItemInput!]!
+}
+
+input DiscreteFeederCalibrationItemInput {
+  feedId: ID!
   gramsPerDispensing: Float!
-  siloCapacityKg: Float!
+  notes: String
+}
+
+input ContinuousFeederSetupInput {
+  siloCapacityKg: Float
+  minSpeedHz: Float!
+  maxSpeedHz: Float!
+  calibrations: [ContinuousFeederCalibrationItemInput!]!
+}
+
+input ContinuousFeederCalibrationItemInput {
+  feedId: ID!
+  gramsPerMinute: Float!
+  referenceSpeedHz: Float!
   notes: String
 }
 
@@ -10135,7 +10239,7 @@ input RecordDailyFeedingInput {
   actualKg: Float!
   notes: String
 
-  """SubEquipment feeder ID (for automatic feeders)"""
+  """Equipment id of a feeder assigned to this execution's unit"""
   feederEquipmentId: ID
 
   """Feeding method used"""
@@ -10216,6 +10320,17 @@ input UpdateFeedingRecordInput {
   fishBehavior: FishBehaviorInput
   notes: String
   verifiedBy: ID
+}
+
+input SetUnitFeedersInput {
+  unitId: ID!
+  feeders: [UnitFeederShareInput!]!
+  effectiveFrom: DateTime
+}
+
+input UnitFeederShareInput {
+  feederEquipmentId: ID!
+  doseSharePercent: Float!
 }
 
 input CreateFeedingProtocolV2Input {

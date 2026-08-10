@@ -42,12 +42,25 @@ const DEFAULT_SUMMARY: WarehouseSummary = {
 export function useWarehouseSummary(): {
   summary: WarehouseSummary;
   isLoading: boolean;
+  /**
+   * True when the query failed AND the IndexedDB fallback also missed — i.e.
+   * `summary` below is DEFAULT_SUMMARY, all zeroes, and means nothing.
+   *
+   * ORPHAN-MEDIUM-592: without this the hub rendered "0 Items / 0 Low Stock /
+   * 0 Today" and "No recent movements" as though authoritative, and a warehouse
+   * worker could not tell an outage from an idle warehouse — the zeroes read as
+   * a clean bill of health. The screen could not distinguish the two no matter
+   * how it was written, because the difference never left this hook.
+   */
+  isError: boolean;
+  /** Lets the hub offer a retry rather than a dead end. */
+  refetch: () => void;
 } {
   const { tenantId, isAuthenticated } = useAuth();
 
   const cacheKey = `warehouseSummary-${tenantId}`;
 
-  const { data, isLoading } = useQuery<WarehouseSummary>({
+  const { data, isLoading, isError, refetch } = useQuery<WarehouseSummary>({
     // Tenant izolasyonu anahtar fabrikasının ['tenant', tenantId, ...] ön
     // ekinden gelir — payload segmentinde tenantId tekrarı kaldırıldı
     // (FARM-LOW-236 anahtar hijyeni).
@@ -58,9 +71,7 @@ export function useWarehouseSummary(): {
       // tenant-isolated cache calls below without a non-null assertion.
       if (!tenantId) throw new Error('useWarehouseSummary: tenantId is required');
       try {
-        const result = await graphqlRequest<WarehouseSummaryResponse>(
-          GET_WAREHOUSE_SUMMARY,
-        );
+        const result = await graphqlRequest<WarehouseSummaryResponse>(GET_WAREHOUSE_SUMMARY);
         const summary = result.warehouseSummary;
 
         // WHY fire-and-forget cache write: IndexedDB serves as offline fallback
@@ -87,5 +98,12 @@ export function useWarehouseSummary(): {
     gcTime: 1000 * 60 * 30,
   });
 
-  return { summary: data ?? DEFAULT_SUMMARY, isLoading };
+  return {
+    summary: data ?? DEFAULT_SUMMARY,
+    isLoading,
+    isError,
+    refetch: () => {
+      void refetch();
+    },
+  };
 }

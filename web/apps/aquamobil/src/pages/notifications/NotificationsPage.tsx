@@ -1,8 +1,10 @@
 import { clsx } from 'clsx';
-import { ArrowLeft, Bell, CheckCheck, AlertCircle, RefreshCw } from 'lucide-react';
+import { Bell, CheckCheck, AlertCircle, RefreshCw } from 'lucide-react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { AppHeader } from '@/components/AppHeader';
+import { Button, Chip, EmptyState, Skeleton } from '@/components/ui';
 import { VirtualList } from '@/components/VirtualList';
 import { useNotifications } from '@/hooks/useNotifications';
 import type { InAppNotification } from '@/types';
@@ -52,7 +54,8 @@ function formatTimeAgo(dateStr: string): string {
 
 export function NotificationsPage(): JSX.Element {
   const navigate = useNavigate();
-  const { notifications, loading, error, markAsRead, markAllAsRead, unreadCount, refetch } = useNotifications();
+  const { notifications, loading, error, markAsRead, markAllAsRead, unreadCount, refetch } =
+    useNotifications();
 
   const handleNotificationPress = async (notification: InAppNotification): Promise<void> => {
     if (!notification.isRead) {
@@ -67,65 +70,57 @@ export function NotificationsPage(): JSX.Element {
   };
 
   return (
-    <div className="h-full min-h-screen flex flex-col bg-gray-50 dark:bg-gray-950">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-amber-600 to-amber-500 text-white">
-        <div className="flex items-center justify-between px-4 py-4 pt-safe-top">
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate(-1)} className="min-h-touch min-w-touch flex items-center justify-center -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-              <ArrowLeft size={22} />
-            </button>
-            <div className="flex items-center gap-2.5">
-              <Bell size={22} />
-              <h1 className="text-lg font-bold">Notifications</h1>
-            </div>
-          </div>
-          {unreadCount > 0 && (
-            <button
+    <div className="h-full min-h-screen flex flex-col">
+      <AppHeader
+        title="Notifications"
+        onBack={() => navigate(-1)}
+        showAvatar={false}
+        actions={
+          unreadCount > 0 ? (
+            <Chip
+              tone="accent"
               onClick={() => {
                 runAsyncAction(markAllAsRead, 'notifications-mark-all-read');
               }}
-              className="flex items-center gap-1.5 text-sm font-medium bg-white/20 px-3 py-1.5 rounded-lg touch-feedback"
             >
               <CheckCheck size={16} />
               Mark All Read
-            </button>
-          )}
-        </div>
-      </div>
+            </Chip>
+          ) : undefined
+        }
+      />
 
       {/* Notification list — virtualized (MOB-MEDIUM-012): only the visible
           window mounts, so a long history cannot jank low-end devices. */}
-      <div className="flex-1 min-h-0 flex flex-col px-4 pt-4">
+      <div className="flex-1 min-h-0 flex flex-col px-4">
         {loading ? (
-          <div className="space-y-2">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-20 rounded-2xl skeleton" />
-            ))}
-          </div>
+          <Skeleton variant="tile" count={3} />
         ) : error ? (
-          <div className="text-center py-12">
-            <AlertCircle size={48} className="mx-auto mb-3 text-amber-400 opacity-60" />
-            <p className="font-medium text-gray-600 dark:text-gray-300">
-              Notifications are not available yet
-            </p>
-            <p className="text-sm text-gray-400 mt-1">Please try again later</p>
-            <button
-              onClick={() => {
-                void refetch();
-              }}
-              className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-ocean-500 text-white rounded-xl text-sm font-semibold touch-feedback"
-            >
-              <RefreshCw size={16} />
-              Retry
-            </button>
-          </div>
+          // "Not available yet" and "we could not reach it" are different facts,
+          // and only the second is an error — the tone keeps them apart.
+          <EmptyState
+            tone="error"
+            icon={<AlertCircle size={22} />}
+            title="Notifications are not available yet"
+            description="Please try again later"
+            action={
+              <Button
+                variant="primary"
+                onClick={() => {
+                  void refetch();
+                }}
+              >
+                <RefreshCw size={16} />
+                Retry
+              </Button>
+            }
+          />
         ) : notifications.length === 0 ? (
-          <div className="text-center py-12 text-gray-400">
-            <Bell size={48} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">No notifications yet</p>
-            <p className="text-sm mt-1">You will see alerts and updates here</p>
-          </div>
+          <EmptyState
+            icon={<Bell size={22} />}
+            title="No notifications yet"
+            description="You will see alerts and updates here"
+          />
         ) : (
           <VirtualList
             items={notifications}
@@ -135,21 +130,24 @@ export function NotificationsPage(): JSX.Element {
             className="flex-1 min-h-0 pb-24"
             renderItem={(notification) => (
               <button
+                type="button"
                 onClick={() => {
-                  runAsyncAction(() => handleNotificationPress(notification), 'notifications-press');
+                  runAsyncAction(
+                    () => handleNotificationPress(notification),
+                    'notifications-press',
+                  );
                 }}
                 className={clsx(
-                  'w-full bg-white dark:bg-gray-900 rounded-xl p-4 border text-left touch-feedback transition-all',
-                  notification.isRead
-                    ? 'border-gray-100 dark:border-gray-800'
-                    : 'border-ocean-200 dark:border-ocean-800 bg-ocean-50/50 dark:bg-ocean-900/10',
+                  'w-full min-h-touch rounded-2xl p-4 border text-left touch-feedback shadow-token',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc',
+                  notification.isRead ? 'bg-surface-1 border-line' : 'bg-acc-dim border-acc',
                 )}
               >
                 <div className="flex items-start gap-3">
                   {/* Unread indicator dot */}
                   <div className="mt-1.5 flex-shrink-0">
                     {!notification.isRead ? (
-                      <div className="w-2.5 h-2.5 rounded-full bg-ocean-500" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-acc" />
                     ) : (
                       <div className="w-2.5 h-2.5 rounded-full bg-transparent" />
                     )}
@@ -157,16 +155,16 @@ export function NotificationsPage(): JSX.Element {
                   <div className="flex-1 min-w-0">
                     <h3
                       className={clsx(
-                        'text-sm font-semibold mb-0.5 truncate',
-                        notification.isRead
-                          ? 'text-gray-700 dark:text-gray-300'
-                          : 'text-gray-900 dark:text-white',
+                        'text-body font-semibold mb-0.5 truncate',
+                        notification.isRead ? 'text-ink-2' : 'text-ink-1',
                       )}
                     >
                       {notification.title}
                     </h3>
-                    <p className="text-xs text-gray-500 line-clamp-2">{notification.body}</p>
-                    <p className="text-[11px] text-gray-400 mt-1.5">{formatTimeAgo(notification.createdAt)}</p>
+                    <p className="text-meta text-ink-2 line-clamp-2">{notification.body}</p>
+                    <p className="text-meta text-ink-3 mt-1.5">
+                      {formatTimeAgo(notification.createdAt)}
+                    </p>
                   </div>
                 </div>
               </button>

@@ -616,8 +616,10 @@ export function useVfdRegistrationWizard() {
       protocol: state.selectedProtocol,
       protocolConfiguration: state.protocolConfig as VfdProtocolConfiguration,
       farmId: state.basicInfo.farmId,
-      tankId: state.basicInfo.tankId,
-      pumpId: state.basicInfo.pumpId,
+      // What the drive turns, if the operator named it. `tankId` and `pumpId` are
+      // gone from this input: a unit is derived from the driven equipment, not
+      // typed onto the drive.
+      drivenEquipmentId: state.basicInfo.drivenEquipmentId,
       location: state.basicInfo.location,
       notes: state.basicInfo.notes,
       tags: state.basicInfo.tags,

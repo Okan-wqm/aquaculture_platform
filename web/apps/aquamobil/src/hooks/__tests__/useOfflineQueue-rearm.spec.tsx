@@ -57,9 +57,8 @@ vi.mock('../useAuth', () => ({
 }));
 
 vi.mock('@tanstack/react-query', async () => {
-  const actual = await vi.importActual<typeof import('@tanstack/react-query')>(
-    '@tanstack/react-query',
-  );
+  const actual =
+    await vi.importActual<typeof import('@tanstack/react-query')>('@tanstack/react-query');
   return {
     ...actual,
     useQueryClient: () => ({ invalidateQueries: vi.fn().mockResolvedValue(undefined) }),
@@ -114,7 +113,11 @@ afterEach(() => {
 /** Render ONE provider instance and flush its mount-time refreshQueue microtasks. */
 async function mountProvider(): Promise<void> {
   await act(async () => {
-    render(<OfflineProvider><div /></OfflineProvider>);
+    render(
+      <OfflineProvider>
+        <div />
+      </OfflineProvider>,
+    );
     // Let the provider's awaited refreshQueue reads settle inside this act().
     await Promise.resolve();
   });

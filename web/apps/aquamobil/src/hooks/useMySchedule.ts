@@ -1,7 +1,6 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 
-
 import { useAuth } from './useAuth';
 
 import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
@@ -98,9 +97,7 @@ function getWeekMonday(date: Date): string {
   return d.toISOString().split('T')[0];
 }
 
-async function fetchMySchedule(
-  weekStartDate: string,
-): Promise<WeeklyPlan | null> {
+async function fetchMySchedule(weekStartDate: string): Promise<WeeklyPlan | null> {
   const result = await graphqlRequest<{ mySchedule: { items: WeeklyPlan[]; total: number } }>(
     MY_WEEKLY_PLAN_QUERY,
     { weekStartDate },

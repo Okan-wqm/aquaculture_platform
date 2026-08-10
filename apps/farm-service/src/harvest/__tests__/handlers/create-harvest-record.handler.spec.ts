@@ -30,6 +30,7 @@ import { CreateHarvestRecordCommand } from '../../commands/create-harvest-record
 import { CreateHarvestRecordInput } from '../../dto/create-harvest-record.input';
 import { HarvestRecord, QualityClass } from '../../entities/harvest-record.entity';
 import { CreateHarvestRecordHandler } from '../../handlers/create-harvest-record.handler';
+import { createStockChangeDouble } from '../../../batch/__tests__/support/stock-change-double';
 
 const TENANT_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
@@ -150,8 +151,8 @@ function makeHarness(opts: HarnessOpts = {}) {
   };
   // The single SSoT writer for tank composition — the handler routes the harvest
   // decrement through this so batchDetails[] stays consistent (no direct mutation).
+  const stockChange = createStockChangeDouble();
   const tankBatchService = {
-    applyBatchDelta: jest.fn().mockResolvedValue(undefined),
   };
   // Currency SSoT resolver (FARM-HIGH-151) — harvest revenue books under
   // the tenant default resolved through this, not a hardcoded literal.
@@ -162,8 +163,6 @@ function makeHarness(opts: HarnessOpts = {}) {
   const handler = new CreateHarvestRecordHandler(
     dataSource,
     outboxPublisher,
-    // P-31 recalc — mocked (day-plan-recalc.service.spec kapsıyor).
-    { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
     commandBus,
     harvestEligibility as never,
     backdatePolicy as never,
@@ -173,7 +172,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     createMockRepository<TankOperation>(),
     createMockRepository<TankBatch>(),
     createMockRepository<Tank>(),
-    tankBatchService as never,
+    stockChange.tankBatchService,
     financeSettings as never,
     // SEC-HIGH-051: the real fail-closed SSoT; commands below pass MODULE_MANAGER
     // so site authz bypasses for these final-harvest-chain domain tests.
@@ -182,7 +181,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     mobileCommandReceipts as never,
   );
 
-  return { handler, batch, commit, rollback, enqueuedEvents, executeCommand, createdHarvestRecords, tankBatchService };
+  return { handler, batch, commit, rollback, enqueuedEvents, executeCommand, createdHarvestRecords, stockChange };
 }
 
 function makeCommand(overrides: Partial<Record<string, unknown>> = {}) {
@@ -219,23 +218,22 @@ describe('CreateHarvestRecordHandler — final-harvest chain', () => {
     expect(executeCommand).not.toHaveBeenCalled();
   });
 
-  it('routes the tank-batch decrement through the SSoT writer with a signed delta (batchDetails stays consistent)', async () => {
-    const { handler, tankBatchService } = makeHarness({ currentQuantity: 1000 });
+  it('routes the tank-batch decrement through the stock scope with a signed delta (batchDetails stays consistent, day plan reprices)', async () => {
+    const { handler, stockChange } = makeHarness({ currentQuantity: 1000 });
 
     await handler.execute(makeCommand({ quantityHarvested: 400, totalBiomass: 160 }));
 
     // Harvest must NOT mutate TankBatch.totalQuantity by hand (that left
     // batchDetails[] stale — the 719-vs-900 divergence). It routes the removal
-    // through applyBatchDelta so the per-batch SSoT decrements in lock-step.
-    expect(tankBatchService.applyBatchDelta).toHaveBeenCalledTimes(1);
-    const call = tankBatchService.applyBatchDelta.mock.calls[0];
-    const tenantIdArg = call[1];
-    const tankIdArg = call[2];
-    const delta = call[3];
-    expect(tenantIdArg).toBe(TENANT_ID);
-    expect(tankIdArg).toBe('tank-1');
-    expect(delta.quantityDelta).toBe(-400);
-    expect(delta.biomassDelta).toBe(-160);
+    // through the stock scope, which decrements the per-batch SSoT in lock-step
+    // AND reprices today's remaining meals for the unit it emptied.
+    expect(stockChange.deltas).toHaveLength(1);
+    const [recorded] = stockChange.deltas;
+    expect(recorded!.reason).toBe('harvest');
+    expect(recorded!.tankId).toBe('tank-1');
+    expect(recorded!.delta.quantityDelta).toBe(-400);
+    expect(recorded!.delta.biomassDelta).toBe(-160);
+    expect(stockChange.applyStockChange.mock.calls[0]![1]).toBe(TENANT_ID);
   });
 
   it('final harvest: isFinal=true and CloseBatchCommand(HARVEST_COMPLETED) dispatched after commit', async () => {

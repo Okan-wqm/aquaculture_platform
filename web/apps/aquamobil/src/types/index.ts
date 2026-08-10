@@ -42,9 +42,38 @@ export interface Tank {
   name: string;
   code: string;
   volume: number;
-  status: 'ACTIVE' | 'INACTIVE' | 'MAINTENANCE' | 'QUARANTINE' | 'PREPARING' | 'HARVESTING';
+  /**
+   * Mirrors the backend `TankStatus` enum (apps/farm-service .../tank.entity.ts),
+   * which has EIGHT members. This union was missing CLEANING and FALLOW, and the
+   * wire type is a free-form String that useTanks casts blind — so a fallowing
+   * pen (routine between cycles) reached the render tree as a status no lookup
+   * table had, and the unit detail crashed on it.
+   */
+  status:
+    | 'ACTIVE'
+    | 'PREPARING'
+    | 'CLEANING'
+    | 'MAINTENANCE'
+    | 'HARVESTING'
+    | 'FALLOW'
+    | 'QUARANTINE'
+    | 'INACTIVE';
+  /**
+   * The CONTAINER's own totals — every fish in the unit, across every batch in
+   * it. Use these for anything unit- or farm-level: totals, stock ceilings,
+   * capacity. `batchMetrics` below is the PRIMARY BATCH only and understates a
+   * mixed pen, which is what made farm aggregates too low and made the log
+   * sheet reject valid entries (ORPHAN-HIGH-585).
+   */
+  currentQuantity: number;
   currentBiomass: number;
   maxBiomass: number;
+  /**
+   * The container's PRIMARY batch only — batch id, number and species for field
+   * attribution, plus that batch's own figures. NOT a unit total: a mixed pen
+   * has more fish than this reports. Unit- and farm-level numbers must come
+   * from currentQuantity / currentBiomass above.
+   */
   batchMetrics: BatchMetrics | null;
   /** FARM-HIGH-214: the tank's siteId (from the inventory container snapshot) —
    * the regulatory field-capture inputs (lice/welfare/escape) are site-scoped,
@@ -234,7 +263,17 @@ export interface RecordMealFeedingPayload {
 
 // Attendance types
 export type ClockMethod = 'BIOMETRIC' | 'CARD' | 'MOBILE' | 'WEB' | 'MANUAL' | 'GPS';
-export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'LATE' | 'EARLY_LEAVE' | 'HALF_DAY' | 'ON_LEAVE' | 'HOLIDAY' | 'OFFSHORE' | 'REST_DAY' | 'WORK_FROM_HOME';
+export type AttendanceStatus =
+  | 'PRESENT'
+  | 'ABSENT'
+  | 'LATE'
+  | 'EARLY_LEAVE'
+  | 'HALF_DAY'
+  | 'ON_LEAVE'
+  | 'HOLIDAY'
+  | 'OFFSHORE'
+  | 'REST_DAY'
+  | 'WORK_FROM_HOME';
 
 export interface GeoLocation {
   latitude: number;
@@ -346,7 +385,31 @@ export interface CreateLeaveRequestInput {
 // a reference to a recorded/selected Blob persisted in the dedicated binary
 // store. Its in-app sync replay runs the 3-step online flow that cannot happen
 // offline: requestMediaUpload (presign) → PUT blob → sendMessage(storageKey).
-export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'recordMealFeeding' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'setChecklistItem' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock' | 'recordLiceCount' | 'recordWelfareAssessment' | 'recordEscapeIncident' | 'acknowledgeAlert' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'markMessagesRead' | 'uploadAndSendMessage';
+export type OperationType =
+  | 'recordMortality'
+  | 'recordCull'
+  | 'createHarvestRecord'
+  | 'recordFeeding'
+  | 'recordMealFeeding'
+  | 'clockIn'
+  | 'clockOut'
+  | 'createLeaveRequest'
+  | 'completeTask'
+  | 'startTask'
+  | 'setChecklistItem'
+  | 'recordTransfer'
+  | 'createWaterQuality'
+  | 'recordStockMovement'
+  | 'transferStock'
+  | 'recordLiceCount'
+  | 'recordWelfareAssessment'
+  | 'recordEscapeIncident'
+  | 'acknowledgeAlert'
+  | 'sendMessage'
+  | 'editMessage'
+  | 'deleteMessage'
+  | 'markMessagesRead'
+  | 'uploadAndSendMessage';
 
 /**
  * FARM-HIGH-057 — offline payload for an idempotent checklist SET.
@@ -374,7 +437,15 @@ export interface MobileCommandEnvelope {
 /** Messaging offline payloads — sendMessage uses SendMessageInput, editMessage uses { id, content },
  * deleteMessage uses { id }, markMessagesRead uses { channelId, messageId }. */
 export type MessagingOfflinePayload =
-  | { channelId: string; content: string | null; contentType: string; idempotencyKey: string; parentId?: string; attachmentKeys?: string[]; metadata?: Record<string, unknown> }
+  | {
+      channelId: string;
+      content: string | null;
+      contentType: string;
+      idempotencyKey: string;
+      parentId?: string;
+      attachmentKeys?: string[];
+      metadata?: Record<string, unknown>;
+    }
   | { id: string; content: string }
   | { id: string }
   | { channelId: string; messageId: string };
@@ -415,8 +486,28 @@ export interface AcknowledgeAlertInputPayload {
 }
 
 export type OperationPayload = (
-  MortalityInput | CullInput | HarvestInput | FeedingInput | RecordMealFeedingPayload | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | ChecklistItemSetInput | TransferInput | CreateWaterQualityInput | StockMovementInput | StockTransferInput | LiceCountInput | WelfareAssessmentInput | EscapeIncidentInput | AcknowledgeAlertInputPayload | MessagingOfflinePayload | UploadAndSendMessageOfflinePayload
-) & MobileCommandEnvelope;
+  | MortalityInput
+  | CullInput
+  | HarvestInput
+  | FeedingInput
+  | RecordMealFeedingPayload
+  | ClockInInput
+  | ClockOutInput
+  | CreateLeaveRequestInput
+  | { id: string }
+  | ChecklistItemSetInput
+  | TransferInput
+  | CreateWaterQualityInput
+  | StockMovementInput
+  | StockTransferInput
+  | LiceCountInput
+  | WelfareAssessmentInput
+  | EscapeIncidentInput
+  | AcknowledgeAlertInputPayload
+  | MessagingOfflinePayload
+  | UploadAndSendMessageOfflinePayload
+) &
+  MobileCommandEnvelope;
 
 export interface QueuedOperation {
   id: string;
@@ -456,7 +547,18 @@ export interface SelectOption<T = string> {
 }
 
 // Task types
-export type TaskCategory = 'FEEDING' | 'WATER_QUALITY' | 'HEALTH_CHECK' | 'EQUIPMENT_MAINTENANCE' | 'STOCK_MANAGEMENT' | 'CLEANING' | 'REGULATORY' | 'HARVEST' | 'ENVIRONMENTAL' | 'SAFETY' | 'GENERAL';
+export type TaskCategory =
+  | 'FEEDING'
+  | 'WATER_QUALITY'
+  | 'HEALTH_CHECK'
+  | 'EQUIPMENT_MAINTENANCE'
+  | 'STOCK_MANAGEMENT'
+  | 'CLEANING'
+  | 'REGULATORY'
+  | 'HARVEST'
+  | 'ENVIRONMENTAL'
+  | 'SAFETY'
+  | 'GENERAL';
 export type TaskPriority = 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW';
 export type TaskStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'OVERDUE' | 'CANCELLED';
 
@@ -559,17 +661,33 @@ export interface WaterQualityParameters {
   hardness?: number;
 }
 
+/**
+ * Mirrors `input CreateWaterQualityInput` in apps/farm-service/schema.graphql.
+ *
+ * THIS TYPE HAD DRIFTED and the drift was not cosmetic: it declared a
+ * `parameters` field the schema does not have, and made `equipmentId` and
+ * `dynamicParameters` optional when the schema requires both. Any caller that
+ * trusted it produced a payload the server must reject — and because these
+ * writes go through the offline queue, the rejection happens on replay, long
+ * after the worker has been shown a "Saved" receipt. Realigned with the SDL so
+ * `tsc` refuses the wrong shape instead of the server refusing it silently.
+ *
+ * Readings are keyed by the tenant's own parameter codes, hence the JSON map
+ * rather than a fixed field set — see WaterQualityRecordPage, which builds it
+ * from the equipment's ParameterFieldConfig.
+ */
 export interface CreateWaterQualityInput {
   tankId?: string;
   pondId?: string;
   siteId?: string;
   batchId?: string;
-  equipmentId?: string;
+  /** REQUIRED by the schema: readings belong to the instrument that took them. */
+  equipmentId: string;
   measuredAt: string;
   source: MeasurementSource;
   measuredBy?: string;
-  parameters: WaterQualityParameters;
-  dynamicParameters?: Record<string, number | string | boolean>;
+  /** REQUIRED by the schema. Keyed by the tenant's parameter codes. */
+  dynamicParameters: Record<string, number | string | boolean>;
   idempotencyKey?: string;
   notes?: string;
   weatherConditions?: string;

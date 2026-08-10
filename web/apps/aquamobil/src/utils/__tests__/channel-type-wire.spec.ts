@@ -10,11 +10,7 @@
 
 import { describe, it, expect } from 'vitest';
 
-import {
-  toWireChannelType,
-  fromWireChannelType,
-  normalizeChannelType,
-} from '../channel-type-wire';
+import { toWireChannelType, fromWireChannelType, normalizeChannelType } from '../channel-type-wire';
 
 import type { ChannelType } from '@/types/messaging';
 

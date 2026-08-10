@@ -88,6 +88,7 @@ import {
   createSourceEquipmentTypesReferenceTable,
   createTenantSchemaFromSource,
 } from './helpers/tenant-schema-harness';
+import { createStockChangeDouble } from '../../batch/__tests__/support/stock-change-double';
 
 const TENANT_A = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
 const TENANT_B = '7c2f4e10-3d2a-4b4e-9f18-f8b16f0d5a10';
@@ -239,9 +240,9 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     // specs cover them) while the policy guards run for real against the DB rows.
     const auditLogService = { logWithManager: jest.fn().mockResolvedValue(undefined) };
     const mortalityCullPolicy = new MortalityCullPolicyService();
-    // Gün-içi recalc (P-31) mock — bu e2e tenant-izolasyon davranışına odaklı;
-    // giriş modu politikası (D-3) gerçek (saf servis).
-    const dayPlanRecalc = { recalcForUnit: jest.fn().mockResolvedValue(null) };
+    // Gün-içi recalc (P-31) stok kapsamının içinde yaşar; bu e2e tenant
+    // izolasyonuna odaklı olduğu için kapsam mock'lanır (giriş modu politikası
+    // D-3 gerçek, saf servis).
     const removalQuantityPolicy = new RemovalQuantityPolicyService();
     const farmStockProjection = { refreshContainers: jest.fn().mockResolvedValue(undefined) };
     const mobileCommandReceipts = {
@@ -260,14 +261,13 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       tankRepository,
       equipmentTypeRepository,
       outboxPublisher,
-      dayPlanRecalc as never,
       removalQuantityPolicy,
       backdatePolicy as never,
       auditLogService as never,
       // SEC-HIGH-051: the real fail-closed SSoT; commands below pass
       // MODULE_MANAGER so site authz bypasses for this tenant-isolation e2e.
       new SiteAuthorizationService(),
-      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
+      createStockChangeDouble().tankBatchService,
       mortalityCullPolicy,
       farmStockProjection as never,
       mobileCommandReceipts as never,
@@ -279,11 +279,10 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       tankBatchRepository,
       equipmentRepository,
       outboxPublisher,
-      dayPlanRecalc as never,
       removalQuantityPolicy,
       auditLogService as never,
       new SiteAuthorizationService(),
-      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
+      createStockChangeDouble().tankBatchService,
       mortalityCullPolicy,
       farmStockProjection as never,
       mobileCommandReceipts as never,
@@ -295,7 +294,6 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     createHarvest = new CreateHarvestRecordHandler(
       dataSource,
       outboxPublisher,
-      dayPlanRecalc as never,
       commandBus as never,
       harvestEligibility as never,
       backdatePolicy as never,
@@ -308,7 +306,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       // TankBatchService SSoT writer — create-harvest routes its tank-batch
       // decrement through applyBatchDelta (ORPHAN-HIGH-272), same as the
       // mortality/cull/transfer handlers above.
-      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
+      createStockChangeDouble().tankBatchService,
       new FinanceSettingsService(dataSource),
       new SiteAuthorizationService(),
       // CreateHarvestRecordHandler also defaults farmStockProjection +
@@ -328,7 +326,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       outboxPublisher,
       // TankBatchService SSoT writer — the harvest reversal routes through
       // applyBatchDelta (ORPHAN-HIGH-272).
-      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
+      createStockChangeDouble().tankBatchService,
       // DeleteHarvestRecordHandler also defaults farmStockProjection to a
       // throwing test-only stub; supply the working no-op so the delete path
       // reaches the tenant-isolation assertions.

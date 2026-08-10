@@ -60,10 +60,7 @@ export function VirtualList<T>({
 
   return (
     <div ref={scrollRef} className={`overflow-y-auto overscroll-contain ${className ?? ''}`}>
-      <div
-        className="relative w-full"
-        style={{ height: `${virtualizer.getTotalSize()}px` }}
-      >
+      <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
         {virtualizer.getVirtualItems().map((virtualRow) => {
           const item = items[virtualRow.index];
           if (item === undefined) return null;

@@ -22,7 +22,22 @@ import { UpdateBatchWeightFromSampleHandler } from '../../handlers/update-batch-
 import { UpdateBatchWeightFromSampleCommand } from '../../commands/update-batch-weight-from-sample.command';
 import { GrowthMeasurement } from '../../entities/growth-measurement.entity';
 import { Batch } from '../../../batch/entities/batch.entity';
+import {
+  BiomassGrowthApplierService,
+  type LockedUnit,
+} from '../../../feeding-protocol/services/biomass-growth-applier.service';
+import type { DayPlanRecalcService } from '../../../feeding-protocol/services/day-plan-recalc.service';
 import { createMockDataSource, createMockRepository } from '@aquaculture/testing';
+
+/**
+ * Partial double. The repo's standard spec idiom (see
+ * biomass-growth-applier.service.spec.ts): double-widening casts are a banned
+ * construct, and a Partial<T> widened once here keeps every call site free of
+ * them.
+ */
+function mock<T>(impl: Partial<T>): T {
+  return impl as T;
+}
 
 const TENANT_UUID = '11111111-1111-4111-8111-111111111111';
 const BATCH_ID = 'batch-1';
@@ -31,6 +46,10 @@ const MEASUREMENT_ID = 'measurement-1';
 interface HarnessOpts {
   measurement?: Partial<GrowthMeasurement> | null;
   lockedBatch?: Partial<Batch> | null;
+  /** Unit returned by lockUnitForGrowth; null = the batch is in no tank. */
+  lockedUnit?: LockedUnit | null;
+  /** Rows resolveUnitHoldingBatch's raw lookup answers with. */
+  unitLookupRows?: Array<{ tankId: string }>;
 }
 
 function makeHarness(opts: HarnessOpts = {}) {
@@ -107,6 +126,12 @@ function makeHarness(opts: HarnessOpts = {}) {
           tenantId: TENANT_UUID,
           batchId: BATCH_ID,
           averageWeight: 85,
+          // GrowthMeasurement.calculateStatistics defines the relation
+          // estimatedBiomass = averageWeight × populationSize / 1000. The
+          // handler now derives the batch's measured average back out of that
+          // pair, so the double must carry a population consistent with it
+          // (408 kg at 85 g = 4800 fish) instead of leaving it undefined.
+          populationSize: 4800,
           estimatedBiomass: 408,
           measurementDate: new Date('2026-03-01T00:00:00Z'),
           sampleSize: 100,
@@ -119,9 +144,32 @@ function makeHarness(opts: HarnessOpts = {}) {
   // a single cast satisfies the strictly-typed mock's resolve value.
   measurementRepository.findOne.mockResolvedValue(measurement as GrowthMeasurement | null);
 
+  // resolveUnitHoldingBatch's jsonb lookup runs on the tx manager. Installed via
+  // Object.assign so the spec does not depend on whether the shared
+  // createMockDataSource revision in play ships a `query` double.
+  const managerQuery = jest.fn().mockResolvedValue(opts.unitLookupRows ?? []);
+  Object.assign(mockManager, { query: managerQuery });
+
+  // The applier's own behaviour is proven in biomass-growth-applier*.spec.ts;
+  // here the claim under test is the HANDLER'S WIRING. stampBatchWeight is the
+  // REAL implementation because the no-unit branch's provenance write is
+  // behaviour this spec asserts directly.
+  const realApplier = new BiomassGrowthApplierService();
+  const lockUnitForGrowth = jest.fn().mockResolvedValue(opts.lockedUnit ?? null);
+  const reconcileMeasuredWeight = jest.fn().mockResolvedValue(null);
+  const growthApplier = mock<BiomassGrowthApplierService>({
+    lockUnitForGrowth,
+    reconcileMeasuredWeight,
+    stampBatchWeight: realApplier.stampBatchWeight.bind(realApplier),
+  });
+  const recalcForUnit = jest.fn().mockResolvedValue(null);
+  const recalcService = mock<DayPlanRecalcService>({ recalcForUnit });
+
   const handler = new UpdateBatchWeightFromSampleHandler(
     dataSource as DataSource,
     measurementRepository,
+    growthApplier,
+    recalcService,
   );
 
   return {
@@ -132,6 +180,9 @@ function makeHarness(opts: HarnessOpts = {}) {
     commit,
     rollback,
     lockedBatchRow,
+    lockUnitForGrowth,
+    reconcileMeasuredWeight,
+    recalcForUnit,
   };
 }
 

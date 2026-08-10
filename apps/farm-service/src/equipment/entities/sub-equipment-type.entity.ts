@@ -32,11 +32,21 @@ export class SubEquipmentType {
   icon?: string;
 
   /**
-   * Bu alt ekipman tipi hangi ana ekipman tiplerine bağlanabilir
-   * EquipmentType.code değerlerinin listesi
-   * Örnek: ['fish-tank', 'raceway'] - sadece tanklara bağlanabilir
+   * WHAT: the `EquipmentType.code` values this sub-equipment type can attach to,
+   * e.g. ['tank-circular', 'tank-raceway'].
+   *
+   * WHY a real `text[]` and not TypeORM's `simple-array`: `simple-array`
+   * serialises the list into ONE comma-joined string, which forces callers to
+   * match it as text. `GetSubEquipmentTypesHandler` did exactly that with
+   * `LIKE '%<code>%'`, so any code that is a substring of another matched
+   * wrongly — 'valve' matched 'inlet-valve' / 'outlet-valve' /
+   * 'backwash-valve', 'aerator' matched nothing it should not only by luck.
+   * A genuine array makes the containment operator (`@>`) the natural query and
+   * makes substring matching inexpressible. The other half of this same
+   * relation, `EquipmentType.allowedSubEquipmentTypes`, is already `text[]`;
+   * this aligns the two halves.
    */
-  @Column({ type: 'simple-array' })
+  @Column('text', { array: true })
   compatibleEquipmentTypes!: string[];
 
   @Column({ type: 'jsonb' })

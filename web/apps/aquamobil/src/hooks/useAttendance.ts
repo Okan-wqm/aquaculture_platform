@@ -63,7 +63,14 @@ export function useMyAttendanceRecords(
     // SECURITY (MT-CRITICAL-051): myAttendanceRecords are the CURRENT user's
     // private records — user.id partitions both the React Query key and the
     // IndexedDB cache key so a shared-device second user never sees them.
-    queryKey: createTenantQueryKey(tenantId, 'attendanceRecords', user?.id, startDate, endDate, limit),
+    queryKey: createTenantQueryKey(
+      tenantId,
+      'attendanceRecords',
+      user?.id,
+      startDate,
+      endDate,
+      limit,
+    ),
     queryFn: async () => {
       if (!tenantId || !user?.id) return [];
 

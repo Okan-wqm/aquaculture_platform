@@ -86,52 +86,6 @@ vi.mock('@/components/QueuedStatusBadge', () => ({
 // konsta/react uses useRef internally which trips on the dual-React copy.
 // Stub the 3 components actually used by the pages so tests work against
 // plain DOM nodes (behavior contract, not styling).
-vi.mock('konsta/react', () => ({
-  List: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  BlockTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
-  ListInput: ({
-    type,
-    value,
-    onChange,
-    onInput,
-    children,
-    placeholder,
-    label,
-  }: {
-    type?: string;
-    value?: string;
-    onChange?: (e: React.ChangeEvent<HTMLSelectElement>) => void;
-    onInput?: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
-    children?: React.ReactNode;
-    placeholder?: string;
-    label?: string;
-  }) => {
-    if (type === 'select') {
-      return (
-        <label>
-          {label}
-          <select value={value} onChange={onChange}>
-            {children}
-          </select>
-        </label>
-      );
-    }
-    if (type === 'textarea') {
-      return (
-        <label>
-          {label}
-          <textarea value={value} onChange={onInput} placeholder={placeholder} />
-        </label>
-      );
-    }
-    return (
-      <label>
-        {label}
-        <input type={type || 'text'} value={value ?? ''} onChange={onInput} placeholder={placeholder} />
-      </label>
-    );
-  },
-}));
 
 // lucide-react icons use forwardRef; stub each one the pages transitively need.
 vi.mock('lucide-react', () => {

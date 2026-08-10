@@ -55,7 +55,7 @@ import {
 } from '../../batch/utils/tank-lookup.util';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Batch, BatchType } from '../../batch/entities/batch.entity';
-import { EquipmentCategory, EquipmentType } from '../../equipment/entities/equipment-type.entity';
+import { resolveUnitType } from '../utils/unit-type.util';
 
 // ============================================================================
 // PAYLAŞILAN ÜNİTE-ATAMA ÇEKİRDEĞİ — tekil ve batch-toplu yolun TEK gövdesi
@@ -84,25 +84,6 @@ function assertOverrideFeedsExist(
     throw new BadRequestException(
       `fcrOverrides yalnız protokol bandlarındaki yemler için tanımlanabilir; bilinmeyen: ${unknown.join(', ')}`,
     );
-  }
-}
-
-/** Ekipman kategorisi → FeedingUnitType (AssignmentsTab eşlemesinin BE ikizi değil, SSoT'si: FE yalnız görsel seçim yapar). */
-async function resolveUnitType(
-  manager: EntityManager,
-  equipmentTypeId: string | null | undefined,
-): Promise<FeedingUnitType> {
-  if (!equipmentTypeId) return FeedingUnitType.TANK;
-  const equipmentType = await manager.findOne(EquipmentType, {
-    where: { id: equipmentTypeId },
-  });
-  switch (equipmentType?.category) {
-    case EquipmentCategory.POND:
-      return FeedingUnitType.POND;
-    case EquipmentCategory.CAGE:
-      return FeedingUnitType.CAGE;
-    default:
-      return FeedingUnitType.TANK;
   }
 }
 

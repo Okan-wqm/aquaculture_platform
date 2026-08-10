@@ -47,10 +47,7 @@ Object.defineProperty(globalThis, 'crypto', {
       // produce false dedup matches between distinct payloads — exactly the bug
       // the "different leave types" / "different date ranges" cases must catch.
       digest: (algorithm: AlgorithmIdentifier, data: BufferSource) =>
-        webcrypto.subtle.digest(
-          algorithm,
-          data as Parameters<typeof webcrypto.subtle.digest>[1],
-        ),
+        webcrypto.subtle.digest(algorithm, data as Parameters<typeof webcrypto.subtle.digest>[1]),
       encrypt: vi.fn((_algo: unknown, _key: unknown, data: ArrayBuffer) =>
         Promise.resolve(new Uint8Array(data).buffer),
       ),

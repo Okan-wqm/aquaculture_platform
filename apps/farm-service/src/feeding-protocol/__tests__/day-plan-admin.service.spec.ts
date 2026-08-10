@@ -28,6 +28,8 @@ import { OutboxPublisher } from '@platform/outbox';
 import { DayPlanAdminService } from '../services/day-plan-admin.service';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { DayPlanRecalcService } from '../services/day-plan-recalc.service';
+import { FeedTypeTransitionService } from '../services/feed-transition.service';
+import { ProtocolRateService } from '../services/protocol-rate.service';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import {
   FeedingProtocolV2,
@@ -188,12 +190,15 @@ function buildHarness(fixture: Fixture): {
   const getEffectiveTemperature = jest.fn();
   getEffectiveTemperature.mockResolvedValue({ celsius: null, source: 'none' });
 
+  // The REAL transition writer — the manual path must produce the same
+  // assignment state + event as the automatic paths, so mocking it away here
+  // would mock away the very thing this suite checks.
   const service = new DayPlanAdminService(
     mock<DataSource>({}),
     mock<MealPlanGeneratorService>({ computeDayPlan, persistDayPlan }),
     mock<DayPlanRecalcService>({ recalcForUnit }),
     mock<WaterTemperatureService>({ getEffectiveTemperature }),
-    mock<OutboxPublisher>({ enqueue }),
+    new FeedTypeTransitionService(new ProtocolRateService(), mock<OutboxPublisher>({ enqueue })),
   );
   return { service, computeDayPlan, persistDayPlan, recalcForUnit, enqueue, managerSave };
 }
@@ -211,12 +216,9 @@ describe('DayPlanAdminService.regenerateDayPlan (K-9)', () => {
     const result = await service.regenerateDayPlan(TENANT, USER, UNIT);
 
     expect(result).toEqual({ outcome: 'recalculated', dayPlanId: 'dp-1' });
-    expect(recalcForUnit).toHaveBeenCalledWith(
-      expect.anything(),
-      TENANT,
-      UNIT,
-      'manual_regenerate',
-    );
+    expect(recalcForUnit).toHaveBeenCalledWith(expect.anything(), TENANT, UNIT, {
+      reason: 'manual_regenerate',
+    });
     expect(computeDayPlan).not.toHaveBeenCalled();
     expect(persistDayPlan).not.toHaveBeenCalled();
   });

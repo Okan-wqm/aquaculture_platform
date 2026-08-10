@@ -7,3 +7,4 @@ export { AiInsightsCard } from './AiInsightsCard';
 export { TankRiskBadge } from './TankRiskBadge';
 export { GrowthPredictionCard } from './GrowthPredictionCard';
 export { FeedingAdviceCard } from './FeedingAdviceCard';
+export { AdvisoryChip, Approx } from './AdvisoryChip';

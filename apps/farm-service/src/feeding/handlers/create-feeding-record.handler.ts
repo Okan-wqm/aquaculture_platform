@@ -194,7 +194,9 @@ export class CreateFeedingRecordHandler implements ICommandHandler<CreateFeeding
 
         // (3) Kalan öğünler yeni biomass'tan yeniden fiyatlanır; recalcLog'a
         // 'unplanned_feed' gerekçesi düşer (sessiz recalc yok).
-        await this.recalcService.recalcForUnit(manager, tenantId, payload.tankId, 'unplanned_feed');
+        await this.recalcService.recalcForUnit(manager, tenantId, payload.tankId, {
+          reason: 'unplanned_feed',
+        });
       }
 
       // TEK yem yazma yolu (P-05): kayıt + batch aggregate + storage düşümü

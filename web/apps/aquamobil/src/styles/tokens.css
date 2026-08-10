@@ -1,0 +1,250 @@
+/**
+ * AquaMobil v4 design tokens — the SINGLE source of truth for colour.
+ *
+ * WHY a CSS-variable layer instead of Tailwind `dark:` variants: the app now
+ * ships THREE themes (night / day / colour). With `dark:` variants every
+ * surface needs one class per theme, hand-written in ~90 files, and a third
+ * theme is structurally impossible. Here a component writes ONE semantic class
+ * (`bg-surface-1`, `text-ink-2`, `border-line`) and theme correctness becomes
+ * the zero-effort default — Tier 2 "make it automatic".
+ *
+ * WHAT the themes are:
+ *   night  (default) — dark hall / night shift. `<html data-theme="night">`
+ *   day             — deck glare, high ambient light.
+ *   colour          — colour-coded, gradient ground for orientation at a glance.
+ *
+ * Token values are lifted verbatim from the v4 design (DARK / LIGHT / VIVID).
+ *
+ * `.dark` is still toggled alongside `data-theme`, but nothing in the compiled
+ * CSS reads it any more: the variant ratchet reached zero, `darkMode: 'class'`
+ * is gone from the Tailwind config, and Konsta is uninstalled. The class survives
+ * only so a stale service-worker-cached bundle from before that change still
+ * renders in the right theme; see the rationale on applyTheme in useTheme.ts.
+ */
+
+:root,
+[data-theme='night'] {
+  /* Ground + layered surfaces. Content sits two tones above the ground. */
+  --bg: #0a1220;
+  --bg-solid: #0a1220;
+  --s1: #111c2e;
+  --s2: #182741;
+  --s3: #223756;
+
+  /* Dividers — survive only INSIDE a card. */
+  --line: rgba(148, 178, 210, 0.12);
+  --line2: rgba(148, 178, 210, 0.24);
+
+  /* Ink ramp: 1 = primary, 2 = secondary, 3 = muted/meta. */
+  --ink1: #f2f6fb;
+  --ink2: #b0c3da;
+  --ink3: #6e86a4;
+
+  /* Suderra teal carries EVERY action and active state. Nothing else. */
+  --acc: #2fb4be;
+  --on-acc: #04252a;
+  --acc-dim: rgba(47, 180, 190, 0.14);
+
+  /* Amber watches, coral alarms, green confirms. */
+  --warn: #e5b84e;
+  --warn-dim: rgba(229, 184, 78, 0.13);
+  --crit: #f26d50;
+  --crit-dim: rgba(242, 109, 80, 0.14);
+  --ok: #49c08a;
+
+  --dock: rgba(13, 22, 38, 0.86);
+  --shadow: 0 10px 26px rgba(2, 8, 18, 0.32);
+
+  /* Per-log-type colour coding — the only place colour is decorative,
+     because a field worker identifies an entry type by hue before reading it. */
+  --type-feeding: #2fb4be;
+  --type-feeding-dim: rgba(47, 180, 190, 0.15);
+  --type-mortality: #f26d50;
+  --type-mortality-dim: rgba(242, 109, 80, 0.15);
+  --type-water: #54a8e8;
+  --type-water-dim: rgba(84, 168, 232, 0.15);
+  --type-cull: #e5b84e;
+  --type-cull-dim: rgba(229, 184, 78, 0.15);
+  --type-transfer: #a08cf0;
+  --type-transfer-dim: rgba(160, 140, 240, 0.15);
+  --type-harvest: #49c08a;
+  --type-harvest-dim: rgba(73, 192, 138, 0.15);
+}
+
+[data-theme='day'] {
+  --bg: #f2f5f9;
+  --bg-solid: #f2f5f9;
+  --s1: #ffffff;
+  --s2: #e9eef4;
+  --s3: #d6e0eb;
+
+  --line: rgba(21, 43, 71, 0.1);
+  --line2: rgba(21, 43, 71, 0.2);
+
+  --ink1: #152b47;
+  --ink2: #3f5876;
+  --ink3: #68809d;
+
+  --acc: #0e7c86;
+  --on-acc: #ffffff;
+  --acc-dim: rgba(14, 124, 134, 0.1);
+
+  --warn: #96731b;
+  --warn-dim: rgba(150, 115, 27, 0.1);
+  --crit: #c43d24;
+  --crit-dim: rgba(196, 61, 36, 0.09);
+  --ok: #177e4d;
+
+  --dock: rgba(255, 255, 255, 0.9);
+  --shadow: 0 8px 22px rgba(21, 43, 71, 0.08);
+
+  /* Day uses the darkened type hues — the night values fail contrast on white. */
+  --type-feeding: #0e7c86;
+  --type-feeding-dim: rgba(14, 124, 134, 0.11);
+  --type-mortality: #c43d24;
+  --type-mortality-dim: rgba(196, 61, 36, 0.1);
+  --type-water: #2470b3;
+  --type-water-dim: rgba(36, 112, 179, 0.1);
+  --type-cull: #96731b;
+  --type-cull-dim: rgba(150, 115, 27, 0.1);
+  --type-transfer: #6a55c2;
+  --type-transfer-dim: rgba(106, 85, 194, 0.1);
+  --type-harvest: #177e4d;
+  --type-harvest-dim: rgba(23, 126, 77, 0.1);
+}
+
+[data-theme='colour'] {
+  /* WHY --bg is a gradient but --s1..--s3 are solid: the ground carries the
+     colour character (applied via `background` on <body>), while surfaces stay
+     solid so ONE `bg-surface-N` utility works in every theme. The solids below
+     are the design's gradient composited over --bg-solid, so the look holds. */
+  --bg: linear-gradient(180deg, #071a2e 0%, #0c2a46 52%, #123b5c 100%);
+  --bg-solid: #0b2036;
+  --s1: #112e48;
+  --s2: #153a58;
+  --s3: #1d4e7a;
+
+  --line: rgba(150, 220, 230, 0.16);
+  --line2: rgba(150, 220, 230, 0.3);
+
+  --ink1: #f2fbfc;
+  --ink2: #bcdee6;
+  --ink3: #86b2c2;
+
+  --acc: #31b3bc;
+  --on-acc: #04212b;
+  --acc-dim: rgba(49, 179, 188, 0.16);
+
+  --warn: #f5c24a;
+  --warn-dim: rgba(245, 194, 74, 0.14);
+  --crit: #ff6f52;
+  --crit-dim: rgba(255, 111, 82, 0.16);
+  --ok: #4fd18b;
+
+  --dock: rgba(7, 26, 46, 0.86);
+  --shadow: 0 10px 26px rgba(2, 10, 20, 0.35);
+
+  --type-feeding: #2fb4be;
+  --type-feeding-dim: rgba(47, 180, 190, 0.15);
+  --type-mortality: #f26d50;
+  --type-mortality-dim: rgba(242, 109, 80, 0.15);
+  --type-water: #54a8e8;
+  --type-water-dim: rgba(84, 168, 232, 0.15);
+  --type-cull: #e5b84e;
+  --type-cull-dim: rgba(229, 184, 78, 0.15);
+  --type-transfer: #a08cf0;
+  --type-transfer-dim: rgba(160, 140, 240, 0.15);
+  --type-harvest: #49c08a;
+  --type-harvest-dim: rgba(73, 192, 138, 0.15);
+}
+
+/**
+ * Touch density — AquaMobil is operated outdoors, often with gloves.
+ *
+ * WHY a variable layer rather than a prop threaded through every control: a
+ * worker toggles Gloves ONCE in Account and every control on every screen has
+ * to grow. Sizes below are the v4 design's standard→glove pairs.
+ *
+ * NOTE: these are control heights, NOT the 44px accessibility floor. That floor
+ * is the `touch` spacing token in tailwind.config.js and is enforced separately
+ * by src/__tests__/field-ergonomics.invariant.spec.ts — glove mode raises
+ * targets ABOVE the floor, it never lowers them.
+ */
+:root,
+[data-density='standard'] {
+  --tap-check: 26px;
+  --tap-logbtn: 38px;
+  --tap-quick: 36px;
+  --tap-chip: 42px;
+  --tap-tile: 58px;
+  --tap-add: 46px;
+  --tap-pill: 38px;
+  --tap-key: 50px;
+  --tap-save: 58px;
+}
+
+[data-density='glove'] {
+  --tap-check: 34px;
+  --tap-logbtn: 48px;
+  --tap-quick: 46px;
+  --tap-chip: 56px;
+  --tap-tile: 70px;
+  --tap-add: 58px;
+  --tap-pill: 50px;
+  --tap-key: 64px;
+  --tap-save: 68px;
+}
+
+/**
+ * Self-hosted Geist — the design's typeface.
+ *
+ * WHY self-hosted rather than the Google Fonts @import this replaces: AquaMobil
+ * is an offline-first PWA. A CDN @import means the type falls back to system
+ * fonts exactly when the worker is offline in the field — the case the whole
+ * app is built for. These files are precached by the service worker.
+ *
+ * Variable fonts: one file spans weights 400–700, so four weights cost one
+ * request. latin-ext is required — the default locale is Turkish.
+ */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/mobile/fonts/geist-latin.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/mobile/fonts/geist-latin-ext.woff2') format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/mobile/fonts/geist-mono-latin.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/mobile/fonts/geist-mono-latin-ext.woff2') format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}

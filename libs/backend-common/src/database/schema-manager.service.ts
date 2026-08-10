@@ -275,6 +275,11 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // cross-tenant reference data pinned to `sensor` (see infrastructureTables
       // above, SENSOR-MEDIUM-009), not a per-tenant clone.
       'vfd_devices',
+      // Which farm equipment each drive turns, and the units that follow from it.
+      // Per-tenant like the drive itself — a binding is meaningless outside the
+      // tenant whose equipment it names.
+      'vfd_drive_bindings',
+      'vfd_drive_binding_units',
       'vfd_readings',
       'vfd_parameter_definitions',
       'vfd_change_sets',
@@ -438,6 +443,13 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'sub_equipment_types',
       'sub_equipment',
       'feeder_calibrations',
+      // Yemleyicinin FİZİĞİ (atımlı/sürekli, silo kapasitesi, hız bandı,
+      // ağırlık kaynağı) — makine başına TEK satır. Kalibrasyon satırları
+      // buna FK ile çakılıdır (ReshapeFeederCalibrationForVfd1809100000000).
+      'feeder_capabilities',
+      // Ağırlık-tabanlı yemleyicinin yük hücresinin GERÇEKTEN raporladığının
+      // kanıtı — sensor_temperature_latest emsali per-tenant projeksiyon.
+      'feeder_silo_mass_latest',
 
       // Maintenance
       'maintenance_schedules',
@@ -462,6 +474,13 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'feeding_day_plans',
       'feeding_meals',
       'feeding_forecast_snapshots',
+      // Ünite → yemleyici bağlaması ve payların toplamını 100'de tutan türetilmiş
+      // çapa satırı (CreateFeederAssignments1808900000000). İkisi de per-tenant
+      // DATA tablosudur — `feeder_assignment_unit_totals` bir infrastructure
+      // ledger DEĞİLDİR: içeriği tenant'ın kendi atama satırlarından türer, bu
+      // yüzden guarded set'te kalması ve tenant şemasına klonlanması doğrudur.
+      'feeder_assignments',
+      'feeder_assignment_unit_totals',
 
       // Chemical management
       'chemical_types',

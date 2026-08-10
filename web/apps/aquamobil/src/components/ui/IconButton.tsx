@@ -46,7 +46,7 @@ export function IconButton({
         clsx(
           SIZE_CLASS[size],
           'inline-flex items-center justify-center rounded-full touch-feedback',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ocean-500',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-acc',
           'disabled:opacity-50 disabled:pointer-events-none',
         ),
         className,

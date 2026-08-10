@@ -40,7 +40,15 @@ export class VfdDeviceFilterDto {
   @IsUUID()
   farmId?: string;
 
-  @Field(() => ID, { nullable: true })
+  /**
+   * Units are no longer a column on the drive, so this filter resolves THROUGH the
+   * attested binding: it matches drives whose driven equipment currently serves
+   * this unit. A drive on a pump matches nothing here, which is correct.
+   */
+  @Field(() => ID, {
+    nullable: true,
+    description: 'Drives whose driven equipment currently serves this unit',
+  })
   @IsOptional()
   @IsUUID()
   tankId?: string;
@@ -134,8 +142,11 @@ export class VfdDeviceDto {
   @Field(() => ID, { nullable: true })
   farmId?: string;
 
-  @Field(() => ID, { nullable: true })
-  tankId?: string;
+  // No `tankId` here. This DTO is a flat projection of the device row, and the
+  // unit a drive serves is no longer a property of that row — it is derived
+  // through the binding, per device. Emitting it here would mean either a lie
+  // (always null) or an N+1 the list path cannot afford. `VfdDevice.tankId`
+  // (the per-device type) resolves it truthfully.
 
   @Field(() => VfdConnectionStatusDto, { nullable: true })
   connectionStatus?: VfdConnectionStatusDto;

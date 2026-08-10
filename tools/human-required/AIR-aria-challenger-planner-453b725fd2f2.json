@@ -1,0 +1,10 @@
+{
+  "$schema": "aria/human-required/v1",
+  "reason": "lease lifecycle exhausted requeues for request 'AIR-aria-challenger-planner-453b725fd2f2' (requeue_count=2); operator follow-up required.",
+  "recorded_at": "2026-08-10T05:27:29Z",
+  "request_id": "AIR-aria-challenger-planner-453b725fd2f2",
+  "schema_version": 1,
+  "severity": "HIGH",
+  "sla_deadline": "2026-08-13T05:27:29Z",
+  "status": "open"
+}

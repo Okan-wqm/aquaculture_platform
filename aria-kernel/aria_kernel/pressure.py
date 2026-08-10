@@ -126,6 +126,9 @@ DRIFT_CLASS_BY_SOURCE = {
     "belief_revalidation": "belief_decay",
     "shadow_raw_delta": "adapter_shadow",
     "migration_surface_repeat": "schema_drift",
+    # The escalated-advisory source: repetition of what was already recorded,
+    # so it biases with the process-health class rather than any code class.
+    "uncertainty_repeat": "process_health",
 }
 
 PRESSURE_STATES = {"active", "faded", "sleeping", "archived", "closed", "satisfied"}

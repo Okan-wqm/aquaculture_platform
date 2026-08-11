@@ -9261,3 +9261,11 @@ Severity: HIGH (Kalibre Zekâ Z3). Exploration verified three live defects in th
 **OPEN remainder (same ID):** K2 — `submit_cross_review_v8` still writes the SAME risks list to both directions, so per-side attribution is approximate until the submit path carries per-direction risks; and Z3d (genesis superiority gate over `eval_window_passed`) follows once ratings accumulate. Owner: claude, next session window.
 
 **Owner:** claude (this session). **Status:** K1/K3/Z3b/Z4 RESOLVED; K2+Z3d OPEN.
+
+## ORPHAN-HIGH-638 — instruction/data boundary in agent prompts was typographic, not structural; and two prompt serialisers had already drifted — RESOLVED (this PR)
+
+Severity: HIGH (Kalibre Zekâ Z8). The three-layer prompt standard (markdown instructions + XML-tagged data payloads + strict JSON response) existed only for the cross-reviewer/implementer `<untrusted_*>` tags; every other derived-data section (repository map, established knowledge, recent intent, evidence list) sat untagged in the instruction stream — prompt-injection text inside them was typographically indistinguishable from kernel instructions. Discovered alongside: `planner_dispatch_hook._serialise_claim_metadata_for_env` never carried FAZ 4's `established_knowledge`/`recent_intent` — a knowledge-bearing request dispatched via the planner hook would fail its prompt-hash binding (latent; planner-role refs never attach knowledge, which is why it never fired).
+
+**Fix:** `render_invocation_prompt` v2 wraps all derived-data sections in `<derived_context section="...">` / `<evidence_payload>` tags plus an explicit data-notice line. Version selection is ON THE ROW: `create_agent_invocation_request` — the single request producer — stamps `prompt_render_version = PROMPT_RENDER_VERSION (2)` on every mint (**no_legacy_mint: the legacy format is unmintable by construction**); an absent field means a historical row and renders v1 solely so recorded prompt hashes keep replaying (append-only audit history is never rewritten). Both serialisers (`fuse_prompt_envelope` via `_FUSED_ENVELOPE_KEYS`, planner-hook env serialiser) carry the version + knowledge fields — the FAZ 4 AST sync test pins the first, `test_prompt_render_versioning.py` pins the rest (deliberate-break: removing the dispatch or the stamp goes red).
+
+**Owner:** claude (this session). **Status:** RESOLVED.

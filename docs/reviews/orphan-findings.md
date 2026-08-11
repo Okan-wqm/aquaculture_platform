@@ -8699,6 +8699,49 @@ every run after the first.
 **Not addressed here:** the sixth adapter's separate `evidence_error` — to be
 read after a cycle where the runners actually execute.
 
+## ORPHAN-MEDIUM-611 — two generations of result statuses lived in one ledger, and every reader had to know both — RESOLVED (this PR)
+
+**Severity:** MEDIUM (a re-armed trap per new consumer)
+**Owner:** ARIA
+**Discovered:** 2026-08-10 code-review pass (madde 13).
+
+`results.jsonl` carries legacy `completed/rejected/partial` beside Plan-016
+`accepted/rejected`. `derive_request_state` held the union inline; the next
+reader would not, and would silently misread a legacy row.
+
+**Fix:** normalization at READ time in `_result_rows_for` — the append-only
+ledger stays byte-stable, rows come back canonical, the original spelling
+survives in `legacy_status` for audit, and `partial` conservatively reads as
+`rejected` (an incomplete delivery must not derive a COMPLETED request).
+The derivation now compares one vocabulary, pinned by a test that fails if
+the inline union ever returns. The legacy WRITE path keeps its Plan-024
+operator-migration gate.
+
+## ORPHAN-CRITICAL-613 — the entire judgment supply chain had one driver, and the driver had zero importers — RESOLVED (this PR)
+
+**Severity:** CRITICAL (judged_judges read zero for months; calibration, goldset and FP-suppression starved together)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, end-to-end wiring sweep (Sinir Sistemi Programı, keşif ajanı B).
+
+`generate_judgment_sample`, `dispatch_judges_for_sample`,
+`generate_ai_consensus`, `replay_judges_on_goldset` and
+`refresh_fixture_suite` were all reachable from exactly one caller —
+`heartbeat_tick` — and `heartbeat.py` had **zero importers repo-wide**. No
+judgment sample was ever minted automatically, no judge fanned out, no
+consensus computed, no fixture suite refreshed, no replay scored. Three
+separate defects were blamed for `judged_judges=0` before the dead driver
+was found. The mechanism-without-a-caller class, at its largest.
+
+**Fix (extract-and-delete, no parallel copy):** three cycle phases —
+`fixture_refresh`, `judgment_pipeline` (sample → fan-out → consensus, with
+per-tool fault containment), `judge_replay` (gold-corpus re-examination +
+recall) — registered in dependency order around `judge_calibration`;
+`heartbeat.py` deleted. The extraction surfaced and repaired a latent
+defect: heartbeat passed `target_sha=None` into the fan-out, which would
+have graded every judge's real evidence `baseline_unavailable` (the exact
+class that rejected the autonomy planner's first surviving run); judges now
+anchor to the workspace head.
+
 ## ORPHAN-LOW-612 — the artifact scrubber masked the numbers that happened to say "token" — RESOLVED (this PR)
 
 **Severity:** LOW (no leak; cost telemetry blinded)
@@ -8747,6 +8790,88 @@ state store and publishes with the same run.
 **Remediation to execute after merge:** dispatch `aria-auto-cycle` with the
 six adapter ids + an approval ref; the same run's tools phase then exercises
 the lifted tools against the provisioned workspace.
+
+## ORPHAN-HIGH-615 — the operator's path into ground truth was printed, promised, and never built — RESOLVED (this PR)
+
+**Severity:** HIGH (judge calibration and the goldset have zero human labels by construction)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, wiring sweep (keşif ajanı B), four defects, one theme:
+
+1. Every judgment sample embeds `aria-kernel feedback record …` in its
+   operator instructions — the verb did not exist (parser knew only
+   add/import/list/migrate).
+2. The ONE wired human-verdict path, `resolve_human_required(verdict=…)`
+   (Plan 024 §B ground-truth fan-out), had no CLI flag; dead from every
+   keyboard.
+3. `calibration_bootstrap.finalize_corpus` wrote `label`/`labeled_at` rows —
+   a schema no ground-truth reader reads. Every label an operator ever
+   finalized was invisible to judge_calibration, goldset and
+   FP-suppression.
+4. `record_seeding_finding` had zero producers; the labeling pool was
+   permanently empty.
+
+**Fix:** the promised verbs are real (`feedback record`, `record-batch`);
+`hr resolve --verdict tp|fp` reaches the fan-out; finalize writes the ONE
+vocabulary (`verdict`/`source_type=human`/`run_id`/`finding_id`, original
+spelling preserved as `legacy_label`); every live finding recorded by
+`record_findings_for_run` seeds the labeling pool (suppressed FPs excluded);
+and the daily report gains a "Labels wanted" section with the ready-made
+command per sample — the report is where the operator already looks.
+
+**En-route (repo-setting, fixed live):** `finding-state-sweep` and
+`aria-daily-report` were ALSO blocked by the repository-level Actions
+setting "allow GitHub Actions to create pull requests" being off — a wall
+behind the workflow-permissions wall #1140 removed. Enabled via the
+actions/permissions API; both lanes redispatched.
+
+## ORPHAN-HIGH-614 — the widest adapters crashed at a memory ceiling nobody declared — RESOLVED (this PR)
+
+**Severity:** HIGH (2 of 6 adapters cannot complete their first real run)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, cyc-…132318Z — the first cycle in which the
+adapters ever executed: tenant-scoping and test-gap (scope apps/** +
+libs/**) died at Node's default ~1 GB old-space after 67s/51s of real work.
+
+A resource the manifest never declared, enforced by a runtime the manifest
+never chose. **Fix:** `runner.node_max_old_space_mb` — validated manifest
+field, default 2048 in the runner, 3072 declared by the two wide-scope
+adapters; composed into NODE_OPTIONS without clobbering operator flags.
+
+**Also observed, next in queue:** `agent-harness-security-adapter`
+`evidence_error` (2.6s, python lane) — separate defect, separate change.
+
+## ORPHAN-CRITICAL-616 — the per-service hardening program had every organ and no nervous system — RESOLVED (this PR)
+
+**Severity:** CRITICAL (the charter's single purpose had no producer)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, wiring sweep (keşif ajanı A). Five severed links,
+one line:
+
+1. `cycle_service_examination` computed per-service targeting — services,
+   dependency order, owning agents, scoped pressures — with ZERO consumers,
+   and ran AFTER `mission_ingest`.
+2. `SERVICE_MAP.json` inventoried every platform service each cycle; nobody
+   read it.
+3. `select_next_mission` had one caller: the operator CLI. Even a seeded
+   ledger would never move without a human.
+4. The coverage-gap → mission path was structurally unreachable: gap
+   detection runs after ingest, and ingest filtered gaps to the CURRENT
+   cycle id, so the newest batch (always the previous cycle's) was dropped
+   every night.
+5. A mission could not name a service except inside free text.
+
+**Fix (kablolama, sıfır duplicate):** examination moves before ingest and
+gains its first consumer — `service_mission_seed` mints durable
+`service_hardening` missions (core four risk-ordered per charter M-5.1 +
+every evidence-backed service; idempotent by mission identity;
+`target_project` is now a first-class mission field). `mission_selection`
+runs the scheduler in the cycle and hands the winner to the bounded queue as
+a `mission:<id>` item; the autonomy drain resolves that marker from the
+mission row itself. The ingest filter is corrected with the reason sealed in
+a test. `SOURCE_RANK` gains `service_hardening` below the reactive sources.
+
+10 tests; dismantling the seed phase and restoring the cycle-id filter each
+break their own test.
 
 ## ORPHAN-CRITICAL-600 — the prompt hash was minted over one object and verified against another — RESOLVED (this PR)
 
@@ -8926,5 +9051,145 @@ Three holes fed it:
 **Two corrections to my own earlier reading, recorded because both were wrong in the same direction:** the executor does NOT resume in-flight work (the workflow picks the id via `agent next-pending`, which only returns PENDING/REQUEUED — the "resume in-flight work" line is an advisory string from the handoff snapshot); and the empty `actual=` in the mismatch message was a log artefact, not the defect — the real empty was the rendered repository-map section.
 
 **Proof:** 6 tests, AST node-shape rather than source text (Plan 026R §H.1). The strongest asserts that **every `return 1` branch after the claim is taken contains a `_release_claim`** — the invariant the submit path broke. All three fixes reverted individually, all three went red. Full kernel suite green (3,464 tests).
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-621 — three quality dimensions had zero adapters, and schema-drift was a farm-only property — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-10 during the end-to-end ARIA read (FAZ 7 of the "Sinir Sistemi" program; the fleet-coverage gap the mission charter's D1-D6 dimension model made visible).
+
+The adapter fleet covered D1-security and D4-testability; **D2-performance, D5-documentation and D6-correctness(parity) had no watcher at all**, and `typeorm-entity-schema-adapter` scanned only `apps/farm-service` while six sibling services carry the identical per-tenant schema discipline (ADR-011) unwatched.
+
+**Fix — three deterministic v1 adapters (manifest + TS, fleet pattern, SHADOW):**
+
+- `bundle-budget-adapter` (D2): flags an MFE with no declared bundle budget (no `chunkSizeWarningLimit`, no `bundle-budget.json`) and heavyweight libraries imported statically (welded into the initial chunk). Real-repo first run: **9 findings** — no MFE declares any budget.
+- `doc-staleness-adapter` (D5): resolves every backtick-quoted repo path in `docs/**/*.md` against the working tree; a reference to a deleted path is a finding (globs/placeholders/`:line` refs handled). Real-repo first run: **1,146 findings across 1,271 docs** — the documentation debt is now measured instead of suspected.
+- `fe-dto-parity-adapter` (D6): AST-collects backend `*Dto` classes and hand-written frontend `*Dto` types (generated files excluded — they are the fix, not suspects); same name + different field sets = drift finding naming missing/extra fields. Real-repo first run: **2 findings, both in `web/modules/admin-panel/src/services/types/` — exactly the hand-written-types disease the SSOT audit documented.**
+
+**typeorm widening:** multi-service sweep over the 7 schema-per-tenant services (explicit `root` keeps the single-service call shape for fixtures). Widening exposed a latent FP class: the migration-registry check assumed farm's class-import registry, while sibling services legitimately register a GLOB in `data-source.ts` — every such service would have flooded `migration_registry_missing_entry`. The check now detects the registration style first; measured differential: farm-only findings **214 → 95** (the removed 119 were the glob-style false class), multi-service total 404 → 194.
+
+**Proof:** 4 self-asserting adapter test scripts green (fleet pattern); registry compiles 9 tools; real-repo smoke runs recorded above; fixture `real-repo-baseline` cases added per adapter.
+
+## ORPHAN-HIGH-620 — the daily report had two writers and zero published readers: the lane committed an empty anchor stub while the real report and every dashboard ledger accumulated unread — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-10 during the end-to-end ARIA read (FAZ 6 of the "Sinir Sistemi" program).
+
+**Two writers, one filename.** The daily-report lane generated its anchor from the EPHEMERAL checkout's empty `aria-tools` (no state restore in the generate job), committed the stub, and opened a PR whose body was three empty lines and a filename. Meanwhile reflection wrote the real operator report to the durable store's `reports/daily/<date>.md` every cycle — same filename class, never published, zero readers.
+
+**Ledgers written every cycle, read by nothing:** `compute_plan_016_metrics` had no scheduled caller; `observability`'s `dashboards.jsonl` (SLO state, alerts) had zero readers; mission events reached no operator surface; quarantine state was CLI-only; FAZ 1's replay recall landed in the sealed cycle row and stopped there.
+
+**Fix (one report):** the generate job restores aria/state first (contract: `first_governed_mutation_step=_RESTORE_STEP`, `github_git` declared, store write root allowed — mirroring the producer/eval lanes); `emit_anchor_to_path` composes the anchor frontmatter WITH the reflection report body from the store when present (`render_anchor_markdown(body_markdown=…)`) so the published artifact IS the report; the PR body carries the report's leading sections instead of three empty lines. Reflection gains five sections — Plan-016 counters, SLO/alerts, missions, quarantined tools, judge-replay recall — each the FIRST reader of its ledger, each silent (not scaffolded) on an empty store. `plan_016_metrics.write_dashboard` stays as the operator CLI verb; the data SSoT (`compute_plan_016_metrics`) is shared, not copied.
+
+**Proof:** 10 tests: content-pin (published artifact contains the report body, not the anchor stub), stub fallback, idempotency preserved, each section's first-read, silence-on-empty, and the lane contract pin (restore-first + github_git). Workflow parity gate green after the contract/YAML/fixture moved together.
+
+## ORPHAN-HIGH-618 — the environment contract existed only as prose: a mandatory merge gate with zero producers, and a claim path that discovered the broken host after spending the claim — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-10 during the end-to-end ARIA read (FAZ 5 of the "Sinir Sistemi" program).
+
+Four organs, one theme — the environment's obligations were written down and never measured, so every environment fault was priced on the work (MISSION_SPEC M-2.5: two failures, two names):
+
+**1. `verify_runner_attestation` was MANDATORY at merge and NOTHING produced a row.** The merge authority requires an attestation for every (pr_number, head_sha, readiness_claim_id) triple (`merge_authority.py:98`), the ledger is a first-class state surface — and a repo-wide search found zero writers. The gate could only ever raise `runner_attestation_required_for_merge`.
+
+**2. The correct pre-claim shape lived only in a dead loop.** `claim_and_dispatch_one` (the operator `--consume` path with no CI caller) preflighted Claude auth BEFORE touching the queue; the CI path (`ci_executor.main`) claimed first and discovered the broken host after — a night with no auth or no sandbox burned a claim + requeue per request, escalating healthy requests toward HUMAN_REQUIRED.
+
+**3. A blocked night and an idle night rendered identically.** The daily anchor carried counters but no cause; the operator could not tell "nothing to do" from "could not run".
+
+**4. The nightly producer ran with no preflight at all — and the documented strict soft-warn had NEVER fired.** `verify_preflight` skipped `standard` entirely. Worse, found while wiring: the strict warn branch sat under `not verdict.valid`, and non-autonomous verdicts are always valid by construction (`valid = profile != "autonomous" or …`) — the branch was structurally unreachable since it shipped.
+
+**Fix:** `probe_runner_attestation` + `probe_runner_attestations_for_claims` (PROBED, not self-asserted: sandbox via the runtime's own `sandbox_backend()` accessor, auth/API-key via the env the CLI actually authenticates with; config-asserted identity fields labeled as such in the row; a host that cannot attest is REFUSED — that refusal is the contract working). New `runner-attestation probe` CLI verb + `probe-runner-attestation` composite action wired into both lanes at start. `ci_executor` gains `_pre_claim_environment_gate` (claude auth / sandbox / node deps) that refuses BEFORE claiming and writes `claude_auth_unavailable` / `sandbox_unavailable` / `env_deps_missing` governance rows. `build_daily_anchor` derives an additive `blocked_reason` list from the same ledger (tier-2 automatic — no caller cooperation). `verify_preflight` measures the environment subset for every run profile; the orchestrator's verdict handling is extracted to `_apply_preflight_verdict`, keyed on reasons instead of the always-true flag, so the soft-warn is finally reachable — pinned by a direct test.
+
+**Proof:** 15 tests: the probed row satisfies the previously unsatisfiable merge gate; re-probe idempotent per triple; sandboxless host refused; gate-before-claim position pinned; mock mode skips; standard preflight measures; warn-reachability pinned both directions; anchor carries the night's refusals and renders empty on a healthy night. Neighbour suites green (349), workflow contract + injection + sha-pin invariants green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-MEDIUM-619 — the weekly agent-eval lane was dead on arrival: its own preflight refused every run over a stale token-provenance literal — RESOLVED (this PR)
+
+Severity: MEDIUM. Discovered 2026-08-10 while triaging the scheduled-workflow watchdog incident (issue #1005).
+
+When the eval ledger moved into the durable aria/state store, the job contract was updated to `token_source="github_actions_artifact_token"` (the `github.token` that pushes the state branch) — but the workflow's own `verify_workflow_preflight` call still passed `token_provenance="none"` from the pre-move era. The kernel preflight did exactly its job: `token_provenance_mismatch:none!=github_actions_artifact_token`, exit 1, every scheduled and dispatched run since the contract tightened. The lane that measures agent quality never ran, and the failure read as "eval is broken" rather than "the workflow lies about its own credential".
+
+**Fix:** the workflow states the truthful provenance. One line + the comment that stops the next mover from repeating it.
+
+## ORPHAN-HIGH-617 — ARIA wrote what it learned every cycle and never read any of it back into a dispatch — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-10 during the end-to-end ARIA read that produced the "Sinir Sistemi" program (FAZ 4).
+
+Three organs of the learning loop's READ side were dead, so every agent dispatch rediscovered the repository from zero:
+
+**1. Conventions had a writer and no production reader.** `record_convention` has appended a row to `aria-tools/knowledge-graph/conventions.jsonl` on every converged cycle since V9.0-F. The only reader, `lookup_pattern` (`knowledge_graph.py:339`), was keyed by `pattern_id` and had **zero callers** — nothing anywhere resolved a pattern id, so no learned convention ever reached an agent.
+
+**2. Beliefs fed pressure ranking, never the agent about to edit the believed-about files.** `latest_beliefs` was consumed by the pressure path only; the envelope minted for an agent touching `apps/farm-service/**` carried no trace of what ARIA had already verified about that exact area.
+
+**3. `rank_pressure_sources` (`knowledge_graph.py:376`) had zero callers of any kind** — not even a test — while the calibration-recommendation section asked the operator to approve weight changes with no effectiveness data in view.
+
+**Why mint-time matters (the binding constraint):** the prompt hash is sealed over the rendered text at mint, and the claim path re-renders from the fused envelope (`fuse_prompt_envelope`). Knowledge injected at claim or dispatch would either break the binding or bypass it. So both new sections — `## Established knowledge` (beliefs + conventions intersecting the request's evidence/scope paths) and `## Recent intent` (per evidence file, the last commits' subject + first WHY line + ADR/plan/finding refs — this repo's commit bodies are WHY-rich by convention, so intent reading starts from cited history) — are computed inside `create_agent_invocation_request`, stored as envelope data, added to `_FUSED_ENVELOPE_KEYS`, and sealed under the minted hash. Both render with the repository map's trust framing: projection, **not evidence**.
+
+**Fix:** `conventions_for_paths` (first production read of the conventions ledger, same verified-chain discipline as `lookup_pattern`); `intent_context_for_files` in twin.py (deterministic, git-derived, never raises into the mint path); mint-time enrichment + renderer sections + fusion-set entries; `rank_pressure_sources` wired into the calibration-recommendation phase and rendered in its report section (first caller).
+
+**Proof:** 12 tests. The binding pair is the deliberate break: dropping `established_knowledge` from the fused envelope fails hash reproduction (the fusion-set addition is load-bearing), and because the binding alone cannot detect a mint that silently stops attaching the sections, the rendered text itself is content-pinned. The claim-envelope AST guard (`test_claim_envelope_binding`) derives the renderer's key set mechanically, so the two new renderer keys could not have shipped without joining the fusion set. Neighbour suites green (212 tests), invariants green (803).
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-622 — the mission seeder validated itself against a shape its producer never emits, and the first live cycle failed on it — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-10 by the FIRST live auto-cycle over the neural-wiring pipeline (run 31437241716): phase `service_mission_seed` failed with `'list' object has no attribute 'get'` and the cycle sealed as failed.
+
+**Root cause:** `impact_graph.cycle_service_examination` emits `per_service_pressures` as a **list** of `{service, layer, pressures}` groups in topological order. The FAZ 3 seeder read it as a dict keyed by project (`per_service.get(project)`), and — the deeper defect — its unit test **invented the dict shape** in its fixture, so the suite validated the consumer against data the producer never produces. A green test over a fictional contract is worse than no test: it certifies the disagreement.
+
+**Fix:** boundary normalization in the seeder (accepts the producer's list shape AND a dict, so a future producer change cannot re-break it); the test fixture now carries the producer's real shape, plus a content-pin test asserting a non-empty producer-shaped list both survives and scopes pressures onto the right service.
+
+**Proof:** 11 seeder tests green including the new live-shape pin; 201 neighbour tests green. The live cycle that found this is the FAZ 8 harness doing its job — the failure was recorded, phase-contained (`record_and_continue` kept sibling phases running), and the state store persisted the evidence.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-MEDIUM-624 — every pair of concurrent ARIA branches conflicted on one derived line, and the trains hand-resolved the same non-conflict five times in two days — RESOLVED (this PR)
+
+Severity: MEDIUM (process drag, not correctness). Discovered 2026-08-11 while closing the neural-wiring program's merge queue.
+
+`docs/aria/CURRENT_STATE.md` line 5 pins the authority-chain hash over a wide tree (docs/aria/, aria-kernel/, tools/aria-poc/, the aria-\* workflows). Any two concurrent branches that touch ANY of that tree conflict on the pin even when their code merges cleanly. Measured cost: #1018, #1127, #1143, #1154 and #1164 (twice) all bounced off merge trains as "genuinely conflicts" on this single line during 2026-08-10/11.
+
+**Fix (the append-only-ledger precedent, applied):** `.gitattributes` gains `docs/aria/CURRENT_STATE.md merge=ours` — the same file already carries `merge=union` for the findings ledger, with the same reasoning shape: the merge result was never load-bearing, because BOTH sides' hashes are wrong for the merged tree; the true value is regenerated post-merge (`aria:authority-hash:write`), staleness is enforced by `tests/invariants/aria-doc-runtime-ssot.spec.ts`, and the pre-commit auto-repin hook re-derives it on every commit. `ours` removes the textual conflict; the invariant keeps the honesty.
+
+Caveat stated plainly: GitHub's server-side merge machinery may not honor the driver, so PR pages can still SHOW a conflict — but resolution happens in the local trains, which do honor it, and that is where the five hand-resolutions were paid.
+
+## ORPHAN-MEDIUM-623 — the first honest nights priced two environment gaps as failures: a wide-scope adapter's stale runtime contract, and an executor lane that never provisioned what its agents need — RESOLVED (this PR)
+
+Severity: MEDIUM. Discovered 2026-08-11 from the first two scheduled runs over the completed neural-wiring pipeline (runs 31454198188 auto-cycle, 31456376668 executor).
+
+**1. `tenant-scoping-adapter` hit its own ceiling, twice.** After ORPHAN-HIGH-614 gave it the 3 GiB heap it needed, the adapter stopped OOM-crashing and started _finishing the work_ — which takes longer than its `timeout_ms: 180000` allows on a loaded self-hosted runner (locally: 38.7s / 1.4 GiB peak / 66 findings / 3,784 cost units; the runner shares the box with train jobs). `tool_runner.py` correctly minted `budget_exceeded`, which correctly failed the cycle (`_runtime_status` → fail-closed) — the chain worked; the CONTRACT was stale. Also latent: `cost_units` 3,784 already exceeds its declared `max_cost_units: 3500`. Raised: `timeout_ms` 180000→420000, `max_cost_units` 3500→6000. The 5 MiB stdout cap and the fail-closed chain are untouched — they are correct.
+
+**2. The executor lane never provisioned node deps.** FAZ 5's pre-claim gate refused the lane's first live dispatch with `env_deps_missing` — exactly as designed: the request stayed PENDING instead of burning a claim. But the auto-cycle lane carried its provisioning step inline while the executor lane had none — a drift the RC-9 lesson predicts. Extracted to `.github/actions/ensure-node-deps` (guarded `npm ci --ignore-scripts`, no-op once provisioned); both lanes call the one definition.
+
+**Proof:** 58 workflow-contract/executor tests green; injection + sha-pin + kernel-setup workflow gates green; local timed adapter run recorded above. Verification per plan: next scheduled auto-cycle must seal with `non_ok_tools` empty, and the executor dispatch must pass the pre-claim gate without a new `env_deps_missing` governance row.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-625 — runner-contract updates never reached the runtime: the sync re-registered birth statuses, the matrix read lifecycle advances as demotions, and refused silently — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-11 supervising the first post-#1173 live cycle (run 31466792131): tenant-scoping-adapter failed `budget_exceeded` AGAIN, two cycles after its timeout fix "merged".
+
+**Root cause chain, each link verified:** `run_tool` reads the runner definition from the LIVE registry (aria/state `tools/registry.json`), not the repo manifest. The registry row still carried `timeout_ms: 180000` (and NO `node_max_old_space_mb` — the #1165 heap contract had never landed either; the OOMs stopped only because the runner's default happened to suffice). `_phase_tool_manifest_sync` re-registers every manifest each cycle — but passes the manifest's `status` verbatim, and the tool's live status had advanced SHADOW→CALIBRATE, so `register_tool` refused every re-registration as a demotion (`'CALIBRATE' -> 'SHADOW' must route through transition_tool()` — reproduced in isolation). The refusal was recorded in a phase result nobody surfaced: manifest said one thing, runtime did another, nothing said why.
+
+**Fix:** the manifest's `status` is the BIRTH status; the live lifecycle owns it afterward. On re-registration the sync now carries the LIVE status, which routes through the matrix's same-status lane ("manifest hash drift → allow; parser/runner update") — built for exactly this. Quarantine is not weakened but strengthened: QUARANTINED re-registers as QUARANTINED (contract refreshes, status survives, audited unquarantine stays the only way back) — the old test asserted the refusal COUNT and is updated to assert the status property it actually cared about.
+
+**Proof:** new test reproduces the live defect end-to-end (register SHADOW → transition CALIBRATE → manifest update → sync → timeout 420000 lands AND status stays CALIBRATE) + quarantine-survives test; 114 registry/sync/quarantine tests green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-626 — ARIA pushed branches and never looked back: no component read its own PRs' check verdicts, so wrong code meant a silently blocked PR forever — RESOLVED (this PR)
+
+Severity: HIGH. Raised 2026-08-11 by the operator ("belki kodu yanlış yazdı — Actions'taki PR'larını takip etmeli"); exploration confirmed the loop was MISSING end to end.
+
+**The dead-parts inventory (the program's signature class):** `auto_merge_runners.poll_pr_checks` — a complete `gh pr checks` classifier (`ci_check_red`/`timeout`/`all_success`) — had zero production callers. The whole of `ci.py` (record_ci_report → `ci/workflow-runs.jsonl` + `ci/failures.jsonl` + PR gate + remediation proposals) had zero producers, while `executor.py` READ `ci/failures.jsonl` for flaky fingerprints — a reader waiting years for a writer. The real `GhCliGitHubAdapter.get_checks` was unreachable on the nightly: `standard` profile receives a Recording adapter whose check list is always empty, the lane exported no GH token, and its permissions carried no `checks:read`. The `failing_ci` plan-candidate scanner watched only MAIN and, tokenless, silently returned `[]`.
+
+**Fix — the loop, wired with the parts that existed:**
+
+- `github_adapters.select_checks_reader`: the Recording split exists for WRITE safety; a read-only check scan is exactly what the standard nightly should observe. `standard/strict/autonomous` get a narrow `RealChecksReader` (list own PRs + snapshot checks — no write verbs); `observe/frozen` keep recording; no token/gh → `readable: False` with a NAMED reason, never a silent empty list.
+- New cycle phase `pr_ci_scan` (registered BEFORE `pressure`): enumerates own PRs (`aria/*`, `automation/*`; `aria/state` excluded), snapshots via the revived `ci._gh_pr_snapshot`, writes through the revived `ci.record_ci_report` (the flaky-fingerprint reader finally has a producer), and appends open/cleared rows to the new bridge ledger `ci/own-pr-checks.jsonl` (declared surface). RC-2 honored: observation never feeds the breaker.
+- Pressure source `own_pr_ci` (weight 90 — it is confirmed, it is OURS, and every red cycle blocks paid-for work; drift class `process_health`, no new class, parity test pins the tables). Producer reads the bridge; a green PR's `cleared` row retires the pressure the same way the red minted it. Discriminator `pr-N` fans out per PR.
+- Lane wiring: `aria-auto-cycle.yml` gains `checks:read` + `pull-requests:read` + `GH_TOKEN` on the cycle step; the workflow job contract gains the same pair (parity gate forces the two to move together).
+- Report section `## Own PR CI` — the operator's "it wrote wrong code" view; silent when nothing is red.
+
+**Proof:** 9 tests incl. the deliberate break (severing the bridge read leaves a red PR pressureless — the feed link is load-bearing), green-clears-red, named-cause unreadability, phase order, and profile matrix; 228 neighbour/parity tests green; kernel invariants 803 green.
 
 **Owner:** claude (this session). **Status:** RESOLVED.

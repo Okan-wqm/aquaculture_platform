@@ -373,6 +373,73 @@ def lookup_pattern(
     return latest
 
 
+def _paths_related(a: str, b: str) -> bool:
+    """True when two repo-relative paths are the same file or one contains
+    the other at a directory boundary.
+
+    ``apps/farm-service/src/x.ts`` relates to ``apps/farm-service`` (scope
+    prefix) and to itself; it does NOT relate to ``apps/farm-service-v2``
+    (the boundary check exists precisely for that near-miss).
+    """
+    left = a.strip().strip("/")
+    right = b.strip().strip("/")
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+    return left.startswith(right + "/") or right.startswith(left + "/")
+
+
+def conventions_for_paths(
+    *,
+    workspace_root: str | Path,
+    paths: list[str],
+    min_confidence: float = MIN_PATTERN_CONFIDENCE,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    """The learned conventions that touch any of ``paths`` — latest row per
+    pattern_id, confidence ≥ ``min_confidence``, strongest first, capped.
+
+    This is the read that puts the conventions ledger into production:
+    ``record_convention`` has written a row on every converged cycle since
+    V9.0-F, and until the mint-time envelope enrichment (Plan "ARIA Sinir
+    Sistemi" FAZ 4) nothing ever read one back. Same verified-chain
+    discipline as ``lookup_pattern``: a quarantined ledger yields nothing
+    rather than something unverifiable.
+    """
+    wanted = [p.split(":", 1)[0].strip() for p in paths if isinstance(p, str)]
+    wanted = [p for p in wanted if p]
+    if not wanted:
+        return []
+    path = Path(workspace_root) / "aria-tools" / "knowledge-graph" / "conventions.jsonl"
+    ok, _ = verify_chain_or_quarantine(path)
+    if not ok or not path.exists():
+        return []
+    latest_by_id: dict[str, dict[str, Any]] = {}
+    for row in _read_jsonl_strict(path):
+        pattern_id = row.get("pattern_id")
+        confidence = row.get("confidence")
+        if not isinstance(pattern_id, str) or not pattern_id:
+            continue
+        if not isinstance(confidence, (int, float)) or confidence < min_confidence:
+            continue
+        latest_by_id[pattern_id] = row  # last row wins (append order)
+    related: list[dict[str, Any]] = []
+    for row in latest_by_id.values():
+        refs = row.get("evidence_refs") or []
+        ref_paths = [
+            str(ref).split(":", 1)[0] for ref in refs if isinstance(ref, str)
+        ]
+        if any(
+            _paths_related(ref_path, want)
+            for ref_path in ref_paths
+            for want in wanted
+        ):
+            related.append(row)
+    related.sort(key=lambda r: float(r.get("confidence") or 0.0), reverse=True)
+    return related[: max(0, int(limit))]
+
+
 def rank_pressure_sources(
     *,
     workspace_root: str | Path,

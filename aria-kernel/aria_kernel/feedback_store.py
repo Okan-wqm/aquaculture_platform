@@ -112,6 +112,24 @@ def record_findings_for_run(run: dict[str, Any], base_dir: str | Path | None = N
                 "finding": finding,
             },
         )
+        # Every LIVE finding also lands in the calibration seeding ledger,
+        # which is the pool the operator labels from. `record_seeding_finding`
+        # existed with zero production callers, so the pool was permanently
+        # empty and the bootstrap's own operator workflow began at a ledger
+        # nothing ever filled. Suppressed FPs are excluded — the operator
+        # already spoke about those.
+        if not suppressed:
+            try:
+                from .calibration_bootstrap import record_seeding_finding
+                record_seeding_finding(
+                    tool_id=str(run["tool_id"]),
+                    finding={**finding, "finding_fingerprint": fingerprint, "run_id": run["run_id"]},
+                    base_dir=base_dir,
+                )
+            except GovernanceError:
+                # Seeding refusal (e.g. duplicate fingerprint) must not cost
+                # the finding record itself.
+                pass
 
 
 def mark_findings_need_revalidation(tool_id: str, base_dir: str | Path | None = None) -> int:

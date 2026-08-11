@@ -27,6 +27,11 @@ interface AdapterInput {
   readonly target?: string;
   readonly root?: string;
   readonly serviceName?: string;
+  // FAZ 7 — multi-service sweep. When present (or when neither `root` nor
+  // `services` is given, via DEFAULT_SERVICES), the adapter runs its full
+  // check set per service and merges the outputs; schema-drift discipline
+  // stops being a farm-only property.
+  readonly services?: readonly { readonly root: string; readonly serviceName: string }[];
   readonly checks?: readonly CheckName[];
   readonly allowlist?: readonly string[];
   readonly dbSnapshotPath?: string;
@@ -152,13 +157,54 @@ const DEFAULT_CHECKS: readonly CheckName[] = [
   'migration_registry',
 ];
 const MODULE_SCHEMA_PATH = 'libs/backend-common/src/database/schema-manager.service.ts';
-const APP_MODULE_PATH = 'apps/farm-service/src/app.module.ts';
-const MIGRATIONS_DIR = 'apps/farm-service/src/database/migrations';
+// FAZ 7 — the schema-per-tenant services from MODULE_SCHEMAS (ADR-011).
+// Scanning only farm-service made schema drift a farm-only property while
+// six sibling services carried the identical per-tenant discipline unwatched.
+const DEFAULT_SERVICES: readonly { readonly root: string; readonly serviceName: string }[] = [
+  { root: 'apps/alert-engine/src', serviceName: 'alert' },
+  { root: 'apps/ai-service/src', serviceName: 'ai' },
+  { root: 'apps/farm-service/src', serviceName: 'farm' },
+  { root: 'apps/hr-service/src', serviceName: 'hr' },
+  { root: 'apps/hydroponics-service/src', serviceName: 'hydroponics' },
+  { root: 'apps/messaging-service/src', serviceName: 'messaging' },
+  { root: 'apps/sensor-service/src', serviceName: 'sensor' },
+];
 
 export function analyzeTypeOrmEntities(
   input: AdapterInput,
   workspaceRoot = process.cwd(),
 ): AriaOutput {
+  // FAZ 7 — multi-service fan-out. Explicit `root` keeps the historical
+  // single-service call shape (fixtures, targeted runs); everything else
+  // sweeps the declared service list and merges.
+  if (input.root === undefined) {
+    const services = (input.services ?? DEFAULT_SERVICES).filter((service) =>
+      workspacePathExists(resolveInsideWorkspace(workspaceRoot, service.root)),
+    );
+    const outputs = services.map((service) =>
+      analyzeTypeOrmEntities(
+        { ...input, services: undefined, root: service.root, serviceName: service.serviceName },
+        workspaceRoot,
+      ),
+    );
+    const merged = <T>(select: (output: AriaOutput) => readonly T[]): T[] =>
+      outputs.flatMap((output) => [...select(output)]);
+    const readPaths = Array.from(new Set(merged((output) => output.read_paths))).sort();
+    return {
+      observations: merged((output) => output.observations),
+      findings: merged((output) => output.findings),
+      read_paths: readPaths,
+      evidence_sources: Array.from(new Set(merged((output) => output.evidence_sources))).sort(),
+      belief_candidates: merged((output) => output.belief_candidates),
+      cost_units: readPaths.length,
+      metadata: {
+        adapter: 'typeorm-entity-schema-adapter',
+        scanMode: 'multi_service_v1',
+        services: services.map((service) => service.serviceName),
+        findings_count: merged((output) => output.findings).length,
+      },
+    };
+  }
   const requestedRoot = input.root ?? DEFAULT_ROOT;
   const serviceName = input.serviceName ?? 'farm';
   const checks = new Set(input.checks ?? DEFAULT_CHECKS);
@@ -176,7 +222,7 @@ export function analyzeTypeOrmEntities(
     analyzeModuleSchema(workspaceRoot, serviceName, result, moduleTableAllowlist, input);
   }
   if (checks.has('migration_registry')) {
-    analyzeMigrationRegistry(workspaceRoot, result, input);
+    analyzeMigrationRegistry(workspaceRoot, result, input, requestedRoot, serviceName);
   }
   if (checks.has('db_snapshot')) {
     analyzeDbSnapshot(input, workspaceRoot, serviceName, result);
@@ -196,12 +242,12 @@ export function analyzeTypeOrmEntities(
     evidence_sources: evidenceSources,
     belief_candidates: [
       {
-        belief_id: 'typeorm:farm-service:entity-schema-surface',
-        claim: 'farm-service has a recurring TypeORM entity and migration surface for schema drift checks',
+        belief_id: `typeorm:${serviceName}-service:entity-schema-surface`,
+        claim: `${serviceName}-service has a recurring TypeORM entity and migration surface for schema drift checks`,
         confidence: 0.85,
         evidence_refs: [
-          'apps/farm-service/src/**/*.ts',
-          'apps/farm-service/src/database/migrations/*.ts',
+          `${requestedRoot.replace(/\/$/, '')}/**/*.ts`,
+          `${requestedRoot.replace(/\/$/, '')}/database/migrations/*.ts`,
           MODULE_SCHEMA_PATH,
         ],
         source_tool_id: 'typeorm-entity-schema-adapter',
@@ -399,12 +445,22 @@ function analyzeModuleSchema(
   });
 }
 
-function analyzeMigrationRegistry(workspaceRoot: string, result: AnalysisResult, input: AdapterInput): void {
+function analyzeMigrationRegistry(
+  workspaceRoot: string,
+  result: AnalysisResult,
+  input: AdapterInput,
+  rootRel: string,
+  serviceName: string,
+): void {
+  // FAZ 7 — derived from the service root instead of farm-only constants,
+  // so every swept service gets the same registry discipline.
+  const APP_MODULE_PATH = `${rootRel.replace(/\/$/, '')}/app.module.ts`;
+  const MIGRATIONS_DIR = `${rootRel.replace(/\/$/, '')}/database/migrations`;
   const appModulePath = resolveInsideWorkspace(workspaceRoot, APP_MODULE_PATH);
   const migrationsDir = resolveInsideWorkspace(workspaceRoot, MIGRATIONS_DIR);
   if (!workspacePathExists(appModulePath) || !workspacePathExists(migrationsDir) || !pathAllowedBySnapshot(workspaceRoot, APP_MODULE_PATH, input)) {
     result.observations.push({
-      id: 'migration-registry:unavailable',
+      id: `migration-registry:unavailable:${serviceName}`,
       type: 'migration_registry_unavailable',
       path: APP_MODULE_PATH,
     });
@@ -423,6 +479,29 @@ function analyzeMigrationRegistry(workspaceRoot: string, result: AnalysisResult,
     }
   }
   const registry = readMigrationRegistry(appModulePath, workspaceRoot);
+  // FAZ 7 — two legitimate registration styles exist (ADR-011): farm-service
+  // imports each migration class into app.module.ts (the diffable registry
+  // this check was written for), while sibling services register a GLOB in
+  // data-source.ts (`migrations: ['src/database/migrations/[0-9]*.ts']`),
+  // where every file is registered by construction and a per-class diff can
+  // only produce false findings. Detect the style before judging.
+  if (registry.registeredClasses.length === 0) {
+    const dataSourcePath = `${rootRel.replace(/\/$/, '')}/database/data-source.ts`;
+    const dataSourceAbsolute = resolveInsideWorkspace(workspaceRoot, dataSourcePath);
+    if (
+      workspacePathExists(dataSourceAbsolute) &&
+      /migrations:\s*\[[^\]]*database\/migrations\//.test(readWorkspaceFile(dataSourceAbsolute))
+    ) {
+      addReadPath(result, workspaceRoot, dataSourceAbsolute);
+      result.observations.push({
+        id: `migration-registry:glob:${serviceName}`,
+        type: 'migration_registry_glob',
+        path: dataSourcePath,
+        details: { files: fileClasses.size },
+      });
+      return;
+    }
+  }
   const registered = new Set(registry.registeredClasses);
 
   for (const [className, filePath] of fileClasses) {
@@ -454,7 +533,7 @@ function analyzeMigrationRegistry(workspaceRoot: string, result: AnalysisResult,
     }
   }
   result.observations.push({
-    id: 'migration-registry:farm-service',
+    id: `migration-registry:${serviceName}`,
     type: 'migration_registry',
     path: APP_MODULE_PATH,
     line: registry.migrationsArrayLine,

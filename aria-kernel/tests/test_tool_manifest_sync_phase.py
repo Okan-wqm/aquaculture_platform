@@ -101,10 +101,16 @@ class ToolManifestSyncPhaseTest(unittest.TestCase):
         self.assertEqual(len(rows), 1)
 
     def test_a_quarantined_tool_stays_quarantined(self) -> None:
-        # The property that forbids using the compiler's direct write here:
-        # the transition matrix must hold. Register quarantined state first,
-        # then sync a manifest that claims SHADOW — the refusal is the
-        # governance working, and it must not take the phase down.
+        # The property this pins is the STATUS, not the refusal count.
+        # Pre-ORPHAN-625 the sync passed the manifest's birth status
+        # verbatim, so the matrix refused every lifecycle-advanced tool —
+        # which "protected" quarantine as a side effect while ALSO silently
+        # dropping every runner-contract update (the live defect: a stale
+        # timeout served two cycles after its fix merged). The sync now
+        # carries the LIVE status: the re-registration succeeds as a
+        # contract refresh, and quarantine survives because QUARANTINED is
+        # what gets re-registered — the audited unquarantine path remains
+        # the only way back.
         self._write_manifest("risky-adapter", status="SHADOW")
         # Quarantine the way production does: initial registration, then the
         # audited transition — register_tool itself refuses a first
@@ -117,8 +123,7 @@ class ToolManifestSyncPhaseTest(unittest.TestCase):
 
         result = cycle_mod._phase_tool_manifest_sync(self._context())
 
-        self.assertEqual(len(result["refused"]), 1)
-        self.assertIn("risky-adapter", result["refused"][0]["manifest"])
+        self.assertEqual(result["refused"], [])
         rows = [t for t in list_tools(base_dir=self.tools) if t["tool_id"] == "risky-adapter"]
         self.assertEqual(rows[0]["status"], "QUARANTINED")
 

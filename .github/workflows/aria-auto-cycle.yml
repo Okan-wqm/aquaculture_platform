@@ -99,6 +99,11 @@ permissions:
   # actions:read remains for the run/job introspection the cycle reports on.
   # It is no longer used to fetch state: that moved to the branch.
   actions: read
+  # ORPHAN-HIGH-626 — the pr_ci_scan phase reads the check verdicts of
+  # ARIA's OWN open PRs (aria/*, automation/*) so a red check becomes this
+  # cycle's pressure instead of a silently blocked PR. Read-only pair.
+  checks: read
+  pull-requests: read
 
 jobs:
   cycle:
@@ -391,18 +396,33 @@ jobs:
               --tools-dir "${ARIA_TOOLS}"
           done
 
+      # A2 — one definition, both lanes (RC-9): the inline copy that used to
+      # sit here is now .github/actions/ensure-node-deps, shared with the
+      # executor lane whose missing provisioning tripped FAZ 5's pre-claim
+      # gate (`env_deps_missing`, run 31456376668).
       - name: Provision the node dependencies the adapter manifests declare
         if: steps.lease_check.outputs.blocked != 'true'
-        run: |
-          set -euo pipefail
-          if [ ! -x node_modules/ts-node/dist/bin.js ]; then
-            npm ci --ignore-scripts --no-audit --no-fund
-          fi
-          test -x node_modules/ts-node/dist/bin.js
+        uses: ./.github/actions/ensure-node-deps
+
+      # FAZ 5a — the merge gate's attestation producer, at lane start so the
+      # row describes the host that will run the merge. Refusals (no sandbox,
+      # no managed auth, API key present) are reported, not fatal here: the
+      # merge-time verify is the enforcement point and now fails with the
+      # refusal's named cause instead of a bare "attestation required".
+      - name: Probe and record runner attestation
+        if: steps.lease_check.outputs.blocked != 'true' && steps.preflight.outputs.effective_mock == 'false'
+        uses: ./.github/actions/probe-runner-attestation
+        with:
+          tools-dir: ${{ env.ARIA_TOOLS_DIR }}
 
       - name: Run nightly standard-profile cycle
         if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'
         env:
+          # ORPHAN-HIGH-626 — the pr_ci_scan phase's gh reads (own-PR list +
+          # check verdicts) authenticate with the job token; without it the
+          # checks reader reports gh_token_absent and the scan is a visible
+          # no-op instead of a silent one.
+          GH_TOKEN: ${{ github.token }}
           CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
           CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
           ARIA_CLAUDE_REQUIRE_USAGE: '1'

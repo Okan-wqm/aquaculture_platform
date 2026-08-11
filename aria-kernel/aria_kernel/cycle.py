@@ -1066,6 +1066,32 @@ def _phase_belief_decay(context: PhaseContext) -> dict[str, Any]:
     return decay_stale_beliefs_by_age(cycle_id=context.cycle_id, base_dir=context.base_dir)
 
 
+def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
+    """Read the check verdicts of ARIA's own open PRs (ORPHAN-HIGH-626).
+
+    Until this phase, ARIA pushed branches and never looked back: a red
+    check meant the merge gate silently blocked the PR forever, and
+    nothing ARIA runs ever learned the code was wrong. The scan revives
+    the dead ci.py pipeline as its producer and feeds the bridge ledger
+    the pressure phase (next in this table) reads. A reader that cannot
+    read reports WHY in the phase result — a tokenless night is a visible
+    cause, not a quiet zero.
+    """
+    from .github_adapters import select_checks_reader
+    from .own_pr_ci import scan_own_prs
+
+    reader = select_checks_reader(
+        profile=get_profile(base_dir=context.base_dir),
+        cwd=context.workspace_root,
+    )
+    return scan_own_prs(
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+        workspace_root=context.workspace_root,
+        reader=reader,
+    )
+
+
 def _phase_pressure(context: PhaseContext) -> dict[str, Any]:
     # Plan S4 (ORPHAN-MEDIUM-298) — operator drift-class targeting:
     # genesis-policy weights bias pressure scores per class. The loader is
@@ -1167,6 +1193,129 @@ def _phase_human_required_adjudication(context: PhaseContext) -> dict[str, Any]:
     return sweep_human_required_adjudications(base_dir=context.base_dir)
 
 
+def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
+    """Sample findings, fan judges out, compute consensus — every cycle.
+
+    The whole judgment supply chain — `generate_judgment_sample`,
+    `dispatch_judges_for_sample`, `generate_ai_consensus` — was driven only by
+    `heartbeat_tick`, and `heartbeat.py` had ZERO importers repo-wide. No
+    samples were ever minted, no judges fanned out, no consensus computed;
+    `judged_judges` read zero for months and three separate defects were
+    blamed before the dead driver was found. Same class as the claim reaper
+    and the registry compiler: the mechanism existed, nothing invoked it.
+
+    Extracted here (the heartbeat file is deleted with this change, not kept
+    as a parallel copy), with one repair the extraction surfaced: heartbeat
+    passed ``target_sha=None`` to the fan-out, which would have graded every
+    judge's real evidence `baseline_unavailable` — the exact defect that
+    rejected the autonomy planner's first surviving run. Judges now anchor to
+    the workspace head like every other minted request.
+
+    Per-tool failures are recorded and do not stop the loop —
+    `batch_containment`: one bad item costs that item, never the batch.
+    """
+    from .convergence_drainer import _resolve_workspace_head_sha
+    from .feedback_store import generate_ai_consensus, generate_judgment_sample
+    from .judge_fanout import dispatch_judges_for_sample
+
+    target_sha = _resolve_workspace_head_sha(context.workspace_root)
+    sampled = 0
+    fanned_out = 0
+    consensus_rows = 0
+    blocked: list[dict[str, Any]] = []
+    for tool in list_tools(base_dir=context.base_dir):
+        tool_id = str(tool.get("tool_id") or "")
+        if not tool_id:
+            continue
+        try:
+            sample = generate_judgment_sample(
+                tool_id=tool_id,
+                sample_size=5,
+                strategy="stratified_by_uncertainty",
+                cycle_id=context.cycle_id,
+                base_dir=context.base_dir,
+            )
+            sampled += len(sample.get("items") or [])
+            fanout = dispatch_judges_for_sample(
+                sample=sample, base_dir=context.base_dir, target_sha=target_sha,
+            )
+            fanned_out += len(fanout.get("minted") or [])
+        except GovernanceError as exc:
+            blocked.append({"tool_id": tool_id, "step": "sample_or_fanout", "reason": str(exc)[:200]})
+        try:
+            consensus = generate_ai_consensus(
+                tool_id=tool_id,
+                cycle_id=context.cycle_id,
+                base_dir=context.base_dir,
+                workspace_root=context.workspace_root,
+            )
+            consensus_rows += len(consensus.get("consensus") or []) if isinstance(consensus, dict) else 0
+        except GovernanceError as exc:
+            blocked.append({"tool_id": tool_id, "step": "consensus", "reason": str(exc)[:200]})
+    return {
+        "status": "completed",
+        "sampled_findings": sampled,
+        "judge_requests_minted": fanned_out,
+        "consensus_rows": consensus_rows,
+        "target_sha": target_sha,
+        "blocked": blocked,
+    }
+
+
+def _phase_judge_replay(context: PhaseContext) -> dict[str, Any]:
+    """Re-examine every judge against the gold corpus, and score the recall.
+
+    `replay_judges_on_goldset` and `compute_replay_recall` had zero callers —
+    the regression memory existed and nothing ever sat the judges back down
+    in front of it. A judge change that forgot an old lesson was silent.
+    """
+    from .convergence_drainer import _resolve_workspace_head_sha
+    from .judge_replay import compute_replay_recall, replay_judges_on_goldset
+
+    target_sha = _resolve_workspace_head_sha(context.workspace_root)
+    replayed: list[dict[str, Any]] = []
+    for tool in list_tools(base_dir=context.base_dir):
+        tool_id = str(tool.get("tool_id") or "")
+        if not tool_id:
+            continue
+        try:
+            result = replay_judges_on_goldset(
+                tool_id=tool_id, base_dir=context.base_dir, target_sha=target_sha,
+            )
+            replayed.append({"tool_id": tool_id, "status": result.get("status"), "replayed_items": result.get("replayed_items")})
+        except GovernanceError as exc:
+            replayed.append({"tool_id": tool_id, "status": "blocked", "reason": str(exc)[:200]})
+    recall = compute_replay_recall(base_dir=context.base_dir)
+    return {"status": "completed", "tools": replayed, "replay_recall": recall}
+
+
+def _phase_fixture_refresh(context: PhaseContext) -> dict[str, Any]:
+    """Keep every tool's fixture verdict current — the third heartbeat organ.
+
+    Fixture health feeds SHADOW→ACTIVE promotion (`adapter_active_readiness`);
+    with the driver dead, no fixture suite has run automatically since the
+    heartbeat was superseded, so promotion evidence could only rot.
+    """
+    from .fixture_runner import refresh_fixture_suite
+
+    refreshed: list[dict[str, Any]] = []
+    for tool in list_tools(base_dir=context.base_dir):
+        tool_id = str(tool.get("tool_id") or "")
+        if not tool_id or not tool.get("fixture_set"):
+            continue
+        try:
+            result = refresh_fixture_suite(
+                tool_id,
+                workspace_root=context.workspace_root,
+                cycle_id=context.cycle_id,
+                base_dir=context.base_dir,
+            )
+            refreshed.append({"tool_id": tool_id, "status": result.get("status", "ok")})
+        except GovernanceError as exc:
+            refreshed.append({"tool_id": tool_id, "status": "blocked", "reason": str(exc)[:200]})
+    return {"status": "completed", "tools": refreshed}
+
+
 def _phase_judge_calibration(context: PhaseContext) -> dict[str, Any]:
     # Plan 024 §A — score each judge against accumulated ground truth so
     # the cheap-tier judgment is measured, not assumed. Read-only join over
@@ -1202,7 +1351,21 @@ def _phase_calibration_recommendation(context: PhaseContext) -> dict[str, Any]:
     # an operator act (`pressure weight-override`), because a system that
     # silently reweights its own scoring can rationalise anything it later
     # measures — the same line goldset promotion draws.
-    return recommend_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir)
+    result = recommend_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir)
+    # FAZ 4c — rank_pressure_sources' first caller. The effectiveness ledger
+    # (converged/minted per pressure source) is exactly the context an
+    # operator needs to judge a weight recommendation, and the ranking
+    # function had zero callers since V9.0-F. Advisory data: its absence or
+    # failure must not cost the recommendation.
+    try:
+        from .knowledge_graph import rank_pressure_sources
+
+        result["source_effectiveness"] = rank_pressure_sources(
+            workspace_root=context.workspace_root
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        result["source_effectiveness"] = []
+    return result
 
 
 def _phase_proactive_priority(context: PhaseContext) -> dict[str, Any]:
@@ -1248,6 +1411,122 @@ def _phase_service_examination(context: PhaseContext) -> dict[str, Any]:
         changed_files=changed_paths,
         pressures=cycle_pressures,
     )
+
+
+# The four core services, in the risk order the service-audit program set
+# (charter M-5.1). These are seeded even on a quiet night; every other
+# service earns its mission from examination evidence (changed files or
+# scoped pressures), so the mission ledger grows with reality instead of
+# opening 17 parallel fronts on day one.
+SERVICE_HARDENING_CORE: tuple[str, ...] = (
+    "auth-service", "billing-service", "farm-service", "sensor-service",
+)
+
+
+def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
+    """Turn the examination's targeting into durable service-hardening missions.
+
+    `cycle_service_examination` computes which services changed, their
+    downstream ripple, the owning agents and the per-service pressures — and
+    had ZERO consumers. `SERVICE_MAP.json` inventories every platform service
+    each cycle — and nobody read it. This phase is the first consumer of the
+    first and, through the core list, the intent of the second: the charter's
+    per-service hardening program (§5) finally has a producer.
+
+    Idempotent by mission identity: re-seeding a service folds into the
+    mission it already opened.
+    """
+    from .mission import open_mission
+
+    exam = context.result("service_examination")
+    exam = exam if isinstance(exam, dict) else {}
+    # The producer (`impact_graph.cycle_service_examination`) emits
+    # per_service_pressures as a LIST of {service, layer, pressures} groups
+    # in topological order — not a dict keyed by project. The first live
+    # cycle over this phase failed with "'list' object has no attribute
+    # 'get'" because the seeder assumed the dict shape its own test had
+    # invented (ORPHAN-HIGH-622). Normalize at the boundary; accept both
+    # shapes so a future producer change cannot re-break the seeder.
+    raw_per_service = exam.get("per_service_pressures") or []
+    if isinstance(raw_per_service, dict):
+        per_service = raw_per_service
+    else:
+        per_service = {
+            str(group.get("service")): (group.get("pressures") or [])
+            for group in raw_per_service
+            if isinstance(group, dict) and group.get("service")
+        }
+    order = exam.get("examination_order") or []
+    evidence_backed = [
+        entry["project"] for entry in order
+        if entry.get("changed_files") or per_service.get(entry.get("project"))
+    ]
+    targets: list[str] = list(dict.fromkeys(list(SERVICE_HARDENING_CORE) + evidence_backed))
+    rh = repo_hash(context.workspace_root)
+    seeded: list[dict[str, Any]] = []
+    for rank, project in enumerate(targets):
+        pressures_here = per_service.get(project) or []
+        result = open_mission(
+            source_kind="service_hardening",
+            source_id=project,
+            repo_hash=rh,
+            title=(
+                f"Harden {project}: secure/performant/sustainable/testable/"
+                f"documented/correct (charter D1-D6)"
+            ),
+            capability="service_hardening",
+            priority=rank,
+            target_project=project,
+            base_dir=context.base_dir,
+        )
+        seeded.append({
+            "project": project,
+            "mission_id": result.get("mission_id"),
+            "idempotent": bool(result.get("idempotent")),
+            "scoped_pressures": len(pressures_here),
+        })
+    return {
+        "status": "completed",
+        "seeded": seeded,
+        "core": list(SERVICE_HARDENING_CORE),
+        "evidence_backed": evidence_backed,
+    }
+
+
+def _phase_mission_selection(context: PhaseContext) -> dict[str, Any]:
+    """Run the scheduler in the cycle, and hand the winner to the queue.
+
+    `select_next_mission` had exactly one caller — the operator CLI — so even
+    a fully seeded mission ledger would never move without a human. The
+    selected mission becomes a bounded-queue item (`mission:<id>` marker) the
+    autonomy drain resolves into an agent request; the non-selections stay
+    recorded by the scheduler itself, because "why not" is the half of the
+    decision an operator actually debugs.
+    """
+    from .mission_scheduler import select_next_mission
+    from .next_cycle_queue import append_pending
+
+    decision = select_next_mission(base_dir=context.base_dir)
+    selected = decision.selected if decision.selected else None
+    queued = None
+    if selected:
+        mission_id = str(selected.get("mission_id") or "")
+        queued_row = append_pending(
+            context.base_dir,
+            source_cycle_id=context.cycle_id,
+            pressure_id=f"mission:{mission_id}",
+            recommended_action=str(selected.get("next_action") or selected.get("title") or "advance the mission"),
+            candidate_tools=[],
+        )
+        queued = (queued_row or {}).get("queue_item_id")
+    return {
+        "status": "completed",
+        "outcome": decision.outcome,
+        "selected_mission": (selected or {}).get("mission_id"),
+        "selected_project": (selected or {}).get("target_project"),
+        "queue_item_id": queued,
+        "considered": decision.considered,
+    }
 
 
 def _phase_learning_post_evidence_closure(context: PhaseContext) -> dict[str, Any]:
@@ -1319,11 +1598,29 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
     escalated: the refusal IS the governance working.
     """
     manifest_dir = Path(context.workspace_root) / "tools" / "aria-adapters"
+    # The manifest's `status` is the tool's BIRTH status; after registration
+    # the live lifecycle (transition_tool, quarantine, calibration) owns it.
+    # Passing the manifest status verbatim on RE-registration made the
+    # transition matrix read every lifecycle advance as an attempted
+    # demotion (live CALIBRATE vs manifest SHADOW → refused), so runner
+    # contract updates silently never reached the runtime: the registry
+    # served tenant-scoping's stale timeout_ms=180000 two cycles after the
+    # manifest raised it, and the node heap contract never landed at all
+    # (ORPHAN-HIGH-625). Re-registration therefore carries the LIVE status,
+    # which routes through the matrix's same-status lane — "manifest hash
+    # drift → allow; parser/runner update" — the lane built for exactly this.
+    live_status_by_id = {
+        str(tool.get("tool_id")): str(tool.get("status"))
+        for tool in list_tools(base_dir=context.base_dir)
+    }
     synced: list[str] = []
     refused: list[dict[str, str]] = []
     for manifest_path in sorted(manifest_dir.glob("*.tool.json")):
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            live_status = live_status_by_id.get(str(manifest.get("tool_id")))
+            if live_status is not None:
+                manifest = {**manifest, "status": live_status}
             register_tool(manifest, base_dir=context.base_dir)
             synced.append(str(manifest.get("tool_id") or manifest_path.stem))
         except (GovernanceError, ValueError, OSError) as exc:
@@ -1687,6 +1984,14 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         "belief_decay", "post_tool", _phase_belief_decay,
         precondition=WRITES_PERMITTED, state_key="belief_decay",
     ),
+    # Own-PR CI feedback (ORPHAN-HIGH-626) — BEFORE pressure, so a red
+    # check on a PR ARIA pushed becomes THIS cycle's pressure, not next
+    # week's surprise. Observation only: never feeds the breaker (RC-2).
+    CyclePhase(
+        "pr_ci_scan", "post_tool", _phase_pr_ci_scan,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="pr_ci_scan",
+    ),
     CyclePhase(
         "pressure", "post_tool", _phase_pressure, state_key="pressure",
         modes=frozenset({"standard", "burn_in"}),
@@ -1698,9 +2003,33 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         "triage", "post_tool", _phase_triage, state_key="triage",
         modes=frozenset({"burn_in"}),
     ),
+    # BEFORE mission ingest, not after reflection where it used to sit
+    # unread: the examination's whole output — which services, in what
+    # order, which agent owns them, which pressures land in them — is the
+    # targeting a mission needs, and for months it was computed and then
+    # dropped on the floor (zero consumers). The seed phase right after it
+    # is its first consumer.
+    CyclePhase(
+        "service_examination", "post_tool", _phase_service_examination,
+        on_error="swallow", state_key="service_examination",
+    ),
+    CyclePhase(
+        "service_mission_seed", "post_tool", _phase_service_mission_seed,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="service_mission_seed",
+    ),
     CyclePhase(
         "mission_ingest", "post_tool", _phase_mission_ingest,
         precondition=WRITES_PERMITTED, state_key="mission_ingest",
+    ),
+    # The scheduler had exactly one caller: the operator CLI. Even seeded
+    # missions would never be picked up automatically. Selection now runs in
+    # the cycle, and the selected mission becomes a queue item the autonomy
+    # drain can mint an agent request from.
+    CyclePhase(
+        "mission_selection", "post_tool", _phase_mission_selection,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="mission_selection",
     ),
     # Bookkeeping over a ledger, so it sits with the other post-tool
     # bookkeeping — and `record_and_continue`, because a reaper that CRASHED
@@ -1730,9 +2059,32 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         "human_required_adjudication", "post_tool", _phase_human_required_adjudication,
         precondition=WRITES_PERMITTED, state_key="human_required_adjudication",
     ),
+    # The judgment supply chain, in dependency order and BEFORE calibration:
+    # fixtures stay fresh, findings get sampled, judges fan out, consensus is
+    # computed. All three were heartbeat organs, and heartbeat had zero
+    # importers — judged_judges read zero for months because nothing upstream
+    # of judge_calibration ever produced a verdict for it to score.
+    CyclePhase(
+        "fixture_refresh", "post_tool", _phase_fixture_refresh,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="fixture_refresh",
+    ),
+    CyclePhase(
+        "judgment_pipeline", "post_tool", _phase_judgment_pipeline,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="judgment_pipeline",
+    ),
     CyclePhase(
         "judge_calibration", "post_tool", _phase_judge_calibration,
         precondition=WRITES_PERMITTED, state_key="judge_calibration",
+    ),
+    # After calibration, before the goldset proposal reads the same ledgers:
+    # sit every judge back down in front of the gold corpus and score the
+    # recall, so a judge change that forgot an old lesson is loud.
+    CyclePhase(
+        "judge_replay", "post_tool", _phase_judge_replay,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="judge_replay",
     ),
     # Directly after judge_calibration: both read the same feedback ledger,
     # and the gold corpus this mints is what judge_replay scores judges
@@ -1764,13 +2116,6 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         # not {}: an empty dict would read as "reflection ran and found
         # nothing".
         absent=lambda: None,
-    ),
-    CyclePhase(
-        "service_examination", "post_tool", _phase_service_examination,
-        # Operator convenience: a per-service examination plan. It must
-        # never be able to fail a cycle whose real work succeeded, which
-        # is why it is the one phase with `swallow`.
-        on_error="swallow", state_key="service_examination",
     ),
     CyclePhase(
         "learning_post_evidence_closure", "post_tool", _phase_learning_post_evidence_closure,

@@ -62,6 +62,10 @@ SOURCE_RANK: dict[str, int] = {
     "finding": 1,
     "shadow_run_summary": 2,
     "pressure": 3,
+    # Charter §5 service-hardening missions: below the reactive sources by
+    # design — a confirmed gap or finding outranks proactive hardening, and
+    # hardening outranks nothing at all (_UNRANKED_SOURCE).
+    "service_hardening": 4,
 }
 _UNRANKED_SOURCE = 90
 

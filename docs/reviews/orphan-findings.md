@@ -9269,3 +9269,11 @@ Severity: HIGH (Kalibre Zekâ Z3). Exploration verified three live defects in th
 **OPEN remainder (same ID):** K2 — `submit_cross_review_v8` still writes the SAME risks list to both directions, so per-side attribution is approximate until the submit path carries per-direction risks; and Z3d (genesis superiority gate over `eval_window_passed`) follows once ratings accumulate. Owner: claude, next session window.
 
 **Owner:** claude (this session). **Status:** K1/K3/Z3b/Z4 RESOLVED; K2+Z3d OPEN.
+
+## ORPHAN-MEDIUM-639 — ARIA's matching is entirely literal: "the same root cause in a different guise" is structurally invisible — SUBSTRATE LANDED (this PR); model supply remains an OPERATOR item
+
+Severity: MEDIUM (Kalibre Zekâ Z7). Finding fingerprints are sha256 over normalized text, convention matches are path prefixes, FP suppression is exact-fingerprint equality — a paraphrased recurrence of a labelled false positive or a re-emerging known root cause matches nothing. A FIXED embedding model is deterministic, so similarity search fits the replay constitution where trained-in-place models cannot.
+
+**Landed:** `aria_kernel/semantic_memory.py` — model-agnostic seam (`ARIA_EMBEDDER_CMD`: text on stdin → JSON float array on stdout; `ARIA_EMBEDDER_MODEL_ID` labels the space), hash-chained `knowledge-graph/embeddings.jsonl` (vectors are an index, recomputable given the model), plain-python cosine `nearest()` that never compares across model_ids. Without a model EVERY entry point is a structured no-op (None / [] / no ledger side effects) — callers never branch on availability. 5 tests incl. no-op discipline + determinism.
+
+**OPEN remainder (operator):** supply the embedder (local sentence-transformer wrapper or an AI-service read-only bridge) by setting the two env vars on the runner; then wire the two consumers (judgment-sample enrichment; FP-suppression soft-match as OBSERVATION, never suppression). Owner: operator (model) + claude (consumers, next window after model lands). Deadline: 2026-09-15.

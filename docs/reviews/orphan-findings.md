@@ -9205,6 +9205,7 @@ Severity: HIGH. Raised 2026-08-11 by the operator directive "integrate the most 
 **Proof:** 9 tests — hand-computed closed forms, zero-label golden (bit-identical weights), override-wins, full-key-coverage (the `_pressure` KeyError class), Thompson determinism, and the feed-link deliberate break (severing the calibration block turns the label-moves-weight test red). 319 neighbour tests green.
 
 **Owner:** claude (this session). **Status:** RESOLVED. Z2-Z7 continue per the approved plan.
+
 ## ORPHAN-HIGH-631 — the daily sweep retired 29 open CRITICALs by calendar: auto-staleness had no severity floor — RESOLVED (this PR)
 
 Severity: HIGH. Discovered 2026-08-11: the first live finding-state sweep (#1162) staled every OPEN/IN-PROGRESS finding older than 30 days regardless of severity, and the enterprise-grade debt-plan contract refused the PR — correctly. Retiring unfixed critical debt by timeout is the audit-theater class that contract exists to stop.

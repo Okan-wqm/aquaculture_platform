@@ -166,17 +166,25 @@ class ReportSectionsTest(unittest.TestCase):
                 root / "cycles.jsonl",
                 {
                     "cycle_id": "cyc-replay", "status": "completed",
-                    "judge_replay": {"tools": [{
-                        "tool_id": "adapter-a", "status": "replayed",
-                        "recall": {"judged_judges": 4, "recall": 0.75},
-                    }]},
+                    # The REAL phase shape (Z2d): per-tool rows carry
+                    # replayed_items; recall lives at the phase level. The
+                    # first fixture invented a row["recall"] the phase never
+                    # writes — a test green over a fictional contract.
+                    "judge_replay": {
+                        "replay_recall": {"judged_judges": 4},
+                        "tools": [{
+                            "tool_id": "adapter-a", "status": "dispatched",
+                            "replayed_items": 3,
+                        }],
+                    },
                 },
                 expected_surface="cycles",
             )
             lines = "\n".join(_render_replay_recall_section(root))
 
         self.assertIn("## Judge Replay Recall", lines)
-        self.assertIn("judged 4, recall 0.75", lines)
+        self.assertIn("Replay-judged judges: 4", lines)
+        self.assertIn("replayed 3", lines)
 
     def test_sections_are_silent_on_an_empty_store(self) -> None:
         # Silent, not broken: a brand-new store must not render scaffolding

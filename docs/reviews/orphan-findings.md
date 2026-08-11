@@ -8699,6 +8699,24 @@ every run after the first.
 **Not addressed here:** the sixth adapter's separate `evidence_error` — to be
 read after a cycle where the runners actually execute.
 
+## ORPHAN-MEDIUM-611 — two generations of result statuses lived in one ledger, and every reader had to know both — RESOLVED (this PR)
+
+**Severity:** MEDIUM (a re-armed trap per new consumer)
+**Owner:** ARIA
+**Discovered:** 2026-08-10 code-review pass (madde 13).
+
+`results.jsonl` carries legacy `completed/rejected/partial` beside Plan-016
+`accepted/rejected`. `derive_request_state` held the union inline; the next
+reader would not, and would silently misread a legacy row.
+
+**Fix:** normalization at READ time in `_result_rows_for` — the append-only
+ledger stays byte-stable, rows come back canonical, the original spelling
+survives in `legacy_status` for audit, and `partial` conservatively reads as
+`rejected` (an incomplete delivery must not derive a COMPLETED request).
+The derivation now compares one vocabulary, pinned by a test that fails if
+the inline union ever returns. The legacy WRITE path keeps its Plan-024
+operator-migration gate.
+
 ## ORPHAN-CRITICAL-613 — the entire judgment supply chain had one driver, and the driver had zero importers — RESOLVED (this PR)
 
 **Severity:** CRITICAL (judged_judges read zero for months; calibration, goldset and FP-suppression starved together)
@@ -9133,5 +9151,14 @@ Severity: MEDIUM (process drag, not correctness). Discovered 2026-08-11 while cl
 **Fix (the append-only-ledger precedent, applied):** `.gitattributes` gains `docs/aria/CURRENT_STATE.md merge=ours` — the same file already carries `merge=union` for the findings ledger, with the same reasoning shape: the merge result was never load-bearing, because BOTH sides' hashes are wrong for the merged tree; the true value is regenerated post-merge (`aria:authority-hash:write`), staleness is enforced by `tests/invariants/aria-doc-runtime-ssot.spec.ts`, and the pre-commit auto-repin hook re-derives it on every commit. `ours` removes the textual conflict; the invariant keeps the honesty.
 
 Caveat stated plainly: GitHub's server-side merge machinery may not honor the driver, so PR pages can still SHOW a conflict — but resolution happens in the local trains, which do honor it, and that is where the five hand-resolutions were paid.
+## ORPHAN-MEDIUM-623 — the first honest nights priced two environment gaps as failures: a wide-scope adapter's stale runtime contract, and an executor lane that never provisioned what its agents need — RESOLVED (this PR)
+
+Severity: MEDIUM. Discovered 2026-08-11 from the first two scheduled runs over the completed neural-wiring pipeline (runs 31454198188 auto-cycle, 31456376668 executor).
+
+**1. `tenant-scoping-adapter` hit its own ceiling, twice.** After ORPHAN-HIGH-614 gave it the 3 GiB heap it needed, the adapter stopped OOM-crashing and started _finishing the work_ — which takes longer than its `timeout_ms: 180000` allows on a loaded self-hosted runner (locally: 38.7s / 1.4 GiB peak / 66 findings / 3,784 cost units; the runner shares the box with train jobs). `tool_runner.py` correctly minted `budget_exceeded`, which correctly failed the cycle (`_runtime_status` → fail-closed) — the chain worked; the CONTRACT was stale. Also latent: `cost_units` 3,784 already exceeds its declared `max_cost_units: 3500`. Raised: `timeout_ms` 180000→420000, `max_cost_units` 3500→6000. The 5 MiB stdout cap and the fail-closed chain are untouched — they are correct.
+
+**2. The executor lane never provisioned node deps.** FAZ 5's pre-claim gate refused the lane's first live dispatch with `env_deps_missing` — exactly as designed: the request stayed PENDING instead of burning a claim. But the auto-cycle lane carried its provisioning step inline while the executor lane had none — a drift the RC-9 lesson predicts. Extracted to `.github/actions/ensure-node-deps` (guarded `npm ci --ignore-scripts`, no-op once provisioned); both lanes call the one definition.
+
+**Proof:** 58 workflow-contract/executor tests green; injection + sha-pin + kernel-setup workflow gates green; local timed adapter run recorded above. Verification per plan: next scheduled auto-cycle must seal with `non_ok_tools` empty, and the executor dispatch must pass the pre-claim gate without a new `env_deps_missing` governance row.
 
 **Owner:** claude (this session). **Status:** RESOLVED.

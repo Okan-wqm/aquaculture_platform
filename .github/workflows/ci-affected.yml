@@ -195,9 +195,21 @@ jobs:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
 
+      # The restored .npm-cache can carry a torn _cacache tmp entry, and npm's
+      # extraction then dies with EEXIST/ENOENT rename races (observed twice on
+      # 2026-08-11: runs 31493430731, 31499733901). One purge of the cache's
+      # tmp area + a single retry converts that recurring red into a footnote;
+      # a second failure is a real problem and still fails the job.
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm ci --ignore-scripts --no-audit
+        run: |
+          set -euo pipefail
+          if ! npm ci --ignore-scripts --no-audit; then
+            echo "npm ci failed once; purging torn cacache tmp entries and retrying" >&2
+            rm -rf .npm-cache/_cacache/tmp
+            npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
+            npm ci --ignore-scripts --no-audit
+          fi
 
       # 2026-05-05: Nx builds Rust crates in parallel. Installing the pinned
       # toolchain once before Nx starts prevents competing cargo/rustup
@@ -255,9 +267,21 @@ jobs:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
 
+      # The restored .npm-cache can carry a torn _cacache tmp entry, and npm's
+      # extraction then dies with EEXIST/ENOENT rename races (observed twice on
+      # 2026-08-11: runs 31493430731, 31499733901). One purge of the cache's
+      # tmp area + a single retry converts that recurring red into a footnote;
+      # a second failure is a real problem and still fails the job.
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm ci --ignore-scripts --no-audit
+        run: |
+          set -euo pipefail
+          if ! npm ci --ignore-scripts --no-audit; then
+            echo "npm ci failed once; purging torn cacache tmp entries and retrying" >&2
+            rm -rf .npm-cache/_cacache/tmp
+            npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
+            npm ci --ignore-scripts --no-audit
+          fi
 
       # 2026-05-05: Type-check targets can include Rust-backed crates. Prepare the exact
       # pinned toolchain before Nx starts parallel cargo-backed tasks.
@@ -309,9 +333,21 @@ jobs:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
 
+      # The restored .npm-cache can carry a torn _cacache tmp entry, and npm's
+      # extraction then dies with EEXIST/ENOENT rename races (observed twice on
+      # 2026-08-11: runs 31493430731, 31499733901). One purge of the cache's
+      # tmp area + a single retry converts that recurring red into a footnote;
+      # a second failure is a real problem and still fails the job.
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm ci --ignore-scripts --no-audit
+        run: |
+          set -euo pipefail
+          if ! npm ci --ignore-scripts --no-audit; then
+            echo "npm ci failed once; purging torn cacache tmp entries and retrying" >&2
+            rm -rf .npm-cache/_cacache/tmp
+            npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
+            npm ci --ignore-scripts --no-audit
+          fi
 
       # 2026-05-05: Test targets include Rust crates. Prepare the exact
       # pinned toolchain before Nx starts parallel cargo-backed tasks.
@@ -465,9 +501,21 @@ jobs:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
 
+      # The restored .npm-cache can carry a torn _cacache tmp entry, and npm's
+      # extraction then dies with EEXIST/ENOENT rename races (observed twice on
+      # 2026-08-11: runs 31493430731, 31499733901). One purge of the cache's
+      # tmp area + a single retry converts that recurring red into a footnote;
+      # a second failure is a real problem and still fails the job.
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm ci --ignore-scripts --no-audit
+        run: |
+          set -euo pipefail
+          if ! npm ci --ignore-scripts --no-audit; then
+            echo "npm ci failed once; purging torn cacache tmp entries and retrying" >&2
+            rm -rf .npm-cache/_cacache/tmp
+            npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
+            npm ci --ignore-scripts --no-audit
+          fi
 
       - name: Install e2e smoke dependencies
         run: |
@@ -564,9 +612,21 @@ jobs:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
 
+      # The restored .npm-cache can carry a torn _cacache tmp entry, and npm's
+      # extraction then dies with EEXIST/ENOENT rename races (observed twice on
+      # 2026-08-11: runs 31493430731, 31499733901). One purge of the cache's
+      # tmp area + a single retry converts that recurring red into a footnote;
+      # a second failure is a real problem and still fails the job.
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm ci --ignore-scripts --no-audit
+        run: |
+          set -euo pipefail
+          if ! npm ci --ignore-scripts --no-audit; then
+            echo "npm ci failed once; purging torn cacache tmp entries and retrying" >&2
+            rm -rf .npm-cache/_cacache/tmp
+            npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
+            npm ci --ignore-scripts --no-audit
+          fi
 
       # 2026-05-05: Build targets include Rust crates. Prepare the exact
       # pinned toolchain before Nx starts parallel cargo-backed tasks.
@@ -617,9 +677,21 @@ jobs:
         with:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+      # The restored .npm-cache can carry a torn _cacache tmp entry, and npm's
+      # extraction then dies with EEXIST/ENOENT rename races (observed twice on
+      # 2026-08-11: runs 31493430731, 31499733901). One purge of the cache's
+      # tmp area + a single retry converts that recurring red into a footnote;
+      # a second failure is a real problem and still fails the job.
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm ci --ignore-scripts --no-audit
+        run: |
+          set -euo pipefail
+          if ! npm ci --ignore-scripts --no-audit; then
+            echo "npm ci failed once; purging torn cacache tmp entries and retrying" >&2
+            rm -rf .npm-cache/_cacache/tmp
+            npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
+            npm ci --ignore-scripts --no-audit
+          fi
       - name: Validate pagination schema types
         run: node scripts/validate-pagination-schema.js
 
@@ -976,9 +1048,21 @@ jobs:
         with:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+      # The restored .npm-cache can carry a torn _cacache tmp entry, and npm's
+      # extraction then dies with EEXIST/ENOENT rename races (observed twice on
+      # 2026-08-11: runs 31493430731, 31499733901). One purge of the cache's
+      # tmp area + a single retry converts that recurring red into a footnote;
+      # a second failure is a real problem and still fails the job.
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm ci --ignore-scripts --no-audit
+        run: |
+          set -euo pipefail
+          if ! npm ci --ignore-scripts --no-audit; then
+            echo "npm ci failed once; purging torn cacache tmp entries and retrying" >&2
+            rm -rf .npm-cache/_cacache/tmp
+            npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
+            npm ci --ignore-scripts --no-audit
+          fi
       - name: Validate dependency graph contracts
         run: npm ls typeorm uuid @nestjs/apollo @apollo/server @apollo/gateway @opentelemetry/api @opentelemetry/sdk-node
       - name: Run npm audit
@@ -1044,9 +1128,21 @@ jobs:
         with:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+      # The restored .npm-cache can carry a torn _cacache tmp entry, and npm's
+      # extraction then dies with EEXIST/ENOENT rename races (observed twice on
+      # 2026-08-11: runs 31493430731, 31499733901). One purge of the cache's
+      # tmp area + a single retry converts that recurring red into a footnote;
+      # a second failure is a real problem and still fails the job.
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm ci --ignore-scripts --no-audit
+        run: |
+          set -euo pipefail
+          if ! npm ci --ignore-scripts --no-audit; then
+            echo "npm ci failed once; purging torn cacache tmp entries and retrying" >&2
+            rm -rf .npm-cache/_cacache/tmp
+            npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
+            npm ci --ignore-scripts --no-audit
+          fi
       - name: Run sensor enterprise gate fixtures
         run: >
           npx jest --config apps/sensor-service/jest.config.ts --runInBand
@@ -1092,9 +1188,21 @@ jobs:
         with:
           path: node_modules
           key: nm-${{ runner.os }}-${{ hashFiles('**/package-lock.json') }}
+      # The restored .npm-cache can carry a torn _cacache tmp entry, and npm's
+      # extraction then dies with EEXIST/ENOENT rename races (observed twice on
+      # 2026-08-11: runs 31493430731, 31499733901). One purge of the cache's
+      # tmp area + a single retry converts that recurring red into a footnote;
+      # a second failure is a real problem and still fails the job.
       - name: Fallback install if cache missed
         if: steps.cache-nm.outputs.cache-hit != 'true'
-        run: npm ci --ignore-scripts --no-audit
+        run: |
+          set -euo pipefail
+          if ! npm ci --ignore-scripts --no-audit; then
+            echo "npm ci failed once; purging torn cacache tmp entries and retrying" >&2
+            rm -rf .npm-cache/_cacache/tmp
+            npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
+            npm ci --ignore-scripts --no-audit
+          fi
       - name: Run Sens enterprise validation
         run: npm run gates:sens-enterprise-validation
       - name: Upload Sens enterprise validation artifacts

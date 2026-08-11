@@ -9207,6 +9207,7 @@ Severity: HIGH. All three found by the Kalibre Zekâ plan's code-exact explorati
 **Proof:** 5 new tests (producer-ledger read, empty-producer-starved, short-history-quiet, None-out-of-mean, missing_confidence + map pin); 145 neighbour tests green.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-HIGH-627 — ARIA's targeting ran on hand-set constants: no number anywhere moved with evidence — RESOLVED (this PR, Kalibre Zekâ Z1)
 
 Severity: HIGH. Raised 2026-08-11 by the operator directive "integrate the most advanced intelligence you know"; the honest reading of ARIA's constitution (every decision number recomputable from append-only ledgers) selects closed-form Bayesian statistics over neural layers — tens of labels cannot train a net, and an opaque weight matrix cannot be written into a governance row.

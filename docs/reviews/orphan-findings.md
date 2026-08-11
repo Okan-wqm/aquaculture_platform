@@ -9251,6 +9251,7 @@ Severity: HIGH. By 2026-08-11 the queue held 162 pending judge requests; at one 
 **Fix:** `drain_pending` in `tools/aria-poc/ci_executor.py` — the scheduled lane loops next-pending → dispatch until the queue empties, `MAX_REQUESTS_PER_RUN` is reached, or the wall-clock budget (`ARIA_DRAIN_BUDGET_SECONDS`, default 2100s inside the 45-minute job) is spent. Each request still runs through the LOCKED single-request argv as a subprocess (invariant I-V3-21) with `target_agent` passed through from the request row. A request that comes back pending after being attempted stops the loop — an environment fault must not be priced as N request failures (the M-2.5 class). Child envelope/transcript paths are aggregated into the step outputs so the artifact upload carries the whole night, not the last request. Any child failure turns the run red WITHOUT discarding submitted successes. Operator-targeted `workflow_dispatch` with `request_id` keeps exact single-request semantics.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-MEDIUM-636 — performance tests asserted wall-clock absolutes on shared runners: whichever branch drew the slow machine went red — RESOLVED (this PR)
 
 Severity: MEDIUM. Run 31506624662 failed #1175's CI-Full on `alert-engine.performance.spec.ts` ("queue 1000 notifications < 100ms": measured 154.9ms) — content-unrelated; the branch drew a loaded runner. The class made CI reds look random ("sürekli farklı şeyler düşüyor").

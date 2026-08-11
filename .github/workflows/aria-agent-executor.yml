@@ -368,12 +368,16 @@ jobs:
               exit 1
             fi
             echo "request_id=${REQUEST_ID_INPUT}" >> "$GITHUB_OUTPUT"
+            echo "targeted=true" >> "$GITHUB_OUTPUT"
           else
+            # The id resolved here only decides whether the run proceeds
+            # (empty → clean skip). WHICH requests run is the drain loop's
+            # decision below — it re-reads the queue per iteration.
             REQ_ID=$(PYTHONPATH=aria-kernel python3 -m aria_kernel agent next-pending \
               --tools-dir "$ARIA_TOOLS_DIR" | jq -r '.request_id // empty')
             echo "request_id=${REQ_ID}" >> "$GITHUB_OUTPUT"
+            echo "targeted=false" >> "$GITHUB_OUTPUT"
           fi
-
 
       # Plan 020 Phase 3.C — session_start handoff snapshot.
       # WHY here: every CI executor run is a discrete session boundary.
@@ -450,12 +454,30 @@ jobs:
           MAX_TURNS_PER_RUN: '12'
           MAX_REQUESTS_PER_RUN: '30'
           MAX_TIMEOUT_SECONDS: '1800'
+          # Drain loop stops STARTING new requests after this much wall clock
+          # so no child is killed mid-claim by the job's 45-minute reaper.
+          ARIA_DRAIN_BUDGET_SECONDS: '2100'
         run: |
-          PYTHONPATH=aria-kernel python3 tools/aria-poc/ci_executor.py \
-            "${{ steps.pending.outputs.request_id }}"
+          set -euo pipefail
+          if [ "${{ steps.pending.outputs.targeted }}" = "true" ]; then
+            # Operator-targeted dispatch: exactly the named request.
+            PYTHONPATH=aria-kernel python3 tools/aria-poc/ci_executor.py \
+              "${{ steps.pending.outputs.request_id }}"
+          else
+            # Scheduled run: drain the queue up to MAX_REQUESTS_PER_RUN /
+            # the wall-clock budget. One request per night against a
+            # producer that mints many per cycle was a queue that could
+            # only grow (162 pending judge requests by 2026-08-11).
+            PYTHONPATH=aria-kernel python3 tools/aria-poc/ci_executor.py --drain
+          fi
 
       - name: Upload response envelope (artefact)
-        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
+        # `drained == '0'` is a drain night where the queue emptied between
+        # the pending probe and the loop (or every child failed before
+        # publishing a path): there is nothing to upload, and
+        # `if-no-files-found: error` would turn "no work" into a red.
+        # Targeted runs never set `drained`, so the guard is a no-op there.
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != '' && steps.executor.outputs.drained != '0'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # Limited scope — response envelope plus its transcript anchor. claims.jsonl +

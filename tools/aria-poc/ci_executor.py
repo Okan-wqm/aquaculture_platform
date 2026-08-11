@@ -670,7 +670,6 @@ def _max_requests() -> int:
 def _max_timeout_seconds() -> int:
     return int(os.environ.get("MAX_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS))
 
-
 # ORPHAN-HIGH-472 — `_max_budget_usd` and `_max_budget_usd_per_cycle` lived
 # here and are gone. Their own docstring already conceded the point ("Default
 # Claude Code execution uses managed-session auth and does not use this value
@@ -1839,8 +1838,25 @@ def main(argv: list[str] | None = None) -> int:
     """Entry point — runs one cycle. Designed to be called by GHA step."""
     args = argv if argv is not None else sys.argv[1:]
     if len(args) < 1:
-        print("usage: ci_executor.py <request_id> [subagent_type]", file=sys.stderr)
+        print(
+            "usage: ci_executor.py <request_id> [subagent_type] | --drain",
+            file=sys.stderr,
+        )
         return 2
+
+    if args[0] == "--drain":
+        # Batch consumption for the scheduled lane. The loop lives in its own
+        # module (ci_executor_drain) so this engine file stops growing; the
+        # import is local because drain imports THIS module for its stage
+        # logger and governance binding.
+        from ci_executor_drain import drain_pending
+
+        repo_root = Path.cwd().resolve()
+        env_tools = os.environ.get("ARIA_TOOLS_DIR")
+        drain_tools_dir = (
+            Path(env_tools).resolve() if env_tools else repo_root / "aria-tools"
+        )
+        return drain_pending(tools_dir=drain_tools_dir, repo_root=repo_root)
 
     # Plan ARIA-V3.1-D2 — frozen mock-mode sentinel at main() entry
     # (closes ai-safety HIGH-007). Pre-V3.1-D2 every cost-attribution

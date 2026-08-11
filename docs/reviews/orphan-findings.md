@@ -3327,10 +3327,10 @@ But the service was missing the corresponding `volumes:` block. Every other NATS
 
 ```yaml
 volumes:
-  - *nats-ca-mount             # ./certs/nats/ca-cert.pem      → /etc/ssl/nats-ca.pem
-  - *nats-clients-mount        # ./certs/nats/clients/         → /etc/ssl/nats-clients/
-  - *nats-client-cert-mount    # ./certs/nats/client-cert.pem  → /etc/ssl/nats-client-cert.pem
-  - *nats-client-key-mount     # ./certs/nats/client-key.pem   → /etc/ssl/nats-client-key.pem
+  - *nats-ca-mount # ./certs/nats/ca-cert.pem      → /etc/ssl/nats-ca.pem
+  - *nats-clients-mount # ./certs/nats/clients/         → /etc/ssl/nats-clients/
+  - *nats-client-cert-mount # ./certs/nats/client-cert.pem  → /etc/ssl/nats-client-cert.pem
+  - *nats-client-key-mount # ./certs/nats/client-key.pem   → /etc/ssl/nats-client-key.pem
 ```
 
 `libs/backend-common/src/nats/nats-connection.factory.ts` resolves `NATS_TLS_CA` with `fs.readFileSync()` at bootstrap and hard-fails with the message above when the file isn't present at the configured path. With no `volumes:` block, `/etc/ssl/nats-ca.pem` did not exist inside the container, so Nest bootstrap aborted before any module was even constructed.
@@ -9194,6 +9194,16 @@ Severity: HIGH. Raised 2026-08-11 by the operator ("belki kodu yanlış yazdı �
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-MEDIUM-633 — two generators produced their own reds: a torn npm cache killed installs twice in one day, and the monthly report was born lint-illegal — RESOLVED (this PR)
+
+Severity: MEDIUM. Both observed live on 2026-08-11.
+
+**1. npm cacache tear (runs 31493430731, 31499733901):** the restored `.npm-cache` can carry a torn `_cacache/tmp` entry; `npm ci` then dies on an EEXIST/ENOENT rename race. Twice in one day makes it a defect, not noise. All 9 "Fallback install if cache missed" copies in ci-affected.yml now purge the cache's tmp area and retry ONCE on failure — a second failure is a real problem and still fails the job.
+
+**2. rule-health generator emitted non-compliant markdown (run 31502771221):** unlanguaged fence + raw registry titles beyond 100 columns — the first generated monthly report blocked its own PR. The generator now prepends a targeted `markdownlint-disable MD013 MD040` header with rationale — the same decision, for the same reason, as orphan-findings.md's existing disable: a machine-written evidence artifact must not mangle its payload to satisfy a prose rule. (#1168's already-generated file was hand-fixed on its branch; next month's is born clean.)
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-HIGH-628 — a sentinel that thought it measured and never did, a confidence gate that punished honesty, and a recall render over a fictional field — RESOLVED (this PR, Kalibre Zekâ Z5a/Z2b/Z2d)
 
 Severity: HIGH. All three found by the Kalibre Zekâ plan's code-exact exploration (2026-08-11).
@@ -9241,3 +9251,36 @@ Severity: MEDIUM. Found 2026-08-11 while clearing incident #1005: six lanes' roo
 **Fix:** drop the event filter — the newest COMPLETED run proves lane health regardless of trigger; a cron that silently stops firing still ages out and alarms. The success-without-evidence guard and completed-run selection are untouched.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+## ORPHAN-HIGH-637 — the nightly executor consumed ONE request per run against a producer that mints many per cycle: the agent queue could only grow — RESOLVED (this PR)
+
+Severity: HIGH. By 2026-08-11 the queue held 162 pending judge requests; at one claim per 02:00 cron the judged-judges calibration loop could mathematically never catch up. `MAX_REQUESTS_PER_RUN=30` was exported by the workflow and read by NOTHING (`_max_requests()` had zero callers) — the "tunable that gates nothing" class ci_executor.py itself condemns at ORPHAN-HIGH-472. A second latent defect rode along: the workflow passed only the request id, so every scheduled dispatch ran under the `aria-evidence-judge` default profile even when the kernel minted the request for a different agent.
+
+**Fix:** `drain_pending` in `tools/aria-poc/ci_executor.py` — the scheduled lane loops next-pending → dispatch until the queue empties, `MAX_REQUESTS_PER_RUN` is reached, or the wall-clock budget (`ARIA_DRAIN_BUDGET_SECONDS`, default 2100s inside the 45-minute job) is spent. Each request still runs through the LOCKED single-request argv as a subprocess (invariant I-V3-21) with `target_agent` passed through from the request row. A request that comes back pending after being attempted stops the loop — an environment fault must not be priced as N request failures (the M-2.5 class). Child envelope/transcript paths are aggregated into the step outputs so the artifact upload carries the whole night, not the last request. Any child failure turns the run red WITHOUT discarding submitted successes. Operator-targeted `workflow_dispatch` with `request_id` keeps exact single-request semantics.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-MEDIUM-636 — performance tests asserted wall-clock absolutes on shared runners: whichever branch drew the slow machine went red — RESOLVED (this PR)
+
+Severity: MEDIUM. Run 31506624662 failed #1175's CI-Full on `alert-engine.performance.spec.ts` ("queue 1000 notifications < 100ms": measured 154.9ms) — content-unrelated; the branch drew a loaded runner. The class made CI reds look random ("sürekli farklı şeyler düşüyor").
+
+**Fix:** a fixed busy-workload is timed once per spec run and every bound scales by the measured machine-speed factor (floor 1.0 so a fast machine cannot tighten bounds and invent regressions). All 9 wall-clock assertions in the spec converted; regression-catch property survives, runner-speed sensitivity dies. 20/20 tests green locally.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-635 — consensus treated every judge as equal and every passing score as safe: no weighting, no abstention guarantee — RESOLVED (this PR, Kalibre Zekâ Z2a/Z2c)
+
+Severity: HIGH. The unanimity gate ignored everything ARIA knows about its judges (calibration tp/fp existed, weighed nothing), and a consensus scraping past 0.80 auto-published with no statistical guarantee.
+
+**Fix:** `generate_ai_consensus` gains two calibrated knobs, both default-OFF (legacy gate bit for bit): `judge_weights` (Beta-posterior precision means via `judge_weights_from_calibration`; strict-majority + margin vote — two equal judges still degenerate to unanimity, so the legacy guarantee survives; a new judge weighs at the neutral prior) and `conformal_floor` (`conformal_threshold` split-conformal quantile over past correct-consensus confidences, None under 8 samples; below-floor consensus abstains as `conformal_abstain`, severity HIGH in the escalation map). The cycle derives both from the ledgers each cycle; missing ledgers → None → legacy behaviour; failure costs calibration, never consensus.
+
+**Proof:** hand-checked closed forms (10/13 posterior; α=0.1 quantile), 6 new tests incl. legacy-golden and two-equal-judges-degenerate, 154 neighbour tests green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-629 — the duel had no rateable trace: verdicts dropped, risks double-counted, outcomes unrecorded — PARTIALLY RESOLVED (this PR; K2 direction-fidelity remains OPEN)
+
+Severity: HIGH (Kalibre Zekâ Z3). Exploration verified three live defects in the primary-vs-challenger machinery. **This PR closes K1 + K3 and lands the rating substrate:** K1 — the reviewer's `verdict` was asked for by the agent contract, promised by the submit docstring, and dropped by `_normalize_cross_review`; it now persists (legacy rows read back None). K3 — both `cross_review_recorded` events of a round appended the same risks blind, doubling every gate margin and any rating metric; risks now dedup by `risk_id` within the round. Z3b — one knowledge-graph row per evaluated round (`knowledge-graph/duel-ratings.jsonl`, chained `_append_row`, written inside the plan lock; outcomes stored, scores computed at read time via the new deterministic MM-algorithm `bradley_terry` — hand-checked 3-player example). Z4 lands alongside: deterministic `pagerank` over the cached dependency graph; evidence-backed missions get a centrality-scored priority band (CORE keeps 0-3; graph absent → stable enumeration fallback).
+
+**OPEN remainder (same ID):** K2 — `submit_cross_review_v8` still writes the SAME risks list to both directions, so per-side attribution is approximate until the submit path carries per-direction risks; and Z3d (genesis superiority gate over `eval_window_passed`) follows once ratings accumulate. Owner: claude, next session window.
+
+**Owner:** claude (this session). **Status:** K1/K3/Z3b/Z4 RESOLVED; K2+Z3d OPEN.

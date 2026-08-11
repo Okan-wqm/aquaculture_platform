@@ -624,22 +624,60 @@ def _render_label_queue_section(root: Path) -> list[str]:
     return lines
 
 
-# The learning inputs whose starvation must be announced, each with the
-# producer chain a reader would need to walk. Extraction is defensive-free:
-# a missing sub-object reads as 0, which is exactly the starved shape.
+# The learning inputs whose starvation must be announced, each read from the
+# ledger its PRODUCER actually writes (Kalibre Zekâ Z5a, ORPHAN-HIGH-628).
+# The first draft extracted these keys from cycles.jsonl rows — which the
+# CycleRow schema (cycle.py, v3) structurally cannot carry, verified against
+# the live store: every window was [0,0,0,0,0] by construction, so the
+# sentinel would have fired three false alarms at the fifth completed cycle
+# and then cried wolf forever. A sentinel that thinks it measures and
+# doesn't is worse than none.
 SIGNAL_WINDOW_CYCLES = 5
+
+
+def _judged_judges_series(root: Path) -> list[int]:
+    from .judge_calibration import calibration_path
+    from .strict_jsonl_reader import read_strict_jsonl
+
+    path = calibration_path(root)
+    if not path.exists():
+        return []
+    rows = list(read_strict_jsonl(path, on_corruption="tolerant"))
+    return [int(row.get("judged_judges") or 0) for row in rows[-SIGNAL_WINDOW_CYCLES:]]
+
+
+def _labelled_tool_series(root: Path) -> list[int]:
+    # Same eligibility as goldset.propose_goldsets_for_labelled_tools: a
+    # tool counts once it has any labelled ground truth.
+    from .feedback_store import load_feedback
+
+    labelled = {
+        str(row.get("tool_id"))
+        for row in load_feedback(base_dir=root)
+        if row.get("verdict") in ("true_positive", "false_positive")
+        and row.get("source_type") in ("human", "ai_consensus", None)
+    }
+    return [len(labelled)]
+
+
+def _synced_tool_series(root: Path) -> list[int]:
+    from .tool_registry import list_tools
+
+    return [len(list_tools(base_dir=root))]
+
+
 WATCHED_SIGNALS: dict[str, dict[str, Any]] = {
     "judged_judges": {
-        "extract": lambda row: ((row.get("judge_calibration") or {}).get("judged_judges") or 0),
-        "producer_chain": "accepted results -> judge fan-out -> judge_calibration",
+        "series_fn": "_judged_judges_series",
+        "producer_chain": "accepted results -> judge fan-out -> judge_calibration.jsonl",
     },
     "labelled_tool_count": {
-        "extract": lambda row: ((row.get("goldset_proposal") or {}).get("labelled_tool_count") or 0),
-        "producer_chain": "operator feedback -> goldset_proposal",
+        "series_fn": "_labelled_tool_series",
+        "producer_chain": "operator feedback -> operator-feedback.jsonl",
     },
     "synced_tool_ids": {
-        "extract": lambda row: len((row.get("tool_manifest_sync") or {}).get("synced_tool_ids") or []),
-        "producer_chain": "tools/aria-adapters/*.tool.json -> tool_manifest_sync",
+        "series_fn": "_synced_tool_series",
+        "producer_chain": "tools/aria-adapters/*.tool.json -> registry.json",
     },
 }
 
@@ -647,9 +685,12 @@ WATCHED_SIGNALS: dict[str, dict[str, Any]] = {
 def _compute_dataflow_health(root: Path) -> dict[str, Any]:
     """Report which watched signals stayed zero across the recent window.
 
-    Starvation requires a FULL window of zeros: fewer completed cycles than
-    the window is "insufficient history", not an alarm — a brand-new store
-    must not open with three starvation flags.
+    Starvation requires a FULL window of zeros AND enough completed-cycle
+    history: fewer completed cycles than the window is "insufficient
+    history", not an alarm — a brand-new store must not open with three
+    starvation flags. Cycle history still comes from cycles.jsonl (row
+    COUNT is exactly what its schema does carry); the VALUES come from
+    each signal's own producer ledger.
     """
     from .ledger import load_declared_jsonl
 
@@ -657,12 +698,22 @@ def _compute_dataflow_health(root: Path) -> dict[str, Any]:
         rows = load_declared_jsonl(root / "cycles.jsonl", expected_surface="cycles")
     except Exception:
         rows = []
-    window = [row for row in rows if row.get("status") == "completed"][-SIGNAL_WINDOW_CYCLES:]
+    completed = sum(1 for row in rows if row.get("status") == "completed")
+    history_full = completed >= SIGNAL_WINDOW_CYCLES
     signals: dict[str, Any] = {}
     starved: list[str] = []
     for name, spec in WATCHED_SIGNALS.items():
-        values = [spec["extract"](row) for row in window]
-        is_starved = len(window) >= SIGNAL_WINDOW_CYCLES and all(v == 0 for v in values)
+        try:
+            # Resolved through the module at CALL time (not captured at
+            # import) so tests can patch the series functions and the dict
+            # cannot hold a stale reference.
+            values = globals()[spec["series_fn"]](root)
+        except Exception:
+            values = []
+        # An EMPTY producer ledger after a full history window IS the
+        # starved case — the producer never wrote at all, which is the
+        # strongest form of the signal this sentinel exists for.
+        is_starved = history_full and all(v == 0 for v in values)
         signals[name] = {
             "window_values": values,
             "starved": is_starved,
@@ -671,7 +722,7 @@ def _compute_dataflow_health(root: Path) -> dict[str, Any]:
         if is_starved:
             starved.append(name)
     return {
-        "window_cycles": len(window),
+        "window_cycles": min(completed, SIGNAL_WINDOW_CYCLES),
         "signals": signals,
         "starved": starved,
     }
@@ -931,23 +982,29 @@ def _render_replay_recall_section(root: Path) -> list[str]:
     )
     if latest is None:
         return []
-    tools = (latest.get("judge_replay") or {}).get("tools") or []
+    replay = latest.get("judge_replay") or {}
+    tools = replay.get("tools") or []
     if not tools:
         return []
+    # Z2d — the per-tool rows are {tool_id, status, replayed_items}; recall
+    # lives at the PHASE level (`replay_recall`, the calibration dict over
+    # the replay: group). The first draft read row["recall"], which does
+    # not exist, so recall never rendered.
+    recall_summary = replay.get("replay_recall") or {}
     lines = [
         "## Judge Replay Recall",
         "",
+        f"- Replay-judged judges: {recall_summary.get('judged_judges', 0)}",
         f"- Cycle: `{latest.get('cycle_id')}`",
     ]
     for row in tools[:8]:
         if not isinstance(row, dict):
             continue
-        recall = row.get("recall") or {}
         lines.append(
             f"- {row.get('tool_id')}: {row.get('status')}"
             + (
-                f" (judged {recall.get('judged_judges')}, recall {recall.get('recall')})"
-                if isinstance(recall, dict) and recall
+                f" (replayed {row.get('replayed_items')})"
+                if row.get("replayed_items")
                 else ""
             )
         )

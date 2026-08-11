@@ -615,6 +615,23 @@ def build_parser() -> argparse.ArgumentParser:
     feedback_parser = add_subparser(sub, "feedback")
     feedback_sub = feedback_parser.add_subparsers(dest="feedback_command", required=True)
 
+    # The verbs the kernel has been PRINTING into every judgment sample's
+    # operator instructions since Plan 016 — and never implemented. The
+    # sample said `aria-kernel feedback record …`; the parser knew only
+    # add/import/list/migrate. The documented label channel was a phantom,
+    # and judge calibration's human ground truth stayed empty partly for it.
+    fb_record = add_subparser(feedback_sub, "record")
+    fb_record.add_argument("--tool-id", required=True)
+    fb_record.add_argument("--run-id", required=True)
+    fb_record.add_argument("--finding-id", required=True)
+    fb_record.add_argument("--verdict", required=True, choices=["true_positive", "false_positive"])
+    fb_record.add_argument("--severity", default="medium", choices=["low", "medium", "high", "critical"])
+    fb_record.add_argument("--note", required=True)
+    fb_record.add_argument("--finding-fingerprint", default=None)
+    fb_batch = add_subparser(feedback_sub, "record-batch")
+    fb_batch.add_argument("--sample-id", required=True)
+    fb_batch.add_argument("--file", required=True)
+
     add_parser = add_subparser(feedback_sub, "add")
     add_workspace_args(add_parser)
     add_parser.add_argument("--kind", required=True)
@@ -2103,6 +2120,10 @@ def build_parser() -> argparse.ArgumentParser:
     hr_resolve = add_subparser(hr_sub, "resolve")
     hr_resolve.add_argument("--request-id", required=True)
     hr_resolve.add_argument("--resolution-note", required=True)
+    # The ONE wired human-verdict path into calibration ground truth
+    # (Plan 024 §B fan-out in resolve_human_required) — and the CLI never
+    # exposed the parameter, so the fan-out was dead from every keyboard.
+    hr_resolve.add_argument("--verdict", default=None, choices=["true_positive", "false_positive"])
     hr_sweep = add_subparser(hr_sub, "sweep")
     consensus_parser = add_subparser(sub, 
         "consensus",
@@ -2437,6 +2458,30 @@ def _main(argv: list[str] | None = None) -> int:
             legacy_paths = resolve_paths(args)
             require_workspace_v2(legacy_paths)
             print(json.dumps(run_cycle(legacy_paths), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "feedback" and args.feedback_command == "record":
+        from aria_kernel.feedback_store import record_operator_feedback
+        print(json.dumps(record_operator_feedback(
+            tool_id=args.tool_id,
+            run_id=args.run_id,
+            finding_id=args.finding_id,
+            verdict=args.verdict,
+            severity=args.severity,
+            note=args.note,
+            finding_fingerprint=args.finding_fingerprint,
+            base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "feedback" and args.feedback_command == "record-batch":
+        from aria_kernel.feedback_store import record_operator_feedback_batch
+        payload = json.loads(Path(args.file).read_text(encoding="utf-8"))
+        print(json.dumps(record_operator_feedback_batch(
+            sample_id=args.sample_id,
+            verdict_payload=payload,
+            base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
         return 0
 
     if args.command == "feedback" and args.feedback_command == "add":
@@ -4283,6 +4328,7 @@ def _main(argv: list[str] | None = None) -> int:
             row = resolve_human_required(
                 request_id=args.request_id,
                 resolution_note=args.resolution_note,
+                verdict=args.verdict,
                 base_dir=args.tools_dir,
             )
             print(json.dumps(row, indent=2, sort_keys=True))

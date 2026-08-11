@@ -9163,3 +9163,33 @@ Severity: MEDIUM. Discovered 2026-08-11 from the first two scheduled runs over t
 **Proof:** 58 workflow-contract/executor tests green; injection + sha-pin + kernel-setup workflow gates green; local timed adapter run recorded above. Verification per plan: next scheduled auto-cycle must seal with `non_ok_tools` empty, and the executor dispatch must pass the pre-claim gate without a new `env_deps_missing` governance row.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-625 — runner-contract updates never reached the runtime: the sync re-registered birth statuses, the matrix read lifecycle advances as demotions, and refused silently — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-11 supervising the first post-#1173 live cycle (run 31466792131): tenant-scoping-adapter failed `budget_exceeded` AGAIN, two cycles after its timeout fix "merged".
+
+**Root cause chain, each link verified:** `run_tool` reads the runner definition from the LIVE registry (aria/state `tools/registry.json`), not the repo manifest. The registry row still carried `timeout_ms: 180000` (and NO `node_max_old_space_mb` — the #1165 heap contract had never landed either; the OOMs stopped only because the runner's default happened to suffice). `_phase_tool_manifest_sync` re-registers every manifest each cycle — but passes the manifest's `status` verbatim, and the tool's live status had advanced SHADOW→CALIBRATE, so `register_tool` refused every re-registration as a demotion (`'CALIBRATE' -> 'SHADOW' must route through transition_tool()` — reproduced in isolation). The refusal was recorded in a phase result nobody surfaced: manifest said one thing, runtime did another, nothing said why.
+
+**Fix:** the manifest's `status` is the BIRTH status; the live lifecycle owns it afterward. On re-registration the sync now carries the LIVE status, which routes through the matrix's same-status lane ("manifest hash drift → allow; parser/runner update") — built for exactly this. Quarantine is not weakened but strengthened: QUARANTINED re-registers as QUARANTINED (contract refreshes, status survives, audited unquarantine stays the only way back) — the old test asserted the refusal COUNT and is updated to assert the status property it actually cared about.
+
+**Proof:** new test reproduces the live defect end-to-end (register SHADOW → transition CALIBRATE → manifest update → sync → timeout 420000 lands AND status stays CALIBRATE) + quarantine-survives test; 114 registry/sync/quarantine tests green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-626 — ARIA pushed branches and never looked back: no component read its own PRs' check verdicts, so wrong code meant a silently blocked PR forever — RESOLVED (this PR)
+
+Severity: HIGH. Raised 2026-08-11 by the operator ("belki kodu yanlış yazdı — Actions'taki PR'larını takip etmeli"); exploration confirmed the loop was MISSING end to end.
+
+**The dead-parts inventory (the program's signature class):** `auto_merge_runners.poll_pr_checks` — a complete `gh pr checks` classifier (`ci_check_red`/`timeout`/`all_success`) — had zero production callers. The whole of `ci.py` (record_ci_report → `ci/workflow-runs.jsonl` + `ci/failures.jsonl` + PR gate + remediation proposals) had zero producers, while `executor.py` READ `ci/failures.jsonl` for flaky fingerprints — a reader waiting years for a writer. The real `GhCliGitHubAdapter.get_checks` was unreachable on the nightly: `standard` profile receives a Recording adapter whose check list is always empty, the lane exported no GH token, and its permissions carried no `checks:read`. The `failing_ci` plan-candidate scanner watched only MAIN and, tokenless, silently returned `[]`.
+
+**Fix — the loop, wired with the parts that existed:**
+
+- `github_adapters.select_checks_reader`: the Recording split exists for WRITE safety; a read-only check scan is exactly what the standard nightly should observe. `standard/strict/autonomous` get a narrow `RealChecksReader` (list own PRs + snapshot checks — no write verbs); `observe/frozen` keep recording; no token/gh → `readable: False` with a NAMED reason, never a silent empty list.
+- New cycle phase `pr_ci_scan` (registered BEFORE `pressure`): enumerates own PRs (`aria/*`, `automation/*`; `aria/state` excluded), snapshots via the revived `ci._gh_pr_snapshot`, writes through the revived `ci.record_ci_report` (the flaky-fingerprint reader finally has a producer), and appends open/cleared rows to the new bridge ledger `ci/own-pr-checks.jsonl` (declared surface). RC-2 honored: observation never feeds the breaker.
+- Pressure source `own_pr_ci` (weight 90 — it is confirmed, it is OURS, and every red cycle blocks paid-for work; drift class `process_health`, no new class, parity test pins the tables). Producer reads the bridge; a green PR's `cleared` row retires the pressure the same way the red minted it. Discriminator `pr-N` fans out per PR.
+- Lane wiring: `aria-auto-cycle.yml` gains `checks:read` + `pull-requests:read` + `GH_TOKEN` on the cycle step; the workflow job contract gains the same pair (parity gate forces the two to move together).
+- Report section `## Own PR CI` — the operator's "it wrote wrong code" view; silent when nothing is red.
+
+**Proof:** 9 tests incl. the deliberate break (severing the bridge read leaves a red PR pressureless — the feed link is load-bearing), green-clears-red, named-cause unreadability, phase order, and profile matrix; 228 neighbour/parity tests green; kernel invariants 803 green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

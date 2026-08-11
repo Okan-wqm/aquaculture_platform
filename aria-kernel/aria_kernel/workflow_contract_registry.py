@@ -369,7 +369,16 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 upload_artifact_name_pattern=rf"^aria-state-cache-{_RUN_ID}$",
                 upload_artifact_path_patterns=(rf"^{_STORE_ROOT}$",),
                 retention_days=30,
-                required_permissions=(("contents", "write"), ("actions", "read")),
+                # checks:read + pull-requests:read — ORPHAN-HIGH-626: the
+                # pr_ci_scan phase reads the check verdicts of ARIA's own
+                # open PRs. Read-only pair; the write blast radius is
+                # unchanged (contents:write on refs, ruleset-bounded).
+                required_permissions=(
+                    ("contents", "write"),
+                    ("actions", "read"),
+                    ("checks", "read"),
+                    ("pull-requests", "read"),
+                ),
                 token_source="github_actions_artifact_token",
                 network_policy=("github_artifact", "github_git"),
                 dlp_artifact="aria-auto-cycle-preflight.json",

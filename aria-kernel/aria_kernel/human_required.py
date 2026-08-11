@@ -300,6 +300,11 @@ CONSENSUS_UNCERTAINTY_SEVERITY = {
     # Plan 024 §C — a judge citing evidence that does not resolve in the repo is
     # a fabrication signal; the cheap tier must not be rubber-stamped on it.
     "evidence_not_repo_verified": "HIGH",
+    # Kalibre Zekâ Z2b — a judge group with no numeric confidence at all is
+    # a bridge/schema fault, not a quality verdict; it escalates under its
+    # own name (a reason absent from this map is silently dropped as
+    # benign_not_escalated — that is why this entry MUST exist).
+    "missing_confidence": "MEDIUM",
 }
 
 

@@ -9194,6 +9194,20 @@ Severity: HIGH. Raised 2026-08-11 by the operator ("belki kodu yanlış yazdı �
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-HIGH-628 — a sentinel that thought it measured and never did, a confidence gate that punished honesty, and a recall render over a fictional field — RESOLVED (this PR, Kalibre Zekâ Z5a/Z2b/Z2d)
+
+Severity: HIGH. All three found by the Kalibre Zekâ plan's code-exact exploration (2026-08-11).
+
+**1. The starvation sentinel was structurally blind (Z5a).** `WATCHED_SIGNALS` extracted `judged_judges` etc. from `cycles.jsonl` rows — whose schema (CycleRow v3) cannot carry those keys, verified against the live store: every window was `[0,0,0,0,0]` by construction. At the fifth completed cycle the sentinel (#1156's guard) would fire three false alarms and cry wolf forever. Now each signal reads its PRODUCER's ledger (judge-calibration.jsonl series; labelled-tool count via the goldset eligibility filter over the feedback ledger; registry tool count); cycles.jsonl supplies only history LENGTH (which its schema does carry); an empty producer ledger after a full window IS starved — the strongest form of the signal.
+
+**2. `confidence=None` dragged unanimous consensus under the gate (Z2b).** The bridge may store None; the mean coerced it to 0.0, so a correct 0.95+None pair escalated as "low_confidence". Absent confidence now stays out of the mean; a group with no numeric confidence escalates under its own name `missing_confidence` (severity map entry added — an unmapped reason silently drops as benign).
+
+**3. Replay recall never rendered (Z2d).** The report read `row["recall"]` off per-tool rows shaped `{tool_id, status, replayed_items}`; recall lives at the phase level (`replay_recall`). Render fixed to the real contract; the FAZ 6 fixture that had invented the fictional shape is corrected — a test green over a fictional contract certifies the disagreement.
+
+**Proof:** 5 new tests (producer-ledger read, empty-producer-starved, short-history-quiet, None-out-of-mean, missing_confidence + map pin); 145 neighbour tests green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-HIGH-627 — ARIA's targeting ran on hand-set constants: no number anywhere moved with evidence — RESOLVED (this PR, Kalibre Zekâ Z1)
 
 Severity: HIGH. Raised 2026-08-11 by the operator directive "integrate the most advanced intelligence you know"; the honest reading of ARIA's constitution (every decision number recomputable from append-only ledgers) selects closed-form Bayesian statistics over neural layers — tens of labels cannot train a net, and an opaque weight matrix cannot be written into a governance row.

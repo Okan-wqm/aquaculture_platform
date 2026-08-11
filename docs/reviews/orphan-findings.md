@@ -9203,6 +9203,7 @@ Severity: MEDIUM. Both observed live on 2026-08-11.
 **2. rule-health generator emitted non-compliant markdown (run 31502771221):** unlanguaged fence + raw registry titles beyond 100 columns — the first generated monthly report blocked its own PR. The generator now prepends a targeted `markdownlint-disable MD013 MD040` header with rationale — the same decision, for the same reason, as orphan-findings.md's existing disable: a machine-written evidence artifact must not mangle its payload to satisfy a prose rule. (#1168's already-generated file was hand-fixed on its branch; next month's is born clean.)
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-HIGH-628 — a sentinel that thought it measured and never did, a confidence gate that punished honesty, and a recall render over a fictional field — RESOLVED (this PR, Kalibre Zekâ Z5a/Z2b/Z2d)
 
 Severity: HIGH. All three found by the Kalibre Zekâ plan's code-exact exploration (2026-08-11).

@@ -9151,6 +9151,7 @@ Severity: MEDIUM (process drag, not correctness). Discovered 2026-08-11 while cl
 **Fix (the append-only-ledger precedent, applied):** `.gitattributes` gains `docs/aria/CURRENT_STATE.md merge=ours` — the same file already carries `merge=union` for the findings ledger, with the same reasoning shape: the merge result was never load-bearing, because BOTH sides' hashes are wrong for the merged tree; the true value is regenerated post-merge (`aria:authority-hash:write`), staleness is enforced by `tests/invariants/aria-doc-runtime-ssot.spec.ts`, and the pre-commit auto-repin hook re-derives it on every commit. `ours` removes the textual conflict; the invariant keeps the honesty.
 
 Caveat stated plainly: GitHub's server-side merge machinery may not honor the driver, so PR pages can still SHOW a conflict — but resolution happens in the local trains, which do honor it, and that is where the five hand-resolutions were paid.
+
 ## ORPHAN-MEDIUM-623 — the first honest nights priced two environment gaps as failures: a wide-scope adapter's stale runtime contract, and an executor lane that never provisioned what its agents need — RESOLVED (this PR)
 
 Severity: MEDIUM. Discovered 2026-08-11 from the first two scheduled runs over the completed neural-wiring pipeline (runs 31454198188 auto-cycle, 31456376668 executor).

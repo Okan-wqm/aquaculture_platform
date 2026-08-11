@@ -9233,3 +9233,11 @@ Severity: HIGH. Discovered 2026-08-11: the first live finding-state sweep (#1162
 Severity: CRITICAL (process). The same sweep dry-run shows 23 CRITICALs past deadline (e.g. INFRA-CRITICAL-029 deadline 2026-05-15, AISAFETY-CRITICAL-003 2026-07-26) correctly transitioning OPEN→BLOCKED. The debt-plan manifest's `active_critical_ids` precondition will refuse any sweep PR containing them until each gets a truth-table row (owner + bucket) — by design; the repin tool refuses to write over a changed id list. This is real triage work, not ceremony.
 
 **Owner:** operator + claude (next session window). **Deadline:** 2026-08-25. **Status:** OPEN.
+
+## ORPHAN-MEDIUM-636 — performance tests asserted wall-clock absolutes on shared runners: whichever branch drew the slow machine went red — RESOLVED (this PR)
+
+Severity: MEDIUM. Run 31506624662 failed #1175's CI-Full on `alert-engine.performance.spec.ts` ("queue 1000 notifications < 100ms": measured 154.9ms) — content-unrelated; the branch drew a loaded runner. The class made CI reds look random ("sürekli farklı şeyler düşüyor").
+
+**Fix:** a fixed busy-workload is timed once per spec run and every bound scales by the measured machine-speed factor (floor 1.0 so a fast machine cannot tighten bounds and invent regressions). All 9 wall-clock assertions in the spec converted; regression-catch property survives, runner-speed sensitivity dies. 20/20 tests green locally.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

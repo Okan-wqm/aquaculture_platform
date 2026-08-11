@@ -9251,6 +9251,7 @@ Severity: MEDIUM. Run 31506624662 failed #1175's CI-Full on `alert-engine.perfor
 **Fix:** a fixed busy-workload is timed once per spec run and every bound scales by the measured machine-speed factor (floor 1.0 so a fast machine cannot tighten bounds and invent regressions). All 9 wall-clock assertions in the spec converted; regression-catch property survives, runner-speed sensitivity dies. 20/20 tests green locally.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-HIGH-635 — consensus treated every judge as equal and every passing score as safe: no weighting, no abstention guarantee — RESOLVED (this PR, Kalibre Zekâ Z2a/Z2c)
 
 Severity: HIGH. The unanimity gate ignored everything ARIA knows about its judges (calibration tp/fp existed, weighed nothing), and a consensus scraping past 0.80 auto-published with no statistical guarantee.

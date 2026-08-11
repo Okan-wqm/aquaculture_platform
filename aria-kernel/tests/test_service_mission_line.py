@@ -67,17 +67,43 @@ class ServiceMissionSeedTest(unittest.TestCase):
             self.assertEqual(missions[core]["source_kind"], "service_hardening")
 
     def test_evidence_backed_services_join_the_core(self) -> None:
+        # The fixture carries the PRODUCER's real shape: per_service_pressures
+        # is a LIST of {service, layer, pressures} groups
+        # (impact_graph.cycle_service_examination), not a dict. The original
+        # fixture invented a dict and the first live cycle failed with
+        # "'list' object has no attribute 'get'" — the test had validated the
+        # seeder against a shape the producer never emits (ORPHAN-HIGH-622).
         exam = {
             "examination_order": [
                 {"project": "messaging-service", "changed_files": 3},
                 {"project": "untouched-lib", "changed_files": 0},
             ],
-            "per_service_pressures": {},
+            "per_service_pressures": [],
         }
         result, missions = self._seed(exam)
 
         self.assertIn("messaging-service", missions)
         self.assertNotIn("untouched-lib", missions)
+
+    def test_the_producers_real_list_shape_scopes_pressures(self) -> None:
+        # Content-pin against the live defect: a non-empty producer-shaped
+        # LIST must both survive and scope pressures onto the right service.
+        exam = {
+            "examination_order": [
+                {"project": "sensor-service", "changed_files": 1},
+            ],
+            "per_service_pressures": [
+                {
+                    "service": "sensor-service",
+                    "layer": 2,
+                    "pressures": [{"pressure_id": "p-1"}, {"pressure_id": "p-2"}],
+                },
+            ],
+        }
+        result, _ = self._seed(exam)
+
+        row = next(r for r in result["seeded"] if r["project"] == "sensor-service")
+        self.assertEqual(row["scoped_pressures"], 2)
 
     def test_missions_carry_a_queryable_target_project(self) -> None:
         _, missions = self._seed({})

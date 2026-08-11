@@ -8773,6 +8773,39 @@ state store and publishes with the same run.
 six adapter ids + an approval ref; the same run's tools phase then exercises
 the lifted tools against the provisioned workspace.
 
+## ORPHAN-HIGH-615 — the operator's path into ground truth was printed, promised, and never built — RESOLVED (this PR)
+
+**Severity:** HIGH (judge calibration and the goldset have zero human labels by construction)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, wiring sweep (keşif ajanı B), four defects, one theme:
+
+1. Every judgment sample embeds `aria-kernel feedback record …` in its
+   operator instructions — the verb did not exist (parser knew only
+   add/import/list/migrate).
+2. The ONE wired human-verdict path, `resolve_human_required(verdict=…)`
+   (Plan 024 §B ground-truth fan-out), had no CLI flag; dead from every
+   keyboard.
+3. `calibration_bootstrap.finalize_corpus` wrote `label`/`labeled_at` rows —
+   a schema no ground-truth reader reads. Every label an operator ever
+   finalized was invisible to judge_calibration, goldset and
+   FP-suppression.
+4. `record_seeding_finding` had zero producers; the labeling pool was
+   permanently empty.
+
+**Fix:** the promised verbs are real (`feedback record`, `record-batch`);
+`hr resolve --verdict tp|fp` reaches the fan-out; finalize writes the ONE
+vocabulary (`verdict`/`source_type=human`/`run_id`/`finding_id`, original
+spelling preserved as `legacy_label`); every live finding recorded by
+`record_findings_for_run` seeds the labeling pool (suppressed FPs excluded);
+and the daily report gains a "Labels wanted" section with the ready-made
+command per sample — the report is where the operator already looks.
+
+**En-route (repo-setting, fixed live):** `finding-state-sweep` and
+`aria-daily-report` were ALSO blocked by the repository-level Actions
+setting "allow GitHub Actions to create pull requests" being off — a wall
+behind the workflow-permissions wall #1140 removed. Enabled via the
+actions/permissions API; both lanes redispatched.
+
 ## ORPHAN-HIGH-614 — the widest adapters crashed at a memory ceiling nobody declared — RESOLVED (this PR)
 
 **Severity:** HIGH (2 of 6 adapters cannot complete their first real run)
@@ -9076,5 +9109,17 @@ Three organs of the learning loop's READ side were dead, so every agent dispatch
 **Fix:** `conventions_for_paths` (first production read of the conventions ledger, same verified-chain discipline as `lookup_pattern`); `intent_context_for_files` in twin.py (deterministic, git-derived, never raises into the mint path); mint-time enrichment + renderer sections + fusion-set entries; `rank_pressure_sources` wired into the calibration-recommendation phase and rendered in its report section (first caller).
 
 **Proof:** 12 tests. The binding pair is the deliberate break: dropping `established_knowledge` from the fused envelope fails hash reproduction (the fusion-set addition is load-bearing), and because the binding alone cannot detect a mint that silently stops attaching the sections, the rendered text itself is content-pinned. The claim-envelope AST guard (`test_claim_envelope_binding`) derives the renderer's key set mechanically, so the two new renderer keys could not have shipped without joining the fusion set. Neighbour suites green (212 tests), invariants green (803).
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-622 — the mission seeder validated itself against a shape its producer never emits, and the first live cycle failed on it — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-10 by the FIRST live auto-cycle over the neural-wiring pipeline (run 31437241716): phase `service_mission_seed` failed with `'list' object has no attribute 'get'` and the cycle sealed as failed.
+
+**Root cause:** `impact_graph.cycle_service_examination` emits `per_service_pressures` as a **list** of `{service, layer, pressures}` groups in topological order. The FAZ 3 seeder read it as a dict keyed by project (`per_service.get(project)`), and — the deeper defect — its unit test **invented the dict shape** in its fixture, so the suite validated the consumer against data the producer never produces. A green test over a fictional contract is worse than no test: it certifies the disagreement.
+
+**Fix:** boundary normalization in the seeder (accepts the producer's list shape AND a dict, so a future producer change cannot re-break it); the test fixture now carries the producer's real shape, plus a content-pin test asserting a non-empty producer-shaped list both survives and scopes pressures onto the right service.
+
+**Proof:** 11 seeder tests green including the new live-shape pin; 201 neighbour tests green. The live cycle that found this is the FAZ 8 harness doing its job — the failure was recorded, phase-contained (`record_and_continue` kept sibling phases running), and the state store persisted the evidence.
 
 **Owner:** claude (this session). **Status:** RESOLVED.

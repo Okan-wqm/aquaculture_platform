@@ -586,6 +586,44 @@ def _render_calibration_section(reflection: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _render_label_queue_section(root: Path) -> list[str]:
+    """Samples awaiting an operator verdict, each with its ready-made command.
+
+    The labeling channel failed ergonomically before it failed technically:
+    the kernel printed a CLI verb into every judgment sample that did not
+    exist, and even after the verbs became real, an operator had to dig
+    sample ids out of a raw ledger. The report is where the operator already
+    looks; the command they need is now one copy-paste away. Renders nothing
+    when nothing waits — an empty heading every day teaches the reader to
+    skip the heading.
+    """
+    try:
+        from .strict_jsonl_reader import read_strict_jsonl
+        samples = list(read_strict_jsonl(root / "judgment-samples.jsonl", on_corruption="tolerant"))
+    except OSError:
+        return []
+    if not samples:
+        return []
+    pending = [s for s in samples if not s.get("labels_complete")] or samples
+    latest = pending[-3:]
+    lines = ["", "## Labels wanted", ""]
+    for sample in latest:
+        items = sample.get("items") or []
+        sid = sample.get("sample_id", "?")
+        lines.append(f"- sample `{sid}` — {len(items)} finding(s) awaiting a verdict")
+        batch = sample.get("batch_cli")
+        if batch:
+            lines.append(f"  - batch: `{batch}`")
+        for item in items[:5]:
+            fid = item.get("finding_id", "?")
+            lines.append(
+                f"  - `aria-kernel feedback record --tool-id {sample.get('tool_id','?')} "
+                f"--run-id {item.get('run_id','?')} --finding-id {fid} "
+                f"--verdict true_positive|false_positive --note \"...\"`"
+            )
+    return lines
+
+
 # The learning inputs whose starvation must be announced, each with the
 # producer chain a reader would need to walk. Extraction is defensive-free:
 # a missing sub-object reads as 0, which is exactly the starved shape.
@@ -1019,6 +1057,7 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         *_render_calibration_section(reflection),
         *_render_calibration_recommendation_section(reflection),
         *_render_dataflow_health_section(reflection),
+        *_render_label_queue_section(root),
         *_render_proactive_section(reflection),
         # FAZ 6b — the report is the one published dashboard: counters, SLO,
         # missions, quarantine, replay recall (each ledger's first reader).

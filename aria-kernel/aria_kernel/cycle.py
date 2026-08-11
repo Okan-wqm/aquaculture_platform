@@ -1414,7 +1414,22 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
 
     exam = context.result("service_examination")
     exam = exam if isinstance(exam, dict) else {}
-    per_service = exam.get("per_service_pressures") or {}
+    # The producer (`impact_graph.cycle_service_examination`) emits
+    # per_service_pressures as a LIST of {service, layer, pressures} groups
+    # in topological order — not a dict keyed by project. The first live
+    # cycle over this phase failed with "'list' object has no attribute
+    # 'get'" because the seeder assumed the dict shape its own test had
+    # invented (ORPHAN-HIGH-622). Normalize at the boundary; accept both
+    # shapes so a future producer change cannot re-break the seeder.
+    raw_per_service = exam.get("per_service_pressures") or []
+    if isinstance(raw_per_service, dict):
+        per_service = raw_per_service
+    else:
+        per_service = {
+            str(group.get("service")): (group.get("pressures") or [])
+            for group in raw_per_service
+            if isinstance(group, dict) and group.get("service")
+        }
     order = exam.get("examination_order") or []
     evidence_backed = [
         entry["project"] for entry in order

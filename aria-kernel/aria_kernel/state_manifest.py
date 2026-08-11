@@ -493,6 +493,9 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("ci_reports", "ci/ci-reports.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),
     StateSurface("ci_source", "ci/source.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),
     StateSurface("ci_pr_gates", "ci/pr-ci-gates.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),
+    # Own-PR CI feedback bridge (ORPHAN-HIGH-626): latest row per PR is the
+    # red/cleared state the pressure producer reads back.
+    StateSurface("own_pr_checks", "ci/own-pr-checks.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),
     StateSurface("ci_agent_review_tasks", "ci/agent-review-tasks.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),
     StateSurface("ci_agent_reviews", "ci/agent-reviews.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),
     StateSurface("ci_remediation_proposals", "ci/remediation-proposals.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),

@@ -31,6 +31,11 @@ SOURCE_WEIGHTS = {
     # present at all because nine identical rows producing zero escalation is
     # this repository's recurring defect class.
     "uncertainty_repeat": 55,
+    # ORPHAN-HIGH-626 — a red check on a PR ARIA itself pushed. Weighted at
+    # the top of the table: it is confirmed (CI ran the code), it is OURS
+    # (nobody else will fix it), and every cycle it stays red is a cycle the
+    # merge gate silently blocks work that was already paid for.
+    "own_pr_ci": 90,
 }
 
 # ─── operator-approved weight overrides (Plan tranquil-sniffing-pancake F4.1) ──
@@ -129,6 +134,10 @@ DRIFT_CLASS_BY_SOURCE = {
     # The escalated-advisory source: repetition of what was already recorded,
     # so it biases with the process-health class rather than any code class.
     "uncertainty_repeat": "process_health",
+    # Own red CI is a process-health signal about ARIA's own delivery loop,
+    # not a new code-drift class — reusing the class keeps
+    # genesis_policy_default.json untouched (parity test pins the two tables).
+    "own_pr_ci": "process_health",
 }
 
 PRESSURE_STATES = {"active", "faded", "sleeping", "archived", "closed", "satisfied"}
@@ -287,6 +296,38 @@ def run_pressure(
     # ARIA's repo-evidence machinery at the referenced area; the recommended
     # action makes the unverified status explicit so a lead is never mistaken
     # for a confirmed finding.
+    # ORPHAN-HIGH-626 — own-PR CI reds, from the bridge the pr_ci_scan phase
+    # writes. A PR that went green wrote a `cleared` row, so its pressure
+    # retires the same way the red minted it.
+    from .own_pr_ci import load_open_own_pr_reds
+    for red in load_open_own_pr_reds(base_dir=root):
+        red_jobs = _array_of_strings(red.get("red_jobs"))
+        pressures.append(
+            _pressure(
+                weights=_weights,
+                cycle_id=cycle_id,
+                source="own_pr_ci",
+                pressure_type="UNKNOWN",
+                severity="high",
+                reason=(
+                    f"ARIA's own PR #{red.get('pr_number')} "
+                    f"({red.get('head_ref')}) is RED in CI: "
+                    f"{', '.join(red_jobs) or 'failed checks'}"
+                ),
+                # The truthful pointer: the PR head the checks ran against.
+                # Free-form by design (pressure evidence is a lead, not the
+                # agent-envelope's admissible-evidence contract).
+                evidence=[f"pr-{red.get('pr_number')}:{red.get('head_sha') or 'HEAD'}"],
+                occurrence_count=1,
+                candidate_tools=[],
+                recommended_action=(
+                    "read the failing check's log, fix forward on the same "
+                    "branch, and let the merge gate re-evaluate — a red own-PR "
+                    "is paid-for work the gate is silently blocking"
+                ),
+                discriminator=f"pr-{red.get('pr_number')}",
+            ),
+        )
     from .runtime_signal_bridge import load_open_runtime_signals
     for signal in load_open_runtime_signals(base_dir=root):
         severity = signal.get("severity") if signal.get("severity") in ("low", "medium", "high", "critical") else "high"

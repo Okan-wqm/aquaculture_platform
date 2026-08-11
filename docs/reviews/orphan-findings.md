@@ -9175,3 +9175,21 @@ Severity: HIGH. Discovered 2026-08-11 supervising the first post-#1173 live cycl
 **Proof:** new test reproduces the live defect end-to-end (register SHADOW → transition CALIBRATE → manifest update → sync → timeout 420000 lands AND status stays CALIBRATE) + quarantine-survives test; 114 registry/sync/quarantine tests green.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-626 — ARIA pushed branches and never looked back: no component read its own PRs' check verdicts, so wrong code meant a silently blocked PR forever — RESOLVED (this PR)
+
+Severity: HIGH. Raised 2026-08-11 by the operator ("belki kodu yanlış yazdı — Actions'taki PR'larını takip etmeli"); exploration confirmed the loop was MISSING end to end.
+
+**The dead-parts inventory (the program's signature class):** `auto_merge_runners.poll_pr_checks` — a complete `gh pr checks` classifier (`ci_check_red`/`timeout`/`all_success`) — had zero production callers. The whole of `ci.py` (record_ci_report → `ci/workflow-runs.jsonl` + `ci/failures.jsonl` + PR gate + remediation proposals) had zero producers, while `executor.py` READ `ci/failures.jsonl` for flaky fingerprints — a reader waiting years for a writer. The real `GhCliGitHubAdapter.get_checks` was unreachable on the nightly: `standard` profile receives a Recording adapter whose check list is always empty, the lane exported no GH token, and its permissions carried no `checks:read`. The `failing_ci` plan-candidate scanner watched only MAIN and, tokenless, silently returned `[]`.
+
+**Fix — the loop, wired with the parts that existed:**
+
+- `github_adapters.select_checks_reader`: the Recording split exists for WRITE safety; a read-only check scan is exactly what the standard nightly should observe. `standard/strict/autonomous` get a narrow `RealChecksReader` (list own PRs + snapshot checks — no write verbs); `observe/frozen` keep recording; no token/gh → `readable: False` with a NAMED reason, never a silent empty list.
+- New cycle phase `pr_ci_scan` (registered BEFORE `pressure`): enumerates own PRs (`aria/*`, `automation/*`; `aria/state` excluded), snapshots via the revived `ci._gh_pr_snapshot`, writes through the revived `ci.record_ci_report` (the flaky-fingerprint reader finally has a producer), and appends open/cleared rows to the new bridge ledger `ci/own-pr-checks.jsonl` (declared surface). RC-2 honored: observation never feeds the breaker.
+- Pressure source `own_pr_ci` (weight 90 — it is confirmed, it is OURS, and every red cycle blocks paid-for work; drift class `process_health`, no new class, parity test pins the tables). Producer reads the bridge; a green PR's `cleared` row retires the pressure the same way the red minted it. Discriminator `pr-N` fans out per PR.
+- Lane wiring: `aria-auto-cycle.yml` gains `checks:read` + `pull-requests:read` + `GH_TOKEN` on the cycle step; the workflow job contract gains the same pair (parity gate forces the two to move together).
+- Report section `## Own PR CI` — the operator's "it wrote wrong code" view; silent when nothing is red.
+
+**Proof:** 9 tests incl. the deliberate break (severing the bridge read leaves a red PR pressureless — the feed link is load-bearing), green-clears-red, named-cause unreadability, phase order, and profile matrix; 228 neighbour/parity tests green; kernel invariants 803 green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

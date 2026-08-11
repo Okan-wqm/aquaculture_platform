@@ -3327,10 +3327,10 @@ But the service was missing the corresponding `volumes:` block. Every other NATS
 
 ```yaml
 volumes:
-  - *nats-ca-mount             # ./certs/nats/ca-cert.pem      → /etc/ssl/nats-ca.pem
-  - *nats-clients-mount        # ./certs/nats/clients/         → /etc/ssl/nats-clients/
-  - *nats-client-cert-mount    # ./certs/nats/client-cert.pem  → /etc/ssl/nats-client-cert.pem
-  - *nats-client-key-mount     # ./certs/nats/client-key.pem   → /etc/ssl/nats-client-key.pem
+  - *nats-ca-mount # ./certs/nats/ca-cert.pem      → /etc/ssl/nats-ca.pem
+  - *nats-clients-mount # ./certs/nats/clients/         → /etc/ssl/nats-clients/
+  - *nats-client-cert-mount # ./certs/nats/client-cert.pem  → /etc/ssl/nats-client-cert.pem
+  - *nats-client-key-mount # ./certs/nats/client-key.pem   → /etc/ssl/nats-client-key.pem
 ```
 
 `libs/backend-common/src/nats/nats-connection.factory.ts` resolves `NATS_TLS_CA` with `fs.readFileSync()` at bootstrap and hard-fails with the message above when the file isn't present at the configured path. With no `volumes:` block, `/etc/ssl/nats-ca.pem` did not exist inside the container, so Nest bootstrap aborted before any module was even constructed.
@@ -9244,6 +9244,22 @@ Severity: CRITICAL (process). The same sweep dry-run shows 23 CRITICALs past dea
 
 **Owner:** operator + claude (next session window). **Deadline:** 2026-08-25. **Status:** OPEN.
 
+## ORPHAN-MEDIUM-634 — the watchdog only believed the calendar: a healed lane stayed "stale" for days because green dispatches did not count — RESOLVED (this PR)
+
+Severity: MEDIUM. Found 2026-08-11 while clearing incident #1005: six lanes' root fixes were merged and their dispatches green, yet the hourly watchdog stayed red — its freshness proof was schedule-event-only, and a rerun of an old scheduled run executes the ORIGINAL commit (without the fix), so weekly/monthly lanes could not clear before their next cron.
+
+**Fix:** drop the event filter — the newest COMPLETED run proves lane health regardless of trigger; a cron that silently stops firing still ages out and alarms. The success-without-evidence guard and completed-run selection are untouched.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-637 — the nightly executor consumed ONE request per run against a producer that mints many per cycle: the agent queue could only grow — RESOLVED (this PR)
+
+Severity: HIGH. By 2026-08-11 the queue held 162 pending judge requests; at one claim per 02:00 cron the judged-judges calibration loop could mathematically never catch up. `MAX_REQUESTS_PER_RUN=30` was exported by the workflow and read by NOTHING (`_max_requests()` had zero callers) — the "tunable that gates nothing" class ci_executor.py itself condemns at ORPHAN-HIGH-472. A second latent defect rode along: the workflow passed only the request id, so every scheduled dispatch ran under the `aria-evidence-judge` default profile even when the kernel minted the request for a different agent.
+
+**Fix:** `drain_pending` in `tools/aria-poc/ci_executor.py` — the scheduled lane loops next-pending → dispatch until the queue empties, `MAX_REQUESTS_PER_RUN` is reached, or the wall-clock budget (`ARIA_DRAIN_BUDGET_SECONDS`, default 2100s inside the 45-minute job) is spent. Each request still runs through the LOCKED single-request argv as a subprocess (invariant I-V3-21) with `target_agent` passed through from the request row. A request that comes back pending after being attempted stops the loop — an environment fault must not be priced as N request failures (the M-2.5 class). Child envelope/transcript paths are aggregated into the step outputs so the artifact upload carries the whole night, not the last request. Any child failure turns the run red WITHOUT discarding submitted successes. Operator-targeted `workflow_dispatch` with `request_id` keeps exact single-request semantics.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-MEDIUM-636 — performance tests asserted wall-clock absolutes on shared runners: whichever branch drew the slow machine went red — RESOLVED (this PR)
 
 Severity: MEDIUM. Run 31506624662 failed #1175's CI-Full on `alert-engine.performance.spec.ts` ("queue 1000 notifications < 100ms": measured 154.9ms) — content-unrelated; the branch drew a loaded runner. The class made CI reds look random ("sürekli farklı şeyler düşüyor").
@@ -9266,7 +9282,7 @@ Severity: HIGH. The unanimity gate ignored everything ARIA knows about its judge
 
 Severity: HIGH (Kalibre Zekâ Z3). Exploration verified three live defects in the primary-vs-challenger machinery. **This PR closes K1 + K3 and lands the rating substrate:** K1 — the reviewer's `verdict` was asked for by the agent contract, promised by the submit docstring, and dropped by `_normalize_cross_review`; it now persists (legacy rows read back None). K3 — both `cross_review_recorded` events of a round appended the same risks blind, doubling every gate margin and any rating metric; risks now dedup by `risk_id` within the round. Z3b — one knowledge-graph row per evaluated round (`knowledge-graph/duel-ratings.jsonl`, chained `_append_row`, written inside the plan lock; outcomes stored, scores computed at read time via the new deterministic MM-algorithm `bradley_terry` — hand-checked 3-player example). Z4 lands alongside: deterministic `pagerank` over the cached dependency graph; evidence-backed missions get a centrality-scored priority band (CORE keeps 0-3; graph absent → stable enumeration fallback).
 
-**OPEN remainder (same ID):** K2 — `submit_cross_review_v8` still writes the SAME risks list to both directions, so per-side attribution is approximate until the submit path carries per-direction risks; and Z3d (genesis superiority gate over `eval_window_passed`) follows once ratings accumulate. Owner: claude, next session window.
+**OPEN remainder (same ID):** ~~K2 + Z3d~~ — CLOSED 2026-08-11 (`feat/duel-direction-and-superiority-gate`): K2 — each risk row may carry `applies_to_direction` (omitted = both; legacy envelopes read back bit-identically); direction records now carry direction-scoped risks, per-direction content hashes, and per-direction verdicts (`verdicts` map with scalar fallback); unknown values refuse loudly. Z3d — the ACTIVE promotion gate no longer reads the caller's `eval_window_passed` bool: `record_transition` injects a kernel-computed proof (`genesis_superiority.compute_eval_window_superiority` = `compare_eval_windows` must read `improved` + Bradley-Terry duel superiority once ≥`min_duel_matches` decided duels exist; thin duel ledger defers to the window), and `validate_transition` accepts only that proof — the legacy bool alone can never validate (deliberate-break test).
 
 **Owner:** claude (this session). **Status:** K1/K3/Z3b/Z4 RESOLVED; K2+Z3d OPEN.
 
@@ -9277,3 +9293,11 @@ Severity: MEDIUM (Kalibre Zekâ Z7). Finding fingerprints are sha256 over normal
 **Landed:** `aria_kernel/semantic_memory.py` — model-agnostic seam (`ARIA_EMBEDDER_CMD`: text on stdin → JSON float array on stdout; `ARIA_EMBEDDER_MODEL_ID` labels the space), hash-chained `knowledge-graph/embeddings.jsonl` (vectors are an index, recomputable given the model), plain-python cosine `nearest()` that never compares across model_ids. Without a model EVERY entry point is a structured no-op (None / [] / no ledger side effects) — callers never branch on availability. 5 tests incl. no-op discipline + determinism.
 
 **OPEN remainder (operator):** supply the embedder (local sentence-transformer wrapper or an AI-service read-only bridge) by setting the two env vars on the runner; then wire the two consumers (judgment-sample enrichment; FP-suppression soft-match as OBSERVATION, never suppression). Owner: operator (model) + claude (consumers, next window after model lands). Deadline: 2026-09-15.
+## ORPHAN-HIGH-638 — instruction/data boundary in agent prompts was typographic, not structural; and two prompt serialisers had already drifted — RESOLVED (this PR)
+
+Severity: HIGH (Kalibre Zekâ Z8). The three-layer prompt standard (markdown instructions + XML-tagged data payloads + strict JSON response) existed only for the cross-reviewer/implementer `<untrusted_*>` tags; every other derived-data section (repository map, established knowledge, recent intent, evidence list) sat untagged in the instruction stream — prompt-injection text inside them was typographically indistinguishable from kernel instructions. Discovered alongside: `planner_dispatch_hook._serialise_claim_metadata_for_env` never carried FAZ 4's `established_knowledge`/`recent_intent` — a knowledge-bearing request dispatched via the planner hook would fail its prompt-hash binding (latent; planner-role refs never attach knowledge, which is why it never fired).
+
+**Fix:** `render_invocation_prompt` v2 wraps all derived-data sections in `<derived_context section="...">` / `<evidence_payload>` tags plus an explicit data-notice line. Version selection is ON THE ROW: `create_agent_invocation_request` — the single request producer — stamps `prompt_render_version = PROMPT_RENDER_VERSION (2)` on every mint (**no_legacy_mint: the legacy format is unmintable by construction**); an absent field means a historical row and renders v1 solely so recorded prompt hashes keep replaying (append-only audit history is never rewritten). Both serialisers (`fuse_prompt_envelope` via `_FUSED_ENVELOPE_KEYS`, planner-hook env serialiser) carry the version + knowledge fields — the FAZ 4 AST sync test pins the first, `test_prompt_render_versioning.py` pins the rest (deliberate-break: removing the dispatch or the stamp goes red).
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+**Owner:** claude (this session). **Status:** RESOLVED (K1/K3/Z3b/Z4 in #1184; K2+Z3d in this PR).

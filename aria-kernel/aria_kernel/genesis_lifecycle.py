@@ -127,8 +127,19 @@ def validate_transition(
         validators = {str(item) for item in evidence.get("validators") or [] if str(item).strip()}
         if len(reviewers | validators) < 2:
             reasons.append("active_requires_2_reviewers_or_validators")
-        if evidence.get("eval_window_passed") is not True:
-            reasons.append("active_requires_eval_window_passed")
+        # Z3d (ORPHAN 630 class) — the gate no longer reads the caller's
+        # `eval_window_passed` bool: any caller could promote by asserting
+        # the very thing the gate existed to measure. It reads the
+        # KERNEL-COMPUTED proof `record_transition` injects from
+        # genesis_superiority.compute_eval_window_superiority; a hand-built
+        # evidence dict without that computation cannot validate.
+        proof = evidence.get("resolved_eval_window_superiority")
+        if not isinstance(proof, dict) or proof.get("passed") is not True:
+            reasons.append("active_requires_kernel_computed_eval_superiority")
+        elif not isinstance(proof.get("window"), dict) or not isinstance(
+            proof.get("duel"), dict
+        ):
+            reasons.append("active_superiority_proof_missing_components")
 
     return GenesisLifecycleVerdict(valid=not reasons, reasons=tuple(reasons))
 
@@ -291,6 +302,18 @@ def record_transition(
     if to_state not in GENESIS_LIFECYCLE_STATES:
         raise GovernanceError(f"genesis_lifecycle_unknown_state:{to_state!r}")
     from_state = current_lifecycle_state(entity_id=entity_id, base_dir=base_dir)
+    if to_state == "ACTIVE":
+        # Z3d — compute the superiority proof BEFORE validation and OVERWRITE
+        # whatever the caller put under this key: the promotion gate reads
+        # only what the kernel measured (verify_shadow_eval_proof pattern).
+        from .genesis_superiority import compute_eval_window_superiority
+
+        evidence = {
+            **evidence,
+            "resolved_eval_window_superiority": compute_eval_window_superiority(
+                entity_id=entity_id, base_dir=base_dir
+            ),
+        }
     verdict = validate_transition(from_state=from_state, to_state=to_state, evidence=evidence)
     if not verdict.valid:
         raise GovernanceError("genesis_lifecycle_transition_rejected:" + ";".join(verdict.reasons))

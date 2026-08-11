@@ -23,7 +23,13 @@ describe('production operations proof contract', () => {
     expect(manifest.workflows.every((item) => item.maxAgeHours > 0)).toBe(true);
     expect(workflow).toContain('actions: read');
     expect(workflow).toContain('issues: write');
-    expect(workflow).toContain("event: 'schedule'");
+    // ORPHAN-MEDIUM-634 — the schedule-only freshness filter is deliberately
+    // GONE: a green completed run proves lane health regardless of trigger
+    // (a rerun of an old scheduled run executes the original commit and can
+    // never carry a merged fix). Pin the new contract instead: the judge
+    // selects the newest COMPLETED run and no event filter narrows it.
+    expect(workflow).not.toContain("event: 'schedule'");
+    expect(workflow).toContain("candidate.status === 'completed'");
     expect(workflow).toContain("state: 'open'");
     expect(workflow).toContain('assignees: [owner]');
     expect(workflow).toContain('core.setFailed');

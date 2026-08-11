@@ -9141,3 +9141,15 @@ Severity: HIGH. Discovered 2026-08-10 by the FIRST live auto-cycle over the neur
 **Proof:** 11 seeder tests green including the new live-shape pin; 201 neighbour tests green. The live cycle that found this is the FAZ 8 harness doing its job — the failure was recorded, phase-contained (`record_and_continue` kept sibling phases running), and the state store persisted the evidence.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-MEDIUM-623 — the first honest nights priced two environment gaps as failures: a wide-scope adapter's stale runtime contract, and an executor lane that never provisioned what its agents need — RESOLVED (this PR)
+
+Severity: MEDIUM. Discovered 2026-08-11 from the first two scheduled runs over the completed neural-wiring pipeline (runs 31454198188 auto-cycle, 31456376668 executor).
+
+**1. `tenant-scoping-adapter` hit its own ceiling, twice.** After ORPHAN-HIGH-614 gave it the 3 GiB heap it needed, the adapter stopped OOM-crashing and started _finishing the work_ — which takes longer than its `timeout_ms: 180000` allows on a loaded self-hosted runner (locally: 38.7s / 1.4 GiB peak / 66 findings / 3,784 cost units; the runner shares the box with train jobs). `tool_runner.py` correctly minted `budget_exceeded`, which correctly failed the cycle (`_runtime_status` → fail-closed) — the chain worked; the CONTRACT was stale. Also latent: `cost_units` 3,784 already exceeds its declared `max_cost_units: 3500`. Raised: `timeout_ms` 180000→420000, `max_cost_units` 3500→6000. The 5 MiB stdout cap and the fail-closed chain are untouched — they are correct.
+
+**2. The executor lane never provisioned node deps.** FAZ 5's pre-claim gate refused the lane's first live dispatch with `env_deps_missing` — exactly as designed: the request stayed PENDING instead of burning a claim. But the auto-cycle lane carried its provisioning step inline while the executor lane had none — a drift the RC-9 lesson predicts. Extracted to `.github/actions/ensure-node-deps` (guarded `npm ci --ignore-scripts`, no-op once provisioned); both lanes call the one definition.
+
+**Proof:** 58 workflow-contract/executor tests green; injection + sha-pin + kernel-setup workflow gates green; local timed adapter run recorded above. Verification per plan: next scheduled auto-cycle must seal with `non_ok_tools` empty, and the executor dispatch must pass the pre-claim gate without a new `env_deps_missing` governance row.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

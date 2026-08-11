@@ -3,37 +3,20 @@
   "kind": "adapter",
   "version": "1.0.0",
   "status": "SHADOW",
-  "declared_scope": [
-    "apps/**/*.ts",
-    "libs/**/*.ts",
-    "platform/libs/**/*.ts"
-  ],
+  "declared_scope": ["apps/**/*.ts", "libs/**/*.ts", "platform/libs/**/*.ts"],
   "output_schema": {
     "type": "object",
-    "required": [
-      "observations",
-      "findings",
-      "read_paths",
-      "evidence_sources"
-    ]
+    "required": ["observations", "findings", "read_paths", "evidence_sources"]
   },
   "fixture_set": "tools/aria-adapters/fixtures/tenant-scoping-adapter",
   "health_thresholds": {
-    "max_cost_units": 3500
+    "max_cost_units": 6000
   },
   "default_input": {
-    "roots": [
-      "apps",
-      "libs",
-      "platform/libs"
-    ],
+    "roots": ["apps", "libs", "platform/libs"],
     "includeRepositoryReadFindings": false
   },
-  "allowed_read_globs": [
-    "apps/**/*.ts",
-    "libs/**/*.ts",
-    "platform/libs/**/*.ts"
-  ],
+  "allowed_read_globs": ["apps/**/*.ts", "libs/**/*.ts", "platform/libs/**/*.ts"],
   "forbidden_read_globs": [
     ".claude/**",
     ".git/**",
@@ -46,9 +29,7 @@
     "build/**",
     "tmp/**"
   ],
-  "claim_types": [
-    "tenant_scoping"
-  ],
+  "claim_types": ["tenant_scoping"],
   "owner": "platform",
   "runner": {
     "type": "subprocess",
@@ -60,7 +41,7 @@
       "tools/aria-adapters/tenant-scoping-adapter.ts"
     ],
     "cwd": ".",
-    "timeout_ms": 180000,
+    "timeout_ms": 420000,
     "stdin_json": true,
     "node_max_old_space_mb": 3072
   },

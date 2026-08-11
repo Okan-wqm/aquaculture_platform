@@ -1378,8 +1378,44 @@ def _request_fault_requeue_count(rows: list[dict[str, Any]], request_id: str) ->
     )
 
 
+# The canonical result vocabulary, and the legacy spellings that still live in
+# the append-only ledger. Two generations coexist on disk — legacy
+# aria/agent-invocation-result/v1 wrote completed/rejected/partial, Plan 016
+# writes accepted/rejected — and every reader that learns this the hard way is
+# a trap re-armed. Normalization happens at READ time: the ledger stays
+# append-only and byte-stable, rows come back canonical, and the original
+# spelling survives in `legacy_status` for audit.
+CANONICAL_RESULT_STATUSES: frozenset[str] = frozenset({"accepted", "rejected", "partial"})
+_LEGACY_RESULT_STATUS_MAP: dict[str, str] = {
+    "completed": "accepted",
+    # `partial` is deliberately NOT in this map. It is not a legacy spelling
+    # of rejected — it is its own state: something was delivered, the
+    # contract was not met, and `derive_request_state` keeps such a request
+    # SUBMITTED (awaiting adjudication) rather than REJECTED (terminal).
+    # An earlier draft mapped partial→rejected, which silently flipped a
+    # partial row's derived state SUBMITTED→REJECTED and left the SUBMITTED
+    # branch dead — a behaviour change smuggled in as a spelling fix. The
+    # partial-stays-SUBMITTED contract is pinned by test.
+}
+
+
+def _normalize_result_row(row: dict[str, Any]) -> dict[str, Any]:
+    status = str(row.get("status") or "")
+    canonical = _LEGACY_RESULT_STATUS_MAP.get(status)
+    if canonical is None:
+        return row
+    normalized = dict(row)
+    normalized["status"] = canonical
+    normalized["legacy_status"] = status
+    return normalized
+
+
 def _result_rows_for(rows: list[dict[str, Any]], request_id: str) -> list[dict[str, Any]]:
-    return [row for row in rows if row.get("request_id") == request_id]
+    return [
+        _normalize_result_row(row)
+        for row in rows
+        if row.get("request_id") == request_id
+    ]
 
 
 def _claim_rows_for(rows: list[dict[str, Any]], request_id: str) -> list[dict[str, Any]]:
@@ -1450,17 +1486,17 @@ def derive_request_state(
         expected_surface="agent_invocation_claims",
     )
 
-    # Results dominate (terminal states first). The status vocabulary is
-    # the union of legacy aria/agent-invocation-result/v1 ("completed",
-    # "rejected", "partial") and Plan 016 aria/agent-claim-result/v1
-    # ("accepted", "rejected"). Both map onto the same derived states.
+    # Results dominate (terminal states first). Rows arrive CANONICAL from
+    # _result_rows_for (legacy completed/partial spellings normalized at
+    # read; the original survives in legacy_status), so this derivation
+    # compares one vocabulary, not two.
     request_results = _result_rows_for(results, request_id)
     if request_results:
         last = request_results[-1]
         status = last.get("status")
         if status == "rejected":
             return "REJECTED"
-        if status in ("completed", "accepted"):
+        if status == "accepted":
             # Plan 026R §C.5 — bridge-status-aware acceptance.
             # If the accepted row is for a BRIDGE_REQUIRED role and the
             # bridge has NOT succeeded yet, the request is in
@@ -1586,7 +1622,7 @@ def accepted_result_for_request(
     if not rows:
         return None
     last = rows[-1]
-    if str(last.get("status")) not in {"accepted", "completed"}:
+    if str(last.get("status")) != "accepted":
         return None
     if role is not None and str(last.get("role") or "") != role:
         return None

@@ -1243,11 +1243,42 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
         except GovernanceError as exc:
             blocked.append({"tool_id": tool_id, "step": "sample_or_fanout", "reason": str(exc)[:200]})
         try:
+            # Kalibre Zekâ Z2a/Z2c — the two calibrated knobs, derived from
+            # the ledgers each cycle. Missing ledgers → None → the legacy
+            # gate bit for bit; failure costs calibration, never consensus.
+            _judge_weights = None
+            _conformal_floor = None
+            try:
+                from .calibrated_intelligence import (
+                    conformal_threshold,
+                    judge_weights_from_calibration,
+                )
+                from .feedback_store import load_feedback
+                from .judge_calibration import calibration_path
+                from .strict_jsonl_reader import read_strict_jsonl
+
+                _cal_path = calibration_path(context.base_dir)
+                if _cal_path.exists():
+                    _cal_rows = list(read_strict_jsonl(_cal_path, on_corruption="tolerant"))
+                    if _cal_rows:
+                        _judge_weights = judge_weights_from_calibration(_cal_rows[-1]) or None
+                _correct_confidences = [
+                    float(row.get("confidence"))
+                    for row in load_feedback(tool_id=tool_id, base_dir=context.base_dir)
+                    if row.get("source_type") == "ai_consensus"
+                    and isinstance(row.get("confidence"), (int, float))
+                ]
+                _conformal_floor = conformal_threshold(_correct_confidences)
+            except (OSError, ValueError, KeyError, TypeError):
+                _judge_weights = None
+                _conformal_floor = None
             consensus = generate_ai_consensus(
                 tool_id=tool_id,
                 cycle_id=context.cycle_id,
                 base_dir=context.base_dir,
                 workspace_root=context.workspace_root,
+                judge_weights=_judge_weights,
+                conformal_floor=_conformal_floor,
             )
             consensus_rows += len(consensus.get("consensus") or []) if isinstance(consensus, dict) else 0
         except GovernanceError as exc:

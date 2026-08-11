@@ -190,3 +190,53 @@ __all__ = [
     "source_feedback_counts",
     "thompson_rank",
 ]
+
+
+def conformal_threshold(
+    calibration_scores: list[float], *, alpha: float = 0.1
+) -> float | None:
+    """Split-conformal quantile over past CORRECT-consensus confidences.
+
+    Kalibre Zekâ Z2c. Returns the confidence floor below which a new
+    consensus abstains to a human, with the distribution-free guarantee
+    that at most ~alpha of genuinely-correct consensuses are escalated.
+    Closed form: sort + index — ceil((n+1)(alpha)) / conservative lower
+    quantile; None when fewer than 8 scores exist (insufficient window —
+    an abstention rule fit on noise escalates everything or nothing).
+    """
+    scores = sorted(float(s) for s in calibration_scores)
+    n = len(scores)
+    if n < 8:
+        return None
+    import math
+
+    rank = max(0, math.ceil((n + 1) * alpha) - 1)
+    return scores[min(rank, n - 1)]
+
+
+def judge_weights_from_calibration(
+    calibration_row: dict[str, Any] | None,
+    *,
+    prior_a: float = PRIOR_A,
+    prior_b: float = PRIOR_B,
+) -> dict[str, float]:
+    """Per-judge Beta-posterior precision means from a calibration row.
+
+    Kalibre Zekâ Z2a. Input is the latest judge-calibration ledger row
+    (judges[] with true_positive/false_positive counts); output maps
+    judge_id -> posterior mean. Judges absent from the row weigh at the
+    prior mean — a brand-new judge is neither trusted nor muted.
+    """
+    weights: dict[str, float] = {}
+    for judge in (calibration_row or {}).get("judges") or []:
+        judge_id = str(judge.get("judge_id") or "")
+        if not judge_id:
+            continue
+        post = beta_posterior(
+            int(judge.get("true_positive") or 0),
+            int(judge.get("false_positive") or 0),
+            prior_a=prior_a,
+            prior_b=prior_b,
+        )
+        weights[judge_id] = post["mean"]
+    return weights

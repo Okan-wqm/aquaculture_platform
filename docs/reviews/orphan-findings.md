@@ -9233,3 +9233,13 @@ Severity: HIGH. Discovered 2026-08-11: the first live finding-state sweep (#1162
 Severity: CRITICAL (process). The same sweep dry-run shows 23 CRITICALs past deadline (e.g. INFRA-CRITICAL-029 deadline 2026-05-15, AISAFETY-CRITICAL-003 2026-07-26) correctly transitioning OPEN→BLOCKED. The debt-plan manifest's `active_critical_ids` precondition will refuse any sweep PR containing them until each gets a truth-table row (owner + bucket) — by design; the repin tool refuses to write over a changed id list. This is real triage work, not ceremony.
 
 **Owner:** operator + claude (next session window). **Deadline:** 2026-08-25. **Status:** OPEN.
+
+## ORPHAN-HIGH-635 — consensus treated every judge as equal and every passing score as safe: no weighting, no abstention guarantee — RESOLVED (this PR, Kalibre Zekâ Z2a/Z2c)
+
+Severity: HIGH. The unanimity gate ignored everything ARIA knows about its judges (calibration tp/fp existed, weighed nothing), and a consensus scraping past 0.80 auto-published with no statistical guarantee.
+
+**Fix:** `generate_ai_consensus` gains two calibrated knobs, both default-OFF (legacy gate bit for bit): `judge_weights` (Beta-posterior precision means via `judge_weights_from_calibration`; strict-majority + margin vote — two equal judges still degenerate to unanimity, so the legacy guarantee survives; a new judge weighs at the neutral prior) and `conformal_floor` (`conformal_threshold` split-conformal quantile over past correct-consensus confidences, None under 8 samples; below-floor consensus abstains as `conformal_abstain`, severity HIGH in the escalation map). The cycle derives both from the ledgers each cycle; missing ledgers → None → legacy behaviour; failure costs calibration, never consensus.
+
+**Proof:** hand-checked closed forms (10/13 posterior; α=0.1 quantile), 6 new tests incl. legacy-golden and two-equal-judges-degenerate, 154 neighbour tests green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

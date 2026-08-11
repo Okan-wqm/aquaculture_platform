@@ -1,4 +1,27 @@
 import { Test, TestingModule } from '@nestjs/testing';
+
+// CI-runner speed calibration (ORPHAN-MEDIUM-636). Every threshold below was
+// a wall-clock absolute tuned on a fast machine; on a loaded shared runner
+// the identical code measured 1.5x slower and failed CI-Full for whichever
+// branch drew the slow runner (run 31506624662: 154.9ms against a 100ms
+// bound, content-unrelated). A fixed busy-workload is timed once and every
+// bound scales by the measured machine-speed factor — the regression-catch
+// property survives, the runner-speed sensitivity dies. WHY min 1.0: a
+// faster-than-reference machine must not TIGHTEN bounds and invent
+// regressions the reference machine would not see.
+function measureSpeedFactor(): number {
+  const start = process.hrtime.bigint();
+  let acc = 0;
+  for (let i = 0; i < 2_000_000; i += 1) {
+    acc += Math.sqrt(i % 1000);
+  }
+  const elapsedMs = Number(process.hrtime.bigint() - start) / 1e6;
+  // Reference machine completes this workload in ~8ms.
+  const factor = Math.max(1.0, elapsedMs / 8);
+  return Number.isFinite(factor) && acc >= 0 ? factor : 1.0;
+}
+const SPEED = measureSpeedFactor();
+const scaled = (ms: number): number => ms * SPEED;
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -144,7 +167,7 @@ describe('Alert Engine Performance', () => {
       const endTime = performance.now();
       const avgTime = (endTime - startTime) / 100;
 
-      expect(avgTime).toBeLessThan(10);
+      expect(avgTime).toBeLessThan(scaled(10));
     });
 
     it('should evaluate complex AND conditions efficiently', async () => {
@@ -203,7 +226,7 @@ describe('Alert Engine Performance', () => {
       const endTime = performance.now();
       const avgTime = (endTime - startTime) / 100;
 
-      expect(avgTime).toBeLessThan(5);
+      expect(avgTime).toBeLessThan(scaled(5));
     });
 
     it('should evaluate 100 rules in under 100ms', async () => {
@@ -223,7 +246,7 @@ describe('Alert Engine Performance', () => {
       const endTime = performance.now();
       const totalTime = endTime - startTime;
 
-      expect(totalTime).toBeLessThan(100);
+      expect(totalTime).toBeLessThan(scaled(100));
     });
 
     it('should serve repeated rule loads without duplicate repository I/O', async () => {
@@ -267,7 +290,7 @@ describe('Alert Engine Performance', () => {
 
       const endTime = performance.now();
 
-      expect(endTime - startTime).toBeLessThan(50);
+      expect(endTime - startTime).toBeLessThan(scaled(50));
     });
 
     it('should calculate batch risk scores efficiently', async () => {
@@ -287,7 +310,7 @@ describe('Alert Engine Performance', () => {
       const endTime = performance.now();
 
       // Should process 50 risk calculations in under 500ms
-      expect(endTime - startTime).toBeLessThan(500);
+      expect(endTime - startTime).toBeLessThan(scaled(500));
     });
 
     it('reads each sample once per trend calculation, however large the dataset', () => {
@@ -391,7 +414,7 @@ describe('Alert Engine Performance', () => {
 
       const endTime = performance.now();
 
-      expect(endTime - startTime).toBeLessThan(50);
+      expect(endTime - startTime).toBeLessThan(scaled(50));
     });
   });
 
@@ -446,7 +469,7 @@ describe('Alert Engine Performance', () => {
 
       const endTime = performance.now();
 
-      expect(endTime - startTime).toBeLessThan(100);
+      expect(endTime - startTime).toBeLessThan(scaled(100));
     });
   });
 
@@ -558,7 +581,7 @@ describe('Alert Engine Performance', () => {
       const endTime = performance.now();
 
       // Queuing 1000 notifications should be under 100ms
-      expect(endTime - startTime).toBeLessThan(100);
+      expect(endTime - startTime).toBeLessThan(scaled(100));
 
       // Clean up
       notificationDispatcher.clearQueue();
@@ -597,7 +620,7 @@ describe('Alert Engine Performance', () => {
       const endTime = performance.now();
 
       // Should process 50 users quickly due to parallelization
-      expect(endTime - startTime).toBeLessThan(500);
+      expect(endTime - startTime).toBeLessThan(scaled(500));
     });
   });
 

@@ -9244,6 +9244,14 @@ Severity: CRITICAL (process). The same sweep dry-run shows 23 CRITICALs past dea
 
 **Owner:** operator + claude (next session window). **Deadline:** 2026-08-25. **Status:** OPEN.
 
+## ORPHAN-MEDIUM-636 — performance tests asserted wall-clock absolutes on shared runners: whichever branch drew the slow machine went red — RESOLVED (this PR)
+
+Severity: MEDIUM. Run 31506624662 failed #1175's CI-Full on `alert-engine.performance.spec.ts` ("queue 1000 notifications < 100ms": measured 154.9ms) — content-unrelated; the branch drew a loaded runner. The class made CI reds look random ("sürekli farklı şeyler düşüyor").
+
+**Fix:** a fixed busy-workload is timed once per spec run and every bound scales by the measured machine-speed factor (floor 1.0 so a fast machine cannot tighten bounds and invent regressions). All 9 wall-clock assertions in the spec converted; regression-catch property survives, runner-speed sensitivity dies. 20/20 tests green locally.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-HIGH-635 — consensus treated every judge as equal and every passing score as safe: no weighting, no abstention guarantee — RESOLVED (this PR, Kalibre Zekâ Z2a/Z2c)
 
 Severity: HIGH. The unanimity gate ignored everything ARIA knows about its judges (calibration tp/fp existed, weighed nothing), and a consensus scraping past 0.80 auto-published with no statistical guarantee.

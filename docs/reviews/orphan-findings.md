@@ -9285,3 +9285,11 @@ Severity: HIGH (Kalibre Zekâ Z3). Exploration verified three live defects in th
 **OPEN remainder (same ID):** ~~K2 + Z3d~~ — CLOSED 2026-08-11 (`feat/duel-direction-and-superiority-gate`): K2 — each risk row may carry `applies_to_direction` (omitted = both; legacy envelopes read back bit-identically); direction records now carry direction-scoped risks, per-direction content hashes, and per-direction verdicts (`verdicts` map with scalar fallback); unknown values refuse loudly. Z3d — the ACTIVE promotion gate no longer reads the caller's `eval_window_passed` bool: `record_transition` injects a kernel-computed proof (`genesis_superiority.compute_eval_window_superiority` = `compare_eval_windows` must read `improved` + Bradley-Terry duel superiority once ≥`min_duel_matches` decided duels exist; thin duel ledger defers to the window), and `validate_transition` accepts only that proof — the legacy bool alone can never validate (deliberate-break test).
 
 **Owner:** claude (this session). **Status:** RESOLVED (K1/K3/Z3b/Z4 in #1184; K2+Z3d in this PR).
+
+## ORPHAN-HIGH-640 — the drain budget priced elapsed time, not the next child's worst case: the first live night was reaped mid-child and its submitted results died unpublished — RESOLVED (this PR)
+
+Severity: HIGH. Run 31542485896 (first live drain night): two requests processed end-to-end (challenger_plan + maintenance_utility, both submit rc=0), then the loop started a third at t=1987s — inside the 2100s budget — whose legal worst case (MAX_TIMEOUT_SECONDS=1800s) sailed past the job's 45-minute reaper. The run was CANCELLED before the state-publish step: both submitted results and their claims died with the runner (the ORPHAN-CRITICAL-484 "work done, publish nothing" class; consistency held — unpublished claims mean the requests simply stay PENDING — but the night's Claude work was wasted).
+
+**Fix:** the loop starts a child only when `elapsed + MAX_TIMEOUT_SECONDS <= ARIA_DRAIN_BUDGET_SECONDS` (worst case must fit; deliberate-break test pins that a child never starts into an overflowing window), and the workflow sizes the envelope honestly: job timeout 45→150 minutes, drain budget 2100→7200s, leaving a full 30 minutes of publish reserve.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

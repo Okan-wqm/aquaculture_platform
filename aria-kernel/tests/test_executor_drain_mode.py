@@ -169,3 +169,57 @@ class DrainPendingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DrainBudgetWorstCaseTests(unittest.TestCase):
+    """Run 31542485896 — the budget must price the NEXT child's worst case.
+
+    Elapsed-only accounting started a request at t=1987s of a 2100s budget;
+    that child could legally run 1800s more, sailed past the job reaper, and
+    the run was cancelled before the state publish — two submitted results
+    died with the runner. The loop now starts a child only when
+    elapsed + MAX_TIMEOUT_SECONDS still fits inside the budget.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_no_child_starts_when_worst_case_overflows_budget(self) -> None:
+        queue = [
+            {"request_id": "AIR-1", "target_agent": "aria-evidence-judge"},
+        ]
+        # Budget 100s, child worst case 1800s: even at elapsed=0 the worst
+        # case cannot fit, so NOTHING is dispatched and the loop reports a
+        # clean budget stop instead of gambling on a fast child.
+        rc, calls, output = _drain(
+            queue,
+            {"AIR-1": (0, True)},
+            env={
+                "ARIA_DRAIN_BUDGET_SECONDS": "100",
+                "MAX_TIMEOUT_SECONDS": "1800",
+            },
+            tmp=self._tmp.name,
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(calls["dispatch"], [])
+        self.assertIn("drained=0\n", output)
+
+    def test_child_starts_when_worst_case_fits(self) -> None:
+        queue = [
+            {"request_id": "AIR-1", "target_agent": "aria-evidence-judge"},
+            None,
+        ]
+        rc, calls, _ = _drain(
+            queue,
+            {"AIR-1": (0, True)},
+            env={
+                "ARIA_DRAIN_BUDGET_SECONDS": "3600",
+                "MAX_TIMEOUT_SECONDS": "1800",
+            },
+            tmp=self._tmp.name,
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(calls["dispatch"]), 1)

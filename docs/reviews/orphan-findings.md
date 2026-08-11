@@ -9233,3 +9233,11 @@ Severity: HIGH. Discovered 2026-08-11: the first live finding-state sweep (#1162
 Severity: CRITICAL (process). The same sweep dry-run shows 23 CRITICALs past deadline (e.g. INFRA-CRITICAL-029 deadline 2026-05-15, AISAFETY-CRITICAL-003 2026-07-26) correctly transitioning OPEN→BLOCKED. The debt-plan manifest's `active_critical_ids` precondition will refuse any sweep PR containing them until each gets a truth-table row (owner + bucket) — by design; the repin tool refuses to write over a changed id list. This is real triage work, not ceremony.
 
 **Owner:** operator + claude (next session window). **Deadline:** 2026-08-25. **Status:** OPEN.
+
+## ORPHAN-MEDIUM-634 — the watchdog only believed the calendar: a healed lane stayed "stale" for days because green dispatches did not count — RESOLVED (this PR)
+
+Severity: MEDIUM. Found 2026-08-11 while clearing incident #1005: six lanes' root fixes were merged and their dispatches green, yet the hourly watchdog stayed red — its freshness proof was schedule-event-only, and a rerun of an old scheduled run executes the ORIGINAL commit (without the fix), so weekly/monthly lanes could not clear before their next cron.
+
+**Fix:** drop the event filter — the newest COMPLETED run proves lane health regardless of trigger; a cron that silently stops firing still ages out and alarms. The success-without-evidence guard and completed-run selection are untouched.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

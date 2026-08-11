@@ -3327,10 +3327,10 @@ But the service was missing the corresponding `volumes:` block. Every other NATS
 
 ```yaml
 volumes:
-  - *nats-ca-mount             # ./certs/nats/ca-cert.pem      → /etc/ssl/nats-ca.pem
-  - *nats-clients-mount        # ./certs/nats/clients/         → /etc/ssl/nats-clients/
-  - *nats-client-cert-mount    # ./certs/nats/client-cert.pem  → /etc/ssl/nats-client-cert.pem
-  - *nats-client-key-mount     # ./certs/nats/client-key.pem   → /etc/ssl/nats-client-key.pem
+  - *nats-ca-mount # ./certs/nats/ca-cert.pem      → /etc/ssl/nats-ca.pem
+  - *nats-clients-mount # ./certs/nats/clients/         → /etc/ssl/nats-clients/
+  - *nats-client-cert-mount # ./certs/nats/client-cert.pem  → /etc/ssl/nats-client-cert.pem
+  - *nats-client-key-mount # ./certs/nats/client-key.pem   → /etc/ssl/nats-client-key.pem
 ```
 
 `libs/backend-common/src/nats/nats-connection.factory.ts` resolves `NATS_TLS_CA` with `fs.readFileSync()` at bootstrap and hard-fails with the message above when the file isn't present at the configured path. With no `volumes:` block, `/etc/ssl/nats-ca.pem` did not exist inside the container, so Nest bootstrap aborted before any module was even constructed.
@@ -9243,3 +9243,11 @@ Severity: HIGH. Discovered 2026-08-11: the first live finding-state sweep (#1162
 Severity: CRITICAL (process). The same sweep dry-run shows 23 CRITICALs past deadline (e.g. INFRA-CRITICAL-029 deadline 2026-05-15, AISAFETY-CRITICAL-003 2026-07-26) correctly transitioning OPEN→BLOCKED. The debt-plan manifest's `active_critical_ids` precondition will refuse any sweep PR containing them until each gets a truth-table row (owner + bucket) — by design; the repin tool refuses to write over a changed id list. This is real triage work, not ceremony.
 
 **Owner:** operator + claude (next session window). **Deadline:** 2026-08-25. **Status:** OPEN.
+
+## ORPHAN-HIGH-637 — the nightly executor consumed ONE request per run against a producer that mints many per cycle: the agent queue could only grow — RESOLVED (this PR)
+
+Severity: HIGH. By 2026-08-11 the queue held 162 pending judge requests; at one claim per 02:00 cron the judged-judges calibration loop could mathematically never catch up. `MAX_REQUESTS_PER_RUN=30` was exported by the workflow and read by NOTHING (`_max_requests()` had zero callers) — the "tunable that gates nothing" class ci_executor.py itself condemns at ORPHAN-HIGH-472. A second latent defect rode along: the workflow passed only the request id, so every scheduled dispatch ran under the `aria-evidence-judge` default profile even when the kernel minted the request for a different agent.
+
+**Fix:** `drain_pending` in `tools/aria-poc/ci_executor.py` — the scheduled lane loops next-pending → dispatch until the queue empties, `MAX_REQUESTS_PER_RUN` is reached, or the wall-clock budget (`ARIA_DRAIN_BUDGET_SECONDS`, default 2100s inside the 45-minute job) is spent. Each request still runs through the LOCKED single-request argv as a subprocess (invariant I-V3-21) with `target_agent` passed through from the request row. A request that comes back pending after being attempted stops the loop — an environment fault must not be priced as N request failures (the M-2.5 class). Child envelope/transcript paths are aggregated into the step outputs so the artifact upload carries the whole night, not the last request. Any child failure turns the run red WITHOUT discarding submitted successes. Operator-targeted `workflow_dispatch` with `request_id` keeps exact single-request semantics.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

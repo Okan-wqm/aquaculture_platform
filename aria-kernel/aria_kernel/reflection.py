@@ -955,6 +955,32 @@ def _render_replay_recall_section(root: Path) -> list[str]:
     return lines
 
 
+def _render_own_pr_ci_section(root: Path) -> list[str]:
+    """ARIA's own PRs that are red in CI — the operator's 'it wrote wrong
+    code' view (ORPHAN-HIGH-626). Silent when nothing is red."""
+    try:
+        from .own_pr_ci import load_open_own_pr_reds
+
+        reds = load_open_own_pr_reds(base_dir=root)
+    except Exception:
+        return []
+    if not reds:
+        return []
+    lines = [
+        "## Own PR CI",
+        "",
+    ]
+    for red in sorted(reds, key=lambda r: r.get("pr_number") or 0):
+        jobs = red.get("red_jobs") or []
+        lines.append(
+            f"- PR #{red.get('pr_number')} (`{red.get('head_ref')}`) RED: "
+            f"{', '.join(str(j) for j in jobs) or 'failed checks'} "
+            f"(since {str(red.get('recorded_at') or '')[:16]})"
+        )
+    lines.append("")
+    return lines
+
+
 def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
     day = str(reflection["recorded_at"])[:10]
     path = root / "reports" / "daily" / f"{day}.md"
@@ -1058,6 +1084,7 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         *_render_calibration_recommendation_section(reflection),
         *_render_dataflow_health_section(reflection),
         *_render_label_queue_section(root),
+        *_render_own_pr_ci_section(root),
         *_render_proactive_section(reflection),
         # FAZ 6b — the report is the one published dashboard: counters, SLO,
         # missions, quarantine, replay recall (each ledger's first reader).

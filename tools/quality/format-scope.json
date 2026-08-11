@@ -27251,6 +27251,17 @@
       "source_of_truth": "committed_hash"
     },
     {
+      "class": "runtime_evidence",
+      "content_sha256": "f459c94a7f7b2bb2fa6924e2dcc2d9b0b311f631e1a245d0f90bd6585fa28f3b",
+      "hash_policy": "sha256",
+      "owner": "aria-runtime",
+      "path": "aria-tools/reports/daily/2026-08-10.md",
+      "prettier_managed": false,
+      "reason": "runtime evidence is declared artifact output",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
       "class": "canonical_source",
       "owner": "source",
       "path": "CLAUDE.md",
@@ -43225,6 +43236,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/finding-registry-integrity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/finding-sweep-critical-exemption.spec.ts",
       "prettier_managed": true
     },
     {

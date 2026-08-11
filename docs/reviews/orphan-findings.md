@@ -9205,3 +9205,16 @@ Severity: HIGH. Raised 2026-08-11 by the operator directive "integrate the most 
 **Proof:** 9 tests — hand-computed closed forms, zero-label golden (bit-identical weights), override-wins, full-key-coverage (the `_pressure` KeyError class), Thompson determinism, and the feed-link deliberate break (severing the calibration block turns the label-moves-weight test red). 319 neighbour tests green.
 
 **Owner:** claude (this session). **Status:** RESOLVED. Z2-Z7 continue per the approved plan.
+## ORPHAN-HIGH-631 — the daily sweep retired 29 open CRITICALs by calendar: auto-staleness had no severity floor — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-11: the first live finding-state sweep (#1162) staled every OPEN/IN-PROGRESS finding older than 30 days regardless of severity, and the enterprise-grade debt-plan contract refused the PR — correctly. Retiring unfixed critical debt by timeout is the audit-theater class that contract exists to stop.
+
+**Fix:** `planSweep` exempts `severity === 'CRITICAL'` from auto-STALE. A critical leaves OPEN through a fix commit's `Closes:`, an explicit waiver, or the past-deadline BLOCKED branch (which runs first and survives — the stronger signal). Dry-run proof on the live registry: CRITICAL→STALE count 0; non-criticals still stale; past-deadline criticals still BLOCK. 3-test spec pins all three properties. #1162 is closed as generated-under-the-flawed-rule; the next scheduled sweep regenerates a compliant PR.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-CRITICAL-632 — 23 CRITICAL findings are past their deadlines and BLOCKED: the debt needs owners and buckets, not a repin — OPEN
+
+Severity: CRITICAL (process). The same sweep dry-run shows 23 CRITICALs past deadline (e.g. INFRA-CRITICAL-029 deadline 2026-05-15, AISAFETY-CRITICAL-003 2026-07-26) correctly transitioning OPEN→BLOCKED. The debt-plan manifest's `active_critical_ids` precondition will refuse any sweep PR containing them until each gets a truth-table row (owner + bucket) — by design; the repin tool refuses to write over a changed id list. This is real triage work, not ceremony.
+
+**Owner:** operator + claude (next session window). **Deadline:** 2026-08-25. **Status:** OPEN.

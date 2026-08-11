@@ -194,6 +194,28 @@ def run_pressure(
     # cycle's targeting — the first loop where ARIA's own precision
     # measurement changes ARIA's behaviour.
     _weights = effective_source_weights(root)
+    # ORPHAN-HIGH-627 — Beta-Binomial calibration over the operator-feedback
+    # ledger: each source's hand-set weight is scaled by the ratio of its
+    # labelled-precision posterior to the prior, clamped. Zero labels →
+    # multiplier exactly 1.0 (the table above stays authoritative until
+    # evidence exists), and an operator override is never second-guessed.
+    # Deterministic and recomputable from the ledger — the only kind of
+    # "smart" this kernel admits. Failure costs calibration, never pressure.
+    _calibration_detail: dict[str, Any] = {}
+    try:
+        from .calibrated_intelligence import calibrate_source_weights
+        from .feedback_store import load_feedback
+
+        _calibration_detail = calibrate_source_weights(
+            _weights,
+            load_feedback(base_dir=root),
+            operator_overridden=frozenset(load_weight_overrides(root)),
+        )
+        _weights = {
+            source: detail["weight"] for source, detail in _calibration_detail.items()
+        }
+    except (OSError, ValueError, KeyError, TypeError):
+        _calibration_detail = {}
     discovery_dir = root / "discovery" / cycle_id
     fingerprint = _read_json(discovery_dir / "REPO_FINGERPRINT.json")
     completion = _read_json(discovery_dir / "COMPLETION_PROOF.json")
@@ -399,6 +421,11 @@ def run_pressure(
         "generated_at": utc_now(),
         "cycle_id": cycle_id,
         "pressures": pressures,
+        # ORPHAN-HIGH-627 — the evidence-scaled weights this run actually
+        # scored with, per source: base, multiplier, tp/fp, posterior. Every
+        # number recomputable from the feedback ledger; the report renders it
+        # so the operator sees WHY a source's standing moved.
+        "calibrated_weights": _calibration_detail,
         "summary": {
             "unknown": sum(1 for item in pressures if item["type"] == "UNKNOWN"),
             "repetition": sum(1 for item in pressures if item["type"] == "REPETITION"),

@@ -1066,6 +1066,32 @@ def _phase_belief_decay(context: PhaseContext) -> dict[str, Any]:
     return decay_stale_beliefs_by_age(cycle_id=context.cycle_id, base_dir=context.base_dir)
 
 
+def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
+    """Read the check verdicts of ARIA's own open PRs (ORPHAN-HIGH-626).
+
+    Until this phase, ARIA pushed branches and never looked back: a red
+    check meant the merge gate silently blocked the PR forever, and
+    nothing ARIA runs ever learned the code was wrong. The scan revives
+    the dead ci.py pipeline as its producer and feeds the bridge ledger
+    the pressure phase (next in this table) reads. A reader that cannot
+    read reports WHY in the phase result — a tokenless night is a visible
+    cause, not a quiet zero.
+    """
+    from .github_adapters import select_checks_reader
+    from .own_pr_ci import scan_own_prs
+
+    reader = select_checks_reader(
+        profile=get_profile(base_dir=context.base_dir),
+        cwd=context.workspace_root,
+    )
+    return scan_own_prs(
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+        workspace_root=context.workspace_root,
+        reader=reader,
+    )
+
+
 def _phase_pressure(context: PhaseContext) -> dict[str, Any]:
     # Plan S4 (ORPHAN-MEDIUM-298) — operator drift-class targeting:
     # genesis-policy weights bias pressure scores per class. The loader is
@@ -1572,11 +1598,29 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
     escalated: the refusal IS the governance working.
     """
     manifest_dir = Path(context.workspace_root) / "tools" / "aria-adapters"
+    # The manifest's `status` is the tool's BIRTH status; after registration
+    # the live lifecycle (transition_tool, quarantine, calibration) owns it.
+    # Passing the manifest status verbatim on RE-registration made the
+    # transition matrix read every lifecycle advance as an attempted
+    # demotion (live CALIBRATE vs manifest SHADOW → refused), so runner
+    # contract updates silently never reached the runtime: the registry
+    # served tenant-scoping's stale timeout_ms=180000 two cycles after the
+    # manifest raised it, and the node heap contract never landed at all
+    # (ORPHAN-HIGH-625). Re-registration therefore carries the LIVE status,
+    # which routes through the matrix's same-status lane — "manifest hash
+    # drift → allow; parser/runner update" — the lane built for exactly this.
+    live_status_by_id = {
+        str(tool.get("tool_id")): str(tool.get("status"))
+        for tool in list_tools(base_dir=context.base_dir)
+    }
     synced: list[str] = []
     refused: list[dict[str, str]] = []
     for manifest_path in sorted(manifest_dir.glob("*.tool.json")):
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            live_status = live_status_by_id.get(str(manifest.get("tool_id")))
+            if live_status is not None:
+                manifest = {**manifest, "status": live_status}
             register_tool(manifest, base_dir=context.base_dir)
             synced.append(str(manifest.get("tool_id") or manifest_path.stem))
         except (GovernanceError, ValueError, OSError) as exc:
@@ -1939,6 +1983,14 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     CyclePhase(
         "belief_decay", "post_tool", _phase_belief_decay,
         precondition=WRITES_PERMITTED, state_key="belief_decay",
+    ),
+    # Own-PR CI feedback (ORPHAN-HIGH-626) — BEFORE pressure, so a red
+    # check on a PR ARIA pushed becomes THIS cycle's pressure, not next
+    # week's surprise. Observation only: never feeds the breaker (RC-2).
+    CyclePhase(
+        "pr_ci_scan", "post_tool", _phase_pr_ci_scan,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="pr_ci_scan",
     ),
     CyclePhase(
         "pressure", "post_tool", _phase_pressure, state_key="pressure",

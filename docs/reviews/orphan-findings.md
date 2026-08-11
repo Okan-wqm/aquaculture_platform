@@ -9251,6 +9251,7 @@ Severity: MEDIUM. Found 2026-08-11 while clearing incident #1005: six lanes' roo
 **Fix:** drop the event filter — the newest COMPLETED run proves lane health regardless of trigger; a cron that silently stops firing still ages out and alarms. The success-without-evidence guard and completed-run selection are untouched.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-HIGH-637 — the nightly executor consumed ONE request per run against a producer that mints many per cycle: the agent queue could only grow — RESOLVED (this PR)
 
 Severity: HIGH. By 2026-08-11 the queue held 162 pending judge requests; at one claim per 02:00 cron the judged-judges calibration loop could mathematically never catch up. `MAX_REQUESTS_PER_RUN=30` was exported by the workflow and read by NOTHING (`_max_requests()` had zero callers) — the "tunable that gates nothing" class ci_executor.py itself condemns at ORPHAN-HIGH-472. A second latent defect rode along: the workflow passed only the request id, so every scheduled dispatch ran under the `aria-evidence-judge` default profile even when the kernel minted the request for a different agent.

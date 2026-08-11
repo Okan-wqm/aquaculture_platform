@@ -26,19 +26,33 @@ from aria_kernel.reflection import (
 )
 
 
+# ORPHAN-HIGH-628 — the original helpers injected cycle rows carrying
+# judge_calibration/goldset sub-objects, a shape CycleRow (v3) structurally
+# cannot produce: the suite validated the reader against fiction while the
+# live sentinel read [0,0,0,0,0] forever. The signals now come from each
+# producer's OWN ledger; these helpers model exactly that.
+
+
 def _cycle_row(judged: int = 0, labelled: int = 0, synced: int = 0) -> dict[str, Any]:
-    return {
-        "status": "completed",
-        "judge_calibration": {"judged_judges": judged},
-        "goldset_proposal": {"labelled_tool_count": labelled},
-        "tool_manifest_sync": {"synced_tool_ids": ["t"] * synced},
-    }
+    # Kept for row-count semantics only: history LENGTH is the one thing
+    # cycles.jsonl truly carries.
+    return {"status": "completed"}
 
 
-def _health(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    with patch("aria_kernel.ledger.load_declared_jsonl", return_value=rows):
-        from pathlib import Path
+def _health(
+    rows: list[dict[str, Any]],
+    *,
+    judged_series: list[int] | None = None,
+    labelled: int = 0,
+    synced: int = 0,
+) -> dict[str, Any]:
+    from pathlib import Path
 
+    with patch("aria_kernel.ledger.load_declared_jsonl", return_value=rows), \
+         patch.object(reflection_mod, "_judged_judges_series",
+                      return_value=judged_series if judged_series is not None else []), \
+         patch.object(reflection_mod, "_labelled_tool_series", return_value=[labelled]), \
+         patch.object(reflection_mod, "_synced_tool_series", return_value=[synced]):
         return _compute_dataflow_health(Path("/nonexistent-tools-root"))
 
 
@@ -55,9 +69,9 @@ class SignalStarvationTest(unittest.TestCase):
         self.assertEqual(health["starved"], [])
 
     def test_a_single_nonzero_clears_the_signal(self) -> None:
-        rows = [_cycle_row()] * (SIGNAL_WINDOW_CYCLES - 1) + [_cycle_row(judged=2)]
+        rows = [_cycle_row()] * SIGNAL_WINDOW_CYCLES
 
-        health = _health(rows)
+        health = _health(rows, judged_series=[0, 0, 0, 0, 2])
 
         self.assertNotIn("judged_judges", health["starved"])
         self.assertIn("labelled_tool_count", health["starved"])

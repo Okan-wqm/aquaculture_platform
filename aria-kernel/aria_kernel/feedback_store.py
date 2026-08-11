@@ -378,10 +378,23 @@ def generate_ai_consensus(
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "single_judge"))
             continue
         verdicts = {str(row.get("verdict") or "") for row in rows}
-        avg_confidence = sum(float(row.get("confidence") or 0.0) for row in rows) / len(rows)
+        # Kalibre Zekâ Z2b — a judge whose bridge stored confidence=None used
+        # to be coerced to 0.0, silently dragging the mean under the 0.80
+        # gate: a unanimous, correct pair could escalate as "low_confidence"
+        # because one row lacked a number. Absent confidence now stays out of
+        # the mean; a group with NO numeric confidence at all escalates under
+        # its own name instead of masquerading as low confidence.
+        confidences = [
+            float(row["confidence"]) for row in rows
+            if isinstance(row.get("confidence"), (int, float))
+        ]
         if len(verdicts) != 1:
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "judge_disagreement"))
             continue
+        if not confidences:
+            uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "missing_confidence"))
+            continue
+        avg_confidence = sum(confidences) / len(confidences)
         if avg_confidence < min_confidence:
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "low_confidence"))
             continue

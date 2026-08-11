@@ -1,0 +1,31 @@
+name: Ensure repo-local node dependencies
+description: >-
+  Provision the node dependencies the adapter manifests declare, only when
+  they are missing — one definition for every lane that runs adapters or
+  agent validation commands.
+
+# Plan "ARIA Sinir Sistemi" kapanış A2. The adapter manifests declare
+# `npx ts-node …` runners and the tool runner refuses to execute them when
+# the workspace has no repo-local ts-node — correctly: silently resolving a
+# global one would run unpinned code. The auto-cycle lane carried this
+# provisioning step inline; the executor lane never did, so FAZ 5's
+# pre-claim gate refused its first live dispatch with `env_deps_missing`
+# (run 31456376668) — the gate did its job, the lane was the fault.
+# RC-9 lesson applies unchanged: a step duplicated across lanes is a step
+# that drifts. One composite, both lanes call it.
+#
+# Guarded, not unconditional: on a self-hosted runner the checkout persists,
+# so after the first run this is a no-op — no network or npm dependency on
+# the hot path.
+
+runs:
+  using: composite
+  steps:
+    - name: Provision node dependencies when the manifests' runner is absent
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ ! -x node_modules/ts-node/dist/bin.js ]; then
+          npm ci --ignore-scripts --no-audit --no-fund
+        fi
+        test -x node_modules/ts-node/dist/bin.js

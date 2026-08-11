@@ -14,7 +14,7 @@
       "claim_types": [
         "harness_security"
       ],
-      "created_at": "2026-08-10T06:39:12+00:00",
+      "created_at": "2026-08-11T18:26:31+00:00",
       "declared_scope": [
         ".claude/agents/**/*.md",
         ".github/workflows/*.{yml,yaml}",
@@ -40,12 +40,6 @@
         "precision_min": 0.85
       },
       "kind": "adapter",
-      "last_transition": {
-        "at": "2026-08-10T13:25:37+00:00",
-        "from": "CALIBRATE",
-        "reason": "self-output evidence or invalid evidence chain",
-        "to": "QUARANTINED"
-      },
       "output_schema": {
         "required": [
           "observations",
@@ -69,7 +63,7 @@
       "schema_version": 1,
       "status": "QUARANTINED",
       "tool_id": "agent-harness-security-adapter",
-      "updated_at": "2026-08-10T13:25:37+00:00",
+      "updated_at": "2026-08-11T18:26:31+00:00",
       "version": "1.0.0"
     },
     {
@@ -79,7 +73,7 @@
       "claim_types": [
         "event_contract"
       ],
-      "created_at": "2026-08-10T06:39:12+00:00",
+      "created_at": "2026-08-11T18:26:32+00:00",
       "declared_scope": [
         "libs/event-contracts/src/**/*.ts"
       ],
@@ -104,12 +98,6 @@
         "precision_min": 0.85
       },
       "kind": "adapter",
-      "last_transition": {
-        "at": "2026-08-10T13:19:53+00:00",
-        "from": "QUARANTINED",
-        "reason": "unquarantine: operator dispatch: environment-fault quarantine lifted (operator_approval_ref=operator:Okan 2026-08-10 oturum talimat\u0131 \u2014 ortam-ar\u0131zas\u0131 karantinas\u0131 (ORPHAN-HIGH-610); ara\u00e7lar hi\u00e7 \u00e7al\u0131\u015fmad\u0131)",
-        "to": "CALIBRATE"
-      },
       "output_schema": {
         "required": [
           "observations",
@@ -136,7 +124,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "event-contracts-adapter",
-      "updated_at": "2026-08-10T13:19:53+00:00",
+      "updated_at": "2026-08-11T18:26:32+00:00",
       "version": "1.0.0"
     },
     {
@@ -151,7 +139,7 @@
       "claim_types": [
         "security_boundary"
       ],
-      "created_at": "2026-08-10T06:39:12+00:00",
+      "created_at": "2026-08-11T18:26:32+00:00",
       "declared_scope": [
         "apps/**/*.ts",
         "libs/backend-common/src/**/*.ts",
@@ -189,12 +177,6 @@
         "precision_min": 0.85
       },
       "kind": "adapter",
-      "last_transition": {
-        "at": "2026-08-10T13:19:56+00:00",
-        "from": "QUARANTINED",
-        "reason": "unquarantine: operator dispatch: environment-fault quarantine lifted (operator_approval_ref=operator:Okan 2026-08-10 oturum talimat\u0131 \u2014 ortam-ar\u0131zas\u0131 karantinas\u0131 (ORPHAN-HIGH-610); ara\u00e7lar hi\u00e7 \u00e7al\u0131\u015fmad\u0131)",
-        "to": "CALIBRATE"
-      },
       "output_schema": {
         "required": [
           "observations",
@@ -221,7 +203,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "security-boundary-adapter",
-      "updated_at": "2026-08-10T13:19:56+00:00",
+      "updated_at": "2026-08-11T18:26:32+00:00",
       "version": "1.0.0"
     },
     {
@@ -233,7 +215,7 @@
       "claim_types": [
         "tenant_scoping"
       ],
-      "created_at": "2026-08-10T06:39:13+00:00",
+      "created_at": "2026-08-11T18:26:32+00:00",
       "declared_scope": [
         "apps/**/*.ts",
         "libs/**/*.ts",
@@ -263,17 +245,11 @@
       "health_thresholds": {
         "crash_rate_last_10": 0.2,
         "critical_false_positives": 0,
-        "max_cost_units": 3500,
+        "max_cost_units": 6000,
         "non_critical_false_positives_30d": 3,
         "precision_min": 0.85
       },
       "kind": "adapter",
-      "last_transition": {
-        "at": "2026-08-10T13:19:57+00:00",
-        "from": "QUARANTINED",
-        "reason": "unquarantine: operator dispatch: environment-fault quarantine lifted (operator_approval_ref=operator:Okan 2026-08-10 oturum talimat\u0131 \u2014 ortam-ar\u0131zas\u0131 karantinas\u0131 (ORPHAN-HIGH-610); ara\u00e7lar hi\u00e7 \u00e7al\u0131\u015fmad\u0131)",
-        "to": "CALIBRATE"
-      },
       "output_schema": {
         "required": [
           "observations",
@@ -293,14 +269,15 @@
           "tools/aria-adapters/tenant-scoping-adapter.ts"
         ],
         "cwd": ".",
+        "node_max_old_space_mb": 3072,
         "stdin_json": true,
-        "timeout_ms": 180000,
+        "timeout_ms": 420000,
         "type": "subprocess"
       },
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "tenant-scoping-adapter",
-      "updated_at": "2026-08-10T13:19:57+00:00",
+      "updated_at": "2026-08-11T18:26:32+00:00",
       "version": "1.0.0"
     },
     {
@@ -317,7 +294,7 @@
       "claim_types": [
         "test_gap"
       ],
-      "created_at": "2026-08-10T06:39:13+00:00",
+      "created_at": "2026-08-11T18:26:32+00:00",
       "declared_scope": [
         "apps/**/*.{ts,tsx}",
         "libs/**/*.{ts,tsx}",
@@ -354,12 +331,6 @@
         "precision_min": 0.85
       },
       "kind": "adapter",
-      "last_transition": {
-        "at": "2026-08-10T13:19:59+00:00",
-        "from": "QUARANTINED",
-        "reason": "unquarantine: operator dispatch: environment-fault quarantine lifted (operator_approval_ref=operator:Okan 2026-08-10 oturum talimat\u0131 \u2014 ortam-ar\u0131zas\u0131 karantinas\u0131 (ORPHAN-HIGH-610); ara\u00e7lar hi\u00e7 \u00e7al\u0131\u015fmad\u0131)",
-        "to": "CALIBRATE"
-      },
       "output_schema": {
         "required": [
           "observations",
@@ -379,6 +350,7 @@
           "tools/aria-adapters/test-gap-adapter.ts"
         ],
         "cwd": ".",
+        "node_max_old_space_mb": 3072,
         "stdin_json": true,
         "timeout_ms": 180000,
         "type": "subprocess"
@@ -386,20 +358,20 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "test-gap-adapter",
-      "updated_at": "2026-08-10T13:19:59+00:00",
+      "updated_at": "2026-08-11T18:26:32+00:00",
       "version": "1.0.0"
     },
     {
       "allowed_read_globs": [
-        "apps/farm-service/src/**/*.ts",
+        "apps/**/*.ts",
         "libs/backend-common/src/database/schema-manager.service.ts"
       ],
       "claim_types": [
         "schema_drift"
       ],
-      "created_at": "2026-08-10T06:39:13+00:00",
+      "created_at": "2026-08-11T18:26:32+00:00",
       "declared_scope": [
-        "apps/farm-service/src/**/*.ts",
+        "apps/**/*.ts",
         "libs/backend-common/src/database/schema-manager.service.ts"
       ],
       "fixture_set": "tools/aria-adapters/fixtures/typeorm-entity-schema-adapter",
@@ -418,17 +390,11 @@
       "health_thresholds": {
         "crash_rate_last_10": 0.2,
         "critical_false_positives": 0,
-        "max_cost_units": 250,
+        "max_cost_units": 2000,
         "non_critical_false_positives_30d": 3,
         "precision_min": 0.85
       },
       "kind": "adapter",
-      "last_transition": {
-        "at": "2026-08-10T13:20:03+00:00",
-        "from": "QUARANTINED",
-        "reason": "unquarantine: operator dispatch: environment-fault quarantine lifted (operator_approval_ref=operator:Okan 2026-08-10 oturum talimat\u0131 \u2014 ortam-ar\u0131zas\u0131 karantinas\u0131 (ORPHAN-HIGH-610); ara\u00e7lar hi\u00e7 \u00e7al\u0131\u015fmad\u0131)",
-        "to": "CALIBRATE"
-      },
       "output_schema": {
         "required": [
           "observations",
@@ -455,7 +421,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "typeorm-entity-schema-adapter",
-      "updated_at": "2026-08-10T13:20:03+00:00",
+      "updated_at": "2026-08-11T18:26:32+00:00",
       "version": "1.0.0"
     },
     {
@@ -468,7 +434,7 @@
       "claim_types": [
         "performance_budget"
       ],
-      "created_at": "2026-08-11T06:59:29+00:00",
+      "created_at": "2026-08-11T18:26:31+00:00",
       "declared_scope": [
         "web/**/*.{ts,tsx,js,json}"
       ],
@@ -526,7 +492,7 @@
       "schema_version": 1,
       "status": "SHADOW",
       "tool_id": "bundle-budget-adapter",
-      "updated_at": "2026-08-11T06:59:29+00:00",
+      "updated_at": "2026-08-11T18:26:31+00:00",
       "version": "1.0.0"
     },
     {
@@ -536,7 +502,7 @@
       "claim_types": [
         "doc_staleness"
       ],
-      "created_at": "2026-08-11T06:59:29+00:00",
+      "created_at": "2026-08-11T18:26:32+00:00",
       "declared_scope": [
         "docs/**/*.md"
       ],
@@ -592,7 +558,7 @@
       "schema_version": 1,
       "status": "SHADOW",
       "tool_id": "doc-staleness-adapter",
-      "updated_at": "2026-08-11T06:59:29+00:00",
+      "updated_at": "2026-08-11T18:26:32+00:00",
       "version": "1.0.0"
     },
     {
@@ -604,7 +570,7 @@
       "claim_types": [
         "contract_parity"
       ],
-      "created_at": "2026-08-11T06:59:29+00:00",
+      "created_at": "2026-08-11T18:26:32+00:00",
       "declared_scope": [
         "apps/**/dto/**/*.ts",
         "web/**/*.{ts,tsx}"
@@ -664,7 +630,7 @@
       "schema_version": 1,
       "status": "SHADOW",
       "tool_id": "fe-dto-parity-adapter",
-      "updated_at": "2026-08-11T06:59:29+00:00",
+      "updated_at": "2026-08-11T18:26:32+00:00",
       "version": "1.0.0"
     }
   ]

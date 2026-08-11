@@ -9163,3 +9163,15 @@ Severity: MEDIUM. Discovered 2026-08-11 from the first two scheduled runs over t
 **Proof:** 58 workflow-contract/executor tests green; injection + sha-pin + kernel-setup workflow gates green; local timed adapter run recorded above. Verification per plan: next scheduled auto-cycle must seal with `non_ok_tools` empty, and the executor dispatch must pass the pre-claim gate without a new `env_deps_missing` governance row.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-625 — runner-contract updates never reached the runtime: the sync re-registered birth statuses, the matrix read lifecycle advances as demotions, and refused silently — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-11 supervising the first post-#1173 live cycle (run 31466792131): tenant-scoping-adapter failed `budget_exceeded` AGAIN, two cycles after its timeout fix "merged".
+
+**Root cause chain, each link verified:** `run_tool` reads the runner definition from the LIVE registry (aria/state `tools/registry.json`), not the repo manifest. The registry row still carried `timeout_ms: 180000` (and NO `node_max_old_space_mb` — the #1165 heap contract had never landed either; the OOMs stopped only because the runner's default happened to suffice). `_phase_tool_manifest_sync` re-registers every manifest each cycle — but passes the manifest's `status` verbatim, and the tool's live status had advanced SHADOW→CALIBRATE, so `register_tool` refused every re-registration as a demotion (`'CALIBRATE' -> 'SHADOW' must route through transition_tool()` — reproduced in isolation). The refusal was recorded in a phase result nobody surfaced: manifest said one thing, runtime did another, nothing said why.
+
+**Fix:** the manifest's `status` is the BIRTH status; the live lifecycle owns it afterward. On re-registration the sync now carries the LIVE status, which routes through the matrix's same-status lane ("manifest hash drift → allow; parser/runner update") — built for exactly this. Quarantine is not weakened but strengthened: QUARANTINED re-registers as QUARANTINED (contract refreshes, status survives, audited unquarantine stays the only way back) — the old test asserted the refusal COUNT and is updated to assert the status property it actually cared about.
+
+**Proof:** new test reproduces the live defect end-to-end (register SHADOW → transition CALIBRATE → manifest update → sync → timeout 420000 lands AND status stays CALIBRATE) + quarantine-survives test; 114 registry/sync/quarantine tests green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

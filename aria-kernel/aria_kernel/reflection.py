@@ -72,6 +72,13 @@ def run_reflection(
     tool_runtime = _tool_runtime_table(runs, all_runs, cycle_id)
     pressure_payload = _load_pressure(root, cycle_id)
     pressures = pressure_payload.get("summary", {})
+    # ORPHAN-HIGH-627 — only the sources whose standing the evidence actually
+    # moved: multiplier 1.0 is the silent default, not news.
+    calibrated_weights = {
+        source: detail
+        for source, detail in (pressure_payload.get("calibrated_weights") or {}).items()
+        if isinstance(detail, dict) and detail.get("multiplier") not in (None, 1.0)
+    }
     auto_merge_decisions = [
         row
         for row in load_jsonl_verified(root / "auto-merge-decisions.jsonl")
@@ -107,6 +114,8 @@ def run_reflection(
         "tool_runtime": tool_runtime,
         "belief_summary": _belief_summary(beliefs),
         "pressure_summary": pressures,
+        # ORPHAN-HIGH-627 — evidence-scaled source weights (only movers).
+        "calibrated_weights": calibrated_weights,
         "top_pressures": top_pressures,
         "tool_health": _tool_health(runs),
         "auto_merge_summary": _auto_merge_summary(auto_merge_decisions),
@@ -762,13 +771,14 @@ def _render_calibration_recommendation_section(reflection: dict[str, Any]) -> li
     Applying it stays a human act, deliberately. A system that silently
     reweights its own scoring can rationalise anything it later measures.
     """
-    recommendation = reflection.get("calibration_recommendation")
-    if not recommendation:
+    recommendation = reflection.get("calibration_recommendation") or {}
+    movers_present = bool(reflection.get("calibrated_weights"))
+    if not recommendation and not movers_present:
         return []
     weights = recommendation.get("pressure_weight_recommendations") or []
     tools = recommendation.get("tool_recommendations") or []
     sources = recommendation.get("source_effectiveness") or []
-    if not weights and not tools and not sources:
+    if not weights and not tools and not sources and not movers_present:
         return []
     lines = [
         "## Calibration Recommendations (advisory)",
@@ -791,6 +801,19 @@ def _render_calibration_recommendation_section(reflection: dict[str, Any]) -> li
         lines.append(f"Tool-level recommendations: {len(tools)}")
         for row in tools[:5]:
             lines.append(f"  - {row.get('tool_id')}: {row.get('recommendation', 'see ledger')}")
+    movers = reflection.get("calibrated_weights") or {}
+    if movers:
+        # ORPHAN-HIGH-627 — the weights evidence actually moved this cycle:
+        # base → effective, with the label counts that moved them. Multiplier
+        # 1.0 is the silent default, not news.
+        lines.append("")
+        lines.append("Evidence-scaled weights (Beta posterior over labels):")
+        for source, d in sorted(movers.items()):
+            lines.append(
+                f"  - {source}: {d.get('base')} -> {round(d.get('weight', 0), 1)} "
+                f"(x{round(d.get('multiplier', 1.0), 3)}, "
+                f"tp {d.get('tp', 0)} / fp {d.get('fp', 0)})"
+            )
     if sources:
         # FAZ 4c — the effectiveness ranking that justifies (or indicts) a
         # weight recommendation, from the same cycle's ledger. First render

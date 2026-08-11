@@ -915,7 +915,7 @@ interface SweepAction {
  * human reviews before merge — direct auto-commit would open a
  * tampering surface (bot push to main).
  */
-function planSweep(entries: readonly Finding[], config: SweepConfig): SweepAction[] {
+export function planSweep(entries: readonly Finding[], config: SweepConfig): SweepAction[] {
   const actions: SweepAction[] = [];
   const staleThresholdMs = config.staleAfterDays * 24 * 60 * 60 * 1000;
 
@@ -939,6 +939,17 @@ function planSweep(entries: readonly Finding[], config: SweepConfig): SweepActio
     }
 
     // Staleness check (OPEN + IN-PROGRESS only, not BLOCKED/STALE).
+    //
+    // CRITICAL findings are EXEMPT from auto-staleness: silence is not
+    // resolution for a critical. The first live sweep staled 29 open
+    // CRITICALs at once and the enterprise-grade debt-plan contract
+    // (tests/invariants/enterprise-grade-debt-plan-contract.spec.ts)
+    // refused the resulting PR — correctly: retiring unfixed critical
+    // debt by timeout is the audit-theater class that contract exists
+    // to stop. A critical leaves OPEN through a fix commit's Closes:,
+    // an explicit operator waiver, or the past-deadline BLOCKED branch
+    // above — never through the calendar.
+    if (entry.severity === 'CRITICAL') continue;
     if (entry.state === 'OPEN' || entry.state === 'IN-PROGRESS') {
       const created = new Date(entry.created_at);
       if (Number.isNaN(created.getTime())) continue;

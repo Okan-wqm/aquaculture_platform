@@ -348,6 +348,26 @@ def submit_cross_review_v8(
     if not isinstance(risks, list):
         raise GovernanceError("V8 cross-review risks must be a list")
 
+    # Z3-K2 (ORPHAN-HIGH-629) — direction attribution. The V8 agent submits
+    # ONE envelope for both directions, and this function used to copy the
+    # SAME risk list + one review_content_hash into both direction records:
+    # "who judged whom right" was unknowable, which starved the duel-rating
+    # layer of its signal. Each risk row MAY now carry
+    # `applies_to_direction` ∈ REQUIRED_CROSS_REVIEW_DIRECTIONS ∪ {"both"};
+    # a row without it means "both" — every legacy envelope reads back
+    # bit-identically. An unknown value is refused loudly rather than
+    # silently pooled, because a silently pooled row would recreate the
+    # defect this field exists to close.
+    for risk in risks:
+        if not isinstance(risk, dict):
+            continue
+        row_direction = risk.get("applies_to_direction", "both")
+        if row_direction not in (*REQUIRED_CROSS_REVIEW_DIRECTIONS, "both"):
+            raise GovernanceError(
+                f"cross-review risk applies_to_direction is invalid: "
+                f"{row_direction!r}"
+            )
+
     latest_rev = state.get("latest_revision") or {}
     target_revision_id = latest_rev.get("revision_id")
     target_hash = latest_rev.get("content_hash")
@@ -364,10 +384,46 @@ def submit_cross_review_v8(
     if not isinstance(round_number, int) or round_number <= 0:
         round_number = max(1, len(state.get("cross_reviews") or {}) + 1)
 
-    # Deterministic review_content_hash from canonical risk list.
-    review_content_hash = "sha256:" + hashlib.sha256(
-        _canonical_json({"risks": risks, "reviewer_agent": reviewer_agent}).encode("utf-8")
-    ).hexdigest()
+    # Z3-K2 — deterministic PER-DIRECTION content hash over the risks that
+    # apply to that direction. One hash for both directions was half of the
+    # "direction is fake" defect: identical hashes made the two records
+    # indistinguishable to any reader.
+    def _direction_risks(direction: str) -> list[dict[str, Any]]:
+        return [
+            risk
+            for risk in risks
+            if not isinstance(risk, dict)
+            or risk.get("applies_to_direction", "both") in ("both", direction)
+        ]
+
+    def _direction_hash(direction: str) -> str:
+        return "sha256:" + hashlib.sha256(
+            _canonical_json({
+                "risks": _direction_risks(direction),
+                "reviewer_agent": reviewer_agent,
+                "review_direction": direction,
+            }).encode("utf-8")
+        ).hexdigest()
+
+    # Z3-K2 — per-direction verdicts. The envelope may carry `verdicts`
+    # ({direction: verdict}) for a reviewer that judges the two sides
+    # differently; the scalar `verdict` remains the both-directions
+    # fallback. Without this, submit_cross_review_v8 never forwarded ANY
+    # verdict into the direction records — K1 taught the normalizer to
+    # keep the field while this producer kept dropping it.
+    verdicts = review.get("verdicts")
+    if verdicts is not None:
+        if not isinstance(verdicts, dict) or not set(verdicts).issubset(
+            REQUIRED_CROSS_REVIEW_DIRECTIONS
+        ):
+            raise GovernanceError(
+                "cross-review verdicts must map review directions to verdicts"
+            )
+
+    def _direction_verdict(direction: str) -> Any:
+        if isinstance(verdicts, dict) and direction in verdicts:
+            return verdicts[direction]
+        return review.get("verdict")
 
     sla_deadline = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
 
@@ -412,6 +468,7 @@ def submit_cross_review_v8(
     # answer, the state machine resolves to CROSS_REVIEWED.
     last_event: dict[str, Any] = {}
     for task in tasks:
+        task_direction = task["review_direction"]
         last_event = record_cross_review(
             plan_id=plan_id,
             review={
@@ -419,10 +476,14 @@ def submit_cross_review_v8(
                 "target_revision_id": target_revision_id,
                 "target_plan_content_hash": target_hash,
                 "reviewer_agent": reviewer_agent,
-                "review_direction": task["review_direction"],
-                "review_content_hash": review_content_hash,
+                "review_direction": task_direction,
+                "review_content_hash": _direction_hash(task_direction),
+                "verdict": _direction_verdict(task_direction),
                 "status_after": "ANSWERED",
-                "risks": risks,
+                # Z3-K2 — each direction record carries ONLY the risks that
+                # apply to it (rows without applies_to_direction apply to
+                # both, preserving every legacy envelope byte-for-byte).
+                "risks": _direction_risks(task_direction),
                 # agent_invocation_request_id intentionally omitted —
                 # V8 bypasses the per-task content-hash mismatch check
                 # because the agent submitted ONE envelope covering both

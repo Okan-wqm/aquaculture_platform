@@ -416,6 +416,24 @@ jobs:
         if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
         uses: ./.github/actions/ensure-sandbox-backend
 
+      # FAZ 5a — attestation producer on the executor lane too: the merge
+      # A2 — the executor lane never provisioned the node deps the agent
+      # validation commands need, so FAZ 5's pre-claim gate refused its
+      # first live dispatch with `env_deps_missing` (run 31456376668). The
+      # gate was right; the lane was the fault. Same shared action as the
+      # producer lane — one definition, no drift.
+      - name: Provision the node dependencies the adapter manifests declare
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
+        uses: ./.github/actions/ensure-node-deps
+
+      # gate keys rows by readiness claim, and this lane's host is part of
+      # the environment those claims describe. Idempotent per claim triple.
+      - name: Probe and record runner attestation
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
+        uses: ./.github/actions/probe-runner-attestation
+        with:
+          tools-dir: ${{ env.ARIA_TOOLS_DIR }}
+
       - name: Run CI executor
         id: executor
         if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''

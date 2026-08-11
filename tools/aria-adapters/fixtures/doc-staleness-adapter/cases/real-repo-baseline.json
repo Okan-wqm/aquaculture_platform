@@ -1,0 +1,12 @@
+{
+  "name": "real-repo-baseline",
+  "lane": "real_repo_baseline",
+  "input": {
+    "roots": ["docs"]
+  },
+  "expected": {
+    "status": "ok",
+    "required_observations": ["doc_staleness_document"],
+    "max_findings": 3000
+  }
+}

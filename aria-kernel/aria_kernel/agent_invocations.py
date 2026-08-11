@@ -167,6 +167,213 @@ def _repository_map_for_refs(
         return None
 
 
+def _established_knowledge_for_refs(
+    evidence_refs: list[str] | None,
+    allowed_scope: list[str] | None,
+    *,
+    base_dir: Path,
+    repo_root: str | Path | None,
+) -> dict[str, Any] | None:
+    """Active beliefs + learned conventions that touch this request's files.
+
+    Plan "ARIA Sinir Sistemi" FAZ 4a — the learning loop's missing last arc.
+    ARIA has recorded beliefs and conventions on every converged cycle and
+    never once handed them to the agent about to edit the same files; each
+    dispatch rediscovered the repository from zero. Built at MINT time
+    because the prompt hash is sealed at mint (binding constraint) — the
+    claim-side re-render must reproduce byte-identical text, so this must be
+    envelope DATA, not claim-time recomputation.
+
+    Returns None when nothing intersects; never raises into the mint path
+    (same contract as ``_repository_map_for_refs``).
+    """
+    paths = [
+        ref.split(":", 1)[0].strip()
+        for ref in (evidence_refs or [])
+        if isinstance(ref, str) and ref.split(":", 1)[0].strip()
+    ]
+    # A scope glob's static prefix ("apps/farm-service/**" → "apps/farm-service")
+    # is a path claim too: knowledge about the scoped area is relevant even
+    # when no evidence ref lands in it yet.
+    for scope in allowed_scope or []:
+        if not isinstance(scope, str):
+            continue
+        prefix = scope.split("*", 1)[0].strip().strip("/")
+        if prefix:
+            paths.append(prefix)
+    if not paths:
+        return None
+    try:
+        from .knowledge_graph import _paths_related, conventions_for_paths
+        from .memory import latest_beliefs, load_jsonl
+
+        wanted = sorted(dict.fromkeys(paths))
+        beliefs_path = base_dir / "memory" / "beliefs.jsonl"
+        beliefs: list[dict[str, Any]] = []
+        if beliefs_path.exists():
+            for belief in latest_beliefs(load_jsonl(beliefs_path)):
+                if belief.get("status") != "supported":
+                    continue
+                ref_paths = [
+                    str(ref).split(":", 1)[0]
+                    for ref in (belief.get("evidence_refs") or [])
+                    if isinstance(ref, str)
+                ]
+                if not any(
+                    _paths_related(ref_path, want)
+                    for ref_path in ref_paths
+                    for want in wanted
+                ):
+                    continue
+                beliefs.append(
+                    {
+                        "belief_id": belief.get("belief_id"),
+                        "claim": belief.get("claim"),
+                        "confidence": belief.get("confidence"),
+                        "support_count": belief.get("support_count"),
+                        "evidence_refs": list(belief.get("evidence_refs") or [])[:3],
+                    }
+                )
+        beliefs.sort(
+            key=lambda b: (
+                int(b.get("support_count") or 0),
+                float(b.get("confidence") or 0.0),
+            ),
+            reverse=True,
+        )
+        beliefs = beliefs[:5]
+        workspace_root = Path(repo_root) if repo_root else base_dir.parent
+        conventions = [
+            {
+                "pattern_id": row.get("pattern_id"),
+                "pattern_type": row.get("pattern_type"),
+                "confidence": row.get("confidence"),
+                "evidence_refs": list(row.get("evidence_refs") or [])[:3],
+                "discovered_by_cycle_id": row.get("discovered_by_cycle_id"),
+            }
+            for row in conventions_for_paths(
+                workspace_root=workspace_root, paths=wanted
+            )
+        ]
+        if not beliefs and not conventions:
+            return None
+        return {"beliefs": beliefs, "conventions": conventions}
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _recent_intent_for_refs(
+    evidence_refs: list[str] | None,
+    *,
+    repo_root: str | Path | None,
+) -> dict[str, Any] | None:
+    """The git-derived intent slice for this request's evidence files.
+
+    Plan "ARIA Sinir Sistemi" FAZ 4b — intent reading. Per evidence file,
+    the last few commits' subject + first WHY line + ADR/plan/finding refs,
+    so the agent starts "why is this code the way it is" with cited history
+    instead of guessing. Needs the repository (``context_repo_root``); when
+    the caller minted without one, the section is simply absent.
+    """
+    if repo_root is None:
+        return None
+    paths = [
+        ref.split(":", 1)[0].strip()
+        for ref in (evidence_refs or [])
+        if isinstance(ref, str) and ref.split(":", 1)[0].strip()
+    ]
+    if not paths:
+        return None
+    try:
+        from .twin import intent_context_for_files
+
+        return intent_context_for_files(repo_root, sorted(dict.fromkeys(paths)))
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _render_established_knowledge(established_knowledge: Any) -> str:
+    """What ARIA already learned about the files in scope — orientation.
+
+    Same trust framing as the repository map: derived state that orients,
+    never evidence the agent may cite. Emitted only when present on the row
+    — an empty scaffold would claim "ARIA knows nothing here", which is a
+    different statement from "no knowledge was attached".
+    """
+    if not isinstance(established_knowledge, dict):
+        return ""
+    beliefs = established_knowledge.get("beliefs") or []
+    conventions = established_knowledge.get("conventions") or []
+    if not beliefs and not conventions:
+        return ""
+    lines = [
+        "## Established knowledge",
+        "",
+        "What ARIA has already verified about this area — a projection, "
+        "**not evidence**. Use it to avoid rediscovering; cite only evidence_refs.",
+        "",
+    ]
+    for belief in beliefs:
+        if not isinstance(belief, dict):
+            continue
+        lines.append(
+            f"- [{belief.get('belief_id')}] {belief.get('claim')} "
+            f"(confidence {belief.get('confidence')}, "
+            f"seen {belief.get('support_count')}x)"
+        )
+        refs = belief.get("evidence_refs") or []
+        if refs:
+            lines.append(f"  - anchored at: {', '.join(f'`{r}`' for r in refs)}")
+    for row in conventions:
+        if not isinstance(row, dict):
+            continue
+        lines.append(
+            f"- convention `{row.get('pattern_id')}` ({row.get('pattern_type')}, "
+            f"confidence {row.get('confidence')}, "
+            f"from cycle {row.get('discovered_by_cycle_id')})"
+        )
+        refs = row.get("evidence_refs") or []
+        if refs:
+            lines.append(f"  - anchored at: {', '.join(f'`{r}`' for r in refs)}")
+    return "\n".join(lines) + "\n\n"
+
+
+def _render_recent_intent(recent_intent: Any) -> str:
+    """Why the files in scope are the way they are — recent commit intent.
+
+    Git-derived at mint from the exact evidence files: subject + first WHY
+    line + the ADR/plan/finding references each message carries. Orients the
+    agent's intent reading; never admissible as evidence.
+    """
+    if not isinstance(recent_intent, dict):
+        return ""
+    files = recent_intent.get("files")
+    if not isinstance(files, list) or not files:
+        return ""
+    lines = [
+        "## Recent intent",
+        "",
+        "Why these files changed recently, from their own commit messages at "
+        f"`{recent_intent.get('head_sha') or 'unknown'}` — a projection, "
+        "**not evidence**.",
+        "",
+    ]
+    for entry in files:
+        if not isinstance(entry, dict):
+            continue
+        lines.append(f"- `{entry.get('file')}`")
+        for commit in entry.get("commits") or []:
+            if not isinstance(commit, dict):
+                continue
+            lines.append(f"  - `{commit.get('sha')}` {commit.get('subject')}")
+            if commit.get("why"):
+                lines.append(f"    - why: {commit.get('why')}")
+            refs = commit.get("refs") or []
+            if refs:
+                lines.append(f"    - refs: {', '.join(f'`{r}`' for r in refs)}")
+    return "\n".join(lines) + "\n\n"
+
+
 def _render_repository_map(repository_map: Any) -> str:
     """The Twin-lite slice for the files in scope — orientation, not evidence.
 
@@ -263,6 +470,10 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         return "\n".join(f"  - {key_func(item)}" for item in items)
 
     repository_map_block = _render_repository_map(request.get("repository_map"))
+    established_knowledge_block = _render_established_knowledge(
+        request.get("established_knowledge")
+    )
+    recent_intent_block = _render_recent_intent(request.get("recent_intent"))
 
     return (
         f"# ARIA agent request {request_id}\n\n"
@@ -281,6 +492,8 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         f"## Forbidden scope\n\n{_bullet_list(forbidden_scope)}\n\n"
         f"## Impact graph refs\n\n{_bullet_list(impact_refs)}\n\n"
         f"{repository_map_block}"
+        f"{established_knowledge_block}"
+        f"{recent_intent_block}"
         f"## Validation commands\n\n"
         f"{_bullet_list(validation_cmds, lambda c: '`' + c.get('cmd', str(c)) + '`' if isinstance(c, dict) else '`' + str(c) + '`')}\n"
         f"{must_satisfy_block}\n"
@@ -624,6 +837,18 @@ def create_agent_invocation_request(
     repository_map = _repository_map_for_refs(evidence_refs, base_dir=root)
     if repository_map is not None:
         row["repository_map"] = repository_map
+    # Plan "ARIA Sinir Sistemi" FAZ 4 — the learning loop's read side. Both
+    # sections are computed HERE, at mint, because the prompt hash is sealed
+    # over the rendered text and the claim path re-renders from the stored
+    # envelope: knowledge and intent must be envelope data, not recomputation.
+    established_knowledge = _established_knowledge_for_refs(
+        evidence_refs, allowed_scope, base_dir=root, repo_root=context_repo_root
+    )
+    if established_knowledge is not None:
+        row["established_knowledge"] = established_knowledge
+    recent_intent = _recent_intent_for_refs(evidence_refs, repo_root=context_repo_root)
+    if recent_intent is not None:
+        row["recent_intent"] = recent_intent
     # Plan 024 §B-2 — when the caller opted out of strict enforcement,
     # emit a governance event capturing target_agent + role + missing
     # fields so the operator audit trail records every legacy creation.
@@ -1153,8 +1378,44 @@ def _request_fault_requeue_count(rows: list[dict[str, Any]], request_id: str) ->
     )
 
 
+# The canonical result vocabulary, and the legacy spellings that still live in
+# the append-only ledger. Two generations coexist on disk — legacy
+# aria/agent-invocation-result/v1 wrote completed/rejected/partial, Plan 016
+# writes accepted/rejected — and every reader that learns this the hard way is
+# a trap re-armed. Normalization happens at READ time: the ledger stays
+# append-only and byte-stable, rows come back canonical, and the original
+# spelling survives in `legacy_status` for audit.
+CANONICAL_RESULT_STATUSES: frozenset[str] = frozenset({"accepted", "rejected", "partial"})
+_LEGACY_RESULT_STATUS_MAP: dict[str, str] = {
+    "completed": "accepted",
+    # `partial` is deliberately NOT in this map. It is not a legacy spelling
+    # of rejected — it is its own state: something was delivered, the
+    # contract was not met, and `derive_request_state` keeps such a request
+    # SUBMITTED (awaiting adjudication) rather than REJECTED (terminal).
+    # An earlier draft mapped partial→rejected, which silently flipped a
+    # partial row's derived state SUBMITTED→REJECTED and left the SUBMITTED
+    # branch dead — a behaviour change smuggled in as a spelling fix. The
+    # partial-stays-SUBMITTED contract is pinned by test.
+}
+
+
+def _normalize_result_row(row: dict[str, Any]) -> dict[str, Any]:
+    status = str(row.get("status") or "")
+    canonical = _LEGACY_RESULT_STATUS_MAP.get(status)
+    if canonical is None:
+        return row
+    normalized = dict(row)
+    normalized["status"] = canonical
+    normalized["legacy_status"] = status
+    return normalized
+
+
 def _result_rows_for(rows: list[dict[str, Any]], request_id: str) -> list[dict[str, Any]]:
-    return [row for row in rows if row.get("request_id") == request_id]
+    return [
+        _normalize_result_row(row)
+        for row in rows
+        if row.get("request_id") == request_id
+    ]
 
 
 def _claim_rows_for(rows: list[dict[str, Any]], request_id: str) -> list[dict[str, Any]]:
@@ -1225,17 +1486,17 @@ def derive_request_state(
         expected_surface="agent_invocation_claims",
     )
 
-    # Results dominate (terminal states first). The status vocabulary is
-    # the union of legacy aria/agent-invocation-result/v1 ("completed",
-    # "rejected", "partial") and Plan 016 aria/agent-claim-result/v1
-    # ("accepted", "rejected"). Both map onto the same derived states.
+    # Results dominate (terminal states first). Rows arrive CANONICAL from
+    # _result_rows_for (legacy completed/partial spellings normalized at
+    # read; the original survives in legacy_status), so this derivation
+    # compares one vocabulary, not two.
     request_results = _result_rows_for(results, request_id)
     if request_results:
         last = request_results[-1]
         status = last.get("status")
         if status == "rejected":
             return "REJECTED"
-        if status in ("completed", "accepted"):
+        if status == "accepted":
             # Plan 026R §C.5 — bridge-status-aware acceptance.
             # If the accepted row is for a BRIDGE_REQUIRED role and the
             # bridge has NOT succeeded yet, the request is in
@@ -1361,7 +1622,7 @@ def accepted_result_for_request(
     if not rows:
         return None
     last = rows[-1]
-    if str(last.get("status")) not in {"accepted", "completed"}:
+    if str(last.get("status")) != "accepted":
         return None
     if role is not None and str(last.get("role") or "") != role:
         return None
@@ -1710,6 +1971,12 @@ _FUSED_ENVELOPE_KEYS: tuple[str, ...] = (
     "context_hash",
     "prompt_hash",
     "repository_map",
+    # FAZ 4 — mint-time learned context + intent. The renderer reads both,
+    # so a claim response that dropped either would re-render different text
+    # and fail the prompt-hash binding; carrying them here keeps the fused
+    # projection the same object the hash was minted over.
+    "established_knowledge",
+    "recent_intent",
     "cycle_id",
     "context_ledger_hash",
     "prompt_ledger_hash",

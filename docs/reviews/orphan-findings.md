@@ -9123,3 +9123,15 @@ Severity: HIGH. Discovered 2026-08-10 by the FIRST live auto-cycle over the neur
 **Proof:** 11 seeder tests green including the new live-shape pin; 201 neighbour tests green. The live cycle that found this is the FAZ 8 harness doing its job — the failure was recorded, phase-contained (`record_and_continue` kept sibling phases running), and the state store persisted the evidence.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-MEDIUM-624 — every pair of concurrent ARIA branches conflicted on one derived line, and the trains hand-resolved the same non-conflict five times in two days — RESOLVED (this PR)
+
+Severity: MEDIUM (process drag, not correctness). Discovered 2026-08-11 while closing the neural-wiring program's merge queue.
+
+`docs/aria/CURRENT_STATE.md` line 5 pins the authority-chain hash over a wide tree (docs/aria/, aria-kernel/, tools/aria-poc/, the aria-\* workflows). Any two concurrent branches that touch ANY of that tree conflict on the pin even when their code merges cleanly. Measured cost: #1018, #1127, #1143, #1154 and #1164 (twice) all bounced off merge trains as "genuinely conflicts" on this single line during 2026-08-10/11.
+
+**Fix (the append-only-ledger precedent, applied):** `.gitattributes` gains `docs/aria/CURRENT_STATE.md merge=ours` — the same file already carries `merge=union` for the findings ledger, with the same reasoning shape: the merge result was never load-bearing, because BOTH sides' hashes are wrong for the merged tree; the true value is regenerated post-merge (`aria:authority-hash:write`), staleness is enforced by `tests/invariants/aria-doc-runtime-ssot.spec.ts`, and the pre-commit auto-repin hook re-derives it on every commit. `ours` removes the textual conflict; the invariant keeps the honesty.
+
+Caveat stated plainly: GitHub's server-side merge machinery may not honor the driver, so PR pages can still SHOW a conflict — but resolution happens in the local trains, which do honor it, and that is where the five hand-resolutions were paid.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

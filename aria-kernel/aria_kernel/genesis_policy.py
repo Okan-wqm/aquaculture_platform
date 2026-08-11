@@ -292,6 +292,31 @@ AUTO_PROMOTE_DEFAULTS: dict[str, Any] = {
 }
 
 
+# Z3d — EVAL_WINDOW → ACTIVE superiority gate knobs (genesis_superiority).
+# `min_duel_matches`: decided duels required before the Bradley-Terry
+# component is evaluated at all; below it, the measured eval-window verdict
+# alone decides (a thin duel ledger must not block the lane that feeds it).
+SUPERIORITY_DEFAULTS: dict[str, Any] = {
+    "min_duel_matches": 3,
+    "window_days": 30,
+}
+
+
+def superiority_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """Resolve the Z3d superiority block with defaults (auto_promote pattern)."""
+    if repo_root is not None:
+        merged = load_policy(repo_root)
+    else:
+        merged = {}
+    block = dict(SUPERIORITY_DEFAULTS)
+    raw_block = merged.get("superiority")
+    if isinstance(raw_block, dict):
+        for key in SUPERIORITY_DEFAULTS:
+            if key in raw_block:
+                block[key] = raw_block[key]
+    return block
+
+
 def auto_promote_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
     """Plan ARIA-V6 §2e v2 — resolve auto_promote settings with defaults.
 

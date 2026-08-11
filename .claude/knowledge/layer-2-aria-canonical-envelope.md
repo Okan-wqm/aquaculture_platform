@@ -18,15 +18,15 @@ The kernel validators that enforce this shape:
 The agent's response envelope carries a top-level `plan_content` object.
 The kernel requires seven fields with the rules below.
 
-| Field | Type | Rule |
-|---|---|---|
-| `schema_version` | int | Current value: `2`. Version semantics: `1` = legacy (coverage gate inert — all recorded history); `2`+ = the plan-coverage gate applies: the kernel refuses CONVERGED until the deterministic impact-closure verdict (`coverage_computed`, produced by `tools/gates/plan-coverage-witness.ts` via `aria_kernel/plan_coverage.py`) is `covered` or `covered_with_waivers`. Applicability is anchored to the `plan_started` content — a later revision cannot downgrade it. |
-| `title` | string | Non-empty; one-line summary of the plan |
-| `summary` | string | Non-empty; 2–5 sentence narrative |
-| `affected_surfaces` | array | Each entry is `{paths: [<repo-relative POSIX>...]}` — no leading `/`, no `\`, no `..` |
-| `key_changes` | array | Non-empty list of strings; each maps to one numbered plan step |
-| `validation_commands` | array | Each entry is `{cmd: <non-empty string>, expected_exit?: int, timeout_ms?: int}` |
-| `evidence_refs` | array | Each entry MUST be `<repo-relative path>[:<line>]` resolvable to an existing file at the workspace SHA. To cite a finding as evidence, use the path form `aria-findings/F-NNN.json[:<line>]` — bare finding ids (`F-019`) are rejected by `evidence_validator._check_agent_ref` because they do not resolve to a file. |
+| Field                 | Type   | Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| --------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schema_version`      | int    | Current value: `2`. Version semantics: `1` = legacy (coverage gate inert — all recorded history); `2`+ = the plan-coverage gate applies: the kernel refuses CONVERGED until the deterministic impact-closure verdict (`coverage_computed`, produced by `tools/gates/plan-coverage-witness.ts` via `aria_kernel/plan_coverage.py`) is `covered` or `covered_with_waivers`. Applicability is anchored to the `plan_started` content — a later revision cannot downgrade it. |
+| `title`               | string | Non-empty; one-line summary of the plan                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `summary`             | string | Non-empty; 2–5 sentence narrative                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `affected_surfaces`   | array  | Each entry is `{paths: [<repo-relative POSIX>...]}` — no leading `/`, no `\`, no `..`                                                                                                                                                                                                                                                                                                                                                                                     |
+| `key_changes`         | array  | Non-empty list of strings; each maps to one numbered plan step                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `validation_commands` | array  | Each entry is `{cmd: <non-empty string>, expected_exit?: int, timeout_ms?: int}`                                                                                                                                                                                                                                                                                                                                                                                          |
+| `evidence_refs`       | array  | Each entry MUST be `<repo-relative path>[:<line>]` resolvable to an existing file at the workspace SHA. To cite a finding as evidence, use the path form `aria-findings/F-NNN.json[:<line>]` — bare finding ids (`F-019`) are rejected by `evidence_validator._check_agent_ref` because they do not resolve to a file.                                                                                                                                                    |
 
 Extra plan_content keys are passed through and ignored by the kernel
 validator (operator-readable narrative survives). Recommended extras
@@ -88,9 +88,9 @@ fails closed to `gaps`.
     "schema_version": 2,
     "title": "<one line>",
     "summary": "<2-5 sentences>",
-    "affected_surfaces": [{"paths": ["..."]}],
+    "affected_surfaces": [{ "paths": ["..."] }],
     "key_changes": ["..."],
-    "validation_commands": [{"cmd": "...", "expected_exit": 0, "timeout_ms": 60000}],
+    "validation_commands": [{ "cmd": "...", "expected_exit": 0, "timeout_ms": 60000 }],
     "evidence_refs": ["..."]
   },
   "details": {}
@@ -118,6 +118,10 @@ two-task state machine flow from a single agent submission.
     "cross_review": {
       "reviewer_agent": "aria-cross-reviewer",
       "verdict": "agreed | material_risks_present | partial_coverage",
+      "verdicts": {
+        "primary_to_challenger": "agreed",
+        "challenger_to_primary": "material_risks_present"
+      },
       "risks": [
         {
           "risk_id": "CR-001",
@@ -126,7 +130,8 @@ two-task state machine flow from a single agent submission.
           "summary": "<one line — concise problem statement>",
           "recommendation": "<concrete action the plan author should take>",
           "affected_files": ["apps/path/to/file.ts"],
-          "evidence_refs": ["apps/path/to/file.ts:42"]
+          "evidence_refs": ["apps/path/to/file.ts:42"],
+          "applies_to_direction": "challenger_to_primary"
         }
       ]
     }
@@ -136,8 +141,14 @@ two-task state machine flow from a single agent submission.
 
 Each `risks[]` entry is structurally validated by
 `plan_convergence._validate_cross_review_risk` (in plan_convergence.py). Every
-field above is REQUIRED and non-empty; the validator rejects any
-risk entry with a missing or empty value. Allowed
+field above is REQUIRED and non-empty EXCEPT `applies_to_direction`,
+which is OPTIONAL: it routes the risk to ONE direction record
+(`primary_to_challenger` | `challenger_to_primary` | `both`; omitted =
+`both`). Attribute each risk to the side it indicts — an unattributed
+risk counts against BOTH plans and dilutes the duel-rating signal.
+The optional top-level `verdicts` map likewise carries per-direction
+verdicts; the scalar `verdict` is the both-directions fallback. The
+validator rejects any risk entry with a missing or empty value. Allowed
 `severity` values: `{"blocking", "material", "nice_to_have"}` OR
 the canonical `KNOWN_SEVERITIES` set `{"HIGH", "MEDIUM", "LOW"}`.
 `risk_category` is a free-text classifier — common values include

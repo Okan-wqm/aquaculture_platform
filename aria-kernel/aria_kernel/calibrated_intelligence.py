@@ -240,3 +240,82 @@ def judge_weights_from_calibration(
         )
         weights[judge_id] = post["mean"]
     return weights
+
+
+def pagerank(
+    adjacency: dict[str, list[str]],
+    *,
+    damping: float = 0.85,
+    iters: int = 50,
+) -> dict[str, float]:
+    """Deterministic power-method PageRank over a project graph (Z4a).
+
+    ``adjacency[a] = [b]`` means a depends on b (consumer -> provider);
+    rank flows TO providers, so the score answers "how much of the
+    platform stands on this node". Pure python, sorted iteration order,
+    fixed iterations, dangling mass redistributed uniformly — two calls
+    on the same graph are bit-identical.
+    """
+    nodes = sorted(set(adjacency) | {d for deps in adjacency.values() for d in deps})
+    if not nodes:
+        return {}
+    n = len(nodes)
+    rank = {node: 1.0 / n for node in nodes}
+    teleport = (1.0 - damping) / n
+    for _ in range(iters):
+        incoming = {node: 0.0 for node in nodes}
+        dangling_mass = 0.0
+        for node in nodes:
+            outs = [d for d in adjacency.get(node, []) if d in incoming and d != node]
+            if not outs:
+                dangling_mass += rank[node]
+                continue
+            share = rank[node] / len(outs)
+            for out in outs:
+                incoming[out] += share
+        dangling_share = dangling_mass / n
+        rank = {
+            node: teleport + damping * (incoming[node] + dangling_share)
+            for node in nodes
+        }
+    return rank
+
+
+def bradley_terry(
+    observations: list[dict[str, Any]],
+    *,
+    iters: int = 100,
+    epsilon: float = 1e-9,
+) -> dict[str, float]:
+    """Deterministic MM-algorithm Bradley-Terry ratings (Z3c).
+
+    ``observations``: [{"winner": id, "loser": id}] pairwise outcomes.
+    Returns id -> strength, normalized to sum 1. Sorted iteration order +
+    fixed iterations → bit-identical on identical input. Read-time
+    computation: the LEDGER stores outcomes, never scores (the
+    pressure-source-effectiveness pattern).
+    """
+    players = sorted({o["winner"] for o in observations} | {o["loser"] for o in observations})
+    if not players:
+        return {}
+    wins: dict[str, int] = {p: 0 for p in players}
+    pair_games: dict[tuple[str, str], int] = {}
+    for o in observations:
+        w, l = str(o["winner"]), str(o["loser"])
+        wins[w] += 1
+        key = (min(w, l), max(w, l))
+        pair_games[key] = pair_games.get(key, 0) + 1
+    strength = {p: 1.0 for p in players}
+    for _ in range(iters):
+        updated = {}
+        for p in players:
+            denom = 0.0
+            for (a, b), games in sorted(pair_games.items()):
+                if p not in (a, b):
+                    continue
+                other = b if p == a else a
+                denom += games / (strength[p] + strength[other])
+            updated[p] = (wins[p] / denom) if denom > 0 else epsilon
+        total = sum(updated.values()) or 1.0
+        strength = {p: max(epsilon, v / total) for p, v in updated.items()}
+    return strength

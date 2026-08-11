@@ -9243,3 +9243,21 @@ Severity: HIGH. Discovered 2026-08-11: the first live finding-state sweep (#1162
 Severity: CRITICAL (process). The same sweep dry-run shows 23 CRITICALs past deadline (e.g. INFRA-CRITICAL-029 deadline 2026-05-15, AISAFETY-CRITICAL-003 2026-07-26) correctly transitioning OPEN→BLOCKED. The debt-plan manifest's `active_critical_ids` precondition will refuse any sweep PR containing them until each gets a truth-table row (owner + bucket) — by design; the repin tool refuses to write over a changed id list. This is real triage work, not ceremony.
 
 **Owner:** operator + claude (next session window). **Deadline:** 2026-08-25. **Status:** OPEN.
+
+## ORPHAN-HIGH-635 — consensus treated every judge as equal and every passing score as safe: no weighting, no abstention guarantee — RESOLVED (this PR, Kalibre Zekâ Z2a/Z2c)
+
+Severity: HIGH. The unanimity gate ignored everything ARIA knows about its judges (calibration tp/fp existed, weighed nothing), and a consensus scraping past 0.80 auto-published with no statistical guarantee.
+
+**Fix:** `generate_ai_consensus` gains two calibrated knobs, both default-OFF (legacy gate bit for bit): `judge_weights` (Beta-posterior precision means via `judge_weights_from_calibration`; strict-majority + margin vote — two equal judges still degenerate to unanimity, so the legacy guarantee survives; a new judge weighs at the neutral prior) and `conformal_floor` (`conformal_threshold` split-conformal quantile over past correct-consensus confidences, None under 8 samples; below-floor consensus abstains as `conformal_abstain`, severity HIGH in the escalation map). The cycle derives both from the ledgers each cycle; missing ledgers → None → legacy behaviour; failure costs calibration, never consensus.
+
+**Proof:** hand-checked closed forms (10/13 posterior; α=0.1 quantile), 6 new tests incl. legacy-golden and two-equal-judges-degenerate, 154 neighbour tests green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-629 — the duel had no rateable trace: verdicts dropped, risks double-counted, outcomes unrecorded — PARTIALLY RESOLVED (this PR; K2 direction-fidelity remains OPEN)
+
+Severity: HIGH (Kalibre Zekâ Z3). Exploration verified three live defects in the primary-vs-challenger machinery. **This PR closes K1 + K3 and lands the rating substrate:** K1 — the reviewer's `verdict` was asked for by the agent contract, promised by the submit docstring, and dropped by `_normalize_cross_review`; it now persists (legacy rows read back None). K3 — both `cross_review_recorded` events of a round appended the same risks blind, doubling every gate margin and any rating metric; risks now dedup by `risk_id` within the round. Z3b — one knowledge-graph row per evaluated round (`knowledge-graph/duel-ratings.jsonl`, chained `_append_row`, written inside the plan lock; outcomes stored, scores computed at read time via the new deterministic MM-algorithm `bradley_terry` — hand-checked 3-player example). Z4 lands alongside: deterministic `pagerank` over the cached dependency graph; evidence-backed missions get a centrality-scored priority band (CORE keeps 0-3; graph absent → stable enumeration fallback).
+
+**OPEN remainder (same ID):** K2 — `submit_cross_review_v8` still writes the SAME risks list to both directions, so per-side attribution is approximate until the submit path carries per-direction risks; and Z3d (genesis superiority gate over `eval_window_passed`) follows once ratings accumulate. Owner: claude, next session window.
+
+**Owner:** claude (this session). **Status:** K1/K3/Z3b/Z4 RESOLVED; K2+Z3d OPEN.

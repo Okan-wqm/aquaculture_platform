@@ -391,14 +391,13 @@ jobs:
               --tools-dir "${ARIA_TOOLS}"
           done
 
+      # A2 — one definition, both lanes (RC-9): the inline copy that used to
+      # sit here is now .github/actions/ensure-node-deps, shared with the
+      # executor lane whose missing provisioning tripped FAZ 5's pre-claim
+      # gate (`env_deps_missing`, run 31456376668).
       - name: Provision the node dependencies the adapter manifests declare
         if: steps.lease_check.outputs.blocked != 'true'
-        run: |
-          set -euo pipefail
-          if [ ! -x node_modules/ts-node/dist/bin.js ]; then
-            npm ci --ignore-scripts --no-audit --no-fund
-          fi
-          test -x node_modules/ts-node/dist/bin.js
+        uses: ./.github/actions/ensure-node-deps
 
       # FAZ 5a — the merge gate's attestation producer, at lane start so the
       # row describes the host that will run the merge. Refusals (no sandbox,

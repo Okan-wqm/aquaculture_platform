@@ -43230,6 +43230,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/finding-sweep-critical-exemption.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/fixtures/plan-020/banned-phrase-positive.md",
       "prettier_managed": true
     },

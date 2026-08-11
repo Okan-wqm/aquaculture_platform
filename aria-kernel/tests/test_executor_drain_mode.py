@@ -30,6 +30,7 @@ if str(_POC_DIR) not in sys.path:
     sys.path.insert(0, str(_POC_DIR))
 
 import ci_executor  # noqa: E402
+import ci_executor_drain  # noqa: E402
 
 
 class _FakeProc:
@@ -76,9 +77,9 @@ def _drain(queue, child_results, env=None, tmp=None):
         **(env or {}),
     }
     with patch.dict(os.environ, env_vars), patch.object(
-        ci_executor.subprocess, "run", side_effect=fake_run
+        ci_executor_drain.subprocess, "run", side_effect=fake_run
     ):
-        rc = ci_executor.drain_pending(
+        rc = ci_executor_drain.drain_pending(
             tools_dir=out_dir / "aria-tools", repo_root=_REPO_ROOT
         )
     return rc, calls, parent_output.read_text(encoding="utf-8")
@@ -160,7 +161,7 @@ class DrainPendingTests(unittest.TestCase):
         self.assertIn("drain_failed=1\n", output)
 
     def test_main_routes_drain_flag(self) -> None:
-        with patch.object(ci_executor, "drain_pending", return_value=0) as dp:
+        with patch.object(ci_executor_drain, "drain_pending", return_value=0) as dp:
             rc = ci_executor.main(["--drain"])
         self.assertEqual(rc, 0)
         dp.assert_called_once()

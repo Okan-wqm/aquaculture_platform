@@ -670,165 +670,6 @@ def _max_requests() -> int:
 def _max_timeout_seconds() -> int:
     return int(os.environ.get("MAX_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS))
 
-
-# Drain-mode wall-clock budget. The nightly job's own timeout is 45 minutes;
-# the drain loop stops STARTING new requests once this much of the run has
-# elapsed so an in-flight agent invocation is never killed mid-claim by the
-# job reaper — a killed child leaks its lease until the reaper sweep.
-DEFAULT_DRAIN_BUDGET_SECONDS = 2100
-
-
-def _drain_budget_seconds() -> int:
-    return int(
-        os.environ.get("ARIA_DRAIN_BUDGET_SECONDS", DEFAULT_DRAIN_BUDGET_SECONDS)
-    )
-
-
-def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
-    """Consume pending agent requests until the queue, cap, or clock runs out.
-
-    Why this exists: the nightly executor claimed exactly ONE request per run
-    while the producer mints many per cycle, so the queue only ever grew —
-    162 pending judge requests against a 1/day consumer is a lane that can
-    never catch up. `MAX_REQUESTS_PER_RUN` was exported by the workflow and
-    read by nothing, the exact "tunable that gates nothing" class this file
-    already condemns (ORPHAN-HIGH-472). This loop makes it real.
-
-    Each request still runs through the SINGLE-REQUEST path as a subprocess
-    (`ci_executor.py <request_id> <target_agent>` — the argv shape locked by
-    invariant I-V3-21), so claim/lease/submit semantics are byte-identical
-    to a targeted dispatch. The loop only decides WHAT to run next:
-
-    * queue empty → clean stop;
-    * `MAX_REQUESTS_PER_RUN` reached → stop, the rest keeps until tomorrow;
-    * wall-clock budget spent → stop starting new work;
-    * next-pending returns a request this run already attempted → stop.
-      A failed child releases its claim, so the same request surfaces again
-      immediately; retrying it in the same environment would burn its whole
-      requeue budget in one night pricing an environment fault as N request
-      failures (the M-2.5 class the pre-claim gate exists to prevent).
-
-    `target_agent` is passed through from the request row — the workflow's
-    single-shot path passed only the request id, so every drained request
-    would otherwise run under the `aria-evidence-judge` default profile even
-    when the kernel minted it for a different agent.
-
-    Exit code: 0 when every attempted dispatch succeeded (or none were
-    pending); 1 when any child failed — the work that DID succeed is already
-    submitted by the children, so a red run reports the failure without
-    discarding the night's progress.
-    """
-    started = time.monotonic()
-    attempted: set[str] = set()
-    succeeded = 0
-    failed = 0
-    stop_reason = "queue_empty"
-    envelope_paths: list[str] = []
-    transcript_paths: list[str] = []
-    parent_github_output = os.environ.get("GITHUB_OUTPUT")
-
-    while True:
-        if len(attempted) >= _max_requests():
-            stop_reason = "max_requests_reached"
-            break
-        if time.monotonic() - started > _drain_budget_seconds():
-            stop_reason = "budget_exhausted"
-            break
-
-        pending_proc = subprocess.run(
-            [
-                "python3", "-m", "aria_kernel", "agent", "next-pending",
-                "--tools-dir", str(tools_dir),
-            ],
-            capture_output=True,
-            text=True,
-            env={**os.environ, "PYTHONPATH": str(repo_root / "aria-kernel")},
-        )
-        if pending_proc.returncode != 0:
-            _stage(f"drain_next_pending_failed rc={pending_proc.returncode}")
-            sys.stderr.write(pending_proc.stderr[-1000:] + "\n")
-            stop_reason = "next_pending_failed"
-            failed += 1
-            break
-        try:
-            request = json.loads(pending_proc.stdout or "null")
-        except json.JSONDecodeError:
-            _stage("drain_next_pending_not_json")
-            stop_reason = "next_pending_not_json"
-            failed += 1
-            break
-        request_id = (request or {}).get("request_id")
-        if not request_id:
-            break
-        if request_id in attempted:
-            _stage(f"drain_repeat_request request_id={request_id}")
-            stop_reason = "repeat_request"
-            break
-        attempted.add(request_id)
-
-        target_agent = str(request.get("target_agent") or "").strip()
-        child_argv = ["python3", str(Path(__file__).resolve()), request_id]
-        if target_agent:
-            child_argv.append(target_agent)
-
-        # The child announces its envelope/transcript paths via GITHUB_OUTPUT
-        # (_publish_artifact_paths). Point each child at its own scratch file
-        # so the parent can AGGREGATE them — children appending to the real
-        # GITHUB_OUTPUT would each overwrite the step output key, and the
-        # artifact upload would only ever see the LAST request of the night.
-        child_output = (
-            Path(os.environ.get("RUNNER_TEMP", "/tmp"))
-            / f"aria-drain-output-{request_id}.txt"
-        )
-        child_env = {**os.environ, "GITHUB_OUTPUT": str(child_output)}
-        _stage(f"drain_dispatch request_id={request_id} target={target_agent or '-'}")
-        child = subprocess.run(child_argv, env=child_env, cwd=str(repo_root))
-        if child.returncode == 0:
-            succeeded += 1
-        else:
-            failed += 1
-        if child_output.exists():
-            for line in child_output.read_text(encoding="utf-8").splitlines():
-                if line.startswith("envelope_path="):
-                    envelope_paths.append(line.split("=", 1)[1])
-                elif line.startswith("transcript_path="):
-                    transcript_paths.append(line.split("=", 1)[1])
-            child_output.unlink()
-
-    _stage(
-        f"drain_done attempted={len(attempted)} succeeded={succeeded} "
-        f"failed={failed} stop={stop_reason}"
-    )
-    if _append_tools_governance is not None:
-        try:
-            _append_tools_governance(
-                tools_dir,
-                "executor_drain_completed",
-                {
-                    "attempted": len(attempted),
-                    "succeeded": succeeded,
-                    "failed": failed,
-                    "stop_reason": stop_reason,
-                    "run_id": os.environ.get("GITHUB_RUN_ID", "local"),
-                },
-            )
-        except Exception as exc:  # noqa: BLE001 — governance-write failure
-            # must not mask the drain result it is trying to record.
-            sys.stderr.write(f"governance_write_failed: {exc}\n")
-
-    if parent_github_output:
-        with open(parent_github_output, "a", encoding="utf-8") as handle:
-            handle.write("envelope_path<<ARIA_DRAIN_EOF\n")
-            handle.write("".join(f"{path}\n" for path in envelope_paths))
-            handle.write("ARIA_DRAIN_EOF\n")
-            handle.write("transcript_path<<ARIA_DRAIN_EOF\n")
-            handle.write("".join(f"{path}\n" for path in transcript_paths))
-            handle.write("ARIA_DRAIN_EOF\n")
-            handle.write(f"drained={succeeded}\n")
-            handle.write(f"drain_failed={failed}\n")
-    return 0 if failed == 0 else 1
-
-
 # ORPHAN-HIGH-472 — `_max_budget_usd` and `_max_budget_usd_per_cycle` lived
 # here and are gone. Their own docstring already conceded the point ("Default
 # Claude Code execution uses managed-session auth and does not use this value
@@ -2004,9 +1845,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if args[0] == "--drain":
-        # Batch consumption for the scheduled lane. Resolved here (not inside
-        # drain_pending) so tools-dir semantics stay identical to the
-        # single-request path below.
+        # Batch consumption for the scheduled lane. The loop lives in its own
+        # module (ci_executor_drain) so this engine file stops growing; the
+        # import is local because drain imports THIS module for its stage
+        # logger and governance binding.
+        from ci_executor_drain import drain_pending
+
         repo_root = Path.cwd().resolve()
         env_tools = os.environ.get("ARIA_TOOLS_DIR")
         drain_tools_dir = (

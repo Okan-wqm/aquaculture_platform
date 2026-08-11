@@ -26,13 +26,43 @@ class ReadTimeNormalizationTest(unittest.TestCase):
         self.assertEqual(row["status"], "accepted")
         self.assertEqual(row["legacy_status"], "completed")
 
-    def test_partial_reads_as_rejected(self) -> None:
-        # Partial delivered SOMETHING but not the contract; an incomplete
-        # delivery must not derive a COMPLETED request.
-        row = _normalize_result_row({"request_id": "R", "status": "partial"})
+    def test_partial_is_its_own_state_not_a_legacy_spelling(self) -> None:
+        # An earlier draft mapped partial→rejected, which silently flipped a
+        # partial row's derived state SUBMITTED→REJECTED and left the
+        # SUBMITTED branch dead — a behaviour change smuggled in as a
+        # spelling fix. partial passes through untouched.
+        original = {"request_id": "R", "status": "partial"}
 
-        self.assertEqual(row["status"], "rejected")
-        self.assertEqual(row["legacy_status"], "partial")
+        row = _normalize_result_row(original)
+
+        self.assertIs(row, original)
+        self.assertNotIn("legacy_status", row)
+
+    def test_a_partial_result_still_derives_submitted(self) -> None:
+        # The behaviour pin behind the mapping decision above: a partial
+        # delivery awaits adjudication (SUBMITTED), it is not terminal.
+        import ast
+        import inspect
+        import textwrap
+
+        from aria_kernel import agent_invocations as ai
+
+        tree = ast.parse(textwrap.dedent(inspect.getsource(ai.derive_request_state)))
+        pairs = [
+            (test.comparators[0].value, node)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.If)
+            for test in [node.test]
+            if isinstance(test, ast.Compare)
+            and isinstance(test.comparators[0], ast.Constant)
+        ]
+        partial_branch = next(body for value, body in pairs if value == "partial")
+        returns = [
+            n.value.value
+            for n in ast.walk(partial_branch)
+            if isinstance(n, ast.Return) and isinstance(n.value, ast.Constant)
+        ]
+        self.assertEqual(returns, ["SUBMITTED"])
 
     def test_canonical_rows_pass_through_untouched(self) -> None:
         original = {"request_id": "R", "status": "accepted", "output_hash": "x"}
@@ -52,7 +82,7 @@ class ReadTimeNormalizationTest(unittest.TestCase):
 
         out = _result_rows_for(rows, "R")
 
-        self.assertEqual([r["status"] for r in out], ["accepted", "accepted", "rejected"])
+        self.assertEqual([r["status"] for r in out], ["accepted", "accepted", "partial"])
         for r in out:
             self.assertIn(r["status"], CANONICAL_RESULT_STATUSES)
 

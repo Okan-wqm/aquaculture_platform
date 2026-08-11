@@ -64,6 +64,16 @@ on:
         required: false
         default: '1'
         type: string
+      unquarantine_tool_ids:
+        description: 'Comma-separated tool ids to unquarantine before the cycle (audited; requires approval ref)'
+        required: false
+        default: ''
+        type: string
+      unquarantine_approval_ref:
+        description: 'Operator approval reference for the unquarantine (recorded in governance)'
+        required: false
+        default: ''
+        type: string
       mock:
         description: 'Run in mock mode (no real Claude Code CLI invocation)'
         required: false
@@ -351,6 +361,36 @@ jobs:
       # into six `tool_unhealthy` rows (missing node_modules/ts-node). The
       # runner is self-hosted and the checkout persists, so the guard makes
       # this a no-op on every run after the first.
+      # Operator-gated unquarantine, BEFORE the cycle so the same run's
+      # tools phase can exercise the lifted tools and the same publish step
+      # carries the audited transition. The kernel verb refuses without an
+      # approval ref; empty inputs make this a no-op, so the scheduled
+      # nightly never touches it. Added because six adapters were quarantined
+      # by an environment fault (missing node deps priced as tool guilt) and
+      # unquarantine_tool was API-only — no operator-reachable caller.
+      - name: Operator unquarantine (dispatch-gated)
+        if: steps.lease_check.outputs.blocked != 'true' && github.event.inputs.unquarantine_tool_ids != ''
+        env:
+          TOOL_IDS: ${{ github.event.inputs.unquarantine_tool_ids }}
+          APPROVAL_REF: ${{ github.event.inputs.unquarantine_approval_ref }}
+          ARIA_TOOLS: ${{ env.ARIA_TOOLS_DIR }}
+        run: |
+          set -euo pipefail
+          [ -n "${APPROVAL_REF}" ] || { echo '::error::unquarantine requires an approval ref'; exit 1; }
+          if ! printf '%s' "${TOOL_IDS}" | grep -Eq '^[a-z0-9-]+(,[a-z0-9-]+)*$'; then
+            echo '::error::tool ids must be comma-separated slugs'; exit 1
+          fi
+          IFS=',' read -ra IDS <<< "${TOOL_IDS}"
+          for id in "${IDS[@]}"; do
+            PYTHONPATH=aria-kernel python3 -m aria_kernel tool unquarantine \
+              --tool-id "${id}" \
+              --reason "operator dispatch: environment-fault quarantine lifted" \
+              --operator-approval-ref "${APPROVAL_REF}" \
+              --root-cause-note "quarantined by missing workspace node deps (ORPHAN-HIGH-607); the tool never executed" \
+              --fixture-update-ref "n/a: no fixture change; environment fault" \
+              --tools-dir "${ARIA_TOOLS}"
+          done
+
       - name: Provision the node dependencies the adapter manifests declare
         if: steps.lease_check.outputs.blocked != 'true'
         run: |
@@ -359,6 +399,17 @@ jobs:
             npm ci --ignore-scripts --no-audit --no-fund
           fi
           test -x node_modules/ts-node/dist/bin.js
+
+      # FAZ 5a — the merge gate's attestation producer, at lane start so the
+      # row describes the host that will run the merge. Refusals (no sandbox,
+      # no managed auth, API key present) are reported, not fatal here: the
+      # merge-time verify is the enforcement point and now fails with the
+      # refusal's named cause instead of a bare "attestation required".
+      - name: Probe and record runner attestation
+        if: steps.lease_check.outputs.blocked != 'true' && steps.preflight.outputs.effective_mock == 'false'
+        uses: ./.github/actions/probe-runner-attestation
+        with:
+          tools-dir: ${{ env.ARIA_TOOLS_DIR }}
 
       - name: Run nightly standard-profile cycle
         if: steps.lease_check.outputs.blocked != 'true' && (github.event.inputs.mode || 'cycle') == 'cycle'

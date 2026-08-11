@@ -135,6 +135,12 @@ def run_reflection(
         "calibration_recommendation": recommendation_result if recommendation_result else None,
         "proactive": proactive_result if proactive_result else None,
         "cycle_runner": cycle_runner_result if cycle_runner_result else None,
+        # Which of ARIA's learning inputs are actually receiving data. A
+        # counter that reads 0 for months does not distinguish "no data yet"
+        # from "the producer chain is severed" — judged_judges sat at zero
+        # while three separate defects starved it, and every one was found by
+        # a human noticing. This section is the machine noticing.
+        "dataflow_health": _compute_dataflow_health(root),
         "next_cycle_plan": [
             {
                 "pressure_id": item.get("pressure_id"),
@@ -580,6 +586,119 @@ def _render_calibration_section(reflection: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _render_label_queue_section(root: Path) -> list[str]:
+    """Samples awaiting an operator verdict, each with its ready-made command.
+
+    The labeling channel failed ergonomically before it failed technically:
+    the kernel printed a CLI verb into every judgment sample that did not
+    exist, and even after the verbs became real, an operator had to dig
+    sample ids out of a raw ledger. The report is where the operator already
+    looks; the command they need is now one copy-paste away. Renders nothing
+    when nothing waits — an empty heading every day teaches the reader to
+    skip the heading.
+    """
+    try:
+        from .strict_jsonl_reader import read_strict_jsonl
+        samples = list(read_strict_jsonl(root / "judgment-samples.jsonl", on_corruption="tolerant"))
+    except OSError:
+        return []
+    if not samples:
+        return []
+    pending = [s for s in samples if not s.get("labels_complete")] or samples
+    latest = pending[-3:]
+    lines = ["", "## Labels wanted", ""]
+    for sample in latest:
+        items = sample.get("items") or []
+        sid = sample.get("sample_id", "?")
+        lines.append(f"- sample `{sid}` — {len(items)} finding(s) awaiting a verdict")
+        batch = sample.get("batch_cli")
+        if batch:
+            lines.append(f"  - batch: `{batch}`")
+        for item in items[:5]:
+            fid = item.get("finding_id", "?")
+            lines.append(
+                f"  - `aria-kernel feedback record --tool-id {sample.get('tool_id','?')} "
+                f"--run-id {item.get('run_id','?')} --finding-id {fid} "
+                f"--verdict true_positive|false_positive --note \"...\"`"
+            )
+    return lines
+
+
+# The learning inputs whose starvation must be announced, each with the
+# producer chain a reader would need to walk. Extraction is defensive-free:
+# a missing sub-object reads as 0, which is exactly the starved shape.
+SIGNAL_WINDOW_CYCLES = 5
+WATCHED_SIGNALS: dict[str, dict[str, Any]] = {
+    "judged_judges": {
+        "extract": lambda row: ((row.get("judge_calibration") or {}).get("judged_judges") or 0),
+        "producer_chain": "accepted results -> judge fan-out -> judge_calibration",
+    },
+    "labelled_tool_count": {
+        "extract": lambda row: ((row.get("goldset_proposal") or {}).get("labelled_tool_count") or 0),
+        "producer_chain": "operator feedback -> goldset_proposal",
+    },
+    "synced_tool_ids": {
+        "extract": lambda row: len((row.get("tool_manifest_sync") or {}).get("synced_tool_ids") or []),
+        "producer_chain": "tools/aria-adapters/*.tool.json -> tool_manifest_sync",
+    },
+}
+
+
+def _compute_dataflow_health(root: Path) -> dict[str, Any]:
+    """Report which watched signals stayed zero across the recent window.
+
+    Starvation requires a FULL window of zeros: fewer completed cycles than
+    the window is "insufficient history", not an alarm — a brand-new store
+    must not open with three starvation flags.
+    """
+    from .ledger import load_declared_jsonl
+
+    try:
+        rows = load_declared_jsonl(root / "cycles.jsonl", expected_surface="cycles")
+    except Exception:
+        rows = []
+    window = [row for row in rows if row.get("status") == "completed"][-SIGNAL_WINDOW_CYCLES:]
+    signals: dict[str, Any] = {}
+    starved: list[str] = []
+    for name, spec in WATCHED_SIGNALS.items():
+        values = [spec["extract"](row) for row in window]
+        is_starved = len(window) >= SIGNAL_WINDOW_CYCLES and all(v == 0 for v in values)
+        signals[name] = {
+            "window_values": values,
+            "starved": is_starved,
+            "producer_chain": spec["producer_chain"],
+        }
+        if is_starved:
+            starved.append(name)
+    return {
+        "window_cycles": len(window),
+        "signals": signals,
+        "starved": starved,
+    }
+
+
+def _render_dataflow_health_section(reflection: dict[str, Any]) -> list[str]:
+    """SIGNAL STARVED lines for the daily report — only when something is.
+
+    A section that renders an empty heading every day teaches the reader to
+    skip the heading (the calibration section learned this first).
+    """
+    health = reflection.get("dataflow_health") or {}
+    starved = health.get("starved") or []
+    if not starved:
+        return []
+    lines = ["", "## Signal starvation", ""]
+    for name in starved:
+        spec = (health.get("signals") or {}).get(name) or {}
+        lines.append(
+            f"- SIGNAL STARVED: `{name}` — zero across the last "
+            f"{health.get('window_cycles')} completed cycles. Producer chain: "
+            f"{spec.get('producer_chain', 'unknown')}. A zero this old is a "
+            "severed feed until proven otherwise."
+        )
+    return lines
+
+
 def _render_calibration_recommendation_section(reflection: dict[str, Any]) -> list[str]:
     """The weight changes ARIA would make to its own scoring, if approved.
 
@@ -597,7 +716,8 @@ def _render_calibration_recommendation_section(reflection: dict[str, Any]) -> li
         return []
     weights = recommendation.get("pressure_weight_recommendations") or []
     tools = recommendation.get("tool_recommendations") or []
-    if not weights and not tools:
+    sources = recommendation.get("source_effectiveness") or []
+    if not weights and not tools and not sources:
         return []
     lines = [
         "## Calibration Recommendations (advisory)",
@@ -620,6 +740,22 @@ def _render_calibration_recommendation_section(reflection: dict[str, Any]) -> li
         lines.append(f"Tool-level recommendations: {len(tools)}")
         for row in tools[:5]:
             lines.append(f"  - {row.get('tool_id')}: {row.get('recommendation', 'see ledger')}")
+    if sources:
+        # FAZ 4c — the effectiveness ranking that justifies (or indicts) a
+        # weight recommendation, from the same cycle's ledger. First render
+        # of rank_pressure_sources' output anywhere.
+        lines.append("")
+        lines.append("Pressure-source effectiveness (converged/minted):")
+        for row in sources[:8]:
+            minted = int(row.get("cycles_minted", 0) or 0)
+            converged = int(row.get("cycles_converged", 0) or 0)
+            rate = converged / minted if minted else 0.0
+            lines.append(
+                f"  - {row.get('source_type')}: {rate:.0%} "
+                f"(minted {minted}, converged {converged}, "
+                f"merged {int(row.get('cycles_merged', 0) or 0)}, "
+                f"avg ${float(row.get('avg_cost_usd', 0) or 0):.2f})"
+            )
     lines.append("")
     return lines
 
@@ -644,6 +780,176 @@ def _render_proactive_section(reflection: dict[str, Any]) -> list[str]:
         lines.append(
             f"  - {t.get('tool_id')}: priority={t.get('priority')} "
             f"(impact={t.get('impact')} x opportunity={t.get('opportunity')}) [{reasons}]"
+        )
+    lines.append("")
+    return lines
+
+
+# --- FAZ 6b — the daily report becomes the ONE published dashboard. Each
+# section below is the FIRST reader of a ledger that was written every cycle
+# and read by nothing: plan_016 counters had no scheduled caller,
+# observability dashboards.jsonl had zero readers, mission events reached no
+# operator surface, and quarantine state was visible only via CLI. Report-time
+# reads over append-only ledgers; every section is silent (not broken) when
+# its ledger does not exist yet.
+
+
+def _render_plan016_section(root: Path) -> list[str]:
+    try:
+        from .plan_016_metrics import compute_plan_016_metrics
+
+        metrics = compute_plan_016_metrics(base_dir=root)
+    except Exception:
+        return []
+    if not metrics:
+        return []
+    return [
+        "## Plan-016 Counters",
+        "",
+        *[f"- {name}: {value}" for name, value in sorted(metrics.items())],
+        "",
+    ]
+
+
+def _render_observability_section(root: Path) -> list[str]:
+    try:
+        from .observability import list_observability_dashboards
+
+        dashboards = list_observability_dashboards(base_dir=root)
+    except Exception:
+        return []
+    if not dashboards:
+        return []
+    latest = dashboards[-1]
+    rolling = latest.get("rolling_slo") or {}
+    alerts = latest.get("alerts") or []
+    lines = [
+        "## SLO / Alerts",
+        "",
+        f"- SLO state: {rolling.get('slo_state', 'unknown')} "
+        f"(window {rolling.get('window', 0)}, "
+        f"p50 {rolling.get('duration_p50_ms', 0)}ms, "
+        f"p95 {rolling.get('duration_p95_ms', 0)}ms)",
+        f"- Alerts this cycle: {len(alerts)}",
+    ]
+    for alert in alerts[:5]:
+        if isinstance(alert, dict):
+            lines.append(
+                f"  - {alert.get('alert_kind') or alert.get('kind')}: "
+                f"{str(alert.get('message') or alert.get('detail') or '')[:100]}"
+            )
+    lines.append("")
+    return lines
+
+
+def _render_mission_section(root: Path) -> list[str]:
+    path = root / "missions" / "mission-events.jsonl"
+    if not path.exists():
+        return []
+    try:
+        from .ledger import load_declared_jsonl
+
+        rows = load_declared_jsonl(path, expected_surface="mission_events")
+    except Exception:
+        return []
+    if not rows:
+        return []
+    state: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        mission_id = str(row.get("mission_id") or "")
+        if not mission_id:
+            continue
+        entry = state.setdefault(mission_id, {"state": "opened"})
+        if row.get("event") == "opened":
+            entry.update({
+                "title": row.get("title"),
+                "source_kind": row.get("source_kind"),
+                "priority": row.get("priority"),
+            })
+        if row.get("to_state"):
+            entry["state"] = row.get("to_state")
+    by_state: dict[str, int] = {}
+    for entry in state.values():
+        by_state[str(entry["state"])] = by_state.get(str(entry["state"]), 0) + 1
+    active = [
+        (mid, entry) for mid, entry in state.items()
+        if entry.get("state") not in ("folded", "closed", "abandoned")
+    ]
+    lines = [
+        "## Missions",
+        "",
+        f"- Total: {len(state)} ("
+        + ", ".join(f"{name}: {count}" for name, count in sorted(by_state.items()))
+        + ")",
+    ]
+    for mid, entry in sorted(active, key=lambda kv: str(kv[1].get("priority")))[:8]:
+        lines.append(
+            f"- [{entry.get('state')}] {entry.get('title') or mid} "
+            f"({entry.get('source_kind')}, priority {entry.get('priority')})"
+        )
+    lines.append("")
+    return lines
+
+
+def _render_quarantine_section(root: Path) -> list[str]:
+    try:
+        from .tool_registry import list_tools
+
+        quarantined = list_tools(status="QUARANTINED", base_dir=root)
+    except Exception:
+        return []
+    if not quarantined:
+        return []
+    lines = [
+        "## Quarantined Tools",
+        "",
+    ]
+    for tool in quarantined:
+        lines.append(
+            f"- {tool.get('tool_id')}: "
+            f"{str(tool.get('quarantine_reason') or tool.get('status_reason') or 'no reason recorded')[:120]}"
+        )
+    lines.append("")
+    return lines
+
+
+def _render_replay_recall_section(root: Path) -> list[str]:
+    # FAZ 1d's judge_replay phase writes its per-tool recall into the sealed
+    # cycle row; this is that number's operator surface.
+    try:
+        from .ledger import load_declared_jsonl
+
+        rows = load_declared_jsonl(root / "cycles.jsonl", expected_surface="cycles")
+    except Exception:
+        return []
+    latest = next(
+        (
+            row for row in reversed(rows)
+            if row.get("status") == "completed" and row.get("judge_replay")
+        ),
+        None,
+    )
+    if latest is None:
+        return []
+    tools = (latest.get("judge_replay") or {}).get("tools") or []
+    if not tools:
+        return []
+    lines = [
+        "## Judge Replay Recall",
+        "",
+        f"- Cycle: `{latest.get('cycle_id')}`",
+    ]
+    for row in tools[:8]:
+        if not isinstance(row, dict):
+            continue
+        recall = row.get("recall") or {}
+        lines.append(
+            f"- {row.get('tool_id')}: {row.get('status')}"
+            + (
+                f" (judged {recall.get('judged_judges')}, recall {recall.get('recall')})"
+                if isinstance(recall, dict) and recall
+                else ""
+            )
         )
     lines.append("")
     return lines
@@ -750,7 +1056,16 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         *_render_pedagogy_section(reflection),
         *_render_calibration_section(reflection),
         *_render_calibration_recommendation_section(reflection),
+        *_render_dataflow_health_section(reflection),
+        *_render_label_queue_section(root),
         *_render_proactive_section(reflection),
+        # FAZ 6b — the report is the one published dashboard: counters, SLO,
+        # missions, quarantine, replay recall (each ledger's first reader).
+        *_render_plan016_section(root),
+        *_render_observability_section(root),
+        *_render_mission_section(root),
+        *_render_quarantine_section(root),
+        *_render_replay_recall_section(root),
         "## Committed Findings",
         "",
         f"- Total: {reflection.get('committed_findings', {}).get('total', 0)}",

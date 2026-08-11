@@ -167,6 +167,213 @@ def _repository_map_for_refs(
         return None
 
 
+def _established_knowledge_for_refs(
+    evidence_refs: list[str] | None,
+    allowed_scope: list[str] | None,
+    *,
+    base_dir: Path,
+    repo_root: str | Path | None,
+) -> dict[str, Any] | None:
+    """Active beliefs + learned conventions that touch this request's files.
+
+    Plan "ARIA Sinir Sistemi" FAZ 4a — the learning loop's missing last arc.
+    ARIA has recorded beliefs and conventions on every converged cycle and
+    never once handed them to the agent about to edit the same files; each
+    dispatch rediscovered the repository from zero. Built at MINT time
+    because the prompt hash is sealed at mint (binding constraint) — the
+    claim-side re-render must reproduce byte-identical text, so this must be
+    envelope DATA, not claim-time recomputation.
+
+    Returns None when nothing intersects; never raises into the mint path
+    (same contract as ``_repository_map_for_refs``).
+    """
+    paths = [
+        ref.split(":", 1)[0].strip()
+        for ref in (evidence_refs or [])
+        if isinstance(ref, str) and ref.split(":", 1)[0].strip()
+    ]
+    # A scope glob's static prefix ("apps/farm-service/**" → "apps/farm-service")
+    # is a path claim too: knowledge about the scoped area is relevant even
+    # when no evidence ref lands in it yet.
+    for scope in allowed_scope or []:
+        if not isinstance(scope, str):
+            continue
+        prefix = scope.split("*", 1)[0].strip().strip("/")
+        if prefix:
+            paths.append(prefix)
+    if not paths:
+        return None
+    try:
+        from .knowledge_graph import _paths_related, conventions_for_paths
+        from .memory import latest_beliefs, load_jsonl
+
+        wanted = sorted(dict.fromkeys(paths))
+        beliefs_path = base_dir / "memory" / "beliefs.jsonl"
+        beliefs: list[dict[str, Any]] = []
+        if beliefs_path.exists():
+            for belief in latest_beliefs(load_jsonl(beliefs_path)):
+                if belief.get("status") != "supported":
+                    continue
+                ref_paths = [
+                    str(ref).split(":", 1)[0]
+                    for ref in (belief.get("evidence_refs") or [])
+                    if isinstance(ref, str)
+                ]
+                if not any(
+                    _paths_related(ref_path, want)
+                    for ref_path in ref_paths
+                    for want in wanted
+                ):
+                    continue
+                beliefs.append(
+                    {
+                        "belief_id": belief.get("belief_id"),
+                        "claim": belief.get("claim"),
+                        "confidence": belief.get("confidence"),
+                        "support_count": belief.get("support_count"),
+                        "evidence_refs": list(belief.get("evidence_refs") or [])[:3],
+                    }
+                )
+        beliefs.sort(
+            key=lambda b: (
+                int(b.get("support_count") or 0),
+                float(b.get("confidence") or 0.0),
+            ),
+            reverse=True,
+        )
+        beliefs = beliefs[:5]
+        workspace_root = Path(repo_root) if repo_root else base_dir.parent
+        conventions = [
+            {
+                "pattern_id": row.get("pattern_id"),
+                "pattern_type": row.get("pattern_type"),
+                "confidence": row.get("confidence"),
+                "evidence_refs": list(row.get("evidence_refs") or [])[:3],
+                "discovered_by_cycle_id": row.get("discovered_by_cycle_id"),
+            }
+            for row in conventions_for_paths(
+                workspace_root=workspace_root, paths=wanted
+            )
+        ]
+        if not beliefs and not conventions:
+            return None
+        return {"beliefs": beliefs, "conventions": conventions}
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _recent_intent_for_refs(
+    evidence_refs: list[str] | None,
+    *,
+    repo_root: str | Path | None,
+) -> dict[str, Any] | None:
+    """The git-derived intent slice for this request's evidence files.
+
+    Plan "ARIA Sinir Sistemi" FAZ 4b — intent reading. Per evidence file,
+    the last few commits' subject + first WHY line + ADR/plan/finding refs,
+    so the agent starts "why is this code the way it is" with cited history
+    instead of guessing. Needs the repository (``context_repo_root``); when
+    the caller minted without one, the section is simply absent.
+    """
+    if repo_root is None:
+        return None
+    paths = [
+        ref.split(":", 1)[0].strip()
+        for ref in (evidence_refs or [])
+        if isinstance(ref, str) and ref.split(":", 1)[0].strip()
+    ]
+    if not paths:
+        return None
+    try:
+        from .twin import intent_context_for_files
+
+        return intent_context_for_files(repo_root, sorted(dict.fromkeys(paths)))
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _render_established_knowledge(established_knowledge: Any) -> str:
+    """What ARIA already learned about the files in scope — orientation.
+
+    Same trust framing as the repository map: derived state that orients,
+    never evidence the agent may cite. Emitted only when present on the row
+    — an empty scaffold would claim "ARIA knows nothing here", which is a
+    different statement from "no knowledge was attached".
+    """
+    if not isinstance(established_knowledge, dict):
+        return ""
+    beliefs = established_knowledge.get("beliefs") or []
+    conventions = established_knowledge.get("conventions") or []
+    if not beliefs and not conventions:
+        return ""
+    lines = [
+        "## Established knowledge",
+        "",
+        "What ARIA has already verified about this area — a projection, "
+        "**not evidence**. Use it to avoid rediscovering; cite only evidence_refs.",
+        "",
+    ]
+    for belief in beliefs:
+        if not isinstance(belief, dict):
+            continue
+        lines.append(
+            f"- [{belief.get('belief_id')}] {belief.get('claim')} "
+            f"(confidence {belief.get('confidence')}, "
+            f"seen {belief.get('support_count')}x)"
+        )
+        refs = belief.get("evidence_refs") or []
+        if refs:
+            lines.append(f"  - anchored at: {', '.join(f'`{r}`' for r in refs)}")
+    for row in conventions:
+        if not isinstance(row, dict):
+            continue
+        lines.append(
+            f"- convention `{row.get('pattern_id')}` ({row.get('pattern_type')}, "
+            f"confidence {row.get('confidence')}, "
+            f"from cycle {row.get('discovered_by_cycle_id')})"
+        )
+        refs = row.get("evidence_refs") or []
+        if refs:
+            lines.append(f"  - anchored at: {', '.join(f'`{r}`' for r in refs)}")
+    return "\n".join(lines) + "\n\n"
+
+
+def _render_recent_intent(recent_intent: Any) -> str:
+    """Why the files in scope are the way they are — recent commit intent.
+
+    Git-derived at mint from the exact evidence files: subject + first WHY
+    line + the ADR/plan/finding references each message carries. Orients the
+    agent's intent reading; never admissible as evidence.
+    """
+    if not isinstance(recent_intent, dict):
+        return ""
+    files = recent_intent.get("files")
+    if not isinstance(files, list) or not files:
+        return ""
+    lines = [
+        "## Recent intent",
+        "",
+        "Why these files changed recently, from their own commit messages at "
+        f"`{recent_intent.get('head_sha') or 'unknown'}` — a projection, "
+        "**not evidence**.",
+        "",
+    ]
+    for entry in files:
+        if not isinstance(entry, dict):
+            continue
+        lines.append(f"- `{entry.get('file')}`")
+        for commit in entry.get("commits") or []:
+            if not isinstance(commit, dict):
+                continue
+            lines.append(f"  - `{commit.get('sha')}` {commit.get('subject')}")
+            if commit.get("why"):
+                lines.append(f"    - why: {commit.get('why')}")
+            refs = commit.get("refs") or []
+            if refs:
+                lines.append(f"    - refs: {', '.join(f'`{r}`' for r in refs)}")
+    return "\n".join(lines) + "\n\n"
+
+
 def _render_repository_map(repository_map: Any) -> str:
     """The Twin-lite slice for the files in scope — orientation, not evidence.
 
@@ -263,6 +470,10 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         return "\n".join(f"  - {key_func(item)}" for item in items)
 
     repository_map_block = _render_repository_map(request.get("repository_map"))
+    established_knowledge_block = _render_established_knowledge(
+        request.get("established_knowledge")
+    )
+    recent_intent_block = _render_recent_intent(request.get("recent_intent"))
 
     return (
         f"# ARIA agent request {request_id}\n\n"
@@ -281,6 +492,8 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         f"## Forbidden scope\n\n{_bullet_list(forbidden_scope)}\n\n"
         f"## Impact graph refs\n\n{_bullet_list(impact_refs)}\n\n"
         f"{repository_map_block}"
+        f"{established_knowledge_block}"
+        f"{recent_intent_block}"
         f"## Validation commands\n\n"
         f"{_bullet_list(validation_cmds, lambda c: '`' + c.get('cmd', str(c)) + '`' if isinstance(c, dict) else '`' + str(c) + '`')}\n"
         f"{must_satisfy_block}\n"
@@ -624,6 +837,18 @@ def create_agent_invocation_request(
     repository_map = _repository_map_for_refs(evidence_refs, base_dir=root)
     if repository_map is not None:
         row["repository_map"] = repository_map
+    # Plan "ARIA Sinir Sistemi" FAZ 4 — the learning loop's read side. Both
+    # sections are computed HERE, at mint, because the prompt hash is sealed
+    # over the rendered text and the claim path re-renders from the stored
+    # envelope: knowledge and intent must be envelope data, not recomputation.
+    established_knowledge = _established_knowledge_for_refs(
+        evidence_refs, allowed_scope, base_dir=root, repo_root=context_repo_root
+    )
+    if established_knowledge is not None:
+        row["established_knowledge"] = established_knowledge
+    recent_intent = _recent_intent_for_refs(evidence_refs, repo_root=context_repo_root)
+    if recent_intent is not None:
+        row["recent_intent"] = recent_intent
     # Plan 024 §B-2 — when the caller opted out of strict enforcement,
     # emit a governance event capturing target_agent + role + missing
     # fields so the operator audit trail records every legacy creation.
@@ -1088,6 +1313,71 @@ def _request_event_count(rows: list[dict[str, Any]], request_id: str, kind: str)
     return sum(1 for row in rows if row.get("request_id") == request_id and row.get("event") == kind)
 
 
+# Release reasons that describe a HARNESS failure, not the request. The
+# requeue budget exists to stop a poisonous request from cycling forever and
+# to hand it to a human; a release whose reason names the harness — the CLI
+# session died, the renderer was missing, the binding check compared two
+# different objects — says nothing about the request at all. Counting those
+# burned the budget anyway: measured on production state 2026-08-10, three
+# requests sat in HUMAN_REQUIRED whose every requeue traced to the
+# deterministic prompt-binding defect (ORPHAN-CRITICAL-600/601). "The request
+# was poisonous" and "the harness was broken" had the same price.
+#
+# `dispatch_budget_refused` is here because its own release site says so:
+# "a budget signal, NOT a build failure".
+#
+# Kept beside the counter it feeds. The executor's release sites are the
+# source of these strings; a new harness-fault reason added there without a
+# row here fails test_every_executor_release_reason_is_classified.
+HARNESS_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
+    "claude_cli_auth_failure",
+    "claude_spawn_refused",
+    "dispatch_budget_refused",
+    "kernel_prompt_renderer_unavailable",
+    "prompt_hash_binding_mismatch",
+})
+
+# Reasons that DO burn the budget, listed so classification is exhaustive
+# rather than default-bucketed: a malformed request row is the request's
+# fault, a rejected submission is the work's, and an expired lease means the
+# agent hung — a request that repeatedly hangs its agent must escalate.
+REQUEST_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
+    "lease_expired",
+    "request_envelope_missing_expected_output_path",
+    "request_envelope_missing_role",
+    "submit_rejected",
+})
+
+
+def _is_harness_fault_reason(reason: str) -> bool:
+    """The dynamic executor reason ``claude_cli_exit_<code>`` is harness-class:
+    it is the wrapper's undifferentiated failure signal (five consecutive
+    nights of it were an expired OAuth session), and after ORPHAN-CRITICAL-591
+    the executor splits the causes that DO say something (auth) into their own
+    reasons. A residual exit-code release still says nothing about the
+    request; genuinely poisonous work is caught by lease expiry and rejected
+    submissions, which stay request-fault."""
+    return reason in HARNESS_FAULT_RELEASE_REASONS or reason.startswith("claude_cli_exit_")
+
+
+def _request_fault_requeue_count(rows: list[dict[str, Any]], request_id: str) -> int:
+    """Count the requeue-shaped events that say something about the REQUEST.
+
+    ``human_required`` rows are counted too: the escalation row IS the
+    requeue that crossed the line, and skipping it would let a genuinely
+    poisonous request derive back below the ceiling. An unclassified reason
+    counts as the request's fault — fail toward the human, never toward
+    silent infinite retry.
+    """
+    return sum(
+        1
+        for row in rows
+        if row.get("request_id") == request_id
+        and row.get("event") in ("requeued", "human_required")
+        and not _is_harness_fault_reason(str(row.get("reason") or ""))
+    )
+
+
 # The canonical result vocabulary, and the legacy spellings that still live in
 # the append-only ledger. Two generations coexist on disk — legacy
 # aria/agent-invocation-result/v1 wrote completed/rejected/partial, Plan 016
@@ -1095,13 +1385,17 @@ def _request_event_count(rows: list[dict[str, Any]], request_id: str, kind: str)
 # a trap re-armed. Normalization happens at READ time: the ledger stays
 # append-only and byte-stable, rows come back canonical, and the original
 # spelling survives in `legacy_status` for audit.
-CANONICAL_RESULT_STATUSES: frozenset[str] = frozenset({"accepted", "rejected"})
+CANONICAL_RESULT_STATUSES: frozenset[str] = frozenset({"accepted", "rejected", "partial"})
 _LEGACY_RESULT_STATUS_MAP: dict[str, str] = {
     "completed": "accepted",
-    # partial delivered SOMETHING but not the contract; the conservative
-    # canonical reading is rejected — an incomplete delivery must not derive
-    # a COMPLETED request.
-    "partial": "rejected",
+    # `partial` is deliberately NOT in this map. It is not a legacy spelling
+    # of rejected — it is its own state: something was delivered, the
+    # contract was not met, and `derive_request_state` keeps such a request
+    # SUBMITTED (awaiting adjudication) rather than REJECTED (terminal).
+    # An earlier draft mapped partial→rejected, which silently flipped a
+    # partial row's derived state SUBMITTED→REJECTED and left the SUBMITTED
+    # branch dead — a behaviour change smuggled in as a spelling fix. The
+    # partial-stays-SUBMITTED contract is pinned by test.
 }
 
 
@@ -1243,8 +1537,10 @@ def derive_request_state(
         return "PENDING"
     event = latest.get("event")
     if event == "released":
-        # Released without result -> requeue counter consulted.
-        requeues = _request_event_count(claims, request_id, "requeued")
+        # Released without result -> requeue counter consulted. Only
+        # request-fault requeues count; a harness-fault release must not walk
+        # a healthy request toward HUMAN_REQUIRED.
+        requeues = _request_fault_requeue_count(claims, request_id)
         if requeues > DEFAULT_MAX_REQUEUES:
             return "HUMAN_REQUIRED"
         return "REQUEUED" if requeues > 0 else "PENDING"
@@ -1277,12 +1573,21 @@ def derive_request_state(
             return "STALE"
         return "RUNNING"
     if event == "requeued":
-        requeues = _request_event_count(claims, request_id, "requeued")
+        requeues = _request_fault_requeue_count(claims, request_id)
         if requeues > DEFAULT_MAX_REQUEUES:
             return "HUMAN_REQUIRED"
         return "REQUEUED"
     if event == "human_required":
-        return "HUMAN_REQUIRED"
+        # Materialized escalations are re-derived under the same
+        # fault-ownership rule, because the rows that produced them may all
+        # name the harness. Three production requests sat exactly there:
+        # every requeue traced to the deterministic binding defect, the
+        # ceiling was crossed by counting them, and the escalation row froze
+        # the wrong verdict. Same ledger, honest rule, healed derivation.
+        requeues = _request_fault_requeue_count(claims, request_id)
+        if requeues > DEFAULT_MAX_REQUEUES:
+            return "HUMAN_REQUIRED"
+        return "REQUEUED" if requeues > 0 else "PENDING"
     return "PENDING"
 
 
@@ -1666,6 +1971,12 @@ _FUSED_ENVELOPE_KEYS: tuple[str, ...] = (
     "context_hash",
     "prompt_hash",
     "repository_map",
+    # FAZ 4 — mint-time learned context + intent. The renderer reads both,
+    # so a claim response that dropped either would re-render different text
+    # and fail the prompt-hash binding; carrying them here keeps the fused
+    # projection the same object the hash was minted over.
+    "established_knowledge",
+    "recent_intent",
     "cycle_id",
     "context_ledger_hash",
     "prompt_ledger_hash",
@@ -2052,8 +2363,15 @@ def release_claim(
         "released_at": _iso(now),
     }
     append_declared_jsonl(_claims_path(root), row, expected_surface="agent_invocation_claims")
-    requeue_count = _request_event_count(claims, request_id, "requeued") + 1
-    requeue_event_kind = "requeued" if requeue_count <= DEFAULT_MAX_REQUEUES else "human_required"
+    # Escalation at write time follows the same fault-ownership rule the
+    # derive side uses: a harness-fault release re-queues without burning the
+    # request's budget and can never be the release that escalates.
+    if _is_harness_fault_reason(reason):
+        requeue_count = _request_fault_requeue_count(claims, request_id)
+        requeue_event_kind = "requeued"
+    else:
+        requeue_count = _request_fault_requeue_count(claims, request_id) + 1
+        requeue_event_kind = "requeued" if requeue_count <= DEFAULT_MAX_REQUEUES else "human_required"
     append_declared_jsonl(
         _claims_path(root),
         {
@@ -2832,7 +3150,7 @@ def reap_stale_claims(
             _claims_path(root),
             expected_surface="agent_invocation_claims",
         )
-        requeue_count = _request_event_count(claims_after, request_id, "requeued") + 1
+        requeue_count = _request_fault_requeue_count(claims_after, request_id) + 1
         kind = "requeued" if requeue_count <= DEFAULT_MAX_REQUEUES else "human_required"
         followup = {
             "schema_version": 1,

@@ -1,0 +1,12 @@
+{
+  "name": "real-repo-baseline",
+  "lane": "real_repo_baseline",
+  "input": {
+    "roots": ["web/shell", "web/modules", "web/apps"]
+  },
+  "expected": {
+    "status": "ok",
+    "required_observations": ["bundle_budget_module"],
+    "max_findings": 100
+  }
+}

@@ -8063,6 +8063,22 @@ Proven by deliberate breaks: an extra `criteria.impactScore` read reddens the cl
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-MEDIUM-563`.
 
+## ORPHAN-MEDIUM-577 — an RLS-protected auth table could be written from a NATS command with no tenant context, and nothing in the build could see it — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, tracing why tenant provisioning had been dead for months. `TenantProvisioningCommandService.runWithReceipt` (`apps/auth-service/src/modules/tenant/services/tenant-provisioning-command.service.ts:930`) opens a `SERIALIZABLE` transaction and `INSERT`s the command receipt into `auth.tenant_command_receipts` (`:969`), then `UPDATE`s it on success (`:998`) and on failure (`:1027`). That table carries `tenantId` and is created by `apps/auth-service/src/migrations/1800100000000-TenantCommandReceiptLedger.ts:8`, so `applyTenantRlsToSchema` installs `tenant_isolation_policy` on it — auth's exclusion set is only `auth_outbox` / `users` / `tenants` (`libs/backend-common/src/database/schema-manager.service.ts:1085`). Nothing in that transaction set `app.current_tenant`. The commands arrive over NATS, outside the HTTP request lifecycle, so there was no `TenantContextMiddleware` and no pool-checkout GUC to inherit either: the predicate `"tenantId" = NULLIF(current_setting('app.current_tenant', true), '')::uuid` evaluated to UNKNOWN and the write was refused. All eight provisioning steps therefore never started — which is how production holds an ACTIVE tenant that owns no `tenant_<uuid>` schema. The write-path repair itself is on `fix/tenant-provisioning-receipt-rls` and is NOT part of this PR.
+
+**Why it stayed invisible:** the platform had two tenant-context guards and both are farm-specific — `tests/invariants/farm-read-boundary-ssot.spec.ts` and `tests/invariants/farm-event-handler-tenant-context-ssot.spec.ts`. Auth had none, so a write with no tenant context compiled, passed review, and passed CI exactly like one with it. The one bare `set_config('app.current_tenant', …)` auth does own (`tenant-provisioning-command.service.ts:796`, the suspend-time refresh-token revoke) sits inside that same unbound receipt transaction, which is a good measure of how little the pattern was load-bearing.
+
+**Fix (this PR, Tier 3 — make it detectable):** `tests/invariants/auth-tenant-context-ssot.spec.ts`. Every non-spec file under `apps/auth-service/src/modules/tenant/**` that writes an RLS-protected `auth` table — raw `INSERT`/`UPDATE`/`DELETE` on `auth.<table>`, or a TypeORM mutation in a file that binds an RLS-protected entity via `@InjectRepository(E)` / `Repository<E>` / `manager.save(E, …)` — must reference `withTenantContext`, `runInTenantTransaction`, `runInTenantRead`, `bindTenantRlsContext` or `assertTenantTransactionContext`. A bare `set_config` deliberately does not count: it writes the GUC without reading it back and without forcing `app.bypass_rls` off, so it cannot tell "context took effect" from "connection resolved elsewhere" — the exact distinction `assertTenantTransactionContext` exists to make.
+
+The protected table set is derived, never hand-listed: `auth`-schema tables carrying `tenantId`/`tenant_id`, read from both the `@Entity()` decorators and the raw `CREATE TABLE` migrations, minus the `AUTH_RLS_EXCLUDE_TABLES` SSoT **imported** from `schema-manager.service.ts` (a rename now breaks the compile rather than silently widening the set). Migrations are not optional input — `tenant_command_receipts`, the table the outage happened on, has no entity class, so an entity-only derivation would have been blind to precisely the write that broke. That mirrors `applyTenantRlsToSchema`'s own discovery semantics, so the invariant cannot drift from the policy actually installed. A vacuity test pins the derivation (≥10 tables, `tenant_command_receipts` present, every excluded table absent) so a broken regex fails loudly instead of passing by finding nothing.
+
+**Ratchet:** eight files violate today and are listed with per-entry reasons; a ninth fails the build. The honesty test fails on an entry that no longer exists, no longer writes a protected table, or has since been fixed — so `fix/tenant-provisioning-receipt-rls` must delete its own entry as part of landing, which is the ratchet working. Proven by deliberate break: an independent `INSERT INTO auth.tenant_command_receipts` added to the non-allowlisted `tenant-user-count-reconcile.service.ts` reddened the spec with `services/tenant-user-count-reconcile.service.ts (writes: tenant_command_receipts)`, then was reverted. Full suite: 214 files, 2336 green; the one unrelated red is `repo-hygiene-invariants.spec.ts`, which fails on this worktree because `node_modules/.bin` has no `vite`/`eslint`/`vitest` links — pre-existing and untouched by this change.
+
+**Deliberately NOT done here.** The check is file-level and sees DIRECT writes only. A non-HTTP entrypoint that establishes no context and delegates the write to a service in another module stays invisible: `handlers/auth-admin-nats.handler.ts` names its `DELETE FROM auth.refresh_tokens` only in comments and so does not register, even though it is a NATS entrypoint whose callees do write. Auth writes outside `modules/tenant` are not examined, and no per-write-site (as opposed to per-file) precision is attempted. All three close the same way — routing the auth write side through `runInTenantTransaction`, at which point the ratchet empties. That is write-path work, not invariant work, and it is not in this PR.
+
+**Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-570` (the ACTIVE-but-schemaless tenants this bug produced).
+
 ## ORPHAN-CRITICAL-579 — 1,359 tests in the library every service depends on had never run in CI, and nobody could have noticed — RESOLVED (this PR)
 
 **Discovered:** 2026-08-06, auditing my own day's merges. An independent reviewer traced each new spec to the command that runs it and found three that no command reaches. Pulling that thread found the mechanism, and the mechanism is repo-wide.
@@ -8175,6 +8191,24 @@ Three metric families did exactly that: the new `cron_job_*` heartbeat (#1098) a
 
 **Owner:** claude (this session). **Status:** RESOLVED for the label; delivery endpoints remain operator-owned.
 
+## ORPHAN-HIGH-584 — tenant provisioning had zero metrics, so a three-month outage produced no signal — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06, closing Faz 3b of the tenant root-cause plan.
+
+Every provisioning run failed on its first step from roughly 2026-05 to 2026-08. The saga behaved correctly: it recorded `FAILED`, wrote an accurate `lastError`, and rolled the attempt back leaving no half-tenant. And then nothing happened, because `admin-api-service` exported **not one counter or gauge** about provisioning. The failure was discoverable only by a human attempting to create a tenant, which is how it was eventually found — three months in.
+
+Two tenants still carry the marks: `Oceanfarm` is ACTIVE with no schema (healthy-looking in the admin panel, nowhere to put a row) and `Suderra AS` is PENDING. Two runs sit in `RUNNING` with `attempts=3` and no lease, and nothing counts them, so "the queue is wedged" and "nobody has created a tenant lately" produced identical telemetry: none.
+
+**Fix:** `TenantProvisioningMetricsService` joins the existing `/metrics` endpoint as a contributor and exports terminal run outcomes by state, step failures **by step**, step duration by outcome, and two gauges for the unfinished-run case. The step label is the diagnostic value: every failed run died on `reserve_auth_tenant`, so that one label would have named the culprit on day one instead of month three. The gauges are seeded at zero, because a gauge with no series makes `> 3600` match nothing — the alert for "a run is stuck" would otherwise be silent for exactly as long as the process had seen no runs, which is the state a restart after a wedge leaves behind.
+
+Gauge refresh rides the queue sweeper that already runs every ten seconds rather than a new scheduled job; a metric surface with its own scheduler is one more thing that can stop without anyone noticing.
+
+**Alerts:** `TenantProvisioningRunsFailing` (critical — no tenant can be onboarded) and `TenantProvisioningRunStuck` (warning), both with a runbook that says how to find the refusing step and how to tell the ledger apart from physical reality. Deliberate break proven: removing the step-failure increment turns the spec red.
+
+**NOT done:** this is code. Production runs an image 388 commits old, so none of it is real until the deploy freeze lifts — which waits on backup and restore proof, which waits on twelve operator-provisioned secrets. Stated so the PR is not mistaken for the outage ending.
+
+**Owner:** claude (this session). **Status:** RESOLVED in code; unobservable in production until deploy.
+
 ## ORPHAN-HIGH-569 — container logs were the third unbounded disk consumer and nothing in the platform had ever set a ceiling — RESOLVED (this PR)
 
 **Discovered and reproduced:** 2026-08-06, tracing droplet disk pressure after the WAL-G rig was stopped and the disk kept climbing anyway. Docker's default `json-file` driver performs no rotation, no `/etc/docker/daemon.json` exists on the host, and `grep -l 'max-size\|logging:' docker-compose*.yml` returned nothing — no compose file had ever configured it. Measured on the production droplet: 2.0 GB of `*-json.log` across the running stack, `aqua-auth` alone at 658 MB and still being written to within the last 15 minutes, `aqua-postgres` 535 MB, `aqua-gateway` 464 MB — on a host at 94% with 11 GB free, whose capacity gate wants 37.6 GB.
@@ -8190,6 +8224,69 @@ Proven by deliberate breaks: a new service with no `logging` reddens all three a
 **Not fixed here:** the ~2.0 GB already on disk is not reclaimed by this change — rotation applies to new writes after the containers are recreated, and production deploys are locked (`PRODUCTION_DEPLOY_ENABLED=false`). Truncating the existing logs is an operator action against live diagnostic state and is deliberately left out of a code change.
 
 **Owner:** claude (this session). **Status:** RESOLVED (this PR). **Related:** `ORPHAN-HIGH-417`, `ORPHAN-HIGH-563`, `INFRA-MEDIUM-057`.
+
+## ORPHAN-HIGH-587 — Alertmanager has run for weeks delivering every alert to nobody — RESOLVED (this PR)
+
+**Discovered:** 2026-08-06. Corrects an earlier claim in this same session: I reported that the monitoring stack had never been brought up. It has — `aqua-alertmanager` and `aqua-prometheus` have both been up for three weeks. What does not exist is the thing they point at.
+
+All three receivers target `http://127.0.0.1:9099/{page,digest,heartbeat}`. Nothing serves that port, and nothing ever has. Every alert this platform raised went to `/dev/null` — including `TenantIsolationViolationDetected`, which fires on a potential cross-tenant read and carries no `for:` delay precisely because it is not something to observe for ten minutes first.
+
+**Why it stayed that way is the interesting part.** `render-configs.sh` was supposed to substitute real endpoints at activation, and it _hard-failed_ when `ALERTMANAGER_{PAGE,DIGEST,HEARTBEAT}_URL` were unset. Those were external paging endpoints that were never procured. So the script could not run, so no deploy path called it, so the placeholders stayed. A dependency that cannot be satisfied is indistinguishable from a step nobody performs.
+
+**Fix:** delivery is email, because email is what exists — the droplet already runs working SMTP credentials for notification-service, verified first-hand (`SMTP_HOST=smtp.gmail.com`, user and password both set). `page` and `digest` become `email_configs` carrying the summary, description and runbook link in the body, since the runbook is the first thing an operator needs at 03:00.
+
+The renderer was rewritten around what is required versus optional: SMTP settings and recipients are required (they are the delivery), webhook URLs are optional. It refuses to run without the delivery settings and refuses to finish if a placeholder survived — a half-rendered config with real SMTP and a placeholder recipient is worse than one that never started.
+
+**Placeholder discipline:** every committed address and credential is `.invalid`, reserved by RFC 2606 and unable to resolve, so a config reaching production unrendered fails loudly rather than quietly mailing a stranger. An invariant asserts the committed file contains no real recipient.
+
+**Role routing:** `page` and `digest` take separate recipient variables although both default to the same mailbox today. Splitting by role later is one export per route.
+
+**NOT done, and stated rather than absorbed:** the `none` deadman stays unwired. An external watcher is supposed to alarm when the heartbeat stops, and email cannot play that role — a mailbox receiving nothing looks exactly like a mailbox nobody sent to. Until an external endpoint exists, **a monitoring stack that dies will not announce it**. The renderer prints that on every run instead of leaving a loopback URL that reads like configuration.
+
+**Tests:** 8 gate tests run the real script against a copy of the real config (full render, per-variable refusal, placeholder rejection, digest fallback, deadman both ways, idempotence). Two new invariant assertions: every routed receiver has a delivery integration, and nothing real is committed. Emptying a receiver turns the first red.
+
+**Owner:** claude (this session). **Status:** RESOLVED in the repo; the live switch-on is one `render-configs.sh` run on the droplet.
+
+## ORPHAN-HIGH-585 — the messaging embedding cron reads a per-tenant table with no schema bound — OPEN
+
+**Discovered:** 2026-08-06, generalising the tenant-context rule platform-wide (Faz 8).
+
+`apps/messaging-service/src/ai/services/embedding.service.ts` runs every five minutes and starts with:
+
+    SELECT m."id", ..., m."tenantId"
+      FROM "messages" m
+     WHERE m."embedding" IS NULL ...
+     FOR UPDATE OF m SKIP LOCKED
+
+`messages` is a per-tenant table — messaging-service omits `schema:` so search*path routes it into `tenant*<uuid>`at runtime. A`@Cron`has no HTTP request behind it, so no middleware seeds the AsyncLocalStorage frame, so the pool-checkout patch sets nothing, and the unqualified table name resolves against whatever`search_path` the pooled connection happens to be carrying. Which tenant's messages this batch embeds is decided by whoever used that connection last.
+
+The file knows: its own comment cites `MSG-HIGH-040 (embedding writes to wrong schema)` and it carefully carries `m."tenantId"` through the consent gate afterwards. The row-level care is real; the binding underneath it is missing.
+
+This is the same class as ORPHAN-CRITICAL-573 — a non-HTTP entry point writing tenant data with no tenant established — reached from the opposite direction. There it was RLS refusing the write; here nothing refuses anything, which is worse.
+
+**Not fixed here, and the reason is not scheduling:** the fix is to give the embedding pipeline the tenant-schema iteration the rest of messaging-service already uses (`listTenantSchemas` + per-schema passes), which changes batching, locking and the consent gate's shape at once. That is the checkpointed Faz 3b work, and it deserves its own PR with its own proof rather than being appended to an invariant.
+
+**Detectable in the meantime:** `tests/invariants/non-http-entrypoint-tenant-context.spec.ts` carries it as the one allowlist entry marked DEFECT rather than exemption, and the list can only shrink.
+
+**FIXED in this PR, not deferred.** The sweep now enumerates `tenant_<16hex>` schemas and runs one transaction per schema with `pinTenantSchemaTransactionSearchPath` — the same shape `retention-policy.service.ts` already uses after it hit this first (MT-MEDIUM-054).
+
+A second defect surfaced while fixing the first: `FOR UPDATE OF m SKIP LOCKED` ran under `dataSource.query`, i.e. autocommit, so the row locks were released the instant the SELECT returned and two replicas could still claim the same rows and pay for the same embeddings twice. MSG-HIGH-039's protection had been void since it was written. The transaction is now held across the ai-service call, which is the only arrangement under which SKIP LOCKED means anything.
+
+That change would have broken MSG-MEDIUM-041 — one failed write must not take a whole batch of paid-for embeddings down with it — because a single error poisons a shared transaction. So each write-back sits between `SAVEPOINT` and `RELEASE SAVEPOINT`, with `ROLLBACK TO SAVEPOINT` on failure. Per-item independence kept; what changed is that it no longer costs the row lock.
+
+Seven tests pin all of it: pin-before-read ordering, every schema visited, the embedding call happening inside the transaction, savepoint isolation with the good row still landing, a tenant failure not stopping the sweep, and the consent gate still keyed by the row's own `tenantId`. Removing the pin turns five of them red.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-MEDIUM-586 — the tenant-context rule was auth-shaped; the platform half was missing — RESOLVED (this PR)
+
+`auth-tenant-context-ssot.spec.ts` (ORPHAN-CRITICAL-573) closed the auth tenant module and stated its own limits: entry points elsewhere, and entry points that delegate. Nothing covered the other seven tenant-scoped services, where the same shape — a NATS handler or a cron writing tenant data with nothing bound — was as compilable as it had been in auth.
+
+**Measured first, then written.** Across the eight tenant-scoped services there are 19 entry-point files that write. Thirteen already establish context; six do not, and each of the six was read individually rather than swept into a list: four write cross-tenant infrastructure tables (auth's audit ledger, `auth.tenants` which is on the RLS exclusion list by design, messaging's idempotency ledger, messaging's admin plane), one is the NATS handler that delegates to the now-bound receipt transaction, and one is a real defect (ORPHAN-HIGH-585).
+
+**The design decision that matters:** the spec recognises **two** sanctioned mechanisms, not one. AsyncLocalStorage binding (`withTenantContext` and friends) is the obvious one; explicit tenant-schema iteration (`listTenantSchemas` + `search_path`) is the other, and it is what a cron with no single tenant to bind must use — `hr-service`'s monthly leave accrual is the reference. A first draft that knew only the first mechanism judged forty files wrong. That draft was thrown away rather than shipped with a forty-entry allowlist, which would have been a rubber stamp wearing an invariant's clothes.
+
+Four assertions keep the list from rotting: nothing unexplained, no entry that has since gained a mechanism, no entry pointing at a vanished file, and no exemption without a stated reason. Proven by deliberate break in both directions.
 
 ## ORPHAN-HIGH-588 — the same four libraries had never been linted either — OPEN (quarantined with counts)
 
@@ -8489,6 +8586,98 @@ executor's exact comparison.
 One legacy test pinned the old hand-copy as source text ("cycle_id":
 claim.get(...)); it was rewritten to assert the property on the projection.
 
+## ORPHAN-MEDIUM-609 — repinning the authority hash was left to human memory, and human memory lost twice in one day — RESOLVED (this PR)
+
+**Severity:** MEDIUM (one forgotten repin reads as four unrelated required-check failures)
+**Owner:** platform-CI / ARIA
+**Discovered:** 2026-08-09/10, twice: #1139 and #1142 each went red on four
+required contexts from a single stale pin.
+
+The pin in `docs/aria/CURRENT_STATE.md` covers the whole ARIA runtime
+surface, so every commit touching that surface changes it. The writer
+existed (`aria:authority-hash:write`, sharing the digest definition with the
+spec); what was missing was the caller — the hook edition of this
+repository's recurring mechanism-without-a-caller class.
+
+**Fix (tier 2):** the pre-commit hook runs the writer automatically whenever
+an ARIA-surface path is staged, and stages the refreshed pin into the same
+commit. On non-ARIA commits the cost is one grep. Verified end to end: a
+throwaway ARIA-surface commit with a stale pin auto-repinned
+(`c27692a7… -> 1ba0c7ab…`), included `CURRENT_STATE.md` in the commit, and
+the doc-SSoT spec read 16/16 after.
+
+**Not solved here:** the merge-treadmill half (every main landing re-stales
+every open PR's pin) — that is inherent to a committed pin under strict
+mode; the refresh-train handles it operationally, and moving the pin out of
+the committed file is a design discussion, not a hook.
+
+## ORPHAN-MEDIUM-608 — a zero that means "severed" rendered exactly like a zero that means "not yet" — RESOLVED (this PR)
+
+**Severity:** MEDIUM (every starvation in this class was found by a human noticing)
+**Owner:** ARIA
+**Discovered:** 2026-08-10 code-review pass (madde 3 / öneri 3).
+
+`judged_judges` and `labelled_tool_count` sat at zero while three separate
+defects starved their producer chains — a wedged claim queue
+(ORPHAN-CRITICAL-596), a binding comparing two objects (600/601), an empty
+tool registry (602) — and the zero itself never said anything.
+
+**Fix (tier 3):** `dataflow_health` in every reflection row: watched signals
+(`judged_judges`, `labelled_tool_count`, `synced_tool_ids`) that are zero
+across the last 5 COMPLETED cycles are reported starved, with the producer
+chain a reader would walk, as a `SIGNAL STARVED` line in the daily report.
+Fewer cycles than the window is insufficient history, not an alarm; a
+nothing-starved day renders no heading at all.
+
+## ORPHAN-MEDIUM-606 — the uncertainty ledger recorded and nobody read it back — RESOLVED (this PR)
+
+**Severity:** MEDIUM (an advisory channel that cannot escalate trains its readers to ignore it)
+**Owner:** ARIA
+**Discovered:** 2026-08-10 code-review pass (madde 16), from the nine
+identical `pressure_candidate_tools_unreachable` rows that accompanied a
+failure re-scheduling unrunnable work every cycle.
+
+`memory/uncertainties.jsonl` is the kernel's "worth noting, not blocking"
+channel — and it was write-only. Same mechanism-without-a-caller class as
+the claim reaper and the registry compiler, one level down: recording
+existed, reading did not.
+
+**Fix (tier 2):** `run_pressure` now reads the ledger back. The same
+`(kind, subject)` recorded `UNCERTAINTY_REPEAT_THRESHOLD` (=3) times or more
+becomes an operator-facing `uncertainty_repeat` pressure (weight 55, no
+candidate tools) that self-extinguishes through ordinary decay when the rows
+stop. Subjectless rows group by kind alone — erring toward escalation. A
+test pins that `run_pressure` actually calls the reader, because a reader
+nobody invokes is this finding all over again.
+
+## ORPHAN-HIGH-605 — the requeue budget charged the request for the harness's failures — RESOLVED (this PR)
+
+**Severity:** HIGH (three live requests were permanently escalated for defects that were never theirs)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, from the code-review pass (madde 9).
+
+The requeue budget exists to stop a poisonous request from cycling forever
+and hand it to a human. A release whose reason names the HARNESS — expired
+CLI session, missing renderer, the binding check comparing two different
+objects — says nothing about the request, and counting it burned the budget
+anyway. Measured on `aria/state`: three requests in HUMAN_REQUIRED whose
+requeue history is `claude_cli_exit_1` ×2 (the five-nights-dead era) or
+`prompt_hash_binding_mismatch` ×3 (ORPHAN-CRITICAL-600/601). "The request
+was poisonous" and "the harness was broken" had the same price.
+
+**Fix (tier 1, no ledger mutation):** requeue counting is fault-owned.
+`HARNESS_FAULT_RELEASE_REASONS` (+ the dynamic `claude_cli_exit_*` class)
+do not count; unclassified reasons still count — the failure mode of a stale
+list is over-escalation to a person, never silent infinite retry. Both the
+derive side and the write-time escalation use the same counter, and a
+materialized `human_required` row is re-derived under the same rule instead
+of freezing the old verdict. A test scans the executor's release sites so a
+new reason without a classification is a red test.
+
+**Verified against the live ledger:** …eb17 → PENDING, …4459 → REQUEUED
+(one real lease-expiry fault, below the ceiling), …228f → PENDING. Same
+rows, honest rule, healed derivation.
+
 ## ORPHAN-HIGH-607 — the cycle lane never provisioned the dependencies its own manifests declare — RESOLVED (this PR)
 
 **Severity:** HIGH (the first registry-synced cycle ran six adapters into six `tool_unhealthy` rows)
@@ -8527,6 +8716,162 @@ survives in `legacy_status` for audit, and `partial` conservatively reads as
 The derivation now compares one vocabulary, pinned by a test that fails if
 the inline union ever returns. The legacy WRITE path keeps its Plan-024
 operator-migration gate.
+
+## ORPHAN-CRITICAL-613 — the entire judgment supply chain had one driver, and the driver had zero importers — RESOLVED (this PR)
+
+**Severity:** CRITICAL (judged_judges read zero for months; calibration, goldset and FP-suppression starved together)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, end-to-end wiring sweep (Sinir Sistemi Programı, keşif ajanı B).
+
+`generate_judgment_sample`, `dispatch_judges_for_sample`,
+`generate_ai_consensus`, `replay_judges_on_goldset` and
+`refresh_fixture_suite` were all reachable from exactly one caller —
+`heartbeat_tick` — and `heartbeat.py` had **zero importers repo-wide**. No
+judgment sample was ever minted automatically, no judge fanned out, no
+consensus computed, no fixture suite refreshed, no replay scored. Three
+separate defects were blamed for `judged_judges=0` before the dead driver
+was found. The mechanism-without-a-caller class, at its largest.
+
+**Fix (extract-and-delete, no parallel copy):** three cycle phases —
+`fixture_refresh`, `judgment_pipeline` (sample → fan-out → consensus, with
+per-tool fault containment), `judge_replay` (gold-corpus re-examination +
+recall) — registered in dependency order around `judge_calibration`;
+`heartbeat.py` deleted. The extraction surfaced and repaired a latent
+defect: heartbeat passed `target_sha=None` into the fan-out, which would
+have graded every judge's real evidence `baseline_unavailable` (the exact
+class that rejected the autonomy planner's first surviving run); judges now
+anchor to the workspace head.
+
+## ORPHAN-LOW-612 — the artifact scrubber masked the numbers that happened to say "token" — RESOLVED (this PR)
+
+**Severity:** LOW (no leak; cost telemetry blinded)
+**Owner:** ARIA
+**Discovered:** 2026-08-10 code-review pass (madde 17), reading the first
+accepted agent response's usage block: every counter read
+`<secret-redacted>`.
+
+`scrub_json` masked any key containing "token" — which is every usage
+counter the Claude CLI reports (`input_tokens`, `output_tokens`,
+`cache_read_input_tokens`, …). An integer cannot leak a secret; masking
+them protected nothing and blinded spend telemetry.
+
+**Fix:** a credential is a STRING, a counter is a NUMBER — token-ish keys
+mask string values only. The value-pattern layer (bare `sk-…` inside free
+text) is untouched. Deliberate break verified both directions.
+
+## ORPHAN-HIGH-610 — an environment fault was priced as tool guilt, and quarantined all six adapters — RESOLVED (this PR)
+
+**Severity:** HIGH (the entire adapter fleet is quarantined; no schema/tenant/event scanning can run)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, reading why the first dependency-provisioned cycle
+still ran zero tools: `tools/registry.json` on `aria/state` shows all six
+adapters QUARANTINED, transitioned by the 06:37 cycle whose runner refused
+each with `missing repo-local node dependency` — `duration_ms: 0`, the tools
+never executed.
+
+Two defects, one class (the requeue counter's, one layer up):
+
+1. The runner recorded its environment refusal as `tool_unhealthy`, and
+   `immediate_quarantine_reason` quarantines on that status unconditionally.
+   Two different failures, one name (MISSION_SPEC M-2.5).
+2. `unquarantine_tool` has existed since Plan 022 and was API-only — when the
+   wrong quarantine happened, there was no operator-reachable path to lift
+   it. Mechanism without a caller, CLI edition.
+
+**Fix:** the refusal now mints `environment_unavailable` (own status, wired
+through the run vocabulary, the CLI exit map, and the spine fresh-pass
+exclusions); the quarantine trigger deliberately ignores it — repetition
+still escalates through the uncertainty ledger, which now has a reader. The
+audited way back exists twice over: a `tool unquarantine` CLI verb wrapping
+the Plan-022 API, and a dispatch-gated workflow step (approval ref required,
+recorded in governance, no-op on scheduled runs) so the lift happens on the
+state store and publishes with the same run.
+
+**Remediation to execute after merge:** dispatch `aria-auto-cycle` with the
+six adapter ids + an approval ref; the same run's tools phase then exercises
+the lifted tools against the provisioned workspace.
+
+## ORPHAN-HIGH-615 — the operator's path into ground truth was printed, promised, and never built — RESOLVED (this PR)
+
+**Severity:** HIGH (judge calibration and the goldset have zero human labels by construction)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, wiring sweep (keşif ajanı B), four defects, one theme:
+
+1. Every judgment sample embeds `aria-kernel feedback record …` in its
+   operator instructions — the verb did not exist (parser knew only
+   add/import/list/migrate).
+2. The ONE wired human-verdict path, `resolve_human_required(verdict=…)`
+   (Plan 024 §B ground-truth fan-out), had no CLI flag; dead from every
+   keyboard.
+3. `calibration_bootstrap.finalize_corpus` wrote `label`/`labeled_at` rows —
+   a schema no ground-truth reader reads. Every label an operator ever
+   finalized was invisible to judge_calibration, goldset and
+   FP-suppression.
+4. `record_seeding_finding` had zero producers; the labeling pool was
+   permanently empty.
+
+**Fix:** the promised verbs are real (`feedback record`, `record-batch`);
+`hr resolve --verdict tp|fp` reaches the fan-out; finalize writes the ONE
+vocabulary (`verdict`/`source_type=human`/`run_id`/`finding_id`, original
+spelling preserved as `legacy_label`); every live finding recorded by
+`record_findings_for_run` seeds the labeling pool (suppressed FPs excluded);
+and the daily report gains a "Labels wanted" section with the ready-made
+command per sample — the report is where the operator already looks.
+
+**En-route (repo-setting, fixed live):** `finding-state-sweep` and
+`aria-daily-report` were ALSO blocked by the repository-level Actions
+setting "allow GitHub Actions to create pull requests" being off — a wall
+behind the workflow-permissions wall #1140 removed. Enabled via the
+actions/permissions API; both lanes redispatched.
+
+## ORPHAN-HIGH-614 — the widest adapters crashed at a memory ceiling nobody declared — RESOLVED (this PR)
+
+**Severity:** HIGH (2 of 6 adapters cannot complete their first real run)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, cyc-…132318Z — the first cycle in which the
+adapters ever executed: tenant-scoping and test-gap (scope apps/** +
+libs/**) died at Node's default ~1 GB old-space after 67s/51s of real work.
+
+A resource the manifest never declared, enforced by a runtime the manifest
+never chose. **Fix:** `runner.node_max_old_space_mb` — validated manifest
+field, default 2048 in the runner, 3072 declared by the two wide-scope
+adapters; composed into NODE_OPTIONS without clobbering operator flags.
+
+**Also observed, next in queue:** `agent-harness-security-adapter`
+`evidence_error` (2.6s, python lane) — separate defect, separate change.
+
+## ORPHAN-CRITICAL-616 — the per-service hardening program had every organ and no nervous system — RESOLVED (this PR)
+
+**Severity:** CRITICAL (the charter's single purpose had no producer)
+**Owner:** ARIA
+**Discovered:** 2026-08-10, wiring sweep (keşif ajanı A). Five severed links,
+one line:
+
+1. `cycle_service_examination` computed per-service targeting — services,
+   dependency order, owning agents, scoped pressures — with ZERO consumers,
+   and ran AFTER `mission_ingest`.
+2. `SERVICE_MAP.json` inventoried every platform service each cycle; nobody
+   read it.
+3. `select_next_mission` had one caller: the operator CLI. Even a seeded
+   ledger would never move without a human.
+4. The coverage-gap → mission path was structurally unreachable: gap
+   detection runs after ingest, and ingest filtered gaps to the CURRENT
+   cycle id, so the newest batch (always the previous cycle's) was dropped
+   every night.
+5. A mission could not name a service except inside free text.
+
+**Fix (kablolama, sıfır duplicate):** examination moves before ingest and
+gains its first consumer — `service_mission_seed` mints durable
+`service_hardening` missions (core four risk-ordered per charter M-5.1 +
+every evidence-backed service; idempotent by mission identity;
+`target_project` is now a first-class mission field). `mission_selection`
+runs the scheduler in the cycle and hands the winner to the bounded queue as
+a `mission:<id>` item; the autonomy drain resolves that marker from the
+mission row itself. The ingest filter is corrected with the reason sealed in
+a test. `SOURCE_RANK` gains `service_hardening` below the reactive sources.
+
+10 tests; dismantling the seed phase and restoring the cycle-id filter each
+break their own test.
 
 ## ORPHAN-CRITICAL-600 — the prompt hash was minted over one object and verified against another — RESOLVED (this PR)
 
@@ -8627,9 +8972,25 @@ The agent was blameless. `classify_evidence_ref` grades a ref `repo_verified` on
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
-## ORPHAN-LOW-595 — two kernel test files fail when run in one order and pass in another — OPEN
+## ORPHAN-LOW-595 — two kernel test files fail when run in one order and pass in another — RESOLVED (verified 2026-08-10)
 
 **Discovered:** 2026-08-09, while checking whether ORPHAN-HIGH-594's change had broken anything.
+
+**Resolution (2026-08-10):** no longer reproduces. Both orders
+(`test_evidence_target_sha` → `test_tool_governance` and the reverse) run
+green in a single process on main, 41 tests each way, and the full kernel
+suite has run green repeatedly through the week's pre-push hooks. The exact
+healing commit was not isolated — the week rebuilt the claim/evidence
+surfaces both modules touch (596, 600, 601) — so this is closed by
+verification, not by attribution. If it recurs, reopen with the failing
+order captured.
+
+Also recorded here for the code-review pass (madde 4): `control_reachability`
+CI cadence is PROVEN — `tests/test_control_reachability.py` matches the
+`*test*.py` discover in `.github/workflows/aria-kernel.yml`, so the
+mechanism-without-a-caller scan itself runs on every ARIA-touching PR and in
+the pre-push hook. No wiring was needed; the check was to make sure the
+detector of unreachable controls was not itself unreachable.
 
 `tests.test_tool_governance.test_fixture_runner_and_strict_promotion_gate` passes alone and fails in the full suite. Isolated to a pair:
 
@@ -8690,5 +9051,93 @@ Three holes fed it:
 **Two corrections to my own earlier reading, recorded because both were wrong in the same direction:** the executor does NOT resume in-flight work (the workflow picks the id via `agent next-pending`, which only returns PENDING/REQUEUED — the "resume in-flight work" line is an advisory string from the handoff snapshot); and the empty `actual=` in the mismatch message was a log artefact, not the defect — the real empty was the rendered repository-map section.
 
 **Proof:** 6 tests, AST node-shape rather than source text (Plan 026R §H.1). The strongest asserts that **every `return 1` branch after the claim is taken contains a `_release_claim`** — the invariant the submit path broke. All three fixes reverted individually, all three went red. Full kernel suite green (3,464 tests).
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-621 — three quality dimensions had zero adapters, and schema-drift was a farm-only property — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-10 during the end-to-end ARIA read (FAZ 7 of the "Sinir Sistemi" program; the fleet-coverage gap the mission charter's D1-D6 dimension model made visible).
+
+The adapter fleet covered D1-security and D4-testability; **D2-performance, D5-documentation and D6-correctness(parity) had no watcher at all**, and `typeorm-entity-schema-adapter` scanned only `apps/farm-service` while six sibling services carry the identical per-tenant schema discipline (ADR-011) unwatched.
+
+**Fix — three deterministic v1 adapters (manifest + TS, fleet pattern, SHADOW):**
+
+- `bundle-budget-adapter` (D2): flags an MFE with no declared bundle budget (no `chunkSizeWarningLimit`, no `bundle-budget.json`) and heavyweight libraries imported statically (welded into the initial chunk). Real-repo first run: **9 findings** — no MFE declares any budget.
+- `doc-staleness-adapter` (D5): resolves every backtick-quoted repo path in `docs/**/*.md` against the working tree; a reference to a deleted path is a finding (globs/placeholders/`:line` refs handled). Real-repo first run: **1,146 findings across 1,271 docs** — the documentation debt is now measured instead of suspected.
+- `fe-dto-parity-adapter` (D6): AST-collects backend `*Dto` classes and hand-written frontend `*Dto` types (generated files excluded — they are the fix, not suspects); same name + different field sets = drift finding naming missing/extra fields. Real-repo first run: **2 findings, both in `web/modules/admin-panel/src/services/types/` — exactly the hand-written-types disease the SSOT audit documented.**
+
+**typeorm widening:** multi-service sweep over the 7 schema-per-tenant services (explicit `root` keeps the single-service call shape for fixtures). Widening exposed a latent FP class: the migration-registry check assumed farm's class-import registry, while sibling services legitimately register a GLOB in `data-source.ts` — every such service would have flooded `migration_registry_missing_entry`. The check now detects the registration style first; measured differential: farm-only findings **214 → 95** (the removed 119 were the glob-style false class), multi-service total 404 → 194.
+
+**Proof:** 4 self-asserting adapter test scripts green (fleet pattern); registry compiles 9 tools; real-repo smoke runs recorded above; fixture `real-repo-baseline` cases added per adapter.
+
+## ORPHAN-HIGH-620 — the daily report had two writers and zero published readers: the lane committed an empty anchor stub while the real report and every dashboard ledger accumulated unread — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-10 during the end-to-end ARIA read (FAZ 6 of the "Sinir Sistemi" program).
+
+**Two writers, one filename.** The daily-report lane generated its anchor from the EPHEMERAL checkout's empty `aria-tools` (no state restore in the generate job), committed the stub, and opened a PR whose body was three empty lines and a filename. Meanwhile reflection wrote the real operator report to the durable store's `reports/daily/<date>.md` every cycle — same filename class, never published, zero readers.
+
+**Ledgers written every cycle, read by nothing:** `compute_plan_016_metrics` had no scheduled caller; `observability`'s `dashboards.jsonl` (SLO state, alerts) had zero readers; mission events reached no operator surface; quarantine state was CLI-only; FAZ 1's replay recall landed in the sealed cycle row and stopped there.
+
+**Fix (one report):** the generate job restores aria/state first (contract: `first_governed_mutation_step=_RESTORE_STEP`, `github_git` declared, store write root allowed — mirroring the producer/eval lanes); `emit_anchor_to_path` composes the anchor frontmatter WITH the reflection report body from the store when present (`render_anchor_markdown(body_markdown=…)`) so the published artifact IS the report; the PR body carries the report's leading sections instead of three empty lines. Reflection gains five sections — Plan-016 counters, SLO/alerts, missions, quarantined tools, judge-replay recall — each the FIRST reader of its ledger, each silent (not scaffolded) on an empty store. `plan_016_metrics.write_dashboard` stays as the operator CLI verb; the data SSoT (`compute_plan_016_metrics`) is shared, not copied.
+
+**Proof:** 10 tests: content-pin (published artifact contains the report body, not the anchor stub), stub fallback, idempotency preserved, each section's first-read, silence-on-empty, and the lane contract pin (restore-first + github_git). Workflow parity gate green after the contract/YAML/fixture moved together.
+
+## ORPHAN-HIGH-618 — the environment contract existed only as prose: a mandatory merge gate with zero producers, and a claim path that discovered the broken host after spending the claim — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-10 during the end-to-end ARIA read (FAZ 5 of the "Sinir Sistemi" program).
+
+Four organs, one theme — the environment's obligations were written down and never measured, so every environment fault was priced on the work (MISSION_SPEC M-2.5: two failures, two names):
+
+**1. `verify_runner_attestation` was MANDATORY at merge and NOTHING produced a row.** The merge authority requires an attestation for every (pr_number, head_sha, readiness_claim_id) triple (`merge_authority.py:98`), the ledger is a first-class state surface — and a repo-wide search found zero writers. The gate could only ever raise `runner_attestation_required_for_merge`.
+
+**2. The correct pre-claim shape lived only in a dead loop.** `claim_and_dispatch_one` (the operator `--consume` path with no CI caller) preflighted Claude auth BEFORE touching the queue; the CI path (`ci_executor.main`) claimed first and discovered the broken host after — a night with no auth or no sandbox burned a claim + requeue per request, escalating healthy requests toward HUMAN_REQUIRED.
+
+**3. A blocked night and an idle night rendered identically.** The daily anchor carried counters but no cause; the operator could not tell "nothing to do" from "could not run".
+
+**4. The nightly producer ran with no preflight at all — and the documented strict soft-warn had NEVER fired.** `verify_preflight` skipped `standard` entirely. Worse, found while wiring: the strict warn branch sat under `not verdict.valid`, and non-autonomous verdicts are always valid by construction (`valid = profile != "autonomous" or …`) — the branch was structurally unreachable since it shipped.
+
+**Fix:** `probe_runner_attestation` + `probe_runner_attestations_for_claims` (PROBED, not self-asserted: sandbox via the runtime's own `sandbox_backend()` accessor, auth/API-key via the env the CLI actually authenticates with; config-asserted identity fields labeled as such in the row; a host that cannot attest is REFUSED — that refusal is the contract working). New `runner-attestation probe` CLI verb + `probe-runner-attestation` composite action wired into both lanes at start. `ci_executor` gains `_pre_claim_environment_gate` (claude auth / sandbox / node deps) that refuses BEFORE claiming and writes `claude_auth_unavailable` / `sandbox_unavailable` / `env_deps_missing` governance rows. `build_daily_anchor` derives an additive `blocked_reason` list from the same ledger (tier-2 automatic — no caller cooperation). `verify_preflight` measures the environment subset for every run profile; the orchestrator's verdict handling is extracted to `_apply_preflight_verdict`, keyed on reasons instead of the always-true flag, so the soft-warn is finally reachable — pinned by a direct test.
+
+**Proof:** 15 tests: the probed row satisfies the previously unsatisfiable merge gate; re-probe idempotent per triple; sandboxless host refused; gate-before-claim position pinned; mock mode skips; standard preflight measures; warn-reachability pinned both directions; anchor carries the night's refusals and renders empty on a healthy night. Neighbour suites green (349), workflow contract + injection + sha-pin invariants green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-MEDIUM-619 — the weekly agent-eval lane was dead on arrival: its own preflight refused every run over a stale token-provenance literal — RESOLVED (this PR)
+
+Severity: MEDIUM. Discovered 2026-08-10 while triaging the scheduled-workflow watchdog incident (issue #1005).
+
+When the eval ledger moved into the durable aria/state store, the job contract was updated to `token_source="github_actions_artifact_token"` (the `github.token` that pushes the state branch) — but the workflow's own `verify_workflow_preflight` call still passed `token_provenance="none"` from the pre-move era. The kernel preflight did exactly its job: `token_provenance_mismatch:none!=github_actions_artifact_token`, exit 1, every scheduled and dispatched run since the contract tightened. The lane that measures agent quality never ran, and the failure read as "eval is broken" rather than "the workflow lies about its own credential".
+
+**Fix:** the workflow states the truthful provenance. One line + the comment that stops the next mover from repeating it.
+
+## ORPHAN-HIGH-617 — ARIA wrote what it learned every cycle and never read any of it back into a dispatch — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-10 during the end-to-end ARIA read that produced the "Sinir Sistemi" program (FAZ 4).
+
+Three organs of the learning loop's READ side were dead, so every agent dispatch rediscovered the repository from zero:
+
+**1. Conventions had a writer and no production reader.** `record_convention` has appended a row to `aria-tools/knowledge-graph/conventions.jsonl` on every converged cycle since V9.0-F. The only reader, `lookup_pattern` (`knowledge_graph.py:339`), was keyed by `pattern_id` and had **zero callers** — nothing anywhere resolved a pattern id, so no learned convention ever reached an agent.
+
+**2. Beliefs fed pressure ranking, never the agent about to edit the believed-about files.** `latest_beliefs` was consumed by the pressure path only; the envelope minted for an agent touching `apps/farm-service/**` carried no trace of what ARIA had already verified about that exact area.
+
+**3. `rank_pressure_sources` (`knowledge_graph.py:376`) had zero callers of any kind** — not even a test — while the calibration-recommendation section asked the operator to approve weight changes with no effectiveness data in view.
+
+**Why mint-time matters (the binding constraint):** the prompt hash is sealed over the rendered text at mint, and the claim path re-renders from the fused envelope (`fuse_prompt_envelope`). Knowledge injected at claim or dispatch would either break the binding or bypass it. So both new sections — `## Established knowledge` (beliefs + conventions intersecting the request's evidence/scope paths) and `## Recent intent` (per evidence file, the last commits' subject + first WHY line + ADR/plan/finding refs — this repo's commit bodies are WHY-rich by convention, so intent reading starts from cited history) — are computed inside `create_agent_invocation_request`, stored as envelope data, added to `_FUSED_ENVELOPE_KEYS`, and sealed under the minted hash. Both render with the repository map's trust framing: projection, **not evidence**.
+
+**Fix:** `conventions_for_paths` (first production read of the conventions ledger, same verified-chain discipline as `lookup_pattern`); `intent_context_for_files` in twin.py (deterministic, git-derived, never raises into the mint path); mint-time enrichment + renderer sections + fusion-set entries; `rank_pressure_sources` wired into the calibration-recommendation phase and rendered in its report section (first caller).
+
+**Proof:** 12 tests. The binding pair is the deliberate break: dropping `established_knowledge` from the fused envelope fails hash reproduction (the fusion-set addition is load-bearing), and because the binding alone cannot detect a mint that silently stops attaching the sections, the rendered text itself is content-pinned. The claim-envelope AST guard (`test_claim_envelope_binding`) derives the renderer's key set mechanically, so the two new renderer keys could not have shipped without joining the fusion set. Neighbour suites green (212 tests), invariants green (803).
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-622 — the mission seeder validated itself against a shape its producer never emits, and the first live cycle failed on it — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-10 by the FIRST live auto-cycle over the neural-wiring pipeline (run 31437241716): phase `service_mission_seed` failed with `'list' object has no attribute 'get'` and the cycle sealed as failed.
+
+**Root cause:** `impact_graph.cycle_service_examination` emits `per_service_pressures` as a **list** of `{service, layer, pressures}` groups in topological order. The FAZ 3 seeder read it as a dict keyed by project (`per_service.get(project)`), and — the deeper defect — its unit test **invented the dict shape** in its fixture, so the suite validated the consumer against data the producer never produces. A green test over a fictional contract is worse than no test: it certifies the disagreement.
+
+**Fix:** boundary normalization in the seeder (accepts the producer's list shape AND a dict, so a future producer change cannot re-break it); the test fixture now carries the producer's real shape, plus a content-pin test asserting a non-empty producer-shaped list both survives and scopes pressures onto the right service.
+
+**Proof:** 11 seeder tests green including the new live-shape pin; 201 neighbour tests green. The live cycle that found this is the FAZ 8 harness doing its job — the failure was recorded, phase-contained (`record_and_continue` kept sibling phases running), and the state store persisted the evidence.
 
 **Owner:** claude (this session). **Status:** RESOLVED.

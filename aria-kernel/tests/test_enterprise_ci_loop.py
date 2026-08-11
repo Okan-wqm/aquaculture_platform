@@ -6,7 +6,6 @@ import unittest
 from pathlib import Path
 
 from aria_kernel import (
-    heartbeat_status,
     inventory_workflows,
     list_ci_failures,
     produce_ci_review,
@@ -278,10 +277,16 @@ class EnterpriseCiLoopTests(unittest.TestCase):
         self.assertEqual(sample["items"][0]["finding_id"], "farm")
         self.assertEqual(sample["items"][0]["uncertain_belief_ids"], ["low-confidence-farm"])
 
-    def test_heartbeat_status_reports_empty_before_tick(self):
-        status = heartbeat_status(base_dir=self.tools_dir)
-        self.assertEqual(status["tick_count"], 0)
-        self.assertFalse(status["locked"])
+    def test_judgment_pipeline_phase_replaces_the_heartbeat_driver(self):
+        # heartbeat.py is deleted (zero importers; ORPHAN-CRITICAL-613); the
+        # judgment work it was supposed to drive now runs as cycle phases.
+        # The intent of the old status check — "the loop's driver is
+        # observable" — survives as: the phases are registered.
+        from aria_kernel import cycle as cycle_mod
+
+        names = [phase.name for phase in cycle_mod.CYCLE_PHASES]
+        self.assertIn("judgment_pipeline", names)
+        self.assertIn("judge_replay", names)
 
 
 if __name__ == "__main__":

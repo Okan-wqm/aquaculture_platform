@@ -179,6 +179,7 @@ _TOOL_RUN_EXIT_CODES: dict[str, int] = {
     "output_unparseable": 1,
     "budget_exceeded": 2,
     "tool_unhealthy": 3,
+    "environment_unavailable": 1,
 }
 
 
@@ -612,6 +613,23 @@ def build_parser() -> argparse.ArgumentParser:
     feedback_parser = add_subparser(sub, "feedback")
     feedback_sub = feedback_parser.add_subparsers(dest="feedback_command", required=True)
 
+    # The verbs the kernel has been PRINTING into every judgment sample's
+    # operator instructions since Plan 016 — and never implemented. The
+    # sample said `aria-kernel feedback record …`; the parser knew only
+    # add/import/list/migrate. The documented label channel was a phantom,
+    # and judge calibration's human ground truth stayed empty partly for it.
+    fb_record = add_subparser(feedback_sub, "record")
+    fb_record.add_argument("--tool-id", required=True)
+    fb_record.add_argument("--run-id", required=True)
+    fb_record.add_argument("--finding-id", required=True)
+    fb_record.add_argument("--verdict", required=True, choices=["true_positive", "false_positive"])
+    fb_record.add_argument("--severity", default="medium", choices=["low", "medium", "high", "critical"])
+    fb_record.add_argument("--note", required=True)
+    fb_record.add_argument("--finding-fingerprint", default=None)
+    fb_batch = add_subparser(feedback_sub, "record-batch")
+    fb_batch.add_argument("--sample-id", required=True)
+    fb_batch.add_argument("--file", required=True)
+
     add_parser = add_subparser(feedback_sub, "add")
     add_workspace_args(add_parser)
     add_parser.add_argument("--kind", required=True)
@@ -831,11 +849,32 @@ def build_parser() -> argparse.ArgumentParser:
     tool_quarantine = add_subparser(tool_sub, "quarantine")
     tool_quarantine.add_argument("--tool-id", required=True)
     tool_quarantine.add_argument("--reason", required=True, type=_validate_reason)
+    # The audited way back. unquarantine_tool has existed since Plan 022 and
+    # was API-only — so when six adapters were quarantined by an environment
+    # fault, there was no operator-reachable path to lift it. Mechanism
+    # without a caller, CLI edition.
+    tool_unquarantine = add_subparser(tool_sub, "unquarantine")
+    tool_unquarantine.add_argument("--tool-id", required=True)
+    tool_unquarantine.add_argument("--reason", required=True, type=_validate_reason)
+    tool_unquarantine.add_argument("--operator-approval-ref", required=True)
+    tool_unquarantine.add_argument("--root-cause-note", required=True)
+    tool_unquarantine.add_argument("--fixture-update-ref", required=True)
     tool_run = add_subparser(tool_sub, "run")
     tool_run.add_argument("--tool-id", required=True)
     tool_run.add_argument("--input", default="{}")
     tool_run.add_argument("--cycle-id", required=True)
     tool_run.add_argument("--workspace-root", default=".")
+
+    # FAZ 5a — the merge gate's attestation ledger finally gets a producer
+    # verb. verify_runner_attestation was MANDATORY at merge and NOTHING
+    # wrote a row; mechanism without a caller, ledger edition.
+    attestation_parser = add_subparser(sub, "runner-attestation")
+    attestation_sub = attestation_parser.add_subparsers(
+        dest="attestation_command", required=True
+    )
+    attestation_probe = add_subparser(attestation_sub, "probe")
+    attestation_probe.add_argument("--repo", required=True)
+    attestation_probe.add_argument("--target-ref", required=True)
 
     registry_parser = add_subparser(sub, "registry")
     registry_sub = registry_parser.add_subparsers(dest="registry_command", required=True)
@@ -2072,6 +2111,10 @@ def build_parser() -> argparse.ArgumentParser:
     hr_resolve = add_subparser(hr_sub, "resolve")
     hr_resolve.add_argument("--request-id", required=True)
     hr_resolve.add_argument("--resolution-note", required=True)
+    # The ONE wired human-verdict path into calibration ground truth
+    # (Plan 024 §B fan-out in resolve_human_required) — and the CLI never
+    # exposed the parameter, so the fan-out was dead from every keyboard.
+    hr_resolve.add_argument("--verdict", default=None, choices=["true_positive", "false_positive"])
     hr_sweep = add_subparser(hr_sub, "sweep")
     consensus_parser = add_subparser(sub, 
         "consensus",
@@ -2408,6 +2451,30 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(run_cycle(legacy_paths), indent=2, sort_keys=True))
         return 0
 
+    if args.command == "feedback" and args.feedback_command == "record":
+        from aria_kernel.feedback_store import record_operator_feedback
+        print(json.dumps(record_operator_feedback(
+            tool_id=args.tool_id,
+            run_id=args.run_id,
+            finding_id=args.finding_id,
+            verdict=args.verdict,
+            severity=args.severity,
+            note=args.note,
+            finding_fingerprint=args.finding_fingerprint,
+            base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "feedback" and args.feedback_command == "record-batch":
+        from aria_kernel.feedback_store import record_operator_feedback_batch
+        payload = json.loads(Path(args.file).read_text(encoding="utf-8"))
+        print(json.dumps(record_operator_feedback_batch(
+            sample_id=args.sample_id,
+            verdict_payload=payload,
+            base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
+        return 0
+
     if args.command == "feedback" and args.feedback_command == "add":
         require_workspace_v2(paths)
         event = build_feedback_event(args, cycle_id=args.cycle_id, paths=paths)
@@ -2672,6 +2739,18 @@ def _main(argv: list[str] | None = None) -> int:
         print(json.dumps(quarantine_tool(args.tool_id, args.reason, base_dir=args.tools_dir), indent=2, sort_keys=True))
         return 0
 
+    if args.command == "tool" and args.tool_command == "unquarantine":
+        from aria_kernel.tool_registry import unquarantine_tool
+        print(json.dumps(unquarantine_tool(
+            args.tool_id,
+            operator_approval_ref=args.operator_approval_ref,
+            reason=args.reason,
+            root_cause_note=args.root_cause_note,
+            fixture_update_ref=args.fixture_update_ref,
+            base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
+        return 0
+
     if args.command == "tool" and args.tool_command == "run":
         payload = json.loads(args.input)
         result = run_tool(
@@ -2685,6 +2764,20 @@ def _main(argv: list[str] | None = None) -> int:
         # can pattern-match exit code for failure detection.
         envelope_status = (result.get("envelope") or {}).get("status", "ok")
         return _TOOL_RUN_EXIT_CODES.get(envelope_status, 1)
+
+    if args.command == "runner-attestation" and args.attestation_command == "probe":
+        # FAZ 5a — lane-start producer: one probed attestation row per
+        # recorded readiness claim, keyed exactly as the merge gate reads.
+        from aria_kernel.runner_attestation import (
+            probe_runner_attestations_for_claims,
+        )
+        result = probe_runner_attestations_for_claims(
+            base_dir=args.tools_dir,
+            repo=args.repo,
+            target_ref=args.target_ref,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
 
     if args.command == "registry" and args.registry_command == "compile":
         try:
@@ -4217,6 +4310,7 @@ def _main(argv: list[str] | None = None) -> int:
             row = resolve_human_required(
                 request_id=args.request_id,
                 resolution_note=args.resolution_note,
+                verdict=args.verdict,
                 base_dir=args.tools_dir,
             )
             print(json.dumps(row, indent=2, sort_keys=True))

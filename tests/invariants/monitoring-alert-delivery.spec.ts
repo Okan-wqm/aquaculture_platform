@@ -72,7 +72,11 @@ interface Route {
 }
 interface AlertmanagerConfig {
   route?: Route;
-  receivers?: Array<{ name?: string; webhook_configs?: unknown[] }>;
+  receivers?: Array<{
+    name?: string;
+    webhook_configs?: unknown[];
+    email_configs?: Array<{ to?: string }>;
+  }>;
 }
 
 function ruleFiles(): string[] {
@@ -150,6 +154,44 @@ describe('alerts can actually be delivered', () => {
     walk(config.route);
 
     expect(missing).toEqual([]);
+  });
+
+  it('gives every routed receiver something that actually delivers', () => {
+    // A severity can have a route, the route can name a receiver, and the
+    // receiver can still contain nothing — which is what `page` and `digest`
+    // effectively were while they pointed at a loopback URL nobody served.
+    // Being routed is not the same as being delivered.
+    const routed = new Set<string>();
+    const walk = (route: Route | undefined): void => {
+      if (!route) return;
+      for (const child of route.routes ?? []) {
+        if (child.receiver && child.receiver !== 'null') routed.add(child.receiver);
+        walk(child);
+      }
+    };
+    walk(config.route);
+
+    const empty = (config.receivers ?? [])
+      .filter((r) => r.name && routed.has(r.name))
+      .filter((r) => (r.email_configs?.length ?? 0) === 0 && (r.webhook_configs?.length ?? 0) === 0)
+      .map((r) => r.name);
+
+    expect(empty).toEqual([]);
+  });
+
+  it('commits no real recipient and no real credential', () => {
+    // Delivery settings are rendered onto the droplet at activation. The
+    // committed file must stay unusable on purpose: `.invalid` is reserved by
+    // RFC 2606 and can never resolve, so a config that reached production
+    // unrendered fails loudly instead of quietly mailing a stranger.
+    const raw = fs.readFileSync(ALERTMANAGER, 'utf8');
+    const recipients = [...raw.matchAll(/to:\s*'([^']+)'/g)].map((m) => m[1] ?? '');
+
+    expect(recipients.length).toBeGreaterThan(0);
+    for (const recipient of recipients) {
+      expect(recipient).toMatch(/\.invalid$/);
+    }
+    expect(raw).toContain('REPLACE_SMTP_PASSWORD');
   });
 
   it('never exports a metric label Prometheus reserves for itself', () => {

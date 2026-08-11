@@ -1,15 +1,41 @@
 # Alertmanager config for the DROPLET monitoring stack (B2 / OBS-HIGH-002).
 #
-# The webhook URLs below are LOOPBACK PLACEHOLDERS (amtool-valid so this file
-# passes `amtool check-config` as committed). At deploy time scripts/monitoring/
-# render-configs.sh (a later B2 slice) overwrites them in place from droplet
-# secrets — the real paging / heartbeat / digest endpoints are never committed.
+# DELIVERY IS EMAIL. Every value below that touches a real mailbox or a real
+# credential is a `.invalid` PLACEHOLDER — that TLD is reserved by RFC 2606 and
+# can never resolve, so a config that reached production unrendered would fail
+# loudly instead of quietly mailing a stranger. `amtool check-config` accepts
+# the file as committed, which is what the monitoring-stack CI validates.
+#
+# scripts/monitoring/render-configs.sh substitutes the real SMTP settings and
+# recipients from the droplet environment at activation. Nothing here is
+# committed with a real address or password.
+#
+# WHY EMAIL AND NOT A WEBHOOK: the original design routed to three external
+# paging endpoints that were never procured, and render-configs.sh hard-failed
+# on their absence — which is why no deploy path called it and why every alert
+# this platform has ever raised went nowhere. The droplet already has working
+# SMTP credentials (notification-service uses them), so email is the delivery
+# that exists.
+#
+# ROLE ROUTING LATER: `page` and `digest` take SEPARATE recipient variables
+# even though both default to the same operator address today. When alerts are
+# split by role, the seam is already here — a new route gets its own receiver
+# and its own variable, and nothing else moves.
 #
 # Routing is by the `severity` label, which is the single source of truth:
 #   critical -> page     (immediate)
 #   warning  -> digest   (batched)
 #   none     -> heartbeat (the Watchdog deadman; see 50-monitoring-self.yml)
 #   else     -> null     (swallowed; info-level noise never pages)
+global:
+  # Substituted by render-configs.sh. `.invalid` cannot resolve, so an
+  # unrendered config cannot silently deliver anywhere.
+  smtp_smarthost: 'smtp.invalid:587'
+  smtp_from: 'alerts@example.invalid'
+  smtp_auth_username: 'REPLACE_SMTP_USER'
+  smtp_auth_password: 'REPLACE_SMTP_PASSWORD'
+  smtp_require_tls: true
+
 route:
   receiver: 'null'
   group_by: ['alertname', 'app']
@@ -45,14 +71,30 @@ receivers:
         send_resolved: false
 
   - name: page
-    webhook_configs:
-      - url: 'http://127.0.0.1:9099/page'
+    email_configs:
+      - to: 'page@example.invalid'
         send_resolved: true
+        headers:
+          Subject: '[AQUA CRITICAL] {{ .CommonLabels.alertname }} ({{ .Alerts.Firing | len }} firing)'
+        # The runbook is the first thing an operator needs at 03:00, so it goes
+        # in the body rather than three clicks away.
+        html: |
+          {{ range .Alerts }}<p><b>{{ .Annotations.summary }}</b></p>
+          <p>{{ .Annotations.description }}</p>
+          <p>Runbook: <a href="{{ .Annotations.runbook_url }}">{{ .Annotations.runbook_url }}</a></p>
+          <hr>{{ end }}
 
   - name: digest
-    webhook_configs:
-      - url: 'http://127.0.0.1:9099/digest'
+    email_configs:
+      - to: 'digest@example.invalid'
         send_resolved: true
+        headers:
+          Subject: '[AQUA warning] {{ .CommonLabels.alertname }} ({{ .Alerts.Firing | len }} firing)'
+        html: |
+          {{ range .Alerts }}<p><b>{{ .Annotations.summary }}</b></p>
+          <p>{{ .Annotations.description }}</p>
+          <p>Runbook: <a href="{{ .Annotations.runbook_url }}">{{ .Annotations.runbook_url }}</a></p>
+          <hr>{{ end }}
 
 inhibit_rules:
   # A critical error/latency alert mutes the warning-level twin for the same app.

@@ -181,3 +181,33 @@ groups:
           summary: 'Runtime supervisor found a CRITICAL condition it could not fix'
           description: 'Either a supervised container will not start, its restart cap is exhausted, or the root filesystem is past the threshold that began the 2026-08-03 outage. The supervisor deliberately does not delete anything to free space.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/runtime-supervisor.md'
+
+  # Tenant provisioning. The saga failed on its first step for months and the
+  # only surface was a `lastError` column nobody queried; these read the
+  # counters admin-api now exports so onboarding being dead is an alarm rather
+  # than a discovery.
+  - name: aquaculture.tenant.provisioning
+    rules:
+      - alert: TenantProvisioningRunsFailing
+        expr: |
+          increase(tenant_provisioning_runs_total{state="FAILED"}[30m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          target_auditor: multi-tenant-saas-expert
+        annotations:
+          summary: 'Tenant provisioning is failing — no new tenant can be onboarded'
+          description: 'A provisioning run reached FAILED in the last 30 minutes. Join tenant_provisioning_step_failures_total by (step) for the step that refused, then read admin.tenant_provisioning_steps.lastError for that step.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-provisioning.md'
+
+      - alert: TenantProvisioningRunStuck
+        expr: |
+          max(tenant_provisioning_oldest_active_run_age_seconds) > 3600
+        for: 15m
+        labels:
+          severity: warning
+          target_auditor: multi-tenant-saas-expert
+        annotations:
+          summary: 'A tenant provisioning run has been unfinished for over an hour'
+          description: 'A run is neither SUCCEEDED nor FAILED an hour after it was created. Production held two such runs for months with attempts=3 and no lease, which no metric counted and no alert could express.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/tenant-provisioning.md'

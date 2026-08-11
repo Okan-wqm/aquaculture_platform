@@ -565,9 +565,56 @@ def evaluate_plan(
             result["status"] = "evaluated"
             return result
         event = _append_event(root=root, plan_id=plan_id, event_type="plan_evaluated", payload=payload, idempotency_key=key)
+        # Z3b (ORPHAN-HIGH-629) — the duel finally leaves a rateable trace.
+        # One knowledge-graph row per evaluated round, written inside the
+        # plan lock at the exact point an outcome becomes fact. Ratings are
+        # computed at READ time (`calibrated_intelligence.bradley_terry`)
+        # from these rows — the ledger stores outcomes, never scores. Not a
+        # plan event: EVENT_TYPES is documented as a one-way door, and this
+        # is an observation, not lifecycle. Failure costs the observation,
+        # never the evaluation.
+        try:
+            _record_duel_observation(root, plan_id, round_number, state, decision)
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
         result = _event_result(event, idempotent=False)
         result["status"] = "evaluated"
         return result
+
+
+def _record_duel_observation(
+    root: Path,
+    plan_id: str,
+    round_number: int,
+    fold: dict[str, Any],
+    decision: dict[str, Any],
+) -> None:
+    from .knowledge_graph import _append_row
+
+    reviews = (fold.get("cross_reviews", {}).get(round_number) or {}).get("reviews") or []
+    verdicts_by_direction = {
+        str(review.get("review_direction")): review.get("verdict")
+        for review in reviews
+        if isinstance(review, dict)
+    }
+    risks = fold.get("cross_review_risks_by_round", {}).get(round_number) or []
+    _append_row(
+        Path(root) / "knowledge-graph" / "duel-ratings.jsonl",
+        {
+            "schema_version": 1,
+            "plan_id": plan_id,
+            "round": round_number,
+            "primary_agent": "aria-primary-planner",
+            "challenger_agent": "aria-challenger-planner",
+            "verdicts_by_direction": verdicts_by_direction,
+            "material_risk_count": sum(
+                1 for r in risks
+                if isinstance(r, dict) and r.get("severity") in ("blocking", "material")
+            ),
+            "resolved_risk_count": len(fold.get("resolved_review_risk_ids") or []),
+            "terminal_state": decision.get("terminal_state"),
+        },
+    )
 
 
 def list_active_plans(*, base_dir: str | Path | None = None) -> list[str]:
@@ -1419,7 +1466,18 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
         task["review"] = payload
         cross["reviews"].append(payload)
         surfaced = state["cross_review_risks_by_round"].setdefault(state["current_round"], [])
+        # Z3-K3 (ORPHAN-HIGH-629) — the two cross_review_recorded events of a
+        # round carried the same risks list and were appended blind, so every
+        # risk counted twice: gate margins doubled and any rating metric
+        # would read 2x. Dedup by risk_id within the round; a risk without an
+        # id keeps legacy append behaviour (nothing to key on).
+        seen_risk_ids = {r.get("risk_id") for r in surfaced if r.get("risk_id")}
         for risk in payload.get("risks", []):
+            rid = risk.get("risk_id")
+            if rid and rid in seen_risk_ids:
+                continue
+            if rid:
+                seen_risk_ids.add(rid)
             surfaced.append({**risk, "surfaced_in_revision_id": payload["target_revision_id"]})
     elif event_type == "stale_tasks_reaped":
         round_data = state["rounds"].get(payload["round_number"]) or state["cross_reviews"].get(payload["round_number"], {})
@@ -1676,6 +1734,11 @@ def _normalize_cross_review(review: dict[str, Any]) -> dict[str, Any]:
         "reviewer_agent": review.get("reviewer_agent"),
         "review_direction": review.get("review_direction"),
         "risks": review.get("risks", []),
+        # Z3-K1 (ORPHAN-HIGH-629) — the reviewer's verdict was asked for by
+        # the agent contract, promised by the submit docstring, and then
+        # DROPPED here: no rating layer could ever see who judged whom
+        # right. Legacy rows read back as None — old ledgers stay valid.
+        "verdict": review.get("verdict"),
         "review_content_hash": review.get("review_content_hash"),
         "agent_invocation_request_id": review.get("agent_invocation_request_id"),
         "status_after": review.get("status_after", "ANSWERED"),

@@ -9251,3 +9251,28 @@ Severity: HIGH. By 2026-08-11 the queue held 162 pending judge requests; at one 
 **Fix:** `drain_pending` in `tools/aria-poc/ci_executor.py` — the scheduled lane loops next-pending → dispatch until the queue empties, `MAX_REQUESTS_PER_RUN` is reached, or the wall-clock budget (`ARIA_DRAIN_BUDGET_SECONDS`, default 2100s inside the 45-minute job) is spent. Each request still runs through the LOCKED single-request argv as a subprocess (invariant I-V3-21) with `target_agent` passed through from the request row. A request that comes back pending after being attempted stops the loop — an environment fault must not be priced as N request failures (the M-2.5 class). Child envelope/transcript paths are aggregated into the step outputs so the artifact upload carries the whole night, not the last request. Any child failure turns the run red WITHOUT discarding submitted successes. Operator-targeted `workflow_dispatch` with `request_id` keeps exact single-request semantics.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+## ORPHAN-MEDIUM-636 — performance tests asserted wall-clock absolutes on shared runners: whichever branch drew the slow machine went red — RESOLVED (this PR)
+
+Severity: MEDIUM. Run 31506624662 failed #1175's CI-Full on `alert-engine.performance.spec.ts` ("queue 1000 notifications < 100ms": measured 154.9ms) — content-unrelated; the branch drew a loaded runner. The class made CI reds look random ("sürekli farklı şeyler düşüyor").
+
+**Fix:** a fixed busy-workload is timed once per spec run and every bound scales by the measured machine-speed factor (floor 1.0 so a fast machine cannot tighten bounds and invent regressions). All 9 wall-clock assertions in the spec converted; regression-catch property survives, runner-speed sensitivity dies. 20/20 tests green locally.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-635 — consensus treated every judge as equal and every passing score as safe: no weighting, no abstention guarantee — RESOLVED (this PR, Kalibre Zekâ Z2a/Z2c)
+
+Severity: HIGH. The unanimity gate ignored everything ARIA knows about its judges (calibration tp/fp existed, weighed nothing), and a consensus scraping past 0.80 auto-published with no statistical guarantee.
+
+**Fix:** `generate_ai_consensus` gains two calibrated knobs, both default-OFF (legacy gate bit for bit): `judge_weights` (Beta-posterior precision means via `judge_weights_from_calibration`; strict-majority + margin vote — two equal judges still degenerate to unanimity, so the legacy guarantee survives; a new judge weighs at the neutral prior) and `conformal_floor` (`conformal_threshold` split-conformal quantile over past correct-consensus confidences, None under 8 samples; below-floor consensus abstains as `conformal_abstain`, severity HIGH in the escalation map). The cycle derives both from the ledgers each cycle; missing ledgers → None → legacy behaviour; failure costs calibration, never consensus.
+
+**Proof:** hand-checked closed forms (10/13 posterior; α=0.1 quantile), 6 new tests incl. legacy-golden and two-equal-judges-degenerate, 154 neighbour tests green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-629 — the duel had no rateable trace: verdicts dropped, risks double-counted, outcomes unrecorded — PARTIALLY RESOLVED (this PR; K2 direction-fidelity remains OPEN)
+
+Severity: HIGH (Kalibre Zekâ Z3). Exploration verified three live defects in the primary-vs-challenger machinery. **This PR closes K1 + K3 and lands the rating substrate:** K1 — the reviewer's `verdict` was asked for by the agent contract, promised by the submit docstring, and dropped by `_normalize_cross_review`; it now persists (legacy rows read back None). K3 — both `cross_review_recorded` events of a round appended the same risks blind, doubling every gate margin and any rating metric; risks now dedup by `risk_id` within the round. Z3b — one knowledge-graph row per evaluated round (`knowledge-graph/duel-ratings.jsonl`, chained `_append_row`, written inside the plan lock; outcomes stored, scores computed at read time via the new deterministic MM-algorithm `bradley_terry` — hand-checked 3-player example). Z4 lands alongside: deterministic `pagerank` over the cached dependency graph; evidence-backed missions get a centrality-scored priority band (CORE keeps 0-3; graph absent → stable enumeration fallback).
+
+**OPEN remainder (same ID):** K2 — `submit_cross_review_v8` still writes the SAME risks list to both directions, so per-side attribution is approximate until the submit path carries per-direction risks; and Z3d (genesis superiority gate over `eval_window_passed`) follows once ratings accumulate. Owner: claude, next session window.
+
+**Owner:** claude (this session). **Status:** K1/K3/Z3b/Z4 RESOLVED; K2+Z3d OPEN.

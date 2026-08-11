@@ -305,6 +305,9 @@ CONSENSUS_UNCERTAINTY_SEVERITY = {
     # own name (a reason absent from this map is silently dropped as
     # benign_not_escalated — that is why this entry MUST exist).
     "missing_confidence": "MEDIUM",
+    # Z2c — a passing consensus below the calibrated conformal floor is a
+    # statistically-guaranteed "too uncertain to auto-accept" signal.
+    "conformal_abstain": "HIGH",
 }
 
 

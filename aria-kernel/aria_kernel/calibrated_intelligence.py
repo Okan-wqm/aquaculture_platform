@@ -190,3 +190,132 @@ __all__ = [
     "source_feedback_counts",
     "thompson_rank",
 ]
+
+
+def conformal_threshold(
+    calibration_scores: list[float], *, alpha: float = 0.1
+) -> float | None:
+    """Split-conformal quantile over past CORRECT-consensus confidences.
+
+    Kalibre Zekâ Z2c. Returns the confidence floor below which a new
+    consensus abstains to a human, with the distribution-free guarantee
+    that at most ~alpha of genuinely-correct consensuses are escalated.
+    Closed form: sort + index — ceil((n+1)(alpha)) / conservative lower
+    quantile; None when fewer than 8 scores exist (insufficient window —
+    an abstention rule fit on noise escalates everything or nothing).
+    """
+    scores = sorted(float(s) for s in calibration_scores)
+    n = len(scores)
+    if n < 8:
+        return None
+    import math
+
+    rank = max(0, math.ceil((n + 1) * alpha) - 1)
+    return scores[min(rank, n - 1)]
+
+
+def judge_weights_from_calibration(
+    calibration_row: dict[str, Any] | None,
+    *,
+    prior_a: float = PRIOR_A,
+    prior_b: float = PRIOR_B,
+) -> dict[str, float]:
+    """Per-judge Beta-posterior precision means from a calibration row.
+
+    Kalibre Zekâ Z2a. Input is the latest judge-calibration ledger row
+    (judges[] with true_positive/false_positive counts); output maps
+    judge_id -> posterior mean. Judges absent from the row weigh at the
+    prior mean — a brand-new judge is neither trusted nor muted.
+    """
+    weights: dict[str, float] = {}
+    for judge in (calibration_row or {}).get("judges") or []:
+        judge_id = str(judge.get("judge_id") or "")
+        if not judge_id:
+            continue
+        post = beta_posterior(
+            int(judge.get("true_positive") or 0),
+            int(judge.get("false_positive") or 0),
+            prior_a=prior_a,
+            prior_b=prior_b,
+        )
+        weights[judge_id] = post["mean"]
+    return weights
+
+
+def pagerank(
+    adjacency: dict[str, list[str]],
+    *,
+    damping: float = 0.85,
+    iters: int = 50,
+) -> dict[str, float]:
+    """Deterministic power-method PageRank over a project graph (Z4a).
+
+    ``adjacency[a] = [b]`` means a depends on b (consumer -> provider);
+    rank flows TO providers, so the score answers "how much of the
+    platform stands on this node". Pure python, sorted iteration order,
+    fixed iterations, dangling mass redistributed uniformly — two calls
+    on the same graph are bit-identical.
+    """
+    nodes = sorted(set(adjacency) | {d for deps in adjacency.values() for d in deps})
+    if not nodes:
+        return {}
+    n = len(nodes)
+    rank = {node: 1.0 / n for node in nodes}
+    teleport = (1.0 - damping) / n
+    for _ in range(iters):
+        incoming = {node: 0.0 for node in nodes}
+        dangling_mass = 0.0
+        for node in nodes:
+            outs = [d for d in adjacency.get(node, []) if d in incoming and d != node]
+            if not outs:
+                dangling_mass += rank[node]
+                continue
+            share = rank[node] / len(outs)
+            for out in outs:
+                incoming[out] += share
+        dangling_share = dangling_mass / n
+        rank = {
+            node: teleport + damping * (incoming[node] + dangling_share)
+            for node in nodes
+        }
+    return rank
+
+
+def bradley_terry(
+    observations: list[dict[str, Any]],
+    *,
+    iters: int = 100,
+    epsilon: float = 1e-9,
+) -> dict[str, float]:
+    """Deterministic MM-algorithm Bradley-Terry ratings (Z3c).
+
+    ``observations``: [{"winner": id, "loser": id}] pairwise outcomes.
+    Returns id -> strength, normalized to sum 1. Sorted iteration order +
+    fixed iterations → bit-identical on identical input. Read-time
+    computation: the LEDGER stores outcomes, never scores (the
+    pressure-source-effectiveness pattern).
+    """
+    players = sorted({o["winner"] for o in observations} | {o["loser"] for o in observations})
+    if not players:
+        return {}
+    wins: dict[str, int] = {p: 0 for p in players}
+    pair_games: dict[tuple[str, str], int] = {}
+    for o in observations:
+        w, l = str(o["winner"]), str(o["loser"])
+        wins[w] += 1
+        key = (min(w, l), max(w, l))
+        pair_games[key] = pair_games.get(key, 0) + 1
+    strength = {p: 1.0 for p in players}
+    for _ in range(iters):
+        updated = {}
+        for p in players:
+            denom = 0.0
+            for (a, b), games in sorted(pair_games.items()):
+                if p not in (a, b):
+                    continue
+                other = b if p == a else a
+                denom += games / (strength[p] + strength[other])
+            updated[p] = (wins[p] / denom) if denom > 0 else epsilon
+        total = sum(updated.values()) or 1.0
+        strength = {p: max(epsilon, v / total) for p, v in updated.items()}
+    return strength

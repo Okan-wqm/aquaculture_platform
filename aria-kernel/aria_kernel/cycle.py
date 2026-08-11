@@ -1243,11 +1243,42 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
         except GovernanceError as exc:
             blocked.append({"tool_id": tool_id, "step": "sample_or_fanout", "reason": str(exc)[:200]})
         try:
+            # Kalibre Zekâ Z2a/Z2c — the two calibrated knobs, derived from
+            # the ledgers each cycle. Missing ledgers → None → the legacy
+            # gate bit for bit; failure costs calibration, never consensus.
+            _judge_weights = None
+            _conformal_floor = None
+            try:
+                from .calibrated_intelligence import (
+                    conformal_threshold,
+                    judge_weights_from_calibration,
+                )
+                from .feedback_store import load_feedback
+                from .judge_calibration import calibration_path
+                from .strict_jsonl_reader import read_strict_jsonl
+
+                _cal_path = calibration_path(context.base_dir)
+                if _cal_path.exists():
+                    _cal_rows = list(read_strict_jsonl(_cal_path, on_corruption="tolerant"))
+                    if _cal_rows:
+                        _judge_weights = judge_weights_from_calibration(_cal_rows[-1]) or None
+                _correct_confidences = [
+                    float(row.get("confidence"))
+                    for row in load_feedback(tool_id=tool_id, base_dir=context.base_dir)
+                    if row.get("source_type") == "ai_consensus"
+                    and isinstance(row.get("confidence"), (int, float))
+                ]
+                _conformal_floor = conformal_threshold(_correct_confidences)
+            except (OSError, ValueError, KeyError, TypeError):
+                _judge_weights = None
+                _conformal_floor = None
             consensus = generate_ai_consensus(
                 tool_id=tool_id,
                 cycle_id=context.cycle_id,
                 base_dir=context.base_dir,
                 workspace_root=context.workspace_root,
+                judge_weights=_judge_weights,
+                conformal_floor=_conformal_floor,
             )
             consensus_rows += len(consensus.get("consensus") or []) if isinstance(consensus, dict) else 0
         except GovernanceError as exc:
@@ -1463,9 +1494,32 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
     ]
     targets: list[str] = list(dict.fromkeys(list(SERVICE_HARDENING_CORE) + evidence_backed))
     rh = repo_hash(context.workspace_root)
+    # Kalibre Zekâ Z4b — evidence-backed missions get a centrality-scored
+    # priority BAND instead of enumeration order: PageRank over the cached
+    # dependency graph answers "how much of the platform stands on this
+    # service". CORE keeps its 0-3 band (the operator's floor is not
+    # re-litigated by a graph); evidence-backed land at 10 + bucket where a
+    # more-central service gets a LOWER (stronger) priority. Graph absent →
+    # empty scores → stable fallback to enumeration order within the band.
+    centrality: dict[str, float] = {}
+    try:
+        from .calibrated_intelligence import pagerank
+        from .impact_graph import cached_service_analysis_order
+
+        cache = cached_service_analysis_order(context.workspace_root)
+        centrality = pagerank(cache.get("dependencies") or {})
+    except (OSError, ValueError, KeyError, TypeError):
+        centrality = {}
     seeded: list[dict[str, Any]] = []
     for rank, project in enumerate(targets):
         pressures_here = per_service.get(project) or []
+        if project in SERVICE_HARDENING_CORE:
+            priority = rank
+        elif centrality:
+            score = centrality.get(project, 0.0)
+            priority = 10 + int((1.0 - min(1.0, score * 10)) * 10)
+        else:
+            priority = 10 + rank
         result = open_mission(
             source_kind="service_hardening",
             source_id=project,
@@ -1475,7 +1529,7 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
                 f"documented/correct (charter D1-D6)"
             ),
             capability="service_hardening",
-            priority=rank,
+            priority=priority,
             target_project=project,
             base_dir=context.base_dir,
         )
@@ -1484,6 +1538,8 @@ def _phase_service_mission_seed(context: PhaseContext) -> dict[str, Any]:
             "mission_id": result.get("mission_id"),
             "idempotent": bool(result.get("idempotent")),
             "scoped_pressures": len(pressures_here),
+            "priority": priority,
+            "centrality": round(centrality.get(project, 0.0), 6) if centrality else None,
         })
     return {
         "status": "completed",

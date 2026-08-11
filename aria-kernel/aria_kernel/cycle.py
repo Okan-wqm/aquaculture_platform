@@ -1572,11 +1572,29 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
     escalated: the refusal IS the governance working.
     """
     manifest_dir = Path(context.workspace_root) / "tools" / "aria-adapters"
+    # The manifest's `status` is the tool's BIRTH status; after registration
+    # the live lifecycle (transition_tool, quarantine, calibration) owns it.
+    # Passing the manifest status verbatim on RE-registration made the
+    # transition matrix read every lifecycle advance as an attempted
+    # demotion (live CALIBRATE vs manifest SHADOW → refused), so runner
+    # contract updates silently never reached the runtime: the registry
+    # served tenant-scoping's stale timeout_ms=180000 two cycles after the
+    # manifest raised it, and the node heap contract never landed at all
+    # (ORPHAN-HIGH-625). Re-registration therefore carries the LIVE status,
+    # which routes through the matrix's same-status lane — "manifest hash
+    # drift → allow; parser/runner update" — the lane built for exactly this.
+    live_status_by_id = {
+        str(tool.get("tool_id")): str(tool.get("status"))
+        for tool in list_tools(base_dir=context.base_dir)
+    }
     synced: list[str] = []
     refused: list[dict[str, str]] = []
     for manifest_path in sorted(manifest_dir.glob("*.tool.json")):
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            live_status = live_status_by_id.get(str(manifest.get("tool_id")))
+            if live_status is not None:
+                manifest = {**manifest, "status": live_status}
             register_tool(manifest, base_dir=context.base_dir)
             synced.append(str(manifest.get("tool_id") or manifest_path.stem))
         except (GovernanceError, ValueError, OSError) as exc:

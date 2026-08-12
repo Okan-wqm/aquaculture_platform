@@ -1035,6 +1035,38 @@ def _render_replay_recall_section(root: Path) -> list[str]:
     return lines
 
 
+def _render_duel_ratings_section(root: Path) -> list[str]:
+    """Z6 — read-time Bradley-Terry scores over the duel ledger.
+
+    The ledger stores OUTCOMES (verdicts per direction); the scores are
+    recomputed here at render time from those rows alone, so the number an
+    operator reads is the number replay derives — nothing stored, nothing
+    to drift. Silent until the ledger holds at least one decided duel.
+    """
+    try:
+        from .calibrated_intelligence import bradley_terry
+        from .genesis_superiority import duel_observations
+
+        observations = duel_observations(base_dir=root)
+    except Exception:
+        return []
+    if not observations:
+        return []
+    ratings = bradley_terry(observations)
+    lines = [
+        "## Duel Ratings",
+        "",
+        f"- Decided duels: {len(observations)}",
+        "- Ratings (Bradley-Terry, recomputed from the ledger at read time):",
+    ]
+    for agent_id, strength in sorted(
+        ratings.items(), key=lambda item: (-item[1], item[0])
+    ):
+        lines.append(f"  - `{agent_id}`: {strength:.4f}")
+    lines.append("")
+    return lines
+
+
 def _render_own_pr_ci_section(root: Path) -> list[str]:
     """ARIA's own PRs that are red in CI — the operator's 'it wrote wrong
     code' view (ORPHAN-HIGH-626). Silent when nothing is red."""
@@ -1173,6 +1205,7 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         *_render_mission_section(root),
         *_render_quarantine_section(root),
         *_render_replay_recall_section(root),
+        *_render_duel_ratings_section(root),
         "## Committed Findings",
         "",
         f"- Total: {reflection.get('committed_findings', {}).get('total', 0)}",

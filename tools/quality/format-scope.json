@@ -27262,6 +27262,17 @@
       "source_of_truth": "committed_hash"
     },
     {
+      "class": "runtime_evidence",
+      "content_sha256": "7048813cf57d97e76fb74fd7d08e90c644022166c65d939e023ab10ea4220d3b",
+      "hash_policy": "sha256",
+      "owner": "aria-runtime",
+      "path": "aria-tools/reports/daily/2026-08-11.md",
+      "prettier_managed": false,
+      "reason": "runtime evidence is declared artifact output",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
       "class": "canonical_source",
       "owner": "source",
       "path": "CLAUDE.md",

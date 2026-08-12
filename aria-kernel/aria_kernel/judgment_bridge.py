@@ -67,6 +67,23 @@ def _verdict_field(details: dict[str, Any]) -> dict[str, Any]:
         return dict(details["verdict"])
     if isinstance(details.get("consensus"), dict):
         return dict(details["consensus"])
+    if isinstance(details.get("verdict"), str):
+        # Flat shape (ORPHAN-HIGH-629 sibling): the judge contract file says
+        # BOTH "Return JSON with: verdict, judge_id, confidence..." and
+        # "details.verdict.rationale". The first live judge run answered
+        # flat, was ACCEPTED by the envelope gate, and dropped HERE with
+        # "expected verdict ..., got None" — a verdict lost between two
+        # halves of one document. Honour both spellings; the envelope gate
+        # stays the only authority on validity.
+        return {
+            key: details.get(key)
+            for key in (
+                "verdict", "tool_id", "run_id", "finding_id", "judge_id",
+                "model", "prompt_hash", "confidence", "rationale",
+                "evidence_refs", "judgment_group_id", "severity",
+            )
+            if details.get(key) is not None
+        }
     return {}
 
 

@@ -9363,6 +9363,14 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-MEDIUM-657 — the autonomous-promotion lane was dead wire: token producer, consumer, policy, invariants — and no caller — RESOLVED (this PR, E8/C7)
+
+Severity: MEDIUM (Kapalı Döngü E8; audit C7, adversarially CONFIRMED). Plan ARIA-V6 §2e built the full autonomous SHADOW→ACTIVE promotion lane: `compute_auto_promote_token` (HMAC, policy-gated: enabled + profile allowlist + precision floor over N clean cycles + zero critical FPs), the consumer predicate in `transition_tool` (pinned by I-V6.4-04), the `auto_promote` policy block, four invariant tests — and ZERO production callers. V7.6 even added the calibration reporter so the token "can NEVER fire" comment could be retired; the caller still never got written. An adapter that earned promotion by every published gate could not be promoted without an operator typing the command.
+
+**Fix:** one promotion gate, two authorities. `promote_tool` without an operator approval ref now tries the token path — `compute_auto_promote_token` under the current runtime profile; ineligibility converts to a loud GovernanceError naming both the missing ref and the policy reason. Both authorities pass the SAME `adapter_active_readiness` gate; they differ only in who vouches. `attempt_auto_promotions` (the token's first caller) sweeps SHADOW adapters right after the calibration reporter persists the precision history the token gates on; ineligible adapters are RECORDED and skipped (ineligibility is the policy working); promotions land a governance event. E7 boundary preserved at the POLICY level: default `enabled=False` + profile allowlist means ARIA may auto-promote only where the operator has said so in genesis-policy. 4 new tests (default-policy loud refusal, eligible token reaches transition with operator_approval=False, operator path never computes a token, sweep records honest ineligibility) + V6.4 invariants + orchestrator/merge-authority/readiness suites green (49).
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-MEDIUM-653 — a stub daily report locked out the real one, and publishing the stub was green — RESOLVED (this PR, E8/C2)
 
 Severity: MEDIUM (Kapalı Döngü E8; audit C2, adversarially CONFIRMED). Two halves of one dishonesty. (1) `emit_anchor_to_path`'s idempotence was blanket: "output exists with v2 frontmatter → leave unchanged". Whichever body got there first was FROZEN for that date — a stub emitted before reflection ran meant the real report, landing in the durable store minutes later, could never be published for that date. (2) The `aria-daily-report` lane published whatever body it had and went green: a stub artifact (three boilerplate paragraphs, no reflection content) was indistinguishable from success — the failures-dressed-as-answers class (F7) on the operator's primary surface.

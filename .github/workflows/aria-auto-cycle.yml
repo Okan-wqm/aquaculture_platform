@@ -437,6 +437,19 @@ jobs:
             echo "::error::invalid max_cycles: ${MAX_CYCLES}" >&2
             exit 1
           fi
+          # Smoke-run 31645296013 — a spawn that cannot finish before the
+          # job dies must not start. Export the ABSOLUTE deadline this job
+          # runs under (its own timeout-minutes, minus 5 minutes for the
+          # post-steps: handoff snapshot, state verify, publish) so
+          # claude_runtime clamps every spawn's timeout to the remaining
+          # wall-clock instead of letting the last spawn be cut mid-flight
+          # and the whole night quarantine.
+          # 10-minute margin: ~5m of setup steps already spent before this
+          # step (the epoch is computed here, not at job start) + ~5m for
+          # the close-out steps after it.
+          JOB_TIMEOUT_MINUTES="${{ github.event.inputs.mode == 'burn-in-observe' && 150 || 50 }}"
+          export ARIA_JOB_DEADLINE_EPOCH=$(( $(date +%s) + JOB_TIMEOUT_MINUTES * 60 - 600 ))
+          echo "spawn deadline: $(date -u -d @${ARIA_JOB_DEADLINE_EPOCH} +%H:%M:%SZ) (job cap ${JOB_TIMEOUT_MINUTES}m - 10m margin)"
           PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy run \
             --workspace-root "$GITHUB_WORKSPACE" \
             --tools-dir "$ARIA_TOOLS_DIR" \

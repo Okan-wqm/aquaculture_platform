@@ -9363,6 +9363,14 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-HIGH-661 — the first live night died mid-spawn, and the failure mode was a permanent loop — RESOLVED (this PR, smoke-run finding)
+
+Severity: HIGH (found by the E-series smoke dispatch, run 31645296013 — exactly what the smoke run exists for). The night ran SEVEN adapters live (22:09-22:29, incl. one honest budget_exceeded), then one claude spawn started with its full per-spawn 1800s budget while the JOB had ~24 minutes of wall left: GitHub's 50-minute job timeout killed everything at 22:53, the half-night failed state-integrity verification, and the store was quarantined instead of published — the fail-closed defence working as designed. But the composition is a PERMANENT loop: per-spawn timeout ignores the job's remaining wall-clock, and the V7.7 cycle-watchdog only fires BETWEEN cycles (dead at MAX_CYCLES=1), so every night's last spawn is cut, every night quarantines, and no night ever publishes.
+
+**Fix:** a spawn that cannot finish before the job dies must not start. The workflow exports the ABSOLUTE deadline it runs under (`ARIA_JOB_DEADLINE_EPOCH` = its own timeout-minutes, minus a 10-minute margin for setup already spent and close-out still owed); `run_claude_exec` clamps every spawn's timeout to the remaining wall-clock, refuses a too-late spawn loudly (`insufficient_wallclock` — the night closes and publishes instead of dying mid-flight), and refuses a malformed deadline (`invalid_job_deadline` — a deadline that silently stopped binding is the class this kills). Local dev and tests run unclamped (no env, no clamp — honest scope, same pattern as the budget gate). 6 new tests (unclamped/far/near/too-late/malformed/source-pin) + claude-runtime + workflow-invariant suites green (66).
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-MEDIUM-660 — no spawn could ever be stopped by budget: the cost gate's only reference was a comment — RESOLVED (this PR, E8/F13)
 
 Severity: MEDIUM (Kapalı Döngü E8; audit F13, adversarially CONFIRMED). `cost_budget.assert_within_budget` documented itself as "call BEFORE spawning `claude`" — per-run/daily/monthly caps, breaker trip on breach, operator reset verb, the works — and its only repo reference was a COMMENT in `genesis_policy.py`. The orchestrator's preflight checks `current_state() == "tripped"`, but nothing could ever TRIP it from spend: the enforcement half of the budget system was dead wire, and a runaway night could not be stopped by cost.

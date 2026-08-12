@@ -509,6 +509,47 @@ def _apply_resource_limits(argv: list[str], *, timeout_seconds: int) -> list[str
         ) from exc
 
 
+# Smoke-run 31645296013 — the first live night died mid-spawn: adapters
+# finished at 22:29, one claude spawn started with its full 1800s budget,
+# and the JOB's 50-minute wall killed everything at 22:53. The half-night
+# failed state verification and was quarantined (correctly), which means
+# the failure mode is a PERMANENT loop: every night's last spawn is cut,
+# every night quarantines, no night ever publishes. A spawn that cannot
+# finish before the job dies must not start.
+_DEADLINE_CLOSE_MARGIN_SECONDS = 60  # seal + handoff + publish need this
+_DEADLINE_MIN_USEFUL_SECONDS = 120  # below this a spawn cannot do real work
+
+
+def _clamp_timeout_to_job_deadline(timeout_seconds: int) -> int:
+    """Clamp a spawn's timeout to the job's remaining wall-clock.
+
+    Binds only when ``ARIA_JOB_DEADLINE_EPOCH`` is exported (the autonomy
+    workflows set it from their own timeout-minutes); local dev and tests
+    run unclamped. A malformed value is refused loudly — a deadline that
+    silently stopped binding is exactly the class this fix exists to kill.
+    """
+    raw = os.environ.get("ARIA_JOB_DEADLINE_EPOCH")
+    if not raw:
+        return timeout_seconds
+    try:
+        deadline = float(raw)
+    except ValueError as exc:
+        raise ClaudePolicyViolation(
+            f"invalid_job_deadline: ARIA_JOB_DEADLINE_EPOCH={raw!r} is not a "
+            f"unix epoch; refusing to spawn under a deadline that cannot bind"
+        ) from exc
+    import time as _time
+
+    remaining = int(deadline - _time.time())
+    if remaining < _DEADLINE_MIN_USEFUL_SECONDS + _DEADLINE_CLOSE_MARGIN_SECONDS:
+        raise ClaudePolicyViolation(
+            f"insufficient_wallclock: {remaining}s remain before the job "
+            f"deadline; refusing the spawn so the night can close cleanly "
+            f"instead of dying mid-flight and quarantining its state"
+        )
+    return min(timeout_seconds, remaining - _DEADLINE_CLOSE_MARGIN_SECONDS)
+
+
 def run_claude_exec(
     *,
     prompt_text: str,
@@ -523,6 +564,7 @@ def run_claude_exec(
     preflight_claude_auth()
     assert_write_runner_ok(skip_permissions=skip_permissions, permission_mode=permission_mode)
     _assert_budget_before_spawn()
+    timeout_seconds = _clamp_timeout_to_job_deadline(timeout_seconds)
     argv = build_claude_exec_argv(
         model=model,
         effort=effort,

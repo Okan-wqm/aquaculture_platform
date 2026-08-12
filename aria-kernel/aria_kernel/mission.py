@@ -691,6 +691,17 @@ def adopt_task_candidates(
         elif source_id in UNUSABLE_SOURCE_IDS:
             # Refused rather than adopted: see UNUSABLE_SOURCE_IDS.
             reason = "unusable_source_id"
+        elif candidate.get("blocked_by"):
+            # C9/E8 — a candidate ARIA itself declared blocked is
+            # operator-facing work, NOT schedulable work: adopting it opens
+            # a mission that mints an agent request for work that cannot
+            # run. The pressure path already refuses a blocked item
+            # (reflection.py "A blocked pressure is operator-facing work,
+            # not schedulable work"); the mission path re-opened the same
+            # door. Live proof: all three shadow_run_summary missions on
+            # the store originate from task candidates carrying
+            # blocked_by=["operator_feedback_required"].
+            reason = "candidate_blocked"
         if reason is not None:
             refused += 1
             append_tools_governance(

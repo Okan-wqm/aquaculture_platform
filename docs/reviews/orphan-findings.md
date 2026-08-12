@@ -9302,3 +9302,11 @@ Severity: HIGH (Kalibre Zekâ Z8). The three-layer prompt standard (markdown ins
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 **Owner:** claude (this session). **Status:** RESOLVED (K1/K3/Z3b/Z4 in #1184; K2+Z3d in this PR).
+
+## ORPHAN-HIGH-640 — the drain budget priced elapsed time, not the next child's worst case: the first live night was reaped mid-child and its submitted results died unpublished — RESOLVED (this PR)
+
+Severity: HIGH. Run 31542485896 (first live drain night): two requests processed end-to-end (challenger_plan + maintenance_utility, both submit rc=0), then the loop started a third at t=1987s — inside the 2100s budget — whose legal worst case (MAX_TIMEOUT_SECONDS=1800s) sailed past the job's 45-minute reaper. The run was CANCELLED before the state-publish step: both submitted results and their claims died with the runner (the ORPHAN-CRITICAL-484 "work done, publish nothing" class; consistency held — unpublished claims mean the requests simply stay PENDING — but the night's Claude work was wasted).
+
+**Fix:** the loop starts a child only when `elapsed + MAX_TIMEOUT_SECONDS <= ARIA_DRAIN_BUDGET_SECONDS` (worst case must fit; deliberate-break test pins that a child never starts into an overflowing window), and the workflow sizes the envelope honestly: job timeout 45→150 minutes, drain budget 2100→7200s, leaving a full 30 minutes of publish reserve.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

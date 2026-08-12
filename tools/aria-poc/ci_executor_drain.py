@@ -25,10 +25,16 @@ if str(_POC_DIR) not in sys.path:
 import ci_executor as _engine
 
 
-# Drain-mode wall-clock budget. The nightly job's own timeout is 45 minutes;
-# the drain loop stops STARTING new requests once this much of the run has
-# elapsed so an in-flight agent invocation is never killed mid-claim by the
-# job reaper — a killed child leaks its lease until the reaper sweep.
+# Drain-mode wall-clock budget: the time window the WHOLE loop must fit in,
+# including the last child's worst case. The first live night (run
+# 31542485896) proved elapsed-only accounting wrong: the loop started its
+# third request at t=1987s — inside the 2100s budget — but that child could
+# legally run MAX_TIMEOUT_SECONDS=1800s more, sailed past the job's
+# 45-minute reaper, and the whole run was CANCELLED before the state
+# publish: two submitted results died with the runner (the
+# ORPHAN-CRITICAL-484 class). A child is now started only if its WORST
+# CASE still fits inside the budget, and the workflow sizes the budget so
+# publish always has its reserve.
 DEFAULT_DRAIN_BUDGET_SECONDS = 2100
 
 
@@ -85,7 +91,12 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         if len(attempted) >= _engine._max_requests():
             stop_reason = "max_requests_reached"
             break
-        if time.monotonic() - started > _drain_budget_seconds():
+        # A child may legally run MAX_TIMEOUT_SECONDS; start it only if that
+        # worst case still fits inside the budget. Elapsed-only accounting
+        # let the first live night start a request at t=1987s of a 2100s
+        # budget and get the whole run reaped mid-child (run 31542485896).
+        elapsed = time.monotonic() - started
+        if elapsed + _engine._max_timeout_seconds() > _drain_budget_seconds():
             stop_reason = "budget_exhausted"
             break
 

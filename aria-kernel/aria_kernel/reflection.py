@@ -25,6 +25,7 @@ def run_reflection(
     recommendation_result: dict[str, Any] | None = None,
     proactive_result: dict[str, Any] | None = None,
     cycle_runner_result: dict[str, Any] | None = None,
+    judge_replay_result: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3f v2 — reflection schema v1 → v2 additive bump.
     # Three optional kwargs let the autonomy orchestrator inject its
@@ -144,6 +145,12 @@ def run_reflection(
         "calibration_recommendation": recommendation_result if recommendation_result else None,
         "proactive": proactive_result if proactive_result else None,
         "cycle_runner": cycle_runner_result if cycle_runner_result else None,
+        # C6/E8 — judge_replay travels on the reflection row, because the
+        # sealed CycleRow is frozen+slotted and CANNOT carry it: the old
+        # renderer read row.get("judge_replay") from cycles.jsonl, a field
+        # no constructor could ever write, so the Replay Recall section
+        # was structurally unreachable.
+        "judge_replay": judge_replay_result if judge_replay_result else None,
         # Which of ARIA's learning inputs are actually receiving data. A
         # counter that reads 0 for months does not distinguish "no data yet"
         # from "the producer chain is severed" — judged_judges sat at zero
@@ -995,25 +1002,14 @@ def _render_quarantine_section(root: Path) -> list[str]:
     return lines
 
 
-def _render_replay_recall_section(root: Path) -> list[str]:
-    # FAZ 1d's judge_replay phase writes its per-tool recall into the sealed
-    # cycle row; this is that number's operator surface.
-    try:
-        from .ledger import load_declared_jsonl
-
-        rows = load_declared_jsonl(root / "cycles.jsonl", expected_surface="cycles")
-    except Exception:
-        return []
-    latest = next(
-        (
-            row for row in reversed(rows)
-            if row.get("status") == "completed" and row.get("judge_replay")
-        ),
-        None,
-    )
-    if latest is None:
-        return []
-    replay = latest.get("judge_replay") or {}
+def _render_replay_recall_section(reflection: dict[str, Any]) -> list[str]:
+    # C6/E8 — reads the reflection row, not cycles.jsonl: the sealed
+    # CycleRow is frozen+slotted with no judge_replay field, so the old
+    # `row.get("judge_replay")` lookup matched nothing, ever, and this
+    # section was structurally unreachable. The judge_replay phase result
+    # now travels run_reflection's producer-kwargs pipe like every other
+    # producer output.
+    replay = reflection.get("judge_replay") or {}
     tools = replay.get("tools") or []
     if not tools:
         return []
@@ -1026,7 +1022,7 @@ def _render_replay_recall_section(root: Path) -> list[str]:
         "## Judge Replay Recall",
         "",
         f"- Replay-judged judges: {recall_summary.get('judged_judges', 0)}",
-        f"- Cycle: `{latest.get('cycle_id')}`",
+        f"- Cycle: `{reflection.get('cycle_id')}`",
     ]
     for row in tools[:8]:
         if not isinstance(row, dict):
@@ -1239,7 +1235,7 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         *_render_observability_section(root),
         *_render_mission_section(root),
         *_render_quarantine_section(root),
-        *_render_replay_recall_section(root),
+        *_render_replay_recall_section(reflection),
         *_render_duel_ratings_section(root),
         *_render_rule_health_section(root),
         "## Committed Findings",

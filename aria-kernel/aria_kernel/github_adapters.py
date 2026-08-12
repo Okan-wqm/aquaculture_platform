@@ -301,6 +301,30 @@ class RealChecksReader:
         except (_GovernanceError, OSError, ValueError):
             return None
 
+    def pr_merge_state(self, pr_number: int) -> dict[str, Any] | None:
+        """E2/F1 — merged-or-not for one PR, from GitHub truth.
+
+        The implementation reconciler asks this about plans resting in
+        IMPLEMENTATION_RECORDED: the operator (never ARIA) merges the PR
+        on GitHub, and this read is how that external fact reaches the
+        plan ledger as `implementation_merged`.
+        """
+        import json as _json
+        import subprocess as _subprocess
+
+        completed = _subprocess.run(
+            ["gh", "pr", "view", str(pr_number),
+             "--json", "state,mergedAt,mergeCommit,number"],
+            cwd=self._cwd, capture_output=True, text=True, check=False,
+        )
+        if completed.returncode != 0:
+            return None
+        try:
+            row = _json.loads(completed.stdout or "{}")
+        except _json.JSONDecodeError:
+            return None
+        return row if isinstance(row, dict) else None
+
 
 class RecordingChecksReader:
     """The observing profiles' reader: never touches the network, says so."""
@@ -315,6 +339,9 @@ class RecordingChecksReader:
         return []
 
     def pr_snapshot(self, pr_number: int) -> dict[str, Any] | None:
+        return None
+
+    def pr_merge_state(self, pr_number: int) -> dict[str, Any] | None:
         return None
 
 

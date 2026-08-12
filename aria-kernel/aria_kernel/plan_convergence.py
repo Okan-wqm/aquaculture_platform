@@ -702,6 +702,38 @@ def list_active_plans(*, base_dir: str | Path | None = None) -> list[str]:
     return active
 
 
+_IMPLEMENTATION_PHASE_STATES = {
+    "IMPLEMENTATION_REQUESTED",
+    "IMPLEMENTATION_IN_FLIGHT",
+    "IMPLEMENTATION_RECORDED",
+}
+
+
+def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | None:
+    """E2/F9 — the newest plan still mid-CONVERGENCE, if any.
+
+    Plan identity used to be minted from the cycle id (`plan-<cycle_id>`)
+    and the drainer resumed only its own cycle's plan — so the envelopes
+    the 01:00 producer minted were answered at 02:00 into a plan NOBODY
+    was watching any more, and the next cycle started a fresh plan from
+    scratch. Every night's agent work landed on an abandoned plan.
+
+    A new cycle now ADOPTS the newest plan that is neither V8-terminal
+    (list_active_plans already filters those) nor resting in an
+    implementation-phase state (those belong to the implementer poll and
+    the merge reconciler, not to a fresh convergence run). One active
+    convergence at a time; None means "start fresh".
+    """
+    for plan_id in reversed(list_active_plans(base_dir=base_dir)):
+        state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+        if not isinstance(state, dict):
+            continue
+        if state.get("state") in _IMPLEMENTATION_PHASE_STATES:
+            continue
+        return plan_id
+    return None
+
+
 def force_plan_human_required(
     *,
     plan_id: str,

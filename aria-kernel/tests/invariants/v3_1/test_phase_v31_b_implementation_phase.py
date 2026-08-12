@@ -173,8 +173,15 @@ class TerminalStateExhaustivenessTests(unittest.TestCase):
     """Plan ARIA-V3.1-B-9 — Literal terminal_state union."""
 
     def test_i_v31_b_09_terminal_state_union_exhaustive(self) -> None:
-        """The TerminalState Literal MUST enumerate exactly the 4
-        canonical codes (MERGED, REJECTED, TIMEOUT, REQUEST_REFUSED).
+        """The TerminalState Literal MUST enumerate exactly the 5
+        canonical codes.
+
+        E2/F1 (2026-08-12) added IMPLEMENTATION_RECORDED: the successful
+        end of the implementation PHASE (diff applied, PR opened, outcome
+        row landed). A poll that accepted only MERGED/REJECTED timed out
+        on every success, because MERGED belongs to the operator-gated
+        merge-authority chain and is reconciled later. The specialist
+        signal dispatch handles RECORDED explicitly (review_merged_pr).
         """
         from typing import get_args
         from aria_kernel.cycle_phases.implementer import TerminalState
@@ -183,6 +190,7 @@ class TerminalStateExhaustivenessTests(unittest.TestCase):
             members,
             {
                 "IMPLEMENTATION_MERGED",
+                "IMPLEMENTATION_RECORDED",
                 "IMPLEMENTATION_REJECTED",
                 "IMPLEMENTATION_TIMEOUT",
                 "IMPLEMENTATION_REQUEST_REFUSED",

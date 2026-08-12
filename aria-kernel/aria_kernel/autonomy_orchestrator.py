@@ -1196,6 +1196,17 @@ def run_autonomy_orchestrator(
                     exit_reason = "bridge_replay_required"
                     break
 
+                # E2/F9 — plan identity is DECOUPLED from the cycle id.
+                # Adopt the newest mid-convergence plan (last night's
+                # envelopes answered into it stay OWNED); start fresh only
+                # when nothing is mid-flight.
+                from .plan_convergence import resume_candidate_plan_id
+
+                active_plan_id = (
+                    resume_candidate_plan_id(base_dir=root)
+                    or "plan-" + cycle_id
+                )
+
                 # Plan ARIA-V7 §2h v2 Phase 7.4 — skill_genesis_drainer.
                 # Polls skill-genesis/requests.jsonl for convergent=True
                 # rows + dispatches each via run_convergent_authoring
@@ -1212,7 +1223,7 @@ def run_autonomy_orchestrator(
                     phase="skill_genesis_drainer_started",
                     status="ok",
                     profile=profile_snapshot,
-                    details={"plan_id": f"plan-{cycle_id}"},
+                    details={"plan_id": active_plan_id},
                 )
                 # Plan ARIA-V7 §2g v2 — dispatcher_factory provides
                 # the 5 callables run_convergent_authoring expects.
@@ -1332,7 +1343,7 @@ def run_autonomy_orchestrator(
                         phase="cycle_runner_no_pressure",
                         status="no_workspace_pressure",
                         profile=profile_snapshot,
-                        details={"plan_id": f"plan-{cycle_id}"},
+                        details={"plan_id": active_plan_id},
                     )
                     cycle_summary["plan_synthesizer"] = {
                         "status": "no_pressure", "plan_content": None,
@@ -1355,7 +1366,7 @@ def run_autonomy_orchestrator(
                     status="ok",
                     profile=profile_snapshot,
                     details={
-                        "plan_id": f"plan-{cycle_id}",
+                        "plan_id": active_plan_id,
                         "affected_surfaces_count": len(
                             _v7_plan_content.get("affected_surfaces", [])
                         ),
@@ -1379,7 +1390,7 @@ def run_autonomy_orchestrator(
                     phase="convergence_started",
                     status="ok",
                     profile=profile_snapshot,
-                    details={"plan_id": f"plan-{cycle_id}"},
+                    details={"plan_id": active_plan_id},
                 )
                 # Plan ARIA-V7 §2g v2 Phase 7.2 — try/except envelope.
                 # Even with V7.1's plan_synthesizer producing real
@@ -1437,7 +1448,7 @@ def run_autonomy_orchestrator(
                         cycle_id=cycle_id,
                         base_dir=root,
                         workspace_root=workspace_root,
-                        plan_id=f"plan-{cycle_id}",
+                        plan_id=active_plan_id,
                         plan_seed=_v7_plan_content,
                         must_satisfy=_v7_must_satisfy,
                         evidence_refs=_v7_evidence_refs,
@@ -1454,7 +1465,7 @@ def run_autonomy_orchestrator(
                         status="governance_error",
                         profile=profile_snapshot,
                         details={
-                            "plan_id": f"plan-{cycle_id}",
+                            "plan_id": active_plan_id,
                             "error_class": type(_v7_exc).__name__,
                             "error_message": str(_v7_exc)[:1000],
                             "plan_content_keys": sorted(
@@ -1467,7 +1478,7 @@ def run_autonomy_orchestrator(
                         "convergence_invalid_plan",
                         {
                             "cycle_id": cycle_id,
-                            "plan_id": f"plan-{cycle_id}",
+                            "plan_id": active_plan_id,
                             "error_class": type(_v7_exc).__name__,
                             "error_message": str(_v7_exc)[:2000],
                             "plan_content_keys": sorted(
@@ -1568,7 +1579,7 @@ def run_autonomy_orchestrator(
                 try:
                     _v31c2_memory_result = memory_hook.record(
                         cycle_id=cycle_id,
-                        plan_id=convergence_result.get("plan_id") or f"plan-{cycle_id}",
+                        plan_id=convergence_result.get("plan_id") or active_plan_id,
                         workspace_root=Path(workspace_root) if workspace_root else root,
                         base_dir=root,
                         converged_plan=convergence_result.get("converged_plan", {}) or {},
@@ -1647,7 +1658,7 @@ def run_autonomy_orchestrator(
                     v9_result = v9_implementation_runner.run(
                         cycle_id=cycle_id,
                         plan_id=str(
-                            convergence_result.get("plan_id") or f"plan-{cycle_id}"
+                            convergence_result.get("plan_id") or active_plan_id
                         ),
                         workspace_root=Path(workspace_root) if workspace_root else root,
                         base_dir=root,
@@ -1741,10 +1752,10 @@ def run_autonomy_orchestrator(
                     cycle_id=cycle_id,
                     base_dir=root,
                     workspace_root=workspace_root,
-                    plan_id=convergence_result.get("plan_id") or f"plan-{cycle_id}",
+                    plan_id=convergence_result.get("plan_id") or active_plan_id,
                     convergence_id=convergence_result.get("convergence_id")
                     or convergence_result.get("plan_id")
-                    or f"plan-{cycle_id}",
+                    or active_plan_id,
                     touched_services=_touched_services,
                     pressures=[],
                     profile=str(profile_snapshot or "standard"),
@@ -1871,10 +1882,10 @@ def run_autonomy_orchestrator(
                     cycle_id=cycle_id,
                     base_dir=root,
                     workspace_root=workspace_root,
-                    plan_id=convergence_result.get("plan_id") or f"plan-{cycle_id}",
+                    plan_id=convergence_result.get("plan_id") or active_plan_id,
                     convergence_id=convergence_result.get("convergence_id")
                     or convergence_result.get("plan_id")
-                    or f"plan-{cycle_id}",
+                    or active_plan_id,
                     impl_artifacts_ref=str(
                         worker_result.get("impl_artifacts_ref")
                         or f"cycle:{cycle_id}"

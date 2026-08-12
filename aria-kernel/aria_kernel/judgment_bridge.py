@@ -127,9 +127,27 @@ def record_judge_verdict_from_response(
             f"judge bridge expected verdict in {FEEDBACK_VERDICTS}, got {verdict!r}"
         )
     severity = _coerce_severity(verdict_block.get("severity") or details.get("severity"))
-    judge_id = response.get("agent_id") or verdict_block.get("judge_id")
+    # D1 (Kapalı Döngü) — judge identity. `response["agent_id"]` is the
+    # EXECUTOR's identity (`ci-executor:gha-<run>`), not the judge's: reading
+    # it collapsed every judge drained by one workflow run into a single
+    # voter (consensus structurally impossible) while judges drained by
+    # DIFFERENT runs counted as distinct voters with meaningless identity.
+    # The judge's real identity is the subagent the executor invoked
+    # (`details.agent_subagent_type`, force-stamped by ci_executor); the
+    # mock lane and legacy envelopes carry it as `verdict.judge_id`.
+    judge_id = details.get("agent_subagent_type") or verdict_block.get("judge_id")
     if not judge_id:
-        raise GovernanceError("judge bridge requires response.agent_id (or details.verdict.judge_id)")
+        raise GovernanceError(
+            "judge bridge requires details.agent_subagent_type "
+            "(or details.verdict.judge_id)"
+        )
+    if str(judge_id).startswith("ci-executor:"):
+        # Refuse loudly instead of silently repairing: an executor-shaped
+        # identity means the producer regressed, and a repaired row would
+        # hide that while still poisoning per-judge calibration.
+        raise GovernanceError(
+            f"judge bridge refuses executor-shaped judge identity: {judge_id!r}"
+        )
 
     confidence = verdict_block.get("confidence")
     if confidence is not None and not isinstance(confidence, (int, float)):
@@ -161,7 +179,12 @@ def record_judge_verdict_from_response(
         confidence=float(confidence) if confidence is not None else None,
         rationale=str(note),
         evidence_refs=evidence_refs,
-        judgment_group_id=verdict_block.get("judgment_group_id") or request.get("judgment_group_id"),
+        # D1 — group identity comes from the MINT (judge_fanout's canonical
+        # `judge:<tool>:<run>:<finding>`), never from the judge's own payload:
+        # a judge echoing its request id as group id split one finding's two
+        # verdicts across two groups-of-one, so the real disagreement on
+        # anthropic.provider.ts:3 never met itself and never escalated.
+        judgment_group_id=request.get("judgment_group_id") or verdict_block.get("judgment_group_id"),
         finding_fingerprint=verdict_block.get("finding_fingerprint"),
         base_dir=base_dir,
     )

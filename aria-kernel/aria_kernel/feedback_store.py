@@ -471,16 +471,34 @@ def generate_ai_consensus(
             ),
         )
     if uncertainties:
-        append_jsonl(
-            ensure_tools_dir(base_dir) / "feedback-consensus-uncertainties.jsonl",
-            {
-                "schema_version": 1,
-                "recorded_at": utc_now(),
-                "tool_id": tool_id,
-                "cycle_id": cycle_id,
-                "uncertainties": uncertainties,
-            },
-        )
+        # D2 (Kapalı Döngü) — re-emission dedup. With the ledger-derived
+        # pending set (cycle_id=None), a permanently stuck group
+        # (single_judge, low_confidence, …) would re-enter this list EVERY
+        # cycle and append an identical uncertainty forever — unbounded
+        # ledger growth for zero information. The escalation_id is already
+        # stable per distinct failure; skip the ones the ledger has seen.
+        uncertainties_path = ensure_tools_dir(base_dir) / "feedback-consensus-uncertainties.jsonl"
+        seen_escalations: set[str] = set()
+        for logged in load_jsonl(uncertainties_path) if uncertainties_path.exists() else []:
+            for item in logged.get("uncertainties") or []:
+                escalation = item.get("escalation_id")
+                if escalation:
+                    seen_escalations.add(str(escalation))
+        fresh_uncertainties = [
+            item for item in uncertainties
+            if str(item.get("escalation_id") or "") not in seen_escalations
+        ]
+        if fresh_uncertainties:
+            append_jsonl(
+                uncertainties_path,
+                {
+                    "schema_version": 1,
+                    "recorded_at": utc_now(),
+                    "tool_id": tool_id,
+                    "cycle_id": cycle_id,
+                    "uncertainties": fresh_uncertainties,
+                },
+            )
     return {
         "schema_version": 1,
         "tool_id": tool_id,

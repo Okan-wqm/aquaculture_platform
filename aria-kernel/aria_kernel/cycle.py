@@ -1274,7 +1274,16 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
                 _conformal_floor = None
             consensus = generate_ai_consensus(
                 tool_id=tool_id,
-                cycle_id=context.cycle_id,
+                # D2 (Kapalı Döngü) — ledger-derived pending set, not the
+                # current cycle's runs. Judge verdicts land DAYS after their
+                # cycle (the executor lane is nightly and drains a backlog),
+                # so the cycle filter permanently discarded every late
+                # verdict: zero ai_consensus rows ever existed. cycle_id=None
+                # is the engine's own process-all mode; the per-group
+                # idempotency guard (existing_consensus) makes reprocessing
+                # append-free, and dropping the filter also deletes a
+                # per-row runs.jsonl rescan.
+                cycle_id=None,
                 base_dir=context.base_dir,
                 workspace_root=context.workspace_root,
                 judge_weights=_judge_weights,

@@ -9310,3 +9310,11 @@ Severity: HIGH. Run 31542485896 (first live drain night): two requests processed
 **Fix:** the loop starts a child only when `elapsed + MAX_TIMEOUT_SECONDS <= ARIA_DRAIN_BUDGET_SECONDS` (worst case must fit; deliberate-break test pins that a child never starts into an overflowing window), and the workflow sizes the envelope honestly: job timeout 45→150 minutes, drain budget 2100→7200s, leaving a full 30 minutes of publish reserve.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-CRITICAL-641 — consensus was structurally impossible: judge identity was the executor's, group identity was the judge's to override, and late verdicts were filtered into oblivion — RESOLVED (this PR)
+
+Severity: CRITICAL (Kapalı Döngü D1+D2). Live evidence from the first drain night: all 10 verdicts carried `judge_id = ci-executor:gha-…` (judgment_bridge read `response["agent_id"]` — the workflow's identity), collapsing both judges drained by one run into a single voter while different runs' verdicts counted as distinct voters with meaningless identity. The judge's own payload could override the mint's canonical `judgment_group_id` — the REAL disagreement on `anthropic.provider.ts:3` (evidence-judge TP 0.82 vs adversarial FP) split into two groups-of-one and never met itself. And `generate_ai_consensus` only examined the CURRENT cycle's runs while executor verdicts land days later — every late verdict was permanently unprocessable. Net: zero `ai_consensus` rows could ever exist, starving precision, promotion, FP suppression, judge calibration, and the goldset — the entire learning loop.
+
+**Fix:** judge identity is `details.agent_subagent_type` (force-stamped by the executor so agent payloads cannot spoof it; `verdict.judge_id` remains the mock/legacy fallback) and an executor-shaped identity is REFUSED loudly; `judgment_group_id` authority is the mint's, never the judge's; the consensus caller uses the engine's ledger-derived process-all mode (`cycle_id=None` — the per-group idempotency guard makes reprocessing append-free, and the per-row runs.jsonl rescan disappears); permanently stuck groups append their uncertainty exactly once (escalation-id dedup) instead of every cycle forever. 5 new tests incl. deliberate-breaks + 39 neighboring regression tests green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

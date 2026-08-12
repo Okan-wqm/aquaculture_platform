@@ -38,6 +38,24 @@ def raw_findings_path(base_dir: str | Path | None = None) -> Path:
     return ensure_tools_dir(base_dir) / "raw-findings.jsonl"
 
 
+def promotions_path(base_dir: str | Path | None = None) -> Path:
+    """D3 — fingerprint → committed-finding memory (finding_promotion writes)."""
+    return ensure_tools_dir(base_dir) / "promotions.jsonl"
+
+
+def _promoted_fingerprints(base_dir: str | Path | None) -> set[str]:
+    # D3 (K4 symmetry) — the TRUE-positive analog of confirmed-FP
+    # suppression: a fingerprint with a committed finding is settled and
+    # must never be re-judged; before this, the same real finding was
+    # re-sampled and re-judged every single cycle forever.
+    path = promotions_path(base_dir)
+    return {
+        str(row.get("finding_fingerprint"))
+        for row in (load_jsonl(path) if path.exists() else [])
+        if row.get("finding_fingerprint")
+    }
+
+
 def record_raw_findings_for_run(
     run: dict[str, Any],
     findings: list[Any] | None = None,
@@ -583,6 +601,9 @@ def _sampleable_raw_findings(
         for row in load_feedback(tool_id=tool_id, base_dir=base_dir)
     }
     confirmed_false_positive_fingerprints = _confirmed_false_positive_fingerprints(base_dir)
+    # `_confirmed_false_positive_fingerprints` is a dict (fingerprint →
+    # suppressing row); only its keys matter for the settled test.
+    settled_fingerprints = set(confirmed_false_positive_fingerprints) | _promoted_fingerprints(base_dir)
     candidates = []
     for row in load_jsonl(raw_findings_path(base_dir)):
         if row.get("tool_id") != tool_id:
@@ -599,7 +620,7 @@ def _sampleable_raw_findings(
         if not finding_id or not run_id or (run_id, finding_id) in existing_feedback:
             continue
         fingerprint = str(row.get("finding_fingerprint") or finding_fingerprint(tool_id, finding))
-        if fingerprint in confirmed_false_positive_fingerprints:
+        if fingerprint in settled_fingerprints:
             continue
         candidates.append(_sample_item_from_finding(tool_id, run_id, row.get("cycle_id"), finding_id, finding, fingerprint))
     if candidates:
@@ -617,7 +638,7 @@ def _sampleable_raw_findings(
             if not finding_id or (run_id, finding_id) in existing_feedback:
                 continue
             fingerprint = finding_fingerprint(tool_id, finding)
-            if fingerprint in confirmed_false_positive_fingerprints:
+            if fingerprint in settled_fingerprints:
                 continue
             candidates.append(_sample_item_from_finding(tool_id, run_id, run.get("cycle_id"), finding_id, finding, fingerprint))
     return _cap_candidates_by_rule(candidates, limit=50)

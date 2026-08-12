@@ -70,6 +70,12 @@ ORIGINATING_SKILL_ALLOWLIST: frozenset[str] = frozenset({
     "aria-watchdog:stall",
     "aria-watchdog:bridge_warning_repeat",
     "report_ingestion:external_pr",
+    # Kapalı Döngü D3 (ORPHAN-CRITICAL-642) — the judgment pipeline's own
+    # origin: an ai_consensus true_positive promoted by finding_promotion.
+    # Before this entry existed, NO code path could turn an accepted
+    # consensus into a durable finding — the loop was "find → judge →
+    # forget" by construction.
+    "ai_consensus:judgment_pipeline",
     # V10.6 detectors registered here when F-AUTO-V10.6-EXTRA-DETECTORS lands:
     # "aria-watchdog:rejection_repeat",
     # "aria-watchdog:phase_asymmetry",
@@ -80,12 +86,24 @@ SCHEMA_VERSION = 1
 FINDING_ID_RE = re.compile(r"^F-\d{3,}$")
 
 
-def _findings_dir(repo_root: Path) -> Path:
-    # Resolved through the one seam so findings survive the runner —
-    # see workspace.repo_state_root for why they did not.
+def findings_dir(repo_root: str | Path) -> Path:
+    """SSoT for where committed findings live (Kapalı Döngü D3).
+
+    Resolved through the one seam so findings survive the runner — see
+    workspace.repo_state_root for why they did not. PUBLIC because the
+    reader (reflection) used to rebuild this path by hand as
+    `repo_root / "aria-findings"`, which diverges whenever
+    ARIA_REPO_STATE_ROOT redirects the store: the writer wrote where the
+    reader never looked, and the report said "no committed findings yet"
+    over a directory that existed elsewhere.
+    """
     from .workspace import repo_state_root
 
     return repo_state_root(Path(repo_root)) / "aria-findings"
+
+
+def _findings_dir(repo_root: Path) -> Path:
+    return findings_dir(repo_root)
 
 
 def _index_path(repo_root: Path) -> Path:

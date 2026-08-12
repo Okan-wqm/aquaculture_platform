@@ -40,6 +40,7 @@ from aria_kernel.capability_gap import detect_capability_gaps
 from aria_kernel.discovery import run_discovery
 from aria_kernel.feedback import add_feedback, build_feedback_event, import_feedback, list_feedback
 from aria_kernel.integrity import verify_integrity
+from aria_kernel.tools_binding import bind_tools_root
 from aria_kernel.migration import (
     migrate_tools_bootstrap,
     migrate_tools_v1_to_v2,
@@ -244,6 +245,7 @@ _TOOLS_DIR_REQUIRED_COMMANDS: frozenset[tuple[str, ...]] = frozenset({
     # ``--tools-dir is required`` error instead of the downstream
     # ``tools_root_unresolvable`` GovernanceError.
     ("integrity", "migrate-tools-bootstrap"),
+    ("integrity", "bind-tools-root"),
     ("integrity", "migrate-tools-v2-to-v3"),
     ("integrity", "rollback-tools-v3-to-v2"),
     ("runtime", "promotion", "approve-v2"),
@@ -781,6 +783,13 @@ def build_parser() -> argparse.ArgumentParser:
     migrate_tools_boot.add_argument("--workspace-root", required=True)
     migrate_tools_boot.add_argument("--acknowledge", action="store_true")
     migrate_tools_boot.add_argument("--reason", required=True, type=_validate_reason)
+    # ORPHAN-HIGH-556 — binding a restored tree is NOT a migration, and the
+    # restore lane now says which one it wants. No `--acknowledge`: this runs
+    # unattended every night, and a flag nobody is present to set is not an
+    # acknowledgement. The delegated migration still requires one.
+    bind_tools = add_subparser(integrity_sub, "bind-tools-root")
+    bind_tools.add_argument("--workspace-root", required=True)
+    bind_tools.add_argument("--reason", required=True, type=_validate_reason)
     rollback_tools_v3 = add_subparser(integrity_sub, "rollback-tools-v3-to-v2")
     rollback_tools_v3.add_argument("--acknowledge", action="store_true")
     rollback_tools_v3.add_argument("--reason", required=True, type=_validate_reason)
@@ -2712,6 +2721,15 @@ def _main(argv: list[str] | None = None) -> int:
             tools_dir=args.tools_dir,
             workspace_root=args.workspace_root,
             acknowledge=args.acknowledge,
+            reason=args.reason,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "integrity" and args.integrity_command == "bind-tools-root":
+        result = bind_tools_root(
+            tools_dir=args.tools_dir,
+            workspace_root=args.workspace_root,
             reason=args.reason,
         )
         print(json.dumps(result, indent=2, sort_keys=True))

@@ -143,20 +143,32 @@ runs:
           # been the tempting wrong fix). What arrives from the branch is
           # therefore a tools root full of covered state with NO identity —
           # exactly the shape `ensure_tools_dir` rejects as
-          # `ambiguous_tools_root`. The migration is idempotent and re-derives
-          # the binding from the repository's canonical identity, which is
-          # path-independent, so it is a no-op on a root already at v3.
+          # `ambiguous_tools_root`.
+          #
+          # ORPHAN-HIGH-556 — this step used to run `migrate-tools-bootstrap`,
+          # and it is a BIND, not a migration. The two shared one code path
+          # because the tree could not state its own contract version: that
+          # version lived only in the host-local identity file, so a restored
+          # tree reported 0 and a healthy v3 tree was migrated from nothing
+          # EVERY NIGHT — a whole-tree backup, a rewrite of every covered
+          # ledger, and nine ceremony rows, measured. `tools_contract.json` now
+          # travels with the tree, so `bind-tools-root` mints this host's
+          # identity and stops. It still delegates to the migration when one is
+          # genuinely required, and records that it did.
+          #
+          # No `--acknowledge`: nobody is present at 01:00, and a flag the
+          # automation always sets acknowledges nothing. The delegated
+          # migration still requires one, where a tree is actually rewritten.
           #
           # HERE rather than in each lane, because only one lane had it. The
-          # producer ran `migrate-tools-bootstrap`; the executor never did, so
-          # the first executor run against a restored store would have died on
+          # producer ran the bootstrap; the executor never did, so the first
+          # executor run against a restored store would have died on
           # `ambiguous_tools_root` at the lease check — the RC-6 drift shape
           # exactly, one lane carrying a step the other needed just as much.
           PYTHONPATH=aria-kernel python3 -m aria_kernel \
-            integrity migrate-tools-bootstrap \
+            integrity bind-tools-root \
             --tools-dir "$(python3 -c 'import json,os,sys; print(json.load(open(sys.argv[1]))["tools_root"])' "$VERDICT")" \
             --workspace-root "$PWD" \
-            --acknowledge \
             --reason "bind the restored aria/state store to this checkout"
         else
           STATUS=$?

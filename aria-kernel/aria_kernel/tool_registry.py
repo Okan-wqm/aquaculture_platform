@@ -164,6 +164,51 @@ def registry_path(base_dir: str | os.PathLike[str] | None = None) -> Path:
     return tools_dir(base_dir) / "registry.json"
 
 
+TOOLS_CONTRACT_FILENAME = "tools_contract.json"
+
+# ORPHAN-HIGH-556 — the fields of ``repo_identity.json`` that describe the
+# TREE and the REPOSITORY rather than the HOST.
+#
+# ``repo_identity.json`` mixes three scopes: the contract version (a property
+# of the tree), the canonical identity (a property of the repository, and
+# environment-independent by ARIA-V2 §3.2), and ``bound_repo_root`` (an
+# ABSOLUTE PATH on the machine that wrote it). The last one is why the file
+# cannot be published to the shared ``aria/state`` branch — and one
+# unpublishable field was making the whole file unpublishable, so a restored
+# tree arrived unable to state its own contract version, ``tools_contract_version``
+# read 0, and every nightly bind re-migrated a healthy v3 tree from nothing.
+#
+# Splitting the publishable subset into its own declared surface is what lets
+# a restored tree say what it already is. ONE definition of the subset, called
+# from every place that writes the identity, because five copies of "which
+# fields may travel" is five chances for one of them to leak a host path.
+PUBLISHABLE_IDENTITY_FIELDS: tuple[str, ...] = (
+    "aria_tools_contract_version",
+    "schema_version",
+    "bound_canonical_identity",
+)
+
+
+def sync_tools_contract(root: Path) -> dict[str, Any]:
+    """Mirror the publishable half of ``repo_identity.json`` beside it."""
+    identity = _read_identity(root)
+    contract = {
+        field: identity[field]
+        for field in PUBLISHABLE_IDENTITY_FIELDS
+        if identity.get(field) is not None
+    }
+    _atomic_write_json(root / TOOLS_CONTRACT_FILENAME, contract)
+    return contract
+
+
+def _read_identity(root: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads((root / "repo_identity.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def ensure_tools_dir(base_dir: str | os.PathLike[str] | None = None) -> Path:
     root = tools_dir(base_dir)
     root.mkdir(parents=True, exist_ok=True)
@@ -180,6 +225,7 @@ def ensure_tools_dir(base_dir: str | os.PathLike[str] | None = None) -> Path:
         }
         _prepare_tools_dirs(root)
         _atomic_write_json(identity_file, identity)
+        sync_tools_contract(root)
         if not registry_path(root).exists():
             _atomic_write_json(registry_path(root), {"schema_version": SCHEMA_VERSION, "tools": []})
         append_tools_governance(
@@ -258,6 +304,7 @@ def ensure_tools_binding(
         identity["aria_tools_contract_version"] = SCHEMA_VERSION
         identity["schema_version"] = SCHEMA_VERSION
         _atomic_write_json(identity_file, identity)
+        sync_tools_contract(root)
         append_tools_governance(
             root,
             "tools_root_bound",
@@ -290,6 +337,7 @@ def ensure_tools_binding(
             identity["aria_tools_contract_version"] = SCHEMA_VERSION
             identity["schema_version"] = SCHEMA_VERSION
             _atomic_write_json(identity_file, identity)
+            sync_tools_contract(root)
             append_tools_governance(
                 root,
                 "tools_root_canonical_identity_backfilled",
@@ -332,12 +380,30 @@ def ensure_tools_binding(
 
 
 def tools_contract_version(base_dir: str | os.PathLike[str] | None = None) -> int:
-    identity_file = tools_dir(base_dir) / "repo_identity.json"
-    if not identity_file.exists():
-        return 0
-    try:
-        identity = json.loads(identity_file.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    """The contract version of the TREE, whether or not this host is bound.
+
+    ORPHAN-HIGH-556 — the published contract is consulted FIRST. Reading only
+    ``repo_identity.json`` meant a restored ``aria/state`` tree, which
+    deliberately does not carry that host-local file, reported version 0 — so
+    a healthy v3 tree looked to ``migrate_tools_bootstrap`` like a v0 tree
+    needing a full migration, every single night. The identity file remains
+    the fallback so a tree written before the split still answers.
+    """
+    root = tools_dir(base_dir)
+    contract_file = root / TOOLS_CONTRACT_FILENAME
+    if contract_file.exists():
+        try:
+            contract = json.loads(contract_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            contract = {}
+        if isinstance(contract, dict) and (
+            contract.get("aria_tools_contract_version") or contract.get("schema_version")
+        ):
+            return int(
+                contract.get("aria_tools_contract_version") or contract.get("schema_version")
+            )
+    identity = _read_identity(root)
+    if not identity:
         return 0
     return int(identity.get("aria_tools_contract_version") or identity.get("schema_version") or 1)
 
@@ -490,7 +556,15 @@ def _guard_tools_lock(root: Path) -> None:
     age = (datetime.now(timezone.utc) - started.astimezone(timezone.utc)).total_seconds()
     pid = int(payload.get("pid") or 0)
     operation = str(payload.get("operation") or "")
-    if pid == os.getpid() and operation in {"tools_migration", "tools_rollback"}:
+    # RE-ENTRANCY IS A PROPERTY OF HOLDING THE LOCK, not of appearing on a
+    # list. This used to also require `operation in {"tools_migration",
+    # "tools_rollback"}` — a hardcoded roster of the operations allowed to
+    # write while holding their own lock, which silently refused the next
+    # operation anyone added. `tools_binding` (ORPHAN-HIGH-556) was that next
+    # operation: it took the lock correctly and then could not write its own
+    # governance row. The pid check is the whole of the safety question; the
+    # operation name added no protection and one more thing to remember.
+    if pid == os.getpid():
         return
     if age >= 120 and (pid <= 0 or not _pid_exists(pid)):
         try:

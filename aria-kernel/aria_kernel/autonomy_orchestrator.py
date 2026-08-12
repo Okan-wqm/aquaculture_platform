@@ -2013,6 +2013,32 @@ def run_autonomy_orchestrator(
                     details={},
                 )
 
+                # M3/E8 — the effectiveness ledger's first writer fires
+                # here because this is the one point where all three
+                # outcome signals for the cycle's pressure source are in
+                # scope: the plan was minted (we are past the synthesizer),
+                # convergence's arbiter verdict is folded, and auto_merge
+                # just reported. Without this row the mission scheduler's
+                # Thompson bandit drew from the uninformative prior forever
+                # — exploration-aware scheduling was decoration. Advisory:
+                # a ledger failure must not cost the night.
+                try:
+                    from .knowledge_graph import record_pressure_source_outcome
+
+                    record_pressure_source_outcome(
+                        workspace_root=workspace_root,
+                        source_type=str(
+                            cycle_summary.get("_pressure_source_type")
+                            or "git_diff",
+                        ),
+                        minted=1,
+                        converged=1 if arbiter_verdict == "converged" else 0,
+                        merged=1 if extra_merges else 0,
+                        rejected=0 if arbiter_verdict == "converged" else 1,
+                    )
+                except (OSError, ValueError, KeyError, TypeError):
+                    pass
+
                 # Plan ARIA-V7 §3 Phase 7.6 — calibration_reporter
                 # invokes generate_adapter_calibration_report for
                 # every SHADOW/ACTIVE adapter; persists precision_

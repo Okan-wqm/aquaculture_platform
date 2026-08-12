@@ -9363,6 +9363,14 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-MEDIUM-659 — the Thompson bandit drew from an empty ledger forever: exploration-aware scheduling was decoration — RESOLVED (this PR, E8/M3)
+
+Severity: MEDIUM (Kapalı Döngü E8; audit M3, adversarially CONFIRMED). Three readers — `rank_pressure_sources`, the mission scheduler's seeded Thompson draw (`_thompson_source_draws`), and the reflection source-effectiveness rollup — all consumed `knowledge-graph/pressure-source-effectiveness.jsonl`, and NOTHING wrote it. The bandit drew from the uninformative Beta(1,1) prior on every night; the "reward = cycles_merged / cycles_minted" comment described a signal that could never exist. Latent second defect found by writing the writer: the reader sorted the RAW row list, which would have double-counted any source with more than one snapshot — invisible only because the ledger was always empty.
+
+**Fix:** `record_pressure_source_outcome` (writer next to reader, one schema owner) appends CUMULATIVE per-source counters through the existing lock-guarded hash-chained `_append_row`; the orchestrator calls it at the one point where all three outcome signals are in scope (post-auto_merge: plan minted, arbiter verdict folded, merges reported) — advisory, a ledger failure cannot cost the night. `rank_pressure_sources` now folds latest-per-source before ranking. 4 new tests (cumulative accumulation, latest-per-source fold, the bandit finally sees history via a real draw, hash-chain verified) + scheduler/orchestrator/knowledge-consumer suites green (49).
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-MEDIUM-657 — the autonomous-promotion lane was dead wire: token producer, consumer, policy, invariants — and no caller — RESOLVED (this PR, E8/C7)
 
 Severity: MEDIUM (Kapalı Döngü E8; audit C7, adversarially CONFIRMED). Plan ARIA-V6 §2e built the full autonomous SHADOW→ACTIVE promotion lane: `compute_auto_promote_token` (HMAC, policy-gated: enabled + profile allowlist + precision floor over N clean cycles + zero critical FPs), the consumer predicate in `transition_tool` (pinned by I-V6.4-04), the `auto_promote` policy block, four invariant tests — and ZERO production callers. V7.6 even added the calibration reporter so the token "can NEVER fire" comment could be retired; the caller still never got written. An adapter that earned promotion by every published gate could not be promoted without an operator typing the command.

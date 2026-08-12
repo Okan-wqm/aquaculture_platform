@@ -107,12 +107,19 @@ class ReportSectionsTest(unittest.TestCase):
     def test_observability_ledger_gets_its_first_reader(self) -> None:
         from aria_kernel.reflection import _render_observability_section
 
+        # M10/E8 — the fixture used to invent alert_kind/message fields no
+        # producer writes (green over a fictional contract, the C6 disease);
+        # this is the REAL shape _record_alerts emits.
         dashboard = {
             "rolling_slo": {
                 "slo_state": "breached", "window": 5,
                 "duration_p50_ms": 100, "duration_p95_ms": 900,
             },
-            "alerts": [{"alert_kind": "cycle_duration", "message": "p95 over budget"}],
+            "alerts": [{
+                "reason": "cycle_duration_slo",
+                "slo_state": "breached",
+                "observed": 950000,
+            }],
         }
         with TemporaryDirectory() as tmp, \
              patch("aria_kernel.observability.list_observability_dashboards",
@@ -120,7 +127,8 @@ class ReportSectionsTest(unittest.TestCase):
             lines = "\n".join(_render_observability_section(Path(tmp)))
 
         self.assertIn("SLO state: breached", lines)
-        self.assertIn("cycle_duration: p95 over budget", lines)
+        self.assertIn("cycle_duration_slo [breached] observed=950000", lines)
+        self.assertNotIn("None", lines)
 
     def test_missions_reach_the_operator_surface(self) -> None:
         from aria_kernel.mission import open_mission

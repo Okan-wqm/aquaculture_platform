@@ -22,7 +22,7 @@ from .discovery import run_discovery
 from .cycle_diff import run_cycle_diff
 from .cycle_progress import emit_progress
 from .impact_graph import cycle_service_examination
-from .memory import decay_stale_beliefs_by_age, update_memory
+from .memory import decay_beliefs_by_head_distance, decay_stale_beliefs_by_age, update_memory
 from .observability import generate_observability_dashboard, record_cycle_metrics
 from .runtime_artifacts import read_runs_for_cycle, verify_artifacts
 from .pressure import run_pressure
@@ -1063,7 +1063,17 @@ def _phase_belief_decay(context: PhaseContext) -> dict[str, Any]:
     # Plan 028 §D4 — age-based belief decay runs BEFORE pressure, so a
     # belief about unchanged code that has aged past its TTL becomes
     # needs_revalidation and run_pressure surfaces it this same cycle.
-    return decay_stale_beliefs_by_age(cycle_id=context.cycle_id, base_dir=context.base_dir)
+    age = decay_stale_beliefs_by_age(cycle_id=context.cycle_id, base_dir=context.base_dir)
+    # M6/E6 — the third staleness trigger: someone ELSE moved the repo. A
+    # belief whose evidence file was changed by any commit since its anchor
+    # SHA is revalidated, regardless of who made the change. Runs alongside
+    # the age trigger and surfaces through the same pressure path.
+    head_distance = decay_beliefs_by_head_distance(
+        cycle_id=context.cycle_id,
+        repo_root=context.workspace_root,
+        base_dir=context.base_dir,
+    )
+    return {**age, "head_distance_decay": head_distance}
 
 
 def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:

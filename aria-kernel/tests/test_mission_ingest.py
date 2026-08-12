@@ -159,10 +159,12 @@ class CandidateIdentityStabilityTests(unittest.TestCase):
     """
 
     def test_no_candidate_source_id_is_derived_from_the_cycle(self) -> None:
-        """AST guard over task.py's four candidate builders.
+        """AST guard over task.py's five candidate builders.
 
         Behavioural tests cannot see this: within one cycle every id is
         perfectly stable, so a cycle-derived id passes any same-run assertion.
+        (Count bumped 4 → 5 by E8/M12: `_candidate_from_proactive` joined —
+        its source_id is the tool_id, content-derived like the others.)
         """
         import ast
         import inspect
@@ -174,7 +176,7 @@ class CandidateIdentityStabilityTests(unittest.TestCase):
             node.name: node for node in ast.walk(tree)
             if isinstance(node, ast.FunctionDef) and node.name.startswith("_candidate_from_")
         }
-        self.assertEqual(len(builders), 4, sorted(builders))
+        self.assertEqual(len(builders), 5, sorted(builders))
         for name, node in builders.items():
             assigns = [
                 n for n in ast.walk(node)

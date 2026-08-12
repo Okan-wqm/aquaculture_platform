@@ -2065,6 +2065,26 @@ def run_autonomy_orchestrator(
                     },
                 )
 
+                # C7/E8 — the V6.4 auto-promote token's first caller.
+                # Fires directly AFTER the calibration reporter because
+                # the token gates on the precision history that phase
+                # just persisted. Policy-gated (default enabled=False):
+                # until the operator flips genesis-policy, every attempt
+                # records "ineligible" — the honest no-op. A failure here
+                # must not cost the night; it surfaces on the summary.
+                try:
+                    from .promotion import attempt_auto_promotions
+
+                    cycle_summary["auto_promotion"] = attempt_auto_promotions(
+                        cycle_id=cycle_id, base_dir=root,
+                    )
+                except Exception as _c7_exc:
+                    cycle_summary["auto_promotion"] = {
+                        "status": "error",
+                        "error_class": type(_c7_exc).__name__,
+                        "error_message": str(_c7_exc)[:500],
+                    }
+
                 # Plan ARIA-V3.3 §2b + V5.4 §3f — post-drain reflection
                 # runs AFTER planner+bridge+convergence+worker+review+
                 # auto_merge so the operator-facing daily report covers

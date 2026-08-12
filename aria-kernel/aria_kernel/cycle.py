@@ -1292,11 +1292,25 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
             consensus_rows += len(consensus.get("consensus") or []) if isinstance(consensus, dict) else 0
         except GovernanceError as exc:
             blocked.append({"tool_id": tool_id, "step": "consensus", "reason": str(exc)[:200]})
+    # D3 (Kapalı Döngü) — accepted consensus becomes a durable finding.
+    # Runs AFTER the per-tool consensus loop so any row minted this cycle
+    # is promotable immediately; idempotent via the promotions ledger.
+    promotion_summary: dict[str, Any] = {}
+    try:
+        from .finding_promotion import promote_consensus_findings
+
+        promotion_summary = promote_consensus_findings(
+            repo_root=context.workspace_root,
+            base_dir=context.base_dir,
+        )
+    except GovernanceError as exc:
+        blocked.append({"tool_id": "-", "step": "promotion", "reason": str(exc)[:200]})
     return {
         "status": "completed",
         "sampled_findings": sampled,
         "judge_requests_minted": fanned_out,
         "consensus_rows": consensus_rows,
+        "promoted_findings": promotion_summary.get("promoted_count", 0),
         "target_sha": target_sha,
         "blocked": blocked,
     }

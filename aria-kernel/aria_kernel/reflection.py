@@ -427,10 +427,18 @@ def _committed_findings_and_debts(
     if repo_root is None:
         return {"findings": empty_findings, "debts": empty_debts}
 
-    findings_summary = _scan_findings_filesystem(
-        repo_root / "aria-findings"
+    # D3 — read WHERE THE WRITERS WRITE. Both emitters resolve through
+    # workspace.repo_state_root (finding.findings_dir / debt._debts_dir);
+    # this reader used to rebuild `repo_root / "aria-findings"` by hand,
+    # so under a redirected state root the report said "no committed
+    # findings yet" over a directory that existed somewhere else.
+    from .finding import findings_dir
+    from .workspace import repo_state_root
+
+    findings_summary = _scan_findings_filesystem(findings_dir(repo_root))
+    debts_summary = _scan_debts_filesystem(
+        repo_state_root(Path(repo_root)) / "aria-debts"
     )
-    debts_summary = _scan_debts_filesystem(repo_root / "aria-debts")
     return {"findings": findings_summary, "debts": debts_summary}
 
 

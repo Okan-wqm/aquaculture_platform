@@ -9326,3 +9326,11 @@ Severity: CRITICAL (Kapalı Döngü D3). Three breaks, one class: (1) NO code pa
 **Fix:** new `finding_promotion.py` — every unpromoted `ai_consensus` true_positive emits a committed finding (constructed-summary only, so judge free text never meets the banned-phrase gate; repo-file evidence only, existence-checked; severity mapped to the claim-type floor), recorded once per fingerprint in `promotions.jsonl`; `finding.findings_dir` is the exported single path authority and both readers now resolve through the writer's seam; the sampler skips settled fingerprints (promoted ∪ confirmed-FP — deliberate-break test). Promotion runs at the end of the judgment phase each cycle, idempotently. 3 new tests + 188 neighboring tests green.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-643 — a broken rule of a healthy adapter was invisible: no per-rule FP rate, no rule quarantine, and judge diagnoses of the matcher itself went nowhere — RESOLVED (this PR)
+
+Severity: HIGH (Kapalı Döngü D4). Seven of the first night's ten verdicts were false positives all naming the SAME mechanical matcher defect (the composed-decorator blindness), and those diagnoses terminated in the feedback ledger: health existed only at TOOL level, nothing could silence one broken rule, and "the judges say this matcher is broken" produced no work item — the rule would fire, be refuted, and fire again, forever, at judge-invocation prices.
+
+**Fix:** new `rule_health.py` — per-(tool, rule) TP/FP/judged computed at read time from GROUND-TRUTH-BEARING feedback only (human/ai_consensus; a lone judge's opinion moves nothing here — deliberate contrast with `tool_health.compute_metrics:410-413`, which counts raw ai_judge rows toward tool-level auto-calibrate; that asymmetry is left as-is by explicit decision and documented here). Rules crossing the FP threshold (≥3 judged, ≥75% FP) enter a derived quarantine set: the sampler stops spending judges on their findings (both loops), and each quarantined rule auto-commits ONE "adapter rule defect" finding citing the adapter source — the repair channel the seven diagnoses were missing. Report gains a Rule Health table. 4 new tests + 103 neighboring tests green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

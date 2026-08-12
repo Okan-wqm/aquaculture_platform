@@ -430,6 +430,7 @@ jobs:
           MAX_REQUESTS_PER_RUN: '30'
           MAX_TIMEOUT_SECONDS: '1800'
           MAX_CYCLES_INPUT: ${{ github.event.inputs.max_cycles }}
+          CYCLE_MODE_INPUT: ${{ github.event.inputs.mode }}
         run: |
           set -euo pipefail
           MAX_CYCLES="${MAX_CYCLES_INPUT:-1}"
@@ -446,8 +447,14 @@ jobs:
           # and the whole night quarantine.
           # 10-minute margin: ~5m of setup steps already spent before this
           # step (the epoch is computed here, not at job start) + ~5m for
-          # the close-out steps after it.
-          JOB_TIMEOUT_MINUTES="${{ github.event.inputs.mode == 'burn-in-observe' && 150 || 50 }}"
+          # the close-out steps after it. Mode reaches bash via env (the
+          # workflow-contract gate forbids raw inputs interpolation in run
+          # blocks — injection class), mirroring MAX_CYCLES_INPUT.
+          if [ "${CYCLE_MODE_INPUT:-}" = "burn-in-observe" ]; then
+            JOB_TIMEOUT_MINUTES=150
+          else
+            JOB_TIMEOUT_MINUTES=50
+          fi
           export ARIA_JOB_DEADLINE_EPOCH=$(( $(date +%s) + JOB_TIMEOUT_MINUTES * 60 - 600 ))
           echo "spawn deadline: $(date -u -d @${ARIA_JOB_DEADLINE_EPOCH} +%H:%M:%SZ) (job cap ${JOB_TIMEOUT_MINUTES}m - 10m margin)"
           PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy run \

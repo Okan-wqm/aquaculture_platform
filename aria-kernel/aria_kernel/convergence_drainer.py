@@ -294,6 +294,25 @@ def _check_aria_stop(root: Path) -> bool:
     return (root / "ARIA_STOP").exists()
 
 
+def _inline_agent_id(role: str) -> str:
+    """Per-ROLE claim identity for inline dispatch (F2).
+
+    The independence check compares the agent_id that CLAIMED each role's
+    request and calls a shared id an echo chamber
+    (independence_check.py:194). This dispatcher used ONE id
+    (`convergence:<pid>`) for every role, so challenger and cross_review
+    always collided: every CONVERGED verdict was downgraded to
+    `cross_review_self_agreement` by ARIA's own gate, and the
+    implementation and auto-merge stages were skipped. Convergence was
+    structurally self-cancelling.
+
+    One process, several roles — and the roles are genuinely distinct
+    actors with distinct prompts, evidence and outputs. The identity now
+    says which one is claiming.
+    """
+    return f"convergence:{os.getpid()}:{role}"
+
+
 def _poll_for_state(
     plan_id: str,
     target_states: set[str],
@@ -358,7 +377,7 @@ def _poll_for_state(
     # pass`` made dispatch-hook regressions invisible. Both gaps are
     # now closed below — promotion to module scope + Tier-3
     # detectable governance event.
-    inline_agent_id = f"convergence:{os.getpid()}"
+    inline_agent_id = _inline_agent_id("dispatch")
 
     # Plan ARIA-V10.5 Phase 5 — F-025 closure. Loop body order matters:
     # fold_plan_state MUST run BEFORE the deadline check, so a state
@@ -401,11 +420,19 @@ def _poll_for_state(
         # waiting ``challenger_timeout_seconds`` (10-30 min) for the
         # downstream timeout to fire.
         try:
-            dispatch_one_pending_planner_request(
-                base_dir=base_dir,
-                agent_id=inline_agent_id,
-                planner_roles=_CONVERGENCE_INLINE_DISPATCH_ROLES,
-            )
+            # F2 — one dispatch per role, each claiming under ITS OWN
+            # identity. A single call over the role tuple claimed whatever
+            # was pending under one shared id, which is exactly what the
+            # independence check refuses. Stop at the first role that
+            # actually dispatched: this is one poll tick, not a drain.
+            for _role in _CONVERGENCE_INLINE_DISPATCH_ROLES:
+                _outcome = dispatch_one_pending_planner_request(
+                    base_dir=base_dir,
+                    agent_id=_inline_agent_id(_role),
+                    planner_roles=(_role,),
+                )
+                if isinstance(_outcome, dict) and _outcome.get("status") != "no_pending":
+                    break
         except Exception as _disp_exc:
             try:
                 append_tools_governance(
@@ -1015,12 +1042,23 @@ def run_convergence_drainer(
             if _check_aria_stop(root):
                 return None
             try:
+                # F6 — `agent_id` is keyword-only AND required, so this call
+                # raised TypeError on EVERY iteration and the bare except
+                # swallowed it: the coverage critic was minted, never
+                # claimed, and every waiver fail-closed to "uncovered",
+                # burning a convergence round each cycle. The identity is
+                # role-scoped for the same independence reason as above.
                 dispatch_one_pending_planner_request(
                     base_dir=base_dir,
+                    agent_id=_inline_agent_id("completeness_critique"),
                     planner_roles=("completeness_critique",),
                 )
-            except Exception:
-                pass
+            except Exception as _critic_exc:
+                append_tools_governance(
+                    ensure_tools_dir(base_dir),
+                    "critic_dispatch_failed",
+                    {"reason": str(_critic_exc)[:200], "request_id": request_id},
+                )
             rows = (
                 load_declared_jsonl(results_path, expected_surface="agent_invocation_results")
                 if results_path.exists()

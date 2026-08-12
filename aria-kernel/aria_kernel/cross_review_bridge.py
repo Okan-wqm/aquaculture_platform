@@ -39,7 +39,7 @@ from typing import Any
 
 from .agent_invocations import create_agent_invocation_request
 from .bridge_exceptions import BridgeContractViolation
-from .plan_convergence import fold_plan_state
+from .plan_convergence import fold_plan_state, request_implementation
 from .tool_registry import GovernanceError
 
 
@@ -465,7 +465,7 @@ def issue_implementation_envelope(
     # the P+C+CR round-based debate; it's a post-convergence single
     # event). create_agent_invocation_request accepts round_number=0
     # as a sentinel for "post-convergence" envelopes.
-    return create_agent_invocation_request(
+    request_row = create_agent_invocation_request(
         target_agent=target_agent,
         role=role,
         suggested_prompt=suggested,
@@ -477,3 +477,25 @@ def issue_implementation_envelope(
         base_dir=base_dir,
         plan_revision_hash=plan_revision_hash,
     )
+    # E2/F1 — the mint IS the state transition. This function's own error
+    # message above says "exactly one escape from CONVERGED — into
+    # IMPLEMENTATION_REQUESTED via this mint", yet nothing ever wrote that
+    # event: the plan stayed CONVERGED, the result bridge's
+    # IMPLEMENTATION_IN_FLIGHT precondition was unreachable, and every
+    # implementer result — however perfect — was refused and discarded.
+    # The transition is written AFTER the envelope append so a mint
+    # failure leaves the plan untouched; request_implementation is
+    # idempotent on its canonical payload, so a re-mint of the same
+    # envelope is a no-op here too.
+    converged_hash = ""
+    latest_rev = state_dict.get("latest_revision") if isinstance(state_dict, dict) else None
+    if isinstance(latest_rev, dict):
+        converged_hash = str(latest_rev.get("content_hash") or "")
+    request_implementation(
+        plan_id=plan_id,
+        implementer_agent=target_agent,
+        converged_plan_revision_id=converged_plan_revision_id,
+        converged_plan_content_hash=converged_hash,
+        base_dir=base_dir,
+    )
+    return request_row

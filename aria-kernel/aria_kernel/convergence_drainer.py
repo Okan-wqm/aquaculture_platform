@@ -284,10 +284,13 @@ _LAST_VERDICT_PROVENANCE: dict[str, Any] = {
 }
 
 
-def _persistence_path(root: Path, cycle_id: str) -> Path:
+def _persistence_path(root: Path, plan_id: str) -> Path:
+    # E2/F9 — keyed by PLAN, not cycle: the resume branch already requires
+    # plan_id equality, but a cycle-keyed filename meant a new cycle never
+    # even opened the file that held the plan it was adopting.
     state_dir = root / "state" / "convergence"
     state_dir.mkdir(parents=True, exist_ok=True)
-    return state_dir / f"{cycle_id}.json"
+    return state_dir / f"{plan_id}.json"
 
 
 def _check_aria_stop(root: Path) -> bool:
@@ -566,7 +569,7 @@ def run_convergence_drainer(
     transcript_dir = root / "convergence"
     transcript_dir.mkdir(parents=True, exist_ok=True)
     transcript_path = transcript_dir / f"{cycle_id}.jsonl"
-    persistence = _persistence_path(root, cycle_id)
+    persistence = _persistence_path(root, plan_id)
     convergence_id = plan_id
     # The SHA the plan's evidence is grounded at — threaded into every envelope
     # so the evidence-validator can grade agent evidence_refs as repo_verified

@@ -873,6 +873,18 @@ def build_parser() -> argparse.ArgumentParser:
     tool_run.add_argument("--input", default="{}")
     tool_run.add_argument("--cycle-id", required=True)
     tool_run.add_argument("--workspace-root", default=".")
+    # C1 (E4) — the promotion verb the registry never had. promote_tool has
+    # existed with every gate (fixture pass, readiness, operator approval)
+    # and ZERO command surface, so no adapter could ever leave SHADOW and
+    # every finding was suppressed (687 produced, 0 operator-facing).
+    # Mechanism without a caller, promotion edition — the same class as
+    # unquarantine above. CALIBRATE->SHADOW needs no approval ref (fixture
+    # pass suffices); SHADOW->ACTIVE requires it (promotion.py enforces).
+    tool_promote = add_subparser(tool_sub, "promote")
+    tool_promote.add_argument("--tool-id", required=True)
+    tool_promote.add_argument("--target-status", required=True, choices=("SHADOW", "ACTIVE"))
+    tool_promote.add_argument("--reason", required=True, type=_validate_reason)
+    tool_promote.add_argument("--operator-approval-ref", default=None)
 
     # FAZ 5a — the merge gate's attestation ledger finally gets a producer
     # verb. verify_runner_attestation was MANDATORY at merge and NOTHING
@@ -2769,6 +2781,17 @@ def _main(argv: list[str] | None = None) -> int:
             reason=args.reason,
             root_cause_note=args.root_cause_note,
             fixture_update_ref=args.fixture_update_ref,
+            base_dir=args.tools_dir,
+        ), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "tool" and args.tool_command == "promote":
+        from aria_kernel.promotion import promote_tool
+        print(json.dumps(promote_tool(
+            args.tool_id,
+            args.target_status,
+            reason=args.reason,
+            operator_approval_ref=args.operator_approval_ref,
             base_dir=args.tools_dir,
         ), indent=2, sort_keys=True))
         return 0

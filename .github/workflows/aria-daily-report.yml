@@ -162,7 +162,16 @@ jobs:
             --date "${REPORT_DATE}" \
             --output-path "${REPORT}" \
             --tools-dir "${ARIA_TOOLS_DIR}" \
-            --workspace-root .
+            --workspace-root . | tee "${RUNNER_TEMP}/daily-anchor-emit.json"
+          # C2/E8 — a stub body is a failure, not a report. Publishing an
+          # anchor whose body is the placeholder means the reflection
+          # producer chain is severed for this date; a green lane over a
+          # stub is exactly the failures-dressed-as-answers class (F7).
+          BODY=$(python3 -c "import json,sys; print(json.load(open('${RUNNER_TEMP}/daily-anchor-emit.json')).get('report_body',''))")
+          if [ "${BODY}" != "reflection" ]; then
+            echo "::error::daily anchor body is '${BODY:-missing}', not the reflection report — the producer chain is severed for ${REPORT_DATE}" >&2
+            exit 1
+          fi
 
       - name: Upload report as artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

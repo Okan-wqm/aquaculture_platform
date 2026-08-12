@@ -390,12 +390,6 @@ def emit_anchor_to_path(
         tools_root=tools_root,
         state_snapshot_path=state_snapshot_path,
     )
-    if output_path.exists() and _has_v2_frontmatter(output_path):
-        return {
-            "status": "already_anchored",
-            "path": output_path.as_posix(),
-            "anchor": anchor,
-        }
     # FAZ 6a — the anchor was a SECOND writer of the daily-report filename:
     # the lane committed this stub while reflection wrote the real report to
     # the durable store, so the published PR carried three empty lines and
@@ -409,6 +403,36 @@ def emit_anchor_to_path(
             body_markdown = reflection_report.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             body_markdown = None
+    if output_path.exists() and _has_v2_frontmatter(output_path):
+        # C2/E8 — idempotence is body-aware, not blanket. The blanket
+        # "already anchored, leave it" locked in whichever body got there
+        # first: a stub emitted before reflection ran was FROZEN for that
+        # date — the real report could land in the store minutes later and
+        # never be published. Reflection bodies stay immutable (the anchor
+        # must never overwrite the real report); a stub upgrades to the
+        # reflection body the moment one exists.
+        existing = parse_anchor_frontmatter(output_path) or {}
+        existing_body = existing.get("report_body")
+        if existing_body != "stub" and existing_body is not None:
+            return {
+                "status": "already_anchored",
+                "path": output_path.as_posix(),
+                "anchor": anchor,
+                "report_body": str(existing_body),
+            }
+        # Legacy anchors predate the report_body field; treat them as
+        # stubs (they were — the field was born with this upgrade path).
+        if body_markdown is None:
+            return {
+                "status": "already_anchored",
+                "path": output_path.as_posix(),
+                "anchor": anchor,
+                "report_body": "stub",
+            }
+    # The body kind travels IN the frontmatter so the next emission (and
+    # any auditor) can tell a stub from the real report without diffing
+    # bodies — that is what makes the stub→reflection upgrade decidable.
+    anchor["report_body"] = "reflection" if body_markdown is not None else "stub"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
         render_anchor_markdown(anchor, body_markdown=body_markdown),
@@ -418,7 +442,7 @@ def emit_anchor_to_path(
         "status": "written",
         "path": output_path.as_posix(),
         "anchor": anchor,
-        "report_body": "reflection" if body_markdown is not None else "stub",
+        "report_body": anchor["report_body"],
     }
 
 

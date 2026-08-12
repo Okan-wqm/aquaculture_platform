@@ -9363,6 +9363,14 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-MEDIUM-653 — a stub daily report locked out the real one, and publishing the stub was green — RESOLVED (this PR, E8/C2)
+
+Severity: MEDIUM (Kapalı Döngü E8; audit C2, adversarially CONFIRMED). Two halves of one dishonesty. (1) `emit_anchor_to_path`'s idempotence was blanket: "output exists with v2 frontmatter → leave unchanged". Whichever body got there first was FROZEN for that date — a stub emitted before reflection ran meant the real report, landing in the durable store minutes later, could never be published for that date. (2) The `aria-daily-report` lane published whatever body it had and went green: a stub artifact (three boilerplate paragraphs, no reflection content) was indistinguishable from success — the failures-dressed-as-answers class (F7) on the operator's primary surface.
+
+**Fix:** idempotence becomes body-aware. The body kind travels IN the anchor frontmatter (`report_body: stub|reflection`) so the next emission can decide without diffing bodies: a reflection body is immutable (never overwritten — the anchor must never clobber the real report); a stub upgrades to the reflection body the moment one exists in the store; a legacy anchor without the field is treated as the stub it was. The workflow gains a hard gate: if the emitted body is not `reflection`, the generate-report job FAILS with the severed-producer-chain error — a stub is a failure report, not a report. 3 new deliberate-break tests (stub upgrades when reflection lands, reflection body immutable, stub-without-reflection stays put) + 62 anchor/store/report + 47 workflow-contract tests green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-MEDIUM-652 — the Judge Replay Recall section read a field the sealed cycle row can never carry — RESOLVED (this PR, E8/C6)
 
 Severity: MEDIUM (Kapalı Döngü E8; audit C6, adversarially CONFIRMED). `_render_replay_recall_section` searched `cycles.jsonl` for a completed row carrying `judge_replay` — but Plan 024 §E routes every production cycle row through the frozen+slotted `CycleRow` dataclass, which has no such field and whose `to_jsonl` cannot emit one. The lookup matched nothing, ever; the section was structurally unreachable. Worse, its test hand-appended a `judge_replay` field onto a cycles.jsonl row (a shape no production writer can emit) — green over a fictional contract, which is exactly how the defect survived under CI.

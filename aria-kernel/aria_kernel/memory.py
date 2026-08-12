@@ -497,7 +497,15 @@ def validate_repo_evidence(
                     f"errors={list(envelope.validation_errors)!r}"
                 )
             if target_sha is not None:
-                EvidencePolicy.require_repo_verified(envelope)
+                # E5/M1 — a belief is a proposition about a CLASS of files,
+                # so glob evidence that matches real committed files is
+                # admissible here (repo_glob_verified), unlike a finding
+                # which must cite one concrete file:line. This is the line
+                # that let ARIA learn 0 beliefs from any tool: every
+                # adapter belief candidate cited a glob, graded "missing",
+                # rejected. Finding evidence stays file-exact (findings use
+                # require_repo_verified, unchanged).
+                EvidencePolicy.require_repo_or_glob_verified(envelope)
         elif ref.startswith(SELF_OUTPUT_PREFIXES):
             raise GovernanceError("memory belief cannot use ARIA self-output as evidence")
 

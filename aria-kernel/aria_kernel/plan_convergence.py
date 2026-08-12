@@ -709,6 +709,41 @@ _IMPLEMENTATION_PHASE_STATES = {
 }
 
 
+STALE_PLAN_MAX_AGE_HOURS: int = 72
+
+
+def _last_event_at_by_plan(root: Path) -> dict[str, str]:
+    """Newest ``recorded_at`` per plan — ONE definition for scanner + resume.
+
+    The orphan scanner used to read ``ts``/``created_at``, fields no event
+    writer emits (`_append_event` writes ``recorded_at``), so every orphan
+    row reported ``last_event_at: None`` — the same writer-reader field
+    mismatch class the E8 sweep exists to kill.
+    """
+    stamps: dict[str, str] = {}
+    path = events_path(root)
+    if not path.exists():
+        return stamps
+    for event in load_declared_jsonl(
+        path, expected_surface="plan_convergence_events",
+    ):
+        pid = event.get("plan_id")
+        ts = event.get("recorded_at")
+        if isinstance(pid, str) and pid and isinstance(ts, str):
+            stamps[pid] = ts
+    return stamps
+
+
+def _older_than_hours(timestamp: str, hours: int) -> bool:
+    from datetime import datetime, timedelta, timezone
+
+    try:
+        then = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return datetime.now(timezone.utc) - then > timedelta(hours=hours)
+
+
 def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | None:
     """E2/F9 — the newest plan still mid-CONVERGENCE, if any.
 
@@ -723,12 +758,31 @@ def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | Non
     implementation-phase state (those belong to the implementer poll and
     the merge reconciler, not to a fresh convergence run). One active
     convergence at a time; None means "start fresh".
+
+    C12/E8 — adoption is where a stuck plan must DIE, deterministically.
+    `abandon_plan` existed with zero production callers, so a plan wedged
+    mid-convergence stayed "active" forever and every night's takeover
+    re-adopted the same wedged plan: takeover (E2) without abandonment is
+    an infinite loop wearing a fix's clothes. A candidate whose newest
+    event is older than STALE_PLAN_MAX_AGE_HOURS is abandoned (recorded,
+    reason carries the stall timestamp) and the scan moves on.
     """
+    root = ensure_tools_dir(base_dir)
+    last_seen = _last_event_at_by_plan(root)
     for plan_id in reversed(list_active_plans(base_dir=base_dir)):
         state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
         if not isinstance(state, dict):
             continue
         if state.get("state") in _IMPLEMENTATION_PHASE_STATES:
+            continue
+        stamp = last_seen.get(plan_id)
+        if stamp and _older_than_hours(stamp, STALE_PLAN_MAX_AGE_HOURS):
+            abandon_plan(
+                plan_id=plan_id,
+                reason=f"stalled: no plan event since {stamp} "
+                f"(> {STALE_PLAN_MAX_AGE_HOURS}h at adoption)",
+                base_dir=base_dir,
+            )
             continue
         return plan_id
     return None
@@ -1158,6 +1212,9 @@ def scan_orphan_implementation_requests(
     if not events_file.exists():
         return []
     # Enumerate distinct plan_ids + track last_event_at per plan.
+    # C12/E8 — reads recorded_at via the shared helper: this loop used to
+    # read ts/created_at, fields no event writer emits, so every orphan
+    # row reported last_event_at: None.
     plan_ids: dict[str, str | None] = {}
     for event in load_declared_jsonl(
         events_file,
@@ -1165,11 +1222,8 @@ def scan_orphan_implementation_requests(
     ):
         pid = event.get("plan_id")
         if isinstance(pid, str) and pid:
-            ts = event.get("ts") or event.get("created_at")
-            if isinstance(ts, str):
-                plan_ids[pid] = ts
-            else:
-                plan_ids.setdefault(pid, None)
+            plan_ids.setdefault(pid, None)
+    plan_ids.update(_last_event_at_by_plan(root))
     orphans: list[dict[str, Any]] = []
     for plan_id, last_ts in plan_ids.items():
         try:

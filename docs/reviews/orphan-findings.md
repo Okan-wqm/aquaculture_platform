@@ -9363,6 +9363,14 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-MEDIUM-656 — a wedged plan could never die: takeover without abandonment re-adopted it every night — RESOLVED (this PR, E8/C12)
+
+Severity: MEDIUM (Kapalı Döngü E8; audit C12, adversarially CONFIRMED). `abandon_plan` — full ceremony: idempotent, lock-guarded, ledger-appended — existed with ZERO production callers, so a plan wedged mid-convergence stayed "active" forever. E2's plan-continuity takeover then made it worse: `resume_candidate_plan_id` adopts the newest non-terminal plan, so every night's cycle re-adopted the SAME wedged plan — takeover without abandonment is an infinite loop wearing a fix's clothes. Bonus same-class defect found while fixing: the orphan scanner read `ts`/`created_at`, fields NO event writer emits (`_append_event` writes `recorded_at`), so every orphan row reported `last_event_at: None` — the M10 writer-reader field-mismatch class again.
+
+**Fix:** adoption is where a stuck plan dies, deterministically. `resume_candidate_plan_id` abandons (recorded, reason carries the stall timestamp) any candidate whose newest event is older than `STALE_PLAN_MAX_AGE_HOURS` (72h) and moves on — `abandon_plan` gains its first production caller at exactly the choke point where staleness is observable. One shared `_last_event_at_by_plan` helper (reads `recorded_at`) feeds both the adoption check and the orphan scanner, killing the field mismatch with a single schema owner. 4 new tests (fresh adopted, stale abandoned-not-adopted with deliberate-break clock, reason names the stall, last_event_at regex-pinned non-None) + implementation-lifecycle/cross-review/plan-convergence/bridge/dispatch/coverage suites green (61).
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-MEDIUM-655 — ARIA ranked "where to invest next" every night and never invested — RESOLVED (this PR, E8/M12)
 
 Severity: MEDIUM (Kapalı Döngü E8; audit M12, adversarially CONFIRMED). `compute_proactive_priorities` ranked every tool by impact × opportunity each cycle and persisted the worklist to `proactive/priorities.jsonl` — and NOTHING read it back. The "where to invest next" list was computed nightly, appended forever, and consumed never: pure write-only memory on the exact surface the operator's charter (proactive professionalization) depends on.

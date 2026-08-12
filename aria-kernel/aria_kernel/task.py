@@ -8,9 +8,16 @@ from typing import Any
 from .capability_gap import latest_capability_gaps
 from .feedback_store import list_findings
 from .ledger import append_jsonl, load_jsonl
+from .proactive_priority import latest_priorities
 from .runs_reader import read_runs_rows
 from .tool_health import runs_path
 from .tool_registry import ensure_tools_dir, utc_now
+
+# M12/E8 — a proactive ranking only becomes WORK above this bar. The
+# priority scale is 0-100 (impact x opportunity x 100); 60 requires a
+# high-impact tool with most opportunity signals firing, so quiet nights
+# do not flood the mission store with low-value maintenance candidates.
+PROACTIVE_CANDIDATE_MIN_PRIORITY: float = 60.0
 
 
 def generate_task_candidates(
@@ -37,6 +44,19 @@ def generate_task_candidates(
         # returns only the most recent batch; recency is the guard, and
         # adoption idempotency absorbs re-reads.
         candidates.append(_candidate_from_capability_gap(cycle_id, gap))
+    # M12/E8 — the proactive ranking's first consumer. compute_proactive_
+    # priorities persisted "where to invest next" every cycle and nothing
+    # read it: ARIA ranked its investments nightly and never invested.
+    # High-priority entries become maintenance candidates; adoption
+    # idempotency (mission identity = source_kind|source_id|repo_hash)
+    # folds the same tool re-ranked tomorrow into its standing mission.
+    priorities = latest_priorities(base_dir=root)
+    for entry in (priorities or {}).get("top") or []:
+        if not isinstance(entry, dict):
+            continue
+        if float(entry.get("priority") or 0) < PROACTIVE_CANDIDATE_MIN_PRIORITY:
+            continue
+        candidates.append(_candidate_from_proactive(cycle_id, entry))
     for run in list(read_runs_rows(runs_path(root), base_dir=root)):
         if run.get("cycle_id") != cycle_id or run.get("status") != "ok":
             continue
@@ -139,6 +159,36 @@ def _candidate_from_finding(cycle_id: str, finding: dict[str, Any]) -> dict[str,
         "risk_class": "requires_impact_plan",
         "validation_commands": ["npm run test", "npm run lint"],
         "score": score,
+        "blocked_by": [],
+    }
+
+
+def _candidate_from_proactive(cycle_id: str, entry: dict[str, Any]) -> dict[str, Any]:
+    tool_id = str(entry.get("tool_id") or "")
+    reasons = _strings(entry.get("reasons"))
+    # M12/E8 — proactive work is unblocked by definition: the ranking's
+    # whole point is work ARIA can start without an operator (build the
+    # goldset, gather judgments). Its score is the ranking's own priority
+    # (already 0-100), so the reactive sources keep outranking it when
+    # something is actually on fire.
+    return {
+        "schema_version": 1,
+        "task_id": _task_id(cycle_id, "proactive", tool_id),
+        "cycle_id": cycle_id,
+        "source": "proactive_priority",
+        "source_id": tool_id,
+        "source_authority": "proactive_ranking",
+        "title": f"Invest in {tool_id}: {', '.join(reasons) or 'high impact x opportunity'}",
+        "problem": (
+            f"{tool_id} ranks priority {entry.get('priority')} "
+            f"(impact {entry.get('impact')}, opportunity {entry.get('opportunity')}); "
+            f"signals: {', '.join(reasons) or 'none recorded'}"
+        ),
+        "evidence_refs": [],
+        "candidate_tools": [tool_id],
+        "risk_class": "triage_only",
+        "validation_commands": ["PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify"],
+        "score": float(entry.get("priority") or 0),
         "blocked_by": [],
     }
 

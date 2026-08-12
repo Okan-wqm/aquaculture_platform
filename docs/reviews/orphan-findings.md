@@ -9363,6 +9363,30 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-MEDIUM-656 — a wedged plan could never die: takeover without abandonment re-adopted it every night — RESOLVED (this PR, E8/C12)
+
+Severity: MEDIUM (Kapalı Döngü E8; audit C12, adversarially CONFIRMED). `abandon_plan` — full ceremony: idempotent, lock-guarded, ledger-appended — existed with ZERO production callers, so a plan wedged mid-convergence stayed "active" forever. E2's plan-continuity takeover then made it worse: `resume_candidate_plan_id` adopts the newest non-terminal plan, so every night's cycle re-adopted the SAME wedged plan — takeover without abandonment is an infinite loop wearing a fix's clothes. Bonus same-class defect found while fixing: the orphan scanner read `ts`/`created_at`, fields NO event writer emits (`_append_event` writes `recorded_at`), so every orphan row reported `last_event_at: None` — the M10 writer-reader field-mismatch class again.
+
+**Fix:** adoption is where a stuck plan dies, deterministically. `resume_candidate_plan_id` abandons (recorded, reason carries the stall timestamp) any candidate whose newest event is older than `STALE_PLAN_MAX_AGE_HOURS` (72h) and moves on — `abandon_plan` gains its first production caller at exactly the choke point where staleness is observable. One shared `_last_event_at_by_plan` helper (reads `recorded_at`) feeds both the adoption check and the orphan scanner, killing the field mismatch with a single schema owner. 4 new tests (fresh adopted, stale abandoned-not-adopted with deliberate-break clock, reason names the stall, last_event_at regex-pinned non-None) + implementation-lifecycle/cross-review/plan-convergence/bridge/dispatch/coverage suites green (61).
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-MEDIUM-655 — ARIA ranked "where to invest next" every night and never invested — RESOLVED (this PR, E8/M12)
+
+Severity: MEDIUM (Kapalı Döngü E8; audit M12, adversarially CONFIRMED). `compute_proactive_priorities` ranked every tool by impact × opportunity each cycle and persisted the worklist to `proactive/priorities.jsonl` — and NOTHING read it back. The "where to invest next" list was computed nightly, appended forever, and consumed never: pure write-only memory on the exact surface the operator's charter (proactive professionalization) depends on.
+
+**Fix:** the ranking becomes schedulable work. `latest_priorities()` (reader lives next to the writer — one schema owner) feeds `generate_task_candidates`: a top-ranked entry with priority ≥ 60 becomes a `proactive_priority` task candidate (unblocked by definition — the ranking's whole point is work ARIA can start without an operator: build the goldset, gather judgments), scored by the ranking's own 0-100 priority so reactive sources still outrank it when something is actually on fire. Adoption idempotency folds the same tool re-ranked tomorrow into its standing mission. 2 new tests (high-priority entry becomes a candidate, low-priority does not, missing file is fine) + task/mission/proactive suites green. NOT this change: the opportunity-saturation nuance (all-1.0 during bootstrap) is honest ignorance, not a defect — when every tool is equally unknown, impact alone ranks, which is the designed behavior.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-MEDIUM-654 — the learning journal had three writers and no reader, and every SLO alert rendered as "None: " — RESOLVED (this PR, E8/M9+M10)
+
+Severity: MEDIUM (Kapalı Döngü E8; audit M9+M10, both adversarially CONFIRMED). (M9) `memory/learning-events.jsonl` had three producers — memory belief/convention recording, goldset promotion, pr-tracking merge outcomes — and ZERO consumers: the system billed as never-forgetting kept a journal of what it learned that no decision or report ever read. (M10) The SLO alert renderer read `alert_kind`/`kind` + `message`/`detail` — fields no producer writes (`_record_alerts` emits `reason`/`slo_state`/`observed`) — so every alert an operator ever saw rendered as "None: "; and `observability/alerts.jsonl` itself had no reader at all, so a degradation trend across nights was invisible (the inline dashboard list shows only the current cycle). A pre-existing test pinned the fictional `alert_kind`/`message` shape — green over a contract that never existed (the same disease as C6).
+
+**Fix:** (M9) reflection gains a `## Learning Events` section — the journal's first reader: total rows, last-50 event-type distribution, most-recent event. A summary, not a dump: the ledger stays the archive, the report answers "did ARIA learn anything tonight, and what kind". (M10) the renderer reads the producer's real fields, and the daily report's SLO section gains an alert-history line read from `alerts.jsonl` via the verified loader (mirror of the producer's hash-chained append) — the ledger becomes load-bearing. The dishonest fixture is rewritten against `_record_alerts`' real shape with a `None`-ban assertion. 4 new writer-reader pair tests + report/starvation/enterprise-cycle suites green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-MEDIUM-653 — a stub daily report locked out the real one, and publishing the stub was green — RESOLVED (this PR, E8/C2)
 
 Severity: MEDIUM (Kapalı Döngü E8; audit C2, adversarially CONFIRMED). Two halves of one dishonesty. (1) `emit_anchor_to_path`'s idempotence was blanket: "output exists with v2 frontmatter → leave unchanged". Whichever body got there first was FROZEN for that date — a stub emitted before reflection ran meant the real report, landing in the durable store minutes later, could never be published for that date. (2) The `aria-daily-report` lane published whatever body it had and went green: a stub artifact (three boilerplate paragraphs, no reflection content) was indistinguishable from success — the failures-dressed-as-answers class (F7) on the operator's primary surface.

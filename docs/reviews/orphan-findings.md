@@ -9363,6 +9363,14 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-MEDIUM-651 — six producer phases ran every night and their output never reached the report — RESOLVED (this PR, E8/C5)
+
+Severity: MEDIUM (Kapalı Döngü E8; audit C5, adversarially CONFIRMED). `run_reflection` accepts eight producer kwargs and the daily report renders a section for each — but the autonomy orchestrator's five post-drain call sites passed only `convergence_result`/`review_result`, and `defer_reflection=True` skips the in-cycle reflection that used to carry the calibration trio. Net effect on the autonomy lane (the ONLY lane that will run nightly): the Pedagogy, Skill-Genesis, Calibration, Recommendation, Proactive and Cycle-Runner sections could NEVER render. The producers ran (judge_calibration/calibration_recommendation/proactive_priority live in `cycle_result["phases"]`; skill_genesis on `cycle_summary`), the renderers existed, and no call site connected them — `pedagogy_lint_result`/`skill_genesis_result`/`cycle_runner_result` had ZERO producers repo-wide. The defect was born by drift: one call site gained `convergence_result`, the other four never caught up.
+
+**Fix:** one kwargs builder (`reflection_inputs.producer_reflection_kwargs`) shared by all five call sites — five inline blocks cannot drift when they are one function. Pedagogy gets its first production runner: one warn-mode `pedagogy_lint_snapshot` per cycle (strict stays in CI; reflection is telemetry, not a gate). The crash path's contract is explicit: `cycle_result=None` renders producer sections as legitimately-skipped while the crash itself still reports via `cycle_summary["cycle"]`. 6 new tests, incl. a deliberate-break pin (every builder key must be a real `run_reflection` kwarg — a renamed kwarg fails the test, not silently at five call sites) and a reflection-row assertion (pre-C5 those sub-objects were None on this lane, always). Orchestrator + enterprise-cycle suites green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-HIGH-649 — beliefs never noticed when someone ELSE moved the repo: stale knowledge persisted silently — RESOLVED (this PR, E6/M6)
 
 Severity: HIGH (E6/M6; audit M6, adversarially CONFIRMED). The only belief-staleness triggers were the FATES-hash cycle-diff (fires only on a discovery run, and only for paths inside FATES) and the wall-clock TTL. Neither notices when someone ELSE merges a change to a file a belief depends on — a human merging to main without ARIA trailers produced a scanned commit and zero state change (trailer_scan only reacts to ARIA-\* trailered commits, baselined on the last COMPLETED cycle). Live proof: 3 beliefs sat `supported` at confidence 1.0 anchored 102 commits behind HEAD, with no signal anywhere. This is the operator's "ARIA must remember what OTHERS did to the repo" — and it was structurally absent.

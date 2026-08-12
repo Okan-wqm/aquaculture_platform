@@ -68,6 +68,7 @@ from .autonomy_state import AutonomyStateReducer
 from .file_lock import with_exclusive_lock
 from .next_cycle_queue import mark_consumed, read_pending
 from .reflection import run_reflection
+from .reflection_inputs import pedagogy_lint_snapshot, producer_reflection_kwargs
 
 if TYPE_CHECKING:
     # Plan ARIA-V3.1-0 — cycle_phases Protocol typing for the 5 new
@@ -1038,6 +1039,14 @@ def run_autonomy_orchestrator(
                 # Phase: run cycle (discovery + tools; reflection is
                 # deferred to post-drainer per V3.3 §2b — see the
                 # post_drain_reflection block after auto_merge below).
+                # C5/E8 — None-init is the crash path's CONTRACT, not
+                # defense: when cycle_runner raises, there is no phases
+                # dict to carry, and every post-drain reflection call
+                # below reads cycle_result through
+                # producer_reflection_kwargs (None → sections render as
+                # legitimately-skipped; the crash itself still reports
+                # via cycle_summary["cycle"]).
+                cycle_result = None
                 try:
                     cycle_result = cycle_runner(
                         workspace_root=workspace_root,
@@ -1088,6 +1097,12 @@ def run_autonomy_orchestrator(
                     per_cycle_results.append(cycle_summary)
                     exit_reason = "cycle_failed"
                     break
+
+                # C5/E8 — one warn-mode pedagogy snapshot per cycle,
+                # taken ONCE here (not inside the kwargs builder) so
+                # the five post-drain reflection exits all report the
+                # same scan instead of five divergent re-scans.
+                pedagogy_snapshot = pedagogy_lint_snapshot(workspace_root)
 
                 # Plan ARIA-V10.4 Phase 1 instrumentation — cost-attribution
                 # sentinel. V10.3-B endurance showed cycle 1 challenger
@@ -1354,6 +1369,11 @@ def run_autonomy_orchestrator(
                         repo_root=workspace_root,
                         convergence_result=None,
                         review_result=None,
+                        **producer_reflection_kwargs(
+                            cycle_summary=cycle_summary,
+                            cycle_result=cycle_result,
+                            pedagogy_lint_result=pedagogy_snapshot,
+                        ),
                     )
                     cycle_summary["reflection"] = post_drain_reflection
                     per_cycle_results.append(cycle_summary)
@@ -1496,6 +1516,11 @@ def run_autonomy_orchestrator(
                         repo_root=workspace_root,
                         convergence_result=None,
                         review_result=None,
+                        **producer_reflection_kwargs(
+                            cycle_summary=cycle_summary,
+                            cycle_result=cycle_result,
+                            pedagogy_lint_result=pedagogy_snapshot,
+                        ),
                     )
                     cycle_summary["reflection"] = post_drain_reflection
                     per_cycle_results.append(cycle_summary)
@@ -1552,12 +1577,17 @@ def run_autonomy_orchestrator(
                         base_dir=root,
                         repo_root=workspace_root,
                         convergence_result=convergence_result,
-                        # review_result + pedagogy_lint_result are
-                        # absent on convergence-blocked cycles (Gate
-                        # B never fired); pass None explicitly so the
-                        # reflection v2 sub-object renders post_impl
-                        # as None.
+                        # review_result stays absent on convergence-
+                        # blocked cycles (Gate B never fired); the
+                        # producer kwargs are NOT gate outputs — the
+                        # cycle ran them before the gate, so a blocked
+                        # night still reports what it produced (C5).
                         review_result=None,
+                        **producer_reflection_kwargs(
+                            cycle_summary=cycle_summary,
+                            cycle_result=cycle_result,
+                            pedagogy_lint_result=pedagogy_snapshot,
+                        ),
                     )
                     cycle_summary["reflection"] = post_drain_reflection
                     per_cycle_results.append(cycle_summary)
@@ -1817,6 +1847,11 @@ def run_autonomy_orchestrator(
                         repo_root=workspace_root,
                         convergence_result=convergence_result,
                         review_result=None,
+                        **producer_reflection_kwargs(
+                            cycle_summary=cycle_summary,
+                            cycle_result=cycle_result,
+                            pedagogy_lint_result=pedagogy_snapshot,
+                        ),
                     )
                     cycle_summary["reflection"] = post_drain_reflection
                     per_cycle_results.append(cycle_summary)
@@ -2050,6 +2085,11 @@ def run_autonomy_orchestrator(
                     repo_root=workspace_root,
                     convergence_result=convergence_result,
                     review_result=review_result,
+                    **producer_reflection_kwargs(
+                        cycle_summary=cycle_summary,
+                        cycle_result=cycle_result,
+                        pedagogy_lint_result=pedagogy_snapshot,
+                    ),
                 )
                 cycle_summary["reflection"] = post_drain_reflection
 

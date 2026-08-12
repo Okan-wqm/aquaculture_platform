@@ -604,6 +604,13 @@ def _sampleable_raw_findings(
     # `_confirmed_false_positive_fingerprints` is a dict (fingerprint →
     # suppressing row); only its keys matter for the settled test.
     settled_fingerprints = set(confirmed_false_positive_fingerprints) | _promoted_fingerprints(base_dir)
+    # D4 — a rule whose measured FP rate earned quarantine stops consuming
+    # judge capacity entirely; its repair work item already exists
+    # (rule_health.commit_rule_defect_findings). Function-level import
+    # breaks the module cycle (rule_health reads this module's ledgers).
+    from .rule_health import quarantined_rules
+
+    quarantined = quarantined_rules(base_dir)
     candidates = []
     for row in load_jsonl(raw_findings_path(base_dir)):
         if row.get("tool_id") != tool_id:
@@ -622,6 +629,8 @@ def _sampleable_raw_findings(
         fingerprint = str(row.get("finding_fingerprint") or finding_fingerprint(tool_id, finding))
         if fingerprint in settled_fingerprints:
             continue
+        if (tool_id, str(finding.get("rule") or "").strip()) in quarantined:
+            continue
         candidates.append(_sample_item_from_finding(tool_id, run_id, row.get("cycle_id"), finding_id, finding, fingerprint))
     if candidates:
         return _cap_candidates_by_rule(candidates, limit=50)
@@ -639,6 +648,8 @@ def _sampleable_raw_findings(
                 continue
             fingerprint = finding_fingerprint(tool_id, finding)
             if fingerprint in settled_fingerprints:
+                continue
+            if (tool_id, str(finding.get("rule") or "").strip()) in quarantined:
                 continue
             candidates.append(_sample_item_from_finding(tool_id, run_id, run.get("cycle_id"), finding_id, finding, fingerprint))
     return _cap_candidates_by_rule(candidates, limit=50)

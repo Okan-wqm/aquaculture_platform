@@ -691,9 +691,12 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
             cycle_wall_clock_cap_seconds,
         )
 
+        # 45 → 150 (ORPHAN-HIGH-640): the drain loop's whole window including
+        # the last child's 1800s worst case plus a 30-minute publish reserve
+        # must fit; the first live drain night was reaped mid-child at 45.
         self.assertEqual(
             cycle_wall_clock_cap_seconds(self._EXECUTOR),
-            (45 - WALL_CLOCK_RESERVE_MINUTES) * 60,
+            (150 - WALL_CLOCK_RESERVE_MINUTES) * 60,
         )
         self.assertEqual(
             cycle_wall_clock_cap_seconds(self._CYCLE),

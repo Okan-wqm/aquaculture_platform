@@ -73,7 +73,7 @@ permissions:
 jobs:
   executor:
     runs-on: [self-hosted, linux, claude]
-    timeout-minutes: 45
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -454,9 +454,15 @@ jobs:
           MAX_TURNS_PER_RUN: '12'
           MAX_REQUESTS_PER_RUN: '30'
           MAX_TIMEOUT_SECONDS: '1800'
-          # Drain loop stops STARTING new requests after this much wall clock
-          # so no child is killed mid-claim by the job's 45-minute reaper.
-          ARIA_DRAIN_BUDGET_SECONDS: '2100'
+          # The whole drain loop INCLUDING the last child's worst case must
+          # fit in this window (the loop starts a child only when
+          # elapsed + MAX_TIMEOUT_SECONDS <= budget). 7200s of loop inside
+          # the 150-minute job leaves a full 30 minutes for restore,
+          # integrity verification, publish and artifacts — the first live
+          # night (run 31542485896) was reaped mid-child by the old
+          # 45-minute timeout and its two submitted results died
+          # unpublished with the runner.
+          ARIA_DRAIN_BUDGET_SECONDS: '7200'
         run: |
           set -euo pipefail
           if [ "${{ steps.pending.outputs.targeted }}" = "true" ]; then

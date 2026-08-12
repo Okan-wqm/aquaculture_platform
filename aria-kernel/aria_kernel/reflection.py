@@ -1043,6 +1043,33 @@ def _render_replay_recall_section(root: Path) -> list[str]:
     return lines
 
 
+def _render_rule_health_section(root: Path) -> list[str]:
+    """D4 — per-rule TP/FP from ground truth; silent until data exists."""
+    try:
+        from .rule_health import quarantined_rules, rule_stats
+
+        stats = rule_stats(root)
+    except Exception:
+        return []
+    if not stats:
+        return []
+    quarantined = quarantined_rules(root)
+    lines = [
+        "## Rule Health",
+        "",
+        "| Tool | Rule | Judged | TP | FP | Quarantined |",
+        "| --- | --- | ---: | ---: | ---: | --- |",
+    ]
+    for (tool_id, rule), bucket in sorted(stats.items()):
+        lines.append(
+            f"| {tool_id} | {rule} | {bucket['judged']} | "
+            f"{bucket['true_positive']} | {bucket['false_positive']} | "
+            f"{'YES' if (tool_id, rule) in quarantined else 'no'} |"
+        )
+    lines.append("")
+    return lines
+
+
 def _render_duel_ratings_section(root: Path) -> list[str]:
     """Z6 — read-time Bradley-Terry scores over the duel ledger.
 
@@ -1214,6 +1241,7 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         *_render_quarantine_section(root),
         *_render_replay_recall_section(root),
         *_render_duel_ratings_section(root),
+        *_render_rule_health_section(root),
         "## Committed Findings",
         "",
         f"- Total: {reflection.get('committed_findings', {}).get('total', 0)}",

@@ -9340,3 +9340,10 @@ Severity: CRITICAL (Kapalı Döngü E1). An independent end-to-end audit found t
 4 new tests incl. a deliberate-break pinning the pre-fix identity shape against the REAL gate reader; 260 neighboring convergence/dispatch/independence tests green.
 
 **Owner:** claude (this session). **Status:** RESOLVED. **Remaining arc stops** (tracked, same audit): F1 implementation state machine has no entry, F4 nightly profile forbids PR actions, F5 merge readiness ledger has no writer, F8 no autonomous promoter, F9 convergence state keyed to a non-repeating cycle id, F10 poison-request head-of-line, F11 roles with no minter, F12 human-required context gap, F13/F14 unwired guards.
+## ORPHAN-HIGH-643 — a broken rule of a healthy adapter was invisible: no per-rule FP rate, no rule quarantine, and judge diagnoses of the matcher itself went nowhere — RESOLVED (this PR)
+
+Severity: HIGH (Kapalı Döngü D4). Seven of the first night's ten verdicts were false positives all naming the SAME mechanical matcher defect (the composed-decorator blindness), and those diagnoses terminated in the feedback ledger: health existed only at TOOL level, nothing could silence one broken rule, and "the judges say this matcher is broken" produced no work item — the rule would fire, be refuted, and fire again, forever, at judge-invocation prices.
+
+**Fix:** new `rule_health.py` — per-(tool, rule) TP/FP/judged computed at read time from GROUND-TRUTH-BEARING feedback only (human/ai_consensus; a lone judge's opinion moves nothing here — deliberate contrast with `tool_health.compute_metrics:410-413`, which counts raw ai_judge rows toward tool-level auto-calibrate; that asymmetry is left as-is by explicit decision and documented here). Rules crossing the FP threshold (≥3 judged, ≥75% FP) enter a derived quarantine set: the sampler stops spending judges on their findings (both loops), and each quarantined rule auto-commits ONE "adapter rule defect" finding citing the adapter source — the repair channel the seven diagnoses were missing. Report gains a Rule Health table. 4 new tests + 103 neighboring tests green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.

@@ -1,0 +1,37 @@
+{
+  "$schema": "aria/agent-eval-fixture/v1",
+  "expected_evidence_refs": [
+    "docs/aria/reviews/2026-05-07-plan-016-implementation-review.md:107",
+    "aria-tools/judgments/F-002-evidence.json"
+  ],
+  "expected_verdict_class": "TIGHTENED",
+  "fixture_hash": "9c11a19aeb7923bf",
+  "fixture_id": "F004_ARBITER_TIGHTEN",
+  "input_envelope": {
+    "$schema": "aria/agent-request/v1",
+    "claim_summary": "Plan 016 SHADOW arc finding scope too broad; arbiter must tighten or withdraw rather than accept-as-is",
+    "evidence_refs": [
+      "docs/aria/reviews/2026-05-07-plan-016-implementation-review.md:107",
+      "aria-tools/judgments/F-002-evidence.json"
+    ],
+    "finding_id": "F-002",
+    "must_satisfy": [
+      {
+        "id": "MS-1",
+        "rule": "verdict_class is TIGHTENED or WITHDRAWN_AS_FALSE_POSITIVE"
+      },
+      {
+        "id": "MS-2",
+        "rule": "evidence_refs include the original review + cross-judge envelopes"
+      }
+    ],
+    "schema_version": 1
+  },
+  "max_rounds": 4,
+  "max_tokens": 48000,
+  "pinned_commit_sha": "c3cf7a2ebe5e547c9cd11230f780be6df548bd1c",
+  "recorded_at": "2026-08-05T10:51:15+00:00",
+  "role": "architectural_arbitration",
+  "schema_version": 1,
+  "target_agent": "architectural-arbiter"
+}

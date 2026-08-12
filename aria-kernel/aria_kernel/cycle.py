@@ -1084,12 +1084,23 @@ def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:
         profile=get_profile(base_dir=context.base_dir),
         cwd=context.workspace_root,
     )
-    return scan_own_prs(
+    scan_result = scan_own_prs(
         cycle_id=context.cycle_id,
         base_dir=context.base_dir,
         workspace_root=context.workspace_root,
         reader=reader,
     )
+    # E2/F1 — the same reader answers "was the implementation PR merged?"
+    # for plans resting in IMPLEMENTATION_RECORDED. The operator merges on
+    # GitHub; this reconciler is how that external fact becomes the plan's
+    # terminal `implementation_merged` event.
+    from .implementation_reconciler import reconcile_recorded_implementations
+
+    scan_result["implementation_reconciliation"] = reconcile_recorded_implementations(
+        base_dir=context.base_dir,
+        reader=reader,
+    )
+    return scan_result
 
 
 def _phase_pressure(context: PhaseContext) -> dict[str, Any]:

@@ -46,6 +46,12 @@ if TYPE_CHECKING:  # pragma: no cover
 # `--strict` mypy / pyright).
 TerminalState = Literal[
     "IMPLEMENTATION_MERGED",
+    # E2/F1 — the successful end of the IMPLEMENTATION PHASE: the agent
+    # applied the diff, validated, opened the PR, and the outcome row
+    # landed. MERGED belongs to the merge-authority chain (operator-gated)
+    # and is reconciled later; a poll that only accepted MERGED/REJECTED
+    # timed out on every success.
+    "IMPLEMENTATION_RECORDED",
     "IMPLEMENTATION_REJECTED",
     "IMPLEMENTATION_TIMEOUT",
     "IMPLEMENTATION_REQUEST_REFUSED",
@@ -300,6 +306,12 @@ class AutonomousV9ImplementationRunner:
                         terminal_state = "IMPLEMENTATION_MERGED"
                         pr_url = state.get("pr_url") if isinstance(state, dict) else None
                         break
+                    if s == "IMPLEMENTATION_RECORDED":
+                        terminal_state = "IMPLEMENTATION_RECORDED"
+                        impl_block = state.get("implementation") if isinstance(state, dict) else None
+                        if isinstance(impl_block, dict):
+                            pr_url = impl_block.get("pr_url")
+                        break
                     if s == "IMPLEMENTATION_REJECTED":
                         terminal_state = "IMPLEMENTATION_REJECTED"
                         rejection_class = str(state.get("rejection_class") or "unknown")
@@ -310,6 +322,9 @@ class AutonomousV9ImplementationRunner:
             # Plan ARIA-V3.1-B-1 — signal-typed signal for specialist_review.
             if terminal_state == "IMPLEMENTATION_MERGED":
                 signal: SpecialistReviewSignal = "review_merged_pr"
+            elif terminal_state == "IMPLEMENTATION_RECORDED":
+                # PR is open and recorded; the specialist reviews the diff.
+                signal = "review_merged_pr"
             elif terminal_state == "IMPLEMENTATION_REJECTED":
                 signal = "review_rejected_pr"
             elif terminal_state == "IMPLEMENTATION_TIMEOUT":

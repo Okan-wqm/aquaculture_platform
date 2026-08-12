@@ -1508,6 +1508,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     a_next.add_argument("--role", default=None)
     a_next.add_argument("--target-agent", default=None)
+    # E3/F10 — repeatable exclusion so a drain can step past a request it
+    # already attempted tonight instead of head-of-lining the queue.
+    a_next.add_argument("--exclude", action="append", default=None,
+                        help="Request id to skip (repeatable).")
 
     a_claim = add_subparser(agent_sub, 
         "claim",
@@ -3709,7 +3713,10 @@ def _main(argv: list[str] | None = None) -> int:
     if args.command == "agent":
         if args.agent_command == "next-pending":
             row = next_pending_request(
-                role=args.role, target_agent=args.target_agent, base_dir=args.tools_dir
+                role=args.role,
+                target_agent=args.target_agent,
+                base_dir=args.tools_dir,
+                exclude_request_ids=set(args.exclude or []) or None,
             )
             print(json.dumps(row, indent=2, sort_keys=True))
             return 0 if row is not None else 0

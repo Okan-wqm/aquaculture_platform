@@ -281,6 +281,19 @@ def sweep_lease_lifecycle_for_human_required(
                 f"lease lifecycle exhausted requeues for request {rid!r} "
                 f"(requeue_count={requeue_count}); operator follow-up required."
             ),
+            # E3/F12 — `lease_lifecycle` has always been an ADMITTED
+            # adjudication kind, but this producer wrote no context, so
+            # the classifier answered `no_context_to_classify` and every
+            # lease exhaustion parked on the operator forever. Live proof:
+            # 7 of the 9 records in the human-required box were exactly
+            # this shape. A capacity fault is machine-adjudicable.
+            context={
+                "kind": "lease_lifecycle",
+                "request_id": rid,
+                "role": request.get("role"),
+                "target_agent": request.get("target_agent"),
+                "requeue_count": requeue_count,
+            },
             base_dir=root,
             now=now,
         )

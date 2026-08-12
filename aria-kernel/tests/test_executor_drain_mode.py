@@ -55,7 +55,20 @@ def _drain(queue, child_results, env=None, tmp=None):
     def fake_run(argv, **kwargs):
         if "next-pending" in argv:
             calls["next_pending"] += 1
-            row = queue.pop(0) if queue else None
+            excluded = {argv[i + 1] for i, tok in enumerate(argv) if tok == "--exclude"}
+            role = next((argv[i + 1] for i, tok in enumerate(argv) if tok == "--role"), None)
+            row = None
+            for candidate in queue:
+                if candidate is None:
+                    continue
+                if candidate.get("request_id") in excluded:
+                    continue
+                if role is not None and candidate.get("role", "evidence_judgment") != role:
+                    continue
+                row = candidate
+                break
+            if row is not None:
+                queue.remove(row)
             return _FakeProc(stdout=json.dumps(row) if row else "null")
         # Child dispatch: argv is [python3, <script>, request_id, (target)].
         request_id = argv[2]
@@ -115,20 +128,40 @@ class DrainPendingTests(unittest.TestCase):
         self.assertIn("drained=2\n", output)
         self.assertIn("drain_failed=0\n", output)
 
-    def test_repeat_request_stops_the_loop(self) -> None:
-        # AIR-1 fails, releases its claim, and next-pending returns it again:
-        # the loop must stop instead of burning its requeue budget in one
-        # night on a host-side fault.
+    def test_poison_request_is_skipped_not_fatal(self) -> None:
+        # E3/F10 — AIR-1 fails and releases its claim; the kernel-side
+        # exclusion steps past it and the night CONTINUES with AIR-2.
+        # Pre-fix, "repeat_request" ended the entire drain here.
         queue = [
             {"request_id": "AIR-1", "target_agent": "aria-evidence-judge"},
-            {"request_id": "AIR-1", "target_agent": "aria-evidence-judge"},
+            {"request_id": "AIR-2", "target_agent": "aria-evidence-judge"},
         ]
         rc, calls, output = _drain(
-            queue, {"AIR-1": (1, False)}, tmp=self._tmp.name
+            queue, {"AIR-1": (1, False), "AIR-2": (0, True)}, tmp=self._tmp.name
         )
-        self.assertEqual(rc, 1)
-        self.assertEqual(len(calls["dispatch"]), 1)
+        self.assertEqual(rc, 1)  # the failure is still reported
+        self.assertEqual(
+            [rid for rid, _ in calls["dispatch"]], ["AIR-1", "AIR-2"]
+        )
+        self.assertIn("drained=1\n", output)
         self.assertIn("drain_failed=1\n", output)
+
+    def test_priority_roles_run_before_judges(self) -> None:
+        # D10b — an older judge request must NOT starve a younger
+        # lane-unlocking request.
+        queue = [
+            {"request_id": "AIR-judge", "target_agent": "aria-evidence-judge", "role": "evidence_judgment"},
+            {"request_id": "AIR-impl", "target_agent": "aria-implementer", "role": "implementation"},
+        ]
+        rc, calls, _ = _drain(
+            queue,
+            {"AIR-judge": (0, True), "AIR-impl": (0, True)},
+            tmp=self._tmp.name,
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            [rid for rid, _ in calls["dispatch"]], ["AIR-impl", "AIR-judge"]
+        )
 
     def test_max_requests_cap_is_real(self) -> None:
         queue = [

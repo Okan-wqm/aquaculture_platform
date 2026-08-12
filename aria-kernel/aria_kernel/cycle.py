@@ -1073,7 +1073,19 @@ def _phase_belief_decay(context: PhaseContext) -> dict[str, Any]:
         repo_root=context.workspace_root,
         base_dir=context.base_dir,
     )
-    return {**age, "head_distance_decay": head_distance}
+    # M4+M8/E8 — the belief-verdict channel's producer half. A contradiction
+    # open across >= 3 distinct cycles becomes a HUMAN_REQUIRED record whose
+    # resolution routes the operator's verdict back into belief confidence
+    # (via affected_belief_ids). Runs in the same belief-health phase as the
+    # decay triggers because escalation IS the fourth staleness response:
+    # age, TTL, head-distance revalidate; a standing contradiction asks a
+    # human.
+    from .belief_escalation import escalate_stuck_contradictions
+
+    escalation = escalate_stuck_contradictions(
+        cycle_id=context.cycle_id, base_dir=context.base_dir,
+    )
+    return {**age, "head_distance_decay": head_distance, "belief_escalation": escalation}
 
 
 def _phase_pr_ci_scan(context: PhaseContext) -> dict[str, Any]:

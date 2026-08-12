@@ -1543,7 +1543,11 @@ def _build_envelope_from_claude_output(
     details = envelope.get("details")
     if not isinstance(details, dict):
         details = {}
-    details.setdefault("agent_subagent_type", subagent_type)
+    # D1 (Kapalı Döngü) — FORCE-set, not setdefault: this field is now the
+    # judge's calibration identity (judgment_bridge reads it as judge_id),
+    # and a setdefault would let the agent's own payload spoof another
+    # judge's identity into the per-judge precision ledger.
+    details["agent_subagent_type"] = subagent_type
     details.setdefault("agent_text", _safe_agent_text_excerpt(agent_text))
     usage = extract_usage(parse_claude_jsonl(raw_stdout))
     if usage is not None:

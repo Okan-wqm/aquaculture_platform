@@ -914,12 +914,84 @@ def _render_observability_section(root: Path) -> list[str]:
         f"p95 {rolling.get('duration_p95_ms', 0)}ms)",
         f"- Alerts this cycle: {len(alerts)}",
     ]
+    # M10/E8 — read the fields the producer actually writes.
+    # `_record_alerts` emits {reason, slo_state, observed}; this renderer
+    # read alert_kind/kind + message/detail — none of which exist — so
+    # every alert an operator ever saw rendered as "None: ". A writer-
+    # reader field mismatch is invisible to CI until someone reads the
+    # report next to the producer, which is what the E8 sweep is.
     for alert in alerts[:5]:
         if isinstance(alert, dict):
             lines.append(
-                f"  - {alert.get('alert_kind') or alert.get('kind')}: "
-                f"{str(alert.get('message') or alert.get('detail') or '')[:100]}"
+                f"  - {alert.get('reason', 'unknown')} "
+                f"[{alert.get('slo_state', '?')}] "
+                f"observed={alert.get('observed')}"
             )
+    # M10/E8 — alerts.jsonl gets its first reader. The ledger had three
+    # writers' worth of history and no consumer: the inline `alerts` list
+    # above shows only THIS cycle, so a degradation trend across nights
+    # was invisible. One honest window line makes the ledger load-bearing.
+    try:
+        from .observability import alerts_path
+
+        # Same trust level as the producer: _record_alerts appends via the
+        # hash-chained append_jsonl, so the verified loader is its mirror.
+        history = load_jsonl_verified(alerts_path(root))
+    except Exception:
+        history = []
+    if history:
+        recent = history[-20:]
+        by_reason: dict[str, int] = {}
+        for row in recent:
+            key = str(row.get("reason") or "unknown")
+            by_reason[key] = by_reason.get(key, 0) + 1
+        summary = ", ".join(f"{k}×{v}" for k, v in sorted(by_reason.items()))
+        lines.append(f"- Alert history (last {len(recent)} rows): {summary}")
+    lines.append("")
+    return lines
+
+
+def _render_learning_events_section(root: Path) -> list[str]:
+    """M9/E8 — the learning journal's FIRST reader.
+
+    Three writers (memory belief/convention recording, goldset promotion,
+    pr-tracking merge outcomes) appended to memory/learning-events.jsonl and
+    nothing ever read it: a system billed as never-forgetting kept a journal
+    of what it learned that no decision or report consumed. This section is
+    deliberately a summary, not a dump — the ledger stays the archive; the
+    report answers "did ARIA learn anything tonight, and what kind?".
+    """
+    try:
+        from .ledger import load_declared_jsonl
+
+        rows = load_declared_jsonl(
+            root / "memory" / "learning-events.jsonl",
+            expected_surface="memory_learning_events",
+        )
+    except Exception:
+        return []
+    if not rows:
+        return []
+    recent = rows[-50:]
+    by_type: dict[str, int] = {}
+    for row in recent:
+        key = str(row.get("event_type") or "unknown")
+        by_type[key] = by_type.get(key, 0) + 1
+    lines = [
+        "## Learning Events",
+        "",
+        f"- Journal rows: {len(rows)} total",
+        "- Last "
+        + str(len(recent))
+        + ": "
+        + ", ".join(f"{k}×{v}" for k, v in sorted(by_type.items())),
+    ]
+    last = recent[-1]
+    lines.append(
+        f"- Most recent: {last.get('event_type')} → "
+        f"{last.get('target_type')}:{str(last.get('target_id'))[:60]} "
+        f"(cycle {last.get('cycle_id')})"
+    )
     lines.append("")
     return lines
 
@@ -1237,6 +1309,7 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
         # missions, quarantine, replay recall (each ledger's first reader).
         *_render_plan016_section(root),
         *_render_observability_section(root),
+        *_render_learning_events_section(root),
         *_render_mission_section(root),
         *_render_quarantine_section(root),
         *_render_replay_recall_section(root),

@@ -188,6 +188,37 @@ def assert_claude_policy_environment() -> None:
             )
 
 
+def _assert_budget_before_spawn() -> None:
+    """F13/E8 — the cost-budget gate's first enforcement point.
+
+    ``cost_budget.assert_within_budget`` documented itself as "call BEFORE
+    spawning claude" and its only repo reference was a COMMENT in
+    genesis_policy: every cap (per-run / daily / monthly) plus the breaker
+    trip existed with no caller — a spawn could not be stopped by budget,
+    ever. This is the single choke point every live ``claude`` spawn passes
+    through, so the gate lives here.
+
+    Scope is deliberate: the gate binds only when ``ARIA_TOOLS_DIR`` names
+    the durable store (the autonomy lanes export it). Without a store there
+    is no spend ledger to project against — local dev and unit tests run
+    ungated, which is honest, not lenient. The estimate is a conservative
+    env-tunable ceiling, not telemetry: the gate's job is to stop a night
+    that would blow the cap, and an overestimate fails toward safety.
+    """
+    tools_dir = os.environ.get("ARIA_TOOLS_DIR")
+    if not tools_dir:
+        return
+    try:
+        estimate = float(os.environ.get("ARIA_ESTIMATED_RUN_USD", "1.50"))
+    except ValueError:
+        estimate = 1.50
+    # Same lazy-import pattern as the implementation_safety hooks below:
+    # the kernel package rides PYTHONPATH in every ARIA lane.
+    from aria_kernel.cost_budget import assert_within_budget
+
+    assert_within_budget(tools_dir, estimated_run_usd=estimate)
+
+
 def preflight_claude_auth(*, timeout_seconds: int = 20) -> dict[str, Any]:
     """Verify the Claude Code CLI is present and managed-auth is usable
     without spending tokens.
@@ -491,6 +522,7 @@ def run_claude_exec(
 ) -> ClaudeRunResult:
     preflight_claude_auth()
     assert_write_runner_ok(skip_permissions=skip_permissions, permission_mode=permission_mode)
+    _assert_budget_before_spawn()
     argv = build_claude_exec_argv(
         model=model,
         effort=effort,

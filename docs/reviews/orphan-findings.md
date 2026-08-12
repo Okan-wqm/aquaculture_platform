@@ -9363,6 +9363,14 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-MEDIUM-660 — no spawn could ever be stopped by budget: the cost gate's only reference was a comment — RESOLVED (this PR, E8/F13)
+
+Severity: MEDIUM (Kapalı Döngü E8; audit F13, adversarially CONFIRMED). `cost_budget.assert_within_budget` documented itself as "call BEFORE spawning `claude`" — per-run/daily/monthly caps, breaker trip on breach, operator reset verb, the works — and its only repo reference was a COMMENT in `genesis_policy.py`. The orchestrator's preflight checks `current_state() == "tripped"`, but nothing could ever TRIP it from spend: the enforcement half of the budget system was dead wire, and a runaway night could not be stopped by cost.
+
+**Fix:** the gate lands at the single choke point every live spawn passes through — `claude_runtime.run_claude_exec` calls `_assert_budget_before_spawn()` right after auth preflight. Scope is deliberate: the gate binds only when `ARIA_TOOLS_DIR` names the durable store (the autonomy lanes export it); without a store there is no spend ledger to project against, so local dev and unit tests run ungated — honest, not lenient. The estimate is a conservative env-tunable ceiling (`ARIA_ESTIMATED_RUN_USD`, default $1.50): the gate's job is stopping a night that would blow the cap, and an overestimate fails toward safety. 4 new tests (ungated without store, over-cap refuses the spawn with the breaker reason, within-cap passes, a source pin so a refactor cannot silently drop the call) + claude-runtime contract suite green (51).
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-MEDIUM-659 — the Thompson bandit drew from an empty ledger forever: exploration-aware scheduling was decoration — RESOLVED (this PR, E8/M3)
 
 Severity: MEDIUM (Kapalı Döngü E8; audit M3, adversarially CONFIRMED). Three readers — `rank_pressure_sources`, the mission scheduler's seeded Thompson draw (`_thompson_source_draws`), and the reflection source-effectiveness rollup — all consumed `knowledge-graph/pressure-source-effectiveness.jsonl`, and NOTHING wrote it. The bandit drew from the uninformative Beta(1,1) prior on every night; the "reward = cycles_merged / cycles_minted" comment described a signal that could never exist. Latent second defect found by writing the writer: the reader sorted the RAW row list, which would have double-counted any source with more than one snapshot — invisible only because the ledger was always empty.

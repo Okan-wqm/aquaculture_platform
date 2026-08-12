@@ -1316,12 +1316,25 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
         )
     except GovernanceError as exc:
         blocked.append({"tool_id": "-", "step": "promotion", "reason": str(exc)[:200]})
+    # D4 — a rule whose measured FP rate earned quarantine becomes a repair
+    # work item (one committed finding per rule, idempotent).
+    rule_defect_summary: dict[str, Any] = {}
+    try:
+        from .rule_health import commit_rule_defect_findings
+
+        rule_defect_summary = commit_rule_defect_findings(
+            repo_root=context.workspace_root,
+            base_dir=context.base_dir,
+        )
+    except GovernanceError as exc:
+        blocked.append({"tool_id": "-", "step": "rule_health", "reason": str(exc)[:200]})
     return {
         "status": "completed",
         "sampled_findings": sampled,
         "judge_requests_minted": fanned_out,
         "consensus_rows": consensus_rows,
         "promoted_findings": promotion_summary.get("promoted_count", 0),
+        "rule_defect_findings": rule_defect_summary.get("committed_count", 0),
         "target_sha": target_sha,
         "blocked": blocked,
     }

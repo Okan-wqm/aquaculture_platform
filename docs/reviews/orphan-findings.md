@@ -9340,6 +9340,7 @@ Severity: CRITICAL (Kapalı Döngü E1). An independent end-to-end audit found t
 4 new tests incl. a deliberate-break pinning the pre-fix identity shape against the REAL gate reader; 260 neighboring convergence/dispatch/independence tests green.
 
 **Owner:** claude (this session). **Status:** RESOLVED. **Remaining arc stops** (tracked, same audit): F1 implementation state machine has no entry, F4 nightly profile forbids PR actions, F5 merge readiness ledger has no writer, F8 no autonomous promoter, F9 convergence state keyed to a non-repeating cycle id, F10 poison-request head-of-line, F11 roles with no minter, F12 human-required context gap, F13/F14 unwired guards.
+
 ## ORPHAN-HIGH-643 — a broken rule of a healthy adapter was invisible: no per-rule FP rate, no rule quarantine, and judge diagnoses of the matcher itself went nowhere — RESOLVED (this PR)
 
 Severity: HIGH (Kapalı Döngü D4). Seven of the first night's ten verdicts were false positives all naming the SAME mechanical matcher defect (the composed-decorator blindness), and those diagnoses terminated in the feedback ledger: health existed only at TOOL level, nothing could silence one broken rule, and "the judges say this matcher is broken" produced no work item — the rule would fire, be refuted, and fire again, forever, at judge-invocation prices.

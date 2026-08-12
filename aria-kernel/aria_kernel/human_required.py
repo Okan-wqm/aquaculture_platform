@@ -224,6 +224,31 @@ def resolve_human_required(
                 base_dir=root,
             )
             record["operator_verdict"] = verdict
+        elif ctx.get("kind") == "belief_escalation" and ctx.get("belief_id"):
+            # M4+M8/E8 — the belief-verdict bridge. `affected_belief_ids`
+            # existed on the feedback row and `_feedback_adjustment` read
+            # it, but no producer ever passed it: verdicts could not move
+            # belief confidence. The GENERAL producer (bind beliefs to
+            # findings by evidence overlap) is comprehension-program work —
+            # mechanical file-matching would smuggle back the drift the
+            # field avoids. But HERE the affected belief is exact by
+            # construction: the operator is adjudicating this belief's own
+            # standing contradiction. run_id names the escalation record
+            # and finding_id names its own kind — real identities, not
+            # pointers to findings that do not exist.
+            belief_id = str(ctx["belief_id"])
+            record_operator_feedback(
+                tool_id=str(ctx.get("source_tool_id") or "unknown"),
+                run_id=request_id,
+                finding_id=f"belief-escalation:{belief_id}",
+                verdict=verdict,
+                severity="medium",
+                note=f"operator adjudication of belief escalation {request_id}",
+                affected_belief_ids=[belief_id],
+                source_type="human",
+                base_dir=root,
+            )
+            record["operator_verdict"] = verdict
 
     path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     append_tools_governance(

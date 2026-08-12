@@ -38,6 +38,17 @@ import ci_executor as _engine
 DEFAULT_DRAIN_BUDGET_SECONDS = 2100
 
 
+# E3/D10b — roles that UNLOCK the planning lane run before judge volume.
+# Order is the arc order: an implementation answer moves a plan further
+# than any number of judge verdicts.
+_PRIORITY_ROLES: tuple[str, ...] = (
+    "implementation",
+    "cross_review",
+    "challenger_plan",
+    "primary_plan",
+)
+
+
 def _drain_budget_seconds() -> int:
     return int(
         os.environ.get("ARIA_DRAIN_BUDGET_SECONDS", DEFAULT_DRAIN_BUDGET_SECONDS)
@@ -100,34 +111,55 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             stop_reason = "budget_exhausted"
             break
 
-        pending_proc = subprocess.run(
-            [
+        # E3/F10 + D10b — role-priority selection with tonight's attempted
+        # set EXCLUDED at the kernel. Two defects die here: (a) a released
+        # claim used to come straight back as the oldest row and END the
+        # night ("repeat_request" was the whole drain's stop condition —
+        # one poison request cost every request behind it); (b) strict
+        # oldest-first starved the planning lane: 200 judge requests meant
+        # challenger/cross_review/implementation envelopes expired at
+        # anchor age before a judge queue ever drained. Lane-unlocking
+        # roles now go first; a failed request is skipped, not fatal.
+        request = None
+        for role_filter in _PRIORITY_ROLES + (None,):
+            argv = [
                 "python3", "-m", "aria_kernel", "agent", "next-pending",
                 "--tools-dir", str(tools_dir),
-            ],
-            capture_output=True,
-            text=True,
-            env={**os.environ, "PYTHONPATH": str(repo_root / "aria-kernel")},
-        )
-        if pending_proc.returncode != 0:
-            _engine._stage(f"drain_next_pending_failed rc={pending_proc.returncode}")
-            sys.stderr.write(pending_proc.stderr[-1000:] + "\n")
-            stop_reason = "next_pending_failed"
-            failed += 1
-            break
-        try:
-            request = json.loads(pending_proc.stdout or "null")
-        except json.JSONDecodeError:
-            _engine._stage("drain_next_pending_not_json")
-            stop_reason = "next_pending_not_json"
-            failed += 1
+            ]
+            if role_filter is not None:
+                argv += ["--role", role_filter]
+            for excluded in sorted(attempted):
+                argv += ["--exclude", excluded]
+            pending_proc = subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                env={**os.environ, "PYTHONPATH": str(repo_root / "aria-kernel")},
+            )
+            if pending_proc.returncode != 0:
+                _engine._stage(f"drain_next_pending_failed rc={pending_proc.returncode}")
+                sys.stderr.write(pending_proc.stderr[-1000:] + "\n")
+                stop_reason = "next_pending_failed"
+                failed += 1
+                request = None
+                break
+            try:
+                candidate = json.loads(pending_proc.stdout or "null")
+            except json.JSONDecodeError:
+                _engine._stage("drain_next_pending_not_json")
+                stop_reason = "next_pending_not_json"
+                failed += 1
+                candidate = None
+                break
+            if candidate and candidate.get("request_id"):
+                request = candidate
+                break
+        if stop_reason in ("next_pending_failed", "next_pending_not_json"):
             break
         request_id = (request or {}).get("request_id")
         if not request_id:
-            break
-        if request_id in attempted:
-            _engine._stage(f"drain_repeat_request request_id={request_id}")
-            stop_reason = "repeat_request"
+            # Nothing pending outside tonight's attempted set — the queue
+            # is exhausted for this run (clean stop, not a failure).
             break
         attempted.add(request_id)
 

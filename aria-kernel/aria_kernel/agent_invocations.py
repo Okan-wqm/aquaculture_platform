@@ -1953,6 +1953,7 @@ def next_pending_request(
     role: str | None = None,
     target_agent: str | None = None,
     base_dir: str | Path | None = None,
+    exclude_request_ids: set[str] | frozenset[str] | None = None,
 ) -> dict[str, Any] | None:
     """Return the oldest pending request matching the optional role/target.
 
@@ -1980,6 +1981,11 @@ def next_pending_request(
         if role and request.get("role") != role:
             continue
         if target_agent and request.get("target_agent") != target_agent:
+            continue
+        # E3/F10 — a caller that already attempted a request tonight can
+        # step PAST it instead of head-of-lining the whole queue: one
+        # structurally failing request used to end the entire drain.
+        if exclude_request_ids and str(request.get("request_id")) in exclude_request_ids:
             continue
         state = derive_request_state(request_id=request["request_id"], base_dir=root)
         if state not in {"PENDING", "REQUEUED"}:

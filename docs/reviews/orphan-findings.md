@@ -3327,10 +3327,10 @@ But the service was missing the corresponding `volumes:` block. Every other NATS
 
 ```yaml
 volumes:
-  - *nats-ca-mount             # ./certs/nats/ca-cert.pem      → /etc/ssl/nats-ca.pem
-  - *nats-clients-mount        # ./certs/nats/clients/         → /etc/ssl/nats-clients/
-  - *nats-client-cert-mount    # ./certs/nats/client-cert.pem  → /etc/ssl/nats-client-cert.pem
-  - *nats-client-key-mount     # ./certs/nats/client-key.pem   → /etc/ssl/nats-client-key.pem
+  - *nats-ca-mount # ./certs/nats/ca-cert.pem      → /etc/ssl/nats-ca.pem
+  - *nats-clients-mount # ./certs/nats/clients/         → /etc/ssl/nats-clients/
+  - *nats-client-cert-mount # ./certs/nats/client-cert.pem  → /etc/ssl/nats-client-cert.pem
+  - *nats-client-key-mount # ./certs/nats/client-key.pem   → /etc/ssl/nats-client-key.pem
 ```
 
 `libs/backend-common/src/nats/nats-connection.factory.ts` resolves `NATS_TLS_CA` with `fs.readFileSync()` at bootstrap and hard-fails with the message above when the file isn't present at the configured path. With no `volumes:` block, `/etc/ssl/nats-ca.pem` did not exist inside the container, so Nest bootstrap aborted before any module was even constructed.
@@ -9193,3 +9193,112 @@ Severity: HIGH. Raised 2026-08-11 by the operator ("belki kodu yanlış yazdı �
 **Proof:** 9 tests incl. the deliberate break (severing the bridge read leaves a red PR pressureless — the feed link is load-bearing), green-clears-red, named-cause unreadability, phase order, and profile matrix; 228 neighbour/parity tests green; kernel invariants 803 green.
 
 **Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-MEDIUM-633 — two generators produced their own reds: a torn npm cache killed installs twice in one day, and the monthly report was born lint-illegal — RESOLVED (this PR)
+
+Severity: MEDIUM. Both observed live on 2026-08-11.
+
+**1. npm cacache tear (runs 31493430731, 31499733901):** the restored `.npm-cache` can carry a torn `_cacache/tmp` entry; `npm ci` then dies on an EEXIST/ENOENT rename race. Twice in one day makes it a defect, not noise. All 9 "Fallback install if cache missed" copies in ci-affected.yml now purge the cache's tmp area and retry ONCE on failure — a second failure is a real problem and still fails the job.
+
+**2. rule-health generator emitted non-compliant markdown (run 31502771221):** unlanguaged fence + raw registry titles beyond 100 columns — the first generated monthly report blocked its own PR. The generator now prepends a targeted `markdownlint-disable MD013 MD040` header with rationale — the same decision, for the same reason, as orphan-findings.md's existing disable: a machine-written evidence artifact must not mangle its payload to satisfy a prose rule. (#1168's already-generated file was hand-fixed on its branch; next month's is born clean.)
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-628 — a sentinel that thought it measured and never did, a confidence gate that punished honesty, and a recall render over a fictional field — RESOLVED (this PR, Kalibre Zekâ Z5a/Z2b/Z2d)
+
+Severity: HIGH. All three found by the Kalibre Zekâ plan's code-exact exploration (2026-08-11).
+
+**1. The starvation sentinel was structurally blind (Z5a).** `WATCHED_SIGNALS` extracted `judged_judges` etc. from `cycles.jsonl` rows — whose schema (CycleRow v3) cannot carry those keys, verified against the live store: every window was `[0,0,0,0,0]` by construction. At the fifth completed cycle the sentinel (#1156's guard) would fire three false alarms and cry wolf forever. Now each signal reads its PRODUCER's ledger (judge-calibration.jsonl series; labelled-tool count via the goldset eligibility filter over the feedback ledger; registry tool count); cycles.jsonl supplies only history LENGTH (which its schema does carry); an empty producer ledger after a full window IS starved — the strongest form of the signal.
+
+**2. `confidence=None` dragged unanimous consensus under the gate (Z2b).** The bridge may store None; the mean coerced it to 0.0, so a correct 0.95+None pair escalated as "low_confidence". Absent confidence now stays out of the mean; a group with no numeric confidence escalates under its own name `missing_confidence` (severity map entry added — an unmapped reason silently drops as benign).
+
+**3. Replay recall never rendered (Z2d).** The report read `row["recall"]` off per-tool rows shaped `{tool_id, status, replayed_items}`; recall lives at the phase level (`replay_recall`). Render fixed to the real contract; the FAZ 6 fixture that had invented the fictional shape is corrected — a test green over a fictional contract certifies the disagreement.
+
+**Proof:** 5 new tests (producer-ledger read, empty-producer-starved, short-history-quiet, None-out-of-mean, missing_confidence + map pin); 145 neighbour tests green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-627 — ARIA's targeting ran on hand-set constants: no number anywhere moved with evidence — RESOLVED (this PR, Kalibre Zekâ Z1)
+
+Severity: HIGH. Raised 2026-08-11 by the operator directive "integrate the most advanced intelligence you know"; the honest reading of ARIA's constitution (every decision number recomputable from append-only ledgers) selects closed-form Bayesian statistics over neural layers — tens of labels cannot train a net, and an opaque weight matrix cannot be written into a governance row.
+
+**Before:** `SOURCE_WEIGHTS` was a frozen table; the mission scheduler's source tiebreak was a frozen rank; operator true/false-positive verdicts changed NOTHING about any source's standing. The learning loop wrote labels that adjusted no dial.
+
+**Z1 (this PR):** new `calibrated_intelligence.py` — `beta_posterior` (conjugate Beta-Binomial, prior mean 0.8 so a first FP cannot halve a source overnight), `calibrated_multiplier` (posterior/prior ratio, clamped [0.25, 1.25]; ZERO labels → exactly 1.0, the load-bearing no-op), `calibrate_source_weights` (operator `weight-override` is never second-guessed), `deterministic_seed` + `thompson_rank` (`random.Random(seed).betavariate` — replay-stable exploration). Wired: `run_pressure` scores with evidence-scaled weights and exposes `calibrated_weights`; `mission_scheduler` replaces ONLY the static source tiebreak with a day-seeded Thompson draw over the effectiveness ledger's merged/minted record (operator `priority` untouched; no ledger → bitwise-identical static behaviour); the report renders "Evidence-scaled weights" movers.
+
+**Proof:** 9 tests — hand-computed closed forms, zero-label golden (bit-identical weights), override-wins, full-key-coverage (the `_pressure` KeyError class), Thompson determinism, and the feed-link deliberate break (severing the calibration block turns the label-moves-weight test red). 319 neighbour tests green.
+
+**Owner:** claude (this session). **Status:** RESOLVED. Z2-Z7 continue per the approved plan.
+
+## ORPHAN-HIGH-631 — the daily sweep retired 29 open CRITICALs by calendar: auto-staleness had no severity floor — RESOLVED (this PR)
+
+Severity: HIGH. Discovered 2026-08-11: the first live finding-state sweep (#1162) staled every OPEN/IN-PROGRESS finding older than 30 days regardless of severity, and the enterprise-grade debt-plan contract refused the PR — correctly. Retiring unfixed critical debt by timeout is the audit-theater class that contract exists to stop.
+
+**Fix:** `planSweep` exempts `severity === 'CRITICAL'` from auto-STALE. A critical leaves OPEN through a fix commit's `Closes:`, an explicit waiver, or the past-deadline BLOCKED branch (which runs first and survives — the stronger signal). Dry-run proof on the live registry: CRITICAL→STALE count 0; non-criticals still stale; past-deadline criticals still BLOCK. 3-test spec pins all three properties. #1162 is closed as generated-under-the-flawed-rule; the next scheduled sweep regenerates a compliant PR.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-CRITICAL-632 — 23 CRITICAL findings are past their deadlines and BLOCKED: the debt needs owners and buckets, not a repin — OPEN
+
+Severity: CRITICAL (process). The same sweep dry-run shows 23 CRITICALs past deadline (e.g. INFRA-CRITICAL-029 deadline 2026-05-15, AISAFETY-CRITICAL-003 2026-07-26) correctly transitioning OPEN→BLOCKED. The debt-plan manifest's `active_critical_ids` precondition will refuse any sweep PR containing them until each gets a truth-table row (owner + bucket) — by design; the repin tool refuses to write over a changed id list. This is real triage work, not ceremony.
+
+**Owner:** operator + claude (next session window). **Deadline:** 2026-08-25. **Status:** OPEN.
+
+## ORPHAN-MEDIUM-634 — the watchdog only believed the calendar: a healed lane stayed "stale" for days because green dispatches did not count — RESOLVED (this PR)
+
+Severity: MEDIUM. Found 2026-08-11 while clearing incident #1005: six lanes' root fixes were merged and their dispatches green, yet the hourly watchdog stayed red — its freshness proof was schedule-event-only, and a rerun of an old scheduled run executes the ORIGINAL commit (without the fix), so weekly/monthly lanes could not clear before their next cron.
+
+**Fix:** drop the event filter — the newest COMPLETED run proves lane health regardless of trigger; a cron that silently stops firing still ages out and alarms. The success-without-evidence guard and completed-run selection are untouched.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-637 — the nightly executor consumed ONE request per run against a producer that mints many per cycle: the agent queue could only grow — RESOLVED (this PR)
+
+Severity: HIGH. By 2026-08-11 the queue held 162 pending judge requests; at one claim per 02:00 cron the judged-judges calibration loop could mathematically never catch up. `MAX_REQUESTS_PER_RUN=30` was exported by the workflow and read by NOTHING (`_max_requests()` had zero callers) — the "tunable that gates nothing" class ci_executor.py itself condemns at ORPHAN-HIGH-472. A second latent defect rode along: the workflow passed only the request id, so every scheduled dispatch ran under the `aria-evidence-judge` default profile even when the kernel minted the request for a different agent.
+
+**Fix:** `drain_pending` in `tools/aria-poc/ci_executor.py` — the scheduled lane loops next-pending → dispatch until the queue empties, `MAX_REQUESTS_PER_RUN` is reached, or the wall-clock budget (`ARIA_DRAIN_BUDGET_SECONDS`, default 2100s inside the 45-minute job) is spent. Each request still runs through the LOCKED single-request argv as a subprocess (invariant I-V3-21) with `target_agent` passed through from the request row. A request that comes back pending after being attempted stops the loop — an environment fault must not be priced as N request failures (the M-2.5 class). Child envelope/transcript paths are aggregated into the step outputs so the artifact upload carries the whole night, not the last request. Any child failure turns the run red WITHOUT discarding submitted successes. Operator-targeted `workflow_dispatch` with `request_id` keeps exact single-request semantics.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-MEDIUM-636 — performance tests asserted wall-clock absolutes on shared runners: whichever branch drew the slow machine went red — RESOLVED (this PR)
+
+Severity: MEDIUM. Run 31506624662 failed #1175's CI-Full on `alert-engine.performance.spec.ts` ("queue 1000 notifications < 100ms": measured 154.9ms) — content-unrelated; the branch drew a loaded runner. The class made CI reds look random ("sürekli farklı şeyler düşüyor").
+
+**Fix:** a fixed busy-workload is timed once per spec run and every bound scales by the measured machine-speed factor (floor 1.0 so a fast machine cannot tighten bounds and invent regressions). All 9 wall-clock assertions in the spec converted; regression-catch property survives, runner-speed sensitivity dies. 20/20 tests green locally.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-635 — consensus treated every judge as equal and every passing score as safe: no weighting, no abstention guarantee — RESOLVED (this PR, Kalibre Zekâ Z2a/Z2c)
+
+Severity: HIGH. The unanimity gate ignored everything ARIA knows about its judges (calibration tp/fp existed, weighed nothing), and a consensus scraping past 0.80 auto-published with no statistical guarantee.
+
+**Fix:** `generate_ai_consensus` gains two calibrated knobs, both default-OFF (legacy gate bit for bit): `judge_weights` (Beta-posterior precision means via `judge_weights_from_calibration`; strict-majority + margin vote — two equal judges still degenerate to unanimity, so the legacy guarantee survives; a new judge weighs at the neutral prior) and `conformal_floor` (`conformal_threshold` split-conformal quantile over past correct-consensus confidences, None under 8 samples; below-floor consensus abstains as `conformal_abstain`, severity HIGH in the escalation map). The cycle derives both from the ledgers each cycle; missing ledgers → None → legacy behaviour; failure costs calibration, never consensus.
+
+**Proof:** hand-checked closed forms (10/13 posterior; α=0.1 quantile), 6 new tests incl. legacy-golden and two-equal-judges-degenerate, 154 neighbour tests green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
+## ORPHAN-HIGH-629 — the duel had no rateable trace: verdicts dropped, risks double-counted, outcomes unrecorded — PARTIALLY RESOLVED (this PR; K2 direction-fidelity remains OPEN)
+
+Severity: HIGH (Kalibre Zekâ Z3). Exploration verified three live defects in the primary-vs-challenger machinery. **This PR closes K1 + K3 and lands the rating substrate:** K1 — the reviewer's `verdict` was asked for by the agent contract, promised by the submit docstring, and dropped by `_normalize_cross_review`; it now persists (legacy rows read back None). K3 — both `cross_review_recorded` events of a round appended the same risks blind, doubling every gate margin and any rating metric; risks now dedup by `risk_id` within the round. Z3b — one knowledge-graph row per evaluated round (`knowledge-graph/duel-ratings.jsonl`, chained `_append_row`, written inside the plan lock; outcomes stored, scores computed at read time via the new deterministic MM-algorithm `bradley_terry` — hand-checked 3-player example). Z4 lands alongside: deterministic `pagerank` over the cached dependency graph; evidence-backed missions get a centrality-scored priority band (CORE keeps 0-3; graph absent → stable enumeration fallback).
+
+**OPEN remainder (same ID):** ~~K2 + Z3d~~ — CLOSED 2026-08-11 (`feat/duel-direction-and-superiority-gate`): K2 — each risk row may carry `applies_to_direction` (omitted = both; legacy envelopes read back bit-identically); direction records now carry direction-scoped risks, per-direction content hashes, and per-direction verdicts (`verdicts` map with scalar fallback); unknown values refuse loudly. Z3d — the ACTIVE promotion gate no longer reads the caller's `eval_window_passed` bool: `record_transition` injects a kernel-computed proof (`genesis_superiority.compute_eval_window_superiority` = `compare_eval_windows` must read `improved` + Bradley-Terry duel superiority once ≥`min_duel_matches` decided duels exist; thin duel ledger defers to the window), and `validate_transition` accepts only that proof — the legacy bool alone can never validate (deliberate-break test).
+
+**Owner:** claude (this session). **Status:** K1/K3/Z3b/Z4 RESOLVED; K2+Z3d OPEN.
+
+## ORPHAN-MEDIUM-639 — ARIA's matching is entirely literal: "the same root cause in a different guise" is structurally invisible — SUBSTRATE LANDED (this PR); model supply remains an OPERATOR item
+
+Severity: MEDIUM (Kalibre Zekâ Z7). Finding fingerprints are sha256 over normalized text, convention matches are path prefixes, FP suppression is exact-fingerprint equality — a paraphrased recurrence of a labelled false positive or a re-emerging known root cause matches nothing. A FIXED embedding model is deterministic, so similarity search fits the replay constitution where trained-in-place models cannot.
+
+**Landed:** `aria_kernel/semantic_memory.py` — model-agnostic seam (`ARIA_EMBEDDER_CMD`: text on stdin → JSON float array on stdout; `ARIA_EMBEDDER_MODEL_ID` labels the space), hash-chained `knowledge-graph/embeddings.jsonl` (vectors are an index, recomputable given the model), plain-python cosine `nearest()` that never compares across model_ids. Without a model EVERY entry point is a structured no-op (None / [] / no ledger side effects) — callers never branch on availability. 5 tests incl. no-op discipline + determinism.
+
+**OPEN remainder (operator):** supply the embedder (local sentence-transformer wrapper or an AI-service read-only bridge) by setting the two env vars on the runner; then wire the two consumers (judgment-sample enrichment; FP-suppression soft-match as OBSERVATION, never suppression). Owner: operator (model) + claude (consumers, next window after model lands). Deadline: 2026-09-15.
+
+## ORPHAN-HIGH-638 — instruction/data boundary in agent prompts was typographic, not structural; and two prompt serialisers had already drifted — RESOLVED (this PR)
+
+Severity: HIGH (Kalibre Zekâ Z8). The three-layer prompt standard (markdown instructions + XML-tagged data payloads + strict JSON response) existed only for the cross-reviewer/implementer `<untrusted_*>` tags; every other derived-data section (repository map, established knowledge, recent intent, evidence list) sat untagged in the instruction stream — prompt-injection text inside them was typographically indistinguishable from kernel instructions. Discovered alongside: `planner_dispatch_hook._serialise_claim_metadata_for_env` never carried FAZ 4's `established_knowledge`/`recent_intent` — a knowledge-bearing request dispatched via the planner hook would fail its prompt-hash binding (latent; planner-role refs never attach knowledge, which is why it never fired).
+
+**Fix:** `render_invocation_prompt` v2 wraps all derived-data sections in `<derived_context section="...">` / `<evidence_payload>` tags plus an explicit data-notice line. Version selection is ON THE ROW: `create_agent_invocation_request` — the single request producer — stamps `prompt_render_version = PROMPT_RENDER_VERSION (2)` on every mint (**no_legacy_mint: the legacy format is unmintable by construction**); an absent field means a historical row and renders v1 solely so recorded prompt hashes keep replaying (append-only audit history is never rewritten). Both serialisers (`fuse_prompt_envelope` via `_FUSED_ENVELOPE_KEYS`, planner-hook env serialiser) carry the version + knowledge fields — the FAZ 4 AST sync test pins the first, `test_prompt_render_versioning.py` pins the rest (deliberate-break: removing the dispatch or the stamp goes red).
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+**Owner:** claude (this session). **Status:** RESOLVED (K1/K3/Z3b/Z4 in #1184; K2+Z3d in this PR).

@@ -159,6 +159,15 @@ def _serialise_claim_metadata_for_env(
         # never hash back to the recorded value. Two serialisers, one
         # contract — they must carry the same fields.
         "repository_map": claim.get("repository_map"),
+        # FAZ 4 + Z8 — the renderer reads all three, so a serialiser that
+        # drops any of them hands the executor a prompt it can never hash
+        # back to the recorded value (the exact defect class the
+        # repository_map comment above documents). prompt_render_version
+        # selects the tagged v2 body; dropping it re-renders every fresh
+        # row as v1 and fails the binding on the single-claim path.
+        "established_knowledge": claim.get("established_knowledge"),
+        "recent_intent": claim.get("recent_intent"),
+        "prompt_render_version": claim.get("prompt_render_version"),
         "cycle_id": claim.get("cycle_id"),
         "plan_revision_hash": claim.get("plan_revision_hash"),
         "context_hash": claim.get("context_hash"),

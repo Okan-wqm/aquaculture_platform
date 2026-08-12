@@ -344,7 +344,25 @@ def generate_ai_consensus(
     min_confidence: float = CONSENSUS_MIN_CONFIDENCE,
     workspace_root: str | Path | None = None,
     base_dir: str | Path | None = None,
+    judge_weights: dict[str, float] | None = None,
+    conformal_floor: float | None = None,
 ) -> dict[str, Any]:
+    """Kalibre Zekâ Z2a/Z2c — both knobs default OFF, preserving the
+    legacy gate bit for bit:
+
+    * ``judge_weights`` (judge_id -> Beta-posterior precision mean, from
+      ``calibrated_intelligence.judge_weights_from_calibration``): the
+      unanimity requirement becomes a WEIGHTED vote — the winning verdict
+      must carry a strict majority of total weight AND every dissenter's
+      weight share stays under the margin; with two equal judges a single
+      dissenter still escalates, exactly like unanimity, so behaviour only
+      shifts when the fleet grows or posteriors genuinely separate.
+    * ``conformal_floor`` (from ``conformal_threshold`` over past CORRECT
+      consensus confidences): a passing consensus whose confidence falls
+      below the floor abstains to a human (``conformal_abstain``) with the
+      distribution-free guarantee that at most ~alpha of genuinely-correct
+      consensuses are escalated.
+    """
     if min_confidence < 0 or min_confidence > 1:
         raise GovernanceError("min_confidence must be between 0 and 1")
     ai_rows = [
@@ -378,12 +396,50 @@ def generate_ai_consensus(
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "single_judge"))
             continue
         verdicts = {str(row.get("verdict") or "") for row in rows}
-        avg_confidence = sum(float(row.get("confidence") or 0.0) for row in rows) / len(rows)
-        if len(verdicts) != 1:
-            uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "judge_disagreement"))
+        # Kalibre Zekâ Z2b — a judge whose bridge stored confidence=None used
+        # to be coerced to 0.0, silently dragging the mean under the 0.80
+        # gate: a unanimous, correct pair could escalate as "low_confidence"
+        # because one row lacked a number. Absent confidence now stays out of
+        # the mean; a group with NO numeric confidence at all escalates under
+        # its own name instead of masquerading as low confidence.
+        confidences = [
+            float(row["confidence"]) for row in rows
+            if isinstance(row.get("confidence"), (int, float))
+        ]
+        if judge_weights is None:
+            if len(verdicts) != 1:
+                uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "judge_disagreement"))
+                continue
+        else:
+            # Z2a — weighted vote. Weight-by-verdict; unknown judges weigh
+            # at the neutral prior mean so a new judge neither dominates
+            # nor vanishes. Strict-majority + margin: the winner needs
+            # > 0.5 + margin of total weight, which with two equal judges
+            # degenerates to unanimity — the legacy guarantee survives.
+            _prior_mean = 0.8
+            _margin = 0.10
+            by_verdict: dict[str, float] = {}
+            for judge_id, row in by_judge.items():
+                weight = float(judge_weights.get(judge_id, _prior_mean))
+                by_verdict[str(row.get("verdict") or "")] = by_verdict.get(str(row.get("verdict") or ""), 0.0) + weight
+            total_weight = sum(by_verdict.values()) or 1.0
+            winner, winner_weight = max(by_verdict.items(), key=lambda kv: kv[1])
+            if winner_weight / total_weight <= 0.5 + _margin:
+                uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "judge_disagreement"))
+                continue
+            verdicts = {winner}
+        if not confidences:
+            uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "missing_confidence"))
             continue
+        avg_confidence = sum(confidences) / len(confidences)
         if avg_confidence < min_confidence:
             uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "low_confidence"))
+            continue
+        # Z2c — conformal abstention: below the calibrated floor, a
+        # passing consensus still routes to a human. The floor is None on
+        # a short window, so this gate never fires before evidence exists.
+        if conformal_floor is not None and avg_confidence < conformal_floor:
+            uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "conformal_abstain"))
             continue
         # Plan 024 §C — evidence-gated arbiter. When a workspace is supplied, the
         # union of judge evidence is only published as consensus if it actually

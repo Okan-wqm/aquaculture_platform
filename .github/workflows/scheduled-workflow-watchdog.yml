@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout watchdog manifest
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Verify scheduled workflow freshness and persist incident
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -36,15 +36,24 @@ jobs:
                 owner,
                 repo,
                 workflow_id: watched.workflow,
-                event: 'schedule',
+                // No event filter, deliberately (2026-08-11). The schedule-only
+                // filter meant a lane whose ROOT FIX had merged and whose
+                // dispatch reran GREEN stayed "stale" until its next cron —
+                // weekly/monthly lanes kept the incident open (and this
+                // watchdog red, hourly) for DAYS after the lane was healthy.
+                // A rerun of an old scheduled run cannot clear it either: a
+                // rerun executes the ORIGINAL commit, without the fix. The
+                // question this watchdog answers is "is the LANE fresh and
+                // healthy" — a green completed run proves that regardless of
+                // its trigger, while a lane whose cron silently stops firing
+                // still ages out and alarms.
+                //
                 // More than one: the newest run is often still IN PROGRESS,
                 // and its conclusion is null until it completes. Judging
                 // per_page:1 turned every mid-run poll into a "missing"
                 // incident — database-wal-archive-freshness (cron */5,
-                // threshold 1h) tripped this every hour. The question this
-                // watchdog answers is "has a scheduled run COMPLETED
-                // successfully within the age window", so it must judge the
-                // newest completed run, not the newest run.
+                // threshold 1h) tripped this every hour. Judge the newest
+                // COMPLETED run, not the newest run.
                 per_page: 10,
               });
               const run = response.data.workflow_runs.find(

@@ -440,6 +440,57 @@ def conventions_for_paths(
     return related[: max(0, int(limit))]
 
 
+def _effectiveness_path(workspace_root: str | Path) -> Path:
+    return (
+        Path(workspace_root)
+        / "aria-tools"
+        / "knowledge-graph"
+        / "pressure-source-effectiveness.jsonl"
+    )
+
+
+def record_pressure_source_outcome(
+    *,
+    workspace_root: str | Path,
+    source_type: str,
+    minted: int = 0,
+    converged: int = 0,
+    merged: int = 0,
+    rejected: int = 0,
+    cost_usd: float | None = None,
+) -> dict[str, Any]:
+    """M3/E8 — the effectiveness ledger's FIRST writer.
+
+    `rank_pressure_sources`, the mission scheduler's Thompson bandit and
+    the reflection source-effectiveness rollup all read this ledger — and
+    nothing ever wrote it, so the bandit drew from the uninformative prior
+    forever: exploration-aware scheduling was pure decoration. The writer
+    lives next to the reader (one schema owner) and appends CUMULATIVE
+    per-source counters: the newest row per source_type is that source's
+    standing, so the reader folds latest-per-source instead of trusting
+    row order.
+    """
+    if not source_type:
+        raise ValueError("source_type must be non-empty")
+    path = _effectiveness_path(workspace_root)
+    prior: dict[str, Any] = {}
+    if path.exists():
+        for parsed in _read_jsonl_strict(path):
+            if parsed.get("source_type") == source_type:
+                prior = parsed
+    row = {
+        "source_type": source_type,
+        "cycles_minted": int(prior.get("cycles_minted", 0) or 0) + max(0, minted),
+        "cycles_converged": int(prior.get("cycles_converged", 0) or 0) + max(0, converged),
+        "cycles_merged": int(prior.get("cycles_merged", 0) or 0) + max(0, merged),
+        "cycles_rejected": int(prior.get("cycles_rejected", 0) or 0) + max(0, rejected),
+        "avg_cost_usd": cost_usd if cost_usd is not None else prior.get("avg_cost_usd"),
+        "observed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+    }
+    _append_row(path, row)
+    return row
+
+
 def rank_pressure_sources(
     *,
     workspace_root: str | Path,
@@ -456,12 +507,24 @@ def rank_pressure_sources(
     fold_plan_state pattern; for V9.0-F we ship a simple cache-less
     read since the file is small bounded — operator can add caching
     in V10.4 if perf-profile shows the need).
+
+    M3/E8 — rows are cumulative snapshots (see
+    `record_pressure_source_outcome`); the newest row per source_type is
+    that source's standing, so this folds latest-per-source. Pre-M3 the
+    raw row list went straight into the sort, which would have double-
+    counted any source with history — invisible only because the ledger
+    had no writer and was therefore always empty.
     """
-    path = Path(workspace_root) / "aria-tools" / "knowledge-graph" / "pressure-source-effectiveness.jsonl"
+    path = _effectiveness_path(workspace_root)
     ok, _ = verify_chain_or_quarantine(path)
     if not ok or not path.exists():
         return []
-    rows = list(_read_jsonl_strict(path))
+    latest: dict[str, dict[str, Any]] = {}
+    for parsed in _read_jsonl_strict(path):
+        st = str(parsed.get("source_type") or "")
+        if st:
+            latest[st] = parsed
+    rows = list(latest.values())
     def _effectiveness(r: dict[str, Any]) -> float:
         minted = max(1, int(r.get("cycles_minted", 0) or 0))
         converged = int(r.get("cycles_converged", 0) or 0)

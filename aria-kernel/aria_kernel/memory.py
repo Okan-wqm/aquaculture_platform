@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import fnmatch
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -781,6 +782,115 @@ def decay_stale_beliefs_by_age(
         "ttl_days": ttl_days,
         "decayed_count": len(decayed),
         "decayed": decayed,
+    }
+
+
+def _changed_files_since(repo_root: Path, base_sha: str) -> list[str] | None:
+    """git diff --name-only base_sha..HEAD, or None if the range is unusable."""
+    import subprocess
+
+    if not re.fullmatch(r"[0-9a-f]{7,64}", base_sha or ""):
+        return None
+    try:
+        # Confirm both ends are real commits before diffing — a base_sha
+        # that is not in this clone's history is not a signal, it's noise.
+        subprocess.run(
+            ["git", "cat-file", "-e", f"{base_sha}^{{commit}}"],
+            cwd=repo_root, capture_output=True, check=True, timeout=5,
+        )
+        proc = subprocess.run(
+            ["git", "diff", "--name-only", f"{base_sha}..HEAD"],
+            cwd=repo_root, capture_output=True, text=True, check=False, timeout=15,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+
+
+def _evidence_touches_changed(evidence_refs: list[str], changed: set[str]) -> bool:
+    """Does any belief evidence ref intersect the changed-file set?
+
+    Concrete paths match exactly (the ref carries no line for beliefs, but
+    strip one if present); glob refs match by fnmatch — a belief about a
+    CLASS of files is stale the moment any member of the class changes.
+    """
+    for raw in evidence_refs:
+        ref = str(raw).split(":", 1)[0].replace("\\", "/")
+        while ref.startswith("./"):
+            ref = ref[2:]
+        if any(ch in ref for ch in ("*", "?", "[")):
+            if any(fnmatch.fnmatch(path, ref) for path in changed):
+                return True
+        elif ref in changed:
+            return True
+    return False
+
+
+def decay_beliefs_by_head_distance(
+    *,
+    cycle_id: str,
+    repo_root: str | Path,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """M6/E6 — remember what OTHERS did to the repo.
+
+    The pre-E6 belief-staleness triggers were the FATES-hash cycle-diff
+    (fires only on a discovery run) and the wall-clock TTL. Neither notices
+    when someone ELSE merges a change to a file a belief depends on — the
+    belief stays ``supported`` at full confidence against code that has
+    moved under it (live: 3 beliefs anchored 102 commits behind HEAD, all
+    ``supported``/1.0). This is the missing signal: for each supported
+    belief, if any commit between its anchor SHA and HEAD touched one of its
+    evidence files, the belief becomes ``needs_revalidation`` — regardless
+    of WHO made the change or whether they used an ARIA trailer.
+
+    Idempotent per belief per cycle (only ``supported`` rows are examined;
+    the existing revalidation machinery owns the rest), and it stamps the
+    same revalidation-cycle counter the age-decay path uses so a belief that
+    keeps drifting eventually goes ``stale``.
+    """
+    root = ensure_tools_dir(base_dir)
+    repo = Path(repo_root)
+    repo_state = _repo_state(root, cycle_id)
+    revalidated: list[dict[str, Any]] = []
+    for belief in latest_beliefs(load_jsonl(root / "memory" / "beliefs.jsonl")):
+        if belief.get("status") != "supported":
+            continue
+        base_sha = str(belief.get("base_commit_sha") or "")
+        if not base_sha:
+            continue
+        changed = _changed_files_since(repo, base_sha)
+        if not changed:
+            continue
+        evidence_refs = _array_of_strings(belief.get("evidence_refs"))
+        if not _evidence_touches_changed(evidence_refs, set(changed)):
+            continue
+        revalidation_cycles = int(belief.get("needs_revalidation_cycles", 0)) + 1
+        status = "stale" if revalidation_cycles >= STALE_AFTER_REVALIDATION_CYCLES else "needs_revalidation"
+        row = dict(belief)
+        row.update({
+            "status": status,
+            "needs_revalidation_cycles": revalidation_cycles,
+            "stale_reason": "evidence file changed since anchor commit (head-distance decay)",
+            "verification_status": "needs_revalidation",
+        })
+        _stamp_belief_freshness(
+            row, cycle_id=cycle_id, repo_state=repo_state, status=status,
+            prior_verified_at=belief.get("verified_at"),
+        )
+        append_jsonl(root / "memory" / "beliefs.jsonl", row)
+        revalidated.append({
+            "belief_id": belief.get("belief_id"),
+            "base_commit_sha": base_sha,
+            "status": status,
+        })
+    return {
+        "schema_version": 1,
+        "cycle_id": cycle_id,
+        "revalidated_count": len(revalidated),
+        "revalidated": revalidated,
     }
 
 

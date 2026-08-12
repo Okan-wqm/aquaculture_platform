@@ -9363,6 +9363,14 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-MEDIUM-655 — ARIA ranked "where to invest next" every night and never invested — RESOLVED (this PR, E8/M12)
+
+Severity: MEDIUM (Kapalı Döngü E8; audit M12, adversarially CONFIRMED). `compute_proactive_priorities` ranked every tool by impact × opportunity each cycle and persisted the worklist to `proactive/priorities.jsonl` — and NOTHING read it back. The "where to invest next" list was computed nightly, appended forever, and consumed never: pure write-only memory on the exact surface the operator's charter (proactive professionalization) depends on.
+
+**Fix:** the ranking becomes schedulable work. `latest_priorities()` (reader lives next to the writer — one schema owner) feeds `generate_task_candidates`: a top-ranked entry with priority ≥ 60 becomes a `proactive_priority` task candidate (unblocked by definition — the ranking's whole point is work ARIA can start without an operator: build the goldset, gather judgments), scored by the ranking's own 0-100 priority so reactive sources still outrank it when something is actually on fire. Adoption idempotency folds the same tool re-ranked tomorrow into its standing mission. 2 new tests (high-priority entry becomes a candidate, low-priority does not, missing file is fine) + task/mission/proactive suites green. NOT this change: the opportunity-saturation nuance (all-1.0 during bootstrap) is honest ignorance, not a defect — when every tool is equally unknown, impact alone ranks, which is the designed behavior.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-MEDIUM-654 — the learning journal had three writers and no reader, and every SLO alert rendered as "None: " — RESOLVED (this PR, E8/M9+M10)
 
 Severity: MEDIUM (Kapalı Döngü E8; audit M9+M10, both adversarially CONFIRMED). (M9) `memory/learning-events.jsonl` had three producers — memory belief/convention recording, goldset promotion, pr-tracking merge outcomes — and ZERO consumers: the system billed as never-forgetting kept a journal of what it learned that no decision or report ever read. (M10) The SLO alert renderer read `alert_kind`/`kind` + `message`/`detail` — fields no producer writes (`_record_alerts` emits `reason`/`slo_state`/`observed`) — so every alert an operator ever saw rendered as "None: "; and `observability/alerts.jsonl` itself had no reader at all, so a degradation trend across nights was invisible (the inline dashboard list shows only the current cycle). A pre-existing test pinned the fictional `alert_kind`/`message` shape — green over a contract that never existed (the same disease as C6).

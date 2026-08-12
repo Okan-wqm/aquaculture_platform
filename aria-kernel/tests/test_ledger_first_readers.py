@@ -98,5 +98,56 @@ class AlertRenderTests(unittest.TestCase):
         self.assertIn("Alert history (last 3 rows): artifact_count_cliff×3", lines)
 
 
+class ProactivePrioritiesBecomeWorkTests(unittest.TestCase):
+    """M12/E8 — the proactive ranking's first consumer.
+
+    compute_proactive_priorities persisted "where to invest next" every
+    cycle and nothing read it back: ARIA ranked its investments nightly and
+    never invested. These pin the pipe: a high-priority entry becomes a
+    schedulable task candidate; a low-priority one does not.
+    """
+
+    def _seed_priorities(self, root: Path, top: list[dict]) -> None:
+        from aria_kernel.feedback_store import append_jsonl
+
+        path = root / "proactive" / "priorities.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        append_jsonl(path, {"schema_version": 1, "cycle_id": "cyc-prev", "top": top})
+
+    def test_high_priority_entry_becomes_candidate(self) -> None:
+        from aria_kernel.task import generate_task_candidates
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = ensure_tools_dir(Path(tmp) / "aria-tools")
+            self._seed_priorities(root, [
+                {"tool_id": "adapter-hot", "priority": 80.0, "impact": 1.0,
+                 "opportunity": 0.8, "reasons": ["no_active_goldset"]},
+                {"tool_id": "adapter-cold", "priority": 12.0, "impact": 0.3,
+                 "opportunity": 0.4, "reasons": []},
+            ])
+            payload = generate_task_candidates(cycle_id="cyc-m12", base_dir=root)
+        sources = {
+            t["source_id"]: t for t in payload["tasks"]
+            if t.get("source") == "proactive_priority"
+        }
+        self.assertIn("adapter-hot", sources)
+        self.assertNotIn("adapter-cold", sources)
+        hot = sources["adapter-hot"]
+        self.assertEqual(hot["blocked_by"], [])
+        self.assertEqual(hot["score"], 80.0)
+        self.assertIn("no_active_goldset", hot["title"])
+
+    def test_no_priorities_file_is_fine(self) -> None:
+        from aria_kernel.task import generate_task_candidates
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = ensure_tools_dir(Path(tmp) / "aria-tools")
+            payload = generate_task_candidates(cycle_id="cyc-m12", base_dir=root)
+        self.assertNotIn(
+            "proactive_priority",
+            {t.get("source") for t in payload["tasks"]},
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

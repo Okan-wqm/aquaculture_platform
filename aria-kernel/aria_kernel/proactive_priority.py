@@ -124,3 +124,19 @@ def compute_proactive_priorities(
     from .feedback_store import append_jsonl
     append_jsonl(path, result)
     return result
+
+
+def latest_priorities(*, base_dir: str | Path | None = None) -> dict[str, Any] | None:
+    """M12/E8 — the priorities ledger's first reader.
+
+    `compute_proactive_priorities` persisted a ranked worklist every cycle
+    and NOTHING read it back: ARIA computed "where to invest next" nightly
+    and then never invested. The reader lives here (next to the writer, one
+    schema owner) so the task-candidate pipe can turn the ranking into
+    schedulable work without holding a second copy of the row shape.
+    """
+    from .feedback_store import load_jsonl
+
+    root = ensure_tools_dir(base_dir)
+    rows = load_jsonl(root / "proactive" / "priorities.jsonl")
+    return rows[-1] if rows else None

@@ -74,7 +74,7 @@ class ProducerKwargsTests(unittest.TestCase):
             built <= accepted,
             f"builder emits kwargs run_reflection does not accept: {built - accepted}",
         )
-        self.assertEqual(len(built), 6)
+        self.assertEqual(len(built), 7)
 
 
 class PedagogySnapshotTests(unittest.TestCase):
@@ -99,6 +99,11 @@ class PedagogySnapshotTests(unittest.TestCase):
 
 class ReflectionRowCarriesProducersTests(unittest.TestCase):
     def test_reflection_row_renders_producer_sub_objects(self) -> None:
+        replay = {
+            "status": "completed",
+            "tools": [{"tool_id": "t1", "status": "ok", "replayed_items": 3}],
+            "replay_recall": {"judged_judges": 5},
+        }
         with tempfile.TemporaryDirectory() as tmp:
             root = ensure_tools_dir(Path(tmp) / "aria-tools")
             row = run_reflection(
@@ -114,6 +119,7 @@ class ReflectionRowCarriesProducersTests(unittest.TestCase):
                             "judge_calibration": {"judged_judges": 3},
                             "calibration_recommendation": {"x": 1},
                             "proactive_priority": {"y": 2},
+                            "judge_replay": replay,
                         },
                     },
                     pedagogy_lint_result={
@@ -128,6 +134,30 @@ class ReflectionRowCarriesProducersTests(unittest.TestCase):
         self.assertEqual(row["skill_genesis"], {"resolved": 2})
         self.assertEqual(row["cycle_runner"], {"status": "ok"})
         self.assertEqual(row["calibration"], {"judged_judges": 3})
+        self.assertEqual(row["judge_replay"], replay)
+
+    def test_replay_recall_section_renders_from_reflection(self) -> None:
+        """C6 deliberate-break: pre-fix this section read a judge_replay
+        field off the sealed CycleRow — a field the frozen+slotted
+        dataclass can never carry — so it was structurally unreachable."""
+        from aria_kernel.reflection import _render_replay_recall_section
+
+        lines = _render_replay_recall_section(
+            {
+                "cycle_id": "cyc-x",
+                "judge_replay": {
+                    "tools": [
+                        {"tool_id": "t1", "status": "ok", "replayed_items": 2}
+                    ],
+                    "replay_recall": {"judged_judges": 4},
+                },
+            }
+        )
+        self.assertIn("## Judge Replay Recall", lines)
+        self.assertTrue(any("Replay-judged judges: 4" in ln for ln in lines))
+        self.assertTrue(any("t1: ok (replayed 2)" in ln for ln in lines))
+        # No replay data → section legitimately absent, not an error.
+        self.assertEqual(_render_replay_recall_section({}), [])
 
 
 if __name__ == "__main__":

@@ -9363,6 +9363,14 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-MEDIUM-652 — the Judge Replay Recall section read a field the sealed cycle row can never carry — RESOLVED (this PR, E8/C6)
+
+Severity: MEDIUM (Kapalı Döngü E8; audit C6, adversarially CONFIRMED). `_render_replay_recall_section` searched `cycles.jsonl` for a completed row carrying `judge_replay` — but Plan 024 §E routes every production cycle row through the frozen+slotted `CycleRow` dataclass, which has no such field and whose `to_jsonl` cannot emit one. The lookup matched nothing, ever; the section was structurally unreachable. Worse, its test hand-appended a `judge_replay` field onto a cycles.jsonl row (a shape no production writer can emit) — green over a fictional contract, which is exactly how the defect survived under CI.
+
+**Fix:** the judge_replay phase result travels the C5 producer-kwargs pipe like every other producer output — `run_reflection` gains an additive `judge_replay_result` kwarg, the shared builder carries `phases["judge_replay"]`, the cycle CLI path passes `context.result("judge_replay")`, and the renderer reads the reflection row's `judge_replay` sub-object. The dishonest test is rewritten against the real transport (and renamed: `..._from_the_reflection_row`). CycleRow stays frozen — the sealed row is deliberately minimal; the reflection row is the operator surface. 2 new tests + 43 replay/report/pipeline tests green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-MEDIUM-651 — six producer phases ran every night and their output never reached the report — RESOLVED (this PR, E8/C5)
 
 Severity: MEDIUM (Kapalı Döngü E8; audit C5, adversarially CONFIRMED). `run_reflection` accepts eight producer kwargs and the daily report renders a section for each — but the autonomy orchestrator's five post-drain call sites passed only `convergence_result`/`review_result`, and `defer_reflection=True` skips the in-cycle reflection that used to carry the calibration trio. Net effect on the autonomy lane (the ONLY lane that will run nightly): the Pedagogy, Skill-Genesis, Calibration, Recommendation, Proactive and Cycle-Runner sections could NEVER render. The producers ran (judge_calibration/calibration_recommendation/proactive_priority live in `cycle_result["phases"]`; skill_genesis on `cycle_summary`), the renderers existed, and no call site connected them — `pedagogy_lint_result`/`skill_genesis_result`/`cycle_runner_result` had ZERO producers repo-wide. The defect was born by drift: one call site gained `convergence_result`, the other four never caught up.

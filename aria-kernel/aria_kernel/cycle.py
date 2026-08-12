@@ -1472,6 +1472,9 @@ def _phase_reflection(context: PhaseContext) -> dict[str, Any]:
         calibration_result=context.result("judge_calibration") or None,
         recommendation_result=context.result("calibration_recommendation") or None,
         proactive_result=context.result("proactive_priority") or None,
+        # C6/E8 — the sealed CycleRow cannot carry judge_replay
+        # (frozen+slots); the reflection row is its operator surface.
+        judge_replay_result=context.result("judge_replay") or None,
     )
 
 

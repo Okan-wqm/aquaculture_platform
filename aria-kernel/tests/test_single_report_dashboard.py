@@ -155,32 +155,27 @@ class ReportSectionsTest(unittest.TestCase):
         self.assertIn("## Quarantined Tools", lines)
         self.assertIn("adapter-a: chain gap", lines)
 
-    def test_replay_recall_surfaces_from_the_sealed_cycle_row(self) -> None:
-        from aria_kernel.ledger import append_declared_jsonl
+    def test_replay_recall_surfaces_from_the_reflection_row(self) -> None:
+        # C6/E8 — this test used to hand-append a judge_replay field onto a
+        # cycles.jsonl row, a shape no PRODUCTION writer can emit (Plan 024
+        # §E routes every cycle row through the frozen+slotted CycleRow,
+        # which has no judge_replay field) — a test green over a fictional
+        # contract, hiding that the section was structurally unreachable.
+        # The real transport is the reflection row's judge_replay sub-object.
         from aria_kernel.reflection import _render_replay_recall_section
 
-        with TemporaryDirectory() as tmp:
-            root = Path(tmp) / "aria-tools"
-            ensure_tools_dir(root)
-            append_declared_jsonl(
-                root / "cycles.jsonl",
-                {
-                    "cycle_id": "cyc-replay", "status": "completed",
-                    # The REAL phase shape (Z2d): per-tool rows carry
-                    # replayed_items; recall lives at the phase level. The
-                    # first fixture invented a row["recall"] the phase never
-                    # writes — a test green over a fictional contract.
-                    "judge_replay": {
-                        "replay_recall": {"judged_judges": 4},
-                        "tools": [{
-                            "tool_id": "adapter-a", "status": "dispatched",
-                            "replayed_items": 3,
-                        }],
-                    },
-                },
-                expected_surface="cycles",
-            )
-            lines = "\n".join(_render_replay_recall_section(root))
+        lines = "\n".join(_render_replay_recall_section({
+            "cycle_id": "cyc-replay",
+            # The REAL phase shape (Z2d): per-tool rows carry
+            # replayed_items; recall lives at the phase level.
+            "judge_replay": {
+                "replay_recall": {"judged_judges": 4},
+                "tools": [{
+                    "tool_id": "adapter-a", "status": "dispatched",
+                    "replayed_items": 3,
+                }],
+            },
+        }))
 
         self.assertIn("## Judge Replay Recall", lines)
         self.assertIn("Replay-judged judges: 4", lines)
@@ -197,7 +192,8 @@ class ReportSectionsTest(unittest.TestCase):
             self.assertEqual(refl._render_observability_section(root), [])
             self.assertEqual(refl._render_mission_section(root), [])
             self.assertEqual(refl._render_quarantine_section(root), [])
-            self.assertEqual(refl._render_replay_recall_section(root), [])
+            # C6 — replay recall reads the reflection row, not the store.
+            self.assertEqual(refl._render_replay_recall_section({}), [])
 
 
 class LaneContractPinTest(unittest.TestCase):

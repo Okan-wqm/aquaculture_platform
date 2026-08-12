@@ -81,6 +81,9 @@ def producer_reflection_kwargs(
         "calibration_result": phases.get("judge_calibration") or None,
         "recommendation_result": phases.get("calibration_recommendation") or None,
         "proactive_result": phases.get("proactive_priority") or None,
+        # C6 — the sealed CycleRow is frozen+slotted and cannot carry
+        # judge_replay; the reflection row is its only honest transport.
+        "judge_replay_result": phases.get("judge_replay") or None,
         "skill_genesis_result": cycle_summary.get("skill_genesis") or None,
         "cycle_runner_result": cycle_summary.get("cycle") or None,
         "pedagogy_lint_result": pedagogy_lint_result,

@@ -34475,6 +34475,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/rule-health/2026-08-10-rule-health-2026-07.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/security-reviewer/2026-04-04-full-platform-audit.md",
       "prettier_managed": true
     },

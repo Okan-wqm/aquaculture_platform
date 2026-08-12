@@ -200,14 +200,26 @@ def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
 
 
 def _default_ci_executor_path(base_dir: Path) -> Path:
-    """Resolve the ci_executor.py path from base_dir.
+    """Resolve the ci_executor.py path — from the CODE tree, not the store.
 
-    base_dir is the aria-tools directory inside the repo; the repo
-    root is its parent; ci_executor.py lives at
-    <repo>/tools/aria-poc/ci_executor.py. Operators can override via
-    the explicit ``ci_executor_path`` argument when running outside a
-    standard checkout.
+    `base_dir.parent` was correct while the ledgers lived at
+    `<repo>/aria-tools`. After the durable-store cutover ARIA_TOOLS_DIR is
+    `<repo>/.aria-state-store/tools`, so the old arithmetic resolved
+    `<repo>/.aria-state-store/tools/aria-poc/ci_executor.py` — a path
+    inside the STATE branch worktree, which contains no code. Every
+    in-cycle dispatch therefore spawned a nonexistent file (exit 2), the
+    plan state never moved, and the claim it had already taken was held
+    for the whole lease window. Nothing overrode the default: this
+    function's result was the only path any caller used.
+
+    The executor lives in the repository that contains THIS module, so
+    resolve from the package location and fall back to the legacy
+    arithmetic only if that tree does not carry it (installed-package
+    layouts).
     """
+    from_code_tree = Path(__file__).resolve().parents[2] / "tools" / "aria-poc" / "ci_executor.py"
+    if from_code_tree.is_file():
+        return from_code_tree
     return base_dir.parent / "tools" / "aria-poc" / "ci_executor.py"
 
 
@@ -330,7 +342,11 @@ def dispatch_one_pending_planner_request(
     # defensive double-claim reject in agent_invocations was noisy.
     if ci_executor_path is None:
         ci_executor_path = _default_ci_executor_path(root)
-    repo_root = root.parent
+    # PYTHONPATH and cwd must name the CODE tree for the same reason the
+    # executor path does: under the durable store `root.parent` is
+    # `<repo>/.aria-state-store`, which has no `aria-kernel` package and
+    # no repository to work in. Derive both from the resolved executor.
+    repo_root = ci_executor_path.resolve().parents[2]
     argv: list[str] = [
         "python3",
         str(ci_executor_path),

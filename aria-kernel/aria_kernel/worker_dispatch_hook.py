@@ -73,6 +73,12 @@ def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
 
 
 def _default_worker_executor_path(base_dir: Path) -> Path:
+    # Same defect and same fix as planner_dispatch_hook: after the durable
+    # store cutover `base_dir.parent` is `<repo>/.aria-state-store`, which
+    # holds ledgers, not code. Resolve from the CODE tree.
+    from_code_tree = Path(__file__).resolve().parents[2] / "tools" / "aria-poc" / "worker_executor.py"
+    if from_code_tree.is_file():
+        return from_code_tree
     return base_dir.parent / "tools" / "aria-poc" / "worker_executor.py"
 
 
@@ -209,7 +215,7 @@ def dispatch_one_pending_worker_assignment(
     # via env, public identifiers via argv.
     if worker_executor_path is None:
         worker_executor_path = _default_worker_executor_path(root)
-    repo_root = root.parent
+    repo_root = worker_executor_path.resolve().parents[2]
     argv: list[str] = [
         "python3", str(worker_executor_path),
         assignment_id, assignment_target,

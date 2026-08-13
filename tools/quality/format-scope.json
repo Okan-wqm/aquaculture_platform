@@ -44248,7 +44248,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "tools/aria-adapters/fixtures/test-gap-adapter/workspaces/semantic-testgap/apps/billing-service/src/payment/capture.handler.spec.ts",
+      "path": "tools/aria-adapters/fixtures/test-gap-adapter/workspaces/semantic-testgap/apps/billing-service/src/payment/__tests__/capture.handler.ts",
       "prettier_managed": true
     },
     {

@@ -1,0 +1,22 @@
+{
+  "name": "semantic-raw-query-predicates",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": [
+      "tools/aria-adapters/fixtures/tenant-scoping-adapter/workspaces/semantic-tenant/apps/farm-service/src"
+    ]
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": ["tenant_raw_query_missing_tenant_predicate"],
+    "findings_count": 1
+  },
+  "curation": {
+    "curator": "claude/E13-C3 (judge-diagnosed FP classes, session 2026-08-12)",
+    "gold_set": {
+      "true_positive_count": 1,
+      "known_false_positive_count": 1,
+      "false_positive_classes": ["predicated_raw_query"]
+    }
+  }
+}

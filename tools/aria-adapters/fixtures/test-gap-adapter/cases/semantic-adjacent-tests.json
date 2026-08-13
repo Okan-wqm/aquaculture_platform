@@ -1,0 +1,23 @@
+{
+  "name": "semantic-adjacent-tests",
+  "lane": "semantic_regression",
+  "input": {
+    "roots": [
+      "tools/aria-adapters/fixtures/test-gap-adapter/workspaces/semantic-testgap/apps/billing-service/src"
+    ],
+    "includeWriteBoundaryFindings": true
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": ["high_risk_source_without_adjacent_test"],
+    "findings_count": 1
+  },
+  "curation": {
+    "curator": "claude/E13-C3 (judge-diagnosed FP classes, session 2026-08-12)",
+    "gold_set": {
+      "true_positive_count": 1,
+      "known_false_positive_count": 1,
+      "false_positive_classes": ["adjacent_spec_present"]
+    }
+  }
+}

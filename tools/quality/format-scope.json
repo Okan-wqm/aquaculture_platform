@@ -44188,13 +44188,79 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/aria-adapters/fixtures/security-boundary-adapter/cases/semantic-guard-boundaries.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/security-boundary-adapter/workspaces/semantic-guard/apps/api/src/guarded.controller.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/security-boundary-adapter/workspaces/semantic-guard/apps/api/src/unsafe.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/aria-adapters/fixtures/tenant-scoping-adapter/cases/real-repo-baseline.json",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/aria-adapters/fixtures/tenant-scoping-adapter/cases/semantic-raw-query-predicates.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/tenant-scoping-adapter/workspaces/semantic-tenant/apps/farm-service/src/batch.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/tenant-scoping-adapter/workspaces/semantic-tenant/apps/farm-service/src/raw-query.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/tenant-scoping-adapter/workspaces/semantic-tenant/apps/farm-service/src/scoped-query.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/aria-adapters/fixtures/test-gap-adapter/cases/real-repo-baseline.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/test-gap-adapter/cases/semantic-adjacent-tests.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/test-gap-adapter/workspaces/semantic-testgap/apps/billing-service/src/payment/__tests__/capture.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/test-gap-adapter/workspaces/semantic-testgap/apps/billing-service/src/payment/capture.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/test-gap-adapter/workspaces/semantic-testgap/apps/billing-service/src/payment/refund.handler.ts",
       "prettier_managed": true
     },
     {

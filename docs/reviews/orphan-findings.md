@@ -9363,6 +9363,14 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-HIGH-662 — the deadline refused spawns but nothing closed the night: the machinery ground on to the wall — RESOLVED (this PR, smoke-run 2 finding)
+
+Severity: HIGH (found by the SECOND smoke dispatch, run 31653106474 — the iteration working). The spawn clamp (ORPHAN-661) held: the deadline export fired ("spawn deadline: 00:47:55Z") and no spawn could outlive the job. But the night still died at the wall, because a deadline refusal was treated as a PER-REQUEST failure: the drain caught it like any other unavailable-CLI error and moved to the next of 199 queued requests (each attempt burning preflight seconds), and nothing between cycle phases ever asked "is there time left?". cycles.jsonl was left without a terminal row, integrity failed, the store quarantined — the same no-night-ever-publishes loop, one layer up.
+
+**Fix:** the deadline becomes a CYCLE-level fact with two consumers. (1) The phase loop (`_run_phase_stage`) checks `_job_deadline_reached()` before every phase: past the margin, remaining phases are skipped with a recorded `job_deadline_reached` reason — the cycle seals, the store verifies, the night publishes. (2) The request drain checks the same env at the top of its loop and stops with `stop_reason=job_deadline_reached` instead of iterating refused request after refused request into the wall. Same env contract as the spawn clamp; no env → never triggers (local dev/tests unaffected). Malformed values do not crash the cycle (the spawn clamp already refuses garbage loudly at the spawn boundary — one loud refusal per class, not two). 6 new tests incl. source pins on both consumers + enterprise-cycle (42) + executor/drain (24) suites green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-HIGH-661 — the first live night died mid-spawn, and the failure mode was a permanent loop — RESOLVED (this PR, smoke-run finding)
 
 Severity: HIGH (found by the E-series smoke dispatch, run 31645296013 — exactly what the smoke run exists for). The night ran SEVEN adapters live (22:09-22:29, incl. one honest budget_exceeded), then one claude spawn started with its full per-spawn 1800s budget while the JOB had ~24 minutes of wall left: GitHub's 50-minute job timeout killed everything at 22:53, the half-night failed state-integrity verification, and the store was quarantined instead of published — the fail-closed defence working as designed. But the composition is a PERMANENT loop: per-spawn timeout ignores the job's remaining wall-clock, and the V7.7 cycle-watchdog only fires BETWEEN cycles (dead at MAX_CYCLES=1), so every night's last spawn is cut, every night quarantines, and no night ever publishes.

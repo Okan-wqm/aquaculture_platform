@@ -5,7 +5,7 @@ from statistics import median
 from typing import Any
 
 from .budget import list_budget_usage
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_jsonl
 from .runtime_artifacts import artifact_inventory_path
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 from .validation import list_validation_runs
@@ -37,7 +37,7 @@ def record_cycle_metrics(
         "artifact_count": artifact_count,
         "cost_units": cost_units,
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "observability" / "cycle-metrics.jsonl", row)
+    return append_declared_jsonl(ensure_tools_dir(base_dir) / "observability" / "cycle-metrics.jsonl", row, expected_surface="observability_cycle_metrics")
 
 
 def generate_observability_dashboard(
@@ -73,7 +73,7 @@ def generate_observability_dashboard(
         },
         "status": "reported",
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "observability" / "dashboards.jsonl", dashboard)
+    return append_declared_jsonl(ensure_tools_dir(base_dir) / "observability" / "dashboards.jsonl", dashboard, expected_surface="observability_dashboards")
 
 
 def list_cycle_metrics(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
@@ -180,7 +180,7 @@ def _record_alerts(
                 "observed": latest_artifacts,
             })
     for alert in alerts:
-        append_jsonl(alerts_path(base_dir), alert)
+        append_declared_jsonl(alerts_path(base_dir), alert, expected_surface="observability_alerts")
     return alerts
 
 

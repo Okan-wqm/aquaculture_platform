@@ -116,6 +116,13 @@ def record_findings_for_run(run: dict[str, Any], base_dir: str | Path | None = N
             continue
         fingerprint = finding_fingerprint(run["tool_id"], finding)
         suppressed = _confirmed_false_positive_fingerprints(base_dir).get(fingerprint)
+        # E15-a — mint-time service dimension, derived from the paths the
+        # finding itself cites (operator direction: findings organised by
+        # microservice, so per-service audits and service-specific agents
+        # have an axis to stand on).
+        from .service_dimension import finding_dimension_paths, service_dimension
+
+        dimension = service_dimension(finding_dimension_paths(finding))
         append_jsonl(
             findings_path(base_dir),
             {
@@ -127,6 +134,8 @@ def record_findings_for_run(run: dict[str, Any], base_dir: str | Path | None = N
                 "status": "suppressed_false_positive" if suppressed else "open",
                 "finding_fingerprint": fingerprint,
                 "suppressed_by_feedback": suppressed,
+                "service": dimension["service"],
+                "services": dimension["services"],
                 "finding": finding,
             },
         )
@@ -169,6 +178,7 @@ def list_findings(
     *,
     tool_id: str | None = None,
     status: str | None = None,
+    service: str | None = None,
     base_dir: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     rows = load_jsonl(findings_path(base_dir))
@@ -176,6 +186,23 @@ def list_findings(
         rows = [row for row in rows if row.get("tool_id") == tool_id]
     if status is not None:
         rows = [row for row in rows if row.get("status") == status]
+    if service is not None:
+        # E15-a — legacy rows carry no mint-time dimension; derive at
+        # read time from the same collector the mint uses, so old and
+        # new rows can never disagree about their own service.
+        from .service_dimension import finding_dimension_paths, services_for_paths
+
+        rows = [
+            row
+            for row in rows
+            if service
+            in (
+                row.get("services")
+                or services_for_paths(
+                    finding_dimension_paths(row.get("finding") or {})
+                )
+            )
+        ]
     return rows
 
 

@@ -356,6 +356,24 @@ def emit_finding(
 
     target_sha = _target_sha(repo_path)
     evidences = _normalize_evidences(repo_path, evidences, target_sha=target_sha)
+    # E15-a — mint-time service dimension + specialist ownership. The
+    # dimension comes from the paths the finding cites; the reviewing
+    # agents come from the Lane-A touch-map SSoT (imported, not copied)
+    # whenever the caller did not name them explicitly.
+    from .service_dimension import (
+        finding_dimension_paths,
+        owning_agent_domains_for_paths,
+        service_dimension,
+    )
+
+    dimension_paths = finding_dimension_paths(
+        {"evidences": evidences, "scope": {"files": list(scope_files)}}
+    )
+    dimension = service_dimension(dimension_paths)
+    if not related_specialized_agent_domains:
+        related_specialized_agent_domains = owning_agent_domains_for_paths(
+            dimension_paths
+        )
     findings_dir = _findings_dir(repo_path)
     findings_dir.mkdir(parents=True, exist_ok=True)
     alloc_lock_path = findings_dir / ".alloc.lock"
@@ -376,6 +394,8 @@ def emit_finding(
             "originating_run_id": originating_run_id,
             "originating_pressure_event_id": originating_pressure_event_id,
             "scope": {"files": list(scope_files)},
+            "service": dimension["service"],
+            "services": dimension["services"],
             "related_specialized_agent_domains": list(related_specialized_agent_domains or []),
             "facts": list(facts),
             "interpretations": list(interpretations or []),
@@ -419,22 +439,41 @@ def emit_finding(
     return record
 
 
-def list_findings(repo_root: str | Path) -> list[dict[str, Any]]:
+def list_findings(
+    repo_root: str | Path,
+    *,
+    service: str | None = None,
+) -> list[dict[str, Any]]:
+    # E15-a — legacy docs carry no mint-time dimension; derive it at read
+    # time from the same collector the mint uses, so a pre-E15 finding
+    # filters identically to a post-E15 one.
+    from .service_dimension import finding_dimension_paths, services_for_paths
+
     repo_path = Path(repo_root).resolve()
-    return [
-        {
-            "finding_id": doc.get("finding_id"),
-            "severity": doc.get("severity"),
-            "status": doc.get("status"),
-            "claim_type": doc.get("claim_type"),
-            "claim_summary": doc.get("claim_summary"),
-            "evidence_chain_id": doc.get("evidence_chain_id"),
-            "created_at": doc.get("created_at"),
-            "path": f"{doc.get('finding_id')}.json",
-            "source_ledger_hash": doc.get("source_ledger_hash"),
-        }
-        for doc in _replay_findings(repo_path).values()
-    ]
+    rows: list[dict[str, Any]] = []
+    for doc in _replay_findings(repo_path).values():
+        services = doc.get("services") or services_for_paths(
+            finding_dimension_paths(doc)
+        )
+        if service is not None and service not in services:
+            continue
+        rows.append(
+            {
+                "finding_id": doc.get("finding_id"),
+                "severity": doc.get("severity"),
+                "status": doc.get("status"),
+                "claim_type": doc.get("claim_type"),
+                "claim_summary": doc.get("claim_summary"),
+                "evidence_chain_id": doc.get("evidence_chain_id"),
+                "created_at": doc.get("created_at"),
+                "path": f"{doc.get('finding_id')}.json",
+                "source_ledger_hash": doc.get("source_ledger_hash"),
+                "service": doc.get("service")
+                or (services[0] if len(services) == 1 else None),
+                "services": services,
+            }
+        )
+    return rows
 
 
 def show_finding(repo_root: str | Path, finding_id: str) -> dict[str, Any]:

@@ -145,7 +145,17 @@ def _candidate_from_finding(cycle_id: str, finding: dict[str, Any]) -> dict[str,
     payload = finding.get("finding", {}) if isinstance(finding.get("finding"), dict) else {}
     severity = str(payload.get("severity") or "medium")
     score = {"critical": 100, "high": 85, "medium": 60, "low": 35}.get(severity, 50)
+    # E15-b — the candidate inherits the finding's service dimension so a
+    # service mission can claim its own findings; legacy rows derive it
+    # through the same seam the mint uses.
+    from .service_dimension import finding_dimension_paths, services_for_paths
+
+    services = finding.get("services") or services_for_paths(
+        finding_dimension_paths(payload)
+    )
     return {
+        "service": services[0] if len(services) == 1 else None,
+        "services": services,
         "schema_version": 1,
         "task_id": _task_id(cycle_id, "finding", str(finding.get("finding_id"))),
         "cycle_id": cycle_id,

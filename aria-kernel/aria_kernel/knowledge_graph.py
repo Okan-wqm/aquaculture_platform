@@ -249,7 +249,8 @@ def _append_row(path: Path, row: dict[str, Any]) -> None:
     # the binding the resolver requires.
     from .tool_registry import ensure_tools_dir
 
-    ensure_tools_dir(path.parent.parent)
+    if path.parent.name == "knowledge-graph":
+        ensure_tools_dir(path.parent.parent)
     path.parent.mkdir(parents=True, exist_ok=True)
     # M11/E12-b — the serialisation lock moves to a SIDE-CAR: the declared
     # writer below takes the ledger's own per-file lock on `path`, and two

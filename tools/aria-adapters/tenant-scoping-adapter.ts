@@ -140,7 +140,7 @@ export function analyzeTenantScoping(input: AdapterInput, workspaceRoot = proces
   const OBSERVATION_CAP_PER_TYPE = 3000;
   const byType = new Map<string, number>();
   const truncated: Record<string, number> = {};
-  result.observations = result.observations.filter((observation) => {
+  const cappedObservations = result.observations.filter((observation) => {
     const seen = (byType.get(observation.type) ?? 0) + 1;
     byType.set(observation.type, seen);
     if (seen > OBSERVATION_CAP_PER_TYPE) {
@@ -154,7 +154,7 @@ export function analyzeTenantScoping(input: AdapterInput, workspaceRoot = proces
   ).sort();
 
   return {
-    observations: result.observations,
+    observations: cappedObservations,
     findings: result.findings,
     read_paths: Array.from(new Set(result.readPaths)).sort(),
     evidence_sources: evidenceSources,

@@ -110,6 +110,20 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         if elapsed + _engine._max_timeout_seconds() > _drain_budget_seconds():
             stop_reason = "budget_exhausted"
             break
+        # Smoke-run 31653106474 — the JOB deadline is a drain-level stop,
+        # not a per-request failure: the refused-spawn error was treated as
+        # one request failing, so the loop kept iterating request after
+        # request (each burning preflight seconds) into the job wall while
+        # the night's state went unterminated → quarantined. Same env
+        # contract as the spawn clamp (ORPHAN-661); no env → never stops.
+        raw_deadline = os.environ.get("ARIA_JOB_DEADLINE_EPOCH")
+        if raw_deadline:
+            try:
+                if time.time() >= float(raw_deadline):
+                    stop_reason = "job_deadline_reached"
+                    break
+            except ValueError:
+                pass  # the spawn clamp already refuses garbage loudly
 
         # E3/F10 + D10b — role-priority selection with tonight's attempted
         # set EXCLUDED at the kernel. Two defects die here: (a) a released

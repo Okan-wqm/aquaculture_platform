@@ -2347,6 +2347,19 @@ def _run_phase_stage(stage: PhaseStage, context: PhaseContext) -> None:
     for phase in CYCLE_PHASES:
         if phase.stage != stage:
             continue
+        # Smoke-run 31653106474 — the second live night: adapters finished
+        # at 00:29, the spawn clamp (ORPHAN-661) held, and the night STILL
+        # died at the job wall because nothing between phases ever asked
+        # "is there time left?" — the refused-spawn error was treated as a
+        # per-request failure and the machinery kept grinding to the wall,
+        # leaving cycles.jsonl without a terminal row (→ quarantine). A
+        # deadline is a cycle-level fact: when the job's remaining
+        # wall-clock is inside the close-out margin, the remaining phases
+        # are SKIPPED (recorded, not silent) so the cycle seals, the store
+        # verifies, and the night PUBLISHES.
+        if _job_deadline_reached():
+            _record_skip(context, phase, "job_deadline_reached")
+            continue
         if context.mode not in phase.modes:
             _record_skip(context, phase, f"mode_not_included:{context.mode}")
             continue
@@ -2378,6 +2391,32 @@ def _run_phase_stage(stage: PhaseStage, context: PhaseContext) -> None:
             }
         else:
             context.outcomes[phase.name] = {"outcome": "ran"}
+
+
+# The margin mirrors claude_runtime's close-out margin: enough for the
+# reflection/seal work that must still run after the last skipped phase.
+_JOB_DEADLINE_PHASE_MARGIN_SECONDS = 120
+
+
+def _job_deadline_reached() -> bool:
+    """True when ARIA_JOB_DEADLINE_EPOCH says the job is out of runway.
+
+    Same env contract as claude_runtime's spawn clamp (ORPHAN-661): the
+    autonomy workflows export the absolute deadline; local dev and tests
+    have no env and never trigger. Malformed values return False here (the
+    spawn clamp already refuses them loudly at the spawn boundary; the
+    phase loop must not crash a cycle over the same garbage twice).
+    """
+    import os as _os
+
+    raw = _os.environ.get("ARIA_JOB_DEADLINE_EPOCH")
+    if not raw:
+        return False
+    try:
+        deadline = float(raw)
+    except ValueError:
+        return False
+    return time.time() >= deadline - _JOB_DEADLINE_PHASE_MARGIN_SECONDS
 
 
 def _record_skip(context: PhaseContext, phase: CyclePhase, reason: str) -> None:

@@ -295,6 +295,7 @@ def record_transition(
     to_state: GenesisState,
     evidence: dict[str, Any],
     base_dir: str | Path | None = None,
+    repo_root: str | Path | None = None,
     operator_approval_ref: str | None = None,
 ) -> dict[str, Any]:
     if not entity_id.strip():
@@ -308,10 +309,14 @@ def record_transition(
         # only what the kernel measured (verify_shadow_eval_proof pattern).
         from .genesis_superiority import compute_eval_window_superiority
 
+        # C8/E11 — thread repo_root so the operator's superiority_policy
+        # override (genesis_policy.superiority_policy) is actually read;
+        # without it the policy block was dead configuration and every
+        # promotion ran on hardcoded defaults.
         evidence = {
             **evidence,
             "resolved_eval_window_superiority": compute_eval_window_superiority(
-                entity_id=entity_id, base_dir=base_dir
+                entity_id=entity_id, base_dir=base_dir, repo_root=repo_root
             ),
         }
     verdict = validate_transition(from_state=from_state, to_state=to_state, evidence=evidence)

@@ -611,6 +611,9 @@ def _canonicalize_revision_payload(
     supplied = primary_block if isinstance(primary_block, dict) else {}
 
     return {
+        # C8/E11 — carry the authoring agent's identity into the revision
+        # event (same source as the challenger path: response.agent_id).
+        "revised_by_agent": supplied.get("revised_by_agent") or response.get("agent_id"),
         "revision_id": supplied.get("revision_id")
             or f"rev-{plan_id}-r{current_round or 1}-{request_id[-12:]}",
         "round": supplied.get("round") if isinstance(supplied.get("round"), int) and supplied.get("round") > 0 else current_round,

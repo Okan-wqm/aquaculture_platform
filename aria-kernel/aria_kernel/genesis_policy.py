@@ -30,6 +30,11 @@ POLICY_KEYS = {
     # autonomous-profile + precision/FP/clean-cycles thresholds.
     # Default disabled; operator opt-in via override.
     "auto_promote",
+    # C8/E11 — the Z3d superiority block was readable by
+    # ``superiority_policy`` but NOT mergeable: an operator override
+    # carrying it was silently dropped here, so the block was dead
+    # configuration twice over (unthreaded repo_root AND unmergeable key).
+    "superiority",
     # Plan ARIA-V7 §2h v2 — V7.4 skill_genesis_drainer policy block
     # (enabled + max_authorings_per_cycle + max_tokens_per_cycle +
     # estimated_tokens_per_authoring). Closes V6 CONCERN #19

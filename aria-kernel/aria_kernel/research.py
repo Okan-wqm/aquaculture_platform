@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -38,7 +38,7 @@ def record_research_source(
         "content_hash": content_hash,
         "title": title,
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "research" / "sources.jsonl", row)
+    return append_declared_jsonl(ensure_tools_dir(base_dir) / "research" / "sources.jsonl", row, expected_surface="research_sources")
 
 
 def list_research_sources(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
@@ -92,7 +92,7 @@ def fetch_research_source(
         "extracted_claims": _extract_claims(sanitized),
         "source_policy": policy,
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "research" / "fetches.jsonl", row)
+    return append_declared_jsonl(ensure_tools_dir(base_dir) / "research" / "fetches.jsonl", row, expected_surface="research_fetches")
 
 
 def list_research_fetches(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
@@ -114,7 +114,7 @@ def record_research_policy(
         "cycle_id": cycle_id,
         "allowed_domains": domains,
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "research" / "policies.jsonl", row)
+    return append_declared_jsonl(ensure_tools_dir(base_dir) / "research" / "policies.jsonl", row, expected_surface="research_policies")
 
 
 def list_research_policies(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:

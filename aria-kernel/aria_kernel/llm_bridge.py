@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from .budget import record_budget_usage
-from .ledger import append_jsonl
+from .ledger import append_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -50,7 +50,7 @@ def amplify_proposal(
             "validation_commands": response["validation_commands"],
         },
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "llm" / "proposal-amplifications.jsonl", row)
+    return append_declared_jsonl(ensure_tools_dir(base_dir) / "llm" / "proposal-amplifications.jsonl", row, expected_surface="llm_proposal_amplifications")
 
 
 def _validate_packet(packet: dict[str, Any]) -> None:

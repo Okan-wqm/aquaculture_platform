@@ -123,6 +123,11 @@ class Pattern:
     # "verified" on a VERIFIED mission and demotes on a rolled-back one.
     outcome_status: str = "unknown"
     signer_key_fp: str | None = None
+    # M2/E12 — the promotion key. A hypothesis row is written when a plan
+    # CONVERGES; the VERIFIED outcome that promotes it is that plan's
+    # MERGE. Without the plan id on the row, the merge reconciler cannot
+    # find which convention its outcome vindicates.
+    plan_id: str | None = None
 
 
 # ============================================================================
@@ -489,6 +494,56 @@ def record_pressure_source_outcome(
     }
     _append_row(path, row)
     return row
+
+
+VERIFIED_CONVENTION_CONFIDENCE = 0.75  # above MIN_PATTERN_CONFIDENCE: served
+
+
+def promote_convention_for_plan(
+    *,
+    plan_id: str,
+    workspace_root: str | Path,
+    promoted_by_cycle_id: str | None = None,
+) -> dict[str, Any] | None:
+    """M2/E12 — the promotion producer the hypothesis rows waited for.
+
+    A convention is recorded at CONVERGENCE with confidence 0.5 and
+    outcome_status="hypothesis" — deliberately below the 0.7 serving
+    floor, so ARIA does not teach itself its own predictions as facts.
+    The comment at the write site promised "promotion on a VERIFIED
+    outcome"; nothing ever delivered it, so no convention could EVER be
+    served: the ledger was write-only in effect. The verified outcome IS
+    the plan's merge, so the merge reconciler calls this with the plan
+    id the row now carries.
+
+    Appends a NEW row (append-only ledger) superseding the hypothesis:
+    outcome_status="verified", confidence above the serving floor.
+    Idempotent: an already-verified row for the plan is a no-op.
+    """
+    path = Path(workspace_root) / "aria-tools" / "knowledge-graph" / "conventions.jsonl"
+    if not path.exists():
+        return None
+    hypothesis: dict[str, Any] | None = None
+    for parsed in _read_jsonl_strict(path):
+        if parsed.get("plan_id") != plan_id:
+            continue
+        if parsed.get("outcome_status") == "verified":
+            return None  # already promoted
+        hypothesis = parsed
+    if hypothesis is None:
+        return None
+    promoted = dict(hypothesis)
+    promoted.pop("prev_row_hash", None)
+    promoted.update({
+        "pattern_id": f"{hypothesis.get('pattern_id')}-verified",
+        "supersedes_pattern_id": hypothesis.get("pattern_id"),
+        "outcome_status": "verified",
+        "confidence": VERIFIED_CONVENTION_CONFIDENCE,
+        "observed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "promoted_by_cycle_id": promoted_by_cycle_id,
+    })
+    _append_row(path, promoted)
+    return promoted
 
 
 def rank_pressure_sources(

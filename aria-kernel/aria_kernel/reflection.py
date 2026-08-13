@@ -342,9 +342,25 @@ def _scan_findings_filesystem(findings_dir: Path) -> dict[str, Any]:
             continue
         _normalize_finding_status(row)
         rows.append(row)
+    # E15-b — findings grouped by microservice (operator direction:
+    # reports and missions speak in service terms). Legacy docs derive
+    # their dimension at read time through the same seam the mint uses.
+    from .service_dimension import finding_dimension_paths, services_for_paths
+
+    by_service: dict[str, dict[str, int]] = {}
+    for row in rows:
+        services = row.get("services") or services_for_paths(
+            finding_dimension_paths(row)
+        )
+        for svc in services or ["(no service dimension)"]:
+            bucket = by_service.setdefault(svc, {"total": 0, "open": 0})
+            bucket["total"] += 1
+            if row.get("status") == "OPEN":
+                bucket["open"] += 1
     return {
         "total": len(rows),
         "open": sum(1 for r in rows if r.get("status") == "OPEN"),
+        "by_service": by_service,
         "recent": sorted(
             rows, key=lambda r: r.get("created_at", ""), reverse=True
         )[:5],
@@ -1319,6 +1335,21 @@ def _write_daily_report(root: Path, reflection: dict[str, Any]) -> None:
             [f"- Recent: {row.get('finding_id')} [{row.get('severity')}] ({row.get('claim_type')}) — {row.get('claim_summary', '')[:80]}"
              for row in reflection.get('committed_findings', {}).get('recent', [])]
             or ["- (no committed findings yet)"]
+        ),
+        "",
+        # E15-b — the operator reads the platform per microservice; the
+        # report groups findings on the same axis (open-count descending).
+        "### Findings by service",
+        "",
+        *(
+            [
+                f"- {svc}: {counts.get('open', 0)} open / {counts.get('total', 0)} total"
+                for svc, counts in sorted(
+                    reflection.get('committed_findings', {}).get('by_service', {}).items(),
+                    key=lambda item: (-item[1].get('open', 0), item[0]),
+                )
+            ]
+            or ["- (no service-dimensioned findings yet)"]
         ),
         "",
         "## Open Debts",

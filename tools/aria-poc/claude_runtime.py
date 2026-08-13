@@ -208,13 +208,27 @@ def _assert_budget_before_spawn() -> None:
     tools_dir = os.environ.get("ARIA_TOOLS_DIR")
     if not tools_dir:
         return
-    try:
-        estimate = float(os.environ.get("ARIA_ESTIMATED_RUN_USD", "1.50"))
-    except ValueError:
-        estimate = 1.50
     # Same lazy-import pattern as the implementation_safety hooks below:
     # the kernel package rides PYTHONPATH in every ARIA lane.
-    from aria_kernel.cost_budget import assert_within_budget
+    from aria_kernel.cost_budget import _load_caps, assert_within_budget
+
+    # Executor smoke 31704817330 — the first live drain failed 30/30 at
+    # THIS gate: the original default estimate ($1.50) sat ABOVE the
+    # policy's own per_run cap ($0.50), so every spawn was refused before
+    # it started and the breaker tripped on configuration, not on spend.
+    # The default now DERIVES from the policy (80% of per_run): the gate
+    # refuses only when the projected daily/monthly budget is actually
+    # exhausted — which is its job — never because two constants
+    # disagreed. The env override remains for operators who know a lane's
+    # real per-run cost.
+    raw = os.environ.get("ARIA_ESTIMATED_RUN_USD")
+    if raw is not None:
+        try:
+            estimate = float(raw)
+        except ValueError:
+            estimate = _load_caps(tools_dir)["per_run"] * 0.8
+    else:
+        estimate = _load_caps(tools_dir)["per_run"] * 0.8
 
     assert_within_budget(tools_dir, estimated_run_usd=estimate)
 

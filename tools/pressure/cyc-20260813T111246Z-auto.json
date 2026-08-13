@@ -1,0 +1,215 @@
+{
+  "calibrated_weights": {
+    "belief_revalidation": {
+      "base": 40.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 40.0
+    },
+    "belief_stale": {
+      "base": 60.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 60.0
+    },
+    "contradiction": {
+      "base": 70.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 70.0
+    },
+    "discovery_incomplete": {
+      "base": 70.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 70.0
+    },
+    "evidence_gone": {
+      "base": 80.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 80.0
+    },
+    "migration_surface_repeat": {
+      "base": 30.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 30.0
+    },
+    "own_pr_ci": {
+      "base": 90.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 90.0
+    },
+    "runtime_signal": {
+      "base": 85.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 85.0
+    },
+    "shadow_raw_delta": {
+      "base": 50.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 50.0
+    },
+    "tool_quarantine": {
+      "base": 90.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 90.0
+    },
+    "uncertainty_repeat": {
+      "base": 55.0,
+      "fp": 0,
+      "multiplier": 1.0,
+      "posterior_mean": 0.8,
+      "posterior_stddev": 0.16329931618554522,
+      "tp": 0,
+      "weight": 55.0
+    }
+  },
+  "cycle_id": "cyc-20260813T111246Z-auto",
+  "generated_at": "2026-08-13T12:36:05+00:00",
+  "pressures": [
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [
+        "typeorm-entity-schema-adapter"
+      ],
+      "cycle_id": "cyc-20260813T111246Z-auto",
+      "drift_class": "schema_drift",
+      "evidence": [
+        "apps/ai-service/src/database/migrations/1800000000000-Baseline.ts",
+        "apps/ai-service/src/database/migrations/1800100000000-CreateAiOutbox.ts",
+        "apps/ai-service/src/database/migrations/1801000000000-EnsureAiTenantErasureProofLedger.ts",
+        "apps/ai-service/src/database/migrations/1802000000000-AddByokTenantAiCredentials.ts",
+        "apps/ai-service/src/database/migrations/1802100000000-CreateConversationTurns.ts"
+      ],
+      "pressure_id": "pressure:migration-surface-repeat:repetition",
+      "reason": "repository has repeated TypeORM migration surfaces",
+      "recommended_action": "continue TypeORM schema drift checks",
+      "schema_version": 1,
+      "score": 100.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 253,
+        "recency_decay": 1.0,
+        "source_weight": 30.0
+      },
+      "severity": "medium",
+      "source": "migration_surface_repeat",
+      "tool_id": null,
+      "type": "REPETITION"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [
+        "tenant-scoping-adapter"
+      ],
+      "cycle_id": "cyc-20260813T111246Z-auto",
+      "drift_class": "adapter_shadow",
+      "evidence": [
+        "apps/admin-api-service/jest.config.ts",
+        "apps/admin-api-service/src/analytics/analytics.module.ts",
+        "apps/admin-api-service/src/analytics/controllers/analytics.controller.ts",
+        "apps/admin-api-service/src/analytics/controllers/index.ts",
+        "apps/admin-api-service/src/analytics/controllers/reports.controller.ts",
+        "apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts",
+        "apps/admin-api-service/src/analytics/entities/external/index.ts",
+        "apps/admin-api-service/src/analytics/entities/external/invoice.entity.ts",
+        "apps/admin-api-service/src/analytics/entities/external/subscription.entity.ts",
+        "apps/admin-api-service/src/analytics/entities/external/tenant.entity.ts",
+        "apps/admin-api-service/src/analytics/entities/external/user.entity.ts",
+        "apps/admin-api-service/src/analytics/entities/index.ts",
+        "apps/admin-api-service/src/analytics/index.ts",
+        "apps/admin-api-service/src/analytics/services/analytics-snapshot.scheduler.ts",
+        "apps/admin-api-service/src/analytics/services/analytics.service.ts",
+        "apps/admin-api-service/src/analytics/services/index.ts",
+        "apps/admin-api-service/src/analytics/services/reports.service.ts",
+        "apps/admin-api-service/src/app.module.ts",
+        "apps/admin-api-service/src/audit/audit.controller.ts",
+        "apps/admin-api-service/src/audit/audit.entity.ts"
+      ],
+      "pressure_id": "pressure:shadow-raw-delta:tenant-scoping-adapter",
+      "reason": "raw SHADOW findings increased for tenant-scoping-adapter: +66",
+      "recommended_action": "sample and judge increased SHADOW findings before calibration",
+      "schema_version": 1,
+      "score": 100.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 66,
+        "recency_decay": 1.0,
+        "source_weight": 50.0
+      },
+      "severity": "medium",
+      "source": "shadow_raw_delta",
+      "tool_id": "tenant-scoping-adapter",
+      "type": "REPETITION"
+    },
+    {
+      "belief_id": null,
+      "blocked_by": [],
+      "candidate_tools": [],
+      "cycle_id": "cyc-20260813T111246Z-auto",
+      "drift_class": "process_health",
+      "evidence": [
+        "aria-tools/memory/uncertainties.jsonl"
+      ],
+      "pressure_id": "pressure:uncertainty-repeat:pressure-candidate-tools-unreachable-pressure-migration-surface-repeat-repetition",
+      "reason": "uncertainty 'pressure_candidate_tools_unreachable' for pressure:migration-surface-repeat:repetition recorded 11 times with no escalation \u2014 an advisory nobody reads is not advice",
+      "recommended_action": "read the repeated 'pressure_candidate_tools_unreachable' rows for pressure:migration-surface-repeat:repetition and fix the producer or the condition; the pressure decays when the rows stop",
+      "schema_version": 1,
+      "score": 100.0,
+      "score_components": {
+        "formula": "min(100, source_weight * recency_decay * (1 + log10(occurrence_count)))",
+        "occurrence_count": 11,
+        "recency_decay": 1.0,
+        "source_weight": 55.0
+      },
+      "severity": "medium",
+      "source": "uncertainty_repeat",
+      "tool_id": null,
+      "type": "REPETITION"
+    }
+  ],
+  "schema_version": 1,
+  "summary": {
+    "contradiction": 0,
+    "repetition": 3,
+    "unknown": 0
+  }
+}

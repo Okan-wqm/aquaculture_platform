@@ -1,0 +1,341 @@
+{
+  "apps": [
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "is_leaf_project": true,
+      "name": "admin-api-service",
+      "path": "apps/admin-api-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "is_leaf_project": true,
+      "name": "ai-service",
+      "path": "apps/ai-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "is_leaf_project": true,
+      "name": "alert-engine",
+      "path": "apps/alert-engine"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "is_leaf_project": true,
+      "name": "auth-service",
+      "path": "apps/auth-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "is_leaf_project": true,
+      "name": "billing-service",
+      "path": "apps/billing-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "is_leaf_project": true,
+      "name": "config-service",
+      "path": "apps/config-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "is_leaf_project": true,
+      "name": "db-migrate",
+      "path": "apps/db-migrate"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "is_leaf_project": true,
+      "name": "event-store-service",
+      "path": "apps/event-store-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "is_leaf_project": true,
+      "name": "farm-service",
+      "path": "apps/farm-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "is_leaf_project": true,
+      "name": "gateway-api",
+      "path": "apps/gateway-api"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "is_leaf_project": true,
+      "name": "hr-service",
+      "path": "apps/hr-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "is_leaf_project": true,
+      "name": "hydroponics-service",
+      "path": "apps/hydroponics-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "is_leaf_project": true,
+      "name": "messaging-service",
+      "path": "apps/messaging-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "is_leaf_project": true,
+      "name": "notification-service",
+      "path": "apps/notification-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "is_leaf_project": true,
+      "name": "observability-service",
+      "path": "apps/observability-service"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "is_leaf_project": true,
+      "name": "sensor-ingestion",
+      "path": "apps/sensor-ingestion"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "is_leaf_project": true,
+      "name": "sensor-service",
+      "path": "apps/sensor-service"
+    }
+  ],
+  "generated_at": "2026-08-13T11:14:17+00:00",
+  "libs": [
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "is_leaf_project": true,
+      "name": "alarm-core",
+      "path": "libs/alarm-core"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "is_leaf_project": true,
+      "name": "aquaculture-engines",
+      "path": "libs/aquaculture-engines"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "is_leaf_project": true,
+      "name": "backend-common",
+      "path": "libs/backend-common"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "is_leaf_project": true,
+      "name": "event-contracts",
+      "path": "libs/event-contracts"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "is_leaf_project": true,
+      "name": "farm-shared",
+      "path": "libs/farm-shared"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": true,
+      "is_leaf_project": true,
+      "name": "migration-harness",
+      "path": "libs/migration-harness"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "is_leaf_project": true,
+      "name": "node-components",
+      "path": "libs/node-components"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "is_leaf_project": true,
+      "name": "protocol-codec",
+      "path": "libs/protocol-codec"
+    },
+    {
+      "has_project_json": false,
+      "has_readme": false,
+      "is_leaf_project": false,
+      "name": "sdk",
+      "path": "libs/sdk"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "is_leaf_project": true,
+      "name": "sensor-automation-types",
+      "path": "libs/sensor-automation-types"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "is_leaf_project": true,
+      "name": "sensor-contracts",
+      "path": "libs/sensor-contracts"
+    },
+    {
+      "has_project_json": false,
+      "has_readme": false,
+      "is_leaf_project": false,
+      "name": "shared",
+      "path": "libs/shared"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "is_leaf_project": true,
+      "name": "shared-contracts",
+      "path": "libs/shared-contracts"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "is_leaf_project": true,
+      "name": "storage",
+      "path": "libs/storage"
+    },
+    {
+      "has_project_json": false,
+      "has_readme": true,
+      "is_leaf_project": false,
+      "name": "testing",
+      "path": "libs/testing"
+    }
+  ],
+  "platform_libs": [
+    {
+      "has_project_json": false,
+      "has_readme": false,
+      "is_leaf_project": false,
+      "name": "cqrs",
+      "path": "platform/libs/cqrs"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "is_leaf_project": true,
+      "name": "event-bus",
+      "path": "platform/libs/event-bus"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "is_leaf_project": true,
+      "name": "outbox",
+      "path": "platform/libs/outbox"
+    },
+    {
+      "has_project_json": true,
+      "has_readme": false,
+      "is_leaf_project": true,
+      "name": "service-catalog",
+      "path": "platform/libs/service-catalog"
+    }
+  ],
+  "schema_version": 2,
+  "web": {
+    "apps": [],
+    "modules": [
+      {
+        "has_project_json": true,
+        "has_readme": true,
+        "is_leaf_project": true,
+        "name": "admin-panel",
+        "path": "web/modules/admin-panel"
+      },
+      {
+        "has_project_json": true,
+        "has_readme": true,
+        "is_leaf_project": true,
+        "name": "dashboard",
+        "path": "web/modules/dashboard"
+      },
+      {
+        "has_project_json": true,
+        "has_readme": false,
+        "is_leaf_project": true,
+        "name": "farm-module",
+        "path": "web/modules/farm-module"
+      },
+      {
+        "has_project_json": true,
+        "has_readme": false,
+        "is_leaf_project": true,
+        "name": "hr-module",
+        "path": "web/modules/hr-module"
+      },
+      {
+        "has_project_json": true,
+        "has_readme": false,
+        "is_leaf_project": true,
+        "name": "hydroponics-module",
+        "path": "web/modules/hydroponics-module"
+      },
+      {
+        "has_project_json": true,
+        "has_readme": false,
+        "is_leaf_project": true,
+        "name": "messaging-module",
+        "path": "web/modules/messaging-module"
+      },
+      {
+        "has_project_json": true,
+        "has_readme": false,
+        "is_leaf_project": true,
+        "name": "sensor-module",
+        "path": "web/modules/sensor-module"
+      },
+      {
+        "has_project_json": true,
+        "has_readme": false,
+        "is_leaf_project": true,
+        "name": "tenant-admin",
+        "path": "web/modules/tenant-admin"
+      }
+    ],
+    "shared_ui": [
+      {
+        "has_project_json": true,
+        "has_readme": true,
+        "is_leaf_project": true,
+        "name": "shared-ui",
+        "path": "web/shared-ui"
+      }
+    ],
+    "shell": [
+      {
+        "has_project_json": true,
+        "has_readme": true,
+        "is_leaf_project": true,
+        "name": "shell",
+        "path": "web/shell"
+      }
+    ]
+  }
+}

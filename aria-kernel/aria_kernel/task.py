@@ -7,7 +7,7 @@ from typing import Any
 
 from .capability_gap import latest_capability_gaps
 from .feedback_store import list_findings
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_jsonl
 from .proactive_priority import latest_priorities
 from .runs_reader import read_runs_rows
 from .tool_health import runs_path
@@ -73,7 +73,7 @@ def generate_task_candidates(
         "task_count": len(candidates),
         "tasks": candidates,
     }
-    append_jsonl(root / "tasks" / "task-candidates.jsonl", payload)
+    append_declared_jsonl(root / "tasks" / "task-candidates.jsonl", payload, expected_surface="task_candidates")
     return payload
 
 

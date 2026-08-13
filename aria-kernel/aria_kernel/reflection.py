@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .governance_reader import read_governance_rows
-from .ledger import append_jsonl, load_jsonl_verified
+from .ledger import append_declared_jsonl, load_jsonl_verified
 from .snapshot import file_counts_from_payload
 from .tool_health import runs_path
 from .tool_registry import ensure_tools_dir, utc_now
@@ -170,7 +170,7 @@ def run_reflection(
             for item in top_pressures
         ],
     }
-    append_jsonl(root / "reflections.jsonl", reflection)
+    append_declared_jsonl(root / "reflections.jsonl", reflection, expected_surface="reflections")
     _write_daily_report(root, reflection)
     # Plan 026R §F.2 — also enqueue next_cycle_plan items into the
     # bounded scheduler queue so the §F.1 autonomy orchestrator can

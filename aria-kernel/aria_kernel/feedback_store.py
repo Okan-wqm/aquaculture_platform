@@ -974,9 +974,29 @@ def _consensus_uncertainty(
     }
 
 
+# ORPHAN-668 — filename→declared-surface routing for every ledger this
+# store (and its callers: proactive_priority, judge_calibration) writes.
+# Raw-findings established the pattern; the verdict/calibration ledgers
+# joined the state manifest so their rows survive the nightly publish,
+# and a declared surface REFUSES the legacy chained append — routing here
+# keeps every callsite on the single store-level write primitive. The
+# seeding corpus files (operator-feedback-seeding/*/raw-findings.jsonl)
+# do NOT flow through this store — calibration_bootstrap declares its own
+# surface — so the "raw-findings.jsonl" name below can stay unambiguous.
+_DECLARED_SURFACE_BY_FILENAME: dict[str, str] = {
+    "raw-findings.jsonl": "raw_findings",
+    "operator-feedback.jsonl": "operator_feedback",
+    "judgment-samples.jsonl": "judgment_samples",
+    "feedback-consensus-uncertainties.jsonl": "feedback_consensus_uncertainties",
+    "priorities.jsonl": "proactive_priorities",
+    "judge-calibration.jsonl": "calibration_judge",
+}
+
+
 def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
-    if path.name == "raw-findings.jsonl":
-        append_declared_jsonl(path, payload, expected_surface="raw_findings")
+    surface = _DECLARED_SURFACE_BY_FILENAME.get(path.name)
+    if surface is not None:
+        append_declared_jsonl(path, payload, expected_surface=surface)
         return
     append_chained_jsonl(path, payload)
 

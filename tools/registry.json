@@ -14,7 +14,7 @@
       "claim_types": [
         "harness_security"
       ],
-      "created_at": "2026-08-11T18:26:31+00:00",
+      "created_at": "2026-08-13T01:56:02+00:00",
       "declared_scope": [
         ".claude/agents/**/*.md",
         ".github/workflows/*.{yml,yaml}",
@@ -63,7 +63,7 @@
       "schema_version": 1,
       "status": "QUARANTINED",
       "tool_id": "agent-harness-security-adapter",
-      "updated_at": "2026-08-11T18:26:31+00:00",
+      "updated_at": "2026-08-13T01:56:02+00:00",
       "version": "1.0.0"
     },
     {
@@ -73,7 +73,7 @@
       "claim_types": [
         "event_contract"
       ],
-      "created_at": "2026-08-11T18:26:32+00:00",
+      "created_at": "2026-08-13T01:56:03+00:00",
       "declared_scope": [
         "libs/event-contracts/src/**/*.ts"
       ],
@@ -124,7 +124,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "event-contracts-adapter",
-      "updated_at": "2026-08-11T18:26:32+00:00",
+      "updated_at": "2026-08-13T01:56:03+00:00",
       "version": "1.0.0"
     },
     {
@@ -139,7 +139,7 @@
       "claim_types": [
         "security_boundary"
       ],
-      "created_at": "2026-08-11T18:26:32+00:00",
+      "created_at": "2026-08-13T01:56:03+00:00",
       "declared_scope": [
         "apps/**/*.ts",
         "libs/backend-common/src/**/*.ts",
@@ -203,7 +203,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "security-boundary-adapter",
-      "updated_at": "2026-08-11T18:26:32+00:00",
+      "updated_at": "2026-08-13T01:56:03+00:00",
       "version": "1.0.0"
     },
     {
@@ -215,7 +215,7 @@
       "claim_types": [
         "tenant_scoping"
       ],
-      "created_at": "2026-08-11T18:26:32+00:00",
+      "created_at": "2026-08-13T01:56:03+00:00",
       "declared_scope": [
         "apps/**/*.ts",
         "libs/**/*.ts",
@@ -277,7 +277,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "tenant-scoping-adapter",
-      "updated_at": "2026-08-11T18:26:32+00:00",
+      "updated_at": "2026-08-13T01:56:03+00:00",
       "version": "1.0.0"
     },
     {
@@ -294,7 +294,7 @@
       "claim_types": [
         "test_gap"
       ],
-      "created_at": "2026-08-11T18:26:32+00:00",
+      "created_at": "2026-08-13T01:56:03+00:00",
       "declared_scope": [
         "apps/**/*.{ts,tsx}",
         "libs/**/*.{ts,tsx}",
@@ -358,7 +358,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "test-gap-adapter",
-      "updated_at": "2026-08-11T18:26:32+00:00",
+      "updated_at": "2026-08-13T01:56:03+00:00",
       "version": "1.0.0"
     },
     {
@@ -369,7 +369,7 @@
       "claim_types": [
         "schema_drift"
       ],
-      "created_at": "2026-08-11T18:26:32+00:00",
+      "created_at": "2026-08-13T01:56:03+00:00",
       "declared_scope": [
         "apps/**/*.ts",
         "libs/backend-common/src/database/schema-manager.service.ts"
@@ -421,7 +421,7 @@
       "schema_version": 1,
       "status": "CALIBRATE",
       "tool_id": "typeorm-entity-schema-adapter",
-      "updated_at": "2026-08-11T18:26:32+00:00",
+      "updated_at": "2026-08-13T01:56:03+00:00",
       "version": "1.0.0"
     },
     {
@@ -434,7 +434,7 @@
       "claim_types": [
         "performance_budget"
       ],
-      "created_at": "2026-08-11T18:26:31+00:00",
+      "created_at": "2026-08-13T01:56:02+00:00",
       "declared_scope": [
         "web/**/*.{ts,tsx,js,json}"
       ],
@@ -492,7 +492,7 @@
       "schema_version": 1,
       "status": "SHADOW",
       "tool_id": "bundle-budget-adapter",
-      "updated_at": "2026-08-11T18:26:31+00:00",
+      "updated_at": "2026-08-13T01:56:02+00:00",
       "version": "1.0.0"
     },
     {
@@ -502,7 +502,7 @@
       "claim_types": [
         "doc_staleness"
       ],
-      "created_at": "2026-08-11T18:26:32+00:00",
+      "created_at": "2026-08-13T01:56:03+00:00",
       "declared_scope": [
         "docs/**/*.md"
       ],
@@ -558,7 +558,7 @@
       "schema_version": 1,
       "status": "SHADOW",
       "tool_id": "doc-staleness-adapter",
-      "updated_at": "2026-08-11T18:26:32+00:00",
+      "updated_at": "2026-08-13T01:56:03+00:00",
       "version": "1.0.0"
     },
     {
@@ -570,7 +570,7 @@
       "claim_types": [
         "contract_parity"
       ],
-      "created_at": "2026-08-11T18:26:32+00:00",
+      "created_at": "2026-08-13T01:56:03+00:00",
       "declared_scope": [
         "apps/**/dto/**/*.ts",
         "web/**/*.{ts,tsx}"
@@ -630,7 +630,7 @@
       "schema_version": 1,
       "status": "SHADOW",
       "tool_id": "fe-dto-parity-adapter",
-      "updated_at": "2026-08-11T18:26:32+00:00",
+      "updated_at": "2026-08-13T01:56:03+00:00",
       "version": "1.0.0"
     }
   ]

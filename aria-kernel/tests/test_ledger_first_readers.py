@@ -53,10 +53,14 @@ class LearningEventsSectionTests(unittest.TestCase):
 
 class AlertRenderTests(unittest.TestCase):
     def _dashboard_with_alert(self, root: Path) -> None:
-        from aria_kernel.ledger import append_jsonl
+        # ORPHAN-670 — the observability ledgers are declared surfaces now;
+        # the fixture writes the way production does.
+        from aria_kernel.ledger import append_declared_jsonl
 
-        append_jsonl(
+        append_declared_jsonl(
             root / "observability" / "dashboards.jsonl",
+            expected_surface="observability_dashboards",
+            record=
             {
                 "cycle_id": "cyc-m10",
                 "rolling_slo": {"slo_state": "warning", "window": 5},
@@ -83,16 +87,17 @@ class AlertRenderTests(unittest.TestCase):
         self.assertNotIn("None:", lines)
 
     def test_alert_history_reads_the_ledger(self) -> None:
-        from aria_kernel.ledger import append_jsonl
+        from aria_kernel.ledger import append_declared_jsonl
         from aria_kernel.observability import alerts_path
 
         with tempfile.TemporaryDirectory() as tmp:
             root = ensure_tools_dir(Path(tmp) / "aria-tools")
             self._dashboard_with_alert(root)
             for _ in range(3):
-                append_jsonl(
+                append_declared_jsonl(
                     alerts_path(root),
                     {"reason": "artifact_count_cliff", "slo_state": "degraded", "observed": 0},
+                    expected_surface="observability_alerts",
                 )
             lines = "\n".join(_render_observability_section(root))
         self.assertIn("Alert history (last 3 rows): artifact_count_cliff×3", lines)

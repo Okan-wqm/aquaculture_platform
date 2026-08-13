@@ -550,6 +550,11 @@ def append_jsonl(path: Path, payload: dict[str, Any]) -> dict[str, Any]:
         return append_declared_jsonl(path, payload, expected_surface="health")
     if path.name == "cycles.jsonl":
         return append_declared_jsonl(path, payload, expected_surface="cycles")
+    # ORPHAN-670 — per-run tool calibration joined the declared roster so
+    # it survives the nightly publish; a declared surface refuses the
+    # legacy chained append, so the store-level wrapper routes it.
+    if path.name == "calibration.jsonl":
+        return append_declared_jsonl(path, payload, expected_surface="tool_calibration")
     return append_chained_jsonl(path, payload)
 
 

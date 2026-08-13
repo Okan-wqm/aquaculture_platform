@@ -1017,6 +1017,10 @@ _DECLARED_SURFACE_BY_FILENAME: dict[str, str] = {
     "feedback-consensus-uncertainties.jsonl": "feedback_consensus_uncertainties",
     "priorities.jsonl": "proactive_priorities",
     "judge-calibration.jsonl": "calibration_judge",
+    # ORPHAN-670 — the tool-finding and promotion ledgers joined the
+    # declared roster (they died at job teardown before).
+    "findings.jsonl": "findings",
+    "promotions.jsonl": "promotions",
 }
 
 
@@ -1029,6 +1033,15 @@ def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
 
 
 def rewrite_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    # ORPHAN-670 — a declared surface refuses the legacy chained rewrite
+    # just like the legacy append; route through the same filename map so
+    # the status-update path (finding open→resolved) keeps one primitive.
+    surface = _DECLARED_SURFACE_BY_FILENAME.get(path.name)
+    if surface is not None:
+        from .ledger import rewrite_declared_jsonl
+
+        rewrite_declared_jsonl(path, rows, expected_surface=surface)
+        return
     rewrite_chained_jsonl(path, rows)
 
 

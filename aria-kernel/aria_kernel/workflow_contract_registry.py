@@ -384,13 +384,13 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 dlp_artifact="aria-auto-cycle-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
-                # Measured REAL burn-in wall time ≈ 80-90 min (30 cycles ×
-                # ~2.5 min); the live YAML sets 150 for burn-in mode.
+                # Operator decision (2026-08-13): the night's window is
+                # unbounded — the 360-minute platform ceiling, one value for
+                # every mode. Smoke runs 1-3 proved the 50-minute cap was the
+                # binding constraint; the ORPHAN-661/662 deadline pair keeps
+                # any value safe (the night seals + publishes at the wall).
                 burn_in_timeout_floor_minutes=120,
-                # The ordinary branch of the mode-aware expression at
-                # aria-auto-cycle.yml:81 (burn-in takes the 150 branch and is
-                # governed by burn_in_timeout_floor_minutes above).
-                job_timeout_minutes=50,
+                job_timeout_minutes=360,
                 # The producer is the shape aria-agent-executor mirrors, so it
                 # carries the same declared constraints — a reference
                 # implementation that is itself unpinned is a reference that

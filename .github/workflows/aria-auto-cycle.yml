@@ -112,9 +112,14 @@ jobs:
     # ~2.5 min/cycle ≈ 80-90 min (run 28577469404 was cancelled mid-burn-in by
     # the previous flat 50-minute limit, producing ZERO ladder evidence because
     # the acceptance verdict is all-or-nothing). Schedule/cycle runs keep 50.
-    # The 150/120 floor is enforced by the workflow contract
-    # (burn_in_timeout_floor_minutes in workflow_contract_registry.py).
-    timeout-minutes: ${{ github.event.inputs.mode == 'burn-in-observe' && 150 || 50 }}
+    # Operator decision (2026-08-13): the night's window is UNBOUNDED — in
+    # GitHub terms that is the 360-minute platform ceiling, stated
+    # explicitly rather than left implicit by omitting the field. Smoke
+    # runs 1-3 proved the 50-minute cap was the binding constraint (the
+    # cycle needs adapters + queue drain + spawns); the deadline defence
+    # pair (ORPHAN-661 spawn clamp + ORPHAN-662 night-close) keeps ANY
+    # value safe: the night seals and publishes whatever the wall is.
+    timeout-minutes: 360
     env:
       # Kernel-workflow parity: no .pyc litter in the checkout — the
       # burn-in pre-clean guard treats any untracked path as dirty.
@@ -430,7 +435,6 @@ jobs:
           MAX_REQUESTS_PER_RUN: '30'
           MAX_TIMEOUT_SECONDS: '1800'
           MAX_CYCLES_INPUT: ${{ github.event.inputs.max_cycles }}
-          CYCLE_MODE_INPUT: ${{ github.event.inputs.mode }}
         run: |
           set -euo pipefail
           MAX_CYCLES="${MAX_CYCLES_INPUT:-1}"
@@ -447,14 +451,10 @@ jobs:
           # and the whole night quarantine.
           # 10-minute margin: ~5m of setup steps already spent before this
           # step (the epoch is computed here, not at job start) + ~5m for
-          # the close-out steps after it. Mode reaches bash via env (the
-          # workflow-contract gate forbids raw inputs interpolation in run
-          # blocks — injection class), mirroring MAX_CYCLES_INPUT.
-          if [ "${CYCLE_MODE_INPUT:-}" = "burn-in-observe" ]; then
-            JOB_TIMEOUT_MINUTES=150
-          else
-            JOB_TIMEOUT_MINUTES=50
-          fi
+          # the close-out steps after it. Single mode-independent value —
+          # the job cap is the 360-minute platform ceiling for every mode
+          # (operator decision 2026-08-13).
+          JOB_TIMEOUT_MINUTES=360
           export ARIA_JOB_DEADLINE_EPOCH=$(( $(date +%s) + JOB_TIMEOUT_MINUTES * 60 - 600 ))
           echo "spawn deadline: $(date -u -d @${ARIA_JOB_DEADLINE_EPOCH} +%H:%M:%SZ) (job cap ${JOB_TIMEOUT_MINUTES}m - 10m margin)"
           PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy run \

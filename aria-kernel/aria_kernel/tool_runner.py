@@ -21,7 +21,12 @@ from .tool_registry import GovernanceError, ensure_tools_binding, get_tool
 
 MINIMUM_OUTPUT_FIELDS = ("observations", "findings", "read_paths", "evidence_sources")
 RAW_SAMPLE_LIMIT = 50
-STDOUT_PARSE_MAX_BYTES = 5 * 1024 * 1024
+# Measured (2026-08-13): tenant-scoping over the full repo emits 5.84 MB
+# (66 findings + 11,471 observations) — 17% over the old 5 MB cap, which
+# made every night's cycle "failed" via budget_exceeded/output_too_large.
+# 12 MB = measured reality × 2 headroom; the adapter-side per-type
+# observation cap (tenant-scoping-adapter) bounds the growth class itself.
+STDOUT_PARSE_MAX_BYTES = 12 * 1024 * 1024
 
 
 def run_tool(

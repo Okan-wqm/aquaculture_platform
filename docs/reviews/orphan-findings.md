@@ -9363,6 +9363,14 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-HIGH-666 — the night could never be completed: tenant-scoping's honest flood tripped a silent output cap — RESOLVED (this PR, smoke-run 4 finding)
+
+Severity: HIGH (found by smoke runs 1-4 — the ONE non-green tool in four consecutive live nights). `tenant-scoping-adapter` returned `budget_exceeded` at ~70s every night, which `non_ok_tools` turned into a permanent cycle="failed": no night could ever seal `completed`. The cause was not time: the runner's `output_too_large` branch reuses the `budget_exceeded` status when stdout exceeds `STDOUT_PARSE_MAX_BYTES` (5 MB), and the full-repo tenant scan honestly emits 5.84 MB — 66 findings plus **11,471 observations** (9,363 `tenant_repository_call`). The actionable channel was tiny; the telemetry drowned it, and the drowning wore a misleading label.
+
+**Fix (both sides of the class):** (runner) the cap moves to 12 MB — measured reality × 2, with the measurement in the comment; (adapter) observations get a deterministic per-type cap (3,000, applied post-sort on stable ids) with the drop DECLARED per type in `metadata.observations_truncated` — honest truncation, never silent (live: 2.5 MB, 66 findings unchanged, `tenant_repository_call: 6363 dropped` declared). Findings are never capped. Verified live: full-repo run at 2.5 MB with identical findings; adapter unit tests green; runner suites green.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-HIGH-665 — the semantic lane was not merely empty, it was unfillable: three mandatory adapters could never leave SHADOW — RESOLVED (this PR, E13-C3)
 
 Severity: HIGH (plan E13-C3; audit C3, Explore-doğrulama 2026-08-13). `readiness.py:14-18` makes the `semantic_regression` fixture lane MANDATORY for security-boundary, tenant-scoping and test-gap; `_lane_passed` is fail-closed on an empty lane; the lane held ZERO cases — so none of the three could ever satisfy `adapter_active_readiness` and leave SHADOW. Worse, found while filling it: the lane was UNFILLABLE — the evidence check judged a fixture case's findings against the tool's PRODUCTION `allowed_read_globs`, so every curated mini-workspace case died on `evidence_scope_violation` before its expectation was even evaluated. The contract (`validate_semantic_regression_case`) demanded curated gold sets and the machinery refused every one.

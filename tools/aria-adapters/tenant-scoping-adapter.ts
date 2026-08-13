@@ -131,6 +131,24 @@ export function analyzeTenantScoping(input: AdapterInput, workspaceRoot = proces
   result.observations.sort(compareById);
   result.findings.sort(compareById);
   result.readPaths.sort();
+  // Measured (2026-08-13): the full-repo scan emits 11,471 observations
+  // (9,363 tenant_repository_call) — 5.84 MB of stdout that tripped the
+  // runner's parse cap and marked every night budget_exceeded. Findings
+  // are the actionable channel (66 rows); observations above the per-type
+  // cap are dropped DETERMINISTICALLY (post-sort, stable ids) and the
+  // drop is DECLARED per type — honest truncation, never silent.
+  const OBSERVATION_CAP_PER_TYPE = 3000;
+  const byType = new Map<string, number>();
+  const truncated: Record<string, number> = {};
+  result.observations = result.observations.filter((observation) => {
+    const seen = (byType.get(observation.type) ?? 0) + 1;
+    byType.set(observation.type, seen);
+    if (seen > OBSERVATION_CAP_PER_TYPE) {
+      truncated[observation.type] = (truncated[observation.type] ?? 0) + 1;
+      return false;
+    }
+    return true;
+  });
   const evidenceSources = Array.from(
     new Set(result.findings.flatMap((finding) => finding.evidence.map((evidence) => evidence.path))),
   ).sort();
@@ -157,6 +175,9 @@ export function analyzeTenantScoping(input: AdapterInput, workspaceRoot = proces
       findings_count: result.findings.length,
       allowlist_count: allowlist.size,
       tenant_owned_entity_count: tenantEntities.size,
+      // Declared truncation (see the cap above): counts of observations
+      // dropped per type. Empty object = nothing dropped.
+      observations_truncated: truncated,
     },
   };
 }

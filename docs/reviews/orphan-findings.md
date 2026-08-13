@@ -9363,6 +9363,14 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-HIGH-667 — two safety constants disagreed and the first live drain lost 30/30 spawns to their argument — RESOLVED (this PR, executor-smoke finding)
+
+Severity: HIGH (found by the first executor smoke, run 31704817330 — the iteration doing its job on a NEW lane). The spawn budget gate (ORPHAN-660) shipped with a hardcoded default estimate of $1.50; the genesis policy's own `per_run` cap is $0.50. Every drained request hit `cost_budget_per_run_cap_exceeded` BEFORE its spawn started: `attempted: 30, failed: 30`, the cost breaker tripped on CONFIGURATION rather than on spend, and 30 requests were left claimed-in-flight. The gate's job is to stop a night that would blow the budget — not to referee a disagreement between two constants.
+
+**Fix:** the default estimate DERIVES from the policy — 80% of the operative `per_run` cap (`_load_caps`, same resolution path the enforcement uses, so the two can never disagree again). The env override (`ARIA_ESTIMATED_RUN_USD`) remains for operators who know a lane's real per-run cost; a malformed override falls back to the derived value. The gate still refuses honestly when projected daily/monthly spend is actually exhausted — which is its purpose. New deliberate-break test: an untouched environment passes the gate (pre-fix it could not); gate + deadline suites green (11). Residue noted: the tripped breaker state persists in the published store and gates only `autonomous`-profile preflight (current lanes run `standard`); `aria-kernel breaker reset` is the operator verb, queued for the pre-cron cleanup.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-HIGH-666 — the night could never be completed: tenant-scoping's honest flood tripped a silent output cap — RESOLVED (this PR, smoke-run 4 finding)
 
 Severity: HIGH (found by smoke runs 1-4 — the ONE non-green tool in four consecutive live nights). `tenant-scoping-adapter` returned `budget_exceeded` at ~70s every night, which `non_ok_tools` turned into a permanent cycle="failed": no night could ever seal `completed`. The cause was not time: the runner's `output_too_large` branch reuses the `budget_exceeded` status when stdout exceeds `STDOUT_PARSE_MAX_BYTES` (5 MB), and the full-repo tenant scan honestly emits 5.84 MB — 66 findings plus **11,471 observations** (9,363 `tenant_repository_call`). The actionable channel was tiny; the telemetry drowned it, and the drowning wore a misleading label.

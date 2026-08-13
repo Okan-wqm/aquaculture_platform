@@ -56,6 +56,17 @@ class SpawnBudgetGateTests(unittest.TestCase):
             ):
                 _assert_budget_before_spawn()
 
+    def test_default_estimate_derives_from_policy_and_passes(self) -> None:
+        """Executor smoke 31704817330 — the original hardcoded default
+        ($1.50) sat above the policy per_run cap ($0.50): 30/30 spawns
+        refused, breaker tripped on configuration. The default now derives
+        from the policy (80% of per_run), so an untouched environment can
+        never refuse on constant-disagreement."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = ensure_tools_dir(Path(tmp) / "aria-tools")
+            os.environ["ARIA_TOOLS_DIR"] = str(root)
+            _assert_budget_before_spawn()  # no raise, no env estimate
+
     def test_within_cap_estimate_passes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = ensure_tools_dir(Path(tmp) / "aria-tools")

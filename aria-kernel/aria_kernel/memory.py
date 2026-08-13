@@ -766,6 +766,11 @@ def decay_stale_beliefs_by_age(
         row.update(
             {
                 "status": status,
+                # M7/E12 — confidence moves IN the transition row itself.
+                # All three decay paths used to write only status: a belief
+                # marked stale kept confidence 1.0, so any confidence-sorted
+                # consumer ranked stale-but-sure ahead of fresh-but-modest.
+                "confidence": _decayed_confidence(belief, status),
                 "needs_revalidation_cycles": revalidation_cycles,
                 "stale_reason": f"belief not re-verified within {ttl_days}d (age decay, code unchanged)",
                 "verification_status": "needs_revalidation",
@@ -880,6 +885,9 @@ def decay_beliefs_by_head_distance(
         row = dict(belief)
         row.update({
             "status": status,
+            # M7/E12 — see the age-decay path: the transition itself
+            # carries the confidence drop.
+            "confidence": _decayed_confidence(belief, status),
             "needs_revalidation_cycles": revalidation_cycles,
             "stale_reason": "evidence file changed since anchor commit (head-distance decay)",
             "verification_status": "needs_revalidation",
@@ -1027,6 +1035,9 @@ def _mark_quarantined_source_beliefs(root: Path, cycle_id: str, quarantined_tool
         row.update(
             {
                 "status": status,
+                # M7/E12 — see the age-decay path: the transition itself
+                # carries the confidence drop.
+                "confidence": _decayed_confidence(belief, status),
                 "needs_revalidation_cycles": revalidation_cycles,
                 "revalidation_reason": "source tool is quarantined",
                 "quarantined_source_tool_ids": matched_tool_ids,
@@ -1253,6 +1264,29 @@ def _feedback_adjustment(root: Path, belief_id: str) -> float:
 
 def _bounded_confidence(value: float) -> float:
     return round(min(1.0, max(0.0, value)), 3)
+
+
+# M7/E12 — how much a staleness transition costs. Stale costs more than
+# needs_revalidation because stale means the doubt has COMPOUNDED across
+# cycles; both leave the belief rankable (never zeroed) so revalidation
+# can restore it.
+DECAY_CONFIDENCE_PENALTY: dict[str, float] = {
+    "needs_revalidation": 0.1,
+    "stale": 0.2,
+}
+
+
+def _decayed_confidence(belief: dict[str, Any], status: str) -> float:
+    """The belief's confidence after a staleness transition.
+
+    All three decay paths (age, head-distance, quarantined-source) used
+    to write only ``status``: a belief marked stale kept confidence 1.0,
+    so any confidence-sorted consumer ranked stale-but-sure ahead of
+    fresh-but-modest. The drop rides the SAME row as the status change —
+    one transition, one truth.
+    """
+    current = float(belief.get("confidence") or 0.0)
+    return _bounded_confidence(current - DECAY_CONFIDENCE_PENALTY.get(status, 0.1))
 
 
 def _latest_belief(root: Path, belief_id: str) -> dict[str, Any] | None:

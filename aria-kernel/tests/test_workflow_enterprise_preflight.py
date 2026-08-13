@@ -698,9 +698,13 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
             cycle_wall_clock_cap_seconds(self._EXECUTOR),
             (150 - WALL_CLOCK_RESERVE_MINUTES) * 60,
         )
+        # 50 → 360 (operator decision 2026-08-13): the night's window is the
+        # 360-minute platform ceiling. Smoke runs 1-3 proved 50 was the
+        # binding constraint; the ORPHAN-661/662 deadline pair keeps any
+        # value safe (the night seals + publishes at the wall).
         self.assertEqual(
             cycle_wall_clock_cap_seconds(self._CYCLE),
-            (50 - WALL_CLOCK_RESERVE_MINUTES) * 60,
+            (360 - WALL_CLOCK_RESERVE_MINUTES) * 60,
         )
         # An unknown lane must be None ("no self-imposed ceiling"), never 0,
         # which would refuse every dispatch.

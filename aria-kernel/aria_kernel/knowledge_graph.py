@@ -242,8 +242,22 @@ def _append_row(path: Path, row: dict[str, Any]) -> None:
     # imports fcntl which is POSIX-only; macOS/Linux dev hosts
     # only).
     from .file_lock import with_exclusive_lock
+    # M11/E12-b — the declared-surface resolver refuses a tools root that
+    # lacks the repo-identity binding (`/tmp/rogue/aria-tools` must never
+    # resolve as canonical state). The kg writers used to mkdir their way
+    # to an identity-less root; ensure_tools_dir is idempotent and stamps
+    # the binding the resolver requires.
+    from .tool_registry import ensure_tools_dir
+
+    ensure_tools_dir(path.parent.parent)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with with_exclusive_lock(path):
+    # M11/E12-b — the serialisation lock moves to a SIDE-CAR: the declared
+    # writer below takes the ledger's own per-file lock on `path`, and two
+    # fcntl locks on the same file from one process deadlock. The side-car
+    # still serialises the read-tail→compute-prev→append window (the
+    # original race this lock exists for); the ledger lock inside guards
+    # the physical append.
+    with with_exclusive_lock(path.with_name(path.name + ".prevchain")):
         if path.exists() and path.stat().st_size > 0:
             # Find the last non-empty line + compute its hash
             last_row: dict[str, Any] | None = None
@@ -253,8 +267,29 @@ def _append_row(path: Path, row: dict[str, Any]) -> None:
         else:
             prev = GENESIS_PREV_HASH
         row_with_chain = {**row, "prev_row_hash": prev}
-        with path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(row_with_chain, sort_keys=True, separators=(",", ":")) + "\n")
+        # M11/E12-b — the append goes through the declared-surface writer,
+        # not a raw file handle. The raw open("a") bypassed the ledger
+        # discipline AND kept these files out of the aria/state publish
+        # allowlist, so every night's learning evaporated at job teardown.
+        # prev_row_hash stays IN the payload: the knowledge-graph's own
+        # chain (verify_chain_or_quarantine) is unchanged and still spans
+        # pre-migration rows; new rows carry both chains.
+        from .ledger import append_declared_jsonl
+        from .state_manifest import surface_for_relative_path
+
+        rel = Path("knowledge-graph") / path.name
+        surface = surface_for_relative_path(rel)
+        if surface is not None:
+            append_declared_jsonl(
+                path, row_with_chain, expected_surface=surface.name,
+            )
+        else:
+            # A knowledge-graph file with no declared surface is a NEW
+            # file someone forgot to roster — refuse rather than silently
+            # re-opening the durability hole this migration closed.
+            raise KnowledgeGraphSchemaError(
+                f"knowledge-graph file has no declared surface: {path.name}"
+            )
 
 
 # ============================================================================

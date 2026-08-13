@@ -470,6 +470,23 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # byte recomputable from the repo at indexed_sha, hence index-class and
     # write_driving=False; it informs reads, it never authorises an action.
     StateSurface("twin_map", "twin/map.json", "index", "impact", "runtime", True, "rewrite_fsync", False, profile_surface="observation", observe_class="observation"),
+    # M11/E12-b — the knowledge-graph ledgers join the declared surface
+    # system. They had THREE writers' worth of accumulated knowledge
+    # (conventions, anti-patterns, source effectiveness, duel ratings,
+    # embeddings) and were invisible to iter_surfaces(): the aria/state
+    # publish never carried them, so every night's learning evaporated at
+    # job teardown — the Thompson bandit (M3) started from zero nightly,
+    # and no convention could survive to be promoted (M2). strict_read is
+    # False by DESIGN, not laxity: these files carry the knowledge-graph's
+    # own prev_row_hash chain (verified by verify_chain_or_quarantine);
+    # rows appended before this change have no ledger_hash envelope, and
+    # an append-only ledger does not rewrite its history to fit a new
+    # wrapper. New rows carry BOTH chains.
+    StateSurface("kg_conventions", "knowledge-graph/conventions.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("kg_anti_patterns", "knowledge-graph/anti-patterns.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("kg_pressure_source_effectiveness", "knowledge-graph/pressure-source-effectiveness.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("kg_duel_ratings", "knowledge-graph/duel-ratings.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("kg_embeddings", "knowledge-graph/embeddings.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("executor_registry", "executor/registry.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("executor_packets", "executor/packets.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("executor_diff_reviews", "executor/diff-reviews.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),

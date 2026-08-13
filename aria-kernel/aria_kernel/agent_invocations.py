@@ -243,16 +243,28 @@ def _established_knowledge_for_refs(
         )
         beliefs = beliefs[:5]
         workspace_root = Path(repo_root) if repo_root else base_dir.parent
+        # M2/E12 — hypotheses are VISIBLE but LABELLED. Every convention is
+        # written at 0.5 ("hypothesis" — agreement, not outcome) and the
+        # default 0.7 floor meant NOTHING ever reached an envelope: the
+        # ledger was write-only in effect. The floor still separates the
+        # two classes — a verified convention (promoted on merge) arrives
+        # as established knowledge; a hypothesis arrives carrying its own
+        # outcome_status so a judge reads it as context, never as a rule.
+        from .cycle_phases.memory import CONVENTION_HYPOTHESIS_CONFIDENCE
+
         conventions = [
             {
                 "pattern_id": row.get("pattern_id"),
                 "pattern_type": row.get("pattern_type"),
                 "confidence": row.get("confidence"),
+                "outcome_status": row.get("outcome_status") or "unknown",
                 "evidence_refs": list(row.get("evidence_refs") or [])[:3],
                 "discovered_by_cycle_id": row.get("discovered_by_cycle_id"),
             }
             for row in conventions_for_paths(
-                workspace_root=workspace_root, paths=wanted
+                workspace_root=workspace_root,
+                paths=wanted,
+                min_confidence=CONVENTION_HYPOTHESIS_CONFIDENCE,
             )
         ]
         if not beliefs and not conventions:

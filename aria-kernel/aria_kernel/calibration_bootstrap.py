@@ -41,7 +41,7 @@ import sys
 from pathlib import Path
 from typing import Any, TypedDict
 
-from .ledger import append_jsonl
+from .ledger import append_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -117,7 +117,7 @@ def record_seeding_finding(
         "finding": finding,
         "labeled": False,
     }
-    return append_jsonl(seeding_path(base_dir, tool_id), row)
+    return append_declared_jsonl(seeding_path(base_dir, tool_id), row, expected_surface="operator_feedback_seeding")
 
 
 def label_finding(
@@ -157,7 +157,7 @@ def label_finding(
         "note": note,
     }
     labels_path = seeding_path(base_dir, tool_id).with_name("labels.jsonl")
-    return append_jsonl(labels_path, label_row)
+    return append_declared_jsonl(labels_path, label_row, expected_surface="operator_feedback_seeding")
 
 
 def finalize_corpus(
@@ -212,7 +212,7 @@ def finalize_corpus(
             "legacy_label": label_value,
             "labeled_at": label_row.get("labeled_at"),
         }
-        append_jsonl(corpus, fixture)
+        append_declared_jsonl(corpus, fixture, expected_surface="operator_feedback")
         migrated += 1
     return {
         "tool_id": tool_id,

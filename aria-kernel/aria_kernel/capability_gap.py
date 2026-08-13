@@ -9,7 +9,7 @@ from .agent_priors import related_agents_for_paths
 from .agent_network import latest_agent_network_hash
 from .agent_routing import ROUTING_TABLE_REL, unowned_projects
 from .fitness import list_fitness_reports
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_jsonl
 from .runs_reader import read_runs_rows
 from .memory import list_memory
 from .pressure import effective_workspace_pressures
@@ -75,7 +75,7 @@ def detect_capability_gaps(
         "gap_count": len(ordered),
         "gaps": ordered,
     }
-    return append_jsonl(root / "capability-gaps" / "gaps.jsonl", row)
+    return append_declared_jsonl(root / "capability-gaps" / "gaps.jsonl", row, expected_surface="capability_gaps")
 
 
 def list_capability_gaps(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:

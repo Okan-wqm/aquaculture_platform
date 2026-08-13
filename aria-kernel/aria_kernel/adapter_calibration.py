@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl as load_chained_jsonl
+from .ledger import append_declared_jsonl, load_jsonl as load_chained_jsonl
 from .readiness import adapter_active_readiness
 from .tool_registry import GovernanceError, ensure_tools_dir, get_tool, utc_now
 
@@ -50,7 +50,7 @@ def generate_adapter_calibration_report(
         "blocked_count": sum(1 for report in reports if not report["active_ready"]),
         "status": "active_ready" if all(report["active_ready"] for report in reports) else "blocked",
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "calibration" / "adapter-calibration-reports.jsonl", row)
+    return append_declared_jsonl(ensure_tools_dir(base_dir) / "calibration" / "adapter-calibration-reports.jsonl", row, expected_surface="calibration_adapter_reports")
 
 
 def list_adapter_calibration_reports(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:

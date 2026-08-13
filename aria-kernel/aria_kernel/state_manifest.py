@@ -487,6 +487,36 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("kg_pressure_source_effectiveness", "knowledge-graph/pressure-source-effectiveness.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("kg_duel_ratings", "knowledge-graph/duel-ratings.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("kg_embeddings", "knowledge-graph/embeddings.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # ORPHAN-668 — the learning wheel's VERDICT and CALIBRATION ledgers
+    # join the declared surface system. Same defect class as M11/E12-b,
+    # one ring further out: operator/AI verdicts (operator-feedback),
+    # judge + adapter calibration, judgment samples, consensus
+    # uncertainties, reflections, capability gaps, proactive priorities,
+    # problem clusters, task candidates and genesis request status were
+    # all written with the hash-chained §A.1 primitive but were invisible
+    # to iter_surfaces() — the aria/state publish never carried them, so
+    # every night's verdicts and calibration died at job teardown:
+    # auto-promotion (C7) could never accumulate precision_history, and
+    # yesterday's false-positive verdicts could not stop tomorrow's
+    # repeat findings. strict_read is False by the same DESIGN as the
+    # knowledge-graph block above: these ledgers predate the declared
+    # system; an append-time chain verify would turn any single
+    # historical defect into a permanent write-block on the whole
+    # learning wheel. write_driving=False: they inform judgment, they
+    # never authorise an action by themselves.
+    StateSurface("operator_feedback", "operator-feedback.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("judgment_samples", "judgment-samples.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("feedback_consensus_uncertainties", "feedback-consensus-uncertainties.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("operator_feedback_seeding", "operator-feedback-seeding/*/*.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("calibration_judge", "calibration/judge-calibration.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("calibration_adapter_reports", "calibration/adapter-calibration-reports.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("calibration_recommendations", "calibration/recommendations.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("capability_gaps", "capability-gaps/gaps.jsonl", "ledger", "capability_gaps", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("proactive_priorities", "proactive/priorities.jsonl", "ledger", "proactive", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("problem_clusters", "problem_clusters.jsonl", "ledger", "clustering", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("reflections", "reflections.jsonl", "ledger", "reflection", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("skill_genesis_request_status", "skill-genesis/request-status.jsonl", "ledger", "genesis", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("task_candidates", "tasks/task-candidates.jsonl", "ledger", "tasks", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("executor_registry", "executor/registry.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("executor_packets", "executor/packets.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("executor_diff_reviews", "executor/diff-reviews.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),

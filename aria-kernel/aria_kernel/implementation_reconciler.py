@@ -90,6 +90,20 @@ def reconcile_recorded_implementations(
             # A concurrent fold already moved the plan; terminal states are
             # idempotent, anything else is visible on the next cycle.
             continue
+        # M2/E12 — the merge IS the verified outcome the convention row
+        # has waited for since convergence: promote its hypothesis to
+        # verified so lookup can finally serve it. Advisory — a promotion
+        # failure must not cost the merge record above.
+        try:
+            from .knowledge_graph import promote_convention_for_plan
+            from .tool_registry import ensure_tools_dir
+
+            promote_convention_for_plan(
+                plan_id=plan_id,
+                workspace_root=ensure_tools_dir(base_dir).parent,
+            )
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
         merged.append({"plan_id": plan_id, "pr_number": pr_number, "merge_sha": merge_sha})
 
     return {"status": "reconciled", "merged": merged, "checked": checked}

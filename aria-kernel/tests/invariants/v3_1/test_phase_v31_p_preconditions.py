@@ -98,9 +98,16 @@ class KnowledgeGraphLockSafeAppendTests(unittest.TestCase):
         from aria_kernel.knowledge_graph import (
             Pattern, _append_row, verify_chain_or_quarantine,
         )
+        from aria_kernel.tool_registry import ensure_tools_dir
         from dataclasses import asdict
         tmp = Path(tempfile.mkdtemp(prefix="v31p3-"))
-        ledger = tmp / "conventions.jsonl"
+        # M11/E12-b — _append_row now writes through the declared-surface
+        # system, which only rosters the canonical knowledge-graph paths
+        # under an identity-bound tools root; a bare tmp file is exactly
+        # the rogue path the resolver refuses. The concurrency contract
+        # being pinned here is unchanged — only the path is canonical now.
+        root = ensure_tools_dir(tmp / "aria-tools")
+        ledger = root / "knowledge-graph" / "conventions.jsonl"
 
         def worker(i: int) -> None:
             pattern = Pattern(

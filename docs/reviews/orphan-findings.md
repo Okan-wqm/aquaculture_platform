@@ -9403,6 +9403,8 @@ Severity: HIGH (E17-a). The four runtime-dispatched agents (evidence-judge, adve
 
 The finishing agent also caught and corrected a FALSE EVIDENCE CLAIM in the first draft's comments (they asserted the cost was already measured by the budget audit; it was not — that counting is E17-d's job, which had not landed at the time) and regenerated the stale `format-scope.json` manifest that would have failed CI. Honesty discipline held under handoff.
 
+**Landing addendum (same PR):** the digest's first CI run exposed a THIRD defect, in the docs gate itself — `markdownlint-changed` lints whole files, so adding eight marker comments to SPEC/CONTRACTS/PIPELINES dragged ~300 pre-existing MD013/MD040 violations into scope and failed the PR. Reflowing a 70KB contract doc to satisfy a rule it never met is churn on the very SSoT the doc is. The gate now bills only findings on lines the change actually wrote (`git diff -U0` ranges), reports inherited debt without failing, and excludes `docs/**/generated/**` entirely (a generated artifact reproduces its sources byte-for-byte; it cannot be re-wrapped without breaking the identity an invariant pins). This mirrors the format gate's existing base-debt quarantine — new lines enforced, inherited debt attributed. Pinned by a stub-linter fixture test.
+
 **Owner:** claude (session lead) + parallel implementation agents (fable→opus handoff on quota). **Status:** RESOLVED. Note for readers: these four agents no longer load `layer-1-aria.md` — permitted by the prompt-contract carve-out, a deliberate narrowing for runtime lanes only.
 
 ## ORPHAN-MEDIUM-683 — the biggest context cost was invisible to the budget audit, and cache behaviour was an untested assumption — RESOLVED (this PR, E17-d)

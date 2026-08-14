@@ -9363,6 +9363,14 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-HIGH-677 — reflexes with no spinal cord, and avoid-rules no judge could see — RESOLVED (this PR, E12-c)
+
+Severity: HIGH (E12-c: M13+M15). (M13) Both watchdog detectors (stall, repeated bridge-warning) existed as pure functions behind a daemon loop NOTHING ran in production — the organism had reflexes and no spinal cord; a stalled plan or a repeating bridge failure was detectable and never detected. (M15) `record_anti_pattern` + `lookup_pattern` had zero callers: an operator-signed avoid-rule would never be read back at judgment time. The plan's original idea (auto-mint from AI false-positive consensus) turned out to be FORBIDDEN by standing arbitration (arb HIGH-008: an avoid-rule SKIPS work, kernel auto-write banned) — the honest producer is human-gated.
+
+**Fix (M13):** `run_watchdog_sweep` extracted as the single sweep unit (İ1: the daemon loop now calls it per iteration, unchanged behaviour) and a new `watchdog_sweep` CyclePhase runs it once per cycle (`record_and_continue` — a sweep failure never costs the night; emission dedup 10/24h already lives in the emitter, so the nightly sweep cannot spam what the daemon would not). **(M15):** reader first — `anti_patterns_for_paths` mirrors `conventions_for_paths` over the anti-patterns ledger (no confidence floor: an operator-signed avoid-rule is authoritative by its signature, not a score) and the envelope's established-knowledge section now carries `anti_patterns` rendered as `AVOID …` context (never a verdict); producer — new `aria-kernel anti-pattern record` verb requiring `--operator-signature` (≥16 chars, `KnowledgeGraphSignatureMissing` otherwise — the arb rule survives, pinned). 7 tests incl. the phase-roster and unsigned-mint deliberate-breaks.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-HIGH-676 — the genesis lifecycle had no producer AND its human gate demanded evidence nothing could mint — RESOLVED (this PR, C4-c)
 
 Severity: HIGH (C4-c). Two locks on one door. (1) `record_transition` — the only writer of `genesis-lifecycle/events.jsonl` — had zero production callers and no CLI verb: every consumer (`_target_is_shadow`, the shadow-eval invocation gate, the promotion path) read a ledger no production path could fill. (2) Worse, even a willing caller could not pass the HUMAN_REQUIRED gate: it demanded `existing_capability_coverage{verdict∈{positive,covered,pass}, coverage_score≥0.8}` — a shape NO producer anywhere mints; `capability_resolver`, the only coverage authority, writes `decision ∈ {reuse, extend, request}`. An unproducible predicate is a locked door with no key (the E8 defect class, promotion edition).

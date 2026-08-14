@@ -983,6 +983,24 @@ def _phase_twin_refresh(context: PhaseContext) -> dict[str, Any]:
     return refresh_twin_map(workspace_root=context.workspace_root, base_dir=context.base_dir)
 
 
+def _phase_watchdog(context: PhaseContext) -> dict[str, Any]:
+    """M13/E12-c (ORPHAN-677) — the watchdog's eyes join the nightly body.
+
+    Both detectors (stall, repeated bridge-warning) existed as pure
+    functions behind a daemon loop nothing ran in production — the
+    organism had reflexes and no spinal cord. One sweep per cycle via
+    the SAME implementation the daemon uses (`run_watchdog_sweep`);
+    emission dedup (10/24h per signature) already lives inside the
+    emitter, so a nightly sweep cannot spam what the daemon would not.
+    """
+    from .aria_watchdog import run_watchdog_sweep
+
+    return run_watchdog_sweep(
+        workspace_root=context.workspace_root,
+        tools_dir=context.base_dir,
+    )
+
+
 def _phase_tools(context: PhaseContext) -> dict[str, Any]:
     """Run every dispatchable tool and summarise the runs it produced.
 
@@ -2080,6 +2098,15 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         "twin_refresh", "discovery", _phase_twin_refresh,
         on_error="record_and_continue", state_key="twin_refresh",
         modes=frozenset({"standard", "burn_in"}),
+    ),
+    # M13/E12-c (ORPHAN-677) — one watchdog sweep per cycle. Observation-
+    # class (emits findings through the dedup'd emitter, takes no claim/
+    # tool/PR action); standard lane only, and a sweep failure must never
+    # cost the night.
+    CyclePhase(
+        "watchdog_sweep", "discovery", _phase_watchdog,
+        on_error="record_and_continue", state_key="watchdog_sweep",
+        modes=frozenset({"standard"}),
     ),
 
     # --- pre_tool: gates that must observe preconditions, not results ---

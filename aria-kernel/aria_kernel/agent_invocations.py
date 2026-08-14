@@ -267,9 +267,30 @@ def _established_knowledge_for_refs(
                 min_confidence=CONVENTION_HYPOTHESIS_CONFIDENCE,
             )
         ]
-        if not beliefs and not conventions:
+        # M15/E12-c (ORPHAN-677) — the "avoid this" half finally reaches
+        # the judge. Operator-signed anti-patterns touching this request's
+        # paths ride the same knowledge section; they are context ("this
+        # approach was adjudicated wrong here"), never a verdict.
+        from .knowledge_graph import anti_patterns_for_paths
+
+        anti_patterns = [
+            {
+                "pattern_id": row.get("pattern_id"),
+                "reason_class": row.get("reason_class"),
+                "evidence_refs": list(row.get("evidence_refs") or [])[:3],
+                "recorded_at": row.get("recorded_at"),
+            }
+            for row in anti_patterns_for_paths(
+                workspace_root=workspace_root, paths=wanted
+            )
+        ]
+        if not beliefs and not conventions and not anti_patterns:
             return None
-        return {"beliefs": beliefs, "conventions": conventions}
+        return {
+            "beliefs": beliefs,
+            "conventions": conventions,
+            "anti_patterns": anti_patterns,
+        }
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
@@ -316,7 +337,8 @@ def _render_established_knowledge(established_knowledge: Any) -> str:
         return ""
     beliefs = established_knowledge.get("beliefs") or []
     conventions = established_knowledge.get("conventions") or []
-    if not beliefs and not conventions:
+    anti_patterns = established_knowledge.get("anti_patterns") or []
+    if not beliefs and not conventions and not anti_patterns:
         return ""
     lines = [
         "## Established knowledge",
@@ -343,6 +365,20 @@ def _render_established_knowledge(established_knowledge: Any) -> str:
             f"- convention `{row.get('pattern_id')}` ({row.get('pattern_type')}, "
             f"confidence {row.get('confidence')}, "
             f"from cycle {row.get('discovered_by_cycle_id')})"
+        )
+        refs = row.get("evidence_refs") or []
+        if refs:
+            lines.append(f"  - anchored at: {', '.join(f'`{r}`' for r in refs)}")
+    # M15/E12-c — operator-signed avoid-rules. Context, never a verdict:
+    # the judge weighs them like any other prior and still cites only
+    # evidence_refs.
+    for row in anti_patterns:
+        if not isinstance(row, dict):
+            continue
+        lines.append(
+            f"- AVOID `{row.get('pattern_id')}` "
+            f"(operator-adjudicated {row.get('reason_class')}; this approach "
+            "was ruled wrong here)"
         )
         refs = row.get("evidence_refs") or []
         if refs:

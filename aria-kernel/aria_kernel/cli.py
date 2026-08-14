@@ -1670,7 +1670,23 @@ def build_parser() -> argparse.ArgumentParser:
     rs_policy = add_subparser(research_sub, "set-policy")
     rs_policy.add_argument("--allowed-domain", action="append", required=True)
 
-    co_parser = add_subparser(sub, 
+    # C4-a (ORPHAN-674) — operator-approval mint for the genesis proof
+    # chain (verify_shadow_eval_proof resolves refs against this ledger).
+    opprov_parser = add_subparser(sub,
+        "operator-provenance",
+        help="C4-a — mint/list operator-approval rows for genesis shadow-eval proofs.",
+    )
+    opprov_sub = opprov_parser.add_subparsers(dest="operator_provenance_command", required=True)
+    opprov_record = add_subparser(opprov_sub, "record")
+    opprov_record.add_argument("--ref", required=True,
+                               help="The exact operator_provenance_ref the shadow-eval proof will carry.")
+    opprov_record.add_argument("--expires-at", required=True,
+                               help="ISO-8601 expiry; must be in the future at mint.")
+    opprov_record.add_argument("--target-agent", default=None)
+    opprov_record.add_argument("--note", default="")
+    opprov_list = add_subparser(opprov_sub, "list")
+
+    co_parser = add_subparser(sub,
         "critical-observation",
         help="Plan 016 Faz E3 — critical observation persistence + escalation surface.",
     )
@@ -3942,6 +3958,26 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(list_architecture_reviews(base_dir=args.tools_dir), indent=2, sort_keys=True))
             return 0
         parser.error("unknown architecture command")
+
+    if args.command == "operator-provenance":
+        from aria_kernel.operator_provenance import (
+            list_operator_approvals,
+            record_operator_approval,
+        )
+
+        if args.operator_provenance_command == "record":
+            row = record_operator_approval(
+                ref=args.ref,
+                expires_at=args.expires_at,
+                target_agent=args.target_agent,
+                note=args.note,
+                base_dir=args.tools_dir,
+            )
+            print(json.dumps(row, indent=2, sort_keys=True))
+            return 0
+        if args.operator_provenance_command == "list":
+            print(json.dumps(list_operator_approvals(base_dir=args.tools_dir), indent=2, sort_keys=True))
+            return 0
 
     if args.command == "research":
         from aria_kernel.research import (

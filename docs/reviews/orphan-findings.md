@@ -9363,6 +9363,14 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-HIGH-674 — the genesis proof chain dead-ended at a ledger nothing could mint — RESOLVED (this PR, C4-a)
+
+Severity: HIGH (C4-a; the evidence-chain exploration proved it). `operator-provenance/events.jsonl` was a declared surface with promotion-critical READERS — `verify_shadow_eval_proof` resolves the eval run's `operator_approval_ledger_ref` here and matches the proof's `operator_provenance_ref` by set-membership — and ZERO writers outside tests. Every genesis REAL_SANDBOX/SHADOW/EVAL_WINDOW transition was structurally unreachable: the proof chain's final link pointed at a ledger no production path could mint. Reader-without-writer, promotion edition.
+
+**Fix:** new `operator_provenance.py` — the single mint point. `record_operator_approval(ref, expires_at, target_agent, note)` writes the row with `row_type="operator_approval"` and the ref on the exact fields the verifier's membership match reads (`operator_provenance_ref` + `event_id`); expiry is validated AT MINT with the same contract `agent_eval` enforces at consume (an already-expired approval refuses loudly as `operator_approval_expired_at_mint` instead of deferring the failure to a noisier place). CLI: `aria-kernel operator-provenance record|list`. 4 tests incl. the expired-at-mint deliberate-break and the verifier-membership shape pin.
+
+**Owner:** claude (this session). **Status:** RESOLVED. Next in the C4 map: C4-b fixture_results assembler, C4-c transition producers on the three genesis verbs (+ the HUMAN_REQUIRED coverage-shape mismatch), C4-d real-mode eval bridge.
+
 ## ORPHAN-HIGH-673 — nothing stopped a weaker model from authoring or overwriting a stronger model's agents — RESOLVED (this PR, E16)
 
 Severity: HIGH (operator rule 2026-08-13: "Fable'ın yazdığı agent'ı Opus/Sonnet silemesin; Sonnet falan agent yazamasın"). The genesis materialize path — the one kernel path that writes agent files — carried no notion of WHICH model authored an agent and no floor on which model may author one. When genesis goes live (C4), a low-tier drafter could have overwritten a Fable-authored agent, and knowledge loss would have been one-directional and silent. The model-agnostic principle (models are pluggable, mechanisms are the asset) requires the inverse guarantee: a stronger model's work survives weaker successors AND predecessors.

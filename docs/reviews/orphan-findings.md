@@ -9363,6 +9363,14 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-MEDIUM-675 — sandbox evidence had no assembler: the ledger-verified input was hand-typed JSON — RESOLVED (this PR, C4-b)
+
+Severity: MEDIUM (C4-b). `evaluate_genesis_sandbox` demands ≥3 provenance-carrying fixture_results and re-verifies every claim against the fixture-runs suite row — but nothing ever ASSEMBLED that list; the CLI read an operator-authored JSON file. Toil, plus a home for hand-typed drift between the claimed and ledgered values (exactly the class the ledger join exists to catch, generated at the keyboard).
+
+**Fix:** `assemble_fixture_results_from_suite(execution_run_id)` derives the results mechanically from the SAME suite row the join verifies against — one source, no parallel authoring path (İ1). Per-case status carried honestly (a red case assembles as "fail"; the pass/fail decision stays the sandbox's job). CLI: `agent-genesis sandbox` gains a mutually-exclusive `--from-suite EXECUTION_RUN_ID` next to the legacy `--fixture-results-file`. 3 tests: assembled output passes BOTH sandbox gates (shape + ledger join) with zero hand-authored fields; unknown run id refuses; red case carries through.
+
+**Owner:** claude (this session). **Status:** RESOLVED. Next: C4-c transition producers + the HUMAN_REQUIRED coverage-shape mismatch, C4-d real-mode eval bridge.
+
 ## ORPHAN-HIGH-674 — the genesis proof chain dead-ended at a ledger nothing could mint — RESOLVED (this PR, C4-a)
 
 Severity: HIGH (C4-a; the evidence-chain exploration proved it). `operator-provenance/events.jsonl` was a declared surface with promotion-critical READERS — `verify_shadow_eval_proof` resolves the eval run's `operator_approval_ledger_ref` here and matches the proof's `operator_provenance_ref` by set-membership — and ZERO writers outside tests. Every genesis REAL_SANDBOX/SHADOW/EVAL_WINDOW transition was structurally unreachable: the proof chain's final link pointed at a ledger no production path could mint. Reader-without-writer, promotion edition.

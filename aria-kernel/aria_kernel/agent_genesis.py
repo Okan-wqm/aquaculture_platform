@@ -221,6 +221,62 @@ def _fixture_result_provenance_matches_ledger(
     return True, None
 
 
+def assemble_fixture_results_from_suite(
+    *,
+    execution_run_id: str,
+    base_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """C4-b (ORPHAN-675) — derive sandbox fixture_results from the ledger.
+
+    ``evaluate_genesis_sandbox`` demands ≥3 provenance-carrying results
+    whose claims the ledger join re-verifies — but no code path ever
+    ASSEMBLED that list; it was an operator-authored JSON file, which is
+    both toil and a place for hand-typed drift. The suite row the
+    fixture runner already writes carries everything the join checks;
+    this assembler is the mechanical bridge, so the sandbox's evidence
+    is derived from the ledger it will be verified against (İ1: one
+    source, no parallel authoring path).
+    """
+    from .fixture_runner import fixture_runs_path
+    from .ledger import load_jsonl as load_chained_jsonl
+
+    run_id = str(execution_run_id or "").strip()
+    if not run_id:
+        raise GovernanceError("assemble_requires_execution_run_id")
+    row = None
+    for candidate in load_chained_jsonl(fixture_runs_path(base_dir)):
+        if candidate.get("row_type") not in ("fixture_run_suite", None):
+            continue
+        if str(candidate.get("execution_run_id") or "") == run_id:
+            row = candidate
+    if row is None:
+        raise GovernanceError(
+            f"assemble_unknown_execution_run_id: {run_id!r} has no suite "
+            "row in fixture-runs.jsonl"
+        )
+    executed_at = str(row.get("at") or row.get("recorded_at") or "")
+    results: list[dict[str, Any]] = []
+    for case in row.get("cases") or []:
+        if not isinstance(case, dict):
+            continue
+        results.append(
+            {
+                "name": str(case.get("name") or ""),
+                "status": "pass" if case.get("passed") else "fail",
+                "provenance": {
+                    "executed_at": executed_at,
+                    "execution_run_id": run_id,
+                },
+                "tool_id": row.get("tool_id"),
+                "fixture_set_hash": row.get("fixture_set_hash"),
+                "cycle_id": row.get("cycle_id"),
+                "actual_status": row.get("actual_status"),
+                "evidence_hash": row.get("evidence_hash"),
+            }
+        )
+    return results
+
+
 def evaluate_genesis_sandbox(
     *,
     draft_id: str,

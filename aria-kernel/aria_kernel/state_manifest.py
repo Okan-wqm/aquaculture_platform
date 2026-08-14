@@ -487,6 +487,15 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("kg_pressure_source_effectiveness", "knowledge-graph/pressure-source-effectiveness.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("kg_duel_ratings", "knowledge-graph/duel-ratings.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("kg_embeddings", "knowledge-graph/embeddings.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # E17-d — per-spawn context usage joins the knowledge-graph family as a
+    # late joiner: whether the server prompt-cache actually spans judge
+    # spawns was an UNTESTED assumption because extract_usage forwarded the
+    # API's cache_* fields and nothing recorded them per-role. strict_read
+    # False / write_driving False for the same DESIGN reasons as the kg_
+    # block above: an observation ledger informs calibration, it never
+    # authorises an action, and it must not turn a single historical defect
+    # into a write-block on spawn accounting.
+    StateSurface("context_usage", "knowledge-graph/context-usage.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     # ORPHAN-668 — the learning wheel's VERDICT and CALIBRATION ledgers
     # join the declared surface system. Same defect class as M11/E12-b,
     # one ring further out: operator/AI verdicts (operator-feedback),

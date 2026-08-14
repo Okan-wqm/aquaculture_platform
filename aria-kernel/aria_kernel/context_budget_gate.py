@@ -106,10 +106,19 @@ DEFAULT_ROLE_CAP: float = 0.40
 
 CONTEXT_AUDITS_FILENAME = "context-audits.jsonl"
 
-# @.claude/knowledge/<file>.md or @<path> bookmark reference parser.
+# Bookmark reference parser for the doc families agent .md preambles carry.
 # Plan v3.3 §Agent system invocation: ".md files reference [knowledge]
 # via @.claude/knowledge/... lines — these are READER BOOKMARKS only".
-_KNOWLEDGE_REF_RE = re.compile(r"@(\.claude/knowledge/[\w./\-]+)")
+# E17-d — widened beyond @.claude/knowledge/: every ARIA judge/planner
+# preamble also cold-reads @docs/aria/{SPEC,CONTRACTS,PIPELINES}.md (plus
+# @docs/adr/ references) — ~138KB of static docs per spawn — and the
+# original regex made exactly that biggest cost INVISIBLE to the audit.
+# Same resolution + tokenization path; measurement only, the cap semantics
+# are unchanged (a preamble that genuinely overflows its role cap should
+# fail the audit rather than hide from it).
+_KNOWLEDGE_REF_RE = re.compile(
+    r"@((?:\.claude/knowledge|docs/aria|docs/adr)/[\w./\-]+)"
+)
 
 
 def estimate_tokens(text: str) -> int:
@@ -141,7 +150,7 @@ def _read_agent_md(target_agent: str, repo_root: Path) -> tuple[str, Path | None
 
 
 def _knowledge_refs(text: str) -> list[str]:
-    """Extract unique @.claude/knowledge/... bookmark refs from text."""
+    """Extract unique @-bookmark refs (.claude/knowledge, docs/aria, docs/adr)."""
     return list(dict.fromkeys(match.group(1) for match in _KNOWLEDGE_REF_RE.finditer(text)))
 
 

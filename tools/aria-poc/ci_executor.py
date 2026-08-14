@@ -57,6 +57,7 @@ from claude_runtime import (
     ClaudePolicyViolation,
     ClaudeRunResult,
     ClaudeUsageUnavailable,
+    UsageRecording,
     extract_final_message,
     extract_usage,
     is_mock_mode as _claude_is_mock_mode,
@@ -1108,6 +1109,22 @@ def invoke_claude_cli(
                 timeout_seconds=timeout_seconds,
                 model=model,
                 effort=effort,
+                # E17-d — per-spawn usage accounting. This callsite is the
+                # seam where the full identity is in scope: request_id +
+                # envelope role + subagent_type are REQUIRED parameters of
+                # invoke_claude_cli (Plan 025 §B). tools_dir=None is the
+                # legacy/mock-only shape — no tools root, nothing to record
+                # into, same gate the cost_attribution row uses.
+                usage_recording=(
+                    UsageRecording(
+                        request_id=request_id,
+                        role=role,
+                        target_agent=subagent_type,
+                        base_dir=tools_dir,
+                    )
+                    if tools_dir is not None
+                    else None
+                ),
             )
 
         def _gov(event: str, payload: dict[str, Any]) -> None:

@@ -46,6 +46,7 @@ from claude_runtime import (
     ClaudePolicyViolation,
     ClaudeRunResult,
     ClaudeUsageUnavailable,
+    UsageRecording,
     run_claude_exec,
     run_with_model_fallback,
 )
@@ -247,6 +248,19 @@ def main(argv: list[str] | None = None) -> int:
                 model=model,
                 effort=effort,
                 cwd=worktree_path,
+                # E17-d — per-spawn usage accounting. role="unknown" is
+                # deliberate, not a placeholder: the aria/dispatch-request
+                # lane's assignment row carries NO role field (see
+                # worker_dispatch.create_dispatch_request), and synthesizing
+                # one from the agent name is exactly the fabricated-identity
+                # defect Plan 025 §B closed in ci_executor. When the dispatch
+                # row grows a role SSoT field, thread it here.
+                usage_recording=UsageRecording(
+                    request_id=assignment_id,
+                    role="unknown",
+                    target_agent=parsed.target_agent,
+                    base_dir=tools_dir,
+                ),
             )
 
         # ORPHAN-HIGH-478 — derived from the ladder, not the literal

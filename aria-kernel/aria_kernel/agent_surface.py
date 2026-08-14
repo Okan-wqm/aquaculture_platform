@@ -22,7 +22,6 @@ REQUEST_ROLES: tuple[str, ...] = (
     # happens on submit.
     "completeness_critique",
     "implementation",
-    "implementation_review",
     "verification",
     "gap_finding",
     "gap_closure",
@@ -34,10 +33,19 @@ REQUEST_ROLES: tuple[str, ...] = (
     "consensus_arbitration",
     "change_intelligence",
     "goldset_curation",
-    "architectural_arbitration",
-    "auth_security_review",
-    "access_boundary_review",
-    "tenant_isolation_review",
+    # E14 — REMOVED, and deliberately not replaced: `implementation_review`,
+    # `architectural_arbitration`, `auth_security_review`,
+    # `access_boundary_review`, `tenant_isolation_review`. Plan 019 Phase 2.5
+    # added them as a contract extension for lanes that were then built
+    # differently: the auth lane became the security-boundary ADAPTER plus the
+    # architecture spine gate, and domain review became `specialist_domain_review`
+    # (specialist_review_runner's touch-map) plus expert_review_gate. Five roles
+    # a request could name, that no kernel path ever minted and no bridge ever
+    # consumed — a surface that admits a role nothing can fulfil is how a caller
+    # ends up waiting forever for an answer that was never dispatched. Removal is
+    # pinned by tests/test_role_hygiene_e14.py; ORPHAN-MEDIUM-280 closed the same
+    # defect from the agent-prompt side (a prompt claiming `implementation_review`
+    # the kernel never routes).
     # ORPHAN-HIGH-426 — independent adjudication of a HUMAN_REQUIRED
     # escalation. Paired with THREE distinct judge agents below so a panel
     # is composed of distinct principals by construction rather than by
@@ -62,6 +70,14 @@ DISPATCHABLE_ROLES: FrozenSet[str] = frozenset({
     "completeness_critique",
     "implementation",
     "human_required_adjudication",
+    # E14 — the three roles that gained a producer. A minted envelope whose
+    # role the executor refuses to claim (`ci_executor.claim_and_dispatch_one`
+    # validates against this set) is a request that waits forever: the mint
+    # would look alive in the ledger and be dead on the lane. Minting and
+    # draining are one contract, so a role joins both sides together.
+    "consensus_arbitration",
+    "change_intelligence",
+    "goldset_curation",
 })
 
 DRAFTER_ROLES: FrozenSet[str] = frozenset({
@@ -108,10 +124,15 @@ DEFAULT_TARGET_AGENT_WHITELIST: tuple[str, ...] = (
     "aria-goldset-curator",
     "aria-autonomy-planner",
     "aria-worker",
+    # Kept because the kernel really does dispatch these two: the specialist
+    # touch-map routes auth-service / gateway-api / guards changes to
+    # `auth-security-expert`, and expert_review_gate + ci.produce_ci_review
+    # reach for `architectural-arbiter`. E14 dropped `access-boundary-auditor`
+    # and `tenant-isolation-auditor` with the roles that were their only
+    # kernel-side dispatch path; they remain Lane-B product-audit agents,
+    # reachable the moment the touch-map names them.
     "architectural-arbiter",
     "auth-security-expert",
-    "access-boundary-auditor",
-    "tenant-isolation-auditor",
 )
 
 ROLE_TARGET_PAIRING: dict[str, tuple[str, ...]] = {
@@ -131,10 +152,6 @@ ROLE_TARGET_PAIRING: dict[str, tuple[str, ...]] = {
     ),
     "change_intelligence": ("aria-change-intelligence",),
     "goldset_curation": ("aria-goldset-curator",),
-    "architectural_arbitration": ("architectural-arbiter",),
-    "auth_security_review": ("auth-security-expert",),
-    "access_boundary_review": ("access-boundary-auditor",),
-    "tenant_isolation_review": ("tenant-isolation-auditor",),
 }
 
 DERIVED_REQUEST_STATES: tuple[str, ...] = (

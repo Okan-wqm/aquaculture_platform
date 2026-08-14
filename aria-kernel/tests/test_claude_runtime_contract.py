@@ -615,3 +615,84 @@ class RefusedSpawnReachesAnExecutorHandler(unittest.TestCase):
                         claude_runtime._apply_resource_limits(
                             ["claude"], timeout_seconds=900,
                         )
+
+
+class UsageRecordingSeamTests(unittest.TestCase):
+    """E17-d — the per-spawn usage recording seam in run_claude_exec.
+
+    The seam's contract is BEST-EFFORT: a completed agent run is strictly
+    more valuable than its usage row, so a refused/failed record degrades
+    to a structured stderr note and never fails the spawn.
+    """
+
+    def setUp(self) -> None:
+        import shutil
+        import tempfile
+        from aria_kernel.tool_registry import ensure_tools_dir
+
+        self.tmp = Path(tempfile.mkdtemp(prefix="aria-usage-seam-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.tools = self.tmp / "aria-tools"
+        ensure_tools_dir(self.tools)
+        self.recording = claude_runtime.UsageRecording(
+            request_id="req-seam-1",
+            role="evidence_judgment",
+            target_agent="aria-evidence-judge",
+            base_dir=self.tools,
+        )
+
+    def test_records_row_on_happy_path(self) -> None:
+        import json
+
+        claude_runtime._record_usage_best_effort(
+            recording=self.recording,
+            model="opus",
+            usage={"input_tokens": 5, "output_tokens": 7,
+                   "cache_read_input_tokens": 11},
+        )
+        ledger = self.tools / "knowledge-graph" / "context-usage.jsonl"
+        row = json.loads(ledger.read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual(row["request_id"], "req-seam-1")
+        self.assertEqual(row["role"], "evidence_judgment")
+        self.assertEqual(row["model"], "opus")
+        self.assertEqual(row["cache_read_input_tokens"], 11)
+        self.assertIsNone(row["cache_creation_input_tokens"])
+
+    def test_record_failure_degrades_to_stderr_note_never_raises(self) -> None:
+        import io
+        import json
+        from contextlib import redirect_stderr
+
+        # Deliberate-break: base_dir is a FILE, so ensure_tools_dir fails at
+        # the syscall level (OSError family) — the spawn must survive it.
+        broken = self.tmp / "not-a-dir"
+        broken.write_text("x", encoding="utf-8")
+        recording = claude_runtime.UsageRecording(
+            request_id="req-seam-2",
+            role="unknown",
+            target_agent="aria-worker",
+            base_dir=broken,
+        )
+        captured = io.StringIO()
+        with redirect_stderr(captured):
+            claude_runtime._record_usage_best_effort(
+                recording=recording, model="opus", usage={"input_tokens": 1},
+            )
+        note = json.loads(captured.getvalue().splitlines()[0])
+        self.assertEqual(note["event"], "context_usage_record_skipped")
+        self.assertEqual(note["reason"], "record_failed")
+        self.assertEqual(note["request_id"], "req-seam-2")
+
+    def test_none_usage_records_nothing_and_emits_no_note(self) -> None:
+        import io
+        from contextlib import redirect_stderr
+
+        captured = io.StringIO()
+        with redirect_stderr(captured):
+            claude_runtime._record_usage_best_effort(
+                recording=self.recording, model="opus", usage=None,
+            )
+        self.assertEqual(captured.getvalue(), "")
+        self.assertFalse(
+            (self.tools / "knowledge-graph" / "context-usage.jsonl").exists()
+        )

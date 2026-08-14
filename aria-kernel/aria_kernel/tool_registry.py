@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from copy import deepcopy
@@ -58,6 +59,28 @@ DEFAULT_HEALTH_THRESHOLDS = {
     "critical_false_positives": 0,
     "crash_rate_last_10": 0.2,
 }
+
+# E13-C11 — freshness metadata is manifest-owned, validator-defaulted.
+# WHY here and not adapter_portfolio: pre-E13-C11 these fields were patched
+# onto registry rows at RUNTIME (adapter_portfolio.backfill_window_metadata)
+# and silently deleted by every manifest recompile (registry_compiler) and
+# per-cycle manifest re-registration (cycle.py -> register_tool) — a
+# Potemkin metadata layer with zero readers. validate_tool_definition is the
+# single write gate every registry row passes through, so owning the default
+# and the derived signature HERE makes the fields survive every recompile by
+# construction (Tier 1: the deleting path is the producing path).
+DEFAULT_FRESHNESS_WINDOW_HOURS = 168  # Plan 016 §Recursive impact and freshness gates (7 days).
+
+# The declaration fields that define a tool's parse window; the tuple
+# parse_window_signature hashes over AND the trigger set for signature
+# recomputation in update_tool.
+PARSE_WINDOW_FIELDS: tuple[str, ...] = (
+    "declared_scope",
+    "claim_types",
+    "default_input",
+    "allowed_read_globs",
+    "forbidden_read_globs",
+)
 
 
 class GovernanceError(ValueError):
@@ -614,6 +637,50 @@ def save_registry(
     )
 
 
+def parse_window_signature(declaration: dict[str, Any]) -> str:
+    """Stable SHA-256 hash of the parser-declaration tuple.
+
+    The signature changes ONLY when the parser's declared scope, claim
+    types, or input roots change — not when the underlying repo content
+    changes. This is what the kernel uses to decide whether a recorded
+    SHADOW run still matches the current adapter declaration.
+
+    Moved here from adapter_portfolio (E13-C11) because the validator is
+    now the single producer/verifier of the derived field; adapter_portfolio
+    importing it back from here would be the only alternative and would
+    invert the dependency direction it already has on this module.
+
+    Returns: "sha256:<hex>" of a canonical JSON over (declared_scope,
+    claim_types, default_input.roots, allowed_read_globs,
+    forbidden_read_globs).
+    """
+    fields = {
+        "declared_scope": sorted(declaration.get("declared_scope", []) or []),
+        "claim_types": sorted(declaration.get("claim_types", []) or []),
+        "default_input_roots": sorted(
+            (declaration.get("default_input") or {}).get("roots", []) or []
+        ),
+        "allowed_read_globs": sorted(declaration.get("allowed_read_globs", []) or []),
+        "forbidden_read_globs": sorted(declaration.get("forbidden_read_globs", []) or []),
+    }
+    canonical = json.dumps(fields, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def effective_freshness_window_hours(tool: dict[str, Any]) -> float:
+    """Freshness window for a tool row, defaulting for legacy rows.
+
+    Rows written through validate_tool_definition always carry the field;
+    rows persisted before E13-C11 may not. This is the single defaulting
+    point shared by readers (readiness) so the read-side default can never
+    drift from the write-side DEFAULT_FRESHNESS_WINDOW_HOURS constant.
+    """
+    raw = tool.get("freshness_window_hours")
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool) and raw > 0:
+        return float(raw)
+    return float(DEFAULT_FRESHNESS_WINDOW_HOURS)
+
+
 def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(tool, dict):
         raise GovernanceError("tool definition must be a JSON object")
@@ -649,6 +716,34 @@ def validate_tool_definition(tool: dict[str, Any]) -> dict[str, Any]:
         raise GovernanceError("claim_types must be a non-empty array")
     if "default_input" in candidate and not isinstance(candidate["default_input"], dict):
         raise GovernanceError("default_input must be a JSON object when provided")
+
+    # E13-C11 — freshness metadata (see DEFAULT_FRESHNESS_WINDOW_HOURS
+    # comment for the full WHY). Optional in the manifest; defaulted when
+    # absent (same pattern as health_thresholds), type-checked when present.
+    freshness = candidate.get("freshness_window_hours")
+    if freshness is None:
+        candidate["freshness_window_hours"] = DEFAULT_FRESHNESS_WINDOW_HOURS
+    elif isinstance(freshness, bool) or not isinstance(freshness, (int, float)) or freshness <= 0:
+        raise GovernanceError(
+            f"freshness_window_hours must be a positive number, got {freshness!r}"
+        )
+    # parse_window_signature is DERIVED from the declaration; when a
+    # manifest carries it, it MUST match the recomputation — a mismatch
+    # means the declaration changed without acknowledging that recorded
+    # SHADOW evidence no longer covers the new parse window. Silent
+    # correction would recreate the decorative-field defect this closes.
+    declared_sig = candidate.get("parse_window_signature")
+    computed_sig = parse_window_signature(candidate)
+    if declared_sig is None:
+        candidate["parse_window_signature"] = computed_sig
+    elif not isinstance(declared_sig, str) or not declared_sig.strip():
+        raise GovernanceError("parse_window_signature must be a non-empty string")
+    elif declared_sig != computed_sig:
+        raise GovernanceError(
+            f"parse_window_signature_mismatch: tool_id={candidate.get('tool_id')!r} "
+            f"declares {declared_sig!r} but the declaration-derived signature is "
+            f"{computed_sig!r}; recompute it after changing any of {PARSE_WINDOW_FIELDS}"
+        )
 
     thresholds = dict(DEFAULT_HEALTH_THRESHOLDS)
     thresholds.update(candidate["health_thresholds"])
@@ -1003,6 +1098,17 @@ def update_tool(
 
     # Merge + re-validate.
     pre = get_tool(tool_id, base_dir)
+    # E13-C11 — parse_window_signature is DERIVED from the parse-window
+    # declaration. When an operator-approved update changes any declaration
+    # field without explicitly supplying a matching signature, recompute it
+    # here (mirroring the updated_at refresh) instead of letting the stored
+    # stale hash trip the validator's mismatch gate. An explicitly supplied
+    # signature is still verified strictly by validate_tool_definition.
+    if set(PARSE_WINDOW_FIELDS) & set(updates) and "parse_window_signature" not in updates:
+        merged_declaration = dict(pre)
+        merged_declaration.update(updates)
+        updates = dict(updates)
+        updates["parse_window_signature"] = parse_window_signature(merged_declaration)
     merged_for_validation = dict(pre)
     merged_for_validation.update(updates)
     validate_tool_definition(merged_for_validation)

@@ -9,7 +9,9 @@
     "required": ["observations", "findings", "read_paths", "evidence_sources"]
   },
   "fixture_set": "tools/aria-adapters/fixtures/bundle-budget-adapter",
-  "health_thresholds": { "max_cost_units": 4000 },
+  "health_thresholds": {
+    "max_cost_units": 4000
+  },
   "default_input": {
     "roots": ["web/shell", "web/modules", "web/apps"]
   },
@@ -41,5 +43,7 @@
     "timeout_ms": 180000,
     "stdin_json": true
   },
+  "freshness_window_hours": 168,
+  "parse_window_signature": "sha256:5870176b20a60f6611b661ffdbbdad134e8e5d494efcd2a4dcf7a29cf58bed32",
   "schema_version": 1
 }

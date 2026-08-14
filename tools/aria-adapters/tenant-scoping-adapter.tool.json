@@ -45,5 +45,7 @@
     "stdin_json": true,
     "node_max_old_space_mb": 3072
   },
+  "freshness_window_hours": 168,
+  "parse_window_signature": "sha256:49e017b382fbfa537337dcf5e16ffc1624ec35e90de9bcf6b8d287ad529f998c",
   "schema_version": 1
 }

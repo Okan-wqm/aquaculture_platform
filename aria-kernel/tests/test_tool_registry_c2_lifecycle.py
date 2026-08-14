@@ -24,9 +24,11 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.tool_registry import (
+    DEFAULT_FRESHNESS_WINDOW_HOURS,
     GovernanceError,
     ensure_tools_dir,
     get_tool,
+    parse_window_signature,
     register_tool,
     transition_tool,
     unquarantine_tool,
@@ -169,6 +171,45 @@ class UnquarantineToolTests(_LifecycleTestCase):
                 base_dir=self.tools,
             )
         self.assertIn("not QUARANTINED", str(cm.exception))
+
+
+class ParseWindowSignatureLifecycleTests(_LifecycleTestCase):
+    """E13-C11 — the derived parse_window_signature stays true through
+    the audited mutation paths (register + update_tool)."""
+
+    def test_register_derives_signature_and_default_freshness(self) -> None:
+        register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
+        row = get_tool("fake-adapter", self.tools)
+        self.assertEqual(row["parse_window_signature"], parse_window_signature(row))
+        self.assertEqual(row["freshness_window_hours"], DEFAULT_FRESHNESS_WINDOW_HOURS)
+
+    def test_update_tool_scope_change_recomputes_signature(self) -> None:
+        register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
+        before = get_tool("fake-adapter", self.tools)["parse_window_signature"]
+        update_tool(
+            "fake-adapter",
+            {"declared_scope": ["apps/**/*.ts", "libs/**/*.ts"]},
+            base_dir=self.tools,
+            operator_approval_ref="ops-e13-c11",
+            reason="widen parse window",
+        )
+        after = get_tool("fake-adapter", self.tools)
+        self.assertNotEqual(after["parse_window_signature"], before)
+        self.assertEqual(after["parse_window_signature"], parse_window_signature(after))
+
+    def test_update_tool_with_explicitly_stale_signature_rejected(self) -> None:
+        register_tool(_manifest(status="DRAFT"), base_dir=self.tools)
+        with self.assertRaisesRegex(GovernanceError, "parse_window_signature_mismatch"):
+            update_tool(
+                "fake-adapter",
+                {
+                    "declared_scope": ["apps/**/*.ts", "libs/**/*.ts"],
+                    "parse_window_signature": "sha256:" + "0" * 64,
+                },
+                base_dir=self.tools,
+                operator_approval_ref="ops-e13-c11",
+                reason="widen parse window with stale sig",
+            )
 
 
 if __name__ == "__main__":

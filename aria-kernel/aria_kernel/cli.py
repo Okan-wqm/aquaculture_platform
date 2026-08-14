@@ -2267,7 +2267,12 @@ def build_parser() -> argparse.ArgumentParser:
     ag_draft.add_argument("--gap-id", required=True)
     ag_sandbox = add_subparser(agent_genesis_sub, "sandbox")
     ag_sandbox.add_argument("--draft-id", required=True)
-    ag_sandbox.add_argument("--fixture-results-file", required=True)
+    # C4-b (ORPHAN-675) — exactly one evidence source: a ledger-derived
+    # suite (preferred; assembler) or the legacy operator JSON file.
+    ag_sandbox_src = ag_sandbox.add_mutually_exclusive_group(required=True)
+    ag_sandbox_src.add_argument("--fixture-results-file")
+    ag_sandbox_src.add_argument("--from-suite", metavar="EXECUTION_RUN_ID",
+                                help="Assemble fixture_results from the fixture-runs.jsonl suite row.")
     ag_approve = add_subparser(agent_genesis_sub, "approve")
     ag_approve.add_argument("--draft-id", required=True)
     ag_approve.add_argument("--operator-approval-ref", required=True)
@@ -4534,9 +4539,17 @@ def _main(argv: list[str] | None = None) -> int:
         if args.agent_genesis_command == "draft":
             result = draft_agent_from_gap(gap_id=args.gap_id, base_dir=args.tools_dir)
         elif args.agent_genesis_command == "sandbox":
+            if args.from_suite:
+                from aria_kernel.agent_genesis import assemble_fixture_results_from_suite
+
+                fixture_results = assemble_fixture_results_from_suite(
+                    execution_run_id=args.from_suite, base_dir=args.tools_dir
+                )
+            else:
+                fixture_results = json.loads(Path(args.fixture_results_file).read_text(encoding="utf-8"))
             result = evaluate_genesis_sandbox(
                 draft_id=args.draft_id,
-                fixture_results=json.loads(Path(args.fixture_results_file).read_text(encoding="utf-8")),
+                fixture_results=fixture_results,
                 base_dir=args.tools_dir,
             )
         elif args.agent_genesis_command == "approve":

@@ -9363,6 +9363,14 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-HIGH-676 — the genesis lifecycle had no producer AND its human gate demanded evidence nothing could mint — RESOLVED (this PR, C4-c)
+
+Severity: HIGH (C4-c). Two locks on one door. (1) `record_transition` — the only writer of `genesis-lifecycle/events.jsonl` — had zero production callers and no CLI verb: every consumer (`_target_is_shadow`, the shadow-eval invocation gate, the promotion path) read a ledger no production path could fill. (2) Worse, even a willing caller could not pass the HUMAN_REQUIRED gate: it demanded `existing_capability_coverage{verdict∈{positive,covered,pass}, coverage_score≥0.8}` — a shape NO producer anywhere mints; `capability_resolver`, the only coverage authority, writes `decision ∈ {reuse, extend, request}`. An unproducible predicate is a locked door with no key (the E8 defect class, promotion edition).
+
+**Fix:** the gate now reads the resolver's REAL vocabulary — `capability_resolution.decision ∈ {extend, request}` admits, `reuse` refuses (duplicate blocks genesis), and the phantom verdict/score shape no longer opens the gate (deliberate-break pinned; İ1: the dead shape is REMOVED, not left beside the new one). And the draft flow becomes the lifecycle's first production producer: `record_draft_lifecycle_chain` emits the legal prefix (PRESSURE→CANDIDATE_PROPOSED→HUMAN_REQUIRED→REQUEST→DRAFT) from REAL artifacts — the gap row (source types + a ledger-derived batch count for `valid_cycles`), the resolver decision, and the C4-a operator-approval ref (`agent-genesis draft --operator-approval-ref`); idempotent per state so re-runs continue instead of colliding, and without a ref NOTHING is written (partial provenance is worse than none). SANDBOX-family states stay deliberately out of this producer's reach — their proof chain is C4-d. 6 tests incl. the first-production-chain and shadow-out-of-reach deliberate-breaks.
+
+**Owner:** claude (this session). **Status:** RESOLVED. Next: C4-d real-mode eval bridge (REAL_SANDBOX/SHADOW/EVAL_WINDOW proofs).
+
 ## ORPHAN-MEDIUM-675 — sandbox evidence had no assembler: the ledger-verified input was hand-typed JSON — RESOLVED (this PR, C4-b)
 
 Severity: MEDIUM (C4-b). `evaluate_genesis_sandbox` demands ≥3 provenance-carrying fixture_results and re-verifies every claim against the fixture-runs suite row — but nothing ever ASSEMBLED that list; the CLI read an operator-authored JSON file. Toil, plus a home for hand-typed drift between the claimed and ledgered values (exactly the class the ledger join exists to catch, generated at the keyboard).

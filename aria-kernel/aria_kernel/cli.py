@@ -2265,6 +2265,8 @@ def build_parser() -> argparse.ArgumentParser:
     agent_genesis_sub = agent_genesis_parser.add_subparsers(dest="agent_genesis_command", required=True)
     ag_draft = add_subparser(agent_genesis_sub, "draft")
     ag_draft.add_argument("--gap-id", required=True)
+    ag_draft.add_argument("--operator-approval-ref", default=None,
+                          help="C4-c: operator-provenance ref; with it the draft records its lifecycle chain (PRESSURE→…→DRAFT).")
     ag_sandbox = add_subparser(agent_genesis_sub, "sandbox")
     ag_sandbox.add_argument("--draft-id", required=True)
     # C4-b (ORPHAN-675) — exactly one evidence source: a ledger-derived
@@ -4537,7 +4539,11 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "agent-genesis":
         if args.agent_genesis_command == "draft":
-            result = draft_agent_from_gap(gap_id=args.gap_id, base_dir=args.tools_dir)
+            result = draft_agent_from_gap(
+                gap_id=args.gap_id,
+                operator_approval_ref=args.operator_approval_ref,
+                base_dir=args.tools_dir,
+            )
         elif args.agent_genesis_command == "sandbox":
             if args.from_suite:
                 from aria_kernel.agent_genesis import assemble_fixture_results_from_suite

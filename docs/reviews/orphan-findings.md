@@ -9379,6 +9379,14 @@ Severity: HIGH (operator spot-audit 2026-08-13 verified both classes live). (1) 
 
 **Owner:** claude (session lead) + parallel implementation agent. **Status:** RESOLVED.
 
+## ORPHAN-HIGH-680 — the readiness chain's evidence rows could not be cited: CI rows had no identity and the workflow-run proof had no producer — RESOLVED (this PR, F5-a)
+
+Severity: HIGH (F5-a — the first link of the auto-merge claim chain). The enterprise readiness claim requires proof rows whose `source_ledger_ref` resolves to a real ledger row — and the live CI evidence could not be cited: `ci/workflow-runs.jsonl` and pr-gate rows carried no `row_id`/`row_type`, so `find_row_by_source_ledger_ref` could never target them; and `record_workflow_run_proof` had zero production callers. The best-evidenced proof family was structurally unreachable.
+
+**Fix (agent-implemented on a parallel lane, lead-verified firsthand):** (1) additive row identity — workflow-run rows stamp `ci-workflow-run:<id>` / `ci_workflow_run`, pr-gate rows `ci-pr-gate:<pr>:<sha12>` / `ci_pr_gate`, ONLY when the identifying fields actually exist (a `:None` fake identity is structurally impossible); legacy rows unaffected. (2) first production producer — new `readiness_proofs.produce_workflow_run_proofs` selects the PR's successful runs, builds refs via `ledger_ref_for_row`, records through `record_workflow_run_proof` (which re-resolves the ref — fail-closed); idempotent per (workflow_run_id, head_sha); legacy rows skip with a structural reason; optional `readiness_claim_id` because the claim verifier's `_row_common_matches` compares it (spec superset, justified). (3) CLI: `readiness produce-workflow-proofs …` — the first verb of the readiness family. 7 tests: refs RESOLVE (the whole point), failed-conclusion produces nothing, legacy skip, idempotence, empty-binding refusal, CLI end-to-end.
+
+**Owner:** claude (session lead) + parallel implementation agent. **Status:** RESOLVED. Next F5 links: b branch-protection probe, c token proof, d remote-cas, e rollback/retention, f dlp waiver lane, g the claim producer itself.
+
 ## ORPHAN-HIGH-677 — reflexes with no spinal cord, and avoid-rules no judge could see — RESOLVED (this PR, E12-c)
 
 Severity: HIGH (E12-c: M13+M15). (M13) Both watchdog detectors (stall, repeated bridge-warning) existed as pure functions behind a daemon loop NOTHING ran in production — the organism had reflexes and no spinal cord; a stalled plan or a repeating bridge failure was detectable and never detected. (M15) `record_anti_pattern` + `lookup_pattern` had zero callers: an operator-signed avoid-rule would never be read back at judgment time. The plan's original idea (auto-mint from AI false-positive consensus) turned out to be FORBIDDEN by standing arbitration (arb HIGH-008: an avoid-rule SKIPS work, kernel auto-write banned) — the honest producer is human-gated.

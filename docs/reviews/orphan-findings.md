@@ -9395,6 +9395,14 @@ Severity: HIGH (E13-C11). `freshness_window_hours` / `parse_window_signature` ha
 
 **Owner:** claude (session lead) + parallel implementation agent. **Status:** RESOLVED.
 
+## ORPHAN-MEDIUM-684 — no service could ever get its own auditor: finding density had no consumer — RESOLVED (this PR, E15-c)
+
+Severity: MEDIUM (E15-c; the BP2 precursor). E15-a/b gave findings a service dimension and the reports a per-service view, but nothing ACTED on it: a service drowning in open findings could never acquire a specialist of its own, because the genesis request lane (`learning._emit_genesis_for_gap`) mints only from capability gaps — service finding-density was a number nobody consumed.
+
+**Fix (agent-implemented on a parallel lane, lead-verified firsthand):** `service_agent_targeting.propose_service_auditor_requests` — groups OPEN tool-findings by the E15-a dimension (one shared derivation via `services_for_finding_row`, İ1) and mints an `aria-svc-<service>-auditor` genesis REQUEST through the SAME writer the learning lane uses (`request_agent_genesis` — no parallel request path) when a service crosses the policy threshold (`service_auditor_threshold`, default 25, joins POLICY_KEYS with its contract pin). Suppressed when the agent file or a pending request already exists; wired as a guarded `service_auditor_targeting` hook right after `skill_or_agent_genesis`, record-and-continue. The finishing agent found and closed a real defect in the first draft: the producer ignored `max_requests_per_cycle`, so the operator's configured genesis ceiling would have become untrue the first night several services crossed at once — it now ranks sickest-first, caps, reports `eligible_count`/`capped_count`, and suppressed services never spend cap budget (deliberate-break test: cap=1 with two qualifying services keeps only the sickest). 14 tests.
+
+**Owner:** claude (session lead) + parallel implementation agents (fable→opus handoff on quota). **Status:** RESOLVED. Noted, NOT silently fixed: `reflection.py`/`finding.py`/`task.py` repeat the "stored services else derive" idiom on the finding DOC shape — pre-existing E15-a debt, tracked for the E15 follow-up.
+
 ## ORPHAN-HIGH-680 — the readiness chain's evidence rows could not be cited: CI rows had no identity and the workflow-run proof had no producer — RESOLVED (this PR, F5-a)
 
 Severity: HIGH (F5-a — the first link of the auto-merge claim chain). The enterprise readiness claim requires proof rows whose `source_ledger_ref` resolves to a real ledger row — and the live CI evidence could not be cited: `ci/workflow-runs.jsonl` and pr-gate rows carried no `row_id`/`row_type`, so `find_row_by_source_ledger_ref` could never target them; and `record_workflow_run_proof` had zero production callers. The best-evidenced proof family was structurally unreachable.

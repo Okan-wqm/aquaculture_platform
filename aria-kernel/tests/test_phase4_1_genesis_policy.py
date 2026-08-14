@@ -25,6 +25,9 @@ class GenesisPolicyTests(unittest.TestCase):
         self.assertEqual(policy["materialization_requires_acknowledge"], True)
         self.assertEqual(policy["fitness_staleness_threshold_days"], 7)
         self.assertIn("genesis_lifecycle", policy)
+        # E15-c — the default JSON must carry the key, else the targeting
+        # trigger's policy read KeyErrors on a pristine deployment.
+        self.assertEqual(policy["service_auditor_threshold"], 25)
 
     def test_load_policy_returns_defaults_when_override_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -102,6 +105,10 @@ class GenesisPolicyTests(unittest.TestCase):
         #     proof block; was readable by superiority_policy but
         #     silently dropped by merge_with_override — dead operator
         #     configuration until this key joined the contract).
+        #   * E15-c — service_auditor_threshold (open-finding count at
+        #     which one service earns an aria-svc-<service>-auditor
+        #     genesis request; consumed by
+        #     service_agent_targeting.propose_service_auditor_requests).
         self.assertEqual(
             POLICY_KEYS,
             {
@@ -124,6 +131,7 @@ class GenesisPolicyTests(unittest.TestCase):
                 "genesis_lifecycle",
                 "drift_class_weights",
                 "superiority",
+                "service_auditor_threshold",
             },
         )
 

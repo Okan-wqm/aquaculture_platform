@@ -25,6 +25,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -564,6 +565,65 @@ def _clamp_timeout_to_job_deadline(timeout_seconds: int) -> int:
     return min(timeout_seconds, remaining - _DEADLINE_CLOSE_MARGIN_SECONDS)
 
 
+# E17-d — per-spawn usage recording identity. The (request_id, role,
+# target_agent) triple lives in the EXECUTORS (ci_executor.invoke_claude_cli
+# owns request_id + envelope role + subagent_type; worker_executor.main owns
+# assignment_id + target_agent), while the model actually spawned and the
+# terminal usage payload only exist HERE, inside run_claude_exec, one closure
+# below run_with_model_fallback. Threading the identity down as an explicit
+# value object puts the recording at the single seam where BOTH halves are in
+# scope — every attempt (including a fallback-tier retry) records under the
+# model it really ran on, and a future executor gets recording by passing one
+# argument instead of re-implementing the seam.
+@dataclass(frozen=True)
+class UsageRecording:
+    request_id: str
+    role: str
+    target_agent: str
+    base_dir: Path
+
+
+def _record_usage_best_effort(
+    *, recording: UsageRecording, model: str | None, usage: dict[str, Any] | None,
+) -> None:
+    """Record the spawn's usage; NEVER fail the spawn over accounting.
+
+    Measurement must not become a new spawn-failure mode: a completed agent
+    run is strictly more valuable than its usage row, so an unimportable
+    kernel (ImportError), a refused governed append (GovernanceError) or a
+    dying disk (OSError) each degrade to a structured stderr note. The
+    ``usage=None`` case is NOT handled here — record_context_usage owns that
+    structural-skip branch and returns without writing.
+    """
+    def _note(reason: str, error: str) -> None:
+        sys.stderr.write(json.dumps({
+            "event": "context_usage_record_skipped",
+            "reason": reason,
+            "error": error,
+            "request_id": recording.request_id,
+            "role": recording.role,
+            "target_agent": recording.target_agent,
+        }, sort_keys=True) + "\n")
+
+    try:
+        from aria_kernel.tool_registry import GovernanceError
+        from aria_kernel.usage_ledger import record_context_usage
+    except ImportError as exc:
+        _note("aria_kernel_unimportable", str(exc))
+        return
+    try:
+        record_context_usage(
+            request_id=recording.request_id,
+            role=recording.role,
+            target_agent=recording.target_agent,
+            model=model,
+            usage=usage,
+            base_dir=recording.base_dir,
+        )
+    except (GovernanceError, OSError) as exc:
+        _note("record_failed", str(exc))
+
+
 def run_claude_exec(
     *,
     prompt_text: str,
@@ -574,6 +634,7 @@ def run_claude_exec(
     cwd: str | Path | None = None,
     skip_permissions: bool = True,
     permission_mode: str | None = None,
+    usage_recording: UsageRecording | None = None,
 ) -> ClaudeRunResult:
     preflight_claude_auth()
     assert_write_runner_ok(skip_permissions=skip_permissions, permission_mode=permission_mode)
@@ -631,6 +692,14 @@ def run_claude_exec(
     events = parse_claude_jsonl(proc.stdout)
     final_message = extract_final_message(events)
     usage = extract_usage(events)
+    # E17-d — record the terminal usage per role/agent the moment it is
+    # extracted (cache_* fields included), BEFORE the require_usage gate:
+    # a nonzero-exit run's tokens were still billed and must still be
+    # accounted. A None usage records nothing (the ledger's explicit
+    # structural-skip branch), so the require_usage refusal below stays the
+    # only voice on that failure.
+    if usage_recording is not None:
+        _record_usage_best_effort(recording=usage_recording, model=model, usage=usage)
     if require_usage is None:
         require_usage = _parse_bool(
             os.environ.get(REQUIRE_USAGE_ENV_VAR, "1"),

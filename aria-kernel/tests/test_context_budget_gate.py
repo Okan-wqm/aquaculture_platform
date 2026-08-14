@@ -393,5 +393,127 @@ class CreateAgentInvocationRequestOptInTests(unittest.TestCase):
         self.assertIn("context_budget_exceeded", str(cm.exception))
 
 
+class DocsRefWideningTests(unittest.TestCase):
+    """E17-d — @docs/aria + @docs/adr refs join the audited context cost.
+
+    Every ARIA judge/planner preamble cold-reads ~138KB of static docs via
+    @docs/aria/{SPEC,CONTRACTS,PIPELINES}.md lines, and the pre-E17-d regex
+    counted ONLY @.claude/knowledge/ — the biggest per-spawn cost was
+    invisible to the audit. These tests pin the widened parser end-to-end
+    through the same resolution + tokenization path, including the
+    deliberate-break: a huge @docs/aria ref must now push a judge-role
+    request over its cap.
+    """
+
+    # The real five-doc preamble shape (.claude/agents/aria-evidence-judge.md).
+    _PREAMBLE = (
+        "---\nname: judge\n---\n"
+        "- @.claude/knowledge/layer-1-aria.md\n"
+        "- @.claude/knowledge/layer-2-aria-canonical-envelope.md\n"
+        "- @docs/aria/SPEC.md\n"
+        "- @docs/aria/CONTRACTS.md\n"
+        "- @docs/aria/PIPELINES.md\n"
+    )
+
+    def setUp(self) -> None:
+        self.tools, self.repo = _seed_workspace()
+        self.fake = _FakeRepo(self.repo)
+        (self.repo / "docs" / "aria").mkdir(parents=True)
+        (self.repo / "docs" / "adr").mkdir(parents=True)
+        self.fake.write_knowledge("layer-1-aria.md", "k" * 400)  # 100 tokens
+        self.fake.write_knowledge("layer-2-aria-canonical-envelope.md", "k" * 400)
+        for name in ("SPEC.md", "CONTRACTS.md", "PIPELINES.md"):
+            (self.repo / "docs" / "aria" / name).write_text("d" * 4000, encoding="utf-8")  # 1000 tokens each
+        self.fake.write_agent("root", "five-doc-judge", self._PREAMBLE)
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tools.parent, ignore_errors=True)
+
+    def _audit(self, target: str) -> dict:
+        return audit_dispatch_context(
+            request="probe",
+            target_agent=target,
+            role="evidence_judgment",
+            base_dir=self.tools,
+            repo_root=self.repo,
+            write_ledger=False,
+        )
+
+    def test_five_doc_preamble_docs_tokens_now_visible(self) -> None:
+        # Before/after visible: knowledge alone is 200 tokens; the three
+        # docs/aria files add 3000. The pre-widening audit reported <=200
+        # here — an estimate above 3000 is only reachable because @docs/aria
+        # refs now flow through the SAME resolution + tokenization path.
+        row = self._audit("five-doc-judge")
+        self.assertGreaterEqual(row["knowledge_token_estimate"], 3200)
+        self.assertEqual(row["missing_knowledge_refs"], [])
+        knowledge_surface = next(
+            entry for entry in row["biggest_files"] if entry["surface"] == "knowledge"
+        )
+        self.assertIn("docs/aria/SPEC.md", knowledge_surface["refs"])
+        self.assertIn("docs/aria/CONTRACTS.md", knowledge_surface["refs"])
+        self.assertIn("docs/aria/PIPELINES.md", knowledge_surface["refs"])
+        self.assertIn(".claude/knowledge/layer-1-aria.md", knowledge_surface["refs"])
+
+    def test_docs_adr_ref_resolves_through_same_path(self) -> None:
+        (self.repo / "docs" / "adr" / "ADR-031-aria.md").write_text(
+            "a" * 800, encoding="utf-8",
+        )
+        self.fake.write_agent(
+            "root", "adr-agent",
+            "---\nname: adr\n---\nbody\n@docs/adr/ADR-031-aria.md\n",
+        )
+        row = self._audit("adr-agent")
+        self.assertGreaterEqual(row["knowledge_token_estimate"], 200)
+        self.assertEqual(row["missing_knowledge_refs"], [])
+
+    def test_missing_docs_ref_lands_in_missing_refs(self) -> None:
+        self.fake.write_agent(
+            "root", "ghost-agent",
+            "---\nname: ghost\n---\nbody\n@docs/aria/DOES-NOT-EXIST.md\n",
+        )
+        row = self._audit("ghost-agent")
+        self.assertIn("docs/aria/DOES-NOT-EXIST.md", row["missing_knowledge_refs"])
+
+    def test_huge_docs_aria_ref_breaches_judge_cap(self) -> None:
+        # Deliberate-break: window 10_000 → judge cap 0.35 = 3_500 tokens.
+        # The synthetic doc alone is 5_000 tokens; pre-widening this exact
+        # dispatch passed the gate because the doc was invisible.
+        (self.repo / "docs" / "aria" / "HUGE-SYNTHETIC.md").write_text(
+            "h" * 20_000, encoding="utf-8",
+        )
+        self.fake.write_agent(
+            "root", "huge-doc-judge",
+            "---\nname: huge\n---\nbody\n@docs/aria/HUGE-SYNTHETIC.md\n",
+        )
+        with self.assertRaises(GovernanceError) as cm:
+            enforce_context_budget(
+                request="probe",
+                target_agent="huge-doc-judge",
+                role="evidence_judgment",
+                base_dir=self.tools,
+                repo_root=self.repo,
+                context_window_tokens_override=10_000,
+            )
+        self.assertIn("context_budget_exceeded", str(cm.exception))
+        self.assertIn("evidence_judgment", str(cm.exception))
+
+    def test_counterfactual_same_agent_without_doc_ref_stays_under_cap(self) -> None:
+        # The breach above is CAUSED by the @docs ref, not by the agent body
+        # or request — the identical dispatch without the ref passes.
+        self.fake.write_agent(
+            "root", "no-doc-judge", "---\nname: bare\n---\nbody\n",
+        )
+        row = enforce_context_budget(
+            request="probe",
+            target_agent="no-doc-judge",
+            role="evidence_judgment",
+            base_dir=self.tools,
+            repo_root=self.repo,
+            context_window_tokens_override=10_000,
+        )
+        self.assertFalse(row["cap_breached"])
+
+
 if __name__ == "__main__":
     unittest.main()

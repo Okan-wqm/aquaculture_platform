@@ -641,9 +641,9 @@ def _render_label_queue_section(root: Path) -> list[str]:
         from .strict_jsonl_reader import read_strict_jsonl
         samples = list(read_strict_jsonl(root / "judgment-samples.jsonl", on_corruption="tolerant"))
     except OSError:
-        return []
-    if not samples:
-        return []
+        samples = []
+    # E20 — an empty sample queue must NOT hide the seeding backlog; the
+    # two are independent halves of the same labeling economy.
     pending = [s for s in samples if not s.get("labels_complete")] or samples
     latest = pending[-3:]
     lines = ["", "## Labels wanted", ""]
@@ -661,6 +661,36 @@ def _render_label_queue_section(root: Path) -> list[str]:
                 f"--run-id {item.get('run_id','?')} --finding-id {fid} "
                 f"--verdict true_positive|false_positive --note \"...\"`"
             )
+    # E20 (ORPHAN-672) — the seeding backlog joins the same section: the
+    # ledger grew on every live finding with no reader anywhere, so the
+    # calibration bottleneck (how much label work waits) was invisible.
+    # First real reader of list_seeding_backlog; renders only when work
+    # actually waits, same empty-heading discipline as above.
+    try:
+        from .calibration_bootstrap import list_seeding_backlog
+
+        backlog = list_seeding_backlog(base_dir=root)
+    except OSError:
+        backlog = {}
+    if backlog.get("total_unlabeled"):
+        lines.append("")
+        lines.append(
+            f"- Seeding backlog: {backlog['total_unlabeled']} unlabeled row(s) "
+            "awaiting `python -m aria_kernel.calibration_bootstrap label ...`"
+        )
+        top = sorted(
+            backlog.get("tools", {}).items(),
+            key=lambda item: -item[1].get("unlabeled", 0),
+        )[:5]
+        for tool_id, counts in top:
+            if counts.get("unlabeled"):
+                lines.append(
+                    f"  - {tool_id}: {counts['unlabeled']} unlabeled / {counts['seeded']} seeded"
+                )
+    if len(lines) == 3:
+        # Header-only — nothing waits on either half; keep the
+        # empty-heading discipline (render nothing).
+        return []
     return lines
 
 

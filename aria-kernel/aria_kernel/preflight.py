@@ -131,6 +131,27 @@ REQUIRED_BRANCH_PROTECTION_FIELDS: tuple[tuple[str, str], ...] = (
 )
 
 
+# E18 (ORPHAN-672) — minimum free disk for a night to start. 5 GB covers
+# a full cycle's worktrees + ledger appends + artifact hot-tier with
+# headroom; the operator can widen or narrow it per host without a code
+# change. Guarded as env because disk is a HOST property, not repo policy.
+MIN_FREE_DISK_GB = float(os.environ.get("ARIA_MIN_FREE_DISK_GB", "5"))
+
+
+def _free_disk_gb(workspace_root: str | Path) -> float | None:
+    """Free space on the filesystem carrying the workspace, in GB.
+
+    Returns None when the probe itself fails (permission, exotic mount) —
+    an unprobeable disk must not fail preflight; only a MEASURED low disk
+    does. The distinction keeps this check honest on unusual hosts.
+    """
+    try:
+        usage = shutil.disk_usage(str(workspace_root))
+    except OSError:
+        return None
+    return usage.free / (1024**3)
+
+
 def _gh_available() -> bool:
     """True when the ``gh`` CLI is on PATH."""
     return shutil.which("gh") is not None
@@ -316,6 +337,13 @@ def verify_preflight(
     except (ImportError, AttributeError):
         sandbox_backend_present = False
     node_modules_present = (Path(workspace_root) / "node_modules").is_dir()
+    # E18 (ORPHAN-672) — disk is an environment precondition. A 98%-full
+    # host turned ledger writes into ENOSPC failures that masqueraded as
+    # test errors and chain corruption (lived 2026-08-13); the honest
+    # defence is refusing to START a night the disk cannot carry, with a
+    # named reason instead of downstream noise.
+    free_disk_gb = _free_disk_gb(workspace_root)
+    disk_ok = free_disk_gb is None or free_disk_gb >= MIN_FREE_DISK_GB
     if profile in ("autonomous", "strict", "standard"):
         if not sandbox_backend_present:
             reasons.append("sandbox_backend_absent")
@@ -327,6 +355,11 @@ def verify_preflight(
             reasons.append("node_modules_absent")
             if profile != "autonomous":
                 failure_classes.append("environment_preconditions_not_met")
+        if not disk_ok:
+            reasons.append(
+                f"disk_low:free_gb={free_disk_gb:.1f}:min_gb={MIN_FREE_DISK_GB}"
+            )
+            failure_classes.append("environment_preconditions_not_met")
 
     if profile == "autonomous":
         if not gh_token_present:

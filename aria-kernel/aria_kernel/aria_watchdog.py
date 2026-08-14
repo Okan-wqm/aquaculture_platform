@@ -525,6 +525,64 @@ def run_aria_watchdog_daemon(
                 pass
 
 
+def run_watchdog_sweep(
+    *,
+    workspace_root: str | Path,
+    tools_dir: str | Path,
+    now: datetime | None = None,
+    since: datetime | None = None,
+    daemon_agent_id: str = "aria-watchdog-cycle-phase",
+    interrupt_event: threading.Event | None = None,
+    suppress_emission: bool = False,
+) -> dict[str, Any]:
+    """M13/E12-c (ORPHAN-677) — ONE detector sweep, shared by both hosts.
+
+    The detectors existed as pure functions and the daemon loop was the
+    only body that loaded rows and emitted findings — and NOTHING ran
+    the daemon in production, so both watchdogs were disconnected eyes.
+    This extraction is the single sweep unit: the daemon loop calls it
+    per iteration (unchanged behaviour) and the nightly cycle calls it
+    once per cycle as a CyclePhase — one implementation, two hosts (İ1).
+    """
+    tools_path = Path(tools_dir).resolve()
+    workspace_path = Path(workspace_root).resolve()
+    now = now or datetime.now(timezone.utc)
+    since = since if since is not None else (now - timedelta(hours=24))
+    governance_rows = _load_jsonl(tools_path / "governance.jsonl", since_ts=since)
+    autonomy_rows = _load_jsonl(tools_path / "autonomy_state.jsonl")
+    latest_governance_ts = max(
+        (_parse_iso(r.get("ts") or r.get("occurred_at")) for r in governance_rows),
+        default=None,
+    ) if governance_rows else None
+
+    candidates: list[WatchdogFinding] = []
+    candidates.extend(detect_stall(governance_rows, autonomy_rows, now=now))
+    candidates.extend(detect_repeated_bridge_warning(governance_rows, now=now))
+
+    emitted = 0
+    suppressed = 0
+    if not suppress_emission:
+        for candidate in candidates:
+            record = _emit_watchdog_finding(
+                finding=candidate,
+                tools_dir=tools_path,
+                repo_root=workspace_path,
+                daemon_agent_id=daemon_agent_id,
+                interrupt_event=interrupt_event or threading.Event(),
+                now=now,
+            )
+            if record is not None:
+                emitted += 1
+            else:
+                suppressed += 1
+    return {
+        "candidates": len(candidates),
+        "emitted": emitted,
+        "suppressed": suppressed,
+        "latest_governance_ts": latest_governance_ts,
+    }
+
+
 def _run_daemon_loop(
     *,
     workspace_path: Path,
@@ -573,40 +631,19 @@ def _run_daemon_loop(
 
             # Bounded read — last 24h on first iteration, since_ts after.
             since = last_governance_ts if last_governance_ts is not None else (now - timedelta(hours=24))
-            governance_rows = _load_jsonl(tools_path / "governance.jsonl", since_ts=since)
-            autonomy_rows = _load_jsonl(tools_path / "autonomy_state.jsonl")
-
-            if governance_rows:
-                # Track latest event ts for next iteration's since filter
-                latest = max(
-                    (_parse_iso(r.get("ts") or r.get("occurred_at")) for r in governance_rows),
-                    default=None,
-                )
-                if latest is not None:
-                    last_governance_ts = latest
-
-            # Detector run (pure functions)
-            candidates: list[WatchdogFinding] = []
-            candidates.extend(detect_stall(governance_rows, autonomy_rows, now=now))
-            candidates.extend(detect_repeated_bridge_warning(governance_rows, now=now))
-
-            # Skip emission if ARIA_STOP was triggered mid-iteration
-            if aria_stop_path.exists() or interrupt_event.is_set():
-                pass
-            else:
-                for candidate in candidates:
-                    record = _emit_watchdog_finding(
-                        finding=candidate,
-                        tools_dir=tools_path,
-                        repo_root=workspace_path,
-                        daemon_agent_id=daemon_agent_id,
-                        interrupt_event=interrupt_event,
-                        now=now,
-                    )
-                    if record is not None:
-                        findings_emitted += 1
-                    else:
-                        findings_suppressed += 1
+            sweep = run_watchdog_sweep(
+                workspace_root=workspace_path,
+                tools_dir=tools_path,
+                now=now,
+                since=since,
+                daemon_agent_id=daemon_agent_id,
+                interrupt_event=interrupt_event,
+                suppress_emission=aria_stop_path.exists() or interrupt_event.is_set(),
+            )
+            if sweep["latest_governance_ts"] is not None:
+                last_governance_ts = sweep["latest_governance_ts"]
+            findings_emitted += sweep["emitted"]
+            findings_suppressed += sweep["suppressed"]
 
             # Sleep (SIGTERM-aware)
             if interrupt_event.wait(timeout=poll_interval_seconds):

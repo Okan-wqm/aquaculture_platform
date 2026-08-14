@@ -9363,6 +9363,14 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-HIGH-677 — reflexes with no spinal cord, and avoid-rules no judge could see — RESOLVED (this PR, E12-c)
+
+Severity: HIGH (E12-c: M13+M15). (M13) Both watchdog detectors (stall, repeated bridge-warning) existed as pure functions behind a daemon loop NOTHING ran in production — the organism had reflexes and no spinal cord; a stalled plan or a repeating bridge failure was detectable and never detected. (M15) `record_anti_pattern` + `lookup_pattern` had zero callers: an operator-signed avoid-rule would never be read back at judgment time. The plan's original idea (auto-mint from AI false-positive consensus) turned out to be FORBIDDEN by standing arbitration (arb HIGH-008: an avoid-rule SKIPS work, kernel auto-write banned) — the honest producer is human-gated.
+
+**Fix (M13):** `run_watchdog_sweep` extracted as the single sweep unit (İ1: the daemon loop now calls it per iteration, unchanged behaviour) and a new `watchdog_sweep` CyclePhase runs it once per cycle (`record_and_continue` — a sweep failure never costs the night; emission dedup 10/24h already lives in the emitter, so the nightly sweep cannot spam what the daemon would not). **(M15):** reader first — `anti_patterns_for_paths` mirrors `conventions_for_paths` over the anti-patterns ledger (no confidence floor: an operator-signed avoid-rule is authoritative by its signature, not a score) and the envelope's established-knowledge section now carries `anti_patterns` rendered as `AVOID …` context (never a verdict); producer — new `aria-kernel anti-pattern record` verb requiring `--operator-signature` (≥16 chars, `KnowledgeGraphSignatureMissing` otherwise — the arb rule survives, pinned). 7 tests incl. the phase-roster and unsigned-mint deliberate-breaks.
+
+**Owner:** claude (this session). **Status:** RESOLVED.
+
 ## ORPHAN-MEDIUM-675 — sandbox evidence had no assembler: the ledger-verified input was hand-typed JSON — RESOLVED (this PR, C4-b)
 
 Severity: MEDIUM (C4-b). `evaluate_genesis_sandbox` demands ≥3 provenance-carrying fixture_results and re-verifies every claim against the fixture-runs suite row — but nothing ever ASSEMBLED that list; the CLI read an operator-authored JSON file. Toil, plus a home for hand-typed drift between the claimed and ledgered values (exactly the class the ledger join exists to catch, generated at the keyboard).

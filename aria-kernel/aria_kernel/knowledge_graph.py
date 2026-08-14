@@ -431,6 +431,52 @@ def _paths_related(a: str, b: str) -> bool:
     return left.startswith(right + "/") or right.startswith(left + "/")
 
 
+def anti_patterns_for_paths(
+    *,
+    workspace_root: str | Path,
+    paths: list[str],
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    """M15/E12-c (ORPHAN-677) — the "avoid this" half of learned knowledge.
+
+    `record_anti_pattern` + `lookup_pattern` existed with zero callers:
+    the operator could sign an avoid-rule and NOTHING would ever read it
+    back at judgment time. Mirrors `conventions_for_paths` over the
+    anti-patterns ledger (same verified-chain discipline, latest row per
+    pattern_id); no confidence floor — an operator-signed avoid-rule is
+    authoritative by its signature, not a score.
+    """
+    wanted = [p.split(":", 1)[0].strip() for p in paths if isinstance(p, str)]
+    wanted = [p for p in wanted if p]
+    if not wanted:
+        return []
+    path = Path(workspace_root) / "aria-tools" / "knowledge-graph" / "anti-patterns.jsonl"
+    ok, _ = verify_chain_or_quarantine(path)
+    if not ok or not path.exists():
+        return []
+    latest_by_id: dict[str, dict[str, Any]] = {}
+    for row in _read_jsonl_strict(path):
+        pattern_id = row.get("pattern_id")
+        if not isinstance(pattern_id, str) or not pattern_id:
+            continue
+        latest_by_id[pattern_id] = row
+    related: list[dict[str, Any]] = []
+    for row in latest_by_id.values():
+        ref_paths = [
+            str(ref).split(":", 1)[0]
+            for ref in row.get("evidence_refs") or []
+            if isinstance(ref, str)
+        ]
+        if any(
+            _paths_related(ref_path, want)
+            for ref_path in ref_paths
+            for want in wanted
+        ):
+            related.append(row)
+    related.sort(key=lambda r: str(r.get("recorded_at") or ""), reverse=True)
+    return related[:limit]
+
+
 def conventions_for_paths(
     *,
     workspace_root: str | Path,

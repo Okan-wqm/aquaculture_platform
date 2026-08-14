@@ -79,6 +79,22 @@ def service_dimension(paths: Iterable[object]) -> dict[str, Any]:
     }
 
 
+def services_for_finding_row(row: dict[str, Any]) -> list[str]:
+    """Service dimensions of one findings-ledger row.
+
+    E15-c extracted this from ``feedback_store.list_findings`` so the
+    list filter and the service-auditor targeting trigger share ONE
+    reading of a row's dimension: stored mint-time ``services`` when
+    present, read-time derivation for legacy rows via the same collector
+    mint-time uses — old and new rows can never disagree, and neither
+    can two readers.
+    """
+    stored = row.get("services")
+    if isinstance(stored, list) and stored:
+        return [service for service in stored if isinstance(service, str)]
+    return services_for_paths(finding_dimension_paths(row.get("finding") or {}))
+
+
 def owning_agent_domains_for_paths(paths: Iterable[object]) -> list[str]:
     """Reviewing specialist agents for a path set — imported from the
     Lane-A domain touch-map SSoT, never copied."""

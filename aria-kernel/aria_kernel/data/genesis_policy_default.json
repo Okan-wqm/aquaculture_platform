@@ -69,6 +69,7 @@
   "materialization_requires_acknowledge": true,
   "max_requests_per_cycle": 5,
   "schema_version": 1,
+  "service_auditor_threshold": 25,
   "skill_genesis_drainer": {
     "_doc": "Plan ARIA-V7 \u00a72h v2 \u2014 V7.4 skill_genesis_drainer per-cycle config. Default enabled (drainer fires every cycle to consume convergent=True requests); operator sets enabled=false to disable drainer entirely.",
     "enabled": true,

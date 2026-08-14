@@ -41,6 +41,13 @@ POLICY_KEYS = {
     # (pre-cycle budget audit via max_tokens_per_cycle cap).
     "skill_genesis_drainer",
     "genesis_lifecycle",
+    # E15-c — open-finding count at which one service earns a dedicated
+    # ``aria-svc-<service>-auditor`` genesis request. Joins the contract
+    # the same way "superiority" did (C8): a key absent from POLICY_KEYS
+    # is silently dropped by merge_with_override, so an operator override
+    # would be dead configuration. Consumed by
+    # service_agent_targeting.propose_service_auditor_requests.
+    "service_auditor_threshold",
 }
 
 

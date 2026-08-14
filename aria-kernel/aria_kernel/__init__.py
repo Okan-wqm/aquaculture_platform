@@ -49,6 +49,7 @@ _EXPORT_MODULES = (
     "proposal",
     "quarantine",
     "readiness",
+    "readiness_proofs",
     "reflection",
     "report_ingestion",
     "risk_policy",

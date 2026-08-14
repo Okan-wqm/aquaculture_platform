@@ -9395,6 +9395,18 @@ Severity: HIGH (E13-C11). `freshness_window_hours` / `parse_window_signature` ha
 
 **Owner:** claude (session lead) + parallel implementation agent. **Status:** RESOLVED.
 
+## ORPHAN-HIGH-685 — every judge spawn cold-read 125KB of contract docs to do a 3KB job — RESOLVED (this PR, E17-a)
+
+Severity: HIGH (E17-a). The four runtime-dispatched agents (evidence-judge, adversarial-judge, cross-reviewer, worker) each opened their turn by reading SPEC.md (43,191 B) + CONTRACTS.md (70,488 B) + PIPELINES.md (5,937 B) + layer-1-aria.md (6,119 B) = **125,735 bytes** — before seeing a single finding. With judge fan-out ≥2 per sampled finding, a night paid that toll dozens of times for laws that fit in a few KB.
+
+**Fix (agent-implemented on a parallel lane, lead-verified firsthand):** a GENERATED digest, never a hand-maintained copy — `<!-- judge-digest:begin/end -->` markers mark the passages a runtime judge actually needs inside the SSoT docs, `contract_digest.render_judge_digest` extracts and composes `docs/aria/generated/JUDGE-DIGEST.md` with a `source_hash` over the concatenated marked sources plus anchor pointers ("if the digest is insufficient, Read the anchor you followed — and cite it"). A >10KB render RAISES: the digest cannot silently bloat back into the thing it replaced. Final size **8,723 B** (headroom 1,517). The four preambles now reference the digest + the layer-2 envelope; planner/drafter agents are untouched (plan-writing lanes keep full SSoT). Invariant test: committed digest ≡ render output byte-for-byte, source_hash recomputes, the four .mds no longer @-ref SPEC/CONTRACTS, and deliberate-breaks for a mutated marked source and a synthetic oversized digest.
+
+The finishing agent also caught and corrected a FALSE EVIDENCE CLAIM in the first draft's comments (they asserted the cost was already measured by the budget audit; it was not — that counting is E17-d's job, which had not landed at the time) and regenerated the stale `format-scope.json` manifest that would have failed CI. Honesty discipline held under handoff.
+
+**Landing addendum (same PR):** the digest's first CI run exposed a THIRD defect, in the docs gate itself — `markdownlint-changed` lints whole files, so adding eight marker comments to SPEC/CONTRACTS/PIPELINES dragged ~300 pre-existing MD013/MD040 violations into scope and failed the PR. Reflowing a 70KB contract doc to satisfy a rule it never met is churn on the very SSoT the doc is. The gate now bills only findings on lines the change actually wrote (`git diff -U0` ranges), reports inherited debt without failing, and excludes `docs/**/generated/**` entirely (a generated artifact reproduces its sources byte-for-byte; it cannot be re-wrapped without breaking the identity an invariant pins). This mirrors the format gate's existing base-debt quarantine — new lines enforced, inherited debt attributed. Pinned by a stub-linter fixture test.
+
+**Owner:** claude (session lead) + parallel implementation agents (fable→opus handoff on quota). **Status:** RESOLVED. Note for readers: these four agents no longer load `layer-1-aria.md` — permitted by the prompt-contract carve-out, a deliberate narrowing for runtime lanes only.
+
 ## ORPHAN-MEDIUM-684 — no service could ever get its own auditor: finding density had no consumer — RESOLVED (this PR, E15-c)
 
 Severity: MEDIUM (E15-c; the BP2 precursor). E15-a/b gave findings a service dimension and the reports a per-service view, but nothing ACTED on it: a service drowning in open findings could never acquire a specialist of its own, because the genesis request lane (`learning._emit_genesis_for_gap`) mints only from capability gaps — service finding-density was a number nobody consumed.

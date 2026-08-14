@@ -9,7 +9,9 @@
     "required": ["observations", "findings", "read_paths", "evidence_sources"]
   },
   "fixture_set": "tools/aria-adapters/fixtures/fe-dto-parity-adapter",
-  "health_thresholds": { "max_cost_units": 6000 },
+  "health_thresholds": {
+    "max_cost_units": 6000
+  },
   "default_input": {
     "backendRoots": ["apps"],
     "frontendRoots": ["web"]
@@ -42,5 +44,7 @@
     "timeout_ms": 240000,
     "stdin_json": true
   },
+  "freshness_window_hours": 168,
+  "parse_window_signature": "sha256:96197733542447a341a65a4b142fc15a302cd870f93b499424f82f74af16abc4",
   "schema_version": 1
 }

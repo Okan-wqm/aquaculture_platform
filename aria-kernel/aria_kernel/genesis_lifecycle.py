@@ -101,19 +101,23 @@ def validate_transition(
         if repeated_cycles < min_cycles and len(source_types) < 2:
             reasons.append(f"candidate_requires_{min_cycles}_valid_cycles_or_2_source_types")
     if to_state == "HUMAN_REQUIRED":
-        coverage = evidence.get("existing_capability_coverage")
-        threshold = float(policy.get("existing_capability_coverage_threshold") or 0.8)
-        score: float | None = None
-        verdict = None
-        if isinstance(coverage, dict):
-            verdict = coverage.get("verdict")
-            raw_score = coverage.get("coverage_score") or coverage.get("score")
-            try:
-                score = float(raw_score)
-            except (TypeError, ValueError):
-                score = None
-        if verdict not in {"positive", "covered", "pass"} or score is None or score < threshold:
-            reasons.append("human_required_requires_positive_existing_capability_coverage")
+        # C4-c (ORPHAN-676) — the gate reads what the REAL producer
+        # writes. The original shape (verdict∈{positive,covered,pass} +
+        # coverage_score≥threshold) had NO producer anywhere:
+        # capability_resolver — the only coverage authority — writes
+        # decision∈{reuse,extend,request}. An unproducible predicate is
+        # a locked door with no key; this arm now demands the resolver's
+        # actual decision row: reuse blocks genesis (duplicate), extend/
+        # request admit the human adjudication step.
+        resolution = evidence.get("capability_resolution")
+        decision = (
+            resolution.get("decision") if isinstance(resolution, dict) else None
+        )
+        if decision not in {"extend", "request"}:
+            reasons.append(
+                "human_required_requires_capability_resolution_decision"
+                f":{decision!r}"
+            )
     if to_state == "REQUEST":
         if not str(evidence.get("operator_feedback_ref") or "").strip():
             reasons.append("request_requires_signed_operator_feedback")

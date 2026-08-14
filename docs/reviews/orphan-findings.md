@@ -9379,6 +9379,14 @@ Severity: HIGH (operator spot-audit 2026-08-13 verified both classes live). (1) 
 
 **Owner:** claude (session lead) + parallel implementation agent. **Status:** RESOLVED.
 
+## ORPHAN-HIGH-682 — the C4 arc closes: a candidate agent reaches SHADOW through a fully production-shaped proof chain — RESOLVED (this PR, C4-d)
+
+Severity: HIGH (C4-d, the arc's last link). The SANDBOX-family transitions demanded a proof chain (eval-harness row with 8 ledger refs + transcript + operator approval + passing fixture run) that no production path could assemble — `run_agent_eval` real-mode was CLI-only with hand-built refs, and nothing bridged a completed shadow invocation into the proof. `_target_is_shadow` had never been TRUE through production-shaped rows.
+
+**Fix (agent-implemented on a parallel lane, lead-verified firsthand):** new `shadow_eval_bridge.bridge_shadow_eval_from_invocation` — resolves the completed invocation's REAL rows across the six invocation ledgers + the C4-a operator-provenance row + the fixture-suite row, builds the 8 SourceLedgerRefs via `ledger_ref_for_row`, feeds the accepted result's actual output as the real response envelope into `run_agent_eval(mock_mode=False)` (İ1: the existing `_validate_real_eval_provenance` re-validates the chain — no duplicated verifier), then records DRAFT→REAL_SANDBOX→SHADOW. Bridge-owned gates the verifier lacks: fixture-run must pass BEFORE any write, a failed eval stays an honest record but never promotes, target-agent cross-checks. Legacy rows without source identity refuse — never re-derived. CLI: `agent-genesis shadow-bridge …` (end-to-end seeded smoke: EXIT 0, STATE SHADOW). 5 tests incl. THE arc's deliberate-break: `_target_is_shadow` flips TRUE for the first time through a production-shaped path, and the SHADOW gate then correctly blocks a normal invocation of that target; tampered transcript refuses with state stuck at DRAFT.
+
+**Owner:** claude (session lead) + parallel implementation agent. **Status:** RESOLVED. The genesis pipeline PRESSURE→…→SHADOW is now fully producible; EVAL_WINDOW→ACTIVE rides the C8 superiority proof (already live).
+
 ## ORPHAN-HIGH-677 — reflexes with no spinal cord, and avoid-rules no judge could see — RESOLVED (this PR, E12-c)
 
 Severity: HIGH (E12-c: M13+M15). (M13) Both watchdog detectors (stall, repeated bridge-warning) existed as pure functions behind a daemon loop NOTHING ran in production — the organism had reflexes and no spinal cord; a stalled plan or a repeating bridge failure was detectable and never detected. (M15) `record_anti_pattern` + `lookup_pattern` had zero callers: an operator-signed avoid-rule would never be read back at judgment time. The plan's original idea (auto-mint from AI false-positive consensus) turned out to be FORBIDDEN by standing arbitration (arb HIGH-008: an avoid-rule SKIPS work, kernel auto-write banned) — the honest producer is human-gated.

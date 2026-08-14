@@ -2315,6 +2315,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ag_materialize.add_argument("--operator-synthetic-override", action="store_true")
     ag_materialize.add_argument("--run-invariants", action="store_true")
+    # C4-d — real-mode bridge: one completed invocation → real eval →
+    # DRAFT→REAL_SANDBOX→SHADOW with the verify_shadow_eval_proof chain.
+    ag_shadow_bridge = add_subparser(agent_genesis_sub, "shadow-bridge")
+    ag_shadow_bridge.add_argument("--invocation-id", required=True)
+    ag_shadow_bridge.add_argument("--fixture-id", required=True)
+    ag_shadow_bridge.add_argument("--fixture-run-id", required=True)
+    ag_shadow_bridge.add_argument("--operator-approval-ref", required=True)
+    ag_shadow_bridge.add_argument("--repo-root", default=None)
     ag_list = add_subparser(agent_genesis_sub, "list")
     ag_list.add_argument("--materializations", action="store_true")
 
@@ -4644,6 +4652,17 @@ def _main(argv: list[str] | None = None) -> int:
                 run_invariants=args.run_invariants,
                 ack_id=args.ack_token,
                 operator_synthetic_override=args.operator_synthetic_override,
+            )
+        elif args.agent_genesis_command == "shadow-bridge":
+            from aria_kernel.shadow_eval_bridge import bridge_shadow_eval_from_invocation
+
+            result = bridge_shadow_eval_from_invocation(
+                invocation_id=args.invocation_id,
+                fixture_id=args.fixture_id,
+                fixture_run_id=args.fixture_run_id,
+                operator_approval_ref=args.operator_approval_ref,
+                base_dir=args.tools_dir,
+                repo_root=args.repo_root,
             )
         elif args.agent_genesis_command == "list":
             result = list_agent_materializations(base_dir=args.tools_dir) if args.materializations else list_agent_drafts(base_dir=args.tools_dir)

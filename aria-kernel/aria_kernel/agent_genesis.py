@@ -578,6 +578,14 @@ def materialize_agent_draft(
         target.resolve().relative_to(worktree.resolve())
     except ValueError as exc:
         raise GovernanceError("target_path_escapes_worktree") from exc
+    # E16 (ORPHAN-673) — model-tier write protection at the ONE kernel
+    # path that writes agent files. The authoring model is the drafter's
+    # resolved runtime model (ARIA-V3 I-V3-00a locks aria-drafter as the
+    # sole body author); the stamp is kernel-injected, never
+    # drafter-supplied. Below the floor → refuse to author; weaker than
+    # the existing file's author → refuse to overwrite (duel included —
+    # that path escalates to HUMAN_REQUIRED, never through here).
+    body = _enforce_model_tier_and_stamp(body, target=target, worktree=worktree)
     file_sha256_pre = _file_sha256(target)
     touched = [target_path]
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -629,6 +637,36 @@ def materialize_agent_draft(
     }
     return append_jsonl(ensure_tools_dir(base_dir) / "agent-genesis" / "materializations.jsonl", row)
 
+
+
+def _authoring_model(worktree: Path) -> str:
+    """The model that authored the draft body — the drafter's resolved
+    runtime model from the agent-frontmatter SSoT (readable, not
+    claimable: the drafter cannot assert a tier its frontmatter does
+    not carry)."""
+    from .agent_runtime_profile import read_agent_runtime_profile
+
+    return read_agent_runtime_profile("aria-drafter", repo_root=worktree).model
+
+
+def _enforce_model_tier_and_stamp(body: str, *, target: Path, worktree: Path) -> str:
+    from .agent_runtime_profile import (
+        assert_model_may_author_agents,
+        assert_model_may_modify_agent,
+        parse_authored_by_model,
+        stamp_authored_by_model,
+    )
+
+    authoring = _authoring_model(worktree)
+    assert_model_may_author_agents(authoring)
+    if target.exists():
+        existing_author = parse_authored_by_model(
+            target.read_text(encoding="utf-8")
+        )
+        assert_model_may_modify_agent(
+            active_model=authoring, target_authored_by=existing_author
+        )
+    return stamp_authored_by_model(body, authoring)
 
 
 def _git_head(path: Path) -> str:

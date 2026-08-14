@@ -319,6 +319,7 @@ def _command_path(args: argparse.Namespace) -> tuple[str, ...]:
         "worker_result_command",
         "verification_command",
         "cycle_command",
+        "readiness_command",
     ):
         sub = getattr(args, attr, None)
         if sub:
@@ -1460,6 +1461,29 @@ def build_parser() -> argparse.ArgumentParser:
     add_subparser(mission_sub, "list")
     add_subparser(mission_sub, "rebuild-index")
     add_subparser(mission_sub, "closure")
+
+    # F5-a — first production entry point into the enterprise readiness
+    # proof chain. WHY a dedicated family: no readiness-adjacent verb
+    # family existed (record_workflow_run_proof had zero production
+    # callers), and burying proof production under `ci` would hide the
+    # readiness-claim ownership of these ledgers.
+    readiness_parser = add_subparser(sub, "readiness")
+    readiness_sub = readiness_parser.add_subparsers(dest="readiness_command", required=True)
+    readiness_produce = add_subparser(
+        readiness_sub,
+        "produce-workflow-proofs",
+        help="Record enterprise workflow-run proofs for a PR head's successful ci/workflow-runs.jsonl rows.",
+    )
+    readiness_produce.add_argument("--pr-number", type=int, required=True)
+    readiness_produce.add_argument("--repo", required=True)
+    readiness_produce.add_argument("--target-ref", required=True)
+    readiness_produce.add_argument("--head-ref", required=True)
+    readiness_produce.add_argument("--head-sha", required=True)
+    readiness_produce.add_argument(
+        "--readiness-claim-id",
+        default=None,
+        help="Optional claim binding; omit when proofs are produced before the claim row is minted.",
+    )
 
     inv_parser = add_subparser(sub, "agent-invocations")
     inv_sub = inv_parser.add_subparsers(dest="agent_invocation_command", required=True)
@@ -2710,6 +2734,21 @@ def _main(argv: list[str] | None = None) -> int:
 
         decision = select_next_mission(base_dir=args.tools_dir, record=not args.dry_run)
         print(json.dumps(decision.as_event(), indent=2, sort_keys=True))
+        return 0
+
+    if args.command == "readiness" and args.readiness_command == "produce-workflow-proofs":
+        from .readiness_proofs import produce_workflow_run_proofs
+
+        result = produce_workflow_run_proofs(
+            pr_number=args.pr_number,
+            repo=args.repo,
+            target_ref=args.target_ref,
+            head_ref=args.head_ref,
+            head_sha=args.head_sha,
+            readiness_claim_id=args.readiness_claim_id,
+            base_dir=args.tools_dir,
+        )
+        print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
     if args.command == "state":

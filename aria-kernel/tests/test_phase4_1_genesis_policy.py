@@ -98,6 +98,10 @@ class GenesisPolicyTests(unittest.TestCase):
         #   * Plan S4 (ORPHAN-MEDIUM-298) — drift_class_weights
         #     (operator targeting lever: per-class pressure score
         #     multipliers consumed by pressure.run_pressure).
+        #   * E11/C8 (ORPHAN-HIGH-671) — superiority (Z3d promotion
+        #     proof block; was readable by superiority_policy but
+        #     silently dropped by merge_with_override — dead operator
+        #     configuration until this key joined the contract).
         self.assertEqual(
             POLICY_KEYS,
             {
@@ -119,6 +123,7 @@ class GenesisPolicyTests(unittest.TestCase):
                 "skill_genesis_drainer",
                 "genesis_lifecycle",
                 "drift_class_weights",
+                "superiority",
             },
         )
 

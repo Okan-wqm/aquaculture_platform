@@ -659,14 +659,27 @@ def _record_duel_observation(
         if isinstance(review, dict)
     }
     risks = fold.get("cross_review_risks_by_round", {}).get(round_number) or []
+    # C8/E11 — the duel row names the REAL combatants. The unconditional
+    # role literals meant a genesis candidate never matched the
+    # genesis_superiority `involved` filter (its duel component stayed
+    # not_evaluated forever). Role defaults remain the honest fallback for
+    # rounds whose events predate identity capture.
+    primary_agent = (
+        (fold.get("primary_agents_by_round") or {}).get(round_number)
+        or "aria-primary-planner"
+    )
+    challenger_agent = (
+        (fold.get("challenger") or {}).get("challenger_agent")
+        or "aria-challenger-planner"
+    )
     _append_row(
         Path(root) / "knowledge-graph" / "duel-ratings.jsonl",
         {
             "schema_version": 1,
             "plan_id": plan_id,
             "round": round_number,
-            "primary_agent": "aria-primary-planner",
-            "challenger_agent": "aria-challenger-planner",
+            "primary_agent": primary_agent,
+            "challenger_agent": challenger_agent,
             "verdicts_by_direction": verdicts_by_direction,
             "material_risk_count": sum(
                 1 for r in risks
@@ -1640,6 +1653,9 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
             "source": "revision_recorded",
             "round": payload["round"],
         }
+        # C8/E11 — per-round primary authorship for the duel ledger.
+        if payload.get("revised_by_agent"):
+            state.setdefault("primary_agents_by_round", {})[payload["round"]] = payload["revised_by_agent"]
         # Plan ARIA-V10.4 Phase 3.H.11 (F-022) — advance current_round.
         # Pre-fix the reducer set the new latest_revision but left
         # current_round untouched at the round that PRODUCED the
@@ -1916,6 +1932,12 @@ def _normalize_revision(revision: dict[str, Any]) -> dict[str, Any]:
         "parent_revision_hash": revision.get("parent_revision_hash"),
         "content": revision.get("content"),
         "addresses_review_risk_ids": [str(item) for item in revision.get("addresses_review_risk_ids", []) if isinstance(item, str) and item],
+        # C8/E11 — the identity of the agent that authored this revision.
+        # Without it the duel ledger could only ever name the role default,
+        # so a genesis candidate never appeared in its own duel history and
+        # the superiority gate's duel component was permanently
+        # not_evaluated.
+        "revised_by_agent": revision.get("revised_by_agent"),
     }
 
 

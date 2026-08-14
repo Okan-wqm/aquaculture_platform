@@ -4,20 +4,16 @@
   "input": {
     "target": "farm-service",
     "root": "apps/farm-service/src",
-    "serviceName": "farm",
-    "allowlist": [
-      "apps/farm-service/src/database/entities/code-sequence.entity.ts",
-      "apps/farm-service/src/batch/entities/batch.entity.ts"
-    ]
+    "serviceName": "farm"
   },
   "expected": {
     "status": "ok",
     "required_observations": [
       "typeorm_entity",
       "module_schema",
-      "migration_registry"
+      "migration_registry_glob"
     ],
-    "raw_observations_count": 1618,
+    "raw_observations_count": 2111,
     "raw_findings_count": 0,
     "max_findings": 0
   }

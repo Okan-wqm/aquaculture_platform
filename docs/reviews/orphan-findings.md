@@ -9363,6 +9363,14 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-HIGH-678 — two systematic false-positive classes: the schema rule was blind to ADR-011 and the scanners read the graveyard — RESOLVED (this PR, E13 adapter fixes; operator spot-audit findings)
+
+Severity: HIGH (operator spot-audit 2026-08-13 verified both classes live). (1) typeorm-entity-schema flagged EVERY `@Entity()` without `schema:` — but ADR-011's per-tenant tables in tenant-scoped services correctly omit `schema:`; 194 of the night's findings were this one systematic FP. (2) test-gap (and the migration checks) scanned `.archive/` snapshot dirs — 153 archived files across 14 services produced 136 dead-corpus findings, and an archived spec could even satisfy a live source's coverage by basename.
+
+**Fix (agent-implemented on a parallel lane, lead-verified firsthand):** (1) `SchemaOwnershipPolicy` derived by AST-parsing the SSoT (`schema-manager.service.ts`) per run — `TENANT_SCOPED_MODULES` + that service's `infrastructureTables`; nothing hardcoded (a copied list would fork the moment the operator extends the map). New semantics: in a tenant-scoped service a bare `@Entity()` is a finding ONLY if its table is cross-tenant infra (SSoT entry cited as second evidence ref); table name falls back to TypeORM's snake_case default; SSoT unreadable → fail-closed to the historical always-flag. (2) shared `isArchivedWorkspacePath()` in adapter-fs (single helper, both adapters import — no duplicate), excluding archived files from scan AND from coverage satisfaction. Real-repo evidence: typeorm 194→0 schema-FPs (billing/non-tenant unchanged, pinned); test-gap 418→282 with zero archive paths; baselines re-pinned with the masking allowlist REMOVED (the corpus now proves 0 FPs itself) and the finding ceiling tightened so the old FP volume would trip it. New semantic_regression fixtures (TP + FP-trap per fix) through the real fixture runner.
+
+**Owner:** claude (session lead) + parallel implementation agent. **Status:** RESOLVED.
+
 ## ORPHAN-HIGH-677 — reflexes with no spinal cord, and avoid-rules no judge could see — RESOLVED (this PR, E12-c)
 
 Severity: HIGH (E12-c: M13+M15). (M13) Both watchdog detectors (stall, repeated bridge-warning) existed as pure functions behind a daemon loop NOTHING ran in production — the organism had reflexes and no spinal cord; a stalled plan or a repeating bridge failure was detectable and never detected. (M15) `record_anti_pattern` + `lookup_pattern` had zero callers: an operator-signed avoid-rule would never be read back at judgment time. The plan's original idea (auto-mint from AI false-positive consensus) turned out to be FORBIDDEN by standing arbitration (arb HIGH-008: an avoid-rule SKIPS work, kernel auto-write banned) — the honest producer is human-gated.

@@ -1,7 +1,7 @@
 {
   "tool_id": "typeorm-entity-schema-adapter",
   "kind": "adapter",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "status": "SHADOW",
   "declared_scope": ["apps/**/*.ts", "libs/backend-common/src/database/schema-manager.service.ts"],
   "output_schema": {

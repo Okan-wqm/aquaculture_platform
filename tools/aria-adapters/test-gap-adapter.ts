@@ -4,6 +4,7 @@ import ts from 'typescript';
 import {
   collectFiles,
   filterFilesBySnapshot,
+  isArchivedWorkspacePath,
   normalizeWorkspacePath,
   readWorkspaceFile,
   resolveInsideWorkspace as resolveAdapterPath,
@@ -277,8 +278,11 @@ function riskClassForPath(path: string): string {
   if (path.includes('/migrations/')) {
     return 'migration';
   }
+  // match[1] is narrowed explicitly so the file stays clean under
+  // --noUncheckedIndexedAccess (the capture group is structurally guaranteed,
+  // but the index signature cannot prove it to the compiler).
   const match = path.match(/\.([a-z-]+)\.(ts|tsx)$/);
-  if (match) {
+  if (match?.[1] !== undefined) {
     return match[1];
   }
   if (path.endsWith('.tsx')) {
@@ -426,7 +430,11 @@ function readFileUnit(path: string, workspaceRoot: string): FileUnit {
 function collectSourceAndTestFiles(root: string): readonly string[] {
   return collectFiles(root, {
     extensions: ['.ts', '.tsx'],
-    includeFile: (name) => !name.endsWith('.d.ts'),
+    // E13 FP class (2): archived corpus (e.g. migrations/.archive/<timestamp>/)
+    // is dead code — it can neither need test coverage nor PROVIDE it (an
+    // archived spec must not satisfy a live source), so it is excluded from
+    // the scan entirely rather than special-cased at finding time.
+    includeFile: (name, path) => !name.endsWith('.d.ts') && !isArchivedWorkspacePath(path),
   });
 }
 

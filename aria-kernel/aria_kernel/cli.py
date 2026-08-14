@@ -1670,6 +1670,24 @@ def build_parser() -> argparse.ArgumentParser:
     rs_policy = add_subparser(research_sub, "set-policy")
     rs_policy.add_argument("--allowed-domain", action="append", required=True)
 
+    # M15/E12-c (ORPHAN-677) — operator-SIGNED anti-pattern mint. The
+    # writer existed with zero callers and kernel auto-write is FORBIDDEN
+    # (arb HIGH-008: an avoid-rule SKIPS work, so only a signed operator
+    # may mint one). This verb is the missing human-gated producer.
+    ap_parser = add_subparser(sub,
+        "anti-pattern",
+        help="M15 — operator-signed avoid-rule mint into the knowledge graph.",
+    )
+    ap_sub = ap_parser.add_subparsers(dest="anti_pattern_command", required=True)
+    ap_record = add_subparser(ap_sub, "record")
+    ap_record.add_argument("--pattern-id", required=True)
+    ap_record.add_argument("--reason-class", required=True,
+                           choices=["architecture_class", "scope_decision", "tool_design"])
+    ap_record.add_argument("--evidence-ref", action="append", required=True)
+    ap_record.add_argument("--cycle-id", required=True)
+    ap_record.add_argument("--operator-signature", required=True)
+    ap_record.add_argument("--workspace-root", default=".")
+
     # C4-a (ORPHAN-674) — operator-approval mint for the genesis proof
     # chain (verify_shadow_eval_proof resolves refs against this ledger).
     opprov_parser = add_subparser(sub,
@@ -3965,6 +3983,28 @@ def _main(argv: list[str] | None = None) -> int:
             print(json.dumps(list_architecture_reviews(base_dir=args.tools_dir), indent=2, sort_keys=True))
             return 0
         parser.error("unknown architecture command")
+
+    if args.command == "anti-pattern":
+        from aria_kernel.knowledge_graph import Pattern, record_anti_pattern
+        from aria_kernel.tool_registry import utc_now as _utc_now
+
+        if args.anti_pattern_command == "record":
+            pattern = Pattern(
+                pattern_id=args.pattern_id,
+                pattern_type="anti_pattern",
+                confidence=1.0,
+                evidence_refs=tuple(args.evidence_ref),
+                discovered_by_cycle_id=args.cycle_id,
+                observed_at=_utc_now(),
+            )
+            path = record_anti_pattern(
+                pattern,
+                workspace_root=args.workspace_root,
+                reason_class=args.reason_class,
+                operator_signature=args.operator_signature,
+            )
+            print(json.dumps({"written": str(path), "pattern_id": args.pattern_id}, indent=2))
+            return 0
 
     if args.command == "operator-provenance":
         from aria_kernel.operator_provenance import (

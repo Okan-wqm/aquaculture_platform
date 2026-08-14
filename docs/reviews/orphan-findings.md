@@ -9363,6 +9363,14 @@ Severity: CRITICAL (Kapalı Döngü E3; audit F7+F10+F12-lease, all adversariall
 
 **Owner:** claude (this session). **Status:** RESOLVED.
 
+## ORPHAN-MEDIUM-679 — the portability claim had no proof: nothing ever bootstrapped the kernel on a foreign repo — RESOLVED (this PR, E19)
+
+Severity: MEDIUM (E19; AGI/İ3 principle: the core must be domain-agnostic, and a claim without a test is a hope). "~70% of the core is portable" was asserted, never exercised — no test bootstrapped ARIA against anything but this repo. The minimal contract was implicit and undocumented.
+
+**Fix (agent-implemented on a parallel lane, lead-verified firsthand):** `test_portability_bootstrap.py` — hermetic foreign mini-repo (git init + 2 files + one valid `.claude/agents/*.md`; hermetic-git env asserted fail-loud so a leaked `git init` cannot poison the host repo). Pins the contract: (1) foreign needs ONLY a git repo with ≥1 commit + a valid agents dir (agent name regex is load-bearing — invalid names are silently skipped); (2) no-remote identity resolves via the root-commit fallback `sha256("local-root:"+root_sha)[:16]`, RECOMPUTED from `git rev-list` rather than calling the function twice (calling twice would pass under any recipe), with the degraded mode auditable via `canonical_identity_offline_fallback` governance; (3) declared-ledger appends work under the foreign root because `surface_for_path` validates tools identity at the path base, not a host location — the structural reason the core is portable; (4) deliberate-breaks: missing `.claude/agents` → GovernanceError; binding the same tools root from a SECOND foreign repo → `tools_root_canonical_identity_mismatch`, with a same-repo-rebind positive control so the refusal test cannot pass by refusing everything; two offline repos' identities proven distinct. 7 tests, first-run green; tools-binding suite regression-free.
+
+**Owner:** claude (session lead) + parallel implementation agent. **Status:** RESOLVED. Full portability program (other-domain recipes) stays future work per plan — this pins the contract so the claim is evidence, not hope.
+
 ## ORPHAN-HIGH-678 — two systematic false-positive classes: the schema rule was blind to ADR-011 and the scanners read the graveyard — RESOLVED (this PR, E13 adapter fixes; operator spot-audit findings)
 
 Severity: HIGH (operator spot-audit 2026-08-13 verified both classes live). (1) typeorm-entity-schema flagged EVERY `@Entity()` without `schema:` — but ADR-011's per-tenant tables in tenant-scoped services correctly omit `schema:`; 194 of the night's findings were this one systematic FP. (2) test-gap (and the migration checks) scanned `.archive/` snapshot dirs — 153 archived files across 14 services produced 136 dead-corpus findings, and an archived spec could even satisfy a live source's coverage by basename.

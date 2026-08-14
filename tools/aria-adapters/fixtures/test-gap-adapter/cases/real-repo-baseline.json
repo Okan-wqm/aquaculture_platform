@@ -17,6 +17,6 @@
         "details.scanMode": "import_graph_v1"
       }
     ],
-    "max_findings": 250
+    "max_findings": 300
   }
 }

@@ -44248,6 +44248,29 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/aria-adapters/fixtures/test-gap-adapter/cases/semantic-archive-exclusion.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "0d371554b6e30490aee8eace0078f2d6de9f9c811ce1adbd21fddccce756dc24",
+      "hash_policy": "sha256",
+      "owner": "archive-owner",
+      "path": "tools/aria-adapters/fixtures/test-gap-adapter/workspaces/semantic-archive/apps/billing-service/src/database/migrations/.archive/2026-05-18T09-00-00-000Z/1700000000000-ArchivedHazard.ts",
+      "prettier_managed": false,
+      "reason": "historical archive content is hash-pinned evidence",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/test-gap-adapter/workspaces/semantic-archive/apps/billing-service/src/database/migrations/1800000000000-LiveHazard.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/aria-adapters/fixtures/test-gap-adapter/workspaces/semantic-testgap/apps/billing-service/src/payment/__tests__/capture.handler.ts",
       "prettier_managed": true
     },
@@ -44267,6 +44290,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/aria-adapters/fixtures/typeorm-entity-schema-adapter/cases/real-repo-baseline.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/typeorm-entity-schema-adapter/cases/semantic-tenant-schema-omission.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/typeorm-entity-schema-adapter/workspaces/semantic-schema/apps/farm-service/src/outbox-event.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/typeorm-entity-schema-adapter/workspaces/semantic-schema/apps/farm-service/src/pond.entity.ts",
       "prettier_managed": true
     },
     {

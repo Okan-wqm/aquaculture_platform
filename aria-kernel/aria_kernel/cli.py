@@ -1611,14 +1611,15 @@ def build_parser() -> argparse.ArgumentParser:
     b_record.add_argument("--action", required=True)
     b_record.add_argument("--note", default="")
     b_list = add_subparser(budget_sub, "list")
-    adapter_parser = add_subparser(sub, 
+    adapter_parser = add_subparser(sub,
         "adapter-portfolio",
-        help="Plan 016 Faz F1+F2 — MVP adapter registration + parse-window signature backfill.",
+        # E13-C11 — the backfill-window-metadata subcommand is gone: freshness
+        # metadata is manifest-owned and derived by validate_tool_definition,
+        # so there is nothing left to patch at runtime.
+        help="Plan 016 Faz F1 — MVP adapter registration + status.",
     )
     adapter_sub = adapter_parser.add_subparsers(dest="adapter_portfolio_command", required=True)
     ap_register = add_subparser(adapter_sub, "register-mvp")
-    ap_backfill = add_subparser(adapter_sub, "backfill-window-metadata")
-    ap_backfill.add_argument("--freshness-hours", type=int, default=None)
     ap_status = add_subparser(adapter_sub, "status")
     review_parser = add_subparser(sub, 
         "review",
@@ -3912,19 +3913,12 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "adapter-portfolio":
         from aria_kernel.adapter_portfolio import (
-            DEFAULT_FRESHNESS_WINDOW_HOURS,
-            backfill_window_metadata,
             list_mvp_status,
             register_mvp_adapters,
         )
 
         if args.adapter_portfolio_command == "register-mvp":
             result = register_mvp_adapters(base_dir=args.tools_dir)
-            print(json.dumps(result, indent=2, sort_keys=True))
-            return 0
-        if args.adapter_portfolio_command == "backfill-window-metadata":
-            freshness = args.freshness_hours if args.freshness_hours is not None else DEFAULT_FRESHNESS_WINDOW_HOURS
-            result = backfill_window_metadata(base_dir=args.tools_dir, freshness_hours=freshness)
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0
         if args.adapter_portfolio_command == "status":

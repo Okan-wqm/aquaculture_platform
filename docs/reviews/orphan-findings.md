@@ -9379,6 +9379,14 @@ Severity: HIGH (operator spot-audit 2026-08-13 verified both classes live). (1) 
 
 **Owner:** claude (session lead) + parallel implementation agent. **Status:** RESOLVED.
 
+## ORPHAN-HIGH-681 — freshness was Potemkin metadata: runtime-patched, recompile-deleted, never read — RESOLVED (this PR, E13-C11)
+
+Severity: HIGH (E13-C11). `freshness_window_hours` / `parse_window_signature` had no SSoT: `adapter_portfolio` patched them onto the registry at RUNTIME, every recompile path (registry_compiler AND the per-cycle manifest sync) rewrote the registry from the manifests and DELETED them, and ZERO readers existed. Dead configuration wearing a metadata costume — an adapter could run on months-stale evidence and nothing would ever say so.
+
+**Fix (agent-implemented on a parallel lane, lead-verified firsthand):** Tier-1 — the deleting path became the producing path. The fields moved into the `.tool.json` manifests (all 9) + `validate_tool_definition` (defaults absent windows, rejects non-positive/bool; DERIVES `parse_window_signature` and rejects a present-but-drifted one at compile time — declaration drift fails the compile, not a future debug session); `update_tool` recomputes the signature at the operator-audited mutation point. İ2: the runtime patcher (`backfill_window_metadata`), its F2 projection lines and its CLI verb are DELETED with a deliberate-break pin — no parallel path survives. FIRST READER: `adapter_active_readiness` gains a `stale_run_evidence` blocker (newest OK run older than the tool's window blocks; fail-closed: no OK run, or one without a provable timestamp, also blocks) with the age telemetry in the report. Tests pin the original defect (fields survive compile→RECOMPILE→check), the İ2 removal, and the fail-closed reader semantics.
+
+**Owner:** claude (session lead) + parallel implementation agent. **Status:** RESOLVED.
+
 ## ORPHAN-HIGH-677 — reflexes with no spinal cord, and avoid-rules no judge could see — RESOLVED (this PR, E12-c)
 
 Severity: HIGH (E12-c: M13+M15). (M13) Both watchdog detectors (stall, repeated bridge-warning) existed as pure functions behind a daemon loop NOTHING ran in production — the organism had reflexes and no spinal cord; a stalled plan or a repeating bridge failure was detectable and never detected. (M15) `record_anti_pattern` + `lookup_pattern` had zero callers: an operator-signed avoid-rule would never be read back at judgment time. The plan's original idea (auto-mint from AI false-positive consensus) turned out to be FORBIDDEN by standing arbitration (arb HIGH-008: an avoid-rule SKIPS work, kernel auto-write banned) — the honest producer is human-gated.

@@ -74,7 +74,9 @@ class GenesisLifecycleReducerTests(unittest.TestCase):
             entity_id="gap-1",
             entity_kind="skill",
             to_state="HUMAN_REQUIRED",
-            evidence={"existing_capability_coverage": {"verdict": "positive", "coverage_score": 0.95}},
+            # C4-c (ORPHAN-676) — the gate reads the capability-resolver's
+            # REAL vocabulary; the old verdict/score shape had no producer.
+            evidence={"capability_resolution": {"decision": "request"}},
             base_dir=self.tools,
         )
         self.assertEqual(current_lifecycle_state(entity_id="gap-1", base_dir=self.tools), "HUMAN_REQUIRED")

@@ -72,9 +72,82 @@ def load_jsonl(path: Path) -> list[dict[str, Any]]:
     return _load_jsonl(path)
 
 
+def _gap_key_batch_count(capability_gap_key: str, base_dir: str | Path | None) -> int:
+    """How many recorded gap batches carried this capability key — the
+    honest `valid_cycles` count the CANDIDATE gate reads (derived from
+    the ledger, never asserted)."""
+    from .capability_gap import latest_capability_gaps  # noqa: F401  (module anchor)
+    from .ledger import load_jsonl as load_chained_jsonl
+
+    path = ensure_tools_dir(base_dir) / "capability-gaps" / "gaps.jsonl"
+    count = 0
+    for batch in load_chained_jsonl(path) if path.exists() else []:
+        for gap in batch.get("gaps") or []:
+            if isinstance(gap, dict) and str(gap.get("capability_gap_key") or "") == capability_gap_key:
+                count += 1
+                break
+    return count
+
+
+def record_draft_lifecycle_chain(
+    *,
+    entity_id: str,
+    gap: dict[str, Any],
+    capability_resolution: dict[str, Any],
+    operator_approval_ref: str,
+    draft_ref: str,
+    base_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """C4-c (ORPHAN-676) — the genesis ledger finally records how an
+    agent came to exist.
+
+    Emits the legal prefix chain (PRESSURE → CANDIDATE_PROPOSED →
+    HUMAN_REQUIRED → REQUEST → DRAFT) with evidence drawn from the REAL
+    artifacts of the draft flow: the gap row (source types + a
+    ledger-derived batch count), the capability-resolver decision, and
+    the operator-approval ref minted by `operator-provenance record`
+    (C4-a). Idempotent per state: already-recorded progress is skipped,
+    so a re-run continues instead of colliding. SANDBOX-family states
+    stay out of reach here by design — their proof chain is C4-d.
+    """
+    from .genesis_lifecycle import current_lifecycle_state, record_transition
+
+    capability_gap_key = str(gap.get("capability_gap_key") or "")
+    steps: list[tuple[str, dict[str, Any]]] = [
+        ("PRESSURE", {"gap_id": gap.get("gap_id"), "primary_source": gap.get("primary_source")}),
+        (
+            "CANDIDATE_PROPOSED",
+            {
+                "source_types": list(gap.get("source_types") or []),
+                "valid_cycles": _gap_key_batch_count(capability_gap_key, base_dir),
+                "capability_gap_key": capability_gap_key,
+            },
+        ),
+        ("HUMAN_REQUIRED", {"capability_resolution": dict(capability_resolution)}),
+        ("REQUEST", {"operator_feedback_ref": operator_approval_ref}),
+        ("DRAFT", {"draft_ref": draft_ref}),
+    ]
+    order = [state for state, _ in steps]
+    current = current_lifecycle_state(entity_id=entity_id, base_dir=base_dir)
+    start_index = order.index(current) + 1 if current in order else 0
+    recorded: list[dict[str, Any]] = []
+    for state, evidence in steps[start_index:]:
+        recorded.append(
+            record_transition(
+                entity_id=entity_id,
+                entity_kind="agent",
+                to_state=state,  # type: ignore[arg-type]
+                evidence=evidence,
+                base_dir=base_dir,
+            )
+        )
+    return recorded
+
+
 def draft_agent_from_gap(
     *,
     gap_id: str,
+    operator_approval_ref: str | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     enforce_profile_for_write("agent_genesis", base_dir=base_dir)
@@ -136,7 +209,22 @@ def draft_agent_from_gap(
         "target_path": intent.target_path,
         "blocked_by": ["awaiting_drafter_body_synthesis"],
     }
-    return append_jsonl(root / "agent-genesis" / "drafts.jsonl", row)
+    appended = append_jsonl(root / "agent-genesis" / "drafts.jsonl", row)
+    # C4-c (ORPHAN-676) — with an operator-approval ref (C4-a mint) in
+    # hand, the draft flow records its own lifecycle chain; without one
+    # the chain honestly stops before REQUEST and nothing is written
+    # (partial provenance is worse than none — a later re-run with the
+    # ref continues idempotently from wherever the ledger stands).
+    if operator_approval_ref and str(operator_approval_ref).strip():
+        appended["lifecycle"] = record_draft_lifecycle_chain(
+            entity_id=name,
+            gap=gap,
+            capability_resolution=capability_resolution,
+            operator_approval_ref=str(operator_approval_ref).strip(),
+            draft_ref=str(appended.get("ledger_hash") or f"draft-{name}"),
+            base_dir=base_dir,
+        )
+    return appended
 
 
 def _fixture_result_has_real_execution_provenance(result: dict[str, Any]) -> bool:

@@ -9404,6 +9404,7 @@ Severity: HIGH (E17-a). The four runtime-dispatched agents (evidence-judge, adve
 The finishing agent also caught and corrected a FALSE EVIDENCE CLAIM in the first draft's comments (they asserted the cost was already measured by the budget audit; it was not — that counting is E17-d's job, which had not landed at the time) and regenerated the stale `format-scope.json` manifest that would have failed CI. Honesty discipline held under handoff.
 
 **Owner:** claude (session lead) + parallel implementation agents (fable→opus handoff on quota). **Status:** RESOLVED. Note for readers: these four agents no longer load `layer-1-aria.md` — permitted by the prompt-contract carve-out, a deliberate narrowing for runtime lanes only.
+
 ## ORPHAN-MEDIUM-683 — the biggest context cost was invisible to the budget audit, and cache behaviour was an untested assumption — RESOLVED (this PR, E17-d)
 
 Severity: MEDIUM (E17-d — measurement first, so E17-a/b gains become provable). Every judge spawn cold-reads ~138KB of static docs via `@docs/aria` preamble refs, but `context_budget_gate._knowledge_refs` regexed ONLY `@.claude/knowledge/...` — the largest single context cost never appeared in `audit_dispatch_context`. And `extract_usage` already forwarded the API's `cache_*` fields on every spawn, but nothing recorded them per-role: whether the server prompt-cache spans spawns was an assumption, not a measurement.

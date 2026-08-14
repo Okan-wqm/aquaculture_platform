@@ -41,6 +41,19 @@ describe('agent prompt contract invariants', () => {
   });
 
   it('ARIA prompts carry the canonical ARIA reference set', () => {
+    // E17-a: the four runtime-dispatched judge/worker agents read the
+    // generated contract digest instead of cold-reading SPEC + CONTRACTS +
+    // PIPELINES + layer-1-aria (125,735 bytes of @-refs, replaced by an 8.5KB
+    // digest). They keep the layer-2 envelope ref because the verdict schema,
+    // satisfaction entries, and envelope trust rules live there. Their digest
+    // contract is pinned below and byte-for-byte in
+    // aria-kernel/tests/test_judge_digest_ssot.py.
+    const judgeDigestAgents = new Set<string>([
+      '.claude/agents/aria-evidence-judge.md',
+      '.claude/agents/aria-adversarial-judge.md',
+      '.claude/agents/aria-cross-reviewer.md',
+      '.claude/agents/aria-worker.md',
+    ]);
     const ariaAgents = activeAgents.filter(
       (file) =>
         file.filenameStem.startsWith('aria-') ||
@@ -48,6 +61,19 @@ describe('agent prompt contract invariants', () => {
     );
 
     for (const file of ariaAgents) {
+      if (judgeDigestAgents.has(file.relPath)) {
+        expect(file.content).toContain('@docs/aria/generated/JUDGE-DIGEST.md');
+        expect(file.content).toContain('@.claude/knowledge/layer-2-aria-canonical-envelope.md');
+        expect(file.content).toContain(
+          'Read the FULL SPEC/CONTRACTS only when a digest pointer proves insufficient — cite the anchor you followed.',
+        );
+        // The digest REPLACES the full-doc preamble; a direct @-ref sneaking
+        // back in silently restores the 138KB cold-read cost.
+        expect(file.content).not.toContain('@docs/aria/SPEC.md');
+        expect(file.content).not.toContain('@docs/aria/CONTRACTS.md');
+        expect(file.content).not.toContain('@docs/aria/PIPELINES.md');
+        continue;
+      }
       expect(file.content).toContain('@.claude/knowledge/layer-1-aria.md');
       expect(file.content).toContain('@.claude/knowledge/layer-2-aria-canonical-envelope.md');
       expect(file.content).toContain('@docs/aria/SPEC.md');

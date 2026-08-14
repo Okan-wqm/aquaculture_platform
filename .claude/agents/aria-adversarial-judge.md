@@ -11,11 +11,10 @@ pedagogy-tier: 3
 
 ## Canonical References (READ via the Read tool before starting)
 
-- @.claude/knowledge/layer-1-aria.md
+- @docs/aria/generated/JUDGE-DIGEST.md
 - @.claude/knowledge/layer-2-aria-canonical-envelope.md
-- @docs/aria/SPEC.md
-- @docs/aria/CONTRACTS.md
-- @docs/aria/PIPELINES.md
+
+Read the FULL SPEC/CONTRACTS only when a digest pointer proves insufficient — cite the anchor you followed.
 
 
 You are the skeptical second judge for ARIA consensus. Your job is to find why a sampled finding or belief might be false, stale, overbroad, duplicated, or based on invalid evidence.

@@ -9387,6 +9387,16 @@ Severity: HIGH (E13-C11). `freshness_window_hours` / `parse_window_signature` ha
 
 **Owner:** claude (session lead) + parallel implementation agent. **Status:** RESOLVED.
 
+## ORPHAN-HIGH-685 — every judge spawn cold-read 125KB of contract docs to do a 3KB job — RESOLVED (this PR, E17-a)
+
+Severity: HIGH (E17-a). The four runtime-dispatched agents (evidence-judge, adversarial-judge, cross-reviewer, worker) each opened their turn by reading SPEC.md (43,191 B) + CONTRACTS.md (70,488 B) + PIPELINES.md (5,937 B) + layer-1-aria.md (6,119 B) = **125,735 bytes** — before seeing a single finding. With judge fan-out ≥2 per sampled finding, a night paid that toll dozens of times for laws that fit in a few KB.
+
+**Fix (agent-implemented on a parallel lane, lead-verified firsthand):** a GENERATED digest, never a hand-maintained copy — `<!-- judge-digest:begin/end -->` markers mark the passages a runtime judge actually needs inside the SSoT docs, `contract_digest.render_judge_digest` extracts and composes `docs/aria/generated/JUDGE-DIGEST.md` with a `source_hash` over the concatenated marked sources plus anchor pointers ("if the digest is insufficient, Read the anchor you followed — and cite it"). A >10KB render RAISES: the digest cannot silently bloat back into the thing it replaced. Final size **8,723 B** (headroom 1,517). The four preambles now reference the digest + the layer-2 envelope; planner/drafter agents are untouched (plan-writing lanes keep full SSoT). Invariant test: committed digest ≡ render output byte-for-byte, source_hash recomputes, the four .mds no longer @-ref SPEC/CONTRACTS, and deliberate-breaks for a mutated marked source and a synthetic oversized digest.
+
+The finishing agent also caught and corrected a FALSE EVIDENCE CLAIM in the first draft's comments (they asserted the cost was already measured by the budget audit; it was not — that counting is E17-d's job, which had not landed at the time) and regenerated the stale `format-scope.json` manifest that would have failed CI. Honesty discipline held under handoff.
+
+**Owner:** claude (session lead) + parallel implementation agents (fable→opus handoff on quota). **Status:** RESOLVED. Note for readers: these four agents no longer load `layer-1-aria.md` — permitted by the prompt-contract carve-out, a deliberate narrowing for runtime lanes only.
+
 ## ORPHAN-HIGH-680 — the readiness chain's evidence rows could not be cited: CI rows had no identity and the workflow-run proof had no producer — RESOLVED (this PR, F5-a)
 
 Severity: HIGH (F5-a — the first link of the auto-merge claim chain). The enterprise readiness claim requires proof rows whose `source_ledger_ref` resolves to a real ledger row — and the live CI evidence could not be cited: `ci/workflow-runs.jsonl` and pr-gate rows carried no `row_id`/`row_type`, so `find_row_by_source_ledger_ref` could never target them; and `record_workflow_run_proof` had zero production callers. The best-evidenced proof family was structurally unreachable.

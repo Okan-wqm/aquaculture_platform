@@ -5,6 +5,10 @@ and the kernel module that mints each envelope. Agent bodies cite this file;
 the kernel modules named per section stay the executable authority
 (CURRENT_STATE.md authority chain).
 
+<!-- The judge-digest marker pairs in this file feed docs/aria/generated/JUDGE-DIGEST.md
+     (rendered by aria-kernel/aria_kernel/contract_digest.py). Marked text is extracted
+     VERBATIM — this file stays the SSoT; edit here, then regenerate the digest. -->
+<!-- judge-digest:begin -->
 ## 1. Dispatch surfaces
 
 Two prompt-delivery paths exist and they differ structurally:
@@ -19,6 +23,7 @@ Two prompt-delivery paths exist and they differ structurally:
 - **Interactive Agent-tool path** — operator sessions and the acceptance lane
   dispatch agents natively; there the `.md` body IS the system prompt.
   Agents carrying `dispatch: ad-hoc` live on this path only.
+<!-- judge-digest:end -->
 
 ## 2. Convergent plan gate (Plan 016 / V8)
 
@@ -56,6 +61,7 @@ on the calibration bar (precision 1.0, confirmed-false-positive 0, recall
 ≥ 0.90). Rules for the CONTENT of authored agents/skills live in
 `.claude/agents/_shared/aria-agent-authoring-standards.md`.
 
+<!-- judge-digest:begin -->
 ## 5. Judge and consensus flow
 
 - `evidence_judgment` → **aria-evidence-judge** (reads evidence_refs in order)
@@ -66,6 +72,7 @@ on the calibration bar (precision 1.0, confirmed-false-positive 0, recall
 - Supporting: `change_intelligence` → **aria-change-intelligence** (diff →
   revalidation impact map); `goldset_curation` → **aria-goldset-curator**
   (fixture proposals, operator-gated promotion; bar ≥20 TP / ≥10 FP per tool).
+<!-- judge-digest:end -->
 
 ## 6. Acceptance lane (Plan 030 — interactive, `dispatch: ad-hoc`)
 
@@ -87,9 +94,11 @@ from the outside; it is not kernel-queued.
   `pr_manager.ARIA_PR_BASE`).
 - **aria-autonomy-planner** — next-cycle queue projection envelopes
   (`autonomy_orchestrator`, role `maintenance_utility`).
+<!-- judge-digest:begin -->
 - **aria-worker** — default target of every promoted plan's dispatch rows
   (`promotion_controller` → `worker_executor` assignments in isolated
   worktrees).
+<!-- judge-digest:end -->
 
 ## 8. Autonomy ladder
 

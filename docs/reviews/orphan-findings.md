@@ -9395,6 +9395,14 @@ Severity: HIGH (E13-C11). `freshness_window_hours` / `parse_window_signature` ha
 
 **Owner:** claude (session lead) + parallel implementation agent. **Status:** RESOLVED.
 
+## ORPHAN-MEDIUM-684 — no service could ever get its own auditor: finding density had no consumer — RESOLVED (this PR, E15-c)
+
+Severity: MEDIUM (E15-c; the BP2 precursor). E15-a/b gave findings a service dimension and the reports a per-service view, but nothing ACTED on it: a service drowning in open findings could never acquire a specialist of its own, because the genesis request lane (`learning._emit_genesis_for_gap`) mints only from capability gaps — service finding-density was a number nobody consumed.
+
+**Fix (agent-implemented on a parallel lane, lead-verified firsthand):** `service_agent_targeting.propose_service_auditor_requests` — groups OPEN tool-findings by the E15-a dimension (one shared derivation via `services_for_finding_row`, İ1) and mints an `aria-svc-<service>-auditor` genesis REQUEST through the SAME writer the learning lane uses (`request_agent_genesis` — no parallel request path) when a service crosses the policy threshold (`service_auditor_threshold`, default 25, joins POLICY_KEYS with its contract pin). Suppressed when the agent file or a pending request already exists; wired as a guarded `service_auditor_targeting` hook right after `skill_or_agent_genesis`, record-and-continue. The finishing agent found and closed a real defect in the first draft: the producer ignored `max_requests_per_cycle`, so the operator's configured genesis ceiling would have become untrue the first night several services crossed at once — it now ranks sickest-first, caps, reports `eligible_count`/`capped_count`, and suppressed services never spend cap budget (deliberate-break test: cap=1 with two qualifying services keeps only the sickest). 14 tests.
+
+**Owner:** claude (session lead) + parallel implementation agents (fable→opus handoff on quota). **Status:** RESOLVED. Noted, NOT silently fixed: `reflection.py`/`finding.py`/`task.py` repeat the "stored services else derive" idiom on the finding DOC shape — pre-existing E15-a debt, tracked for the E15 follow-up.
+
 ## ORPHAN-MEDIUM-683 — the biggest context cost was invisible to the budget audit, and cache behaviour was an untested assumption — RESOLVED (this PR, E17-d)
 
 Severity: MEDIUM (E17-d — measurement first, so E17-a/b gains become provable). Every judge spawn cold-reads ~138KB of static docs via `@docs/aria` preamble refs, but `context_budget_gate._knowledge_refs` regexed ONLY `@.claude/knowledge/...` — the largest single context cost never appeared in `audit_dispatch_context`. And `extract_usage` already forwarded the API's `cache_*` fields on every spawn, but nothing recorded them per-role: whether the server prompt-cache spans spawns was an assumption, not a measurement.

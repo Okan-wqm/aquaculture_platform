@@ -189,20 +189,12 @@ def list_findings(
     if service is not None:
         # E15-a — legacy rows carry no mint-time dimension; derive at
         # read time from the same collector the mint uses, so old and
-        # new rows can never disagree about their own service.
-        from .service_dimension import finding_dimension_paths, services_for_paths
+        # new rows can never disagree about their own service. The
+        # shared row reader (E15-c) keeps this filter and the
+        # service-auditor targeting trigger on one derivation.
+        from .service_dimension import services_for_finding_row
 
-        rows = [
-            row
-            for row in rows
-            if service
-            in (
-                row.get("services")
-                or services_for_paths(
-                    finding_dimension_paths(row.get("finding") or {})
-                )
-            )
-        ]
+        rows = [row for row in rows if service in services_for_finding_row(row)]
     return rows
 
 

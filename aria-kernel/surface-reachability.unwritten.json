@@ -1,64 +1,16 @@
 {
   "agent_surface_request_role": {
-    "access_boundary_review": {
-      "expires_on": "2026-09-13",
-      "finding_id": "ORPHAN-HIGH-686",
-      "owner": "okan",
-      "reason": "Declared in REQUEST_ROLES and paired to access-boundary-auditor in ROLE_TARGET_PAIRING, but specialist_review_runner mints every domain reviewer under the single role `specialist_domain_review` (_SPECIALIST_ROLE, specialist_review_runner.py:58). Nothing produces this role, so the pairing entry, the DEFAULT_TARGET_AGENT_WHITELIST entry and the context_budget_gate ROLE_CAPS entry all govern a request that is never minted. Decide: route specialist dispatch through the per-domain roles, or delete the four domain roles and keep one."
-    },
-    "architectural_arbitration": {
-      "expires_on": "2026-09-13",
-      "finding_id": "ORPHAN-HIGH-686",
-      "owner": "okan",
-      "reason": "Same shape as access_boundary_review: paired to architectural-arbiter, budgeted at 0.65 in context_budget_gate.py:90 as the emergency tier, and minted by nothing. The emergency escalation lane it budgets for is reached through human_required_adjudication instead, which IS minted (human_required_adjudication.py:226)."
-    },
-    "auth_security_review": {
-      "expires_on": "2026-09-13",
-      "finding_id": "ORPHAN-HIGH-686",
-      "owner": "okan",
-      "reason": "Same shape as access_boundary_review; budgeted at 0.45 in context_budget_gate.py:93. Listed separately so wiring one domain role does not silently leave its three siblings dormant."
-    },
-    "tenant_isolation_review": {
-      "expires_on": "2026-09-13",
-      "finding_id": "ORPHAN-HIGH-686",
-      "owner": "okan",
-      "reason": "Same shape as access_boundary_review. Fourth of the four domain-review roles that ROLE_TARGET_PAIRING promises and no minter produces."
-    },
-    "change_intelligence": {
-      "expires_on": "2026-09-13",
-      "finding_id": "ORPHAN-HIGH-687",
-      "owner": "okan",
-      "reason": "READER WITH NO WRITER. judgment_bridge.py:220 branches on this role to route a response payload into `impact_map`, and plan_convergence_bridge.py:8 names it in SUPPORTING_ROLES - both consume a response that no production path ever asks for. The aria-change-intelligence agent prompt exists and is dispatchable; only the mint is missing."
-    },
-    "goldset_curation": {
-      "expires_on": "2026-09-13",
-      "finding_id": "ORPHAN-HIGH-687",
-      "owner": "okan",
-      "reason": "Same shape as change_intelligence: judgment_bridge.py:220 routes its response into `proposal` for `aria-kernel goldset propose` to consume, and nothing mints the request that would produce one. The curator lane is response-handling with no question asked."
-    },
-    "consensus_arbitration": {
-      "expires_on": "2026-09-13",
-      "finding_id": "ORPHAN-HIGH-687",
-      "owner": "okan",
-      "reason": "In JUDGE_ROLES and therefore in BRIDGE_REQUIRED_ROLES, so the bridge is obliged to handle a verdict that no minter requests. Note the asymmetry that makes this worth fixing rather than deleting: aria-consensus-arbiter IS dispatched as one of the three distinct principals of a human_required_adjudication panel, so the AGENT is live while its own role is dead."
-    },
-    "gap_finding": {
-      "expires_on": "2026-09-13",
-      "finding_id": "ORPHAN-MEDIUM-688",
-      "owner": "okan",
-      "reason": "Budgeted at 0.40 (context_budget_gate.py:102) and minted by nothing. The acceptance-lane gap hunt runs as an operator-driven Agent dispatch outside the kernel, so the role exists to describe work the kernel does not schedule. Either the kernel schedules it or the role and its budget entry go."
-    },
     "gap_closure": {
       "expires_on": "2026-09-13",
       "finding_id": "ORPHAN-MEDIUM-688",
       "owner": "okan",
       "reason": "Budgeted at 0.45 in the executors tier (context_budget_gate.py:88) alongside `implementation`, which IS minted (cross_review_bridge.py:468). The pair is the tell: the tier was designed for two executors and only one was ever wired."
     },
-    "implementation_review": {
+    "gap_finding": {
       "expires_on": "2026-09-13",
       "finding_id": "ORPHAN-MEDIUM-688",
       "owner": "okan",
-      "reason": "Budgeted at 0.40 (context_budget_gate.py:101). The V9 implementation phase reviews its own output through cross_review and the CI gate rather than through a distinct review envelope, so this role names a review step the pipeline does not take."
+      "reason": "Budgeted at 0.40 (context_budget_gate.py:102) and minted by nothing. The acceptance-lane gap hunt runs as an operator-driven Agent dispatch outside the kernel, so the role exists to describe work the kernel does not schedule. Either the kernel schedules it or the role and its budget entry go."
     }
   },
   "genesis_lifecycle_forward_transition": {

@@ -140,23 +140,34 @@ function keepFindingsOnChangedLines(stderr, changedFiles, baseRef, headRef) {
     rangesByFile.set(file, addedLineRanges(file, baseRef, headRef));
   }
   const kept = [];
+  // A finding's message can wrap onto further lines when its [Context: "…"]
+  // quotes text containing a newline. A continuation is not an independent
+  // finding: it belongs to the decision already made for its parent, and
+  // treating it as unparseable would bill a PR for the inherited violation
+  // the parent line was just excused from.
+  let lastParsedWasKept = true;
   for (const line of stderr.split('\n')) {
     if (!line.trim()) continue;
     const match = /^([^:]+):(\d+)(?::\d+)?\s/.exec(line);
     if (!match) {
-      kept.push(line); // unparseable finding → never silently dropped
+      if (lastParsedWasKept) {
+        kept.push(line); // unparseable, or a kept finding's continuation
+      }
       continue;
     }
     const [, file, lineNumber] = match;
     const ranges = rangesByFile.get(file);
     if (ranges === undefined || ranges === null) {
       kept.push(line);
+      lastParsedWasKept = true;
       continue;
     }
     const number = Number(lineNumber);
-    if (ranges.some(([start, end]) => number >= start && number <= end)) {
+    const billed = ranges.some(([start, end]) => number >= start && number <= end);
+    if (billed) {
       kept.push(line);
     }
+    lastParsedWasKept = billed;
   }
   return kept;
 }

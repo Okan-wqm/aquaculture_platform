@@ -100,9 +100,16 @@ class RoleCapTableTests(unittest.TestCase):
         for role in ("implementation", "gap_closure"):
             self.assertEqual(ROLE_CAP_MAP[role], 0.45, msg=role)
 
-    def test_emergency_caps_are_065(self) -> None:
-        for role in ("architectural_arbitration", "human_required_packet"):
-            self.assertEqual(ROLE_CAP_MAP[role], 0.65, msg=role)
+    def test_emergency_cap_is_065(self) -> None:
+        # E14 — `architectural_arbitration` left this table with the role
+        # itself: no kernel path minted it. HUMAN_REQUIRED packets are the
+        # remaining emergency consumer.
+        self.assertEqual(ROLE_CAP_MAP["human_required_packet"], 0.65)
+
+    def test_domain_review_cap_is_the_role_that_is_minted(self) -> None:
+        # The three per-domain caps were replaced by the cap of the role the
+        # specialist runner actually mints.
+        self.assertEqual(ROLE_CAP_MAP["specialist_domain_review"], 0.45)
 
     def test_default_fallback_is_040(self) -> None:
         self.assertEqual(DEFAULT_ROLE_CAP, 0.40)

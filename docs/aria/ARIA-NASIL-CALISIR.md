@@ -249,7 +249,8 @@ ARIA'nın bulgu-güveni çok-yargıçlı bir hatta dayanır:
 13 ajan: planlama (primary/challenger-planner), cross-review, implementer; yargı (evidence/
 adversarial-judge, consensus-arbiter); adapter-authoring (primary/challenger-drafter); destek
 (change-intelligence, goldset-curator); maintenance (drafter, prompt-writer). Roller `agent_surface.py`'de
-SSoT: `REQUEST_ROLES` (17), `JUDGE_ROLES`, `DISPATCHABLE_ROLES` (11), `ROLE_TARGET_PAIRING` (rol↔ajan
+SSoT: `REQUEST_ROLES` (17), `JUDGE_ROLES`, `DISPATCHABLE_ROLES` (11),
+`ROLE_TARGET_PAIRING` (rol↔ajan
 eşlemesi — yanlış eşleşme reddedilir). E14 rol hijyeni: üretici olmayan beş rol
 (`implementation_review`, `architectural_arbitration`, `auth_security_review`,
 `access_boundary_review`, `tenant_isolation_review`) yüzeyden kaldırıldı; alan incelemesi

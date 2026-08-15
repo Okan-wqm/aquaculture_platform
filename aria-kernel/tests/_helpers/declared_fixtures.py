@@ -67,3 +67,46 @@ def seed_repo_verified_evidence(repo: Path, files: dict[str, str]) -> str:
 
 def sha256_file(path: str | Path) -> str:
     return "sha256:" + hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def seed_validation_provenance(
+    *,
+    workspace_root: str | Path,
+    base_dir: str | Path,
+    plan_id: str = "plan-fixture",
+    finding_id: str = "F-fixture",
+    affected_files: list[str] | None = None,
+) -> tuple[str, str]:
+    """E21-a — emit the change chain a validation run must bind to.
+
+    ``run_validation_commands`` resolves ``change_id`` against the change
+    ledger and ``commit_sha`` against the workspace repository, so a test
+    that wants to record a validation run needs both to be REAL. Returns
+    ``(change_id, commit_sha)``.
+    """
+    from aria_kernel.change_ledger import (
+        emit_change_committed,
+        emit_change_planned,
+    )
+
+    repo = Path(workspace_root)
+    commit_sha = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo, text=True,
+    ).strip()
+    files = affected_files or ["fixture.txt"]
+    planned = emit_change_planned(
+        plan_id=plan_id,
+        finding_id=finding_id,
+        intended_affected_files=files,
+        intended_validation_refs=["python3 -m unittest --help"],
+        architectural_tier=1,
+        base_dir=base_dir,
+    )
+    change_id = str(planned["change_id"])
+    emit_change_committed(
+        change_id=change_id,
+        commit_sha=commit_sha,
+        actual_affected_files=files,
+        base_dir=base_dir,
+    )
+    return change_id, commit_sha

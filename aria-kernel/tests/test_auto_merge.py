@@ -162,6 +162,7 @@ class AutoMergeTests(unittest.TestCase):
             change_id=change_id,
             cmd="nx affected --target=test",
             exit_code=0,
+            duration_ms=1_500,
             log_path=str(log_path),
             commit_sha=head_sha,
             runner_identity="ci-executor:test-auto",

@@ -22,25 +22,39 @@ from aria_kernel import (
 )
 from aria_kernel.tool_health import runs_path
 from aria_kernel.tool_registry import GovernanceError
-from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.declared_fixtures import (
+    append_declared_fixture,
+    seed_validation_provenance,
+)
+from tests._helpers.git_fixtures import make_local_git_repo
 
 
 class EnterpriseRoadmapFoundationTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name) / "workspace"
-        self.root.mkdir()
+        # E21-a — a validation run must name a resolvable commit, so the
+        # fixture workspace is a real repository rather than a bare dir.
+        self.root = make_local_git_repo(Path(self.tmp.name), name="workspace")
         self.tools_dir = Path(self.tmp.name) / "aria-tools"
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def test_validation_engine_runs_allowlisted_commands_and_rejects_shell_syntax(self):
+        change_id, commit_sha = seed_validation_provenance(
+            workspace_root=self.root, base_dir=self.tools_dir,
+        )
+        provenance = dict(
+            change_id=change_id,
+            commit_sha=commit_sha,
+            runner_identity="ci-executor:roadmap",
+        )
         plan = run_validation_commands(
             commands=["python3 -m unittest --help"],
             workspace_root=self.root,
             base_dir=self.tools_dir,
             cycle_id="cycle-validation",
+            **provenance,
         )
         self.assertEqual(plan["status"], "ok")
         with self.assertRaises(GovernanceError):
@@ -48,12 +62,14 @@ class EnterpriseRoadmapFoundationTests(unittest.TestCase):
                 commands=["python3 -m unittest --help; echo unsafe"],
                 workspace_root=self.root,
                 base_dir=self.tools_dir,
+                **provenance,
             )
         with self.assertRaises(GovernanceError):
             run_validation_commands(
                 commands=["npm run dev"],
                 workspace_root=self.root,
                 base_dir=self.tools_dir,
+                **provenance,
             )
         self.assertTrue(verify_integrity(base_dir=self.tools_dir)["valid"])
 

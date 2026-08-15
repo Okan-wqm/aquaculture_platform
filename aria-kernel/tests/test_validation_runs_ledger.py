@@ -43,6 +43,7 @@ class ValidationRunsLedgerTests(unittest.TestCase):
             change_id="ch-d1",
             cmd="nx affected --target=test",
             exit_code=0,
+            duration_ms=1_500,
             log_path=str(self.log),
             commit_sha="abc1234567890",
             runner_identity="ci-executor:gha-1234",

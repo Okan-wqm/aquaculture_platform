@@ -218,15 +218,28 @@ class PreClaimGateTest(unittest.TestCase):
 
 
 class PreflightStandardSubsetTest(unittest.TestCase):
-    def _verdict(self, tmp: str, *, backend, with_node_modules: bool):
-        from aria_kernel.preflight import verify_preflight
+    def _verdict(
+        self,
+        tmp: str,
+        *,
+        backend,
+        with_node_modules: bool,
+        free_disk_gb: float = 50.0,
+    ):
+        from aria_kernel import preflight
 
         workspace = Path(tmp)
         if with_node_modules:
             (workspace / "node_modules").mkdir()
-        with patch("aria_kernel.implementation_safety.sandbox_backend",
-                   return_value=backend):
-            return verify_preflight(
+        # Every measured member of the environment contract is explicit.
+        # A unit test that names a host "healthy" must not silently inherit
+        # the runner's current capacity and turn CI pressure into product
+        # behaviour.
+        with patch(
+            "aria_kernel.implementation_safety.sandbox_backend",
+            return_value=backend,
+        ), patch.object(preflight, "_free_disk_gb", return_value=free_disk_gb):
+            return preflight.verify_preflight(
                 profile="standard", workspace_root=workspace, skip_remote=True,
             )
 

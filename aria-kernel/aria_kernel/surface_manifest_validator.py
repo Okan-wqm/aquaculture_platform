@@ -301,29 +301,44 @@ def validate_plan_doc_freshness(*, repo_root: Path) -> list[dict[str, Any]]:
 
 
 def validate_maintenance_agent_isolation(*, repo_root: Path) -> list[dict[str, Any]]:
-    """Layer 6: _maintenance kernel agents don't appear as targets of
-    domain-reviewer roles or in product-audit-* roster."""
-    from .agent_contract import ROLE_TARGET_PAIRING
+    """Layer 6: _maintenance kernel agents don't appear as domain reviewers
+    or in the product-audit-* roster.
+
+    E14 — this layer used to read the three per-domain roles
+    (auth/access/tenant) out of ROLE_TARGET_PAIRING. Those roles had no
+    producer and were removed, so the check is re-pointed at the surface that
+    DOES select domain reviewers: the specialist touch-map plus the
+    expert-review independence top-up. The invariant is unchanged — a kernel
+    maintenance agent must never be dispatched as a domain reviewer — but it
+    now watches the live roster instead of a dead one.
+    """
+    from .expert_review_gate import _INDEPENDENCE_TOPUP
+    from .specialist_review_runner import (
+        _CROSS_CUTTING_SPECIALISTS,
+        domain_touch_map,
+    )
     maintenance_dir = repo_root / ".claude" / "agents" / "_maintenance"
     if not maintenance_dir.exists():
         return []
     maintenance_names: set[str] = {
         p.stem for p in maintenance_dir.glob("*.md")
     }
-    domain_review_roles = {
-        "auth_security_review", "access_boundary_review", "tenant_isolation_review",
-    }
     failures: list[dict[str, Any]] = []
-    for role, targets in ROLE_TARGET_PAIRING.items():
-        if role not in domain_review_roles:
-            continue
-        for target in targets:
-            if target in maintenance_names:
-                failures.append({
-                    "validator": "validate_maintenance_agent_isolation",
-                    "role": role, "target": target,
-                    "reason": "maintenance_agent_in_domain_review_pairing",
-                })
+    domain_reviewers: dict[str, str] = {}
+    for prefix, agents in domain_touch_map().items():
+        for agent in agents:
+            domain_reviewers.setdefault(agent, f"touch_map:{prefix}")
+    for agent in _CROSS_CUTTING_SPECIALISTS:
+        domain_reviewers.setdefault(agent, "cross_cutting_specialists")
+    for agent in _INDEPENDENCE_TOPUP:
+        domain_reviewers.setdefault(agent, "expert_review_independence_topup")
+    for target, source in sorted(domain_reviewers.items()):
+        if target in maintenance_names:
+            failures.append({
+                "validator": "validate_maintenance_agent_isolation",
+                "role": source, "target": target,
+                "reason": "maintenance_agent_in_domain_review_pairing",
+            })
     # Also check product-audit roster.
     pa_dir = repo_root / ".claude" / "agents" / "product-audit"
     if pa_dir.exists():

@@ -1244,6 +1244,63 @@ def _phase_human_required_adjudication(context: PhaseContext) -> dict[str, Any]:
     return sweep_human_required_adjudications(base_dir=context.base_dir)
 
 
+def _phase_change_intelligence(context: PhaseContext) -> dict[str, Any]:
+    """Carry each merge into the impact ledger, then ask what the globs missed.
+
+    `pr_tracking` shipped a whole incremental-learning chain — `observe_pr_event`
+    → `plan_pr_impact` → `plan_incremental_cycle` — whose only entry point was a
+    caller that does not exist in production: no cycle phase, no CLI command.
+    The merges themselves WERE being recorded, in `pr-lifecycle.jsonl` by the
+    merge-authority path, so the signal existed and the reader was unreachable
+    from it. This phase joins the two and mints the `change_intelligence`
+    envelope on the merge — the role's first production minter.
+
+    Per-step containment: an ingest or impact failure must not cost the mint,
+    and the mint must not cost the cycle (`record_and_continue` on the row).
+    """
+    from .pr_tracking import (
+        dispatch_change_intelligence,
+        ingest_merged_pr_lifecycle,
+        plan_pr_impact,
+    )
+
+    blocked: list[dict[str, Any]] = []
+    ingested = 0
+    try:
+        ingest = ingest_merged_pr_lifecycle(base_dir=context.base_dir)
+        ingested = len(ingest.get("ingested") or [])
+    except GovernanceError as exc:
+        blocked.append({"step": "ingest", "reason": str(exc)[:200]})
+    # Only plan impact when this cycle actually carried a merge across. The
+    # planner appends a row unconditionally, so calling it on an idle night
+    # would write a `no_pr_event` row per cycle forever and bury the real
+    # transitions under identical repeats — the defect the goldset producer
+    # names explicitly.
+    impact_status = "no_new_merge"
+    if ingested:
+        try:
+            impact = plan_pr_impact(cycle_id=context.cycle_id, base_dir=context.base_dir)
+            impact_status = str(impact.get("status") or "")
+        except GovernanceError as exc:
+            blocked.append({"step": "impact", "reason": str(exc)[:200]})
+            impact_status = "blocked"
+    minted = 0
+    try:
+        dispatch = dispatch_change_intelligence(
+            cycle_id=context.cycle_id, base_dir=context.base_dir,
+        )
+        minted = len(dispatch.get("minted") or [])
+    except GovernanceError as exc:
+        blocked.append({"step": "dispatch", "reason": str(exc)[:200]})
+    return {
+        "status": "completed",
+        "merges_ingested": ingested,
+        "impact_status": impact_status,
+        "change_intelligence_requests_minted": minted,
+        "blocked": blocked,
+    }
+
+
 def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
     """Sample findings, fan judges out, compute consensus — every cycle.
 
@@ -1267,12 +1324,13 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
     """
     from .convergence_drainer import _resolve_workspace_head_sha
     from .feedback_store import generate_ai_consensus, generate_judgment_sample
-    from .judge_fanout import dispatch_judges_for_sample
+    from .judge_fanout import dispatch_arbiter_for_split_verdicts, dispatch_judges_for_sample
 
     target_sha = _resolve_workspace_head_sha(context.workspace_root)
     sampled = 0
     fanned_out = 0
     consensus_rows = 0
+    arbiter_requests = 0
     blocked: list[dict[str, Any]] = []
     for tool in list_tools(base_dir=context.base_dir):
         tool_id = str(tool.get("tool_id") or "")
@@ -1343,6 +1401,20 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
             consensus_rows += len(consensus.get("consensus") or []) if isinstance(consensus, dict) else 0
         except GovernanceError as exc:
             blocked.append({"tool_id": tool_id, "step": "consensus", "reason": str(exc)[:200]})
+        try:
+            # E14 — the split verdicts the gate above just refused to settle
+            # go to the arbiter, in the same phase that produced them. Runs
+            # AFTER consensus so a group settled this tick is never arbitrated,
+            # and per-tool containment keeps one bad tool off the batch.
+            arbitration = dispatch_arbiter_for_split_verdicts(
+                tool_id=tool_id,
+                base_dir=context.base_dir,
+                cycle_id=context.cycle_id,
+                target_sha=target_sha,
+            )
+            arbiter_requests += len(arbitration.get("minted") or [])
+        except GovernanceError as exc:
+            blocked.append({"tool_id": tool_id, "step": "arbitration", "reason": str(exc)[:200]})
     # D3 (Kapalı Döngü) — accepted consensus becomes a durable finding.
     # Runs AFTER the per-tool consensus loop so any row minted this cycle
     # is promotable immediately; idempotent via the promotions ledger.
@@ -1373,6 +1445,7 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
         "sampled_findings": sampled,
         "judge_requests_minted": fanned_out,
         "consensus_rows": consensus_rows,
+        "arbiter_requests_minted": arbiter_requests,
         "promoted_findings": promotion_summary.get("promoted_count", 0),
         "rule_defect_findings": rule_defect_summary.get("committed_count", 0),
         "target_sha": target_sha,
@@ -1446,8 +1519,17 @@ def _phase_goldset_proposal(context: PhaseContext) -> dict[str, Any]:
     # had. Counting labelled feedback is machine work, so the cycle mints the
     # proposal (and the distance-to-ready that comes with it); promotion stays
     # an operator act behind `goldset promote --curator`.
+    #
+    # E14 — a proposal that reaches `ready` also mints the curator envelope
+    # that drafts the corpus for that operator. Anchored to the workspace head
+    # like every other minted request: an unanchored request grades the
+    # curator's real evidence `baseline_unavailable`.
+    from .convergence_drainer import _resolve_workspace_head_sha
+
     return propose_goldsets_for_labelled_tools(
-        cycle_id=context.cycle_id, base_dir=context.base_dir,
+        cycle_id=context.cycle_id,
+        base_dir=context.base_dir,
+        target_sha=_resolve_workspace_head_sha(context.workspace_root),
     )
 
 
@@ -2146,6 +2228,16 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
         "pr_ci_scan", "post_tool", _phase_pr_ci_scan,
         precondition=WRITES_PERMITTED, on_error="record_and_continue",
         state_key="pr_ci_scan",
+    ),
+    # E14 — next to pr_ci_scan because both read what happened to ARIA's own
+    # PRs, and BEFORE pressure so a merge that invalidated evidence marks it
+    # needs_revalidation in the same cycle the pressure ranking reads it.
+    # `record_and_continue`: an impact map that crashed produced no map, which
+    # must not fail a cycle whose real work succeeded.
+    CyclePhase(
+        "change_intelligence", "post_tool", _phase_change_intelligence,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="change_intelligence",
     ),
     CyclePhase(
         "pressure", "post_tool", _phase_pressure, state_key="pressure",

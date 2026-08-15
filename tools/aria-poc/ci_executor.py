@@ -97,6 +97,15 @@ except Exception:  # pragma: no cover - fallback keeps standalone contract impor
         "cross_review",
         "completeness_critique",
         "implementation",
+        "human_required_adjudication",
+        # E14 — the three roles that gained a producer (goldset curation,
+        # change intelligence, split-verdict arbitration). This standalone
+        # fallback exists only when the kernel import fails; it drifting
+        # narrower than the kernel set would make exactly those envelopes
+        # unclaimable in the one mode where the drift is invisible.
+        "consensus_arbitration",
+        "change_intelligence",
+        "goldset_curation",
     })
     _render_invocation_prompt = None
     _fuse_prompt_envelope = None

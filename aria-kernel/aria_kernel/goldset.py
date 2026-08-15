@@ -13,6 +13,17 @@ from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 DEFAULT_TARGET_TRUE_POSITIVES = 20
 DEFAULT_TARGET_KNOWN_FALSE_POSITIVES = 10
 
+# E14 — the curator the `goldset_curation` role always named and nothing ever
+# minted. The mechanical proposal below COUNTS labelled feedback; it cannot say
+# what each gold item is supposed to prove. The curator drafts that corpus
+# (`details.proposal`, persisted by judgment_bridge.persist_supporting_payload)
+# for the operator who promotes it — which is why the mint fires at the moment
+# a proposal reaches `ready` and not before: a curator asked to draft from a
+# corpus that is still short can only repeat the blocker the ledger already
+# states, at LLM cost.
+GOLDSET_CURATION_ROLE = "goldset_curation"
+GOLDSET_CURATOR_AGENT = "aria-goldset-curator"
+
 
 def propose_goldset(
     *,
@@ -110,6 +121,7 @@ def propose_goldsets_for_labelled_tools(
     target_true_positives: int = DEFAULT_TARGET_TRUE_POSITIVES,
     target_known_false_positives: int = DEFAULT_TARGET_KNOWN_FALSE_POSITIVES,
     base_dir: str | Path | None = None,
+    target_sha: str | None = None,
 ) -> dict[str, Any]:
     """The producer ``propose_goldset`` never had.
 
@@ -143,6 +155,8 @@ def propose_goldsets_for_labelled_tools(
 
     proposed: list[dict[str, Any]] = []
     unchanged: list[str] = []
+    curation_requests: list[dict[str, Any]] = []
+    curation_blocked: list[dict[str, Any]] = []
     for tool_id in labelled_tools:
         row = propose_goldset(
             tool_id=tool_id,
@@ -164,12 +178,102 @@ def propose_goldsets_for_labelled_tools(
                 "blocked_by": row.get("blocked_by", []),
             }
         )
+        try:
+            request = dispatch_goldset_curation(
+                tool_id=tool_id,
+                proposal=row,
+                cycle_id=cycle_id,
+                base_dir=root,
+                target_sha=target_sha,
+            )
+        except GovernanceError as exc:
+            # batch_containment — a curator envelope that could not be minted
+            # costs that tool its draft, never the whole night's proposals.
+            curation_blocked.append({"tool_id": tool_id, "reason": str(exc)[:200]})
+        else:
+            if request is not None:
+                curation_requests.append(
+                    {"tool_id": tool_id, "request_id": request.get("request_id")}
+                )
     return {
         "labelled_tool_count": len(labelled_tools),
         "proposed": proposed,
         "unchanged_tool_ids": unchanged,
         "ready_tool_ids": [p["tool_id"] for p in proposed if p["status"] == "ready"],
+        "curation_requests": curation_requests,
+        "curation_blocked": curation_blocked,
     }
+
+
+def curation_subject_ref(*, tool_id: str, proposal: dict[str, Any]) -> str:
+    """The stable name of WHAT a curation request is about.
+
+    One gold-corpus state of one tool — not one cycle. The subject outlives
+    the cycle that noticed it, so it is the subject (not the cycle) that must
+    key the idempotency guard.
+    """
+    return f"goldset-proposal:{tool_id}:{proposal.get('recorded_at')}"
+
+
+def dispatch_goldset_curation(
+    *,
+    tool_id: str,
+    proposal: dict[str, Any],
+    cycle_id: str | None = None,
+    base_dir: str | Path | None = None,
+    target_sha: str | None = None,
+) -> dict[str, Any] | None:
+    """Mint the curation envelope for a ``ready`` proposal. Idempotent.
+
+    Returns the request row, or None when the proposal is not ready (a
+    blocked corpus has nothing to draft) or when this subject has already
+    been sent to the curator.
+    """
+    if proposal.get("status") != "ready":
+        return None
+    from .agent_invocations import create_agent_invocation_request, minted_subject_refs
+
+    root = ensure_tools_dir(base_dir)
+    subject = curation_subject_ref(tool_id=tool_id, proposal=proposal)
+    already_asked = minted_subject_refs(
+        role=GOLDSET_CURATION_ROLE,
+        target_agent=GOLDSET_CURATOR_AGENT,
+        base_dir=root,
+    )
+    if subject in already_asked:
+        return None
+    true_positive_count = proposal.get("true_positive_count")
+    known_false_positive_count = proposal.get("known_false_positive_count")
+    prompt = (
+        "Draft the semantic regression fixture candidates for this tool's "
+        "confirmed gold corpus.\n"
+        f"tool_id: {tool_id}\n"
+        f"proposal_recorded_at: {proposal.get('recorded_at')}\n"
+        f"confirmed_true_positives: {true_positive_count}\n"
+        f"confirmed_known_false_positives: {known_false_positive_count}\n"
+        "Each candidate carries the repo evidence refs it is anchored to, the "
+        "expected adapter behaviour, and the verdict source. Emit the proposal "
+        "under details.proposal; do not write fixture files."
+    )
+    return create_agent_invocation_request(
+        target_agent=GOLDSET_CURATOR_AGENT,
+        role=GOLDSET_CURATION_ROLE,
+        suggested_prompt=prompt,
+        must_satisfy=[{
+            "id": "corpus-draft",
+            "criterion": (
+                "details.proposal lists a fixture candidate per confirmed "
+                "gold item with evidence_refs, expected behaviour and verdict "
+                "source"
+            ),
+        }],
+        allowed_scope=["**"],
+        evidence_refs=[subject, "aria-tools/goldsets/proposals.jsonl"],
+        tool_id=tool_id,
+        cycle_id=cycle_id,
+        target_sha=target_sha,
+        base_dir=root,
+    )
 
 
 def list_goldset_proposals(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:

@@ -1438,6 +1438,44 @@ def list_agent_invocation_requests(
     return rows
 
 
+def minted_subject_refs(
+    *,
+    role: str,
+    target_agent: str,
+    base_dir: str | Path | None = None,
+) -> set[str]:
+    """Every evidence ref already carried by a request for this role+target.
+
+    WHAT: one pass over the request ledger, returning the union of
+    ``evidence_refs`` on rows with the same ``role`` and ``target_agent``. A
+    producer names its subject (a merged PR, one gold-corpus state) as an
+    evidence ref and asks this set whether it has already minted for it.
+
+    WHY the ``request_id`` collapse is not enough on its own: that identity
+    hash folds ``cycle_id`` and the rendered prompt in (see ``_request_id``
+    below). A producer that runs once per cycle for a subject which outlives
+    the cycle therefore gets a NEW request_id every night for the SAME
+    subject — a duplicate envelope, duplicate spend, and a second answer that
+    can contradict the first.
+
+    WHY a set rather than a per-subject lookup: the caller holds a growing
+    list of subjects (every merge ever recorded), and a lookup per subject
+    would re-read and re-verify the whole hash-chained ledger once per
+    subject, per cycle.
+    """
+    refs: set[str] = set()
+    for row in load_declared_jsonl(
+        ensure_tools_dir(base_dir) / "agent-invocations" / "requests.jsonl",
+        expected_surface="agent_invocation_requests",
+    ):
+        if row.get("role") != role or row.get("target_agent") != target_agent:
+            continue
+        row_refs = row.get("evidence_refs")
+        if isinstance(row_refs, list):
+            refs.update(ref for ref in row_refs if isinstance(ref, str))
+    return refs
+
+
 def _find_request(root: Path, request_id: str) -> dict[str, Any]:
     for row in reversed(load_declared_jsonl(
         root / "agent-invocations" / "requests.jsonl",

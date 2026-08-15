@@ -29,9 +29,14 @@ if str(_KERNEL_ROOT) not in sys.path:
 
 
 class PhaseV7_3UniversalDispatcher(unittest.TestCase):
-    # I-V7.3-01 — SUPPORTED_ROLES closed enum (exactly 11; the
-    # plan-coverage gate PR-2 added completeness_critique, and
-    # ORPHAN-HIGH-426 added human_required_adjudication).
+    # I-V7.3-01 — SUPPORTED_ROLES closed enum (exactly 14; the
+    # plan-coverage gate PR-2 added completeness_critique,
+    # ORPHAN-HIGH-426 added human_required_adjudication, and E14 role
+    # hygiene added the three roles that gained a production minter:
+    # goldset_curation (goldset.py), change_intelligence (pr_tracking)
+    # and consensus_arbitration (judge_fanout split verdicts). A role
+    # that is minted but not dispatchable queues envelopes no consumer
+    # may claim, which is why the producer and this enum move together.
     def test_i_v7_3_01_supported_roles_closed_enum(self) -> None:
         """Plan ARIA-V7 §2g v2 — closed role enum."""
         from aria_kernel.dispatcher_factory import SUPPORTED_ROLES
@@ -43,12 +48,14 @@ class PhaseV7_3UniversalDispatcher(unittest.TestCase):
             "completeness_critique",
             "implementation",
             "human_required_adjudication",
+            "consensus_arbitration", "change_intelligence",
+            "goldset_curation",
         }
         self.assertEqual(
             set(SUPPORTED_ROLES), expected,
             msg=(
                 "Plan ARIA-V7 §2g v2 — SUPPORTED_ROLES MUST match the "
-                "11-role closed enum exactly. Adding a role requires "
+                "14-role closed enum exactly. Adding a role requires "
                 "updating BOTH kernel + ci_executor in the same commit."
             ),
         )

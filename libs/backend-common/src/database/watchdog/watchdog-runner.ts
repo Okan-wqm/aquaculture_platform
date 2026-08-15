@@ -240,8 +240,14 @@ export class WatchdogRunner {
         schemasScanned += (await listTenantSchemas(this.dataSource)).length;
       }
       if (opts.sourceContamination) {
-        // Source schemas scanned = number of MODULE_SCHEMAS entries
-        schemasScanned += MODULE_SCHEMAS.length;
+        // Source schemas scanned = the ones actually READ. Counting every
+        // MODULE_SCHEMAS entry made the attestation overstate its own
+        // coverage: in production ten of eleven source schemas were refused
+        // at the door and the report still claimed all eleven were scanned.
+        const unreadable = new Set(
+          violations.filter((v) => v.type === 'UNVERIFIABLE_SCHEMA').map((v) => v.schema),
+        );
+        schemasScanned += MODULE_SCHEMAS.filter((mod) => !unreadable.has(mod.sourceSchema)).length;
       }
     } catch {
       // Fallback: count unique schemas from violations

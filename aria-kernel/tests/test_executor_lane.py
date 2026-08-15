@@ -17,7 +17,10 @@ from aria_kernel.executor import (
 )
 from aria_kernel.ledger import load_jsonl
 from aria_kernel.tool_registry import GovernanceError
-from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.declared_fixtures import (
+    append_declared_fixture,
+    seed_validation_provenance,
+)
 
 
 class ExecutorLaneTests(unittest.TestCase):
@@ -34,9 +37,30 @@ class ExecutorLaneTests(unittest.TestCase):
         subprocess.run(["git", "commit", "-m", "init"], cwd=self.root, check=True, capture_output=True)
         subprocess.run(["git", "checkout", "-b", "aria/executor-fixture"], cwd=self.root, check=True, capture_output=True)
         self.tools_dir = Path(self.tmp.name) / "aria-tools"
+        # E21-a — applying a packet records validation runs, and a run
+        # must bind to a real change. The commit_sha is NOT seeded here:
+        # apply_executor_packet reads it from the candidate worktree HEAD.
+        self.change_id, _ = seed_validation_provenance(
+            workspace_root=self.root,
+            base_dir=self.tools_dir,
+            plan_id="plan-executor-lane",
+            finding_id="F-executor-lane",
+            affected_files=["src/app.ts"],
+        )
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def _apply(self, packet_id: str, **kwargs):
+        return apply_executor_packet(
+            packet_id=packet_id,
+            workspace_root=self.root,
+            change_id=self.change_id,
+            runner_identity="ci-executor:executor-lane",
+            change_author_identity="agent:planner-lane",
+            base_dir=self.tools_dir,
+            **kwargs,
+        )
 
     def test_unregistered_executor_and_shadow_executor_cannot_apply(self):
         proposal = self._approved_proposal()
@@ -47,7 +71,7 @@ class ExecutorLaneTests(unittest.TestCase):
         register_executor(self._executor(status="SHADOW"), base_dir=self.tools_dir)
         packet = record_executor_packet(self._packet(proposal["proposal_id"], failure["ci_failure_id"]), base_dir=self.tools_dir)
         with self.assertRaises(GovernanceError):
-            apply_executor_packet(packet_id=packet["packet_id"], workspace_root=self.root, base_dir=self.tools_dir, execute=False)
+            self._apply(packet["packet_id"], execute=False)
 
     def test_packet_validation_commands_must_be_proposal_bound(self):
         proposal = self._approved_proposal()
@@ -70,7 +94,7 @@ class ExecutorLaneTests(unittest.TestCase):
         )
         self.assertEqual(packet["effective_severity"], "critical")
         self.assertEqual(packet["review_required_count"], 2)
-        blocked = apply_executor_packet(packet_id=packet["packet_id"], workspace_root=self.root, base_dir=self.tools_dir)
+        blocked = self._apply(packet["packet_id"])
         self.assertEqual(blocked["status"], "blocked")
         self.assertIn("diff_review_required", blocked["blocked_by"])
 
@@ -81,7 +105,7 @@ class ExecutorLaneTests(unittest.TestCase):
             evidence_refs=["src/app.ts"],
             base_dir=self.tools_dir,
         )
-        still_blocked = apply_executor_packet(packet_id=packet["packet_id"], workspace_root=self.root, base_dir=self.tools_dir)
+        still_blocked = self._apply(packet["packet_id"])
         self.assertIn("diff_review_required", still_blocked["blocked_by"])
 
         review_executor_diff(
@@ -91,7 +115,7 @@ class ExecutorLaneTests(unittest.TestCase):
             evidence_refs=["src/app.ts"],
             base_dir=self.tools_dir,
         )
-        planned = apply_executor_packet(packet_id=packet["packet_id"], workspace_root=self.root, base_dir=self.tools_dir)
+        planned = self._apply(packet["packet_id"])
         self.assertEqual(planned["status"], "planned")
 
     def test_reviewer_must_be_registered(self):
@@ -160,12 +184,7 @@ class ExecutorLaneTests(unittest.TestCase):
         failure = self._ci_failure()
         register_executor(self._executor(), base_dir=self.tools_dir)
         packet = record_executor_packet(self._packet(proposal["proposal_id"], failure["ci_failure_id"]), base_dir=self.tools_dir)
-        application = apply_executor_packet(
-            packet_id=packet["packet_id"],
-            workspace_root=self.root,
-            base_dir=self.tools_dir,
-            execute=True,
-        )
+        application = self._apply(packet["packet_id"], execute=True)
         self.assertEqual(application["status"], "ready_for_retry")
         for _ in range(2):
             retry_pr(packet_id=packet["packet_id"], pr_number=10, workspace_root=self.root, base_dir=self.tools_dir)
@@ -177,12 +196,7 @@ class ExecutorLaneTests(unittest.TestCase):
         failure = self._ci_failure()
         register_executor(self._executor(), base_dir=self.tools_dir)
         packet = record_executor_packet(self._packet(proposal["proposal_id"], failure["ci_failure_id"]), base_dir=self.tools_dir)
-        application = apply_executor_packet(
-            packet_id=packet["packet_id"],
-            workspace_root=self.root,
-            base_dir=self.tools_dir,
-            execute=True,
-        )
+        application = self._apply(packet["packet_id"], execute=True)
         self.assertEqual(application["status"], "ready_for_retry")
         for index in range(4):
             append_declared_fixture(
@@ -205,12 +219,7 @@ class ExecutorLaneTests(unittest.TestCase):
         failure = self._ci_failure()
         register_executor(self._executor(), base_dir=self.tools_dir)
         packet = record_executor_packet(self._packet(proposal["proposal_id"], failure["ci_failure_id"]), base_dir=self.tools_dir)
-        application = apply_executor_packet(
-            packet_id=packet["packet_id"],
-            workspace_root=self.root,
-            base_dir=self.tools_dir,
-            execute=True,
-        )
+        application = self._apply(packet["packet_id"], execute=True)
         self.assertEqual(application["status"], "ready_for_retry")
         previous_head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.root, check=True, capture_output=True, text=True).stdout.strip()
         append_declared_fixture(
@@ -236,12 +245,7 @@ class ExecutorLaneTests(unittest.TestCase):
         failure = self._ci_failure()
         register_executor(self._executor(), base_dir=self.tools_dir)
         packet = record_executor_packet(self._packet(proposal["proposal_id"], failure["ci_failure_id"]), base_dir=self.tools_dir)
-        application = apply_executor_packet(
-            packet_id=packet["packet_id"],
-            workspace_root=self.root,
-            base_dir=self.tools_dir,
-            execute=True,
-        )
+        application = self._apply(packet["packet_id"], execute=True)
         self.assertEqual(application["status"], "ready_for_retry")
         subprocess.run(["git", "checkout", "-b", "manual-branch"], cwd=self.root, check=True, capture_output=True)
         with self.assertRaises(GovernanceError):
@@ -254,7 +258,7 @@ class ExecutorLaneTests(unittest.TestCase):
             self._ci_failure(fingerprint="failure:flaky", ci_failure_id=f"ci-failure-flaky-{index}", cycle_id=f"cycle-{index + 2}")
         register_executor(self._executor(), base_dir=self.tools_dir)
         packet = record_executor_packet(self._packet(proposal["proposal_id"], failure["ci_failure_id"]), base_dir=self.tools_dir)
-        blocked = apply_executor_packet(packet_id=packet["packet_id"], workspace_root=self.root, base_dir=self.tools_dir, execute=True)
+        blocked = self._apply(packet["packet_id"], execute=True)
         self.assertEqual(blocked["status"], "blocked")
         self.assertIn("flaky_suspect_requires_review", blocked["blocked_by"])
 

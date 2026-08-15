@@ -33,7 +33,10 @@ from aria_kernel.fixture_runner import fixture_runs_path, tool_manifest_hash
 from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import get_tool
-from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.declared_fixtures import (
+    append_declared_fixture,
+    seed_validation_provenance,
+)
 from aria_kernel.tool_registry import GovernanceError
 
 
@@ -133,15 +136,26 @@ class EnterprisePlan012DTo015Tests(unittest.TestCase):
                 dry_run=True,
             )
 
+        # E21-a — a validation run must bind to a real change and a
+        # resolvable commit; the fixture emits the chain it will cite.
+        change_id, commit_sha = seed_validation_provenance(
+            workspace_root=self.root, base_dir=self.tools_dir,
+        )
         baseline = run_validation_commands(
             commands=["python3 -m unittest --help"],
             workspace_root=self.root,
+            change_id=change_id,
+            commit_sha=commit_sha,
+            runner_identity="ci-executor:plan-012d",
             validation_plan_id="baseline",
             base_dir=self.tools_dir,
         )
         candidate = run_validation_commands(
             commands=["python3 -m unittest --help"],
             workspace_root=self.root,
+            change_id=change_id,
+            commit_sha=commit_sha,
+            runner_identity="ci-executor:plan-012d",
             validation_plan_id=proposal["proposal_id"],
             base_dir=self.tools_dir,
         )

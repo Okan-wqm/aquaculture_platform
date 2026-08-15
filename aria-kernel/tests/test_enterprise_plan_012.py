@@ -19,29 +19,43 @@ from aria_kernel import (
 )
 from aria_kernel.tool_health import runs_path
 from aria_kernel.tool_registry import GovernanceError
-from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.declared_fixtures import (
+    append_declared_fixture,
+    seed_validation_provenance,
+)
+from tests._helpers.git_fixtures import make_local_git_repo
 
 
 class EnterprisePlan012Tests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name) / "workspace"
-        self.root.mkdir()
+        # E21-a — a validation run must name a resolvable commit, so the
+        # fixture workspace is a real repository rather than a bare dir.
+        self.root = make_local_git_repo(Path(self.tmp.name), name="workspace")
         self.tools_dir = Path(self.tmp.name) / "aria-tools"
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def test_validation_compare_blocks_worktree_regression(self):
+        change_id, commit_sha = seed_validation_provenance(
+            workspace_root=self.root, base_dir=self.tools_dir,
+        )
         baseline = run_validation_commands(
             commands=["python3 -m unittest --help"],
             workspace_root=self.root,
+            change_id=change_id,
+            commit_sha=commit_sha,
+            runner_identity="ci-executor:plan-012",
             base_dir=self.tools_dir,
             validation_plan_id="baseline",
         )
         worktree = run_validation_commands(
             commands=["python3 -m unittest missing_module_for_aria_plan_012"],
             workspace_root=self.root,
+            change_id=change_id,
+            commit_sha=commit_sha,
+            runner_identity="ci-executor:plan-012",
             base_dir=self.tools_dir,
             validation_plan_id="worktree",
         )

@@ -27148,6 +27148,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "aria-kernel/surface-reachability.unwritten.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "aria-kernel/tests/fixtures/feedback_v2/feedback_event.json",
       "prettier_managed": true
     },
@@ -36924,6 +36930,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/database/__tests__/database-logging-resolution.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/database/__tests__/db-migrate-authority.util.spec.ts",
       "prettier_managed": true
     },
@@ -37009,6 +37021,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/__tests__/source-schema-bootstrap.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/__tests__/source-schema-scanner-coverage.spec.ts",
       "prettier_managed": true
     },
     {
@@ -44222,6 +44240,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/aria-adapters/fixtures/kernel-dead-wire-adapter/cases/real-repo-baseline.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/kernel-dead-wire-adapter/cases/semantic-dead-wire.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/fixtures/kernel-dead-wire-adapter/workspaces/semantic-deadwire/aria-kernel/aria_kernel/data/fixture_policy.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/aria-adapters/fixtures/security-boundary-adapter/cases/real-repo-baseline.json",
       "prettier_managed": true
     },
@@ -44348,6 +44384,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/aria-adapters/fixtures/typeorm-entity-schema-adapter/workspaces/semantic-schema/apps/farm-service/src/pond.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/kernel-dead-wire-adapter.test.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/kernel-dead-wire-adapter.tool.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/aria-adapters/kernel-dead-wire-adapter.ts",
       "prettier_managed": true
     },
     {

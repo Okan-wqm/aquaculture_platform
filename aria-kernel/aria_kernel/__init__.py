@@ -26,6 +26,7 @@ _EXPORT_MODULES = (
     "cycle_diff",
     "discovery",
     "executor",
+    "experiment",
     "feedback_store",
     "fitness",
     "fixture_runner",

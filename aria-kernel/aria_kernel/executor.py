@@ -266,11 +266,28 @@ def apply_executor_packet(
     *,
     packet_id: str,
     workspace_root: str | Path,
+    change_id: str,
+    runner_identity: str,
+    change_author_identity: str | None = None,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
     execute: bool = False,
 ) -> dict[str, Any]:
+    """Apply a reviewed executor packet, validating through the one path.
+
+    ``change_id`` and ``runner_identity`` are required even when
+    ``execute`` is False: an application that cannot name the change it
+    belongs to, or the identity that would run it, is not something the
+    lane should be planning either. The ``commit_sha`` is NOT a
+    parameter — it is read from the candidate worktree's HEAD, because
+    the commit a run validated is a fact about the tree, never a claim
+    a caller gets to make.
+    """
     packet = get_executor_packet(packet_id=packet_id, base_dir=base_dir)
+    if not isinstance(change_id, str) or not change_id.strip():
+        raise GovernanceError("executor_apply_change_id_required")
+    if not isinstance(runner_identity, str) or not runner_identity.strip():
+        raise GovernanceError("executor_apply_runner_identity_required")
     if packet.get("status") != "ready_for_apply":
         raise GovernanceError("executor packet is not ready_for_apply")
     executor = _registered_executor(str(packet["source_agent"]), base_dir)
@@ -346,6 +363,10 @@ def apply_executor_packet(
     validation = run_validation_commands(
         commands=list(packet["validation_commands"]),
         workspace_root=worktree,
+        change_id=change_id,
+        commit_sha=_git(worktree, ["rev-parse", "HEAD"]),
+        runner_identity=runner_identity,
+        change_author_identity=change_author_identity,
         cycle_id=cycle_id,
         validation_plan_id=str(packet["proposal_id"]),
         require_clean_worktree=False,

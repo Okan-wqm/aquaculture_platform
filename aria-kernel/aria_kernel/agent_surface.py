@@ -62,6 +62,12 @@ DISPATCHABLE_ROLES: FrozenSet[str] = frozenset({
     "completeness_critique",
     "implementation",
     "human_required_adjudication",
+    # E9-c — adversarial re-review of a decision the pipeline already closed.
+    # Added together with the minter in `decision_questioning`, never before
+    # it: a role that can be dispatched but is never minted, and a role that
+    # is minted but can never be claimed, are the same defect from opposite
+    # ends, and this repository has now closed nineteen of them.
+    "verification",
 })
 
 DRAFTER_ROLES: FrozenSet[str] = frozenset({
@@ -129,6 +135,11 @@ ROLE_TARGET_PAIRING: dict[str, tuple[str, ...]] = {
         "aria-adversarial-judge",
         "aria-consensus-arbiter",
     ),
+    # E9-c — the adversarial judge, deliberately NOT the evidence judge: the
+    # phase re-opens a decision two planners already agreed on, and the
+    # failure mode it hunts is a shared blind spot, which is what an
+    # adversary is for and what a corroborator is not.
+    "verification": ("aria-adversarial-judge",),
     "change_intelligence": ("aria-change-intelligence",),
     "goldset_curation": ("aria-goldset-curator",),
     "architectural_arbitration": ("architectural-arbiter",),

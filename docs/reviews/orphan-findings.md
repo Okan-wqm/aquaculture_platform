@@ -9395,6 +9395,24 @@ Severity: HIGH (E13-C11). `freshness_window_hours` / `parse_window_signature` ha
 
 **Owner:** claude (session lead) + parallel implementation agent. **Status:** RESOLVED.
 
+## ORPHAN-HIGH-688 — ARIA could not find its own most common defect class — RESOLVED (this PR, E9)
+
+Severity: HIGH (E9; the meta-defense tooth). Every one of E8's sixteen findings belonged to four shapes — writer-with-no-reader, reader-with-no-writer, unsatisfiable predicate, unread tunable. A human found all sixteen by reading. No kernel mechanism looked for the SHAPE, so the seventeenth would have cost another human sweep. A system that claims to improve itself cannot outsource its own commonest bug class to its operator.
+
+**Fix (agent-implemented on a parallel lane, lead-verified firsthand) — three teeth.** (1) `surface_reachability` walks argument provenance through the AST and proves which members of a closed vocabulary a production path can WRITE; unreachable members need a manifest waiver carrying owner + reason + expiry + finding, and the suite compares that expiry TO THE CLOCK — the lesson `invariant-reachability.spec.ts` learned expensively when twenty-five waivers sailed a month past a shared deadline in silence. Keyed by surface THEN member, because `ACTIVE` is both a genesis state and a tool status and a flat manifest would let a waiver for one silence a real gap in the other. (2) `kernel-dead-wire-adapter` covers the two masks provenance cannot decide (policy files and argparse are not closed vocabularies with one named writer). (3) `decision_questioning` samples decisions the pipeline already CLOSED and mints one adversarial `verification` envelope each — convergence only ever proved two planners agreed AT DECISION TIME; nothing asked whether the decision still holds against the tree as it stands now.
+
+**Lead-added third-tooth wiring (the residue the agent flagged honestly):** the minter had no cycle phase. Shipping it that way would have reproduced the mechanism-with-no-caller defect INSIDE the fix that hunts it — its own invariant's first catch. It is now a `post_tool` phase, standard-lane only (minting is an action; the burn-in lane's whole claim is that it took none) and `record_and_continue` (self-questioning that crashed asked nothing, which must not cost a night whose real work succeeded), pinned by a roster deliberate-break plus an end-to-end run of the real runner.
+
+**Owner:** claude (session lead) + parallel implementation agents (fable→opus on quota). **Status:** RESOLVED. Carried out, not folded in: the hand-copied `DISPATCHABLE_ROLES` literal at `tools/aria-poc/ci_executor.py:89` (İ1 violation, already drifted) and the adapter-directory lint debt (ORPHAN-689) are their own trains.
+
+## ORPHAN-MEDIUM-689 — seven ARIA adapters carry 55 ESLint errors because no lint target reaches their directory — OPEN
+
+Severity: MEDIUM. `tools/aria-adapters/**` is not an Nx project, and `npm run lint` is `nx affected --target=lint` — so every adapter written there has been unlinted since the directory was created. Measured on 2026-08-15: **55 errors across all seven adapters plus their test files** — `import/order` group separation, a `no-console` in each test harness, a `no-base-to-string` and an unused binding in the TypeORM adapter, and one shared idiom repeated seven times (`readStdin` concatenating `string | Buffer` after `setEncoding('utf8')`, which `restrict-plus-operands` rejects). None of it is new debt from any single change; it is the accumulated cost of a directory outside the gate.
+
+**Root cause is the GATE GAP, not the errors** — fixing 55 errors by hand leaves the directory unlinted and the fifty-sixth arrives with the next adapter. The architectural fix is to bring `tools/aria-adapters` under a lint target (its own Nx project or an explicit path in the repo-wide lint script), then clear the debt the gate reports. The E9 adapter (`kernel-dead-wire-adapter.ts`) landed clean and narrows the chunk type at the boundary, which is the shape its six siblings should converge on.
+
+**Owner:** claude (session lead). **Deadline:** 2026-09-15. **Status:** OPEN — named in the E9 PR body rather than folded into it, because a lint-target change touches every adapter and belongs in its own reviewable train.
+
 ## ORPHAN-HIGH-685 — every judge spawn cold-read 125KB of contract docs to do a 3KB job — RESOLVED (this PR, E17-a)
 
 Severity: HIGH (E17-a). The four runtime-dispatched agents (evidence-judge, adversarial-judge, cross-reviewer, worker) each opened their turn by reading SPEC.md (43,191 B) + CONTRACTS.md (70,488 B) + PIPELINES.md (5,937 B) + layer-1-aria.md (6,119 B) = **125,735 bytes** — before seeing a single finding. With judge fan-out ≥2 per sampled finding, a night paid that toll dozens of times for laws that fit in a few KB.

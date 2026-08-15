@@ -1244,6 +1244,21 @@ def _phase_human_required_adjudication(context: PhaseContext) -> dict[str, Any]:
     return sweep_human_required_adjudications(base_dir=context.base_dir)
 
 
+def _phase_decision_questioning(context: PhaseContext) -> dict[str, Any]:
+    """E9-c — sample decisions this pipeline already CLOSED and re-attack them.
+
+    Convergence proves two planners agreed at decision time. Nothing in the
+    cycle ever asks the later question — given the tree as it stands now, was
+    the decision right? — so a plan that converged on evidence which has since
+    moved keeps its verdict forever. This phase is that question's only
+    production caller: without it the minter would be exactly the
+    mechanism-with-no-caller defect the sibling invariant in this change hunts.
+    """
+    from .decision_questioning import open_decision_questioning
+
+    return open_decision_questioning(base_dir=context.base_dir)
+
+
 def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
     """Sample findings, fan judges out, compute consensus — every cycle.
 
@@ -2213,6 +2228,16 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     CyclePhase(
         "human_required_adjudication", "post_tool", _phase_human_required_adjudication,
         precondition=WRITES_PERMITTED, state_key="human_required_adjudication",
+    ),
+    # E9-c — beside the other queue-minting phases, because that is what it
+    # is: one `verification` envelope per sampled closed decision, drained on
+    # a later pass like any other request. Standard lane only (minting is an
+    # action) and `record_and_continue` — self-questioning that crashed asked
+    # nothing, which must not cost a night whose real work succeeded.
+    CyclePhase(
+        "decision_questioning", "post_tool", _phase_decision_questioning,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="decision_questioning",
     ),
     # The judgment supply chain, in dependency order and BEFORE calibration:
     # fixtures stay fresh, findings get sampled, judges fan out, consensus is

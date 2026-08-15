@@ -792,7 +792,13 @@ services:
       DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DB_MIGRATE_AUTHORITATIVE: 'true'
       DATABASE_MIGRATIONS_RUN: 'false'
-      DATABASE_LOGGING: 'true'
+      # Per-statement SQL logging is operator-controlled, not baked in. Hard-wiring
+      # 'true' here made auth-service echo every query the outbox poller ran:
+      # ~1.9 lines/second, ~164k lines a day, a 960 MB container log and a host
+      # disk at 99% on 2026-08-15. Set DATABASE_LOGGING in the environment when
+      # debugging (production additionally requires
+      # DATABASE_QUERY_LOGGING_ALLOW_IN_PRODUCTION — see resolveDatabaseLogging).
+      DATABASE_LOGGING: ${DATABASE_LOGGING:-false}
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
       # SEC-015 (CRITICAL-002): Per-service NATS credentials
       <<: *nats-auth-env

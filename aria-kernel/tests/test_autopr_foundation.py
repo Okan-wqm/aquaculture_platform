@@ -26,7 +26,10 @@ from aria_kernel.proposal import proposal_packet_from_task, record_proposal_from
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_health import runs_path
 from aria_kernel.tool_registry import GovernanceError
-from tests._helpers.declared_fixtures import append_declared_fixture
+from tests._helpers.declared_fixtures import (
+    append_declared_fixture,
+    seed_validation_provenance,
+)
 
 
 # The product file the fixture proposal touches. One constant so the seeded
@@ -226,15 +229,26 @@ class AutoPrFoundationTests(unittest.TestCase):
             ["git", "commit", "-m", "fixture change"],
             cwd=worktree_path, check=True, capture_output=True,
         )
+        # E21-a — a validation run must bind to a real change and a
+        # resolvable commit; the fixture emits the chain it will cite.
+        change_id, commit_sha = seed_validation_provenance(
+            workspace_root=self.root, base_dir=self.tools_dir,
+        )
         baseline = run_validation_commands(
             commands=["python3 -m unittest --help"],
             workspace_root=self.root,
+            change_id=change_id,
+            commit_sha=commit_sha,
+            runner_identity="ci-executor:autopr",
             validation_plan_id="baseline",
             base_dir=self.tools_dir,
         )
         candidate = run_validation_commands(
             commands=["python3 -m unittest --help"],
             workspace_root=self.root,
+            change_id=change_id,
+            commit_sha=commit_sha,
+            runner_identity="ci-executor:autopr",
             validation_plan_id=proposal["proposal_id"],
             base_dir=self.tools_dir,
         )

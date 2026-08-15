@@ -433,6 +433,19 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("validation_runs", "validation/validation-runs.jsonl", "ledger", "validation", "runtime", True, "append_fsync", True, profile_surface="validation_matrix", observe_class="mutation"),
     StateSurface("validation_comparisons", "validation/validation-comparisons.jsonl", "ledger", "validation", "runtime", True, "append_fsync", True, profile_surface="validation_matrix", observe_class="mutation"),
     StateSurface("validation_gates", "validation/validation-gates.jsonl", "ledger", "validation", "runtime", True, "append_fsync", True, profile_surface="validation_matrix", observe_class="mutation"),
+    # E21-a — the content-addressed anchor of every validation run.
+    # `verify_validation_run` re-hashes the file at gate time, so a log
+    # written outside a declared surface is dropped at job teardown and
+    # the merge gate then blocks on a run it can no longer verify.
+    StateSurface("validation_run_logs", "validation/logs/*.log", "artifact", "validation", None, False, "rewrite_fsync", False, profile_surface="validation_matrix", observe_class="mutation"),
+    # E21-a — the experiment bench. Deliberately DOMAIN-FREE: a recipe is
+    # a declared deterministic command and an observation contract is a
+    # closed comparator vocabulary, so the same three surfaces carry an
+    # experiment against a TypeScript monorepo or against a Rust OS
+    # without the kernel learning either.
+    StateSurface("experiment_recipes", "experiments/recipes.jsonl", "ledger", "experiments", "experiments", True, "append_fsync", True, profile_surface="experiment_bench", observe_class="mutation"),
+    StateSurface("experiment_definitions", "experiments/experiments.jsonl", "ledger", "experiments", "experiments", True, "append_fsync", True, profile_surface="experiment_bench", observe_class="mutation"),
+    StateSurface("experiment_observations", "experiments/observations.jsonl", "ledger", "experiments", "experiments", True, "append_fsync", True, profile_surface="experiment_bench", observe_class="mutation"),
     StateSurface("critical_observations", "critical-observations/*.json", "artifact", "critical_observation", "runtime", True, "rewrite_fsync", True, profile_surface="critical_observation", observe_class="mutation"),
     StateSurface("human_required_requests", "human-required/*.json", "artifact", "human_required", "runtime", True, "rewrite_fsync", True, profile_surface="human_required", observe_class="mutation"),
     # ORPHAN-HIGH-426 — the panel's decision ledger. Declared so the

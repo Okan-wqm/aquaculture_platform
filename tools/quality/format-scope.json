@@ -36901,6 +36901,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/database/__tests__/database-logging-resolution.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/database/__tests__/db-migrate-authority.util.spec.ts",
       "prettier_managed": true
     },
@@ -36986,6 +36992,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/__tests__/source-schema-bootstrap.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/__tests__/source-schema-scanner-coverage.spec.ts",
       "prettier_managed": true
     },
     {

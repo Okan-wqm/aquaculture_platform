@@ -73,9 +73,9 @@ permissions:
 jobs:
   executor:
     runs-on: [self-hosted, linux, claude]
-    timeout-minutes: 45
+    timeout-minutes: 150
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           persist-credentials: false
@@ -368,12 +368,16 @@ jobs:
               exit 1
             fi
             echo "request_id=${REQUEST_ID_INPUT}" >> "$GITHUB_OUTPUT"
+            echo "targeted=true" >> "$GITHUB_OUTPUT"
           else
+            # The id resolved here only decides whether the run proceeds
+            # (empty → clean skip). WHICH requests run is the drain loop's
+            # decision below — it re-reads the queue per iteration.
             REQ_ID=$(PYTHONPATH=aria-kernel python3 -m aria_kernel agent next-pending \
               --tools-dir "$ARIA_TOOLS_DIR" | jq -r '.request_id // empty')
             echo "request_id=${REQ_ID}" >> "$GITHUB_OUTPUT"
+            echo "targeted=false" >> "$GITHUB_OUTPUT"
           fi
-
 
       # Plan 020 Phase 3.C — session_start handoff snapshot.
       # WHY here: every CI executor run is a discrete session boundary.
@@ -416,6 +420,24 @@ jobs:
         if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
         uses: ./.github/actions/ensure-sandbox-backend
 
+      # FAZ 5a — attestation producer on the executor lane too: the merge
+      # A2 — the executor lane never provisioned the node deps the agent
+      # validation commands need, so FAZ 5's pre-claim gate refused its
+      # first live dispatch with `env_deps_missing` (run 31456376668). The
+      # gate was right; the lane was the fault. Same shared action as the
+      # producer lane — one definition, no drift.
+      - name: Provision the node dependencies the adapter manifests declare
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
+        uses: ./.github/actions/ensure-node-deps
+
+      # gate keys rows by readiness claim, and this lane's host is part of
+      # the environment those claims describe. Idempotent per claim triple.
+      - name: Probe and record runner attestation
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
+        uses: ./.github/actions/probe-runner-attestation
+        with:
+          tools-dir: ${{ env.ARIA_TOOLS_DIR }}
+
       - name: Run CI executor
         id: executor
         if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
@@ -432,12 +454,36 @@ jobs:
           MAX_TURNS_PER_RUN: '12'
           MAX_REQUESTS_PER_RUN: '30'
           MAX_TIMEOUT_SECONDS: '1800'
+          # The whole drain loop INCLUDING the last child's worst case must
+          # fit in this window (the loop starts a child only when
+          # elapsed + MAX_TIMEOUT_SECONDS <= budget). 7200s of loop inside
+          # the 150-minute job leaves a full 30 minutes for restore,
+          # integrity verification, publish and artifacts — the first live
+          # night (run 31542485896) was reaped mid-child by the old
+          # 45-minute timeout and its two submitted results died
+          # unpublished with the runner.
+          ARIA_DRAIN_BUDGET_SECONDS: '7200'
         run: |
-          PYTHONPATH=aria-kernel python3 tools/aria-poc/ci_executor.py \
-            "${{ steps.pending.outputs.request_id }}"
+          set -euo pipefail
+          if [ "${{ steps.pending.outputs.targeted }}" = "true" ]; then
+            # Operator-targeted dispatch: exactly the named request.
+            PYTHONPATH=aria-kernel python3 tools/aria-poc/ci_executor.py \
+              "${{ steps.pending.outputs.request_id }}"
+          else
+            # Scheduled run: drain the queue up to MAX_REQUESTS_PER_RUN /
+            # the wall-clock budget. One request per night against a
+            # producer that mints many per cycle was a queue that could
+            # only grow (162 pending judge requests by 2026-08-11).
+            PYTHONPATH=aria-kernel python3 tools/aria-poc/ci_executor.py --drain
+          fi
 
       - name: Upload response envelope (artefact)
-        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != ''
+        # `drained == '0'` is a drain night where the queue emptied between
+        # the pending probe and the loop (or every child failed before
+        # publishing a path): there is nothing to upload, and
+        # `if-no-files-found: error` would turn "no work" into a red.
+        # Targeted runs never set `drained`, so the guard is a no-op there.
+        if: steps.lease_check.outputs.blocked != 'true' && steps.pending.outputs.request_id != '' && steps.executor.outputs.drained != '0'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # Limited scope — response envelope plus its transcript anchor. claims.jsonl +

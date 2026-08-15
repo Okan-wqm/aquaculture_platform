@@ -1018,7 +1018,18 @@ def verify_jsonl(path: Path) -> dict[str, Any]:
     try:
         result, _rows = _verify_jsonl_from_text(path, path.read_text(encoding="utf-8"))
     except OSError as exc:
-        return {"path": path.as_posix(), "valid": False, "reason": str(exc)}
+        # E18 (ORPHAN-672) — an I/O failure is an ENVIRONMENT fault, not
+        # ledger corruption. On a full disk (errno 28, lived 2026-08-13)
+        # this arm used to report the ledger as invalid, sending the
+        # operator chasing phantom chain damage. reason_kind lets every
+        # consumer tell the two apart without parsing errno strings.
+        return {
+            "path": path.as_posix(),
+            "valid": False,
+            "reason": str(exc),
+            "reason_kind": "io_error",
+            "errno": exc.errno,
+        }
     return result
 
 
@@ -1040,8 +1051,11 @@ def load_jsonl_verified(path: Path) -> list[dict[str, Any]]:
     try:
         result, rows = _verify_jsonl_from_text(path, path.read_text(encoding="utf-8"))
     except OSError as exc:
+        # E18 (ORPHAN-672) — name the environment fault so a full-disk or
+        # permission failure reads as what it is instead of chain damage.
         raise LedgerIntegrityError(
-            f"strict verification failed for {path.as_posix()}: reason={exc}"
+            f"strict verification failed for {path.as_posix()}: "
+            f"reason_kind=io_error errno={exc.errno} reason={exc}"
         ) from exc
     if not result.get("valid", False):
         raise LedgerIntegrityError(

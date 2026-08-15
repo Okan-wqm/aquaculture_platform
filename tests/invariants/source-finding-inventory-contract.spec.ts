@@ -3,8 +3,6 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 
-import yaml from 'js-yaml';
-
 import { parseFindingRegistrySchemaContract } from '../../tools/gates/lib/finding-registry-schema-contract';
 import { hasOwn } from '../../tools/gates/lib/json-contract';
 import {
@@ -48,7 +46,6 @@ const PLAN_DIRECTORY = resolve(REPO_ROOT, 'docs/plans/2026-06-18-enterprise-grad
 const MANIFEST_PATH = resolve(PLAN_DIRECTORY, 'manifest.json');
 const PACKAGE_PATH = resolve(REPO_ROOT, 'package.json');
 const PACKAGE_LOCK_PATH = resolve(REPO_ROOT, 'package-lock.json');
-const CI_FULL_PATH = resolve(REPO_ROOT, '.github/workflows/ci-full.yml');
 const PRELIMINARY_OCCURRENCE_DIGEST =
   '3426306d2cd36f6b74f84303030777de1c81613c4e554c8b75888448501676ac';
 const INTERMEDIATE_OCCURRENCE_DIGEST =
@@ -1295,27 +1292,9 @@ describe('checked-in source finding attestation', () => {
     expect(Object.keys(derived).length).toBeGreaterThan(40);
   });
 
-  it('keeps generic CI on committed evidence while live discovery remains an explicit lane', () => {
+  it('declares committed verification and explicit live discovery command surfaces', () => {
     const packageJson = readJsonRecord(PACKAGE_PATH);
     const scripts = recordValue(packageJson.scripts, 'package.scripts');
-    const workflow = readFileSync(CI_FULL_PATH, 'utf8');
-    const workflowDocument = recordValue(yaml.load(workflow) as unknown, 'ci-full workflow');
-    const jobs = recordValue(workflowDocument.jobs, 'ci-full jobs');
-    const deployGates = recordValue(jobs['deploy-ssot-gates'], 'deploy-ssot-gates');
-    const steps = objectArray(deployGates.steps, 'deploy-ssot-gates.steps');
-    const authorityTestIndex = steps.findIndex(
-      (step) => step.run === 'npm run test:finding-registry-authority',
-    );
-    const writerPreflightIndex = steps.findIndex(
-      (step) => step.run === 'npm run findings:writer-preflight',
-    );
-    const sourcePinIndex = steps.findIndex(
-      (step) => step.run === 'npm run gates:capability-source-inventory:static',
-    );
-    const findingIndex = steps.findIndex(
-      (step) => step.run === 'npm run gates:source-finding-inventory:static',
-    );
-    const invariantIndex = steps.findIndex((step) => step.run === 'npm run invariants:fast');
     expect(scripts['test:finding-registry-authority']).toBe(
       'ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry-store.spec.ts',
     );
@@ -1327,17 +1306,5 @@ describe('checked-in source finding attestation', () => {
     expect(scripts['gates:source-finding-inventory:remote']).toContain('--check --scope=remote');
     expect(scripts['gates:source-finding-inventory:refresh']).toContain('--refresh');
     expect(scripts['gates:source-finding-inventory:generate']).toContain('--write');
-    expect(authorityTestIndex).toBeGreaterThan(-1);
-    expect(writerPreflightIndex).toBeGreaterThan(authorityTestIndex);
-    expect(sourcePinIndex).toBeGreaterThan(writerPreflightIndex);
-    expect(sourcePinIndex).toBeGreaterThan(-1);
-    expect(findingIndex).toBeGreaterThan(sourcePinIndex);
-    expect(invariantIndex).toBeGreaterThan(findingIndex);
-    expect(
-      steps.some((step) => step.run === 'npm run gates:capability-source-inventory:remote'),
-    ).toBe(false);
-    expect(steps.some((step) => step.run === 'npm run gates:source-finding-inventory:remote')).toBe(
-      false,
-    );
   });
 });

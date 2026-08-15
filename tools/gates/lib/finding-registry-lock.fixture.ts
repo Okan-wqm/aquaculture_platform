@@ -1,8 +1,27 @@
 #!/usr/bin/env ts-node
 
-import { existsSync, writeFileSync } from 'node:fs';
+import {
+  RegistryLockError,
+  testOnlyWithRegistryFileLock,
+  testOnlyWithRegistryFileLockAsync,
+} from '../finding-registry-store';
 
-import { RegistryLockError, testOnlyWithRegistryFileLock } from '../finding-registry-store';
+import {
+  assertStoreSpecEntrypointDispatchSetEqualityV1,
+  bootstrapStoreSpecChildProcess,
+  parseStoreSpecChildModeForEntrypointV1,
+  type StoreSpecChildProtocolSessionV1,
+  type StoreSpecChildModeForEntrypointV1,
+} from './finding-registry-store-child.fixture-protocol';
+
+class StoreSpecLockFixtureViolationV1 extends Error {
+  readonly code = 'STORE_SPEC_LOCK_FIXTURE_VIOLATION_V1' as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'StoreSpecLockFixtureViolationV1';
+  }
+}
 
 function requiredArgument(index: number, label: string): string {
   const value = process.argv[index];
@@ -12,26 +31,24 @@ function requiredArgument(index: number, label: string): string {
   return value;
 }
 
-function runKernelLockHolder(): never {
-  const resourcePath = requiredArgument(3, 'resource path');
-  const readyPath = requiredArgument(4, 'ready barrier path');
-  const releasePath = requiredArgument(5, 'release barrier path');
-  testOnlyWithRegistryFileLock(
+async function runKernelLockHolder(
+  resourcePath: string,
+  session: StoreSpecChildProtocolSessionV1,
+): Promise<void> {
+  await testOnlyWithRegistryFileLockAsync(
     resourcePath,
-    () => {
-      writeFileSync(readyPath, 'ready\n', 'utf8');
-      const waitCell = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
-      while (!existsSync(releasePath)) Atomics.wait(waitCell, 0, 0, 25);
+    async () => {
+      await session.emitPhase('LOCK_ACQUIRED');
     },
     { timeoutMs: 5_000, pollIntervalMs: 10 },
   );
-  process.exit(0);
+  await session.emitPhase('LOCK_RELEASED');
 }
 
-function runKernelLockContender(): never {
-  const resourcePath = requiredArgument(3, 'resource path');
-  const blockedPath = requiredArgument(4, 'blocked barrier path');
-  const enteredPath = requiredArgument(5, 'entered barrier path');
+async function runKernelLockContender(
+  resourcePath: string,
+  session: StoreSpecChildProtocolSessionV1,
+): Promise<void> {
   try {
     testOnlyWithRegistryFileLock(
       resourcePath,
@@ -40,28 +57,52 @@ function runKernelLockContender(): never {
       },
       { timeoutMs: 100, pollIntervalMs: 10 },
     );
-    process.exit(65);
+    throw new StoreSpecLockFixtureViolationV1(
+      'Kernel-lock contender was admitted while the owner barrier remained closed',
+    );
   } catch (error) {
     if (!(error instanceof RegistryLockError) || error.code !== 'LOCK_TIMEOUT') throw error;
   }
-  writeFileSync(blockedPath, 'blocked\n', 'utf8');
-  testOnlyWithRegistryFileLock(
+  await session.emitPhase('CONTENTION_CONFIRMED');
+  await session.emitPhase('BLOCKING_ACQUIRE_STARTED');
+  await testOnlyWithRegistryFileLockAsync(
     resourcePath,
-    () => writeFileSync(enteredPath, 'entered\n', 'utf8'),
+    async () => {
+      await session.emitPhase('LOCK_ACQUIRED');
+    },
     {
       timeoutMs: 5_000,
       pollIntervalMs: 10,
     },
   );
-  process.exit(0);
+  await session.emitPhase('LOCK_RELEASED');
 }
 
-try {
-  const fixtureMode = process.argv[2];
-  if (fixtureMode === '--kernel-lock-holder') runKernelLockHolder();
-  if (fixtureMode === '--kernel-lock-contender') runKernelLockContender();
-  throw new Error(`Unknown finding registry lock fixture mode: ${String(fixtureMode)}`);
-} catch (error) {
-  process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
-  process.exit(1);
+type StoreSpecLockFixtureModeV1 = StoreSpecChildModeForEntrypointV1<'LOCK_FIXTURE'>;
+type StoreSpecLockFixtureHandlerV1 = (
+  resourcePath: string,
+  session: StoreSpecChildProtocolSessionV1,
+) => Promise<void>;
+
+const STORE_SPEC_LOCK_FIXTURE_DISPATCH_V1 = Object.freeze({
+  '--kernel-lock-contender': runKernelLockContender,
+  '--kernel-lock-holder': runKernelLockHolder,
+} satisfies Record<StoreSpecLockFixtureModeV1, StoreSpecLockFixtureHandlerV1>);
+
+assertStoreSpecEntrypointDispatchSetEqualityV1('LOCK_FIXTURE', STORE_SPEC_LOCK_FIXTURE_DISPATCH_V1);
+
+async function main(): Promise<void> {
+  const fixtureMode = parseStoreSpecChildModeForEntrypointV1('LOCK_FIXTURE', process.argv[2]);
+  const resourcePath = requiredArgument(3, 'resource path');
+  const session = await bootstrapStoreSpecChildProcess(fixtureMode);
+  await STORE_SPEC_LOCK_FIXTURE_DISPATCH_V1[fixtureMode](resourcePath, session);
+  session.assertTerminal();
+  process.exitCode = 0;
+  if (process.connected) process.disconnect();
 }
+
+void main().catch((error: unknown) => {
+  process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
+  process.exitCode = 1;
+  if (process.connected) process.disconnect();
+});

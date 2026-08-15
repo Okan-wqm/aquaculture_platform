@@ -43,9 +43,10 @@ jobs:
     timeout-minutes: 12
     steps:
       # SEC-CI-002: pinned to full SHA (infra-expert invariant)
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -190,20 +191,26 @@ jobs:
   # covered semantics the CLI gates cannot (knowledge-ssot consistency,
   # schema conformance of registry entries, orchestrator routing
   # coverage, agent roster uniqueness, etc.), and the suite had drifted
-  # to 3 red tests by 2026-04-22. Making it a required job means the
-  # next drift breaks the PR, not the next audit.
+  # to 3 red tests by 2026-04-22. Main carries this command under the required
+  # ci-full build-status aggregate; this job supplies the same hard gate only
+  # for develop events.
   #
   # Kept as a separate job (not folded into banned-phrase-gate) so that
   # a gate-CLI change and an invariant-spec change surface in
   # independently-retryable lanes of the GitHub checks UI.
   # =============================================================================
   invariants-fast:
+    # ci-full owns this required context for main PRs/pushes and every full-CI
+    # trigger. This sibling exists only so develop keeps the same hard gate
+    # without running an identical 8-minute suite twice on main events.
+    if: github.base_ref == 'develop' || github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:

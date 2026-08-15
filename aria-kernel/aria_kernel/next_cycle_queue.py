@@ -135,6 +135,18 @@ def append_pending(
                 expected_surface="next_cycle_queue",
             ),
         )
+        # C10/E8 — pressure_id IS the queue's idempotency key (reflection.py
+        # names it so), but every row was keyed on a fresh uuid, so a
+        # persistent pressure re-enqueued a NEW pending row every cycle until
+        # the depth cap "blocked" it — bloat surfaced as overflow, never
+        # deduped, and the blocked report read as capacity pressure when it
+        # was really the same item N times. An already-pending pressure needs
+        # no second request: return the standing row unchanged (append-only,
+        # no mutation), before the depth check so a self-duplicating pressure
+        # can never consume a slot twice.
+        for row in pending:
+            if row.get("pressure_id") == pressure_id:
+                return row
         depth = queue_depth()
         if len(pending) >= depth:
             queue_item_id = f"qi-{uuid.uuid4().hex[:12]}"

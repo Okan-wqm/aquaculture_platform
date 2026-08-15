@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .fixture_runner import latest_fixture_status
 from .runs_reader import read_runs_rows
 from .tool_health import compute_metrics, runs_path
-from .tool_registry import GovernanceError, get_tool
+from .tool_registry import GovernanceError, effective_freshness_window_hours, get_tool
 
 
 ACCEPTED_PRECISION_STATUSES = ("human_judged", "ai_consensus_judged", "mixed_judged")
@@ -52,6 +53,23 @@ def adapter_active_readiness(
     if stable_runs < 5:
         blockers.append("last_5_runs_not_stable")
 
+    # E13-C11 — first reader of the manifest-owned freshness metadata:
+    # SHADOW evidence older than the tool's freshness_window_hours cannot
+    # justify an ACTIVE promotion, because the repo (and possibly the parse
+    # window) has moved on since the run. Fail-closed: no OK run at all, or
+    # an OK run that cannot prove WHEN it happened (missing/corrupt
+    # recorded_at), counts as stale — a promotion gate must not treat
+    # unprovable freshness as fresh (contrast tool_health._within_days,
+    # which is deliberately lenient for FP-window *counting*, not gating).
+    freshness_window_hours = effective_freshness_window_hours(tool)
+    last_ok_recorded_at = _last_ok_run_recorded_at(runs)
+    last_ok_age_hours = _age_hours(last_ok_recorded_at)
+    stale_run_evidence = (
+        last_ok_age_hours is None or last_ok_age_hours > freshness_window_hours
+    )
+    if stale_run_evidence:
+        blockers.append("stale_run_evidence")
+
     zero_finding_lane = precision_status == ZERO_FINDING_PRECISION_STATUS
     if zero_finding_lane:
         if zero_finding_runs < 5:
@@ -85,9 +103,39 @@ def adapter_active_readiness(
         "operator_judged_precision": precision if precision_status in ("human_judged", "mixed_judged") else None,
         "precision_min": precision_min,
         "critical_false_positives": critical_false_positives,
+        "freshness_window_hours": freshness_window_hours,
+        "last_ok_run_recorded_at": last_ok_recorded_at,
+        "last_ok_run_age_hours": last_ok_age_hours,
+        "stale_run_evidence": stale_run_evidence,
         "active_ready": not blockers,
         "blocked_by": blockers,
     }
+
+
+def _last_ok_run_recorded_at(runs: list[dict[str, Any]]) -> str | None:
+    """recorded_at of the newest status=="ok" run, or None when absent."""
+    for run in reversed(runs):
+        if run.get("status") != "ok":
+            continue
+        raw = run.get("recorded_at") or run.get("at")
+        return str(raw) if raw else None
+    return None
+
+
+def _age_hours(recorded_at: str | None) -> float | None:
+    """Hours elapsed since an ISO-8601 timestamp; None when unprovable."""
+    if not recorded_at:
+        return None
+    try:
+        recorded = datetime.fromisoformat(recorded_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if recorded.tzinfo is None:
+        # Ledger rows are written by tool_registry.utc_now() (UTC-aware);
+        # a naive value can only come from a legacy/hand-written row, and
+        # UTC is the only clock the kernel ever records in.
+        recorded = recorded.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - recorded).total_seconds() / 3600.0
 
 
 def is_stable_shadow_run(run: dict[str, Any]) -> bool:

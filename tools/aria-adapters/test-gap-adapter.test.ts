@@ -71,6 +71,34 @@ writeFileSync(
   `,
   'utf8',
 );
+// E13 FP class (2): a hazardous migration retired into the `.archive/`
+// snapshot corpus is dead code — it must produce NO finding.
+mkdirSync(join(root, 'database', 'migrations', '.archive', '2026-01-01T00-00-00-000Z'), {
+  recursive: true,
+});
+writeFileSync(
+  join(root, 'database', 'migrations', '.archive', '2026-01-01T00-00-00-000Z', '000-archived-drop.ts'),
+  `
+    export class ArchivedDrop000 {
+      async up(queryRunner: any) {
+        await queryRunner.query('DROP TABLE retired');
+      }
+    }
+  `,
+  'utf8',
+);
+// Deliberate-break trap: this spec basename-matches unsafe.controller.ts, but
+// it lives under an archived directory — if the archive filter ever stops
+// excluding it from the TEST corpus it would satisfy unsafe.controller's
+// coverage lookup and the finding asserted below would vanish.
+mkdirSync(join(root, 'batch', 'archive'), { recursive: true });
+writeFileSync(
+  join(root, 'batch', 'archive', 'unsafe.controller.spec.ts'),
+  `
+    test('archived spec must not count as live coverage', () => expect(true).toBe(true));
+  `,
+  'utf8',
+);
 
 const output = analyzeTestGaps({ roots: ['apps/farm-service/src'], includeWriteBoundaryFindings: true }, workspace);
 
@@ -102,6 +130,17 @@ assert.equal(
     (finding) => finding.rule === 'migration_without_test' && finding.path.endsWith('001-drop.ts'),
   ),
   true,
+);
+// E13 FP class (2): archived corpus is fully excluded from the scan — no
+// findings against it, no observations for it, and it never appears in
+// read_paths.
+assert.equal(
+  output.findings.some((finding) => finding.path.includes('.archive')),
+  false,
+);
+assert.equal(
+  output.read_paths.some((path) => path.includes('.archive') || path.includes('/archive/')),
+  false,
 );
 
 console.log('test-gap-adapter tests passed');

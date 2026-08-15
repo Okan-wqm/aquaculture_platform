@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_jsonl
 from .batch_containment import guard_item, with_item_failures
 from .pressure import effective_workspace_pressures
 from .tool_registry import append_tools_governance, update_tools_index
@@ -74,7 +74,7 @@ def semantic_dedup_compute(
 
 
 def _store_cluster(root: Path, row: dict[str, Any], *, cycle_id: str) -> dict[str, Any]:
-    stored = append_jsonl(root / "problem_clusters.jsonl", row)
+    stored = append_declared_jsonl(root / "problem_clusters.jsonl", row, expected_surface="problem_clusters")
     update_tools_index(root)
     append_tools_governance(
         root,

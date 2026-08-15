@@ -53,11 +53,8 @@ const MAIN_REF = 'refs/remotes/origin/main';
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const REPOSITORY_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,127}$/;
-export const SOURCE_INVENTORY_RUNNER_PROFILE =
-  'REPOSITORY_OWNED_INDEPENDENT_COMMON_DIR_V1' as const;
-export const TRUSTED_REMOTE_INVENTORY_WORKFLOW =
-  'Okan-wqm/aquaculture_platform/.github/workflows/ci-full.yml' as const;
-export const TRUSTED_REMOTE_INVENTORY_JOB = 'deploy-ssot-gates' as const;
+export const SOURCE_INVENTORY_FULL_EXECUTION_INTENT_V1 =
+  'CLEAN_INDEPENDENT_COMMON_DIR_FULL_V1' as const;
 const SOURCE_KIND_ORDER: Readonly<Record<SourceKind, number>> = {
   REMOTE_BRANCH: 0,
   LOCAL_BRANCH: 1,
@@ -174,9 +171,7 @@ export interface ExecutionExclusionAdmissionInputV1 {
   identity: ExecutionIdentity;
   scope: InventoryScope;
   githubActions: string | undefined;
-  workflowRef: string | undefined;
-  jobId: string | undefined;
-  localRunnerProfile: string | undefined;
+  fullExecutionIntent: string | undefined;
   checkoutHeadSha: string;
   checkoutDirty: boolean;
   executionCommonDir: string;
@@ -1243,24 +1238,16 @@ export function admitExecutionExclusionProof(
   }
   if (input.checkoutDirty) return { ...input.identity, exclusionProof: null };
 
-  const trustedHostedRunner =
-    input.scope === 'remote' &&
-    input.githubActions === 'true' &&
-    input.jobId === TRUSTED_REMOTE_INVENTORY_JOB &&
-    input.workflowRef !== undefined &&
-    input.workflowRef.startsWith(`${TRUSTED_REMOTE_INVENTORY_WORKFLOW}@`) &&
-    input.workflowRef.length > TRUSTED_REMOTE_INVENTORY_WORKFLOW.length + 1 &&
-    !/[\0\r\n]/.test(input.workflowRef);
-  const trustedRepositoryRunner =
+  const declaredFullExecutionIntent =
     input.scope === 'full' &&
     input.githubActions !== 'true' &&
-    input.localRunnerProfile === SOURCE_INVENTORY_RUNNER_PROFILE;
+    input.fullExecutionIntent === SOURCE_INVENTORY_FULL_EXECUTION_INTENT_V1;
 
-  if (!trustedHostedRunner && !trustedRepositoryRunner) {
+  if (!declaredFullExecutionIntent) {
     return { ...input.identity, exclusionProof: null };
   }
   if (
-    trustedRepositoryRunner &&
+    declaredFullExecutionIntent &&
     (input.governedCommonDirs.length === 0 ||
       input.governedCommonDirs.includes(input.executionCommonDir))
   ) {
@@ -1487,13 +1474,14 @@ async function inspectLiveRepository(
     if (
       scope === 'full' &&
       (process.env.GITHUB_ACTIONS === 'true' ||
-        process.env.CAPABILITY_INVENTORY_RUNNER_PROFILE !== SOURCE_INVENTORY_RUNNER_PROFILE ||
+        process.env.CAPABILITY_INVENTORY_FULL_EXECUTION_INTENT !==
+          SOURCE_INVENTORY_FULL_EXECUTION_INTENT_V1 ||
         executionEvidence.dirty ||
         governedCommonDirs.includes(executionCommonDir))
     ) {
       throw new InventoryInspectionError(
-        'INVENTORY_RUNNER_PROFILE_INVALID',
-        'full inventory requires the clean repository-owned runner profile on an independent Git common-dir',
+        'INVENTORY_EXECUTION_INTENT_INVALID',
+        'full inventory requires CLEAN_INDEPENDENT_COMMON_DIR_FULL_V1 intent plus independently observed clean checkout and independent Git common-dir evidence',
       );
     }
     if (executionIdentity !== null) {
@@ -1501,9 +1489,7 @@ async function inspectLiveRepository(
         identity: executionIdentity,
         scope,
         githubActions: process.env.GITHUB_ACTIONS,
-        workflowRef: process.env.GITHUB_WORKFLOW_REF,
-        jobId: process.env.GITHUB_JOB,
-        localRunnerProfile: process.env.CAPABILITY_INVENTORY_RUNNER_PROFILE,
+        fullExecutionIntent: process.env.CAPABILITY_INVENTORY_FULL_EXECUTION_INTENT,
         checkoutHeadSha: executionEvidence.headSha,
         checkoutDirty: executionEvidence.dirty,
         executionCommonDir,

@@ -332,6 +332,8 @@ const HERMETIC_GIT_NO_REPOSITORY_ENV = Object.freeze<NodeJS.ProcessEnv>({
   GIT_WORK_TREE: '/dev/null',
 });
 
+const HERMETIC_GIT_DISABLED_HOOKS_PATH = '/dev/null';
+
 const GIT_INVOCATION_PREFIX = Object.freeze([
   '--no-optional-locks',
   '--no-replace-objects',
@@ -341,6 +343,8 @@ const GIT_INVOCATION_PREFIX = Object.freeze([
   'core.untrackedCache=false',
   '-c',
   'core.attributesFile=/dev/null',
+  '-c',
+  `core.hooksPath=${HERMETIC_GIT_DISABLED_HOOKS_PATH}`,
   '-c',
   'core.fileMode=true',
   '-c',
@@ -484,6 +488,7 @@ export type HermeticGitReadQueryV1 =
   | Readonly<{ kind: 'OBJECT_EXISTS'; oid: string; objectKind: HermeticGitObjectKindV1 }>
   | Readonly<{ kind: 'READ_BLOB'; oid: string }>
   | Readonly<{ kind: 'READ_BLOB_BATCH'; oids: readonly string[] }>
+  | Readonly<{ kind: 'READ_COMMIT_BATCH'; oids: readonly string[] }>
   | Readonly<{
       kind: 'DIFF';
       projection: 'QUIET' | 'NAME_ONLY' | 'PATCH_ZERO_CONTEXT';
@@ -602,7 +607,7 @@ export class InventoryInspectionError extends Error {
       | 'CI_EXECUTION_IDENTITY_INVALID'
       | 'CI_EXECUTION_IDENTITY_MISMATCH'
       | 'DIRTY_SNAPSHOT_MOVED'
-      | 'INVENTORY_RUNNER_PROFILE_INVALID'
+      | 'INVENTORY_EXECUTION_INTENT_INVALID'
       | 'ORIGIN_MAIN_MOVED'
       | 'WORKTREE_AUTHORITY_MIGRATION_REQUIRED',
     message: string,
@@ -1034,6 +1039,22 @@ function compileHermeticGitReadQueryV1(
         [0],
         Buffer.from(`${oids.join('\n')}\n`, 'ascii'),
       );
+    }
+    case 'READ_COMMIT_BATCH': {
+      if (query.oids.length === 0 || query.oids.length > MAX_PUBLIC_GIT_QUERY_ITEMS) {
+        throw new TypeError(
+          `READ_COMMIT_BATCH requires 1..${String(MAX_PUBLIC_GIT_QUERY_ITEMS)} object IDs`,
+        );
+      }
+      const revisions = query.oids.map(
+        (oid, index) =>
+          `${requireReachabilityRevision(oid, `READ_COMMIT_BATCH.oids[${index}]`)}^{commit}`,
+      );
+      const input = Buffer.from(`${revisions.join('\n')}\n`, 'ascii');
+      if (input.length > MAX_PUBLIC_GIT_QUERY_INPUT_BYTES) {
+        throw new TypeError('READ_COMMIT_BATCH input exceeds its bounded query budget');
+      }
+      return compiled(['cat-file', '--batch'], MAX_GIT_BLOB_BATCH_BYTES, [0], input);
     }
     case 'DIFF': {
       const base = requireObjectRevision(query.base, 'DIFF.base');
@@ -2283,6 +2304,7 @@ function requireBooleanConfigValue(key: string, value: string): void {
 
 function isPermittedInertConfigKey(key: string): boolean {
   return (
+    key === 'core.hookspath' ||
     /^remote\..+\.(?:url|pushurl|fetch|tagopt|mirror|prune)$/.test(key) ||
     /^branch\..+\.(?:remote|merge|rebase|description)$/.test(key) ||
     /^user\.(?:name|email|signingkey|useconfigonly)$/.test(key) ||
@@ -2301,6 +2323,31 @@ function isPermittedInertConfigKey(key: string): boolean {
   );
 }
 
+function decodeRepositoryConfigKey(rawKey: Buffer): string {
+  const decoded = decodeFatalUtf8(rawKey, 'Hermetic Git repository config key');
+  const firstSeparator = decoded.indexOf('.');
+  const lastSeparator = decoded.lastIndexOf('.');
+  const section = firstSeparator === -1 ? '' : decoded.slice(0, firstSeparator);
+  const variable = lastSeparator === -1 ? '' : decoded.slice(lastSeparator + 1);
+
+  // Git's flattened config representation is `section[.subsection].variable`.
+  // Section and variable names have a narrow grammar, while a quoted subsection may
+  // legitimately contain ref-name characters such as `/` (for example a branch name).
+  // Validate those structural authorities independently instead of treating the whole
+  // flattened key as one variable name.
+  if (
+    firstSeparator <= 0 ||
+    lastSeparator === decoded.length - 1 ||
+    /[\u0000-\u001f\u007f]/u.test(decoded) ||
+    !/^[a-z][a-z0-9-]*$/iu.test(section) ||
+    !/^[a-z][a-z0-9-]*$/iu.test(variable)
+  ) {
+    throw new Error(`Hermetic Git repository config key is invalid: ${JSON.stringify(decoded)}`);
+  }
+
+  return decoded.toLowerCase();
+}
+
 function assertHermeticRepositoryConfig(rawConfigList: Buffer): void {
   const records = splitNulRecords(rawConfigList, 'repository config');
   for (const record of records) {
@@ -2308,14 +2355,11 @@ function assertHermeticRepositoryConfig(rawConfigList: Buffer): void {
     if (separator <= 0) {
       throw new Error('Hermetic Git repository config contains a malformed entry');
     }
-    const key = record.subarray(0, separator).toString('ascii').toLowerCase();
+    const key = decodeRepositoryConfigKey(record.subarray(0, separator));
     const value = decodeFatalUtf8(
       record.subarray(separator + 1),
       `Hermetic Git repository config ${key}`,
     );
-    if (!/^[a-z0-9][a-z0-9.-]*$/.test(key)) {
-      throw new Error(`Hermetic Git repository config key is invalid: ${JSON.stringify(key)}`);
-    }
     if (key === 'core.repositoryformatversion') {
       if (value !== '0') {
         throw new Error(`Hermetic Git requires repository format 0, received ${value}`);
@@ -2756,10 +2800,6 @@ function observeRepositoryTopology(worktreePath: string): RepositoryTopologyObse
     join(gitDirPath, 'config.worktree'),
     'Git worktree config',
   );
-  const worktreeConfigContent = optionalTopologyContent(worktreeConfig);
-  if (worktreeConfigContent !== null && worktreeConfigContent.length > 0) {
-    throw new Error('Hermetic Git refuses per-worktree config authority');
-  }
   const topology = Object.freeze({
     worktreePath,
     worktree,
@@ -3221,8 +3261,10 @@ async function attestRepositoryConfiguration(
   let contentByteLength = 0n;
   // Raw repository config is a substrate/race authority, not logical source content. Every
   // accepted key is either fixed above (format/bare) or inert for the descriptor-bound evidence
-  // commands; behavior-changing includes, filters, alternates, sparse/worktree config, and
-  // partial-clone authorities are rejected before this projection is built.
+  // commands. Behavior-changing includes, filters, alternates, sparse checkout, activated
+  // worktree config, and partial-clone authorities are rejected before this projection is built.
+  // An inactive config.worktree file is retained as content and substrate evidence because the
+  // common config is the only activation authority for extensions.worktreeConfig.
   for (const [label, payload] of [['OBJECT_FORMAT', Buffer.from(objectFormat, 'ascii')]] as const) {
     updateDigestFrame(contentDigest, label, payload);
     contentByteLength += BigInt(payload.length);

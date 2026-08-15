@@ -348,6 +348,26 @@ def submit_cross_review_v8(
     if not isinstance(risks, list):
         raise GovernanceError("V8 cross-review risks must be a list")
 
+    # Z3-K2 (ORPHAN-HIGH-629) — direction attribution. The V8 agent submits
+    # ONE envelope for both directions, and this function used to copy the
+    # SAME risk list + one review_content_hash into both direction records:
+    # "who judged whom right" was unknowable, which starved the duel-rating
+    # layer of its signal. Each risk row MAY now carry
+    # `applies_to_direction` ∈ REQUIRED_CROSS_REVIEW_DIRECTIONS ∪ {"both"};
+    # a row without it means "both" — every legacy envelope reads back
+    # bit-identically. An unknown value is refused loudly rather than
+    # silently pooled, because a silently pooled row would recreate the
+    # defect this field exists to close.
+    for risk in risks:
+        if not isinstance(risk, dict):
+            continue
+        row_direction = risk.get("applies_to_direction", "both")
+        if row_direction not in (*REQUIRED_CROSS_REVIEW_DIRECTIONS, "both"):
+            raise GovernanceError(
+                f"cross-review risk applies_to_direction is invalid: "
+                f"{row_direction!r}"
+            )
+
     latest_rev = state.get("latest_revision") or {}
     target_revision_id = latest_rev.get("revision_id")
     target_hash = latest_rev.get("content_hash")
@@ -364,10 +384,46 @@ def submit_cross_review_v8(
     if not isinstance(round_number, int) or round_number <= 0:
         round_number = max(1, len(state.get("cross_reviews") or {}) + 1)
 
-    # Deterministic review_content_hash from canonical risk list.
-    review_content_hash = "sha256:" + hashlib.sha256(
-        _canonical_json({"risks": risks, "reviewer_agent": reviewer_agent}).encode("utf-8")
-    ).hexdigest()
+    # Z3-K2 — deterministic PER-DIRECTION content hash over the risks that
+    # apply to that direction. One hash for both directions was half of the
+    # "direction is fake" defect: identical hashes made the two records
+    # indistinguishable to any reader.
+    def _direction_risks(direction: str) -> list[dict[str, Any]]:
+        return [
+            risk
+            for risk in risks
+            if not isinstance(risk, dict)
+            or risk.get("applies_to_direction", "both") in ("both", direction)
+        ]
+
+    def _direction_hash(direction: str) -> str:
+        return "sha256:" + hashlib.sha256(
+            _canonical_json({
+                "risks": _direction_risks(direction),
+                "reviewer_agent": reviewer_agent,
+                "review_direction": direction,
+            }).encode("utf-8")
+        ).hexdigest()
+
+    # Z3-K2 — per-direction verdicts. The envelope may carry `verdicts`
+    # ({direction: verdict}) for a reviewer that judges the two sides
+    # differently; the scalar `verdict` remains the both-directions
+    # fallback. Without this, submit_cross_review_v8 never forwarded ANY
+    # verdict into the direction records — K1 taught the normalizer to
+    # keep the field while this producer kept dropping it.
+    verdicts = review.get("verdicts")
+    if verdicts is not None:
+        if not isinstance(verdicts, dict) or not set(verdicts).issubset(
+            REQUIRED_CROSS_REVIEW_DIRECTIONS
+        ):
+            raise GovernanceError(
+                "cross-review verdicts must map review directions to verdicts"
+            )
+
+    def _direction_verdict(direction: str) -> Any:
+        if isinstance(verdicts, dict) and direction in verdicts:
+            return verdicts[direction]
+        return review.get("verdict")
 
     sla_deadline = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
 
@@ -412,6 +468,7 @@ def submit_cross_review_v8(
     # answer, the state machine resolves to CROSS_REVIEWED.
     last_event: dict[str, Any] = {}
     for task in tasks:
+        task_direction = task["review_direction"]
         last_event = record_cross_review(
             plan_id=plan_id,
             review={
@@ -419,10 +476,14 @@ def submit_cross_review_v8(
                 "target_revision_id": target_revision_id,
                 "target_plan_content_hash": target_hash,
                 "reviewer_agent": reviewer_agent,
-                "review_direction": task["review_direction"],
-                "review_content_hash": review_content_hash,
+                "review_direction": task_direction,
+                "review_content_hash": _direction_hash(task_direction),
+                "verdict": _direction_verdict(task_direction),
                 "status_after": "ANSWERED",
-                "risks": risks,
+                # Z3-K2 — each direction record carries ONLY the risks that
+                # apply to it (rows without applies_to_direction apply to
+                # both, preserving every legacy envelope byte-for-byte).
+                "risks": _direction_risks(task_direction),
                 # agent_invocation_request_id intentionally omitted —
                 # V8 bypasses the per-task content-hash mismatch check
                 # because the agent submitted ONE envelope covering both
@@ -565,9 +626,69 @@ def evaluate_plan(
             result["status"] = "evaluated"
             return result
         event = _append_event(root=root, plan_id=plan_id, event_type="plan_evaluated", payload=payload, idempotency_key=key)
+        # Z3b (ORPHAN-HIGH-629) — the duel finally leaves a rateable trace.
+        # One knowledge-graph row per evaluated round, written inside the
+        # plan lock at the exact point an outcome becomes fact. Ratings are
+        # computed at READ time (`calibrated_intelligence.bradley_terry`)
+        # from these rows — the ledger stores outcomes, never scores. Not a
+        # plan event: EVENT_TYPES is documented as a one-way door, and this
+        # is an observation, not lifecycle. Failure costs the observation,
+        # never the evaluation.
+        try:
+            _record_duel_observation(root, plan_id, round_number, state, decision)
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
         result = _event_result(event, idempotent=False)
         result["status"] = "evaluated"
         return result
+
+
+def _record_duel_observation(
+    root: Path,
+    plan_id: str,
+    round_number: int,
+    fold: dict[str, Any],
+    decision: dict[str, Any],
+) -> None:
+    from .knowledge_graph import _append_row
+
+    reviews = (fold.get("cross_reviews", {}).get(round_number) or {}).get("reviews") or []
+    verdicts_by_direction = {
+        str(review.get("review_direction")): review.get("verdict")
+        for review in reviews
+        if isinstance(review, dict)
+    }
+    risks = fold.get("cross_review_risks_by_round", {}).get(round_number) or []
+    # C8/E11 — the duel row names the REAL combatants. The unconditional
+    # role literals meant a genesis candidate never matched the
+    # genesis_superiority `involved` filter (its duel component stayed
+    # not_evaluated forever). Role defaults remain the honest fallback for
+    # rounds whose events predate identity capture.
+    primary_agent = (
+        (fold.get("primary_agents_by_round") or {}).get(round_number)
+        or "aria-primary-planner"
+    )
+    challenger_agent = (
+        (fold.get("challenger") or {}).get("challenger_agent")
+        or "aria-challenger-planner"
+    )
+    _append_row(
+        Path(root) / "knowledge-graph" / "duel-ratings.jsonl",
+        {
+            "schema_version": 1,
+            "plan_id": plan_id,
+            "round": round_number,
+            "primary_agent": primary_agent,
+            "challenger_agent": challenger_agent,
+            "verdicts_by_direction": verdicts_by_direction,
+            "material_risk_count": sum(
+                1 for r in risks
+                if isinstance(r, dict) and r.get("severity") in ("blocking", "material")
+            ),
+            "resolved_risk_count": len(fold.get("resolved_review_risk_ids") or []),
+            "terminal_state": decision.get("terminal_state"),
+        },
+    )
 
 
 def list_active_plans(*, base_dir: str | Path | None = None) -> list[str]:
@@ -592,6 +713,92 @@ def list_active_plans(*, base_dir: str | Path | None = None) -> list[str]:
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(json.dumps({"schema_version": 1, "events_hash": events_hash, "event_count": len(event_rows), "active_plan_ids": active}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return active
+
+
+_IMPLEMENTATION_PHASE_STATES = {
+    "IMPLEMENTATION_REQUESTED",
+    "IMPLEMENTATION_IN_FLIGHT",
+    "IMPLEMENTATION_RECORDED",
+}
+
+
+STALE_PLAN_MAX_AGE_HOURS: int = 72
+
+
+def _last_event_at_by_plan(root: Path) -> dict[str, str]:
+    """Newest ``recorded_at`` per plan — ONE definition for scanner + resume.
+
+    The orphan scanner used to read ``ts``/``created_at``, fields no event
+    writer emits (`_append_event` writes ``recorded_at``), so every orphan
+    row reported ``last_event_at: None`` — the same writer-reader field
+    mismatch class the E8 sweep exists to kill.
+    """
+    stamps: dict[str, str] = {}
+    path = events_path(root)
+    if not path.exists():
+        return stamps
+    for event in load_declared_jsonl(
+        path, expected_surface="plan_convergence_events",
+    ):
+        pid = event.get("plan_id")
+        ts = event.get("recorded_at")
+        if isinstance(pid, str) and pid and isinstance(ts, str):
+            stamps[pid] = ts
+    return stamps
+
+
+def _older_than_hours(timestamp: str, hours: int) -> bool:
+    from datetime import datetime, timedelta, timezone
+
+    try:
+        then = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return datetime.now(timezone.utc) - then > timedelta(hours=hours)
+
+
+def resume_candidate_plan_id(*, base_dir: str | Path | None = None) -> str | None:
+    """E2/F9 — the newest plan still mid-CONVERGENCE, if any.
+
+    Plan identity used to be minted from the cycle id (`plan-<cycle_id>`)
+    and the drainer resumed only its own cycle's plan — so the envelopes
+    the 01:00 producer minted were answered at 02:00 into a plan NOBODY
+    was watching any more, and the next cycle started a fresh plan from
+    scratch. Every night's agent work landed on an abandoned plan.
+
+    A new cycle now ADOPTS the newest plan that is neither V8-terminal
+    (list_active_plans already filters those) nor resting in an
+    implementation-phase state (those belong to the implementer poll and
+    the merge reconciler, not to a fresh convergence run). One active
+    convergence at a time; None means "start fresh".
+
+    C12/E8 — adoption is where a stuck plan must DIE, deterministically.
+    `abandon_plan` existed with zero production callers, so a plan wedged
+    mid-convergence stayed "active" forever and every night's takeover
+    re-adopted the same wedged plan: takeover (E2) without abandonment is
+    an infinite loop wearing a fix's clothes. A candidate whose newest
+    event is older than STALE_PLAN_MAX_AGE_HOURS is abandoned (recorded,
+    reason carries the stall timestamp) and the scan moves on.
+    """
+    root = ensure_tools_dir(base_dir)
+    last_seen = _last_event_at_by_plan(root)
+    for plan_id in reversed(list_active_plans(base_dir=base_dir)):
+        state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+        if not isinstance(state, dict):
+            continue
+        if state.get("state") in _IMPLEMENTATION_PHASE_STATES:
+            continue
+        stamp = last_seen.get(plan_id)
+        if stamp and _older_than_hours(stamp, STALE_PLAN_MAX_AGE_HOURS):
+            abandon_plan(
+                plan_id=plan_id,
+                reason=f"stalled: no plan event since {stamp} "
+                f"(> {STALE_PLAN_MAX_AGE_HOURS}h at adoption)",
+                base_dir=base_dir,
+            )
+            continue
+        return plan_id
+    return None
 
 
 def force_plan_human_required(
@@ -1018,6 +1225,9 @@ def scan_orphan_implementation_requests(
     if not events_file.exists():
         return []
     # Enumerate distinct plan_ids + track last_event_at per plan.
+    # C12/E8 — reads recorded_at via the shared helper: this loop used to
+    # read ts/created_at, fields no event writer emits, so every orphan
+    # row reported last_event_at: None.
     plan_ids: dict[str, str | None] = {}
     for event in load_declared_jsonl(
         events_file,
@@ -1025,11 +1235,8 @@ def scan_orphan_implementation_requests(
     ):
         pid = event.get("plan_id")
         if isinstance(pid, str) and pid:
-            ts = event.get("ts") or event.get("created_at")
-            if isinstance(ts, str):
-                plan_ids[pid] = ts
-            else:
-                plan_ids.setdefault(pid, None)
+            plan_ids.setdefault(pid, None)
+    plan_ids.update(_last_event_at_by_plan(root))
     orphans: list[dict[str, Any]] = []
     for plan_id, last_ts in plan_ids.items():
         try:
@@ -1419,7 +1626,18 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
         task["review"] = payload
         cross["reviews"].append(payload)
         surfaced = state["cross_review_risks_by_round"].setdefault(state["current_round"], [])
+        # Z3-K3 (ORPHAN-HIGH-629) — the two cross_review_recorded events of a
+        # round carried the same risks list and were appended blind, so every
+        # risk counted twice: gate margins doubled and any rating metric
+        # would read 2x. Dedup by risk_id within the round; a risk without an
+        # id keeps legacy append behaviour (nothing to key on).
+        seen_risk_ids = {r.get("risk_id") for r in surfaced if r.get("risk_id")}
         for risk in payload.get("risks", []):
+            rid = risk.get("risk_id")
+            if rid and rid in seen_risk_ids:
+                continue
+            if rid:
+                seen_risk_ids.add(rid)
             surfaced.append({**risk, "surfaced_in_revision_id": payload["target_revision_id"]})
     elif event_type == "stale_tasks_reaped":
         round_data = state["rounds"].get(payload["round_number"]) or state["cross_reviews"].get(payload["round_number"], {})
@@ -1435,6 +1653,9 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
             "source": "revision_recorded",
             "round": payload["round"],
         }
+        # C8/E11 — per-round primary authorship for the duel ledger.
+        if payload.get("revised_by_agent"):
+            state.setdefault("primary_agents_by_round", {})[payload["round"]] = payload["revised_by_agent"]
         # Plan ARIA-V10.4 Phase 3.H.11 (F-022) — advance current_round.
         # Pre-fix the reducer set the new latest_revision but left
         # current_round untouched at the round that PRODUCED the
@@ -1676,6 +1897,11 @@ def _normalize_cross_review(review: dict[str, Any]) -> dict[str, Any]:
         "reviewer_agent": review.get("reviewer_agent"),
         "review_direction": review.get("review_direction"),
         "risks": review.get("risks", []),
+        # Z3-K1 (ORPHAN-HIGH-629) — the reviewer's verdict was asked for by
+        # the agent contract, promised by the submit docstring, and then
+        # DROPPED here: no rating layer could ever see who judged whom
+        # right. Legacy rows read back as None — old ledgers stay valid.
+        "verdict": review.get("verdict"),
         "review_content_hash": review.get("review_content_hash"),
         "agent_invocation_request_id": review.get("agent_invocation_request_id"),
         "status_after": review.get("status_after", "ANSWERED"),
@@ -1706,6 +1932,12 @@ def _normalize_revision(revision: dict[str, Any]) -> dict[str, Any]:
         "parent_revision_hash": revision.get("parent_revision_hash"),
         "content": revision.get("content"),
         "addresses_review_risk_ids": [str(item) for item in revision.get("addresses_review_risk_ids", []) if isinstance(item, str) and item],
+        # C8/E11 — the identity of the agent that authored this revision.
+        # Without it the duel ledger could only ever name the role default,
+        # so a genesis candidate never appeared in its own duel history and
+        # the superiority gate's duel component was permanently
+        # not_evaluated.
+        "revised_by_agent": revision.get("revised_by_agent"),
     }
 
 

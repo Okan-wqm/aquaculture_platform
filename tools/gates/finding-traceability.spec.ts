@@ -5,7 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 
-import { commitHasFindingCloseTrailer, commitMessageClosesFinding } from './finding-traceability';
+import {
+  commitHasFindingCloseTrailer,
+  commitMessageClosesFinding,
+  parseCommitObservationBatch,
+  readCommitObservations,
+} from './finding-traceability';
 
 const repo = mkdtempSync(join(tmpdir(), 'finding-traceability-spec-'));
 const HERMETIC_ENV: NodeJS.ProcessEnv = Object.fromEntries(
@@ -80,4 +85,80 @@ void test('commitHasFindingCloseTrailer reads git commit messages and fails clos
   const result = commitHasFindingCloseTrailer(repo, trailerlessCommit, 'INFRA-CRITICAL-009');
   assert.equal(result.ok, false);
   assert.match(result.reason ?? '', /does not contain a Closes: trailer/);
+});
+
+void test('readCommitObservations returns one ordered frozen existence and message snapshot', () => {
+  const missingCommit = '0000000000000000000000000000000000000000';
+  const observations = readCommitObservations(repo, [
+    trailerlessCommit,
+    missingCommit,
+    closingCommit,
+  ]);
+
+  assert.equal(Object.isFrozen(observations), true);
+  assert.deepEqual(
+    observations.map(({ exists, oid, resolvedOid }) => ({ exists, oid, resolvedOid })),
+    [
+      { exists: true, oid: trailerlessCommit, resolvedOid: trailerlessCommit },
+      { exists: false, oid: missingCommit, resolvedOid: null },
+      { exists: true, oid: closingCommit, resolvedOid: closingCommit },
+    ],
+  );
+  assert.match(observations[0]?.message ?? '', /Merge pull request #549/);
+  assert.equal(observations[1]?.message, null);
+  assert.match(observations[2]?.message ?? '', /INFRA-CRITICAL-009/);
+  assert.equal(observations.every(Object.isFrozen), true);
+});
+
+void test('readCommitObservations rejects duplicate identities before opening Git', () => {
+  assert.throws(
+    () => readCommitObservations(repo, [closingCommit, closingCommit]),
+    /duplicate object IDs/,
+  );
+});
+
+function commitBatchRecord(resolvedOid: string, message: Buffer): Buffer {
+  const content = Buffer.concat([
+    Buffer.from(
+      `tree 1111111111111111111111111111111111111111\nauthor Spec <spec@example.invalid> 0 +0000\ncommitter Spec <spec@example.invalid> 0 +0000\n\n`,
+      'ascii',
+    ),
+    message,
+  ]);
+  return Buffer.concat([
+    Buffer.from(`${resolvedOid} commit ${String(content.length)}\n`, 'ascii'),
+    content,
+    Buffer.from('\n', 'ascii'),
+  ]);
+}
+
+void test('commit observation parser rejects ambiguous, truncated, trailing, and non-UTF-8 frames', () => {
+  const requestedOid = 'abcdef0';
+  const resolvedOid = 'abcdef0123456789abcdef0123456789abcdef01';
+  const valid = commitBatchRecord(resolvedOid, Buffer.from('valid message\n'));
+
+  assert.throws(
+    () =>
+      parseCommitObservationBatch(
+        [requestedOid],
+        Buffer.from(`${requestedOid}^{commit} ambiguous\n`),
+      ),
+    /invalid header/,
+  );
+  assert.throws(
+    () => parseCommitObservationBatch([requestedOid], valid.subarray(0, valid.length - 1)),
+    /truncated content/,
+  );
+  assert.throws(
+    () => parseCommitObservationBatch([requestedOid], Buffer.concat([valid, Buffer.from('x')])),
+    /unconsumed trailing bytes/,
+  );
+  assert.throws(
+    () =>
+      parseCommitObservationBatch(
+        [requestedOid],
+        commitBatchRecord(resolvedOid, Buffer.from([0xff])),
+      ),
+    /non-UTF-8 message/,
+  );
 });

@@ -158,6 +158,13 @@ _DOMAIN_TOUCH_MAP: dict[str, tuple[str, ...]] = {
 }
 
 
+def domain_touch_map() -> dict[str, tuple[str, ...]]:
+    """Public SSoT accessor (E15-a) — service_dimension imports the
+    ownership map through this seam instead of copying it; a copy would
+    fork the moment the operator extends the map."""
+    return dict(_DOMAIN_TOUCH_MAP)
+
+
 # Plan ARIA-V6 §2c — cross-cutting specialists fired on multi-domain
 # pressures regardless of touch-map. Activated when pressure severity
 # ≥ HIGH AND multiple domains touched in cycle_diff.

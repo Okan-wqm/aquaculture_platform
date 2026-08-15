@@ -379,10 +379,29 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # machine-local state that means nothing on the next host and rewrites on
     # every one.
     #
-    # It is DERIVED state, re-established per runner. The restore action runs
-    # `integrity migrate-tools-bootstrap` immediately after the checkout, so
-    # every lane gets a bound root from one definition rather than each
-    # remembering to bootstrap. See .github/actions/restore-aria-state.
+    # It is DERIVED state, re-established per runner by
+    # `tools_binding.bind_tools_root`, which the restore action runs
+    # immediately after the checkout — one definition, rather than each lane
+    # remembering to bind. See .github/actions/restore-aria-state.
+    #
+    # ORPHAN-HIGH-556 — but only the HOST half is derived, and treating the
+    # whole file as host-local was the defect. `tools_contract.json` below
+    # carries the part that is a property of the TREE and the REPOSITORY:
+    # the contract version and the environment-independent canonical
+    # identity. Publishing it is what lets a restored tree state what it
+    # already is. Without it `tools_contract_version` read 0 on a healthy v3
+    # tree, so the nightly bind ran a full v0→v2→v3 MIGRATION every night —
+    # a whole-tree backup and a rewrite of every covered ledger, to
+    # re-establish a binding.
+    # `profile_surface` is DECLARED rather than inferred. The fallback is the
+    # lock group, which would have minted a brand-new profile surface
+    # ("registry") that no callsite ever names — a gate with no consumer,
+    # which is ORPHAN-CRITICAL-498's shape. `tool_governance` is the gate
+    # every writer of this file actually passes through.
+    StateSurface(
+        "tools_contract", "tools_contract.json", "index", "registry", "tools", True,
+        "rewrite_fsync", True, profile_surface="tool_governance",
+    ),
     StateSurface("runtime_profile_state", "runtime-profile.json", "runtime_state", "runtime_profile", "tools", True, "rewrite_fsync", True),
     StateSurface("runtime_profile_history", "runtime-profile-history.jsonl", "ledger", "runtime_profile", "tools", True, "append_fsync", True),
     StateSurface("raw_findings", "raw-findings.jsonl", "ledger", "runtime", "runtime", True, "append_fsync", True),
@@ -451,6 +470,97 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # byte recomputable from the repo at indexed_sha, hence index-class and
     # write_driving=False; it informs reads, it never authorises an action.
     StateSurface("twin_map", "twin/map.json", "index", "impact", "runtime", True, "rewrite_fsync", False, profile_surface="observation", observe_class="observation"),
+    # M11/E12-b — the knowledge-graph ledgers join the declared surface
+    # system. They had THREE writers' worth of accumulated knowledge
+    # (conventions, anti-patterns, source effectiveness, duel ratings,
+    # embeddings) and were invisible to iter_surfaces(): the aria/state
+    # publish never carried them, so every night's learning evaporated at
+    # job teardown — the Thompson bandit (M3) started from zero nightly,
+    # and no convention could survive to be promoted (M2). strict_read is
+    # False by DESIGN, not laxity: these files carry the knowledge-graph's
+    # own prev_row_hash chain (verified by verify_chain_or_quarantine);
+    # rows appended before this change have no ledger_hash envelope, and
+    # an append-only ledger does not rewrite its history to fit a new
+    # wrapper. New rows carry BOTH chains.
+    StateSurface("kg_conventions", "knowledge-graph/conventions.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("kg_anti_patterns", "knowledge-graph/anti-patterns.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("kg_pressure_source_effectiveness", "knowledge-graph/pressure-source-effectiveness.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("kg_duel_ratings", "knowledge-graph/duel-ratings.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("kg_embeddings", "knowledge-graph/embeddings.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # E17-d — per-spawn context usage joins the knowledge-graph family as a
+    # late joiner: whether the server prompt-cache actually spans judge
+    # spawns was an UNTESTED assumption because extract_usage forwarded the
+    # API's cache_* fields and nothing recorded them per-role. strict_read
+    # False / write_driving False for the same DESIGN reasons as the kg_
+    # block above: an observation ledger informs calibration, it never
+    # authorises an action, and it must not turn a single historical defect
+    # into a write-block on spawn accounting.
+    StateSurface("context_usage", "knowledge-graph/context-usage.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # ORPHAN-668 — the learning wheel's VERDICT and CALIBRATION ledgers
+    # join the declared surface system. Same defect class as M11/E12-b,
+    # one ring further out: operator/AI verdicts (operator-feedback),
+    # judge + adapter calibration, judgment samples, consensus
+    # uncertainties, reflections, capability gaps, proactive priorities,
+    # problem clusters, task candidates and genesis request status were
+    # all written with the hash-chained §A.1 primitive but were invisible
+    # to iter_surfaces() — the aria/state publish never carried them, so
+    # every night's verdicts and calibration died at job teardown:
+    # auto-promotion (C7) could never accumulate precision_history, and
+    # yesterday's false-positive verdicts could not stop tomorrow's
+    # repeat findings. strict_read is False by the same DESIGN as the
+    # knowledge-graph block above: these ledgers predate the declared
+    # system; an append-time chain verify would turn any single
+    # historical defect into a permanent write-block on the whole
+    # learning wheel. write_driving=False: they inform judgment, they
+    # never authorise an action by themselves.
+    StateSurface("operator_feedback", "operator-feedback.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("judgment_samples", "judgment-samples.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("feedback_consensus_uncertainties", "feedback-consensus-uncertainties.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("operator_feedback_seeding", "operator-feedback-seeding/*/*.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("calibration_judge", "calibration/judge-calibration.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("calibration_adapter_reports", "calibration/adapter-calibration-reports.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("calibration_recommendations", "calibration/recommendations.jsonl", "ledger", "calibration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("capability_gaps", "capability-gaps/gaps.jsonl", "ledger", "capability_gaps", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("proactive_priorities", "proactive/priorities.jsonl", "ledger", "proactive", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("problem_clusters", "problem_clusters.jsonl", "ledger", "clustering", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("reflections", "reflections.jsonl", "ledger", "reflection", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("skill_genesis_request_status", "skill-genesis/request-status.jsonl", "ledger", "genesis", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("task_candidates", "tasks/task-candidates.jsonl", "ledger", "tasks", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # ORPHAN-670 — the roster gap was SYSTEMIC, not incidental: after two
+    # one-off sweeps (M11/E12-b, ORPHAN-668) a third sweep still found 21
+    # kernel ledgers invisible to iter_surfaces() — tool findings (1,849
+    # rows the night the gap was found), promotions, quarantine history,
+    # per-run tool calibration, review records, agent priors,
+    # kernel-change requests, the observability family (alert history the
+    # daily report reads!), and the architecture/codegen/research/llm
+    # subsystem ledgers. Every one died at job teardown. The lasting fix
+    # is not this block — it is tests/test_ledger_roster_invariant.py:
+    # a static sweep that fails CI the moment ANY kernel writer targets a
+    # tools-relative .jsonl with no declared surface and no justified
+    # exclusion. This block just pays the inventory that invariant found.
+    # strict_read=False / write_driving=False by the same late-joiner
+    # design as the knowledge-graph and ORPHAN-668 blocks above.
+    StateSurface("findings", "findings.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("promotions", "promotions.jsonl", "ledger", "feedback", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("quarantine_log", "quarantine.jsonl", "ledger", "runtime", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("tool_calibration", "calibration.jsonl", "ledger", "runtime", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("review_records", "reviews.jsonl", "ledger", "runtime", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("since_migration_events", "since_migration_events.jsonl", "ledger", "migration", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("agent_priors_map", "agent-priors/agent-map.jsonl", "ledger", "agent_priors", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("kernel_change_requests", "kernel-change/requests.jsonl", "ledger", "kernel_change", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("observability_cycle_metrics", "observability/cycle-metrics.jsonl", "ledger", "observability", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("observability_dashboards", "observability/dashboards.jsonl", "ledger", "observability", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("observability_alerts", "observability/alerts.jsonl", "ledger", "observability", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("architecture_reviews", "architecture/reviews.jsonl", "ledger", "architecture", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("architecture_option_sets", "architecture/option-sets.jsonl", "ledger", "architecture", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("architecture_evidence_packs", "architecture/evidence-packs.jsonl", "ledger", "architecture", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("architecture_adr_drafts", "architecture/adr-drafts.jsonl", "ledger", "architecture", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("codegen_change_plans", "codegen/code-change-plans.jsonl", "ledger", "codegen", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("codegen_diff_packets", "codegen/generated-diff-packets.jsonl", "ledger", "codegen", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("research_sources", "research/sources.jsonl", "ledger", "research", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("research_fetches", "research/fetches.jsonl", "ledger", "research", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("research_policies", "research/policies.jsonl", "ledger", "research", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    StateSurface("llm_proposal_amplifications", "llm/proposal-amplifications.jsonl", "ledger", "llm", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     StateSurface("executor_registry", "executor/registry.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("executor_packets", "executor/packets.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
     StateSurface("executor_diff_reviews", "executor/diff-reviews.jsonl", "ledger", "executor", "runtime", True, "append_fsync", True, profile_surface="observation", observe_class="action"),
@@ -474,6 +584,9 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("ci_reports", "ci/ci-reports.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),
     StateSurface("ci_source", "ci/source.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),
     StateSurface("ci_pr_gates", "ci/pr-ci-gates.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),
+    # Own-PR CI feedback bridge (ORPHAN-HIGH-626): latest row per PR is the
+    # red/cleared state the pressure producer reads back.
+    StateSurface("own_pr_checks", "ci/own-pr-checks.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),
     StateSurface("ci_agent_review_tasks", "ci/agent-review-tasks.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),
     StateSurface("ci_agent_reviews", "ci/agent-reviews.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),
     StateSurface("ci_remediation_proposals", "ci/remediation-proposals.jsonl", "ledger", "ci", "runtime", True, "append_fsync", True, profile_surface="ci", observe_class="action"),

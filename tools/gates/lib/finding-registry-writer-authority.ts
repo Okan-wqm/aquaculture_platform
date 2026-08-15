@@ -71,9 +71,9 @@ const FINDING_WRITER_AUTOMATION_WORKFLOW_REFS = Object.freeze(
 
 export const FINDING_WRITER_AUTHORITY_PATH =
   '.github/manifests/finding-registry-writer-authority.json';
-export const FINDING_WRITER_AUTHORITY_SCHEMA = 'aqua/finding-registry-writer-authority/v6' as const;
-export const FINDING_WRITER_AUTHORITY_SCHEMA_VERSION = 6 as const;
-export const FINDING_WRITER_PROTOCOL_ID = 'aqua.finding-registry-writer/v7' as const;
+export const FINDING_WRITER_AUTHORITY_SCHEMA = 'aqua/finding-registry-writer-authority/v7' as const;
+export const FINDING_WRITER_AUTHORITY_SCHEMA_VERSION = 7 as const;
+export const FINDING_WRITER_PROTOCOL_ID = 'aqua.finding-registry-writer/v8' as const;
 export const FINDING_WRITER_PUBLISHER = 'GITHUB_GRAPHQL_SIGNED_COMMIT_V1' as const;
 export const FINDING_WRITER_PUBLISHER_CREDENTIAL =
   'CURRENT_REPOSITORY_GITHUB_APP_INSTALLATION_V1' as const;
@@ -903,6 +903,7 @@ const HERMETIC_GIT_PRODUCTION_RUNTIME_EXPORTS = Object.freeze([
 
 type FindingWriterDynamicModuleLoaderTargetPolicy = Readonly<{
   kind: 'DESCRIPTOR_BOUND_REPOSITORY_APPLICATION_SOURCE';
+  authorityConstructionFunction: 'ensureRepositoryApplicationExecutionAuthority';
   enclosingFunction: 'evaluateDescriptorBoundRepositoryApplicationModule';
   guardFunction: 'openRepositoryApplicationModule';
   compilerExecutionCount: 1;
@@ -920,18 +921,25 @@ type FindingWriterDynamicModuleLoaderTargetPolicy = Readonly<{
   privateLoaderWriteCount: 3;
   privateModuleCacheReadCount: 1;
   privateResolverReadCount: 1;
-  privateResolverWriteCount: 1;
+  privateResolverWriteCount: 4;
   pathRegistrationCount: 1;
-  pathUnregistrationCount: 2;
-  registryHandlerDeleteCount: 1;
-  registryHandlerReadCount: 5;
-  registryHandlerWriteCount: 2;
+  pathUnregistrationCount: 1;
+  registryHandlers: readonly Readonly<{
+    extension: '.json' | '.ts';
+    handler: 'jsonHandler' | 'typescriptHandler';
+    label: 'JSON' | 'TypeScript';
+    previousHandler: 'previousJsonHandler' | 'previousTypeScriptHandler';
+  }>[];
   requireCacheAccessCount: 0;
   requireExtensionsJavaScriptAccessCount: 0;
   requireExtensionsTypeScriptAccessCount: 0;
   requireResolveAliasCount: 0;
   requireResolvePackageCoordinateCount: 2;
   resolverExecutionCount: 1;
+  runtimeActiveAssertionFunction: 'assertRepositoryApplicationExecutionRuntimeCurrent';
+  runtimeInactiveAssertionFunction: 'assertRepositoryApplicationExecutionRuntimeInactive';
+  runtimeInstallFunction: 'installRepositoryApplicationExecutionRuntime';
+  runtimeRestoreFunction: 'restoreRepositoryApplicationExecutionRuntime';
 }>;
 
 interface FindingWriterDynamicModuleLoaderAuthorityV1 {
@@ -977,9 +985,26 @@ function freezeFindingWriterDynamicModuleLoaderAuthority(
     if (entry.reason.trim().length === 0) {
       throw new Error(`Finding writer dynamic module loader authority has no reason: ${identity}`);
     }
+    const registryHandlers = entry.targetPolicy.registryHandlers.map((handler) =>
+      Object.freeze({ ...handler }),
+    );
+    const handlerExtensions = registryHandlers.map((handler) => handler.extension);
+    if (
+      new Set(handlerExtensions).size !== handlerExtensions.length ||
+      [...handlerExtensions].sort(compareText).some((extension, index) => {
+        return extension !== handlerExtensions[index];
+      })
+    ) {
+      throw new Error(
+        `Finding writer dynamic module loader registry handlers are duplicated or unordered: ${identity}`,
+      );
+    }
     return Object.freeze({
       ...entry,
-      targetPolicy: Object.freeze({ ...entry.targetPolicy }),
+      targetPolicy: Object.freeze({
+        ...entry.targetPolicy,
+        registryHandlers: Object.freeze(registryHandlers),
+      }),
     });
   });
   return Object.freeze(
@@ -999,6 +1024,7 @@ export const FINDING_WRITER_DYNAMIC_MODULE_LOADER_AUTHORITY =
       argumentExpression: 'handlerCoordinate',
       targetPolicy: {
         kind: 'DESCRIPTOR_BOUND_REPOSITORY_APPLICATION_SOURCE',
+        authorityConstructionFunction: 'ensureRepositoryApplicationExecutionAuthority',
         compilerExecutionCount: 1,
         dependencyResolverExecutionCount: 1,
         enclosingFunction: 'evaluateDescriptorBoundRepositoryApplicationModule',
@@ -1016,18 +1042,33 @@ export const FINDING_WRITER_DYNAMIC_MODULE_LOADER_AUTHORITY =
         privateLoaderWriteCount: 3,
         privateModuleCacheReadCount: 1,
         privateResolverReadCount: 1,
-        privateResolverWriteCount: 1,
+        privateResolverWriteCount: 4,
         pathRegistrationCount: 1,
-        pathUnregistrationCount: 2,
-        registryHandlerDeleteCount: 1,
-        registryHandlerReadCount: 5,
-        registryHandlerWriteCount: 2,
+        pathUnregistrationCount: 1,
+        registryHandlers: [
+          {
+            extension: '.json',
+            handler: 'jsonHandler',
+            label: 'JSON',
+            previousHandler: 'previousJsonHandler',
+          },
+          {
+            extension: '.ts',
+            handler: 'typescriptHandler',
+            label: 'TypeScript',
+            previousHandler: 'previousTypeScriptHandler',
+          },
+        ],
         requireCacheAccessCount: 0,
         requireExtensionsJavaScriptAccessCount: 0,
         requireExtensionsTypeScriptAccessCount: 0,
         requireResolveAliasCount: 0,
         requireResolvePackageCoordinateCount: 2,
         resolverExecutionCount: 1,
+        runtimeActiveAssertionFunction: 'assertRepositoryApplicationExecutionRuntimeCurrent',
+        runtimeInactiveAssertionFunction: 'assertRepositoryApplicationExecutionRuntimeInactive',
+        runtimeInstallFunction: 'installRepositoryApplicationExecutionRuntime',
+        runtimeRestoreFunction: 'restoreRepositoryApplicationExecutionRuntime',
       },
       reason:
         'The sole CommonJS evaluation kernel executes one bounded descriptor snapshot below canonical apps/.',
@@ -1221,7 +1262,10 @@ export const FINDING_WRITER_SENSITIVE_IMPORT_AUTHORITY =
     {
       target: 'tools/gates/finding-registry-store.ts',
       symbol: 'testOnlyWithRegistryFileLockAsync',
-      importers: ['tools/gates/finding-registry-store.spec.ts'],
+      importers: [
+        'tools/gates/finding-registry-store.spec.ts',
+        'tools/gates/lib/finding-registry-lock.fixture.ts',
+      ],
     },
     {
       target: 'tools/gates/finding-registry-store.ts',
@@ -1416,6 +1460,7 @@ export const FINDING_WRITER_SENSITIVE_READ_ONLY_EXPORTS =
     { target: 'tools/gates/finding-registry.ts', symbol: 'reservedDomainFloorsFromManifest' },
     { target: 'tools/gates/finding-registry.ts', symbol: 'allocationFloorForDomain' },
     { target: 'tools/gates/finding-registry.ts', symbol: 'claimedIdsForDomain' },
+    { target: 'tools/gates/finding-registry.ts', symbol: 'planSweep' },
     {
       target: 'tools/gates/lib/source-finding-publication-kernel.ts',
       symbol: 'SourceFindingPublicationCrash',
@@ -1571,11 +1616,16 @@ export const FINDING_WRITER_SENSITIVE_READ_ONLY_EXPORTS =
     },
   ] as const satisfies readonly FindingWriterSensitiveReadOnlyExport[]);
 
+export interface FindingWriterProtocolFileDigest {
+  readonly path: string;
+  readonly sha256: string;
+}
+
 export interface FindingWriterProtocolManifest {
   readonly $schema: typeof FINDING_WRITER_AUTHORITY_SCHEMA;
   readonly schema_version: typeof FINDING_WRITER_AUTHORITY_SCHEMA_VERSION;
   readonly protocol_id: typeof FINDING_WRITER_PROTOCOL_ID;
-  readonly files: Readonly<Record<string, string>>;
+  readonly files: readonly FindingWriterProtocolFileDigest[];
   readonly repository_global_authority: {
     readonly kind: 'GITHUB_ACTIONS_OIDC_V1';
     readonly workflow_refs: readonly string[];
@@ -1602,6 +1652,10 @@ export interface FindingWriterProtocolManifest {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isUnknownArray(value: unknown): value is unknown[] {
+  return Array.isArray(value);
 }
 
 function exactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
@@ -3335,6 +3389,120 @@ function assertDescriptorBoundLoaderPolicy(
     ts.isArrayLiteralExpression(argument) &&
     argument.elements.length === expected.length &&
     argument.elements.every((element, index) => element.getText(source) === expected[index]);
+  const unwrapStaticExpression = (expression: ts.Expression): ts.Expression => {
+    let current = expression;
+    while (ts.isAsExpression(current) || ts.isParenthesizedExpression(current)) {
+      current = current.expression;
+    }
+    return current;
+  };
+  const registryHandlersByExtension = new Map(
+    policy.registryHandlers.map((handler) => [handler.extension, handler] as const),
+  );
+  let applicationExtensionSetDeclarations = 0;
+  let registryHandlerRollbackLoop: ts.ForOfStatement | undefined;
+  const inspectRegistryHandlerSsot = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === 'REPOSITORY_APPLICATION_MODULE_EXTENSIONS'
+    ) {
+      applicationExtensionSetDeclarations += 1;
+      const initializer = node.initializer;
+      const setValues =
+        initializer !== undefined &&
+        ts.isNewExpression(initializer) &&
+        ts.isIdentifier(initializer.expression) &&
+        initializer.expression.text === 'Set' &&
+        initializer.arguments?.length === 1 &&
+        initializer.arguments[0] !== undefined
+          ? unwrapStaticExpression(initializer.arguments[0])
+          : undefined;
+      if (
+        setValues === undefined ||
+        !ts.isArrayLiteralExpression(setValues) ||
+        setValues.elements.length !== policy.registryHandlers.length ||
+        setValues.elements.some((element, index) => {
+          const expected = policy.registryHandlers[index];
+          return (
+            expected === undefined ||
+            !ts.isStringLiteralLike(element) ||
+            element.text !== expected.extension
+          );
+        })
+      ) {
+        throw new Error(
+          `Finding writer repository application extension SSOT drifted: ${authority.path}`,
+        );
+      }
+    }
+    if (ts.isForOfStatement(node)) {
+      const declaration = ts.isVariableDeclarationList(node.initializer)
+        ? node.initializer.declarations[0]
+        : undefined;
+      const bindingNames =
+        ts.isVariableDeclarationList(node.initializer) &&
+        node.initializer.declarations.length === 1 &&
+        declaration !== undefined &&
+        ts.isArrayBindingPattern(declaration.name)
+          ? declaration.name.elements.map((element) =>
+              ts.isBindingElement(element) ? element.name.getText(source) : '<omitted>',
+            )
+          : [];
+      if (
+        bindingNames.join('\0') ===
+        ['extension', 'installedHandler', 'previousHandler', 'label'].join('\0')
+      ) {
+        if (registryHandlerRollbackLoop !== undefined) {
+          throw new Error(
+            `Finding writer repository handler rollback authority is duplicated: ${authority.path}`,
+          );
+        }
+        const rollbackEntries = unwrapStaticExpression(node.expression);
+        if (
+          !ts.isArrayLiteralExpression(rollbackEntries) ||
+          rollbackEntries.elements.length !== policy.registryHandlers.length ||
+          rollbackEntries.elements.some((element, index) => {
+            const expected = policy.registryHandlers[index];
+            const tuple = unwrapStaticExpression(element);
+            return (
+              expected === undefined ||
+              !ts.isArrayLiteralExpression(tuple) ||
+              tuple.elements.length !== 4 ||
+              tuple.elements[0] === undefined ||
+              !ts.isStringLiteralLike(tuple.elements[0]) ||
+              tuple.elements[0].text !== expected.extension ||
+              tuple.elements[1]?.getText(source) !== `authority.${expected.handler}` ||
+              tuple.elements[2]?.getText(source) !== `authority.${expected.previousHandler}` ||
+              tuple.elements[3] === undefined ||
+              !ts.isStringLiteralLike(tuple.elements[3]) ||
+              tuple.elements[3].text !== expected.label
+            );
+          })
+        ) {
+          throw new Error(
+            `Finding writer repository handler rollback SSOT drifted: ${authority.path}`,
+          );
+        }
+        registryHandlerRollbackLoop = node;
+      }
+    }
+    ts.forEachChild(node, inspectRegistryHandlerSsot);
+  };
+  inspectRegistryHandlerSsot(source);
+  if (applicationExtensionSetDeclarations !== 1 || registryHandlerRollbackLoop === undefined) {
+    throw new Error(
+      `Finding writer repository handler extension authority cardinality drifted: ${authority.path}`,
+    );
+  }
+  const isInsideRegistryHandlerRollback = (node: ts.Node): boolean => {
+    let current: ts.Node | undefined = node.parent;
+    while (current !== undefined && !ts.isSourceFile(current)) {
+      if (ts.isForOfStatement(current)) return current === registryHandlerRollbackLoop;
+      current = current.parent;
+    }
+    return false;
+  };
   const inspectCapability = (node: ts.Node): void => {
     if (
       ts.isImportDeclaration(node) &&
@@ -3433,21 +3601,19 @@ function assertDescriptorBoundLoaderPolicy(
         } else {
           privateLoaderWrites += 1;
           const expression = node.getText(source);
-          if (expression === "Reflect.set(Module, '_load', governedLoader)") {
+          if (
+            expression === "Reflect.set(Module, '_load', authority.loader)" &&
+            enclosingFindingWriterFunctionName(node) === policy.runtimeInstallFunction
+          ) {
             privateLoaderInstalls += 1;
-          } else if (expression === "Reflect.set(Module, '_load', previousLoader)") {
+          } else if (
+            expression === "Reflect.set(Module, '_load', authority.previousLoader)" &&
+            enclosingFindingWriterFunctionName(node) === policy.runtimeRestoreFunction
+          ) {
             privateLoaderRestores += 1;
           } else {
             throw new Error(
               `Finding writer CommonJS loader write escaped its exact AST authority: ${authority.path}:${expression}`,
-            );
-          }
-          if (
-            enclosingFindingWriterFunctionName(node) !==
-            'ensureRepositoryApplicationExecutionAuthority'
-          ) {
-            throw new Error(
-              `Finding writer CommonJS loader write escaped its exact function: ${authority.path}:${expression}`,
             );
           }
         }
@@ -3460,11 +3626,20 @@ function assertDescriptorBoundLoaderPolicy(
         );
       } else {
         privateResolverWrites += 1;
-        assertExactCapability(
-          node,
-          'ensureRepositoryApplicationExecutionAuthority',
-          "Reflect.set(Module, '_resolveFilename', previousResolver)",
-        );
+        const expression = node.getText(source);
+        const enclosingFunction = enclosingFindingWriterFunctionName(node);
+        const governedResolverWrite =
+          (enclosingFunction === policy.runtimeInstallFunction &&
+            expression === "Reflect.set(Module, '_resolveFilename', authority.resolver)") ||
+          (enclosingFunction === policy.runtimeRestoreFunction &&
+            expression === "Reflect.set(Module, '_resolveFilename', authority.previousResolver)") ||
+          (enclosingFunction === policy.authorityConstructionFunction &&
+            expression === "Reflect.set(Module, '_resolveFilename', previousResolver)");
+        if (!governedResolverWrite) {
+          throw new Error(
+            `Finding writer CommonJS resolver write escaped its exact authority: ${authority.path}:${expression}`,
+          );
+        }
       }
     }
     if (
@@ -3524,54 +3699,119 @@ function assertDescriptorBoundLoaderPolicy(
       (node.expression.name.text === 'get' ||
         node.expression.name.text === 'set' ||
         node.expression.name.text === 'deleteProperty') &&
-      node.arguments[1] !== undefined &&
-      ts.isStringLiteralLike(node.arguments[1]) &&
-      node.arguments[1].text === '.ts'
+      (node.arguments[0]?.getText(source) === 'extensionRegistry' ||
+        node.arguments[0]?.getText(source) === 'authority.extensionRegistry')
     ) {
       const registryRoot = node.arguments[0]?.getText(source);
       const operation = node.expression.name.text;
       const enclosingFunction = enclosingFindingWriterFunctionName(node);
+      const extensionExpression = node.arguments[1];
+      const literalHandler =
+        extensionExpression !== undefined && ts.isStringLiteralLike(extensionExpression)
+          ? registryHandlersByExtension.get(extensionExpression.text as '.json' | '.ts')
+          : undefined;
+      const rollbackScoped =
+        extensionExpression !== undefined &&
+        ts.isIdentifier(extensionExpression) &&
+        extensionExpression.text === 'extension' &&
+        isInsideRegistryHandlerRollback(node);
+      if (literalHandler === undefined && !rollbackScoped) {
+        throw new Error(
+          `Finding writer repository handler operation has an ungoverned extension: ${authority.path}:${node.getText(source)}`,
+        );
+      }
+      const runtimeOperationCount = rollbackScoped ? policy.registryHandlers.length : 1;
       if (operation === 'get') {
-        registryHandlerReads += 1;
-        if (
-          (registryRoot !== 'authority.extensionRegistry' ||
-            enclosingFunction !== 'assertRepositoryApplicationExecutionRuntimeCurrent') &&
-          (registryRoot !== 'extensionRegistry' ||
-            enclosingFunction !== 'ensureRepositoryApplicationExecutionAuthority')
-        ) {
+        registryHandlerReads += runtimeOperationCount;
+        if (registryRoot === 'authority.extensionRegistry') {
+          if (rollbackScoped) {
+            if (enclosingFunction !== policy.runtimeRestoreFunction) {
+              throw new Error(
+                `Finding writer repository handler restoration read escaped its exact authority: ${authority.path}:${node.getText(source)}`,
+              );
+            }
+            ts.forEachChild(node, inspectCapability);
+            return;
+          }
+          const comparison = node.parent;
+          const comparedValue =
+            ts.isBinaryExpression(comparison) && comparison.left === node
+              ? comparison.right
+              : ts.isBinaryExpression(comparison) && comparison.right === node
+                ? comparison.left
+                : undefined;
+          const expectedComparedValue =
+            enclosingFunction === policy.runtimeActiveAssertionFunction
+              ? literalHandler === undefined
+                ? undefined
+                : `authority.${literalHandler.handler}`
+              : enclosingFunction === policy.runtimeInactiveAssertionFunction
+                ? literalHandler === undefined
+                  ? undefined
+                  : `authority.${literalHandler.previousHandler}`
+                : undefined;
+          if (
+            expectedComparedValue === undefined ||
+            !ts.isBinaryExpression(comparison) ||
+            comparison.operatorToken.kind !== ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+            comparedValue?.getText(source) !== expectedComparedValue
+          ) {
+            throw new Error(
+              `Finding writer repository handler currentness read escaped its exact authority: ${authority.path}:${node.getText(source)}`,
+            );
+          }
+        } else if (enclosingFunction !== policy.authorityConstructionFunction) {
           throw new Error(
-            `Finding writer TypeScript handler read escaped its exact authority: ${authority.path}:${node.getText(source)}`,
+            `Finding writer repository handler read escaped its exact authority: ${authority.path}:${node.getText(source)}`,
           );
+        } else if (!rollbackScoped) {
+          const declaration = node.parent;
+          if (
+            literalHandler === undefined ||
+            !ts.isVariableDeclaration(declaration) ||
+            declaration.initializer !== node ||
+            !ts.isIdentifier(declaration.name) ||
+            declaration.name.text !== literalHandler.previousHandler
+          ) {
+            throw new Error(
+              `Finding writer repository handler baseline read escaped its exact authority: ${authority.path}:${node.getText(source)}`,
+            );
+          }
         }
       } else if (operation === 'set') {
-        registryHandlerWrites += 1;
+        registryHandlerWrites += runtimeOperationCount;
+        const handlerValue = node.arguments[2]?.getText(source);
         if (
-          registryRoot !== 'extensionRegistry' ||
-          enclosingFunction !== 'ensureRepositoryApplicationExecutionAuthority'
+          !rollbackScoped &&
+          registryRoot === 'authority.extensionRegistry' &&
+          enclosingFunction === policy.runtimeInstallFunction &&
+          handlerValue ===
+            (literalHandler === undefined ? undefined : `authority.${literalHandler.handler}`)
         ) {
-          throw new Error(
-            `Finding writer TypeScript handler write escaped its exact authority: ${authority.path}:${node.getText(source)}`,
-          );
-        }
-        const expression = node.getText(source);
-        if (expression === "Reflect.set(extensionRegistry, '.ts', typescriptHandler)") {
           registryHandlerInstalls += 1;
         } else if (
-          expression === "Reflect.set(extensionRegistry, '.ts', previousTypeScriptHandler)"
+          rollbackScoped &&
+          registryRoot === 'authority.extensionRegistry' &&
+          enclosingFunction === policy.runtimeRestoreFunction &&
+          handlerValue === 'previousHandler'
         ) {
-          registryHandlerRestores += 1;
+          registryHandlerRestores += runtimeOperationCount;
         } else {
           throw new Error(
-            `Finding writer TypeScript handler write has an ungoverned value: ${authority.path}:${expression}`,
+            `Finding writer repository handler write has an ungoverned value: ${authority.path}:${node.getText(source)}`,
           );
         }
       } else {
-        registryHandlerDeletes += 1;
-        assertExactCapability(
-          node,
-          'ensureRepositoryApplicationExecutionAuthority',
-          "Reflect.deleteProperty(extensionRegistry, '.ts')",
-        );
+        registryHandlerDeletes += runtimeOperationCount;
+        if (
+          !rollbackScoped ||
+          registryRoot !== 'authority.extensionRegistry' ||
+          enclosingFunction !== policy.runtimeRestoreFunction
+        ) {
+          throw new Error(
+            `Finding writer repository handler deletion escaped its exact authority: ${authority.path}:${node.getText(source)}`,
+          );
+        }
       }
     }
     if (
@@ -3646,15 +3886,9 @@ function assertDescriptorBoundLoaderPolicy(
             `Finding writer path registration escaped its exact authority: ${authority.path}`,
           );
         }
-      } else if (
-        capability === 'unregisterPathsValue' ||
-        capability === 'installedUnregisterPaths'
-      ) {
+      } else if (capability === 'unregisterPathsValue') {
         pathUnregistrations += 1;
-        if (
-          enclosingFunction !== 'unregisterPaths' &&
-          enclosingFunction !== 'ensureRepositoryApplicationExecutionAuthority'
-        ) {
+        if (enclosingFunction !== policy.authorityConstructionFunction) {
           throw new Error(
             `Finding writer path cleanup escaped its exact authority: ${authority.path}`,
           );
@@ -3766,11 +4000,11 @@ function assertDescriptorBoundLoaderPolicy(
     privateResolverWrites !== policy.privateResolverWriteCount ||
     pathRegistrations !== policy.pathRegistrationCount ||
     pathUnregistrations !== policy.pathUnregistrationCount ||
-    registryHandlerDeletes !== policy.registryHandlerDeleteCount ||
-    registryHandlerInstalls !== 1 ||
-    registryHandlerReads !== policy.registryHandlerReadCount ||
-    registryHandlerRestores !== 1 ||
-    registryHandlerWrites !== policy.registryHandlerWriteCount ||
+    registryHandlerDeletes !== policy.registryHandlers.length * 2 ||
+    registryHandlerInstalls !== policy.registryHandlers.length ||
+    registryHandlerReads !== policy.registryHandlers.length * 6 ||
+    registryHandlerRestores !== policy.registryHandlers.length * 2 ||
+    registryHandlerWrites !== policy.registryHandlers.length * 3 ||
     requireCacheAccesses !== policy.requireCacheAccessCount ||
     requireExtensionsJavaScriptAccesses !== policy.requireExtensionsJavaScriptAccessCount ||
     requireExtensionsTypeScriptAccesses !== policy.requireExtensionsTypeScriptAccessCount ||
@@ -4395,11 +4629,11 @@ export function buildFindingWriterProtocolManifest(
   snapshot: FindingWriterRepositorySnapshot = createFindingWriterRepositorySnapshot(repoRoot),
 ): FindingWriterProtocolManifest {
   const governedPaths = resolveFindingWriterGovernedPaths(repoRoot, ariaAuthorityPaths, snapshot);
-  const files = Object.fromEntries(
-    governedPaths.map((path) => [
+  const files = governedPaths.map((path) =>
+    Object.freeze({
       path,
-      createHash('sha256').update(snapshot.readFile(path)).digest('hex'),
-    ]),
+      sha256: createHash('sha256').update(snapshot.readFile(path)).digest('hex'),
+    }),
   );
   return {
     $schema: FINDING_WRITER_AUTHORITY_SCHEMA,
@@ -4492,7 +4726,7 @@ function parseFindingWriterProtocolManifestAgainstPaths(
     value.$schema !== FINDING_WRITER_AUTHORITY_SCHEMA ||
     value.schema_version !== FINDING_WRITER_AUTHORITY_SCHEMA_VERSION ||
     value.protocol_id !== FINDING_WRITER_PROTOCOL_ID ||
-    !isRecord(files) ||
+    !isUnknownArray(files) ||
     !isRecord(authority) ||
     !isRecord(localFence) ||
     !exactKeys(authority, [
@@ -4534,23 +4768,29 @@ function parseFindingWriterProtocolManifestAgainstPaths(
   ) {
     throw new Error(`Finding writer protocol manifest has an incompatible contract: ${path}`);
   }
-  if (!exactKeys(files, expectedPaths)) {
+  if (files.length !== expectedPaths.length) {
     throw new Error(`Finding writer protocol file digest set is invalid: ${path}`);
   }
-  const parsedFiles: Record<string, string> = {};
-  for (const governedPath of expectedPaths) {
-    const digest = files[governedPath];
-    if (typeof digest !== 'string' || !/^[0-9a-f]{64}$/.test(digest)) {
+  const parsedFiles: FindingWriterProtocolFileDigest[] = [];
+  for (const [index, governedPath] of expectedPaths.entries()) {
+    const file = files[index];
+    if (
+      !isRecord(file) ||
+      !exactKeys(file, ['path', 'sha256']) ||
+      file.path !== governedPath ||
+      typeof file.sha256 !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(file.sha256)
+    ) {
       throw new Error(`Finding writer protocol file digest set is invalid: ${path}`);
     }
-    parsedFiles[governedPath] = digest;
+    parsedFiles.push(Object.freeze({ path: governedPath, sha256: file.sha256 }));
   }
 
   return {
     $schema: FINDING_WRITER_AUTHORITY_SCHEMA,
     schema_version: FINDING_WRITER_AUTHORITY_SCHEMA_VERSION,
     protocol_id: FINDING_WRITER_PROTOCOL_ID,
-    files: parsedFiles,
+    files: Object.freeze(parsedFiles),
     repository_global_authority: {
       kind: 'GITHUB_ACTIONS_OIDC_V1',
       workflow_refs: FINDING_WRITER_AUTOMATION_WORKFLOW_REFS,
@@ -4597,7 +4837,7 @@ export function verifyFindingWriterProtocolManifest(
   const parsed = parseFindingWriterProtocolManifestAgainstPaths(
     raw,
     path,
-    Object.keys(expected.files),
+    expected.files.map((file) => file.path),
   );
   if (raw !== renderFindingWriterProtocolManifestValue(expected)) {
     throw new Error(

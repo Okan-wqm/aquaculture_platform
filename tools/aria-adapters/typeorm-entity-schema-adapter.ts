@@ -4,6 +4,7 @@ import ts from 'typescript';
 import {
   collectFiles,
   filterFilesBySnapshot,
+  isArchivedWorkspacePath,
   normalizeWorkspacePath,
   pathAllowedBySnapshot,
   readWorkspaceFile,
@@ -27,6 +28,11 @@ interface AdapterInput {
   readonly target?: string;
   readonly root?: string;
   readonly serviceName?: string;
+  // FAZ 7 — multi-service sweep. When present (or when neither `root` nor
+  // `services` is given, via DEFAULT_SERVICES), the adapter runs its full
+  // check set per service and merges the outputs; schema-drift discipline
+  // stops being a farm-only property.
+  readonly services?: readonly { readonly root: string; readonly serviceName: string }[];
   readonly checks?: readonly CheckName[];
   readonly allowlist?: readonly string[];
   readonly dbSnapshotPath?: string;
@@ -121,6 +127,24 @@ interface ModuleSchemaRecord {
   readonly line: number;
 }
 
+/**
+ * E13 spot-audit FP class (1) — ADR-011 schema-ownership policy, DERIVED from
+ * the SSoT file (`libs/backend-common/src/database/schema-manager.service.ts`)
+ * by parsing its source text. Never hardcode a copy of either list here:
+ * per-tenant tables in tenant-scoped services (TENANT_SCOPED_MODULES)
+ * CORRECTLY omit `schema:` so search_path routes them into `tenant_<uuid>`;
+ * only that service's cross-tenant tables (MODULE_SCHEMAS[].infrastructureTables)
+ * must declare a literal schema.
+ */
+interface SchemaOwnershipPolicy {
+  /** SSoT file exists and is inside the repo snapshot (when one is given). */
+  readonly ssotReadable: boolean;
+  /** Parsed TENANT_SCOPED_MODULES set; null when the declaration is absent (fail-closed). */
+  readonly tenantScopedModules: ReadonlySet<string> | null;
+  readonly moduleSchema: ModuleSchemaRecord | null;
+  readonly infrastructureTables: ReadonlySet<string>;
+}
+
 interface MigrationRegistry {
   readonly path: string;
   readonly importedClasses: ReadonlyMap<string, string>;
@@ -152,13 +176,54 @@ const DEFAULT_CHECKS: readonly CheckName[] = [
   'migration_registry',
 ];
 const MODULE_SCHEMA_PATH = 'libs/backend-common/src/database/schema-manager.service.ts';
-const APP_MODULE_PATH = 'apps/farm-service/src/app.module.ts';
-const MIGRATIONS_DIR = 'apps/farm-service/src/database/migrations';
+// FAZ 7 — the schema-per-tenant services from MODULE_SCHEMAS (ADR-011).
+// Scanning only farm-service made schema drift a farm-only property while
+// six sibling services carried the identical per-tenant discipline unwatched.
+const DEFAULT_SERVICES: readonly { readonly root: string; readonly serviceName: string }[] = [
+  { root: 'apps/alert-engine/src', serviceName: 'alert' },
+  { root: 'apps/ai-service/src', serviceName: 'ai' },
+  { root: 'apps/farm-service/src', serviceName: 'farm' },
+  { root: 'apps/hr-service/src', serviceName: 'hr' },
+  { root: 'apps/hydroponics-service/src', serviceName: 'hydroponics' },
+  { root: 'apps/messaging-service/src', serviceName: 'messaging' },
+  { root: 'apps/sensor-service/src', serviceName: 'sensor' },
+];
 
 export function analyzeTypeOrmEntities(
   input: AdapterInput,
   workspaceRoot = process.cwd(),
 ): AriaOutput {
+  // FAZ 7 — multi-service fan-out. Explicit `root` keeps the historical
+  // single-service call shape (fixtures, targeted runs); everything else
+  // sweeps the declared service list and merges.
+  if (input.root === undefined) {
+    const services = (input.services ?? DEFAULT_SERVICES).filter((service) =>
+      workspacePathExists(resolveInsideWorkspace(workspaceRoot, service.root)),
+    );
+    const outputs = services.map((service) =>
+      analyzeTypeOrmEntities(
+        { ...input, services: undefined, root: service.root, serviceName: service.serviceName },
+        workspaceRoot,
+      ),
+    );
+    const merged = <T>(select: (output: AriaOutput) => readonly T[]): T[] =>
+      outputs.flatMap((output) => [...select(output)]);
+    const readPaths = Array.from(new Set(merged((output) => output.read_paths))).sort();
+    return {
+      observations: merged((output) => output.observations),
+      findings: merged((output) => output.findings),
+      read_paths: readPaths,
+      evidence_sources: Array.from(new Set(merged((output) => output.evidence_sources))).sort(),
+      belief_candidates: merged((output) => output.belief_candidates),
+      cost_units: readPaths.length,
+      metadata: {
+        adapter: 'typeorm-entity-schema-adapter',
+        scanMode: 'multi_service_v1',
+        services: services.map((service) => service.serviceName),
+        findings_count: merged((output) => output.findings).length,
+      },
+    };
+  }
   const requestedRoot = input.root ?? DEFAULT_ROOT;
   const serviceName = input.serviceName ?? 'farm';
   const checks = new Set(input.checks ?? DEFAULT_CHECKS);
@@ -170,13 +235,20 @@ export function analyzeTypeOrmEntities(
   const allowlist = new Set((input.allowlist ?? []).map(normalizePath));
   const moduleTableAllowlist = new Set((input.moduleTableAllowlist ?? []).map(String));
   const files = filterFilesBySnapshot(collectEntityFiles(scanRoot), workspaceRoot, input);
-  const result = analyzeFiles(files, workspaceRoot, allowlist, checks);
+  // The ownership policy is consulted by BOTH the entity_schema check (per-tenant
+  // vs cross-tenant classification) and the module_schema check (declared-table
+  // diff), so it is parsed exactly once per service run.
+  const policy = loadSchemaOwnershipPolicy(workspaceRoot, serviceName, input);
+  const result = analyzeFiles(files, workspaceRoot, allowlist, checks, serviceName, policy);
+  if (policy.ssotReadable && (checks.has('entity_schema') || checks.has('module_schema'))) {
+    result.readPaths.push(MODULE_SCHEMA_PATH);
+  }
 
   if (checks.has('module_schema')) {
-    analyzeModuleSchema(workspaceRoot, serviceName, result, moduleTableAllowlist, input);
+    analyzeModuleSchema(serviceName, result, moduleTableAllowlist, policy);
   }
   if (checks.has('migration_registry')) {
-    analyzeMigrationRegistry(workspaceRoot, result, input);
+    analyzeMigrationRegistry(workspaceRoot, result, input, requestedRoot, serviceName);
   }
   if (checks.has('db_snapshot')) {
     analyzeDbSnapshot(input, workspaceRoot, serviceName, result);
@@ -196,12 +268,12 @@ export function analyzeTypeOrmEntities(
     evidence_sources: evidenceSources,
     belief_candidates: [
       {
-        belief_id: 'typeorm:farm-service:entity-schema-surface',
-        claim: 'farm-service has a recurring TypeORM entity and migration surface for schema drift checks',
+        belief_id: `typeorm:${serviceName}-service:entity-schema-surface`,
+        claim: `${serviceName}-service has a recurring TypeORM entity and migration surface for schema drift checks`,
         confidence: 0.85,
         evidence_refs: [
-          'apps/farm-service/src/**/*.ts',
-          'apps/farm-service/src/database/migrations/*.ts',
+          `${requestedRoot.replace(/\/$/, '')}/**/*.ts`,
+          `${requestedRoot.replace(/\/$/, '')}/database/migrations/*.ts`,
           MODULE_SCHEMA_PATH,
         ],
         source_tool_id: 'typeorm-entity-schema-adapter',
@@ -231,6 +303,8 @@ function analyzeFiles(
   workspaceRoot: string,
   allowlist: ReadonlySet<string>,
   checks: ReadonlySet<CheckName>,
+  serviceName: string,
+  policy: SchemaOwnershipPolicy,
 ): AnalysisResult {
   const observations: AdapterObservation[] = [];
   const findings: AdapterFinding[] = [];
@@ -297,17 +371,37 @@ function analyzeFiles(
       }
 
       if (checks.has('entity_schema') && !allowlisted && !entity.schemaValid) {
-        findings.push({
-          id: `typeorm-entity-schema-required:${relativePath}:${line}`,
-          rule: 'typeorm_entity_schema_required',
-          severity: 'medium',
-          path: relativePath,
-          line,
-          className,
-          message:
-            '@Entity() must declare a non-empty literal schema option unless the entity is explicitly allowlisted as tenant-owned.',
-          evidence: [{ path: relativePath, line }],
-        });
+        // ADR-011 (E13 FP class 1): in a tenant-scoped service, omitting
+        // `schema:` is the CORRECT pattern for per-tenant tables — search_path
+        // routes them into tenant_<uuid> at runtime. A missing schema is only
+        // a violation when the table is in that service's cross-tenant
+        // infrastructureTables set (parsed from the SSoT, never hardcoded).
+        // When the SSoT cannot be read or lacks TENANT_SCOPED_MODULES the
+        // check fails closed and keeps the historical always-flag behaviour.
+        const effectiveTable = entity.table ?? snakeCaseIdentifier(className);
+        const tenantScoped =
+          policy.tenantScopedModules !== null && policy.tenantScopedModules.has(serviceName);
+        const infrastructureTable = policy.infrastructureTables.has(effectiveTable);
+        if (!tenantScoped || infrastructureTable) {
+          findings.push({
+            id: `typeorm-entity-schema-required:${relativePath}:${line}`,
+            rule: 'typeorm_entity_schema_required',
+            severity: 'medium',
+            path: relativePath,
+            line,
+            className,
+            message: infrastructureTable
+              ? `@Entity() for cross-tenant infrastructure table '${effectiveTable}' (MODULE_SCHEMAS['${serviceName}'].infrastructureTables) must declare a non-empty literal schema option.`
+              : '@Entity() must declare a non-empty literal schema option unless the entity is explicitly allowlisted as tenant-owned.',
+            evidence: [
+              { path: relativePath, line },
+              ...(infrastructureTable && policy.moduleSchema
+                ? [{ path: policy.moduleSchema.path, line: policy.moduleSchema.line }]
+                : []),
+            ],
+            details: { table: effectiveTable, tenantScoped, infrastructureTable },
+          });
+        }
       }
     });
   }
@@ -315,15 +409,42 @@ function analyzeFiles(
   return { observations, findings, readPaths };
 }
 
-function analyzeModuleSchema(
+function loadSchemaOwnershipPolicy(
   workspaceRoot: string,
+  serviceName: string,
+  input: AdapterInput,
+): SchemaOwnershipPolicy {
+  const modulePath = resolveInsideWorkspace(workspaceRoot, MODULE_SCHEMA_PATH);
+  if (!workspacePathExists(modulePath) || !pathAllowedBySnapshot(workspaceRoot, MODULE_SCHEMA_PATH, input)) {
+    return {
+      ssotReadable: false,
+      tenantScopedModules: null,
+      moduleSchema: null,
+      infrastructureTables: new Set(),
+    };
+  }
+  const sourceFile = ts.createSourceFile(
+    modulePath,
+    readWorkspaceFile(modulePath),
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  const moduleSchema = readModuleSchema(sourceFile, modulePath, workspaceRoot, serviceName);
+  return {
+    ssotReadable: true,
+    tenantScopedModules: readTenantScopedModules(sourceFile),
+    moduleSchema,
+    infrastructureTables: new Set(moduleSchema?.infrastructureTables ?? []),
+  };
+}
+
+function analyzeModuleSchema(
   serviceName: string,
   result: AnalysisResult,
   tableAllowlist: ReadonlySet<string>,
-  input: AdapterInput,
+  policy: SchemaOwnershipPolicy,
 ): void {
-  const modulePath = resolveInsideWorkspace(workspaceRoot, MODULE_SCHEMA_PATH);
-  if (!workspacePathExists(modulePath) || !pathAllowedBySnapshot(workspaceRoot, MODULE_SCHEMA_PATH, input)) {
+  if (!policy.ssotReadable) {
     result.observations.push({
       id: 'module-schema:missing-source-file',
       type: 'module_schema_unavailable',
@@ -331,8 +452,7 @@ function analyzeModuleSchema(
     });
     return;
   }
-  addReadPath(result, workspaceRoot, modulePath);
-  const moduleSchema = readModuleSchema(modulePath, workspaceRoot, serviceName);
+  const moduleSchema = policy.moduleSchema;
   if (!moduleSchema) {
     result.observations.push({
       id: `module-schema:${serviceName}:not-found`,
@@ -399,12 +519,22 @@ function analyzeModuleSchema(
   });
 }
 
-function analyzeMigrationRegistry(workspaceRoot: string, result: AnalysisResult, input: AdapterInput): void {
+function analyzeMigrationRegistry(
+  workspaceRoot: string,
+  result: AnalysisResult,
+  input: AdapterInput,
+  rootRel: string,
+  serviceName: string,
+): void {
+  // FAZ 7 — derived from the service root instead of farm-only constants,
+  // so every swept service gets the same registry discipline.
+  const APP_MODULE_PATH = `${rootRel.replace(/\/$/, '')}/app.module.ts`;
+  const MIGRATIONS_DIR = `${rootRel.replace(/\/$/, '')}/database/migrations`;
   const appModulePath = resolveInsideWorkspace(workspaceRoot, APP_MODULE_PATH);
   const migrationsDir = resolveInsideWorkspace(workspaceRoot, MIGRATIONS_DIR);
   if (!workspacePathExists(appModulePath) || !workspacePathExists(migrationsDir) || !pathAllowedBySnapshot(workspaceRoot, APP_MODULE_PATH, input)) {
     result.observations.push({
-      id: 'migration-registry:unavailable',
+      id: `migration-registry:unavailable:${serviceName}`,
       type: 'migration_registry_unavailable',
       path: APP_MODULE_PATH,
     });
@@ -423,6 +553,29 @@ function analyzeMigrationRegistry(workspaceRoot: string, result: AnalysisResult,
     }
   }
   const registry = readMigrationRegistry(appModulePath, workspaceRoot);
+  // FAZ 7 — two legitimate registration styles exist (ADR-011): farm-service
+  // imports each migration class into app.module.ts (the diffable registry
+  // this check was written for), while sibling services register a GLOB in
+  // data-source.ts (`migrations: ['src/database/migrations/[0-9]*.ts']`),
+  // where every file is registered by construction and a per-class diff can
+  // only produce false findings. Detect the style before judging.
+  if (registry.registeredClasses.length === 0) {
+    const dataSourcePath = `${rootRel.replace(/\/$/, '')}/database/data-source.ts`;
+    const dataSourceAbsolute = resolveInsideWorkspace(workspaceRoot, dataSourcePath);
+    if (
+      workspacePathExists(dataSourceAbsolute) &&
+      /migrations:\s*\[[^\]]*database\/migrations\//.test(readWorkspaceFile(dataSourceAbsolute))
+    ) {
+      addReadPath(result, workspaceRoot, dataSourceAbsolute);
+      result.observations.push({
+        id: `migration-registry:glob:${serviceName}`,
+        type: 'migration_registry_glob',
+        path: dataSourcePath,
+        details: { files: fileClasses.size },
+      });
+      return;
+    }
+  }
   const registered = new Set(registry.registeredClasses);
 
   for (const [className, filePath] of fileClasses) {
@@ -454,7 +607,7 @@ function analyzeMigrationRegistry(workspaceRoot: string, result: AnalysisResult,
     }
   }
   result.observations.push({
-    id: 'migration-registry:farm-service',
+    id: `migration-registry:${serviceName}`,
     type: 'migration_registry',
     path: APP_MODULE_PATH,
     line: registry.migrationsArrayLine,
@@ -649,9 +802,12 @@ function readEntityDecorator(call: ts.CallExpression): {
   readonly schemaValid: boolean;
   readonly table: string | null;
 } {
+  // NOTE: both arguments are optional — bare `@Entity()` is legal TypeORM
+  // (table name then defaults to snakeCase(className)), so each guard must
+  // tolerate an absent node before asking TypeScript for its kind.
   const firstArg = call.arguments[0];
   const secondArg = call.arguments[1];
-  const optionsArg = ts.isObjectLiteralExpression(firstArg)
+  const optionsArg = firstArg && ts.isObjectLiteralExpression(firstArg)
     ? firstArg
     : secondArg && ts.isObjectLiteralExpression(secondArg)
       ? secondArg
@@ -758,11 +914,11 @@ function findObjectArg(args: ts.NodeArray<ts.Expression>): ts.ObjectLiteralExpre
 }
 
 function readModuleSchema(
+  sourceFile: ts.SourceFile,
   path: string,
   workspaceRoot: string,
   serviceName: string,
 ): ModuleSchemaRecord | null {
-  const sourceFile = ts.createSourceFile(path, readWorkspaceFile(path), ts.ScriptTarget.Latest, true);
   let found: ModuleSchemaRecord | null = null;
   visit(sourceFile, (node) => {
     if (found || !ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name) || node.name.text !== 'MODULE_SCHEMAS') {
@@ -794,6 +950,56 @@ function readModuleSchema(
     }
   });
   return found;
+}
+
+/**
+ * Parses `TENANT_SCOPED_MODULES` (`new Set(['farm', …])`) out of the SSoT
+ * source. WHY parse instead of import: the adapter must observe the exact
+ * on-disk contents of the workspace under analysis (fixtures included), and
+ * importing the module would execute NestJS/TypeORM side effects.
+ * Returns null when the declaration is absent so callers fail closed.
+ */
+function readTenantScopedModules(sourceFile: ts.SourceFile): ReadonlySet<string> | null {
+  let found: ReadonlySet<string> | null = null;
+  visit(sourceFile, (node) => {
+    if (
+      found !== null ||
+      !ts.isVariableDeclaration(node) ||
+      !ts.isIdentifier(node.name) ||
+      node.name.text !== 'TENANT_SCOPED_MODULES'
+    ) {
+      return;
+    }
+    const initializer = unwrapExpression(node.initializer);
+    if (!initializer || !ts.isNewExpression(initializer)) {
+      return;
+    }
+    if (!ts.isIdentifier(initializer.expression) || initializer.expression.text !== 'Set') {
+      return;
+    }
+    const firstArg = initializer.arguments?.[0];
+    if (!firstArg || !ts.isArrayLiteralExpression(firstArg)) {
+      return;
+    }
+    found = new Set(
+      firstArg.elements
+        .filter((element): element is ts.StringLiteralLike => ts.isStringLiteralLike(element))
+        .map((element) => element.text),
+    );
+  });
+  return found;
+}
+
+/**
+ * TypeORM DefaultNamingStrategy falls back to snakeCase(className) when
+ * @Entity() carries no explicit table name; mirror it so infrastructure-table
+ * membership still resolves for bare `@Entity()` declarations.
+ */
+function snakeCaseIdentifier(name: string): string {
+  return name
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .toLowerCase();
 }
 
 function readMigrationRegistry(path: string, workspaceRoot: string): MigrationRegistry {
@@ -919,6 +1125,8 @@ function visit(node: ts.Node, visitor: (node: ts.Node) => void): void {
 function collectEntityFiles(root: string): readonly string[] {
   return collectFiles(root, {
     extensions: ['.entity.ts'],
+    // E13 FP class (2): archived corpus is dead code — no schema discipline applies.
+    includeFile: (name, path) => !isArchivedWorkspacePath(path),
   });
 }
 
@@ -928,7 +1136,14 @@ function collectMigrationFiles(root: string): readonly string[] {
   }
   return collectFiles(root, {
     extensions: ['.ts'],
-    includeFile: (name) => !name.endsWith('.spec.ts') && !name.endsWith('.test.ts') && !name.endsWith('.d.ts'),
+    // E13 FP class (2): `.archive/<timestamp>/` migration snapshots are retired
+    // by definition — they are never registered, so diffing them against the
+    // live registry can only produce false findings.
+    includeFile: (name, path) =>
+      !name.endsWith('.spec.ts') &&
+      !name.endsWith('.test.ts') &&
+      !name.endsWith('.d.ts') &&
+      !isArchivedWorkspacePath(path),
   });
 }
 

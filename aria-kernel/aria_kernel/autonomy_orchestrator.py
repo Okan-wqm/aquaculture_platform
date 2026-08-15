@@ -68,6 +68,7 @@ from .autonomy_state import AutonomyStateReducer
 from .file_lock import with_exclusive_lock
 from .next_cycle_queue import mark_consumed, read_pending
 from .reflection import run_reflection
+from .reflection_inputs import pedagogy_lint_snapshot, producer_reflection_kwargs
 
 if TYPE_CHECKING:
     # Plan ARIA-V3.1-0 — cycle_phases Protocol typing for the 5 new
@@ -182,6 +183,7 @@ def _drain_next_cycle_queue(
     import json
 
     from .convergence_drainer import _resolve_workspace_head_sha
+    from .pressure import explain_pressure
 
     # The commit the agent's evidence will be graded against.
     #
@@ -236,6 +238,51 @@ def _drain_next_cycle_queue(
             "recommended_action": item.get("recommended_action"),
             "candidate_tools": item.get("candidate_tools", []),
         }
+        # Evidence refs come from the pressure's own evidence paths, not from
+        # the pressure identifier. A pressure id ("pressure:...:repetition")
+        # cannot parse under the evidence validator's _AGENT_REF_RE, so a
+        # request minted with it as its sole ref was a request no agent could
+        # ever answer with admissible evidence — only an empty-evidence
+        # satisfied verdict could pass, and a blocked/contradicted verdict was
+        # structurally unrepresentable (agent_contract requires refs on
+        # those). Diagnosed by the planner's first accepted response (RC-2).
+        # The identifier keeps its own channel: pressure_event_id below.
+        evidence_refs: list[str] = []
+        source_cycle = str(item.get("source_cycle_id") or "")
+        pressure_id = str(item.get("pressure_id") or "")
+        if pressure_id.startswith("mission:"):
+            # A mission-selection item: the queue key is the mission marker,
+            # and the mission row itself carries the evidence refs its work
+            # accumulated. Resolving here keeps the drain's rule uniform —
+            # refs come from the SOURCE record, never from the identifier.
+            from .mission import fold_mission
+
+            try:
+                mission_row = fold_mission(
+                    mission_id=pressure_id.split(":", 1)[1], base_dir=base_dir,
+                )
+            except GovernanceError:
+                mission_row = None
+            if mission_row:
+                evidence_refs = [
+                    str(ref) for ref in (mission_row.get("evidence_refs") or [])
+                    if isinstance(ref, str) and ref
+                ]
+        elif source_cycle and pressure_id:
+            try:
+                pressure_record = explain_pressure(
+                    cycle_id=source_cycle, pressure_id=pressure_id, base_dir=base_dir,
+                )
+                evidence_refs = [
+                    str(path) for path in pressure_record.get("evidence") or []
+                    if isinstance(path, str) and path
+                ]
+            except (ValueError, OSError):
+                # No stored pressure payload for that cycle — fall through to
+                # the queue-item marker so the mint still traces to something.
+                evidence_refs = []
+        if not evidence_refs:
+            evidence_refs = [str(qid)]
         try:
             request = create_agent_invocation_request(
                 target_agent="aria-autonomy-planner",
@@ -248,8 +295,8 @@ def _drain_next_cycle_queue(
                 }],
                 allowed_scope=["aria-kernel/**", "aria-tools/**", ".claude/**"],
                 target_sha=target_sha,
-                evidence_refs=[str(item.get("pressure_id") or qid)],
-                pressure_event_id=str(item.get("pressure_id") or "") or None,
+                evidence_refs=evidence_refs,
+                pressure_event_id=pressure_id or None,
                 base_dir=base_dir,
             )
         except Exception as exc:
@@ -494,6 +541,59 @@ def _cycle_preflight(
     return PreflightVerdict("ok")
 
 
+def _apply_preflight_verdict(root: Path, profile: str, verdict: Any) -> None:
+    """Turn a preflight verdict into the profile's contracted consequence.
+
+    * autonomous + invalid → governance refusal row, then GovernanceError
+      (the run never enters its cycle loop on a misconfigured host).
+    * strict / standard + any reasons → soft-warn governance row. Keyed on
+      REASONS, not on ``verdict.valid``: non-autonomous verdicts are always
+      valid by construction (``valid = profile != "autonomous" or …``), so
+      the previous ``not verdict.valid`` guard made the documented strict
+      soft-warn unreachable — it never once fired (found by FAZ 5d while
+      adding the standard environment subset). Extracted to a function so
+      the reachability is pinned by a direct test instead of prose.
+
+    The kind keeps the profile in its name (`preflight_strict_warnings` /
+    `preflight_standard_warnings`) so the starvation sentinel and the daily
+    anchor's blocked_reason reader can tell an operator dry-run warning from
+    a nightly-producer environment fault.
+    """
+    # Late import, same as every governance write in this module: the
+    # runtime_profile ↔ tool_registry cycle forbids a module-level one.
+    from .tool_registry import GovernanceError, append_tools_governance
+
+    failure_classes = tuple(getattr(verdict, "failure_classes", ()) or ())
+    reasons = tuple(getattr(verdict, "reasons", ()) or ())
+    if profile == "autonomous" and not getattr(verdict, "valid", True):
+        append_tools_governance(
+            root, "autonomy_orchestrator_refused",
+            {
+                "reason": "autonomous_profile_preconditions_not_met",
+                "failure_classes": list(failure_classes),
+                "reasons": list(reasons),
+            },
+            bypass_profile_gate=True,
+        )
+        raise GovernanceError(
+            "autonomous_profile_preconditions_not_met: " + "; ".join(reasons)
+        )
+    if profile in ("strict", "standard") and reasons:
+        append_tools_governance(
+            root,
+            (
+                "preflight_strict_warnings"
+                if profile == "strict"
+                else "preflight_standard_warnings"
+            ),
+            {
+                "failure_classes": list(failure_classes),
+                "reasons": list(reasons),
+            },
+            bypass_profile_gate=True,
+        )
+
+
 def run_autonomy_orchestrator(
     *,
     base_dir: str | Path,
@@ -660,23 +760,29 @@ def run_autonomy_orchestrator(
     #     `preflight_strict_warnings` governance event but the cycle
     #     proceeds. Operator-driven dry-run cycles should still run on
     #     hosts missing GH App config.
-    #   * standard / observe / frozen → preflight skipped (the actions
-    #     these profiles permit don't require the preflight surface).
+    #   * standard → environment subset (FAZ 5d). The nightly producer
+    #     runs standard and used to skip preflight entirely, so a host
+    #     with no sandbox backend or node deps produced a green cycle
+    #     whose dispatches all failed downstream with the fault priced
+    #     on the tools. Soft-warn like strict — the governance row is
+    #     the signal; read-only phases may still be worth running.
+    #   * observe / frozen → preflight skipped (the actions these
+    #     profiles permit don't require the preflight surface).
     #
     # `bypass_profile_gate=True` ensures the governance event reaches
     # the audit ledger even under frozen/observe (which would
     # otherwise block tool_governance writes via Plan 026R §A.4
     # surface enforcement).
-    if profile in ("autonomous", "strict"):
+    if profile in ("autonomous", "strict", "standard"):
         try:
             from . import preflight as _preflight_mod
             # skip_remote=True under autonomous when GH_TOKEN unset
             # would defeat the autonomous gate (the gh api call IS
-            # the verification surface). Under strict, skip_remote
-            # honors the token-presence signal so operator dry-runs
-            # do not require GitHub auth.
+            # the verification surface). Under strict/standard,
+            # skip_remote honors the token-presence signal so
+            # operator dry-runs do not require GitHub auth.
             _skip_remote = (
-                profile == "strict"
+                profile in ("strict", "standard")
                 and not bool(os.environ.get("GH_TOKEN"))
             )
             verdict = _preflight_mod.verify_preflight(
@@ -703,32 +809,8 @@ def run_autonomy_orchestrator(
                     "autonomous_profile_preconditions_not_met: "
                     "preflight module not importable"
                 )
-        if verdict is not None and not getattr(verdict, "valid", True):
-            failure_classes = tuple(getattr(verdict, "failure_classes", ()) or ())
-            reasons = tuple(getattr(verdict, "reasons", ()) or ())
-            if profile == "autonomous":
-                append_tools_governance(
-                    root, "autonomy_orchestrator_refused",
-                    {
-                        "reason": "autonomous_profile_preconditions_not_met",
-                        "failure_classes": list(failure_classes),
-                        "reasons": list(reasons),
-                    },
-                    bypass_profile_gate=True,
-                )
-                raise GovernanceError(
-                    "autonomous_profile_preconditions_not_met: "
-                    + "; ".join(reasons)
-                )
-            # strict — soft-warn.
-            append_tools_governance(
-                root, "preflight_strict_warnings",
-                {
-                    "failure_classes": list(failure_classes),
-                    "reasons": list(reasons),
-                },
-                bypass_profile_gate=True,
-            )
+        if verdict is not None:
+            _apply_preflight_verdict(root, profile, verdict)
 
     try:
         with with_exclusive_lock(
@@ -927,7 +1009,15 @@ def run_autonomy_orchestrator(
                     base_dir=root,
                     daemon_agent_id=daemon_agent_id,
                     limit=max_iterations_per_phase,
-                    workspace_root=workspace_root,
+                    # The same fallback every sibling call site in this function
+                    # applies. This one passed the raw value through, and
+                    # workspace_root defaults to None — so the head-SHA resolve
+                    # ran against the daemon's cwd and minted requests with
+                    # target_sha=null, which grades every real evidence ref
+                    # baseline_unavailable. Diagnosed by the autonomy planner
+                    # itself in its first accepted response (RC-2,
+                    # AIR-aria-autonomy-planner-5636a540ccaa).
+                    workspace_root=Path(workspace_root) if workspace_root else root,
                 )
                 AutonomyStateReducer.transition(
                     root,
@@ -949,6 +1039,14 @@ def run_autonomy_orchestrator(
                 # Phase: run cycle (discovery + tools; reflection is
                 # deferred to post-drainer per V3.3 §2b — see the
                 # post_drain_reflection block after auto_merge below).
+                # C5/E8 — None-init is the crash path's CONTRACT, not
+                # defense: when cycle_runner raises, there is no phases
+                # dict to carry, and every post-drain reflection call
+                # below reads cycle_result through
+                # producer_reflection_kwargs (None → sections render as
+                # legitimately-skipped; the crash itself still reports
+                # via cycle_summary["cycle"]).
+                cycle_result = None
                 try:
                     cycle_result = cycle_runner(
                         workspace_root=workspace_root,
@@ -999,6 +1097,12 @@ def run_autonomy_orchestrator(
                     per_cycle_results.append(cycle_summary)
                     exit_reason = "cycle_failed"
                     break
+
+                # C5/E8 — one warn-mode pedagogy snapshot per cycle,
+                # taken ONCE here (not inside the kwargs builder) so
+                # the five post-drain reflection exits all report the
+                # same scan instead of five divergent re-scans.
+                pedagogy_snapshot = pedagogy_lint_snapshot(workspace_root)
 
                 # Plan ARIA-V10.4 Phase 1 instrumentation — cost-attribution
                 # sentinel. V10.3-B endurance showed cycle 1 challenger
@@ -1107,6 +1211,17 @@ def run_autonomy_orchestrator(
                     exit_reason = "bridge_replay_required"
                     break
 
+                # E2/F9 — plan identity is DECOUPLED from the cycle id.
+                # Adopt the newest mid-convergence plan (last night's
+                # envelopes answered into it stay OWNED); start fresh only
+                # when nothing is mid-flight.
+                from .plan_convergence import resume_candidate_plan_id
+
+                active_plan_id = (
+                    resume_candidate_plan_id(base_dir=root)
+                    or "plan-" + cycle_id
+                )
+
                 # Plan ARIA-V7 §2h v2 Phase 7.4 — skill_genesis_drainer.
                 # Polls skill-genesis/requests.jsonl for convergent=True
                 # rows + dispatches each via run_convergent_authoring
@@ -1123,7 +1238,7 @@ def run_autonomy_orchestrator(
                     phase="skill_genesis_drainer_started",
                     status="ok",
                     profile=profile_snapshot,
-                    details={"plan_id": f"plan-{cycle_id}"},
+                    details={"plan_id": active_plan_id},
                 )
                 # Plan ARIA-V7 §2g v2 — dispatcher_factory provides
                 # the 5 callables run_convergent_authoring expects.
@@ -1243,7 +1358,7 @@ def run_autonomy_orchestrator(
                         phase="cycle_runner_no_pressure",
                         status="no_workspace_pressure",
                         profile=profile_snapshot,
-                        details={"plan_id": f"plan-{cycle_id}"},
+                        details={"plan_id": active_plan_id},
                     )
                     cycle_summary["plan_synthesizer"] = {
                         "status": "no_pressure", "plan_content": None,
@@ -1254,6 +1369,11 @@ def run_autonomy_orchestrator(
                         repo_root=workspace_root,
                         convergence_result=None,
                         review_result=None,
+                        **producer_reflection_kwargs(
+                            cycle_summary=cycle_summary,
+                            cycle_result=cycle_result,
+                            pedagogy_lint_result=pedagogy_snapshot,
+                        ),
                     )
                     cycle_summary["reflection"] = post_drain_reflection
                     per_cycle_results.append(cycle_summary)
@@ -1266,7 +1386,7 @@ def run_autonomy_orchestrator(
                     status="ok",
                     profile=profile_snapshot,
                     details={
-                        "plan_id": f"plan-{cycle_id}",
+                        "plan_id": active_plan_id,
                         "affected_surfaces_count": len(
                             _v7_plan_content.get("affected_surfaces", [])
                         ),
@@ -1290,7 +1410,7 @@ def run_autonomy_orchestrator(
                     phase="convergence_started",
                     status="ok",
                     profile=profile_snapshot,
-                    details={"plan_id": f"plan-{cycle_id}"},
+                    details={"plan_id": active_plan_id},
                 )
                 # Plan ARIA-V7 §2g v2 Phase 7.2 — try/except envelope.
                 # Even with V7.1's plan_synthesizer producing real
@@ -1348,7 +1468,7 @@ def run_autonomy_orchestrator(
                         cycle_id=cycle_id,
                         base_dir=root,
                         workspace_root=workspace_root,
-                        plan_id=f"plan-{cycle_id}",
+                        plan_id=active_plan_id,
                         plan_seed=_v7_plan_content,
                         must_satisfy=_v7_must_satisfy,
                         evidence_refs=_v7_evidence_refs,
@@ -1365,7 +1485,7 @@ def run_autonomy_orchestrator(
                         status="governance_error",
                         profile=profile_snapshot,
                         details={
-                            "plan_id": f"plan-{cycle_id}",
+                            "plan_id": active_plan_id,
                             "error_class": type(_v7_exc).__name__,
                             "error_message": str(_v7_exc)[:1000],
                             "plan_content_keys": sorted(
@@ -1378,7 +1498,7 @@ def run_autonomy_orchestrator(
                         "convergence_invalid_plan",
                         {
                             "cycle_id": cycle_id,
-                            "plan_id": f"plan-{cycle_id}",
+                            "plan_id": active_plan_id,
                             "error_class": type(_v7_exc).__name__,
                             "error_message": str(_v7_exc)[:2000],
                             "plan_content_keys": sorted(
@@ -1396,6 +1516,11 @@ def run_autonomy_orchestrator(
                         repo_root=workspace_root,
                         convergence_result=None,
                         review_result=None,
+                        **producer_reflection_kwargs(
+                            cycle_summary=cycle_summary,
+                            cycle_result=cycle_result,
+                            pedagogy_lint_result=pedagogy_snapshot,
+                        ),
                     )
                     cycle_summary["reflection"] = post_drain_reflection
                     per_cycle_results.append(cycle_summary)
@@ -1452,12 +1577,17 @@ def run_autonomy_orchestrator(
                         base_dir=root,
                         repo_root=workspace_root,
                         convergence_result=convergence_result,
-                        # review_result + pedagogy_lint_result are
-                        # absent on convergence-blocked cycles (Gate
-                        # B never fired); pass None explicitly so the
-                        # reflection v2 sub-object renders post_impl
-                        # as None.
+                        # review_result stays absent on convergence-
+                        # blocked cycles (Gate B never fired); the
+                        # producer kwargs are NOT gate outputs — the
+                        # cycle ran them before the gate, so a blocked
+                        # night still reports what it produced (C5).
                         review_result=None,
+                        **producer_reflection_kwargs(
+                            cycle_summary=cycle_summary,
+                            cycle_result=cycle_result,
+                            pedagogy_lint_result=pedagogy_snapshot,
+                        ),
                     )
                     cycle_summary["reflection"] = post_drain_reflection
                     per_cycle_results.append(cycle_summary)
@@ -1479,7 +1609,7 @@ def run_autonomy_orchestrator(
                 try:
                     _v31c2_memory_result = memory_hook.record(
                         cycle_id=cycle_id,
-                        plan_id=convergence_result.get("plan_id") or f"plan-{cycle_id}",
+                        plan_id=convergence_result.get("plan_id") or active_plan_id,
                         workspace_root=Path(workspace_root) if workspace_root else root,
                         base_dir=root,
                         converged_plan=convergence_result.get("converged_plan", {}) or {},
@@ -1558,7 +1688,7 @@ def run_autonomy_orchestrator(
                     v9_result = v9_implementation_runner.run(
                         cycle_id=cycle_id,
                         plan_id=str(
-                            convergence_result.get("plan_id") or f"plan-{cycle_id}"
+                            convergence_result.get("plan_id") or active_plan_id
                         ),
                         workspace_root=Path(workspace_root) if workspace_root else root,
                         base_dir=root,
@@ -1652,10 +1782,10 @@ def run_autonomy_orchestrator(
                     cycle_id=cycle_id,
                     base_dir=root,
                     workspace_root=workspace_root,
-                    plan_id=convergence_result.get("plan_id") or f"plan-{cycle_id}",
+                    plan_id=convergence_result.get("plan_id") or active_plan_id,
                     convergence_id=convergence_result.get("convergence_id")
                     or convergence_result.get("plan_id")
-                    or f"plan-{cycle_id}",
+                    or active_plan_id,
                     touched_services=_touched_services,
                     pressures=[],
                     profile=str(profile_snapshot or "standard"),
@@ -1717,6 +1847,11 @@ def run_autonomy_orchestrator(
                         repo_root=workspace_root,
                         convergence_result=convergence_result,
                         review_result=None,
+                        **producer_reflection_kwargs(
+                            cycle_summary=cycle_summary,
+                            cycle_result=cycle_result,
+                            pedagogy_lint_result=pedagogy_snapshot,
+                        ),
                     )
                     cycle_summary["reflection"] = post_drain_reflection
                     per_cycle_results.append(cycle_summary)
@@ -1782,10 +1917,10 @@ def run_autonomy_orchestrator(
                     cycle_id=cycle_id,
                     base_dir=root,
                     workspace_root=workspace_root,
-                    plan_id=convergence_result.get("plan_id") or f"plan-{cycle_id}",
+                    plan_id=convergence_result.get("plan_id") or active_plan_id,
                     convergence_id=convergence_result.get("convergence_id")
                     or convergence_result.get("plan_id")
-                    or f"plan-{cycle_id}",
+                    or active_plan_id,
                     impl_artifacts_ref=str(
                         worker_result.get("impl_artifacts_ref")
                         or f"cycle:{cycle_id}"
@@ -1878,6 +2013,32 @@ def run_autonomy_orchestrator(
                     details={},
                 )
 
+                # M3/E8 — the effectiveness ledger's first writer fires
+                # here because this is the one point where all three
+                # outcome signals for the cycle's pressure source are in
+                # scope: the plan was minted (we are past the synthesizer),
+                # convergence's arbiter verdict is folded, and auto_merge
+                # just reported. Without this row the mission scheduler's
+                # Thompson bandit drew from the uninformative prior forever
+                # — exploration-aware scheduling was decoration. Advisory:
+                # a ledger failure must not cost the night.
+                try:
+                    from .knowledge_graph import record_pressure_source_outcome
+
+                    record_pressure_source_outcome(
+                        workspace_root=workspace_root,
+                        source_type=str(
+                            cycle_summary.get("_pressure_source_type")
+                            or "git_diff",
+                        ),
+                        minted=1,
+                        converged=1 if arbiter_verdict == "converged" else 0,
+                        merged=1 if extra_merges else 0,
+                        rejected=0 if arbiter_verdict == "converged" else 1,
+                    )
+                except (OSError, ValueError, KeyError, TypeError):
+                    pass
+
                 # Plan ARIA-V7 §3 Phase 7.6 — calibration_reporter
                 # invokes generate_adapter_calibration_report for
                 # every SHADOW/ACTIVE adapter; persists precision_
@@ -1930,6 +2091,26 @@ def run_autonomy_orchestrator(
                     },
                 )
 
+                # C7/E8 — the V6.4 auto-promote token's first caller.
+                # Fires directly AFTER the calibration reporter because
+                # the token gates on the precision history that phase
+                # just persisted. Policy-gated (default enabled=False):
+                # until the operator flips genesis-policy, every attempt
+                # records "ineligible" — the honest no-op. A failure here
+                # must not cost the night; it surfaces on the summary.
+                try:
+                    from .promotion import attempt_auto_promotions
+
+                    cycle_summary["auto_promotion"] = attempt_auto_promotions(
+                        cycle_id=cycle_id, base_dir=root,
+                    )
+                except Exception as _c7_exc:
+                    cycle_summary["auto_promotion"] = {
+                        "status": "error",
+                        "error_class": type(_c7_exc).__name__,
+                        "error_message": str(_c7_exc)[:500],
+                    }
+
                 # Plan ARIA-V3.3 §2b + V5.4 §3f — post-drain reflection
                 # runs AFTER planner+bridge+convergence+worker+review+
                 # auto_merge so the operator-facing daily report covers
@@ -1950,6 +2131,11 @@ def run_autonomy_orchestrator(
                     repo_root=workspace_root,
                     convergence_result=convergence_result,
                     review_result=review_result,
+                    **producer_reflection_kwargs(
+                        cycle_summary=cycle_summary,
+                        cycle_result=cycle_result,
+                        pedagogy_lint_result=pedagogy_snapshot,
+                    ),
                 )
                 cycle_summary["reflection"] = post_drain_reflection
 

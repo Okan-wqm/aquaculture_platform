@@ -23,11 +23,40 @@ describe('production operations proof contract', () => {
     expect(manifest.workflows.every((item) => item.maxAgeHours > 0)).toBe(true);
     expect(workflow).toContain('actions: read');
     expect(workflow).toContain('issues: write');
-    expect(workflow).toContain("event: 'schedule'");
+    // ORPHAN-MEDIUM-634 — the schedule-only freshness filter is deliberately
+    // GONE: a green completed run proves lane health regardless of trigger
+    // (a rerun of an old scheduled run executes the original commit and can
+    // never carry a merged fix). Pin the new contract instead: the judge
+    // selects the newest COMPLETED run and no event filter narrows it.
+    expect(workflow).not.toContain("event: 'schedule'");
+    expect(workflow).toContain("candidate.status === 'completed'");
     expect(workflow).toContain("state: 'open'");
     expect(workflow).toContain('assignees: [owner]');
     expect(workflow).toContain('core.setFailed');
     expect(manifest.incidentTitle).toContain('scheduled-workflow-watchdog');
+
+    // The watchdog judges the newest COMPLETED run. An in-progress run's
+    // conclusion is null, and judging per_page:1 turned every mid-run poll
+    // into a "missing" incident — a */5-cron workflow with a 1h threshold
+    // tripped it every hour. Pinned both ways: the completed filter must be
+    // present, and the single-run fetch must not come back.
+    expect(workflow).toContain("candidate.status === 'completed'");
+    expect(workflow).not.toContain('per_page: 1,');
+
+    // Green is not proof of work. The backup lane completes success while its
+    // DR capability is not activated — honestly, and doing nothing. Where the
+    // manifest names an evidence-artifact prefix, the watchdog must require
+    // the artifact on the newest completed run; the backup entry must name
+    // the ceremony's own upload so "green but no backup" files an incident
+    // instead of reading as protection.
+    expect(workflow).toContain('listWorkflowRunArtifacts');
+    expect(workflow).toContain('success-without-evidence');
+    const backupEntry = manifest.workflows.find(
+      (item) => item.workflow === 'backup-production.yml',
+    ) as { requiredArtifactPrefix?: string } | undefined;
+    expect(backupEntry?.requiredArtifactPrefix).toBe('walg-evidence-v2-');
+    const backupWorkflow = read('.github/workflows/backup-production.yml');
+    expect(backupWorkflow).toContain('name: walg-evidence-v2-');
   });
 
   it('has a GitHub-Actions-owned post-deploy verification workflow', () => {

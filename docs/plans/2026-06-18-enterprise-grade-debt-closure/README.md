@@ -23,11 +23,11 @@ reverse-engineering review lanes. The initial Wave 0 finding truth table is
 
 - Base commit: `2de67e4a5a6ffdcf675be0fcd4322854fcecd62f`
 - Registry entries: 1375
-- Registry tip hash: `cb87c32ae8382ab0400cba0efa31c832efec4ff2437db0bf2280816930e6c514`
-- OPEN findings: 513
+- Registry tip hash: `f283e1841059e1e5e41bf53e226961a415ea58e4c8440a40bf2c8998c7d04686`
+- OPEN findings: 511
 - IN-PROGRESS findings: 99
 - Active CRITICAL findings: 46
-- `npm run findings:verify`: passing against registry tip `cb87c32ae8382ab0400cba0efa31c832efec4ff2437db0bf2280816930e6c514`
+- `npm run findings:verify`: passing against registry tip `f283e1841059e1e5e41bf53e226961a415ea58e4c8440a40bf2c8998c7d04686`
 - Worktree state at plan creation: dirty before this plan was written; existing
   source changes are treated as user work and are not part of this plan artifact.
 
@@ -144,15 +144,18 @@ committed source-manifest and content-addressed source-finding evidence through
 `gates:source-finding-inventory:static`; mutable remote refs and host worktrees
 cannot make an unrelated PR red.
 
-The governed generation lane runs `git fetch --prune origin` and then
+A governed full-generation execution runs `git fetch --prune origin` and then
 `npm run gates:capability-source-inventory:live`. Pruning makes deleted remote
-refs observable before comparison. This explicit lane uses a clean
-repository-owned runner with an independent Git common-dir, then adds locally
-unique branch tips and every registered clean or dirty worktree with exact
-status and content digest evidence. Discovery itself never fetches, prunes,
-checks out, resets, cleans, resolves, or deletes anything. Inspection failures
-and undeclared, moved-head, base-SHA, kind, digest, or duplicate drift fail
-closed.
+refs observable before comparison. That execution is outside generic CI. Its
+`CLEAN_INDEPENDENT_COMMON_DIR_FULL_V1` value declares intent only; the compiler
+independently proves a clean checkout and a Git common-dir outside every
+governed repository before granting execution exclusion. The
+`source-inventory-static` CI job validates only committed evidence and has no
+full-generation exclusion capability. Full discovery adds locally unique
+branch tips and every registered clean or dirty worktree with exact status and
+content digest evidence. Discovery itself never fetches, prunes, checks out,
+resets, cleans, resolves, or deletes anything. Inspection failures and
+undeclared, moved-head, base-SHA, kind, digest, or duplicate drift fail closed.
 No remote branch, local branch, clean worktree, or dirty worktree record may
 disappear merely because it becomes integrated or superseded. The compiler has
 no retirement admission path: every nested `retirement` object is rejected and
@@ -177,14 +180,14 @@ discovery-candidate coordinates are attested independently; identical blobs
 are deduplicated while every unique registry blob records raw SHA-256 and row
 count and every unique schema blob records raw SHA-256. A finding-authority
 changing pull request therefore has one prospective candidate coordinate
-without pretending its older reconciliation base has the same content. Remote
-CI runs
-`npm run gates:source-finding-inventory:remote` immediately after the remote
-capability-source pin gate. Pull requests and protected-main pushes bind that
-validation to immutable event SHAs, require a fast-forward ancestry chain, and
-require the reconciled and tested-candidate blobs to match their respective
-attestations. The event frontier may carry an intervening legitimate authority
-version; its Git identity and ancestry are verified directly. Live
+without pretending its older reconciliation base has the same content. The
+explicit `npm run gates:source-finding-inventory:remote` validator is available
+to a governed remote-validation execution; generic CI does not run it and does
+not claim live source coverage. Such an execution binds validation to immutable
+event SHAs, requires a fast-forward ancestry chain, and requires the reconciled
+and tested-candidate blobs to match their respective attestations. The event
+frontier may carry an intervening legitimate authority version; its Git
+identity and ancestry are verified directly. Live
 `origin/main` must still expose the event frontier's registry/schema coordinate
 during pull-request validation and the candidate coordinate during
 protected-main validation. A later main commit with no finding-authority

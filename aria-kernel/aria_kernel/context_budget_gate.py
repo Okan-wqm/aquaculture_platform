@@ -27,12 +27,12 @@ context (3-5 evidence chains × 8K tokens each). A judge packet conversely had
 no business loading 50 % of the window. Role-based caps keep judges lean and
 let planners breathe.
 
-cap categories (Plan v3.3 §Phase 2.A):
+cap categories (Plan v3.3 §Phase 2.A; E14 role hygiene):
 - judges                (evidence/adversarial/consensus)        0.35
 - planners              (primary/challenger/cross_review)       0.55
 - executors             (implementation/gap_closure)            0.45
-- emergency             (architectural_arbitration/HUMAN_REQ)   0.65
-- domain reviewers      (auth/access/tenant)                    0.45
+- emergency             (HUMAN_REQUIRED packet)                 0.65
+- domain review         (specialist_domain_review)              0.45
 - change_intelligence/goldset_curation/maintenance_utility      0.40
 - default fallback      (unknown role)                          0.40
 
@@ -87,18 +87,17 @@ ROLE_CAP_MAP: dict[str, float] = {
     "implementation": 0.45,
     "gap_closure": 0.45,
     # Emergency (operator-driven escalations)
-    "architectural_arbitration": 0.65,
     "human_required_packet": 0.65,
-    # Domain reviewers (dispatched as packet kinds, not kernel ROLES)
-    "auth_security_review": 0.45,
-    "access_boundary_review": 0.45,
-    "tenant_isolation_review": 0.45,
+    # Specialist domain review (specialist_review_runner's touch-map) —
+    # E14 replaced the five per-domain role caps with the one cap of the role
+    # that is actually minted. A cap keyed by a role no producer can mint is a
+    # policy nobody is ever measured against.
+    "specialist_domain_review": 0.45,
     # Other kernel ROLES
     "change_intelligence": 0.40,
     "goldset_curation": 0.40,
     "maintenance_utility": 0.40,
     "verification": 0.40,
-    "implementation_review": 0.40,
     "gap_finding": 0.40,
 }
 DEFAULT_ROLE_CAP: float = 0.40
@@ -106,10 +105,19 @@ DEFAULT_ROLE_CAP: float = 0.40
 
 CONTEXT_AUDITS_FILENAME = "context-audits.jsonl"
 
-# @.claude/knowledge/<file>.md or @<path> bookmark reference parser.
+# Bookmark reference parser for the doc families agent .md preambles carry.
 # Plan v3.3 §Agent system invocation: ".md files reference [knowledge]
 # via @.claude/knowledge/... lines — these are READER BOOKMARKS only".
-_KNOWLEDGE_REF_RE = re.compile(r"@(\.claude/knowledge/[\w./\-]+)")
+# E17-d — widened beyond @.claude/knowledge/: every ARIA judge/planner
+# preamble also cold-reads @docs/aria/{SPEC,CONTRACTS,PIPELINES}.md (plus
+# @docs/adr/ references) — ~138KB of static docs per spawn — and the
+# original regex made exactly that biggest cost INVISIBLE to the audit.
+# Same resolution + tokenization path; measurement only, the cap semantics
+# are unchanged (a preamble that genuinely overflows its role cap should
+# fail the audit rather than hide from it).
+_KNOWLEDGE_REF_RE = re.compile(
+    r"@((?:\.claude/knowledge|docs/aria|docs/adr)/[\w./\-]+)"
+)
 
 
 def estimate_tokens(text: str) -> int:
@@ -141,7 +149,7 @@ def _read_agent_md(target_agent: str, repo_root: Path) -> tuple[str, Path | None
 
 
 def _knowledge_refs(text: str) -> list[str]:
-    """Extract unique @.claude/knowledge/... bookmark refs from text."""
+    """Extract unique @-bookmark refs (.claude/knowledge, docs/aria, docs/adr)."""
     return list(dict.fromkeys(match.group(1) for match in _KNOWLEDGE_REF_RE.finditer(text)))
 
 

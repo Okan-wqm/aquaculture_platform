@@ -1054,6 +1054,85 @@ safe_image_gc() {
   echo "Safe GC complete; removed_tags=${removed:-0} removed_untagged=${removed_untagged:-0} removed_rollback_retags=${removed_rollback:-0} removed_unclassified=${removed_unclassified:-0} skipped_protected=${skipped:-0} dry_run=${GC_DRY_RUN:-false} before=${before:-unknown} after=${after:-unknown}"
 }
 
+# =============================================================================
+# safe_tmp_gc — reclaim REGENERABLE build caches from the temp filesystem.
+# =============================================================================
+# WHY THIS EXISTS. On 2026-08-09 the capacity gate blocked with 1.24 GB free
+# against a 37.5 GB floor while `safe_image_gc` had nothing left to take: all
+# 37 images backed running containers. The space was in /tmp, and one pattern
+# owned half the disk:
+#
+#     nx-native-file-cache-*   1,421 directories, 29.3 GB
+#
+# Nx's native module resolves its cache through `std::env::temp_dir()` — i.e.
+# TMPDIR — and creates a fresh directory per workspace-process. Nothing ever
+# removes them, so every CI invocation leaks one. The age histogram showed
+# 100-400 new directories a day since 2026-08-04. A one-off manual sweep
+# reclaimed 12.9 GB on 2026-08-08 and the disk was full again within a day,
+# which is what makes this a gate concern rather than an operator chore.
+#
+# WHY A SEPARATE FUNCTION. safe_image_gc states its own contract in its banner:
+# "volumes/containers/networks/build-cache untouched". Widening it to sweep a
+# filesystem would make that sentence false. This is the same conservatism
+# applied to a different resource, kept separate so each policy can be read
+# on its own.
+#
+# THE POLICY IS DEFAULT-DENY, and every clause below is load-bearing:
+#   * an explicit allowlist of patterns that are REGENERABLE BY CONSTRUCTION —
+#     a build cache, not a work product. Anything unlisted is never touched,
+#     which is what keeps another session's checkout safe.
+#   * an age floor, so an in-flight build's cache is never pulled out from
+#     under it.
+#   * an open-handle check per candidate; a directory any process still holds
+#     is skipped even if it is old.
+#   * `-maxdepth 1` and an absolute root, so a pattern can never match deeper
+#     than the temp directory itself.
+#
+# It does NOT touch: repository checkouts, git worktrees, ARIA state, session
+# scratchpads, or anything outside TMPDIR.
+TMP_GC_PATTERNS="nx-native-file-cache-* v8-compile-cache-* node-compile-cache jest_* pytest-of-*"
+TMP_GC_MIN_AGE_MINUTES="${TMP_GC_MIN_AGE_MINUTES:-720}"
+
+safe_tmp_gc() {
+  local root="${TMPDIR:-/tmp}"
+  echo "=== Safe temp GC (regenerable build caches only) ==="
+  echo "Policy: default-deny allowlist [${TMP_GC_PATTERNS}]; age > ${TMP_GC_MIN_AGE_MINUTES}m; open handles skipped; nothing outside ${root} is considered."
+  if [ ! -d "${root}" ]; then
+    echo "Safe temp GC: ${root} is not a directory; nothing to do."
+    return 0
+  fi
+
+  local before after removed skipped_open candidate
+  before=$(df -k --output=avail "${root}" 2>/dev/null | tail -1 | tr -d ' ')
+  removed=0
+  skipped_open=0
+
+  local pattern
+  for pattern in ${TMP_GC_PATTERNS}; do
+    while IFS= read -r candidate; do
+      [ -n "${candidate}" ] || continue
+      # A cache someone is still writing is not garbage, whatever its age.
+      if command -v fuser > /dev/null 2>&1 && fuser -s "${candidate}" 2>/dev/null; then
+        skipped_open=$((skipped_open + 1))
+        continue
+      fi
+      if [ "${GC_DRY_RUN:-false}" = "true" ]; then
+        echo "  would remove ${candidate}"
+      else
+        rm -rf -- "${candidate}" 2>/dev/null || true
+      fi
+      removed=$((removed + 1))
+    done < <(/usr/bin/find "${root}" -maxdepth 1 -name "${pattern}" -type d -mmin "+${TMP_GC_MIN_AGE_MINUTES}" 2>/dev/null)
+  done
+
+  after=$(df -k --output=avail "${root}" 2>/dev/null | tail -1 | tr -d ' ')
+  local reclaimed_mb=0
+  if [ -n "${before}" ] && [ -n "${after}" ]; then
+    reclaimed_mb=$(( (after - before) / 1024 ))
+  fi
+  echo "Safe temp GC complete; removed=${removed} skipped_open=${skipped_open} dry_run=${GC_DRY_RUN:-false} reclaimed_mb=${reclaimed_mb}"
+}
+
 run_gate() {
   capacity_core_snapshot
   write_capacity_json
@@ -1066,6 +1145,11 @@ run_gate() {
   if [ "${rc}" -ne 0 ] && [ "${CAPACITY_GC_MODE}" = "auto" ]; then
     echo "Capacity preflight: warning/failure before GC; running one safe image-only GC pass."
     safe_image_gc
+    # Images are not always where the space is. On 2026-08-09 every image
+    # backed a running container and the shortfall was entirely regenerable
+    # build caches in TMPDIR, so an image-only response reported "nothing to
+    # reclaim" beside a disk that was 98% full.
+    safe_tmp_gc
     capacity_core_snapshot
     write_capacity_json
     set +e

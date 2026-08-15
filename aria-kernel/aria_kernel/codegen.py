@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_jsonl, load_jsonl
+from .ledger import append_declared_jsonl, load_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 
 
@@ -65,7 +65,7 @@ def record_code_change_plan(
         "status": "ready_for_review" if not blockers else "blocked",
         "blocked_by": sorted(set(blockers)),
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "codegen" / "code-change-plans.jsonl", row)
+    return append_declared_jsonl(ensure_tools_dir(base_dir) / "codegen" / "code-change-plans.jsonl", row, expected_surface="codegen_change_plans")
 
 
 def list_code_change_plans(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:
@@ -127,7 +127,7 @@ def record_generated_diff_packet(
         "status": "ready_for_candidate_worktree" if not blockers else "blocked",
         "blocked_by": sorted(set(blockers)),
     }
-    return append_jsonl(ensure_tools_dir(base_dir) / "codegen" / "generated-diff-packets.jsonl", row)
+    return append_declared_jsonl(ensure_tools_dir(base_dir) / "codegen" / "generated-diff-packets.jsonl", row, expected_surface="codegen_diff_packets")
 
 
 def list_generated_diff_packets(*, base_dir: str | Path | None = None) -> list[dict[str, Any]]:

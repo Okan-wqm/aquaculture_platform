@@ -24,6 +24,7 @@ from .ledger import LedgerIntegrityError, load_jsonl, verify_index_hashes
 from .pressure import DEFAULT_DECAY_THRESHOLDS, TERMINAL_STATES, append_pressure_state_event, effective_workspace_pressures
 from .report_ingestion import report_ingestion_scan
 from .semantic_dedup import semantic_dedup_compute
+from .service_agent_targeting import propose_service_auditor_requests
 from .plan_convergence import list_active_plans
 from .trailer_scan import git_trailer_scan
 from .trust import ref_staleness_check, trust_escalation_derive
@@ -49,6 +50,7 @@ LEARNING_HOOK_ORDER = (
     "plan_convergence_advance",
     "impact_graph_compute",
     "skill_or_agent_genesis",
+    "service_auditor_targeting",
     "agent_fitness_score",
 )
 PRE_CYCLE_LEARNING_HOOKS = (
@@ -92,6 +94,7 @@ def _run_learning_hooks(
         ("plan_convergence_advance", lambda: _plan_convergence_advance(cycle_id=cycle_id, tools_root=root)),
         ("impact_graph_compute", lambda: _impact_graph_compute(cycle_id=cycle_id, paths=paths, tools_root=root)),
         ("skill_or_agent_genesis", lambda: _skill_or_agent_genesis(cycle_id=cycle_id, paths=paths, tools_root=root)),
+        ("service_auditor_targeting", lambda: _service_auditor_targeting(cycle_id=cycle_id, paths=paths, tools_root=root)),
         ("agent_fitness_score", lambda: agent_fitness_score(cycle_id=cycle_id, base_dir=root)),
     )
     selected = set(hook_names)
@@ -193,6 +196,27 @@ def run_learning_pass(
 
 def _skipped(cycle_id: str, reason: str) -> dict[str, Any]:
     return {"schema_version": 1, "cycle_id": cycle_id, "status": "skipped", "reason": reason}
+
+
+def _service_auditor_targeting(
+    *,
+    cycle_id: str,
+    paths: WorkspacePaths,
+    tools_root: Path | None,
+) -> dict[str, Any]:
+    """E15-c — one guarded call in the genesis phase family.
+
+    Runs right after ``skill_or_agent_genesis`` so its requests land in
+    the same nightly window; the surrounding hook loop already records a
+    failure and continues (a broken trigger never costs the night).
+    """
+    if tools_root is None:
+        return _skipped(cycle_id, "tools_root_required")
+    return propose_service_auditor_requests(
+        cycle_id=cycle_id,
+        base_dir=tools_root,
+        repo_root=paths.repo_root,
+    )
 
 
 def _plan_convergence_advance(*, cycle_id: str, tools_root: Path | None) -> dict[str, Any]:

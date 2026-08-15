@@ -20,7 +20,19 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: read
+  # The eval ledger is the point of this workflow, and until now the runner
+  # threw it away: every week wrote five rows to `runs.jsonl` inside an
+  # ephemeral checkout and discarded them. `compare_eval_windows` needs five
+  # runs PER WINDOW to speak, so `agent-eval delta` was structurally condemned
+  # to `insufficient_evidence` for as long as CI was the only producer — the
+  # baseline existed on one operator's disk and nowhere else.
+  #
+  # Publishing to `aria/state` is what makes the measurement real. Same
+  # transport, same restore action and same `state publish` verb the nightly
+  # producer already uses; nothing new is invented here. The token can only
+  # append a commit descending from that branch's tip, which is exactly what
+  # publishing is.
+  contents: write
 
 jobs:
   eval:
@@ -28,7 +40,7 @@ jobs:
     timeout-minutes: 25
     if: github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           persist-credentials: false
@@ -45,10 +57,12 @@ jobs:
 
           from aria_kernel.preflight import verify_workflow_preflight
 
-          allowed = [
-              "aria-tools/agent-evals/runs.jsonl",
-              "aria-tools/governance.jsonl",
-          ]
+          # The ledger lives in the durable store now, not in the ephemeral
+          # checkout, so the declared write root follows it. Naming the old
+          # `aria-tools/...` paths would declare a reach this job no longer
+          # has and omit the one it now uses — a preflight that describes the
+          # wrong lane proves nothing.
+          allowed = [".aria-state-store"]
           verdict = verify_workflow_preflight(
               workflow_id="aria-agent-eval",
               job_id="eval",
@@ -56,9 +70,26 @@ jobs:
               workspace_root=os.environ["GITHUB_WORKSPACE"],
               allowed_write_roots=allowed,
               path_allowlist=allowed,
-              network_policy=["none"],
-              network_enforcement_evidence="mock-mode eval uses local fixtures only",
-              token_provenance="none",
+              # `github_git` is what persistence costs: the state branch is
+              # fetched and pushed over the repository remote. Declared
+              # separately from artifact access because they are different
+              # credentials with different blast radii, and a reviewer has to
+              # be able to see the git one. The eval itself still reaches no
+              # third-party network — the fixtures remain local.
+              network_policy=["github_artifact", "github_git"],
+              network_enforcement_evidence=(
+                  "mock-mode eval uses local fixtures only; network reach is the "
+                  "aria/state fetch+push over the repository remote"
+              ),
+              # The truthful provenance: the eval job persists its ledger to
+              # aria/state with `github.token` (PUBLISH_TOKEN below), and the
+              # job contract declares token_source="github_actions_artifact_token".
+              # This line still said "none" from before the durable-store move,
+              # so the kernel preflight refused every run at start
+              # (`token_provenance_mismatch:none!=github_actions_artifact_token`)
+              # — the weekly eval lane had been dead on arrival since the
+              # contract was tightened.
+              token_provenance="github_actions_artifact_token",
               require_github_app=False,
               dlp_mode="fail_closed",
               dlp_scan_clean=True,
@@ -69,6 +100,17 @@ jobs:
           if not verdict.valid:
               raise SystemExit(";".join(verdict.reasons))
           PY
+
+      # One definition, both lanes: the same action the nightly producer uses,
+      # which also EXPORTS the store binding as ARIA_TOOLS_DIR. Every
+      # `--tools-dir` below names that variable rather than a literal, so the
+      # eval appends to the accumulated ledger instead of starting from an
+      # empty tree each week.
+      - name: Restore ARIA state from the aria/state branch
+        id: restore_state
+        uses: ./.github/actions/restore-aria-state
+        with:
+          bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
 
       - name: Run all eval fixtures (mock mode)
         id: run
@@ -83,10 +125,10 @@ jobs:
             echo "::group::eval ${fid}"
             PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval add-fixture \
               --fixture-file "${fixture_file}" \
-              --tools-dir aria-tools >/dev/null
+              --tools-dir "$ARIA_TOOLS_DIR" >/dev/null
             run_json=$(PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval run \
               --fixture-id "${fid}" \
-              --tools-dir aria-tools)
+              --tools-dir "$ARIA_TOOLS_DIR")
             echo "${run_json}" | jq .
             passed=$(echo "${run_json}" | jq -r '.passed')
             if [ "${passed}" != "true" ]; then
@@ -111,9 +153,61 @@ jobs:
               --target-agent "${agent}" \
               --window-days 30 \
               --mock-mode true \
-              --tools-dir aria-tools | jq .
+              --tools-dir "$ARIA_TOOLS_DIR" | jq .
             echo "::endgroup::"
           done
+
+      # The delta is the question the program asks of itself: is round N+1
+      # better than round N? It could not be answered before, because there
+      # was never a round N to compare against.
+      - name: Report the window-over-window delta per agent
+        if: always() && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
+        run: |
+          set -euo pipefail
+          for agent in aria-evidence-judge aria-adversarial-judge \
+                       aria-consensus-arbiter architectural-arbiter \
+                       auth-security-expert; do
+            echo "::group::delta ${agent}"
+            # `insufficient_evidence` is a legitimate answer here, not a
+            # failure: two thin windows cannot tell improvement from noise,
+            # and a loop that celebrates noise never stops for the right
+            # reason. It stays non-fatal until the ledger has depth.
+            PYTHONPATH=aria-kernel python3 -m aria_kernel agent-eval delta \
+              --target-agent "${agent}" \
+              --window-days 30 \
+              --mock-mode true \
+              --tools-dir "$ARIA_TOOLS_DIR" | jq .
+            echo "::endgroup::"
+          done
+
+      # The credential is minted here and consumed by the next step only. Kept
+      # out of `.git/config` so it cannot outlive the push.
+      - name: Mint the aria/state push credential
+        id: publish_credential
+        if: always() && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
+        env:
+          PUBLISH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          HEADER="$(printf 'x-access-token:%s' "$PUBLISH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${HEADER}"
+          echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
+
+      # `always()` on purpose: a week where a fixture regressed is exactly the
+      # week whose rows the trend needs. Publishing only on success would make
+      # the ledger a record of good weeks, which is not a measurement.
+      - name: Publish ARIA state to the aria/state branch
+        if: always() && (steps.restore_state.outputs.restored == 'true' || steps.restore_state.outputs.bootstrap == 'true')
+        env:
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
+          GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.publish_credential.outputs.header }}'
+        run: |
+          set -euo pipefail
+          PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
+            --repo-root . \
+            --snapshot-id "agent-eval-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --cycle-id "agent-eval-${GITHUB_RUN_ID}"
 
       # ADR-036 — upload the enterprise-preflight audit proof so the eval
       # job's governed-write decision is retained as CI evidence.

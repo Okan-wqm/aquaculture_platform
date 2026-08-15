@@ -2,6 +2,62 @@
 
 Program plan: [`PLAN.md`](./PLAN.md). Newest entries first.
 
+## 2026-08-07 — the alarm nobody heard, and the bind that was spelled as a migration
+
+Two findings closed, and in both the finding's own recorded fix shape was wrong.
+Correcting them is most of what the day produced.
+
+**`ORPHAN-MEDIUM-562` — the watchdog reports a stalled memory and freezes
+nothing.** PLAN Wave 2 asks for `MERGE_FROZEN` on a watchdog anomaly; the
+watchdog shipped the notification half only, and its own body says so. The
+freeze now lives in `merge_authority.merge_pr_if_ready` and reads the incident
+from the watchdog's own manifest, failing closed on an unreadable answer.
+
+The finding proposed refusing in the `aria-merge-authority` workflow "because it
+is already a required check". Measured, that is exactly why it cannot be: it is
+required on main and runs on every `pull_request`, so refusing there blocks
+every human pull request including the one repairing the stall. A second
+deadlock was avoided the same way — a circuit-breaker kind would stop the cycle
+at preflight, but the watchdog fires when the `aria/state` tip stalls and the
+cycle is what advances it. The breaker is for failures the cycle recovers from
+by _not_ acting; this is one it recovers from by acting.
+
+**`ORPHAN-HIGH-556` — the restore bind is spelled as a migration.** Measured on
+the real restore path, every night: a full tools-tree backup, a rewrite of every
+covered ledger, and nine migration-ceremony rows — to re-establish a binding.
+
+The finding said the rewrite permit expiring 2026-12-31 would kill every restore
+on 2027-01-01. Driven directly, it does not: the allowance is consulted **zero**
+times, because the declared-surface check that would consult it needs
+`repo_identity.json` — the one file a restored tree lacks. A bound-tree control
+row proves the probe can see. So the permit is decoration, and the real hazard
+is larger than the recorded one: ARIA rewrote every covered ledger of its
+hash-chained memory inside the one window where its own guard was blind.
+
+Root cause: `repo_identity.json` mixes three scopes, and the single host-scoped
+field — an absolute path — made the whole file unpublishable. The tree could not
+state its own contract version, so it read 0. `tools_contract.json` is now a
+declared surface carrying the publishable half, written by one function rather
+than five copies, and `tools_binding.bind_tools_root` binds first and migrates
+only a bound tree that is behind. On the nightly path: one file, one governance
+row.
+
+Two things fell out. A store published for another repository is now refused
+instead of silently rebound — before the split there was nothing to compare
+against. And `_guard_tools_lock` carried a hardcoded roster of operations
+allowed to write while holding their own lock; the new bind was the next
+operation anyone added, took the lock correctly, and could not write its own row.
+That is `ORPHAN-HIGH-569`'s shape in a lock guard, and re-entrancy is now a
+property of holding the lock.
+
+**Method.** Fifteen mutations across the two findings, each applied, run, and
+reverted, with the baseline confirmed green on both sides. Twice the mutation
+was of an _absence_ assertion — that no breaker kind exists, that the required
+check does not read the incident — and both were driven with the forbidden thing
+actually in place, because an absence-assertion passes for free otherwise. One
+regression was found by a test rather than by review: binding after migrating
+left `migrate_tools_v2_to_v3` without the identity it refuses to run without.
+
 ## 2026-08-06 — the defect class the programme kept meeting, named twice
 
 Two shapes were closed this day, and they are worth recording together because

@@ -1,0 +1,23 @@
+{
+  "name": "semantic-tenant-schema-omission",
+  "lane": "semantic_regression",
+  "input": {
+    "target": "farm-service",
+    "root": "tools/aria-adapters/fixtures/typeorm-entity-schema-adapter/workspaces/semantic-schema/apps/farm-service/src",
+    "serviceName": "farm",
+    "checks": ["entity_schema"]
+  },
+  "expected": {
+    "status": "ok",
+    "required_findings": ["typeorm_entity_schema_required"],
+    "findings_count": 1
+  },
+  "curation": {
+    "curator": "claude/E13 spot-audit FP fixes (operator-verified classes, session 2026-08-14)",
+    "gold_set": {
+      "true_positive_count": 1,
+      "known_false_positive_count": 1,
+      "false_positive_classes": ["tenant_scoped_per_tenant_schema_omission"]
+    }
+  }
+}

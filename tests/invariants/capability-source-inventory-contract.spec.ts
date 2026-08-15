@@ -5,9 +5,7 @@ import { join } from 'node:path';
 
 import {
   SOURCE_INVENTORY_SCHEMA_V2,
-  SOURCE_INVENTORY_RUNNER_PROFILE,
-  TRUSTED_REMOTE_INVENTORY_JOB,
-  TRUSTED_REMOTE_INVENTORY_WORKFLOW,
+  SOURCE_INVENTORY_FULL_EXECUTION_INTENT_V1,
   admitExecutionExclusionProof,
   assertOriginMainStable,
   classifySourceRole,
@@ -26,6 +24,7 @@ import {
   type InventoryManifest,
   type ManifestSourceCoordinate,
 } from '../../tools/gates/capability-source-inventory';
+import { SOURCE_INVENTORY_STATIC_CI_JOB_V1 } from '../../tools/gates/lib/source-control-leaf-catalog';
 import {
   computeCanonicalGitWorktreeEvidence,
   InventoryInspectionError,
@@ -537,8 +536,8 @@ describe('remote-only inventory scope', () => {
   });
 });
 
-describe('source inventory CI authority separation', () => {
-  it('keeps generic CI deterministic while retaining explicit live generation commands', () => {
+describe('source inventory command authority', () => {
+  it('declares deterministic static verification and explicit live generation commands', () => {
     const repositoryRoot = join(__dirname, '..', '..');
     const packageJsonRaw: unknown = JSON.parse(
       readFileSync(join(repositoryRoot, 'package.json'), 'utf8'),
@@ -562,38 +561,6 @@ describe('source inventory CI authority separation', () => {
     expect(scripts['gates:capability-source-inventory:remote']).toBe(
       'ts-node --project tools/gates/tsconfig.json tools/gates/capability-source-inventory.ts --live --scope=remote',
     );
-
-    const workflow = readFileSync(
-      join(repositoryRoot, '.github', 'workflows', 'ci-full.yml'),
-      'utf8',
-    );
-    const jobStart = workflow.indexOf('\n  deploy-ssot-gates:\n');
-    const jobEnd = workflow.indexOf('\n  security-scan:\n', jobStart + 1);
-    if (jobStart < 0 || jobEnd < 0) {
-      throw new Error('deploy-ssot-gates job boundary is unavailable');
-    }
-    const job = workflow.slice(jobStart, jobEnd);
-    const checkout = job.indexOf('- uses: actions/checkout@');
-    const checkoutRef = job.indexOf(
-      'ref: ${{ github.event.pull_request.head.sha || github.sha }}',
-      checkout,
-    );
-    const fetchDepth = job.indexOf('fetch-depth: 0', checkout);
-    const setupNode = job.indexOf('- name: Setup Node.js', checkout);
-    expect(checkout).toBeGreaterThanOrEqual(0);
-    expect(checkoutRef).toBeGreaterThan(checkout);
-    expect(fetchDepth).toBeGreaterThan(checkoutRef);
-    expect(setupNode).toBeGreaterThan(fetchDepth);
-
-    const staticCapabilityCommand = 'run: npm run gates:capability-source-inventory:static';
-    const staticFindingCommand = 'run: npm run gates:source-finding-inventory:static';
-    expect(job.indexOf(staticCapabilityCommand)).toBeGreaterThan(setupNode);
-    expect(job.indexOf(staticFindingCommand)).toBeGreaterThan(job.indexOf(staticCapabilityCommand));
-    expect(job).not.toContain('git fetch --no-tags origin');
-    expect(job).not.toContain('gates:capability-source-inventory:remote');
-    expect(job).not.toContain('gates:source-finding-inventory:remote');
-    expect(job).not.toContain('CAPABILITY_INVENTORY_CURRENT_');
-    expect(job).not.toContain('SOURCE_FINDING_EVENT_');
   });
 });
 
@@ -628,7 +595,7 @@ describe('GitHub Actions detached execution identity', () => {
     expect(resolveSymbolicLocal).not.toHaveBeenCalled();
   });
 
-  it('admits exclusion only for an exact clean runner profile and independent full common-dir', () => {
+  it('treats full-generation input as intent and independently requires clean common-dir proof', () => {
     const identity = {
       worktreePath: '/runner/repository',
       headSha: REMOTE_SHA,
@@ -642,48 +609,53 @@ describe('GitHub Actions detached execution identity', () => {
       checkoutDirty: false,
       executionCommonDir: '/runner/repository/.git',
       governedCommonDirs: [] as string[],
-      localRunnerProfile: undefined,
+      fullExecutionIntent: undefined,
     };
     expect(
       admitExecutionExclusionProof({
         ...common,
         scope: 'remote',
         githubActions: 'true',
-        workflowRef: `${TRUSTED_REMOTE_INVENTORY_WORKFLOW}@refs/pull/1040/merge`,
-        jobId: TRUSTED_REMOTE_INVENTORY_JOB,
       }).exclusionProof,
-    ).toEqual({
-      kind: 'INDEPENDENT_CLEAN_INVENTORY_RUNNER_V1',
-      committed: true,
-      clean: true,
-    });
+    ).toBeNull();
+    expect(SOURCE_INVENTORY_STATIC_CI_JOB_V1).toBe('source-inventory-static');
+    for (const scope of ['remote', 'full'] as const) {
+      expect(
+        admitExecutionExclusionProof({
+          ...common,
+          scope,
+          githubActions: 'true',
+          fullExecutionIntent: SOURCE_INVENTORY_FULL_EXECUTION_INTENT_V1,
+        }).exclusionProof,
+      ).toBeNull();
+    }
+    const inventorySource = readFileSync(
+      join(__dirname, '..', '..', 'tools', 'gates', 'capability-source-inventory.ts'),
+      'utf8',
+    );
+    for (const removedRemoteIdentityField of [
+      'GITHUB_JOB',
+      'GITHUB_WORKFLOW_REF',
+      'workflowRef',
+      'jobId',
+      'TRUSTED_REMOTE_INVENTORY',
+    ]) {
+      expect(inventorySource).not.toContain(removedRemoteIdentityField);
+    }
     expect(() =>
       admitExecutionExclusionProof({
         ...common,
         checkoutHeadSha: CURRENT_SHA,
         scope: 'remote',
         githubActions: 'true',
-        workflowRef: `${TRUSTED_REMOTE_INVENTORY_WORKFLOW}@refs/pull/1040/merge`,
-        jobId: TRUSTED_REMOTE_INVENTORY_JOB,
       }),
     ).toThrow(/checkout HEAD .* differs from execution identity/);
     expect(
       admitExecutionExclusionProof({
         ...common,
-        scope: 'remote',
-        githubActions: 'true',
-        workflowRef: `${TRUSTED_REMOTE_INVENTORY_WORKFLOW}@refs/pull/1040/merge`,
-        jobId: 'another-job',
-      }).exclusionProof,
-    ).toBeNull();
-    expect(
-      admitExecutionExclusionProof({
-        ...common,
         scope: 'full',
         githubActions: undefined,
-        workflowRef: undefined,
-        jobId: undefined,
-        localRunnerProfile: SOURCE_INVENTORY_RUNNER_PROFILE,
+        fullExecutionIntent: SOURCE_INVENTORY_FULL_EXECUTION_INTENT_V1,
         governedCommonDirs: ['/governed/repository/.git'],
       }).exclusionProof,
     ).not.toBeNull();
@@ -692,9 +664,7 @@ describe('GitHub Actions detached execution identity', () => {
         ...common,
         scope: 'full',
         githubActions: undefined,
-        workflowRef: undefined,
-        jobId: undefined,
-        localRunnerProfile: SOURCE_INVENTORY_RUNNER_PROFILE,
+        fullExecutionIntent: SOURCE_INVENTORY_FULL_EXECUTION_INTENT_V1,
         governedCommonDirs: ['/runner/repository/.git'],
       }),
     ).toThrow(/independent Git common-dir/);

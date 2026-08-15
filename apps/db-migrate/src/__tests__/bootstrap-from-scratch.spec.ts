@@ -147,7 +147,6 @@ const POSTGRES_IMAGE =
 const DATABASE_NAME = 'aquaculture';
 const DATABASE_USER = 'aquaculture';
 const DATABASE_PASSWORD = 'aquaculture-test';
-const DB_MIGRATE_DDL_AUTHORITY_ENV = 'DB_MIGRATE_DDL_AUTHORITY';
 const SERVICE_ROLE_PASSWORD_ENVS = [
   'AUTH_SERVICE_DB_PASS',
   'FARM_SERVICE_DB_PASS',
@@ -171,20 +170,6 @@ const SERVICE_ROLE_PASSWORD_ENVS = [
 // (mirrors how the sibling platform-bootstrap.integration.spec.ts resolves it).
 const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
 const INIT_SCRIPTS_DIR = join(REPO_ROOT, 'infrastructure', 'docker', 'init-scripts');
-
-async function runWithDbMigrateDdlAuthority<T>(operation: () => Promise<T>): Promise<T> {
-  const previous = process.env[DB_MIGRATE_DDL_AUTHORITY_ENV];
-  process.env[DB_MIGRATE_DDL_AUTHORITY_ENV] = '1';
-  try {
-    return await operation();
-  } finally {
-    if (previous === undefined) {
-      Reflect.deleteProperty(process.env, DB_MIGRATE_DDL_AUTHORITY_ENV);
-    } else {
-      process.env[DB_MIGRATE_DDL_AUTHORITY_ENV] = previous;
-    }
-  }
-}
 
 /**
  * Per-service migration manifest.
@@ -914,7 +899,7 @@ describe('Bootstrap from scratch (fresh-volume init + full migration chain)', ()
         // empty `<schema>.migrations` ledger table that would skew the
         // "ledger is non-empty" assertion below.
         if (migrationClasses.length > 0) {
-          await runWithDbMigrateDdlAuthority(() => ds.runMigrations({ transaction: 'each' }));
+          await ds.runMigrations({ transaction: 'each' });
         }
       } catch (err) {
         // Surface which service failed so the diagnostic message is

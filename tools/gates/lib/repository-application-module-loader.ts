@@ -25,6 +25,7 @@ import {
   assertAnchoredDirectoryChainIdentityCurrent,
   assertStableRegularFileCurrent,
   closeAnchoredDirectoryChain,
+  decodeFatalUtf8,
   observeStableRegularFile,
   openAnchoredDirectoryChain,
   sameBigIntFileObservation,
@@ -35,7 +36,7 @@ import { errorFromUnknown } from './error-cause';
 import { REPO_ROOT } from './repo-root';
 
 const repositoryRequire = createRequire(__filename);
-const REPOSITORY_APPLICATION_MODULE_EXTENSIONS = new Set(['.ts']);
+const REPOSITORY_APPLICATION_MODULE_EXTENSIONS = new Set(['.json', '.ts']);
 const MAX_REPOSITORY_APPLICATION_MODULE_BYTES = 16 * 1024 * 1024;
 const MAX_REPOSITORY_EXECUTION_AUTHORITY_FILE_BYTES = 2 * 1024 * 1024;
 
@@ -57,6 +58,7 @@ type CommonJsCompilerV1 = (
   content: string | Buffer,
   filename: string,
 ) => unknown;
+type CommonJsModuleRequireV1 = (this: NodeJS.Module, request: string) => unknown;
 type TypeScriptCreateServiceV1 = (
   this: object,
   options: Readonly<{ project: string; transpileOnly: true }>,
@@ -79,11 +81,37 @@ function assertRuntimeCallable<TCallable extends RuntimeCallableV1>(
   if (typeof value !== 'function') throw new Error(label);
 }
 
+/**
+ * Determinism contract for trusted repository modules. This is not a hostile-code sandbox: it
+ * owns only the lifecycle of the CommonJS `module.require` capability installed on modules
+ * evaluated here. Source admission rejects a closed set of direct loader APIs used by those
+ * trusted modules; it does not claim containment of hostile code.
+ */
+const REPOSITORY_APPLICATION_MODULE_REQUIRE_CONTRACT_V1 = Object.freeze({
+  moduleRequireProperty: 'require',
+  postEvaluationModuleRequire: 'DENY',
+  schemaVersion: 'RepositoryApplicationModuleRequireContractV1',
+});
+
+const REPOSITORY_APPLICATION_TYPESCRIPT_SOURCE_ADMISSION_PROFILE_V1 = Object.freeze({
+  deniedLoaderModuleSpecifiers: Object.freeze(['module', 'node:module']),
+  schemaVersion: 'RepositoryApplicationTypeScriptSourceAdmissionProfileV1',
+});
+
+interface RepositoryApplicationModuleRequireAuthorityV1 {
+  readonly assertMode: (expected: RepositoryApplicationModuleRequireModeV1) => void;
+  readonly governedRequire: CommonJsModuleRequireV1;
+  readonly seal: () => void;
+}
+
+type RepositoryApplicationModuleRequireModeV1 = 'EVALUATING' | 'SEALED';
+
 interface RepositoryApplicationModuleCacheEntryV1 {
   readonly digestSha256: string;
   readonly extensionHandler: RepositoryApplicationExtensionHandlerV1;
   readonly generation: BigIntStats;
   readonly module: NodeJS.Module;
+  readonly requireAuthority: RepositoryApplicationModuleRequireAuthorityV1;
   readonly sourceObservation: StableRegularFileObservationV1;
   loadingEvaluationToken: object | undefined;
   state: RepositoryApplicationModuleLoadState;
@@ -109,14 +137,18 @@ interface RepositoryApplicationExecutionAuthorityV1 {
   readonly compiler: TypeScriptCompileV1;
   readonly coordinates: readonly StableRegularFileObservationV1[];
   readonly extensionRegistry: object;
+  readonly jsonHandler: RepositoryApplicationExtensionHandlerV1['handler'];
   readonly loader: CommonJsLoaderV1;
   readonly moduleCache: object;
   readonly pathMappings: Readonly<Record<string, readonly string[]>>;
+  readonly previousJsonHandler: unknown;
+  readonly previousLoader: CommonJsLoaderV1;
+  readonly previousResolver: CommonJsResolverV1;
+  readonly previousTypeScriptHandler: unknown;
   readonly resolver: CommonJsResolverV1;
   readonly resolverProbe: NodeJS.Module;
   readonly service: object;
   readonly typescriptHandler: RepositoryApplicationExtensionHandlerV1['handler'];
-  readonly unregisterPaths: () => void;
 }
 
 let repositoryApplicationExecutionAuthority: RepositoryApplicationExecutionAuthorityV1 | undefined;
@@ -125,6 +157,16 @@ function withRepositoryApplicationEvaluationRoot<T>(
   repositoryRoot: string,
   action: (frame: RepositoryApplicationEvaluationFrameV1) => T,
 ): T {
+  const authority = repositoryApplicationExecutionAuthority;
+  if (authority === undefined) {
+    throw new Error('Repository application evaluation has no execution authority');
+  }
+  const ownsRuntime = repositoryApplicationEvaluationRoots.length === 0;
+  if (ownsRuntime) {
+    installRepositoryApplicationExecutionRuntime(authority);
+  } else {
+    assertRepositoryApplicationExecutionRuntimeCurrent(authority);
+  }
   const frame = Object.freeze({ repositoryRoot, token: Object.freeze({}) });
   repositoryApplicationEvaluationRoots.push(frame);
   let actionFailure: Error | undefined;
@@ -139,21 +181,35 @@ function withRepositoryApplicationEvaluationRoot<T>(
     releasedRoot === frame
       ? undefined
       : new Error('Repository application evaluation root stack changed during execution');
-  if (actionFailure !== undefined && cleanupFailure !== undefined) {
+  let runtimeCleanupFailure: Error | undefined;
+  if (ownsRuntime) {
+    try {
+      restoreRepositoryApplicationExecutionRuntime(authority);
+    } catch (error) {
+      runtimeCleanupFailure = errorFromUnknown(
+        'Repository application scoped execution runtime cleanup failed',
+        error,
+      );
+    }
+  }
+  const failures = [actionFailure, cleanupFailure, runtimeCleanupFailure].filter(
+    (failure): failure is Error => failure !== undefined,
+  );
+  if (failures.length > 1) {
     throw new AggregateError(
-      [actionFailure, cleanupFailure],
-      'Repository application evaluation and root capability cleanup failed',
+      failures,
+      'Repository application evaluation and scoped capability cleanup failed',
     );
   }
-  if (actionFailure !== undefined) throw actionFailure;
-  if (cleanupFailure !== undefined) throw cleanupFailure;
+  const onlyFailure = failures[0];
+  if (onlyFailure !== undefined) throw onlyFailure;
   return result as T;
 }
 
 function requireRepositoryApplicationEvaluationRoot(): string {
   const frame = repositoryApplicationEvaluationRoots.at(-1);
   if (frame === undefined) {
-    throw new Error('Repository TypeScript handler escaped a governed evaluation root');
+    throw new Error('Repository application handler escaped a governed evaluation root');
   }
   return frame.repositoryRoot;
 }
@@ -161,7 +217,7 @@ function requireRepositoryApplicationEvaluationRoot(): string {
 function requireRepositoryApplicationEvaluationToken(): object {
   const frame = repositoryApplicationEvaluationRoots.at(-1);
   if (frame === undefined) {
-    throw new Error('Repository TypeScript handler escaped a governed evaluation generation');
+    throw new Error('Repository application handler escaped a governed evaluation generation');
   }
   return frame.token;
 }
@@ -285,6 +341,106 @@ function deleteCommonJsModuleCache(cache: object, targetPath: string): void {
   }
 }
 
+function createRepositoryApplicationModuleRequireAuthority(
+  loadedModule: NodeJS.Module,
+  targetPath: string,
+): RepositoryApplicationModuleRequireAuthorityV1 {
+  const property = REPOSITORY_APPLICATION_MODULE_REQUIRE_CONTRACT_V1.moduleRequireProperty;
+  if (Object.getOwnPropertyDescriptor(loadedModule, property) !== undefined) {
+    throw new Error(
+      `Repository application Module starts with an ungoverned require capability: ${targetPath}`,
+    );
+  }
+  const inheritedRequire: unknown = Reflect.get(loadedModule, property);
+  assertRuntimeCallable<CommonJsModuleRequireV1>(
+    inheritedRequire,
+    `Repository application Module exposes no CommonJS require capability: ${targetPath}`,
+  );
+  let mode: RepositoryApplicationModuleRequireModeV1 = 'EVALUATING';
+  const governedRequire = function (this: NodeJS.Module, request: string): unknown {
+    if (this !== loadedModule) {
+      throw new Error(
+        `${REPOSITORY_APPLICATION_MODULE_REQUIRE_CONTRACT_V1.schemaVersion} rejected a ` +
+          `foreign module receiver for ${targetPath}`,
+      );
+    }
+    if (mode !== 'EVALUATING') {
+      throw new Error(
+        `${REPOSITORY_APPLICATION_MODULE_REQUIRE_CONTRACT_V1.schemaVersion} enforced ` +
+          `${REPOSITORY_APPLICATION_MODULE_REQUIRE_CONTRACT_V1.postEvaluationModuleRequire} ` +
+          `for post-evaluation module.require from ${targetPath}: ${request}`,
+      );
+    }
+    return Reflect.apply(inheritedRequire, loadedModule, [request]);
+  };
+  Object.freeze(governedRequire);
+  Object.defineProperty(loadedModule, property, {
+    configurable: false,
+    enumerable: false,
+    value: governedRequire,
+    writable: false,
+  });
+  const assertMode = (expected: RepositoryApplicationModuleRequireModeV1): void => {
+    if (mode !== expected) {
+      throw new Error(
+        `Repository application module require mode is ${mode}, expected ${expected}: ${targetPath}`,
+      );
+    }
+  };
+  const seal = (): void => {
+    assertMode('EVALUATING');
+    mode = 'SEALED';
+  };
+  return Object.freeze({
+    assertMode: Object.freeze(assertMode),
+    governedRequire,
+    seal: Object.freeze(seal),
+  });
+}
+
+function assertRepositoryApplicationRequireDescriptorCurrent(
+  entry: RepositoryApplicationModuleCacheEntryV1,
+  targetPath: string,
+): void {
+  const property = REPOSITORY_APPLICATION_MODULE_REQUIRE_CONTRACT_V1.moduleRequireProperty;
+  const descriptor = Object.getOwnPropertyDescriptor(entry.module, property);
+  if (
+    descriptor === undefined ||
+    descriptor.configurable !== false ||
+    descriptor.enumerable !== false ||
+    descriptor.writable !== false ||
+    descriptor.value !== entry.requireAuthority.governedRequire ||
+    Reflect.get(entry.module, property) !== entry.requireAuthority.governedRequire
+  ) {
+    throw new Error(`Repository application module require capability changed: ${targetPath}`);
+  }
+}
+
+function assertRepositoryApplicationEvaluationRequireCurrent(
+  entry: RepositoryApplicationModuleCacheEntryV1,
+  targetPath: string,
+): void {
+  assertRepositoryApplicationRequireDescriptorCurrent(entry, targetPath);
+  entry.requireAuthority.assertMode('EVALUATING');
+}
+
+function assertRepositoryApplicationSealedRequireCurrent(
+  entry: RepositoryApplicationModuleCacheEntryV1,
+  targetPath: string,
+): void {
+  assertRepositoryApplicationRequireDescriptorCurrent(entry, targetPath);
+  entry.requireAuthority.assertMode('SEALED');
+}
+
+function sealRepositoryApplicationModuleRequire(
+  entry: RepositoryApplicationModuleCacheEntryV1,
+  targetPath: string,
+): void {
+  assertRepositoryApplicationEvaluationRequireCurrent(entry, targetPath);
+  entry.requireAuthority.seal();
+  assertRepositoryApplicationSealedRequireCurrent(entry, targetPath);
+}
+
 function assertRepositoryApplicationModuleCacheEntryCurrent(
   moduleCache: object,
   targetPath: string,
@@ -311,9 +467,10 @@ function assertRepositoryApplicationModuleCacheEntryCurrent(
       !activeTokens.has(entry.loadingEvaluationToken)
     ) {
       throw new Error(
-        `Repository application module LOADING authority escaped its graph: ${targetPath}`,
+        `Repository application module LOADING authority escaped its evaluation scope: ${targetPath}`,
       );
     }
+    assertRepositoryApplicationEvaluationRequireCurrent(entry, targetPath);
   } else if (
     entry.state !== 'LOADED' ||
     !entry.module.loaded ||
@@ -322,6 +479,8 @@ function assertRepositoryApplicationModuleCacheEntryCurrent(
     throw new Error(
       `Repository application module LOADED authority is inconsistent: ${targetPath}`,
     );
+  } else {
+    assertRepositoryApplicationSealedRequireCurrent(entry, targetPath);
   }
 }
 
@@ -354,8 +513,10 @@ function assertGovernedRepositoryDependencyCoordinate(
   }
   const pathFromRoot = relative(frame.repositoryRoot, coordinate);
   if (pathFromRoot.split('/').includes('node_modules')) return;
-  if (extname(coordinate) !== '.ts') {
-    throw new Error(`Repository application dependency is not governed TypeScript: ${coordinate}`);
+  if (!REPOSITORY_APPLICATION_MODULE_EXTENSIONS.has(extname(coordinate))) {
+    throw new Error(
+      `Repository application dependency has no governed application extension: ${coordinate}`,
+    );
   }
   const cachedModule = readCommonJsModuleCache(moduleCache, coordinate);
   const entry = repositoryApplicationModuleCache.get(coordinate);
@@ -485,6 +646,99 @@ function rewriteCompiledTypeScriptAliasRequests(
     );
 }
 
+function assertRepositoryApplicationTypeScriptSourceAdmitted(
+  source: string,
+  filename: string,
+): void {
+  const profile = REPOSITORY_APPLICATION_TYPESCRIPT_SOURCE_ADMISSION_PROFILE_V1;
+  const parsed = ts.createSourceFile(
+    filename,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const reject = (node: ts.Node, reason: string): never => {
+    const position = parsed.getLineAndCharacterOfPosition(node.getStart(parsed));
+    throw new Error(
+      `${profile.schemaVersion} rejected ${reason} at ${filename}:` +
+        `${String(position.line + 1)}:${String(position.character + 1)}`,
+    );
+  };
+  const rejectDeniedModuleSpecifier = (node: ts.Node, value: string): void => {
+    if (profile.deniedLoaderModuleSpecifiers.includes(value)) {
+      reject(node, `loader-module capability ${JSON.stringify(value)}`);
+    }
+  };
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier !== undefined &&
+      ts.isStringLiteralLike(node.moduleSpecifier)
+    ) {
+      rejectDeniedModuleSpecifier(node.moduleSpecifier, node.moduleSpecifier.text);
+    }
+    if (
+      ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference) &&
+      node.moduleReference.expression !== undefined &&
+      ts.isStringLiteralLike(node.moduleReference.expression)
+    ) {
+      rejectDeniedModuleSpecifier(
+        node.moduleReference.expression,
+        node.moduleReference.expression.text,
+      );
+    }
+    if (ts.isCallExpression(node)) {
+      if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        reject(node, 'runtime dynamic import');
+      }
+      if (ts.isIdentifier(node.expression) && node.expression.text === 'require') {
+        if (node.arguments.length !== 1) {
+          reject(node, 'non-literal CommonJS require');
+        }
+        const request = node.arguments[0];
+        if (request !== undefined && ts.isStringLiteralLike(request)) {
+          rejectDeniedModuleSpecifier(request, request.text);
+        } else {
+          reject(node, 'non-literal CommonJS require');
+        }
+      }
+      if (
+        ts.isPropertyAccessExpression(node.expression) &&
+        ts.isIdentifier(node.expression.expression) &&
+        node.expression.expression.text === 'process' &&
+        node.expression.name.text === 'getBuiltinModule'
+      ) {
+        reject(node, 'process.getBuiltinModule loader capability');
+      }
+    }
+    if (ts.isIdentifier(node) && node.text === 'require') {
+      const parent = node.parent;
+      const isLiteralCall = ts.isCallExpression(parent) && parent.expression === node;
+      const isCacheInspection =
+        ts.isPropertyAccessExpression(parent) &&
+        parent.expression === node &&
+        parent.name.text === 'cache';
+      if (!isLiteralCall && !isCacheInspection) {
+        reject(node, 'captured CommonJS require capability');
+      }
+    }
+    if (ts.isIdentifier(node) && node.text === 'module') {
+      const parent = node.parent;
+      const isOwnedLifecycleProperty =
+        ts.isPropertyAccessExpression(parent) &&
+        parent.expression === node &&
+        (parent.name.text === 'exports' || parent.name.text === 'loaded');
+      if (!isOwnedLifecycleProperty) {
+        reject(node, 'direct CommonJS module capability');
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+}
+
 function assertRepositoryExecutionCoordinatesCurrent(
   coordinates: readonly StableRegularFileObservationV1[],
 ): void {
@@ -555,11 +809,125 @@ function compileRepositoryApplicationCommonJs(
   return Reflect.apply(compileModule, loadedModule, [source, filename]);
 }
 
+function evaluateRepositoryApplicationDependency(
+  loadedModule: NodeJS.Module,
+  filename: string,
+  extensionHandler: RepositoryApplicationExtensionHandlerV1,
+  label: string,
+  evaluate: (
+    source: StableRegularFileObservationV1,
+    authority: RepositoryApplicationExecutionAuthorityV1,
+  ) => unknown,
+): unknown {
+  const activeAuthority = repositoryApplicationExecutionAuthority;
+  if (activeAuthority === undefined) {
+    throw new Error(`Repository ${label} handler has no active execution authority`);
+  }
+  assertRepositoryApplicationExecutionRuntimeCurrent(activeAuthority);
+  const source = observeStableRegularFile(
+    filename,
+    MAX_REPOSITORY_APPLICATION_MODULE_BYTES,
+    `Repository ${label} execution source`,
+  );
+  const evaluationRoot = requireRepositoryApplicationEvaluationRoot();
+  const canonicalModuleFilename = resolve(loadedModule.filename);
+  const governedDependency =
+    resolve(filename) === filename &&
+    isPathBelow(evaluationRoot, filename) &&
+    extname(filename) === extensionHandler.extension;
+  if (
+    !governedDependency &&
+    (canonicalModuleFilename !== loadedModule.filename ||
+      !isPathBelow(evaluationRoot, canonicalModuleFilename))
+  ) {
+    throw new Error(`Repository ${label} source escaped its evaluation root: ${filename}`);
+  }
+
+  let dependencyEntry: RepositoryApplicationModuleCacheEntryV1 | undefined;
+  if (governedDependency) {
+    if (readCommonJsModuleCache(activeAuthority.moduleCache, filename) !== loadedModule) {
+      throw new Error(
+        `Repository ${label} dependency has no canonical cache ownership: ${filename}`,
+      );
+    }
+    const existing = repositoryApplicationModuleCache.get(filename);
+    if (existing !== undefined) {
+      throw new Error(`Repository ${label} dependency duplicated its governed load: ${filename}`);
+    }
+    dependencyEntry = {
+      digestSha256: source.sha256,
+      extensionHandler,
+      generation: source.stat,
+      loadingEvaluationToken: requireRepositoryApplicationEvaluationToken(),
+      module: loadedModule,
+      requireAuthority: createRepositoryApplicationModuleRequireAuthority(loadedModule, filename),
+      sourceObservation: source,
+      state: 'LOADING',
+    };
+    repositoryApplicationModuleCache.set(filename, dependencyEntry);
+  }
+
+  let actionFailure: Error | undefined;
+  let result: unknown;
+  try {
+    result = evaluate(source, activeAuthority);
+    assertRepositoryApplicationExecutionRuntimeCurrent(activeAuthority);
+    assertStableRegularFileCurrent(
+      source,
+      MAX_REPOSITORY_APPLICATION_MODULE_BYTES,
+      `Repository ${label} execution source`,
+    );
+    if (dependencyEntry !== undefined) {
+      if (
+        repositoryApplicationModuleCache.get(filename) !== dependencyEntry ||
+        readCommonJsModuleCache(activeAuthority.moduleCache, filename) !== loadedModule
+      ) {
+        throw new Error(`Repository ${label} dependency authority changed: ${filename}`);
+      }
+      loadedModule.loaded = true;
+      sealRepositoryApplicationModuleRequire(dependencyEntry, filename);
+      dependencyEntry.state = 'LOADED';
+      dependencyEntry.loadingEvaluationToken = undefined;
+    }
+  } catch (error) {
+    actionFailure = errorFromUnknown(`Repository ${label} dependency evaluation failed`, error);
+  }
+  if (actionFailure === undefined) return result;
+
+  const cleanupFailures: Error[] = [];
+  if (
+    dependencyEntry !== undefined &&
+    repositoryApplicationModuleCache.get(filename) === dependencyEntry
+  ) {
+    repositoryApplicationModuleCache.delete(filename);
+  }
+  if (
+    dependencyEntry !== undefined &&
+    readCommonJsModuleCache(activeAuthority.moduleCache, filename) === loadedModule
+  ) {
+    try {
+      deleteCommonJsModuleCache(activeAuthority.moduleCache, filename);
+    } catch (error) {
+      cleanupFailures.push(
+        errorFromUnknown(`Repository ${label} dependency cache cleanup failed`, error),
+      );
+    }
+  }
+  if (cleanupFailures.length > 0) {
+    throw new AggregateError(
+      [actionFailure, ...cleanupFailures],
+      `Repository ${label} dependency evaluation and cache cleanup failed`,
+    );
+  }
+  throw actionFailure;
+}
+
 function assertRepositoryApplicationExecutionRuntimeCurrent(
   authority: RepositoryApplicationExecutionAuthorityV1,
 ): void {
   if (
     currentCommonJsExtensionRegistry() !== authority.extensionRegistry ||
+    Reflect.get(authority.extensionRegistry, '.json') !== authority.jsonHandler ||
     Reflect.get(authority.extensionRegistry, '.ts') !== authority.typescriptHandler ||
     currentCommonJsLoader() !== authority.loader ||
     currentCommonJsModuleCache() !== authority.moduleCache ||
@@ -570,11 +938,31 @@ function assertRepositoryApplicationExecutionRuntimeCurrent(
   }
 }
 
+function assertRepositoryApplicationExecutionRuntimeInactive(
+  authority: RepositoryApplicationExecutionAuthorityV1,
+): void {
+  if (
+    currentCommonJsExtensionRegistry() !== authority.extensionRegistry ||
+    Reflect.get(authority.extensionRegistry, '.json') !== authority.previousJsonHandler ||
+    Reflect.get(authority.extensionRegistry, '.ts') !== authority.previousTypeScriptHandler ||
+    currentCommonJsLoader() !== authority.previousLoader ||
+    currentCommonJsModuleCache() !== authority.moduleCache ||
+    currentCommonJsResolver() !== authority.previousResolver ||
+    Reflect.get(authority.service, 'compile') !== authority.compiler
+  ) {
+    throw new Error('Repository application inactive execution authority generation changed');
+  }
+}
+
 function assertRepositoryApplicationExecutionAuthorityCurrent(
   authority: RepositoryApplicationExecutionAuthorityV1,
 ): void {
   assertRepositoryExecutionCoordinatesCurrent(authority.coordinates);
-  assertRepositoryApplicationExecutionRuntimeCurrent(authority);
+  if (repositoryApplicationEvaluationRoots.length === 0) {
+    assertRepositoryApplicationExecutionRuntimeInactive(authority);
+  } else {
+    assertRepositoryApplicationExecutionRuntimeCurrent(authority);
+  }
   for (const alias of authority.aliasCoordinates) {
     if (
       resolveRepositoryAliasCoordinate(
@@ -587,6 +975,167 @@ function assertRepositoryApplicationExecutionAuthorityCurrent(
     }
   }
   assertRepositoryApplicationModuleCacheCurrent(authority);
+}
+
+function restoreRepositoryApplicationExecutionRuntime(
+  authority: RepositoryApplicationExecutionAuthorityV1,
+): void {
+  const rollbackFailures: Error[] = [];
+  try {
+    let cleanupViolation: Error | undefined;
+    if (currentCommonJsLoader() === authority.loader) {
+      if (!Reflect.set(Module, '_load', authority.previousLoader)) {
+        throw new Error('Repository CommonJS dependency loader restoration was rejected');
+      }
+    } else if (currentCommonJsLoader() !== authority.previousLoader) {
+      cleanupViolation = new Error(
+        'Repository CommonJS dependency loader changed during scoped execution',
+      );
+      if (!Reflect.set(Module, '_load', authority.previousLoader)) {
+        throw new Error('Repository CommonJS dependency loader fallback restoration was rejected');
+      }
+    }
+    if (currentCommonJsLoader() !== authority.previousLoader) {
+      throw new Error(
+        'Repository CommonJS dependency loader restoration did not recover the prior generation',
+      );
+    }
+    if (cleanupViolation !== undefined) throw cleanupViolation;
+  } catch (error) {
+    rollbackFailures.push(
+      errorFromUnknown('Repository CommonJS dependency loader restoration failed', error),
+    );
+  }
+  for (const [extension, installedHandler, previousHandler, label] of [
+    ['.json', authority.jsonHandler, authority.previousJsonHandler, 'JSON'],
+    ['.ts', authority.typescriptHandler, authority.previousTypeScriptHandler, 'TypeScript'],
+  ] as const) {
+    try {
+      let cleanupViolation: Error | undefined;
+      if (Reflect.get(authority.extensionRegistry, extension) === installedHandler) {
+        if (previousHandler === undefined) {
+          if (!Reflect.deleteProperty(authority.extensionRegistry, extension)) {
+            throw new Error(`Repository ${label} handler restoration deletion was rejected`);
+          }
+        } else if (!Reflect.set(authority.extensionRegistry, extension, previousHandler)) {
+          throw new Error(`Repository ${label} handler restoration was rejected`);
+        }
+      } else if (Reflect.get(authority.extensionRegistry, extension) !== previousHandler) {
+        cleanupViolation = new Error(`Repository ${label} handler changed during scoped execution`);
+        if (previousHandler === undefined) {
+          if (!Reflect.deleteProperty(authority.extensionRegistry, extension)) {
+            throw new Error(`Repository ${label} handler fallback deletion was rejected`);
+          }
+        } else if (!Reflect.set(authority.extensionRegistry, extension, previousHandler)) {
+          throw new Error(`Repository ${label} handler fallback restoration was rejected`);
+        }
+      }
+      if (Reflect.get(authority.extensionRegistry, extension) !== previousHandler) {
+        throw new Error(
+          `Repository ${label} handler restoration did not recover the prior generation`,
+        );
+      }
+      if (cleanupViolation !== undefined) throw cleanupViolation;
+    } catch (error) {
+      rollbackFailures.push(
+        errorFromUnknown(`Repository ${label} handler restoration failed`, error),
+      );
+    }
+  }
+  try {
+    let cleanupViolation: Error | undefined;
+    if (currentCommonJsResolver() === authority.resolver) {
+      if (!Reflect.set(Module, '_resolveFilename', authority.previousResolver)) {
+        throw new Error('Repository CommonJS resolver restoration was rejected');
+      }
+    } else if (currentCommonJsResolver() !== authority.previousResolver) {
+      cleanupViolation = new Error('Repository CommonJS resolver changed during scoped execution');
+      if (!Reflect.set(Module, '_resolveFilename', authority.previousResolver)) {
+        throw new Error('Repository CommonJS resolver fallback restoration was rejected');
+      }
+    }
+    if (currentCommonJsResolver() !== authority.previousResolver) {
+      throw new Error(
+        'Repository CommonJS resolver restoration did not recover the prior generation',
+      );
+    }
+    if (cleanupViolation !== undefined) throw cleanupViolation;
+  } catch (error) {
+    rollbackFailures.push(
+      errorFromUnknown('Repository TypeScript path resolver restoration failed', error),
+    );
+  }
+  try {
+    assertRepositoryApplicationExecutionRuntimeInactive(authority);
+  } catch (error) {
+    rollbackFailures.push(
+      errorFromUnknown('Repository scoped execution runtime restoration is incomplete', error),
+    );
+  }
+  const onlyFailure = rollbackFailures.length === 1 ? rollbackFailures[0] : undefined;
+  if (onlyFailure !== undefined) throw onlyFailure;
+  if (rollbackFailures.length > 1) {
+    throw new AggregateError(
+      rollbackFailures,
+      'Repository scoped execution runtime restoration failed',
+    );
+  }
+}
+
+function installRepositoryApplicationExecutionRuntime(
+  authority: RepositoryApplicationExecutionAuthorityV1,
+): void {
+  assertRepositoryExecutionCoordinatesCurrent(authority.coordinates);
+  assertRepositoryApplicationExecutionRuntimeInactive(authority);
+  for (const alias of authority.aliasCoordinates) {
+    if (
+      resolveRepositoryAliasCoordinate(
+        authority.resolver,
+        authority.resolverProbe,
+        alias.request,
+      ) !== alias.coordinate
+    ) {
+      throw new Error(`Repository TypeScript alias generation changed: ${alias.request}`);
+    }
+  }
+  let actionFailure: Error | undefined;
+  try {
+    if (!Reflect.set(Module, '_resolveFilename', authority.resolver)) {
+      throw new Error('Repository CommonJS resolver scoped installation was rejected');
+    }
+    if (!Reflect.set(authority.extensionRegistry, '.json', authority.jsonHandler)) {
+      throw new Error('Repository JSON handler scoped installation was rejected');
+    }
+    if (!Reflect.set(authority.extensionRegistry, '.ts', authority.typescriptHandler)) {
+      throw new Error('Repository TypeScript handler scoped installation was rejected');
+    }
+    if (!Reflect.set(Module, '_load', authority.loader)) {
+      throw new Error('Repository CommonJS dependency loader scoped installation was rejected');
+    }
+    assertRepositoryApplicationExecutionRuntimeCurrent(authority);
+    return;
+  } catch (error) {
+    actionFailure = errorFromUnknown(
+      'Repository application scoped execution runtime installation failed',
+      error,
+    );
+  }
+  let cleanupFailure: Error | undefined;
+  try {
+    restoreRepositoryApplicationExecutionRuntime(authority);
+  } catch (error) {
+    cleanupFailure = errorFromUnknown(
+      'Repository application scoped execution runtime rollback failed',
+      error,
+    );
+  }
+  if (cleanupFailure !== undefined) {
+    throw new AggregateError(
+      [actionFailure, cleanupFailure],
+      'Repository application scoped execution runtime installation and rollback failed',
+    );
+  }
+  throw actionFailure;
 }
 
 function ensureRepositoryApplicationExecutionAuthority(): RepositoryApplicationExecutionAuthorityV1 {
@@ -646,132 +1195,71 @@ function ensureRepositoryApplicationExecutionAuthority(): RepositoryApplicationE
     compileTypeScript,
     'Repository TypeScript execution authority exposes no compiler',
   );
-  const typescriptHandler = (loadedModule: NodeJS.Module, filename: string): unknown => {
-    const activeAuthority = repositoryApplicationExecutionAuthority;
-    if (activeAuthority === undefined) {
-      throw new Error('Repository TypeScript handler has no active execution authority');
-    }
-    assertRepositoryApplicationExecutionRuntimeCurrent(activeAuthority);
-    const source = observeStableRegularFile(
+  const typescriptHandler = (loadedModule: NodeJS.Module, filename: string): unknown =>
+    evaluateRepositoryApplicationDependency(
+      loadedModule,
       filename,
-      MAX_REPOSITORY_APPLICATION_MODULE_BYTES,
-      'Repository TypeScript execution source',
-    );
-    const evaluationRoot = requireRepositoryApplicationEvaluationRoot();
-    const canonicalModuleFilename = resolve(loadedModule.filename);
-    const governedDependency =
-      resolve(filename) === filename &&
-      isPathBelow(evaluationRoot, filename) &&
-      extname(filename) === '.ts';
-    if (
-      !governedDependency &&
-      (canonicalModuleFilename !== loadedModule.filename ||
-        !isPathBelow(evaluationRoot, canonicalModuleFilename))
-    ) {
-      throw new Error(`Repository TypeScript source escaped its evaluation root: ${filename}`);
-    }
-    let dependencyEntry: RepositoryApplicationModuleCacheEntryV1 | undefined;
-    if (governedDependency) {
-      if (readCommonJsModuleCache(activeAuthority.moduleCache, filename) !== loadedModule) {
-        throw new Error(
-          `Repository TypeScript dependency has no canonical cache ownership: ${filename}`,
+      Object.freeze({ extension: '.ts', handler: typescriptHandler }),
+      'TypeScript',
+      (source, activeAuthority) => {
+        const sourceText = decodeFatalUtf8(
+          source.content,
+          'Repository TypeScript execution source',
         );
-      }
-      const existing = repositoryApplicationModuleCache.get(filename);
-      if (existing !== undefined) {
-        throw new Error(
-          `Repository TypeScript dependency duplicated its governed load: ${filename}`,
-        );
-      }
-      dependencyEntry = {
-        digestSha256: source.sha256,
-        extensionHandler: Object.freeze({ extension: '.ts', handler: typescriptHandler }),
-        generation: source.stat,
-        loadingEvaluationToken: requireRepositoryApplicationEvaluationToken(),
-        module: loadedModule,
-        sourceObservation: source,
-        state: 'LOADING',
-      };
-      repositoryApplicationModuleCache.set(filename, dependencyEntry);
-    }
-    let actionFailure: Error | undefined;
-    let result: unknown;
-    try {
-      const compiled: unknown = Reflect.apply(compileTypeScript, service, [
-        source.content.toString('utf8'),
-        filename,
-      ]);
-      if (typeof compiled !== 'string') {
-        throw new Error('Repository TypeScript compiler returned no JavaScript source');
-      }
-      assertRepositoryApplicationExecutionRuntimeCurrent(activeAuthority);
-      result = compileRepositoryApplicationCommonJs(
-        loadedModule,
-        filename,
-        rewriteCompiledTypeScriptAliasRequests(
-          compiled,
-          filename,
-          activeAuthority.pathMappings,
-          activeAuthority.resolver,
-          activeAuthority.resolverProbe,
-        ),
-      );
-      assertStableRegularFileCurrent(
-        source,
-        MAX_REPOSITORY_APPLICATION_MODULE_BYTES,
-        'Repository TypeScript execution source',
-      );
-      if (dependencyEntry !== undefined) {
-        if (
-          repositoryApplicationModuleCache.get(filename) !== dependencyEntry ||
-          readCommonJsModuleCache(activeAuthority.moduleCache, filename) !== loadedModule
-        ) {
-          throw new Error(`Repository TypeScript dependency authority changed: ${filename}`);
+        assertRepositoryApplicationTypeScriptSourceAdmitted(sourceText, filename);
+        const compiled: unknown = Reflect.apply(compileTypeScript, service, [sourceText, filename]);
+        if (typeof compiled !== 'string') {
+          throw new Error('Repository TypeScript compiler returned no JavaScript source');
         }
-        loadedModule.loaded = true;
-        dependencyEntry.state = 'LOADED';
-        dependencyEntry.loadingEvaluationToken = undefined;
-      }
-    } catch (error) {
-      actionFailure = errorFromUnknown('Repository TypeScript dependency evaluation failed', error);
-    }
-    if (actionFailure === undefined) return result;
-    const cleanupFailures: Error[] = [];
-    if (
-      dependencyEntry !== undefined &&
-      repositoryApplicationModuleCache.get(filename) === dependencyEntry
-    ) {
-      repositoryApplicationModuleCache.delete(filename);
-    }
-    if (
-      dependencyEntry !== undefined &&
-      readCommonJsModuleCache(activeAuthority.moduleCache, filename) === loadedModule
-    ) {
-      try {
-        deleteCommonJsModuleCache(activeAuthority.moduleCache, filename);
-      } catch (error) {
-        cleanupFailures.push(
-          errorFromUnknown('Repository TypeScript dependency cache cleanup failed', error),
+        return compileRepositoryApplicationCommonJs(
+          loadedModule,
+          filename,
+          rewriteCompiledTypeScriptAliasRequests(
+            compiled,
+            filename,
+            activeAuthority.pathMappings,
+            activeAuthority.resolver,
+            activeAuthority.resolverProbe,
+          ),
         );
-      }
-    }
-    if (cleanupFailures.length > 0) {
-      throw new AggregateError(
-        [actionFailure, ...cleanupFailures],
-        'Repository TypeScript dependency evaluation and cache cleanup failed',
-      );
-    }
-    throw actionFailure;
-  };
+      },
+    );
+  const jsonHandler = (loadedModule: NodeJS.Module, filename: string): unknown =>
+    evaluateRepositoryApplicationDependency(
+      loadedModule,
+      filename,
+      Object.freeze({ extension: '.json', handler: jsonHandler }),
+      'JSON',
+      (source) => {
+        if (
+          source.content.length >= 3 &&
+          source.content[0] === 0xef &&
+          source.content[1] === 0xbb &&
+          source.content[2] === 0xbf
+        ) {
+          throw new Error(`Repository JSON execution source carries a UTF-8 BOM: ${filename}`);
+        }
+        const raw = decodeFatalUtf8(source.content, 'Repository JSON execution source');
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          throw new Error(`Repository JSON execution source is not valid JSON: ${filename}`);
+        }
+        if (!Reflect.set(loadedModule, 'exports', parsed)) {
+          throw new Error(`Repository JSON module rejected parsed exports: ${filename}`);
+        }
+        return parsed;
+      },
+    );
   const extensionRegistry = currentCommonJsExtensionRegistry();
   const moduleCache = currentCommonJsModuleCache();
+  const previousJsonHandler: unknown = Reflect.get(extensionRegistry, '.json');
   const previousTypeScriptHandler: unknown = Reflect.get(extensionRegistry, '.ts');
   const previousLoader = currentCommonJsLoader();
   const previousResolver = currentCommonJsResolver();
   const resolverProbe = createCommonJsResolverProbe();
-  let installedUnregisterPaths: TypeScriptPathUnregisterV1 | undefined;
   let installedResolver: CommonJsResolverV1 | undefined;
-  let loaderInstalled = false;
   const governedLoader = function (
     this: unknown,
     request: unknown,
@@ -826,113 +1314,33 @@ function ensureRepositoryApplicationExecutionAuthority(): RepositoryApplicationE
     return result;
   };
   let actionFailure: Error | undefined;
+  let aliasCoordinates:
+    | readonly Readonly<{ readonly coordinate: string; readonly request: string }>[]
+    | undefined;
+  let unregisterPathsValue: TypeScriptPathUnregisterV1 | undefined;
   try {
-    const unregisterPathsValue: unknown = Reflect.apply(registerPaths, pathPackage, [
+    const unregisterPathsCapability: unknown = Reflect.apply(registerPaths, pathPackage, [
       { baseUrl: REPO_ROOT, paths },
     ]);
     assertRuntimeCallable<TypeScriptPathUnregisterV1>(
-      unregisterPathsValue,
+      unregisterPathsCapability,
       'Repository TypeScript path authority returned no cleanup capability',
     );
-    installedUnregisterPaths = unregisterPathsValue;
+    unregisterPathsValue = unregisterPathsCapability;
     installedResolver = currentCommonJsResolver();
-    if (!Reflect.set(extensionRegistry, '.ts', typescriptHandler)) {
-      throw new Error('Repository TypeScript handler installation was rejected');
-    }
-    if (!Reflect.set(Module, '_load', governedLoader)) {
-      throw new Error('Repository CommonJS dependency loader installation was rejected');
-    }
-    loaderInstalled = true;
-    const aliasCoordinates = resolveRepositoryAliasCoordinates(
-      installedResolver,
-      resolverProbe,
-      paths,
-    );
+    aliasCoordinates = resolveRepositoryAliasCoordinates(installedResolver, resolverProbe, paths);
     assertRepositoryExecutionCoordinatesCurrent(coordinates);
-    const unregisterPaths = (): void => {
-      Reflect.apply(unregisterPathsValue, undefined, []);
-    };
-    const authority = Object.freeze({
-      aliasCoordinates,
-      compiler: compileTypeScript,
-      coordinates,
-      extensionRegistry,
-      loader: governedLoader,
-      moduleCache,
-      pathMappings: paths,
-      resolver: installedResolver,
-      resolverProbe,
-      service,
-      typescriptHandler,
-      unregisterPaths,
-    });
-    repositoryApplicationExecutionAuthority = authority;
-    assertRepositoryApplicationExecutionAuthorityCurrent(authority);
-    return authority;
   } catch (error) {
     actionFailure = errorFromUnknown(
-      'Repository application execution authority installation failed',
+      'Repository application execution authority construction failed',
       error,
     );
   }
-  if (repositoryApplicationExecutionAuthority?.loader === governedLoader) {
-    repositoryApplicationExecutionAuthority = undefined;
-  }
-  const rollbackFailures: Error[] = [];
+  let cleanupFailure: Error | undefined;
   try {
     let cleanupViolation: Error | undefined;
-    if (loaderInstalled && currentCommonJsLoader() === governedLoader) {
-      if (!Reflect.set(Module, '_load', previousLoader)) {
-        throw new Error('Repository CommonJS dependency loader rollback was rejected');
-      }
-    } else if (currentCommonJsLoader() !== previousLoader) {
-      cleanupViolation = new Error(
-        'Repository CommonJS dependency loader changed during authority rollback',
-      );
-      if (!Reflect.set(Module, '_load', previousLoader)) {
-        throw new Error('Repository CommonJS dependency loader fallback rollback was rejected');
-      }
-    }
-    if (currentCommonJsLoader() !== previousLoader) {
-      throw new Error(
-        'Repository CommonJS dependency loader rollback did not restore the prior generation',
-      );
-    }
-    if (cleanupViolation !== undefined) throw cleanupViolation;
-  } catch (error) {
-    rollbackFailures.push(
-      errorFromUnknown('Repository CommonJS dependency loader rollback failed', error),
-    );
-  }
-  try {
-    if (Reflect.get(extensionRegistry, '.ts') === typescriptHandler) {
-      if (previousTypeScriptHandler === undefined) {
-        if (!Reflect.deleteProperty(extensionRegistry, '.ts')) {
-          throw new Error('Repository TypeScript handler rollback deletion was rejected');
-        }
-      } else {
-        if (!Reflect.set(extensionRegistry, '.ts', previousTypeScriptHandler)) {
-          throw new Error('Repository TypeScript handler rollback restoration was rejected');
-        }
-      }
-    } else if (Reflect.get(extensionRegistry, '.ts') !== previousTypeScriptHandler) {
-      throw new Error('Repository TypeScript handler changed during authority rollback');
-    }
-    if (Reflect.get(extensionRegistry, '.ts') !== previousTypeScriptHandler) {
-      throw new Error(
-        'Repository TypeScript handler rollback did not restore the prior generation',
-      );
-    }
-    if (currentCommonJsExtensionRegistry() !== extensionRegistry) {
-      throw new Error('Repository CommonJS extension registry changed during authority rollback');
-    }
-  } catch (error) {
-    rollbackFailures.push(errorFromUnknown('Repository TypeScript handler rollback failed', error));
-  }
-  try {
-    let cleanupViolation: Error | undefined;
-    if (installedUnregisterPaths !== undefined && currentCommonJsResolver() === installedResolver) {
-      Reflect.apply(installedUnregisterPaths, undefined, []);
+    if (unregisterPathsValue !== undefined && currentCommonJsResolver() === installedResolver) {
+      Reflect.apply(unregisterPathsValue, undefined, []);
       if (currentCommonJsResolver() !== previousResolver) {
         cleanupViolation = new Error(
           'Repository TypeScript path cleanup did not restore the prior resolver generation',
@@ -949,20 +1357,48 @@ function ensureRepositoryApplicationExecutionAuthority(): RepositoryApplicationE
     }
     if (cleanupViolation !== undefined) throw cleanupViolation;
   } catch (error) {
-    rollbackFailures.push(
-      errorFromUnknown('Repository TypeScript path resolver rollback failed', error),
+    cleanupFailure = errorFromUnknown(
+      'Repository TypeScript path resolver capability cleanup failed',
+      error,
     );
   }
-  if (rollbackFailures.length > 0) {
+  if (actionFailure !== undefined && cleanupFailure !== undefined) {
     throw new AggregateError(
-      [actionFailure, ...rollbackFailures],
-      'Repository application execution authority install and rollback failed',
+      [actionFailure, cleanupFailure],
+      'Repository application execution authority construction and cleanup failed',
     );
   }
-  if (actionFailure === undefined) {
-    throw new Error('Repository application execution authority installation lost its failure');
+  if (actionFailure !== undefined) throw actionFailure;
+  if (cleanupFailure !== undefined) throw cleanupFailure;
+  if (installedResolver === undefined || aliasCoordinates === undefined) {
+    throw new Error('Repository application execution authority construction was incomplete');
   }
-  throw actionFailure;
+  const authority = Object.freeze({
+    aliasCoordinates,
+    compiler: compileTypeScript,
+    coordinates,
+    extensionRegistry,
+    jsonHandler,
+    loader: governedLoader,
+    moduleCache,
+    pathMappings: paths,
+    previousJsonHandler,
+    previousLoader,
+    previousResolver,
+    previousTypeScriptHandler,
+    resolver: installedResolver,
+    resolverProbe,
+    service,
+    typescriptHandler,
+  });
+  repositoryApplicationExecutionAuthority = authority;
+  try {
+    assertRepositoryApplicationExecutionAuthorityCurrent(authority);
+  } catch (error) {
+    repositoryApplicationExecutionAuthority = undefined;
+    throw error;
+  }
+  return authority;
 }
 
 function requireEffectiveUserId(): bigint {
@@ -974,10 +1410,19 @@ function requireEffectiveUserId(): bigint {
 }
 
 function requireRepositoryApplicationExtensionHandler(
-  _targetPath: string,
+  targetPath: string,
 ): RepositoryApplicationExtensionHandlerV1 {
   const executionAuthority = ensureRepositoryApplicationExecutionAuthority();
-  return Object.freeze({ extension: '.ts', handler: executionAuthority.typescriptHandler });
+  const extension = extname(targetPath);
+  if (extension === '.json') {
+    return Object.freeze({ extension, handler: executionAuthority.jsonHandler });
+  }
+  if (extension === '.ts') {
+    return Object.freeze({ extension, handler: executionAuthority.typescriptHandler });
+  }
+  throw new TypeError(
+    `Repository application module target has no governed application extension: ${targetPath}`,
+  );
 }
 
 function writeRepositoryApplicationModuleSnapshot(coordinate: string, sourceContent: Buffer): void {
@@ -1094,10 +1539,14 @@ function evaluateDescriptorBoundRepositoryApplicationModule(
     assertRepositoryApplicationModuleSnapshot(handlerCoordinate, sourceContent, sourceDigestSha256);
     withRepositoryApplicationEvaluationRoot(opened.repositoryRoot, (frame) => {
       entry.loadingEvaluationToken = frame.token;
-      return extensionHandler.handler(loadedModule, handlerCoordinate);
+      const result = extensionHandler.handler(loadedModule, handlerCoordinate);
+      loadedModule.loaded = true;
+      sealRepositoryApplicationModuleRequire(entry, opened.targetPath);
+      entry.state = 'LOADED';
+      entry.loadingEvaluationToken = undefined;
+      return result;
     });
     assertRepositoryApplicationModuleSnapshot(handlerCoordinate, sourceContent, sourceDigestSha256);
-    loadedModule.loaded = true;
   } catch (error) {
     actionFailure = errorFromUnknown('Repository application module evaluation failed', error);
   }
@@ -1243,6 +1692,10 @@ function loadOpenedRepositoryApplicationModule(
     generation: opened.generation,
     loadingEvaluationToken: undefined,
     module: loadedModule,
+    requireAuthority: createRepositoryApplicationModuleRequireAuthority(
+      loadedModule,
+      opened.targetPath,
+    ),
     sourceObservation,
     state: 'LOADING',
   };
@@ -1264,8 +1717,6 @@ function loadOpenedRepositoryApplicationModule(
         `Repository application module content changed during governed evaluation: ${opened.targetPath}`,
       );
     }
-    entry.state = 'LOADED';
-    entry.loadingEvaluationToken = undefined;
     const finalExtensionHandler = requireRepositoryApplicationExtensionHandler(opened.targetPath);
     if (
       finalExtensionHandler.extension !== extensionHandler.extension ||
@@ -1318,7 +1769,7 @@ function openRepositoryApplicationModule(
   }
   if (!REPOSITORY_APPLICATION_MODULE_EXTENSIONS.has(extname(canonicalTarget))) {
     throw new TypeError(
-      `Repository application module target has no governed TypeScript application extension: ${canonicalTarget}`,
+      `Repository application module target has no governed application extension: ${canonicalTarget}`,
     );
   }
 

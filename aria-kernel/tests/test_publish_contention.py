@@ -28,7 +28,7 @@ from aria_kernel.state_store import (
     publish_with_contention_replay,
     tools_root,
 )
-from aria_kernel.migration import migrate_tools_bootstrap
+from aria_kernel.tools_binding import bind_tools_root
 
 from tests._helpers.declared_fixtures import append_declared_fixture
 
@@ -111,17 +111,20 @@ class PublishContentionTests(unittest.TestCase):
         `repo_identity.json`, and a freshly checked-out store is exactly that:
         the identity file is machine-local binding state (it records an absolute
         `bound_repo_root`), so it is deliberately not a declared surface and the
-        published branch does not carry it. `migrate-tools-bootstrap` is the
-        governed step that binds such a root — which is the same step PLAN §2.5
-        wanted deleted, and a second reason it must stay.
+        published branch does not carry it. `bind-tools-root` is the governed
+        step that binds such a root — which is the same step PLAN §2.5 wanted
+        deleted, and a second reason it must stay.
+
+        It used to be spelled `migrate-tools-bootstrap`. ORPHAN-HIGH-556
+        separated the two, and this helper's own first line says which one it
+        always wanted.
         """
         root = tools_root(store)
         root.mkdir(parents=True, exist_ok=True)
         if not (root / "repo_identity.json").exists():
-            migrate_tools_bootstrap(
+            bind_tools_root(
                 tools_dir=root,
                 workspace_root=store.repo_root,
-                acknowledge=True,
                 reason="bind the store checkout as this lane's tools root",
             )
         append_declared_fixture(

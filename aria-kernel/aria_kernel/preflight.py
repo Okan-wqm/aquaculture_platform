@@ -71,6 +71,10 @@ class PreflightVerdict:
     immutable_paths_count: int
     bash_allowlist_count: int
     failure_classes: tuple[str, ...] = field(default_factory=tuple)
+    # FAZ 5d — the environment facts every RUN profile needs (additive,
+    # defaulted so pre-existing constructions stay valid).
+    sandbox_backend_present: bool = False
+    node_modules_present: bool = False
 
 
 @dataclass(frozen=True)
@@ -125,6 +129,27 @@ REQUIRED_BRANCH_PROTECTION_FIELDS: tuple[tuple[str, str], ...] = (
     ("required_status_checks.strict", "true"),  # HIGH-002 up-to-date
     ("enforce_admins.enabled", "true"),  # CRIT-002 admin-bypass
 )
+
+
+# E18 (ORPHAN-672) — minimum free disk for a night to start. 5 GB covers
+# a full cycle's worktrees + ledger appends + artifact hot-tier with
+# headroom; the operator can widen or narrow it per host without a code
+# change. Guarded as env because disk is a HOST property, not repo policy.
+MIN_FREE_DISK_GB = float(os.environ.get("ARIA_MIN_FREE_DISK_GB", "5"))
+
+
+def _free_disk_gb(workspace_root: str | Path) -> float | None:
+    """Free space on the filesystem carrying the workspace, in GB.
+
+    Returns None when the probe itself fails (permission, exotic mount) —
+    an unprobeable disk must not fail preflight; only a MEASURED low disk
+    does. The distinction keeps this check honest on unusual hosts.
+    """
+    try:
+        usage = shutil.disk_usage(str(workspace_root))
+    except OSError:
+        return None
+    return usage.free / (1024**3)
 
 
 def _gh_available() -> bool:
@@ -299,6 +324,43 @@ def verify_preflight(
         immutable_paths_count = 0
         bash_allowlist_count = 0
 
+    # FAZ 5d — environment facts, measured for EVERY run profile. The
+    # nightly producer runs `standard` and used to skip preflight entirely,
+    # so a host with no sandbox or no node deps produced a green-looking run
+    # whose every dispatch then failed downstream with the fault priced on
+    # the tools (M-2.5). Signature and branch-protection checks stay
+    # autonomous-only; the environment subset is universal.
+    try:
+        from .implementation_safety import sandbox_backend as _sandbox_backend
+
+        sandbox_backend_present = _sandbox_backend() is not None
+    except (ImportError, AttributeError):
+        sandbox_backend_present = False
+    node_modules_present = (Path(workspace_root) / "node_modules").is_dir()
+    # E18 (ORPHAN-672) — disk is an environment precondition. A 98%-full
+    # host turned ledger writes into ENOSPC failures that masqueraded as
+    # test errors and chain corruption (lived 2026-08-13); the honest
+    # defence is refusing to START a night the disk cannot carry, with a
+    # named reason instead of downstream noise.
+    free_disk_gb = _free_disk_gb(workspace_root)
+    disk_ok = free_disk_gb is None or free_disk_gb >= MIN_FREE_DISK_GB
+    if profile in ("autonomous", "strict", "standard"):
+        if not sandbox_backend_present:
+            reasons.append("sandbox_backend_absent")
+            if profile == "autonomous":
+                failure_classes.append("autonomous_profile_preconditions_not_met")
+            else:
+                failure_classes.append("environment_preconditions_not_met")
+        if not node_modules_present:
+            reasons.append("node_modules_absent")
+            if profile != "autonomous":
+                failure_classes.append("environment_preconditions_not_met")
+        if not disk_ok:
+            reasons.append(
+                f"disk_low:free_gb={free_disk_gb:.1f}:min_gb={MIN_FREE_DISK_GB}"
+            )
+            failure_classes.append("environment_preconditions_not_met")
+
     if profile == "autonomous":
         if not gh_token_present:
             reasons.append("gh_token_absent")
@@ -340,6 +402,8 @@ def verify_preflight(
         immutable_paths_count=immutable_paths_count,
         bash_allowlist_count=bash_allowlist_count,
         failure_classes=tuple(failure_classes),
+        sandbox_backend_present=sandbox_backend_present,
+        node_modules_present=node_modules_present,
     )
 
 

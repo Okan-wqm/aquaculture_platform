@@ -49,7 +49,7 @@ jobs:
     timeout-minutes: 25
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -174,7 +174,7 @@ jobs:
 
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -242,7 +242,7 @@ jobs:
     timeout-minutes: 30
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -291,7 +291,7 @@ jobs:
     timeout-minutes: 10
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -371,40 +371,62 @@ jobs:
           path: web/shell/src/generated/remoteHashes.json
           retention-days: 14
 
-  deploy-ssot-gates:
+  finding-registry-store:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    permissions:
-      actions: read
-      checks: read
-      contents: read
-      pull-requests: read
     steps:
-      # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Setup Node.js
-        # SEC-CI-002: pinned to SHA
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - name: Setup source-control workspace
+        uses: ./.github/actions/setup-source-control-workspace
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci --ignore-scripts --no-audit --prefer-offline --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
 
       - name: Verify finding registry mutation authority
         run: npm run test:finding-registry-authority
 
-      - name: Verify automation publication authority contracts
-        run: |
-          npm run gates:automation-publication-publisher-typecheck
-          npm run test:automation-publication-admission
-          npm run test:source-control-plane
+  source-control-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup source-control workspace
+        uses: ./.github/actions/setup-source-control-workspace
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Verify automation publication publisher types
+        run: npm run gates:automation-publication-publisher-typecheck
+
+      - name: Verify automation publication admission
+        run: npm run test:automation-publication-admission
+
+      - name: Verify source control plane
+        run: npm run test:source-control-plane
+
+  source-inventory-static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup source-control workspace
+        uses: ./.github/actions/setup-source-control-workspace
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Verify finding writer preflight
         run: npm run findings:writer-preflight
@@ -415,25 +437,81 @@ jobs:
       - name: Verify committed source finding attestations
         run: npm run gates:source-finding-inventory:static
 
+  capability-integration-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup source-control workspace
+        uses: ./.github/actions/setup-source-control-workspace
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
       - name: Verify capability integration evidence
         run: npm run gates:capability-integration-evidence:live
         env:
           GITHUB_TOKEN: ${{ github.token }}
+
+  invariants-fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --prefer-offline
+
+      - name: Run fast invariants
+        # entity-diff-implies-migration.spec.ts (inside invariants:fast) honours
+        # `ENTITY-DIFF-OK:` PR-body waivers via PR_BODY. Main PRs/pushes, release
+        # tags, schedules and manual full-CI runs have exactly this one owner;
+        # quality-gates.yml retains the same context only for develop events.
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: npm run invariants:fast
+
+  deploy-ssot-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --prefer-offline
 
       - name: Service catalog artifacts are fresh
         run: npm run service-catalog:check
 
       - name: GraphQL registry artifacts are fresh
         run: npm run graphql:generate-registry-artifacts -- --check
-
-      - name: Run fast invariants
-        # entity-diff-implies-migration.spec.ts (inside invariants:fast) honours
-        # `ENTITY-DIFF-OK:` PR-body waivers via PR_BODY. Mirrors ci-affected.yml,
-        # quality-gates.yml, and db-migration-check.yml. Empty on push (the spec
-        # skips the gate when no PR base resolves), so it is a no-op off-PR.
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: npm run invariants:fast
 
       - name: Run schema drift registration gate
         run: npm run gates:schema-drift-registration
@@ -450,7 +528,7 @@ jobs:
     timeout-minutes: 15
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -488,7 +566,7 @@ jobs:
     timeout-minutes: 10
     steps:
       # SEC-CI-002: pinned to SHA
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -512,11 +590,16 @@ jobs:
       - test
       - build
       - generate-sri-hashes
+      - finding-registry-store
+      - source-control-contracts
+      - source-inventory-static
+      - capability-integration-evidence
+      - invariants-fast
       - deploy-ssot-gates
       - security-scan
       - license-check
     runs-on: ubuntu-latest
-    # This job runs one loop over seven strings. It had no budget at all, so it
+    # This job runs one loop over twelve strings. It had no budget at all, so it
     # inherited GitHub's 360-minute default — and because build-status is a
     # REQUIRED context, a wedged aggregate would hold every PR behind it for six
     # hours. Same class as the test budget above, one severity worse.
@@ -543,6 +626,11 @@ jobs:
             "test:${{ needs.test.result }}" \
             "build:${{ needs.build.result }}" \
             "generate-sri-hashes:${{ needs.generate-sri-hashes.result }}" \
+            "finding-registry-store:${{ needs.finding-registry-store.result }}" \
+            "source-control-contracts:${{ needs.source-control-contracts.result }}" \
+            "source-inventory-static:${{ needs.source-inventory-static.result }}" \
+            "capability-integration-evidence:${{ needs.capability-integration-evidence.result }}" \
+            "invariants-fast:${{ needs.invariants-fast.result }}" \
             "deploy-ssot-gates:${{ needs.deploy-ssot-gates.result }}" \
             "security-scan:${{ needs.security-scan.result }}" \
             "license-check:${{ needs.license-check.result }}"; do

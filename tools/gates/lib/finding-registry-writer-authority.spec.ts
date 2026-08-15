@@ -340,20 +340,47 @@ void describe('finding writer authority generator', () => {
     assert.doesNotThrow(() => checkFindingWriterProtocolManifest(root));
 
     const parsed = parseFindingWriterProtocolManifest(first, authorityPath, root);
-    assert.deepEqual(Object.keys(parsed.files), governedPaths);
-    assert.ok(parsed.files[importedHelper]);
-    assert.ok(parsed.files['tools/gates/lib/finding-registry-writer-authority.ts']);
-    assert.ok(parsed.files['tools/gates/source-finding-inventory.ts']);
-    assert.ok(parsed.files['tsconfig.base.json']);
-    assert.ok(parsed.files['package-lock.json']);
-
-    const incompleteFiles = Object.fromEntries(
-      Object.entries(parsed.files).filter(([path]) => path !== localActionHelper),
+    assert.deepEqual(
+      parsed.files.map((file) => file.path),
+      governedPaths,
     );
+    const parsedFileDigests = new Map(parsed.files.map((file) => [file.path, file.sha256]));
+    assert.ok(parsedFileDigests.get(importedHelper));
+    assert.ok(parsedFileDigests.get('tools/gates/lib/finding-registry-writer-authority.ts'));
+    assert.ok(parsedFileDigests.get('tools/gates/source-finding-inventory.ts'));
+    assert.ok(parsedFileDigests.get('tsconfig.base.json'));
+    assert.ok(parsedFileDigests.get('package-lock.json'));
+
+    const incompleteFiles = parsed.files.filter((file) => file.path !== localActionHelper);
     assert.throws(
       () =>
         parseFindingWriterProtocolManifest(
           `${JSON.stringify({ ...parsed, files: incompleteFiles })}\n`,
+          authorityPath,
+          root,
+        ),
+      /digest set is invalid/,
+    );
+
+    const reversedFiles = [...parsed.files].reverse();
+    assert.throws(
+      () =>
+        parseFindingWriterProtocolManifest(
+          `${JSON.stringify({ ...parsed, files: reversedFiles })}\n`,
+          authorityPath,
+          root,
+        ),
+      /digest set is invalid/,
+    );
+
+    const duplicatedFiles = [...parsed.files];
+    const firstFile = duplicatedFiles[0];
+    if (firstFile === undefined) throw new Error('Expected a governed finding writer file');
+    duplicatedFiles[duplicatedFiles.length - 1] = firstFile;
+    assert.throws(
+      () =>
+        parseFindingWriterProtocolManifest(
+          `${JSON.stringify({ ...parsed, files: duplicatedFiles })}\n`,
           authorityPath,
           root,
         ),

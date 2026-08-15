@@ -62,6 +62,10 @@ SOURCE_RANK: dict[str, int] = {
     "finding": 1,
     "shadow_run_summary": 2,
     "pressure": 3,
+    # Charter §5 service-hardening missions: below the reactive sources by
+    # design — a confirmed gap or finding outranks proactive hardening, and
+    # hardening outranks nothing at all (_UNRANKED_SOURCE).
+    "service_hardening": 4,
 }
 _UNRANKED_SOURCE = 90
 
@@ -182,6 +186,37 @@ def _rank(mission: dict[str, Any]) -> tuple[int, int, str, str]:
     )
 
 
+def _thompson_source_draws(root: Path, decided_at: str) -> dict[str, float]:
+    """One seeded Beta draw per source_kind, from the effectiveness ledger.
+
+    Reward = cycles_merged / cycles_minted (a merge is the only outcome that
+    proves a source's work was worth the slot). Missing or unreadable ledger
+    → {} and the caller falls back to the static rank; the scheduler must
+    never fail on its own tiebreaker.
+    """
+    try:
+        from .calibrated_intelligence import deterministic_seed, thompson_rank
+        from .knowledge_graph import rank_pressure_sources
+
+        rows = rank_pressure_sources(workspace_root=root.parent)
+        if not rows:
+            return {}
+        ranked = thompson_rank(
+            [
+                {
+                    "key": str(row.get("source_type")),
+                    "successes": int(row.get("cycles_merged", 0) or 0),
+                    "trials": int(row.get("cycles_minted", 0) or 0),
+                }
+                for row in rows
+            ],
+            seed=deterministic_seed("mission_scheduler", decided_at[:10]),
+        )
+        return {row["key"]: row["draw"] for row in ranked}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+
+
 def select_next_mission(
     *,
     base_dir: str | Path | None = None,
@@ -247,7 +282,30 @@ def select_next_mission(
     if not eligible:
         return decide(ALL_MISSIONS_WAITING)
 
-    eligible.sort(key=_rank)
+    # ORPHAN-HIGH-627 — Thompson sampling replaces the static source-rank
+    # tiebreak when the effectiveness ledger has history: within the same
+    # operator priority, each source_kind draws from its own merged/minted
+    # posterior and the draw order allocates the slot. Exploration is the
+    # point — a source with no history draws from the uninformative prior
+    # and sometimes wins, so the scheduler cannot starve what it has never
+    # tried. Seeded by the decision DAY, never wall-clock: a replayed
+    # decision ranks identically. Static SOURCE_RANK remains the fallback
+    # (no ledger, or a source the ledger has never seen).
+    source_draws = _thompson_source_draws(root, decided_at)
+    if source_draws:
+        eligible.sort(
+            key=lambda m: (
+                _rank(m)[0],
+                -source_draws.get(
+                    str(m.get("source_kind") or ""),
+                    -float(_rank(m)[1]),
+                ),
+                _rank(m)[2],
+                _rank(m)[3],
+            )
+        )
+    else:
+        eligible.sort(key=_rank)
     winner, *rest = eligible
     for mission in rest:
         skipped.append(SkippedMission(str(mission.get("mission_id") or ""), SKIP_NOT_SELECTED))

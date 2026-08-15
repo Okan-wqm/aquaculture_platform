@@ -282,6 +282,12 @@ export default [
       '**/*.d.ts',
       '**/*.js.map',
       '**/.archive/**',
+      // E13-C3 — adapter fixture mini-workspaces are SCAN TARGETS the
+      // semantic_regression lane feeds to the adapters via
+      // ts.createSourceFile; they deliberately carry the incomplete
+      // decorator/import shapes the cases exercise. Linting them as
+      // project code fails on exactly what they exist to contain.
+      'tools/aria-adapters/fixtures/*/workspaces/**',
     ],
   },
 

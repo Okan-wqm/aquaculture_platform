@@ -45,7 +45,7 @@ jobs:
       contents: read
     steps:
       # SEC-CI-002: pinned SHAs per infra-expert rule.
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -201,6 +201,14 @@ jobs:
           trap cleanup_registry_csv EXIT
 
           {
+            # The docs gate lints whole changed files; this report embeds raw
+            # registry titles and CLI output whose line lengths the generator
+            # does not control. Same decision, same rationale as
+            # docs/reviews/orphan-findings.md: a machine-written evidence
+            # artifact carries a targeted disable instead of mangling its
+            # payload to fit a prose rule. (August 2026: the first generated
+            # report failed docs-check on MD013/MD040 and blocked its own PR.)
+            echo "<!-- markdownlint-disable MD013 MD040 -->"
             printf '# Rule Health Report — %s\n' "${MONTH_LABEL}"
             echo ""
             printf '**Generated**: %s\n' "${GENERATED_AT}"

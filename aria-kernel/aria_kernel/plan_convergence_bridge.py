@@ -424,6 +424,25 @@ def _dispatch_implementation(
                     f"{_claimed_signer_fp!r} — agent-claimed commit "
                     "fails kernel-side git verify-commit; impl row refused."
                 )
+    # E2/F1 — bring the machine to the state the outcome validator expects,
+    # with the REAL claim data the response carries. `implementation_started`
+    # means "agent has claimed the lease"; the claim id and the agent are in
+    # hand here, and recording them late (at result time) is truthful —
+    # recording them never (the pre-fix world) made IMPLEMENTATION_IN_FLIGHT
+    # unreachable and every implementer result was refused at this line.
+    from .plan_convergence import fold_plan_state, record_implementation_started
+    from .tool_registry import utc_now as _bridge_utc_now
+
+    _claim_for_start = impl.get("claim_id") or response.get("claim_id") or request.get("request_id") or ""
+    _fold = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+    if isinstance(_fold, dict) and _fold.get("state") == "IMPLEMENTATION_REQUESTED":
+        record_implementation_started(
+            plan_id=plan_id,
+            claim_id=str(_claim_for_start),
+            implementer_agent=str(request.get("target_agent") or "aria-implementer"),
+            started_at=str(impl.get("started_at") or impl.get("completed_at") or _bridge_utc_now()),
+            base_dir=base_dir,
+        )
     return record_implementation_outcome(
         plan_id=plan_id,
         claim_id=impl.get("claim_id") or request.get("request_id") or "",
@@ -592,6 +611,9 @@ def _canonicalize_revision_payload(
     supplied = primary_block if isinstance(primary_block, dict) else {}
 
     return {
+        # C8/E11 — carry the authoring agent's identity into the revision
+        # event (same source as the challenger path: response.agent_id).
+        "revised_by_agent": supplied.get("revised_by_agent") or response.get("agent_id"),
         "revision_id": supplied.get("revision_id")
             or f"rev-{plan_id}-r{current_round or 1}-{request_id[-12:]}",
         "round": supplied.get("round") if isinstance(supplied.get("round"), int) and supplied.get("round") > 0 else current_round,

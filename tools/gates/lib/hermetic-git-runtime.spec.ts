@@ -20,7 +20,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, it } from 'node:test';
 
 import { defineHermeticExecutableExecutionPolicyV1 } from './anchored-filesystem';
@@ -822,6 +822,37 @@ void describe('HermeticGitRuntime', () => {
     );
   });
 
+  void it('executes one bounded ordered commit-object batch with explicit missing observations', () => {
+    const root = fixture();
+    const fullOid = git(root, 'rev-parse', 'HEAD');
+    const shortOid = fullOid.slice(0, 8);
+    const missingOid = '0000000000000000000000000000000000000000';
+
+    HERMETIC_GIT_RUNTIME.withRepositorySync(root, (session) => {
+      const output = session.read({
+        kind: 'READ_COMMIT_BATCH',
+        oids: [shortOid, missingOid, fullOid],
+      }).stdout;
+      const firstHeader = Buffer.from(`${fullOid} commit `, 'ascii');
+      const missingHeader = Buffer.from(`${missingOid}^{commit} missing\n`, 'ascii');
+      const first = output.indexOf(firstHeader);
+      const missing = output.indexOf(missingHeader, first + firstHeader.length);
+      const repeated = output.indexOf(firstHeader, missing + missingHeader.length);
+      assert.equal(first, 0);
+      assert.ok(missing > first);
+      assert.ok(repeated > missing);
+
+      assert.throws(
+        () => session.read({ kind: 'READ_COMMIT_BATCH', oids: [] }),
+        /requires 1\.\.4096 object IDs/,
+      );
+      assert.throws(
+        () => session.read({ kind: 'READ_COMMIT_BATCH', oids: ['abcdef'] }),
+        /must be HEAD or one canonical local\/origin ref/,
+      );
+    });
+  });
+
   void it('compiles every public path field as one literal top-level pathspec', async () => {
     const root = fixture();
     const magicPath = ':(glob)magic*.txt';
@@ -1220,6 +1251,74 @@ void describe('HermeticGitRuntime', () => {
     );
   });
 
+  void it('fingerprints inactive worktree config and rejects its common-config activation', async () => {
+    const root = fixture();
+    const worktreeConfigPath = join(root, '.git', 'config.worktree');
+    const baseline = await computeCanonicalGitWorktreeEvidence(root);
+
+    writeFileSync(worktreeConfigPath, '[credential]\n\thelper = store\n', 'utf8');
+    const firstInactiveGeneration = await computeCanonicalGitWorktreeEvidence(root);
+    assert.notEqual(firstInactiveGeneration.contentSha256, baseline.contentSha256);
+    assert.notEqual(
+      firstInactiveGeneration.substrateAttestationSha256,
+      baseline.substrateAttestationSha256,
+    );
+
+    writeFileSync(worktreeConfigPath, '[credential]\n\thelper = cache\n', 'utf8');
+    const secondInactiveGeneration = await computeCanonicalGitWorktreeEvidence(root);
+    assert.notEqual(secondInactiveGeneration.contentSha256, firstInactiveGeneration.contentSha256);
+    assert.notEqual(
+      secondInactiveGeneration.substrateAttestationSha256,
+      firstInactiveGeneration.substrateAttestationSha256,
+    );
+
+    writeFileSync(
+      join(root, '.git', 'config'),
+      `${readFileSync(join(root, '.git', 'config'), 'utf8')}\n[extensions]\n\tworktreeConfig = true\n`,
+      'utf8',
+    );
+    await assert.rejects(
+      computeCanonicalGitWorktreeEvidence(root),
+      /refuses ungoverned local config extensions\.worktreeconfig/,
+    );
+  });
+
+  void it('binds linked-worktree config identity below the exact per-worktree git directory', async () => {
+    const root = fixture();
+    const linkedRoot = `${root}-linked`;
+    fixtureRoots.push(linkedRoot);
+    git(root, 'worktree', 'add', '--detach', linkedRoot, 'HEAD');
+    const linkedGitDirectory = resolve(linkedRoot, git(linkedRoot, 'rev-parse', '--git-dir'));
+    const linkedWorktreeConfig = join(linkedGitDirectory, 'config.worktree');
+    const baseline = await computeCanonicalGitWorktreeEvidence(linkedRoot);
+
+    writeFileSync(linkedWorktreeConfig, '[credential]\n\thelper = store\n', 'utf8');
+    const firstInactiveGeneration = await computeCanonicalGitWorktreeEvidence(linkedRoot);
+    assert.notEqual(firstInactiveGeneration.contentSha256, baseline.contentSha256);
+    assert.notEqual(
+      firstInactiveGeneration.substrateAttestationSha256,
+      baseline.substrateAttestationSha256,
+    );
+
+    writeFileSync(linkedWorktreeConfig, '[credential]\n\thelper = cache\n', 'utf8');
+    const secondInactiveGeneration = await computeCanonicalGitWorktreeEvidence(linkedRoot);
+    assert.notEqual(secondInactiveGeneration.contentSha256, firstInactiveGeneration.contentSha256);
+    assert.notEqual(
+      secondInactiveGeneration.substrateAttestationSha256,
+      firstInactiveGeneration.substrateAttestationSha256,
+    );
+
+    writeFileSync(
+      join(root, '.git', 'config'),
+      `${readFileSync(join(root, '.git', 'config'), 'utf8')}\n[extensions]\n\tworktreeConfig = true\n`,
+      'utf8',
+    );
+    await assert.rejects(
+      computeCanonicalGitWorktreeEvidence(linkedRoot),
+      /refuses ungoverned local config extensions\.worktreeconfig/,
+    );
+  });
+
   void it('refuses local include/filter/diff process authorities before executing them', async () => {
     const root = fixture();
     const sentinel = join(root, 'filter-ran');
@@ -1232,6 +1331,36 @@ void describe('HermeticGitRuntime', () => {
       /refuses ungoverned local config (?:filter|diff)\.evil/,
     );
     assert.throws(() => readFileSync(sentinel), /ENOENT/);
+  });
+
+  void it('accepts inert config for branch names containing ref path separators', async () => {
+    const root = fixture();
+    git(root, 'config', 'branch.codex/authority-hardening.remote', 'origin');
+    git(
+      root,
+      'config',
+      'branch.codex/authority-hardening.merge',
+      'refs/heads/codex/authority-hardening',
+    );
+
+    const evidence = await computeCanonicalGitWorktreeEvidence(root);
+    assert.equal(evidence.dirty, false);
+  });
+
+  void it('masks the installed hook authority inside every hermetic Git child', async () => {
+    const root = fixture();
+    git(root, 'config', 'core.hooksPath', '.husky');
+    const runtime = testOnlyCreateHermeticGitRuntime(HERMETIC_GIT_EXECUTION_POLICY_V1);
+    try {
+      const configuredHooksPath = runtime.runText(root, ['config', '--get', 'core.hooksPath']);
+      assert.equal(configuredHooksPath.status, 0);
+      assert.equal(configuredHooksPath.stdout.trim(), '/dev/null');
+    } finally {
+      runtime.close();
+    }
+
+    const evidence = await computeCanonicalGitWorktreeEvidence(root);
+    assert.equal(evidence.dirty, false);
   });
 
   void it('rejects assume-unchanged, skip-worktree, and fsmonitor-valid index flags', async () => {

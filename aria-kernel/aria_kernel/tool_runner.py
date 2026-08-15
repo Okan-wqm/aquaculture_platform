@@ -21,7 +21,12 @@ from .tool_registry import GovernanceError, ensure_tools_binding, get_tool
 
 MINIMUM_OUTPUT_FIELDS = ("observations", "findings", "read_paths", "evidence_sources")
 RAW_SAMPLE_LIMIT = 50
-STDOUT_PARSE_MAX_BYTES = 5 * 1024 * 1024
+# Measured (2026-08-13): tenant-scoping over the full repo emits 5.84 MB
+# (66 findings + 11,471 observations) — 17% over the old 5 MB cap, which
+# made every night's cycle "failed" via budget_exceeded/output_too_large.
+# 12 MB = measured reality × 2 headroom; the adapter-side per-type
+# observation cap (tenant-scoping-adapter) bounds the growth class itself.
+STDOUT_PARSE_MAX_BYTES = 12 * 1024 * 1024
 
 
 def run_tool(
@@ -100,11 +105,31 @@ def run_tool(
 
     try:
         if _runner_missing_node_deps(cwd, runner["argv"]):
+            # The WORKSPACE is missing the runner's dependency; the tool never
+            # executed and this run says nothing about the tool. Its own
+            # status keeps it out of the quarantine trigger — six adapters
+            # were quarantined on 2026-08-10 for exactly this, an environment
+            # fault priced as tool guilt (the requeue counter's defect, one
+            # layer up; MISSION_SPEC M-2.5).
             stderr = "missing repo-local node dependency: node_modules/ts-node/dist/bin.js"
-            status = "tool_unhealthy"
+            status = "environment_unavailable"
             exit_code = None
             output = {}
         else:
+            # The tool's memory budget is a CONTRACT, not an accident of the
+            # host. Node's default old-space (~1 GB) OOM-crashed the two
+            # widest-scope adapters (tenant-scoping, test-gap: apps/** +
+            # libs/**) the first time they ever executed — a resource the
+            # manifest never declared, enforced by a runtime the manifest
+            # never chose. `runner.node_max_old_space_mb` (default 2048)
+            # makes the budget explicit per tool; NODE_OPTIONS is composed,
+            # not overwritten, so an operator's own flags survive.
+            run_env = dict(os.environ)
+            node_heap_mb = int(runner.get("node_max_old_space_mb") or 2048)
+            existing_node_options = run_env.get("NODE_OPTIONS", "")
+            run_env["NODE_OPTIONS"] = (
+                f"{existing_node_options} --max-old-space-size={node_heap_mb}"
+            ).strip()
             completed = subprocess.run(
                 runner["argv"],
                 cwd=cwd,
@@ -113,6 +138,7 @@ def run_tool(
                 text=True,
                 timeout=runner["timeout_ms"] / 1000,
                 shell=False,
+                env=run_env,
             )
             stdout = completed.stdout or ""
             stderr = completed.stderr or ""

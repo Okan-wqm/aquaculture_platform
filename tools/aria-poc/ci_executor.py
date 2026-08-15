@@ -57,6 +57,7 @@ from claude_runtime import (
     ClaudePolicyViolation,
     ClaudeRunResult,
     ClaudeUsageUnavailable,
+    UsageRecording,
     extract_final_message,
     extract_usage,
     is_mock_mode as _claude_is_mock_mode,
@@ -70,11 +71,20 @@ try:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
     from aria_kernel.agent_surface import DISPATCHABLE_ROLES as _DISPATCHABLE_ROLES
     from aria_kernel.agent_invocations import render_invocation_prompt as _render_invocation_prompt
+    # The ONE projection of a claim response into a prompt envelope. The
+    # executor used to build its own — `claim.get("forbidden_scope") or []`,
+    # no repository_map — and that copy is where the prompt-hash binding
+    # died AFTER the kernel-side fusion was fixed: same defect, one layer up.
+    from aria_kernel.agent_invocations import fuse_prompt_envelope as _fuse_prompt_envelope
     # Plan ARIA WS1 — import the canonical plan_content required-field set
     # from the kernel SSoT (plan_convergence.PLAN_CONTENT_REQUIRED) instead
     # of re-declaring it here, so the fail-fast gate below can never drift
     # from the kernel-side _validate_plan_content gate it mirrors.
     from aria_kernel.plan_convergence import PLAN_CONTENT_REQUIRED as _PLAN_CONTENT_REQUIRED
+    # FAZ 5b — the pre-claim environment gate writes governance rows through
+    # the kernel and probes the sandbox through the runtime's own accessor.
+    from aria_kernel.tool_registry import append_tools_governance as _append_tools_governance
+    from aria_kernel.implementation_safety import sandbox_backend as _sandbox_backend
 except Exception:  # pragma: no cover - fallback keeps standalone contract importable
     _DISPATCHABLE_ROLES = frozenset({
         "specialist_domain_review",
@@ -87,8 +97,20 @@ except Exception:  # pragma: no cover - fallback keeps standalone contract impor
         "cross_review",
         "completeness_critique",
         "implementation",
+        "human_required_adjudication",
+        # E14 — the three roles that gained a producer (goldset curation,
+        # change intelligence, split-verdict arbitration). This standalone
+        # fallback exists only when the kernel import fails; it drifting
+        # narrower than the kernel set would make exactly those envelopes
+        # unclaimable in the one mode where the drift is invisible.
+        "consensus_arbitration",
+        "change_intelligence",
+        "goldset_curation",
     })
     _render_invocation_prompt = None
+    _fuse_prompt_envelope = None
+    _append_tools_governance = None
+    _sandbox_backend = None
     # Standalone-mode fallback: identical value/order to the kernel SSoT.
     # Intentional duplication for kernel-less importability; WS2 adds a
     # drift guard asserting this equals plan_convergence.PLAN_CONTENT_REQUIRED.
@@ -658,7 +680,6 @@ def _max_requests() -> int:
 def _max_timeout_seconds() -> int:
     return int(os.environ.get("MAX_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS))
 
-
 # ORPHAN-HIGH-472 — `_max_budget_usd` and `_max_budget_usd_per_cycle` lived
 # here and are gone. Their own docstring already conceded the point ("Default
 # Claude Code execution uses managed-session auth and does not use this value
@@ -1097,6 +1118,22 @@ def invoke_claude_cli(
                 timeout_seconds=timeout_seconds,
                 model=model,
                 effort=effort,
+                # E17-d — per-spawn usage accounting. This callsite is the
+                # seam where the full identity is in scope: request_id +
+                # envelope role + subagent_type are REQUIRED parameters of
+                # invoke_claude_cli (Plan 025 §B). tools_dir=None is the
+                # legacy/mock-only shape — no tools root, nothing to record
+                # into, same gate the cost_attribution row uses.
+                usage_recording=(
+                    UsageRecording(
+                        request_id=request_id,
+                        role=role,
+                        target_agent=subagent_type,
+                        base_dir=tools_dir,
+                    )
+                    if tools_dir is not None
+                    else None
+                ),
             )
 
         def _gov(event: str, payload: dict[str, Any]) -> None:
@@ -1532,7 +1569,11 @@ def _build_envelope_from_claude_output(
     details = envelope.get("details")
     if not isinstance(details, dict):
         details = {}
-    details.setdefault("agent_subagent_type", subagent_type)
+    # D1 (Kapalı Döngü) — FORCE-set, not setdefault: this field is now the
+    # judge's calibration identity (judgment_bridge reads it as judge_id),
+    # and a setdefault would let the agent's own payload spoof another
+    # judge's identity into the per-judge precision ledger.
+    details["agent_subagent_type"] = subagent_type
     details.setdefault("agent_text", _safe_agent_text_excerpt(agent_text))
     usage = extract_usage(parse_claude_jsonl(raw_stdout))
     if usage is not None:
@@ -1770,12 +1811,82 @@ def _record_mock_mode_audit(tools_dir: Path) -> None:
     )
 
 
+def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
+    """Refuse to CLAIM a request the environment cannot host (FAZ 5b).
+
+    The correct shape existed in the dead `--consume` loop: preflight the
+    Claude auth BEFORE touching the queue. The CI path claimed first and
+    discovered the broken environment after, so a night with no auth or no
+    sandbox burned a claim (and a requeue) per request — environment faults
+    priced as request failures, the same M-2.5 class as ORPHAN-HIGH-605/610.
+
+    Returns None when the dispatch can proceed, else the governance kind
+    recorded (`claude_auth_unavailable` / `sandbox_unavailable` /
+    `env_deps_missing`). On refusal the request is NEVER claimed: it stays
+    PENDING for a healthy host instead of consuming a lease + requeue here.
+    Mock mode skips the gate — a mock dispatch needs none of the surfaces.
+    """
+    if _MOCK_MODE_AT_ENTRY:
+        return None
+
+    kind: str | None = None
+    detail = ""
+    try:
+        preflight_claude_auth()
+    except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation) as exc:
+        kind, detail = "claude_auth_unavailable", str(exc)
+    if kind is None and _sandbox_backend is not None and _sandbox_backend() is None:
+        kind, detail = "sandbox_unavailable", (
+            "sandbox_backend() returned None; write-capable spawns would be refused"
+        )
+    if kind is None and not (Path.cwd() / "node_modules").is_dir():
+        kind, detail = "env_deps_missing", (
+            "workspace has no node_modules; agent validation commands cannot run"
+        )
+    if kind is None:
+        return None
+
+    sys.stderr.write(f"::error::pre_claim_environment_gate: {kind}: {detail}\n")
+    if _append_tools_governance is not None:
+        try:
+            _append_tools_governance(
+                tools_dir,
+                kind,
+                {
+                    "source": "ci_executor_pre_claim_gate",
+                    "detail": detail,
+                    "run_id": os.environ.get("GITHUB_RUN_ID", "local"),
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 — a governance-write failure
+            # must not mask the environment refusal it is trying to record.
+            sys.stderr.write(f"governance_write_failed: {exc}\n")
+    return kind
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point — runs one cycle. Designed to be called by GHA step."""
     args = argv if argv is not None else sys.argv[1:]
     if len(args) < 1:
-        print("usage: ci_executor.py <request_id> [subagent_type]", file=sys.stderr)
+        print(
+            "usage: ci_executor.py <request_id> [subagent_type] | --drain",
+            file=sys.stderr,
+        )
         return 2
+
+    if args[0] == "--drain":
+        # Batch consumption for the scheduled lane. The loop lives in its own
+        # module (ci_executor_drain) so this engine file stops growing; the
+        # import is local because drain imports THIS module for its stage
+        # logger and governance binding.
+        from ci_executor_drain import drain_pending
+
+        repo_root = Path.cwd().resolve()
+        env_tools = os.environ.get("ARIA_TOOLS_DIR")
+        drain_tools_dir = (
+            Path(env_tools).resolve() if env_tools else repo_root / "aria-tools"
+        )
+        return drain_pending(tools_dir=drain_tools_dir, repo_root=repo_root)
 
     # Plan ARIA-V3.1-D2 — frozen mock-mode sentinel at main() entry
     # (closes ai-safety HIGH-007). Pre-V3.1-D2 every cost-attribution
@@ -1847,6 +1958,13 @@ def main(argv: list[str] | None = None) -> int:
         claim_id = claim["claim_id"]
         agent_id = str(claim["agent_id"])
     else:
+        # FAZ 5b — environment gate BEFORE the claim. Single-claim mode skips
+        # it deliberately: the claim already exists there (the planner made
+        # it), so the request is already spent from the queue's perspective
+        # and refusing here would strand a held lease instead of saving one.
+        gate_kind = _pre_claim_environment_gate(tools_dir=tools_dir)
+        if gate_kind is not None:
+            return 1
         # Step 1 — claim the request through the kernel CLI.
         claim_proc = subprocess.run(
             [
@@ -1887,41 +2005,32 @@ def main(argv: list[str] | None = None) -> int:
     # would operate on a stale envelope. Reading from the fused
     # response closes the race AND eliminates one subprocess hop per
     # cycle (lower latency).
-    request_envelope = {
-        "request_id": request_id,
-        "expected_output_path": claim.get("expected_output_path"),
-        "role": claim.get("role"),
-        "must_satisfy": claim.get("must_satisfy") or [],
-        "allowed_scope": claim.get("allowed_scope") or [],
-        "evidence_refs": claim.get("evidence_refs") or [],
-        # Plan ARIA-V7 §2g v2 — additional fields surfaced into the
-        # envelope dict so the prompt template can render them for
-        # the agent. Pre-V7 the dict held only the 4 fields above;
-        # the agent contract requires target_agent / convergence_id
-        # / suggested_prompt to bind the request to the convergence
-        # loop and to read the operator's intent.
-        "target_agent": claim.get("target_agent") or subagent_type,
-        "convergence_id": claim.get("convergence_id"),
-        # ORPHAN-CRITICAL-495 — the request ROW carries cycle_id (written by
-        # create_agent_invocation_request) and this envelope did not copy it,
-        # so every consumer that keyed on it silently no-opped. The
-        # wall-clock ledger was one; it recorded nothing at all because
-        # _record_run_wall_clock returns early on a falsy cycle_id.
-        "cycle_id": claim.get("cycle_id"),
-        "suggested_prompt": claim.get("suggested_prompt"),
-        "forbidden_scope": claim.get("forbidden_scope") or [],
-        "impact_graph_refs": claim.get("impact_graph_refs") or [],
-        "validation_commands": claim.get("validation_commands") or [],
-        "context_hash": claim.get("context_hash"),
-        "prompt_hash": claim.get("prompt_hash"),
-        "context_ledger_hash": claim.get("context_ledger_hash"),
-        "prompt_ledger_hash": claim.get("prompt_ledger_hash"),
-        # Plan 026R §B.5 anchors — verified by ci_executor at envelope
-        # deserialise time when the planner-hook single-claim env-var
-        # contract delivers the metadata.
-        "claim_ledger_hash": claim.get("claim_ledger_hash"),
-        "request_ledger_hash": claim.get("request_ledger_hash"),
-    }
+    # The envelope is the kernel's OWN projection of the claim response, not a
+    # copy maintained here. This function used to hand-build the dict —
+    # `claim.get("forbidden_scope") or []`, no `repository_map` — which is the
+    # same defect the kernel-side fusion fix closed, one layer up: `or []`
+    # turns absence into an empty value, the renderer distinguishes the two,
+    # and the dropped map deleted the whole `## Repository map` section from
+    # the re-render. Net effect, measured on run 31330288849: the binding
+    # check compared the hash of the row against the hash of this copy and
+    # failed for every request that carried a map — after the kernel fix had
+    # already landed. One projection, owned by the kernel, ends the class.
+    if _fuse_prompt_envelope is None:
+        sys.stderr.write("kernel_prompt_renderer_unavailable\n")
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason="kernel_prompt_renderer_unavailable",
+        )
+        return 1
+    request_envelope = _fuse_prompt_envelope(claim)
+    request_envelope.setdefault("request_id", request_id)
+    # Operational anchors, NOT prompt material: the renderer never reads
+    # these, so carrying them cannot perturb the binding. claim/request
+    # ledger hashes feed the §B.5 metadata-tamper check.
+    for anchor in ("claim_ledger_hash", "request_ledger_hash"):
+        if claim.get(anchor) is not None:
+            request_envelope[anchor] = claim[anchor]
     if not request_envelope.get("expected_output_path"):
         sys.stderr.write(
             f"request_envelope_missing_expected_output_path: "

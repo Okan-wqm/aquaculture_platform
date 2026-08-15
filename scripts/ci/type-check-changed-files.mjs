@@ -78,7 +78,17 @@ const changedFiles = run('git', [
   .map((line) => line.trim())
   .filter(Boolean);
 
-const changedTypeScriptFiles = changedFiles.filter((file) => /\.(?:c|m)?tsx?$/.test(file));
+// E13-C3 — adapter fixture mini-workspaces are SCAN TARGETS, not
+// compilation units: the adapters parse them from disk with
+// ts.createSourceFile, and the semantic_regression lane deliberately
+// ships them with incomplete decorator/type contexts (that is what the
+// cases exercise). Type-checking them as project code fails on exactly
+// the shapes the fixtures exist to carry.
+const TYPE_CHECK_EXEMPT = [/^tools\/aria-adapters\/fixtures\/[^/]+\/workspaces\//];
+
+const changedTypeScriptFiles = changedFiles
+  .filter((file) => /\.(?:c|m)?tsx?$/.test(file))
+  .filter((file) => !TYPE_CHECK_EXEMPT.some((pattern) => pattern.test(file)));
 
 if (changedTypeScriptFiles.length === 0) {
   console.log('No changed TypeScript files require project type-check.');

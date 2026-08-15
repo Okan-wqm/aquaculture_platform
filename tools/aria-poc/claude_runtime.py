@@ -25,6 +25,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -186,6 +187,51 @@ def assert_claude_policy_environment() -> None:
                 + ", ".join(leaked)
                 + " or set ARIA_ALLOW_CLAUDE_API_KEY_MODE=1 under a new policy"
             )
+
+
+def _assert_budget_before_spawn() -> None:
+    """F13/E8 — the cost-budget gate's first enforcement point.
+
+    ``cost_budget.assert_within_budget`` documented itself as "call BEFORE
+    spawning claude" and its only repo reference was a COMMENT in
+    genesis_policy: every cap (per-run / daily / monthly) plus the breaker
+    trip existed with no caller — a spawn could not be stopped by budget,
+    ever. This is the single choke point every live ``claude`` spawn passes
+    through, so the gate lives here.
+
+    Scope is deliberate: the gate binds only when ``ARIA_TOOLS_DIR`` names
+    the durable store (the autonomy lanes export it). Without a store there
+    is no spend ledger to project against — local dev and unit tests run
+    ungated, which is honest, not lenient. The estimate is a conservative
+    env-tunable ceiling, not telemetry: the gate's job is to stop a night
+    that would blow the cap, and an overestimate fails toward safety.
+    """
+    tools_dir = os.environ.get("ARIA_TOOLS_DIR")
+    if not tools_dir:
+        return
+    # Same lazy-import pattern as the implementation_safety hooks below:
+    # the kernel package rides PYTHONPATH in every ARIA lane.
+    from aria_kernel.cost_budget import _load_caps, assert_within_budget
+
+    # Executor smoke 31704817330 — the first live drain failed 30/30 at
+    # THIS gate: the original default estimate ($1.50) sat ABOVE the
+    # policy's own per_run cap ($0.50), so every spawn was refused before
+    # it started and the breaker tripped on configuration, not on spend.
+    # The default now DERIVES from the policy (80% of per_run): the gate
+    # refuses only when the projected daily/monthly budget is actually
+    # exhausted — which is its job — never because two constants
+    # disagreed. The env override remains for operators who know a lane's
+    # real per-run cost.
+    raw = os.environ.get("ARIA_ESTIMATED_RUN_USD")
+    if raw is not None:
+        try:
+            estimate = float(raw)
+        except ValueError:
+            estimate = _load_caps(tools_dir)["per_run"] * 0.8
+    else:
+        estimate = _load_caps(tools_dir)["per_run"] * 0.8
+
+    assert_within_budget(tools_dir, estimated_run_usd=estimate)
 
 
 def preflight_claude_auth(*, timeout_seconds: int = 20) -> dict[str, Any]:
@@ -478,6 +524,106 @@ def _apply_resource_limits(argv: list[str], *, timeout_seconds: int) -> list[str
         ) from exc
 
 
+# Smoke-run 31645296013 — the first live night died mid-spawn: adapters
+# finished at 22:29, one claude spawn started with its full 1800s budget,
+# and the JOB's 50-minute wall killed everything at 22:53. The half-night
+# failed state verification and was quarantined (correctly), which means
+# the failure mode is a PERMANENT loop: every night's last spawn is cut,
+# every night quarantines, no night ever publishes. A spawn that cannot
+# finish before the job dies must not start.
+_DEADLINE_CLOSE_MARGIN_SECONDS = 60  # seal + handoff + publish need this
+_DEADLINE_MIN_USEFUL_SECONDS = 120  # below this a spawn cannot do real work
+
+
+def _clamp_timeout_to_job_deadline(timeout_seconds: int) -> int:
+    """Clamp a spawn's timeout to the job's remaining wall-clock.
+
+    Binds only when ``ARIA_JOB_DEADLINE_EPOCH`` is exported (the autonomy
+    workflows set it from their own timeout-minutes); local dev and tests
+    run unclamped. A malformed value is refused loudly — a deadline that
+    silently stopped binding is exactly the class this fix exists to kill.
+    """
+    raw = os.environ.get("ARIA_JOB_DEADLINE_EPOCH")
+    if not raw:
+        return timeout_seconds
+    try:
+        deadline = float(raw)
+    except ValueError as exc:
+        raise ClaudePolicyViolation(
+            f"invalid_job_deadline: ARIA_JOB_DEADLINE_EPOCH={raw!r} is not a "
+            f"unix epoch; refusing to spawn under a deadline that cannot bind"
+        ) from exc
+    import time as _time
+
+    remaining = int(deadline - _time.time())
+    if remaining < _DEADLINE_MIN_USEFUL_SECONDS + _DEADLINE_CLOSE_MARGIN_SECONDS:
+        raise ClaudePolicyViolation(
+            f"insufficient_wallclock: {remaining}s remain before the job "
+            f"deadline; refusing the spawn so the night can close cleanly "
+            f"instead of dying mid-flight and quarantining its state"
+        )
+    return min(timeout_seconds, remaining - _DEADLINE_CLOSE_MARGIN_SECONDS)
+
+
+# E17-d — per-spawn usage recording identity. The (request_id, role,
+# target_agent) triple lives in the EXECUTORS (ci_executor.invoke_claude_cli
+# owns request_id + envelope role + subagent_type; worker_executor.main owns
+# assignment_id + target_agent), while the model actually spawned and the
+# terminal usage payload only exist HERE, inside run_claude_exec, one closure
+# below run_with_model_fallback. Threading the identity down as an explicit
+# value object puts the recording at the single seam where BOTH halves are in
+# scope — every attempt (including a fallback-tier retry) records under the
+# model it really ran on, and a future executor gets recording by passing one
+# argument instead of re-implementing the seam.
+@dataclass(frozen=True)
+class UsageRecording:
+    request_id: str
+    role: str
+    target_agent: str
+    base_dir: Path
+
+
+def _record_usage_best_effort(
+    *, recording: UsageRecording, model: str | None, usage: dict[str, Any] | None,
+) -> None:
+    """Record the spawn's usage; NEVER fail the spawn over accounting.
+
+    Measurement must not become a new spawn-failure mode: a completed agent
+    run is strictly more valuable than its usage row, so an unimportable
+    kernel (ImportError), a refused governed append (GovernanceError) or a
+    dying disk (OSError) each degrade to a structured stderr note. The
+    ``usage=None`` case is NOT handled here — record_context_usage owns that
+    structural-skip branch and returns without writing.
+    """
+    def _note(reason: str, error: str) -> None:
+        sys.stderr.write(json.dumps({
+            "event": "context_usage_record_skipped",
+            "reason": reason,
+            "error": error,
+            "request_id": recording.request_id,
+            "role": recording.role,
+            "target_agent": recording.target_agent,
+        }, sort_keys=True) + "\n")
+
+    try:
+        from aria_kernel.tool_registry import GovernanceError
+        from aria_kernel.usage_ledger import record_context_usage
+    except ImportError as exc:
+        _note("aria_kernel_unimportable", str(exc))
+        return
+    try:
+        record_context_usage(
+            request_id=recording.request_id,
+            role=recording.role,
+            target_agent=recording.target_agent,
+            model=model,
+            usage=usage,
+            base_dir=recording.base_dir,
+        )
+    except (GovernanceError, OSError) as exc:
+        _note("record_failed", str(exc))
+
+
 def run_claude_exec(
     *,
     prompt_text: str,
@@ -488,9 +634,12 @@ def run_claude_exec(
     cwd: str | Path | None = None,
     skip_permissions: bool = True,
     permission_mode: str | None = None,
+    usage_recording: UsageRecording | None = None,
 ) -> ClaudeRunResult:
     preflight_claude_auth()
     assert_write_runner_ok(skip_permissions=skip_permissions, permission_mode=permission_mode)
+    _assert_budget_before_spawn()
+    timeout_seconds = _clamp_timeout_to_job_deadline(timeout_seconds)
     argv = build_claude_exec_argv(
         model=model,
         effort=effort,
@@ -543,6 +692,14 @@ def run_claude_exec(
     events = parse_claude_jsonl(proc.stdout)
     final_message = extract_final_message(events)
     usage = extract_usage(events)
+    # E17-d — record the terminal usage per role/agent the moment it is
+    # extracted (cache_* fields included), BEFORE the require_usage gate:
+    # a nonzero-exit run's tokens were still billed and must still be
+    # accounted. A None usage records nothing (the ledger's explicit
+    # structural-skip branch), so the require_usage refusal below stays the
+    # only voice on that failure.
+    if usage_recording is not None:
+        _record_usage_best_effort(recording=usage_recording, model=model, usage=usage)
     if require_usage is None:
         require_usage = _parse_bool(
             os.environ.get(REQUIRE_USAGE_ENV_VAR, "1"),

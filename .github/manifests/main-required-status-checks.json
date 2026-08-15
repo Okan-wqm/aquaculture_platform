@@ -96,6 +96,11 @@
             "test",
             "build",
             "generate-sri-hashes",
+            "finding-registry-store",
+            "source-control-contracts",
+            "source-inventory-static",
+            "capability-integration-evidence",
+            "invariants-fast",
             "deploy-ssot-gates",
             "security-scan",
             "license-check"

@@ -149,14 +149,27 @@ describe('ARIA state has a single restore path (RC-6)', () => {
     const action = executableYaml(
       readFileSync(join(REPO_ROOT, RESTORE_ACTION, 'action.yml'), 'utf8'),
     );
-    expect(action).toContain('integrity migrate-tools-bootstrap');
-    // And no lane may keep its own copy: two bootstraps is two answers to
+    expect(action).toContain('integrity bind-tools-root');
+
+    // ORPHAN-HIGH-556 — and it must be the BIND, never the migration. These
+    // were one code path because the published tree could not state its own
+    // contract version, so `tools_contract_version` read 0 and a healthy v3
+    // tree was migrated from nothing every night: a full tools-tree backup,
+    // a rewrite of every covered ledger, and nine ceremony rows, measured.
+    //
+    // Pinned here rather than trusted to review because the regression is
+    // INVISIBLE at runtime — a nightly that runs the migration still succeeds.
+    // It just rewrites ARIA's whole hash-chained memory on the way, inside the
+    // one window where the declared-surface guard cannot see the surfaces
+    // (that check needs `repo_identity.json`, which does not exist yet).
+    expect(action).not.toContain('migrate-tools-bootstrap');
+
+    // And no lane may keep its own copy: two binds is two answers to
     // "which root is bound", which is what this suite exists to prevent.
-    const laneCopies = STATE_CARRYING_WORKFLOWS.filter((name) =>
-      executableYaml(readFileSync(join(WORKFLOW_DIR, name), 'utf8')).includes(
-        'migrate-tools-bootstrap',
-      ),
-    );
+    const laneCopies = STATE_CARRYING_WORKFLOWS.filter((name) => {
+      const body = executableYaml(readFileSync(join(WORKFLOW_DIR, name), 'utf8'));
+      return body.includes('bind-tools-root') || body.includes('migrate-tools-bootstrap');
+    });
     expect(laneCopies).toEqual([]);
   });
 

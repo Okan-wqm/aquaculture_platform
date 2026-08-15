@@ -293,7 +293,7 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 dlp_artifact="aria-agent-executor-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
-                job_timeout_minutes=45,
+                job_timeout_minutes=150,
                 required_steps=(
                     _EXECUTOR_RESTORE_STEP,
                     _EXECUTOR_LEASE_STEP,
@@ -369,19 +369,28 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 upload_artifact_name_pattern=rf"^aria-state-cache-{_RUN_ID}$",
                 upload_artifact_path_patterns=(rf"^{_STORE_ROOT}$",),
                 retention_days=30,
-                required_permissions=(("contents", "write"), ("actions", "read")),
+                # checks:read + pull-requests:read — ORPHAN-HIGH-626: the
+                # pr_ci_scan phase reads the check verdicts of ARIA's own
+                # open PRs. Read-only pair; the write blast radius is
+                # unchanged (contents:write on refs, ruleset-bounded).
+                required_permissions=(
+                    ("contents", "write"),
+                    ("actions", "read"),
+                    ("checks", "read"),
+                    ("pull-requests", "read"),
+                ),
                 token_source="github_actions_artifact_token",
                 network_policy=("github_artifact", "github_git"),
                 dlp_artifact="aria-auto-cycle-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
-                # Measured REAL burn-in wall time ≈ 80-90 min (30 cycles ×
-                # ~2.5 min); the live YAML sets 150 for burn-in mode.
+                # Operator decision (2026-08-13): the night's window is
+                # unbounded — the 360-minute platform ceiling, one value for
+                # every mode. Smoke runs 1-3 proved the 50-minute cap was the
+                # binding constraint; the ORPHAN-661/662 deadline pair keeps
+                # any value safe (the night seals + publishes at the wall).
                 burn_in_timeout_floor_minutes=120,
-                # The ordinary branch of the mode-aware expression at
-                # aria-auto-cycle.yml:81 (burn-in takes the 150 branch and is
-                # governed by burn_in_timeout_floor_minutes above).
-                job_timeout_minutes=50,
+                job_timeout_minutes=360,
                 # The producer is the shape aria-agent-executor mirrors, so it
                 # carries the same declared constraints — a reference
                 # implementation that is itself unpinned is a reference that
@@ -415,18 +424,34 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
             WorkflowJobContract(
                 job_id="eval",
                 preflight_step="Persist enterprise workflow preflight",
-                first_governed_mutation_step="Run all eval fixtures (mock mode)",
+                # The restore is now the first governed mutation, exactly as in
+                # the producer lane: it binds the durable store before anything
+                # writes a row. Naming the fixture run here would leave the
+                # restore ungoverned, which is the step that decides WHICH
+                # ledger the eval appends to.
+                first_governed_mutation_step=_RESTORE_STEP,
+                # The eval ledger moved into the durable store. It used to be
+                # written into the ephemeral checkout and thrown away with the
+                # runner, which is why `agent-eval delta` could never assemble
+                # two windows and answered `insufficient_evidence` forever.
                 allowed_write_path_patterns=(
-                    r"^aria-tools/agent-evals/runs\.jsonl$",
-                    r"^aria-tools/governance\.jsonl$",
+                    rf"^{_STORE_ROOT}(/.*)?$",
                 ),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-agent-eval-preflight\.json$",
                 upload_artifact_name_pattern=rf"^aria-agent-eval-proof-{_RUN_ID_ATTEMPT}$",
                 upload_artifact_path_patterns=(rf"^{_RUNNER_TEMP}/aria-agent-eval-preflight\.json$",),
                 retention_days=7,
-                required_permissions=(("contents", "read"),),
-                token_source="none",
-                network_policy=("none",),
+                # `contents: write` is what persistence costs. The token can
+                # only append a commit descending from the aria/state tip —
+                # which is what publishing is — and the branch is the only
+                # thing it may touch.
+                required_permissions=(("contents", "write"),),
+                token_source="github_actions_artifact_token",
+                # The eval still reaches no third-party network; the fixtures
+                # are local. `github_git` is the state branch fetch and push,
+                # declared separately from artifact access because they are
+                # different credentials with different blast radii.
+                network_policy=("github_artifact", "github_git"),
                 dlp_artifact="aria-agent-eval-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
@@ -440,8 +465,18 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
             WorkflowJobContract(
                 job_id="generate-report",
                 preflight_step="Persist enterprise workflow preflight",
-                first_governed_mutation_step="Generate daily chain-tip anchor (Plan ARIA-V2 §3.9)",
-                allowed_write_path_patterns=(rf"^aria-tools/reports/daily/{_REPORT_DATE}\.md$",),
+                # FAZ 6a — the restore is now the first governed mutation,
+                # exactly as in the producer + eval lanes: the anchor reads
+                # the reflection report and the durable ledger tails out of
+                # the restored store, so binding the store IS the step that
+                # decides what the published report contains. The anchor used
+                # to read the ephemeral checkout's empty aria-tools and
+                # publish a stub with null fields — two writers, one filename.
+                first_governed_mutation_step=_RESTORE_STEP,
+                allowed_write_path_patterns=(
+                    rf"^aria-tools/reports/daily/{_REPORT_DATE}\.md$",
+                    rf"^{_STORE_ROOT}(/.*)?$",
+                ),
                 preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/aria-daily-report-generate-preflight\.json$",
                 upload_artifact_name_pattern=rf"^aria-daily-report-input-{_RUN_ID_ATTEMPT}$",
                 upload_artifact_path_patterns=(
@@ -449,8 +484,8 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 ),
                 retention_days=90,
                 required_permissions=(("actions", "read"), ("contents", "read")),
-                token_source="github_actions:actions_read+artifact",
-                network_policy=("github_api", "github_artifact"),
+                token_source="github_actions:actions_read+artifact+git",
+                network_policy=("github_api", "github_artifact", "github_git"),
                 dlp_artifact="aria-daily-report-generate-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),

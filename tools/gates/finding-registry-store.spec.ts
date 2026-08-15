@@ -2,7 +2,7 @@
 
 import { strict as assert } from 'node:assert';
 import { execFileSync, spawn } from 'node:child_process';
-import { createHash, generateKeyPairSync, sign, type JsonWebKey } from 'node:crypto';
+import { createHash, generateKeyPairSync, randomUUID, sign, type JsonWebKey } from 'node:crypto';
 import {
   closeSync,
   constants,
@@ -81,6 +81,37 @@ import {
   assertStableRegularFileCurrent,
   observeStableRegularFile,
 } from './lib/anchored-filesystem';
+import {
+  assertStoreSpecEntrypointDispatchSetEqualityV1,
+  assertStoreSpecProtocolTerminalV1,
+  bootstrapStoreSpecChildProcess,
+  compileStoreSpecChildArgvV1,
+  createStoreSpecBoundedOutputCollectorV1,
+  createStoreSpecChildLifecycleStateV1,
+  createStoreSpecChildTransitionV1,
+  createStoreSpecParentProtocolSessionV1,
+  createStoreSpecProtocolStateV1,
+  expectedStoreSpecProtocolStepV1,
+  isStoreSpecChildModeForEntrypointV1,
+  issueStoreSpecProcessSignalV1,
+  parseStoreSpecChildMessageV1,
+  parseStoreSpecParentMessageV1,
+  reduceStoreSpecChildLifecycleV1,
+  reduceStoreSpecProtocolV1,
+  sendStoreSpecIpcMessageV1,
+  storeSpecChildModesForEntrypointV1,
+  STORE_SPEC_CHILD_SESSION_ENV,
+  STORE_SPEC_TRANSPORT_CONTRACT_V1,
+  StoreSpecOutputViolationV1,
+  StoreSpecProtocolViolationV1,
+  StoreSpecTerminationViolationV1,
+  type StoreSpecChildLifecycleStateV1,
+  type StoreSpecChildMessageV1,
+  type StoreSpecChildModeV1,
+  type StoreSpecChildModeForEntrypointV1,
+  type StoreSpecChildPhaseKindV1,
+  type StoreSpecParentCommandKindV1,
+} from './lib/finding-registry-store-child.fixture-protocol';
 import {
   FINDING_WRITER_AUTHORITY_PATH,
   FINDING_WRITER_DECLARED_ASSET_EDGES,
@@ -324,6 +355,12 @@ function git(repoRoot: string, args: readonly string[]): string {
   }).trim();
 }
 
+function initializeQuiescentGitFixture(repoRoot: string): void {
+  git(repoRoot, ['init', '--quiet', '--initial-branch=main']);
+  git(repoRoot, ['config', 'maintenance.auto', 'false']);
+  git(repoRoot, ['config', 'gc.auto', '0']);
+}
+
 function symbolicHeadRefPath(repoRoot: string): string {
   const gitDirectory = join(repoRoot, '.git');
   const head = readFileSync(join(gitDirectory, 'HEAD'), 'utf8');
@@ -440,7 +477,7 @@ function writeWriterProtocolFixture(repoRoot: string): void {
   const currentStatePath = join(repoRoot, CURRENT_STATE_PATH);
   mkdirSync(dirname(currentStatePath), { recursive: true });
   writeFileSync(currentStatePath, `${ARIA_AUTHORITY_HASH_SENTINEL}\n`, 'utf8');
-  git(repoRoot, ['init', '--quiet', '--initial-branch=main']);
+  initializeQuiescentGitFixture(repoRoot);
   git(repoRoot, ['add', '.']);
   writeAriaAuthorityHash(repoRoot, fixtureAriaAuthorityFiles(repoRoot));
 }
@@ -862,12 +899,15 @@ function createPublicationKernelFixture(
   };
 }
 
-async function runWorktreeAllocatorChild(): Promise<never> {
+async function runWorktreeAllocatorChild(): Promise<void> {
   const repoRoot = process.argv[3];
   const registryPath = process.argv[4];
   const schemaPath = process.argv[5];
   const stubPath = process.argv[6];
-  if (!repoRoot || !registryPath || !schemaPath || !stubPath) process.exit(64);
+  if (!repoRoot || !registryPath || !schemaPath || !stubPath) {
+    throw new Error('Worktree allocator child requires repo, registry, schema, and stub paths');
+  }
+  const session = await bootstrapStoreSpecChildProcess('--worktree-allocator-child');
 
   const authority = resolveGitFindingAllocationAuthority(repoRoot);
   const repositoryAuthority = await issueRepositoryMutationAuthority('add');
@@ -878,50 +918,8 @@ async function runWorktreeAllocatorChild(): Promise<never> {
     prepareSnapshot: async (signal) => {
       preparationAttempts += 1;
       const snapshot = await authority.assertCompatibleWriters(signal);
-      if (preparationAttempts === 1 && process.send !== undefined) {
-        await new Promise<void>((resolveRelease, rejectRelease) => {
-          const cleanup = (): void => {
-            process.off('message', onMessage);
-            process.off('disconnect', onDisconnect);
-            signal.removeEventListener('abort', onAbort);
-          };
-          const onMessage = (message: unknown): void => {
-            if (
-              typeof message !== 'object' ||
-              message === null ||
-              !('kind' in message) ||
-              message.kind !== 'RELEASE_PREPARED_SNAPSHOT'
-            ) {
-              return;
-            }
-            cleanup();
-            resolveRelease();
-          };
-          const onDisconnect = (): void => {
-            cleanup();
-            rejectRelease(new Error('Allocator parent disconnected before snapshot release'));
-          };
-          const onAbort = (): void => {
-            cleanup();
-            rejectRelease(
-              signal.reason instanceof Error
-                ? signal.reason
-                : new Error('Allocator snapshot preparation was aborted'),
-            );
-          };
-          process.on('message', onMessage);
-          process.once('disconnect', onDisconnect);
-          signal.addEventListener('abort', onAbort, { once: true });
-          if (signal.aborted) {
-            onAbort();
-          } else {
-            process.send?.({ kind: 'PREPARED_SNAPSHOT' }, (error: Error | null) => {
-              if (error === null) return;
-              cleanup();
-              rejectRelease(error);
-            });
-          }
-        });
+      if (preparationAttempts === 1) {
+        await session.emitPhase('PREPARED_SNAPSHOT', signal);
       }
       return snapshot;
     },
@@ -954,72 +952,995 @@ async function runWorktreeAllocatorChild(): Promise<never> {
       }
     },
   });
-  if (exitCode !== 0) process.exit(exitCode);
-  process.stdout.write(`admission-attempts=${String(preparationAttempts)}\n`);
-  process.exit(0);
+  if (exitCode !== 0) {
+    throw new Error(`Worktree allocator exited with ${String(exitCode)}`);
+  }
+  await session.emitPhase('ALLOCATION_COMMITTED', { preparationAttempts });
+  session.assertTerminal();
+  process.exitCode = 0;
+  if (process.connected) process.disconnect();
+}
+
+class StoreSpecAdversarialFixtureViolationV1 extends Error {
+  readonly code = 'STORE_SPEC_ADVERSARIAL_FIXTURE_VIOLATION_V1' as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'StoreSpecAdversarialFixtureViolationV1';
+  }
+}
+
+async function runStoreSpecOutputOverflowChild(): Promise<void> {
+  await bootstrapStoreSpecChildProcess('--transport-output-overflow-child');
+  const outputLimit = STORE_SPEC_TRANSPORT_CONTRACT_V1.output.stdout.maxBytes;
+  await new Promise<void>((resolveWrite, rejectWrite) => {
+    process.stdout.write(Buffer.alloc(outputLimit + 1, 0x61), (error) => {
+      if (error === null || error === undefined) resolveWrite();
+      else rejectWrite(error);
+    });
+  });
+  await new Promise<void>((_resolveWait, rejectWait) => {
+    setTimeout(
+      () =>
+        rejectWait(
+          new StoreSpecAdversarialFixtureViolationV1(
+            'Output-overflow child was not fenced by the parent transport',
+          ),
+        ),
+      STORE_SPEC_TRANSPORT_CONTRACT_V1.progressDeadlineMs * 2,
+    );
+  });
+}
+
+async function runStoreSpecCloseStallChild(): Promise<void> {
+  const session = await bootstrapStoreSpecChildProcess('--transport-close-stall-child');
+  const retainedPipeLifetimeMs =
+    STORE_SPEC_TRANSPORT_CONTRACT_V1.termination.closeAfterExitDeadlineMs + 1_000;
+  const retainedPipeOwner = spawn(
+    process.execPath,
+    ['-e', `setTimeout(() => undefined, ${String(retainedPipeLifetimeMs)})`],
+    {
+      detached: true,
+      stdio: ['ignore', 'inherit', 'inherit'],
+    },
+  );
+  retainedPipeOwner.unref();
+  await session.emitPhase('LOCK_ACQUIRED');
+  session.assertTerminal();
+  process.exitCode = 0;
+  if (process.connected) process.disconnect();
+}
+
+interface StoreSpecChildResult {
+  readonly code: number | null;
+  readonly signal: NodeJS.Signals | null;
+  readonly stderr: string;
+  readonly stdout: string;
 }
 
 interface SpawnedStoreSpecChild {
+  readonly completion: Promise<StoreSpecChildResult>;
+  readonly mode: StoreSpecChildModeV1;
   readonly process: ReturnType<typeof spawn>;
-  readonly completion: Promise<{
-    readonly code: number | null;
-    readonly signal: NodeJS.Signals | null;
-    readonly stderr: string;
-  }>;
+  readonly sessionId: string;
+  readonly termination: Promise<StoreSpecChildResult>;
+  sendCommand(kind: StoreSpecParentCommandKindV1): Promise<void>;
+  terminateForCleanup(): void;
+  terminateExpected(signal: NodeJS.Signals): Promise<StoreSpecChildResult>;
+  waitForPhase(kind: StoreSpecChildPhaseKindV1): Promise<StoreSpecChildMessageV1>;
 }
 
-function spawnStoreSpecChild(mode: string, args: readonly string[]): SpawnedStoreSpecChild {
-  const entrypoint = mode.startsWith('--kernel-lock-')
-    ? resolve(__dirname, 'lib', 'finding-registry-lock.fixture.ts')
-    : __filename;
-  const child = spawn(
-    process.execPath,
-    ['-r', require.resolve('ts-node/register'), entrypoint, mode, ...args],
-    {
-      env: { ...process.env, TS_NODE_PROJECT: resolve(__dirname, 'tsconfig.json') },
-      stdio: ['ignore', 'pipe', 'pipe'],
+function spawnStoreSpecChild(
+  mode: StoreSpecChildModeV1,
+  args: readonly string[],
+): SpawnedStoreSpecChild {
+  const contract = STORE_SPEC_TRANSPORT_CONTRACT_V1.modes[mode];
+  const sessionId = randomUUID();
+  const child = spawn(process.execPath, compileStoreSpecChildArgvV1(__dirname, mode, args), {
+    env: {
+      ...process.env,
+      [STORE_SPEC_CHILD_SESSION_ENV]: sessionId,
+      [STORE_SPEC_TRANSPORT_CONTRACT_V1.environment.tsNodeProject]: resolve(
+        __dirname,
+        'tsconfig.json',
+      ),
     },
-  );
-  let stderr = '';
-  child.stderr?.setEncoding('utf8');
-  child.stderr?.on('data', (chunk: string) => {
-    stderr += chunk;
+    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
-  const completion = new Promise<{
-    readonly code: number | null;
-    readonly signal: NodeJS.Signals | null;
-    readonly stderr: string;
-  }>((resolveChild, rejectChild) => {
-    child.once('error', rejectChild);
-    child.once('exit', (code, signal) => resolveChild({ code, signal, stderr }));
+  const childStdout = child.stdout;
+  const childStderr = child.stderr;
+  if (childStdout === null || childStderr === null) {
+    if (!child.kill(STORE_SPEC_TRANSPORT_CONTRACT_V1.termination.failureSignal)) {
+      throw new StoreSpecTerminationViolationV1(
+        'SIGNAL_REJECTED',
+        `Finding registry store child exposed no output pipes and rejected its failure signal: ${mode}`,
+      );
+    }
+    throw new StoreSpecProtocolViolationV1(
+      `Finding registry store child exposed no output pipes: ${mode}`,
+    );
+  }
+
+  const stdout = createStoreSpecBoundedOutputCollectorV1('stdout');
+  const stderr = createStoreSpecBoundedOutputCollectorV1('stderr');
+  let lifecycle: StoreSpecChildLifecycleStateV1 = createStoreSpecChildLifecycleStateV1();
+  let signalAttempted = false;
+  let expectedTerminationWasRequested = false;
+  let closeObserved = false;
+  const observedPhases = new Map<StoreSpecChildPhaseKindV1, StoreSpecChildMessageV1>();
+  const phaseWaiters = new Map<
+    StoreSpecChildPhaseKindV1,
+    Set<{
+      readonly reject: (error: Error) => void;
+      readonly resolve: (message: StoreSpecChildMessageV1) => void;
+    }>
+  >();
+  const protocol = createStoreSpecParentProtocolSessionV1(mode, sessionId);
+  let progressDeadline: NodeJS.Timeout | undefined;
+  let exitDeadline: NodeJS.Timeout | undefined;
+  let closeDeadline: NodeJS.Timeout | undefined;
+  let terminationSettled = false;
+  let resolveTermination!: (result: StoreSpecChildResult) => void;
+  let rejectTermination!: (error: Error) => void;
+  const termination = new Promise<StoreSpecChildResult>((resolveChild, rejectChild) => {
+    resolveTermination = resolveChild;
+    rejectTermination = rejectChild;
   });
-  return { process: child, completion };
+  void termination.catch(() => undefined);
+
+  const rejectPhaseWaiters = (error: Error): void => {
+    for (const waiters of phaseWaiters.values()) {
+      for (const waiter of waiters) waiter.reject(error);
+    }
+    phaseWaiters.clear();
+  };
+
+  const publishLifecycle = (next: StoreSpecChildLifecycleStateV1): void => {
+    lifecycle = next;
+    if (lifecycle.status !== 'FAILED') return;
+    if (progressDeadline !== undefined) clearTimeout(progressDeadline);
+    rejectPhaseWaiters(lifecycle.failure);
+  };
+
+  const registerLifecycleFailure = (error: Error): void => {
+    publishLifecycle(
+      reduceStoreSpecChildLifecycleV1(lifecycle, {
+        failure: error,
+        type: 'TRANSPORT_FAILED',
+      }),
+    );
+  };
+
+  const releaseExpiredTransport = (): void => {
+    childStdout.destroy();
+    childStderr.destroy();
+    if (child.connected) {
+      try {
+        child.disconnect();
+      } catch (error) {
+        registerLifecycleFailure(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+    child.unref();
+  };
+
+  const rejectBoundedTermination = (error: StoreSpecTerminationViolationV1): void => {
+    registerLifecycleFailure(error);
+    if (!terminationSettled) {
+      terminationSettled = true;
+      rejectTermination(lifecycle.status === 'FAILED' ? lifecycle.failure : error);
+    }
+    releaseExpiredTransport();
+  };
+
+  const armExitDeadline = (): void => {
+    if (closeObserved) return;
+    if (exitDeadline !== undefined) clearTimeout(exitDeadline);
+    exitDeadline = setTimeout(() => {
+      rejectBoundedTermination(
+        new StoreSpecTerminationViolationV1(
+          'EXIT_DEADLINE_EXCEEDED',
+          `Finding registry store child did not exit within ${String(STORE_SPEC_TRANSPORT_CONTRACT_V1.termination.exitAfterSignalDeadlineMs)}ms after signal: ${mode}`,
+        ),
+      );
+    }, STORE_SPEC_TRANSPORT_CONTRACT_V1.termination.exitAfterSignalDeadlineMs);
+  };
+
+  const armCloseDeadline = (): void => {
+    if (closeObserved) return;
+    if (closeDeadline !== undefined) clearTimeout(closeDeadline);
+    closeDeadline = setTimeout(() => {
+      rejectBoundedTermination(
+        new StoreSpecTerminationViolationV1(
+          'CLOSE_DEADLINE_EXCEEDED',
+          `Finding registry store child did not close within ${String(STORE_SPEC_TRANSPORT_CONTRACT_V1.termination.closeAfterExitDeadlineMs)}ms after exit: ${mode}`,
+        ),
+      );
+    }, STORE_SPEC_TRANSPORT_CONTRACT_V1.termination.closeAfterExitDeadlineMs);
+  };
+
+  const requestFailureSignal = (): void => {
+    if (lifecycle.exit !== null) {
+      armCloseDeadline();
+      return;
+    }
+    if (signalAttempted) return;
+    signalAttempted = true;
+    const signalResult = issueStoreSpecProcessSignalV1(
+      lifecycle,
+      STORE_SPEC_TRANSPORT_CONTRACT_V1.termination.failureSignal,
+      (signal) => child.kill(signal),
+    );
+    publishLifecycle(signalResult.lifecycle);
+    armExitDeadline();
+  };
+
+  const failLifecycle = (error: Error): void => {
+    registerLifecycleFailure(error);
+    requestFailureSignal();
+  };
+
+  const armProgressDeadline = (): void => {
+    if (progressDeadline !== undefined) clearTimeout(progressDeadline);
+    if (lifecycle.status !== 'RUNNING') return;
+    progressDeadline = setTimeout(() => {
+      failLifecycle(
+        new StoreSpecProtocolViolationV1(
+          `Finding registry store child made no protocol progress for ${String(STORE_SPEC_TRANSPORT_CONTRACT_V1.progressDeadlineMs)}ms: ${mode}`,
+        ),
+      );
+    }, STORE_SPEC_TRANSPORT_CONTRACT_V1.progressDeadlineMs);
+  };
+  armProgressDeadline();
+
+  childStdout.on('data', (chunk: Buffer) => {
+    try {
+      stdout.append(chunk);
+    } catch (error) {
+      failLifecycle(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+  childStderr.on('data', (chunk: Buffer) => {
+    try {
+      stderr.append(chunk);
+    } catch (error) {
+      failLifecycle(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+  const onStdoutError = (error: Error): void => {
+    failLifecycle(error);
+  };
+  const onStderrError = (error: Error): void => {
+    failLifecycle(error);
+  };
+  childStdout.on('error', onStdoutError);
+  childStderr.on('error', onStderrError);
+
+  child.on('message', (message: unknown) => {
+    publishLifecycle(
+      reduceStoreSpecChildLifecycleV1(lifecycle, {
+        type: 'CHILD_MESSAGE',
+      }),
+    );
+    if (lifecycle.status === 'FAILED') return;
+    try {
+      const parsed = protocol.observeChild(message);
+      if (observedPhases.has(parsed.kind)) {
+        throw new StoreSpecProtocolViolationV1(
+          `Finding registry store child duplicated ${parsed.kind}: ${mode}`,
+        );
+      }
+      observedPhases.set(parsed.kind, parsed);
+      const waiters = phaseWaiters.get(parsed.kind);
+      if (waiters !== undefined) {
+        phaseWaiters.delete(parsed.kind);
+        for (const waiter of waiters) waiter.resolve(parsed);
+      }
+      armProgressDeadline();
+    } catch (error) {
+      failLifecycle(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+
+  child.once('error', (error) => {
+    failLifecycle(error);
+  });
+  child.once('disconnect', () => {
+    publishLifecycle(
+      reduceStoreSpecChildLifecycleV1(lifecycle, {
+        type: 'IPC_DISCONNECTED',
+      }),
+    );
+    if (lifecycle.status === 'RUNNING') {
+      try {
+        protocol.assertTerminal();
+      } catch (error) {
+        failLifecycle(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+  });
+  child.once('exit', (code, signal) => {
+    if (progressDeadline !== undefined) clearTimeout(progressDeadline);
+    if (exitDeadline !== undefined) clearTimeout(exitDeadline);
+    publishLifecycle(
+      reduceStoreSpecChildLifecycleV1(lifecycle, {
+        result: { code, signal },
+        type: 'EXITED',
+      }),
+    );
+    armCloseDeadline();
+  });
+  child.once('close', (code, signal) => {
+    closeObserved = true;
+    childStdout.off('error', onStdoutError);
+    childStderr.off('error', onStderrError);
+    if (progressDeadline !== undefined) clearTimeout(progressDeadline);
+    if (exitDeadline !== undefined) clearTimeout(exitDeadline);
+    if (closeDeadline !== undefined) clearTimeout(closeDeadline);
+    let capturedStdout = '';
+    let capturedStderr = '';
+    try {
+      capturedStdout = stdout.readUtf8();
+      capturedStderr = stderr.readUtf8();
+    } catch (error) {
+      failLifecycle(error instanceof Error ? error : new Error(String(error)));
+    }
+    const result = { code, signal, stderr: capturedStderr, stdout: capturedStdout };
+    let protocolTerminal = true;
+    try {
+      protocol.assertTerminal();
+    } catch {
+      protocolTerminal = false;
+    }
+    publishLifecycle(
+      reduceStoreSpecChildLifecycleV1(lifecycle, {
+        protocolTerminal,
+        result,
+        type: 'CLOSED',
+      }),
+    );
+    if (!terminationSettled) {
+      terminationSettled = true;
+      resolveTermination(result);
+    }
+  });
+  const completion = termination.then((result) => {
+    if (lifecycle.status === 'FAILED') throw lifecycle.failure;
+    if (expectedTerminationWasRequested) {
+      rejectPhaseWaiters(
+        new StoreSpecProtocolViolationV1(
+          `Finding registry store child ended at its explicit ${String(result.signal)} test boundary: ${mode}`,
+        ),
+      );
+    }
+    return result;
+  });
+  void completion.catch(() => undefined);
+
+  const sendCommand = (kind: StoreSpecParentCommandKindV1): Promise<void> => {
+    if (lifecycle.status === 'FAILED') return Promise.reject(lifecycle.failure);
+    if (lifecycle.status !== 'RUNNING') {
+      return Promise.reject(
+        new StoreSpecProtocolViolationV1(
+          `Finding registry store child cannot receive ${kind} after termination began: ${mode}`,
+        ),
+      );
+    }
+    let message;
+    try {
+      message = protocol.command(kind);
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      failLifecycle(failure);
+      return Promise.reject(failure);
+    }
+    return sendStoreSpecIpcMessageV1(child.connected, (callback) => {
+      child.send(message, callback);
+    }).then(
+      () => {
+        armProgressDeadline();
+      },
+      (error: unknown) => {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        failLifecycle(failure);
+        throw failure;
+      },
+    );
+  };
+
+  const waitForPhase = (kind: StoreSpecChildPhaseKindV1): Promise<StoreSpecChildMessageV1> => {
+    const declared = contract.transcript.some(
+      (step) => step.actor === 'CHILD' && step.kind === kind,
+    );
+    if (!declared) {
+      return Promise.reject(
+        new StoreSpecProtocolViolationV1(
+          `Finding registry store mode ${mode} does not declare child phase ${kind}`,
+        ),
+      );
+    }
+    const observed = observedPhases.get(kind);
+    if (observed !== undefined) return Promise.resolve(observed);
+    if (lifecycle.status === 'FAILED') return Promise.reject(lifecycle.failure);
+    if (lifecycle.status !== 'RUNNING') {
+      return Promise.reject(
+        new StoreSpecProtocolViolationV1(
+          `Finding registry store child cannot await ${kind} after termination began: ${mode}`,
+        ),
+      );
+    }
+    return new Promise<StoreSpecChildMessageV1>((resolveWait, rejectWait) => {
+      const waiters = phaseWaiters.get(kind) ?? new Set();
+      waiters.add({ reject: rejectWait, resolve: resolveWait });
+      phaseWaiters.set(kind, waiters);
+    });
+  };
+
+  return {
+    completion,
+    mode,
+    process: child,
+    sendCommand,
+    sessionId,
+    terminateExpected: async (signal) => {
+      const expected = contract.expectedTestTermination;
+      if (
+        expected === null ||
+        expected.signal !== signal ||
+        protocol.state.sequence !== expected.atSequence ||
+        lifecycle.status !== 'RUNNING'
+      ) {
+        throw new StoreSpecProtocolViolationV1(
+          `Finding registry store expected termination is out of phase: ${mode}`,
+        );
+      }
+      const requestedLifecycle = reduceStoreSpecChildLifecycleV1(lifecycle, {
+        signal,
+        type: 'EXPECTED_TERMINATION_REQUESTED',
+      });
+      if (requestedLifecycle.status !== 'EXPECTED_TERMINATION_REQUESTED') {
+        throw requestedLifecycle.status === 'FAILED'
+          ? requestedLifecycle.failure
+          : new StoreSpecProtocolViolationV1(
+              `Finding registry store expected termination did not enter its governed phase: ${mode}`,
+            );
+      }
+      publishLifecycle(requestedLifecycle);
+      expectedTerminationWasRequested = true;
+      if (progressDeadline !== undefined) clearTimeout(progressDeadline);
+      signalAttempted = true;
+      const signalResult = issueStoreSpecProcessSignalV1(lifecycle, signal, (requestedSignal) =>
+        child.kill(requestedSignal),
+      );
+      publishLifecycle(signalResult.lifecycle);
+      armExitDeadline();
+      if (!signalResult.signalIssued) {
+        if (signalResult.lifecycle.status === 'FAILED') throw signalResult.lifecycle.failure;
+        throw new StoreSpecTerminationViolationV1(
+          'SIGNAL_REJECTED',
+          `Finding registry store child rejected expected ${signal}: ${mode}`,
+        );
+      }
+      return completion;
+    },
+    terminateForCleanup: () => {
+      if (closeObserved || lifecycle.exit !== null) return;
+      failLifecycle(
+        new StoreSpecProtocolViolationV1(
+          `Finding registry store child required bounded cleanup before completion: ${mode}`,
+        ),
+      );
+    },
+    termination,
+    waitForPhase,
+  };
 }
 
 async function terminateStoreSpecChild(child: SpawnedStoreSpecChild): Promise<void> {
   if (child.process.exitCode === null && child.process.signalCode === null) {
-    child.process.kill('SIGKILL');
+    child.terminateForCleanup();
   }
-  await Promise.allSettled([child.completion]);
+  await Promise.allSettled([child.completion, child.termination]);
 }
 
-async function waitForFile(path: string): Promise<void> {
-  const deadline = Date.now() + 5_000;
-  while (!existsSync(path)) {
-    if (Date.now() >= deadline) throw new Error(`Timed out waiting for child barrier: ${path}`);
-    await new Promise<void>((resolveWait) => setTimeout(resolveWait, 10));
-  }
-}
+type StoreSpecLocalChildModeV1 = StoreSpecChildModeForEntrypointV1<'STORE_SPEC'>;
 
-if (childMode === '--worktree-allocator-child') {
-  void runWorktreeAllocatorChild().catch((error: unknown) => {
+const STORE_SPEC_LOCAL_CHILD_DISPATCH_V1 = Object.freeze({
+  '--transport-close-stall-child': runStoreSpecCloseStallChild,
+  '--transport-output-overflow-child': runStoreSpecOutputOverflowChild,
+  '--worktree-allocator-child': runWorktreeAllocatorChild,
+} satisfies Record<StoreSpecLocalChildModeV1, () => Promise<void>>);
+
+assertStoreSpecEntrypointDispatchSetEqualityV1('STORE_SPEC', STORE_SPEC_LOCAL_CHILD_DISPATCH_V1);
+
+const storeSpecChildEntrypoint = isStoreSpecChildModeForEntrypointV1('STORE_SPEC', childMode)
+  ? STORE_SPEC_LOCAL_CHILD_DISPATCH_V1[childMode]
+  : null;
+
+if (storeSpecChildEntrypoint !== null) {
+  void storeSpecChildEntrypoint().catch((error: unknown) => {
     process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
-    process.exit(1);
+    process.exitCode = 1;
+    if (process.connected) process.disconnect();
   });
 } else {
   fixtureRoot = mkdtempSync(join(tmpdir(), 'finding-registry-store-spec-'));
   void after(() => {
     rmSync(fixtureRoot, { recursive: true, force: true });
+  });
+
+  void test('child IPC envelopes are session-bound, sequenced, and closed to extra fields', () => {
+    const sessionId = '123e4567-e89b-42d3-a456-426614174000';
+    const bootstrap = {
+      kind: 'BOOTSTRAPPED',
+      mode: '--kernel-lock-holder',
+      payload: {},
+      protocolVersion: 1,
+      sequence: 0,
+      sessionId,
+    } as const;
+    assert.deepEqual(
+      parseStoreSpecChildMessageV1(bootstrap, {
+        mode: '--kernel-lock-holder',
+        sessionId,
+      }),
+      bootstrap,
+    );
+    const start = {
+      kind: 'START',
+      mode: '--worktree-allocator-child',
+      payload: {},
+      protocolVersion: 1,
+      sequence: 1,
+      sessionId,
+    } as const;
+    assert.deepEqual(
+      parseStoreSpecParentMessageV1(start, {
+        mode: '--worktree-allocator-child',
+        sessionId,
+      }),
+      start,
+    );
+
+    for (const invalid of [
+      { ...bootstrap, extra: true },
+      { ...bootstrap, mode: '--kernel-lock-contender' },
+      { ...bootstrap, payload: { extra: true } },
+      { ...bootstrap, protocolVersion: 2 },
+      { ...bootstrap, sequence: -1 },
+      { ...bootstrap, sessionId: '223e4567-e89b-42d3-a456-426614174000' },
+      { ...bootstrap, mode: 'toString' },
+    ]) {
+      assert.throws(
+        () =>
+          parseStoreSpecChildMessageV1(invalid, {
+            mode: '--kernel-lock-holder',
+            sessionId,
+          }),
+        StoreSpecProtocolViolationV1,
+      );
+    }
+    assert.throws(
+      () =>
+        parseStoreSpecChildMessageV1(
+          {
+            ...bootstrap,
+            kind: 'ALLOCATION_COMMITTED',
+            mode: '--worktree-allocator-child',
+            payload: { preparationAttempts: 0 },
+            sequence: 4,
+          },
+          { mode: '--worktree-allocator-child', sessionId },
+        ),
+      StoreSpecProtocolViolationV1,
+    );
+  });
+
+  void test('one exhaustive mode descriptor drives every legal protocol transcript', () => {
+    assert.equal(Object.isFrozen(STORE_SPEC_TRANSPORT_CONTRACT_V1), true);
+    assert.equal(Object.isFrozen(STORE_SPEC_TRANSPORT_CONTRACT_V1.entrypoints), true);
+    assert.equal(Object.isFrozen(STORE_SPEC_TRANSPORT_CONTRACT_V1.loaderProfiles), true);
+    assert.equal(Object.isFrozen(STORE_SPEC_TRANSPORT_CONTRACT_V1.termination), true);
+    assert.deepEqual(
+      Object.fromEntries(
+        Object.entries(STORE_SPEC_TRANSPORT_CONTRACT_V1.loaderProfiles).map(
+          ([profileId, profile]) => [profileId, profile.module],
+        ),
+      ),
+      {
+        TS_NODE_REGISTER: 'ts-node/register',
+        TS_NODE_TRANSPILE_ONLY: 'ts-node/register/transpile-only',
+      },
+    );
+    assert.equal(STORE_SPEC_TRANSPORT_CONTRACT_V1.termination.failureSignal, 'SIGKILL');
+    for (const deadline of [
+      STORE_SPEC_TRANSPORT_CONTRACT_V1.termination.exitAfterSignalDeadlineMs,
+      STORE_SPEC_TRANSPORT_CONTRACT_V1.termination.closeAfterExitDeadlineMs,
+    ]) {
+      assert.equal(Number.isSafeInteger(deadline) && deadline > 0, true);
+    }
+    for (const [mode, contract] of Object.entries(STORE_SPEC_TRANSPORT_CONTRACT_V1.modes) as Array<
+      [StoreSpecChildModeV1, (typeof STORE_SPEC_TRANSPORT_CONTRACT_V1.modes)[StoreSpecChildModeV1]]
+    >) {
+      let state = createStoreSpecProtocolStateV1(mode);
+      const entrypoint = STORE_SPEC_TRANSPORT_CONTRACT_V1.entrypoints[contract.entrypoint];
+      const loaderProfile =
+        STORE_SPEC_TRANSPORT_CONTRACT_V1.loaderProfiles[entrypoint.loaderProfile];
+      assert.equal(Object.isFrozen(contract), true);
+      assert.equal(Object.isFrozen(entrypoint), true);
+      assert.equal(Object.isFrozen(loaderProfile), true);
+      assert.equal(Object.isFrozen(contract.transcript), true);
+      assert.equal(Object.hasOwn(entrypoint, 'loaderModule'), false);
+      assert.equal(resolve(loaderProfile.coordinate), loaderProfile.coordinate);
+      const argv = compileStoreSpecChildArgvV1('/governed/gates', mode, ['fixture-argument']);
+      assert.deepEqual(argv, [
+        '-r',
+        loaderProfile.coordinate,
+        resolve('/governed/gates', entrypoint.entrypointRelativeToGates),
+        mode,
+        'fixture-argument',
+      ]);
+      for (const step of contract.transcript) {
+        assert.deepEqual(expectedStoreSpecProtocolStepV1(state), step);
+        assert.throws(() => assertStoreSpecProtocolTerminalV1(state), StoreSpecProtocolViolationV1);
+        state = reduceStoreSpecProtocolV1(state, {
+          actor: step.actor,
+          kind: step.kind,
+          sequence: state.sequence,
+        } as Parameters<typeof reduceStoreSpecProtocolV1>[1]);
+      }
+      assert.equal(expectedStoreSpecProtocolStepV1(state), null);
+      assert.doesNotThrow(() => assertStoreSpecProtocolTerminalV1(state));
+    }
+    const catalogModes = Object.keys(STORE_SPEC_TRANSPORT_CONTRACT_V1.modes).sort();
+    const entrypointModes = (['LOCK_FIXTURE', 'STORE_SPEC'] as const)
+      .flatMap((entrypoint) => storeSpecChildModesForEntrypointV1(entrypoint))
+      .sort();
+    assert.deepEqual(entrypointModes, catalogModes);
+    assert.deepEqual(storeSpecChildModesForEntrypointV1('LOCK_FIXTURE'), [
+      '--kernel-lock-holder',
+      '--kernel-lock-contender',
+    ]);
+    assert.deepEqual(storeSpecChildModesForEntrypointV1('STORE_SPEC'), [
+      '--worktree-allocator-child',
+      '--transport-output-overflow-child',
+      '--transport-close-stall-child',
+    ]);
+    assert.doesNotThrow(() =>
+      assertStoreSpecEntrypointDispatchSetEqualityV1(
+        'STORE_SPEC',
+        STORE_SPEC_LOCAL_CHILD_DISPATCH_V1,
+      ),
+    );
+    assert.throws(
+      () =>
+        assertStoreSpecEntrypointDispatchSetEqualityV1('STORE_SPEC', {
+          '--worktree-allocator-child': runWorktreeAllocatorChild,
+        }),
+      StoreSpecProtocolViolationV1,
+    );
+  });
+
+  void test('bounded output collectors enforce byte-exact limits and strict UTF-8', () => {
+    for (const channel of ['stdout', 'stderr'] as const) {
+      const limit = STORE_SPEC_TRANSPORT_CONTRACT_V1.output[channel].maxBytes;
+      const belowLimit = createStoreSpecBoundedOutputCollectorV1(channel);
+      belowLimit.append(Buffer.alloc(limit - 1, 0x61));
+      assert.equal(belowLimit.byteLength, limit - 1);
+      assert.equal(Buffer.byteLength(belowLimit.readUtf8(), 'utf8'), limit - 1);
+
+      const atLimit = createStoreSpecBoundedOutputCollectorV1(channel);
+      atLimit.append(Buffer.alloc(limit, 0x62));
+      assert.equal(atLimit.byteLength, limit);
+      assert.equal(Buffer.byteLength(atLimit.readUtf8(), 'utf8'), limit);
+
+      const aboveLimit = createStoreSpecBoundedOutputCollectorV1(channel);
+      aboveLimit.append(Buffer.alloc(limit, 0x63));
+      assert.throws(
+        () => aboveLimit.append(Buffer.from('d')),
+        (error: unknown) =>
+          error instanceof StoreSpecOutputViolationV1 &&
+          error.channel === channel &&
+          error.limitBytes === limit &&
+          error.observedBytes === limit + 1,
+      );
+      assert.equal(aboveLimit.byteLength, limit);
+    }
+
+    const multibyte = createStoreSpecBoundedOutputCollectorV1('stdout');
+    const multibyteLimit = STORE_SPEC_TRANSPORT_CONTRACT_V1.output.stdout.maxBytes;
+    const fish = Buffer.from('🐟', 'utf8');
+    const exactMultibyte = Buffer.alloc(multibyteLimit);
+    for (let offset = 0; offset < exactMultibyte.byteLength; offset += fish.byteLength) {
+      fish.copy(exactMultibyte, offset);
+    }
+    multibyte.append(exactMultibyte.subarray(0, 1));
+    multibyte.append(exactMultibyte.subarray(1));
+    assert.equal(Buffer.byteLength(multibyte.readUtf8(), 'utf8'), multibyteLimit);
+    assert.throws(() => multibyte.append(fish), StoreSpecOutputViolationV1);
+
+    const invalidUtf8 = createStoreSpecBoundedOutputCollectorV1('stderr');
+    invalidUtf8.append(Buffer.from([0xc3, 0x28]));
+    assert.throws(() => invalidUtf8.readUtf8(), StoreSpecOutputViolationV1);
+  });
+
+  void test('output overflow fails the event handler and rejects pending phase waiters', async () => {
+    const overflowChild = spawnStoreSpecChild('--transport-output-overflow-child', []);
+    let waiterFailure: StoreSpecOutputViolationV1 | undefined;
+    try {
+      await overflowChild.waitForPhase('BOOTSTRAPPED');
+      const pendingPhase = overflowChild.waitForPhase('LOCK_ACQUIRED');
+      await overflowChild.sendCommand('START');
+      await assert.rejects(pendingPhase, (error: unknown) => {
+        if (!(error instanceof StoreSpecOutputViolationV1)) return false;
+        waiterFailure = error;
+        return (
+          error.channel === 'stdout' &&
+          error.limitBytes === STORE_SPEC_TRANSPORT_CONTRACT_V1.output.stdout.maxBytes &&
+          error.observedBytes > error.limitBytes
+        );
+      });
+      await assert.rejects(overflowChild.completion, (error: unknown) => error === waiterFailure);
+      const closure = await overflowChild.termination;
+      assert.equal(closure.code, null);
+      assert.equal(closure.signal, 'SIGKILL');
+    } finally {
+      await terminateStoreSpecChild(overflowChild);
+    }
+  });
+
+  void test('stdout and stderr stream errors enter the same first-failure lifecycle', async () => {
+    for (const channel of ['stdout', 'stderr'] as const) {
+      const child = spawnStoreSpecChild('--transport-output-overflow-child', []);
+      const streamFailure = new Error(`injected ${channel} stream failure`);
+      try {
+        await child.waitForPhase('BOOTSTRAPPED');
+        const pendingPhase = child.waitForPhase('LOCK_ACQUIRED');
+        const stream = child.process[channel];
+        if (stream === null) assert.fail(`${channel} stream is unavailable`);
+        stream.emit('error', streamFailure);
+        await assert.rejects(pendingPhase, (error: unknown) => error === streamFailure);
+        await assert.rejects(child.completion, (error: unknown) => error === streamFailure);
+        const closure = await child.termination;
+        assert.equal(closure.code, null);
+        assert.equal(closure.signal, STORE_SPEC_TRANSPORT_CONTRACT_V1.termination.failureSignal);
+      } finally {
+        await terminateStoreSpecChild(child);
+      }
+    }
+  });
+
+  void test('exit without close is bounded by the versioned termination contract', async () => {
+    const closeStallChild = spawnStoreSpecChild('--transport-close-stall-child', []);
+    let deadlineFailure: StoreSpecTerminationViolationV1 | undefined;
+    const startedAt = Date.now();
+    try {
+      await closeStallChild.waitForPhase('BOOTSTRAPPED');
+      await closeStallChild.sendCommand('START');
+      await closeStallChild.waitForPhase('LOCK_ACQUIRED');
+      await assert.rejects(closeStallChild.termination, (error: unknown) => {
+        if (!(error instanceof StoreSpecTerminationViolationV1)) return false;
+        deadlineFailure = error;
+        return error.reason === 'CLOSE_DEADLINE_EXCEEDED';
+      });
+      await assert.rejects(
+        closeStallChild.completion,
+        (error: unknown) => error === deadlineFailure,
+      );
+      assert.equal(closeStallChild.process.exitCode, 0);
+      assert.equal(closeStallChild.process.signalCode, null);
+      assert.equal(
+        Date.now() - startedAt >=
+          STORE_SPEC_TRANSPORT_CONTRACT_V1.termination.closeAfterExitDeadlineMs,
+        true,
+      );
+    } finally {
+      await terminateStoreSpecChild(closeStallChild);
+    }
+  });
+
+  void test('lifecycle rejects a child message after expected termination begins', () => {
+    const requested = reduceStoreSpecChildLifecycleV1(createStoreSpecChildLifecycleStateV1(), {
+      signal: 'SIGKILL',
+      type: 'EXPECTED_TERMINATION_REQUESTED',
+    });
+    const lateMessage = reduceStoreSpecChildLifecycleV1(requested, {
+      type: 'CHILD_MESSAGE',
+    });
+    if (lateMessage.status !== 'FAILED') {
+      assert.fail('late child message did not fail the lifecycle');
+    }
+    assert.match(lateMessage.failure.message, /after termination began/);
+  });
+
+  void test('lifecycle rejects close-before-disconnect', () => {
+    const exited = reduceStoreSpecChildLifecycleV1(createStoreSpecChildLifecycleStateV1(), {
+      result: { code: 0, signal: null },
+      type: 'EXITED',
+    });
+    const closed = reduceStoreSpecChildLifecycleV1(exited, {
+      protocolTerminal: true,
+      result: { code: 0, signal: null },
+      type: 'CLOSED',
+    });
+    if (closed.status !== 'FAILED') {
+      assert.fail('close-before-disconnect did not fail the lifecycle');
+    }
+    assert.match(closed.failure.message, /before its IPC channel disconnected/);
+  });
+
+  void test('IPC send callback errors preserve their typed failure', async () => {
+    const callbackFailure = new Error('injected child.send callback failure');
+    await assert.rejects(
+      sendStoreSpecIpcMessageV1(true, (callback) => callback(callbackFailure)),
+      (error: unknown) => error === callbackFailure,
+    );
+  });
+
+  void test('operation-local child transitions own every rejection race', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      const sendFailure = new Error('injected send rejection');
+      const sendRejected = createStoreSpecChildTransitionV1(Promise.reject(sendFailure), true);
+      await assert.rejects(sendRejected.completion, (error: unknown) => error === sendFailure);
+
+      for (const label of ['abort', 'disconnect', 'parse'] as const) {
+        const transitionFailure = new Error(`injected ${label} transition failure`);
+        const transition = createStoreSpecChildTransitionV1(
+          new Promise<void>(() => undefined),
+          true,
+        );
+        transition.fail(transitionFailure);
+        await assert.rejects(
+          transition.completion,
+          (error: unknown) => error === transitionFailure,
+        );
+      }
+
+      const combinedSendFailure = new Error('injected combined send failure');
+      const combinedAbortFailure = new Error('injected combined abort failure');
+      const combined = createStoreSpecChildTransitionV1(Promise.reject(combinedSendFailure), true);
+      combined.fail(combinedAbortFailure);
+      await assert.rejects(
+        combined.completion,
+        (error: unknown) => error === combinedSendFailure || error === combinedAbortFailure,
+      );
+
+      const successful = createStoreSpecChildTransitionV1(Promise.resolve(), true);
+      successful.acceptParentCommand();
+      await successful.completion;
+      await new Promise<void>((resolveTurn) => setImmediate(resolveTurn));
+      assert.deepEqual(unhandled, []);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+  });
+
+  void test('signal rejection and deadline races preserve the first lifecycle failure', () => {
+    const primaryFailure = new Error('injected primary transport failure');
+    const failed = reduceStoreSpecChildLifecycleV1(createStoreSpecChildLifecycleStateV1(), {
+      failure: primaryFailure,
+      type: 'TRANSPORT_FAILED',
+    });
+    const signalResult = issueStoreSpecProcessSignalV1(failed, 'SIGKILL', () => false);
+    assert.equal(signalResult.signalIssued, false);
+    if (signalResult.lifecycle.status !== 'FAILED') {
+      assert.fail('signal rejection did not retain failed lifecycle state');
+    }
+    assert.equal(signalResult.lifecycle.failure, primaryFailure);
+    assert.equal(signalResult.lifecycle.secondaryFailures.length, 1);
+    assert.equal(
+      signalResult.lifecycle.secondaryFailures[0] instanceof StoreSpecTerminationViolationV1,
+      true,
+    );
+
+    const deadlineFailure = new StoreSpecTerminationViolationV1(
+      'EXIT_DEADLINE_EXCEEDED',
+      'injected exit deadline',
+    );
+    const deadlineFailed = reduceStoreSpecChildLifecycleV1(signalResult.lifecycle, {
+      failure: deadlineFailure,
+      type: 'TRANSPORT_FAILED',
+    });
+    const disconnected = reduceStoreSpecChildLifecycleV1(deadlineFailed, {
+      type: 'IPC_DISCONNECTED',
+    });
+    const exited = reduceStoreSpecChildLifecycleV1(disconnected, {
+      result: { code: null, signal: 'SIGKILL' },
+      type: 'EXITED',
+    });
+    const closed = reduceStoreSpecChildLifecycleV1(exited, {
+      protocolTerminal: false,
+      result: { code: null, signal: 'SIGKILL' },
+      type: 'CLOSED',
+    });
+    if (closed.status !== 'FAILED') {
+      assert.fail('deadline race did not retain failed lifecycle state');
+    }
+    assert.equal(closed.failure, primaryFailure);
+    assert.equal(closed.secondaryFailures.includes(deadlineFailure), true);
+  });
+
+  void test('expected SIGKILL cannot mask an earlier lifecycle failure', () => {
+    const requested = reduceStoreSpecChildLifecycleV1(createStoreSpecChildLifecycleStateV1(), {
+      signal: 'SIGKILL',
+      type: 'EXPECTED_TERMINATION_REQUESTED',
+    });
+    const priorFailure = new Error('injected failure before expected process close');
+    const failed = reduceStoreSpecChildLifecycleV1(requested, {
+      failure: priorFailure,
+      type: 'TRANSPORT_FAILED',
+    });
+    const disconnected = reduceStoreSpecChildLifecycleV1(failed, {
+      type: 'IPC_DISCONNECTED',
+    });
+    const exited = reduceStoreSpecChildLifecycleV1(disconnected, {
+      result: { code: null, signal: 'SIGKILL' },
+      type: 'EXITED',
+    });
+    const closed = reduceStoreSpecChildLifecycleV1(exited, {
+      protocolTerminal: false,
+      result: { code: null, signal: 'SIGKILL' },
+      type: 'CLOSED',
+    });
+    if (closed.status !== 'FAILED') {
+      assert.fail('expected SIGKILL replaced the prior lifecycle failure');
+    }
+    assert.equal(closed.failure, priorFailure);
+    assert.deepEqual(closed.closure, { code: null, signal: 'SIGKILL' });
+  });
+
+  void test('expected termination follows its complete typed lifecycle', () => {
+    const requested = reduceStoreSpecChildLifecycleV1(createStoreSpecChildLifecycleStateV1(), {
+      signal: 'SIGKILL',
+      type: 'EXPECTED_TERMINATION_REQUESTED',
+    });
+    assert.equal(requested.status, 'EXPECTED_TERMINATION_REQUESTED');
+    const disconnected = reduceStoreSpecChildLifecycleV1(requested, {
+      type: 'IPC_DISCONNECTED',
+    });
+    assert.equal(disconnected.status, 'EXPECTED_TERMINATION_REQUESTED');
+    assert.equal(disconnected.ipc, 'DISCONNECTED');
+    const exited = reduceStoreSpecChildLifecycleV1(disconnected, {
+      result: { code: null, signal: 'SIGKILL' },
+      type: 'EXITED',
+    });
+    assert.equal(exited.status, 'EXPECTED_TERMINATION_REQUESTED');
+    const closed = reduceStoreSpecChildLifecycleV1(exited, {
+      protocolTerminal: false,
+      result: { code: null, signal: 'SIGKILL' },
+      type: 'CLOSED',
+    });
+    assert.deepEqual(closed, {
+      exit: { code: null, signal: 'SIGKILL' },
+      ipc: 'DISCONNECTED',
+      result: { code: null, signal: 'SIGKILL' },
+      status: 'CLOSED',
+    });
+  });
+
+  void test('protocol reducer rejects duplicate, skipped, stale, and wrong-actor transitions', () => {
+    const initial = createStoreSpecProtocolStateV1('--kernel-lock-holder');
+    const bootstrapped = reduceStoreSpecProtocolV1(initial, {
+      actor: 'CHILD',
+      kind: 'BOOTSTRAPPED',
+      sequence: 0,
+    });
+    for (const invalid of [
+      { actor: 'CHILD', kind: 'BOOTSTRAPPED', sequence: 0 },
+      { actor: 'PARENT', kind: 'START', sequence: 0 },
+      { actor: 'CHILD', kind: 'LOCK_ACQUIRED', sequence: 1 },
+      { actor: 'PARENT', kind: 'RELEASE_LOCK', sequence: 1 },
+    ] as const) {
+      assert.throws(
+        () => reduceStoreSpecProtocolV1(bootstrapped, invalid),
+        StoreSpecProtocolViolationV1,
+      );
+    }
   });
 
   void test('nextFindingId advances one domain-wide sequence across classifiers', () => {
@@ -2279,7 +3200,7 @@ if (childMode === '--worktree-allocator-child') {
       writeFindingAllocationSubstrateFixture(repoRoot);
       mkdirSync(dirname(join(repoRoot, retiredSurface)), { recursive: true });
       writeFileSync(join(repoRoot, retiredSurface), 'process.exitCode = 0;\n', 'utf8');
-      git(repoRoot, ['init', '--quiet', '--initial-branch=main']);
+      initializeQuiescentGitFixture(repoRoot);
       git(repoRoot, ['config', 'user.email', 'finding-registry-spec@invalid.local']);
       git(repoRoot, ['config', 'user.name', 'finding-registry-spec']);
       git(repoRoot, ['config', 'commit.gpgsign', 'false']);
@@ -2660,123 +3581,44 @@ if (childMode === '--worktree-allocator-child') {
     makeStub(stubA, 'HIGH', 'Common-dir allocator finding from worktree A');
     makeStub(stubB, 'LOW', 'Common-dir allocator finding from worktree B');
 
-    const registerPath = require.resolve('ts-node/register/transpile-only');
-    const projectPath = resolve(__dirname, 'tsconfig.json');
-    interface PreparedAllocatorChild {
-      readonly process: ReturnType<typeof spawn>;
-      readonly ready: Promise<void>;
-      readonly completion: Promise<{
-        readonly code: number | null;
-        readonly signal: NodeJS.Signals | null;
-        readonly stdout: string;
-        readonly stderr: string;
-      }>;
-      release(): Promise<void>;
-    }
-    const launch = (
-      repoRoot: string,
-      registryPath: string,
-      schemaPath: string,
-      stubPath: string,
-    ): PreparedAllocatorChild => {
-      const child = spawn(
-        process.execPath,
-        [
-          '-r',
-          registerPath,
-          __filename,
-          '--worktree-allocator-child',
-          repoRoot,
-          registryPath,
-          schemaPath,
-          stubPath,
-        ],
-        {
-          env: { ...process.env, TS_NODE_PROJECT: projectPath },
-          stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-        },
-      );
-      if (child.stdout === null || child.stderr === null) {
-        child.kill('SIGKILL');
-        throw new Error('Worktree allocator child did not expose stdout/stderr');
-      }
-      let stdout = '';
-      let stderr = '';
-      let readyObserved = false;
-      let resolveReady!: () => void;
-      let rejectReady!: (error: Error) => void;
-      const ready = new Promise<void>((resolveChild, rejectChild) => {
-        resolveReady = resolveChild;
-        rejectReady = rejectChild;
-      });
-      child.stdout.setEncoding('utf8');
-      child.stdout.on('data', (chunk: string) => {
-        stdout += chunk;
-      });
-      child.stderr.setEncoding('utf8');
-      child.stderr.on('data', (chunk: string) => {
-        stderr += chunk;
-      });
-      child.on('message', (message: unknown) => {
-        if (
-          typeof message === 'object' &&
-          message !== null &&
-          'kind' in message &&
-          message.kind === 'PREPARED_SNAPSHOT'
-        ) {
-          readyObserved = true;
-          resolveReady();
-        }
-      });
-      const completion = new Promise<{
-        readonly code: number | null;
-        readonly signal: NodeJS.Signals | null;
-        readonly stdout: string;
-        readonly stderr: string;
-      }>((resolveChild, rejectChild) => {
-        child.once('error', (error) => {
-          if (!readyObserved) rejectReady(error);
-          rejectChild(error);
-        });
-        child.once('close', (code, signal) => {
-          if (!readyObserved) {
-            rejectReady(
-              new Error(
-                `worktree allocator child closed before preparation: code=${String(code)} signal=${String(signal)} stderr=${stderr}`,
-              ),
-            );
-          }
-          resolveChild({ code, signal, stdout, stderr });
-        });
-      });
-      return {
-        process: child,
-        ready,
-        completion,
-        release: () =>
-          new Promise<void>((resolveRelease, rejectRelease) => {
-            child.send({ kind: 'RELEASE_PREPARED_SNAPSHOT' }, (error) => {
-              if (error === null) resolveRelease();
-              else rejectRelease(error);
-            });
-          }),
-      };
-    };
-
-    const allocatorA = launch(repoA, registryA, schemaA, stubA);
-    const allocatorB = launch(repoB, registryB, schemaB, stubB);
-    let allocatorResults: readonly Awaited<PreparedAllocatorChild['completion']>[] = [];
+    const allocatorA = spawnStoreSpecChild('--worktree-allocator-child', [
+      repoA,
+      registryA,
+      schemaA,
+      stubA,
+    ]);
+    const allocatorB = spawnStoreSpecChild('--worktree-allocator-child', [
+      repoB,
+      registryB,
+      schemaB,
+      stubB,
+    ]);
+    let allocatorResults: readonly StoreSpecChildResult[] = [];
+    let allocationMessages: readonly StoreSpecChildMessageV1[] = [];
     try {
-      await Promise.all([allocatorA.ready, allocatorB.ready]);
-      await Promise.all([allocatorA.release(), allocatorB.release()]);
-      allocatorResults = await Promise.all([allocatorA.completion, allocatorB.completion]);
+      await Promise.all([
+        allocatorA.waitForPhase('BOOTSTRAPPED'),
+        allocatorB.waitForPhase('BOOTSTRAPPED'),
+      ]);
+      await Promise.all([allocatorA.sendCommand('START'), allocatorB.sendCommand('START')]);
+      await Promise.all([
+        allocatorA.waitForPhase('PREPARED_SNAPSHOT'),
+        allocatorB.waitForPhase('PREPARED_SNAPSHOT'),
+      ]);
+
+      // Both children hold the same stale generation before either admission.
+      // Commit A first, then release B so B deterministically exercises the
+      // generation retry without coupling correctness to scheduler latency.
+      await allocatorA.sendCommand('RELEASE_PREPARED_SNAPSHOT');
+      const allocationA = await allocatorA.waitForPhase('ALLOCATION_COMMITTED');
+      const resultA = await allocatorA.completion;
+      await allocatorB.sendCommand('RELEASE_PREPARED_SNAPSHOT');
+      const allocationB = await allocatorB.waitForPhase('ALLOCATION_COMMITTED');
+      const resultB = await allocatorB.completion;
+      allocationMessages = [allocationA, allocationB];
+      allocatorResults = [resultA, resultB];
     } finally {
-      for (const allocator of [allocatorA, allocatorB]) {
-        if (allocator.process.exitCode === null && allocator.process.signalCode === null) {
-          allocator.process.kill('SIGKILL');
-        }
-      }
-      await Promise.allSettled([allocatorA.completion, allocatorB.completion]);
+      await Promise.all([terminateStoreSpecChild(allocatorA), terminateStoreSpecChild(allocatorB)]);
     }
     for (const result of allocatorResults) {
       assert.deepEqual(
@@ -2784,9 +3626,10 @@ if (childMode === '--worktree-allocator-child') {
         { code: 0, signal: null, stderr: '' },
       );
     }
-    const admissionAttempts = allocatorResults
-      .map((result) => /admission-attempts=(\d+)/.exec(result.stdout)?.[1])
-      .map((attempts) => Number.parseInt(attempts ?? '', 10))
+    const admissionAttempts = allocationMessages
+      .map((message) =>
+        message.kind === 'ALLOCATION_COMMITTED' ? message.payload.preparationAttempts : Number.NaN,
+      )
       .sort((left, right) => left - right);
     assert.deepEqual(admissionAttempts, [1, 2]);
 
@@ -3668,35 +4511,32 @@ if (childMode === '--worktree-allocator-child') {
 
   void test('two processes cross a release barrier without sharing the critical section', async () => {
     const resourcePath = join(fixtureRoot, 'release-barrier.json');
-    const readyPath = join(fixtureRoot, 'release-barrier.ready');
-    const releasePath = join(fixtureRoot, 'release-barrier.release');
-    const blockedPath = join(fixtureRoot, 'release-barrier.blocked');
-    const enteredPath = join(fixtureRoot, 'release-barrier.entered');
     writeFileSync(resourcePath, 'stable\n', 'utf8');
-    const holder = spawnStoreSpecChild('--kernel-lock-holder', [
-      resourcePath,
-      readyPath,
-      releasePath,
-    ]);
+    const holder = spawnStoreSpecChild('--kernel-lock-holder', [resourcePath]);
     let contender: SpawnedStoreSpecChild | undefined;
     try {
-      await waitForFile(readyPath);
+      await holder.waitForPhase('BOOTSTRAPPED');
+      await holder.sendCommand('START');
+      await holder.waitForPhase('LOCK_ACQUIRED');
       const lockInode = lstatSync(`${resourcePath}.lock`).ino;
-      contender = spawnStoreSpecChild('--kernel-lock-contender', [
-        resourcePath,
-        blockedPath,
-        enteredPath,
+      contender = spawnStoreSpecChild('--kernel-lock-contender', [resourcePath]);
+      await contender.waitForPhase('BOOTSTRAPPED');
+      await contender.sendCommand('START');
+      await contender.waitForPhase('CONTENTION_CONFIRMED');
+      await contender.sendCommand('BEGIN_BLOCKING_ACQUIRE');
+      await contender.waitForPhase('BLOCKING_ACQUIRE_STARTED');
+      await holder.sendCommand('RELEASE_LOCK');
+      await Promise.all([
+        holder.waitForPhase('LOCK_RELEASED'),
+        contender.waitForPhase('LOCK_ACQUIRED'),
       ]);
-      await waitForFile(blockedPath);
-      assert.equal(existsSync(enteredPath), false);
-      writeFileSync(releasePath, 'release\n', 'utf8');
+      await contender.waitForPhase('LOCK_RELEASED');
       const [holderExit, contenderExit] = await Promise.all([
         holder.completion,
         contender.completion,
       ]);
-      assert.deepEqual(holderExit, { code: 0, signal: null, stderr: '' });
-      assert.deepEqual(contenderExit, { code: 0, signal: null, stderr: '' });
-      assert.equal(existsSync(enteredPath), true);
+      assert.deepEqual(holderExit, { code: 0, signal: null, stderr: '', stdout: '' });
+      assert.deepEqual(contenderExit, { code: 0, signal: null, stderr: '', stdout: '' });
       assert.equal(lstatSync(`${resourcePath}.lock`).ino, lockInode);
     } finally {
       await Promise.all([
@@ -3767,16 +4607,12 @@ if (childMode === '--worktree-allocator-child') {
 
   void test('kernel releases an abruptly killed owner without stale-time takeover', async () => {
     const resourcePath = join(fixtureRoot, 'killed-owner.json');
-    const readyPath = join(fixtureRoot, 'killed-owner.ready');
-    const releasePath = join(fixtureRoot, 'killed-owner.never-release');
     writeFileSync(resourcePath, 'unchanged\n', 'utf8');
-    const holder = spawnStoreSpecChild('--kernel-lock-holder', [
-      resourcePath,
-      readyPath,
-      releasePath,
-    ]);
+    const holder = spawnStoreSpecChild('--kernel-lock-holder', [resourcePath]);
     try {
-      await waitForFile(readyPath);
+      await holder.waitForPhase('BOOTSTRAPPED');
+      await holder.sendCommand('START');
+      await holder.waitForPhase('LOCK_ACQUIRED');
       const lockPath = `${resourcePath}.lock`;
       const lockInode = lstatSync(lockPath).ino;
       assert.throws(
@@ -3788,8 +4624,7 @@ if (childMode === '--worktree-allocator-child') {
           ),
         (error: unknown) => error instanceof RegistryLockError && error.code === 'LOCK_TIMEOUT',
       );
-      assert.equal(holder.process.kill('SIGKILL'), true);
-      const holderExit = await holder.completion;
+      const holderExit = await holder.terminateExpected('SIGKILL');
       assert.equal(holderExit.code, null);
       assert.equal(holderExit.signal, 'SIGKILL');
 

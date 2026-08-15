@@ -30,12 +30,24 @@ POLICY_KEYS = {
     # autonomous-profile + precision/FP/clean-cycles thresholds.
     # Default disabled; operator opt-in via override.
     "auto_promote",
+    # C8/E11 — the Z3d superiority block was readable by
+    # ``superiority_policy`` but NOT mergeable: an operator override
+    # carrying it was silently dropped here, so the block was dead
+    # configuration twice over (unthreaded repo_root AND unmergeable key).
+    "superiority",
     # Plan ARIA-V7 §2h v2 — V7.4 skill_genesis_drainer policy block
     # (enabled + max_authorings_per_cycle + max_tokens_per_cycle +
     # estimated_tokens_per_authoring). Closes V6 CONCERN #19
     # (pre-cycle budget audit via max_tokens_per_cycle cap).
     "skill_genesis_drainer",
     "genesis_lifecycle",
+    # E15-c — open-finding count at which one service earns a dedicated
+    # ``aria-svc-<service>-auditor`` genesis request. Joins the contract
+    # the same way "superiority" did (C8): a key absent from POLICY_KEYS
+    # is silently dropped by merge_with_override, so an operator override
+    # would be dead configuration. Consumed by
+    # service_agent_targeting.propose_service_auditor_requests.
+    "service_auditor_threshold",
 }
 
 
@@ -290,6 +302,31 @@ AUTO_PROMOTE_DEFAULTS: dict[str, Any] = {
     "min_clean_cycles": 5,
     "profiles": ["autonomous"],
 }
+
+
+# Z3d — EVAL_WINDOW → ACTIVE superiority gate knobs (genesis_superiority).
+# `min_duel_matches`: decided duels required before the Bradley-Terry
+# component is evaluated at all; below it, the measured eval-window verdict
+# alone decides (a thin duel ledger must not block the lane that feeds it).
+SUPERIORITY_DEFAULTS: dict[str, Any] = {
+    "min_duel_matches": 3,
+    "window_days": 30,
+}
+
+
+def superiority_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """Resolve the Z3d superiority block with defaults (auto_promote pattern)."""
+    if repo_root is not None:
+        merged = load_policy(repo_root)
+    else:
+        merged = {}
+    block = dict(SUPERIORITY_DEFAULTS)
+    raw_block = merged.get("superiority")
+    if isinstance(raw_block, dict):
+        for key in SUPERIORITY_DEFAULTS:
+            if key in raw_block:
+                block[key] = raw_block[key]
+    return block
 
 
 def auto_promote_policy(repo_root: str | Path | None = None) -> dict[str, Any]:

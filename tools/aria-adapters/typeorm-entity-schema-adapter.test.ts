@@ -9,8 +9,12 @@ const root = join(workspace, 'apps/farm-service/src');
 mkdirSync(join(root, 'ok'), { recursive: true });
 mkdirSync(join(root, 'bad'), { recursive: true });
 mkdirSync(join(root, 'tenant'), { recursive: true });
+mkdirSync(join(root, 'infra'), { recursive: true });
+mkdirSync(join(workspace, 'apps/billing-service/src'), { recursive: true });
 mkdirSync(join(workspace, 'libs/backend-common/src/database'), { recursive: true });
-mkdirSync(join(workspace, 'apps/farm-service/src/database/migrations'), { recursive: true });
+mkdirSync(join(workspace, 'apps/farm-service/src/database/migrations/.archive/2026-01-01T00-00-00-000Z'), {
+  recursive: true,
+});
 
 writeFileSync(
   join(root, 'ok/schema.entity.ts'),
@@ -58,17 +62,71 @@ writeFileSync(
   `,
   'utf8',
 );
+// ADR-011 TP traps: cross-tenant infrastructure tables MUST declare schema —
+// one with an explicit table name, one relying on TypeORM's snake_case default.
+writeFileSync(
+  join(root, 'infra/outbox-event.entity.ts'),
+  `
+    import { Entity } from 'typeorm';
+    @Entity('outbox_events')
+    export class OutboxEvent {}
+  `,
+  'utf8',
+);
+writeFileSync(
+  join(root, 'infra/infra-ledger.entity.ts'),
+  `
+    import { Entity } from 'typeorm';
+    @Entity()
+    export class InfraLedger {}
+  `,
+  'utf8',
+);
+// E13 FP class (2): archived entity + archived migration are dead corpus and
+// must be invisible to every check.
+writeFileSync(
+  join(root, 'database/migrations/.archive/2026-01-01T00-00-00-000Z/archived.entity.ts'),
+  `
+    import { Entity } from 'typeorm';
+    @Entity('archived_entities')
+    export class ArchivedEntity {}
+  `,
+  'utf8',
+);
+writeFileSync(
+  join(root, 'database/migrations/.archive/2026-01-01T00-00-00-000Z/1600000000000-RetiredMigration.ts'),
+  `export class RetiredMigration1600000000000 {}`,
+  'utf8',
+);
+// Platform-service control: billing is NOT tenant-scoped, so schema stays mandatory.
+writeFileSync(
+  join(workspace, 'apps/billing-service/src/subscription.entity.ts'),
+  `
+    import { Entity } from 'typeorm';
+    @Entity('subscriptions')
+    export class Subscription {}
+  `,
+  'utf8',
+);
 writeFileSync(
   join(workspace, 'libs/backend-common/src/database/schema-manager.service.ts'),
   `
+    export const TENANT_SCOPED_MODULES: ReadonlySet<string> = new Set(['farm']);
     export const MODULE_SCHEMAS = [
       {
         moduleName: 'farm',
         sourceSchema: 'farm',
         strictOwnership: true,
-        infrastructureTables: ['migrations'],
+        infrastructureTables: ['migrations', 'outbox_events', 'infra_ledger'],
         referenceDataTables: ['code_sequences'],
         tables: ['schema_entities', 'missing_schema_entities']
+      },
+      {
+        moduleName: 'billing',
+        sourceSchema: 'billing',
+        infrastructureTables: ['migrations'],
+        referenceDataTables: [],
+        tables: ['subscriptions']
       }
     ];
   `,
@@ -136,17 +194,48 @@ const output = analyzeTypeOrmEntities(
 );
 
 assert.equal(output.metadata.adapter, 'typeorm-entity-schema-adapter');
-assert.equal(output.observations.filter((item) => item.type === 'typeorm_entity').length, 4);
+assert.equal(output.observations.filter((item) => item.type === 'typeorm_entity').length, 6);
 assert.equal(
   output.findings.some((finding) => finding.rule === 'typeorm_entity_schema_required'),
   true,
 );
+// E13 FP class (1): per-tenant tables in a tenant-scoped service (farm) omit
+// `schema:` BY DESIGN (ADR-011) and are no longer findings; only the
+// cross-tenant infrastructure tables (outbox_events + snake_case-defaulted
+// infra_ledger) remain true positives.
 assert.deepEqual(
   output.findings
     .filter((finding) => finding.rule === 'typeorm_entity_schema_required')
     .map((finding) => finding.path)
     .sort(),
-  ['apps/farm-service/src/bad/dynamic.entity.ts', 'apps/farm-service/src/bad/missing.entity.ts'],
+  [
+    'apps/farm-service/src/infra/infra-ledger.entity.ts',
+    'apps/farm-service/src/infra/outbox-event.entity.ts',
+  ],
+);
+const infraFinding = output.findings.find(
+  (finding) =>
+    finding.rule === 'typeorm_entity_schema_required' &&
+    finding.path === 'apps/farm-service/src/infra/outbox-event.entity.ts',
+);
+assert.ok(infraFinding?.message.includes("infrastructureTables"), infraFinding?.message);
+// The SSoT MODULE_SCHEMAS entry is cited as evidence for infra-table findings.
+assert.equal(
+  infraFinding?.evidence.some(
+    (evidence) => evidence.path === 'libs/backend-common/src/database/schema-manager.service.ts',
+  ),
+  true,
+);
+// Archived corpus is invisible to every check (E13 FP class 2).
+assert.equal(
+  output.observations.some((item) => item.path?.includes('/.archive/')),
+  false,
+);
+assert.equal(
+  output.findings.some(
+    (finding) => finding.path.includes('/.archive/') || finding.id.includes('RetiredMigration'),
+  ),
+  false,
 );
 assert.equal(
   output.findings.some(
@@ -194,5 +283,50 @@ assert.equal(
   'typeorm:farm-service:entity-schema-surface',
 );
 assert.ok(output.belief_candidates[0]?.evidence_refs.includes('apps/farm-service/src/**/*.ts'));
+
+// Deliberate-break control 1: a platform-level service (billing is NOT in
+// TENANT_SCOPED_MODULES) keeps the historical always-declare-schema rule.
+const billingOutput = analyzeTypeOrmEntities(
+  {
+    target: 'billing-service',
+    root: 'apps/billing-service/src',
+    serviceName: 'billing',
+    checks: ['entity_schema'],
+  },
+  workspace,
+);
+assert.deepEqual(
+  billingOutput.findings.map((finding) => [finding.rule, finding.path]),
+  [['typeorm_entity_schema_required', 'apps/billing-service/src/subscription.entity.ts']],
+);
+assert.equal(billingOutput.findings[0]?.details?.tenantScoped, false);
+
+// Deliberate-break control 2: when the SSoT file is unreadable the check
+// fails CLOSED — a tenant-scoped-looking service still gets flagged, so a
+// broken/renamed schema-manager cannot silently disable the rule.
+const bareWorkspace = mkdtempSync(join(tmpdir(), 'aria-typeorm-adapter-bare-'));
+mkdirSync(join(bareWorkspace, 'apps/farm-service/src'), { recursive: true });
+writeFileSync(
+  join(bareWorkspace, 'apps/farm-service/src/pond.entity.ts'),
+  `
+    import { Entity } from 'typeorm';
+    @Entity('ponds')
+    export class Pond {}
+  `,
+  'utf8',
+);
+const failClosedOutput = analyzeTypeOrmEntities(
+  {
+    target: 'farm-service',
+    root: 'apps/farm-service/src',
+    serviceName: 'farm',
+    checks: ['entity_schema'],
+  },
+  bareWorkspace,
+);
+assert.deepEqual(
+  failClosedOutput.findings.map((finding) => finding.rule),
+  ['typeorm_entity_schema_required'],
+);
 
 console.log('typeorm-entity-schema-adapter tests passed');

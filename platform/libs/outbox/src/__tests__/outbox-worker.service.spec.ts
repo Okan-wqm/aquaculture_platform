@@ -50,6 +50,10 @@ describe('OutboxWorkerService system context (ORPHAN-HIGH-321)', () => {
     setOldestPendingAge: jest.fn(),
     recordPublishSuccess: jest.fn(),
     recordPublishFailure: jest.fn(),
+    // The heartbeat: every poll marks the cycle even when the queue is
+    // empty, because a dead relay behind an empty queue reads exactly like
+    // nothing-to-do (this branch's heartbeat contract).
+    markRelayCycle: jest.fn(),
   };
 
   // Cast-free EntityManager double: Object.create(prototype) yields a value

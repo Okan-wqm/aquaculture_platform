@@ -337,6 +337,7 @@ def _fold(events: list[dict[str, Any]], mission_id: str) -> dict[str, Any] | Non
                 "title": event.get("title"),
                 "capability": event.get("capability"),
                 "priority": event.get("priority"),
+                "target_project": event.get("target_project"),
                 "state": "DISCOVERED",
                 "opened_at": event.get("recorded_at"),
                 "updated_at": event.get("recorded_at"),
@@ -452,9 +453,14 @@ def open_mission(
     title: str,
     capability: str | None = None,
     priority: int | None = None,
+    target_project: str | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Open (or replay-open) the mission this source identifies.
+
+    ``target_project`` names the platform project the mission hardens
+    (charter §5): until now a service could only be smuggled inside
+    ``source_id`` or the title, which no scheduler or report could query.
 
     Idempotent by construction: the mission_id IS the identity, so a second
     open of the same source is a no-op returning the existing mission.
@@ -482,6 +488,7 @@ def open_mission(
                 "title": title,
                 "capability": capability,
                 "priority": priority,
+                "target_project": target_project,
             },
         )
         return _result(event, idempotent=False)
@@ -684,6 +691,17 @@ def adopt_task_candidates(
         elif source_id in UNUSABLE_SOURCE_IDS:
             # Refused rather than adopted: see UNUSABLE_SOURCE_IDS.
             reason = "unusable_source_id"
+        elif candidate.get("blocked_by"):
+            # C9/E8 — a candidate ARIA itself declared blocked is
+            # operator-facing work, NOT schedulable work: adopting it opens
+            # a mission that mints an agent request for work that cannot
+            # run. The pressure path already refuses a blocked item
+            # (reflection.py "A blocked pressure is operator-facing work,
+            # not schedulable work"); the mission path re-opened the same
+            # door. Live proof: all three shadow_run_summary missions on
+            # the store originate from task candidates carrying
+            # blocked_by=["operator_feedback_required"].
+            reason = "candidate_blocked"
         if reason is not None:
             refused += 1
             append_tools_governance(

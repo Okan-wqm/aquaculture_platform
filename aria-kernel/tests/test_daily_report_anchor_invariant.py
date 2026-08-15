@@ -190,6 +190,92 @@ class DailyAnchorEmitSmoke(unittest.TestCase):
             self.assertEqual(again["status"], "already_anchored")
 
 
+class StubNeverLocksOutTheRealReport(unittest.TestCase):
+    """C2/E8 — body-aware idempotence for the daily anchor.
+
+    Pre-fix the blanket "already anchored, leave it" froze whichever body
+    got there first: a stub emitted before reflection ran was locked in for
+    that date, and the real report — landing in the store minutes later —
+    could never be published. These pin the two-sided contract: a stub
+    upgrades to the reflection body the moment one exists, and a reflection
+    body is immutable.
+    """
+
+    def _store(self, tmp_path):
+        tools = tmp_path / "aria-tools"
+        tools.mkdir()
+        (tools / "governance.jsonl").write_text(
+            '{"ledger_hash":"sha256:c2","kind":"test"}\n', encoding="utf-8"
+        )
+        return tools
+
+    def _emit(self, tmp_path, tools):
+        from aria_kernel.report import emit_anchor_to_path
+
+        return emit_anchor_to_path(
+            date="2026-08-12",
+            workspace_root=tmp_path,
+            tools_root=tools,
+            output_path=tmp_path / "anchor.md",
+        )
+
+    def test_stub_upgrades_when_reflection_lands(self) -> None:
+        import tempfile
+
+        from aria_kernel.report import parse_anchor_frontmatter
+
+        with tempfile.TemporaryDirectory(prefix="aria-c2-") as tmp:
+            tmp_path = Path(tmp)
+            tools = self._store(tmp_path)
+            first = self._emit(tmp_path, tools)
+            self.assertEqual(first["report_body"], "stub")
+            self.assertEqual(
+                parse_anchor_frontmatter(tmp_path / "anchor.md")["report_body"],
+                "stub",
+            )
+            # Reflection writes the real report AFTER the stub was anchored.
+            daily = tools / "reports" / "daily"
+            daily.mkdir(parents=True)
+            (daily / "2026-08-12.md").write_text(
+                "# Real Report\n\nreal content\n", encoding="utf-8"
+            )
+            second = self._emit(tmp_path, tools)
+            self.assertEqual(second["status"], "written")
+            self.assertEqual(second["report_body"], "reflection")
+            body = (tmp_path / "anchor.md").read_text(encoding="utf-8")
+            self.assertIn("real content", body)
+
+    def test_reflection_body_is_immutable(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory(prefix="aria-c2-") as tmp:
+            tmp_path = Path(tmp)
+            tools = self._store(tmp_path)
+            daily = tools / "reports" / "daily"
+            daily.mkdir(parents=True)
+            (daily / "2026-08-12.md").write_text("# Real\n\nv1\n", encoding="utf-8")
+            first = self._emit(tmp_path, tools)
+            self.assertEqual(first["report_body"], "reflection")
+            # The store's report mutates; the anchored artifact must not.
+            (daily / "2026-08-12.md").write_text("# Real\n\nv2\n", encoding="utf-8")
+            second = self._emit(tmp_path, tools)
+            self.assertEqual(second["status"], "already_anchored")
+            self.assertEqual(second["report_body"], "reflection")
+            self.assertIn("v1", (tmp_path / "anchor.md").read_text(encoding="utf-8"))
+
+    def test_stub_without_reflection_stays_put(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory(prefix="aria-c2-") as tmp:
+            tmp_path = Path(tmp)
+            tools = self._store(tmp_path)
+            first = self._emit(tmp_path, tools)
+            self.assertEqual(first["report_body"], "stub")
+            second = self._emit(tmp_path, tools)
+            self.assertEqual(second["status"], "already_anchored")
+            self.assertEqual(second["report_body"], "stub")
+
+
 class AnchorPathsAreStageable(unittest.TestCase):
     """ORPHAN-HIGH-434 — the anchor must be addable, not merely writable.
 

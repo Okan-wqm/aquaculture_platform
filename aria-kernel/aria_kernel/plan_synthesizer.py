@@ -574,7 +574,13 @@ def scan_f_findings(workspace_root: str | Path) -> list[dict[str, Any]]:
     (perf HIGH-006 lazy-parse contract). Returns candidates oldest-first
     (older = higher priority).
     """
-    findings_dir = Path(workspace_root) / "aria-findings"
+    # D3 — resolve through the writer's own accessor: under a redirected
+    # state root the hand-built `workspace_root / "aria-findings"` pointed
+    # at a directory the emitter never writes, so aging F-findings could
+    # never become plan candidates on the runner.
+    from .finding import findings_dir as _findings_dir_accessor
+
+    findings_dir = _findings_dir_accessor(workspace_root)
     if not findings_dir.is_dir():
         return []
     candidates: list[dict[str, Any]] = []

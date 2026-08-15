@@ -50,7 +50,7 @@ jobs:
       artifact_sha256: ${{ steps.report-evidence.outputs.artifact-digest }}
       date: ${{ steps.target.outputs.date }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -126,16 +126,24 @@ jobs:
           from aria_kernel.preflight import verify_workflow_preflight
 
           report = f"aria-tools/reports/daily/{os.environ['REPORT_DATE']}.md"
+          # FAZ 6a — the durable store joins the write roots: the anchor now
+          # reads the reflection report out of the restored aria/state store
+          # (and the restore materialises it), so declaring only the repo-
+          # local report path would describe the pre-FAZ-6 lane.
+          allowed = [report, ".aria-state-store"]
           verdict = verify_workflow_preflight(
               workflow_id="aria-daily-report",
               job_id="generate-report",
               profile="standard",
               workspace_root=os.environ["GITHUB_WORKSPACE"],
-              allowed_write_roots=[report],
-              path_allowlist=[report],
-              network_policy=["github_api", "github_artifact"],
-              network_enforcement_evidence="read the exact Actions run clock with actions:read, then upload only the generated daily report",
-              token_provenance="github_actions:actions_read+artifact",
+              allowed_write_roots=allowed,
+              path_allowlist=allowed,
+              # Each network reach is explicit: the Actions API supplies the
+              # immutable run clock, artifact transport carries the qualified
+              # report, and git restores the durable aria/state authority.
+              network_policy=["github_api", "github_artifact", "github_git"],
+              network_enforcement_evidence="read the exact Actions run clock, upload only the qualified report, and restore the durable aria/state branch",
+              token_provenance="github_actions:actions_read+artifact+git",
               require_github_app=False,
               dlp_mode="fail_closed",
               dlp_scan_clean=True,
@@ -146,6 +154,17 @@ jobs:
           if not verdict.valid:
               raise SystemExit(";".join(verdict.reasons))
           PY
+
+      # FAZ 6a — bind the durable store BEFORE the anchor is generated. The
+      # anchor used to read the ephemeral checkout's empty aria-tools, so the
+      # published PR carried a stub with null fields while the real report
+      # accumulated unread in aria/state: two writers, one filename. With the
+      # store restored, the anchor pins the DURABLE ledger tails and carries
+      # the reflection report for the same date as its body.
+      - name: Restore ARIA state from the aria/state branch
+        uses: ./.github/actions/restore-aria-state
+        with:
+          bootstrap-ack: ${{ vars.ARIA_STATE_BOOTSTRAP_ACK }}
 
       - name: Generate daily chain-tip anchor (Plan ARIA-V2 §3.9)
         env:
@@ -163,11 +182,23 @@ jobs:
           # kernel package is deliberately never installed (one import
           # source — the checkout on PYTHONPATH), so `-m` is the same entry
           # point every other ARIA workflow already uses.
+          # --tools-dir names the RESTORED store (the binding the restore
+          # action exported), never the ephemeral checkout's aria-tools.
           PYTHONPATH=aria-kernel python3 -m aria_kernel report daily \
             --emit-anchor \
             --date "${REPORT_DATE}" \
             --output-path "${REPORT}" \
-            --workspace-root .
+            --tools-dir "${ARIA_TOOLS_DIR}" \
+            --workspace-root . | tee "${RUNNER_TEMP}/daily-anchor-emit.json"
+          # C2/E8 — a stub body is a failure, not a report. Publishing an
+          # anchor whose body is the placeholder means the reflection
+          # producer chain is severed for this date; a green lane over a
+          # stub is exactly the failures-dressed-as-answers class (F7).
+          BODY=$(python3 -c "import json,sys; print(json.load(open('${RUNNER_TEMP}/daily-anchor-emit.json')).get('report_body',''))")
+          if [ "${BODY}" != "reflection" ]; then
+            echo "::error::daily anchor body is '${BODY:-missing}', not the reflection report — the producer chain is severed for ${REPORT_DATE}" >&2
+            exit 1
+          fi
 
       - name: Upload immutable report input evidence
         id: report-evidence
@@ -190,7 +221,7 @@ jobs:
       # automation-publication environment.
       contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -269,13 +300,45 @@ jobs:
           set -euo pipefail
           REPORT="aria-tools/reports/daily/${REPORT_DATE}.md"
           BODY_FILE="$RUNNER_TEMP/aria-daily-report-body.md"
-          # printf receives the validated values only as arguments; there is no
-          # heredoc body for the shell to parse as command substitution.
-          {
-            printf 'Daily ARIA report for **%s**.\n\n' "${REPORT_DATE}"
-            printf 'Generated report: `%s`.\n\n' "${REPORT}"
-            printf '%s\n' 'This PR is created by `.github/workflows/aria-daily-report.yml`.'
-          } > "$BODY_FILE"
+          # The body is rendered by python from the environment, not by the
+          # shell. An UNQUOTED heredoc was here, and markdown code spans are
+          # written with backticks: the shell ran `${REPORT}` and
+          # `.github/workflows/aria-daily-report.yml` as commands, which is
+          # where the "Permission denied" lines in every run log came from.
+          # It also made the body a command-substitution surface on a path
+          # that is otherwise carefully sanitised. Values now reach the body
+          # as data through os.environ and are never parsed by a shell.
+          REPORT="$REPORT" REPORT_DATE="$REPORT_DATE" python3 - > "$BODY_FILE" <<'PY'
+          import os
+
+          print(f"Daily ARIA report for **{os.environ['REPORT_DATE']}**.")
+          print()
+          print(f"Generated report: `{os.environ['REPORT']}`.")
+          print()
+          # FAZ 6a — the body used to be three empty lines and a filename;
+          # the reviewer had to open the diff to learn anything. Carry the
+          # report's leading sections (past the anchor frontmatter, before
+          # the per-tool tables) so the PR reads as the day's summary.
+          try:
+              text = open(os.environ["REPORT"], encoding="utf-8").read()
+          except OSError:
+              text = ""
+          if text.startswith("---\n"):
+              end = text.find("\n---\n", 4)
+              if end != -1:
+                  text = text[end + 5:]
+          lines = text.strip().splitlines()
+          cut = next(
+              (i for i, line in enumerate(lines)
+               if line.startswith("### Raw Adapter Runtime")),
+              len(lines),
+          )
+          summary = lines[: min(cut, 80)]
+          if summary:
+              print("\n".join(summary))
+              print()
+          print("This PR is created by `.github/workflows/aria-daily-report.yml`.")
+          PY
 
           export PR_BRANCH="automation/aria-daily-report-${REPORT_DATE}"
           export PR_TITLE="chore(aria-reports): daily ${REPORT_DATE}"

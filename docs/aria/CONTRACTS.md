@@ -703,9 +703,14 @@ Every finding's L1 compliance proof.
 }
 ```
 
+<!-- The judge-digest marker pairs in this file feed docs/aria/generated/JUDGE-DIGEST.md
+     (rendered by aria-kernel/aria_kernel/contract_digest.py). Marked text is extracted
+     VERBATIM — this file stays the SSoT; edit here, then regenerate the digest. -->
+<!-- judge-digest:begin -->
 **source_type allowlist:** `code_reference`, `external_authoritative_source`, `test_demand`,
 `git_history`, `trusted_config_file`, `trusted_prior_doc` (CLAUDE.md, ADRs, knowledge layers per
 SPEC §5.1). Anything else = L1 violation, claim rejected at the gate.
+<!-- judge-digest:end -->
 
 ---
 
@@ -746,6 +751,7 @@ SPEC §5.1). Anything else = L1 violation, claim rejected at the gate.
 }
 ```
 
+<!-- judge-digest:begin -->
 ### `claim_type` allowlist (semantics)
 
 The kernel rejects any finding emitted with a claim_type outside this list. New types require an ADR.
@@ -762,6 +768,7 @@ The kernel rejects any finding emitted with a claim_type outside this list. New 
 | `contradiction` | Two evidences disagree (test asserts X, code does Y). | MEDIUM | 2 |
 | `test_disagreement` | Test name suggests behavior, test body asserts different behavior. | MEDIUM | 1 (test ref) |
 | `regression` | ARIA's own action's baseline comparison failed — emergency. | HIGH | baseline + comparison artifact |
+<!-- judge-digest:end -->
 
 **Bug note as first-class concept.** A "bug note" is a Finding with `claim_type: "wrong_code"` and
 `severity: MEDIUM` (default). Single code-reference evidence is sufficient because the code IS the

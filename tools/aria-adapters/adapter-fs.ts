@@ -25,6 +25,28 @@ export const ADAPTER_EXCLUDED_DIRS = new Set([
   'tmp',
 ]);
 
+// E13 spot-audit FP class (2) — dead-corpus exclusion (single shared predicate).
+// WHY: adapters emitted findings against files that are no longer live code.
+// The repo's observed convention is timestamped `.archive/` snapshot folders
+// kept inside each service's migrations directory (e.g.
+// `apps/farm-service/src/database/migrations/.archive/2026-05-18T09-42-08-277Z/…`);
+// the dotted/undotted `archive(d)` directory names and the `*.archived.*`
+// filename infix are the sibling spellings of the same convention. A retired
+// migration cannot need a test and an archived class cannot need registry or
+// schema discipline, so flagging the archive corpus is pure false-positive
+// noise. Every adapter that walks source trees imports THIS predicate instead
+// of growing its own copy, so the convention has exactly one definition.
+const ARCHIVED_DIR_SEGMENTS = new Set(['.archive', '.archived', 'archive', 'archived']);
+
+export function isArchivedWorkspacePath(path: string): boolean {
+  const segments = normalizeWorkspacePath(path).split('/');
+  const fileName = segments[segments.length - 1] ?? '';
+  return (
+    segments.some((segment) => ARCHIVED_DIR_SEGMENTS.has(segment)) ||
+    fileName.includes('.archived.')
+  );
+}
+
 export function resolveInsideWorkspace(workspaceRoot: string, requestedPath: string): string {
   const root = resolve(workspaceRoot);
   const resolved = resolve(root, requestedPath);

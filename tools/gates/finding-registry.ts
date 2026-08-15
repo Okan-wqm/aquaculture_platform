@@ -590,7 +590,10 @@ export async function assertActiveWorktreeFindingWritersFenced(
   );
   const worktreeGenerations: FindingWriterWorktreeGeneration[] = [];
   const repositorySnapshots: FindingWriterRepositorySnapshot[] = [];
-  const verifiedFilesByWorktree = new Map<string, Readonly<Record<string, string>>>();
+  const verifiedFilesByWorktree = new Map<
+    string,
+    readonly { readonly path: string; readonly sha256: string }[]
+  >();
   const allocationFiles: FindingWriterPinnedAllocationFile[] = [];
   const registryPaths = new Set<string>();
   const claimedIds = new Set<string>();
@@ -727,7 +730,7 @@ export async function assertActiveWorktreeFindingWritersFenced(
       );
       const effectiveFiles = await assertCommittedRegularFiles(
         worktreePath,
-        [WRITER_PROTOCOL_MANIFEST_RELATIVE_PATH, ...Object.keys(protocol.files)],
+        [WRITER_PROTOCOL_MANIFEST_RELATIVE_PATH, ...protocol.files.map((file) => file.path)],
         generation.head_oid,
         repositorySnapshot,
         signal,
@@ -738,7 +741,7 @@ export async function assertActiveWorktreeFindingWritersFenced(
           `Finding writer protocol changed while loading its snapshot: ${protocolPath}`,
         );
       }
-      for (const [relativePath, expectedSha256] of Object.entries(protocol.files)) {
+      for (const { path: relativePath, sha256: expectedSha256 } of protocol.files) {
         const content = effectiveFiles.get(relativePath);
         if (content === undefined) {
           throw new Error(
@@ -2183,7 +2186,7 @@ interface SweepAction {
  * human reviews before merge — direct auto-commit would open a
  * tampering surface (bot push to main).
  */
-function planSweep(entries: readonly Finding[], config: SweepConfig): SweepAction[] {
+export function planSweep(entries: readonly Finding[], config: SweepConfig): SweepAction[] {
   const actions: SweepAction[] = [];
   const staleThresholdMs = config.staleAfterDays * 24 * 60 * 60 * 1000;
 
@@ -2207,6 +2210,17 @@ function planSweep(entries: readonly Finding[], config: SweepConfig): SweepActio
     }
 
     // Staleness check (OPEN + IN-PROGRESS only, not BLOCKED/STALE).
+    //
+    // CRITICAL findings are EXEMPT from auto-staleness: silence is not
+    // resolution for a critical. The first live sweep staled 29 open
+    // CRITICALs at once and the enterprise-grade debt-plan contract
+    // (tests/invariants/enterprise-grade-debt-plan-contract.spec.ts)
+    // refused the resulting PR — correctly: retiring unfixed critical
+    // debt by timeout is the audit-theater class that contract exists
+    // to stop. A critical leaves OPEN through a fix commit's Closes:,
+    // an explicit operator waiver, or the past-deadline BLOCKED branch
+    // above — never through the calendar.
+    if (entry.severity === 'CRITICAL') continue;
     if (entry.state === 'OPEN' || entry.state === 'IN-PROGRESS') {
       const created = new Date(entry.created_at);
       if (Number.isNaN(created.getTime())) continue;

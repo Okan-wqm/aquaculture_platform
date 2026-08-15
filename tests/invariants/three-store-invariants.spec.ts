@@ -47,13 +47,12 @@
  * Plan ref: docs/plans/2026-04-17-agentic-post-audit-consolidation-plan.md#12.1
  */
 
-import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import {
   commitMessageClosesFinding,
-  readCommitMessage,
+  readCommitObservations,
 } from '../../tools/gates/finding-traceability';
 
 // ---------------------------------------------------------------------------
@@ -89,45 +88,10 @@ function loadRegistry(): Finding[] {
   if (!existsSync(REGISTRY_PATH)) return [];
   const raw = readFileSync(REGISTRY_PATH, 'utf8').trim();
   if (!raw) return [];
-  return raw.split('\n').filter(Boolean).map((line) => JSON.parse(line) as Finding);
-}
-
-function commitExists(sha: string): boolean {
-  try {
-    execSync(`git cat-file -e ${sha}^{commit}`, { cwd: REPO_ROOT, stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * A shallow clone (CI `fetch-depth` limited, or a fresh remote-execution
- * checkout) does not contain deep historical commits — a Phase-0 closing SHA
- * from months ago is legitimately absent, not lost. The SHA-existence check
- * must stay STRICT on a full clone (where absence means a genuinely lost
- * commit) but tolerant on a shallow one (where absence is a clone-depth
- * limitation). `git rev-parse --is-shallow-repository` distinguishes the two.
- */
-function isShallowClone(): boolean {
-  try {
-    return (
-      execSync('git rev-parse --is-shallow-repository', {
-        cwd: REPO_ROOT,
-        encoding: 'utf8',
-      }).trim() === 'true'
-    );
-  } catch {
-    return false;
-  }
-}
-
-function commitMessage(sha: string): string {
-  try {
-    return readCommitMessage(REPO_ROOT, sha);
-  } catch {
-    return '';
-  }
+  return raw
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Finding);
 }
 
 // ---------------------------------------------------------------------------
@@ -486,6 +450,19 @@ describe('three-store invariants', () => {
 
   describe('store-2: commit trailers match registry', () => {
     const resolved = entries.filter((e) => e.state === 'RESOLVED');
+    const closingShas = [
+      ...new Set(
+        resolved.flatMap((entry) =>
+          entry.closing_commits.filter((sha) => sha !== 'pending' && sha.length >= 7),
+        ),
+      ),
+    ].sort();
+    const commitObservations = new Map(
+      readCommitObservations(REPO_ROOT, closingShas).map((observation) => [
+        observation.oid,
+        observation,
+      ]),
+    );
 
     it('every RESOLVED finding has at least one closing_commits entry (legacy-allowlisted exceptions permitted)', () => {
       for (const e of resolved) {
@@ -506,11 +483,11 @@ describe('three-store invariants', () => {
           // Skip "pending" placeholder SHAs used during draft-state
           // registry edits that haven't been rechained yet.
           if (sha === 'pending' || sha.length < 7) continue;
-          if (!commitExists(sha)) {
-            // On a shallow clone the SHA may be deep history that was never
-            // fetched — absence there is a clone-depth limitation, not a lost
-            // commit, so skip. Stay strict on a full clone.
-            if (isShallowClone()) continue;
+          const observation = commitObservations.get(sha);
+          if (observation === undefined) {
+            throw new Error(`Commit observation batch omitted registry closing SHA ${sha}`);
+          }
+          if (!observation.exists) {
             throw new Error(
               `Registry entry ${e.id} references closing_commit SHA ${sha} which is NOT in git history. ` +
                 `Either the commit was lost (rebase?) or the SHA is stale.`,
@@ -520,17 +497,20 @@ describe('three-store invariants', () => {
       }
     });
 
-    it('every closing_commits SHA\'s message contains a Closes: trailer referencing the finding id', () => {
+    it("every closing_commits SHA's message contains a Closes: trailer referencing the finding id", () => {
       for (const e of resolved) {
         for (const sha of e.closing_commits) {
           if (sha === 'pending' || sha.length < 7) continue;
-          if (!commitExists(sha)) continue; // Reported by prior test.
+          const observation = commitObservations.get(sha);
+          if (observation === undefined) {
+            throw new Error(`Commit observation batch omitted registry closing SHA ${sha}`);
+          }
+          if (!observation.exists || observation.message === null) continue; // Reported by prior test.
 
           // Legacy drift allowlist (specific (finding-id, sha) pair).
           if (LEGACY_DRIFT_SET.has(`${e.id}::${sha}`)) continue;
 
-          const msg = commitMessage(sha);
-          if (!commitMessageClosesFinding(msg, e.id)) {
+          if (!commitMessageClosesFinding(observation.message, e.id)) {
             throw new Error(
               `Finding ${e.id} claims SHA ${sha} as a closer but the commit message has no matching Closes: trailer. ` +
                 `Either fix the Closes: trailer (requires rebase/amend on an unmerged commit), update the registry entry, ` +

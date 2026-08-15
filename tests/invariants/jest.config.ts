@@ -153,6 +153,7 @@ const REGISTRY_SPECS: string[] = [
   '<rootDir>/metrics-endpoint-adoption.spec.ts',
   '<rootDir>/monitoring-scrape-catalog-sync.spec.ts',
   '<rootDir>/monitoring-alert-runbook-url.spec.ts',
+  '<rootDir>/monitoring-alert-delivery.spec.ts',
   '<rootDir>/postgres-ddl-contract.spec.ts',
   '<rootDir>/postgres-image-uniformity.spec.ts',
   '<rootDir>/postgres-runtime-contract.spec.ts',

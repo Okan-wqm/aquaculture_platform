@@ -219,6 +219,360 @@ void describe('repository application module loader', () => {
     assert.equal(publicSecond, dependencyFirst);
   });
 
+  void it('seals an entry module against post-evaluation relative loads', () => {
+    const root = fixture();
+    const target = join(root, 'apps', 'service', 'src', 'post-evaluation-entry.ts');
+    const dependency = join(root, 'apps', 'service', 'src', 'post-evaluation-target.ts');
+    const sentinel = join(root, 'post-evaluation-relative-executed');
+    writeFileSync(
+      dependency,
+      `require('node:fs').writeFileSync(${JSON.stringify(sentinel)}, 'executed');\n`,
+      'utf8',
+    );
+    writeFileSync(
+      target,
+      "module.exports = () => require('./post-evaluation-target.ts');\n",
+      'utf8',
+    );
+
+    const postEvaluationLoad = testOnlyLoadRepositoryApplicationModuleFromRoot(root, target);
+    if (typeof postEvaluationLoad !== 'function') {
+      throw new Error('Post-evaluation relative-load fixture exported no function');
+    }
+    assert.throws(
+      () => Reflect.apply(postEvaluationLoad, undefined, []),
+      /RepositoryApplicationModuleRequireContractV1 enforced DENY for post-evaluation module\.require/,
+    );
+    assert.equal(existsSync(sentinel), false);
+  });
+
+  void it('rejects a direct module.require capability before compilation', () => {
+    const root = fixture();
+    const target = join(root, 'apps', 'service', 'src', 'bound-require-entry.ts');
+    const dependency = join(root, 'apps', 'service', 'src', 'bound-require-target.ts');
+    const sentinel = join(root, 'bound-module-require-executed');
+    writeFileSync(
+      dependency,
+      `require('node:fs').writeFileSync(${JSON.stringify(sentinel)}, 'executed');\n`,
+      'utf8',
+    );
+    writeFileSync(
+      target,
+      [
+        'const boundModuleRequire = module.require.bind(module);',
+        "module.exports = () => boundModuleRequire('./bound-require-target.ts');",
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    assert.throws(
+      () => testOnlyLoadRepositoryApplicationModuleFromRoot(root, target),
+      /RepositoryApplicationTypeScriptSourceAdmissionProfileV1 rejected direct CommonJS module capability/,
+    );
+    assert.equal(existsSync(sentinel), false);
+  });
+
+  void it('rejects the configured direct parallel-loader APIs before compilation', () => {
+    for (const [name, source, expected] of [
+      [
+        'create-require',
+        [
+          "import { createRequire } from 'node:module';",
+          'const escaped = createRequire(__filename);',
+          "module.exports = () => escaped('./late.ts');",
+        ].join('\n'),
+        /loader-module capability "node:module"/,
+      ],
+      [
+        'dynamic-import',
+        "module.exports = () => import('./late.ts');\n",
+        /rejected runtime dynamic import/,
+      ],
+      [
+        'captured-require',
+        "const escaped = require; module.exports = () => escaped('./late.ts');\n",
+        /rejected captured CommonJS require capability/,
+      ],
+      [
+        'get-builtin-module',
+        "process.getBuiltinModule('node:module'); module.exports = true;\n",
+        /rejected process\.getBuiltinModule loader capability/,
+      ],
+      [
+        'prototype-require',
+        'Object.getPrototypeOf(module).require.bind(module); module.exports = true;\n',
+        /rejected direct CommonJS module capability/,
+      ],
+    ] as const) {
+      const root = fixture();
+      const target = join(root, 'apps', 'service', 'src', `${name}.ts`);
+      writeFileSync(target, source, 'utf8');
+      assert.throws(() => testOnlyLoadRepositoryApplicationModuleFromRoot(root, target), expected);
+    }
+  });
+
+  void it('denies post-evaluation module.require from every evaluated dependency', () => {
+    const root = fixture();
+    const entry = join(root, 'apps', 'service', 'src', 'sealed-graph-entry.ts');
+    const dependency = join(root, 'apps', 'service', 'src', 'sealed-graph-dependency.ts');
+    const lateTarget = join(root, 'apps', 'service', 'src', 'sealed-graph-late-target.ts');
+    const sentinel = join(root, 'dependency-lazy-load-executed');
+    writeFileSync(
+      lateTarget,
+      `require('node:fs').writeFileSync(${JSON.stringify(sentinel)}, 'executed');\n`,
+      'utf8',
+    );
+    writeFileSync(
+      dependency,
+      "module.exports = () => require('./sealed-graph-late-target.ts');\n",
+      'utf8',
+    );
+    writeFileSync(entry, "module.exports = require('./sealed-graph-dependency.ts');\n", 'utf8');
+
+    const postEvaluationLoad = testOnlyLoadRepositoryApplicationModuleFromRoot(root, entry);
+    if (typeof postEvaluationLoad !== 'function') {
+      throw new Error('Post-evaluation dependency-load fixture exported no function');
+    }
+    assert.throws(
+      () => Reflect.apply(postEvaluationLoad, undefined, []),
+      /RepositoryApplicationModuleRequireContractV1 enforced DENY for post-evaluation module\.require/,
+    );
+    assert.equal(existsSync(sentinel), false);
+  });
+
+  void it('denies a post-evaluation rewritten alias through owned module.require', () => {
+    const root = fixture();
+    const target = join(root, 'apps', 'service', 'src', 'post-evaluation-alias.ts');
+    writeFileSync(
+      target,
+      "module.exports = () => require('@aquaculture/backend-common/constants');\n",
+      'utf8',
+    );
+
+    const postEvaluationLoad = testOnlyLoadRepositoryApplicationModuleFromRoot(root, target);
+    if (typeof postEvaluationLoad !== 'function') {
+      throw new Error('Post-evaluation alias-load fixture exported no function');
+    }
+    assert.throws(
+      () => Reflect.apply(postEvaluationLoad, undefined, []),
+      /RepositoryApplicationModuleRequireContractV1 enforced DENY for post-evaluation module\.require/,
+    );
+  });
+
+  void it('rejects evaluation-time replacement of the module require capability', () => {
+    const root = fixture();
+    const target = join(root, 'apps', 'service', 'src', 'require-capability-tamper.ts');
+    writeFileSync(
+      target,
+      [
+        'module.require = () => Object.freeze({ escaped: true });',
+        'module.exports = Object.freeze({ accepted: true });',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    assert.throws(
+      () => testOnlyLoadRepositoryApplicationModuleFromRoot(root, target),
+      /rejected direct CommonJS module capability/,
+    );
+  });
+
+  void it('governs JSON dependency loading and public cache reuse under one descriptor authority', () => {
+    const root = fixture();
+    const dependency = join(root, 'apps', 'service', 'src', 'schema.json');
+    const entry = join(root, 'apps', 'service', 'src', 'json-entry.ts');
+    writeFileSync(dependency, '{"kind":"lakselus","version":1}\n', 'utf8');
+    writeFileSync(entry, "module.exports = require('./schema.json');\n", 'utf8');
+
+    const dependencyFirst = testOnlyLoadRepositoryApplicationModuleFromRoot(root, entry);
+    const publicSecond = testOnlyLoadRepositoryApplicationModuleFromRoot(root, dependency);
+    assert.equal(publicSecond, dependencyFirst);
+    assert.deepEqual(publicSecond, { kind: 'lakselus', version: 1 });
+
+    writeFileSync(dependency, '{"kind":"tampered","version":2}\n', 'utf8');
+    assert.throws(
+      () => testOnlyLoadRepositoryApplicationModuleFromRoot(root, dependency),
+      /generation changed after first governed load|cache source.*changed/i,
+    );
+  });
+
+  void it('restores its scoped process-global hooks before unrelated JSON and TypeScript loads', () => {
+    const root = fixture();
+    const target = join(root, 'apps', 'service', 'src', 'scoped-entry.ts');
+    const loaderPath = join(dirname(__filename), 'repository-application-module-loader.ts');
+    const externalRoot = mkdtempSync(join(tmpdir(), 'repository-application-external-loader-'));
+    fixtureRoots.push(externalRoot);
+    const externalJson = join(externalRoot, 'external.json');
+    const externalTypeScript = join(externalRoot, 'external.ts');
+    writeFileSync(target, 'module.exports = Object.freeze({ governed: true });\n', 'utf8');
+    writeFileSync(externalJson, '{"scope":"external-json"}\n', 'utf8');
+    writeFileSync(
+      externalTypeScript,
+      'const scope: string = "external-typescript"; module.exports = { scope };\n',
+      'utf8',
+    );
+    const contract = [
+      "const { createRequire, Module } = require('node:module');",
+      'const target = process.argv[1];',
+      'const repositoryRoot = process.argv[2];',
+      'const loaderPath = process.argv[3];',
+      'const externalJson = process.argv[4];',
+      'const externalTypeScript = process.argv[5];',
+      'const targetRequire = createRequire(loaderPath);',
+      'const loader = targetRequire(loaderPath);',
+      "const previousJsonHandler = targetRequire.extensions['.json'];",
+      "const previousTypeScriptHandler = targetRequire.extensions['.ts'];",
+      'const previousLoader = Module._load;',
+      'const previousResolver = Module._resolveFilename;',
+      'const governed = loader.testOnlyLoadRepositoryApplicationModuleFromRoot(repositoryRoot, target);',
+      'if (governed.governed !== true) throw new Error("governed load failed");',
+      "if (targetRequire.extensions['.json'] !== previousJsonHandler) throw new Error('JSON handler leaked');",
+      "if (targetRequire.extensions['.ts'] !== previousTypeScriptHandler) throw new Error('TypeScript handler leaked');",
+      "if (Module._load !== previousLoader) throw new Error('CommonJS loader leaked');",
+      "if (Module._resolveFilename !== previousResolver) throw new Error('resolver leaked');",
+      'const externalJsonValue = targetRequire(externalJson);',
+      'const externalTypeScriptValue = targetRequire(externalTypeScript);',
+      "if (externalJsonValue.scope !== 'external-json') throw new Error('external JSON delegation failed');",
+      "if (externalTypeScriptValue.scope !== 'external-typescript') throw new Error('external TypeScript delegation failed');",
+      '',
+    ].join('\n');
+    execFileSync(
+      process.execPath,
+      [
+        '--require',
+        'ts-node/register',
+        '-e',
+        contract,
+        target,
+        root,
+        loaderPath,
+        externalJson,
+        externalTypeScript,
+      ],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TS_NODE_PROJECT: join(process.cwd(), 'tools', 'gates', 'tsconfig.json'),
+        },
+      },
+    );
+  });
+
+  void it('rolls back partially installed hooks to their exact prior identities', () => {
+    const root = fixture();
+    const target = join(root, 'apps', 'service', 'src', 'partial-install.ts');
+    const loaderPath = join(dirname(__filename), 'repository-application-module-loader.ts');
+    writeFileSync(target, 'module.exports = Object.freeze({ unreachable: true });\n', 'utf8');
+    const contract = [
+      "const { createRequire, Module } = require('node:module');",
+      'const target = process.argv[1];',
+      'const repositoryRoot = process.argv[2];',
+      'const loaderPath = process.argv[3];',
+      'const targetRequire = createRequire(loaderPath);',
+      'const loader = targetRequire(loaderPath);',
+      "const previousJsonHandler = targetRequire.extensions['.json'];",
+      "const previousTypeScriptHandler = targetRequire.extensions['.ts'];",
+      'const previousLoader = Module._load;',
+      'const previousResolver = Module._resolveFilename;',
+      "const loadDescriptor = Object.getOwnPropertyDescriptor(Module, '_load');",
+      "if (loadDescriptor === undefined) throw new Error('missing loader descriptor');",
+      "Object.defineProperty(Module, '_load', { ...loadDescriptor, writable: false });",
+      'let rejected = false;',
+      'try {',
+      '  loader.testOnlyLoadRepositoryApplicationModuleFromRoot(repositoryRoot, target);',
+      '} catch (error) {',
+      '  rejected = error instanceof Error',
+      '    && /dependency loader scoped installation was rejected/.test(error.message);',
+      '} finally {',
+      "  Object.defineProperty(Module, '_load', loadDescriptor);",
+      '}',
+      'if (!rejected) throw new Error("loader accepted a partial runtime installation");',
+      "if (targetRequire.extensions['.json'] !== previousJsonHandler) throw new Error('JSON handler survived rollback');",
+      "if (targetRequire.extensions['.ts'] !== previousTypeScriptHandler) throw new Error('TypeScript handler survived rollback');",
+      "if (Module._load !== previousLoader) throw new Error('CommonJS loader changed during rollback');",
+      "if (Module._resolveFilename !== previousResolver) throw new Error('resolver survived rollback');",
+      '',
+    ].join('\n');
+    execFileSync(
+      process.execPath,
+      ['--require', 'ts-node/register', '-e', contract, target, root, loaderPath],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TS_NODE_PROJECT: join(process.cwd(), 'tools', 'gates', 'tsconfig.json'),
+        },
+      },
+    );
+  });
+
+  void it('rejects loader-module admission before execution and restores scoped capabilities', () => {
+    const root = fixture();
+    const target = join(root, 'apps', 'service', 'src', 'runtime-tamper.ts');
+    const loaderPath = join(dirname(__filename), 'repository-application-module-loader.ts');
+    writeFileSync(
+      target,
+      [
+        "const { Module } = require('node:module');",
+        "Reflect.set(Module, '_load', function escapedLoader() { return undefined; });",
+        'module.exports = Object.freeze({ escaped: true });',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    const contract = [
+      "const { createRequire, Module } = require('node:module');",
+      'const target = process.argv[1];',
+      'const repositoryRoot = process.argv[2];',
+      'const loaderPath = process.argv[3];',
+      'const targetRequire = createRequire(loaderPath);',
+      'const loader = targetRequire(loaderPath);',
+      "const previousJsonHandler = targetRequire.extensions['.json'];",
+      "const previousTypeScriptHandler = targetRequire.extensions['.ts'];",
+      'const previousLoader = Module._load;',
+      'const previousResolver = Module._resolveFilename;',
+      'let rejected = false;',
+      'try {',
+      '  loader.testOnlyLoadRepositoryApplicationModuleFromRoot(repositoryRoot, target);',
+      '} catch (error) {',
+      '  rejected = /SourceAdmissionProfileV1 rejected loader-module capability/.test(String(error));',
+      '}',
+      'if (!rejected) throw new Error("loader accepted a loader-module capability");',
+      "if (targetRequire.extensions['.json'] !== previousJsonHandler) throw new Error('JSON handler survived tamper');",
+      "if (targetRequire.extensions['.ts'] !== previousTypeScriptHandler) throw new Error('TypeScript handler survived tamper');",
+      "if (Module._load !== previousLoader) throw new Error('CommonJS loader survived tamper');",
+      "if (Module._resolveFilename !== previousResolver) throw new Error('resolver survived tamper');",
+      '',
+    ].join('\n');
+    execFileSync(
+      process.execPath,
+      ['--require', 'ts-node/register', '-e', contract, target, root, loaderPath],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TS_NODE_PROJECT: join(process.cwd(), 'tools', 'gates', 'tsconfig.json'),
+        },
+      },
+    );
+  });
+
+  void it('rejects malformed, BOM-prefixed, and non-UTF-8 JSON before exports are installed', () => {
+    for (const [name, content, expected] of [
+      ['malformed', Buffer.from('{"broken":', 'utf8'), /not valid JSON/],
+      ['bom', Buffer.from([0xef, 0xbb, 0xbf, 0x7b, 0x7d]), /UTF-8 BOM/],
+      ['non-utf8', Buffer.from([0x7b, 0x22, 0x78, 0x22, 0x3a, 0xff, 0x7d]), /not valid UTF-8/],
+    ] as const) {
+      const root = fixture();
+      const target = join(root, 'apps', 'service', 'src', `${name}.json`);
+      writeFileSync(target, content);
+      assert.throws(() => testOnlyLoadRepositoryApplicationModuleFromRoot(root, target), expected);
+    }
+  });
+
   void it('preserves descriptor-bound LOADING to LOADED authority across a dependency cycle', () => {
     const root = fixture();
     const first = join(root, 'apps', 'service', 'src', 'cycle-first.ts');
@@ -319,7 +673,7 @@ void describe('repository application module loader', () => {
 
     assert.throws(
       () => testOnlyLoadRepositoryApplicationModuleFromRoot(root, entry),
-      /dependency is not governed TypeScript/,
+      /dependency has no governed application extension/,
     );
     assert.equal(existsSync(sentinel), false);
   });
@@ -396,6 +750,45 @@ void describe('repository application module loader', () => {
     );
   });
 
+  void it('rejects a repository JSON dependency cached before governed evaluation', () => {
+    const root = fixture();
+    const dependency = join(root, 'apps', 'service', 'src', 'external-first.json');
+    const entry = join(root, 'apps', 'service', 'src', 'external-first-json-entry.ts');
+    const loaderPath = join(dirname(__filename), 'repository-application-module-loader.ts');
+    writeFileSync(dependency, '{"external":true}\n', 'utf8');
+    writeFileSync(entry, "module.exports = require('./external-first.json');\n", 'utf8');
+    const contract = [
+      "const { createRequire } = require('node:module');",
+      'const dependency = process.argv[1];',
+      'const entry = process.argv[2];',
+      'const repositoryRoot = process.argv[3];',
+      'const loaderPath = process.argv[4];',
+      'const targetRequire = createRequire(entry);',
+      'targetRequire(dependency);',
+      'const loader = targetRequire(loaderPath);',
+      'let rejected = false;',
+      'try {',
+      '  loader.testOnlyLoadRepositoryApplicationModuleFromRoot(repositoryRoot, entry);',
+      '} catch (error) {',
+      '  rejected = /external-first cache authority/.test(String(error));',
+      '}',
+      'if (!rejected) throw new Error("loader accepted an external-first JSON cache");',
+      '',
+    ].join('\n');
+
+    execFileSync(
+      process.execPath,
+      ['--require', 'ts-node/register', '-e', contract, dependency, entry, root, loaderPath],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          TS_NODE_PROJECT: join(process.cwd(), 'tools', 'gates', 'tsconfig.json'),
+        },
+      },
+    );
+  });
+
   void it('restores exact handler and resolver generations when path cleanup is a no-op', () => {
     const root = fixture();
     const target = join(root, 'apps', 'service', 'src', 'rollback.ts');
@@ -409,6 +802,7 @@ void describe('repository application module loader', () => {
       'const loaderPath = process.argv[3];',
       'const targetRequire = createRequire(loaderPath);',
       'const loader = targetRequire(loaderPath);',
+      "const previousJsonHandler = targetRequire.extensions['.json'];",
       "const previousHandler = targetRequire.extensions['.ts'];",
       'const previousResolver = Module._resolveFilename;',
       "Object.defineProperty(pathAuthority, 'register', { configurable: true, value: () => {",
@@ -422,11 +816,17 @@ void describe('repository application module loader', () => {
       'try {',
       '  loader.testOnlyLoadRepositoryApplicationModuleFromRoot(repositoryRoot, target);',
       '} catch (error) {',
-      '  rejected = /install and rollback failed/.test(String(error));',
+      '  rejected = error instanceof AggregateError',
+      '    && /construction and cleanup failed/.test(error.message)',
+      '    && error.errors.some((cause) => cause instanceof Error',
+      '      && /path cleanup did not restore the prior resolver generation/.test(cause.message));',
       '}',
       'if (!rejected) throw new Error("loader accepted a no-op resolver cleanup");',
       "if (targetRequire.extensions['.ts'] !== previousHandler) {",
       '  throw new Error("loader did not restore the prior TypeScript handler");',
+      '}',
+      "if (targetRequire.extensions['.json'] !== previousJsonHandler) {",
+      '  throw new Error("loader did not restore the prior JSON handler");',
       '}',
       'if (Module._resolveFilename !== previousResolver) {',
       '  throw new Error("loader did not restore the prior CommonJS resolver");',
@@ -519,7 +919,7 @@ void describe('repository application module loader', () => {
     );
     assert.throws(
       () => testOnlyLoadRepositoryApplicationModuleFromRoot(loadingRoot, loadingTarget),
-      /LOADING (cache state has a loaded Module|authority escaped its graph)/,
+      /LOADING (cache state has a loaded Module|authority escaped its evaluation scope)/,
     );
 
     const loadedRoot = fixture();
@@ -586,12 +986,12 @@ void describe('repository application module loader', () => {
     );
 
     const extensionRoot = fixture();
-    for (const extension of ['.cjs', '.cts', '.js', '.json']) {
+    for (const extension of ['.cjs', '.cts', '.js']) {
       const unsupported = join(extensionRoot, 'apps', 'service', 'src', `module${extension}`);
       writeFileSync(unsupported, '{}\n', 'utf8');
       assert.throws(
         () => testOnlyLoadRepositoryApplicationModuleFromRoot(extensionRoot, unsupported),
-        /no governed TypeScript application extension/,
+        /no governed application extension/,
       );
     }
 

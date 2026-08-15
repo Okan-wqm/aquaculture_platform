@@ -848,39 +848,43 @@ class ARestoredStoreIsNotYetAUsableToolsRoot(StateStoreTestCase):
                 ensure_tools_dir()
         self.assertIn("ambiguous_tools_root", str(caught.exception))
 
-    def test_the_restore_time_migration_makes_it_usable(self) -> None:
-        """The step the restore action runs, asserted end to end."""
-        from aria_kernel.migration import migrate_tools_bootstrap
+    def test_the_restore_time_bind_makes_it_usable(self) -> None:
+        """The step the restore action runs, asserted end to end.
+
+        It was `migrate-tools-bootstrap` until ORPHAN-HIGH-556 separated the
+        bind from the migration. The assertion is unchanged because the
+        REQUIREMENT never changed — a restored store must end up usable. What
+        changed is that reaching it no longer rewrites every covered ledger.
+        """
         from aria_kernel.tool_registry import ensure_tools_dir
+        from aria_kernel.tools_binding import bind_tools_root
 
         fresh = self._published_then_fresh()
         with _EnvPatch(state_store.store_environment(fresh, REPO_HASH)):
-            result = migrate_tools_bootstrap(
+            result = bind_tools_root(
                 tools_dir=str(tools_root(fresh)),
                 workspace_root=str(self.repo),
-                acknowledge=True,
                 reason="bind the restored aria/state store to this checkout",
             )
-            self.assertEqual(result["final_version"], 3)
+            self.assertEqual(result["contract_version"], 3)
             self.assertEqual(ensure_tools_dir(), tools_root(fresh))
 
-    def test_the_migration_also_covers_a_genesis_store(self) -> None:
+    def test_the_bind_also_covers_a_genesis_store(self) -> None:
         """A newborn store has an EMPTY tools root, which takes the other
         branch of the migration chain. Both lanes hit this on the first run,
         so a fix that only worked on a populated root would fail exactly once
         — on the day it first mattered."""
-        from aria_kernel.migration import migrate_tools_bootstrap
         from aria_kernel.tool_registry import ensure_tools_dir
+        from aria_kernel.tools_binding import bind_tools_root
 
         store = self._bootstrap()
         with _EnvPatch(state_store.store_environment(store, REPO_HASH)):
-            result = migrate_tools_bootstrap(
+            result = bind_tools_root(
                 tools_dir=str(tools_root(store)),
                 workspace_root=str(self.repo),
-                acknowledge=True,
                 reason="bind the restored aria/state store to this checkout",
             )
-            self.assertEqual(result["final_version"], 3)
+            self.assertEqual(result["contract_version"], 3)
             self.assertEqual(ensure_tools_dir(), tools_root(store))
 
 

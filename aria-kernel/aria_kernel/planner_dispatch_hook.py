@@ -167,6 +167,11 @@ def _serialise_claim_metadata_for_env(
         # row as v1 and fails the binding on the single-claim path.
         "established_knowledge": claim.get("established_knowledge"),
         "recent_intent": claim.get("recent_intent"),
+        # E17-b — the quoted evidence bytes. Same contract as the three
+        # sections above: the renderer reads the field, so a serialiser that
+        # drops it hands the executor a prompt whose excerpt section vanished
+        # and whose hash can never match the minted one.
+        "evidence_excerpts": claim.get("evidence_excerpts"),
         "prompt_render_version": claim.get("prompt_render_version"),
         "cycle_id": claim.get("cycle_id"),
         "plan_revision_hash": claim.get("plan_revision_hash"),

@@ -522,5 +522,126 @@ class DocsRefWideningTests(unittest.TestCase):
         self.assertFalse(row["cap_breached"])
 
 
+class EvidenceExcerptTokensTests(unittest.TestCase):
+    """E17-b — the mint-side counterpart to E17-d's ref-parser widening.
+
+    E17-d made the docs a preamble cold-reads visible. E17-b hands the judge
+    the cited file bytes so it does not Read them itself, and those bytes are
+    now the biggest thing the envelope carries — an audit that folded them
+    into request_token_estimate would report a real total nobody could
+    attribute, and the phase could never be judged on its own numbers.
+    """
+
+    def setUp(self) -> None:
+        self.tools, self.repo = _seed_workspace()
+        self.fake = _FakeRepo(self.repo)
+        self.fake.write_agent("root", "excerpt-judge", "---\nname: ex\n---\nbody\n")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tools.parent, ignore_errors=True)
+
+    def _audit(self, request) -> dict:
+        return audit_dispatch_context(
+            request=request,
+            target_agent="excerpt-judge",
+            role="evidence_judgment",
+            base_dir=self.tools,
+            repo_root=self.repo,
+            write_ledger=False,
+        )
+
+    def test_excerpt_bytes_land_in_their_own_component(self) -> None:
+        request = {
+            "suggested_prompt": "judge it",
+            "evidence_refs": ["src/a.ts:10"],
+            "evidence_excerpts": [
+                {
+                    "path": "src/a.ts",
+                    "start_line": 1,
+                    "end_line": 2,
+                    "content": "q" * 4000,  # 1000 tokens
+                    "content_hash": "sha256:" + "0" * 64,
+                    "truncated": False,
+                }
+            ],
+        }
+        bare = self._audit({k: v for k, v in request.items() if k != "evidence_excerpts"})
+        row = self._audit(request)
+
+        self.assertEqual(row["evidence_excerpts_token_estimate"], 1000)
+        self.assertEqual(bare["evidence_excerpts_token_estimate"], 0)
+        # Separable, not merged: the request text itself did not move.
+        self.assertEqual(row["request_token_estimate"], bare["request_token_estimate"])
+        self.assertEqual(row["total_estimate"], bare["total_estimate"] + 1000)
+        surface = next(
+            entry for entry in row["biggest_files"]
+            if entry["surface"] == "evidence_excerpts"
+        )
+        self.assertEqual(surface["refs"], ["src/a.ts"])
+
+    def test_a_pointer_only_entry_costs_nothing(self) -> None:
+        # A skipped ref carries no bytes, so it must not be billed for any.
+        row = self._audit(
+            {
+                "suggested_prompt": "judge it",
+                "evidence_excerpts": [
+                    {"path": "src/gone.ts", "skipped": "unreadable"},
+                    {"path": "src/late.ts", "skipped": "excerpt_total_cap"},
+                ],
+            }
+        )
+        self.assertEqual(row["evidence_excerpts_token_estimate"], 0)
+        surface = next(
+            entry for entry in row["biggest_files"]
+            if entry["surface"] == "evidence_excerpts"
+        )
+        # Still LISTED: "this file cost nothing" is a fact the audit owes the
+        # operator as much as "this file cost 900 tokens".
+        self.assertEqual(surface["refs"], ["src/gone.ts", "src/late.ts"])
+
+    def test_oversized_excerpt_set_breaches_the_judge_cap(self) -> None:
+        # Deliberate-break: window 10_000 → judge cap 0.35 = 3_500 tokens.
+        # Four 1_000-token excerpts alone clear it. Before the component
+        # existed this exact dispatch passed the gate, because the bytes the
+        # envelope hands the judge were invisible to the audit.
+        request = {
+            "suggested_prompt": "judge it",
+            "evidence_excerpts": [
+                {
+                    "path": f"src/{name}.ts",
+                    "start_line": 1,
+                    "end_line": 40,
+                    "content": "q" * 4000,
+                    "content_hash": "sha256:" + "0" * 64,
+                    "truncated": False,
+                }
+                for name in ("a", "b", "c", "d")
+            ],
+        }
+        with self.assertRaises(GovernanceError) as cm:
+            enforce_context_budget(
+                request=request,
+                target_agent="excerpt-judge",
+                role="evidence_judgment",
+                base_dir=self.tools,
+                repo_root=self.repo,
+                context_window_tokens_override=10_000,
+            )
+        self.assertIn("context_budget_exceeded", str(cm.exception))
+        self.assertIn("evidence_judgment", str(cm.exception))
+
+    def test_counterfactual_same_dispatch_without_excerpts_stays_under_cap(self) -> None:
+        row = enforce_context_budget(
+            request={"suggested_prompt": "judge it"},
+            target_agent="excerpt-judge",
+            role="evidence_judgment",
+            base_dir=self.tools,
+            repo_root=self.repo,
+            context_window_tokens_override=10_000,
+        )
+        self.assertFalse(row["cap_breached"])
+        self.assertEqual(row["evidence_excerpts_token_estimate"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

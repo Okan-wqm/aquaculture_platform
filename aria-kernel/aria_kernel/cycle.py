@@ -1361,6 +1361,11 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
             sampled += len(sample.get("items") or [])
             fanout = dispatch_judges_for_sample(
                 sample=sample, base_dir=context.base_dir, target_sha=target_sha,
+                # E17-b — the same workspace target_sha was resolved from. The
+                # mint needs it to quote the cited lines into the envelope; a
+                # judge lane that dispatches two judges per finding is exactly
+                # where paying for the same file read twice is worst.
+                repo_root=context.workspace_root,
             )
             fanned_out += len(fanout.get("minted") or [])
         except GovernanceError as exc:

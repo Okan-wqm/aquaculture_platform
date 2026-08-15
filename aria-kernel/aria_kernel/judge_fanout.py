@@ -83,12 +83,20 @@ def dispatch_judges_for_sample(
     sample: dict[str, Any],
     base_dir: str | Path | None = None,
     target_sha: str | None = None,
+    repo_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Mint two judge envelopes per finding in a judgment sample.
 
     Returns a summary; the envelopes are picked up asynchronously by the
     dispatcher (claim_and_dispatch_one), so the resulting ai_judge rows — and
     thus consensus — land in a later tick, not this one.
+
+    ``repo_root`` is the workspace the findings were produced against. Without
+    it the mint cannot read the cited files, so the E17-b evidence excerpts —
+    the whole reason two judges no longer have to open the same file twice —
+    never attach on the one lane that dispatches two judges per finding. The
+    caller already resolves this workspace for ``target_sha``; passing it here
+    is what makes the packing fire in production rather than only in tests.
     """
     root = ensure_tools_dir(base_dir)
     items = sample.get("items") or []
@@ -119,6 +127,7 @@ def dispatch_judges_for_sample(
                 cycle_id=sample.get("cycle_id"),
                 target_sha=target_sha,
                 base_dir=root,
+                context_repo_root=repo_root,
             )
             minted.append({
                 "request_id": req.get("request_id"),

@@ -11,7 +11,9 @@ either silently drops earlier reasoning (cache eviction) or rejects the call
 late in the pipeline. Either way the dispatch is wasted compute + dollars.
 
 Phase 2 fixes that with a pre-dispatch audit:
-- Estimate request + agent .md + knowledge bookmarks token cost.
+- Estimate request + agent .md + knowledge bookmarks + evidence excerpts
+  (E17-b) token cost, each as its own component so no surface can hide
+  inside another's number.
 - Compare against a role-based cap table (judges 0.35, planners 0.55,
   executors 0.45, emergency 0.65, domain reviewers 0.45, default 0.40).
 - Write the audit row to aria-tools/context-audits.jsonl (Plan 020 surface).
@@ -202,6 +204,49 @@ def _request_text(request: Any) -> str:
         return str(request)
 
 
+def _evidence_excerpts_text(request: Any) -> str:
+    """The quoted evidence bytes an E17-b envelope carries, as one blob.
+
+    Counted SEPARATELY from the request text rather than folded into
+    ``_request_text``. The excerpts are the single largest thing a mint can
+    attach and the phase that attaches them has to be answerable for its own
+    cost: rolled into ``request_token_estimate`` the number would be real but
+    unattributable, and "did packing excerpts pay for itself" would stay an
+    opinion. Entries that carry a structural ``skipped`` reason contribute
+    nothing because they carry no content — that is what pointer-only means.
+    """
+    if not isinstance(request, dict):
+        return ""
+    excerpts = request.get("evidence_excerpts")
+    if not isinstance(excerpts, list):
+        return ""
+    return "\n".join(
+        entry["content"]
+        for entry in excerpts
+        if isinstance(entry, dict) and isinstance(entry.get("content"), str)
+    )
+
+
+def _excerpt_paths(request: Any) -> list[str]:
+    """The files the excerpts quote — the `refs` half of the biggest-files row.
+
+    Skipped entries are listed too: "this file cost nothing" is a fact the
+    operator reading the audit needs as much as "this file cost 900 tokens".
+    """
+    if not isinstance(request, dict):
+        return []
+    excerpts = request.get("evidence_excerpts")
+    if not isinstance(excerpts, list):
+        return []
+    return list(
+        dict.fromkeys(
+            str(entry.get("path"))
+            for entry in excerpts
+            if isinstance(entry, dict) and entry.get("path")
+        )
+    )
+
+
 def _resolve_cap(role: str, role_cap_override: dict[str, float] | None) -> float:
     """Pick a cap for the dispatch role.
 
@@ -251,7 +296,8 @@ def audit_dispatch_context(
     agent_tokens = estimate_tokens(agent_md_text)
     knowledge_refs = _knowledge_refs(agent_md_text)
     knowledge_tokens, missing_refs = _read_knowledge(knowledge_refs, repo_path)
-    total = request_tokens + agent_tokens + knowledge_tokens
+    excerpt_tokens = estimate_tokens(_evidence_excerpts_text(request))
+    total = request_tokens + agent_tokens + knowledge_tokens + excerpt_tokens
     window = int(context_window_tokens_override or DEFAULT_CONTEXT_WINDOW_TOKENS)
     if window <= 0:
         raise GovernanceError(
@@ -264,6 +310,11 @@ def audit_dispatch_context(
             {"surface": "request", "tokens": request_tokens},
             {"surface": "agent_md", "tokens": agent_tokens, "path": str(agent_md_path) if agent_md_path else None},
             {"surface": "knowledge", "tokens": knowledge_tokens, "refs": knowledge_refs},
+            {
+                "surface": "evidence_excerpts",
+                "tokens": excerpt_tokens,
+                "refs": _excerpt_paths(request),
+            },
         ],
         key=lambda row: row["tokens"],
         reverse=True,
@@ -279,6 +330,11 @@ def audit_dispatch_context(
         "request_token_estimate": request_tokens,
         "agent_token_estimate": agent_tokens,
         "knowledge_token_estimate": knowledge_tokens,
+        # E17-b — the mint-side counterpart to the E17-d ref-parser widening.
+        # E17-d made the docs a preamble cold-reads visible; this makes the
+        # bytes the envelope now hands over visible, and keeps the two costs
+        # separable so the excerpt phase can be judged on its own numbers.
+        "evidence_excerpts_token_estimate": excerpt_tokens,
         "total_estimate": total,
         "percent_of_context_window": round(percent, 6),
         "cap_applied": cap,

@@ -205,18 +205,32 @@ def unrostered_production_dirs(repo_root: str | Path) -> dict[str, int]:
     return stray
 
 
-def _production_sources(repo_root: str | Path) -> dict[Path, tuple[list[str], set[int]]]:
-    sources: dict[Path, tuple[list[str], set[int]]] = {}
+def production_sources(repo_root: str | Path) -> list[Path]:
+    """Every production Python file under the roster.
+
+    The single definition of "production Python" in the kernel. It is public
+    because `surface_reachability` asks the same question about the same
+    files, and two independently-drifting answers to *"what counts as
+    production"* would let a caller be production for one gate and invisible
+    to the other.
+    """
     root = Path(repo_root)
+    files: list[Path] = []
     for source_root in PRODUCTION_SOURCE_ROOTS:
         for path in _walk_python(root / source_root):
-            if not _is_production_python(path):
-                continue
-            try:
-                text = path.read_text(encoding="utf-8")
-            except OSError:
-                continue
-            sources[path] = (text.splitlines(), _import_lines(text))
+            if _is_production_python(path):
+                files.append(path)
+    return files
+
+
+def _production_lines(repo_root: str | Path) -> dict[Path, tuple[list[str], set[int]]]:
+    sources: dict[Path, tuple[list[str], set[int]]] = {}
+    for path in production_sources(repo_root):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        sources[path] = (text.splitlines(), _import_lines(text))
     return sources
 
 
@@ -237,7 +251,7 @@ def first_production_reference(
     owner = root / control["module"]
     all_lo, all_hi = _all_block(owner)
     pattern = re.compile(rf"\b{re.escape(name)}\b")
-    for path, (lines, import_lines) in (sources or _production_sources(repo_root)).items():
+    for path, (lines, import_lines) in (sources or _production_lines(repo_root)).items():
         is_owner = path.resolve() == owner.resolve()
         for lineno, line in enumerate(lines, 1):
             if not pattern.search(line):
@@ -261,7 +275,7 @@ def first_production_reference(
 
 def unreachable_controls(repo_root: str | Path) -> dict[str, dict[str, Any]]:
     """Controls nothing in production refers to — the dormant surface."""
-    sources = _production_sources(repo_root)
+    sources = _production_lines(repo_root)
     controls = declared_controls(repo_root)
     return {
         name: control
@@ -277,6 +291,7 @@ __all__ = [
     "first_production_reference",
     "kernel_root",
     "PRODUCTION_SOURCE_ROOTS",
+    "production_sources",
     "unrostered_production_dirs",
     "unreachable_controls",
 ]

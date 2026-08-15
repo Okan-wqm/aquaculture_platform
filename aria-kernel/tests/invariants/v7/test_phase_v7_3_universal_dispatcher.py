@@ -50,12 +50,13 @@ class PhaseV7_3UniversalDispatcher(unittest.TestCase):
             "human_required_adjudication",
             "consensus_arbitration", "change_intelligence",
             "goldset_curation",
+            "verification",
         }
         self.assertEqual(
             set(SUPPORTED_ROLES), expected,
             msg=(
                 "Plan ARIA-V7 §2g v2 — SUPPORTED_ROLES MUST match the "
-                "14-role closed enum exactly. Adding a role requires "
+                "15-role closed enum exactly. Adding a role requires "
                 "updating BOTH kernel + ci_executor in the same commit."
             ),
         )

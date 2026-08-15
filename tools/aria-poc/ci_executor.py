@@ -106,6 +106,12 @@ except Exception:  # pragma: no cover - fallback keeps standalone contract impor
         "consensus_arbitration",
         "change_intelligence",
         "goldset_curation",
+        # E9-c — adversarial re-review of an already-closed decision. Added
+        # here in the same commit as the kernel set, which is the contract
+        # this mirror is held to: standalone mode is the ONE mode where a
+        # narrower copy is invisible, so the no-drift test is what makes the
+        # duplication legitimate rather than latent.
+        "verification",
     })
     _render_invocation_prompt = None
     _fuse_prompt_envelope = None

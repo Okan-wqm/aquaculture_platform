@@ -44,7 +44,32 @@ ALLOWED_COMMANDS = (
     ("npx", "ts-node"),
     ("python3", "-m", "aria_kernel"),
     ("python3", "-m", "unittest"),
+    ("cargo",),
 )
+
+# E21-b — the Rust lane, opened narrowly.
+#
+# The experiment bench claims to be domain-agnostic, and until E21-b that
+# claim rested on an AST check alone: the kernel does not NAME a language,
+# but this lane could only execute JavaScript and Python, so a Rust recipe
+# was unrunnable and "portable" was an assertion rather than a result.
+#
+# Only non-mutating verbs are admitted. ``check`` and ``test`` read the
+# tree and report; ``install``, ``publish``, ``run``, ``add``, ``clean``
+# and every subcommand nobody thought about mutate the machine, the
+# registry, or the network, and none of them answers a hypothesis about
+# this repository. This is not a new privilege on this host — the
+# implementer lane's ``implementation_safety.ALLOWED_BASH_COMMANDS``
+# already admits ``cargo test``/``cargo check``; one repo, one posture.
+ALLOWED_CARGO_SUBCOMMANDS: tuple[str, ...] = ("check", "test")
+
+# ``--config`` is refused because it re-opens arbitrary execution behind an
+# allowed verb: ``cargo test --config target.<triple>.runner='<argv>'``
+# makes cargo launch a program of the caller's choosing, and a toolchain
+# selector (``cargo +nightly ...``) is likewise not a subcommand. Narrowing
+# the verb while leaving that flag open would allowlist the word and not
+# the behaviour.
+_REFUSED_CARGO_FLAG = "--config"
 
 
 _VALIDATION_SURFACE_BY_FILENAME: dict[str, str] = {
@@ -312,7 +337,7 @@ def _run_one(
     ordinal: int,
     timeout_ms: int,
 ) -> dict[str, Any]:
-    argv, env_updates = _parse_allowed_command(command)
+    argv, env_updates = parse_allowed_command(command)
     started_at = utc_now()
     started = time.monotonic()
     stdout = ""
@@ -414,7 +439,18 @@ def _log_slug(value: str) -> str:
     return cleaned[:48] or "run"
 
 
-def _parse_allowed_command(command: str) -> tuple[list[str], dict[str, str]]:
+def parse_allowed_command(command: str) -> tuple[list[str], dict[str, str]]:
+    """Resolve a command string to the argv this lane would execute.
+
+    Public because a declared recipe that this lane would refuse is a
+    hypothesis nobody can ever test, and discovering that at run time
+    turns a typo into a failed nightly. A recipe manifest can therefore
+    prove its commands executable at test time through THIS function —
+    the one the runner itself calls — rather than through a second copy
+    of the allowlist that would drift away from it.
+
+    Side-effect free: it parses and refuses, it never runs anything.
+    """
     if any(token in command for token in (";", "|", "&&", "||", ">", "<", "`", "$(")):
         raise GovernanceError("validation command contains unsupported shell syntax")
     try:
@@ -453,6 +489,23 @@ def _validate_command_details(parts: list[str]) -> None:
             raise GovernanceError("aria_kernel validation command is limited to integrity verify")
     elif parts[:3] == ["python3", "-m", "unittest"]:
         return
+    elif parts[:1] == ["cargo"]:
+        subcommand = parts[1] if len(parts) > 1 else None
+        if subcommand not in ALLOWED_CARGO_SUBCOMMANDS:
+            raise GovernanceError(
+                f"cargo validation subcommand is not approved: "
+                f"{subcommand!r} is not one of {ALLOWED_CARGO_SUBCOMMANDS}; "
+                f"this lane admits non-mutating verbs only"
+            )
+        if any(
+            part == _REFUSED_CARGO_FLAG or part.startswith(f"{_REFUSED_CARGO_FLAG}=")
+            for part in parts[2:]
+        ):
+            raise GovernanceError(
+                f"cargo validation flag is not approved: {_REFUSED_CARGO_FLAG} "
+                f"can point cargo at a runner of the caller's choosing, which "
+                f"would make an allowed verb execute an arbitrary program"
+            )
 
 
 def _allowed_npm_script(script: str) -> bool:

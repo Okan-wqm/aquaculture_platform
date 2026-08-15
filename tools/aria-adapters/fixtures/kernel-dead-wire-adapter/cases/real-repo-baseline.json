@@ -1,0 +1,13 @@
+{
+  "name": "real-repo-baseline",
+  "lane": "real_repo_baseline",
+  "input": {
+    "roots": ["aria-kernel/aria_kernel"]
+  },
+  "expected": {
+    "status": "ok",
+    "required_observations": ["kernel_policy_file", "kernel_cli_surface"],
+    "required_findings": ["policy_key_never_read"],
+    "max_findings": 40
+  }
+}

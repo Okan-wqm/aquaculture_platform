@@ -21,6 +21,52 @@ type MigrationInput = Type<unknown> | string;
 type SubscriberInput = Type<unknown> | string;
 
 /**
+ * What TypeORM still reports when full query logging is withheld: the things
+ * an operator needs and that do not scale with traffic.
+ */
+const PRODUCTION_SAFE_LOGGING: ('error' | 'warn' | 'migration' | 'schema')[] = [
+  'error',
+  'warn',
+  'migration',
+  'schema',
+];
+
+/**
+ * Resolve TypeORM's `logging` option, refusing to log every statement in
+ * production unless an operator says so in a variable that names the risk.
+ *
+ * WHY: `DATABASE_LOGGING=true` logs one line per SQL statement. Services here
+ * poll their outbox continuously, so on 2026-08-15 auth-service alone emitted
+ * ~1.9 lines/second — roughly 164k lines a day — and the container log grew to
+ * 960 MB, filling the production disk. Nothing was wrong with the data: the
+ * volume was pure statement echo. The knob is genuinely useful while debugging,
+ * so it is not removed; it simply stops being something a single `true` can
+ * leave switched on in production forever. The escape hatch is deliberately
+ * long and self-describing, because the person typing it should have to say
+ * what they are doing.
+ */
+export function resolveDatabaseLogging(
+  configService: ConfigService,
+): boolean | ('error' | 'warn' | 'migration' | 'schema')[] {
+  const requested = configService.get('DATABASE_LOGGING', 'false') === 'true';
+  if (!requested) return false;
+
+  const isProduction = configService.get('NODE_ENV', 'development') === 'production';
+  const acknowledged =
+    configService.get('DATABASE_QUERY_LOGGING_ALLOW_IN_PRODUCTION', 'false') === 'true';
+  if (isProduction && !acknowledged) {
+    new Logger('TypeORM').warn(
+      'DATABASE_LOGGING=true is ignored for query logging in production: per-statement logs ' +
+        'grow without bound and have filled the disk before. Errors, warnings, migrations and ' +
+        'schema events are still logged. Set DATABASE_QUERY_LOGGING_ALLOW_IN_PRODUCTION=true ' +
+        'to opt in deliberately, and turn it back off when the investigation ends.',
+    );
+    return PRODUCTION_SAFE_LOGGING;
+  }
+  return true;
+}
+
+/**
  * =============================================================================
  * Service-level TypeORM configuration factory  (INFRA-DB-POOL-001)
  * =============================================================================
@@ -53,6 +99,9 @@ type SubscriberInput = Type<unknown> | string;
  *   DATABASE_PASSWORD                   password (required in production — fail-fast)
  *   DATABASE_NAME                       database name           default aquaculture
  *   DATABASE_LOGGING                    "true" / "false"        default false
+ *                                       (in production this enables error/warn/migration/
+ *                                        schema logging only — see resolveDatabaseLogging)
+ *   DATABASE_QUERY_LOGGING_ALLOW_IN_PRODUCTION  opt in to per-statement logs in production
  *   DATABASE_POOL_SIZE                  pg pool max             default 10 (or `defaultPoolSize` opt)
  *   DATABASE_POOL_MIN                   pg pool min             default 2
  *   DATABASE_POOL_IDLE_TIMEOUT_MS       pg idle timeout (ms)    default 30000
@@ -285,11 +334,14 @@ export function createServiceTypeOrmConfig(
     DEFAULT_POOL_CONNECTION_TIMEOUT_MS,
   );
 
+  const logging = resolveDatabaseLogging(configService);
+
   // Defensive log on every bootstrap so capacity drift is greppable.
   // Single line per service keeps it cheap; structured fields make it
   // amenable to log-based dashboards.
   new Logger(`TypeORM(${opts.serviceName})`).log(
-    `pool max=${poolMax} min=${poolMin} schema=${opts.schema} migrationsRun=${migrationsRun}`,
+    `pool max=${poolMax} min=${poolMin} schema=${opts.schema} migrationsRun=${migrationsRun} ` +
+      `logging=${Array.isArray(logging) ? logging.join('|') : logging}`,
   );
 
   return {
@@ -307,7 +359,7 @@ export function createServiceTypeOrmConfig(
     migrationsRun,
     migrations: opts.migrations,
     migrationsTableName: MIGRATION_LEDGER_TABLE,
-    logging: configService.get('DATABASE_LOGGING', 'false') === 'true',
+    logging,
     ssl: buildDatabaseSslConfig(configService),
     extra: {
       max: poolMax,
